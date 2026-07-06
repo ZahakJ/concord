@@ -7,6 +7,8 @@ package app
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/zahak/concord/internal/identity"
 )
 
 // appDir is the subdirectory under the OS config root where Concord stores all
@@ -82,6 +84,13 @@ func ResetIdentity(dataDir string) error {
 		_ = os.RemoveAll(dir)
 	}
 	return nil
+}
+
+// RestoreIdentity writes a keystore reconstructed from a recovery phrase,
+// sealed under passphrase. Guilds/history/mailbox are recovered afterwards by
+// logging in and syncing. The caller must ensure no identity already exists.
+func RestoreIdentity(dataDir, phrase, passphrase string) error {
+	return identity.RestoreKeystore(keystorePathIn(dataDir), phrase, passphrase)
 }
 
 // mlsDirIn returns the directory holding persistent MLS group state, creating

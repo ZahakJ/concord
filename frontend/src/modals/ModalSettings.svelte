@@ -9,10 +9,25 @@
   let bootstrap = $state("");
   let saved = $state(false);
   let sounds = $state(soundsEnabled());
+  let phrase = $state("");
+  let copiedPhrase = $state(false);
 
   function toggleSounds() {
     sounds = !sounds;
     setSoundsEnabled(sounds);
+  }
+
+  async function reveal() {
+    try {
+      phrase = await api.revealMnemonic();
+    } catch (err) {
+      flash(err);
+    }
+  }
+  function copyPhrase() {
+    navigator.clipboard?.writeText(phrase);
+    copiedPhrase = true;
+    setTimeout(() => (copiedPhrase = false), 1600);
   }
 
   onMount(async () => {
@@ -65,6 +80,28 @@
   </button>
 
   <hr />
+  <div class="recovery">
+    <strong>Recovery phrase</strong>
+    <p class="muted tiny">
+      24 words that ARE your account. Write them down and keep them somewhere
+      safe — with them you can restore your identity on a new device or after a
+      forgotten passphrase. Anyone who has them can become you, so never share them.
+    </p>
+    {#if phrase}
+      <div class="phrase">
+        {#each phrase.split(" ") as w, i (i)}
+          <span class="word"><span class="num">{i + 1}</span>{w}</span>
+        {/each}
+      </div>
+      <button class="ghost small-btn" class:done={copiedPhrase} onclick={copyPhrase}>
+        {copiedPhrase ? "Copied ✓" : "Copy phrase"}
+      </button>
+    {:else}
+      <button class="ghost small-btn" onclick={reveal}>Show recovery phrase</button>
+    {/if}
+  </div>
+
+  <hr />
   <button
     class="ghost signout"
     onclick={async () => {
@@ -100,6 +137,46 @@
     color: var(--danger);
     align-self: flex-start;
     font-size: 13px;
+  }
+  .recovery {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+  }
+  .recovery strong {
+    font-size: 13px;
+  }
+  .phrase {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px;
+    background: var(--bg-0);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px;
+  }
+  .word {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+  }
+  .num {
+    color: var(--text-faint);
+    font-size: 10px;
+    width: 16px;
+    text-align: right;
+  }
+  .small-btn {
+    align-self: flex-start;
+    font-size: 12px;
+    padding: 5px 12px;
+  }
+  .small-btn.done {
+    color: var(--ok);
+    border-color: var(--ok);
   }
   .toggle-row {
     display: flex;

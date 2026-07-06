@@ -257,6 +257,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 // Fingerprint returns this peer's safety-number fingerprint.
 func (s *Service) Fingerprint() string { return s.id.Fingerprint() }
 
+// Mnemonic returns this identity's BIP39 recovery phrase (secret material).
+func (s *Service) Mnemonic() (string, error) { return s.id.Mnemonic() }
+
 // PeerID returns this peer's libp2p peer ID as a string.
 func (s *Service) PeerID() string { return s.host.PeerID().String() }
 

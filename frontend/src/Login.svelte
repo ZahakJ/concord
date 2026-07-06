@@ -11,6 +11,32 @@
   let hasIdentity = $state(true); // assume until checked, then correct
   let checked = $state(false);
   let confirmingReset = $state(false);
+  let restoring = $state(false);
+  let restorePhrase = $state("");
+
+  async function doRestore(e) {
+    e?.preventDefault();
+    if (busy) return;
+    if (!restorePhrase.trim()) {
+      error = "Enter your recovery phrase";
+      return;
+    }
+    if (passphrase !== confirmPass) {
+      error = "Passphrases don't match";
+      return;
+    }
+    busy = true;
+    error = "";
+    try {
+      await api.restoreFromMnemonic(restorePhrase.trim(), passphrase);
+      await api.login(passphrase);
+      onLogin();
+    } catch (err) {
+      error = String(err?.message || err).replace(/^.*: /, "");
+    } finally {
+      busy = false;
+    }
+  }
 
   onMount(async () => {
     try {
@@ -85,16 +111,39 @@
       <button type="button" class="link" onclick={() => ((confirmingReset = true), (error = ""))}>
         Forgot passphrase? Start over
       </button>
+    {:else if restoring}
+      <p class="muted">
+        Enter your 24-word recovery phrase and a new passphrase for this device.
+        Your identity, servers, and history come back as you sync.
+      </p>
+      <textarea
+        class="phrase-in"
+        rows="3"
+        placeholder="word1 word2 word3 …"
+        bind:value={restorePhrase}
+      ></textarea>
+      <input type="password" placeholder="New passphrase" bind:value={passphrase} />
+      <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
+      {#if error}<div class="error">{error}</div>{/if}
+      <button type="button" disabled={busy} onclick={doRestore}>
+        {busy ? "Restoring…" : "Restore account"}
+      </button>
+      <button type="button" class="link" onclick={() => ((restoring = false), (error = ""))}>
+        Back
+      </button>
     {:else}
       <p class="muted">
-        Create a passphrase to protect your identity. There is no recovery —
-        pick something you'll remember.
+        Create a passphrase to protect your identity. Save the recovery phrase
+        afterwards (Settings → Recovery phrase) so you can restore it later.
       </p>
       <input type="password" placeholder="Choose a passphrase" bind:value={passphrase} autofocus />
       <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
       {#if error}<div class="error">{error}</div>{/if}
       <button type="submit" disabled={!passphrase || !confirmPass || busy}>
         {busy ? "Creating…" : "Create identity"}
+      </button>
+      <button type="button" class="link" onclick={() => ((restoring = true), (error = ""))}>
+        Restore from a recovery phrase
       </button>
     {/if}
 
@@ -156,6 +205,11 @@
     margin: 0;
     font-size: 13px;
     line-height: 1.5;
+  }
+  .phrase-in {
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    resize: vertical;
   }
   .link {
     background: transparent;

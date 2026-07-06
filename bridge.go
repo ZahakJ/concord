@@ -182,6 +182,38 @@ func (b *bridge) HasIdentity() (bool, error) {
 	return appsvc.HasIdentity(dir), nil
 }
 
+// RevealMnemonic returns the unlocked identity's recovery phrase, for the user
+// to write down. Requires an unlocked session.
+func (b *bridge) RevealMnemonic() (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.Mnemonic()
+}
+
+// RestoreFromMnemonic reconstructs the identity from a recovery phrase, sealing
+// it under a new passphrase. Refused if an identity already exists here (the
+// user must "start over" first) or while unlocked.
+func (b *bridge) RestoreFromMnemonic(phrase, passphrase string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.svc != nil {
+		return errors.New("already unlocked; restart the app to restore")
+	}
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return err
+	}
+	if appsvc.HasIdentity(dir) {
+		return errors.New("an identity already exists on this device — choose \"start over\" first")
+	}
+	if strings.TrimSpace(passphrase) == "" {
+		return errors.New("choose a passphrase to protect the restored identity")
+	}
+	return appsvc.RestoreIdentity(dir, phrase, passphrase)
+}
+
 // ResetIdentity deletes the identity and all data tied to it so a new identity
 // can be created (forgotten passphrase / corrupted keystore). Only allowed
 // while locked.
@@ -826,6 +858,10 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.HasIdentity()
 	case "ResetIdentity":
 		return nil, b.ResetIdentity()
+	case "RevealMnemonic":
+		return b.RevealMnemonic()
+	case "RestoreFromMnemonic":
+		return nil, b.RestoreFromMnemonic(argStr(args, 0), argStr(args, 1))
 	case "Login":
 		return nil, b.Login(argStr(args, 0))
 	case "Identity":
