@@ -139,6 +139,46 @@ func (s *Service) canManageMembers(guildID string) bool {
 	return st.Can(ownerFpr, self, PermManageMembers)
 }
 
+// CanManageMembers reports whether this peer may invite/kick/ban in the guild
+// (exported for the bridge to gate moderation UI).
+func (s *Service) CanManageMembers(guildID string) bool { return s.canManageMembers(guildID) }
+
+// MemberPermission returns a member's granted permission bitmask in a guild.
+func (s *Service) MemberPermission(guildID, fingerprint string) Permission {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if st, ok := s.govState[guildID]; ok {
+		return st.Perms[fingerprint]
+	}
+	return 0
+}
+
+// IsGuildOwner reports whether a fingerprint is the guild's owner.
+func (s *Service) IsGuildOwner(guildID, fingerprint string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		return false
+	}
+	return identity.FingerprintOf(g.OwnerID) == fingerprint
+}
+
+// BannedFingerprints returns the guild's banlist (fingerprints).
+func (s *Service) BannedFingerprints(guildID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.govState[guildID]
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(st.Banned))
+	for fpr := range st.Banned {
+		out = append(out, fpr)
+	}
+	return out
+}
+
 // SetMemberPermissions grants (or, with perms==0, clears) a member's permission
 // bitmask. Owner-only, matching the replay rule that prevents privilege
 // escalation by moderators.

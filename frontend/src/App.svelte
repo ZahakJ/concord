@@ -33,6 +33,7 @@
   import ModalCreateChannel from "./modals/ModalCreateChannel.svelte";
   import ModalEmoji from "./modals/ModalEmoji.svelte";
   import ModalForward from "./modals/ModalForward.svelte";
+  import ModalBans from "./modals/ModalBans.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
   import ModalProfile from "./modals/ModalProfile.svelte";
@@ -214,6 +215,8 @@
     <ModalEmoji onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "forward"}
     <ModalForward message={S.modal.message} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "bans"}
+    <ModalBans onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "rename"}
     <ModalCreate
       onSubmit={renameGuild}

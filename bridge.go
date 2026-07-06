@@ -123,6 +123,7 @@ type GuildView struct {
 	Kind       string         `json:"kind,omitempty"`   // "" guild, "dm" direct message
 	DMPeer     string         `json:"dmPeer,omitempty"` // for a peer DM: the other member's fingerprint
 	IsOwner    bool           `json:"isOwner"`
+	CanManage  bool           `json:"canManage"` // viewer may invite/kick/ban here
 	Channels   []ChannelView  `json:"channels"`
 	Categories []CategoryView `json:"categories"`
 	Emoji      []EmojiView    `json:"emoji"`
@@ -157,6 +158,9 @@ type MemberView struct {
 	IsSelf      bool   `json:"isSelf"`
 	Online      bool   `json:"online"`
 	Verified    bool   `json:"verified"`
+	IsOwner     bool   `json:"isOwner"`        // guild owner (implicit full authority)
+	Perms       uint32 `json:"perms"`          // granted permission bitmask
+	CanManage   bool   `json:"canManage"`      // owner or manage-members holder
 }
 
 type ContactView struct {
@@ -695,6 +699,8 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 		if nick := svc.NickOf(guildID, fpr); nick != "" {
 			name, username = nick, p.Name
 		}
+		isOwner := svc.IsGuildOwner(guildID, fpr)
+		perms := uint32(svc.MemberPermission(guildID, fpr))
 		out = append(out, MemberView{
 			Fingerprint: fpr,
 			Name:        name,
@@ -706,6 +712,9 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 			IsSelf:      isSelf,
 			Online:      isSelf || online[fpr],
 			Verified:    isSelf || verified[fpr],
+			IsOwner:     isOwner,
+			Perms:       perms,
+			CanManage:   isOwner || perms&uint32(appsvc.PermManageMembers) != 0,
 		})
 	}
 	// The MLS library yields members in map order (random per call), which made
@@ -735,6 +744,52 @@ func (b *bridge) SetNickname(guildID, nick string) error {
 		return err
 	}
 	return svc.SetNickname(guildID, nick)
+}
+
+// SetMemberPermissions sets a member's permission bitmask (owner-only).
+func (b *bridge) SetMemberPermissions(guildID, fingerprint string, perms int) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetMemberPermissions(guildID, fingerprint, appsvc.Permission(perms))
+}
+
+// BanMember bars a fingerprint and evicts them if present (manage-members).
+func (b *bridge) BanMember(guildID, fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.BanMember(guildID, fingerprint)
+}
+
+// UnbanMember lifts a ban (manage-members).
+func (b *bridge) UnbanMember(guildID, fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.UnbanMember(guildID, fingerprint)
+}
+
+// BanView is a banned member surfaced for the moderation UI.
+type BanView struct {
+	Fingerprint string `json:"fingerprint"`
+	Name        string `json:"name"`
+}
+
+// Bans lists a guild's banned members (fingerprint + best-known name).
+func (b *bridge) Bans(guildID string) ([]BanView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	out := []BanView{}
+	for _, fpr := range svc.BannedFingerprints(guildID) {
+		out = append(out, BanView{Fingerprint: fpr, Name: svc.ProfileName(fpr)})
+	}
+	return out, nil
 }
 
 func (b *bridge) RemoveMember(guildID, fingerprint string) error {
@@ -814,7 +869,8 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	}
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
-		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
+		CanManage: svc.CanManageMembers(g.ID),
+		Channels:  channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
 	}
 }
 
@@ -945,6 +1001,14 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1))
 	case "SetNickname":
 		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
+	case "SetMemberPermissions":
+		return nil, b.SetMemberPermissions(argStr(args, 0), argStr(args, 1), argInt(args, 2))
+	case "BanMember":
+		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
+	case "UnbanMember":
+		return nil, b.UnbanMember(argStr(args, 0), argStr(args, 1))
+	case "Bans":
+		return b.Bans(argStr(args, 0))
 	case "Contacts":
 		return b.Contacts()
 	case "JoinVoice":

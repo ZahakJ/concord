@@ -126,7 +126,7 @@
       </button>
     {/if}
 
-    {#if g?.isOwner && g?.kind !== "dm"}
+    {#if g?.canManage && g?.kind !== "dm"}
       <button class="ghost invite" onclick={showInvite}>Invite</button>
     {/if}
 
@@ -143,6 +143,11 @@
         {#if g.isOwner}
           <button class="menu-item" onclick={() => (S.modal = { kind: "rename" })}>
             <Icon name="edit" size={14} /> Rename server
+          </button>
+        {/if}
+        {#if g.canManage}
+          <button class="menu-item" onclick={() => (S.modal = { kind: "bans" })}>
+            <Icon name="door" size={14} /> Banned members
           </button>
         {/if}
         <div class="menu-sep"></div>

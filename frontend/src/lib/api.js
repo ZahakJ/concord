@@ -79,6 +79,11 @@ export const api = {
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
   setNickname: (guildID, nick) => call("SetNickname", guildID, nick),
+  setMemberPermissions: (guildID, fingerprint, perms) =>
+    call("SetMemberPermissions", guildID, fingerprint, perms),
+  banMember: (guildID, fingerprint) => call("BanMember", guildID, fingerprint),
+  unbanMember: (guildID, fingerprint) => call("UnbanMember", guildID, fingerprint),
+  bans: (guildID) => call("Bans", guildID),
   contacts: () => call("Contacts"),
   joinVoice: (channelID) => call("JoinVoice", channelID),
   leaveVoice: (channelID) => call("LeaveVoice", channelID),

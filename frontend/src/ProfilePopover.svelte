@@ -104,6 +104,72 @@
     }
   }
 
+  // ---- moderation ----
+  const PERM_MANAGE_MEMBERS = 1;
+  // Moderation controls show for a non-self member in a real guild when the
+  // viewer can manage members. Nobody can act on the owner.
+  const canModerate = $derived(
+    !!mem && !mem.isSelf && !mem.isOwner && activeGuild()?.kind !== "dm" && !!activeGuild()?.canManage,
+  );
+  // Only the owner promotes/demotes moderators.
+  const canPromote = $derived(canModerate && !!activeGuild()?.isOwner);
+
+  async function toggleModerator() {
+    const isMod = (mem.perms & PERM_MANAGE_MEMBERS) !== 0;
+    const next = isMod ? mem.perms & ~PERM_MANAGE_MEMBERS : mem.perms | PERM_MANAGE_MEMBERS;
+    try {
+      await api.setMemberPermissions(S.activeGuildId, mem.fingerprint, next);
+      await refreshRightPanel();
+      flash(isMod ? "Removed moderator" : "Made moderator");
+    } catch (err) {
+      flash(err);
+    }
+  }
+
+  function kick() {
+    const fpr = mem.fingerprint;
+    const name = mem.name || "this member";
+    S.modal = {
+      kind: "confirm",
+      title: `Kick ${name}?`,
+      body: "They lose access now but can rejoin with a new invite.",
+      confirmLabel: "Kick",
+      onConfirm: async () => {
+        try {
+          await api.removeMember(S.activeGuildId, fpr);
+          await refreshRightPanel();
+          flash("Member kicked");
+        } catch (err) {
+          flash(err);
+        }
+        S.modal = null;
+      },
+    };
+    closeProfilePopover();
+  }
+
+  function ban() {
+    const fpr = mem.fingerprint;
+    const name = mem.name || "this member";
+    S.modal = {
+      kind: "confirm",
+      title: `Ban ${name}?`,
+      body: "They're removed now and can't rejoin, even with a new invite.",
+      confirmLabel: "Ban",
+      onConfirm: async () => {
+        try {
+          await api.banMember(S.activeGuildId, fpr);
+          await refreshRightPanel();
+          flash("Member banned");
+        } catch (err) {
+          flash(err);
+        }
+        S.modal = null;
+      },
+    };
+    closeProfilePopover();
+  }
+
   const fprShort = $derived(mem ? mem.fingerprint.replace(/(.{4})/g, "$1 ").trim() : "");
 </script>
 
@@ -145,6 +211,11 @@
       <div class="name-row">
         <strong>{mem.name || mem.fingerprint.slice(0, 9)}</strong>
         {#if mem.isSelf}<span class="tag">you</span>{/if}
+        {#if mem.isOwner}
+          <span class="role-badge owner" title="Server owner">owner</span>
+        {:else if mem.canManage}
+          <span class="role-badge mod" title="Can manage members">mod</span>
+        {/if}
         {#if mem.verified && !mem.isSelf}
           <span class="verified" title="Identity verified"><Icon name="check" size={12} /> verified</span>
         {/if}
@@ -196,6 +267,24 @@
             <Icon name={dmBusy ? "spark" : "reply"} size={15} />
           </button>
         </form>
+      {/if}
+
+      {#if canModerate}
+        <div class="divider"></div>
+        <div class="mod-actions">
+          {#if canPromote}
+            <button class="mod-btn" onclick={toggleModerator}>
+              <Icon name="spark" size={13} />
+              {mem.canManage ? "Remove moderator" : "Make moderator"}
+            </button>
+          {/if}
+          <button class="mod-btn" onclick={kick}>
+            <Icon name="door" size={13} /> Kick
+          </button>
+          <button class="mod-btn danger" onclick={ban}>
+            <Icon name="trash" size={13} /> Ban
+          </button>
+        </div>
       {/if}
     </div>
   </div>
@@ -272,6 +361,49 @@
   .username {
     font-size: 12px;
     margin-top: -2px;
+  }
+  .role-badge {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-weight: 600;
+  }
+  .role-badge.owner {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--accent);
+  }
+  .role-badge.mod {
+    background: color-mix(in srgb, var(--ok) 20%, transparent);
+    color: var(--ok);
+  }
+  .mod-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .mod-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: 1;
+    justify-content: center;
+    padding: 7px 8px;
+    font-size: 12px;
+    background: var(--bg-3);
+    color: var(--text);
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+  }
+  .mod-btn:hover {
+    background: var(--bg-4, var(--border));
+  }
+  .mod-btn.danger {
+    color: var(--danger, #f04747);
+  }
+  .mod-btn.danger:hover {
+    background: color-mix(in srgb, var(--danger, #f04747) 18%, transparent);
   }
   .status {
     font-size: 13px;
