@@ -180,8 +180,6 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return nil, s.b.RemoveMember(argStr(args, 0), argStr(args, 1))
 	case "Contacts":
 		return s.b.Contacts()
-	case "Verify":
-		return nil, s.b.Verify(argStr(args, 0))
 	case "JoinVoice":
 		return nil, s.b.JoinVoice(argStr(args, 0))
 	case "LeaveVoice":
@@ -190,8 +188,6 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return nil, s.b.RelaySignal(argStr(args, 0), argStr(args, 1))
 	case "SendTyping":
 		return nil, s.b.SendTyping(argStr(args, 0))
-	case "SetDisplayName":
-		return nil, s.b.SetDisplayName(argStr(args, 0))
 	case "SetProfile":
 		return nil, s.b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4))
 	case "VerifyFingerprint":

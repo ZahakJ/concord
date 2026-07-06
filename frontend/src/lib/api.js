@@ -15,10 +15,6 @@ function wailsBindings() {
 
 const isWails = () => wailsBindings() !== null;
 
-export function hasBackend() {
-  return true; // one of the two transports is always available at runtime
-}
-
 async function call(name, ...args) {
   const b = wailsBindings();
   if (b && typeof b[name] === "function") {
@@ -37,7 +33,6 @@ async function call(name, ...args) {
 }
 
 export const api = {
-  hasBackend,
   getBootstrap: () => call("GetBootstrap"),
   setBootstrap: (addrs) => call("SetBootstrap", addrs),
   setBootstrapLive: (addrs) => call("SetBootstrapLive", addrs),
@@ -65,12 +60,10 @@ export const api = {
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
   contacts: () => call("Contacts"),
-  verify: (peerID) => call("Verify", peerID),
   joinVoice: (channelID) => call("JoinVoice", channelID),
   leaveVoice: (channelID) => call("LeaveVoice", channelID),
   relaySignal: (toPeerID, data) => call("RelaySignal", toPeerID, data),
   sendTyping: (channelID) => call("SendTyping", channelID),
-  setDisplayName: (name) => call("SetDisplayName", name),
   setProfile: (name, status, emoji, color, avatar) =>
     call("SetProfile", name, status, emoji, color, avatar),
   verifyFingerprint: (fingerprint) => call("VerifyFingerprint", fingerprint),

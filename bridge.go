@@ -454,14 +454,6 @@ func (b *bridge) SearchMessages(query string) ([]MessageView, error) {
 }
 
 // SetDisplayName updates this peer's display name.
-func (b *bridge) SetDisplayName(name string) error {
-	svc, err := b.service()
-	if err != nil {
-		return err
-	}
-	return svc.SetDisplayName(name)
-}
-
 func (b *bridge) Guilds() ([]GuildView, error) {
 	svc, err := b.service()
 	if err != nil {
@@ -605,14 +597,6 @@ func (b *bridge) Contacts() ([]ContactView, error) {
 		out = append(out, ContactView{PeerID: c.PeerID, Fingerprint: c.Fingerprint, Verified: c.Verified})
 	}
 	return out, nil
-}
-
-func (b *bridge) Verify(peerID string) error {
-	svc, err := b.service()
-	if err != nil {
-		return err
-	}
-	return svc.VerifyContact(peerID)
 }
 
 // ---- mapping helpers ----

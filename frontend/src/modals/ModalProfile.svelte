@@ -4,7 +4,7 @@
   let name = $state(identity.displayName || "");
   let status = $state(identity.status || "");
   let emoji = $state(identity.emoji || "");
-  let color = $state(identity.color || "#5b6ef5");
+  let color = $state(identity.color || "#14a394");
   let avatar = $state(identity.avatar || "");
   let fileInput;
 
