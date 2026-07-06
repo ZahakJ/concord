@@ -115,7 +115,8 @@ type CategoryView struct {
 type GuildView struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
-	Kind       string         `json:"kind,omitempty"` // "" guild, "dm" direct message
+	Kind       string         `json:"kind,omitempty"`   // "" guild, "dm" direct message
+	DMPeer     string         `json:"dmPeer,omitempty"` // for a peer DM: the other member's fingerprint
 	IsOwner    bool           `json:"isOwner"`
 	Channels   []ChannelView  `json:"channels"`
 	Categories []CategoryView `json:"categories"`
@@ -731,8 +732,27 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 			cats = append(cats, CategoryView{ID: c.ID, Name: c.Name, Position: c.Position})
 		}
 	}
+	name := g.Name
+	// A peer DM shows the OTHER member (name + avatar handled UI-side via the
+	// fingerprint); a self-DM stays "Notes".
+	dmPeer := ""
+	if g.Kind == "dm" {
+		if creds, err := svc.GuildMembers(g.ID); err == nil {
+			self := svc.PublicKey()
+			for _, c := range creds {
+				if !bytes.Equal(c, self) {
+					fpr := identity.FingerprintOf(c)
+					dmPeer = fpr
+					if n := svc.ProfileName(fpr); n != "" {
+						name = n
+					}
+					break
+				}
+			}
+		}
+	}
 	return GuildView{
-		ID: g.ID, Name: g.Name, Kind: g.Kind, IsOwner: svc.IsOwner(g.ID),
+		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
 		Channels: channels, Categories: cats, OutOfSync: svc.OutOfSync(g.ID),
 	}
 }
@@ -744,6 +764,20 @@ func (b *bridge) NotesDM() (GuildView, error) {
 		return GuildView{}, err
 	}
 	g, err := svc.NotesDM()
+	if err != nil {
+		return GuildView{}, err
+	}
+	return guildView(svc, g), nil
+}
+
+// StartDM opens (creating if needed) a direct message with a member by
+// fingerprint. Returns the DM conversation for the UI to navigate to.
+func (b *bridge) StartDM(fingerprint string) (GuildView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return GuildView{}, err
+	}
+	g, err := svc.StartDM(fingerprint)
 	if err != nil {
 		return GuildView{}, err
 	}
@@ -802,6 +836,8 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.CreateGuild(argStr(args, 0))
 	case "NotesDM":
 		return b.NotesDM()
+	case "StartDM":
+		return b.StartDM(argStr(args, 0))
 	case "InviteCode":
 		return b.InviteCode(argStr(args, 0))
 	case "JoinViaInvite":

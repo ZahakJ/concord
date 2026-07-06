@@ -1,7 +1,7 @@
 <script>
   // The leftmost rail: one circle per guild, unread badges, create/join.
   import Icon from "./Icon.svelte";
-  import { S, selectGuild, selectNotes, guildUnread } from "./lib/state.svelte.js";
+  import { S, selectGuild, openDMs, guildUnread } from "./lib/state.svelte.js";
 
   const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
   const notesActive = $derived(g?.kind === "dm");
@@ -21,9 +21,9 @@
   <button
     class="pill notes"
     class:active={notesActive}
-    title="Notes (your private space)"
-    aria-label="Notes"
-    onclick={selectNotes}
+    title="Direct messages"
+    aria-label="Direct messages"
+    onclick={openDMs}
   >
     <Icon name="edit" size={18} />
   </button>

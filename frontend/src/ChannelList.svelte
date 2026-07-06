@@ -4,11 +4,18 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import Menu from "./Menu.svelte";
-  import { S, activeGuild, selectChannel, toggleMute, channelShort } from "./lib/state.svelte.js";
+  import { S, activeGuild, selectGuild, selectChannel, toggleMute, channelShort } from "./lib/state.svelte.js";
 
   let { onJoinVoice, onLeaveVoice, onToggleMute } = $props();
 
   const g = $derived(activeGuild());
+
+  // In the DMs area, the channel column becomes a conversation list (Notes
+  // first, then peer DMs).
+  const dms = $derived.by(() => {
+    const list = S.guilds.filter((x) => x.kind === "dm");
+    return list.sort((a, b) => (a.name === "Notes" ? -1 : b.name === "Notes" ? 1 : 0));
+  });
 
   // Group channels under their category (uncategorized first), each group
   // ordered by the channel's position.
@@ -37,14 +44,18 @@
 
   <div class="scroll">
     {#if g?.kind === "dm"}
-      <div class="dm-intro">
-        <div class="dm-icon"><Icon name="edit" size={22} /></div>
-        <strong>Notes</strong>
-        <p class="muted">
-          Your private, end-to-end-encrypted space. Jot things down, drop links and files —
-          only you can read it. It'll follow you to your other devices once they're linked.
-        </p>
-      </div>
+      <div class="section-head"><span>Direct messages</span></div>
+      {#each dms as dm (dm.id)}
+        {@const active = dm.id === S.activeGuildId}
+        <button class="dm-item" class:active onclick={() => selectGuild(dm.id)}>
+          {#if dm.name === "Notes"}
+            <span class="dm-notes-icon"><Icon name="edit" size={15} /></span>
+          {:else}
+            <Avatar name={dm.name} size={26} />
+          {/if}
+          <span class="dm-name">{dm.name === "Notes" ? "Notes (you)" : dm.name}</span>
+        </button>
+      {/each}
     {:else if g}
       <div class="section-head">
         <span>Channels</span>
@@ -264,27 +275,40 @@
     line-height: 1.5;
     padding: 8px;
   }
-  .dm-intro {
+  .dm-item {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    text-align: center;
-    gap: 8px;
-    padding: 24px 14px;
+    gap: 9px;
+    width: 100%;
+    padding: 7px 8px;
+    background: transparent;
+    color: var(--text-muted);
+    text-align: left;
+    border-radius: var(--radius-sm);
   }
-  .dm-icon {
-    width: 48px;
-    height: 48px;
+  .dm-item:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .dm-item.active {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .dm-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+  .dm-notes-icon {
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
     display: grid;
     place-items: center;
     background: var(--accent-soft);
     color: var(--accent-hover);
-  }
-  .dm-intro p {
-    font-size: 12px;
-    line-height: 1.5;
-    margin: 0;
+    flex-shrink: 0;
   }
   .voice-bar {
     display: flex;

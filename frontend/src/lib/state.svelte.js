@@ -260,6 +260,25 @@ export async function selectNotes() {
   }
 }
 
+// openDMs enters the direct-messages area — selects the most recent DM, or
+// creates/opens Notes if there are none yet.
+export async function openDMs() {
+  const dm = S.guilds.find((g) => g.kind === "dm");
+  if (dm) await selectGuild(dm.id);
+  else await selectNotes();
+}
+
+// startDM opens (creating if needed) a DM with a member, optionally sending a
+// first message, then navigates to it. Powers the profile-card "Message" box.
+export async function startDM(fingerprint, text = "") {
+  const dm = await api.startDM(fingerprint);
+  await refreshGuilds();
+  await selectGuild(dm.id);
+  const t = text.trim();
+  if (t && dm.channels?.[0]) await api.sendMessage(dm.channels[0].id, t, "");
+  return dm;
+}
+
 export async function selectChannel(id) {
   S.activeChannelId = id;
   markRead(id);

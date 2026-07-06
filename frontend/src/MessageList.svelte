@@ -22,6 +22,7 @@
 
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
+  const isDMView = $derived(activeGuild()?.kind === "dm");
 
   // rows: messages annotated with divider/grouping info.
   const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -144,7 +145,9 @@
     {#if row.newDay}
       <div class="day-divider"><span>{fmtDay(row.day)}</span></div>
     {/if}
-    {#if row.m.kind === "system"}
+    {#if row.m.kind === "system" && isDMView}
+      <!-- DMs skip join/create notices — noise in a 1:1 -->
+    {:else if row.m.kind === "system"}
       <div class="system-msg">
         <span>
           <Icon name="spark" size={11} />

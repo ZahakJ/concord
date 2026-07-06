@@ -12,11 +12,37 @@
     closeProfilePopover,
     popoverJustOpened,
     refreshRightPanel,
+    startDM,
     flash,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
 
+  let dmText = $state("");
+  let dmBusy = $state(false);
+
+  async function sendDM(e) {
+    e?.preventDefault();
+    if (dmBusy) return;
+    dmBusy = true;
+    const text = dmText;
+    dmText = "";
+    try {
+      await startDM(mem.fingerprint, text);
+      closeProfilePopover();
+    } catch (err) {
+      dmText = text;
+      flash(err);
+    } finally {
+      dmBusy = false;
+    }
+  }
+
   const mem = $derived(S.profilePopover ? memberByFpr(S.profilePopover.fingerprint) : null);
+  // Clear the quick-message box when the card switches to a different person.
+  $effect(() => {
+    S.profilePopover?.fingerprint;
+    dmText = "";
+  });
 
   let card = $state(null);
   let pos = $state(null); // {left, top} once measured
@@ -108,6 +134,19 @@
       {:else}
         <p class="hint muted">Compare this with them over a call; if it matches, verify.</p>
         <button class="verify-btn" onclick={verify}>Verify identity</button>
+      {/if}
+
+      {#if !mem.isSelf}
+        <form class="dm-box" onsubmit={sendDM}>
+          <input
+            bind:value={dmText}
+            placeholder="Message @{mem.name || 'them'}"
+            disabled={dmBusy}
+          />
+          <button type="submit" class="dm-send" disabled={dmBusy} aria-label="Send message">
+            <Icon name={dmBusy ? "spark" : "reply"} size={15} />
+          </button>
+        </form>
       {/if}
     </div>
   </div>
@@ -214,5 +253,23 @@
     margin-top: 8px;
     font-size: 13px;
     padding: 7px;
+  }
+  .dm-box {
+    display: flex;
+    gap: 6px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .dm-box input {
+    flex: 1;
+    padding: 8px 10px;
+    font-size: 13px;
+    border-radius: var(--radius-sm);
+  }
+  .dm-send {
+    padding: 0 12px;
+    display: grid;
+    place-items: center;
   }
 </style>

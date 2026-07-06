@@ -190,6 +190,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// Serve attachment blobs to peers rendering images we hold.
 	host.HandleAttachments(s.handleAttachRequest)
 
+	// Auto-redeem direct-message invitations pushed by a peer.
+	host.HandleDMInvites(s.handleDMInvite)
+
 	// Inbound WebRTC signaling for voice/video.
 	host.HandleSignals(func(from peer.ID, data []byte) {
 		s.emitVoiceSignal(from.String(), data)
