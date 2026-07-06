@@ -142,6 +142,29 @@ type ContactView struct {
 
 // ---- Connection settings (usable before unlock) ----
 
+// Session reports whether the identity is already unlocked (a Service is
+// running) — lets the UI skip the login screen after a page refresh.
+func (b *bridge) Session() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.svc != nil
+}
+
+// SetBootstrapLive saves rendezvous addresses and dials them now (post-login).
+func (b *bridge) SetBootstrapLive(addrs string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	var list []string
+	for _, a := range strings.FieldsFunc(addrs, func(r rune) bool { return r == '\n' || r == ',' }) {
+		if a = strings.TrimSpace(a); a != "" {
+			list = append(list, a)
+		}
+	}
+	return svc.SetBootstrapLive(list)
+}
+
 // GetBootstrap returns the saved rendezvous/relay addresses.
 func (b *bridge) GetBootstrap() ([]string, error) {
 	dir, err := appsvc.DataDir()
@@ -174,12 +197,17 @@ func (b *bridge) SetBootstrap(addrs string) error {
 func (b *bridge) Login(passphrase string) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.svc != nil {
-		return nil
-	}
 	dataDir, err := appsvc.DataDir()
 	if err != nil {
 		return err
+	}
+	// Already unlocked (e.g. a second tab): still require the correct passphrase
+	// rather than silently succeeding.
+	if b.svc != nil {
+		if !appsvc.VerifyPassphrase(dataDir, passphrase) {
+			return errors.New("wrong passphrase")
+		}
+		return nil
 	}
 	cfg := appsvc.Config{DataDir: dataDir, Passphrase: passphrase}
 	if bs := os.Getenv("CONCORD_BOOTSTRAP"); bs != "" {
@@ -253,6 +281,15 @@ func (b *bridge) DeleteMessage(channelID, messageID string) error {
 		return err
 	}
 	return svc.DeleteMessage(channelID, messageID)
+}
+
+// LeaveGuild removes a guild from this peer (local delete).
+func (b *bridge) LeaveGuild(guildID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.LeaveGuild(guildID)
 }
 
 // RenameGuild renames a guild (owner only).

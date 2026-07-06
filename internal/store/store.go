@@ -285,6 +285,47 @@ func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	return out, rows.Err()
 }
 
+// DeleteGuild removes a guild and all of its local data (channels, messages,
+// reactions). Used when leaving/deleting a server.
+func (s *Store) DeleteGuild(guildID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	rows, err := tx.Query(`SELECT id FROM channels WHERE guild_id = ?`, guildID)
+	if err != nil {
+		return err
+	}
+	var chIDs []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		chIDs = append(chIDs, id)
+	}
+	rows.Close()
+
+	for _, ch := range chIDs {
+		if _, err := tx.Exec(`DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE channel_id = ?)`, ch); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id = ?`, ch); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`DELETE FROM channels WHERE guild_id = ?`, guildID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM guilds WHERE id = ?`, guildID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // SaveMessage stores a message, sealing its content at rest. Saving the same
 // message ID twice is a no-op, which makes gossip re-delivery and history sync
 // idempotent. The bool reports whether a new row was inserted.

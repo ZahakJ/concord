@@ -248,6 +248,22 @@ func (s *Service) emitMessage(m domain.Message) {
 	}
 }
 
+// SetBootstrapLive replaces the saved rendezvous list and dials the new nodes
+// immediately (best-effort), so an in-app change helps the current session too.
+// Full DHT re-init still happens on next launch.
+func (s *Service) SetBootstrapLive(addrs []string) error {
+	if err := SaveNetConfig(s.dataDir, NetConfig{Bootstrap: addrs}); err != nil {
+		return err
+	}
+	if infos, err := parseBootstrapPeers(addrs); err == nil {
+		for _, pi := range infos {
+			pi := pi
+			go func() { _ = s.host.Connect(s.ctx, pi) }()
+		}
+	}
+	return nil
+}
+
 // DisplayName returns this peer's chosen display name, defaulting to the first
 // block of its fingerprint when unset.
 func (s *Service) DisplayName() string {
@@ -354,6 +370,14 @@ func (s *Service) Close() error {
 		_ = s.store.Close()
 	}
 	return nil
+}
+
+// VerifyPassphrase reports whether passphrase decrypts the keystore in dataDir.
+// Used to re-check the passphrase when a session is already unlocked, so a
+// second unlock attempt can't silently succeed with the wrong passphrase.
+func VerifyPassphrase(dataDir, passphrase string) bool {
+	_, err := identity.LoadKeystore(keystorePathIn(dataDir), passphrase)
+	return err == nil
 }
 
 // parseBootstrapPeers converts multiaddr strings (each ending in /p2p/<id>) to

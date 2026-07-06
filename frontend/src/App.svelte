@@ -1,4 +1,5 @@
 <script>
+  import { onMount } from "svelte";
   import { api, on } from "./lib/api.js";
   import { VoiceMesh } from "./lib/voice.js";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
@@ -8,6 +9,7 @@
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
   import ModalProfile from "./modals/ModalProfile.svelte";
+  import ModalSettings from "./modals/ModalSettings.svelte";
 
   let ready = $state(false);
   let identity = $state({ peerId: "", fingerprint: "", displayName: "" });
@@ -223,6 +225,16 @@
   const activeChannel = $derived(
     activeGuild?.channels.find((c) => c.id === activeChannelId) || null,
   );
+
+  // Skip the login screen if the backend is already unlocked (e.g. after a
+  // browser refresh — the Go process stays running and holds the session).
+  onMount(async () => {
+    try {
+      if (await api.session()) await onLogin();
+    } catch {
+      /* not unlocked yet — show the login screen */
+    }
+  });
 
   async function onLogin() {
     identity = await api.identity();
@@ -478,6 +490,20 @@
     modal = null;
   }
 
+  async function leaveGuild() {
+    const g = activeGuild;
+    if (!g) return;
+    const verb = g.isOwner ? "delete" : "leave";
+    if (!confirm(`Really ${verb} "${g.name}"? Its messages will be removed from this device.`)) return;
+    await api.leaveGuild(g.id);
+    activeGuildId = "";
+    activeChannelId = "";
+    messages = [];
+    await refreshGuilds();
+    if (guilds.length) selectGuild(guilds[0].id);
+    flash(g.isOwner ? "Server deleted" : "Left server");
+  }
+
   async function showInvite() {
     const code = await api.inviteCode(activeGuildId);
     modal = { kind: "invite", code };
@@ -574,7 +600,8 @@
         {/each}
       {/if}
 
-      <button class="me" onclick={() => (modal = { kind: "profile" })} title="Edit profile">
+      <div class="me-row">
+        <button class="me" onclick={() => (modal = { kind: "profile" })} title="Edit profile">
         <div class="me-avatar" style={identity.color ? `background:${identity.color}` : ""}>
           {#if identity.avatar}
             <img class="av-img" src={identity.avatar} alt="" />
@@ -586,7 +613,9 @@
           <strong>{displayName || "Set your name"}</strong>
           <span class="muted small-status">{identity.status || "click to edit profile"}</span>
         </div>
-      </button>
+        </button>
+        <button class="me-gear" title="Network settings" onclick={() => (modal = { kind: "settings" })}>⚙</button>
+      </div>
     </aside>
 
     <!-- Chat -->
@@ -617,7 +646,14 @@
           {/if}
           {#if activeGuild?.isOwner}
             <button class="ghost" onclick={showInvite}>Invite</button>
-            <button class="ghost" title="Guild settings" onclick={() => (modal = { kind: "rename" })}>⚙</button>
+            <button class="ghost" title="Rename guild" onclick={() => (modal = { kind: "rename" })}>✏️</button>
+          {/if}
+          {#if activeGuild}
+            <button
+              class="ghost leave"
+              title={activeGuild.isOwner ? "Delete server (for you)" : "Leave server"}
+              onclick={leaveGuild}>{activeGuild.isOwner ? "🗑" : "🚪"}</button
+            >
           {/if}
         </div>
       </header>
@@ -938,6 +974,8 @@
     />
   {:else if modal?.kind === "profile"}
     <ModalProfile {identity} onSubmit={saveProfile} onClose={() => (modal = null)} />
+  {:else if modal?.kind === "settings"}
+    <ModalSettings onClose={() => (modal = null)} onSaved={() => flash("Rendezvous saved")} />
   {:else if modal?.kind === "join"}
     <ModalJoin error={modal.error} onSubmit={joinGuild} onClose={() => (modal = null)} />
   {:else if modal?.kind === "invite"}

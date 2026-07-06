@@ -146,6 +146,10 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return s.b.GetBootstrap()
 	case "SetBootstrap":
 		return nil, s.b.SetBootstrap(argStr(args, 0))
+	case "SetBootstrapLive":
+		return nil, s.b.SetBootstrapLive(argStr(args, 0))
+	case "Session":
+		return s.b.Session(), nil
 	case "Login":
 		return nil, s.b.Login(argStr(args, 0))
 	case "Identity":
@@ -192,6 +196,8 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return s.b.CreateChannel(argStr(args, 0), argStr(args, 1))
 	case "RenameGuild":
 		return nil, s.b.RenameGuild(argStr(args, 0), argStr(args, 1))
+	case "LeaveGuild":
+		return nil, s.b.LeaveGuild(argStr(args, 0))
 	case "DeleteMessage":
 		return nil, s.b.DeleteMessage(argStr(args, 0), argStr(args, 1))
 	case "EditMessage":

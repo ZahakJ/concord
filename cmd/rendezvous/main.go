@@ -26,6 +26,7 @@ import (
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	p2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 
 	"github.com/zahak/concord/internal/identity"
@@ -64,8 +65,10 @@ func run() error {
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(listen...),
 		libp2p.Security(noise.ID, noise.New),
-		// Offer relay service to NAT'd peers.
-		libp2p.EnableRelayService(),
+		// Offer relay service to NAT'd peers, with generous limits so a
+		// friend-group's traffic isn't throttled if it can't hole-punch to a
+		// direct connection.
+		libp2p.EnableRelayService(relay.WithInfiniteLimits()),
 		libp2p.EnableNATService(),
 	)
 	if err != nil {

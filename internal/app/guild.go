@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -129,6 +131,26 @@ func (s *Service) RenameGuild(guildID, name string) error {
 	return nil
 }
 
+// LeaveGuild removes a guild from this peer locally: it stops tracking it and
+// deletes its stored data. (A local action — other members keep the guild.)
+func (s *Service) LeaveGuild(guildID string) error {
+	s.mu.Lock()
+	g, ok := s.guilds[guildID]
+	if ok {
+		for _, c := range g.Channels {
+			delete(s.channelToGuild, c.ID)
+		}
+		delete(s.guilds, guildID)
+	}
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	_ = s.store.DeleteGuild(guildID)
+	s.emitGuildUpdate()
+	return nil
+}
+
 // GuildMembers returns the account public keys of a guild's current members.
 func (s *Service) GuildMembers(guildID string) ([][]byte, error) {
 	s.mu.RLock()
@@ -185,6 +207,16 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 	for _, a := range ai.Addrs {
 		addrs = append(addrs, a.String())
 	}
+	// Add relay "circuit" addresses derived from our rendezvous nodes, so a
+	// joiner behind a different NAT can reach us THROUGH the relay even when our
+	// own (private/LAN) addresses are undialable. Format:
+	//   /dns/host/tcp/4001/p2p/<relayID>/p2p-circuit
+	bootstrap := LoadNetConfig(s.dataDir).Bootstrap
+	for _, b := range bootstrap {
+		if b = strings.TrimSpace(b); b != "" {
+			addrs = append(addrs, b+"/p2p-circuit")
+		}
+	}
 	code := inviteCode{
 		GuildID:   g.ID,
 		GuildName: g.Name,
@@ -192,7 +224,7 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 		OwnerAddr: addrs,
 		// Embed our rendezvous nodes so the joiner is configured by the code
 		// alone — one paste connects them to the same network.
-		Bootstrap: LoadNetConfig(s.dataDir).Bootstrap,
+		Bootstrap: bootstrap,
 	}
 	raw, err := json.Marshal(code)
 	if err != nil {
@@ -231,7 +263,11 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	}
 	reqBytes, _ := json.Marshal(inviteRequest{GuildID: ic.GuildID, KeyPackage: kp})
 
-	respBytes, err := s.host.RequestInvite(s.ctx, owner, reqBytes)
+	// Generous timeout: a relayed/hole-punched dial to a NAT'd owner can take a
+	// few seconds to establish.
+	dialCtx, cancel := context.WithTimeout(s.ctx, 40*time.Second)
+	defer cancel()
+	respBytes, err := s.host.RequestInvite(dialCtx, owner, reqBytes)
 	if err != nil {
 		return domain.Guild{}, err
 	}
@@ -691,6 +727,14 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	if err := json.Unmarshal(msg.Plaintext, &m); err != nil {
 		return
 	}
+	// Ignore messages for channels we no longer track (e.g. a guild we left but
+	// whose gossipsub subscription is still live this session).
+	s.mu.RLock()
+	_, tracked := s.channelToGuild[m.ChannelID]
+	s.mu.RUnlock()
+	if !tracked {
+		return
+	}
 	// Trust MLS's authenticated sender over the self-reported field.
 	m.Sender = msg.SenderID
 	switch m.Kind {
@@ -715,7 +759,8 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 }
 
 // adoptBootstrap merges invite-carried rendezvous addrs into the saved network
-// config and dials them immediately (best-effort).
+// config and connects to them, waiting briefly so a subsequent relayed dial to
+// the (NAT'd) guild owner can succeed.
 func (s *Service) adoptBootstrap(addrs []string) {
 	existing := LoadNetConfig(s.dataDir).Bootstrap
 	seen := map[string]bool{}
@@ -731,11 +776,26 @@ func (s *Service) adoptBootstrap(addrs []string) {
 	}
 	_ = SaveNetConfig(s.dataDir, NetConfig{Bootstrap: merged})
 
-	if infos, err := parseBootstrapPeers(addrs); err == nil {
-		for _, pi := range infos {
-			pi := pi
-			go func() { _ = s.host.Connect(s.ctx, pi) }()
-		}
+	infos, err := parseBootstrapPeers(addrs)
+	if err != nil {
+		return
+	}
+	var wg sync.WaitGroup
+	for _, pi := range infos {
+		pi := pi
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			ctx, cancel := context.WithTimeout(s.ctx, 8*time.Second)
+			defer cancel()
+			_ = s.host.Connect(ctx, pi)
+		}()
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
 	}
 }
 
