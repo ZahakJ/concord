@@ -12,3 +12,4 @@ frontend/node_modules/
 # Wails
 /frontend/wailsjs/
 dist-release/
+resource_windows_amd64.syso
