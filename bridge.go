@@ -142,6 +142,18 @@ type ContactView struct {
 
 // ---- Connection settings (usable before unlock) ----
 
+// Logout closes the running Service and locks the app again (back to the login
+// screen) without deleting anything.
+func (b *bridge) Logout() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.svc != nil {
+		_ = b.svc.Close()
+		b.svc = nil
+	}
+	return nil
+}
+
 // HasIdentity reports whether an identity keystore already exists, so the UI
 // can show "Unlock" vs "Create a passphrase".
 func (b *bridge) HasIdentity() (bool, error) {

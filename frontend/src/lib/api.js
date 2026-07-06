@@ -42,6 +42,7 @@ export const api = {
   setBootstrap: (addrs) => call("SetBootstrap", addrs),
   setBootstrapLive: (addrs) => call("SetBootstrapLive", addrs),
   session: () => call("Session"),
+  logout: () => call("Logout"),
   hasIdentity: () => call("HasIdentity"),
   resetIdentity: () => call("ResetIdentity"),
   login: (passphrase) => call("Login", passphrase),

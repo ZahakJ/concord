@@ -42,6 +42,7 @@ type inviteCode struct {
 type inviteRequest struct {
 	GuildID    string `json:"guildId"`
 	KeyPackage []byte `json:"keyPackage"`
+	Credential []byte `json:"credential"` // joiner's account key, for retry recovery
 }
 
 // inviteResponse is returned by the owner over the invite stream.
@@ -261,7 +262,7 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	if err != nil {
 		return domain.Guild{}, fmt.Errorf("app: build key package: %w", err)
 	}
-	reqBytes, _ := json.Marshal(inviteRequest{GuildID: ic.GuildID, KeyPackage: kp})
+	reqBytes, _ := json.Marshal(inviteRequest{GuildID: ic.GuildID, KeyPackage: kp, Credential: s.PublicKey()})
 
 	// Generous timeout: a relayed/hole-punched dial to a NAT'd owner can take a
 	// few seconds to establish.
@@ -287,6 +288,8 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	}
 	g := resp.Guild
 	s.trackGuild(&g)
+	// Keep the owner connection alive so presence and gossipsub keep flowing.
+	s.host.Protect(owner.ID)
 	// Tell existing members our display name (and learn theirs in reply).
 	s.announceProfile(g.ID)
 	// Announce arrival with a system message in the default channel.
@@ -314,13 +317,26 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 
 	commit, welcome, err := s.mls.Invite(ctx, g.GroupID, req.KeyPackage)
 	if err != nil {
-		return json.Marshal(inviteResponse{Error: "invite failed"})
+		// Most common cause: this is a RETRY where the joiner is already in the
+		// group (a previous attempt added them but they never finished joining,
+		// e.g. the response was lost). Remove the stale entry and re-invite so
+		// they get a fresh Welcome at the current epoch.
+		if len(req.Credential) > 0 {
+			if rmCommit, rmErr := s.mls.Remove(ctx, g.GroupID, req.Credential); rmErr == nil {
+				_ = s.ps.Publish(ctx, domain.ControlTopicID(g.GroupID), rmCommit)
+				commit, welcome, err = s.mls.Invite(ctx, g.GroupID, req.KeyPackage)
+			}
+		}
+		if err != nil {
+			return json.Marshal(inviteResponse{Error: "invite failed"})
+		}
 	}
 	// Advance existing members (if any) to the new epoch.
 	if err := s.ps.Publish(ctx, domain.ControlTopicID(g.GroupID), commit); err != nil {
 		return nil, err
 	}
-	// The owner's roster now includes the new member — refresh the UI.
+	// Keep this member reachable (esp. over a relay) and refresh the roster.
+	s.host.Protect(from)
 	s.emitGuildUpdate()
 	return json.Marshal(inviteResponse{Welcome: welcome, Guild: *g})
 }

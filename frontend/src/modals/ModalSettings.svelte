@@ -46,6 +46,17 @@
     <button class="ghost" onclick={onClose}>Close</button>
     <button onclick={save}>{saved ? "Saved ✓" : "Save"}</button>
   </div>
+
+  <hr />
+  <button
+    class="ghost signout"
+    onclick={async () => {
+      await api.logout();
+      location.reload();
+    }}
+  >
+    Sign out (lock this device)
+  </button>
 </Modal>
 
 <style>
@@ -62,5 +73,15 @@
     font-family: ui-monospace, monospace;
     font-size: 11px;
     resize: vertical;
+  }
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 4px 0;
+  }
+  .signout {
+    color: var(--danger);
+    align-self: flex-start;
+    font-size: 13px;
   }
 </style>

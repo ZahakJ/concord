@@ -170,6 +170,12 @@ func (n *Host) Connect(ctx context.Context, pi peer.AddrInfo) error {
 	return n.h.Connect(ctx, pi)
 }
 
+// Protect marks a peer connection as important so the connection manager won't
+// prune it — used to keep guild members (esp. over a relay) reachable.
+func (n *Host) Protect(p peer.ID) {
+	n.h.ConnManager().Protect(p, "concord-member")
+}
+
 // PeerID returns this node's libp2p peer ID.
 func (n *Host) PeerID() peer.ID { return n.h.ID() }
 
