@@ -5,14 +5,16 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import Attachment from "./Attachment.svelte";
+  import FileAttachment from "./FileAttachment.svelte";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
   import { renderMarkdown } from "./lib/markdown.js";
-  import { parseAttachTokens, stripAttachTokens, previewText } from "./lib/attachments.js";
+  import { parseAttachTokens, parseFileTokens, stripAttachTokens, previewText } from "./lib/attachments.js";
   import { extractLinks, youtubeID } from "./lib/embeds.js";
   import {
     S,
     memberByFpr,
+    nameFor,
     react,
     deleteMsg,
     saveEdit,
@@ -58,7 +60,8 @@
     if (mentionMember(e.target)) scheduleCloseProfilePopover();
   }
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
-  const bodyText = $derived(atts.length ? stripAttachTokens(m.content) : m.content);
+  const files = $derived(m.deleted ? [] : parseFileTokens(m.content));
+  const bodyText = $derived(atts.length || files.length ? stripAttachTokens(m.content) : m.content);
   // One embed per message: the first YouTube link gets a player; otherwise
   // the first link gets a preview card.
   const embed = $derived.by(() => {
@@ -105,7 +108,7 @@
       onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
     >
       <Avatar
-        name={m.senderName || m.sender}
+        name={nameFor(m.sender, m.senderName)}
         emoji={mem?.emoji}
         color={mem?.color}
         image={mem?.avatar}
@@ -119,14 +122,14 @@
       <button class="reply-ref" onclick={jumpToReply}>
         <Icon name="reply" size={11} />
         {replyRef
-          ? `${replyRef.senderName || replyRef.sender.slice(0, 9)}: ${replyRef.deleted ? "(deleted)" : previewText(replyRef.content).slice(0, 60)}`
+          ? `${nameFor(replyRef.sender, replyRef.senderName)}: ${replyRef.deleted ? "(deleted)" : previewText(replyRef.content).slice(0, 60)}`
           : "(original message)"}
       </button>
     {/if}
     {#if !compact}
       <div class="msg-head">
         <button class="sender" onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
-          >{m.senderName || m.sender}</button
+          >{nameFor(m.sender, m.senderName)}</button
         >
         <span class="muted mono verify-fpr" title="verified identity">{m.sender.slice(0, 9)}</span>
         <span class="muted time">{fmtTime(m.sent)}</span>
@@ -161,6 +164,9 @@
       {/if}
       {#each atts as tok (tok.blobId)}
         <Attachment channelId={m.channelId} {tok} />
+      {/each}
+      {#each files as tok (tok.blobId)}
+        <FileAttachment channelId={m.channelId} {tok} />
       {/each}
       {#if embed?.kind === "yt"}
         <YouTubeEmbed videoId={embed.id} />

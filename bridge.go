@@ -568,6 +568,27 @@ func (b *bridge) FetchAttachment(channelID, blobID, keys, subtype string) (strin
 	return svc.FetchAttachment(channelID, blobID, keys, subtype)
 }
 
+// SendFile seals an arbitrary file into an encrypted blob and posts a file
+// reference token (rendered as a download card, not inline).
+func (b *bridge) SendFile(channelID, dataURL, filename, replyTo string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.SendFile(channelID, dataURL, filename, replyTo)
+	return err
+}
+
+// FetchFile resolves a file token to a plaintext data URL of the given mime,
+// fetching the blob from guild members if not cached locally.
+func (b *bridge) FetchFile(channelID, blobID, keys, mime string) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.FetchFile(channelID, blobID, keys, mime)
+}
+
 func (b *bridge) Members(guildID string) ([]MemberView, error) {
 	svc, err := b.service()
 	if err != nil {

@@ -178,6 +178,10 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return nil, s.b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4))
 	case "FetchAttachment":
 		return s.b.FetchAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+	case "SendFile":
+		return nil, s.b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+	case "FetchFile":
+		return s.b.FetchFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "LinkPreview":
 		return s.b.LinkPreview(argStr(args, 0))
 	case "Members":

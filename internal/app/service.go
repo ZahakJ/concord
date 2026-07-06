@@ -382,6 +382,28 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	return !known
 }
 
+// learnNameHint backfills a display name from a chat message's self-asserted
+// name ONLY when we have no learned name for that member yet. This keeps the
+// chat and the member list consistent: without it, the roster (learned
+// profile) can show a fingerprint code while the message shows a name, or vice
+// versa. It never overwrites a richer learned profile (emoji/color/avatar) and
+// never replaces a name we already have.
+func (s *Service) learnNameHint(fingerprint, name string) {
+	name = strings.TrimSpace(name)
+	if fingerprint == "" || name == "" || fingerprint == s.id.Fingerprint() {
+		return
+	}
+	s.mu.RLock()
+	cur, known := s.profiles[fingerprint]
+	s.mu.RUnlock()
+	if known && cur.Name != "" {
+		return // already have a name; don't clobber it with a stale message's
+	}
+	p := cur
+	p.Name = name
+	s.learnProfile(fingerprint, p)
+}
+
 // OutOfSync reports whether a guild is stranded at an old MLS epoch that no
 // reachable peer's commit log could bridge (the member needs a re-invite).
 func (s *Service) OutOfSync(guildID string) bool {

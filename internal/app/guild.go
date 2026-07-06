@@ -85,9 +85,19 @@ func (s *Service) Guilds() []domain.Guild {
 	return out
 }
 
-// Messages returns stored history for a channel (oldest first).
+// Messages returns stored history for a channel (oldest first). Opening a
+// channel also backfills display names from message authors we don't have a
+// name for yet, so old history converges the roster and chat onto one name.
 func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error) {
-	return s.store.Messages(channelID, limit)
+	msgs, err := s.store.Messages(channelID, limit)
+	if err == nil {
+		for _, m := range msgs {
+			if m.Name != "" {
+				s.learnNameHint(identity.FingerprintOf(m.Sender), m.Name)
+			}
+		}
+	}
+	return msgs, err
 }
 
 // MemberCount returns how many members this peer currently sees in a guild's
@@ -815,6 +825,9 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 		s.applyPin(m.ReplyTo)
 		return
 	}
+	// Backfill a display name from the message if we don't know this member's
+	// name yet, so the roster and chat stay consistent.
+	s.learnNameHint(identity.FingerprintOf(m.Sender), m.Name)
 	inserted, err := s.store.SaveMessage(m)
 	if err != nil || !inserted {
 		return // duplicate (gossip re-delivery or already synced): stay silent

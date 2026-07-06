@@ -170,7 +170,7 @@
       <div class="drop-card">
         <Icon name="attach" size={28} />
         <strong>Drop to send</strong>
-        <span class="muted">Images up to 5 MB, end-to-end encrypted</span>
+        <span class="muted">Files up to 25 MB, end-to-end encrypted</span>
       </div>
     </div>
   {/if}

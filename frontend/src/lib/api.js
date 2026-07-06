@@ -61,6 +61,10 @@ export const api = {
     call("SendAttachment", channelID, dataURL, w, h, replyTo),
   fetchAttachment: (channelID, blobID, keys, subtype) =>
     call("FetchAttachment", channelID, blobID, keys, subtype),
+  sendFile: (channelID, dataURL, filename, replyTo = "") =>
+    call("SendFile", channelID, dataURL, filename, replyTo),
+  fetchFile: (channelID, blobID, keys, mime) =>
+    call("FetchFile", channelID, blobID, keys, mime),
   linkPreview: (url) => call("LinkPreview", url),
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),

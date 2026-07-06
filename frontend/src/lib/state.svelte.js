@@ -54,6 +54,13 @@ export const activeChannel = () =>
   activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null;
 export const memberByFpr = (fpr) => S.members.find((m) => m.fingerprint === fpr);
 
+// nameFor: the single source of truth for a peer's display name — the current
+// learned member name (same as the member list), falling back to a message's
+// self-asserted name, then a short fingerprint. Keeps chat and roster in sync.
+export function nameFor(fpr, frozenName = "") {
+  return memberByFpr(fpr)?.name || frozenName || (fpr ? fpr.slice(0, 9) : "?");
+}
+
 // ---- persistence helpers (device-local UI state) ----
 
 function loadJSON(key, fallback) {
@@ -182,11 +189,15 @@ export function scrollToMessage(id) {
 // grace period so the pointer can travel from the mention into the card.
 
 let popTimer;
+let popOpenedAt = 0;
 export function openProfilePopover(fingerprint, anchorEl, { delay = 0 } = {}) {
   clearTimeout(popTimer);
   const r = anchorEl.getBoundingClientRect();
   const rect = { x: r.left, y: r.top, w: r.width, h: r.height };
-  const show = () => (S.profilePopover = { fingerprint, rect });
+  const show = () => {
+    S.profilePopover = { fingerprint, rect };
+    popOpenedAt = Date.now();
+  };
   if (delay) popTimer = setTimeout(show, delay);
   else show();
 }
@@ -200,6 +211,11 @@ export function scheduleCloseProfilePopover() {
 export function closeProfilePopover() {
   clearTimeout(popTimer);
   S.profilePopover = null;
+}
+// True briefly after opening, so the same click that opened the popover (which
+// also bubbles to the window) doesn't immediately dismiss it.
+export function popoverJustOpened() {
+  return Date.now() - popOpenedAt < 250;
 }
 
 // ---- profile accent ----

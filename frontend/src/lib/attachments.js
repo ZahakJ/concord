@@ -11,7 +11,22 @@ import { api } from "./api.js";
 export const ATTACH_RE =
   /!\[image\]\(concord:\/\/attach\/v1\/([0-9a-f]{64})\/([A-Za-z0-9_-]{75})\/(png|jpeg|gif|webp)\/(\d{1,5})x(\d{1,5})\)/g;
 
-// parseAttachTokens returns [{blobId, keys, subtype, w, h}] for a message body.
+// File tokens: [file](concord://file/v1/<blobID>/<keys>/<size>/<mimeB64url>/<nameB64url>)
+export const FILE_RE =
+  /\[file\]\(concord:\/\/file\/v1\/([0-9a-f]{64})\/([A-Za-z0-9_-]{75})\/(\d{1,9})\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]*)\)/g;
+
+const ANY_RE = new RegExp(`${ATTACH_RE.source}|${FILE_RE.source}`, "g");
+
+function b64urlDecode(s) {
+  if (!s) return "";
+  try {
+    return decodeURIComponent(escape(atob(s.replace(/-/g, "+").replace(/_/g, "/"))));
+  } catch {
+    return "";
+  }
+}
+
+// parseAttachTokens returns inline IMAGE tokens [{blobId, keys, subtype, w, h}].
 export function parseAttachTokens(content) {
   const out = [];
   for (const m of content.matchAll(ATTACH_RE)) {
@@ -20,21 +35,39 @@ export function parseAttachTokens(content) {
   return out;
 }
 
-// stripAttachTokens removes tokens from a body (what's left is the caption).
+// parseFileTokens returns FILE tokens [{blobId, keys, size, mime, name}].
+export function parseFileTokens(content) {
+  const out = [];
+  for (const m of content.matchAll(FILE_RE)) {
+    out.push({
+      blobId: m[1],
+      keys: m[2],
+      size: +m[3],
+      mime: b64urlDecode(m[4]),
+      name: b64urlDecode(m[5]) || "file",
+    });
+  }
+  return out;
+}
+
+// stripAttachTokens removes all attachment tokens (what's left is the caption).
 export function stripAttachTokens(content) {
-  return content.replace(ATTACH_RE, "").trim();
+  return content.replace(ANY_RE, "").trim();
 }
 
 // hasAttachment: cheap check for preview snippets (replies, pins, notifications).
 export function hasAttachment(content) {
-  ATTACH_RE.lastIndex = 0;
-  return ATTACH_RE.test(content);
+  ANY_RE.lastIndex = 0;
+  return ANY_RE.test(content);
 }
 
 // previewText: body with tokens replaced by a readable placeholder.
 export function previewText(content) {
   const stripped = stripAttachTokens(content);
-  return hasAttachment(content) ? (stripped ? `🖼 ${stripped}` : "🖼 image") : content;
+  if (!hasAttachment(content)) return content;
+  const glyph = FILE_RE.test(content) && !ATTACH_RE.test(content) ? "📎" : "🖼";
+  const label = glyph === "📎" ? "file" : "image";
+  return stripped ? `${glyph} ${stripped}` : `${glyph} ${label}`;
 }
 
 // Decrypted data-URL cache. 5 MB data URLs are memory-heavy, so keep few.

@@ -10,6 +10,7 @@
     holdProfilePopover,
     scheduleCloseProfilePopover,
     closeProfilePopover,
+    popoverJustOpened,
     refreshRightPanel,
     flash,
   } from "./lib/state.svelte.js";
@@ -55,6 +56,9 @@
   onscroll={closeProfilePopover}
   onresize={closeProfilePopover}
   onkeydown={(e) => e.key === "Escape" && closeProfilePopover()}
+  onpointerdown={(e) => {
+    if (S.profilePopover && !e.target.closest(".pop") && !popoverJustOpened()) closeProfilePopover();
+  }}
 />
 
 {#if S.profilePopover && mem}

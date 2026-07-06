@@ -95,3 +95,60 @@ func TestAttachmentSendAndFetch(t *testing.T) {
 		t.Fatalf("valid fetch after bad-key attempt: %v", err)
 	}
 }
+
+// TestFileAttachment covers the generic (non-image) file path: send a PDF-ish
+// blob with a filename/mime, then fetch it back as a data URL from another
+// member over the attach stream.
+func TestFileAttachment(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked integration test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	b := startService(t, ctx)
+	g, err := a.CreateGuild("g")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	channel := g.Channels[0].ID
+	code, _ := a.InviteCode(g.ID)
+	if _, err := b.JoinViaInvite(code); err != nil {
+		t.Fatalf("B JoinViaInvite: %v", err)
+	}
+	waitMembers(t, 20*time.Second, 2, a, b)
+
+	blob := make([]byte, 800*1024)
+	if _, err := rand.Read(blob); err != nil {
+		t.Fatal(err)
+	}
+	dataURL := "data:application/pdf;base64," + base64.StdEncoding.EncodeToString(blob)
+
+	rb := &recorder{}
+	b.OnMessage(rb.add)
+	msg, err := a.SendFile(channel, dataURL, "report.pdf", "")
+	if err != nil {
+		t.Fatalf("SendFile: %v", err)
+	}
+	if !strings.Contains(msg.Content, "concord://file/v1/") {
+		t.Fatalf("not a file token: %.120s", msg.Content)
+	}
+	waitUntil(t, 20*time.Second, func() bool { return rb.has(msg.Content) }, "B never received the file token")
+
+	// Parse blobID/keys from [file](concord://file/v1/<blob>/<keys>/...).
+	inner := strings.TrimSuffix(strings.SplitAfter(msg.Content, "concord://file/v1/")[1], ")")
+	parts := strings.Split(inner, "/")
+	blobID, keys := parts[0], parts[1]
+	got, err := b.FetchFile(channel, blobID, keys, "application/pdf")
+	if err != nil {
+		t.Fatalf("B FetchFile: %v", err)
+	}
+	if got != dataURL {
+		t.Fatal("fetched file does not match the original")
+	}
+	// A bad mime is rejected before any fetch.
+	if _, err := b.FetchFile(channel, blobID, keys, "not a mime"); err == nil {
+		t.Fatal("invalid mime accepted")
+	}
+}

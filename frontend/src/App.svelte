@@ -156,7 +156,7 @@
       {#if S.voice && S.voice.channelId === S.activeChannelId}
         <VoicePanel />
       {/if}
-      <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachImage(f))} />
+      <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
       <Composer bind:this={composer} />
     </main>
 

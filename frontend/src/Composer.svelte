@@ -186,12 +186,11 @@
     });
   }
 
+  const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
+  // attachImage: images go out as inline-rendered blobs (existing path).
   export async function attachImage(file) {
     if (!file || !S.activeChannelId) return;
-    if (!file.type.startsWith("image/")) {
-      flash("Only images for now");
-      return;
-    }
     try {
       let dataUrl, w, h;
       if (NATIVE_TYPES.includes(file.type) && file.size <= MAX_IMAGE_BYTES) {
@@ -210,6 +209,28 @@
           ? "Image too large (max 5 MB, even after compression)"
           : "Couldn't read that image format",
       );
+    }
+  }
+
+  // attachFile: the general entry point — images render inline, everything
+  // else becomes a download card (up to 25 MB).
+  export async function attachFile(file) {
+    if (!file || !S.activeChannelId) return;
+    if (file.type.startsWith("image/")) {
+      await attachImage(file);
+      return;
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      flash("File too large (max 25 MB)");
+      return;
+    }
+    try {
+      const dataUrl = await readAsDataURL(file);
+      const replyTo = S.replyingTo?.id || "";
+      S.replyingTo = null;
+      await api.sendFile(S.activeChannelId, dataUrl, file.name || "file", replyTo);
+    } catch (err) {
+      flash(err);
     }
   }
 
@@ -265,19 +286,18 @@
   <form class="composer" onsubmit={send}>
     <input
       type="file"
-      accept="image/*"
       bind:this={fileInput}
       style="display:none"
       onchange={(e) => {
-        attachImage(e.target.files?.[0]);
+        attachFile(e.target.files?.[0]);
         e.target.value = "";
       }}
     />
     <button
       type="button"
       class="ghost iconbtn"
-      title="Attach image (or paste / drop one)"
-      aria-label="Attach image"
+      title="Attach a file or image (or paste / drop one)"
+      aria-label="Attach a file"
       disabled={!ch}
       onclick={() => fileInput.click()}
     >

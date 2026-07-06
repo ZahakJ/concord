@@ -19,10 +19,12 @@ const attachProtocol protocol.ID = "/concord/attach/1.0.0"
 // maxAttachRequest bounds the request frame (a tiny JSON blob-ID lookup).
 const maxAttachRequest = 4 << 10 // 4 KiB
 
-// MaxAttachResponse bounds a served blob: 5 MiB plaintext + secretbox
-// overhead, rounded up generously. Exported so the app layer can reject
-// oversized blobs before ever creating them.
-const MaxAttachResponse = 8 << 20 // 8 MiB
+// MaxAttachResponse bounds a served blob: up to a 25 MiB file plaintext +
+// secretbox overhead, rounded up generously. Exported so the app layer can
+// reject oversized blobs before ever creating them. Blobs travel over this
+// dedicated stream (one framed read into memory), never over the 1 MiB-capped
+// gossipsub/sync paths.
+const MaxAttachResponse = 32 << 20 // 32 MiB
 
 // AttachResponder answers an inbound blob request; an empty response means
 // "don't have it".
