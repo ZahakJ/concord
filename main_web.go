@@ -15,9 +15,12 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"sync"
 	"syscall"
+	"time"
 )
 
 //go:embed all:frontend/dist
@@ -46,11 +49,31 @@ func main() {
 		_ = httpSrv.Close()
 	}()
 
-	fmt.Printf("Concord is running — open http://%s in your browser\n", addr)
+	url := "http://" + addr
+	fmt.Printf("Concord is running — %s\n", url)
+	if os.Getenv("CONCORD_NO_OPEN") == "" {
+		go openBrowser(url)
+	}
 	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintln(os.Stderr, "concord:", err)
 		os.Exit(1)
 	}
+}
+
+// openBrowser opens the app in the default browser (best-effort) so running
+// the binary is all a first-time user has to do. Skipped via CONCORD_NO_OPEN=1.
+func openBrowser(url string) {
+	time.Sleep(300 * time.Millisecond) // let the listener come up
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	_ = cmd.Start()
 }
 
 // webServer bridges HTTP to the transport-agnostic bridge and fans out events

@@ -8,7 +8,7 @@ GUI_TAGS := wails desktop production webkit2_41
 N ?= 2
 
 .PHONY: gui gui-dev web cli rendezvous frontend test race fmt clean \
-        peers rendezvous-run dev-clean help
+        peers rendezvous-run dev-clean help release
 
 frontend:
 	cd frontend && npm install && npm run build
@@ -27,6 +27,18 @@ gui-dev:
 web: frontend
 	go build -o bin/concord-web .
 	@echo "built bin/concord-web — run it, then open http://127.0.0.1:8787"
+
+# Self-contained release binaries (UI embedded, pure Go, no dependencies).
+# Friends download ONE file for their OS, run it, and the browser opens.
+# Upload the contents of dist-release/ to a GitHub Release.
+release: frontend
+	rm -rf dist-release && mkdir -p dist-release
+	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist-release/concord-linux-amd64 .
+	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist-release/concord-linux-arm64 .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o dist-release/concord-macos-arm64 .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist-release/concord-macos-intel .
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist-release/concord-windows.exe .
+	@echo && echo "Release binaries in dist-release/:" && ls -lh dist-release/
 
 cli:
 	go build -o bin/concord ./cmd/concord

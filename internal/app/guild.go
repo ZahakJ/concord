@@ -24,13 +24,16 @@ import (
 // conflict resolution. Any-member invites and staged-commit conflict handling
 // are a later refinement.
 
-// inviteCode is the out-of-band string a guild owner shares. It carries enough
-// for a joiner to locate the owner and name the guild being joined.
+// inviteCode is the out-of-band string a guild owner shares. It carries
+// everything a joiner needs — the guild, the owner's dialable addresses, and
+// the owner's rendezvous/bootstrap nodes — so pasting one code fully
+// configures a fresh install (no separate "server address" step).
 type inviteCode struct {
 	GuildID   string   `json:"g"`
 	GuildName string   `json:"n"`
-	OwnerID   string   `json:"p"` // owner libp2p peer ID
-	OwnerAddr []string `json:"a"` // owner dialable multiaddrs
+	OwnerID   string   `json:"p"`           // owner libp2p peer ID
+	OwnerAddr []string `json:"a"`           // owner dialable multiaddrs
+	Bootstrap []string `json:"b,omitempty"` // rendezvous/relay multiaddrs
 }
 
 // inviteRequest is sent by a joiner over the invite stream.
@@ -187,6 +190,9 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 		GuildName: g.Name,
 		OwnerID:   ai.ID.String(),
 		OwnerAddr: addrs,
+		// Embed our rendezvous nodes so the joiner is configured by the code
+		// alone — one paste connects them to the same network.
+		Bootstrap: LoadNetConfig(s.dataDir).Bootstrap,
 	}
 	raw, err := json.Marshal(code)
 	if err != nil {
@@ -205,6 +211,13 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	var ic inviteCode
 	if err := json.Unmarshal(raw, &ic); err != nil {
 		return domain.Guild{}, fmt.Errorf("app: bad invite code: %w", err)
+	}
+
+	// Adopt any rendezvous nodes carried by the invite: persist them for future
+	// restarts (DHT bootstrap) and connect to them right now so relayed dials
+	// to a NAT'd owner can resolve during this session.
+	if len(ic.Bootstrap) > 0 {
+		s.adoptBootstrap(ic.Bootstrap)
 	}
 
 	owner, err := ownerAddrInfo(ic)
@@ -699,6 +712,31 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 		return // duplicate (gossip re-delivery or already synced): stay silent
 	}
 	s.emitMessage(m)
+}
+
+// adoptBootstrap merges invite-carried rendezvous addrs into the saved network
+// config and dials them immediately (best-effort).
+func (s *Service) adoptBootstrap(addrs []string) {
+	existing := LoadNetConfig(s.dataDir).Bootstrap
+	seen := map[string]bool{}
+	for _, a := range existing {
+		seen[a] = true
+	}
+	merged := existing
+	for _, a := range addrs {
+		if a = strings.TrimSpace(a); a != "" && !seen[a] {
+			merged = append(merged, a)
+			seen[a] = true
+		}
+	}
+	_ = SaveNetConfig(s.dataDir, NetConfig{Bootstrap: merged})
+
+	if infos, err := parseBootstrapPeers(addrs); err == nil {
+		for _, pi := range infos {
+			pi := pi
+			go func() { _ = s.host.Connect(s.ctx, pi) }()
+		}
+	}
 }
 
 func ownerAddrInfo(ic inviteCode) (peer.AddrInfo, error) {

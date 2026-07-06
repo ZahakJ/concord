@@ -26,7 +26,8 @@ import (
 // presents one UI-agnostic API. Both the headless CLI and the Wails GUI drive
 // Concord exclusively through a Service.
 type Service struct {
-	ctx context.Context
+	ctx     context.Context
+	dataDir string
 
 	id    *identity.Identity
 	host  *cnet.Host
@@ -145,6 +146,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 	s := &Service{
 		ctx:            ctx,
+		dataDir:        cfg.DataDir,
 		id:             id,
 		host:           host,
 		ps:             ps,
