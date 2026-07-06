@@ -150,6 +150,31 @@ member couldn't sign after a restart. The patch adds no cryptographic logic and
 the library's own test suite (including RFC 9420 interop vectors) passes against
 the patched copy. It's intended to be contributed upstream.
 
+## Play with friends over the internet
+
+On the same Wi-Fi, peers find each other automatically (mDNS) — nothing to set
+up. To play with friends on **different networks**, one person hosts a tiny
+rendezvous node (it only relays already-encrypted traffic; it never sees your
+messages). It's a one-time, ~3-command setup:
+
+**1. One friend deploys the rendezvous** (needs a free [fly.io](https://fly.io) account):
+
+```sh
+fly launch --no-deploy -c infra/rendezvous/fly.toml   # pick an app name
+fly secrets set CONCORD_RELAY_SEED=$(openssl rand -hex 32) \
+                CONCORD_PUBLIC_HOST=<your-app-name>.fly.dev
+fly deploy -c infra/rendezvous/fly.toml
+fly logs        # copy the ">>> SHARE THIS ADDRESS <<<" line
+```
+
+**2. Everyone pastes that address** on the Concord login screen under
+“Connect with friends”, then unlocks. That's it — you're all on the same
+network now.
+
+**3. Create a guild, hit Invite, share the code**, friends paste it into “Join”.
+
+(A native mobile app — roadmap #14 — will make this even more turnkey.)
+
 ## Roadmap
 
 Concord has the core of a secure Discord alternative. To reach parity, in rough
