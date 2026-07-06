@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 
 	"github.com/thomas-vilte/mls-go/ciphersuite"
@@ -238,6 +239,12 @@ func writeFileAtomic(path string, data []byte) error {
 }
 
 func syncDir(dir string) error {
+	// Concord patch: Windows does not support fsync on a directory handle
+	// (it returns "Access is denied"), and it isn't needed there — the temp
+	// file was synced and atomically renamed. Skip the directory sync.
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	f, err := os.Open(dir) //nolint:gosec // dir is constructed from the library's own base directory, not user input
 	if err != nil {
 		return fmt.Errorf("opening directory for sync: %w", err)
