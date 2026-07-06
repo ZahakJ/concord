@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/zahak/concord/internal/domain"
 )
@@ -240,5 +241,168 @@ func TestSaveMessageIdempotent(t *testing.T) {
 	msgs, _ := s.Messages("chan-1", 0)
 	if len(msgs) != 1 {
 		t.Fatalf("duplicate message stored: got %d, want 1", len(msgs))
+	}
+}
+
+func TestProfileRoundTrip(t *testing.T) {
+	s, _ := openTestStore(t)
+	p := ProfileRow{Fingerprint: "fpr-1", Name: "euclid", Status: "hi", Emoji: "🌀", Color: "#123456"}
+	if err := s.SaveProfile(p); err != nil {
+		t.Fatalf("SaveProfile: %v", err)
+	}
+	// Upsert overwrites.
+	p.Name = "euclid2"
+	if err := s.SaveProfile(p); err != nil {
+		t.Fatalf("SaveProfile (update): %v", err)
+	}
+	rows, err := s.Profiles()
+	if err != nil {
+		t.Fatalf("Profiles: %v", err)
+	}
+	if len(rows) != 1 || rows[0].Name != "euclid2" || rows[0].Emoji != "🌀" {
+		t.Fatalf("profile not persisted correctly: %+v", rows)
+	}
+}
+
+func TestCommitLog(t *testing.T) {
+	s, _ := openTestStore(t)
+	g1, g2 := []byte("group-1"), []byte("group-2")
+
+	for _, e := range []uint64{3, 1, 2} { // insert out of order; reads must sort
+		if err := s.SaveCommit(g1, e, []byte{byte(e)}); err != nil {
+			t.Fatalf("SaveCommit: %v", err)
+		}
+	}
+	if err := s.SaveCommit(g1, 2, []byte{99}); err != nil { // duplicate epoch: no-op
+		t.Fatalf("SaveCommit (dup): %v", err)
+	}
+	if err := s.SaveCommit(g2, 1, []byte{42}); err != nil {
+		t.Fatalf("SaveCommit (other group): %v", err)
+	}
+
+	rows, err := s.CommitsAfter(g1, 1)
+	if err != nil {
+		t.Fatalf("CommitsAfter: %v", err)
+	}
+	if len(rows) != 2 || rows[0].Epoch != 2 || rows[1].Epoch != 3 {
+		t.Fatalf("wrong commits: %+v", rows)
+	}
+	if rows[0].Commit[0] != 2 {
+		t.Fatal("duplicate SaveCommit overwrote the original commit bytes")
+	}
+}
+
+func TestChangedSinceServesStateUpdates(t *testing.T) {
+	s, _ := openTestStore(t)
+	m, _ := domain.NewMessage("chan-1", []byte("alice"), "hello")
+	if _, err := s.SaveMessage(m); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+	cursor, err := s.LatestTimestamp("chan-1")
+	if err != nil || cursor != m.Sent.UnixNano() {
+		t.Fatalf("LatestTimestamp = %d, %v; want %d", cursor, err, m.Sent.UnixNano())
+	}
+	// Nothing changed since the cursor.
+	if got, _ := s.MessagesChangedSince("chan-1", cursor, 0); len(got) != 0 {
+		t.Fatalf("expected no changes, got %d", len(got))
+	}
+
+	// A reaction touches the message: it must move the cursor and be served.
+	if _, err := s.ToggleReaction(m.ID, "fpr-bob", "👍"); err != nil {
+		t.Fatalf("ToggleReaction: %v", err)
+	}
+	newCursor, _ := s.LatestTimestamp("chan-1")
+	if newCursor <= cursor {
+		t.Fatalf("cursor did not advance after reaction: %d <= %d", newCursor, cursor)
+	}
+	got, err := s.MessagesChangedSince("chan-1", cursor, 0)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("changed-since after reaction: %v, %d rows", err, len(got))
+	}
+	if len(got[0].Reactions["👍"]) != 1 {
+		t.Fatalf("reaction not carried: %+v", got[0].Reactions)
+	}
+	if got[0].Updated.IsZero() {
+		t.Fatal("Updated not populated on served row")
+	}
+
+	// A delete tombstone is served too, with blank content.
+	if _, ok, err := s.MarkDeleted(m.ID, []byte("alice")); err != nil || !ok {
+		t.Fatalf("MarkDeleted: %v %v", ok, err)
+	}
+	got, _ = s.MessagesChangedSince("chan-1", newCursor, 0)
+	if len(got) != 1 || !got[0].Deleted || got[0].Content != "" {
+		t.Fatalf("tombstone not served correctly: %+v", got)
+	}
+}
+
+func TestUpsertSyncedMessage(t *testing.T) {
+	s, _ := openTestStore(t)
+	const self = "fpr-self"
+
+	// Unknown message: inserted as-is, including state flags and reactions.
+	remote, _ := domain.NewMessage("chan-1", []byte("alice"), "from-away")
+	remote.Edited = true
+	remote.Updated = remote.Sent.Add(time.Minute)
+	remote.Reactions = map[string][]string{"👍": {"fpr-bob", self}}
+	changed, err := s.UpsertSyncedMessage(remote, self)
+	if err != nil || !changed {
+		t.Fatalf("insert: changed=%v err=%v", changed, err)
+	}
+	got, ok, _ := s.MessageByID(remote.ID)
+	if !ok || got.Content != "from-away" || !got.Edited {
+		t.Fatalf("inserted row wrong: %+v", got)
+	}
+	// The remote's claim about OUR reaction must not be adopted.
+	if len(got.Reactions["👍"]) != 1 || got.Reactions["👍"][0] != "fpr-bob" {
+		t.Fatalf("self reaction adopted from remote: %+v", got.Reactions)
+	}
+
+	// Local message with our own reaction; a fresher remote snapshot replaces
+	// other peers' reactions but leaves ours alone.
+	local, _ := domain.NewMessage("chan-1", []byte("alice"), "hello")
+	if _, err := s.SaveMessage(local); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+	if _, err := s.ToggleReaction(local.ID, self, "🔥"); err != nil {
+		t.Fatalf("ToggleReaction: %v", err)
+	}
+	snap := local
+	snap.Updated = time.Now().Add(time.Hour) // remote is fresher
+	snap.Reactions = map[string][]string{"👍": {"fpr-bob"}}
+	if _, err := s.UpsertSyncedMessage(snap, self); err != nil {
+		t.Fatalf("upsert reactions: %v", err)
+	}
+	got, _, _ = s.MessageByID(local.ID)
+	if len(got.Reactions["🔥"]) != 1 || got.Reactions["🔥"][0] != self {
+		t.Fatalf("own reaction lost: %+v", got.Reactions)
+	}
+	if len(got.Reactions["👍"]) != 1 || got.Reactions["👍"][0] != "fpr-bob" {
+		t.Fatalf("remote reaction not adopted: %+v", got.Reactions)
+	}
+
+	// A stale remote (older Updated) must not clobber newer local state.
+	if ok, err := s.UpdateContent(local.ID, []byte("alice"), "hello-edited"); err != nil || !ok {
+		t.Fatalf("UpdateContent: %v %v", ok, err)
+	}
+	stale := local
+	stale.Content = "hello" // pre-edit copy, zero Updated
+	if _, err := s.UpsertSyncedMessage(stale, self); err != nil {
+		t.Fatalf("stale upsert: %v", err)
+	}
+	got, _, _ = s.MessageByID(local.ID)
+	if got.Content != "hello-edited" {
+		t.Fatalf("stale remote clobbered local edit: %q", got.Content)
+	}
+
+	// Tombstones always win, regardless of timestamps.
+	dead := local
+	dead.Deleted = true
+	if changed, err := s.UpsertSyncedMessage(dead, self); err != nil || !changed {
+		t.Fatalf("tombstone upsert: changed=%v err=%v", changed, err)
+	}
+	got, _, _ = s.MessageByID(local.ID)
+	if !got.Deleted {
+		t.Fatal("tombstone not applied")
 	}
 }

@@ -214,3 +214,56 @@ func TestOutsiderCannotDecrypt(t *testing.T) {
 		t.Fatal("outsider was able to decrypt group ciphertext")
 	}
 }
+
+// TestEpochAdvancesAcrossCommits pins the epoch bookkeeping that commit
+// backfill relies on: every commit advances the epoch by exactly one, and
+// creator, applier, and welcomed joiner all agree on the number.
+func TestEpochAdvancesAcrossCommits(t *testing.T) {
+	ctx := context.Background()
+	alice, _ := engineForNewMember(t)
+	bob, _ := engineForNewMember(t)
+	carol, _ := engineForNewMember(t)
+
+	gid, err := alice.CreateGroup(ctx)
+	if err != nil {
+		t.Fatalf("CreateGroup: %v", err)
+	}
+	e0, err := alice.Epoch(ctx, gid)
+	if err != nil {
+		t.Fatalf("Epoch: %v", err)
+	}
+
+	bobKP, _ := bob.KeyPackage(ctx)
+	_, welcome, err := alice.Invite(ctx, gid, bobKP)
+	if err != nil {
+		t.Fatalf("Invite bob: %v", err)
+	}
+	if _, err := bob.Join(ctx, welcome); err != nil {
+		t.Fatalf("bob Join: %v", err)
+	}
+	e1, _ := alice.Epoch(ctx, gid)
+	if e1 != e0+1 {
+		t.Fatalf("inviter epoch after commit: got %d, want %d", e1, e0+1)
+	}
+	if be, _ := bob.Epoch(ctx, gid); be != e1 {
+		t.Fatalf("joiner epoch: got %d, want %d", be, e1)
+	}
+
+	carolKP, _ := carol.KeyPackage(ctx)
+	commit, welcome2, err := alice.Invite(ctx, gid, carolKP)
+	if err != nil {
+		t.Fatalf("Invite carol: %v", err)
+	}
+	if err := bob.ApplyCommit(ctx, gid, commit); err != nil {
+		t.Fatalf("bob ApplyCommit: %v", err)
+	}
+	if _, err := carol.Join(ctx, welcome2); err != nil {
+		t.Fatalf("carol Join: %v", err)
+	}
+	e2, _ := alice.Epoch(ctx, gid)
+	be, _ := bob.Epoch(ctx, gid)
+	ce, _ := carol.Epoch(ctx, gid)
+	if e2 != e1+1 || be != e2 || ce != e2 {
+		t.Fatalf("epochs diverged: alice=%d bob=%d carol=%d (want all %d)", e2, be, ce, e1+1)
+	}
+}

@@ -50,6 +50,11 @@ type Message struct {
 	Pinned    bool      `json:"pinned"`
 	Sent      time.Time `json:"sent"`
 
+	// Updated is when the message's state (edit/delete/pin/reactions) last
+	// changed, zero if never. Carried by history sync so receivers can prefer
+	// the newer of two diverged states; not set on live messages.
+	Updated time.Time `json:"updated"`
+
 	// Reactions aggregates emoji -> fingerprints who reacted. Populated on load;
 	// never sent over the wire (reactions travel as their own "reaction" action).
 	Reactions map[string][]string `json:"reactions,omitempty"`

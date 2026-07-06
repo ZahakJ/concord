@@ -658,6 +658,13 @@
         </div>
       </header>
 
+      {#if activeGuild?.outOfSync}
+        <div class="oos-banner">
+          ⚠ Out of sync — this server moved on while you were away and no online member could
+          bridge the gap. Ask the owner to re-invite you (your history stays).
+        </div>
+      {/if}
+
       {#if voice && voice.channelId === activeChannelId}
         <div class="voice-panel">
           <div class="voice-tile" class:speaking={voiceSpeaking.includes("self")}>
@@ -1219,6 +1226,13 @@
   }
   .pin-active {
     color: var(--accent-hover);
+  }
+  .oos-banner {
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--danger) 14%, var(--bg-elevated));
+    color: var(--text);
+    padding: 8px 18px;
+    font-size: 13px;
   }
   .pins-panel,
   .search-panel {

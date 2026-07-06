@@ -38,18 +38,25 @@ type inviteCode struct {
 	Bootstrap []string `json:"b,omitempty"` // rendezvous/relay multiaddrs
 }
 
-// inviteRequest is sent by a joiner over the invite stream.
+// inviteRequest is sent by a joiner over the invite stream. It carries the
+// joiner's profile so the owner learns their display name over this reliable
+// stream — a gossip announce right after joining races mesh formation and can
+// be silently lost.
 type inviteRequest struct {
-	GuildID    string `json:"guildId"`
-	KeyPackage []byte `json:"keyPackage"`
-	Credential []byte `json:"credential"` // joiner's account key, for retry recovery
+	GuildID    string  `json:"guildId"`
+	KeyPackage []byte  `json:"keyPackage"`
+	Credential []byte  `json:"credential"` // joiner's account key, for retry recovery
+	Profile    Profile `json:"profile"`
 }
 
-// inviteResponse is returned by the owner over the invite stream.
+// inviteResponse is returned by the owner over the invite stream. Profiles is
+// the roster of member profiles the owner knows (including its own), keyed by
+// fingerprint, so the joiner shows real names immediately.
 type inviteResponse struct {
-	Welcome []byte       `json:"welcome"`
-	Guild   domain.Guild `json:"guild"`
-	Error   string       `json:"error,omitempty"`
+	Welcome  []byte             `json:"welcome"`
+	Guild    domain.Guild       `json:"guild"`
+	Profiles map[string]Profile `json:"profiles,omitempty"`
+	Error    string             `json:"error,omitempty"`
 }
 
 // CreateGuild creates a new guild (a fresh MLS group) owned by this peer,
@@ -191,6 +198,7 @@ func (s *Service) RemoveMember(guildID string, memberCredential []byte) error {
 	if err != nil {
 		return err
 	}
+	s.logCommit(g.GroupID, commit)
 	return s.ps.Publish(s.ctx, domain.ControlTopicID(g.GroupID), commit)
 }
 
@@ -262,7 +270,10 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	if err != nil {
 		return domain.Guild{}, fmt.Errorf("app: build key package: %w", err)
 	}
-	reqBytes, _ := json.Marshal(inviteRequest{GuildID: ic.GuildID, KeyPackage: kp, Credential: s.PublicKey()})
+	reqBytes, _ := json.Marshal(inviteRequest{
+		GuildID: ic.GuildID, KeyPackage: kp, Credential: s.PublicKey(),
+		Profile: s.SelfProfile(),
+	})
 
 	// Generous timeout: a relayed/hole-punched dial to a NAT'd owner can take a
 	// few seconds to establish.
@@ -288,8 +299,16 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	}
 	g := resp.Guild
 	s.trackGuild(&g)
+	// Adopt the member roster carried by the response so real names show
+	// immediately, without waiting for gossip announces.
+	for fpr, p := range resp.Profiles {
+		s.learnProfile(fpr, p)
+	}
 	// Keep the owner connection alive so presence and gossipsub keep flowing.
 	s.host.Protect(owner.ID)
+	// Pull channel history from the owner right away (the peer-connect sync
+	// trigger fired before we joined, so it skipped this guild).
+	go s.syncGuildFromPeer(g.ID, owner.ID)
 	// Tell existing members our display name (and learn theirs in reply).
 	s.announceProfile(g.ID)
 	// Announce arrival with a system message in the default channel.
@@ -323,6 +342,7 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 		// they get a fresh Welcome at the current epoch.
 		if len(req.Credential) > 0 {
 			if rmCommit, rmErr := s.mls.Remove(ctx, g.GroupID, req.Credential); rmErr == nil {
+				s.logCommit(g.GroupID, rmCommit)
 				_ = s.ps.Publish(ctx, domain.ControlTopicID(g.GroupID), rmCommit)
 				commit, welcome, err = s.mls.Invite(ctx, g.GroupID, req.KeyPackage)
 			}
@@ -331,14 +351,47 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 			return json.Marshal(inviteResponse{Error: "invite failed"})
 		}
 	}
+	s.logCommit(g.GroupID, commit)
 	// Advance existing members (if any) to the new epoch.
 	if err := s.ps.Publish(ctx, domain.ControlTopicID(g.GroupID), commit); err != nil {
 		return nil, err
 	}
+	// Learn the joiner's display name over this reliable stream (their gossip
+	// announce may be lost while their mesh warms up), and hand back the member
+	// roster so they show real names immediately.
+	if len(req.Credential) > 0 {
+		s.learnProfile(identity.FingerprintOf(req.Credential), req.Profile)
+	}
 	// Keep this member reachable (esp. over a relay) and refresh the roster.
 	s.host.Protect(from)
 	s.emitGuildUpdate()
-	return json.Marshal(inviteResponse{Welcome: welcome, Guild: *g})
+	return json.Marshal(inviteResponse{Welcome: welcome, Guild: *g, Profiles: s.profileRoster()})
+}
+
+// profileRoster snapshots every profile this peer knows, plus its own, keyed by
+// fingerprint. Shared over invite and sync streams so names converge without
+// depending on gossip timing.
+func (s *Service) profileRoster() map[string]Profile {
+	s.mu.RLock()
+	out := make(map[string]Profile, len(s.profiles)+1)
+	for fpr, p := range s.profiles {
+		out[fpr] = p
+	}
+	s.mu.RUnlock()
+	out[s.id.Fingerprint()] = s.SelfProfile()
+	return out
+}
+
+// logCommit records a commit this peer just created or applied, keyed by the
+// epoch it produced (the group's current epoch, since both paths advance the
+// local state in place). The log is what lets reconnecting members bridge
+// missed membership changes — see sync.go.
+func (s *Service) logCommit(groupID, commit []byte) {
+	epoch, err := s.mls.Epoch(s.ctx, groupID)
+	if err != nil {
+		return
+	}
+	_ = s.store.SaveCommit(groupID, epoch, commit)
 }
 
 // SendMessage encrypts and publishes a normal chat message to a channel.
@@ -497,10 +550,16 @@ func (s *Service) trackGuild(g *domain.Guild) {
 	guildID := g.ID
 
 	// Control topic: apply commits from the owner as membership changes, then
-	// refresh the UI so new/removed members show up live.
+	// refresh the UI so new/removed members show up live. Applied commits are
+	// logged so this peer can serve them to members that missed them; a failed
+	// apply means WE missed one (epoch gap), so pull the gap via history sync
+	// instead of silently falling out of the ratchet.
 	_ = s.ps.Subscribe(s.ctx, domain.ControlTopicID(groupID), func(_ peer.ID, data []byte) {
 		if err := s.mls.ApplyCommit(s.ctx, groupID, data); err == nil {
+			s.logCommit(groupID, data)
 			s.emitGuildUpdate()
+		} else {
+			go s.syncGuildFromAnyPeer(guildID)
 		}
 	})
 
@@ -712,22 +771,11 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		s.emitGuildUpdate()
 	case "profile":
-		if m.Fingerprint == "" {
-			return
-		}
-		if len(m.Avatar) > maxAvatarBytes || (m.Avatar != "" && !strings.HasPrefix(m.Avatar, "data:image/")) {
-			m.Avatar = "" // reject oversized or non-image avatars from peers
-		}
-		s.mu.Lock()
-		_, known := s.profiles[m.Fingerprint]
-		s.profiles[m.Fingerprint] = Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar}
-		s.mu.Unlock()
 		// First time we see this member: reply with our own profile so the
 		// newcomer learns us too (bounded — only on genuinely new members).
-		if !known && m.Fingerprint != s.id.Fingerprint() {
+		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar}) {
 			s.announceProfile(guildID)
 		}
-		s.emitGuildUpdate()
 	}
 }
 

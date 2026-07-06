@@ -49,6 +49,10 @@ type Service struct {
 	onGuildUpdate []func()
 
 	profiles map[string]Profile // fingerprint -> profile, learned from peers
+
+	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
+	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
+	outOfSync map[string]bool
 }
 
 // Profile is a member's self-asserted presentation: display name, a short
@@ -156,6 +160,16 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		channelToGuild: map[string]string{},
 		voiceRooms:     map[string]context.CancelFunc{},
 		profiles:       map[string]Profile{},
+		outOfSync:      map[string]bool{},
+	}
+
+	// Restore learned member profiles so names survive restarts (they are also
+	// repaired by invite handshakes and history sync, but this avoids a window
+	// of fingerprint-only names right after unlock).
+	if rows, err := st.Profiles(); err == nil {
+		for _, r := range rows {
+			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar}
+		}
 	}
 
 	// Owner side of the join handshake.
@@ -181,15 +195,18 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		go func() {
 			time.Sleep(1500 * time.Millisecond)
 			s.announceProfileAll()
-			// Pull any history we missed while apart from this peer.
-			s.syncFromPeer(p)
+			// Pull any history we missed while apart from this peer; one retry
+			// covers a stream that failed while the connection settled.
+			if !s.syncFromPeer(p) {
+				time.Sleep(10 * time.Second)
+				s.syncFromPeer(p)
+			}
 		}()
 	})
 
 	// Restore guilds we already belong to and re-subscribe to their topics.
-	// Note: MLS ratchet state persistence across restarts is a Phase 5 item;
-	// today a restart re-subscribes topics but rejoining active groups needs
-	// the persisted MLS store (WithStorage), tracked as follow-up.
+	// MLS group state was reloaded from disk above, so a restarted member can
+	// immediately decrypt and send at the epoch it left off.
 	guilds, err := st.Guilds()
 	if err != nil {
 		s.Close()
@@ -325,6 +342,55 @@ func (s *Service) ProfileOf(fingerprint string) Profile {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.profiles[fingerprint]
+}
+
+// learnProfile validates, records, persists, and surfaces a peer's self-asserted
+// profile. It is the single sink for every way a profile can arrive (gossip
+// announce, invite handshake, history sync). Reports whether the fingerprint
+// was previously unknown.
+func (s *Service) learnProfile(fingerprint string, p Profile) bool {
+	if fingerprint == "" || fingerprint == s.id.Fingerprint() {
+		return false
+	}
+	if len(p.Avatar) > maxAvatarBytes || (p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/")) {
+		p.Avatar = "" // reject oversized or non-image avatars from peers
+	}
+	s.mu.Lock()
+	prev, known := s.profiles[fingerprint]
+	s.profiles[fingerprint] = p
+	s.mu.Unlock()
+	if known && prev == p {
+		return false // nothing new; skip the store write and UI refresh
+	}
+	_ = s.store.SaveProfile(store.ProfileRow{
+		Fingerprint: fingerprint,
+		Name:        p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
+	})
+	s.emitGuildUpdate()
+	return !known
+}
+
+// OutOfSync reports whether a guild is stranded at an old MLS epoch that no
+// reachable peer's commit log could bridge (the member needs a re-invite).
+func (s *Service) OutOfSync(guildID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.outOfSync[guildID]
+}
+
+// setOutOfSync flips a guild's stranded flag, refreshing the UI on transitions.
+func (s *Service) setOutOfSync(guildID string, stranded bool) {
+	s.mu.Lock()
+	was := s.outOfSync[guildID]
+	if stranded {
+		s.outOfSync[guildID] = true
+	} else {
+		delete(s.outOfSync, guildID)
+	}
+	s.mu.Unlock()
+	if was != stranded {
+		s.emitGuildUpdate()
+	}
 }
 
 // ProfileName returns a peer's learned display name for a fingerprint, or "".

@@ -105,6 +105,9 @@ type GuildView struct {
 	Name     string        `json:"name"`
 	IsOwner  bool          `json:"isOwner"`
 	Channels []ChannelView `json:"channels"`
+	// OutOfSync: this member is stranded at an old MLS epoch that no reachable
+	// peer could bridge; new messages can't be decrypted until re-invited.
+	OutOfSync bool `json:"outOfSync,omitempty"`
 }
 
 type MessageView struct {
@@ -619,7 +622,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	for _, c := range g.Channels {
 		channels = append(channels, ChannelView{ID: c.ID, Name: c.Name})
 	}
-	return GuildView{ID: g.ID, Name: g.Name, IsOwner: svc.IsOwner(g.ID), Channels: channels}
+	return GuildView{ID: g.ID, Name: g.Name, IsOwner: svc.IsOwner(g.ID), Channels: channels, OutOfSync: svc.OutOfSync(g.ID)}
 }
 
 func messageView(m domain.Message) MessageView {

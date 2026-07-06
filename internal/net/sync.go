@@ -10,11 +10,15 @@ import (
 )
 
 // syncProtocol carries history catch-up: a peer that was offline asks a
-// connected peer for messages it missed. Like the invite protocol, this layer
-// is semantics-free — one length-framed request, one length-framed response;
-// the app layer defines the JSON shapes and encrypts the payload (MLS) so only
+// connected peer for what it missed. Like the invite protocol, this layer is
+// semantics-free — one length-framed request, one length-framed response; the
+// app layer defines the JSON shapes and encrypts the payload (MLS) so only
 // guild members can read what comes back.
-const syncProtocol protocol.ID = "/concord/sync/1.0.0"
+//
+// v2 added MLS commit backfill plus guild/profile/message-state snapshots and
+// is not wire-compatible with v1, so the ID was bumped: a v1 peer's request
+// simply fails protocol negotiation and it falls back to live gossip only.
+const syncProtocol protocol.ID = "/concord/sync/2.0.0"
 
 // SyncResponder answers an inbound history request with response bytes.
 type SyncResponder func(ctx context.Context, from peer.ID, request []byte) (response []byte, err error)

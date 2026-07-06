@@ -105,6 +105,22 @@ CREATE TABLE IF NOT EXISTS reactions (
   emoji       TEXT NOT NULL,
   PRIMARY KEY (message_id, fingerprint, emoji)
 );
+CREATE TABLE IF NOT EXISTS profiles (
+  fingerprint TEXT PRIMARY KEY,
+  name        TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT '',
+  emoji       TEXT NOT NULL DEFAULT '',
+  color       TEXT NOT NULL DEFAULT '',
+  avatar      TEXT NOT NULL DEFAULT '',
+  updated     INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mls_commits (
+  group_id BLOB NOT NULL,
+  epoch    INTEGER NOT NULL,
+  commit_b BLOB NOT NULL,
+  created  INTEGER NOT NULL,
+  PRIMARY KEY (group_id, epoch)
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -118,6 +134,7 @@ CREATE TABLE IF NOT EXISTS reactions (
 		`ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE messages ADD COLUMN updated INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -349,10 +366,14 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	return n > 0, nil
 }
 
-// LatestTimestamp returns the newest message time (UnixNano) in a channel, or 0.
+// LatestTimestamp returns the newest change time (UnixNano) in a channel — the
+// max over message send times and later state updates (edit/delete/pin/react) —
+// or 0. It is the cursor for history sync.
 func (s *Store) LatestTimestamp(channelID string) (int64, error) {
 	var t sql.NullInt64
-	err := s.db.QueryRow(`SELECT MAX(sent) FROM messages WHERE channel_id = ?`, channelID).Scan(&t)
+	err := s.db.QueryRow(
+		`SELECT MAX(COALESCE(MAX(sent),0), COALESCE(MAX(updated),0))
+		 FROM messages WHERE channel_id = ?`, channelID).Scan(&t)
 	if err != nil {
 		return 0, err
 	}
@@ -479,6 +500,7 @@ func (s *Store) ToggleReaction(messageID, fingerprint, emoji string) (bool, erro
 		_, derr := s.db.Exec(
 			`DELETE FROM reactions WHERE message_id=? AND fingerprint=? AND emoji=?`,
 			messageID, fingerprint, emoji)
+		s.touchMessage(messageID)
 		return false, derr
 	}
 	if err != sql.ErrNoRows {
@@ -487,7 +509,14 @@ func (s *Store) ToggleReaction(messageID, fingerprint, emoji string) (bool, erro
 	_, ierr := s.db.Exec(
 		`INSERT INTO reactions (message_id, fingerprint, emoji) VALUES (?, ?, ?)`,
 		messageID, fingerprint, emoji)
+	s.touchMessage(messageID)
 	return true, ierr
+}
+
+// touchMessage bumps a message's updated time so history sync serves its new
+// state (reactions live in their own table but ride along with the message).
+func (s *Store) touchMessage(id string) {
+	_, _ = s.db.Exec(`UPDATE messages SET updated = ? WHERE id = ?`, time.Now().UnixNano(), id)
 }
 
 // reactionsForChannel loads all reactions for a channel's messages, grouped as
@@ -560,7 +589,7 @@ func (s *Store) TogglePinned(id string) (bool, error) {
 		return false, err
 	}
 	newVal := 1 - pinned
-	if _, err := s.db.Exec(`UPDATE messages SET pinned = ? WHERE id = ?`, newVal, id); err != nil {
+	if _, err := s.db.Exec(`UPDATE messages SET pinned = ?, updated = ? WHERE id = ?`, newVal, time.Now().UnixNano(), id); err != nil {
 		return false, err
 	}
 	return newVal == 1, nil
@@ -630,8 +659,8 @@ func (s *Store) UpdateContent(id string, bySender []byte, newContent string) (bo
 	}
 	sealed := secretbox.Seal(nil, []byte(newContent), &nonce, &s.key)
 	if _, err := s.db.Exec(
-		`UPDATE messages SET content_enc = ?, nonce = ?, edited = 1 WHERE id = ?`,
-		sealed, nonce[:], id,
+		`UPDATE messages SET content_enc = ?, nonce = ?, edited = 1, updated = ? WHERE id = ?`,
+		sealed, nonce[:], time.Now().UnixNano(), id,
 	); err != nil {
 		return false, err
 	}
@@ -657,7 +686,7 @@ func (s *Store) MarkDeleted(id string, bySender []byte) (domain.Message, bool, e
 	if len(bySender) == 0 || string(m.Sender) != string(bySender) {
 		return domain.Message{}, false, nil // not the author
 	}
-	if _, err := s.db.Exec(`UPDATE messages SET deleted = 1 WHERE id = ?`, id); err != nil {
+	if _, err := s.db.Exec(`UPDATE messages SET deleted = 1, updated = ? WHERE id = ?`, time.Now().UnixNano(), id); err != nil {
 		return domain.Message{}, false, err
 	}
 	m.ID = id
@@ -691,6 +720,296 @@ func (s *Store) GetSetting(key string) (string, error) {
 		return "", fmt.Errorf("store: get setting: %w", err)
 	}
 	return v, nil
+}
+
+// ProfileRow is a peer's learned profile as persisted (see app.Profile).
+type ProfileRow struct {
+	Fingerprint, Name, Status, Emoji, Color, Avatar string
+}
+
+// SaveProfile upserts a peer's learned profile so display names survive
+// restarts instead of living only in memory.
+func (s *Store) SaveProfile(p ProfileRow) error {
+	_, err := s.db.Exec(
+		`INSERT INTO profiles (fingerprint, name, status, emoji, color, avatar, updated)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(fingerprint) DO UPDATE SET
+		   name=excluded.name, status=excluded.status, emoji=excluded.emoji,
+		   color=excluded.color, avatar=excluded.avatar, updated=excluded.updated`,
+		p.Fingerprint, p.Name, p.Status, p.Emoji, p.Color, p.Avatar, time.Now().UnixNano(),
+	)
+	if err != nil {
+		return fmt.Errorf("store: save profile: %w", err)
+	}
+	return nil
+}
+
+// Profiles returns every learned peer profile.
+func (s *Store) Profiles() ([]ProfileRow, error) {
+	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar FROM profiles`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProfileRow
+	for rows.Next() {
+		var p ProfileRow
+		if err := rows.Scan(&p.Fingerprint, &p.Name, &p.Status, &p.Emoji, &p.Color, &p.Avatar); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// CommitRow is one MLS commit in a group's ordered commit log.
+type CommitRow struct {
+	Epoch  uint64
+	Commit []byte
+}
+
+// SaveCommit records the MLS commit that produced epoch for a group. The log
+// lets reconnecting members replay membership changes they missed (commits must
+// apply gaplessly, so without this a missed commit strands them at an old
+// epoch). Saving the same epoch twice is a no-op.
+func (s *Store) SaveCommit(groupID []byte, epoch uint64, commit []byte) error {
+	_, err := s.db.Exec(
+		`INSERT INTO mls_commits (group_id, epoch, commit_b, created) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(group_id, epoch) DO NOTHING`,
+		groupID, int64(epoch), commit, time.Now().UnixNano(),
+	)
+	if err != nil {
+		return fmt.Errorf("store: save commit: %w", err)
+	}
+	return nil
+}
+
+// CommitsAfter returns a group's logged commits with epoch > afterEpoch, in
+// ascending epoch order.
+func (s *Store) CommitsAfter(groupID []byte, afterEpoch uint64) ([]CommitRow, error) {
+	rows, err := s.db.Query(
+		`SELECT epoch, commit_b FROM mls_commits WHERE group_id = ? AND epoch > ? ORDER BY epoch ASC`,
+		groupID, int64(afterEpoch),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CommitRow
+	for rows.Next() {
+		var r CommitRow
+		var epoch int64
+		if err := rows.Scan(&epoch, &r.Commit); err != nil {
+			return nil, err
+		}
+		r.Epoch = uint64(epoch)
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// MessagesChangedSince returns up to limit channel messages sent OR updated
+// strictly after sinceNano, oldest first, including deleted tombstones (blank
+// content) and per-message reactions. It is the server side of history sync:
+// unlike MessagesSince it also serves state changes (edit/delete/pin/react) to
+// messages older than the cursor.
+func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit int) ([]domain.Message, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.Query(
+		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent, updated
+		 FROM messages WHERE channel_id = ? AND (sent > ? OR updated > ?) AND kind IN ('', 'system')
+		 ORDER BY sent ASC LIMIT ?`, channelID, sinceNano, sinceNano, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []domain.Message
+	for rows.Next() {
+		var m domain.Message
+		var enc, nonceB []byte
+		var sent, updated int64
+		var deleted, edited, pinned int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent, &updated); err != nil {
+			return nil, err
+		}
+		if deleted != 0 {
+			m.Deleted = true // tombstone: content stays blank
+		} else {
+			content, err := s.open(enc, nonceB)
+			if err != nil {
+				continue // skip undecryptable rows rather than abort the sync
+			}
+			m.Content = content
+		}
+		m.Edited = edited != 0
+		m.Pinned = pinned != 0
+		m.Sent = time.Unix(0, sent).UTC()
+		if updated != 0 {
+			m.Updated = time.Unix(0, updated).UTC()
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	reacts, err := s.reactionsForChannel(channelID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Reactions = reacts[out[i].ID]
+	}
+	return out, nil
+}
+
+// UpsertSyncedMessage applies a message received via history sync: it inserts
+// unknown messages and reconciles state (edit/delete/pin/reactions) on known
+// ones. Deletion is one-way (a tombstone always wins); edit/pin state is
+// adopted only when the remote copy changed more recently than ours; reaction
+// rows for fingerprints other than selfFingerprint are replaced by the remote
+// snapshot (own reactions are never touched, so un-synced local toggles
+// survive). Reports whether anything changed.
+func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string) (bool, error) {
+	var curDeleted, curEdited, curPinned int
+	var curUpdated int64
+	err := s.db.QueryRow(
+		`SELECT deleted, edited, pinned, updated FROM messages WHERE id = ?`, m.ID,
+	).Scan(&curDeleted, &curEdited, &curPinned, &curUpdated)
+
+	remoteUpdated := int64(0)
+	if !m.Updated.IsZero() {
+		remoteUpdated = m.Updated.UnixNano()
+	}
+
+	changed := false
+	switch {
+	case err == sql.ErrNoRows:
+		var nonce [nonceSize]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return false, err
+		}
+		sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
+		if _, err := s.db.Exec(
+			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent, updated)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo,
+			boolToInt(m.Deleted), boolToInt(m.Edited), boolToInt(m.Pinned),
+			sealed, nonce[:], m.Sent.UnixNano(), remoteUpdated,
+		); err != nil {
+			return false, fmt.Errorf("store: upsert synced message: %w", err)
+		}
+		changed = true
+	case err != nil:
+		return false, err
+	default:
+		if m.Deleted && curDeleted == 0 {
+			if _, err := s.db.Exec(
+				`UPDATE messages SET deleted = 1, updated = ? WHERE id = ?`, maxInt64(remoteUpdated, curUpdated), m.ID,
+			); err != nil {
+				return false, err
+			}
+			changed = true
+		} else if remoteUpdated > curUpdated && curDeleted == 0 {
+			var nonce [nonceSize]byte
+			if _, err := rand.Read(nonce[:]); err != nil {
+				return false, err
+			}
+			sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
+			if _, err := s.db.Exec(
+				`UPDATE messages SET content_enc = ?, nonce = ?, edited = ?, pinned = ?, updated = ? WHERE id = ?`,
+				sealed, nonce[:], boolToInt(m.Edited), boolToInt(m.Pinned), remoteUpdated, m.ID,
+			); err != nil {
+				return false, err
+			}
+			changed = true
+		}
+	}
+
+	// Reconcile reactions when the remote copy is at least as fresh as ours.
+	if remoteUpdated >= curUpdated {
+		if rc, err := s.replaceReactionsExceptSelf(m.ID, m.Reactions, selfFingerprint); err == nil && rc {
+			changed = true
+		}
+	}
+	return changed, nil
+}
+
+// replaceReactionsExceptSelf makes a message's reaction rows for other peers
+// match the given snapshot, leaving selfFingerprint's rows untouched. Reports
+// whether the stored set actually changed.
+func (s *Store) replaceReactionsExceptSelf(messageID string, snapshot map[string][]string, selfFingerprint string) (bool, error) {
+	want := map[string]bool{} // "fpr\x00emoji" for everyone but self
+	for emoji, fprs := range snapshot {
+		for _, fpr := range fprs {
+			if fpr != selfFingerprint {
+				want[fpr+"\x00"+emoji] = true
+			}
+		}
+	}
+
+	rows, err := s.db.Query(
+		`SELECT fingerprint, emoji FROM reactions WHERE message_id = ? AND fingerprint != ?`,
+		messageID, selfFingerprint)
+	if err != nil {
+		return false, err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var fpr, emoji string
+		if err := rows.Scan(&fpr, &emoji); err != nil {
+			rows.Close()
+			return false, err
+		}
+		have[fpr+"\x00"+emoji] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+
+	changed := false
+	for k := range have {
+		if !want[k] {
+			fpr, emoji, _ := strings.Cut(k, "\x00")
+			if _, err := s.db.Exec(
+				`DELETE FROM reactions WHERE message_id = ? AND fingerprint = ? AND emoji = ?`,
+				messageID, fpr, emoji); err != nil {
+				return false, err
+			}
+			changed = true
+		}
+	}
+	for k := range want {
+		if !have[k] {
+			fpr, emoji, _ := strings.Cut(k, "\x00")
+			if _, err := s.db.Exec(
+				`INSERT INTO reactions (message_id, fingerprint, emoji) VALUES (?, ?, ?)
+				 ON CONFLICT(message_id, fingerprint, emoji) DO NOTHING`,
+				messageID, fpr, emoji); err != nil {
+				return false, err
+			}
+			changed = true
+		}
+	}
+	return changed, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // Close closes the database.

@@ -86,6 +86,12 @@ type Engine interface {
 	// Members lists the credential identities currently in the group.
 	Members(ctx context.Context, gid GroupID) ([][]byte, error)
 
+	// Epoch returns the group's current MLS epoch. Commits advance the epoch by
+	// one and must be applied gaplessly, so comparing epochs tells two members
+	// exactly which commits one of them is missing (the basis of history sync's
+	// commit backfill).
+	Epoch(ctx context.Context, gid GroupID) (uint64, error)
+
 	// Close releases engine resources.
 	Close() error
 }
@@ -207,6 +213,14 @@ func (e *mlsEngine) Members(ctx context.Context, gid GroupID) ([][]byte, error) 
 		out = append(out, m.Identity)
 	}
 	return out, nil
+}
+
+func (e *mlsEngine) Epoch(ctx context.Context, gid GroupID) (uint64, error) {
+	epoch, err := e.c.Epoch(ctx, gid)
+	if err != nil {
+		return 0, fmt.Errorf("mls: epoch: %w", err)
+	}
+	return epoch, nil
 }
 
 func (e *mlsEngine) Close() error { return e.c.Close() }
