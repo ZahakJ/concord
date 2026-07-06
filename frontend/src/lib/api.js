@@ -44,6 +44,8 @@ export const api = {
   createGuild: (name) => call("CreateGuild", name),
   createChannel: (guildID, name) => call("CreateChannel", guildID, name),
   deleteMessage: (channelID, messageID) => call("DeleteMessage", channelID, messageID),
+  editMessage: (channelID, messageID, content) =>
+    call("EditMessage", channelID, messageID, content),
   toggleReaction: (channelID, messageID, emoji) =>
     call("ToggleReaction", channelID, messageID, emoji),
   inviteCode: (guildID) => call("InviteCode", guildID),

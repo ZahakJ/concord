@@ -208,6 +208,26 @@ func TestReactionToggleAndAggregate(t *testing.T) {
 	}
 }
 
+func TestUpdateContentAuthorization(t *testing.T) {
+	s, _ := openTestStore(t)
+	author := []byte("alice")
+	m, _ := domain.NewMessage("chan-1", author, "typo here")
+	_ = s.SaveMessage(m)
+
+	// Non-author can't edit.
+	if ok, err := s.UpdateContent(m.ID, []byte("eve"), "hacked"); err != nil || ok {
+		t.Fatalf("non-author edit: ok=%v err=%v", ok, err)
+	}
+	// Author can; content updates and edited flag set.
+	if ok, err := s.UpdateContent(m.ID, author, "fixed now"); err != nil || !ok {
+		t.Fatalf("author edit: ok=%v err=%v", ok, err)
+	}
+	msgs, _ := s.Messages("chan-1", 0)
+	if msgs[0].Content != "fixed now" || !msgs[0].Edited {
+		t.Fatalf("edit not applied: %+v", msgs[0])
+	}
+}
+
 func TestSaveMessageIdempotent(t *testing.T) {
 	s, _ := openTestStore(t)
 	m, _ := domain.NewMessage("chan-1", []byte("alice"), "hi")

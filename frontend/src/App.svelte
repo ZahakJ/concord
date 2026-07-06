@@ -201,6 +201,24 @@
     }
   }
 
+  let editing = $state(null); // message being edited
+  let editDraft = $state("");
+  function startEdit(m) {
+    editing = m;
+    editDraft = m.content;
+  }
+  async function saveEdit() {
+    const text = editDraft.trim();
+    const m = editing;
+    editing = null;
+    if (!m || !text || text === m.content) return;
+    try {
+      await api.editMessage(m.channelId, m.id, text);
+    } catch (err) {
+      flash(String(err?.message || err));
+    }
+  }
+
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "🎉"];
   async function react(m, emoji) {
     try {
@@ -400,8 +418,21 @@
               </div>
               {#if m.deleted}
                 <div class="body deleted"><em>message deleted</em></div>
+              {:else if editing?.id === m.id}
+                <input
+                  class="edit-input"
+                  bind:value={editDraft}
+                  autofocus
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") saveEdit();
+                    else if (e.key === "Escape") editing = null;
+                  }}
+                  onblur={saveEdit}
+                />
               {:else}
-                <div class="body">{@html renderContent(m.content)}</div>
+                <div class="body">
+                  {@html renderContent(m.content)}{#if m.edited}<span class="edited-tag"> (edited)</span>{/if}
+                </div>
               {/if}
               {#if m.reactions && Object.keys(m.reactions).length}
                 <div class="reactions">
@@ -424,6 +455,7 @@
                 {/each}
                 <button title="Reply" onclick={() => (replyingTo = m)}>↩</button>
                 {#if m.sender === identity.fingerprint}
+                  <button title="Edit" onclick={() => startEdit(m)}>✏️</button>
                   <button title="Delete" onclick={() => deleteMsg(m)}>🗑</button>
                 {/if}
               </div>
@@ -692,6 +724,13 @@
   }
   .body.deleted {
     color: var(--text-muted);
+  }
+  .edited-tag {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .edit-input {
+    margin-top: 2px;
   }
   .reactions {
     display: flex;

@@ -111,6 +111,7 @@ type MessageView struct {
 	ReplyTo    string              `json:"replyTo"`    // ID of the replied-to message, or ""
 	Content    string              `json:"content"`
 	Deleted    bool                `json:"deleted"`
+	Edited     bool                `json:"edited"`
 	Reactions  map[string][]string `json:"reactions"` // emoji -> fingerprints
 	Sent       string              `json:"sent"`
 }
@@ -196,6 +197,15 @@ func (b *bridge) ToggleReaction(channelID, messageID, emoji string) error {
 		return err
 	}
 	return svc.ToggleReaction(channelID, messageID, emoji)
+}
+
+// EditMessage edits one of this peer's own messages.
+func (b *bridge) EditMessage(channelID, messageID, newContent string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.EditMessage(channelID, messageID, newContent)
 }
 
 // DeleteMessage deletes one of this peer's own messages.
@@ -444,6 +454,7 @@ func messageView(m domain.Message) MessageView {
 		ReplyTo:    m.ReplyTo,
 		Content:    m.Content,
 		Deleted:    m.Deleted,
+		Edited:     m.Edited,
 		Reactions:  m.Reactions,
 		Sent:       m.Sent.Format("2006-01-02T15:04:05Z07:00"),
 	}

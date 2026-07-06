@@ -291,6 +291,9 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 	case "reaction":
 		s.applyReaction(msg.ReplyTo, msg.Content, msg.Sender)
 		return msg, nil
+	case "edit":
+		s.applyEdit(msg.ReplyTo, msg.Content, msg.Sender)
+		return msg, nil
 	}
 	if err := s.store.SaveMessage(msg); err != nil {
 		return domain.Message{}, err
@@ -316,6 +319,27 @@ func (s *Service) applyReaction(targetID, emoji string, bySender []byte) {
 		return
 	}
 	if m, ok, err := s.store.MessageByID(targetID); err == nil && ok {
+		s.emitMessage(m)
+	}
+}
+
+// EditMessage edits one of this peer's own messages for everyone.
+func (s *Service) EditMessage(channelID, targetID, newContent string) error {
+	_, err := s.send(channelID, newContent, "edit", targetID)
+	return err
+}
+
+// applyEdit updates a target message's content (if bySender authored it) and
+// re-emits it so the UI refreshes.
+func (s *Service) applyEdit(targetID, newContent string, bySender []byte) {
+	if targetID == "" || newContent == "" {
+		return
+	}
+	ok, err := s.store.UpdateContent(targetID, bySender, newContent)
+	if err != nil || !ok {
+		return
+	}
+	if m, found, err := s.store.MessageByID(targetID); err == nil && found {
 		s.emitMessage(m)
 	}
 }
@@ -579,6 +603,9 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 		return
 	case "reaction":
 		s.applyReaction(m.ReplyTo, m.Content, m.Sender)
+		return
+	case "edit":
+		s.applyEdit(m.ReplyTo, m.Content, m.Sender)
 		return
 	}
 	if err := s.store.SaveMessage(m); err != nil {

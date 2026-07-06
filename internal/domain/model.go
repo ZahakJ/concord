@@ -46,6 +46,7 @@ type Message struct {
 	ReplyTo   string    `json:"replyTo"` // ID of the message this replies to / acts on
 	Content   string    `json:"content"`
 	Deleted   bool      `json:"deleted"`
+	Edited    bool      `json:"edited"`
 	Sent      time.Time `json:"sent"`
 
 	// Reactions aggregates emoji -> fingerprints who reacted. Populated on load;
