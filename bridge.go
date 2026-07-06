@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -706,4 +708,134 @@ func messageView(m domain.Message) MessageView {
 		Reactions:  m.Reactions,
 		Sent:       m.Sent.Format("2006-01-02T15:04:05Z07:00"),
 	}
+}
+
+// ---- Unified dispatch (shared by the web shell and the mobile shim) ----
+//
+// Both the browser (/rpc) and the future mobile binding call the same method
+// surface. Keeping the name→method mapping here — instead of in main_web.go —
+// means one place to add a method for every transport. Explicit, not
+// reflective, for clarity and safety.
+
+// Dispatch routes a method name + JSON-encoded positional args to a bridge
+// call. Used by the web shell's /rpc handler.
+func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
+	switch method {
+	case "GetBootstrap":
+		return b.GetBootstrap()
+	case "SetBootstrap":
+		return nil, b.SetBootstrap(argStr(args, 0))
+	case "SetBootstrapLive":
+		return nil, b.SetBootstrapLive(argStr(args, 0))
+	case "Session":
+		return b.Session(), nil
+	case "Logout":
+		return nil, b.Logout()
+	case "HasIdentity":
+		return b.HasIdentity()
+	case "ResetIdentity":
+		return nil, b.ResetIdentity()
+	case "Login":
+		return nil, b.Login(argStr(args, 0))
+	case "Identity":
+		return b.Identity()
+	case "Guilds":
+		return b.Guilds()
+	case "CreateGuild":
+		return b.CreateGuild(argStr(args, 0))
+	case "InviteCode":
+		return b.InviteCode(argStr(args, 0))
+	case "JoinViaInvite":
+		return b.JoinViaInvite(argStr(args, 0))
+	case "Messages":
+		return b.Messages(argStr(args, 0))
+	case "SendMessage":
+		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "SendAttachment":
+		return nil, b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4))
+	case "FetchAttachment":
+		return b.FetchAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+	case "SendFile":
+		return nil, b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+	case "FetchFile":
+		return b.FetchFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+	case "LinkPreview":
+		return b.LinkPreview(argStr(args, 0))
+	case "Members":
+		return b.Members(argStr(args, 0))
+	case "RemoveMember":
+		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1))
+	case "Contacts":
+		return b.Contacts()
+	case "JoinVoice":
+		return nil, b.JoinVoice(argStr(args, 0))
+	case "LeaveVoice":
+		return nil, b.LeaveVoice(argStr(args, 0))
+	case "RelaySignal":
+		return nil, b.RelaySignal(argStr(args, 0), argStr(args, 1))
+	case "SendTyping":
+		return nil, b.SendTyping(argStr(args, 0))
+	case "SetProfile":
+		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4))
+	case "VerifyFingerprint":
+		return nil, b.VerifyFingerprint(argStr(args, 0))
+	case "PinMessage":
+		return nil, b.PinMessage(argStr(args, 0), argStr(args, 1))
+	case "SearchMessages":
+		return b.SearchMessages(argStr(args, 0))
+	case "CreateChannel":
+		return b.CreateChannel(argStr(args, 0), argStr(args, 1))
+	case "RenameGuild":
+		return nil, b.RenameGuild(argStr(args, 0), argStr(args, 1))
+	case "LeaveGuild":
+		return nil, b.LeaveGuild(argStr(args, 0))
+	case "DeleteMessage":
+		return nil, b.DeleteMessage(argStr(args, 0), argStr(args, 1))
+	case "EditMessage":
+		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "ToggleReaction":
+		return nil, b.ToggleReaction(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	default:
+		return nil, fmt.Errorf("unknown method %q", method)
+	}
+}
+
+// DispatchJSON is the string-in/string-out form for gomobile (whose bindings
+// only support a restricted type set). argsJSON is a JSON array of positional
+// args; the result is a JSON object {result?, error?}. Never returns a Go
+// error (mobile reads the error from the JSON), so the binding stays simple.
+func (b *bridge) DispatchJSON(method, argsJSON string) string {
+	var args []json.RawMessage
+	if strings.TrimSpace(argsJSON) != "" {
+		if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
+			return `{"error":"bad args json"}`
+		}
+	}
+	result, err := b.Dispatch(method, args)
+	out := map[string]any{}
+	if err != nil {
+		out["error"] = err.Error()
+	} else if result != nil {
+		out["result"] = result
+	}
+	raw, _ := json.Marshal(out)
+	return string(raw)
+}
+
+func argStr(args []json.RawMessage, i int) string {
+	if i >= len(args) {
+		return ""
+	}
+	var s string
+	_ = json.Unmarshal(args[i], &s)
+	return s
+}
+
+func argInt(args []json.RawMessage, i int) int {
+	if i >= len(args) {
+		return 0
+	}
+	var n int
+	_ = json.Unmarshal(args[i], &n)
+	return n
 }

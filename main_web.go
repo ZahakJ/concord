@@ -132,95 +132,12 @@ func (s *webServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, rpcResponse{Error: "bad request"})
 		return
 	}
-	result, err := s.dispatch(req.Method, req.Args)
+	result, err := s.b.Dispatch(req.Method, req.Args)
 	resp := rpcResponse{Result: result}
 	if err != nil {
 		resp.Error = err.Error()
 	}
 	writeJSON(w, resp)
-}
-
-// dispatch maps a method name + JSON args to a bridge call, mirroring the
-// method names Wails would bind. Explicit (not reflective) for clarity/safety.
-func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error) {
-	switch method {
-	case "GetBootstrap":
-		return s.b.GetBootstrap()
-	case "SetBootstrap":
-		return nil, s.b.SetBootstrap(argStr(args, 0))
-	case "SetBootstrapLive":
-		return nil, s.b.SetBootstrapLive(argStr(args, 0))
-	case "Session":
-		return s.b.Session(), nil
-	case "Logout":
-		return nil, s.b.Logout()
-	case "HasIdentity":
-		return s.b.HasIdentity()
-	case "ResetIdentity":
-		return nil, s.b.ResetIdentity()
-	case "Login":
-		return nil, s.b.Login(argStr(args, 0))
-	case "Identity":
-		return s.b.Identity()
-	case "Guilds":
-		return s.b.Guilds()
-	case "CreateGuild":
-		return s.b.CreateGuild(argStr(args, 0))
-	case "InviteCode":
-		return s.b.InviteCode(argStr(args, 0))
-	case "JoinViaInvite":
-		return s.b.JoinViaInvite(argStr(args, 0))
-	case "Messages":
-		return s.b.Messages(argStr(args, 0))
-	case "SendMessage":
-		return nil, s.b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
-	case "SendAttachment":
-		return nil, s.b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4))
-	case "FetchAttachment":
-		return s.b.FetchAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
-	case "SendFile":
-		return nil, s.b.SendFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
-	case "FetchFile":
-		return s.b.FetchFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
-	case "LinkPreview":
-		return s.b.LinkPreview(argStr(args, 0))
-	case "Members":
-		return s.b.Members(argStr(args, 0))
-	case "RemoveMember":
-		return nil, s.b.RemoveMember(argStr(args, 0), argStr(args, 1))
-	case "Contacts":
-		return s.b.Contacts()
-	case "JoinVoice":
-		return nil, s.b.JoinVoice(argStr(args, 0))
-	case "LeaveVoice":
-		return nil, s.b.LeaveVoice(argStr(args, 0))
-	case "RelaySignal":
-		return nil, s.b.RelaySignal(argStr(args, 0), argStr(args, 1))
-	case "SendTyping":
-		return nil, s.b.SendTyping(argStr(args, 0))
-	case "SetProfile":
-		return nil, s.b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4))
-	case "VerifyFingerprint":
-		return nil, s.b.VerifyFingerprint(argStr(args, 0))
-	case "PinMessage":
-		return nil, s.b.PinMessage(argStr(args, 0), argStr(args, 1))
-	case "SearchMessages":
-		return s.b.SearchMessages(argStr(args, 0))
-	case "CreateChannel":
-		return s.b.CreateChannel(argStr(args, 0), argStr(args, 1))
-	case "RenameGuild":
-		return nil, s.b.RenameGuild(argStr(args, 0), argStr(args, 1))
-	case "LeaveGuild":
-		return nil, s.b.LeaveGuild(argStr(args, 0))
-	case "DeleteMessage":
-		return nil, s.b.DeleteMessage(argStr(args, 0), argStr(args, 1))
-	case "EditMessage":
-		return nil, s.b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
-	case "ToggleReaction":
-		return nil, s.b.ToggleReaction(argStr(args, 0), argStr(args, 1), argStr(args, 2))
-	default:
-		return nil, fmt.Errorf("unknown method %q", method)
-	}
 }
 
 // handleEvents streams bridge events to a browser tab via Server-Sent Events.
@@ -276,23 +193,4 @@ func (s *webServer) broadcast(ev sseEvent) {
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(v)
-}
-
-// argStr decodes the i-th argument as a string, tolerating a missing arg.
-func argStr(args []json.RawMessage, i int) string {
-	if i >= len(args) {
-		return ""
-	}
-	var s string
-	_ = json.Unmarshal(args[i], &s)
-	return s
-}
-
-func argInt(args []json.RawMessage, i int) int {
-	if i >= len(args) {
-		return 0
-	}
-	var n int
-	_ = json.Unmarshal(args[i], &n)
-	return n
 }
