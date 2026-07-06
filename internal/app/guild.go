@@ -208,6 +208,10 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	s.trackGuild(&g)
 	// Tell existing members our display name (and learn theirs in reply).
 	s.announceProfile(g.ID)
+	// Announce arrival with a system message in the default channel.
+	if len(g.Channels) > 0 {
+		s.sendSystem(g.Channels[0].ID, "joined the server")
+	}
 	return g, nil
 }
 
@@ -240,8 +244,18 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	return json.Marshal(inviteResponse{Welcome: welcome, Guild: *g})
 }
 
-// SendMessage encrypts and publishes a message to a channel, and stores it.
+// SendMessage encrypts and publishes a normal chat message to a channel.
 func (s *Service) SendMessage(channelID, content string) (domain.Message, error) {
+	return s.send(channelID, content, "")
+}
+
+// sendSystem posts a system notice (join/create) to a channel. Errors are
+// swallowed since these are best-effort UI sugar.
+func (s *Service) sendSystem(channelID, content string) {
+	_, _ = s.send(channelID, content, "system")
+}
+
+func (s *Service) send(channelID, content, kind string) (domain.Message, error) {
 	s.mu.RLock()
 	guildID, ok := s.channelToGuild[channelID]
 	var groupID []byte
@@ -258,6 +272,7 @@ func (s *Service) SendMessage(channelID, content string) (domain.Message, error)
 		return domain.Message{}, err
 	}
 	msg.Name = s.DisplayName()
+	msg.Kind = kind
 	payload, _ := json.Marshal(msg)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
 	if err != nil {
@@ -385,6 +400,8 @@ func (s *Service) CreateChannel(guildID, name string) (domain.Channel, error) {
 	if err := s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct); err != nil {
 		return domain.Channel{}, err
 	}
+	// Note the creation in the new channel itself.
+	s.sendSystem(ch.ID, "created this channel")
 	return ch, nil
 }
 

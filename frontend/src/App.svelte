@@ -317,6 +317,11 @@
 
       <div class="feed" bind:this={feedEl}>
         {#each messages as m (m.id)}
+          {#if m.kind === "system"}
+            <div class="system-msg">
+              <span>✨ <strong>{m.senderName || m.sender.slice(0, 9)}</strong> {m.content}</span>
+            </div>
+          {:else}
           <div class="msg">
             <div class="avatar">{(m.senderName || m.sender || "?").slice(0, 2)}</div>
             <div>
@@ -328,6 +333,7 @@
               <div class="body">{m.content}</div>
             </div>
           </div>
+          {/if}
         {:else}
           <div class="empty muted">No messages yet. Say hello 👋</div>
         {/each}
@@ -529,6 +535,15 @@
   }
   .empty {
     margin: auto;
+  }
+  .system-msg {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding: 2px 0;
+  }
+  .system-msg strong {
+    color: var(--text);
   }
   .msg {
     display: flex;

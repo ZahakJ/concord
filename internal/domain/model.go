@@ -42,6 +42,7 @@ type Message struct {
 	ChannelID string    `json:"channelId"`
 	Sender    []byte    `json:"sender"`
 	Name      string    `json:"name"` // sender's self-asserted display name (decorative)
+	Kind      string    `json:"kind"` // "" = normal chat, "system" = join/create notice
 	Content   string    `json:"content"`
 	Sent      time.Time `json:"sent"`
 }

@@ -107,6 +107,7 @@ type MessageView struct {
 	ChannelID  string `json:"channelId"`
 	Sender     string `json:"sender"`     // authenticated fingerprint
 	SenderName string `json:"senderName"` // self-asserted display name
+	Kind       string `json:"kind"`       // "" normal, "system" join/create notice
 	Content    string `json:"content"`
 	Sent       string `json:"sent"`
 }
@@ -418,6 +419,7 @@ func messageView(m domain.Message) MessageView {
 		ChannelID:  m.ChannelID,
 		Sender:     identity.FingerprintOf(m.Sender),
 		SenderName: m.Name,
+		Kind:       m.Kind,
 		Content:    m.Content,
 		Sent:       m.Sent.Format("2006-01-02T15:04:05Z07:00"),
 	}
