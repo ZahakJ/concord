@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS messages (
   name        TEXT NOT NULL DEFAULT '',
   kind        TEXT NOT NULL DEFAULT '',
   reply_to    TEXT NOT NULL DEFAULT '',
+  deleted     INTEGER NOT NULL DEFAULT 0,
   content_enc BLOB NOT NULL,
   nonce       BLOB NOT NULL,
   sent        INTEGER NOT NULL
@@ -106,6 +107,7 @@ CREATE TABLE IF NOT EXISTS settings (
 		`ALTER TABLE messages ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -265,7 +267,7 @@ func (s *Store) SaveMessage(m domain.Message) error {
 // Messages returns up to limit most-recent messages for a channel, oldest
 // first, decrypting bodies. A limit <= 0 returns all messages.
 func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) {
-	q := `SELECT id, channel_id, sender, name, kind, reply_to, content_enc, nonce, sent
+	q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, content_enc, nonce, sent
 	      FROM messages WHERE channel_id = ? ORDER BY sent DESC`
 	args := []any{channelID}
 	if limit > 0 {
@@ -283,14 +285,19 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		var m domain.Message
 		var enc, nonceB []byte
 		var sent int64
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &enc, &nonceB, &sent); err != nil {
+		var deleted int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &enc, &nonceB, &sent); err != nil {
 			return nil, err
 		}
-		content, err := s.open(enc, nonceB)
-		if err != nil {
-			return nil, err
+		if deleted != 0 {
+			m.Deleted = true // leave content blank
+		} else {
+			content, err := s.open(enc, nonceB)
+			if err != nil {
+				return nil, err
+			}
+			m.Content = content
 		}
-		m.Content = content
 		m.Sent = time.Unix(0, sent).UTC()
 		msgs = append(msgs, m)
 	}
@@ -316,6 +323,35 @@ func (s *Store) open(enc, nonceB []byte) (string, error) {
 		return "", fmt.Errorf("store: message decryption failed (wrong key or corrupt db)")
 	}
 	return string(plain), nil
+}
+
+// MarkDeleted tombstones a message, but only if bySender authored it (so a peer
+// can't delete someone else's message). Returns the deleted message and whether
+// a row changed.
+func (s *Store) MarkDeleted(id string, bySender []byte) (domain.Message, bool, error) {
+	var m domain.Message
+	var chID string
+	var sent int64
+	err := s.db.QueryRow(
+		`SELECT channel_id, sender, sent FROM messages WHERE id = ?`, id,
+	).Scan(&chID, &m.Sender, &sent)
+	if err == sql.ErrNoRows {
+		return domain.Message{}, false, nil
+	}
+	if err != nil {
+		return domain.Message{}, false, err
+	}
+	if len(bySender) == 0 || string(m.Sender) != string(bySender) {
+		return domain.Message{}, false, nil // not the author
+	}
+	if _, err := s.db.Exec(`UPDATE messages SET deleted = 1 WHERE id = ?`, id); err != nil {
+		return domain.Message{}, false, err
+	}
+	m.ID = id
+	m.ChannelID = chID
+	m.Deleted = true
+	m.Sent = time.Unix(0, sent).UTC()
+	return m, true, nil
 }
 
 // SetSetting stores a key/value app setting (e.g. the display name).

@@ -145,6 +145,37 @@ func TestContactsTOFUAndVerify(t *testing.T) {
 	}
 }
 
+func TestMarkDeletedAuthorization(t *testing.T) {
+	s, _ := openTestStore(t)
+	author := []byte("alice-key")
+	m, _ := domain.NewMessage("chan-1", author, "secret plan")
+	if err := s.SaveMessage(m); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+
+	// A different peer cannot delete it.
+	if _, ok, err := s.MarkDeleted(m.ID, []byte("eve-key")); err != nil || ok {
+		t.Fatalf("non-author delete: ok=%v err=%v (want ok=false)", ok, err)
+	}
+	msgs, _ := s.Messages("chan-1", 0)
+	if len(msgs) != 1 || msgs[0].Deleted || msgs[0].Content != "secret plan" {
+		t.Fatal("message should be intact after unauthorized delete attempt")
+	}
+
+	// The author can.
+	deleted, ok, err := s.MarkDeleted(m.ID, author)
+	if err != nil || !ok {
+		t.Fatalf("author delete: ok=%v err=%v (want ok=true)", ok, err)
+	}
+	if !deleted.Deleted {
+		t.Fatal("returned message should be marked deleted")
+	}
+	msgs, _ = s.Messages("chan-1", 0)
+	if !msgs[0].Deleted || msgs[0].Content != "" {
+		t.Fatalf("stored message should be tombstoned with blank content, got %+v", msgs[0])
+	}
+}
+
 func TestSaveMessageIdempotent(t *testing.T) {
 	s, _ := openTestStore(t)
 	m, _ := domain.NewMessage("chan-1", []byte("alice"), "hi")

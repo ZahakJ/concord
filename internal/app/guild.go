@@ -283,11 +283,31 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 	if err := s.ps.Publish(s.ctx, domain.TopicID(groupID, channelID), ct); err != nil {
 		return domain.Message{}, err
 	}
+	if msg.Kind == "delete" {
+		s.applyDelete(msg.ReplyTo, msg.Sender)
+		return msg, nil
+	}
 	if err := s.store.SaveMessage(msg); err != nil {
 		return domain.Message{}, err
 	}
 	s.emitMessage(msg)
 	return msg, nil
+}
+
+// DeleteMessage removes one of this peer's own messages for everyone.
+func (s *Service) DeleteMessage(channelID, targetID string) error {
+	_, err := s.send(channelID, "deleted", "delete", targetID)
+	return err
+}
+
+// applyDelete tombstones a target message (if bySender authored it) and pushes
+// the update to the UI.
+func (s *Service) applyDelete(targetID string, bySender []byte) {
+	deleted, ok, err := s.store.MarkDeleted(targetID, bySender)
+	if err != nil || !ok {
+		return
+	}
+	s.emitMessage(deleted)
 }
 
 // trackGuild records a guild in memory and subscribes to its control and
@@ -527,6 +547,10 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	}
 	// Trust MLS's authenticated sender over the self-reported field.
 	m.Sender = msg.SenderID
+	if m.Kind == "delete" {
+		s.applyDelete(m.ReplyTo, m.Sender)
+		return
+	}
 	if err := s.store.SaveMessage(m); err != nil {
 		return
 	}

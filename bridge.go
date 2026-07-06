@@ -110,6 +110,7 @@ type MessageView struct {
 	Kind       string `json:"kind"`       // "" normal, "system" join/create notice
 	ReplyTo    string `json:"replyTo"`    // ID of the replied-to message, or ""
 	Content    string `json:"content"`
+	Deleted    bool   `json:"deleted"`
 	Sent       string `json:"sent"`
 }
 
@@ -185,6 +186,15 @@ func (b *bridge) Login(passphrase string) error {
 	})
 	b.svc = svc
 	return nil
+}
+
+// DeleteMessage deletes one of this peer's own messages.
+func (b *bridge) DeleteMessage(channelID, messageID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.DeleteMessage(channelID, messageID)
 }
 
 // CreateChannel adds a channel to a guild.
@@ -423,6 +433,7 @@ func messageView(m domain.Message) MessageView {
 		Kind:       m.Kind,
 		ReplyTo:    m.ReplyTo,
 		Content:    m.Content,
+		Deleted:    m.Deleted,
 		Sent:       m.Sent.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }

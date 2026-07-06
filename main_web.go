@@ -155,6 +155,8 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return nil, s.b.SetDisplayName(argStr(args, 0))
 	case "CreateChannel":
 		return s.b.CreateChannel(argStr(args, 0), argStr(args, 1))
+	case "DeleteMessage":
+		return nil, s.b.DeleteMessage(argStr(args, 0), argStr(args, 1))
 	default:
 		return nil, fmt.Errorf("unknown method %q", method)
 	}

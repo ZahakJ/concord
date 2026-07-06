@@ -18,9 +18,34 @@
   let draft = $state("");
   let toast = $state("");
   let replyingTo = $state(null); // message being replied to
+  let unreadChannels = $state({}); // channelId -> true
 
   function msgById(id) {
     return messages.find((m) => m.id === id);
+  }
+
+  function guildHasUnread(g) {
+    return g.channels.some((c) => unreadChannels[c.id]);
+  }
+
+  function escapeHtml(s) {
+    return s.replace(
+      /[&<>"']/g,
+      (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+    );
+  }
+
+  // Minimal, XSS-safe markdown: escape first, then add our own safe tags.
+  function renderContent(text) {
+    let s = escapeHtml(text);
+    s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+    s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+    s = s.replace(
+      /(https?:\/\/[^\s<]+)/g,
+      '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
+    );
+    return s;
   }
 
   // Voice state
@@ -56,10 +81,15 @@
     // Live message feed.
     on("message", (m) => {
       if (m.channelId === activeChannelId) {
-        messages = [...messages, m];
-        scrollSoon();
-      } else {
-        flash(`New message in another channel`);
+        const i = messages.findIndex((x) => x.id === m.id);
+        if (i >= 0) {
+          messages = messages.map((x) => (x.id === m.id ? m : x)); // update (e.g. delete)
+        } else {
+          messages = [...messages, m];
+          scrollSoon();
+        }
+      } else if (m.channelId) {
+        unreadChannels = { ...unreadChannels, [m.channelId]: true };
       }
     });
     on("presence", () => refreshRightPanel());
@@ -151,10 +181,24 @@
 
   async function selectChannel(id) {
     activeChannelId = id;
+    if (unreadChannels[id]) {
+      const u = { ...unreadChannels };
+      delete u[id];
+      unreadChannels = u;
+    }
     typingList.forEach((t) => clearTimeout(t.timer));
     typingList = [];
+    replyingTo = null;
     messages = (await api.messages(id)) || [];
     scrollSoon();
+  }
+
+  async function deleteMsg(m) {
+    try {
+      await api.deleteMessage(m.channelId, m.id);
+    } catch (err) {
+      flash(String(err?.message || err));
+    }
   }
 
   async function refreshRightPanel() {
@@ -266,7 +310,8 @@
           class="guild {g.id === activeGuildId ? 'active' : ''}"
           onclick={() => selectGuild(g.id)}
         >
-          {g.name}
+          <span>{g.name}</span>
+          {#if g.id !== activeGuildId && guildHasUnread(g)}<span class="unread-dot"></span>{/if}
         </button>
       {/each}
 
@@ -284,7 +329,8 @@
             class="channel {c.id === activeChannelId ? 'active' : ''}"
             onclick={() => selectChannel(c.id)}
           >
-            # {c.name}
+            <span># {c.name}</span>
+            {#if c.id !== activeChannelId && unreadChannels[c.id]}<span class="unread-dot"></span>{/if}
           </button>
         {/each}
       {/if}
@@ -343,9 +389,20 @@
                 <span class="muted mono verify-fpr" title="verified identity">{m.sender.slice(0, 9)}</span>
                 <span class="muted time">{fmtTime(m.sent)}</span>
               </div>
-              <div class="body">{m.content}</div>
+              {#if m.deleted}
+                <div class="body deleted"><em>message deleted</em></div>
+              {:else}
+                <div class="body">{@html renderContent(m.content)}</div>
+              {/if}
             </div>
-            <button class="reply-btn" title="Reply" onclick={() => (replyingTo = m)}>↩</button>
+            {#if !m.deleted}
+              <div class="msg-actions">
+                <button title="Reply" onclick={() => (replyingTo = m)}>↩</button>
+                {#if m.sender === identity.fingerprint}
+                  <button title="Delete" onclick={() => deleteMsg(m)}>🗑</button>
+                {/if}
+              </div>
+            {/if}
           </div>
           {/if}
         {:else}
@@ -464,6 +521,10 @@
     color: var(--text);
     padding: 8px 10px;
     border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
   .guild:hover,
   .channel:hover {
@@ -586,19 +647,43 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .reply-btn {
+  .msg-actions {
     position: absolute;
-    top: -6px;
+    top: -8px;
     right: 0;
+    display: flex;
+    gap: 4px;
     opacity: 0;
+  }
+  .msg:hover .msg-actions {
+    opacity: 1;
+  }
+  .msg-actions button {
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     color: var(--text-muted);
     padding: 2px 8px;
     font-size: 13px;
   }
-  .msg:hover .reply-btn {
-    opacity: 1;
+  .body.deleted {
+    color: var(--text-muted);
+  }
+  .body :global(code) {
+    background: var(--bg-input);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: ui-monospace, monospace;
+    font-size: 12px;
+  }
+  .body :global(a) {
+    color: var(--accent-hover);
+  }
+  .unread-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex-shrink: 0;
   }
   .reply-banner {
     display: flex;

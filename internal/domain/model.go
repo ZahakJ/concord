@@ -42,9 +42,10 @@ type Message struct {
 	ChannelID string    `json:"channelId"`
 	Sender    []byte    `json:"sender"`
 	Name      string    `json:"name"`    // sender's self-asserted display name (decorative)
-	Kind      string    `json:"kind"`    // "" = normal chat, "system" = join/create notice
-	ReplyTo   string    `json:"replyTo"` // ID of the message this replies to, or ""
+	Kind      string    `json:"kind"`    // "" = normal chat, "system" notice, "delete" action
+	ReplyTo   string    `json:"replyTo"` // ID of the message this replies to / acts on
 	Content   string    `json:"content"`
+	Deleted   bool      `json:"deleted"`
 	Sent      time.Time `json:"sent"`
 }
 
