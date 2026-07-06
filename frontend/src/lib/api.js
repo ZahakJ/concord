@@ -57,6 +57,11 @@ export const api = {
   messages: (channelID) => call("Messages", channelID),
   sendMessage: (channelID, content, replyTo = "") =>
     call("SendMessage", channelID, content, replyTo),
+  sendAttachment: (channelID, dataURL, w, h, replyTo = "") =>
+    call("SendAttachment", channelID, dataURL, w, h, replyTo),
+  fetchAttachment: (channelID, blobID, keys, subtype) =>
+    call("FetchAttachment", channelID, blobID, keys, subtype),
+  linkPreview: (url) => call("LinkPreview", url),
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
   contacts: () => call("Contacts"),

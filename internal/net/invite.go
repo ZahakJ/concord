@@ -31,7 +31,7 @@ type InviteResponder func(ctx context.Context, from peer.ID, request []byte) (re
 func (n *Host) HandleInvites(responder InviteResponder) {
 	n.h.SetStreamHandler(inviteProtocol, func(s network.Stream) {
 		defer s.Close()
-		req, err := readFrame(s)
+		req, err := readFrame(s, maxInviteFrame)
 		if err != nil {
 			return
 		}
@@ -39,7 +39,7 @@ func (n *Host) HandleInvites(responder InviteResponder) {
 		if err != nil {
 			return // no response; joiner will see EOF and fail
 		}
-		_ = writeFrame(s, resp)
+		_ = writeFrame(s, resp, maxInviteFrame)
 	})
 }
 
@@ -55,19 +55,21 @@ func (n *Host) RequestInvite(ctx context.Context, owner peer.AddrInfo, request [
 	}
 	defer s.Close()
 
-	if err := writeFrame(s, request); err != nil {
+	if err := writeFrame(s, request, maxInviteFrame); err != nil {
 		return nil, err
 	}
 	if err := s.CloseWrite(); err != nil {
 		return nil, err
 	}
-	return readFrame(s)
+	return readFrame(s, maxInviteFrame)
 }
 
-// Framing: a 4-byte big-endian length prefix followed by the payload.
-func writeFrame(w io.Writer, data []byte) error {
-	if len(data) > maxInviteFrame {
-		return fmt.Errorf("net: invite frame too large: %d bytes", len(data))
+// Framing: a 4-byte big-endian length prefix followed by the payload. Each
+// protocol passes its own max frame size (invite/sync stay small; attachment
+// responses are allowed to be much larger).
+func writeFrame(w io.Writer, data []byte, max int) error {
+	if len(data) > max {
+		return fmt.Errorf("net: frame too large: %d bytes (max %d)", len(data), max)
 	}
 	var hdr [4]byte
 	binary.BigEndian.PutUint32(hdr[:], uint32(len(data)))
@@ -78,14 +80,14 @@ func writeFrame(w io.Writer, data []byte) error {
 	return err
 }
 
-func readFrame(r io.Reader) ([]byte, error) {
+func readFrame(r io.Reader, max int) ([]byte, error) {
 	var hdr [4]byte
 	if _, err := io.ReadFull(r, hdr[:]); err != nil {
 		return nil, err
 	}
 	n := binary.BigEndian.Uint32(hdr[:])
-	if n > maxInviteFrame {
-		return nil, fmt.Errorf("net: invite frame too large: %d bytes", n)
+	if int64(n) > int64(max) {
+		return nil, fmt.Errorf("net: frame too large: %d bytes (max %d)", n, max)
 	}
 	buf := make([]byte, n)
 	if _, err := io.ReadFull(r, buf); err != nil {

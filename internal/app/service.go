@@ -13,6 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"golang.org/x/crypto/hkdf"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/zahak/concord/internal/crypto/mls"
 	"github.com/zahak/concord/internal/domain"
@@ -53,6 +54,10 @@ type Service struct {
 	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
 	outOfSync map[string]bool
+
+	// attachFlight collapses concurrent fetches of one attachment blob (e.g.
+	// the same image rendered several times) into a single network request.
+	attachFlight singleflight.Group
 }
 
 // Profile is a member's self-asserted presentation: display name, a short
@@ -177,6 +182,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 	// Serve history catch-up requests from reconnecting peers.
 	host.HandleSync(s.handleSyncRequest)
+
+	// Serve attachment blobs to peers rendering images we hold.
+	host.HandleAttachments(s.handleAttachRequest)
 
 	// Inbound WebRTC signaling for voice/video.
 	host.HandleSignals(func(from peer.ID, data []byte) {

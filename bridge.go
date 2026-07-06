@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 
@@ -524,6 +525,27 @@ func (b *bridge) SendMessage(channelID, content, replyTo string) error {
 	return err
 }
 
+// SendAttachment seals an image into a local encrypted blob and posts the
+// reference token as a chat message (see internal/app/attach.go).
+func (b *bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.SendAttachment(channelID, dataURL, w, h, replyTo)
+	return err
+}
+
+// FetchAttachment resolves an attachment token to a plaintext image data URL,
+// fetching the blob from guild members if it isn't cached locally.
+func (b *bridge) FetchAttachment(channelID, blobID, keys, subtype string) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.FetchAttachment(channelID, blobID, keys, subtype)
+}
+
 func (b *bridge) Members(guildID string) ([]MemberView, error) {
 	svc, err := b.service()
 	if err != nil {
@@ -563,6 +585,23 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 			Verified:    isSelf || verified[fpr],
 		})
 	}
+	// The MLS library yields members in map order (random per call), which made
+	// the roster reshuffle on every refresh. Sort deterministically: online
+	// first, then by display name, then by fingerprint as the tiebreaker.
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Online != b.Online {
+			return a.Online
+		}
+		an, bn := strings.ToLower(a.Name), strings.ToLower(b.Name)
+		if an != bn {
+			if an == "" || bn == "" {
+				return bn == "" // named members before unnamed ones
+			}
+			return an < bn
+		}
+		return a.Fingerprint < b.Fingerprint
+	})
 	return out, nil
 }
 

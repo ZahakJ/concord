@@ -121,6 +121,13 @@ CREATE TABLE IF NOT EXISTS mls_commits (
   created  INTEGER NOT NULL,
   PRIMARY KEY (group_id, epoch)
 );
+CREATE TABLE IF NOT EXISTS attachments (
+  blob_id   TEXT PRIMARY KEY,
+  ct        BLOB NOT NULL,
+  size      INTEGER NOT NULL,
+  created   INTEGER NOT NULL,
+  last_used INTEGER NOT NULL
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -1010,6 +1017,60 @@ func maxInt64(a, b int64) int64 {
 		return a
 	}
 	return b
+}
+
+// maxAttachmentStore caps the local attachment cache; least-recently-used
+// blobs are evicted past it. Evicting the last replica of a blob is accepted
+// for now — availability spreads to every member who has viewed the image.
+const maxAttachmentStore = 1 << 30 // 1 GiB
+
+// SaveAttachment stores an attachment blob (already-encrypted ciphertext; the
+// key travels inside the referencing message, never here). Content-addressed
+// and idempotent: saving the same blob twice is a no-op.
+func (s *Store) SaveAttachment(blobID string, ct []byte) error {
+	now := time.Now().UnixNano()
+	_, err := s.db.Exec(
+		`INSERT INTO attachments (blob_id, ct, size, created, last_used)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(blob_id) DO NOTHING`,
+		blobID, ct, len(ct), now, now,
+	)
+	if err != nil {
+		return fmt.Errorf("store: save attachment: %w", err)
+	}
+	s.evictAttachments()
+	return nil
+}
+
+// GetAttachment loads a blob's ciphertext, bumping its recency.
+func (s *Store) GetAttachment(blobID string) ([]byte, bool, error) {
+	var ct []byte
+	err := s.db.QueryRow(`SELECT ct FROM attachments WHERE blob_id = ?`, blobID).Scan(&ct)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	_, _ = s.db.Exec(`UPDATE attachments SET last_used = ? WHERE blob_id = ?`, time.Now().UnixNano(), blobID)
+	return ct, true, nil
+}
+
+// evictAttachments drops least-recently-used blobs while the cache exceeds
+// its size cap. Best-effort.
+func (s *Store) evictAttachments() {
+	for i := 0; i < 64; i++ { // hard bound on the loop, just in case
+		var total sql.NullInt64
+		if err := s.db.QueryRow(`SELECT SUM(size) FROM attachments`).Scan(&total); err != nil || total.Int64 <= maxAttachmentStore {
+			return
+		}
+		if _, err := s.db.Exec(
+			`DELETE FROM attachments WHERE blob_id IN
+			   (SELECT blob_id FROM attachments ORDER BY last_used ASC LIMIT 1)`,
+		); err != nil {
+			return
+		}
+	}
 }
 
 // Close closes the database.

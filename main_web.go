@@ -174,6 +174,10 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return s.b.Messages(argStr(args, 0))
 	case "SendMessage":
 		return nil, s.b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "SendAttachment":
+		return nil, s.b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4))
+	case "FetchAttachment":
+		return s.b.FetchAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "Members":
 		return s.b.Members(argStr(args, 0))
 	case "RemoveMember":
@@ -276,4 +280,13 @@ func argStr(args []json.RawMessage, i int) string {
 	var s string
 	_ = json.Unmarshal(args[i], &s)
 	return s
+}
+
+func argInt(args []json.RawMessage, i int) int {
+	if i >= len(args) {
+		return 0
+	}
+	var n int
+	_ = json.Unmarshal(args[i], &n)
+	return n
 }

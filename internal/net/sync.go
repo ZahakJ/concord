@@ -27,7 +27,7 @@ type SyncResponder func(ctx context.Context, from peer.ID, request []byte) (resp
 func (n *Host) HandleSync(responder SyncResponder) {
 	n.h.SetStreamHandler(syncProtocol, func(s network.Stream) {
 		defer s.Close()
-		req, err := readFrame(s)
+		req, err := readFrame(s, maxInviteFrame)
 		if err != nil {
 			return
 		}
@@ -35,7 +35,7 @@ func (n *Host) HandleSync(responder SyncResponder) {
 		if err != nil {
 			return
 		}
-		_ = writeFrame(s, resp)
+		_ = writeFrame(s, resp, maxInviteFrame)
 	})
 }
 
@@ -46,11 +46,11 @@ func (n *Host) RequestSync(ctx context.Context, to peer.ID, request []byte) ([]b
 		return nil, fmt.Errorf("net: open sync stream: %w", err)
 	}
 	defer s.Close()
-	if err := writeFrame(s, request); err != nil {
+	if err := writeFrame(s, request, maxInviteFrame); err != nil {
 		return nil, err
 	}
 	if err := s.CloseWrite(); err != nil {
 		return nil, err
 	}
-	return readFrame(s)
+	return readFrame(s, maxInviteFrame)
 }

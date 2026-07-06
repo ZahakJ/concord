@@ -7,10 +7,13 @@
     S,
     activeGuild,
     registerFeed,
+    scrollSoon,
+    feedNearBottom,
     channelName,
     jumpToChannel,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { previewText } from "./lib/attachments.js";
 
   let { onDropFiles } = $props();
 
@@ -93,7 +96,7 @@
       <div class="pin-item">
         <span class="pin-text">
           <Icon name="pin" size={11} />
-          <strong>{m.senderName || m.sender.slice(0, 9)}</strong>: {m.content.slice(0, 80)}
+          <strong>{m.senderName || m.sender.slice(0, 9)}</strong>: {previewText(m.content).slice(0, 80)}
         </span>
         <button class="mini" title="Unpin" aria-label="Unpin" onclick={() => api.pinMessage(m.channelId, m.id)}>
           <Icon name="close" size={11} />
@@ -118,7 +121,7 @@
     {#each S.searchResults as m (m.id)}
       <button class="search-hit" onclick={() => openSearchResult(m)}>
         <span class="muted small">{channelName(m.channelId)}</span>
-        <span><strong>{m.senderName || m.sender.slice(0, 9)}</strong>: {m.content.slice(0, 100)}</span>
+        <span><strong>{m.senderName || m.sender.slice(0, 9)}</strong>: {previewText(m.content).slice(0, 100)}</span>
       </button>
     {/each}
   </div>
@@ -133,6 +136,9 @@
   ondragleave={onDragLeave}
   ondragover={(e) => e.preventDefault()}
   ondrop={onDrop}
+  onscroll={() => {
+    if (S.newBelow && feedNearBottom()) S.newBelow = false;
+  }}
 >
   {#each rows as row (row.m.id)}
     {#if row.newDay}
@@ -153,12 +159,18 @@
     <div class="empty muted">No messages yet. Say hello 👋</div>
   {/each}
 
+  {#if S.newBelow}
+    <button class="new-below" onclick={scrollSoon}>
+      New messages <span class="arrow">↓</span>
+    </button>
+  {/if}
+
   {#if dragOver}
     <div class="drop-overlay">
       <div class="drop-card">
         <Icon name="attach" size={28} />
         <strong>Drop to send</strong>
-        <span class="muted">Images up to 300 KB, end-to-end encrypted</span>
+        <span class="muted">Images up to 5 MB, end-to-end encrypted</span>
       </div>
     </div>
   {/if}
@@ -271,6 +283,25 @@
   }
   .system-msg strong {
     color: var(--text);
+  }
+  .new-below {
+    position: sticky;
+    bottom: 6px;
+    align-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 14px;
+    background: var(--accent);
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    box-shadow: var(--shadow-pop);
+    z-index: 15;
+  }
+  .new-below .arrow {
+    font-size: 13px;
   }
   .drop-overlay {
     position: fixed;

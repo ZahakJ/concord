@@ -6,6 +6,8 @@
 // the web Notification API when available (browser build; the Wails WebView
 // may lack it), otherwise stay silent — the unread badges still light up.
 
+import { previewText } from "./attachments.js";
+
 export function requestPermission() {
   if (typeof Notification !== "undefined" && Notification.permission === "default") {
     Notification.requestPermission().catch(() => {});
@@ -24,7 +26,7 @@ export function notify(m, { selfFpr, mention, muted, activeChannel, onClick }) {
 
   const title = (mention ? "@ " : "") + (m.senderName || m.sender.slice(0, 9));
   try {
-    const n = new Notification(title, { body: m.content.slice(0, 120), tag: m.channelId });
+    const n = new Notification(title, { body: previewText(m.content).slice(0, 120), tag: m.channelId });
     n.onclick = () => {
       window.focus();
       onClick?.();

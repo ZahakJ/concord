@@ -1,0 +1,97 @@
+package app
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"strings"
+	"testing"
+	"time"
+)
+
+// TestAttachmentSendAndFetch is the attachments acceptance test: A sends an
+// image as an encrypted blob reference; B (who never held the bytes) resolves
+// the token by fetching the blob from A over the attach protocol; then C —
+// who joins later — fetches the same blob from B while A is gone, proving
+// availability spreads with viewers.
+func TestAttachmentSendAndFetch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked integration test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	b := startService(t, ctx)
+
+	g, err := a.CreateGuild("g")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	channel := g.Channels[0].ID
+	code, _ := a.InviteCode(g.ID)
+	if _, err := b.JoinViaInvite(code); err != nil {
+		t.Fatalf("B JoinViaInvite: %v", err)
+	}
+	waitMembers(t, 20*time.Second, 2, a, b)
+
+	// A "3 MB image" (bytes don't need to be a real image at this layer).
+	plain := make([]byte, 3<<20)
+	if _, err := rand.Read(plain); err != nil {
+		t.Fatal(err)
+	}
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString(plain)
+
+	rb := &recorder{}
+	b.OnMessage(rb.add)
+	msg, err := a.SendAttachment(channel, dataURL, 800, 600, "")
+	if err != nil {
+		t.Fatalf("SendAttachment: %v", err)
+	}
+	if len(msg.Content) > 512 || !strings.Contains(msg.Content, "concord://attach/v1/") {
+		t.Fatalf("token not compact: %d bytes: %.120s", len(msg.Content), msg.Content)
+	}
+
+	// B receives the tiny token over gossip...
+	waitUntil(t, 20*time.Second, func() bool { return rb.has(msg.Content) }, "B never received the token message")
+
+	// ...and resolves it to the original bytes by fetching the blob from A.
+	parts := strings.Split(strings.TrimSuffix(strings.SplitAfter(msg.Content, "concord://attach/v1/")[1], ")"), "/")
+	blobID, keys := parts[0], parts[1]
+	got, err := b.FetchAttachment(channel, blobID, keys, "png")
+	if err != nil {
+		t.Fatalf("B FetchAttachment: %v", err)
+	}
+	if got != dataURL {
+		t.Fatal("fetched attachment does not match the original")
+	}
+
+	// C joins, A leaves; C must still get the image — from B.
+	c := startService(t, ctx)
+	if _, err := c.JoinViaInvite(code); err != nil {
+		t.Fatalf("C JoinViaInvite: %v", err)
+	}
+	waitMembers(t, 30*time.Second, 3, a, b, c)
+	// Tests run without mDNS/DHT, so C only auto-dialed A (the invite path).
+	// Connect C↔B directly — in production discovery does this.
+	if err := c.host.Connect(ctx, b.host.AddrInfo()); err != nil {
+		t.Fatalf("connect C to B: %v", err)
+	}
+	_ = a.Close()
+
+	got, err = c.FetchAttachment(channel, blobID, keys, "png")
+	if err != nil {
+		t.Fatalf("C FetchAttachment (from B, A offline): %v", err)
+	}
+	if got != dataURL {
+		t.Fatal("C's fetched attachment does not match the original")
+	}
+
+	// Garbage keys must fail cleanly without poisoning the blob.
+	if _, err := b.FetchAttachment(channel, blobID, base64.RawURLEncoding.EncodeToString(make([]byte, 56)), "png"); err == nil {
+		t.Fatal("wrong key unexpectedly decrypted the blob")
+	}
+	if _, err := b.FetchAttachment(channel, blobID, keys, "png"); err != nil {
+		t.Fatalf("valid fetch after bad-key attempt: %v", err)
+	}
+}

@@ -40,6 +40,10 @@ export const S = $state({
   searchQuery: "",
   searchResults: null, // null = closed, [] = no hits
   showPins: false,
+
+  // newBelow: messages arrived while the user was scrolled up reading history
+  // (we deliberately do NOT yank the feed to the bottom in that case).
+  newBelow: false,
 });
 
 export const activeGuild = () => S.guilds.find((g) => g.id === S.activeGuildId) || null;
@@ -150,9 +154,16 @@ export function registerFeed(el) {
   feedEl = el;
 }
 export function scrollSoon() {
+  S.newBelow = false;
   requestAnimationFrame(() => {
     if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
   });
+}
+// feedNearBottom: is the user effectively at the end of the thread? Used to
+// decide between following new messages and leaving the reader alone.
+export function feedNearBottom() {
+  if (!feedEl) return true;
+  return feedEl.scrollHeight - feedEl.scrollTop - feedEl.clientHeight < 120;
 }
 export function scrollToMessage(id) {
   const el = feedEl?.querySelector(`[data-msg-id="${CSS.escape(id)}"]`);
@@ -281,7 +292,13 @@ function initEvents() {
         S.messages = S.messages.map((x) => (x.id === m.id ? m : x)); // update (edit/delete/react)
       } else {
         S.messages = [...S.messages, m];
-        scrollSoon();
+        // Follow the conversation only if the reader is already at the end
+        // (or it's their own message) — never yank them out of history.
+        if (m.sender === S.identity.fingerprint || feedNearBottom()) {
+          scrollSoon();
+        } else {
+          S.newBelow = true;
+        }
         if (document.hasFocus()) markRead(m.channelId);
       }
     } else if (m.channelId && m.kind === "" && !m.deleted && m.sender !== S.identity.fingerprint) {

@@ -4,7 +4,9 @@
   // (focus-within) with labelled icon buttons.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
+  import Attachment from "./Attachment.svelte";
   import { renderMarkdown } from "./lib/markdown.js";
+  import { parseAttachTokens, stripAttachTokens, previewText } from "./lib/attachments.js";
   import {
     S,
     memberByFpr,
@@ -22,6 +24,8 @@
 
   const mem = $derived(memberByFpr(m.sender));
   const mentionNames = $derived(S.displayName ? [S.displayName] : []);
+  const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
+  const bodyText = $derived(atts.length ? stripAttachTokens(m.content) : m.content);
   let editDraft = $state("");
 
   // Seed the edit draft whenever this message becomes the edit target — the
@@ -65,7 +69,7 @@
       <button class="reply-ref" onclick={jumpToReply}>
         <Icon name="reply" size={11} />
         {replyRef
-          ? `${replyRef.senderName || replyRef.sender.slice(0, 9)}: ${replyRef.deleted ? "(deleted)" : replyRef.content.slice(0, 60)}`
+          ? `${replyRef.senderName || replyRef.sender.slice(0, 9)}: ${replyRef.deleted ? "(deleted)" : previewText(replyRef.content).slice(0, 60)}`
           : "(original message)"}
       </button>
     {/if}
@@ -95,11 +99,16 @@
         onblur={() => saveEdit(m, editDraft)}
       />
     {:else}
-      <div class="body">
-        {@html renderMarkdown(m.content, mentionNames)}{#if m.edited}<span class="edited-tag">
-            (edited)</span
-          >{/if}
-      </div>
+      {#if bodyText}
+        <div class="body">
+          {@html renderMarkdown(bodyText, mentionNames)}{#if m.edited}<span class="edited-tag">
+              (edited)</span
+            >{/if}
+        </div>
+      {/if}
+      {#each atts as tok (tok.blobId)}
+        <Attachment channelId={m.channelId} {tok} />
+      {/each}
     {/if}
 
     {#if m.reactions && Object.keys(m.reactions).length}

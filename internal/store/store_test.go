@@ -406,3 +406,26 @@ func TestUpsertSyncedMessage(t *testing.T) {
 		t.Fatal("tombstone not applied")
 	}
 }
+
+func TestAttachmentRoundTrip(t *testing.T) {
+	s, _ := openTestStore(t)
+	ct := bytes.Repeat([]byte{7}, 1024)
+
+	if err := s.SaveAttachment("blob-1", ct); err != nil {
+		t.Fatalf("SaveAttachment: %v", err)
+	}
+	// Idempotent by blob ID.
+	if err := s.SaveAttachment("blob-1", []byte("different")); err != nil {
+		t.Fatalf("SaveAttachment (dup): %v", err)
+	}
+	got, ok, err := s.GetAttachment("blob-1")
+	if err != nil || !ok {
+		t.Fatalf("GetAttachment: ok=%v err=%v", ok, err)
+	}
+	if !bytes.Equal(got, ct) {
+		t.Fatal("duplicate save overwrote original ciphertext")
+	}
+	if _, ok, _ := s.GetAttachment("blob-missing"); ok {
+		t.Fatal("missing blob reported present")
+	}
+}

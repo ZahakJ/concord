@@ -126,27 +126,90 @@
   }
 
   // ---- attachments ----
+  // Images go out as encrypted blobs (see lib/attachments.js): up to 5 MB,
+  // sent as-is when already png/jpeg/gif/webp (keeps GIF animation), anything
+  // else (HEIC/AVIF/SVG/...) is canvas-normalized to JPEG — which is also what
+  // fixes "my image arrived as a wall of text" for exotic formats.
 
-  const MAX_IMAGE_BYTES = 300 * 1024;
-  export async function attachImage(file) {
-    if (!file || !file.type.startsWith("image/") || !S.activeChannelId) {
-      if (file && !file.type.startsWith("image/")) flash("Only images for now");
-      return;
-    }
-    if (file.size > MAX_IMAGE_BYTES) {
-      flash("Image too large (max 300 KB for now)");
-      return;
-    }
-    const dataUrl = await new Promise((res, rej) => {
+  const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+  const NATIVE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+  function readAsDataURL(blob) {
+    return new Promise((res, rej) => {
       const r = new FileReader();
       r.onload = () => res(r.result);
       r.onerror = rej;
-      r.readAsDataURL(file);
+      r.readAsDataURL(blob);
     });
+  }
+
+  async function decodeBitmap(file) {
     try {
-      await sendMessage(`![image](${dataUrl})`, "");
+      return await createImageBitmap(file);
+    } catch {
+      // Fallback for formats createImageBitmap rejects but <img> can decode.
+      const url = URL.createObjectURL(file);
+      try {
+        return await new Promise((res, rej) => {
+          const img = new Image();
+          img.onload = () => res(img);
+          img.onerror = rej;
+          img.src = url;
+        });
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+  }
+
+  async function normalizeToJpeg(file) {
+    const bmp = await decodeBitmap(file);
+    const w = bmp.width || bmp.naturalWidth;
+    const h = bmp.height || bmp.naturalHeight;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(bmp, 0, 0);
+    for (const q of [0.85, 0.7]) {
+      const dataUrl = canvas.toDataURL("image/jpeg", q);
+      if (dataUrl.length * 0.75 <= MAX_IMAGE_BYTES) return { dataUrl, w, h };
+    }
+    throw new Error("still too large after compression");
+  }
+
+  async function imageDims(dataUrl) {
+    return new Promise((res) => {
+      const img = new Image();
+      img.onload = () => res({ w: img.naturalWidth, h: img.naturalHeight });
+      img.onerror = () => res({ w: 0, h: 0 });
+      img.src = dataUrl;
+    });
+  }
+
+  export async function attachImage(file) {
+    if (!file || !S.activeChannelId) return;
+    if (!file.type.startsWith("image/")) {
+      flash("Only images for now");
+      return;
+    }
+    try {
+      let dataUrl, w, h;
+      if (NATIVE_TYPES.includes(file.type) && file.size <= MAX_IMAGE_BYTES) {
+        dataUrl = await readAsDataURL(file);
+        ({ w, h } = await imageDims(dataUrl));
+      } else {
+        ({ dataUrl, w, h } = await normalizeToJpeg(file));
+      }
+      const replyTo = S.replyingTo?.id || "";
+      S.replyingTo = null;
+      await api.sendAttachment(S.activeChannelId, dataUrl, w, h, replyTo);
     } catch (err) {
-      flash(err);
+      const msg = String(err?.message || err);
+      flash(
+        msg.includes("too large")
+          ? "Image too large (max 5 MB, even after compression)"
+          : "Couldn't read that image format",
+      );
     }
   }
 

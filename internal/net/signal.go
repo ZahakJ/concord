@@ -24,7 +24,7 @@ type SignalHandler func(from peer.ID, data []byte)
 func (n *Host) HandleSignals(handler SignalHandler) {
 	n.h.SetStreamHandler(signalProtocol, func(s network.Stream) {
 		defer s.Close()
-		data, err := readFrame(s)
+		data, err := readFrame(s, maxInviteFrame)
 		if err != nil {
 			return
 		}
@@ -41,7 +41,7 @@ func (n *Host) SendSignal(ctx context.Context, to peer.ID, data []byte) error {
 		return fmt.Errorf("net: open signal stream: %w", err)
 	}
 	defer s.Close()
-	if err := writeFrame(s, data); err != nil {
+	if err := writeFrame(s, data, maxInviteFrame); err != nil {
 		return fmt.Errorf("net: write signal: %w", err)
 	}
 	return nil
