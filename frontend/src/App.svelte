@@ -26,6 +26,7 @@
   import MessageList from "./MessageList.svelte";
   import Composer from "./Composer.svelte";
   import MemberPanel from "./MemberPanel.svelte";
+  import Welcome from "./Welcome.svelte";
   import QuickSwitcher from "./QuickSwitcher.svelte";
   import ProfilePopover from "./ProfilePopover.svelte";
   import ModalCreate from "./modals/ModalCreate.svelte";
@@ -40,6 +41,8 @@
 
   // DMs (incl. the self-DM "Notes") drop the member panel for a roomier view.
   const isDM = $derived(activeGuild()?.kind === "dm");
+  // No open channel → show the welcome screen instead of an empty chat.
+  const hasChannel = $derived(!!S.activeChannelId && !!activeGuild());
 
   // Skip the login screen if the backend is already unlocked (e.g. after a
   // browser refresh — the Go process stays running and holds the session).
@@ -162,20 +165,24 @@
 {#if !S.ready}
   <Login onLogin={start} />
 {:else}
-  <div class="app" class:no-panel={isDM}>
+  <div class="app" class:no-panel={isDM || !hasChannel}>
     <GuildRail />
     <ChannelList onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} onToggleMute={toggleMicMute} />
 
     <main class="chat">
-      <ChatHeader onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} onToggleMute={toggleMicMute} />
-      {#if S.voice && S.voice.channelId === S.activeChannelId}
-        <VoicePanel />
+      {#if hasChannel}
+        <ChatHeader onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} onToggleMute={toggleMicMute} />
+        {#if S.voice && S.voice.channelId === S.activeChannelId}
+          <VoicePanel />
+        {/if}
+        <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
+        <Composer bind:this={composer} />
+      {:else}
+        <Welcome />
       {/if}
-      <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
-      <Composer bind:this={composer} />
     </main>
 
-    {#if !isDM}
+    {#if !isDM && hasChannel}
       <MemberPanel />
     {/if}
   </div>
