@@ -165,7 +165,7 @@ priority order:
 **Messaging**
 - History sync on reconnect / offline delivery (#11).
 - Direct messages (1:1) and group DMs.
-- Message replies, edits, deletes, reactions, and threads.
+- Message edits and threads. *(Replies, deletes, and reactions: done.)*
 - Attachments: images/files (chunked, E2E-encrypted, over libp2p streams).
 - Mentions + notifications (per-guild/channel mute).
 
