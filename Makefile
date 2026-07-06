@@ -8,16 +8,31 @@ GUI_TAGS := wails desktop production webkit2_41
 N ?= 2
 
 .PHONY: gui gui-dev web cli rendezvous frontend test race fmt clean \
-        peers rendezvous-run dev-clean help release
+        peers rendezvous-run dev-clean help release icons native
 
 frontend:
 	cd frontend && npm install && npm run build
 
-# Native desktop app. Uses a direct tagged build (verified) rather than the
-# wails CLI so the webkit2gtk-4.1 tag is always applied.
+# Regenerate app-icon assets from build/appicon.svg (needs ImageMagick).
+# Produces the PNG (Wails/Linux), the multi-size Windows .ico, and macOS .icns.
+icons:
+	magick -background none -density 300 build/appicon.svg -resize 1024x1024 build/appicon.png
+	mkdir -p build/windows build/darwin
+	magick build/appicon.png -define icon:auto-resize=256,128,64,48,32,16 build/windows/icon.ico
+	magick build/appicon.png -resize 512x512 build/darwin/icon.icns
+	@echo "icons regenerated under build/"
+
+# Native desktop app: a real branded window (Concorde logo), not a browser.
+# Uses a direct tagged build (verified) rather than the wails CLI so the
+# webkit2gtk-4.1 tag is always applied. Needs cgo + the system WebView.
 gui: frontend
 	go build -tags "$(GUI_TAGS)" -o bin/concord-gui .
 	@echo "built bin/concord-gui — run it to open the desktop app"
+
+# native is an alias for gui, kept distinct from `release` (the zero-dependency
+# web binary). CI builds `native` per-OS to produce branded installers, while
+# `release` stays the single-file cross-compiled download.
+native: gui
 
 # Hot-reloading dev window (requires the wails CLI on PATH).
 gui-dev:

@@ -1,0 +1,58 @@
+# Dual-track release: the zero-dependency web binaries (one per OS, browser
+# shell) AND the branded native desktop apps (real window + Concorde icon).
+# Triggered on a version tag. The web track cross-compiles from Linux; the
+# native track needs each OS's WebView, so it runs on a per-OS matrix.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  # Zero-dependency web binaries — the "download one file, it just runs" track.
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.23" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: make release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: concord-web-binaries
+          path: dist-release/*
+
+  # Branded native desktop apps via Wails (cgo + system WebView per OS).
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, out: concord-linux }
+          - { os: macos-latest, out: concord-macos }
+          - { os: windows-latest, out: concord-windows }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.23" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Linux WebView deps
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+      - name: Build frontend
+        run: cd frontend && npm ci && npm run build
+      # `wails build` produces the packaged app (.app/.exe/binary) with the
+      # embedded icon. NSIS/DMG/AppImage packaging is configured in wails.json.
+      - name: Build native app
+        run: wails build -tags webkit2_41 -o ${{ matrix.out }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: concord-native-${{ matrix.os }}
+          path: build/bin/*

@@ -13,11 +13,19 @@ import (
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// appIcon is embedded so the window/taskbar shows the Concorde logo even when
+// building with a direct `go build -tags wails` (which bypasses the Wails CLI's
+// icon injection). Windows takes its exe icon from build/versioninfo.json.
+//
+//go:embed build/appicon.png
+var appIcon []byte
 
 func main() {
 	b := newBridge(context.Background())
@@ -30,6 +38,7 @@ func main() {
 		MinHeight:        560,
 		AssetServer:      &assetserver.Options{Assets: assets},
 		BackgroundColour: &options.RGBA{R: 30, G: 32, B: 36, A: 1},
+		Linux:            &linux.Options{Icon: appIcon},
 		OnStartup: func(ctx context.Context) {
 			b.setContext(ctx)
 			b.onMessage = func(m MessageView) { wruntime.EventsEmit(ctx, "message", m) }
