@@ -595,14 +595,15 @@ func (s *Service) trackGuild(g *domain.Guild) {
 // topic so all members converge on shared state (channels, member display
 // names). Only the fields relevant to Type are populated.
 type guildMeta struct {
-	Type        string         `json:"type"` // "channel_added" | "profile" | "guild_renamed"
-	Channel     domain.Channel `json:"channel,omitempty"`
-	Fingerprint string         `json:"fingerprint,omitempty"`
-	Name        string         `json:"name,omitempty"`
-	Status      string         `json:"status,omitempty"`
-	Emoji       string         `json:"emoji,omitempty"`
-	Color       string         `json:"color,omitempty"`
-	Avatar      string         `json:"avatar,omitempty"`
+	Type string `json:"type"` // channel_added | channel_updated | category_added | profile | guild_renamed
+	Channel     domain.Channel  `json:"channel,omitempty"`
+	Category    domain.Category `json:"category,omitempty"`
+	Fingerprint string          `json:"fingerprint,omitempty"`
+	Name        string          `json:"name,omitempty"`
+	Status      string          `json:"status,omitempty"`
+	Emoji       string          `json:"emoji,omitempty"`
+	Color       string          `json:"color,omitempty"`
+	Avatar      string          `json:"avatar,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -644,13 +645,16 @@ func (s *Service) announceProfile(guildID string) {
 }
 
 // CreateChannel adds a channel to a guild and announces it (MLS-encrypted) to
-// the other members so they add it too.
-func (s *Service) CreateChannel(guildID, name string) (domain.Channel, error) {
+// the other members so they add it too. ctype is "" (text), "voice", or
+// "announcement"; category is a category ID or "".
+func (s *Service) CreateChannel(guildID, name, ctype, category string) (domain.Channel, error) {
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
+	var pos int
 	if ok {
 		groupID = g.GroupID
+		pos = len(g.Channels)
 	}
 	s.mu.RUnlock()
 	if !ok {
@@ -659,8 +663,16 @@ func (s *Service) CreateChannel(guildID, name string) (domain.Channel, error) {
 	if strings.TrimSpace(name) == "" {
 		return domain.Channel{}, fmt.Errorf("app: channel name is empty")
 	}
+	switch ctype {
+	case "", "text", "voice", "announcement":
+	default:
+		return domain.Channel{}, fmt.Errorf("app: unknown channel type %q", ctype)
+	}
 
-	ch := domain.Channel{ID: domain.NewID(), GuildID: guildID, Name: strings.TrimSpace(name)}
+	ch := domain.Channel{
+		ID: domain.NewID(), GuildID: guildID, Name: strings.TrimSpace(name),
+		Type: ctype, Category: category, Position: pos,
+	}
 	s.addChannel(guildID, ch)
 
 	// Announce to members (encrypted so non-members never learn the channel).
@@ -672,9 +684,73 @@ func (s *Service) CreateChannel(guildID, name string) (domain.Channel, error) {
 	if err := s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct); err != nil {
 		return domain.Channel{}, err
 	}
-	// Note the creation in the new channel itself.
-	s.sendSystem(ch.ID, "created this channel")
+	// Note the creation in the new channel itself (text channels only — voice
+	// channels have no chat feed).
+	if ch.ChannelType() != "voice" {
+		s.sendSystem(ch.ID, "created this channel")
+	}
 	return ch, nil
+}
+
+// CreateCategory adds a sidebar category and announces it to members.
+func (s *Service) CreateCategory(guildID, name string) (domain.Category, error) {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	s.mu.RUnlock()
+	if !ok {
+		return domain.Category{}, fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	groupID = g.GroupID
+	if strings.TrimSpace(name) == "" {
+		return domain.Category{}, fmt.Errorf("app: category name is empty")
+	}
+	cat := domain.Category{ID: domain.NewID(), GuildID: guildID, Name: strings.TrimSpace(name)}
+	_ = s.store.SaveCategory(cat)
+	s.emitGuildUpdate()
+	s.publishMeta(groupID, guildMeta{Type: "category_added", Category: cat})
+	return cat, nil
+}
+
+// SetChannelMeta changes a channel's type/category/position and announces it.
+func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, position int) error {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	_ = s.store.UpdateChannelMeta(channelID, ctype, category, position)
+	s.mu.Lock()
+	for i := range g.Channels {
+		if g.Channels[i].ID == channelID {
+			g.Channels[i].Type = ctype
+			g.Channels[i].Category = category
+			g.Channels[i].Position = position
+		}
+	}
+	s.mu.Unlock()
+	s.emitGuildUpdate()
+	s.publishMeta(groupID, guildMeta{Type: "channel_updated",
+		Channel: domain.Channel{ID: channelID, GuildID: guildID, Type: ctype, Category: category, Position: position}})
+	return nil
+}
+
+// Categories returns a guild's sidebar categories.
+func (s *Service) Categories(guildID string) ([]domain.Category, error) {
+	return s.store.Categories(guildID)
+}
+
+// publishMeta MLS-encrypts and publishes a guild-meta update (best-effort).
+func (s *Service) publishMeta(groupID []byte, meta guildMeta) {
+	payload, _ := json.Marshal(meta)
+	if ct, err := s.mls.Encrypt(s.ctx, groupID, payload); err == nil {
+		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct)
+	}
 }
 
 // addChannel records a channel in memory, persists it, subscribes to its topics,
@@ -766,6 +842,30 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	case "channel_added":
 		m.Channel.GuildID = guildID
 		s.addChannel(guildID, m.Channel)
+	case "channel_updated":
+		if m.Channel.ID == "" {
+			return
+		}
+		_ = s.store.UpdateChannelMeta(m.Channel.ID, m.Channel.Type, m.Channel.Category, m.Channel.Position)
+		s.mu.Lock()
+		if g, ok := s.guilds[guildID]; ok {
+			for i := range g.Channels {
+				if g.Channels[i].ID == m.Channel.ID {
+					g.Channels[i].Type = m.Channel.Type
+					g.Channels[i].Category = m.Channel.Category
+					g.Channels[i].Position = m.Channel.Position
+				}
+			}
+		}
+		s.mu.Unlock()
+		s.emitGuildUpdate()
+	case "category_added":
+		if m.Category.ID == "" {
+			return
+		}
+		m.Category.GuildID = guildID
+		_ = s.store.SaveCategory(m.Category)
+		s.emitGuildUpdate()
 	case "guild_renamed":
 		if strings.TrimSpace(m.Name) == "" {
 			return

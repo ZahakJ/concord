@@ -72,7 +72,16 @@ CREATE TABLE IF NOT EXISTS guilds (
 CREATE TABLE IF NOT EXISTS channels (
   id       TEXT PRIMARY KEY,
   guild_id TEXT NOT NULL,
-  name     TEXT NOT NULL
+  name     TEXT NOT NULL,
+  type     TEXT NOT NULL DEFAULT '',
+  category TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS categories (
+  id       TEXT PRIMARY KEY,
+  guild_id TEXT NOT NULL,
+  name     TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS messages (
   id          TEXT PRIMARY KEY,
@@ -142,6 +151,10 @@ CREATE TABLE IF NOT EXISTS attachments (
 		`ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN updated INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE channels ADD COLUMN type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE guilds ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -250,9 +263,10 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 	}
 	for _, c := range g.Channels {
 		if _, err := tx.Exec(
-			`INSERT INTO channels (id, guild_id, name) VALUES (?, ?, ?)
-			 ON CONFLICT(id) DO UPDATE SET name=excluded.name`,
-			c.ID, g.ID, c.Name,
+			`INSERT INTO channels (id, guild_id, name, type, category, position) VALUES (?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type,
+			   category=excluded.category, position=excluded.position`,
+			c.ID, g.ID, c.Name, c.Type, c.Category, c.Position,
 		); err != nil {
 			return fmt.Errorf("store: save channel: %w", err)
 		}
@@ -293,7 +307,9 @@ func (s *Store) Guilds() ([]domain.Guild, error) {
 }
 
 func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
-	rows, err := s.db.Query(`SELECT id, guild_id, name FROM channels WHERE guild_id = ?`, guildID)
+	rows, err := s.db.Query(
+		`SELECT id, guild_id, name, type, category, position FROM channels
+		 WHERE guild_id = ? ORDER BY position ASC, rowid ASC`, guildID)
 	if err != nil {
 		return nil, err
 	}
@@ -301,12 +317,52 @@ func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	var out []domain.Channel
 	for rows.Next() {
 		var c domain.Channel
-		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name); err != nil {
+		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Type, &c.Category, &c.Position); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// SaveCategory upserts a guild category (layout metadata).
+func (s *Store) SaveCategory(c domain.Category) error {
+	_, err := s.db.Exec(
+		`INSERT INTO categories (id, guild_id, name, position) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET name=excluded.name, position=excluded.position`,
+		c.ID, c.GuildID, c.Name, c.Position)
+	if err != nil {
+		return fmt.Errorf("store: save category: %w", err)
+	}
+	return nil
+}
+
+// Categories returns a guild's categories, ordered by position.
+func (s *Store) Categories(guildID string) ([]domain.Category, error) {
+	rows, err := s.db.Query(
+		`SELECT id, guild_id, name, position FROM categories WHERE guild_id = ? ORDER BY position ASC, rowid ASC`,
+		guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Category
+	for rows.Next() {
+		var c domain.Category
+		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Position); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// UpdateChannelMeta sets a channel's type/category/position (layout only).
+func (s *Store) UpdateChannelMeta(channelID, ctype, category string, position int) error {
+	_, err := s.db.Exec(
+		`UPDATE channels SET type=?, category=?, position=? WHERE id=?`,
+		ctype, category, position, channelID)
+	return err
 }
 
 // DeleteGuild removes a guild and all of its local data (channels, messages,

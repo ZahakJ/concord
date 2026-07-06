@@ -44,7 +44,11 @@ export const api = {
   identity: () => call("Identity"),
   guilds: () => call("Guilds"),
   createGuild: (name) => call("CreateGuild", name),
-  createChannel: (guildID, name) => call("CreateChannel", guildID, name),
+  createChannel: (guildID, name, type = "", category = "") =>
+    call("CreateChannel", guildID, name, type, category),
+  createCategory: (guildID, name) => call("CreateCategory", guildID, name),
+  setChannelMeta: (guildID, channelID, type, category, position) =>
+    call("SetChannelMeta", guildID, channelID, type, category, position),
   renameGuild: (guildID, name) => call("RenameGuild", guildID, name),
   leaveGuild: (guildID) => call("LeaveGuild", guildID),
   deleteMessage: (channelID, messageID) => call("DeleteMessage", channelID, messageID),

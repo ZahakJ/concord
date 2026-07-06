@@ -27,11 +27,32 @@ type Guild struct {
 }
 
 // A Channel is a named message stream within a guild. Each channel maps to one
-// gossipsub topic (see TopicID).
+// gossipsub topic (see TopicID). Type/Category/Position are advisory layout
+// metadata (well-behaved-client trust, like pins), propagated over the guild-
+// meta topic; they will fold into signed guild-state when roles land.
 type Channel struct {
-	ID      string `json:"id"`
-	GuildID string `json:"guildId"`
-	Name    string `json:"name"`
+	ID       string `json:"id"`
+	GuildID  string `json:"guildId"`
+	Name     string `json:"name"`
+	Type     string `json:"type,omitempty"`     // "" or "text" | "voice" | "announcement"
+	Category string `json:"category,omitempty"` // category ID this channel sits under, or ""
+	Position int    `json:"position,omitempty"` // sort order within its category
+}
+
+// ChannelType returns a channel's type, defaulting to "text".
+func (c Channel) ChannelType() string {
+	if c.Type == "" {
+		return "text"
+	}
+	return c.Type
+}
+
+// A Category groups channels in the sidebar. Pure layout metadata.
+type Category struct {
+	ID       string `json:"id"`
+	GuildID  string `json:"guildId"`
+	Name     string `json:"name"`
+	Position int    `json:"position"`
 }
 
 // A Message is a single chat message. Content is the human-readable body; it is

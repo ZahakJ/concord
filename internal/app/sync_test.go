@@ -142,7 +142,7 @@ func TestOfflineCatchUp(t *testing.T) {
 		m, ok, _ := a.store.MessageByID(bMsg.ID)
 		return ok && m.Content == "b-edited" && len(m.Reactions["👍"]) == 1
 	}, "A did not apply B's edit+reaction")
-	if _, err := a.CreateChannel(g.ID, "offtopic"); err != nil {
+	if _, err := a.CreateChannel(g.ID, "offtopic", "", ""); err != nil {
 		t.Fatalf("CreateChannel: %v", err)
 	}
 	if err := a.RenameGuild(g.ID, "renamed"); err != nil {

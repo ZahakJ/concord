@@ -99,15 +99,25 @@ type IdentityInfo struct {
 }
 
 type ChannelView struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`     // "text" | "voice" | "announcement"
+	Category string `json:"category"` // category ID or ""
+	Position int    `json:"position"`
+}
+
+type CategoryView struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Position int    `json:"position"`
 }
 
 type GuildView struct {
-	ID       string        `json:"id"`
-	Name     string        `json:"name"`
-	IsOwner  bool          `json:"isOwner"`
-	Channels []ChannelView `json:"channels"`
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	IsOwner    bool           `json:"isOwner"`
+	Channels   []ChannelView  `json:"channels"`
+	Categories []CategoryView `json:"categories"`
 	// OutOfSync: this member is stranded at an old MLS epoch that no reachable
 	// peer could bridge; new messages can't be decrypted until re-invited.
 	OutOfSync bool `json:"outOfSync,omitempty"`
@@ -345,17 +355,37 @@ func (b *bridge) RenameGuild(guildID, name string) error {
 	return svc.RenameGuild(guildID, name)
 }
 
-// CreateChannel adds a channel to a guild.
-func (b *bridge) CreateChannel(guildID, name string) (ChannelView, error) {
+// CreateChannel adds a channel to a guild. ctype is ""/"text"/"voice"/
+// "announcement"; category is a category ID or "".
+func (b *bridge) CreateChannel(guildID, name, ctype, category string) (ChannelView, error) {
 	svc, err := b.service()
 	if err != nil {
 		return ChannelView{}, err
 	}
-	ch, err := svc.CreateChannel(guildID, name)
+	ch, err := svc.CreateChannel(guildID, name, ctype, category)
 	if err != nil {
 		return ChannelView{}, err
 	}
-	return ChannelView{ID: ch.ID, Name: ch.Name}, nil
+	return channelView(ch), nil
+}
+
+// CreateCategory adds a sidebar category to a guild.
+func (b *bridge) CreateCategory(guildID, name string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.CreateCategory(guildID, name)
+	return err
+}
+
+// SetChannelMeta changes a channel's type/category/position.
+func (b *bridge) SetChannelMeta(guildID, channelID, ctype, category string, position int) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetChannelMeta(guildID, channelID, ctype, category, position)
 }
 
 // SendTyping broadcasts an ephemeral typing hint for a channel.
@@ -685,12 +715,25 @@ func (b *bridge) Contacts() ([]ContactView, error) {
 
 // ---- mapping helpers ----
 
+func channelView(c domain.Channel) ChannelView {
+	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category, Position: c.Position}
+}
+
 func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	channels := make([]ChannelView, 0, len(g.Channels))
 	for _, c := range g.Channels {
-		channels = append(channels, ChannelView{ID: c.ID, Name: c.Name})
+		channels = append(channels, channelView(c))
 	}
-	return GuildView{ID: g.ID, Name: g.Name, IsOwner: svc.IsOwner(g.ID), Channels: channels, OutOfSync: svc.OutOfSync(g.ID)}
+	cats := []CategoryView{}
+	if cc, err := svc.Categories(g.ID); err == nil {
+		for _, c := range cc {
+			cats = append(cats, CategoryView{ID: c.ID, Name: c.Name, Position: c.Position})
+		}
+	}
+	return GuildView{
+		ID: g.ID, Name: g.Name, IsOwner: svc.IsOwner(g.ID),
+		Channels: channels, Categories: cats, OutOfSync: svc.OutOfSync(g.ID),
+	}
 }
 
 func messageView(m domain.Message) MessageView {
@@ -784,7 +827,11 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SearchMessages":
 		return b.SearchMessages(argStr(args, 0))
 	case "CreateChannel":
-		return b.CreateChannel(argStr(args, 0), argStr(args, 1))
+		return b.CreateChannel(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+	case "CreateCategory":
+		return nil, b.CreateCategory(argStr(args, 0), argStr(args, 1))
+	case "SetChannelMeta":
+		return nil, b.SetChannelMeta(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt(args, 4))
 	case "RenameGuild":
 		return nil, b.RenameGuild(argStr(args, 0), argStr(args, 1))
 	case "LeaveGuild":

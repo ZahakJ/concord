@@ -5,7 +5,28 @@
   import Avatar from "./Avatar.svelte";
   import { S, activeGuild, selectChannel, toggleMute } from "./lib/state.svelte.js";
 
+  let { onJoinVoice } = $props();
+
   const g = $derived(activeGuild());
+
+  // Group channels under their category (uncategorized first), each group
+  // ordered by the channel's position.
+  const groups = $derived.by(() => {
+    if (!g) return [];
+    const cats = [...(g.categories || [])].sort((a, b) => a.position - b.position);
+    const byCat = (id) =>
+      g.channels.filter((c) => (c.category || "") === id).sort((a, b) => a.position - b.position);
+    const out = [{ id: "", name: "", channels: byCat("") }];
+    for (const cat of cats) out.push({ id: cat.id, name: cat.name, channels: byCat(cat.id) });
+    return out.filter((grp) => grp.channels.length || grp.id);
+  });
+
+  const typeIcon = (t) => (t === "voice" ? "speaker" : t === "announcement" ? "megaphone" : "hash");
+
+  function clickChannel(c) {
+    if (c.type === "voice") onJoinVoice?.(c.id);
+    else selectChannel(c.id);
+  }
 </script>
 
 <aside class="cols">
@@ -17,29 +38,45 @@
     {#if g}
       <div class="section-head">
         <span>Channels</span>
-        <button class="mini" onclick={() => (S.modal = { kind: "channel" })} title="Add channel" aria-label="Add channel">
-          <Icon name="plus" size={12} />
-        </button>
+        <span class="head-actions">
+          <button class="mini" onclick={() => (S.modal = { kind: "category" })} title="Add category" aria-label="Add category">
+            <Icon name="chevron" size={11} />
+          </button>
+          <button class="mini" onclick={() => (S.modal = { kind: "channel" })} title="Add channel" aria-label="Add channel">
+            <Icon name="plus" size={12} />
+          </button>
+        </span>
       </div>
-      {#each g.channels as c (c.id)}
-        {@const u = S.unread[c.id]}
-        <div class="channel-row" class:active={c.id === S.activeChannelId}>
-          <button class="channel" class:muted-ch={S.mutes[c.id]} onclick={() => selectChannel(c.id)}>
-            <Icon name="hash" size={13} />
-            <span class="ch-name">{c.name}</span>
-            {#if c.id !== S.activeChannelId && u && !S.mutes[c.id]}
-              <span class="count" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
+
+      {#each groups as grp (grp.id || "_uncat")}
+        {#if grp.name}
+          <div class="cat-head">{grp.name}</div>
+        {/if}
+        {#each grp.channels as c (c.id)}
+          {@const u = S.unread[c.id]}
+          {@const active = c.id === S.activeChannelId && c.type !== "voice"}
+          {@const inVoice = S.voice && S.voice.channelId === c.id}
+          <div class="channel-row" class:active class:voice-active={inVoice}>
+            <button class="channel" class:muted-ch={S.mutes[c.id]} onclick={() => clickChannel(c)}>
+              <Icon name={typeIcon(c.type)} size={13} />
+              <span class="ch-name">{c.name}</span>
+              {#if c.type !== "voice" && c.id !== S.activeChannelId && u && !S.mutes[c.id]}
+                <span class="count" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
+              {/if}
+              {#if inVoice}<Icon name="speaker" size={12} />{/if}
+            </button>
+            {#if c.type !== "voice"}
+              <button
+                class="mute-btn"
+                title={S.mutes[c.id] ? "Unmute channel" : "Mute channel"}
+                aria-label={S.mutes[c.id] ? "Unmute channel" : "Mute channel"}
+                onclick={() => toggleMute(c.id)}
+              >
+                <Icon name={S.mutes[c.id] ? "bellOff" : "bell"} size={13} />
+              </button>
             {/if}
-          </button>
-          <button
-            class="mute-btn"
-            title={S.mutes[c.id] ? "Unmute channel" : "Mute channel"}
-            aria-label={S.mutes[c.id] ? "Unmute channel" : "Mute channel"}
-            onclick={() => toggleMute(c.id)}
-          >
-            <Icon name={S.mutes[c.id] ? "bellOff" : "bell"} size={13} />
-          </button>
-        </div>
+          </div>
+        {/each}
       {/each}
     {:else}
       <p class="muted empty-hint">
@@ -101,6 +138,21 @@
     letter-spacing: 0.05em;
     color: var(--text-muted);
     margin: 6px 6px 4px;
+  }
+  .head-actions {
+    display: flex;
+    gap: 2px;
+  }
+  .cat-head {
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    font-weight: 700;
+    margin: 10px 8px 2px;
+  }
+  .voice-active {
+    background: var(--accent-soft) !important;
   }
   .channel-row {
     position: relative;

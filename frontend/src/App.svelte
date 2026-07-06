@@ -29,6 +29,7 @@
   import QuickSwitcher from "./QuickSwitcher.svelte";
   import ProfilePopover from "./ProfilePopover.svelte";
   import ModalCreate from "./modals/ModalCreate.svelte";
+  import ModalCreateChannel from "./modals/ModalCreateChannel.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
   import ModalProfile from "./modals/ModalProfile.svelte";
@@ -55,11 +56,15 @@
 
   // ---- voice lifecycle (owns the mesh; state lives in S) ----
 
-  async function joinVoice() {
-    if (!S.activeChannelId || S.voice) return;
+  async function joinVoice(channelId = S.activeChannelId) {
+    if (!channelId) return;
+    if (S.voice) {
+      if (S.voice.channelId === channelId) return; // already in it
+      await leaveVoice(); // switch rooms
+    }
     const mesh = new VoiceMesh({
       selfPeerId: S.identity.peerId,
-      channelId: S.activeChannelId,
+      channelId,
       relay: api.relaySignal,
       onRoster: (ids) => (S.voiceParticipants = ids),
       onSpeaking: (keys) => (S.voiceSpeaking = keys),
@@ -70,8 +75,8 @@
       flash("Microphone access denied");
       return;
     }
-    S.voice = { mesh, channelId: S.activeChannelId };
-    await api.joinVoice(S.activeChannelId);
+    S.voice = { mesh, channelId };
+    await api.joinVoice(channelId);
     playVoiceJoin();
     flash("Joined voice");
   }
@@ -103,9 +108,16 @@
     S.modal = null;
   }
 
-  async function createChannel(name) {
+  async function createChannel({ name, type }) {
     if (!name?.trim() || !S.activeGuildId) return;
-    await api.createChannel(S.activeGuildId, name.trim());
+    await api.createChannel(S.activeGuildId, name.trim(), type || "");
+    await refreshGuilds();
+    S.modal = null;
+  }
+
+  async function createCategory(name) {
+    if (!name?.trim() || !S.activeGuildId) return;
+    await api.createCategory(S.activeGuildId, name.trim());
     await refreshGuilds();
     S.modal = null;
   }
@@ -149,7 +161,7 @@
 {:else}
   <div class="app">
     <GuildRail />
-    <ChannelList />
+    <ChannelList onJoinVoice={joinVoice} />
 
     <main class="chat">
       <ChatHeader onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} onToggleMute={toggleMicMute} />
@@ -175,12 +187,14 @@
   {#if S.modal?.kind === "create"}
     <ModalCreate onSubmit={createGuild} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "channel"}
+    <ModalCreateChannel onSubmit={createChannel} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "category"}
     <ModalCreate
-      onSubmit={createChannel}
+      onSubmit={createCategory}
       onClose={() => (S.modal = null)}
-      title="Create a channel"
-      hint="Adds a channel visible to all guild members."
-      placeholder="Channel name"
+      title="Create a category"
+      hint="Groups channels in the sidebar."
+      placeholder="Category name"
     />
   {:else if S.modal?.kind === "rename"}
     <ModalCreate
