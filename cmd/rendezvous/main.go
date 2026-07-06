@@ -30,6 +30,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 
 	"github.com/zahak/concord/internal/identity"
+	"github.com/zahak/concord/internal/mailbox"
 )
 
 func main() {
@@ -86,7 +87,14 @@ func run() error {
 		return fmt.Errorf("bootstrap dht: %w", err)
 	}
 
-	fmt.Println("Concord rendezvous node running.")
+	// Encrypted store-and-forward mailbox: holds E2EE envelopes for members who
+	// are offline, so a message reaches them on reconnect even when no other
+	// peer is online. The node sees only opaque ciphertext + a 16-byte tag.
+	// Bounded and in-memory (no disk, no storage cost to grow).
+	mbox := mailbox.NewService(mailbox.New())
+	mbox.Attach(ctx, h)
+
+	fmt.Println("Concord rendezvous node running (DHT + relay + mailbox).")
 	fmt.Println("PeerID:", h.ID())
 
 	// When deployed behind a stable public hostname (e.g. fly.io), print the

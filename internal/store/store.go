@@ -155,6 +155,7 @@ CREATE TABLE IF NOT EXISTS attachments (
 		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE guilds ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE profiles ADD COLUMN mailbox_pub BLOB`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -788,18 +789,20 @@ func (s *Store) GetSetting(key string) (string, error) {
 // ProfileRow is a peer's learned profile as persisted (see app.Profile).
 type ProfileRow struct {
 	Fingerprint, Name, Status, Emoji, Color, Avatar string
+	MailboxPub                                       []byte
 }
 
-// SaveProfile upserts a peer's learned profile so display names survive
-// restarts instead of living only in memory.
+// SaveProfile upserts a peer's learned profile so display names (and their
+// mailbox key) survive restarts instead of living only in memory.
 func (s *Store) SaveProfile(p ProfileRow) error {
 	_, err := s.db.Exec(
-		`INSERT INTO profiles (fingerprint, name, status, emoji, color, avatar, updated)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO profiles (fingerprint, name, status, emoji, color, avatar, mailbox_pub, updated)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(fingerprint) DO UPDATE SET
 		   name=excluded.name, status=excluded.status, emoji=excluded.emoji,
-		   color=excluded.color, avatar=excluded.avatar, updated=excluded.updated`,
-		p.Fingerprint, p.Name, p.Status, p.Emoji, p.Color, p.Avatar, time.Now().UnixNano(),
+		   color=excluded.color, avatar=excluded.avatar, mailbox_pub=excluded.mailbox_pub,
+		   updated=excluded.updated`,
+		p.Fingerprint, p.Name, p.Status, p.Emoji, p.Color, p.Avatar, p.MailboxPub, time.Now().UnixNano(),
 	)
 	if err != nil {
 		return fmt.Errorf("store: save profile: %w", err)
@@ -809,7 +812,7 @@ func (s *Store) SaveProfile(p ProfileRow) error {
 
 // Profiles returns every learned peer profile.
 func (s *Store) Profiles() ([]ProfileRow, error) {
-	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar FROM profiles`)
+	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar, mailbox_pub FROM profiles`)
 	if err != nil {
 		return nil, err
 	}
@@ -817,7 +820,7 @@ func (s *Store) Profiles() ([]ProfileRow, error) {
 	var out []ProfileRow
 	for rows.Next() {
 		var p ProfileRow
-		if err := rows.Scan(&p.Fingerprint, &p.Name, &p.Status, &p.Emoji, &p.Color, &p.Avatar); err != nil {
+		if err := rows.Scan(&p.Fingerprint, &p.Name, &p.Status, &p.Emoji, &p.Color, &p.Avatar, &p.MailboxPub); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

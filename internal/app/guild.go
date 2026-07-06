@@ -443,6 +443,9 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 	if err := s.ps.Publish(s.ctx, domain.TopicID(groupID, channelID), ct); err != nil {
 		return domain.Message{}, err
 	}
+	// Also stash a sealed copy in the mailbox of any member who is offline, so
+	// they receive it on reconnect even if no peer is online to sync from.
+	go s.depositForOffline(groupID, ct)
 	switch msg.Kind {
 	case "delete":
 		s.applyDelete(msg.ReplyTo, msg.Sender)
@@ -604,6 +607,7 @@ type guildMeta struct {
 	Emoji       string          `json:"emoji,omitempty"`
 	Color       string          `json:"color,omitempty"`
 	Avatar      string          `json:"avatar,omitempty"`
+	MailboxPub  []byte          `json:"mbx,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -635,6 +639,7 @@ func (s *Service) announceProfile(guildID string) {
 	meta := guildMeta{
 		Type: "profile", Fingerprint: s.id.Fingerprint(),
 		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
+		MailboxPub: p.MailboxPub,
 	}
 	payload, _ := json.Marshal(meta)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
@@ -883,7 +888,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	case "profile":
 		// First time we see this member: reply with our own profile so the
 		// newcomer learns us too (bounded — only on genuinely new members).
-		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar}) {
+		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, MailboxPub: m.MailboxPub}) {
 			s.announceProfile(guildID)
 		}
 	}

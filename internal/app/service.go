@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -61,6 +62,12 @@ type Service struct {
 
 	// previews caches link-preview scrapes (see preview.go).
 	previews *previewCache
+
+	// Mailbox: X25519 keypair for sealing offline envelopes, and the parsed
+	// rendezvous nodes that host our mailbox (see mailbox.go).
+	mbxPriv   [32]byte
+	mbxPub    [32]byte
+	bootstrap []peer.AddrInfo
 }
 
 // Profile is a member's self-asserted presentation: display name, a short
@@ -72,6 +79,9 @@ type Profile struct {
 	Emoji  string `json:"emoji"`
 	Color  string `json:"color"`
 	Avatar string `json:"avatar"` // small image as a data URI ("" = none)
+	// MailboxPub is this member's X25519 mailbox key, shared so others can seal
+	// offline envelopes to them (see mailbox.go). Not user-facing.
+	MailboxPub []byte `json:"mbx,omitempty"`
 }
 
 // maxAvatarBytes caps the avatar data URI so profile broadcasts stay far below
@@ -170,14 +180,16 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		profiles:       map[string]Profile{},
 		outOfSync:      map[string]bool{},
 		previews:       newPreviewCache(),
+		bootstrap:      bootstrap,
 	}
+	s.mbxPriv, s.mbxPub = deriveMailboxKeys(id)
 
 	// Restore learned member profiles so names survive restarts (they are also
 	// repaired by invite handshakes and history sync, but this avoids a window
 	// of fingerprint-only names right after unlock).
 	if rows, err := st.Profiles(); err == nil {
 		for _, r := range rows {
-			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar}
+			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, MailboxPub: r.MailboxPub}
 		}
 	}
 
@@ -207,6 +219,14 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	host.OnPeerConnected(func(p peer.ID) {
 		pp := presenceFor(p)
 		_ = st.RecordContact(pp.PeerID, pp.Fingerprint)
+		// When a rendezvous node connects, register our mailbox with it and
+		// drain anything deposited while we were offline.
+		if s.isMailboxNode(p) {
+			go func() {
+				s.registerMailbox(p)
+				s.drainMailbox(p)
+			}()
+		}
 		go func() {
 			time.Sleep(1500 * time.Millisecond)
 			s.announceProfileAll()
@@ -326,7 +346,10 @@ func (s *Service) SelfProfile() Profile {
 	emoji, _ := s.store.GetSetting("avatar_emoji")
 	color, _ := s.store.GetSetting("accent_color")
 	avatar, _ := s.store.GetSetting("avatar_image")
-	return Profile{Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar}
+	return Profile{
+		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
+		MailboxPub: s.mbxPub[:],
+	}
 }
 
 // SetProfile persists the full self profile and re-announces it to every guild.
@@ -370,19 +393,30 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	if len(p.Avatar) > maxAvatarBytes || (p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/")) {
 		p.Avatar = "" // reject oversized or non-image avatars from peers
 	}
+	// Don't let a profile update that omits the mailbox key wipe one we already
+	// learned (e.g. a name backfill or an older peer's announce).
 	s.mu.Lock()
 	prev, known := s.profiles[fingerprint]
+	if known && len(p.MailboxPub) == 0 && len(prev.MailboxPub) > 0 {
+		p.MailboxPub = prev.MailboxPub
+	}
 	s.profiles[fingerprint] = p
 	s.mu.Unlock()
-	if known && prev == p {
+	if known && profilesEqual(prev, p) {
 		return false // nothing new; skip the store write and UI refresh
 	}
 	_ = s.store.SaveProfile(store.ProfileRow{
 		Fingerprint: fingerprint,
 		Name:        p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
+		MailboxPub: p.MailboxPub,
 	})
 	s.emitGuildUpdate()
 	return !known
+}
+
+func profilesEqual(a, b Profile) bool {
+	return a.Name == b.Name && a.Status == b.Status && a.Emoji == b.Emoji &&
+		a.Color == b.Color && a.Avatar == b.Avatar && bytes.Equal(a.MailboxPub, b.MailboxPub)
 }
 
 // learnNameHint backfills a display name from a chat message's self-asserted
