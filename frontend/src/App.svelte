@@ -214,6 +214,10 @@
     display: grid;
     grid-template-columns: 64px 220px 1fr 260px;
     height: 100%;
+    /* Pin the single row to the viewport so tall columns (the chat feed)
+       scroll internally instead of pushing the layout past the screen. */
+    grid-template-rows: 100%;
+    overflow: hidden;
   }
   @media (max-width: 900px) {
     .app {
@@ -227,6 +231,10 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    /* min-height:0 lets the feed (flex:1) shrink and scroll rather than
+       growing to fit every message and shoving the composer off-screen. */
+    min-height: 0;
+    overflow: hidden;
     background: var(--bg-2);
   }
   .toast {
