@@ -116,6 +116,11 @@
   // Minimal, XSS-safe markdown: escape first, then add our own safe tags.
   function renderContent(text) {
     let s = escapeHtml(text);
+    // Inline image attachments (strict data-URI whitelist, so no script URIs).
+    s = s.replace(
+      /!\[image\]\((data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+)\)/g,
+      '<img class="attachment" src="$1" alt="attachment" />',
+    );
     s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
     s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
@@ -330,6 +335,35 @@
       await api.editMessage(m.channelId, m.id, text);
     } catch (err) {
       flash(String(err?.message || err));
+    }
+  }
+
+  // Image attachments: sent inline as data-URIs inside the E2EE message.
+  const MAX_IMAGE_BYTES = 300 * 1024;
+  let fileInput;
+  async function attachImage(file) {
+    if (!file || !file.type.startsWith("image/") || !activeChannelId) return;
+    if (file.size > MAX_IMAGE_BYTES) {
+      flash("Image too large (max 300 KB for now)");
+      return;
+    }
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+    try {
+      await api.sendMessage(activeChannelId, `![image](${dataUrl})`, "");
+    } catch (err) {
+      flash(String(err?.message || err));
+    }
+  }
+  function onPaste(e) {
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+    if (item) {
+      e.preventDefault();
+      attachImage(item.getAsFile());
     }
   }
 
@@ -657,10 +691,28 @@
       <div class="typing-line muted">{typingLabel}</div>
       <form class="composer" onsubmit={send}>
         <input
+          type="file"
+          accept="image/*"
+          bind:this={fileInput}
+          style="display:none"
+          onchange={(e) => {
+            attachImage(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          class="ghost"
+          title="Attach image (or paste one)"
+          disabled={!activeChannel}
+          onclick={() => fileInput.click()}>📎</button
+        >
+        <input
           placeholder={activeChannel ? `Message #${activeChannel.name}` : "Select a channel"}
           bind:value={draft}
           disabled={!activeChannel}
           oninput={onDraftInput}
+          onpaste={onPaste}
         />
         <button type="submit" disabled={!draft.trim()}>Send</button>
       </form>
@@ -1080,6 +1132,13 @@
   }
   .body :global(a) {
     color: var(--accent-hover);
+  }
+  .body :global(img.attachment) {
+    max-width: 380px;
+    max-height: 280px;
+    border-radius: 8px;
+    display: block;
+    margin-top: 4px;
   }
   .unread-dot {
     width: 8px;
