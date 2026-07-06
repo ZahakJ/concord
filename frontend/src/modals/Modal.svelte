@@ -25,6 +25,7 @@
     display: grid;
     place-items: center;
     z-index: 100;
+    animation: fade 0.12s ease;
   }
   .dialog {
     width: 380px;
@@ -36,6 +37,24 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    animation: pop 0.14s ease;
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .overlay,
+    .dialog {
+      animation: none;
+    }
   }
   .head {
     display: flex;

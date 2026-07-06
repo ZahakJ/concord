@@ -3,6 +3,7 @@
   // mute, and the self row (profile + network settings) pinned to the bottom.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
+  import Menu from "./Menu.svelte";
   import { S, activeGuild, selectChannel, toggleMute } from "./lib/state.svelte.js";
 
   let { onJoinVoice } = $props();
@@ -47,14 +48,14 @@
     {:else if g}
       <div class="section-head">
         <span>Channels</span>
-        <span class="head-actions">
-          <button class="mini" onclick={() => (S.modal = { kind: "category" })} title="Add category" aria-label="Add category">
-            <Icon name="chevron" size={11} />
+        <Menu label="Add channel or category" icon="plus" align="right" compact>
+          <button class="menu-item" onclick={() => (S.modal = { kind: "channel" })}>
+            <Icon name="hash" size={14} /> New channel
           </button>
-          <button class="mini" onclick={() => (S.modal = { kind: "channel" })} title="Add channel" aria-label="Add channel">
-            <Icon name="plus" size={12} />
+          <button class="menu-item" onclick={() => (S.modal = { kind: "category" })}>
+            <Icon name="chevron" size={14} /> New category
           </button>
-        </span>
+        </Menu>
       </div>
 
       {#each groups as grp (grp.id || "_uncat")}
@@ -147,10 +148,6 @@
     letter-spacing: 0.05em;
     color: var(--text-muted);
     margin: 6px 6px 4px;
-  }
-  .head-actions {
-    display: flex;
-    gap: 2px;
   }
   .cat-head {
     text-transform: uppercase;
@@ -307,18 +304,5 @@
   .me-gear {
     padding: 8px;
     border: none;
-  }
-  .mini {
-    padding: 2px 6px;
-    font-size: 12px;
-    background: transparent;
-    color: var(--text-muted);
-    border-radius: 5px;
-    display: grid;
-    place-items: center;
-  }
-  .mini:hover {
-    background: var(--bg-3);
-    color: var(--text);
   }
 </style>

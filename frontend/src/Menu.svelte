@@ -3,7 +3,7 @@
   // snippet; the menu closes on outside-click, Escape, or item activation.
   import Icon from "./Icon.svelte";
 
-  let { label = "More", icon = "chevron", align = "right", children } = $props();
+  let { label = "More", icon = "chevron", align = "right", compact = false, children } = $props();
   let open = $state(false);
   let root = $state(null);
 
@@ -15,8 +15,17 @@
 <svelte:window onclick={onWindowClick} onkeydown={(e) => e.key === "Escape" && (open = false)} />
 
 <div class="menu-root" bind:this={root}>
-  <button class="ghost trigger" title={label} aria-label={label} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)}>
-    <Icon name={icon} />
+  <button
+    class="trigger"
+    class:ghost={!compact}
+    class:compact
+    title={label}
+    aria-label={label}
+    aria-haspopup="menu"
+    aria-expanded={open}
+    onclick={() => (open = !open)}
+  >
+    <Icon name={icon} size={compact ? 12 : 16} />
   </button>
   {#if open}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -35,6 +44,17 @@
     display: grid;
     place-items: center;
     padding: 6px 9px;
+  }
+  .trigger.compact {
+    padding: 2px 5px;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    border-radius: 5px;
+  }
+  .trigger.compact:hover {
+    background: var(--bg-3);
+    color: var(--text);
   }
   .menu {
     position: absolute;

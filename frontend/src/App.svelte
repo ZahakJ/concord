@@ -38,6 +38,9 @@
 
   let composer = $state(null);
 
+  // DMs (incl. the self-DM "Notes") drop the member panel for a roomier view.
+  const isDM = $derived(activeGuild()?.kind === "dm");
+
   // Skip the login screen if the backend is already unlocked (e.g. after a
   // browser refresh — the Go process stays running and holds the session).
   onMount(async () => {
@@ -159,7 +162,7 @@
 {#if !S.ready}
   <Login onLogin={start} />
 {:else}
-  <div class="app">
+  <div class="app" class:no-panel={isDM}>
     <GuildRail />
     <ChannelList onJoinVoice={joinVoice} />
 
@@ -172,7 +175,9 @@
       <Composer bind:this={composer} />
     </main>
 
-    <MemberPanel />
+    {#if !isDM}
+      <MemberPanel />
+    {/if}
   </div>
 
   {#if S.quickSwitcher}
@@ -232,6 +237,9 @@
        scroll internally instead of pushing the layout past the screen. */
     grid-template-rows: 100%;
     overflow: hidden;
+  }
+  .app.no-panel {
+    grid-template-columns: 64px 220px 1fr;
   }
   @media (max-width: 900px) {
     .app {

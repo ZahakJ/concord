@@ -1,14 +1,26 @@
 <script>
   import { EMOJI, searchEmoji } from "./lib/emoji.js";
 
-  // Small searchable emoji grid. onPick(emoji) fires on selection.
+  // Small searchable emoji grid. onPick(emoji) fires on selection. Closes on
+  // Escape or an outside click (a short guard ignores the opening click, which
+  // also bubbles to the window).
   let { onPick, onClose } = $props();
   let query = $state("");
+  const openedAt = Date.now();
 
   const results = $derived(
     query.trim() ? searchEmoji(query.trim(), 64) : Object.entries(EMOJI).slice(0, 120),
   );
+
+  function onOutside(e) {
+    if (Date.now() - openedAt > 250 && !e.target.closest(".picker")) onClose();
+  }
 </script>
+
+<svelte:window
+  onpointerdown={onOutside}
+  onkeydown={(e) => e.key === "Escape" && onClose()}
+/>
 
 <div class="picker" role="dialog">
   <div class="row">

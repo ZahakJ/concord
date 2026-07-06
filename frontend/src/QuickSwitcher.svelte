@@ -26,9 +26,14 @@
   const items = $derived.by(() => {
     const all = [];
     for (const g of S.guilds) {
-      all.push({ kind: "guild", label: g.name, sub: "server", g });
+      if (g.kind === "dm") {
+        all.push({ kind: "dm", label: g.name, sub: "direct", g, icon: "edit" });
+        continue;
+      }
+      all.push({ kind: "guild", label: g.name, sub: "server", g, icon: "diamond" });
       for (const c of g.channels) {
-        all.push({ kind: "channel", label: c.name, sub: g.name, c, g });
+        const icon = c.type === "voice" ? "speaker" : c.type === "announcement" ? "megaphone" : "hash";
+        all.push({ kind: "channel", label: c.name, sub: g.name, c, g, icon });
       }
     }
     const q = query.trim().toLowerCase();
@@ -50,8 +55,12 @@
 
   async function go(item) {
     S.quickSwitcher = false;
-    if (item.kind === "channel") await jumpToChannel(item.c.id);
-    else await selectGuild(item.g.id);
+    if (item.kind === "channel") {
+      if (item.c.type === "voice") await selectGuild(item.g.id);
+      else await jumpToChannel(item.c.id);
+    } else {
+      await selectGuild(item.g.id);
+    }
   }
 
   function onKeydown(e) {
@@ -82,7 +91,7 @@
       {#each items as item, i (item.kind + (item.c?.id || item.g.id))}
         <button class="hit" class:sel={i === sel} onclick={() => go(item)}>
           <span class="hit-icon">
-            <Icon name={item.kind === "channel" ? "hash" : "diamond"} size={13} />
+            <Icon name={item.icon} size={13} />
           </span>
           <span class="hit-label">{item.label}</span>
           <span class="muted hit-sub">{item.sub}</span>
