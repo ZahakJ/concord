@@ -15,6 +15,7 @@
     S,
     memberByFpr,
     nameFor,
+    customEmojiMap,
     react,
     deleteMsg,
     saveEdit,
@@ -30,6 +31,7 @@
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "🎉"];
 
   const mem = $derived(memberByFpr(m.sender));
+  const cemoji = $derived(customEmojiMap());
   // Highlight every member's @name; the viewer's own name gets the self style.
   const mentionNames = $derived(
     S.members
@@ -157,7 +159,7 @@
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div class="body" onclick={onBodyClick} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
-          {@html renderMarkdown(bodyText, mentionNames)}{#if m.edited}<span class="edited-tag">
+          {@html renderMarkdown(bodyText, mentionNames, cemoji)}{#if m.edited}<span class="edited-tag">
               (edited)</span
             >{/if}
         </div>
@@ -180,13 +182,15 @@
     {#if m.reactions && Object.keys(m.reactions).length}
       <div class="reactions">
         {#each Object.entries(m.reactions) as [emoji, fprs] (emoji)}
+          {@const cimg = /^:([a-z0-9_]{2,32}):$/.test(emoji) ? cemoji[emoji.slice(1, -1)] : null}
           <button
             class="reaction"
             class:mine={fprs.includes(S.identity.fingerprint)}
             onclick={() => react(m, emoji)}
             title={fprs.map((f) => memberByFpr(f)?.name || f.slice(0, 9)).join(", ")}
           >
-            {emoji} {fprs.length}
+            {#if cimg}<img class="cemoji" src={cimg} alt={emoji} />{:else}{emoji}{/if}
+            {fprs.length}
           </button>
         {/each}
       </div>
@@ -483,5 +487,17 @@
     border-radius: var(--radius-sm);
     display: block;
     margin-top: 4px;
+  }
+  .body :global(img.cemoji) {
+    height: 1.4em;
+    width: auto;
+    vertical-align: -0.3em;
+    margin: 0 1px;
+  }
+  .reaction :global(img.cemoji),
+  .reaction .cemoji {
+    height: 16px;
+    width: auto;
+    vertical-align: -3px;
   }
 </style>

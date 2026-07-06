@@ -71,6 +71,14 @@ assert(
   "unclosed fence runs to end",
 );
 
+// Custom emoji: :name: in the map renders as an <img>; unknown names stay text.
+const cmap = { partyblob: "data:image/png;base64,AAAA" };
+out = renderMarkdown("hi :partyblob: and :unknown:", [], cmap);
+assert(out.includes('<img class="cemoji" src="data:image/png;base64,AAAA"'), `custom emoji img: ${out}`);
+assert(out.includes(":unknown:"), "unknown emoji left as literal text");
+// A custom-emoji image src can't be a vector for injection (name charset only).
+assert(!/<img[^>]*src="(?!data:image\/)/.test(out), "no non-image emoji src");
+
 assert(containsMention("yo @euclid", ["euclid"]), "containsMention positive");
 assert(!containsMention("yo @euclidian", ["euclid"]), "containsMention word boundary");
 

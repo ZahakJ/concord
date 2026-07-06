@@ -1,5 +1,6 @@
 <script>
   import { EMOJI, searchEmoji } from "./lib/emoji.js";
+  import { activeGuild } from "./lib/state.svelte.js";
 
   // Small searchable emoji grid. onPick(emoji) fires on selection. Closes on
   // Escape or an outside click (a short guard ignores the opening click, which
@@ -11,6 +12,12 @@
   const results = $derived(
     query.trim() ? searchEmoji(query.trim(), 64) : Object.entries(EMOJI).slice(0, 120),
   );
+  // The active guild's custom emoji, filtered by the search query.
+  const custom = $derived.by(() => {
+    const list = activeGuild()?.emoji || [];
+    const q = query.trim().toLowerCase();
+    return q ? list.filter((e) => e.name.includes(q)) : list;
+  });
 
   function onOutside(e) {
     if (Date.now() - openedAt > 250 && !e.target.closest(".picker")) onClose();
@@ -28,10 +35,19 @@
     <button class="mini" onclick={onClose}>✕</button>
   </div>
   <div class="grid">
+    {#if custom.length}
+      <div class="section-label">Server</div>
+      {#each custom as e (e.name)}
+        <button class="cell" title=":{e.name}:" onclick={() => onPick(`:${e.name}:`)}>
+          <img class="cimg" src={e.image} alt=":{e.name}:" />
+        </button>
+      {/each}
+      <div class="section-label">Emoji</div>
+    {/if}
     {#each results as [name, e] (name)}
       <button class="cell" title=":{name}:" onclick={() => onPick(e)}>{e}</button>
     {:else}
-      <div class="muted none">No match</div>
+      {#if !custom.length}<div class="muted none">No match</div>{/if}
     {/each}
   </div>
 </div>
@@ -73,6 +89,19 @@
   }
   .cell:hover {
     background: var(--bg-input);
+  }
+  .cimg {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+  }
+  .section-label {
+    grid-column: 1 / -1;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 4px 2px 2px;
   }
   .none {
     grid-column: 1 / -1;

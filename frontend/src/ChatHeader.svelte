@@ -137,6 +137,9 @@
             <Icon name="download" size={14} /> Export history
           </button>
         {/if}
+        <button class="menu-item" onclick={() => (S.modal = { kind: "emoji" })}>
+          <Icon name="smile" size={14} /> Server emoji
+        </button>
         {#if g.isOwner}
           <button class="menu-item" onclick={() => (S.modal = { kind: "rename" })}>
             <Icon name="edit" size={14} /> Rename server

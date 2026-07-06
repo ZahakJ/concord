@@ -601,13 +601,14 @@ type guildMeta struct {
 	Type string `json:"type"` // channel_added | channel_updated | category_added | profile | guild_renamed
 	Channel     domain.Channel  `json:"channel,omitempty"`
 	Category    domain.Category `json:"category,omitempty"`
-	Fingerprint string          `json:"fingerprint,omitempty"`
-	Name        string          `json:"name,omitempty"`
-	Status      string          `json:"status,omitempty"`
-	Emoji       string          `json:"emoji,omitempty"`
-	Color       string          `json:"color,omitempty"`
-	Avatar      string          `json:"avatar,omitempty"`
-	MailboxPub  []byte          `json:"mbx,omitempty"`
+	Fingerprint string              `json:"fingerprint,omitempty"`
+	Name        string              `json:"name,omitempty"`
+	Status      string              `json:"status,omitempty"`
+	Emoji       string              `json:"emoji,omitempty"`
+	Color       string              `json:"color,omitempty"`
+	Avatar      string              `json:"avatar,omitempty"`
+	MailboxPub  []byte              `json:"mbx,omitempty"`
+	CustomEmoji domain.CustomEmoji  `json:"customEmoji,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -871,6 +872,14 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		m.Category.GuildID = guildID
 		_ = s.store.SaveCategory(m.Category)
 		s.emitGuildUpdate()
+	case "emoji_added":
+		s.applyCustomEmoji(guildID, m.CustomEmoji)
+		s.emitGuildUpdate()
+	case "emoji_removed":
+		if m.CustomEmoji.Name != "" {
+			_ = s.store.DeleteCustomEmoji(guildID, m.CustomEmoji.Name)
+			s.emitGuildUpdate()
+		}
 	case "guild_renamed":
 		if strings.TrimSpace(m.Name) == "" {
 			return

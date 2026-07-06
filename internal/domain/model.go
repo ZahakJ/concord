@@ -59,6 +59,15 @@ type Category struct {
 	Position int    `json:"position"`
 }
 
+// A CustomEmoji is a guild-scoped emoji, referenced in text as :name: and
+// stored as a small image data URI. Distributed to members like other guild
+// metadata.
+type CustomEmoji struct {
+	GuildID string `json:"guildId,omitempty"`
+	Name    string `json:"name"`
+	Image   string `json:"image"` // data:image/...;base64,...
+}
+
 // A Message is a single chat message. Content is the human-readable body; it is
 // what gets MLS-encrypted before transport and encrypted again at rest. Sender
 // is the author's Ed25519 account public key, authenticated by MLS on receipt.

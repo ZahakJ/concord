@@ -51,6 +51,8 @@ export const api = {
   createChannel: (guildID, name, type = "", category = "") =>
     call("CreateChannel", guildID, name, type, category),
   createCategory: (guildID, name) => call("CreateCategory", guildID, name),
+  addCustomEmoji: (guildID, name, dataURI) => call("AddCustomEmoji", guildID, name, dataURI),
+  removeCustomEmoji: (guildID, name) => call("RemoveCustomEmoji", guildID, name),
   setChannelMeta: (guildID, channelID, type, category, position) =>
     call("SetChannelMeta", guildID, channelID, type, category, position),
   renameGuild: (guildID, name) => call("RenameGuild", guildID, name),

@@ -14,12 +14,22 @@ export function escapeHtml(s) {
 
 // Inline rules applied to already-escaped text (code spans are cut out first
 // so *bold* inside backticks stays literal).
-function renderInline(s, mentionNames) {
+function renderInline(s, mentionNames, customEmoji) {
   const codeSpans = [];
   s = s.replace(/`([^`]+)`/g, (_, code) => {
     codeSpans.push(code);
     return `\x00${codeSpans.length - 1}\x00`;
   });
+
+  // Custom server emoji: :name: -> <img>. The image is guild metadata (a
+  // backend-validated data:image URI), not message content, so injecting it as
+  // an attribute is safe; the name charset ([a-z0-9_]) can't break out.
+  if (customEmoji) {
+    s = s.replace(/:([a-z0-9_]{2,32}):/g, (whole, name) => {
+      const img = customEmoji[name];
+      return img ? `<img class="cemoji" src="${img}" alt=":${name}:" title=":${name}:" />` : whole;
+    });
+  }
 
   // Inline image attachments (strict data-URI whitelist, so no script URIs).
   s = s.replace(
@@ -56,8 +66,8 @@ function renderInline(s, mentionNames) {
 }
 
 // renderMarkdown converts a message body to safe HTML. mentionNames (optional)
-// is the list of display names to highlight as @mentions.
-export function renderMarkdown(text, mentionNames = []) {
+// highlights @mentions; customEmoji (optional, {name: dataURI}) renders :name:.
+export function renderMarkdown(text, mentionNames = [], customEmoji = null) {
   const parts = text.split("```");
   let out = "";
   for (let i = 0; i < parts.length; i++) {
@@ -67,14 +77,14 @@ export function renderMarkdown(text, mentionNames = []) {
       const body = parts[i].replace(/^[a-zA-Z0-9+-]*\n/, "");
       out += `<pre><code>${escapeHtml(body.replace(/\n$/, ""))}</code></pre>`;
     } else {
-      out += renderBlocks(escapeHtml(parts[i]), mentionNames);
+      out += renderBlocks(escapeHtml(parts[i]), mentionNames, customEmoji);
     }
   }
   return out;
 }
 
 // Block rules (quotes, lists) over escaped text, line by line.
-function renderBlocks(s, mentionNames) {
+function renderBlocks(s, mentionNames, customEmoji) {
   const lines = s.split("\n");
   let out = "";
   let list = null; // "ul" | "ol" | null
@@ -94,13 +104,13 @@ function renderBlocks(s, mentionNames) {
         out += `<${kind}>`;
         list = kind;
       }
-      out += `<li>${renderInline((ul || ol)[1], mentionNames)}</li>`;
+      out += `<li>${renderInline((ul || ol)[1], mentionNames, customEmoji)}</li>`;
     } else if (quote) {
       closeList();
-      out += `<blockquote>${renderInline(quote[1], mentionNames)}</blockquote>`;
+      out += `<blockquote>${renderInline(quote[1], mentionNames, customEmoji)}</blockquote>`;
     } else {
       closeList();
-      out += renderInline(line, mentionNames);
+      out += renderInline(line, mentionNames, customEmoji);
       if (i < lines.length - 1) out += "\n";
     }
   }

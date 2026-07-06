@@ -61,6 +61,14 @@ export function nameFor(fpr, frozenName = "") {
   return memberByFpr(fpr)?.name || frozenName || (fpr ? fpr.slice(0, 9) : "?");
 }
 
+// customEmojiMap: {name -> imageDataURI} for the active guild's custom emoji.
+export function customEmojiMap() {
+  const list = activeGuild()?.emoji || [];
+  const m = {};
+  for (const e of list) m[e.name] = e.image;
+  return m;
+}
+
 // ---- persistence helpers (device-local UI state) ----
 
 function loadJSON(key, fallback) {

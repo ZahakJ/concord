@@ -112,6 +112,11 @@ type CategoryView struct {
 	Position int    `json:"position"`
 }
 
+type EmojiView struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
+}
+
 type GuildView struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
@@ -120,6 +125,7 @@ type GuildView struct {
 	IsOwner    bool           `json:"isOwner"`
 	Channels   []ChannelView  `json:"channels"`
 	Categories []CategoryView `json:"categories"`
+	Emoji      []EmojiView    `json:"emoji"`
 	// OutOfSync: this member is stranded at an old MLS epoch that no reachable
 	// peer could bridge; new messages can't be decrypted until re-invited.
 	OutOfSync bool `json:"outOfSync,omitempty"`
@@ -764,6 +770,12 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 			cats = append(cats, CategoryView{ID: c.ID, Name: c.Name, Position: c.Position})
 		}
 	}
+	emoji := []EmojiView{}
+	if ee, err := svc.CustomEmoji(g.ID); err == nil {
+		for _, e := range ee {
+			emoji = append(emoji, EmojiView{Name: e.Name, Image: e.Image})
+		}
+	}
 	name := g.Name
 	// A peer DM shows the OTHER member (name + avatar handled UI-side via the
 	// fingerprint); a self-DM stays "Notes".
@@ -785,8 +797,26 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	}
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
-		Channels: channels, Categories: cats, OutOfSync: svc.OutOfSync(g.ID),
+		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
 	}
+}
+
+// AddCustomEmoji uploads a guild custom emoji (:name: → image).
+func (b *bridge) AddCustomEmoji(guildID, name, dataURI string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.AddCustomEmoji(guildID, name, dataURI)
+}
+
+// RemoveCustomEmoji deletes a guild custom emoji.
+func (b *bridge) RemoveCustomEmoji(guildID, name string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.RemoveCustomEmoji(guildID, name)
 }
 
 // NotesDM returns (creating if needed) the user's personal self-DM.
@@ -918,6 +948,10 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.CreateChannel(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "CreateCategory":
 		return nil, b.CreateCategory(argStr(args, 0), argStr(args, 1))
+	case "AddCustomEmoji":
+		return nil, b.AddCustomEmoji(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "RemoveCustomEmoji":
+		return nil, b.RemoveCustomEmoji(argStr(args, 0), argStr(args, 1))
 	case "SetChannelMeta":
 		return nil, b.SetChannelMeta(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt(args, 4))
 	case "RenameGuild":

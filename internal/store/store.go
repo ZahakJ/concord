@@ -83,6 +83,13 @@ CREATE TABLE IF NOT EXISTS categories (
   name     TEXT NOT NULL,
   position INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS custom_emoji (
+  guild_id TEXT NOT NULL,
+  name     TEXT NOT NULL,
+  image    TEXT NOT NULL,
+  created  INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, name)
+);
 CREATE TABLE IF NOT EXISTS messages (
   id          TEXT PRIMARY KEY,
   channel_id  TEXT NOT NULL,
@@ -364,6 +371,47 @@ func (s *Store) UpdateChannelMeta(channelID, ctype, category string, position in
 		`UPDATE channels SET type=?, category=?, position=? WHERE id=?`,
 		ctype, category, position, channelID)
 	return err
+}
+
+// CustomEmojiRow is one guild custom emoji.
+type CustomEmojiRow struct {
+	GuildID, Name, Image string
+}
+
+// SaveCustomEmoji upserts a guild custom emoji.
+func (s *Store) SaveCustomEmoji(e CustomEmojiRow) error {
+	_, err := s.db.Exec(
+		`INSERT INTO custom_emoji (guild_id, name, image, created) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(guild_id, name) DO UPDATE SET image=excluded.image`,
+		e.GuildID, e.Name, e.Image, time.Now().UnixNano())
+	if err != nil {
+		return fmt.Errorf("store: save custom emoji: %w", err)
+	}
+	return nil
+}
+
+// DeleteCustomEmoji removes a guild custom emoji.
+func (s *Store) DeleteCustomEmoji(guildID, name string) error {
+	_, err := s.db.Exec(`DELETE FROM custom_emoji WHERE guild_id=? AND name=?`, guildID, name)
+	return err
+}
+
+// CustomEmoji returns a guild's custom emoji, ordered by name.
+func (s *Store) CustomEmoji(guildID string) ([]CustomEmojiRow, error) {
+	rows, err := s.db.Query(`SELECT guild_id, name, image FROM custom_emoji WHERE guild_id=? ORDER BY name`, guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CustomEmojiRow
+	for rows.Next() {
+		var e CustomEmojiRow
+		if err := rows.Scan(&e.GuildID, &e.Name, &e.Image); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // DeleteGuild removes a guild and all of its local data (channels, messages,

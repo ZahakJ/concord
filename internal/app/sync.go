@@ -64,9 +64,11 @@ type syncResponse struct {
 }
 
 type syncPayload struct {
-	Guild    domain.Guild                `json:"guild"`
-	Profiles map[string]Profile          `json:"profiles,omitempty"`
-	Messages map[string][]domain.Message `json:"messages,omitempty"` // channelID -> changed rows
+	Guild      domain.Guild                `json:"guild"`
+	Profiles   map[string]Profile          `json:"profiles,omitempty"`
+	Categories []domain.Category           `json:"categories,omitempty"`
+	Emoji      []domain.CustomEmoji        `json:"emoji,omitempty"`
+	Messages   map[string][]domain.Message `json:"messages,omitempty"` // channelID -> changed rows
 }
 
 // handleSyncRequest serves a peer's catch-up request from local state.
@@ -109,6 +111,14 @@ func (s *Service) handleSyncRequest(ctx context.Context, _ peer.ID, request []by
 		Guild:    guild,
 		Profiles: s.profileRoster(),
 		Messages: map[string][]domain.Message{},
+	}
+	if cats, err := s.store.Categories(guild.ID); err == nil {
+		for _, c := range cats {
+			payload.Categories = append(payload.Categories, c)
+		}
+	}
+	if emoji, err := s.CustomEmoji(guild.ID); err == nil {
+		payload.Emoji = emoji
 	}
 	budget := maxSyncPayload
 	for _, ch := range guild.Channels {
@@ -326,6 +336,15 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
 
 	for fpr, p := range payload.Profiles {
 		s.learnProfile(fpr, p)
+	}
+	for _, c := range payload.Categories {
+		if c.ID != "" {
+			c.GuildID = guildID
+			_ = s.store.SaveCategory(c)
+		}
+	}
+	for _, e := range payload.Emoji {
+		s.applyCustomEmoji(guildID, e)
 	}
 
 	self := s.id.Fingerprint()
