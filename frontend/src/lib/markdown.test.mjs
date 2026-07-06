@@ -57,6 +57,10 @@ out = renderMarkdown("- a\n- b\n1. c");
 assert(out.includes("<ul><li>a</li><li>b</li></ul><ol><li>c</li></ol>"), `lists: ${out}`);
 
 assert(renderMarkdown("> quoted").includes("<blockquote>quoted</blockquote>"), "quote");
+// Forwarded messages render as an attribution blockquote followed by the body.
+let fwd = renderMarkdown("> ↪ Forwarded from axioms #general\nthe *point* stands");
+assert(fwd.includes("<blockquote>↪ Forwarded from axioms #general</blockquote>"), `forward attribution: ${fwd}`);
+assert(fwd.includes("<em>point</em>"), `forward body renders markdown: ${fwd}`);
 let mentionOut = renderMarkdown("hey @euclid look", ["euclid"]);
 assert(mentionOut.includes('class="mention"'), "mention render (string form)");
 assert(mentionOut.includes('data-mention="euclid"'), "mention carries data-mention");

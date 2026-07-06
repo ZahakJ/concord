@@ -212,6 +212,9 @@
         <button title="Reply" aria-label="Reply" onclick={() => (S.replyingTo = m)}>
           <Icon name="reply" size={15} />
         </button>
+        <button title="Forward" aria-label="Forward" onclick={() => (S.modal = { kind: "forward", message: m })}>
+          <Icon name="forward" size={15} />
+        </button>
         <button
           class:on={m.pinned}
           title={m.pinned ? "Unpin" : "Pin"}

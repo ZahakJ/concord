@@ -350,6 +350,25 @@ export async function react(m, emoji) {
   }
 }
 
+// sourceLabelFor: a human label for where a message lives (for forward
+// attribution), e.g. "axioms #general" or "a direct message".
+export function sourceLabelFor(channelId) {
+  for (const g of S.guilds) {
+    const c = g.channels.find((x) => x.id === channelId);
+    if (c) return g.kind === "dm" ? "a direct message" : `${g.name} #${c.name}`;
+  }
+  return "another channel";
+}
+
+// forwardMessage sends a copy of a message's content to another channel, with
+// a quoted attribution line. Attachment tokens forward too (the blob is served
+// P2P by anyone who holds it, including the forwarder).
+export async function forwardMessage(m, destChannelId) {
+  const attribution = `↪ Forwarded from ${sourceLabelFor(m.channelId)}`;
+  const body = `> ${attribution}\n${m.content}`;
+  await api.sendMessage(destChannelId, body, "");
+}
+
 export async function deleteMsg(m) {
   try {
     await api.deleteMessage(m.channelId, m.id);
