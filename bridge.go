@@ -108,6 +108,7 @@ type MessageView struct {
 	Sender     string `json:"sender"`     // authenticated fingerprint
 	SenderName string `json:"senderName"` // self-asserted display name
 	Kind       string `json:"kind"`       // "" normal, "system" join/create notice
+	ReplyTo    string `json:"replyTo"`    // ID of the replied-to message, or ""
 	Content    string `json:"content"`
 	Sent       string `json:"sent"`
 }
@@ -317,12 +318,12 @@ func (b *bridge) Messages(channelID string) ([]MessageView, error) {
 	return out, nil
 }
 
-func (b *bridge) SendMessage(channelID, content string) error {
+func (b *bridge) SendMessage(channelID, content, replyTo string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendMessage(channelID, content)
+	_, err = svc.SendMessage(channelID, content, replyTo)
 	return err
 }
 
@@ -420,6 +421,7 @@ func messageView(m domain.Message) MessageView {
 		Sender:     identity.FingerprintOf(m.Sender),
 		SenderName: m.Name,
 		Kind:       m.Kind,
+		ReplyTo:    m.ReplyTo,
 		Content:    m.Content,
 		Sent:       m.Sent.Format("2006-01-02T15:04:05Z07:00"),
 	}

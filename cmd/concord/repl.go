@@ -126,7 +126,7 @@ func dispatch(svc *app.Service, line string) bool {
 			fmt.Println("usage: send <channelID> <message>")
 			break
 		}
-		if _, err := svc.SendMessage(chID, strings.TrimSpace(text)); err != nil {
+		if _, err := svc.SendMessage(chID, strings.TrimSpace(text), ""); err != nil {
 			fmt.Println("error:", err)
 		}
 	case "history":

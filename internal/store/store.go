@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS messages (
   sender      BLOB NOT NULL,
   name        TEXT NOT NULL DEFAULT '',
   kind        TEXT NOT NULL DEFAULT '',
+  reply_to    TEXT NOT NULL DEFAULT '',
   content_enc BLOB NOT NULL,
   nonce       BLOB NOT NULL,
   sent        INTEGER NOT NULL
@@ -104,6 +105,7 @@ CREATE TABLE IF NOT EXISTS settings (
 	for _, col := range []string{
 		`ALTER TABLE messages ADD COLUMN name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE messages ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -249,10 +251,10 @@ func (s *Store) SaveMessage(m domain.Message) error {
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
 	_, err := s.db.Exec(
-		`INSERT INTO messages (id, channel_id, sender, name, kind, content_enc, nonce, sent)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, content_enc, nonce, sent)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
-		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, sealed, nonce[:], m.Sent.UnixNano(),
+		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, sealed, nonce[:], m.Sent.UnixNano(),
 	)
 	if err != nil {
 		return fmt.Errorf("store: save message: %w", err)
@@ -263,7 +265,7 @@ func (s *Store) SaveMessage(m domain.Message) error {
 // Messages returns up to limit most-recent messages for a channel, oldest
 // first, decrypting bodies. A limit <= 0 returns all messages.
 func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) {
-	q := `SELECT id, channel_id, sender, name, kind, content_enc, nonce, sent
+	q := `SELECT id, channel_id, sender, name, kind, reply_to, content_enc, nonce, sent
 	      FROM messages WHERE channel_id = ? ORDER BY sent DESC`
 	args := []any{channelID}
 	if limit > 0 {
@@ -281,7 +283,7 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		var m domain.Message
 		var enc, nonceB []byte
 		var sent int64
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &enc, &nonceB, &sent); err != nil {
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &enc, &nonceB, &sent); err != nil {
 			return nil, err
 		}
 		content, err := s.open(enc, nonceB)

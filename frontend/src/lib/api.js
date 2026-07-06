@@ -46,7 +46,8 @@ export const api = {
   inviteCode: (guildID) => call("InviteCode", guildID),
   joinViaInvite: (code) => call("JoinViaInvite", code),
   messages: (channelID) => call("Messages", channelID),
-  sendMessage: (channelID, content) => call("SendMessage", channelID, content),
+  sendMessage: (channelID, content, replyTo = "") =>
+    call("SendMessage", channelID, content, replyTo),
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
   contacts: () => call("Contacts"),

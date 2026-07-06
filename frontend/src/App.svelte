@@ -17,6 +17,11 @@
   let contacts = $state([]);
   let draft = $state("");
   let toast = $state("");
+  let replyingTo = $state(null); // message being replied to
+
+  function msgById(id) {
+    return messages.find((m) => m.id === id);
+  }
 
   // Voice state
   let voice = $state(null); // { mesh, channelId }
@@ -162,8 +167,10 @@
     const text = draft.trim();
     if (!text || !activeChannelId) return;
     draft = "";
+    const replyTo = replyingTo?.id || "";
+    replyingTo = null;
     try {
-      await api.sendMessage(activeChannelId, text);
+      await api.sendMessage(activeChannelId, text, replyTo);
     } catch (err) {
       flash(String(err?.message || err));
     }
@@ -324,7 +331,13 @@
           {:else}
           <div class="msg">
             <div class="avatar">{(m.senderName || m.sender || "?").slice(0, 2)}</div>
-            <div>
+            <div class="msg-main">
+              {#if m.replyTo}
+                {@const r = msgById(m.replyTo)}
+                <div class="reply-ref">
+                  ↩ {r ? `${r.senderName || r.sender.slice(0, 9)}: ${r.content.slice(0, 60)}` : "(original message)"}
+                </div>
+              {/if}
               <div class="msg-head">
                 <span class="sender">{m.senderName || m.sender}</span>
                 <span class="muted mono verify-fpr" title="verified identity">{m.sender.slice(0, 9)}</span>
@@ -332,6 +345,7 @@
               </div>
               <div class="body">{m.content}</div>
             </div>
+            <button class="reply-btn" title="Reply" onclick={() => (replyingTo = m)}>↩</button>
           </div>
           {/if}
         {:else}
@@ -339,6 +353,14 @@
         {/each}
       </div>
 
+      {#if replyingTo}
+        <div class="reply-banner">
+          <span class="muted"
+            >Replying to <strong>{replyingTo.senderName || replyingTo.sender.slice(0, 9)}</strong></span
+          >
+          <button class="mini" onclick={() => (replyingTo = null)}>✕</button>
+        </div>
+      {/if}
       <div class="typing-line muted">{typingLabel}</div>
       <form class="composer" onsubmit={send}>
         <input
@@ -548,6 +570,43 @@
   .msg {
     display: flex;
     gap: 12px;
+    position: relative;
+  }
+  .msg-main {
+    min-width: 0;
+    flex: 1;
+  }
+  .reply-ref {
+    font-size: 12px;
+    color: var(--text-muted);
+    border-left: 2px solid var(--border);
+    padding-left: 8px;
+    margin-bottom: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .reply-btn {
+    position: absolute;
+    top: -6px;
+    right: 0;
+    opacity: 0;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 2px 8px;
+    font-size: 13px;
+  }
+  .msg:hover .reply-btn {
+    opacity: 1;
+  }
+  .reply-banner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 18px;
+    font-size: 13px;
+    border-top: 1px solid var(--border);
   }
   .avatar {
     width: 38px;

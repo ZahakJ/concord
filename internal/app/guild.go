@@ -245,17 +245,18 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 }
 
 // SendMessage encrypts and publishes a normal chat message to a channel.
-func (s *Service) SendMessage(channelID, content string) (domain.Message, error) {
-	return s.send(channelID, content, "")
+// replyTo is the ID of a message being replied to, or "".
+func (s *Service) SendMessage(channelID, content, replyTo string) (domain.Message, error) {
+	return s.send(channelID, content, "", replyTo)
 }
 
 // sendSystem posts a system notice (join/create) to a channel. Errors are
 // swallowed since these are best-effort UI sugar.
 func (s *Service) sendSystem(channelID, content string) {
-	_, _ = s.send(channelID, content, "system")
+	_, _ = s.send(channelID, content, "system", "")
 }
 
-func (s *Service) send(channelID, content, kind string) (domain.Message, error) {
+func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message, error) {
 	s.mu.RLock()
 	guildID, ok := s.channelToGuild[channelID]
 	var groupID []byte
@@ -273,6 +274,7 @@ func (s *Service) send(channelID, content, kind string) (domain.Message, error) 
 	}
 	msg.Name = s.DisplayName()
 	msg.Kind = kind
+	msg.ReplyTo = replyTo
 	payload, _ := json.Marshal(msg)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
 	if err != nil {

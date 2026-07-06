@@ -41,8 +41,9 @@ type Message struct {
 	ID        string    `json:"id"`
 	ChannelID string    `json:"channelId"`
 	Sender    []byte    `json:"sender"`
-	Name      string    `json:"name"` // sender's self-asserted display name (decorative)
-	Kind      string    `json:"kind"` // "" = normal chat, "system" = join/create notice
+	Name      string    `json:"name"`    // sender's self-asserted display name (decorative)
+	Kind      string    `json:"kind"`    // "" = normal chat, "system" = join/create notice
+	ReplyTo   string    `json:"replyTo"` // ID of the message this replies to, or ""
 	Content   string    `json:"content"`
 	Sent      time.Time `json:"sent"`
 }

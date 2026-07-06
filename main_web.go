@@ -134,7 +134,7 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 	case "Messages":
 		return s.b.Messages(argStr(args, 0))
 	case "SendMessage":
-		return nil, s.b.SendMessage(argStr(args, 0), argStr(args, 1))
+		return nil, s.b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "Members":
 		return s.b.Members(argStr(args, 0))
 	case "RemoveMember":
