@@ -4,9 +4,9 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import Menu from "./Menu.svelte";
-  import { S, activeGuild, selectChannel, toggleMute } from "./lib/state.svelte.js";
+  import { S, activeGuild, selectChannel, toggleMute, channelShort } from "./lib/state.svelte.js";
 
-  let { onJoinVoice } = $props();
+  let { onJoinVoice, onLeaveVoice, onToggleMute } = $props();
 
   const g = $derived(activeGuild());
 
@@ -95,6 +95,26 @@
       </p>
     {/if}
   </div>
+
+  {#if S.voice}
+    <div class="voice-bar">
+      <span class="vb-info">
+        <Icon name="speaker" size={14} />
+        <span class="vb-text">
+          <strong>Voice connected</strong>
+          <span class="muted vb-ch">{channelShort(S.voice.channelId)}</span>
+        </span>
+      </span>
+      <span class="vb-actions">
+        <button class="vb-btn" title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} onclick={onToggleMute}>
+          <Icon name={S.muted ? "micOff" : "mic"} size={14} />
+        </button>
+        <button class="vb-btn leave" title="Disconnect" aria-label="Disconnect" onclick={onLeaveVoice}>
+          <Icon name="door" size={14} />
+        </button>
+      </span>
+    </div>
+  {/if}
 
   <div class="me-row">
     <button class="me" onclick={() => (S.modal = { kind: "profile" })} title="Edit profile">
@@ -265,6 +285,59 @@
     font-size: 12px;
     line-height: 1.5;
     margin: 0;
+  }
+  .voice-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px 10px;
+    margin: 0 8px;
+    border-radius: var(--radius-md);
+    background: var(--ok-soft);
+    color: var(--ok);
+  }
+  .vb-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .vb-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .vb-text strong {
+    font-size: 12px;
+  }
+  .vb-ch {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vb-actions {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .vb-btn {
+    background: transparent;
+    color: var(--ok);
+    padding: 5px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-sm);
+  }
+  .vb-btn:hover {
+    background: color-mix(in srgb, var(--ok) 22%, transparent);
+  }
+  .vb-btn.leave {
+    color: var(--danger);
+  }
+  .vb-btn.leave:hover {
+    background: var(--danger-soft);
   }
   .me-row {
     display: flex;

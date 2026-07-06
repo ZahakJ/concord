@@ -164,7 +164,7 @@
 {:else}
   <div class="app" class:no-panel={isDM}>
     <GuildRail />
-    <ChannelList onJoinVoice={joinVoice} />
+    <ChannelList onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} onToggleMute={toggleMicMute} />
 
     <main class="chat">
       <ChatHeader onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} onToggleMute={toggleMicMute} />

@@ -300,6 +300,15 @@ export function channelName(chId) {
   return "unknown channel";
 }
 
+// channelShort: just the channel's own name (no guild prefix).
+export function channelShort(chId) {
+  for (const g of S.guilds) {
+    const c = g.channels.find((x) => x.id === chId);
+    if (c) return c.name;
+  }
+  return "voice";
+}
+
 // ---- messaging actions ----
 
 export async function sendMessage(text, replyToId) {
