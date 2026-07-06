@@ -95,6 +95,37 @@ func (s *Service) MemberCount(guildID string) (int, error) {
 	return len(members), nil
 }
 
+// RenameGuild changes a guild's name (owner only) and syncs it to all members.
+func (s *Service) RenameGuild(guildID, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("app: guild name is empty")
+	}
+	s.mu.Lock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		s.mu.Unlock()
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	if !bytes.Equal(g.OwnerID, s.PublicKey()) {
+		s.mu.Unlock()
+		return fmt.Errorf("app: only the guild owner can rename it")
+	}
+	g.Name = name
+	groupID := g.GroupID
+	guildCopy := *g
+	s.mu.Unlock()
+
+	_ = s.store.SaveGuild(guildCopy)
+	s.emitGuildUpdate()
+
+	payload, _ := json.Marshal(guildMeta{Type: "guild_renamed", Name: name})
+	if ct, err := s.mls.Encrypt(s.ctx, groupID, payload); err == nil {
+		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct)
+	}
+	return nil
+}
+
 // GuildMembers returns the account public keys of a guild's current members.
 func (s *Service) GuildMembers(guildID string) ([][]byte, error) {
 	s.mu.RLock()
@@ -566,6 +597,20 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	case "channel_added":
 		m.Channel.GuildID = guildID
 		s.addChannel(guildID, m.Channel)
+	case "guild_renamed":
+		if strings.TrimSpace(m.Name) == "" {
+			return
+		}
+		s.mu.Lock()
+		if g, ok := s.guilds[guildID]; ok {
+			g.Name = m.Name
+			gc := *g
+			s.mu.Unlock()
+			_ = s.store.SaveGuild(gc)
+		} else {
+			s.mu.Unlock()
+		}
+		s.emitGuildUpdate()
 	case "profile":
 		if m.Fingerprint == "" {
 			return

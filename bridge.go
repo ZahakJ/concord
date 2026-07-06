@@ -218,6 +218,15 @@ func (b *bridge) DeleteMessage(channelID, messageID string) error {
 	return svc.DeleteMessage(channelID, messageID)
 }
 
+// RenameGuild renames a guild (owner only).
+func (b *bridge) RenameGuild(guildID, name string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.RenameGuild(guildID, name)
+}
+
 // CreateChannel adds a channel to a guild.
 func (b *bridge) CreateChannel(guildID, name string) (ChannelView, error) {
 	svc, err := b.service()

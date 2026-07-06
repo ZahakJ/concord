@@ -279,6 +279,13 @@
     modal = null;
   }
 
+  async function renameGuild(name) {
+    if (!name?.trim() || !activeGuildId) return;
+    await api.renameGuild(activeGuildId, name.trim());
+    await refreshGuilds();
+    modal = null;
+  }
+
   async function showInvite() {
     const code = await api.inviteCode(activeGuildId);
     modal = { kind: "invite", code };
@@ -409,6 +416,7 @@
           {/if}
           {#if activeGuild?.isOwner}
             <button class="ghost" onclick={showInvite}>Invite</button>
+            <button class="ghost" title="Guild settings" onclick={() => (modal = { kind: "rename" })}>⚙</button>
           {/if}
         </div>
       </header>
@@ -565,6 +573,14 @@
       title="Create a channel"
       hint="Adds a channel visible to all guild members."
       placeholder="Channel name"
+    />
+  {:else if modal?.kind === "rename"}
+    <ModalCreate
+      onSubmit={renameGuild}
+      onClose={() => (modal = null)}
+      title="Rename guild"
+      hint="Renames the guild for everyone."
+      placeholder={activeGuild?.name || "New name"}
     />
   {:else if modal?.kind === "join"}
     <ModalJoin error={modal.error} onSubmit={joinGuild} onClose={() => (modal = null)} />

@@ -43,6 +43,7 @@ export const api = {
   guilds: () => call("Guilds"),
   createGuild: (name) => call("CreateGuild", name),
   createChannel: (guildID, name) => call("CreateChannel", guildID, name),
+  renameGuild: (guildID, name) => call("RenameGuild", guildID, name),
   deleteMessage: (channelID, messageID) => call("DeleteMessage", channelID, messageID),
   editMessage: (channelID, messageID, content) =>
     call("EditMessage", channelID, messageID, content),
