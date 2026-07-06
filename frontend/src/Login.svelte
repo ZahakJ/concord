@@ -4,11 +4,12 @@
 
   let { onLogin } = $props();
   let passphrase = $state("");
-  let confirm = $state("");
+  let confirmPass = $state("");
   let error = $state("");
   let busy = $state(false);
   let hasIdentity = $state(true); // assume until checked, then correct
   let checked = $state(false);
+  let confirmingReset = $state(false);
 
   onMount(async () => {
     try {
@@ -22,7 +23,7 @@
   async function submit(e) {
     e?.preventDefault();
     if (!passphrase || busy) return;
-    if (!hasIdentity && passphrase !== confirm) {
+    if (!hasIdentity && passphrase !== confirmPass) {
       error = "Passphrases don't match";
       return;
     }
@@ -38,20 +39,19 @@
     }
   }
 
-  async function startOver() {
-    if (
-      !confirm(
-        "Start over? This permanently deletes your identity and all data on THIS device so you can create a new passphrase. Servers you own will be lost. Continue?",
-      )
-    )
-      return;
+  async function doReset() {
+    busy = true;
+    error = "";
     try {
       await api.resetIdentity();
       hasIdentity = false;
+      confirmingReset = false;
       passphrase = "";
-      error = "";
+      confirmPass = "";
     } catch (err) {
       error = String(err?.message || err);
+    } finally {
+      busy = false;
     }
   }
 </script>
@@ -63,6 +63,17 @@
 
     {#if !checked}
       <p class="muted">Loading…</p>
+    {:else if confirmingReset}
+      <p class="muted">
+        This permanently deletes your identity and all data on <strong>this device</strong>
+        so you can create a new passphrase. Servers you own will be lost. This
+        cannot be undone.
+      </p>
+      {#if error}<div class="error">{error}</div>{/if}
+      <button type="button" class="danger-btn" disabled={busy} onclick={doReset}>
+        {busy ? "Resetting…" : "Yes, delete and start over"}
+      </button>
+      <button type="button" class="link" onclick={() => (confirmingReset = false)}>Cancel</button>
     {:else if hasIdentity}
       <p class="muted">Welcome back — enter your passphrase to unlock.</p>
       <input type="password" placeholder="Passphrase" bind:value={passphrase} autofocus />
@@ -70,7 +81,7 @@
       <button type="submit" disabled={!passphrase || busy}>
         {busy ? "Unlocking…" : "Unlock"}
       </button>
-      <button type="button" class="link" onclick={startOver}>
+      <button type="button" class="link" onclick={() => ((confirmingReset = true), (error = ""))}>
         Forgot passphrase? Start over
       </button>
     {:else}
@@ -79,9 +90,9 @@
         pick something you'll remember.
       </p>
       <input type="password" placeholder="Choose a passphrase" bind:value={passphrase} autofocus />
-      <input type="password" placeholder="Confirm passphrase" bind:value={confirm} />
+      <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
       {#if error}<div class="error">{error}</div>{/if}
-      <button type="submit" disabled={!passphrase || !confirm || busy}>
+      <button type="submit" disabled={!passphrase || !confirmPass || busy}>
         {busy ? "Creating…" : "Create identity"}
       </button>
     {/if}
@@ -133,6 +144,9 @@
   .link:hover {
     color: var(--text);
     text-decoration: underline;
+  }
+  .danger-btn {
+    background: var(--danger);
   }
   .tiny {
     font-size: 11px;
