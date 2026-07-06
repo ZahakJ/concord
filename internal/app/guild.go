@@ -188,9 +188,10 @@ func (s *Service) IsOwner(guildID string) bool {
 	return ok && bytes.Equal(g.OwnerID, s.PublicKey())
 }
 
-// RemoveMember evicts a member from a guild. Only the owner may do so (the
-// owner is the sole committer in the MVP membership model). The resulting MLS
-// commit is published to the control topic so remaining members re-key.
+// RemoveMember evicts a member from a guild. The caller must be the owner or
+// hold the manage-members permission; the resulting MLS commit is published to
+// the control topic so remaining members re-key, and honest peers accept it
+// because the committer-authority gate recognizes the same authorization.
 func (s *Service) RemoveMember(guildID string, memberCredential []byte) error {
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
@@ -198,11 +199,14 @@ func (s *Service) RemoveMember(guildID string, memberCredential []byte) error {
 	if !ok {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
-	if !bytes.Equal(g.OwnerID, s.PublicKey()) {
-		return fmt.Errorf("app: only the guild owner can remove members")
+	if !s.canManageMembers(guildID) {
+		return fmt.Errorf("app: you don't have permission to remove members")
+	}
+	if bytes.Equal(g.OwnerID, memberCredential) {
+		return fmt.Errorf("app: the owner cannot be removed")
 	}
 	if bytes.Equal(memberCredential, s.PublicKey()) {
-		return fmt.Errorf("app: owner cannot remove themselves")
+		return fmt.Errorf("app: use Leave to remove yourself")
 	}
 	commit, err := s.mls.Remove(s.ctx, g.GroupID, memberCredential)
 	if err != nil {
@@ -342,6 +346,12 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	s.mu.RUnlock()
 	if !ok {
 		return json.Marshal(inviteResponse{Error: "unknown guild"})
+	}
+
+	// Enforce the banlist at the gate: a banned fingerprint cannot rejoin, even
+	// with a fresh invite code. This is what makes a ban survive rejoin.
+	if len(req.Credential) > 0 && s.isBanned(req.GuildID, identity.FingerprintOf(req.Credential)) {
+		return json.Marshal(inviteResponse{Error: "you are banned from this server"})
 	}
 
 	commit, welcome, err := s.mls.Invite(ctx, g.GroupID, req.KeyPackage)
@@ -557,6 +567,9 @@ func (s *Service) trackGuild(g *domain.Guild) {
 	for _, c := range g.Channels {
 		s.channelToGuild[c.ID] = g.ID
 	}
+	// Fold any governance ops we already hold for this guild (loaded at startup
+	// or from a prior sync) now that we know its owner.
+	s.rebuildGovStateLocked(g.ID)
 	s.mu.Unlock()
 
 	groupID := g.GroupID
@@ -626,6 +639,7 @@ type guildMeta struct {
 	Avatar      string              `json:"avatar,omitempty"`
 	MailboxPub  []byte              `json:"mbx,omitempty"`
 	CustomEmoji domain.CustomEmoji  `json:"customEmoji,omitempty"`
+	GovOp       json.RawMessage     `json:"govOp,omitempty"` // a signed governance op (roles/bans)
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -959,6 +973,16 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		s.rememberNick(guildID, m.Fingerprint, nick)
 		s.emitGuildUpdate()
+	case "gov_op":
+		// A governance op (role grant/revoke, ban/unban). ingestGovOp verifies the
+		// signature and replay re-checks the signer's authority, so a forged or
+		// unauthorized op changes nothing.
+		if len(m.GovOp) > 0 {
+			var o govOp
+			if json.Unmarshal(m.GovOp, &o) == nil {
+				s.ingestGovOp(guildID, o)
+			}
+		}
 	}
 }
 

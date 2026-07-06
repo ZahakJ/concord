@@ -137,6 +137,13 @@ CREATE TABLE IF NOT EXISTS nicknames (
   updated     INTEGER NOT NULL,
   PRIMARY KEY (guild_id, fingerprint)
 );
+CREATE TABLE IF NOT EXISTS guild_ops (
+  guild_id TEXT NOT NULL,
+  op_hash  TEXT NOT NULL,
+  op_json  BLOB NOT NULL,
+  created  INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, op_hash)
+);
 CREATE TABLE IF NOT EXISTS mls_commits (
   group_id BLOB NOT NULL,
   epoch    INTEGER NOT NULL,
@@ -438,6 +445,58 @@ func (s *Store) SaveNickname(guildID, fingerprint, nick string) error {
 	return nil
 }
 
+// SaveGuildOp stores one governance op (keyed by its content hash, so a
+// re-received op is idempotent). op_json is the caller's canonical encoding.
+func (s *Store) SaveGuildOp(guildID, opHash string, opJSON []byte) error {
+	_, err := s.db.Exec(
+		`INSERT INTO guild_ops (guild_id, op_hash, op_json, created) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(guild_id, op_hash) DO NOTHING`,
+		guildID, opHash, opJSON, time.Now().UnixNano())
+	if err != nil {
+		return fmt.Errorf("store: save guild op: %w", err)
+	}
+	return nil
+}
+
+// GuildOps returns the raw op encodings for a guild (unordered; the caller
+// replays them in canonical order).
+func (s *Store) GuildOps(guildID string) ([][]byte, error) {
+	rows, err := s.db.Query(`SELECT op_json FROM guild_ops WHERE guild_id=?`, guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][]byte
+	for rows.Next() {
+		var b []byte
+		if err := rows.Scan(&b); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
+// AllGuildOps returns every stored op across all guilds as guildID → [opJSON],
+// for warming the in-memory governance state at startup.
+func (s *Store) AllGuildOps() (map[string][][]byte, error) {
+	rows, err := s.db.Query(`SELECT guild_id, op_json FROM guild_ops`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][][]byte{}
+	for rows.Next() {
+		var g string
+		var b []byte
+		if err := rows.Scan(&g, &b); err != nil {
+			return nil, err
+		}
+		out[g] = append(out[g], b)
+	}
+	return out, rows.Err()
+}
+
 // Nicknames returns every stored per-guild nickname as guildID → fingerprint →
 // nick, for warming the in-memory cache at startup.
 func (s *Store) Nicknames() (map[string]map[string]string, error) {
@@ -496,6 +555,9 @@ func (s *Store) DeleteGuild(guildID string) error {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM nicknames WHERE guild_id = ?`, guildID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM guild_ops WHERE guild_id = ?`, guildID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM guilds WHERE id = ?`, guildID); err != nil {

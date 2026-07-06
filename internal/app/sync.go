@@ -68,6 +68,7 @@ type syncPayload struct {
 	Profiles   map[string]Profile          `json:"profiles,omitempty"`
 	Categories []domain.Category           `json:"categories,omitempty"`
 	Emoji      []domain.CustomEmoji        `json:"emoji,omitempty"`
+	GovOps     []json.RawMessage           `json:"govOps,omitempty"` // signed governance log (roles/bans)
 	Messages   map[string][]domain.Message `json:"messages,omitempty"` // channelID -> changed rows
 }
 
@@ -120,6 +121,7 @@ func (s *Service) handleSyncRequest(ctx context.Context, _ peer.ID, request []by
 	if emoji, err := s.CustomEmoji(guild.ID); err == nil {
 		payload.Emoji = emoji
 	}
+	payload.GovOps = s.govOpsFor(guild.ID)
 	budget := maxSyncPayload
 	for _, ch := range guild.Channels {
 		msgs, err := s.store.MessagesChangedSince(ch.ID, req.Since[ch.ID], syncMessagesPerChannel)
@@ -353,6 +355,7 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
 	for _, e := range payload.Emoji {
 		s.applyCustomEmoji(guildID, e)
 	}
+	s.ingestGovOpsRaw(guildID, payload.GovOps)
 
 	self := s.id.Fingerprint()
 	for chID, msgs := range payload.Messages {

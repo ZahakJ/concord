@@ -1,6 +1,10 @@
 package app
 
-import "bytes"
+import (
+	"bytes"
+
+	"github.com/zahak/concord/internal/identity"
+)
 
 // governance.go is the guild authorization layer: it decides whose membership
 // commits (adds/removes) honest peers will accept. This is the cryptographic
@@ -31,16 +35,23 @@ func (s *Service) authorizedCommitter(guildID string, senderCred []byte) bool {
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var ownerID []byte
+	var st GuildState
 	if ok {
 		ownerID = g.OwnerID
+		st = s.govState[guildID]
 	}
 	s.mu.RUnlock()
 	if !ok {
 		return false
 	}
-	// Foundational policy: only the owner. (Phase 3 role checks and Phase 4b
-	// self-device checks slot in here.)
-	return bytes.Equal(ownerID, senderCred)
+	// The owner is always authorized.
+	if bytes.Equal(ownerID, senderCred) {
+		return true
+	}
+	// A member the owner granted "manage members" may also invite/kick. This is
+	// what lets moderation happen without the owner being online — the crux of
+	// not being load-bearing. (Phase 4b self-device commits slot in here too.)
+	return st.Can(identity.FingerprintOf(ownerID), identity.FingerprintOf(senderCred), PermManageMembers)
 }
 
 // commitAuthorized extracts a commit's author from its MLS framing and runs it

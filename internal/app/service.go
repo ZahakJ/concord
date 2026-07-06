@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -57,6 +58,12 @@ type Service struct {
 	// (Discord-style server nicknames). Members set their own; propagated over
 	// the guild-meta topic like profiles.
 	nicks map[string]map[string]string
+
+	// Governance (roles/permissions/bans). govOps is the per-guild signed op log;
+	// govState is the folded result (rebuilt on every change) that the committer
+	// gate and invite gate consult. Both are guarded by mu.
+	govOps   map[string][]govOp
+	govState map[string]GuildState
 
 	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
@@ -189,6 +196,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		voiceRooms:     map[string]context.CancelFunc{},
 		profiles:       map[string]Profile{},
 		nicks:          map[string]map[string]string{},
+		govOps:         map[string][]govOp{},
+		govState:       map[string]GuildState{},
 		outOfSync:      map[string]bool{},
 		previews:       newPreviewCache(),
 		bootstrap:      bootstrap,
@@ -207,6 +216,18 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// Restore per-guild nicknames so server-scoped names survive restarts.
 	if nicks, err := st.Nicknames(); err == nil {
 		s.nicks = nicks
+	}
+
+	// Restore governance op logs and fold them into per-guild state (roles/bans).
+	if all, err := st.AllGuildOps(); err == nil {
+		for gid, raw := range all {
+			for _, b := range raw {
+				var o govOp
+				if json.Unmarshal(b, &o) == nil {
+					s.govOps[gid] = append(s.govOps[gid], o)
+				}
+			}
+		}
 	}
 
 	// Owner side of the join handshake.
