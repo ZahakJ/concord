@@ -1,0 +1,1090 @@
+package group
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"slices"
+
+	"github.com/thomas-vilte/mls-go/ciphersuite"
+	mlsext "github.com/thomas-vilte/mls-go/extensions"
+	"github.com/thomas-vilte/mls-go/internal/tls"
+	"github.com/thomas-vilte/mls-go/keypackages"
+	"github.com/thomas-vilte/mls-go/schedule"
+	"github.com/thomas-vilte/mls-go/secrettree"
+	"github.com/thomas-vilte/mls-go/treesync"
+)
+
+// Welcome represents an MLS Welcome message (RFC 9420 §12.4.3.1).
+//
+//	struct {
+//	    ProtocolVersion version = mls10;
+//	    CipherSuite cipher_suite;
+//	    EncryptedGroupSecrets secrets<V>;
+//	    opaque encrypted_group_info<V>;
+//	} Welcome;
+type Welcome struct {
+	Version            uint16
+	CipherSuite        ciphersuite.CipherSuite
+	Secrets            []EncryptedGroupSecrets
+	EncryptedGroupInfo []byte
+	GroupInfo          *Info
+}
+
+// EncryptedGroupSecrets represents encrypted group secrets for a new member.
+//
+//	struct {
+//	    opaque key_package_ref<V>;
+//	    HPKECiphertext encrypted_group_secrets;
+//	} EncryptedGroupSecrets;
+type EncryptedGroupSecrets struct {
+	NewMember             []byte
+	EncryptedGroupSecrets ciphersuite.HPKECiphertext
+}
+
+// Secrets represents the secrets needed to join a group.
+//
+//	struct {
+//	    opaque joiner_secret<V>;
+//	    optional<PathSecret> path_secret;
+//	    PreSharedKeyID psks<V>;
+//	} GroupSecrets;
+type Secrets struct {
+	JoinerSecret *ciphersuite.Secret
+	PathSecret   []byte
+	Psks         []PskID
+}
+
+// Marshal serializes Secrets to TLS format.
+func (gs *Secrets) Marshal() []byte {
+	w := tls.NewWriter()
+	w.WriteVLBytes(gs.JoinerSecret.AsSlice())
+
+	// PathSecret (optional)
+	if gs.PathSecret != nil {
+		w.WriteUint8(1)
+		w.WriteVLBytes(gs.PathSecret)
+	} else {
+		w.WriteUint8(0)
+	}
+
+	pskBuf := tls.NewWriter()
+	for _, psk := range gs.Psks {
+		pskBuf.WriteUint8(psk.PskType)
+		if psk.PskType == 2 { // resumption
+			pskBuf.WriteUint8(psk.Usage)
+			pskBuf.WriteVLBytes(psk.PskGroupID)
+			pskBuf.WriteUint64(psk.PskEpoch)
+		} else { // external (1) or branch (3)
+			pskBuf.WriteVLBytes(psk.ID)
+		}
+		pskBuf.WriteVLBytes(psk.Nonce)
+	}
+	w.WriteVLBytes(pskBuf.Bytes())
+
+	return w.Bytes()
+}
+
+// UnmarshalGroupSecrets deserializes Secrets from TLS format.
+func UnmarshalGroupSecrets(data []byte) (*Secrets, error) {
+	r := tls.NewReader(data)
+
+	joinerSecretData, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+	joinerSecret := ciphersuite.NewSecret(joinerSecretData)
+
+	// PathSecret (optional)
+	pathSecretPresent, err := r.ReadUint8()
+	if err != nil {
+		return nil, err
+	}
+
+	var pathSecret []byte
+	if pathSecretPresent == 1 {
+		pathSecret, err = r.ReadVLBytes()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	pskData, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	pskReader := tls.NewReader(pskData)
+	var psks []PskID
+	for pskReader.Remaining() > 0 {
+		pskType, readErr := pskReader.ReadUint8()
+		if readErr != nil {
+			return nil, readErr
+		}
+		pskID := PskID{PskType: pskType}
+		if pskType == 2 { // resumption
+			usage, readErr := pskReader.ReadUint8()
+			if readErr != nil {
+				return nil, readErr
+			}
+			pskGroupID, readErr := pskReader.ReadVLBytes()
+			if readErr != nil {
+				return nil, readErr
+			}
+			pskEpoch, readErr := pskReader.ReadUint64()
+			if readErr != nil {
+				return nil, readErr
+			}
+			pskID.Usage = usage
+			pskID.PskGroupID = pskGroupID
+			pskID.PskEpoch = pskEpoch
+		} else { // external (1) or branch (3)
+			id, readErr := pskReader.ReadVLBytes()
+			if readErr != nil {
+				return nil, readErr
+			}
+			pskID.ID = id
+		}
+		pskNonce, readErr := pskReader.ReadVLBytes()
+		if readErr != nil {
+			return nil, readErr
+		}
+		pskID.Nonce = pskNonce
+		psks = append(psks, pskID)
+	}
+
+	return &Secrets{
+		JoinerSecret: joinerSecret,
+		PathSecret:   pathSecret,
+		Psks:         psks,
+	}, nil
+}
+
+// Info represents the group information sent in a Welcome.
+//
+//	struct {
+//	    GroupContext group_context;
+//	    Extension extensions<V>;
+//	    ConfirmationTag confirmation_tag;
+//	    uint32 signer;
+//	    opaque signature<V>;
+//	} GroupInfo;
+type Info struct {
+	GroupContext    *GroupContext
+	Extensions      []Extension
+	ConfirmationTag []byte
+	Signer          LeafNodeIndex
+	Signature       []byte
+	RatchetTree     *treesync.RatchetTree
+}
+
+// MarshalTBS serializes the fields to sign of Info (excludes Signature).
+func (gi *Info) MarshalTBS() []byte {
+	w := tls.NewWriter()
+	w.WriteRaw(gi.GroupContext.Marshal())
+	extBuf := tls.NewWriter()
+	for _, ext := range gi.Extensions {
+		extBuf.WriteUint16(uint16(ext.Type))
+		extBuf.WriteVLBytes(ext.Data)
+	}
+	w.WriteVLBytes(extBuf.Bytes())
+	w.WriteVLBytes(gi.ConfirmationTag)
+	w.WriteUint32(uint32(gi.Signer))
+	return w.Bytes()
+}
+
+// Marshal serializes Info to TLS format.
+func (gi *Info) Marshal() []byte {
+	w := tls.NewWriter()
+	w.WriteRaw(gi.GroupContext.Marshal())
+
+	// Extensions
+	extBuf := tls.NewWriter()
+	for _, ext := range gi.Extensions {
+		extBuf.WriteUint16(uint16(ext.Type))
+		extBuf.WriteVLBytes(ext.Data)
+	}
+	w.WriteVLBytes(extBuf.Bytes())
+
+	w.WriteVLBytes(gi.ConfirmationTag)
+	w.WriteUint32(uint32(gi.Signer))
+	w.WriteVLBytes(gi.Signature)
+
+	return w.Bytes()
+}
+
+// UnmarshalGroupInfo deserializes Info from TLS format.
+func UnmarshalGroupInfo(data []byte) (*Info, error) {
+	r := tls.NewReader(data)
+
+	version, err := r.ReadUint16()
+	if err != nil {
+		return nil, err
+	}
+	cipherSuite, err := r.ReadUint16()
+	if err != nil {
+		return nil, err
+	}
+	groupID, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+	epoch, err := r.ReadUint64()
+	if err != nil {
+		return nil, err
+	}
+	treeHash, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+	if nh := ciphersuite.CipherSuite(cipherSuite).HashLength(); nh > 0 && len(treeHash) > 0 && len(treeHash) != nh {
+		return nil, fmt.Errorf("tree_hash length %d != Nh (%d) (RFC §7.8)", len(treeHash), nh)
+	}
+	confirmedTranscriptHash, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+	if nh := ciphersuite.CipherSuite(cipherSuite).HashLength(); nh > 0 && len(confirmedTranscriptHash) > 0 && len(confirmedTranscriptHash) != nh {
+		return nil, fmt.Errorf("confirmed_transcript_hash length %d != Nh (%d) (RFC §8.2)", len(confirmedTranscriptHash), nh)
+	}
+	gcExtensionsData, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+	gcExtensions, err := parseExtensions(gcExtensionsData)
+	if err != nil {
+		return nil, fmt.Errorf("parsing group context extensions: %w", err)
+	}
+
+	groupContext := &GroupContext{
+		Version:                 keypackages.ProtocolVersion(version),
+		CipherSuite:             ciphersuite.CipherSuite(cipherSuite),
+		GroupID:                 NewGroupID(groupID),
+		Epoch:                   NewGroupEpoch(epoch),
+		TreeHash:                treeHash,
+		ConfirmedTranscriptHash: confirmedTranscriptHash,
+		Extensions:              gcExtensions,
+	}
+
+	extensionsData, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+	extensions, err := parseExtensions(extensionsData)
+	if err != nil {
+		return nil, err
+	}
+
+	confirmationTag, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+	if nh := ciphersuite.CipherSuite(cipherSuite).HashLength(); nh > 0 && len(confirmationTag) > 0 && len(confirmationTag) != nh {
+		return nil, fmt.Errorf("confirmation_tag length %d != Nh (%d) (RFC §8.2)", len(confirmationTag), nh)
+	}
+
+	signer, err := r.ReadUint32()
+	if err != nil {
+		return nil, err
+	}
+
+	signature, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Info{
+		GroupContext:    groupContext,
+		Extensions:      extensions,
+		ConfirmationTag: confirmationTag,
+		Signer:          LeafNodeIndex(signer),
+		Signature:       signature,
+	}, nil
+}
+
+// Marshal serializes the Welcome to TLS format.
+func (w *Welcome) Marshal() []byte {
+	writer := tls.NewWriter()
+	writer.WriteUint16(uint16(w.CipherSuite))
+
+	// Secrets
+	secretsBuf := tls.NewWriter()
+	for _, secret := range w.Secrets {
+		secretsBuf.WriteVLBytes(secret.NewMember)
+		secretsBuf.WriteVLBytes(secret.EncryptedGroupSecrets.KEMOutput)
+		secretsBuf.WriteVLBytes(secret.EncryptedGroupSecrets.Ciphertext)
+	}
+	writer.WriteVLBytes(secretsBuf.Bytes())
+
+	// Encrypted group info
+	writer.WriteVLBytes(w.EncryptedGroupInfo)
+	return writer.Bytes()
+}
+
+// UnmarshalWelcome deserializes a Welcome from TLS format.
+func UnmarshalWelcome(data []byte) (*Welcome, error) {
+	r := tls.NewReader(data)
+
+	cipherSuite, err := r.ReadUint16()
+	if err != nil {
+		return nil, err
+	}
+
+	secretsData, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	var secrets []EncryptedGroupSecrets
+	secretsReader := tls.NewReader(secretsData)
+	for secretsReader.Remaining() > 0 {
+		newMember, err := secretsReader.ReadVLBytes()
+		if err != nil {
+			break
+		}
+
+		kemOutput, err := secretsReader.ReadVLBytes()
+		if err != nil {
+			return nil, err
+		}
+		ciphertext, err := secretsReader.ReadVLBytes()
+		if err != nil {
+			return nil, err
+		}
+
+		secrets = append(secrets, EncryptedGroupSecrets{
+			NewMember: newMember,
+			EncryptedGroupSecrets: ciphersuite.HPKECiphertext{
+				KEMOutput:  kemOutput,
+				Ciphertext: ciphertext,
+			},
+		})
+	}
+
+	encryptedGroupInfo, err := r.ReadVLBytes()
+	if err != nil {
+		return nil, err
+	}
+
+	return &Welcome{
+		Version:            uint16(keypackages.MLS10),
+		CipherSuite:        ciphersuite.CipherSuite(cipherSuite),
+		Secrets:            secrets,
+		EncryptedGroupInfo: encryptedGroupInfo,
+	}, nil
+}
+
+// keyPackageRef calculates the reference of a KeyPackage (hash).
+func keyPackageRef(kp *keypackages.KeyPackage, cs ciphersuite.CipherSuite) []byte {
+	if kp == nil {
+		return nil
+	}
+	if len(kp.Raw) > 0 {
+		return ciphersuite.MakeKeyPackageRef(kp.Raw, cs.HashFunction()).AsSlice()
+	}
+	return ciphersuite.MakeKeyPackageRef(kp.Marshal(), cs.HashFunction()).AsSlice()
+}
+
+// createWelcomeConfig stores CreateWelcomeWithOpts settings.
+type createWelcomeConfig struct {
+	joinerSecret  *ciphersuite.Secret
+	pathSecret    []byte
+	pskIDs        []PskID
+	pskSecret     *ciphersuite.Secret
+	stagedCommit  *StagedCommit
+	groupInfoOpts []InfoOption
+	signerPrivKey *ciphersuite.SignaturePrivateKey
+}
+
+// CreateWelcomeOption configures Welcome message creation.
+type CreateWelcomeOption func(*createWelcomeConfig)
+
+// WithJoinerSecret sets the joiner_secret included in Secrets.
+func WithJoinerSecret(secret *ciphersuite.Secret) CreateWelcomeOption {
+	return func(cfg *createWelcomeConfig) {
+		cfg.joinerSecret = secret
+	}
+}
+
+// WithPathSecret sets an explicit path_secret for all joiners.
+func WithPathSecret(pathSecret []byte) CreateWelcomeOption {
+	return func(cfg *createWelcomeConfig) {
+		cfg.pathSecret = append([]byte(nil), pathSecret...)
+	}
+}
+
+// WithPSKIDs sets the PSK references included in Secrets.
+func WithPSKIDs(pskIDs []PskID) CreateWelcomeOption {
+	return func(cfg *createWelcomeConfig) {
+		cfg.pskIDs = append([]PskID(nil), pskIDs...)
+	}
+}
+
+// WithPSKSecret sets the psk_secret used to derive welcome_secret.
+func WithPSKSecret(secret *ciphersuite.Secret) CreateWelcomeOption {
+	return func(cfg *createWelcomeConfig) {
+		cfg.pskSecret = secret
+	}
+}
+
+// WithStagedCommit sets a staged commit so per-joiner path_secret values are derived automatically.
+func WithStagedCommit(staged *StagedCommit) CreateWelcomeOption {
+	return func(cfg *createWelcomeConfig) {
+		cfg.stagedCommit = staged
+	}
+}
+
+// WithGroupInfoOptions sets Info serialization options for the Welcome.
+func WithGroupInfoOptions(opts ...InfoOption) CreateWelcomeOption {
+	return func(cfg *createWelcomeConfig) {
+		cfg.groupInfoOpts = append([]InfoOption(nil), opts...)
+	}
+}
+
+func defaultCreateWelcomeConfig(signerPrivKey *ciphersuite.SignaturePrivateKey) createWelcomeConfig {
+	return createWelcomeConfig{signerPrivKey: signerPrivKey}
+}
+
+func applyCreateWelcomeOptions(cfg *createWelcomeConfig, opts ...CreateWelcomeOption) {
+	for _, opt := range opts {
+		if opt != nil {
+			opt(cfg)
+		}
+	}
+}
+
+// CreateWelcomeWithOpts creates a Welcome message using functional options.
+func (g *Group) CreateWelcomeWithOpts(
+	newMemberKeyPackages []*keypackages.KeyPackage,
+	signerPrivKey *ciphersuite.SignaturePrivateKey,
+	opts ...CreateWelcomeOption,
+) (*Welcome, error) {
+	cfg := defaultCreateWelcomeConfig(signerPrivKey)
+	applyCreateWelcomeOptions(&cfg, opts...)
+
+	return g.createWelcome(
+		newMemberKeyPackages,
+		cfg.joinerSecret,
+		cfg.pathSecret,
+		cfg.signerPrivKey,
+		cfg.pskIDs,
+		cfg.pskSecret,
+		cfg.stagedCommit,
+		cfg.groupInfoOpts...,
+	)
+}
+
+// CreateWelcome creates a Welcome message.
+//
+// Deprecated: prefer CreateWelcomeWithOpts for new code.
+func (g *Group) CreateWelcome(
+	newMemberKeyPackages []*keypackages.KeyPackage,
+	joinerSecret *ciphersuite.Secret,
+	pathSecret []byte, // deprecated: ignored if staged != nil (per-joiner path secrets computed from staged)
+	signerPrivKey *ciphersuite.SignaturePrivateKey,
+	pskIDs []PskID,
+	pskSecret *ciphersuite.Secret,
+	staged ...*StagedCommit, // optional: if provided, per-joiner path_secret is derived from it
+) (*Welcome, error) {
+	var stagedCommit *StagedCommit
+	if len(staged) > 0 {
+		stagedCommit = staged[0]
+	}
+
+	return g.CreateWelcomeWithOpts(
+		newMemberKeyPackages,
+		signerPrivKey,
+		WithJoinerSecret(joinerSecret),
+		WithPathSecret(pathSecret),
+		WithPSKIDs(pskIDs),
+		WithPSKSecret(pskSecret),
+		WithStagedCommit(stagedCommit),
+	)
+}
+
+func (g *Group) createWelcome(
+	newMemberKeyPackages []*keypackages.KeyPackage,
+	joinerSecret *ciphersuite.Secret,
+	pathSecret []byte,
+	signerPrivKey *ciphersuite.SignaturePrivateKey,
+	pskIDs []PskID,
+	pskSecret *ciphersuite.Secret,
+	staged *StagedCommit,
+	groupInfoOpts ...InfoOption,
+) (*Welcome, error) {
+	if g.state != StateOperational {
+		return nil, fmt.Errorf("create welcome: %w", ErrGroupNotOperational)
+	}
+	if joinerSecret == nil {
+		return nil, ErrWelcomeJoinerSecretMissing
+	}
+
+	// Compute welcome_secret per RFC 9420 §8, §12.4.3.1:
+	//    member_secret  = HKDF-Extract(joiner_secret, psk_secret)
+	//    welcome_secret = DeriveSecret(member_secret, "welcome")
+	// We use a copy to preserve joiner_secret (needed for GroupSecrets).
+	// The psk_secret must match what was used in the epoch key schedule.
+	if pskSecret == nil {
+		pskSecret = ciphersuite.ZeroSecretCS(g.cipherSuite)
+	}
+	joinerCopyForWelcome := ciphersuite.NewSecretForCS(g.cipherSuite, joinerSecret.AsSlice())
+	memberSecretForWelcome, err := joinerCopyForWelcome.HKDFExtract(pskSecret)
+	if err != nil {
+		return nil, fmt.Errorf("computing member_secret for welcome: %w", err)
+	}
+	welcomeSecret, err := memberSecretForWelcome.DeriveSecret(g.cipherSuite, "welcome")
+	if err != nil {
+		return nil, fmt.Errorf("deriving welcome_secret: %w", err)
+	}
+
+	groupInfo, err := g.buildSignedGroupInfo(signerPrivKey, groupInfoOpts...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Encrypt GroupInfo (including signature) with welcome_secret per RFC 9420 §11.2.2
+	groupInfoBytes := groupInfo.Marshal()
+	welcomeKey, err := welcomeSecret.KdfExpandLabel("key", []byte{}, g.cipherSuite.AEADKeyLength())
+	if err != nil {
+		return nil, err
+	}
+	welcomeNonce, err := welcomeSecret.KdfExpandLabel("nonce", []byte{}, g.cipherSuite.AEADNonceLength())
+	if err != nil {
+		return nil, err
+	}
+
+	encryptedGroupInfo, err := ciphersuite.EncryptWithCipherSuite(
+		welcomeKey.AsSlice(),
+		welcomeNonce.AsSlice(),
+		groupInfoBytes,
+		[]byte{}, // empty AAD
+		g.cipherSuite,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("encrypting group info: %w", err)
+	}
+
+	// For each new member, encrypt GroupSecrets
+	var encryptedSecrets []EncryptedGroupSecrets
+
+	for _, kp := range newMemberKeyPackages {
+		// Compute key_package_ref (hash of the key package)
+		kpRef := keyPackageRef(kp, g.cipherSuite)
+
+		// Compute per-joiner path_secret from the staged commit if available.
+		// RFC 9420 §12.4.3.1: the path_secret for a joiner is the one at the
+		// lowest filtered direct path node that is an ancestor of the joiner's leaf.
+		// This correctly handles newly added joiners whose LCA with the committer
+		// is below the filtered path (because their copath node was excluded).
+		joinerPathSecret := pathSecret
+		if staged != nil && staged.pathSecrets != nil {
+			sc := staged
+			N := len(sc.committerDirectPath) - 1
+			F := len(sc.committerFilteredLevels)
+
+			if sc.treeAfterProposals != nil {
+				encKey := kp.LeafNode.EncryptionKey
+				// Find the lowest filtered level whose subtree contains the joiner.
+				for m, level := range sc.committerFilteredLevels {
+					nodeIdx := sc.committerDirectPath[level+1]
+					if sc.treeAfterProposals.SubtreeContainsLeafByKey(nodeIdx, encKey) {
+						ps := sc.pathSecrets[N-F+m+1]
+						joinerPathSecret = ps.AsSlice()
+						break
+					}
+				}
+			}
+		}
+		// When no UpdatePath is present, path_secret remains nil (absent).
+		// RFC 9420 §11.2.2: optional<PathSecret> path_secret — absent when no path.
+
+		// Build GroupSecrets
+		groupSecrets := &Secrets{
+			JoinerSecret: joinerSecret,
+			PathSecret:   joinerPathSecret,
+			Psks:         pskIDs,
+		}
+
+		// Encrypt with HPKE using init_key of the KeyPackage
+		secretsBytes := groupSecrets.Marshal()
+		encryptedSecretsData, err := ciphersuite.EncryptWithLabel(
+			kp.InitKey,
+			"Welcome",
+			encryptedGroupInfo,
+			secretsBytes,
+			g.cipherSuite,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("encrypting group secrets: %w", err)
+		}
+
+		encryptedSecrets = append(encryptedSecrets, EncryptedGroupSecrets{
+			NewMember:             kpRef,
+			EncryptedGroupSecrets: *encryptedSecretsData,
+		})
+	}
+
+	return &Welcome{
+		Version:            1, // MLS 1.0
+		CipherSuite:        g.cipherSuite,
+		Secrets:            encryptedSecrets,
+		EncryptedGroupInfo: encryptedGroupInfo,
+		GroupInfo:          groupInfo,
+	}, nil
+}
+
+// JoinFromWelcome allows a new member to join using a Welcome.
+func JoinFromWelcome(
+	welcome *Welcome,
+	myKeyPackage *keypackages.KeyPackage,
+	myPrivateKeys *keypackages.KeyPackagePrivateKeys,
+	externalPsks map[string][]byte,
+) (*Group, error) {
+	return JoinFromWelcomeWithContext(context.Background(), welcome, myKeyPackage, myPrivateKeys, externalPsks)
+}
+
+// JoinFromWelcomeWithContext allows a new member to join using a Welcome, supporting context cancellation.
+func JoinFromWelcomeWithContext(
+	ctx context.Context,
+	welcome *Welcome,
+	myKeyPackage *keypackages.KeyPackage,
+	myPrivateKeys *keypackages.KeyPackagePrivateKeys,
+	externalPsks map[string][]byte,
+) (*Group, error) {
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+
+	// Compute my key_package_ref
+	myRef := keyPackageRef(myKeyPackage, welcome.CipherSuite)
+
+	// Find my encrypted GroupSecrets
+	var myEncryptedSecrets *EncryptedGroupSecrets
+	for i := range welcome.Secrets {
+		// key_package_ref is a public protocol lookup value, not secret material.
+		if bytes.Equal(welcome.Secrets[i].NewMember, myRef) {
+			myEncryptedSecrets = &welcome.Secrets[i]
+			break
+		}
+	}
+
+	if myEncryptedSecrets == nil {
+		return nil, ErrWelcomeNoEncryptedSecrets
+	}
+
+	// Decrypt GroupSecrets with my HPKE private key
+	privKeyBytes := myPrivateKeys.InitKey.Bytes()
+	secretsData, err := ciphersuite.DecryptWithLabel(
+		privKeyBytes,
+		"Welcome",
+		welcome.EncryptedGroupInfo,
+		&myEncryptedSecrets.EncryptedGroupSecrets,
+		welcome.CipherSuite,
+	)
+	if err != nil {
+		return nil, &ErrDecryptionFailed{Reason: "group secrets", Err: err}
+	}
+
+	groupSecrets, err := UnmarshalGroupSecrets(secretsData)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshaling group secrets: %w", ErrWelcomeInvalidGroupSecrets)
+	}
+
+	// RFC §12.4.3.1: if any required PSK is unavailable, return an error.
+	if len(groupSecrets.Psks) > 0 && externalPsks == nil {
+		return nil, fmt.Errorf("welcome requires %d PSK(s) but no PSK store was provided: %w", len(groupSecrets.Psks), ErrWelcomeMissingPSK)
+	}
+	var psks []schedule.Psk
+	for _, pskRef := range groupSecrets.Psks {
+		var pskBytes []byte
+		var ok bool
+
+		switch pskRef.PskType {
+		case 2: // Resumption PSK: lookup by compound key (group_id, epoch)
+			resumptionKey := ResumptionPskCacheKey(pskRef.PskGroupID, pskRef.PskEpoch)
+			pskBytes, ok = externalPsks[resumptionKey]
+			if !ok {
+				return nil, fmt.Errorf("missing resumption PSK for group=%x epoch=%d: %w", pskRef.PskGroupID, pskRef.PskEpoch, ErrWelcomePSKNotFound)
+			}
+			psks = append(psks, schedule.Psk{
+				PskType:    schedule.PskType(pskRef.PskType),
+				PskNonce:   pskRef.Nonce,
+				Psk:        pskBytes,
+				Usage:      pskRef.Usage,
+				PskGroupID: pskRef.PskGroupID,
+				PskEpoch:   pskRef.PskEpoch,
+			})
+		default: // External (1) or Branch (3) PSK: lookup by ID
+			pskBytes, ok = externalPsks[string(pskRef.ID)]
+			if !ok {
+				return nil, fmt.Errorf("missing PSK with ID=%x: %w", pskRef.ID, ErrWelcomePSKNotFound)
+			}
+			psks = append(psks, schedule.Psk{
+				PskType:  schedule.PskType(pskRef.PskType),
+				PskID:    pskRef.ID,
+				PskNonce: pskRef.Nonce,
+				Psk:      pskBytes,
+			})
+		}
+	}
+
+	// Derive welcome_secret (RFC §8, §12.4.3.1):
+	// psk_secret     = ComputePskSecret(psks)           (0^Nh if no PSKs)
+	// member_secret  = HKDF-Extract(joiner_secret, psk_secret)
+	// welcome_secret = DeriveSecret(member_secret, "welcome")
+	//
+	// We use a COPY of joiner_secret so that HKDFExtract (which zeroes its inputs)
+	// does not destroy the original, which the key schedule needs later.
+	rawPskSecret := ciphersuite.ZeroSecretCS(welcome.CipherSuite)
+	if len(psks) > 0 {
+		pskInput, pskErr := schedule.ComputePskInput(psks, welcome.CipherSuite)
+		if pskErr != nil {
+			return nil, fmt.Errorf("computing psk input: %w", pskErr)
+		}
+		rawPskSecret = ciphersuite.NewSecretForCS(welcome.CipherSuite, pskInput)
+		secureZeroBytes(pskInput)
+	}
+
+	joinerCopy := ciphersuite.NewSecretForCS(welcome.CipherSuite, groupSecrets.JoinerSecret.AsSlice())
+	memberSecret, err := joinerCopy.HKDFExtract(rawPskSecret)
+	if err != nil {
+		return nil, fmt.Errorf("computing member_secret for welcome: %w", err)
+	}
+	welcomeSecret, err := memberSecret.DeriveSecret(welcome.CipherSuite, "welcome")
+	secureZeroSecret(memberSecret)
+	if err != nil {
+		return nil, fmt.Errorf("deriving welcome_secret: %w", err)
+	}
+
+	welcomeKey, err := welcomeSecret.KdfExpandLabel("key", []byte{}, welcome.CipherSuite.AEADKeyLength())
+	if err != nil {
+		secureZeroSecret(welcomeSecret)
+		return nil, fmt.Errorf("deriving welcome_key: %w", err)
+	}
+	defer secureZeroSecret(welcomeKey)
+	welcomeNonce, err := welcomeSecret.KdfExpandLabel("nonce", []byte{}, welcome.CipherSuite.AEADNonceLength())
+	secureZeroSecret(welcomeSecret)
+	if err != nil {
+		return nil, fmt.Errorf("deriving welcome_nonce: %w", err)
+	}
+	defer secureZeroSecret(welcomeNonce)
+	groupInfoData, err := ciphersuite.DecryptWithCipherSuite(
+		welcomeKey.AsSlice(),
+		welcomeNonce.AsSlice(),
+		welcome.EncryptedGroupInfo,
+		[]byte{},
+		welcome.CipherSuite,
+	)
+	if err != nil {
+		return nil, &ErrDecryptionFailed{Reason: "group info", Err: err}
+	}
+
+	groupInfo, err := UnmarshalGroupInfo(groupInfoData)
+	if err != nil {
+		return nil, fmt.Errorf("unmarshaling group info: %w", ErrGroupInfoUnmarshal)
+	}
+	welcome.GroupInfo = groupInfo
+
+	// Reconstruct ratchet tree: first look for ratchet_tree extension,
+	// otherwise use the tree in memory (for tests), otherwise create empty tree.
+	// treeFromExtension tracks whether we obtained the tree from the GroupInfo extension,
+	// which is required for the RFC §12.4.3.1 tree_hash verification.
+	ratchetTree := groupInfo.RatchetTree
+	treeFromExtension := ratchetTree != nil
+	var ratchetTreeParseErr error
+	for _, ext := range groupInfo.Extensions {
+		if ext.Type == mlsext.ExtensionTypeRatchetTree {
+			parsed, parseErr := treesync.UnmarshalTreeFromExtension(ext.Data, groupInfo.GroupContext.CipherSuite)
+			if parseErr == nil {
+				// RFC §7.4.1: wire format is minimal (no trailing blanks), but the
+				// internal tree logic assumes power-of-2 leaf count for parent/copath
+				// indexing. Expand unconditionally; TreeHash computes over the full tree.
+				parsed = parsed.ExpandToPowerOf2()
+				ratchetTree = parsed
+				treeFromExtension = true
+				break
+			}
+			ratchetTreeParseErr = parseErr
+		}
+	}
+	if ratchetTree == nil {
+		if ratchetTreeParseErr != nil {
+			return nil, fmt.Errorf("parsing ratchet_tree extension: %w", ErrRatchetTreeUnmarshal)
+		}
+		ratchetTree = treesync.NewRatchetTree(1, groupInfo.GroupContext.CipherSuite)
+	}
+	groupInfo.RatchetTree = ratchetTree
+
+	// RFC §12.4.3.1: verify that the tree_hash of the ratchet tree matches GroupInfo.
+	// Only checked when the tree was provided (via extension or pre-populated); if the
+	// caller did not supply a tree, they are responsible for fetching and verifying it.
+	if treeFromExtension {
+		computedTreeHash := ratchetTree.TreeHash()
+		// TreeHash is a public integrity value carried in GroupInfo.
+		if !bytes.Equal(computedTreeHash, groupInfo.GroupContext.TreeHash) {
+			return nil, fmt.Errorf("ratchet tree hash mismatch: computed=%x want=%x: %w",
+				computedTreeHash, groupInfo.GroupContext.TreeHash, ErrTreeHashMismatch)
+		}
+	}
+
+	// RFC §12.4.3.1: verify GroupInfo signature using the signer's leaf from the tree.
+	// Only verifiable when the ratchet tree was provided (via extension or pre-populated);
+	// if the caller supplied no tree, they are responsible for verifying the signature
+	// using an externally fetched ratchet tree.
+	if treeFromExtension {
+		if err := verifyGroupInfoSignature(groupInfo, ratchetTree); err != nil {
+			return nil, err
+		}
+	}
+
+	// RFC §12.4.3.1: validate all non-blank LeafNodes in the ratchet tree.
+	// Existing members' leaves may have source=commit(3) or source=update(2) — their
+	// TBS includes group_id and leaf_index. Newly-added leaves have source=key_package(1).
+	// We skip lifetime checks (ValidateLeafNodeStructureWithContext) because existing
+	// members cannot renew their credential just because a joiner arrives late.
+	if treeFromExtension {
+		groupID := groupInfo.GroupContext.GroupID.AsSlice()
+		for i := treesync.LeafIndex(0); i < treesync.LeafIndex(ratchetTree.NumLeaves); i++ {
+			leaf := ratchetTree.GetLeaf(i)
+			if leaf == nil || leaf.State != treesync.NodeStatePresent || leaf.LeafData == nil {
+				continue
+			}
+			if err := treesync.ValidateLeafNodeStructureWithContext(
+				leaf.LeafData, welcome.CipherSuite, groupID, uint32(i),
+			); err != nil {
+				return nil, fmt.Errorf("invalid leaf node at index %d in ratchet tree: %w", i, ErrLeafNodeInvalid)
+			}
+		}
+
+		// RFC §12.4.3.1: validate unmerged_leaves entries for each parent node.
+		// Each entry must reference a valid, non-blank leaf that is a descendant of the node.
+		for nodeIdx := range ratchetTree.Nodes {
+			node := &ratchetTree.Nodes[nodeIdx]
+			if node.State != treesync.NodeStatePresent || treesync.IsLeaf(treesync.NodeIndex(nodeIdx)) {
+				continue
+			}
+			for _, unmergedLeafIdx := range node.UnmergedLeaves {
+				leafNode := ratchetTree.GetLeaf(unmergedLeafIdx)
+				if leafNode == nil || leafNode.State != treesync.NodeStatePresent {
+					return nil, fmt.Errorf("unmerged_leaves entry %d in node %d references a blank or missing leaf: %w",
+						unmergedLeafIdx, nodeIdx, ErrUnmergedLeavesInvalid)
+				}
+				if !ratchetTree.SubtreeContainsLeaf(treesync.NodeIndex(nodeIdx), unmergedLeafIdx) {
+					return nil, fmt.Errorf("unmerged_leaves entry %d in node %d is not a descendant of that node: %w",
+						unmergedLeafIdx, nodeIdx, ErrUnmergedLeavesInvalid)
+				}
+			}
+		}
+	}
+
+	// Initialize GroupContext from GroupInfo
+	groupContext := groupInfo.GroupContext
+
+	// RFC §13.4: a joiner MUST verify that it supports every extension in the GroupContext.
+	// We check against the library's implemented extension types (not the leaf node's
+	// declared capabilities), because capabilities.Extensions reflects what the application
+	// chooses to advertise — not what the library can process. Decoupling these lets
+	// protocol-specific clients (e.g., Discord DAVE) keep minimal capabilities while still
+	// benefiting from proper join-time extension validation.
+	for _, ext := range groupContext.Extensions {
+		if !slices.Contains(keypackages.SupportedExtensionTypes(), uint16(ext.Type)) {
+			return nil, fmt.Errorf("joiner does not support GroupContext extension type 0x%04x (RFC §13.4): %w", uint16(ext.Type), ErrRequiredExtensionMissing)
+		}
+	}
+
+	// Advance key schedule from joiner_secret provided by Welcome.
+	keySchedule := schedule.NewKeySchedule(
+		welcome.CipherSuite,
+		ciphersuite.ZeroSecretCS(welcome.CipherSuite),
+	)
+	keySchedule.SetJoinerSecret(ciphersuite.NewSecretForCS(welcome.CipherSuite, groupSecrets.JoinerSecret.AsSlice()))
+
+	_, err = keySchedule.ComputePskSecret(psks)
+	if err != nil {
+		return nil, fmt.Errorf("computing psk secret: %w", ErrWelcomeInvalidPSK)
+	}
+
+	groupContextBytes := groupContext.Marshal()
+	_, err = keySchedule.ComputeEpochSecret(groupContextBytes)
+	if err != nil {
+		return nil, fmt.Errorf("computing epoch secret: %w", err)
+	}
+
+	epochSecrets, err := keySchedule.DeriveEpochSecrets()
+	if err != nil {
+		return nil, fmt.Errorf("deriving epoch secrets: %w", err)
+	}
+
+	// RFC §12.4.3.1: verify the confirmation_tag using the derived confirmation_key.
+	expectedConfTag := schedule.ComputeConfirmationTag(
+		welcome.CipherSuite,
+		epochSecrets.ConfirmationKey.AsSlice(),
+		groupContext.ConfirmedTranscriptHash,
+	)
+	if !ciphersuite.EqualCT(expectedConfTag, groupInfo.ConfirmationTag) {
+		return nil, fmt.Errorf("welcome confirmation_tag mismatch: derived key does not match GroupInfo: %w", ErrConfirmationTagMismatch)
+	}
+
+	// Determine OwnLeafIndex by looking for our key in the tree.
+	// It searches by LeafNode.EncryptionKey (TreeKEM key of the leaf), which may differ
+	// from the InitKey of the KeyPackage (HPKE key for the Welcome).
+	var ownLeafIndex LeafNodeIndex
+	leafEncKey := myKeyPackage.LeafNode.EncryptionKey
+	if len(leafEncKey) == 0 {
+		leafEncKey = myKeyPackage.InitKey
+	}
+	ownLeafFound := false
+	for i := treesync.LeafIndex(0); i < treesync.LeafIndex(ratchetTree.NumLeaves); i++ {
+		leaf := ratchetTree.GetLeaf(i)
+		if leaf != nil && leaf.LeafData != nil {
+			// Leaf encryption keys in the ratchet tree are public HPKE public keys.
+			if bytes.Equal(leaf.LeafData.EncryptionKey, leafEncKey) {
+				ownLeafIndex = LeafNodeIndex(i)
+				ownLeafFound = true
+				break
+			}
+		}
+	}
+	// RFC §12.4.3.1: must find a leaf matching our KeyPackage; error if the tree was
+	// provided but our leaf is absent. When no tree was provided (fallback), the
+	// joiner must validate via the external ratchet tree they supply later.
+	if treeFromExtension && !ownLeafFound {
+		return nil, fmt.Errorf("own leaf not found in ratchet tree: %w", ErrJoinerLeafNotFound)
+	}
+	// Create Group
+	group := &Group{
+		groupID:         groupContext.GroupID,
+		epoch:           groupContext.Epoch,
+		cipherSuite:     welcome.CipherSuite,
+		groupContext:    groupContext,
+		ratchetTree:     ratchetTree,
+		ownLeafIndex:    ownLeafIndex,
+		epochSecrets:    epochSecrets,
+		confirmationTag: groupInfo.ConfirmationTag,
+		interimTranscriptHash: schedule.ComputeInterimTranscriptHash(
+			welcome.CipherSuite,
+			groupContext.ConfirmedTranscriptHash,
+			groupInfo.ConfirmationTag,
+		),
+		members:     make(map[LeafNodeIndex]*Member),
+		state:       StateOperational,
+		keySchedule: keySchedule,
+		proposals:   NewProposalStore(),
+		cachedPsks:  make(map[string][]byte),
+	}
+	group.proposalByRef = make(map[string]*Proposal)
+	// Store the leaf's private HPKE key to decrypt path secrets in commits.
+	if myPrivateKeys.EncryptionKey != nil {
+		group.setMyLeafEncryptionKey(myPrivateKeys.EncryptionKey.Bytes())
+	} else if myPrivateKeys.InitKey != nil {
+		group.setMyLeafEncryptionKey(myPrivateKeys.InitKey.Bytes())
+	}
+	for id, pskBytes := range externalPsks {
+		group.cachedPsks[id] = append([]byte(nil), pskBytes...)
+	}
+
+	// Derive PathNodePrivKeys from path_secret (RFC 9420 §12.4.3.1).
+	// The path_secret lets the joiner derive private keys for the committer's
+	// filtered direct path nodes, from the common ancestor up to the root.
+	// This is needed so the joiner can decrypt future commits where one of
+	// these intermediate nodes appears in a copath resolution.
+	if len(groupSecrets.PathSecret) > 0 {
+		committerLeafIdx := treesync.LeafIndex(groupInfo.Signer)
+		committerDP := ratchetTree.DirectPath(committerLeafIdx)
+
+		// Walk the committer's directPath (skipping the leaf at index 0).
+		// Only PRESENT nodes were filtered levels when the UpdatePath was built;
+		// BLANK nodes were non-filtered (their copath had empty resolution with
+		// the exclusion set, so no path_secret entry was produced for them).
+		// The path_secret advances one step per PRESENT node.
+		// We start storing keys from the first PRESENT node that is an ancestor
+		// of the joiner's leaf (SubtreeContainsLeaf check).
+		ps := ciphersuite.NewSecretForCS(welcome.CipherSuite, groupSecrets.PathSecret)
+		ownLeaf := treesync.LeafIndex(ownLeafIndex)
+		started := false
+		for _, nodeIdx := range committerDP[1:] { // skip the sender leaf (index 0)
+			if int(nodeIdx) >= len(ratchetTree.Nodes) {
+				break
+			}
+			if ratchetTree.Nodes[nodeIdx].State != treesync.NodeStatePresent {
+				continue // blank node = non-filtered, skip (no path_secret for it)
+			}
+			if !started {
+				if !ratchetTree.SubtreeContainsLeaf(nodeIdx, ownLeaf) {
+					continue // joiner is not in this node's subtree
+				}
+				started = true
+			}
+			nodeSecret, nsErr := ps.DeriveSecret(welcome.CipherSuite, "node")
+			if nsErr == nil {
+				privKey, pkErr := ciphersuite.DeriveKeyPair(welcome.CipherSuite, nodeSecret.AsSlice())
+				if pkErr == nil {
+					group.setPathNodePrivKey(nodeIdx, privKey.Bytes())
+				}
+			}
+			ps, _ = ps.DeriveSecret(welcome.CipherSuite, "path")
+		}
+	}
+
+	// Cache the resumption secret for this initial epoch so that future
+	// resumption PSK proposals referencing this epoch can resolve it.
+	if epochSecrets.ResumptionSecret != nil {
+		rKey := ResumptionPskCacheKey(groupContext.GroupID.AsSlice(), groupContext.Epoch.AsUint64())
+		group.cachedPsks[rKey] = append([]byte(nil), epochSecrets.ResumptionSecret.AsSlice()...)
+	}
+
+	for i := treesync.LeafIndex(0); i < treesync.LeafIndex(ratchetTree.NumLeaves); i++ {
+		leaf := ratchetTree.GetLeaf(i)
+		if leaf != nil && leaf.LeafData != nil && leaf.State == treesync.NodeStatePresent {
+			// RFC §12.4.3.1: validate every non-blank LeafNode per §7.3 when the real
+			// ratchet tree was provided. Use context-aware signature check (group_id +
+			// leaf_index) for update/commit leaves. Lifetime is not checked here since
+			// existing group members' leaves may have been issued in a past epoch.
+			if treeFromExtension {
+				if err := treesync.ValidateLeafNodeStructureWithContext(leaf.LeafData, welcome.CipherSuite,
+					groupContext.GroupID.AsSlice(), uint32(i)); err != nil {
+					return nil, fmt.Errorf("invalid leaf node at index %d: %w", i, err)
+				}
+			}
+			leafIdx := LeafNodeIndex(i)
+			group.members[leafIdx] = &Member{
+				LeafIndex:  leafIdx,
+				Credential: leaf.LeafData.Credential,
+				Active:     true,
+			}
+		}
+	}
+
+	group.secretTree, err = secrettree.NewTree(epochSecrets.EncryptionSecret, ratchetTree.NumLeaves, welcome.CipherSuite)
+	if err != nil {
+		return nil, fmt.Errorf("initializing secret tree: %w", err)
+	}
+
+	return group, nil
+}
+
+func verifyGroupInfoSignature(groupInfo *Info, tree *treesync.RatchetTree) error {
+	if groupInfo == nil {
+		return ErrGroupInfoNil
+	}
+	if tree == nil {
+		return ErrRatchetTreeNil
+	}
+	signerLeaf := tree.GetLeaf(treesync.LeafIndex(groupInfo.Signer))
+	if signerLeaf == nil || signerLeaf.LeafData == nil {
+		return ErrSignerLeafMissing
+	}
+	rawKey := signerLeaf.LeafData.SigKeyBytes()
+	if len(rawKey) == 0 {
+		return ErrSignerKeyMissing
+	}
+	cs := groupInfo.GroupContext.CipherSuite
+	pubKey := ciphersuite.NewMLSSignaturePublicKey(rawKey, cs.SignatureScheme())
+	sig := ciphersuite.NewSignature(groupInfo.Signature)
+	if err := ciphersuite.VerifyWithLabel(pubKey, "GroupInfoTBS", groupInfo.MarshalTBS(), sig); err != nil {
+		return &ErrInvalidSignature{Context: "group info", Err: err}
+	}
+	return nil
+}

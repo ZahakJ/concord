@@ -1,0 +1,323 @@
+package app
+
+import (
+	"context"
+	"crypto/ed25519"
+	"crypto/sha256"
+	"fmt"
+	"io"
+	"strings"
+	"sync"
+
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
+	"golang.org/x/crypto/hkdf"
+
+	"github.com/zahak/concord/internal/crypto/mls"
+	"github.com/zahak/concord/internal/domain"
+	"github.com/zahak/concord/internal/identity"
+	cnet "github.com/zahak/concord/internal/net"
+	"github.com/zahak/concord/internal/store"
+)
+
+// Service is the orchestration layer (layer 6): it owns the identity, network
+// host, gossipsub bus, MLS group-crypto engine, and encrypted store, and
+// presents one UI-agnostic API. Both the headless CLI and the Wails GUI drive
+// Concord exclusively through a Service.
+type Service struct {
+	ctx context.Context
+
+	id    *identity.Identity
+	host  *cnet.Host
+	ps    *cnet.PubSub
+	mls   mls.Engine
+	store *store.Store
+
+	mu             sync.RWMutex
+	guilds         map[string]*domain.Guild // by guild ID
+	channelToGuild map[string]string        // channel ID -> guild ID
+	onMessage      []func(domain.Message)
+
+	voiceMu         sync.Mutex
+	voiceRooms      map[string]context.CancelFunc // channel ID -> heartbeat stop
+	onVoicePresence []func(from, channelID, action string)
+	onVoiceSignal   []func(from string, data []byte)
+
+	onTyping      []func(from, channelID string)
+	onGuildUpdate []func()
+
+	profiles map[string]string // fingerprint -> display name, learned from peers
+}
+
+// PeerPresence is a UI-facing view of a connected peer.
+type PeerPresence struct {
+	PeerID      string `json:"peerId"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+// Config configures a Service.
+type Config struct {
+	// DataDir is where the keystore and database live.
+	DataDir string
+	// Passphrase unlocks the identity keystore.
+	Passphrase string
+	// DisableMDNS turns off LAN discovery; tests set it for determinism.
+	DisableMDNS bool
+	// BootstrapPeers are multiaddrs of rendezvous/relay nodes for internet-wide
+	// discovery. When any are set, the DHT is enabled.
+	BootstrapPeers []string
+}
+
+// Start loads (or creates) the identity, then brings up storage, networking
+// (with LAN discovery), gossipsub, and the MLS engine, and restores any
+// previously-joined guilds. The returned Service must be Closed by the caller.
+func Start(ctx context.Context, cfg Config) (*Service, error) {
+	id, _, err := identity.LoadOrCreate(keystorePathIn(cfg.DataDir), cfg.Passphrase)
+	if err != nil {
+		return nil, fmt.Errorf("app: open identity: %w", err)
+	}
+
+	st, err := store.Open(dbPathIn(cfg.DataDir), deriveStoreKey(id))
+	if err != nil {
+		return nil, fmt.Errorf("app: open store: %w", err)
+	}
+
+	bootstrap, err := parseBootstrapPeers(cfg.BootstrapPeers)
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	host, err := cnet.New(ctx, cnet.Config{
+		Identity:       id,
+		EnableMDNS:     !cfg.DisableMDNS,
+		EnableDHT:      len(bootstrap) > 0,
+		BootstrapPeers: bootstrap,
+	})
+	if err != nil {
+		_ = st.Close()
+		return nil, fmt.Errorf("app: start network: %w", err)
+	}
+
+	ps, err := host.NewPubSub(ctx)
+	if err != nil {
+		_ = host.Close()
+		_ = st.Close()
+		return nil, fmt.Errorf("app: start pubsub: %w", err)
+	}
+
+	mlsDir, err := mlsDirIn(cfg.DataDir)
+	if err != nil {
+		_ = host.Close()
+		_ = st.Close()
+		return nil, fmt.Errorf("app: mls storage dir: %w", err)
+	}
+	// Persistent MLS storage + a deterministic signing key derived from the
+	// identity give full restart recovery: group state from disk, signing key
+	// reproduced, so a restarted node can both receive and send.
+	engine, err := mls.NewPersistent([]byte(id.PublicKey()), deriveMLSSigningKey(id), mlsDir)
+	if err != nil {
+		_ = host.Close()
+		_ = st.Close()
+		return nil, fmt.Errorf("app: start mls: %w", err)
+	}
+
+	s := &Service{
+		ctx:            ctx,
+		id:             id,
+		host:           host,
+		ps:             ps,
+		mls:            engine,
+		store:          st,
+		guilds:         map[string]*domain.Guild{},
+		channelToGuild: map[string]string{},
+		voiceRooms:     map[string]context.CancelFunc{},
+		profiles:       map[string]string{},
+	}
+
+	// Owner side of the join handshake.
+	host.HandleInvites(s.handleInviteRequest)
+
+	// Inbound WebRTC signaling for voice/video.
+	host.HandleSignals(func(from peer.ID, data []byte) {
+		s.emitVoiceSignal(from.String(), data)
+	})
+
+	// Trust-on-first-use: record every peer we connect to so it can later be
+	// verified out-of-band.
+	host.OnPeerConnected(func(p peer.ID) {
+		pp := presenceFor(p)
+		_ = st.RecordContact(pp.PeerID, pp.Fingerprint)
+	})
+
+	// Restore guilds we already belong to and re-subscribe to their topics.
+	// Note: MLS ratchet state persistence across restarts is a Phase 5 item;
+	// today a restart re-subscribes topics but rejoining active groups needs
+	// the persisted MLS store (WithStorage), tracked as follow-up.
+	guilds, err := st.Guilds()
+	if err != nil {
+		s.Close()
+		return nil, fmt.Errorf("app: load guilds: %w", err)
+	}
+	for i := range guilds {
+		s.trackGuild(&guilds[i])
+	}
+
+	return s, nil
+}
+
+// Fingerprint returns this peer's safety-number fingerprint.
+func (s *Service) Fingerprint() string { return s.id.Fingerprint() }
+
+// PeerID returns this peer's libp2p peer ID as a string.
+func (s *Service) PeerID() string { return s.host.PeerID().String() }
+
+// PublicKey returns this peer's Ed25519 account public key (its MLS credential).
+func (s *Service) PublicKey() []byte { return []byte(s.id.PublicKey()) }
+
+// Peers returns the currently connected peers.
+func (s *Service) Peers() []PeerPresence {
+	ids := s.host.Peers()
+	out := make([]PeerPresence, 0, len(ids))
+	for _, p := range ids {
+		out = append(out, presenceFor(p))
+	}
+	return out
+}
+
+// OnPeerConnected registers a presence-up callback.
+func (s *Service) OnPeerConnected(fn func(PeerPresence)) {
+	s.host.OnPeerConnected(func(p peer.ID) { fn(presenceFor(p)) })
+}
+
+// OnPeerDisconnected registers a presence-down callback.
+func (s *Service) OnPeerDisconnected(fn func(PeerPresence)) {
+	s.host.OnPeerDisconnected(func(p peer.ID) { fn(presenceFor(p)) })
+}
+
+// OnMessage registers a callback fired for every message — sent or received —
+// after it has been persisted. This is the UI's live message feed.
+func (s *Service) OnMessage(fn func(domain.Message)) {
+	s.mu.Lock()
+	s.onMessage = append(s.onMessage, fn)
+	s.mu.Unlock()
+}
+
+func (s *Service) emitMessage(m domain.Message) {
+	s.mu.RLock()
+	cbs := append([]func(domain.Message){}, s.onMessage...)
+	s.mu.RUnlock()
+	for _, cb := range cbs {
+		cb(m)
+	}
+}
+
+// DisplayName returns this peer's chosen display name, defaulting to the first
+// block of its fingerprint when unset.
+func (s *Service) DisplayName() string {
+	name, _ := s.store.GetSetting("display_name")
+	if strings.TrimSpace(name) != "" {
+		return name
+	}
+	fpr := s.id.Fingerprint()
+	if i := strings.IndexByte(fpr, ' '); i > 0 {
+		return fpr[:i]
+	}
+	return fpr
+}
+
+// SetDisplayName persists a display name (self-asserted; the fingerprint remains
+// the authenticated identity) and re-announces it to every guild.
+func (s *Service) SetDisplayName(name string) error {
+	if err := s.store.SetSetting("display_name", strings.TrimSpace(name)); err != nil {
+		return err
+	}
+	s.announceProfileAll()
+	return nil
+}
+
+// ProfileName returns a peer's learned display name for a fingerprint, or "".
+func (s *Service) ProfileName(fingerprint string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.profiles[fingerprint]
+}
+
+// Contacts returns known peers and their verification status.
+func (s *Service) Contacts() ([]domain.Contact, error) {
+	return s.store.Contacts()
+}
+
+// VerifyContact marks a peer as human-verified after an out-of-band fingerprint
+// check.
+func (s *Service) VerifyContact(peerID string) error {
+	return s.store.SetVerified(peerID)
+}
+
+// Close shuts everything down.
+func (s *Service) Close() error {
+	if s.host != nil {
+		_ = s.host.Close()
+	}
+	if s.mls != nil {
+		_ = s.mls.Close()
+	}
+	if s.store != nil {
+		_ = s.store.Close()
+	}
+	return nil
+}
+
+// parseBootstrapPeers converts multiaddr strings (each ending in /p2p/<id>) to
+// AddrInfos for DHT bootstrapping and relay.
+func parseBootstrapPeers(addrs []string) ([]peer.AddrInfo, error) {
+	var out []peer.AddrInfo
+	for _, a := range addrs {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		ma, err := multiaddr.NewMultiaddr(a)
+		if err != nil {
+			return nil, fmt.Errorf("app: bad bootstrap addr %q: %w", a, err)
+		}
+		pi, err := peer.AddrInfoFromP2pAddr(ma)
+		if err != nil {
+			return nil, fmt.Errorf("app: bad bootstrap addr %q: %w", a, err)
+		}
+		out = append(out, *pi)
+	}
+	return out, nil
+}
+
+// deriveStoreKey derives the 32-byte at-rest message key from the identity seed
+// via HKDF, so message-body encryption is bound to the passphrase-protected
+// identity without a second secret.
+func deriveStoreKey(id *identity.Identity) []byte {
+	r := hkdf.New(sha256.New, id.Seed(), nil, []byte("concord-store-v1"))
+	key := make([]byte, 32)
+	_, _ = io.ReadFull(r, key)
+	return key
+}
+
+// deriveMLSSigningKey derives a dedicated, deterministic Ed25519 key for signing
+// MLS messages. It is HKDF-separated from the identity's libp2p key so the two
+// protocols never share signing material, yet it is reproducible on every start
+// (no storage needed) — which is what makes send-after-restart work.
+func deriveMLSSigningKey(id *identity.Identity) ed25519.PrivateKey {
+	r := hkdf.New(sha256.New, id.Seed(), nil, []byte("concord-mls-sig-v1"))
+	seed := make([]byte, ed25519.SeedSize)
+	_, _ = io.ReadFull(r, seed)
+	return ed25519.NewKeyFromSeed(seed)
+}
+
+// presenceFor derives the UI view for a peer, recovering the fingerprint from
+// the Ed25519 key embedded in the libp2p peer ID.
+func presenceFor(p peer.ID) PeerPresence {
+	pp := PeerPresence{PeerID: p.String()}
+	if pub, err := p.ExtractPublicKey(); err == nil {
+		if raw, err := pub.Raw(); err == nil {
+			pp.Fingerprint = identity.FingerprintOf(raw)
+		}
+	}
+	return pp
+}

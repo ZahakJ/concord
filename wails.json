@@ -1,0 +1,16 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "concord",
+  "outputfilename": "concord-gui",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "Concord"
+  },
+  "info": {
+    "productName": "Concord",
+    "comments": "Secure peer-to-peer chat"
+  }
+}

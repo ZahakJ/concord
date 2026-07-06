@@ -1,0 +1,35 @@
+# fly.io deployment for Concord's rendezvous/relay node.
+# Deploy from the repo root:  fly deploy -c infra/rendezvous/fly.toml
+#
+# The node is untrusted infrastructure: it relays end-to-end-encrypted traffic
+# and serves the DHT; it never sees plaintext or media.
+
+app = "concord-rendezvous"
+primary_region = "iad"
+
+[build]
+  dockerfile = "infra/rendezvous/Dockerfile"
+
+[env]
+  PORT = "4001"
+
+# A single always-on machine is plenty for a personal/small deployment.
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# libp2p needs both TCP and UDP (QUIC) on the same port, exposed directly
+# (no HTTP handler / TLS termination — this is a raw libp2p endpoint).
+[[services]]
+  internal_port = 4001
+  protocol = "tcp"
+  auto_stop_machines = false
+  min_machines_running = 1
+  [[services.ports]]
+    port = 4001
+
+[[services]]
+  internal_port = 4001
+  protocol = "udp"
+  [[services.ports]]
+    port = 4001

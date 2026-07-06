@@ -1,0 +1,13 @@
+# Build output
+/bin/
+/build/
+frontend/dist/
+
+# Node
+frontend/node_modules/
+
+# Local multi-peer test data (make peers)
+/.dev/
+
+# Wails
+/frontend/wailsjs/

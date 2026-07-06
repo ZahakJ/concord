@@ -1,0 +1,367 @@
+package group
+
+import (
+	"bytes"
+	"testing"
+
+	"github.com/thomas-vilte/mls-go/ciphersuite"
+	"github.com/thomas-vilte/mls-go/credentials"
+	"github.com/thomas-vilte/mls-go/framing"
+	"github.com/thomas-vilte/mls-go/keypackages"
+	"github.com/thomas-vilte/mls-go/treesync"
+)
+
+func tamperApplicationMessageSignature(t *testing.T, senderGroup *Group, pm *framing.PrivateMessage) *framing.PrivateMessage {
+	t.Helper()
+
+	ac, err := framing.Decrypt(pm, framing.DecryptParams{
+		CipherSuite:      senderGroup.cipherSuite,
+		SenderDataSecret: senderGroup.epochSecrets.SenderDataSecret,
+		SecretTree:       senderGroup.secretTree,
+		GroupContext:     senderGroup.groupContext.Marshal(),
+	})
+	if err != nil {
+		t.Fatalf("Decrypt(sender): %v", err)
+	}
+
+	sig := ac.Auth.Signature.AsSlice()
+	if len(sig) == 0 {
+		t.Fatal("signature is empty")
+	}
+	sig[0] ^= 0xFF
+
+	tampered, err := framing.Encrypt(framing.EncryptParams{
+		AuthContent:      ac,
+		SenderLeafIndex:  uint32(senderGroup.ownLeafIndex),
+		CipherSuite:      senderGroup.cipherSuite,
+		PaddingSize:      senderGroup.paddingSize,
+		SenderDataSecret: senderGroup.epochSecrets.SenderDataSecret,
+		SecretTree:       senderGroup.secretTree,
+	})
+	if err != nil {
+		t.Fatalf("Encrypt(tampered): %v", err)
+	}
+
+	return tampered
+}
+
+// TestSendMessage_EmptyPayload verifies that SendMessage works with an empty payload.
+func TestSendMessage_EmptyPayload(t *testing.T) {
+	aliceGroup, _, alicePriv, _ := setupTwoMemberGroup(t)
+
+	// Send an empty message. MLS allows this.
+	aliceSigPriv := ciphersuite.NewSignaturePrivateKey(alicePriv.SignatureKey)
+
+	pm, err := aliceGroup.SendMessage([]byte{}, aliceSigPriv)
+	if err != nil {
+		t.Fatalf("SendMessage with empty payload should succeed: %v", err)
+	}
+
+	if pm == nil {
+		t.Fatal("SendMessage should return non-nil PrivateMessage")
+	}
+
+	// Nota: no probamos el ReceiveMessage aquí porque requiere sincronización
+	// Full secret synchronization between Alice and Bob is covered in integration_test.go.
+}
+
+// TestSendMessage_NilSignKey verifies that SendMessage fails with nil sigKey.
+func TestSendMessage_NilSignKey(t *testing.T) {
+	aliceGroup, _, _, _ := setupTwoMemberGroup(t)
+
+	// Attempt to send with a nil signature key.
+	_, err := aliceGroup.SendMessage([]byte("hola"), nil)
+	if err == nil {
+		t.Error("SendMessage should fail with nil signature key")
+	}
+}
+
+func TestSendMessage_FailsWithPendingProposals(t *testing.T) {
+	aliceGroup, _, alicePriv, _ := setupTwoMemberGroup(t)
+
+	charlieCred, _, err := credentials.GenerateCredentialWithKey([]byte("Charlie-Pending"))
+	if err != nil {
+		t.Fatalf("GenerateCredentialWithKey(Charlie): %v", err)
+	}
+	charlieKP, _, err := keypackages.Generate(charlieCred, keypackages.MLS128DHKEMP256)
+	if err != nil {
+		t.Fatalf("Generate KeyPackage(Charlie): %v", err)
+	}
+	if _, err := aliceGroup.AddMember(charlieKP); err != nil {
+		t.Fatalf("AddMember(Charlie): %v", err)
+	}
+
+	aliceSigPriv := ciphersuite.NewSignaturePrivateKey(alicePriv.SignatureKey)
+	if _, err := aliceGroup.SendMessage([]byte("blocked"), aliceSigPriv); err == nil {
+		t.Fatal("SendMessage should fail when proposals are pending")
+	}
+	if _, err := aliceGroup.SendApplicationMessage([]byte("blocked"), []byte("aad"), aliceSigPriv); err == nil {
+		t.Fatal("SendApplicationMessage should fail when proposals are pending")
+	}
+}
+
+// TestReceiveMessage_WrongSender verifies that ReceiveMessage fails with invalid sender.
+func TestReceiveMessage_WrongSender(t *testing.T) {
+	aliceGroup, bobGroup, alicePriv, _ := setupTwoMemberGroup(t)
+
+	// Alice sends a message.
+	aliceSigPriv := ciphersuite.NewSignaturePrivateKey(alicePriv.SignatureKey)
+
+	pm, err := aliceGroup.SendMessage([]byte("hola bob"), aliceSigPriv)
+	if err != nil {
+		t.Fatalf("SendMessage failed: %v", err)
+	}
+
+	// Bob tries to receive with a non-existent sender index
+	_, err = bobGroup.ReceiveMessage(pm, 9999)
+	if err == nil {
+		t.Error("ReceiveMessage should fail with out-of-bounds sender index")
+	}
+}
+
+// TestSendMessage_WrongState verifies that SendMessage fails when the group is not operational.
+func TestSendMessage_WrongState(t *testing.T) {
+	// Create a group and force a non-operational state for the test.
+	cred, _, err := credentials.GenerateCredentialWithKey([]byte("User"))
+	if err != nil {
+		t.Fatalf("GenerateCredentialWithKey: %v", err)
+	}
+
+	kp, priv, err := keypackages.Generate(cred, keypackages.MLS128DHKEMP256)
+	if err != nil {
+		t.Fatalf("Generate KeyPackage: %v", err)
+	}
+
+	groupID, err := NewGroupIDRandom()
+	if err != nil {
+		t.Fatalf("NewGroupIDRandom: %v", err)
+	}
+
+	group, err := NewGroup(groupID, ciphersuite.MLS128DHKEMP256, kp, priv)
+	if err != nil {
+		t.Fatalf("NewGroup: %v", err)
+	}
+
+	// Force a non-operational state for the test.
+	group.state = StateInactive
+
+	// Attempt to send a message.
+	sigPriv := ciphersuite.NewSignaturePrivateKey(priv.SignatureKey)
+	_, err = group.SendMessage([]byte("hola"), sigPriv)
+	if err == nil {
+		t.Error("SendMessage should fail when group is not operational")
+	}
+}
+
+// TestReceiveMessage_NilMessage verifies that ReceiveMessage fails with a nil message.
+func TestReceiveMessage_NilMessage(t *testing.T) {
+	_, bobGroup, _, _ := setupTwoMemberGroup(t)
+
+	// Attempt to receive a nil message.
+	_, err := bobGroup.ReceiveMessage(nil, 0)
+	if err == nil {
+		t.Error("ReceiveMessage should fail with nil message")
+	}
+}
+
+// TestSendMessage_NoSecretTree verifies that SendMessage fails sin SecretTree
+func TestSendMessage_NoSecretTree(t *testing.T) {
+	aliceGroup, _, alicePriv, _ := setupTwoMemberGroup(t)
+
+	// Corrupt the group by removing the SecretTree for the test.
+	originalTree := aliceGroup.secretTree
+	aliceGroup.secretTree = nil
+
+	aliceSigPriv := ciphersuite.NewSignaturePrivateKey(alicePriv.SignatureKey)
+	_, err := aliceGroup.SendMessage([]byte("hola"), aliceSigPriv)
+	if err == nil {
+		t.Error("SendMessage should fail without SecretTree")
+	}
+
+	// Restaurar
+	aliceGroup.secretTree = originalTree
+}
+
+// TestReceiveMessage_NoSecretTree verifies that ReceiveMessage fails sin SecretTree
+func TestReceiveMessage_NoSecretTree(t *testing.T) {
+	_, bobGroup, _, _ := setupTwoMemberGroup(t)
+
+	// Corrupt the group by removing the SecretTree for the test.
+	originalTree := bobGroup.secretTree
+	bobGroup.secretTree = nil
+
+	pm := &framing.PrivateMessage{}
+	_, err := bobGroup.ReceiveMessage(pm, 0)
+	if err == nil {
+		t.Error("ReceiveMessage should fail without SecretTree")
+	}
+
+	// Restaurar
+	bobGroup.secretTree = originalTree
+}
+
+func TestReceiveApplicationMessage_VerifiesSignature(t *testing.T) {
+	aliceGroup, bobGroup, alice, _ := makeTwoMemberGroups(t)
+
+	msg := []byte("hello bob")
+	aad := []byte("aad")
+	pm, err := aliceGroup.SendApplicationMessage(msg, aad, alice.sigPriv)
+	if err != nil {
+		t.Fatalf("SendApplicationMessage: %v", err)
+	}
+
+	got, gotAAD, senderLeafIdx, err := bobGroup.ReceiveApplicationMessage(pm)
+	if err != nil {
+		t.Fatalf("ReceiveApplicationMessage(valid): %v", err)
+	}
+	if !bytes.Equal(got, msg) {
+		t.Fatalf("plaintext = %q, want %q", got, msg)
+	}
+	if !bytes.Equal(gotAAD, aad) {
+		t.Fatalf("authenticated data = %x, want %x", gotAAD, aad)
+	}
+	if senderLeafIdx != treesync.LeafIndex(aliceGroup.ownLeafIndex) {
+		t.Fatalf("sender leaf index = %d, want %d", senderLeafIdx, aliceGroup.ownLeafIndex)
+	}
+
+	tampered := tamperApplicationMessageSignature(t, aliceGroup, pm)
+	if _, _, _, err := bobGroup.ReceiveApplicationMessage(tampered); err == nil {
+		t.Fatal("ReceiveApplicationMessage should fail with tampered signature")
+	}
+}
+
+func TestReceiveApplicationMessage_OldEpochUsesHistoricalContext(t *testing.T) {
+	aliceGroup, bobGroup, alice, _ := makeTwoMemberGroups(t)
+
+	msg := []byte("message from previous epoch")
+	aad := []byte("epoch1")
+	pm, err := aliceGroup.SendApplicationMessage(msg, aad, alice.sigPriv)
+	if err != nil {
+		t.Fatalf("SendApplicationMessage: %v", err)
+	}
+
+	charlieCred, _, err := credentials.GenerateCredentialWithKey([]byte("Charlie-OldEpoch"))
+	if err != nil {
+		t.Fatalf("GenerateCredentialWithKey(Charlie): %v", err)
+	}
+	charlieKP, _, err := keypackages.Generate(charlieCred, keypackages.MLS128DHKEMP256)
+	if err != nil {
+		t.Fatalf("Generate KeyPackage(Charlie): %v", err)
+	}
+
+	if _, err := aliceGroup.AddMember(charlieKP); err != nil {
+		t.Fatalf("AddMember(Charlie): %v", err)
+	}
+	stagedCommit, err := aliceGroup.Commit(alice.sigPriv, alice.sigPub, nil)
+	if err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if err := bobGroup.ProcessCommit(stagedCommit); err != nil {
+		t.Fatalf("ProcessCommit(bob): %v", err)
+	}
+	if err := aliceGroup.MergeCommit(stagedCommit); err != nil {
+		t.Fatalf("MergeCommit(alice): %v", err)
+	}
+
+	history, ok := bobGroup.epochHistory[1]
+	if !ok {
+		t.Fatal("epoch 1 not cached in EpochHistory")
+	}
+	if history.GroupContext == nil {
+		t.Fatal("historical GroupContext is nil")
+	}
+
+	got, gotAAD, senderLeafIdx, err := bobGroup.ReceiveApplicationMessage(pm)
+	if err != nil {
+		t.Fatalf("ReceiveApplicationMessage(old epoch): %v", err)
+	}
+	if !bytes.Equal(got, msg) {
+		t.Fatalf("plaintext = %q, want %q", got, msg)
+	}
+	if !bytes.Equal(gotAAD, aad) {
+		t.Fatalf("authenticated data = %x, want %x", gotAAD, aad)
+	}
+	if senderLeafIdx != treesync.LeafIndex(aliceGroup.ownLeafIndex) {
+		t.Fatalf("sender leaf index = %d, want %d", senderLeafIdx, aliceGroup.ownLeafIndex)
+	}
+}
+
+func TestVerifyPublicMessage_NewMemberCommit_VerifiesSignature(t *testing.T) {
+	aliceGroup, _, alice, _ := makeTwoMemberGroups(t)
+	charlie := newTestUser(t, "charlie-new-member-commit")
+
+	groupInfo, err := aliceGroup.GetGroupInfo(alice.sigPriv)
+	if err != nil {
+		t.Fatalf("GetGroupInfo: %v", err)
+	}
+
+	_, stagedCommit, err := ExternalCommit(
+		groupInfo,
+		aliceGroup.cipherSuite,
+		charlie.sigPriv,
+		charlie.sigPub,
+		nil,
+		charlie.kp.LeafNode.Credential,
+	)
+	if err != nil {
+		t.Fatalf("ExternalCommit: %v", err)
+	}
+
+	pm := &framing.PublicMessage{
+		Content: stagedCommit.authenticatedContent.Content,
+		Auth:    stagedCommit.authenticatedContent.Auth,
+	}
+	if err := aliceGroup.VerifyPublicMessage(pm); err != nil {
+		t.Fatalf("VerifyPublicMessage(valid): %v", err)
+	}
+
+	sig := pm.Auth.Signature.AsSlice()
+	if len(sig) == 0 {
+		t.Fatal("signature is empty")
+	}
+	sig[0] ^= 0xFF
+	if err := aliceGroup.VerifyPublicMessage(pm); err == nil {
+		t.Fatal("VerifyPublicMessage should fail with tampered new member commit signature")
+	}
+}
+
+func TestSendMessage_UsesConfiguredPadding(t *testing.T) {
+	aliceNoPad, _, alicePrivNoPad, _ := setupTwoMemberGroup(t)
+	alicePad, _, alicePrivPad, _ := setupTwoMemberGroup(t)
+	alicePad.SetPaddingSize(32)
+
+	msg := []byte("short")
+	pmNoPad, err := aliceNoPad.SendMessage(msg, ciphersuite.NewSignaturePrivateKey(alicePrivNoPad.SignatureKey))
+	if err != nil {
+		t.Fatalf("SendMessage(no padding): %v", err)
+	}
+	pmPad, err := alicePad.SendMessage(msg, ciphersuite.NewSignaturePrivateKey(alicePrivPad.SignatureKey))
+	if err != nil {
+		t.Fatalf("SendMessage(with padding): %v", err)
+	}
+
+	if len(pmPad.Ciphertext) <= len(pmNoPad.Ciphertext) {
+		t.Fatalf("padded ciphertext len = %d, want > %d", len(pmPad.Ciphertext), len(pmNoPad.Ciphertext))
+	}
+}
+
+func TestSendApplicationMessage_UsesConfiguredPadding(t *testing.T) {
+	aliceNoPad, _, alicePrivNoPad, _ := setupTwoMemberGroup(t)
+	alicePad, _, alicePrivPad, _ := setupTwoMemberGroup(t)
+	alicePad.SetPaddingSize(32)
+
+	msg := []byte("short")
+	aad := []byte("aad")
+	pmNoPad, err := aliceNoPad.SendApplicationMessage(msg, aad, ciphersuite.NewSignaturePrivateKey(alicePrivNoPad.SignatureKey))
+	if err != nil {
+		t.Fatalf("SendApplicationMessage(no padding): %v", err)
+	}
+	pmPad, err := alicePad.SendApplicationMessage(msg, aad, ciphersuite.NewSignaturePrivateKey(alicePrivPad.SignatureKey))
+	if err != nil {
+		t.Fatalf("SendApplicationMessage(with padding): %v", err)
+	}
+
+	if len(pmPad.Ciphertext) <= len(pmNoPad.Ciphertext) {
+		t.Fatalf("padded ciphertext len = %d, want > %d", len(pmPad.Ciphertext), len(pmNoPad.Ciphertext))
+	}
+}
