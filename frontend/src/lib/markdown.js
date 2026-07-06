@@ -34,12 +34,22 @@ function renderInline(s, mentionNames) {
   );
   if (mentionNames?.length) {
     // Longest name first so "@Ann Lee" wins over "@Ann". Names arrive escaped
-    // with the same escapeHtml, so they match the escaped text.
-    const alts = [...mentionNames]
-      .map((n) => escapeHtml(n).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-      .sort((a, b) => b.length - a.length)
-      .join("|");
-    s = s.replace(new RegExp(`@(${alts})(?![\\w])`, "g"), '<span class="mention">@$1</span>');
+    // with the same escapeHtml, so they match the escaped text. `self` (the
+    // viewer's own name) gets an extra class so their mentions stand out.
+    const names = (Array.isArray(mentionNames) ? mentionNames : [mentionNames])
+      .map((n) => (typeof n === "string" ? { name: n, self: false } : n))
+      .filter((n) => n.name);
+    const escaped = names
+      .map((n) => ({ ...n, esc: escapeHtml(n.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") }))
+      .sort((a, b) => b.esc.length - a.esc.length);
+    for (const n of escaped) {
+      // data-mention carries the raw name so the click handler can resolve
+      // the member; it's escaped, so it's inert as an attribute value.
+      s = s.replace(
+        new RegExp(`@(${n.esc})(?![\\w])`, "g"),
+        `<span class="mention${n.self ? " mention-self" : ""}" data-mention="$1">@$1</span>`,
+      );
+    }
   }
 
   return s.replace(/\x00(\d+)\x00/g, (_, i) => `<code>${codeSpans[+i]}</code>`);

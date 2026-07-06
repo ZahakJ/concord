@@ -660,17 +660,22 @@ Map of the code:
 
 **Done** — identity + encrypted keystore; libp2p transport with mDNS **and** DHT
 discovery, relay, hole-punching; MLS-encrypted guilds/channels; replies, edits,
-deletes, reactions, pins; markdown + inline images; unread indicators; system
-join/create notices; live presence, typing, and full profiles (avatar emoji,
-accent color, custom status); voice mesh with a speaking-ring participant panel;
-guild rename; local full-history search; desktop notifications; Markdown export;
-offline history sync; encrypted-at-rest storage; browser **and** native desktop
-front ends; a self-hostable rendezvous/relay node.
+deletes, reactions, pins; markdown (code blocks, lists, quotes) with clickable
+@mentions; **encrypted 5 MB image attachments** (fetched out-of-band, cached);
+**native link previews + click-to-play YouTube embeds**; quick switcher (Ctrl+K)
+and keyboard navigation; unread counts + per-channel mute; synthesized
+voice/mention sounds; system join/create notices; live presence, typing, and
+full profiles (avatar emoji, accent color, custom status, drag/paste + crop
+avatar editor); voice mesh with a speaking-ring participant panel; guild rename;
+local full-history search; desktop notifications; Markdown export; offline
+history sync; encrypted-at-rest storage; browser **and** native desktop front
+ends; a self-hostable rendezvous/relay node.
 
-**Next** — direct messages (1:1); channel categories, roles & permissions;
-screen sharing and an optional SFU for larger voice rooms; onion-routed metadata
-privacy; multi-device key sync; and **native mobile apps** (iOS + Android) for a
-fully turnkey experience.
+**Next** — a **friends list** (add people you meet on your LAN or invite into a
+guild, so you can find them again without re-sharing codes); direct messages
+(1:1); channel categories, roles & permissions; screen sharing and an optional
+SFU for larger voice rooms; onion-routed metadata privacy; multi-device key
+sync; and **native mobile apps** (iOS + Android) for a fully turnkey experience.
 
 The single deliberate trade — peer count per room — buys privacy by
 construction, data ownership, and independence from any operator.

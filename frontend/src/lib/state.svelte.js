@@ -4,6 +4,7 @@
 import { api, on } from "./api.js";
 import { notify } from "./notify.js";
 import { containsMention } from "./markdown.js";
+import { playVoiceJoin, playVoiceLeave, playMention } from "./sounds.js";
 
 export const S = $state({
   ready: false,
@@ -304,9 +305,13 @@ function initEvents() {
     } else if (m.channelId && m.kind === "" && !m.deleted && m.sender !== S.identity.fingerprint) {
       bumpUnread(m.channelId, isMentionOfSelf(m));
     }
+    const isMention = isMentionOfSelf(m);
+    if (isMention && m.sender !== S.identity.fingerprint && !S.mutes[m.channelId]) {
+      playMention();
+    }
     notify(m, {
       selfFpr: S.identity.fingerprint,
-      mention: isMentionOfSelf(m),
+      mention: isMention,
       muted: !!S.mutes[m.channelId],
       activeChannel: S.activeChannelId,
       onClick: () => jumpToChannel(m.channelId),
@@ -335,10 +340,12 @@ function initEvents() {
     if (S.voice && v.channelId === S.voice.channelId) {
       if (v.action === "join") {
         S.voicePeerFpr = { ...S.voicePeerFpr, [v.from]: v.fingerprint };
+        playVoiceJoin();
       } else {
         const c = { ...S.voicePeerFpr };
         delete c[v.from];
         S.voicePeerFpr = c;
+        playVoiceLeave();
       }
       S.voice.mesh.handlePresence(v.from, v.action);
     }

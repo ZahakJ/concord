@@ -1,6 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { api } from "./lib/api.js";
+  import Icon from "./Icon.svelte";
 
   let { onLogin } = $props();
   let passphrase = $state("");
@@ -58,7 +59,7 @@
 
 <div class="login">
   <form class="card" onsubmit={submit}>
-    <div class="logo">◆</div>
+    <div class="logo"><Icon name="concorde" size={44} /></div>
     <h1>Concord</h1>
 
     {#if !checked}
@@ -123,8 +124,29 @@
     text-align: center;
   }
   .logo {
-    font-size: 40px;
     color: var(--accent);
+    display: grid;
+    place-items: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    animation: takeoff 0.6s ease both;
+  }
+  @keyframes takeoff {
+    from {
+      transform: translateY(6px) rotate(-8deg);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .logo {
+      animation: none;
+    }
   }
   h1 {
     margin: 0;

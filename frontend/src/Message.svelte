@@ -26,7 +26,24 @@
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "🎉"];
 
   const mem = $derived(memberByFpr(m.sender));
-  const mentionNames = $derived(S.displayName ? [S.displayName] : []);
+  // Highlight every member's @name; the viewer's own name gets the self style.
+  const mentionNames = $derived(
+    S.members
+      .filter((mm) => mm.name)
+      .map((mm) => ({ name: mm.name, self: mm.isSelf })),
+  );
+
+  // Clicking a highlighted @mention opens that member's card in the panel.
+  function onBodyClick(e) {
+    const el = e.target.closest?.(".mention");
+    if (!el) return;
+    const name = el.dataset.mention;
+    const target = S.members.find((mm) => mm.name === name);
+    if (target) {
+      e.preventDefault();
+      S.memberPopover = target.fingerprint;
+    }
+  }
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const bodyText = $derived(atts.length ? stripAttachTokens(m.content) : m.content);
   // One embed per message: the first YouTube link gets a player; otherwise
@@ -114,7 +131,8 @@
       />
     {:else}
       {#if bodyText}
-        <div class="body">
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="body" onclick={onBodyClick}>
           {@html renderMarkdown(bodyText, mentionNames)}{#if m.edited}<span class="edited-tag">
               (edited)</span
             >{/if}
@@ -344,11 +362,22 @@
     color: var(--accent-hover);
   }
   .body :global(.mention) {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
+    background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+    color: var(--text);
     border-radius: 4px;
     padding: 0 3px;
     font-weight: 600;
+    cursor: pointer;
+  }
+  .body :global(.mention:hover) {
+    background: color-mix(in srgb, var(--text-muted) 34%, transparent);
+  }
+  .body :global(.mention-self) {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .body :global(.mention-self:hover) {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
   }
   .body :global(img.attachment) {
     max-width: 380px;

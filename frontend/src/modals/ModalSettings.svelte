@@ -2,10 +2,18 @@
   import Modal from "./Modal.svelte";
   import { onMount } from "svelte";
   import { api } from "../lib/api.js";
+  import { soundsEnabled, setSoundsEnabled } from "../lib/sounds.js";
+  import { flash } from "../lib/state.svelte.js";
 
   let { onClose, onSaved } = $props();
   let bootstrap = $state("");
   let saved = $state(false);
+  let sounds = $state(soundsEnabled());
+
+  function toggleSounds() {
+    sounds = !sounds;
+    setSoundsEnabled(sounds);
+  }
 
   onMount(async () => {
     try {
@@ -22,7 +30,7 @@
       onSaved?.();
       setTimeout(() => onClose(), 700);
     } catch (err) {
-      alert(String(err?.message || err));
+      flash(err);
     }
   }
 </script>
@@ -46,6 +54,15 @@
     <button class="ghost" onclick={onClose}>Close</button>
     <button onclick={save}>{saved ? "Saved ✓" : "Save"}</button>
   </div>
+
+  <hr />
+  <button class="toggle-row" onclick={toggleSounds} role="switch" aria-checked={sounds}>
+    <span>
+      <strong>Sounds</strong>
+      <span class="muted tiny">Voice join/leave chimes and @mention pings</span>
+    </span>
+    <span class="switch" class:on={sounds}><span class="knob"></span></span>
+  </button>
 
   <hr />
   <button
@@ -83,5 +100,51 @@
     color: var(--danger);
     align-self: flex-start;
     font-size: 13px;
+  }
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    padding: 6px 2px;
+  }
+  .toggle-row:hover {
+    background: transparent;
+  }
+  .toggle-row span {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .switch {
+    flex-shrink: 0;
+    width: 38px;
+    height: 22px;
+    border-radius: 11px;
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    display: block;
+    position: relative;
+    transition: background 0.15s ease;
+  }
+  .switch.on {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    transition: transform 0.15s ease;
+  }
+  .switch.on .knob {
+    transform: translateX(16px);
   }
 </style>

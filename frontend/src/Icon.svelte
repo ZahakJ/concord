@@ -12,7 +12,7 @@
     smile: "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z M5.7 6.4h.01 M10.3 6.4h.01 M5.5 9.2a3.2 3.2 0 0 0 5 0",
     plus: "M8 3v10 M3 8h10",
     attach: "M13 7.5 8.2 12.3a3.4 3.4 0 0 1-4.8-4.8L8.6 2.3a2.3 2.3 0 0 1 3.2 3.2L7 10.3a1.2 1.2 0 0 1-1.7-1.7l4.6-4.6",
-    gear: "M8 10.2a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4z M8 1.8v1.7 M8 12.5v1.7 M1.8 8h1.7 M12.5 8h1.7 M3.6 3.6l1.2 1.2 M11.2 11.2l1.2 1.2 M12.4 3.6l-1.2 1.2 M4.8 11.2l-1.2 1.2",
+    gear: "M8 5.6a2.4 2.4 0 1 0 0 4.8 2.4 2.4 0 0 0 0-4.8z M12.8 9.4l1.2.9-1.2 2-1.4-.5a4.9 4.9 0 0 1-1.2.7L10 14H6l-.2-1.5a4.9 4.9 0 0 1-1.2-.7l-1.4.5-1.2-2 1.2-.9a5 5 0 0 1 0-1.4l-1.2-.9 1.2-2 1.4.5a4.9 4.9 0 0 1 1.2-.7L6 2h4l.2 1.5a4.9 4.9 0 0 1 1.2.7l1.4-.5 1.2 2-1.2.9a5 5 0 0 1 0 1.4z",
     mic: "M8 2.5a2 2 0 0 1 2 2v3a2 2 0 1 1-4 0v-3a2 2 0 0 1 2-2z M3.8 7.5a4.2 4.2 0 0 0 8.4 0 M8 11.7v2",
     micOff: "M8 2.5a2 2 0 0 1 2 2v3 M6 5v2.5a2 2 0 0 0 3.4 1.4 M3.8 7.5a4.2 4.2 0 0 0 6.9 3.2 M12.2 7.5c0 .6-.13 1.2-.36 1.7 M8 11.7v2 M2.5 2.5l11 11",
     speaker: "M3 6v4h2.5L9 13V3L5.5 6z M11 5.5a3.5 3.5 0 0 1 0 5 M12.6 3.8a5.8 5.8 0 0 1 0 8.4",
@@ -27,18 +27,29 @@
     spark: "M8 1.5 9.6 6l4.4 1.6L9.6 9.2 8 13.7 6.4 9.2 2 7.6 6.4 6z",
     diamond: "M8 1.5 14.5 8 8 14.5 1.5 8z",
   };
+
+  // The Concorde logo is a filled silhouette (not stroked like the icon set),
+  // so it gets its own render branch below.
+  const CONCORDE =
+    "M14.8 8.4c-.2.3-.6.5-1.2.5l-3.2.2-3 3.2c-.2.2-.5.2-.6 0l-.1-.3 1-2.9-3 .1-1.5 1.3c-.1.1-.3 0-.3-.1l.7-1.7-.7-1.7c0-.2.2-.3.3-.1l1.5 1.3 3 .1-1-2.9.1-.3c.1-.2.4-.2.6 0l3 3.2 3.2.2c.6 0 1 .2 1.2.5z";
 </script>
 
-<svg
-  width={size}
-  height={size}
-  viewBox="0 0 16 16"
-  fill="none"
-  stroke="currentColor"
-  stroke-width="1.4"
-  stroke-linecap="round"
-  stroke-linejoin="round"
-  aria-hidden="true"
->
-  <path d={P[name] || P.diamond} />
-</svg>
+{#if name === "concorde"}
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+    <path d={CONCORDE} />
+  </svg>
+{:else}
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d={P[name] || P.diamond} />
+  </svg>
+{/if}

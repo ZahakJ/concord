@@ -12,7 +12,7 @@
 </script>
 
 <nav class="rail" aria-label="Servers">
-  <div class="brand" title="Concord"><Icon name="diamond" size={20} /></div>
+  <div class="brand" title="Concord"><Icon name="concorde" size={26} /></div>
 
   {#each S.guilds as g (g.id)}
     {@const u = guildUnread(g)}

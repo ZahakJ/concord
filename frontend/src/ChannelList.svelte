@@ -103,9 +103,21 @@
     margin: 6px 6px 4px;
   }
   .channel-row {
+    position: relative;
     display: flex;
     align-items: center;
     border-radius: var(--radius-sm);
+  }
+  .channel-row.active::before {
+    content: "";
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 60%;
+    border-radius: 0 3px 3px 0;
+    background: var(--accent);
   }
   .channel-row:hover,
   .channel-row.active {

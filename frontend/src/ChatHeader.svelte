@@ -1,6 +1,7 @@
 <script>
   // Chat column header: channel name, search, pins, voice, guild actions.
   import Icon from "./Icon.svelte";
+  import Menu from "./Menu.svelte";
   import {
     S,
     activeGuild,
@@ -91,6 +92,25 @@
     <form onsubmit={runSearch}>
       <input class="search-box" placeholder="Search…  (Ctrl+K to jump)" bind:value={S.searchQuery} />
     </form>
+
+    {#if S.voice && S.voice.channelId === S.activeChannelId}
+      <!-- Active voice collapses to one pill with mute + leave inside it. -->
+      <span class="voice-pill">
+        <Icon name="speaker" size={12} />
+        {S.voiceParticipants.length + 1}
+        <button class="pill-btn" title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} onclick={onToggleMute}>
+          <Icon name={S.muted ? "micOff" : "mic"} size={13} />
+        </button>
+        <button class="pill-btn leave" title="Leave voice" aria-label="Leave voice" onclick={onLeaveVoice}>
+          <Icon name="door" size={13} />
+        </button>
+      </span>
+    {:else if ch}
+      <button class="ghost iconbtn" title="Join voice" onclick={onJoinVoice}>
+        <Icon name="speaker" /> <span class="n">Voice</span>
+      </button>
+    {/if}
+
     {#if ch}
       <button
         class="ghost iconbtn"
@@ -99,41 +119,32 @@
         aria-label="Pinned messages"
         onclick={() => (S.showPins = !S.showPins)}
       >
-        <Icon name="pin" /> <span class="n">{pinnedCount}</span>
-      </button>
-      <button class="ghost iconbtn" title="Export history" aria-label="Export history" onclick={exportChannel}>
-        <Icon name="download" />
+        <Icon name="pin" />{#if pinnedCount}<span class="n">{pinnedCount}</span>{/if}
       </button>
     {/if}
-    {#if S.voice && S.voice.channelId === S.activeChannelId}
-      <span class="voice-pill">
-        <Icon name="speaker" size={12} />
-        {S.voiceParticipants.length + 1} in voice
-      </span>
-      <button class="ghost iconbtn" title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} onclick={onToggleMute}>
-        <Icon name={S.muted ? "micOff" : "mic"} />
-      </button>
-      <button class="ghost leave" onclick={onLeaveVoice}>Leave</button>
-    {:else if ch && !S.voice}
-      <button class="ghost iconbtn" title="Join voice" onclick={onJoinVoice}>
-        <Icon name="speaker" /> <span class="n">Voice</span>
-      </button>
-    {/if}
+
     {#if g?.isOwner}
-      <button class="ghost" onclick={showInvite}>Invite</button>
-      <button class="ghost iconbtn" title="Rename server" aria-label="Rename server" onclick={() => (S.modal = { kind: "rename" })}>
-        <Icon name="edit" />
-      </button>
+      <button class="ghost invite" onclick={showInvite}>Invite</button>
     {/if}
+
     {#if g}
-      <button
-        class="ghost leave iconbtn"
-        title={g.isOwner ? "Delete server (for you)" : "Leave server"}
-        aria-label={g.isOwner ? "Delete server" : "Leave server"}
-        onclick={confirmLeave}
-      >
-        <Icon name={g.isOwner ? "trash" : "door"} />
-      </button>
+      <Menu label="More" icon="chevron">
+        {#if ch}
+          <button class="menu-item" onclick={exportChannel}>
+            <Icon name="download" size={14} /> Export history
+          </button>
+        {/if}
+        {#if g.isOwner}
+          <button class="menu-item" onclick={() => (S.modal = { kind: "rename" })}>
+            <Icon name="edit" size={14} /> Rename server
+          </button>
+        {/if}
+        <div class="menu-sep"></div>
+        <button class="menu-item danger" onclick={confirmLeave}>
+          <Icon name={g.isOwner ? "trash" : "door"} size={14} />
+          {g.isOwner ? "Delete server" : "Leave server"}
+        </button>
+      </Menu>
     {/if}
   </div>
 </header>
@@ -177,15 +188,33 @@
   .voice-pill {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     font-size: 12px;
+    font-weight: 600;
     color: var(--ok);
-    padding: 4px 10px;
+    padding: 3px 6px 3px 10px;
     background: var(--ok-soft);
-    border-radius: 12px;
+    border-radius: 13px;
     white-space: nowrap;
   }
-  .leave {
+  .pill-btn {
+    background: transparent;
+    color: var(--ok);
+    padding: 3px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+  }
+  .pill-btn:hover {
+    background: color-mix(in srgb, var(--ok) 22%, transparent);
+  }
+  .pill-btn.leave {
     color: var(--danger);
+  }
+  .pill-btn.leave:hover {
+    background: var(--danger-soft);
+  }
+  .invite {
+    padding: 6px 12px;
   }
 </style>

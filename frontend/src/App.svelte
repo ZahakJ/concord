@@ -7,6 +7,7 @@
   import { VoiceMesh } from "./lib/voice.js";
   import { requestPermission } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
+  import { playVoiceJoin, playVoiceLeave } from "./lib/sounds.js";
   import {
     S,
     activeGuild,
@@ -70,6 +71,7 @@
     }
     S.voice = { mesh, channelId: S.activeChannelId };
     await api.joinVoice(S.activeChannelId);
+    playVoiceJoin();
     flash("Joined voice");
   }
 
@@ -82,6 +84,7 @@
     S.voiceSpeaking = [];
     S.voicePeerFpr = {};
     S.muted = false;
+    playVoiceLeave();
     await api.leaveVoice(ch);
   }
 

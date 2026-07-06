@@ -1,0 +1,86 @@
+<script>
+  // A small dropdown menu anchored to a trigger button. Items are passed as a
+  // snippet; the menu closes on outside-click, Escape, or item activation.
+  import Icon from "./Icon.svelte";
+
+  let { label = "More", icon = "chevron", align = "right", children } = $props();
+  let open = $state(false);
+  let root = $state(null);
+
+  function onWindowClick(e) {
+    if (open && root && !root.contains(e.target)) open = false;
+  }
+</script>
+
+<svelte:window onclick={onWindowClick} onkeydown={(e) => e.key === "Escape" && (open = false)} />
+
+<div class="menu-root" bind:this={root}>
+  <button class="ghost trigger" title={label} aria-label={label} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)}>
+    <Icon name={icon} />
+  </button>
+  {#if open}
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="menu {align}" role="menu" onclick={() => (open = false)}>
+      {@render children()}
+    </div>
+  {/if}
+</div>
+
+<style>
+  .menu-root {
+    position: relative;
+    display: inline-flex;
+  }
+  .trigger {
+    display: grid;
+    place-items: center;
+    padding: 6px 9px;
+  }
+  .menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    min-width: 180px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 5px;
+    box-shadow: var(--shadow-pop);
+    z-index: 80;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .menu.right {
+    right: 0;
+  }
+  .menu.left {
+    left: 0;
+  }
+  /* Menu items are plain buttons with .menu-item from the consumer. */
+  .menu :global(.menu-item) {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    width: 100%;
+  }
+  .menu :global(.menu-item:hover) {
+    background: var(--bg-3);
+  }
+  .menu :global(.menu-item.danger) {
+    color: var(--danger);
+  }
+  .menu :global(.menu-item.danger:hover) {
+    background: var(--danger-soft);
+  }
+  .menu :global(.menu-sep) {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 2px;
+  }
+</style>
