@@ -4,7 +4,7 @@
   // control is its own sibling button (no more button-in-button nesting).
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
-  import { S, activeGuild, refreshRightPanel, flash } from "./lib/state.svelte.js";
+  import { S, activeGuild, refreshRightPanel, flash, openProfilePopover } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
 
   let showPeers = $state(false);
@@ -20,28 +20,13 @@
       flash(err);
     }
   }
-
-  async function verify(mem) {
-    try {
-      await api.verifyFingerprint(mem.fingerprint);
-      await refreshRightPanel();
-      S.memberPopover = null;
-      flash("Member verified ✓");
-    } catch (err) {
-      flash(err);
-    }
-  }
 </script>
 
 <aside class="panel">
   <div class="section-head"><span>Members — {g?.name ?? ""}</span></div>
   {#each S.members as mem (mem.fingerprint)}
     <div class="member-row">
-      <button
-        class="member"
-        onclick={() =>
-          (S.memberPopover = S.memberPopover === mem.fingerprint ? null : mem.fingerprint)}
-      >
+      <button class="member" onclick={(e) => openProfilePopover(mem.fingerprint, e.currentTarget)}>
         <Avatar
           name={mem.name || mem.fingerprint}
           emoji={mem.emoji}
@@ -66,32 +51,6 @@
         </button>
       {/if}
     </div>
-    {#if S.memberPopover === mem.fingerprint}
-      <div class="member-card">
-        {#if mem.isSelf}
-          <p class="muted small">
-            This is you. Others confirm it's really you by comparing this fingerprint with you
-            over a call or in person:
-          </p>
-        {:else if mem.verified}
-          <p class="muted small">
-            ✓ You've verified this member — you compared their fingerprint out-of-band, so you
-            know no one is impersonating them.
-          </p>
-        {:else}
-          <p class="muted small">
-            Names and pictures are self-chosen and can be faked; the
-            <strong>fingerprint below cannot</strong>. Read it aloud with
-            {mem.name || "this member"} over a call (or in person) — if it matches what they see
-            on their own profile, hit Verify.
-          </p>
-        {/if}
-        <code class="mono fpr-code">{mem.fingerprint}</code>
-        {#if !mem.isSelf && !mem.verified}
-          <button onclick={() => verify(mem)}>Verify identity</button>
-        {/if}
-      </div>
-    {/if}
   {/each}
 
   <div class="section-head">
@@ -194,27 +153,6 @@
   }
   .kick:hover {
     background: var(--danger-soft);
-  }
-  .member-card {
-    background: var(--bg-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 10px;
-    margin: 2px 4px 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .member-card p {
-    margin: 0;
-    line-height: 1.45;
-  }
-  .fpr-code {
-    font-size: 11px;
-    word-break: break-all;
-    background: var(--bg-3);
-    padding: 6px 8px;
-    border-radius: var(--radius-sm);
   }
   .peers-info {
     padding: 4px 8px;

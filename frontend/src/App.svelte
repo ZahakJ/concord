@@ -27,6 +27,7 @@
   import Composer from "./Composer.svelte";
   import MemberPanel from "./MemberPanel.svelte";
   import QuickSwitcher from "./QuickSwitcher.svelte";
+  import ProfilePopover from "./ProfilePopover.svelte";
   import ModalCreate from "./modals/ModalCreate.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
@@ -165,6 +166,8 @@
   {#if S.quickSwitcher}
     <QuickSwitcher />
   {/if}
+
+  <ProfilePopover />
 
   {#if S.toast}<div class="toast">{S.toast}</div>{/if}
 

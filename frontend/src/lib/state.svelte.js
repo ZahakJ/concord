@@ -20,7 +20,9 @@ export const S = $state({
   replyingTo: null, // message being replied to
   editing: null, // message being edited (Message.svelte owns the draft)
   pickerTarget: null, // "composer" | message object (shared emoji picker)
-  memberPopover: null, // fingerprint of the member card being inspected
+  // Floating profile card: { fingerprint, rect } where rect is the anchor's
+  // viewport box. Opened by hovering/clicking a mention or a member row.
+  profilePopover: null,
   modal: null, // { kind, ... }
   toast: "",
   quickSwitcher: false,
@@ -173,6 +175,31 @@ export function scrollToMessage(id) {
   el.classList.add("flash-highlight");
   setTimeout(() => el.classList.remove("flash-highlight"), 1600);
   return true;
+}
+
+// ---- floating profile popover ----
+// Single shared timer gives hover-intent: a small open delay, and a close
+// grace period so the pointer can travel from the mention into the card.
+
+let popTimer;
+export function openProfilePopover(fingerprint, anchorEl, { delay = 0 } = {}) {
+  clearTimeout(popTimer);
+  const r = anchorEl.getBoundingClientRect();
+  const rect = { x: r.left, y: r.top, w: r.width, h: r.height };
+  const show = () => (S.profilePopover = { fingerprint, rect });
+  if (delay) popTimer = setTimeout(show, delay);
+  else show();
+}
+export function holdProfilePopover() {
+  clearTimeout(popTimer);
+}
+export function scheduleCloseProfilePopover() {
+  clearTimeout(popTimer);
+  popTimer = setTimeout(() => (S.profilePopover = null), 240);
+}
+export function closeProfilePopover() {
+  clearTimeout(popTimer);
+  S.profilePopover = null;
 }
 
 // ---- profile accent ----

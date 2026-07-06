@@ -18,6 +18,8 @@
     saveEdit,
     scrollToMessage,
     flash,
+    openProfilePopover,
+    scheduleCloseProfilePopover,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
 
@@ -33,16 +35,27 @@
       .map((mm) => ({ name: mm.name, self: mm.isSelf })),
   );
 
-  // Clicking a highlighted @mention opens that member's card in the panel.
+  // @mentions open a floating profile card — on hover (with intent delay) and
+  // immediately on click.
+  function mentionMember(target) {
+    const el = target.closest?.(".mention");
+    if (!el) return null;
+    const m = S.members.find((mm) => mm.name === el.dataset.mention);
+    return m ? { el, fpr: m.fingerprint } : null;
+  }
   function onBodyClick(e) {
-    const el = e.target.closest?.(".mention");
-    if (!el) return;
-    const name = el.dataset.mention;
-    const target = S.members.find((mm) => mm.name === name);
-    if (target) {
+    const hit = mentionMember(e.target);
+    if (hit) {
       e.preventDefault();
-      S.memberPopover = target.fingerprint;
+      openProfilePopover(hit.fpr, hit.el);
     }
+  }
+  function onBodyOver(e) {
+    const hit = mentionMember(e.target);
+    if (hit) openProfilePopover(hit.fpr, hit.el, { delay: 320 });
+  }
+  function onBodyOut(e) {
+    if (mentionMember(e.target)) scheduleCloseProfilePopover();
   }
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const bodyText = $derived(atts.length ? stripAttachTokens(m.content) : m.content);
@@ -86,13 +99,19 @@
   {#if compact}
     <span class="gutter-time muted">{fmtTime(m.sent)}</span>
   {:else}
-    <Avatar
-      name={m.senderName || m.sender}
-      emoji={mem?.emoji}
-      color={mem?.color}
-      image={mem?.avatar}
-      size={38}
-    />
+    <button
+      class="av-btn"
+      title="View profile"
+      onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
+    >
+      <Avatar
+        name={m.senderName || m.sender}
+        emoji={mem?.emoji}
+        color={mem?.color}
+        image={mem?.avatar}
+        size={38}
+      />
+    </button>
   {/if}
 
   <div class="msg-main">
@@ -106,7 +125,9 @@
     {/if}
     {#if !compact}
       <div class="msg-head">
-        <span class="sender">{m.senderName || m.sender}</span>
+        <button class="sender" onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
+          >{m.senderName || m.sender}</button
+        >
         <span class="muted mono verify-fpr" title="verified identity">{m.sender.slice(0, 9)}</span>
         <span class="muted time">{fmtTime(m.sent)}</span>
         {#if m.pinned}<span class="pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
@@ -132,7 +153,7 @@
     {:else}
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="body" onclick={onBodyClick}>
+        <div class="body" onclick={onBodyClick} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
           {@html renderMarkdown(bodyText, mentionNames)}{#if m.edited}<span class="edited-tag">
               (edited)</span
             >{/if}
@@ -168,27 +189,36 @@
 
   {#if !m.deleted}
     <div class="msg-actions" role="toolbar" aria-label="Message actions">
-      {#each QUICK_EMOJIS as e (e)}
-        <button title="React {e}" aria-label="React {e}" onclick={() => react(m, e)}>{e}</button>
-      {/each}
-      <button title="More reactions" aria-label="More reactions" onclick={() => (S.pickerTarget = m)}>
-        <Icon name="smile" size={14} />
-      </button>
-      <button title="Reply" aria-label="Reply" onclick={() => (S.replyingTo = m)}>
-        <Icon name="reply" size={14} />
-      </button>
-      <button
-        title={m.pinned ? "Unpin" : "Pin"}
-        aria-label={m.pinned ? "Unpin" : "Pin"}
-        onclick={() => api.pinMessage(m.channelId, m.id)}
-      >
-        <Icon name="pin" size={14} />
-      </button>
-      {#if m.sender === S.identity.fingerprint}
-        <button title="Edit" aria-label="Edit" onclick={startEdit}><Icon name="edit" size={14} /></button>
-        <button title="Delete" aria-label="Delete" onclick={() => deleteMsg(m)}>
-          <Icon name="trash" size={14} />
+      <div class="grp">
+        {#each QUICK_EMOJIS as e (e)}
+          <button class="emoji-btn" title="React {e}" aria-label="React {e}" onclick={() => react(m, e)}>{e}</button>
+        {/each}
+        <button title="More reactions" aria-label="More reactions" onclick={() => (S.pickerTarget = m)}>
+          <Icon name="smile" size={15} />
         </button>
+      </div>
+      <span class="sep"></span>
+      <div class="grp">
+        <button title="Reply" aria-label="Reply" onclick={() => (S.replyingTo = m)}>
+          <Icon name="reply" size={15} />
+        </button>
+        <button
+          class:on={m.pinned}
+          title={m.pinned ? "Unpin" : "Pin"}
+          aria-label={m.pinned ? "Unpin" : "Pin"}
+          onclick={() => api.pinMessage(m.channelId, m.id)}
+        >
+          <Icon name="pin" size={15} />
+        </button>
+      </div>
+      {#if m.sender === S.identity.fingerprint}
+        <span class="sep"></span>
+        <div class="grp">
+          <button title="Edit" aria-label="Edit" onclick={startEdit}><Icon name="edit" size={15} /></button>
+          <button class="danger" title="Delete" aria-label="Delete" onclick={() => deleteMsg(m)}>
+            <Icon name="trash" size={15} />
+          </button>
+        </div>
       {/if}
     </div>
   {/if}
@@ -248,9 +278,38 @@
     gap: 8px;
     align-items: baseline;
   }
+  .av-btn {
+    background: transparent;
+    border: none;
+    padding: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    flex-shrink: 0;
+    align-self: flex-start;
+  }
+  .av-btn:hover {
+    background: transparent;
+  }
+  .av-btn :global(.avatar) {
+    transition:
+      box-shadow 0.12s ease,
+      transform 0.12s ease;
+  }
+  .av-btn:hover :global(.avatar) {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
   .sender {
+    background: transparent;
+    border: none;
+    padding: 0;
+    font: inherit;
     font-weight: 600;
     color: var(--accent-hover);
+    cursor: pointer;
+  }
+  .sender:hover {
+    background: transparent;
+    text-decoration: underline;
   }
   .verify-fpr {
     font-size: 10px;
@@ -299,34 +358,67 @@
   }
   .msg-actions {
     position: absolute;
-    top: -12px;
-    right: 8px;
+    top: -16px;
+    right: 10px;
     display: flex;
-    gap: 2px;
+    align-items: center;
+    gap: 3px;
     opacity: 0;
+    transform: translateY(2px);
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 2px;
+    border-radius: 10px;
+    padding: 3px;
     box-shadow: var(--shadow-pop);
     z-index: 5;
+    transition:
+      opacity 0.1s ease,
+      transform 0.1s ease;
   }
   .msg:hover .msg-actions,
   .msg:focus-within .msg-actions {
     opacity: 1;
+    transform: none;
+  }
+  .grp {
+    display: flex;
+    gap: 1px;
+  }
+  .sep {
+    width: 1px;
+    align-self: stretch;
+    margin: 3px 2px;
+    background: var(--border);
   }
   .msg-actions button {
     background: transparent;
     border: none;
     color: var(--text-muted);
-    padding: 3px 6px;
-    font-size: 13px;
+    padding: 5px;
+    min-width: 28px;
+    height: 28px;
+    font-size: 14px;
     display: grid;
     place-items: center;
+    border-radius: 7px;
+    transition:
+      background 0.1s ease,
+      transform 0.08s ease;
   }
   .msg-actions button:hover {
     background: var(--bg-3);
     color: var(--text);
+  }
+  .msg-actions .emoji-btn:hover {
+    transform: scale(1.18);
+    background: transparent;
+  }
+  .msg-actions button.on {
+    color: var(--warn);
+  }
+  .msg-actions button.danger:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
   }
   .body :global(code) {
     background: var(--bg-3);
