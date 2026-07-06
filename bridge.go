@@ -130,6 +130,33 @@ type ContactView struct {
 	Verified    bool   `json:"verified"`
 }
 
+// ---- Connection settings (usable before unlock) ----
+
+// GetBootstrap returns the saved rendezvous/relay addresses.
+func (b *bridge) GetBootstrap() ([]string, error) {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return nil, err
+	}
+	return appsvc.LoadNetConfig(dir).Bootstrap, nil
+}
+
+// SetBootstrap saves rendezvous/relay addresses (newline- or comma-separated).
+// Takes effect on the next unlock.
+func (b *bridge) SetBootstrap(addrs string) error {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return err
+	}
+	var list []string
+	for _, a := range strings.FieldsFunc(addrs, func(r rune) bool { return r == '\n' || r == ',' }) {
+		if a = strings.TrimSpace(a); a != "" {
+			list = append(list, a)
+		}
+	}
+	return appsvc.SaveNetConfig(dir, appsvc.NetConfig{Bootstrap: list})
+}
+
 // ---- API methods ----
 
 // Login unlocks (or creates) the identity and starts the Service, wiring live

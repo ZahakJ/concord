@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -82,7 +83,13 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("app: open store: %w", err)
 	}
 
-	bootstrap, err := parseBootstrapPeers(cfg.BootstrapPeers)
+	// Bootstrap sources, in precedence order: explicit config (env) first, then
+	// the saved connection settings (set in-app on the login screen).
+	bootstrapAddrs := cfg.BootstrapPeers
+	if len(bootstrapAddrs) == 0 {
+		bootstrapAddrs = LoadNetConfig(cfg.DataDir).Bootstrap
+	}
+	bootstrap, err := parseBootstrapPeers(bootstrapAddrs)
 	if err != nil {
 		_ = st.Close()
 		return nil, err
@@ -143,10 +150,18 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	})
 
 	// Trust-on-first-use: record every peer we connect to so it can later be
-	// verified out-of-band.
+	// verified out-of-band. Also re-broadcast our display name to all guilds a
+	// moment after any peer connects: the gossipsub mesh needs to warm up, so a
+	// one-shot announce at join time can be missed — this makes names converge
+	// reliably (each side re-announces, and learning a new profile triggers a
+	// reply, so both peers end up with each other's names).
 	host.OnPeerConnected(func(p peer.ID) {
 		pp := presenceFor(p)
 		_ = st.RecordContact(pp.PeerID, pp.Fingerprint)
+		go func() {
+			time.Sleep(1500 * time.Millisecond)
+			s.announceProfileAll()
+		}()
 	})
 
 	// Restore guilds we already belong to and re-subscribe to their topics.

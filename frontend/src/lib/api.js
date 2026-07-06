@@ -38,6 +38,8 @@ async function call(name, ...args) {
 
 export const api = {
   hasBackend,
+  getBootstrap: () => call("GetBootstrap"),
+  setBootstrap: (addrs) => call("SetBootstrap", addrs),
   login: (passphrase) => call("Login", passphrase),
   identity: () => call("Identity"),
   guilds: () => call("Guilds"),

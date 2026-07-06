@@ -119,6 +119,10 @@ func (s *webServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 // method names Wails would bind. Explicit (not reflective) for clarity/safety.
 func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error) {
 	switch method {
+	case "GetBootstrap":
+		return s.b.GetBootstrap()
+	case "SetBootstrap":
+		return nil, s.b.SetBootstrap(argStr(args, 0))
 	case "Login":
 		return nil, s.b.Login(argStr(args, 0))
 	case "Identity":
