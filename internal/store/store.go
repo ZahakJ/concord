@@ -130,6 +130,13 @@ CREATE TABLE IF NOT EXISTS profiles (
   avatar      TEXT NOT NULL DEFAULT '',
   updated     INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS nicknames (
+  guild_id    TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  nick        TEXT NOT NULL,
+  updated     INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, fingerprint)
+);
 CREATE TABLE IF NOT EXISTS mls_commits (
   group_id BLOB NOT NULL,
   epoch    INTEGER NOT NULL,
@@ -414,6 +421,45 @@ func (s *Store) CustomEmoji(guildID string) ([]CustomEmojiRow, error) {
 	return out, rows.Err()
 }
 
+// SaveNickname upserts a per-guild nickname for a member (an empty nick clears
+// it, reverting to the member's global profile name).
+func (s *Store) SaveNickname(guildID, fingerprint, nick string) error {
+	if nick == "" {
+		_, err := s.db.Exec(`DELETE FROM nicknames WHERE guild_id=? AND fingerprint=?`, guildID, fingerprint)
+		return err
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO nicknames (guild_id, fingerprint, nick, updated) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(guild_id, fingerprint) DO UPDATE SET nick=excluded.nick, updated=excluded.updated`,
+		guildID, fingerprint, nick, time.Now().UnixNano())
+	if err != nil {
+		return fmt.Errorf("store: save nickname: %w", err)
+	}
+	return nil
+}
+
+// Nicknames returns every stored per-guild nickname as guildID → fingerprint →
+// nick, for warming the in-memory cache at startup.
+func (s *Store) Nicknames() (map[string]map[string]string, error) {
+	rows, err := s.db.Query(`SELECT guild_id, fingerprint, nick FROM nicknames`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]map[string]string{}
+	for rows.Next() {
+		var g, fpr, nick string
+		if err := rows.Scan(&g, &fpr, &nick); err != nil {
+			return nil, err
+		}
+		if out[g] == nil {
+			out[g] = map[string]string{}
+		}
+		out[g][fpr] = nick
+	}
+	return out, rows.Err()
+}
+
 // DeleteGuild removes a guild and all of its local data (channels, messages,
 // reactions). Used when leaving/deleting a server.
 func (s *Store) DeleteGuild(guildID string) error {
@@ -447,6 +493,9 @@ func (s *Store) DeleteGuild(guildID string) error {
 		}
 	}
 	if _, err := tx.Exec(`DELETE FROM channels WHERE guild_id = ?`, guildID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM nicknames WHERE guild_id = ?`, guildID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM guilds WHERE id = ?`, guildID); err != nil {

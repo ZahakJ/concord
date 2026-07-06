@@ -598,7 +598,7 @@ func (s *Service) trackGuild(g *domain.Guild) {
 // topic so all members converge on shared state (channels, member display
 // names). Only the fields relevant to Type are populated.
 type guildMeta struct {
-	Type string `json:"type"` // channel_added | channel_updated | category_added | profile | guild_renamed
+	Type string `json:"type"` // channel_added | channel_updated | category_added | profile | nickname | guild_renamed
 	Channel     domain.Channel  `json:"channel,omitempty"`
 	Category    domain.Category `json:"category,omitempty"`
 	Fingerprint string              `json:"fingerprint,omitempty"`
@@ -648,6 +648,36 @@ func (s *Service) announceProfile(guildID string) {
 		return
 	}
 	_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct)
+
+	// Piggyback our own per-guild nickname (if any) so new members learn it at
+	// the same time they learn our profile.
+	if nick := s.NickOf(guildID, s.id.Fingerprint()); nick != "" {
+		s.publishMeta(groupID, guildMeta{Type: "nickname", Fingerprint: s.id.Fingerprint(), Name: nick})
+	}
+}
+
+// SetNickname sets (or, with an empty nick, clears) this member's own display
+// name inside one guild. It shadows the global profile name for that guild only.
+// The change is persisted locally and announced to the other members.
+func (s *Service) SetNickname(guildID, nick string) error {
+	nick = strings.TrimSpace(nick)
+	if len(nick) > maxNameBytes {
+		nick = nick[:maxNameBytes]
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("app: unknown guild %q", guildID)
+	}
+	s.rememberNick(guildID, s.id.Fingerprint(), nick)
+	s.publishMeta(groupID, guildMeta{Type: "nickname", Fingerprint: s.id.Fingerprint(), Name: nick})
+	s.emitGuildUpdate()
+	return nil
 }
 
 // CreateChannel adds a channel to a guild and announces it (MLS-encrypted) to
@@ -900,6 +930,18 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, MailboxPub: m.MailboxPub}) {
 			s.announceProfile(guildID)
 		}
+	case "nickname":
+		// A member set their own per-guild nickname (self-asserted, same trust
+		// model as profiles). Empty Name clears it back to the profile name.
+		if m.Fingerprint == "" || m.Fingerprint == s.id.Fingerprint() {
+			return
+		}
+		nick := m.Name
+		if len(nick) > maxNameBytes {
+			nick = nick[:maxNameBytes]
+		}
+		s.rememberNick(guildID, m.Fingerprint, nick)
+		s.emitGuildUpdate()
 	}
 }
 

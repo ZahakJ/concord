@@ -78,6 +78,7 @@ export const api = {
   linkPreview: (url) => call("LinkPreview", url),
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
+  setNickname: (guildID, nick) => call("SetNickname", guildID, nick),
   contacts: () => call("Contacts"),
   joinVoice: (channelID) => call("JoinVoice", channelID),
   leaveVoice: (channelID) => call("LeaveVoice", channelID),

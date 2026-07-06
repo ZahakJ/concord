@@ -148,7 +148,8 @@ type MessageView struct {
 
 type MemberView struct {
 	Fingerprint string `json:"fingerprint"`
-	Name        string `json:"name"`
+	Name        string `json:"name"`     // effective display name (nickname if set, else profile name)
+	Username    string `json:"username"` // underlying profile name, surfaced when a nickname shadows it
 	Status      string `json:"status"`
 	Emoji       string `json:"emoji"`
 	Color       string `json:"color"`
@@ -688,9 +689,16 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 		if isSelf {
 			p = svc.SelfProfile()
 		}
+		// A per-guild nickname shadows the profile name inside this guild; keep
+		// the profile name in Username so the UI can show "nick (username)".
+		name, username := p.Name, ""
+		if nick := svc.NickOf(guildID, fpr); nick != "" {
+			name, username = nick, p.Name
+		}
 		out = append(out, MemberView{
 			Fingerprint: fpr,
-			Name:        p.Name,
+			Name:        name,
+			Username:    username,
 			Status:      p.Status,
 			Emoji:       p.Emoji,
 			Color:       p.Color,
@@ -718,6 +726,15 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 		return a.Fingerprint < b.Fingerprint
 	})
 	return out, nil
+}
+
+// SetNickname sets this member's own per-guild display name (empty clears it).
+func (b *bridge) SetNickname(guildID, nick string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetNickname(guildID, nick)
 }
 
 func (b *bridge) RemoveMember(guildID, fingerprint string) error {
@@ -926,6 +943,8 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.Members(argStr(args, 0))
 	case "RemoveMember":
 		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1))
+	case "SetNickname":
+		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
 	case "Contacts":
 		return b.Contacts()
 	case "JoinVoice":

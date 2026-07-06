@@ -52,6 +52,12 @@ type Service struct {
 
 	profiles map[string]Profile // fingerprint -> profile, learned from peers
 
+	// nicks holds per-guild display-name overrides: guildID -> fingerprint ->
+	// nickname. A nickname shadows the global profile name inside that guild only
+	// (Discord-style server nicknames). Members set their own; propagated over
+	// the guild-meta topic like profiles.
+	nicks map[string]map[string]string
+
 	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
 	outOfSync map[string]bool
@@ -87,6 +93,10 @@ type Profile struct {
 // maxAvatarBytes caps the avatar data URI so profile broadcasts stay far below
 // the gossipsub frame limit (the UI downscales to ~96px JPEG, typically <10 KB).
 const maxAvatarBytes = 64 * 1024
+
+// maxNameBytes bounds self-asserted display names and per-guild nicknames so a
+// peer can't publish a pathologically long string over the meta topic.
+const maxNameBytes = 64
 
 // PeerPresence is a UI-facing view of a connected peer.
 type PeerPresence struct {
@@ -178,6 +188,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		channelToGuild: map[string]string{},
 		voiceRooms:     map[string]context.CancelFunc{},
 		profiles:       map[string]Profile{},
+		nicks:          map[string]map[string]string{},
 		outOfSync:      map[string]bool{},
 		previews:       newPreviewCache(),
 		bootstrap:      bootstrap,
@@ -191,6 +202,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		for _, r := range rows {
 			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, MailboxPub: r.MailboxPub}
 		}
+	}
+
+	// Restore per-guild nicknames so server-scoped names survive restarts.
+	if nicks, err := st.Nicknames(); err == nil {
+		s.nicks = nicks
 	}
 
 	// Owner side of the join handshake.
@@ -383,6 +399,34 @@ func (s *Service) ProfileOf(fingerprint string) Profile {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.profiles[fingerprint]
+}
+
+// NickOf returns the per-guild nickname for a member, or "" if none is set.
+func (s *Service) NickOf(guildID, fingerprint string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if g := s.nicks[guildID]; g != nil {
+		return g[fingerprint]
+	}
+	return ""
+}
+
+// rememberNick records (or clears, on empty nick) a per-guild nickname in the
+// in-memory cache and persists it. Caller holds no lock.
+func (s *Service) rememberNick(guildID, fingerprint, nick string) {
+	s.mu.Lock()
+	if nick == "" {
+		if g := s.nicks[guildID]; g != nil {
+			delete(g, fingerprint)
+		}
+	} else {
+		if s.nicks[guildID] == nil {
+			s.nicks[guildID] = map[string]string{}
+		}
+		s.nicks[guildID][fingerprint] = nick
+	}
+	s.mu.Unlock()
+	_ = s.store.SaveNickname(guildID, fingerprint, nick)
 }
 
 // learnProfile validates, records, persists, and surfaces a peer's self-asserted

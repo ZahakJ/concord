@@ -6,6 +6,7 @@
   import Avatar from "./Avatar.svelte";
   import {
     S,
+    activeGuild,
     memberByFpr,
     holdProfilePopover,
     scheduleCloseProfilePopover,
@@ -19,6 +20,33 @@
 
   let dmText = $state("");
   let dmBusy = $state(false);
+
+  // Nickname editing (self, in a real guild — not a DM).
+  let editingNick = $state(false);
+  let nickText = $state("");
+  let nickBusy = $state(false);
+  const canNick = $derived(!!mem?.isSelf && activeGuild()?.kind !== "dm" && !!S.activeGuildId);
+
+  function startEditNick() {
+    nickText = mem?.username ? mem.name : "";
+    editingNick = true;
+  }
+
+  async function saveNick(e) {
+    e?.preventDefault();
+    if (nickBusy) return;
+    nickBusy = true;
+    try {
+      await api.setNickname(S.activeGuildId, nickText.trim());
+      await refreshRightPanel();
+      editingNick = false;
+      flash(nickText.trim() ? "Nickname set" : "Nickname cleared");
+    } catch (err) {
+      flash(err);
+    } finally {
+      nickBusy = false;
+    }
+  }
 
   async function sendDM(e) {
     e?.preventDefault();
@@ -42,6 +70,7 @@
   $effect(() => {
     S.profilePopover?.fingerprint;
     dmText = "";
+    editingNick = false;
   });
 
   let card = $state(null);
@@ -120,7 +149,27 @@
           <span class="verified" title="Identity verified"><Icon name="check" size={12} /> verified</span>
         {/if}
       </div>
+      {#if mem.username}<div class="username muted">{mem.username}</div>{/if}
       {#if mem.status}<div class="status">{mem.status}</div>{/if}
+
+      {#if canNick}
+        {#if editingNick}
+          <form class="nick-box" onsubmit={saveNick}>
+            <input
+              bind:value={nickText}
+              placeholder="Nickname for this server"
+              maxlength="64"
+              disabled={nickBusy}
+            />
+            <button type="submit" class="nick-save" disabled={nickBusy}>Save</button>
+          </form>
+        {:else}
+          <button class="nick-edit" onclick={startEditNick}>
+            <Icon name="edit" size={12} />
+            {mem.username ? "Change server nickname" : "Set server nickname"}
+          </button>
+        {/if}
+      {/if}
 
       <div class="divider"></div>
 
@@ -220,9 +269,43 @@
     font-size: 11px;
     color: var(--ok);
   }
+  .username {
+    font-size: 12px;
+    margin-top: -2px;
+  }
   .status {
     font-size: 13px;
     color: var(--text-muted);
+  }
+  .nick-edit {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    align-self: flex-start;
+    margin-top: 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    background: var(--bg-3);
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+  }
+  .nick-edit:hover {
+    color: var(--text);
+  }
+  .nick-box {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .nick-box input {
+    flex: 1;
+    padding: 7px 9px;
+    font-size: 13px;
+    border-radius: var(--radius-sm);
+  }
+  .nick-save {
+    padding: 0 12px;
+    font-size: 13px;
   }
   .divider {
     height: 1px;
