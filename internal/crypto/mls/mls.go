@@ -24,6 +24,7 @@ import (
 
 	upstream "github.com/thomas-vilte/mls-go"
 	"github.com/thomas-vilte/mls-go/ciphersuite"
+	"github.com/thomas-vilte/mls-go/framing"
 	filestore "github.com/thomas-vilte/mls-go/storage/file"
 )
 
@@ -71,6 +72,15 @@ type Engine interface {
 	// ApplyCommit advances an existing member to the epoch produced by a commit
 	// from another member.
 	ApplyCommit(ctx context.Context, gid GroupID, commit []byte) error
+
+	// CommitSender returns the credential (Concord account public key) of the
+	// member who authored a commit, read from the commit's public MLS framing
+	// WITHOUT applying it. Callers gate membership changes on the committer's
+	// authority before advancing the group — the commit is signed by this
+	// member's leaf, so the identity is cryptographically bound. Errors if the
+	// commit is not a member-authored public message or the sender leaf is not a
+	// current member (e.g. a commit for an epoch we haven't reached).
+	CommitSender(ctx context.Context, gid GroupID, commit []byte) ([]byte, error)
 
 	// Remove evicts the member with the given credential, returning a commit
 	// that every remaining member must apply. After it takes effect the removed
@@ -177,6 +187,33 @@ func (e *mlsEngine) ApplyCommit(ctx context.Context, gid GroupID, commit []byte)
 		return fmt.Errorf("mls: process commit: %w", err)
 	}
 	return nil
+}
+
+func (e *mlsEngine) CommitSender(ctx context.Context, gid GroupID, commit []byte) ([]byte, error) {
+	msg, err := framing.UnmarshalMLSMessage(commit)
+	if err != nil {
+		return nil, fmt.Errorf("mls: parse commit: %w", err)
+	}
+	// Concord frames commits as PublicMessages (see commitCurrentState upstream),
+	// so the sender leaf index is in the clear — no group secrets required.
+	pub, ok := msg.AsPublic()
+	if !ok {
+		return nil, fmt.Errorf("mls: commit is not a public message")
+	}
+	if pub.Content.Sender.Type != framing.SenderTypeMember {
+		return nil, fmt.Errorf("mls: commit sender is not a group member")
+	}
+	leaf := pub.Content.Sender.LeafIndex
+	members, err := e.c.ListMembers(ctx, gid)
+	if err != nil {
+		return nil, fmt.Errorf("mls: list members: %w", err)
+	}
+	for _, m := range members {
+		if m.LeafIndex == leaf {
+			return append([]byte(nil), m.Identity...), nil
+		}
+	}
+	return nil, fmt.Errorf("mls: commit sender leaf %d is not a current member", leaf)
 }
 
 func (e *mlsEngine) Remove(ctx context.Context, gid GroupID, memberCredential []byte) ([]byte, error) {

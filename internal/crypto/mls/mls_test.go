@@ -191,6 +191,61 @@ func TestRemovedMemberLosesAccess(t *testing.T) {
 	}
 }
 
+// TestCommitSenderIdentifiesAuthor verifies CommitSender reads the true author
+// of a commit from its framing — the basis for gating membership changes on
+// committer authority. It checks both an owner-authored commit and a commit
+// authored by a non-owner member (the case an authorization gate must reject).
+func TestCommitSenderIdentifiesAuthor(t *testing.T) {
+	ctx := context.Background()
+	alice, aliceCred := engineForNewMember(t)
+	bob, bobCred := engineForNewMember(t)
+	carol, carolCred := engineForNewMember(t)
+
+	// 3-member group: alice (owner) + bob + carol.
+	gid, _ := alice.CreateGroup(ctx)
+	bobKP, _ := bob.KeyPackage(ctx)
+	_, bobWelcome, _ := alice.Invite(ctx, gid, bobKP)
+	if _, err := bob.Join(ctx, bobWelcome); err != nil {
+		t.Fatalf("bob join: %v", err)
+	}
+	carolKP, _ := carol.KeyPackage(ctx)
+	addCommit, carolWelcome, _ := alice.Invite(ctx, gid, carolKP)
+	if err := bob.ApplyCommit(ctx, gid, addCommit); err != nil {
+		t.Fatalf("bob apply add: %v", err)
+	}
+	if _, err := carol.Join(ctx, carolWelcome); err != nil {
+		t.Fatalf("carol join: %v", err)
+	}
+
+	// A bystander (carol) can read the author of alice's add commit off the wire
+	// before applying it — and it's alice, the owner.
+	author, err := carol.CommitSender(ctx, gid, addCommit)
+	if err != nil {
+		t.Fatalf("CommitSender(alice's commit): %v", err)
+	}
+	if !bytes.Equal(author, aliceCred) {
+		t.Fatalf("add commit author = %x, want alice %x", author, aliceCred)
+	}
+
+	// Now bob (a NON-owner member) authors a commit removing carol. An honest
+	// peer must be able to see bob authored it, so it can refuse to apply an
+	// unauthorized membership change.
+	bobRmCommit, err := bob.Remove(ctx, gid, carolCred)
+	if err != nil {
+		t.Fatalf("bob Remove: %v", err)
+	}
+	author, err = alice.CommitSender(ctx, gid, bobRmCommit)
+	if err != nil {
+		t.Fatalf("CommitSender(bob's commit): %v", err)
+	}
+	if !bytes.Equal(author, bobCred) {
+		t.Fatalf("bob's commit author = %x, want bob %x (must not misattribute to owner)", author, bobCred)
+	}
+	if bytes.Equal(author, aliceCred) {
+		t.Fatal("bob's unauthorized commit was misattributed to the owner")
+	}
+}
+
 func TestOutsiderCannotDecrypt(t *testing.T) {
 	ctx := context.Background()
 	alice, _ := engineForNewMember(t)

@@ -274,6 +274,13 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 
 		applied := 0
 		for _, c := range resp.Commits {
+			// Same governance gate as the live control topic: a peer serving us
+			// backfill cannot slip in an unauthorized membership change. The
+			// author is resolved against our current (pre-apply) member list, so
+			// it must be checked before each ApplyCommit as the epoch advances.
+			if !s.commitAuthorized(guildID, guild.GroupID, c) {
+				break
+			}
 			if err := s.mls.ApplyCommit(s.ctx, guild.GroupID, c); err != nil {
 				break
 			}

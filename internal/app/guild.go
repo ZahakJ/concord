@@ -568,6 +568,23 @@ func (s *Service) trackGuild(g *domain.Guild) {
 	// apply means WE missed one (epoch gap), so pull the gap via history sync
 	// instead of silently falling out of the ratchet.
 	_ = s.ps.Subscribe(s.ctx, domain.ControlTopicID(groupID), func(_ peer.ID, data []byte) {
+		// Governance gate: apply a membership commit only if its MLS author is
+		// authorized to change membership for this guild (foundationally, the
+		// owner). An unauthorized member cannot kick/add by publishing a commit —
+		// honest peers drop it here. The author is read from the signed commit
+		// framing, so it is unforgeable and independent of who relayed the gossip.
+		sender, err := s.mls.CommitSender(s.ctx, groupID, data)
+		if err != nil {
+			// We can't resolve the author — almost always because this commit is
+			// for an epoch ahead of us (its sender leaf isn't in our member list
+			// yet). That's a gap, not an attack: pull it via history sync, which
+			// re-validates authorization commit-by-commit.
+			go s.syncGuildFromAnyPeer(guildID)
+			return
+		}
+		if !s.authorizedCommitter(guildID, sender) {
+			return // author resolved but not permitted: drop silently, no sync
+		}
 		if err := s.mls.ApplyCommit(s.ctx, groupID, data); err == nil {
 			s.logCommit(groupID, data)
 			s.emitGuildUpdate()
