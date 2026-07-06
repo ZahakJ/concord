@@ -89,8 +89,14 @@ func SaveKeystore(path, passphrase string, id *Identity) error {
 			return fmt.Errorf("identity: create keystore dir: %w", err)
 		}
 	}
-	if err := os.WriteFile(path, blob, 0o600); err != nil {
+	// Write to a temp file then rename, so a crash mid-write can never leave a
+	// half-written (unopenable) keystore.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, blob, 0o600); err != nil {
 		return fmt.Errorf("identity: write keystore: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("identity: finalize keystore: %w", err)
 	}
 	return nil
 }

@@ -142,6 +142,32 @@ type ContactView struct {
 
 // ---- Connection settings (usable before unlock) ----
 
+// HasIdentity reports whether an identity keystore already exists, so the UI
+// can show "Unlock" vs "Create a passphrase".
+func (b *bridge) HasIdentity() (bool, error) {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return false, err
+	}
+	return appsvc.HasIdentity(dir), nil
+}
+
+// ResetIdentity deletes the identity and all data tied to it so a new identity
+// can be created (forgotten passphrase / corrupted keystore). Only allowed
+// while locked.
+func (b *bridge) ResetIdentity() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.svc != nil {
+		return errors.New("already unlocked; restart the app to reset")
+	}
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return err
+	}
+	return appsvc.ResetIdentity(dir)
+}
+
 // Session reports whether the identity is already unlocked (a Service is
 // running) — lets the UI skip the login screen after a page refresh.
 func (b *bridge) Session() bool {

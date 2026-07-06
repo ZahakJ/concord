@@ -152,6 +152,10 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return nil, s.b.SetBootstrapLive(argStr(args, 0))
 	case "Session":
 		return s.b.Session(), nil
+	case "HasIdentity":
+		return s.b.HasIdentity()
+	case "ResetIdentity":
+		return nil, s.b.ResetIdentity()
 	case "Login":
 		return nil, s.b.Login(argStr(args, 0))
 	case "Identity":

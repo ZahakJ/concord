@@ -55,6 +55,35 @@ func dbPathIn(dataDir string) string {
 	return filepath.Join(dataDir, "concord.db")
 }
 
+// HasIdentity reports whether an identity keystore already exists in dataDir,
+// so the UI can show "unlock" vs "create a passphrase".
+func HasIdentity(dataDir string) bool {
+	_, err := os.Stat(keystorePathIn(dataDir))
+	return err == nil
+}
+
+// ResetIdentity wipes the identity and all data tied to it (keystore, database,
+// MLS group state) so a fresh identity can be created — for a forgotten
+// passphrase or a corrupted keystore. Irreversible.
+func ResetIdentity(dataDir string) error {
+	for _, p := range []string{
+		keystorePathIn(dataDir),
+		keystorePathIn(dataDir) + ".tmp",
+		dbPathIn(dataDir),
+		dbPathIn(dataDir) + "-wal",
+		dbPathIn(dataDir) + "-shm",
+	} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	// MLS state directory.
+	if dir, err := mlsDirIn(dataDir); err == nil {
+		_ = os.RemoveAll(dir)
+	}
+	return nil
+}
+
 // mlsDirIn returns the directory holding persistent MLS group state, creating
 // it if needed.
 func mlsDirIn(dataDir string) (string, error) {
