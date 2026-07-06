@@ -601,10 +601,10 @@ rendezvous server** — the friend's app configures itself from the code alone.
 
 ```sh
 # 1. Host the rendezvous (free fly.io account; it only relays ciphertext):
-fly launch --no-deploy -c infra/rendezvous/fly.toml   # pick an app name
+fly launch --no-deploy -c fly.rendezvous.toml   # pick an app name
 fly secrets set CONCORD_RELAY_SEED=$(openssl rand -hex 32) \
                 CONCORD_PUBLIC_HOST=<your-app-name>.fly.dev
-fly deploy -c infra/rendezvous/fly.toml
+fly deploy -c fly.rendezvous.toml
 fly logs        # copy the ">>> SHARE THIS ADDRESS <<<" line
 
 # 2. Paste that address on YOUR login screen ("Connect with friends"), unlock.

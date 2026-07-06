@@ -27,9 +27,9 @@ internet discovery without LAN mDNS shortcutting it.
 
 ```sh
 # from the repo root
-fly launch --no-deploy -c infra/rendezvous/fly.toml
+fly launch --no-deploy -c fly.rendezvous.toml
 fly secrets set CONCORD_RELAY_SEED=$(openssl rand -hex 32)   # STABLE identity
-fly deploy -c infra/rendezvous/fly.toml
+fly deploy -c fly.rendezvous.toml
 
 # discover the node's public multiaddr:
 fly logs         # look for the printed /ip4/<public-ip>/tcp/4001/p2p/<PeerID>

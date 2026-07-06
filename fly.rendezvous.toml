@@ -1,5 +1,5 @@
 # fly.io deployment for Concord's rendezvous/relay node.
-# Deploy from the repo root:  fly deploy -c infra/rendezvous/fly.toml
+# Deploy from the repo root:  fly deploy -c fly.rendezvous.toml
 #
 # The node is untrusted infrastructure: it relays end-to-end-encrypted traffic
 # and serves the DHT; it never sees plaintext or media.
