@@ -584,25 +584,37 @@ make race           # same, under the race detector
 
 ## 16. Playing with friends over the internet
 
-On the same Wi-Fi, peers find each other automatically — nothing to set up. To
-play across **different networks**, one person hosts a tiny rendezvous node (it
-only relays already-encrypted traffic; it never sees your messages). One-time,
-~3 commands:
+On the same Wi-Fi, peers find each other automatically — nothing to set up.
+Across different networks, the flow is: **you set up once, your friend does
+almost nothing.**
 
-**1. One friend deploys the rendezvous** (free [fly.io](https://fly.io) account):
+**Friend's entire experience (2 steps):**
+
+1. Download one file (the release binary for their OS) and run it — the
+   browser opens by itself.
+2. Pick a passphrase, paste the invite code you sent, done.
+
+The invite code carries *everything*: the guild, your addresses, **and your
+rendezvous server** — the friend's app configures itself from the code alone.
+
+**Your one-time setup:**
 
 ```sh
+# 1. Host the rendezvous (free fly.io account; it only relays ciphertext):
 fly launch --no-deploy -c infra/rendezvous/fly.toml   # pick an app name
 fly secrets set CONCORD_RELAY_SEED=$(openssl rand -hex 32) \
                 CONCORD_PUBLIC_HOST=<your-app-name>.fly.dev
 fly deploy -c infra/rendezvous/fly.toml
 fly logs        # copy the ">>> SHARE THIS ADDRESS <<<" line
+
+# 2. Paste that address on YOUR login screen ("Connect with friends"), unlock.
+
+# 3. Build the friend binaries and attach them to a GitHub Release:
+make release    # → dist-release/concord-{linux,macos,windows}*
 ```
 
-**2. Everyone pastes that address** on the Concord login screen under
-"Connect with friends", then unlocks.
-
-**3. Create a guild, hit Invite, share the code**; friends paste it into "Join".
+Then create a guild → **Invite** → send your friend (a) the binary link and
+(b) the invite code. That's it.
 
 (A native mobile app — roadmap — will make this even more turnkey.)
 
