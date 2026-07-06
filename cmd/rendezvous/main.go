@@ -90,8 +90,8 @@ func run() error {
 	// exact address to share with friends — no manual multiaddr assembly.
 	if host := os.Getenv("CONCORD_PUBLIC_HOST"); host != "" {
 		fmt.Println("\n>>> SHARE THIS ADDRESS WITH YOUR FRIENDS <<<")
-		fmt.Printf("  /dns4/%s/tcp/%s/p2p/%s\n", host, port, h.ID())
-		fmt.Printf("  /dns4/%s/udp/%s/quic-v1/p2p/%s\n\n", host, port, h.ID())
+		fmt.Printf("  /dns/%s/tcp/%s/p2p/%s\n", host, port, h.ID())
+		fmt.Printf("  /dns/%s/udp/%s/quic-v1/p2p/%s\n\n", host, port, h.ID())
 	}
 
 	fmt.Println("Local bootstrap addresses:")
