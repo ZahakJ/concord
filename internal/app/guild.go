@@ -12,6 +12,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/zahak/concord/internal/domain"
+	"github.com/zahak/concord/internal/identity"
 )
 
 // This file implements the guild lifecycle: creating a guild, generating and
@@ -283,8 +284,12 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 	if err := s.ps.Publish(s.ctx, domain.TopicID(groupID, channelID), ct); err != nil {
 		return domain.Message{}, err
 	}
-	if msg.Kind == "delete" {
+	switch msg.Kind {
+	case "delete":
 		s.applyDelete(msg.ReplyTo, msg.Sender)
+		return msg, nil
+	case "reaction":
+		s.applyReaction(msg.ReplyTo, msg.Content, msg.Sender)
 		return msg, nil
 	}
 	if err := s.store.SaveMessage(msg); err != nil {
@@ -292,6 +297,27 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 	}
 	s.emitMessage(msg)
 	return msg, nil
+}
+
+// ToggleReaction adds/removes an emoji reaction on a message.
+func (s *Service) ToggleReaction(channelID, targetID, emoji string) error {
+	_, err := s.send(channelID, emoji, "reaction", targetID)
+	return err
+}
+
+// applyReaction toggles a reaction in the store and re-emits the target message
+// (now carrying the updated reactions) so the UI refreshes.
+func (s *Service) applyReaction(targetID, emoji string, bySender []byte) {
+	if targetID == "" || emoji == "" {
+		return
+	}
+	fpr := identity.FingerprintOf(bySender)
+	if _, err := s.store.ToggleReaction(targetID, fpr, emoji); err != nil {
+		return
+	}
+	if m, ok, err := s.store.MessageByID(targetID); err == nil && ok {
+		s.emitMessage(m)
+	}
 }
 
 // DeleteMessage removes one of this peer's own messages for everyone.
@@ -547,8 +573,12 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	}
 	// Trust MLS's authenticated sender over the self-reported field.
 	m.Sender = msg.SenderID
-	if m.Kind == "delete" {
+	switch m.Kind {
+	case "delete":
 		s.applyDelete(m.ReplyTo, m.Sender)
+		return
+	case "reaction":
+		s.applyReaction(m.ReplyTo, m.Content, m.Sender)
 		return
 	}
 	if err := s.store.SaveMessage(m); err != nil {

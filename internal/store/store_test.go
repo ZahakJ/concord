@@ -176,6 +176,38 @@ func TestMarkDeletedAuthorization(t *testing.T) {
 	}
 }
 
+func TestReactionToggleAndAggregate(t *testing.T) {
+	s, _ := openTestStore(t)
+	m, _ := domain.NewMessage("chan-1", []byte("alice"), "hi")
+	if err := s.SaveMessage(m); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+
+	// Two peers react; one adds a second emoji.
+	mustToggle := func(fpr, emoji string, wantAdded bool) {
+		added, err := s.ToggleReaction(m.ID, fpr, emoji)
+		if err != nil || added != wantAdded {
+			t.Fatalf("Toggle(%s,%s): added=%v err=%v (want added=%v)", fpr, emoji, added, err, wantAdded)
+		}
+	}
+	mustToggle("fprA", "👍", true)
+	mustToggle("fprB", "👍", true)
+	mustToggle("fprA", "🎉", true)
+
+	msgs, _ := s.Messages("chan-1", 0)
+	r := msgs[0].Reactions
+	if len(r["👍"]) != 2 || len(r["🎉"]) != 1 {
+		t.Fatalf("aggregation wrong: %+v", r)
+	}
+
+	// fprA taps 👍 again → un-reacts.
+	mustToggle("fprA", "👍", false)
+	msgs, _ = s.Messages("chan-1", 0)
+	if len(msgs[0].Reactions["👍"]) != 1 {
+		t.Fatalf("expected 1 👍 after un-react, got %+v", msgs[0].Reactions["👍"])
+	}
+}
+
 func TestSaveMessageIdempotent(t *testing.T) {
 	s, _ := openTestStore(t)
 	m, _ := domain.NewMessage("chan-1", []byte("alice"), "hi")

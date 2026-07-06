@@ -47,6 +47,10 @@ type Message struct {
 	Content   string    `json:"content"`
 	Deleted   bool      `json:"deleted"`
 	Sent      time.Time `json:"sent"`
+
+	// Reactions aggregates emoji -> fingerprints who reacted. Populated on load;
+	// never sent over the wire (reactions travel as their own "reaction" action).
+	Reactions map[string][]string `json:"reactions,omitempty"`
 }
 
 // A Contact is a peer this node has encountered, tracked for trust-on-first-use

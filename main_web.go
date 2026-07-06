@@ -157,6 +157,8 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return s.b.CreateChannel(argStr(args, 0), argStr(args, 1))
 	case "DeleteMessage":
 		return nil, s.b.DeleteMessage(argStr(args, 0), argStr(args, 1))
+	case "ToggleReaction":
+		return nil, s.b.ToggleReaction(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	default:
 		return nil, fmt.Errorf("unknown method %q", method)
 	}

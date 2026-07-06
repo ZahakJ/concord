@@ -97,6 +97,12 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS reactions (
+  message_id  TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  emoji       TEXT NOT NULL,
+  PRIMARY KEY (message_id, fingerprint, emoji)
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -309,6 +315,14 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
+
+	reacts, err := s.reactionsForChannel(channelID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range msgs {
+		msgs[i].Reactions = reacts[msgs[i].ID]
+	}
 	return msgs, nil
 }
 
@@ -323,6 +337,84 @@ func (s *Store) open(enc, nonceB []byte) (string, error) {
 		return "", fmt.Errorf("store: message decryption failed (wrong key or corrupt db)")
 	}
 	return string(plain), nil
+}
+
+// ToggleReaction adds a reaction if absent, or removes it if present (so a
+// second tap of the same emoji un-reacts). Returns whether it is now added.
+func (s *Store) ToggleReaction(messageID, fingerprint, emoji string) (bool, error) {
+	var one int
+	err := s.db.QueryRow(
+		`SELECT 1 FROM reactions WHERE message_id=? AND fingerprint=? AND emoji=?`,
+		messageID, fingerprint, emoji,
+	).Scan(&one)
+	if err == nil {
+		_, derr := s.db.Exec(
+			`DELETE FROM reactions WHERE message_id=? AND fingerprint=? AND emoji=?`,
+			messageID, fingerprint, emoji)
+		return false, derr
+	}
+	if err != sql.ErrNoRows {
+		return false, err
+	}
+	_, ierr := s.db.Exec(
+		`INSERT INTO reactions (message_id, fingerprint, emoji) VALUES (?, ?, ?)`,
+		messageID, fingerprint, emoji)
+	return true, ierr
+}
+
+// reactionsForChannel loads all reactions for a channel's messages, grouped as
+// messageID -> emoji -> [fingerprints].
+func (s *Store) reactionsForChannel(channelID string) (map[string]map[string][]string, error) {
+	rows, err := s.db.Query(
+		`SELECT r.message_id, r.emoji, r.fingerprint
+		 FROM reactions r JOIN messages m ON m.id = r.message_id
+		 WHERE m.channel_id = ?`, channelID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]map[string][]string{}
+	for rows.Next() {
+		var mid, emoji, fpr string
+		if err := rows.Scan(&mid, &emoji, &fpr); err != nil {
+			return nil, err
+		}
+		if out[mid] == nil {
+			out[mid] = map[string][]string{}
+		}
+		out[mid][emoji] = append(out[mid][emoji], fpr)
+	}
+	return out, rows.Err()
+}
+
+// MessageByID loads a single message (with reactions) for post-reaction refresh.
+func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
+	var m domain.Message
+	var enc, nonceB []byte
+	var sent int64
+	var deleted int
+	err := s.db.QueryRow(
+		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, content_enc, nonce, sent
+		 FROM messages WHERE id = ?`, id,
+	).Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &enc, &nonceB, &sent)
+	if err == sql.ErrNoRows {
+		return domain.Message{}, false, nil
+	}
+	if err != nil {
+		return domain.Message{}, false, err
+	}
+	if deleted != 0 {
+		m.Deleted = true
+	} else if content, oerr := s.open(enc, nonceB); oerr == nil {
+		m.Content = content
+	}
+	m.Sent = time.Unix(0, sent).UTC()
+	reacts, err := s.reactionsForChannel(m.ChannelID)
+	if err != nil {
+		return domain.Message{}, false, err
+	}
+	m.Reactions = reacts[m.ID]
+	return m, true, nil
 }
 
 // MarkDeleted tombstones a message, but only if bySender authored it (so a peer

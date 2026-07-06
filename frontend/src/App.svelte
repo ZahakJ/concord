@@ -201,6 +201,15 @@
     }
   }
 
+  const QUICK_EMOJIS = ["👍", "❤️", "😂", "🎉"];
+  async function react(m, emoji) {
+    try {
+      await api.toggleReaction(m.channelId, m.id, emoji);
+    } catch (err) {
+      flash(String(err?.message || err));
+    }
+  }
+
   async function refreshRightPanel() {
     if (activeGuildId) members = (await api.members(activeGuildId)) || [];
     contacts = (await api.contacts()) || [];
@@ -394,9 +403,25 @@
               {:else}
                 <div class="body">{@html renderContent(m.content)}</div>
               {/if}
+              {#if m.reactions && Object.keys(m.reactions).length}
+                <div class="reactions">
+                  {#each Object.entries(m.reactions) as [emoji, fprs] (emoji)}
+                    <button
+                      class="reaction"
+                      class:mine={fprs.includes(identity.fingerprint)}
+                      onclick={() => react(m, emoji)}
+                    >
+                      {emoji} {fprs.length}
+                    </button>
+                  {/each}
+                </div>
+              {/if}
             </div>
             {#if !m.deleted}
               <div class="msg-actions">
+                {#each QUICK_EMOJIS as e (e)}
+                  <button title="React {e}" onclick={() => react(m, e)}>{e}</button>
+                {/each}
                 <button title="Reply" onclick={() => (replyingTo = m)}>↩</button>
                 {#if m.sender === identity.fingerprint}
                   <button title="Delete" onclick={() => deleteMsg(m)}>🗑</button>
@@ -667,6 +692,24 @@
   }
   .body.deleted {
     color: var(--text-muted);
+  }
+  .reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 4px;
+  }
+  .reaction {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 1px 8px;
+    font-size: 12px;
+    border-radius: 10px;
+  }
+  .reaction.mine {
+    border-color: var(--accent);
+    background: rgba(91, 110, 245, 0.15);
   }
   .body :global(code) {
     background: var(--bg-input);
