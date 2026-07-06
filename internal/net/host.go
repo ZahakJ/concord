@@ -104,7 +104,18 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 	if cfg.EnableDHT {
 		opts = append(opts, libp2p.EnableHolePunching())
 		if len(cfg.BootstrapPeers) > 0 {
-			opts = append(opts, libp2p.EnableAutoRelayWithStaticRelays(cfg.BootstrapPeers))
+			opts = append(opts,
+				libp2p.EnableAutoRelayWithStaticRelays(cfg.BootstrapPeers),
+				// AutoRelay only reserves a relay slot once AutoNAT concludes we
+				// are NAT'd, which with a single bootstrap node as the only
+				// AutoNAT server can take minutes or never conclude — leaving the
+				// /p2p-circuit addr advertised in invite codes undialable
+				// (NO_RESERVATION). Concord peers are desktop machines behind
+				// home NATs essentially always, so skip detection and reserve
+				// immediately; hole punching still upgrades relayed connections
+				// to direct ones.
+				libp2p.ForceReachabilityPrivate(),
+			)
 		}
 	}
 
