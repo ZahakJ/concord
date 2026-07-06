@@ -69,7 +69,9 @@ func openBrowser(url string) {
 	case "darwin":
 		cmd = exec.Command("open", url)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		// explorer.exe is the least AV-suspicious way to open a URL on Windows
+		// (rundll32 is a common "living-off-the-land" pattern Defender flags).
+		cmd = exec.Command("explorer", url)
 	default:
 		cmd = exec.Command("xdg-open", url)
 	}
