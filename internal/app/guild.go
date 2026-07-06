@@ -329,7 +329,7 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 		s.applyPin(msg.ReplyTo)
 		return msg, nil
 	}
-	if err := s.store.SaveMessage(msg); err != nil {
+	if _, err := s.store.SaveMessage(msg); err != nil {
 		return domain.Message{}, err
 	}
 	s.emitMessage(msg)
@@ -690,8 +690,9 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 		s.applyPin(m.ReplyTo)
 		return
 	}
-	if err := s.store.SaveMessage(m); err != nil {
-		return
+	inserted, err := s.store.SaveMessage(m)
+	if err != nil || !inserted {
+		return // duplicate (gossip re-delivery or already synced): stay silent
 	}
 	s.emitMessage(m)
 }

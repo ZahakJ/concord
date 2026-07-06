@@ -52,7 +52,7 @@ func TestMessageRoundTripAndOrder(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewMessage: %v", err)
 		}
-		if err := s.SaveMessage(m); err != nil {
+		if _, err := s.SaveMessage(m); err != nil {
 			t.Fatalf("SaveMessage: %v", err)
 		}
 	}
@@ -73,7 +73,7 @@ func TestMessageRoundTripAndOrder(t *testing.T) {
 func TestMessageBodiesEncryptedAtRest(t *testing.T) {
 	s, path := openTestStore(t)
 	m, _ := domain.NewMessage("chan-1", []byte("alice"), "topsecret-plaintext")
-	if err := s.SaveMessage(m); err != nil {
+	if _, err := s.SaveMessage(m); err != nil {
 		t.Fatalf("SaveMessage: %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestWrongKeyCannotRead(t *testing.T) {
 		t.Fatalf("Open s1: %v", err)
 	}
 	m, _ := domain.NewMessage("chan-1", []byte("alice"), "secret")
-	if err := s1.SaveMessage(m); err != nil {
+	if _, err := s1.SaveMessage(m); err != nil {
 		t.Fatalf("SaveMessage: %v", err)
 	}
 	_ = s1.Close()
@@ -149,7 +149,7 @@ func TestMarkDeletedAuthorization(t *testing.T) {
 	s, _ := openTestStore(t)
 	author := []byte("alice-key")
 	m, _ := domain.NewMessage("chan-1", author, "secret plan")
-	if err := s.SaveMessage(m); err != nil {
+	if _, err := s.SaveMessage(m); err != nil {
 		t.Fatalf("SaveMessage: %v", err)
 	}
 
@@ -179,7 +179,7 @@ func TestMarkDeletedAuthorization(t *testing.T) {
 func TestReactionToggleAndAggregate(t *testing.T) {
 	s, _ := openTestStore(t)
 	m, _ := domain.NewMessage("chan-1", []byte("alice"), "hi")
-	if err := s.SaveMessage(m); err != nil {
+	if _, err := s.SaveMessage(m); err != nil {
 		t.Fatalf("SaveMessage: %v", err)
 	}
 
@@ -212,7 +212,7 @@ func TestUpdateContentAuthorization(t *testing.T) {
 	s, _ := openTestStore(t)
 	author := []byte("alice")
 	m, _ := domain.NewMessage("chan-1", author, "typo here")
-	_ = s.SaveMessage(m)
+	_, _ = s.SaveMessage(m)
 
 	// Non-author can't edit.
 	if ok, err := s.UpdateContent(m.ID, []byte("eve"), "hacked"); err != nil || ok {
@@ -231,10 +231,10 @@ func TestUpdateContentAuthorization(t *testing.T) {
 func TestSaveMessageIdempotent(t *testing.T) {
 	s, _ := openTestStore(t)
 	m, _ := domain.NewMessage("chan-1", []byte("alice"), "hi")
-	if err := s.SaveMessage(m); err != nil {
+	if _, err := s.SaveMessage(m); err != nil {
 		t.Fatalf("first save: %v", err)
 	}
-	if err := s.SaveMessage(m); err != nil {
+	if _, err := s.SaveMessage(m); err != nil {
 		t.Fatalf("second save (dup): %v", err)
 	}
 	msgs, _ := s.Messages("chan-1", 0)

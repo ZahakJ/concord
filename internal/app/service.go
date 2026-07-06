@@ -154,6 +154,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// Owner side of the join handshake.
 	host.HandleInvites(s.handleInviteRequest)
 
+	// Serve history catch-up requests from reconnecting peers.
+	host.HandleSync(s.handleSyncRequest)
+
 	// Inbound WebRTC signaling for voice/video.
 	host.HandleSignals(func(from peer.ID, data []byte) {
 		s.emitVoiceSignal(from.String(), data)
@@ -171,6 +174,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		go func() {
 			time.Sleep(1500 * time.Millisecond)
 			s.announceProfileAll()
+			// Pull any history we missed while apart from this peer.
+			s.syncFromPeer(p)
 		}()
 	})
 

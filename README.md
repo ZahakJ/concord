@@ -188,8 +188,7 @@ priority order:
 - Deploy the fly.io rendezvous node and verify cross-internet discovery (#13).
 
 **Messaging**
-- History sync on reconnect / offline delivery (#11).
-- Direct messages (1:1) and group DMs.
+- Direct messages (1:1) and group DMs. *(History sync on reconnect: done.)*
 - Message edits and threads. *(Replies, deletes, and reactions: done.)*
 - Attachments: images/files (chunked, E2E-encrypted, over libp2p streams).
 - Mentions + notifications (per-guild/channel mute).
@@ -218,8 +217,12 @@ priority order:
 - **Membership (MVP):** the guild owner is the sole committer — only the owner
   issues invites. This serializes MLS commits and avoids concurrent-commit
   conflict resolution for now.
-- **Offline delivery:** messages are delivered to online peers; store-and-forward
-  for offline members is future work.
+- **Offline catch-up:** when a peer reconnects, it automatically pulls messages
+  it missed from other members (batches are MLS-encrypted to the group, so only
+  members can serve/read them). Synced history is attested by the serving
+  member rather than re-verified per original sender — the trust Discord places
+  in its server, here limited to your guild members. Delivery still requires at
+  least one member who saw the messages to come online with you.
 - **MLS state across restarts:** fully working. Group ratchet state is persisted
   to disk, and the MLS signing key is derived deterministically from the identity
   (HKDF-separated from the libp2p key), so a restarted node recovers its groups

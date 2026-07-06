@@ -254,24 +254,73 @@ func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 }
 
 // SaveMessage stores a message, sealing its content at rest. Saving the same
-// message ID twice is a no-op, which makes gossip re-delivery idempotent.
-func (s *Store) SaveMessage(m domain.Message) error {
+// message ID twice is a no-op, which makes gossip re-delivery and history sync
+// idempotent. The bool reports whether a new row was inserted.
+func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	var nonce [nonceSize]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
-		return err
+		return false, err
 	}
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
-	_, err := s.db.Exec(
+	res, err := s.db.Exec(
 		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, content_enc, nonce, sent)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
 		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, sealed, nonce[:], m.Sent.UnixNano(),
 	)
 	if err != nil {
-		return fmt.Errorf("store: save message: %w", err)
+		return false, fmt.Errorf("store: save message: %w", err)
 	}
-	return nil
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// LatestTimestamp returns the newest message time (UnixNano) in a channel, or 0.
+func (s *Store) LatestTimestamp(channelID string) (int64, error) {
+	var t sql.NullInt64
+	err := s.db.QueryRow(`SELECT MAX(sent) FROM messages WHERE channel_id = ?`, channelID).Scan(&t)
+	if err != nil {
+		return 0, err
+	}
+	return t.Int64, nil
+}
+
+// MessagesSince returns up to limit messages in a channel strictly newer than
+// sinceNano, oldest first, with decrypted bodies (deleted ones excluded).
+func (s *Store) MessagesSince(channelID string, sinceNano int64, limit int) ([]domain.Message, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.Query(
+		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
+		 FROM messages WHERE channel_id = ? AND sent > ? AND deleted = 0 AND kind = ''
+		 ORDER BY sent ASC LIMIT ?`, channelID, sinceNano, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []domain.Message
+	for rows.Next() {
+		var m domain.Message
+		var enc, nonceB []byte
+		var sent int64
+		var deleted, edited, pinned int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
+			return nil, err
+		}
+		content, err := s.open(enc, nonceB)
+		if err != nil {
+			continue
+		}
+		m.Content = content
+		m.Edited = edited != 0
+		m.Pinned = pinned != 0
+		m.Sent = time.Unix(0, sent).UTC()
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // Messages returns up to limit most-recent messages for a channel, oldest
