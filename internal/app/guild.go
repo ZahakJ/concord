@@ -468,6 +468,7 @@ type guildMeta struct {
 	Status      string         `json:"status,omitempty"`
 	Emoji       string         `json:"emoji,omitempty"`
 	Color       string         `json:"color,omitempty"`
+	Avatar      string         `json:"avatar,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -498,7 +499,7 @@ func (s *Service) announceProfile(guildID string) {
 	p := s.SelfProfile()
 	meta := guildMeta{
 		Type: "profile", Fingerprint: s.id.Fingerprint(),
-		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color,
+		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
 	}
 	payload, _ := json.Marshal(meta)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
@@ -649,9 +650,12 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if m.Fingerprint == "" {
 			return
 		}
+		if len(m.Avatar) > maxAvatarBytes || (m.Avatar != "" && !strings.HasPrefix(m.Avatar, "data:image/")) {
+			m.Avatar = "" // reject oversized or non-image avatars from peers
+		}
 		s.mu.Lock()
 		_, known := s.profiles[m.Fingerprint]
-		s.profiles[m.Fingerprint] = Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color}
+		s.profiles[m.Fingerprint] = Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar}
 		s.mu.Unlock()
 		// First time we see this member: reply with our own profile so the
 		// newcomer learns us too (bounded — only on genuinely new members).

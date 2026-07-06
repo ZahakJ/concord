@@ -92,6 +92,7 @@ type IdentityInfo struct {
 	Status      string `json:"status"`
 	Emoji       string `json:"emoji"`
 	Color       string `json:"color"`
+	Avatar      string `json:"avatar"`
 }
 
 type ChannelView struct {
@@ -127,8 +128,10 @@ type MemberView struct {
 	Status      string `json:"status"`
 	Emoji       string `json:"emoji"`
 	Color       string `json:"color"`
+	Avatar      string `json:"avatar"`
 	IsSelf      bool   `json:"isSelf"`
 	Online      bool   `json:"online"`
+	Verified    bool   `json:"verified"`
 }
 
 type ContactView struct {
@@ -323,16 +326,27 @@ func (b *bridge) Identity() (IdentityInfo, error) {
 		Status:      p.Status,
 		Emoji:       p.Emoji,
 		Color:       p.Color,
+		Avatar:      p.Avatar,
 	}, nil
 }
 
-// SetProfile updates this peer's name/status/emoji/color and re-announces.
-func (b *bridge) SetProfile(name, status, emoji, color string) error {
+// SetProfile updates this peer's profile (incl. avatar image) and re-announces.
+func (b *bridge) SetProfile(name, status, emoji, color, avatar string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.SetProfile(appsvc.Profile{Name: name, Status: status, Emoji: emoji, Color: color})
+	return svc.SetProfile(appsvc.Profile{Name: name, Status: status, Emoji: emoji, Color: color, Avatar: avatar})
+}
+
+// VerifyFingerprint marks a member's identity as verified after an out-of-band
+// fingerprint comparison.
+func (b *bridge) VerifyFingerprint(fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.VerifyFingerprint(fingerprint)
 }
 
 // PinMessage toggles a message's pinned state for everyone.
@@ -458,6 +472,7 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 		online[p.Fingerprint] = true
 	}
 
+	verified := svc.VerifiedFingerprints()
 	out := make([]MemberView, 0, len(creds))
 	for _, cred := range creds {
 		fpr := identity.FingerprintOf(cred)
@@ -472,8 +487,10 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 			Status:      p.Status,
 			Emoji:       p.Emoji,
 			Color:       p.Color,
+			Avatar:      p.Avatar,
 			IsSelf:      isSelf,
 			Online:      isSelf || online[fpr],
+			Verified:    isSelf || verified[fpr],
 		})
 	}
 	return out, nil

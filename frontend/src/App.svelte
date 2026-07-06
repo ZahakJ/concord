@@ -1,6 +1,8 @@
 <script>
   import { api, on } from "./lib/api.js";
   import { VoiceMesh } from "./lib/voice.js";
+  import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
+  import EmojiPicker from "./EmojiPicker.svelte";
   import Login from "./Login.svelte";
   import ModalCreate from "./modals/ModalCreate.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
@@ -24,6 +26,62 @@
   let searchQuery = $state("");
   let searchResults = $state(null); // null = closed, [] = no hits
 
+  // Emoji: :shortcode: autocomplete + picker
+  let composerEl;
+  let emojiSuggest = $state(null); // { start, items:[[name,emoji]], sel }
+  let pickerTarget = $state(null); // "composer" | message object
+  let memberPopover = $state(null); // member being inspected
+  let showPeers = $state(false); // "Known peers" disclosure
+
+  function updateEmojiSuggest() {
+    const caret = composerEl?.selectionStart ?? draft.length;
+    const active = activeShortcode(draft, caret);
+    if (!active) {
+      emojiSuggest = null;
+      return;
+    }
+    const items = searchEmoji(active.query, 8);
+    emojiSuggest = items.length ? { start: active.start, query: active.query, items, sel: 0 } : null;
+  }
+
+  function acceptEmoji(idx = null) {
+    if (!emojiSuggest) return;
+    const [, e] = emojiSuggest.items[idx ?? emojiSuggest.sel];
+    const caret = composerEl?.selectionStart ?? draft.length;
+    draft = draft.slice(0, emojiSuggest.start) + e + " " + draft.slice(caret);
+    emojiSuggest = null;
+    composerEl?.focus();
+  }
+
+  function composerKeydown(e) {
+    if (!emojiSuggest) return;
+    if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+      e.preventDefault();
+      emojiSuggest = { ...emojiSuggest, sel: (emojiSuggest.sel + 1) % emojiSuggest.items.length };
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      emojiSuggest = {
+        ...emojiSuggest,
+        sel: (emojiSuggest.sel - 1 + emojiSuggest.items.length) % emojiSuggest.items.length,
+      };
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      acceptEmoji();
+    } else if (e.key === "Escape") {
+      emojiSuggest = null;
+    }
+  }
+
+  function pickEmoji(e) {
+    if (pickerTarget === "composer") {
+      draft += e;
+      composerEl?.focus();
+    } else if (pickerTarget) {
+      react(pickerTarget, e);
+    }
+    pickerTarget = null;
+  }
+
   const pinnedMessages = $derived(messages.filter((m) => m.pinned && !m.deleted));
 
   // memberByFpr powers avatars: color + emoji come from the sender's profile.
@@ -37,6 +95,9 @@
   function avatarGlyph(fpr, fallbackName) {
     const mem = memberByFpr(fpr);
     return mem?.emoji || (mem?.name || fallbackName || "?").slice(0, 2);
+  }
+  function avatarImg(fpr) {
+    return memberByFpr(fpr)?.avatar || "";
   }
 
   function applyAccent(color) {
@@ -277,7 +338,7 @@
   }
 
   async function saveProfile(p) {
-    await api.setProfile(p.name, p.status, p.emoji, p.color);
+    await api.setProfile(p.name, p.status, p.emoji, p.color, p.avatar || "");
     identity = await api.identity();
     displayName = identity.displayName || "";
     applyAccent(identity.color);
@@ -383,9 +444,10 @@
 
   async function send(e) {
     e?.preventDefault();
-    const text = draft.trim();
+    const text = replaceShortcodes(draft.trim());
     if (!text || !activeChannelId) return;
     draft = "";
+    emojiSuggest = null;
     const replyTo = replyingTo?.id || "";
     replyingTo = null;
     try {
@@ -432,11 +494,6 @@
     }
   }
 
-  async function verify(peerId) {
-    await api.verify(peerId);
-    await refreshRightPanel();
-    flash("Contact verified");
-  }
 
   async function kick(fingerprint) {
     try {
@@ -519,7 +576,11 @@
 
       <button class="me" onclick={() => (modal = { kind: "profile" })} title="Edit profile">
         <div class="me-avatar" style={identity.color ? `background:${identity.color}` : ""}>
-          {identity.emoji || (displayName || "?").slice(0, 2)}
+          {#if identity.avatar}
+            <img class="av-img" src={identity.avatar} alt="" />
+          {:else}
+            {identity.emoji || (displayName || "?").slice(0, 2)}
+          {/if}
         </div>
         <div class="me-text">
           <strong>{displayName || "Set your name"}</strong>
@@ -613,7 +674,11 @@
           {:else}
           <div class="msg">
             <div class="avatar" style={avatarStyle(m.sender)}>
-              {avatarGlyph(m.sender, m.senderName)}
+              {#if avatarImg(m.sender)}
+                <img class="av-img" src={avatarImg(m.sender)} alt="" />
+              {:else}
+                {avatarGlyph(m.sender, m.senderName)}
+              {/if}
             </div>
             <div class="msg-main">
               {#if m.replyTo}
@@ -665,6 +730,7 @@
                 {#each QUICK_EMOJIS as e (e)}
                   <button title="React {e}" onclick={() => react(m, e)}>{e}</button>
                 {/each}
+                <button title="More reactions" onclick={() => (pickerTarget = m)}>➕</button>
                 <button title="Reply" onclick={() => (replyingTo = m)}>↩</button>
                 <button title={m.pinned ? "Unpin" : "Pin"} onclick={() => api.pinMessage(m.channelId, m.id)}>📌</button>
                 {#if m.sender === identity.fingerprint}
@@ -689,71 +755,163 @@
         </div>
       {/if}
       <div class="typing-line muted">{typingLabel}</div>
-      <form class="composer" onsubmit={send}>
-        <input
-          type="file"
-          accept="image/*"
-          bind:this={fileInput}
-          style="display:none"
-          onchange={(e) => {
-            attachImage(e.target.files?.[0]);
-            e.target.value = "";
-          }}
-        />
-        <button
-          type="button"
-          class="ghost"
-          title="Attach image (or paste one)"
-          disabled={!activeChannel}
-          onclick={() => fileInput.click()}>📎</button
-        >
-        <input
-          placeholder={activeChannel ? `Message #${activeChannel.name}` : "Select a channel"}
-          bind:value={draft}
-          disabled={!activeChannel}
-          oninput={onDraftInput}
-          onpaste={onPaste}
-        />
-        <button type="submit" disabled={!draft.trim()}>Send</button>
-      </form>
+      <div class="composer-wrap">
+        {#if emojiSuggest}
+          <div class="emoji-suggest">
+            {#each emojiSuggest.items as [name, e], i (name)}
+              <button
+                class="suggest-item"
+                class:sel={i === emojiSuggest.sel}
+                onclick={() => acceptEmoji(i)}
+              >
+                <span class="s-emoji">{e}</span> :{name}:
+              </button>
+            {/each}
+          </div>
+        {/if}
+        {#if pickerTarget}
+          <EmojiPicker onPick={pickEmoji} onClose={() => (pickerTarget = null)} />
+        {/if}
+        <form class="composer" onsubmit={send}>
+          <input
+            type="file"
+            accept="image/*"
+            bind:this={fileInput}
+            style="display:none"
+            onchange={(e) => {
+              attachImage(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          <button
+            type="button"
+            class="ghost"
+            title="Attach image (or paste one)"
+            disabled={!activeChannel}
+            onclick={() => fileInput.click()}>📎</button
+          >
+          <input
+            bind:this={composerEl}
+            placeholder={activeChannel
+              ? `Message #${activeChannel.name} — try :fire:`
+              : "Select a channel"}
+            bind:value={draft}
+            disabled={!activeChannel}
+            oninput={() => {
+              onDraftInput();
+              updateEmojiSuggest();
+            }}
+            onkeydown={composerKeydown}
+            onpaste={onPaste}
+          />
+          <button
+            type="button"
+            class="ghost"
+            title="Emoji"
+            disabled={!activeChannel}
+            onclick={() => (pickerTarget = pickerTarget === "composer" ? null : "composer")}
+            >😊</button
+          >
+          <button type="submit" disabled={!draft.trim()}>Send</button>
+        </form>
+      </div>
     </main>
 
     <!-- Members + contacts -->
     <aside class="panel">
       <div class="section-head"><span>Members — {activeGuild?.name ?? ""}</span></div>
       {#each members as mem (mem.fingerprint)}
-        <div class="member">
+        <button class="member" onclick={() => (memberPopover = memberPopover === mem ? null : mem)}>
           <span class="row" style="gap:8px; min-width:0">
             <span class="member-avatar" style={mem.color ? `background:${mem.color}` : ""}>
-              {mem.emoji || (mem.name || mem.fingerprint).slice(0, 2)}
+              {#if mem.avatar}
+                <img class="av-img" src={mem.avatar} alt="" />
+              {:else}
+                {mem.emoji || (mem.name || mem.fingerprint).slice(0, 2)}
+              {/if}
               <span class="dot presence" class:online={mem.online}></span>
             </span>
             <span class="member-text">
               <span class="member-name" title={mem.fingerprint}>
                 {mem.name || mem.fingerprint.slice(0, 9)}{mem.isSelf ? " (you)" : ""}
+                {#if mem.verified && !mem.isSelf}<span class="v-badge" title="Identity verified">✓</span>{/if}
               </span>
               {#if mem.status}<span class="muted member-status">{mem.status}</span>{/if}
             </span>
           </span>
           {#if activeGuild?.isOwner && !mem.isSelf}
-            <button class="mini danger" title="Remove" onclick={() => kick(mem.fingerprint)}>✕</button>
+            <span
+              class="mini danger"
+              role="button"
+              tabindex="0"
+              title="Remove from guild"
+              onclick={(e) => {
+                e.stopPropagation();
+                kick(mem.fingerprint);
+              }}
+              onkeydown={(e) => e.key === "Enter" && kick(mem.fingerprint)}>✕</span
+            >
           {/if}
-        </div>
+        </button>
+        {#if memberPopover === mem}
+          <div class="member-card">
+            {#if mem.isSelf}
+              <p class="muted small">
+                This is you. Others confirm it's really you by comparing this
+                fingerprint with you over a call or in person:
+              </p>
+            {:else if mem.verified}
+              <p class="muted small">
+                ✓ You've verified this member — you compared their fingerprint
+                out-of-band, so you know no one is impersonating them.
+              </p>
+            {:else}
+              <p class="muted small">
+                Names and pictures are self-chosen and can be faked; the
+                <strong>fingerprint below cannot</strong>. Read it aloud with
+                {mem.name || "this member"} over a call (or in person) — if it
+                matches what they see on their own profile, hit Verify.
+              </p>
+            {/if}
+            <code class="mono fpr-code">{mem.fingerprint}</code>
+            {#if !mem.isSelf && !mem.verified}
+              <button
+                onclick={async () => {
+                  try {
+                    await api.verifyFingerprint(mem.fingerprint);
+                    await refreshRightPanel();
+                    memberPopover = null;
+                    flash("Member verified ✓");
+                  } catch (err) {
+                    flash(String(err?.message || err));
+                  }
+                }}>Verify identity</button
+              >
+            {/if}
+          </div>
+        {/if}
       {/each}
 
-      <div class="section-head"><span>Contacts</span></div>
-      {#each contacts as c (c.peerId)}
-        <div class="contact">
-          <div class="mono">{c.fingerprint}</div>
-          {#if c.verified}
-            <span class="badge verified">verified</span>
-          {:else}
-            <button class="mini" onclick={() => verify(c.peerId)}>verify</button>
-          {/if}
-        </div>
-      {:else}
-        <div class="muted small">No contacts yet.</div>
-      {/each}
+      <div class="section-head">
+        <span>Known peers</span>
+        <button class="mini" onclick={() => (showPeers = !showPeers)}>{showPeers ? "▾" : "▸"}</button>
+      </div>
+      {#if showPeers}
+        <p class="muted small peers-info">
+          Every Concord node your device has ever connected to — including
+          strangers on the same Wi-Fi discovered automatically. They can't read
+          anything (messages are end-to-end encrypted); this is just a network
+          log. To verify a <em>friend</em>, click them in the Members list above.
+        </p>
+        {#each contacts as c (c.peerId)}
+          <div class="contact">
+            <span class="mono peer-fpr" title={c.peerId}>{c.fingerprint.slice(0, 19)}…</span>
+            {#if c.verified}<span class="badge verified">✓</span>{/if}
+          </div>
+        {:else}
+          <div class="muted small">No peers seen yet.</div>
+        {/each}
+      {/if}
     </aside>
   </div>
 
@@ -931,6 +1089,90 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .member {
+    width: 100%;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    border-radius: 6px;
+  }
+  .member:hover {
+    background: var(--bg-input);
+  }
+  .v-badge {
+    color: var(--verified);
+    font-weight: 700;
+    margin-left: 4px;
+  }
+  .member-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    margin: 2px 4px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .member-card p {
+    margin: 0;
+    line-height: 1.45;
+  }
+  .fpr-code {
+    font-size: 11px;
+    word-break: break-all;
+    background: var(--bg-input);
+    padding: 6px 8px;
+    border-radius: 6px;
+  }
+  .peers-info {
+    padding: 4px 8px;
+    line-height: 1.45;
+    margin: 0;
+  }
+  .peer-fpr {
+    font-size: 11px;
+  }
+  .av-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 50%;
+  }
+  .composer-wrap {
+    position: relative;
+  }
+  .emoji-suggest {
+    position: absolute;
+    bottom: 54px;
+    left: 60px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    min-width: 220px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 50;
+  }
+  .suggest-item {
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: ui-monospace, monospace;
+  }
+  .suggest-item.sel,
+  .suggest-item:hover {
+    background: var(--bg-input);
+  }
+  .s-emoji {
+    font-size: 16px;
+    margin-right: 6px;
   }
   .search-box {
     width: 150px;

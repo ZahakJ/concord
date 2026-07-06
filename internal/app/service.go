@@ -51,14 +51,19 @@ type Service struct {
 }
 
 // Profile is a member's self-asserted presentation: display name, a short
-// status line, an avatar emoji, and an accent color. All decorative — the
-// fingerprint remains the authenticated identity.
+// status line, an avatar (emoji and/or a small image), and an accent color.
+// All decorative — the fingerprint remains the authenticated identity.
 type Profile struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Emoji  string `json:"emoji"`
 	Color  string `json:"color"`
+	Avatar string `json:"avatar"` // small image as a data URI ("" = none)
 }
+
+// maxAvatarBytes caps the avatar data URI so profile broadcasts stay far below
+// the gossipsub frame limit (the UI downscales to ~96px JPEG, typically <10 KB).
+const maxAvatarBytes = 64 * 1024
 
 // PeerPresence is a UI-facing view of a connected peer.
 type PeerPresence struct {
@@ -265,21 +270,29 @@ func (s *Service) SetDisplayName(name string) error {
 	return nil
 }
 
-// SelfProfile returns this peer's own profile (name, status, emoji, color).
+// SelfProfile returns this peer's own profile.
 func (s *Service) SelfProfile() Profile {
 	status, _ := s.store.GetSetting("status_text")
 	emoji, _ := s.store.GetSetting("avatar_emoji")
 	color, _ := s.store.GetSetting("accent_color")
-	return Profile{Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color}
+	avatar, _ := s.store.GetSetting("avatar_image")
+	return Profile{Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar}
 }
 
 // SetProfile persists the full self profile and re-announces it to every guild.
 func (s *Service) SetProfile(p Profile) error {
+	if len(p.Avatar) > maxAvatarBytes {
+		return fmt.Errorf("app: avatar image too large (max %d KB)", maxAvatarBytes/1024)
+	}
+	if p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/") {
+		return fmt.Errorf("app: avatar must be an image data URI")
+	}
 	for k, v := range map[string]string{
 		"display_name": strings.TrimSpace(p.Name),
 		"status_text":  strings.TrimSpace(p.Status),
 		"avatar_emoji": strings.TrimSpace(p.Emoji),
 		"accent_color": strings.TrimSpace(p.Color),
+		"avatar_image": p.Avatar,
 	} {
 		if err := s.store.SetSetting(k, v); err != nil {
 			return err
@@ -310,6 +323,21 @@ func (s *Service) Contacts() ([]domain.Contact, error) {
 // check.
 func (s *Service) VerifyContact(peerID string) error {
 	return s.store.SetVerified(peerID)
+}
+
+// VerifyFingerprint marks a fingerprint (a member's stable identity) as
+// human-verified after an out-of-band comparison.
+func (s *Service) VerifyFingerprint(fingerprint string) error {
+	return s.store.SetVerifiedByFingerprint(fingerprint)
+}
+
+// VerifiedFingerprints returns which fingerprints the user has verified.
+func (s *Service) VerifiedFingerprints() map[string]bool {
+	m, err := s.store.VerifiedFingerprints()
+	if err != nil {
+		return map[string]bool{}
+	}
+	return m
 }
 
 // Close shuts everything down.

@@ -153,6 +153,38 @@ func (s *Store) SetVerified(peerID string) error {
 	return nil
 }
 
+// SetVerifiedByFingerprint marks every contact carrying this fingerprint as
+// human-verified (a peer may appear under multiple transient peer IDs, but the
+// fingerprint is the stable identity).
+func (s *Store) SetVerifiedByFingerprint(fingerprint string) error {
+	res, err := s.db.Exec(`UPDATE contacts SET verified = 1 WHERE fingerprint = ?`, fingerprint)
+	if err != nil {
+		return fmt.Errorf("store: verify by fingerprint: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("store: unknown fingerprint")
+	}
+	return nil
+}
+
+// VerifiedFingerprints returns the set of fingerprints the user has verified.
+func (s *Store) VerifiedFingerprints() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT fingerprint FROM contacts WHERE verified = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return nil, err
+		}
+		out[f] = true
+	}
+	return out, rows.Err()
+}
+
 // Contacts returns all known contacts, first-seen order.
 func (s *Store) Contacts() ([]domain.Contact, error) {
 	rows, err := s.db.Query(`SELECT peer_id, fingerprint, verified, first_seen FROM contacts ORDER BY first_seen`)

@@ -158,7 +158,9 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 	case "SetDisplayName":
 		return nil, s.b.SetDisplayName(argStr(args, 0))
 	case "SetProfile":
-		return nil, s.b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+		return nil, s.b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4))
+	case "VerifyFingerprint":
+		return nil, s.b.VerifyFingerprint(argStr(args, 0))
 	case "PinMessage":
 		return nil, s.b.PinMessage(argStr(args, 0), argStr(args, 1))
 	case "SearchMessages":
