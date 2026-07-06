@@ -5,8 +5,11 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import Attachment from "./Attachment.svelte";
+  import YouTubeEmbed from "./YouTubeEmbed.svelte";
+  import LinkPreview from "./LinkPreview.svelte";
   import { renderMarkdown } from "./lib/markdown.js";
   import { parseAttachTokens, stripAttachTokens, previewText } from "./lib/attachments.js";
+  import { extractLinks, youtubeID } from "./lib/embeds.js";
   import {
     S,
     memberByFpr,
@@ -26,6 +29,17 @@
   const mentionNames = $derived(S.displayName ? [S.displayName] : []);
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const bodyText = $derived(atts.length ? stripAttachTokens(m.content) : m.content);
+  // One embed per message: the first YouTube link gets a player; otherwise
+  // the first link gets a preview card.
+  const embed = $derived.by(() => {
+    if (m.deleted || m.kind !== "") return null;
+    for (const url of extractLinks(m.content)) {
+      const yt = youtubeID(url);
+      if (yt) return { kind: "yt", id: yt, url };
+      return { kind: "card", url };
+    }
+    return null;
+  });
   let editDraft = $state("");
 
   // Seed the edit draft whenever this message becomes the edit target — the
@@ -109,6 +123,13 @@
       {#each atts as tok (tok.blobId)}
         <Attachment channelId={m.channelId} {tok} />
       {/each}
+      {#if embed?.kind === "yt"}
+        <YouTubeEmbed videoId={embed.id} />
+      {:else if embed?.kind === "card"}
+        {#key embed.url}
+          <LinkPreview url={embed.url} />
+        {/key}
+      {/if}
     {/if}
 
     {#if m.reactions && Object.keys(m.reactions).length}

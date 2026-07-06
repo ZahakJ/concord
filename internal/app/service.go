@@ -58,6 +58,9 @@ type Service struct {
 	// attachFlight collapses concurrent fetches of one attachment blob (e.g.
 	// the same image rendered several times) into a single network request.
 	attachFlight singleflight.Group
+
+	// previews caches link-preview scrapes (see preview.go).
+	previews *previewCache
 }
 
 // Profile is a member's self-asserted presentation: display name, a short
@@ -166,6 +169,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		voiceRooms:     map[string]context.CancelFunc{},
 		profiles:       map[string]Profile{},
 		outOfSync:      map[string]bool{},
+		previews:       newPreviewCache(),
 	}
 
 	// Restore learned member profiles so names survive restarts (they are also

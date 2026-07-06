@@ -525,6 +525,28 @@ func (b *bridge) SendMessage(channelID, content, replyTo string) error {
 	return err
 }
 
+// PreviewView is a scraped link summary for embeds (see internal/app/preview.go).
+type PreviewView struct {
+	URL         string `json:"url"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	ImageURL    string `json:"imageUrl"`
+	SiteName    string `json:"siteName"`
+}
+
+// LinkPreview fetches a link's OpenGraph metadata (SSRF-guarded, cached).
+func (b *bridge) LinkPreview(url string) (PreviewView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return PreviewView{}, err
+	}
+	p, err := svc.LinkPreview(url)
+	if err != nil {
+		return PreviewView{}, err
+	}
+	return PreviewView{URL: p.URL, Title: p.Title, Description: p.Description, ImageURL: p.ImageURL, SiteName: p.SiteName}, nil
+}
+
 // SendAttachment seals an image into a local encrypted blob and posts the
 // reference token as a chat message (see internal/app/attach.go).
 func (b *bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string) error {
