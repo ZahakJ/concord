@@ -1,7 +1,11 @@
 <script>
   // The leftmost rail: one circle per guild, unread badges, create/join.
   import Icon from "./Icon.svelte";
-  import { S, selectGuild, guildUnread } from "./lib/state.svelte.js";
+  import { S, selectGuild, selectNotes, guildUnread } from "./lib/state.svelte.js";
+
+  const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
+  const notesActive = $derived(g?.kind === "dm");
+  const servers = $derived(S.guilds.filter((x) => x.kind !== "dm"));
 
   const initials = (name) =>
     name
@@ -14,17 +18,28 @@
 <nav class="rail" aria-label="Servers">
   <div class="brand" title="Concord"><Icon name="concorde" size={26} /></div>
 
-  {#each S.guilds as g (g.id)}
-    {@const u = guildUnread(g)}
+  <button
+    class="pill notes"
+    class:active={notesActive}
+    title="Notes (your private space)"
+    aria-label="Notes"
+    onclick={selectNotes}
+  >
+    <Icon name="edit" size={18} />
+  </button>
+  <div class="divider"></div>
+
+  {#each servers as sv (sv.id)}
+    {@const u = guildUnread(sv)}
     <button
       class="pill"
-      class:active={g.id === S.activeGuildId}
-      title={g.name}
-      aria-label={g.name}
-      onclick={() => selectGuild(g.id)}
+      class:active={sv.id === S.activeGuildId}
+      title={sv.name}
+      aria-label={sv.name}
+      onclick={() => selectGuild(sv.id)}
     >
-      <span class="face">{initials(g.name)}</span>
-      {#if g.id !== S.activeGuildId && u.count > 0}
+      <span class="face">{initials(sv.name)}</span>
+      {#if sv.id !== S.activeGuildId && u.count > 0}
         <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
       {/if}
     </button>
@@ -87,6 +102,22 @@
     border-radius: 14px;
     background: var(--accent);
     color: white;
+  }
+  .pill.notes {
+    background: var(--bg-2);
+    color: var(--accent-hover);
+  }
+  .pill.notes.active {
+    background: var(--accent);
+    color: white;
+  }
+  .divider {
+    width: 28px;
+    height: 2px;
+    border-radius: 2px;
+    background: var(--border);
+    margin: 2px 0;
+    flex-shrink: 0;
   }
   .pill.add {
     background: transparent;

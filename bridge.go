@@ -115,6 +115,7 @@ type CategoryView struct {
 type GuildView struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
+	Kind       string         `json:"kind,omitempty"` // "" guild, "dm" direct message
 	IsOwner    bool           `json:"isOwner"`
 	Channels   []ChannelView  `json:"channels"`
 	Categories []CategoryView `json:"categories"`
@@ -731,9 +732,22 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		}
 	}
 	return GuildView{
-		ID: g.ID, Name: g.Name, IsOwner: svc.IsOwner(g.ID),
+		ID: g.ID, Name: g.Name, Kind: g.Kind, IsOwner: svc.IsOwner(g.ID),
 		Channels: channels, Categories: cats, OutOfSync: svc.OutOfSync(g.ID),
 	}
+}
+
+// NotesDM returns (creating if needed) the user's personal self-DM.
+func (b *bridge) NotesDM() (GuildView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return GuildView{}, err
+	}
+	g, err := svc.NotesDM()
+	if err != nil {
+		return GuildView{}, err
+	}
+	return guildView(svc, g), nil
 }
 
 func messageView(m domain.Message) MessageView {
@@ -786,6 +800,8 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.Guilds()
 	case "CreateGuild":
 		return b.CreateGuild(argStr(args, 0))
+	case "NotesDM":
+		return b.NotesDM()
 	case "InviteCode":
 		return b.InviteCode(argStr(args, 0))
 	case "JoinViaInvite":

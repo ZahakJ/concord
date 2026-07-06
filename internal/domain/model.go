@@ -24,6 +24,10 @@ type Guild struct {
 	OwnerID  []byte    `json:"ownerId"` // owner's Ed25519 account public key
 	Channels []Channel `json:"channels"`
 	Created  time.Time `json:"created"`
+	// Kind is "" for a normal guild or "dm" for a direct-message conversation
+	// (rendered without server chrome). A self-DM ("Notes") is a dm with one
+	// member — yourself.
+	Kind string `json:"kind,omitempty"`
 }
 
 // A Channel is a named message stream within a guild. Each channel maps to one

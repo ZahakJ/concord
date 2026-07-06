@@ -253,10 +253,10 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 
 	_, err = tx.Exec(
-		`INSERT INTO guilds (id, name, group_id, owner_id, created)
-		 VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO guilds (id, name, group_id, owner_id, created, kind)
+		 VALUES (?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET name=excluded.name`,
-		g.ID, g.Name, g.GroupID, g.OwnerID, g.Created.UnixNano(),
+		g.ID, g.Name, g.GroupID, g.OwnerID, g.Created.UnixNano(), g.Kind,
 	)
 	if err != nil {
 		return fmt.Errorf("store: save guild: %w", err)
@@ -276,7 +276,7 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 
 // Guilds loads all guilds with their channels.
 func (s *Store) Guilds() ([]domain.Guild, error) {
-	rows, err := s.db.Query(`SELECT id, name, group_id, owner_id, created FROM guilds ORDER BY created`)
+	rows, err := s.db.Query(`SELECT id, name, group_id, owner_id, created, kind FROM guilds ORDER BY created`)
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +286,7 @@ func (s *Store) Guilds() ([]domain.Guild, error) {
 	for rows.Next() {
 		var g domain.Guild
 		var created int64
-		if err := rows.Scan(&g.ID, &g.Name, &g.GroupID, &g.OwnerID, &created); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &g.GroupID, &g.OwnerID, &created, &g.Kind); err != nil {
 			return nil, err
 		}
 		g.Created = time.Unix(0, created).UTC()

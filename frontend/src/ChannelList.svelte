@@ -35,7 +35,16 @@
   </header>
 
   <div class="scroll">
-    {#if g}
+    {#if g?.kind === "dm"}
+      <div class="dm-intro">
+        <div class="dm-icon"><Icon name="edit" size={22} /></div>
+        <strong>Notes</strong>
+        <p class="muted">
+          Your private, end-to-end-encrypted space. Jot things down, drop links and files —
+          only you can read it. It'll follow you to your other devices once they're linked.
+        </p>
+      </div>
+    {:else if g}
       <div class="section-head">
         <span>Channels</span>
         <span class="head-actions">
@@ -237,6 +246,28 @@
     font-size: 13px;
     line-height: 1.5;
     padding: 8px;
+  }
+  .dm-intro {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    padding: 24px 14px;
+  }
+  .dm-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .dm-intro p {
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 0;
   }
   .me-row {
     display: flex;

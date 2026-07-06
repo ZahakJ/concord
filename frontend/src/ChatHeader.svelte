@@ -81,7 +81,10 @@
 
 <header class="chat-head">
   <div class="row title">
-    {#if ch}
+    {#if g?.kind === "dm"}
+      <Icon name="edit" size={15} />
+      <strong>{g.name}</strong>
+    {:else if ch}
       <Icon name="hash" size={15} />
       <strong>{ch.name}</strong>
     {:else}
@@ -105,7 +108,7 @@
           <Icon name="door" size={13} />
         </button>
       </span>
-    {:else if ch}
+    {:else if ch && g?.kind !== "dm"}
       <button class="ghost iconbtn" title="Join voice" onclick={onJoinVoice}>
         <Icon name="speaker" /> <span class="n">Voice</span>
       </button>
@@ -123,11 +126,11 @@
       </button>
     {/if}
 
-    {#if g?.isOwner}
+    {#if g?.isOwner && g?.kind !== "dm"}
       <button class="ghost invite" onclick={showInvite}>Invite</button>
     {/if}
 
-    {#if g}
+    {#if g && g.kind !== "dm"}
       <Menu label="More" icon="chevron">
         {#if ch}
           <button class="menu-item" onclick={exportChannel}>

@@ -44,6 +44,7 @@ export const api = {
   identity: () => call("Identity"),
   guilds: () => call("Guilds"),
   createGuild: (name) => call("CreateGuild", name),
+  notesDM: () => call("NotesDM"),
   createChannel: (guildID, name, type = "", category = "") =>
     call("CreateChannel", guildID, name, type, category),
   createCategory: (guildID, name) => call("CreateCategory", guildID, name),

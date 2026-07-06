@@ -249,6 +249,17 @@ export async function selectGuild(id) {
   await refreshRightPanel();
 }
 
+// selectNotes ensures the personal self-DM exists, then opens it.
+export async function selectNotes() {
+  try {
+    const notes = await api.notesDM();
+    if (!S.guilds.some((g) => g.id === notes.id)) await refreshGuilds();
+    await selectGuild(notes.id);
+  } catch (err) {
+    flash(err);
+  }
+}
+
 export async function selectChannel(id) {
   S.activeChannelId = id;
   markRead(id);
