@@ -52,7 +52,7 @@ func (s *Service) JoinVoice(channelID string) error {
 	if err := s.ps.Subscribe(s.ctx, topic, func(from peer.ID, data []byte) {
 		var a voiceAnnounce
 		if json.Unmarshal(data, &a) == nil && a.ChannelID == channelID {
-			s.emitVoicePresence(from.String(), channelID, a.Action)
+			s.emitVoicePresence(from.String(), presenceFor(from).Fingerprint, channelID, a.Action)
 		}
 	}); err != nil {
 		return err
@@ -121,7 +121,8 @@ func (s *Service) groupForChannel(channelID string) ([]byte, error) {
 // ---- voice event callbacks (wired by the front-end transport) ----
 
 // OnVoicePresence fires when a peer announces joining/leaving a voice room.
-func (s *Service) OnVoicePresence(fn func(from, channelID, action string)) {
+// from is the peer ID (used for signaling); fingerprint identifies the account.
+func (s *Service) OnVoicePresence(fn func(from, fingerprint, channelID, action string)) {
 	s.mu.Lock()
 	s.onVoicePresence = append(s.onVoicePresence, fn)
 	s.mu.Unlock()
@@ -134,12 +135,12 @@ func (s *Service) OnVoiceSignal(fn func(from string, data []byte)) {
 	s.mu.Unlock()
 }
 
-func (s *Service) emitVoicePresence(from, channelID, action string) {
+func (s *Service) emitVoicePresence(from, fingerprint, channelID, action string) {
 	s.mu.RLock()
-	cbs := append([]func(string, string, string){}, s.onVoicePresence...)
+	cbs := append([]func(string, string, string, string){}, s.onVoicePresence...)
 	s.mu.RUnlock()
 	for _, cb := range cbs {
-		cb(from, channelID, action)
+		cb(from, fingerprint, channelID, action)
 	}
 }
 

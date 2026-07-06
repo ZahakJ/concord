@@ -14,26 +14,78 @@ const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 export class VoiceMesh {
   // selfPeerId: our libp2p peer id; channelId: the voice room; relay(to, json)
   // sends a signaling blob; onRoster(peerIds[]) reports participant changes.
-  constructor({ selfPeerId, channelId, relay, onRoster }) {
+  constructor({ selfPeerId, channelId, relay, onRoster, onSpeaking }) {
     this.selfPeerId = selfPeerId;
     this.channelId = channelId;
     this.relay = relay;
     this.onRoster = onRoster || (() => {});
+    this.onSpeaking = onSpeaking || (() => {});
     this.peers = new Map(); // peerId -> { pc, makingOffer, ignoreOffer, audioEl }
     this.localStream = null;
     this.muted = false;
+    this.audioCtx = null;
+    this.analysers = new Map(); // key ("self"|peerId) -> { analyser, data }
+    this._monitor = null;
+    this._lastSpeaking = "";
   }
 
   async start() {
     this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this._addAnalyser("self", this.localStream);
+    this._startMonitor();
   }
 
   stop() {
     for (const id of [...this.peers.keys()]) this.removePeer(id);
+    if (this._monitor) clearInterval(this._monitor);
+    this._monitor = null;
+    this.analysers.clear();
+    if (this.audioCtx) {
+      this.audioCtx.close().catch(() => {});
+      this.audioCtx = null;
+    }
     if (this.localStream) {
       this.localStream.getTracks().forEach((t) => t.stop());
       this.localStream = null;
     }
+  }
+
+  // _addAnalyser wires an audio-level meter for a stream, keyed by "self" or a
+  // peer ID, so we can detect who is currently speaking.
+  _addAnalyser(key, stream) {
+    try {
+      if (!this.audioCtx) {
+        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      const src = this.audioCtx.createMediaStreamSource(stream);
+      const analyser = this.audioCtx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      this.analysers.set(key, { analyser, data: new Uint8Array(analyser.frequencyBinCount) });
+    } catch {
+      /* audio metering is best-effort */
+    }
+  }
+
+  _startMonitor() {
+    if (this._monitor) return;
+    this._monitor = setInterval(() => {
+      const speaking = new Set();
+      for (const [key, { analyser, data }] of this.analysers) {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i] - 128) / 128;
+          sum += v * v;
+        }
+        if (Math.sqrt(sum / data.length) > 0.04) speaking.add(key);
+      }
+      const sig = [...speaking].sort().join(",");
+      if (sig !== this._lastSpeaking) {
+        this._lastSpeaking = sig;
+        this.onSpeaking([...speaking]);
+      }
+    }, 150);
   }
 
   setMuted(muted) {
@@ -133,6 +185,7 @@ export class VoiceMesh {
         peer.audioEl = el;
       }
       el.srcObject = streams[0];
+      this._addAnalyser(peerId, streams[0]);
     };
     pc.onconnectionstatechange = () => {
       if (["failed", "closed"].includes(pc.connectionState)) this.removePeer(peerId);
@@ -149,6 +202,7 @@ export class VoiceMesh {
       peer.pc.close();
     } catch {}
     if (peer.audioEl) peer.audioEl.srcObject = null;
+    this.analysers.delete(peerId);
     this.peers.delete(peerId);
     this.emitRoster();
   }

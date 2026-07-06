@@ -39,7 +39,7 @@ func TestVoiceSignalingBackbone(t *testing.T) {
 	var bGotSignal []byte
 
 	bPeerID := b.PeerID()
-	a.OnVoicePresence(func(from, ch, action string) {
+	a.OnVoicePresence(func(from, fingerprint, ch, action string) {
 		mu.Lock()
 		if from == bPeerID && ch == channel && action == "join" {
 			aSawB = true

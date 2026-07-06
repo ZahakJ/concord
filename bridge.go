@@ -46,9 +46,10 @@ type TypingInfo struct {
 
 // VoicePresence reports a peer joining or leaving a channel's voice room.
 type VoicePresence struct {
-	From      string `json:"from"`
-	ChannelID string `json:"channelId"`
-	Action    string `json:"action"`
+	From        string `json:"from"` // peer ID (for signaling)
+	Fingerprint string `json:"fingerprint"`
+	ChannelID   string `json:"channelId"`
+	Action      string `json:"action"`
 }
 
 // VoiceSignal carries an opaque WebRTC signaling blob from a peer.
@@ -166,9 +167,9 @@ func (b *bridge) Login(passphrase string) error {
 	}
 	svc.OnPeerConnected(presence)
 	svc.OnPeerDisconnected(presence)
-	svc.OnVoicePresence(func(from, channelID, action string) {
+	svc.OnVoicePresence(func(from, fingerprint, channelID, action string) {
 		if b.onVoicePresence != nil {
-			b.onVoicePresence(VoicePresence{From: from, ChannelID: channelID, Action: action})
+			b.onVoicePresence(VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action})
 		}
 	})
 	svc.OnVoiceSignal(func(from string, data []byte) {

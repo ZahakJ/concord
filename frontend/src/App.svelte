@@ -50,8 +50,16 @@
 
   // Voice state
   let voice = $state(null); // { mesh, channelId }
-  let voiceParticipants = $state([]);
+  let voiceParticipants = $state([]); // peer IDs
+  let voiceSpeaking = $state([]); // keys currently speaking: "self" or peerId
+  let voicePeerFpr = $state({}); // peerId -> fingerprint
   let muted = $state(false);
+
+  function voiceName(peerId) {
+    const fpr = voicePeerFpr[peerId];
+    const mem = members.find((m) => m.fingerprint === fpr);
+    return mem?.name || (fpr ? fpr.slice(0, 9) : peerId.slice(0, 8));
+  }
 
   // Typing state
   let typingList = $state([]); // [{ from, timer }]
@@ -97,6 +105,13 @@
     // Route voice signaling to the active mesh.
     on("voice-presence", (v) => {
       if (voice && v.channelId === voice.channelId) {
+        if (v.action === "join") {
+          voicePeerFpr = { ...voicePeerFpr, [v.from]: v.fingerprint };
+        } else {
+          const c = { ...voicePeerFpr };
+          delete c[v.from];
+          voicePeerFpr = c;
+        }
         voice.mesh.handlePresence(v.from, v.action);
       }
     });
@@ -133,6 +148,7 @@
       channelId: activeChannelId,
       relay: api.relaySignal,
       onRoster: (ids) => (voiceParticipants = ids),
+      onSpeaking: (keys) => (voiceSpeaking = keys),
     });
     try {
       await mesh.start();
@@ -151,6 +167,8 @@
     voice.mesh.stop();
     voice = null;
     voiceParticipants = [];
+    voiceSpeaking = [];
+    voicePeerFpr = {};
     muted = false;
     await api.leaveVoice(ch);
   }
@@ -394,6 +412,21 @@
           {/if}
         </div>
       </header>
+
+      {#if voice && voice.channelId === activeChannelId}
+        <div class="voice-panel">
+          <div class="voice-tile" class:speaking={voiceSpeaking.includes("self")}>
+            <div class="voice-avatar">{(displayName || "Y").slice(0, 2)}</div>
+            <span>You{muted ? " 🔇" : ""}</span>
+          </div>
+          {#each voiceParticipants as pid (pid)}
+            <div class="voice-tile" class:speaking={voiceSpeaking.includes(pid)}>
+              <div class="voice-avatar">{voiceName(pid).slice(0, 2)}</div>
+              <span>{voiceName(pid)}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
 
       <div class="feed" bind:this={feedEl}>
         {#each messages as m (m.id)}
@@ -664,6 +697,37 @@
   }
   .leave {
     color: var(--danger);
+  }
+  .voice-panel {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    padding: 12px 18px;
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+  }
+  .voice-tile {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .voice-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    display: grid;
+    place-items: center;
+    font-weight: 600;
+    text-transform: uppercase;
+    border: 2px solid transparent;
+    transition: border-color 0.1s ease;
+  }
+  .voice-tile.speaking .voice-avatar {
+    border-color: var(--verified);
+    box-shadow: 0 0 0 2px rgba(59, 165, 93, 0.4);
   }
   .feed {
     flex: 1;

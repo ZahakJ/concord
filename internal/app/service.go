@@ -40,7 +40,7 @@ type Service struct {
 
 	voiceMu         sync.Mutex
 	voiceRooms      map[string]context.CancelFunc // channel ID -> heartbeat stop
-	onVoicePresence []func(from, channelID, action string)
+	onVoicePresence []func(from, fingerprint, channelID, action string)
 	onVoiceSignal   []func(from string, data []byte)
 
 	onTyping      []func(from, channelID string)
