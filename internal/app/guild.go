@@ -325,6 +325,9 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 	case "edit":
 		s.applyEdit(msg.ReplyTo, msg.Content, msg.Sender)
 		return msg, nil
+	case "pin":
+		s.applyPin(msg.ReplyTo)
+		return msg, nil
 	}
 	if err := s.store.SaveMessage(msg); err != nil {
 		return domain.Message{}, err
@@ -373,6 +376,30 @@ func (s *Service) applyEdit(targetID, newContent string, bySender []byte) {
 	if m, found, err := s.store.MessageByID(targetID); err == nil && found {
 		s.emitMessage(m)
 	}
+}
+
+// PinMessage toggles a message's pinned state for everyone in the guild.
+func (s *Service) PinMessage(channelID, targetID string) error {
+	_, err := s.send(channelID, "pin", "pin", targetID)
+	return err
+}
+
+// applyPin toggles the pin locally and re-emits the message so UIs refresh.
+func (s *Service) applyPin(targetID string) {
+	if targetID == "" {
+		return
+	}
+	if _, err := s.store.TogglePinned(targetID); err != nil {
+		return
+	}
+	if m, ok, err := s.store.MessageByID(targetID); err == nil && ok {
+		s.emitMessage(m)
+	}
+}
+
+// SearchMessages searches this peer's full local history (all guilds/channels).
+func (s *Service) SearchMessages(query string, limit int) ([]domain.Message, error) {
+	return s.store.SearchMessages(query, limit)
 }
 
 // DeleteMessage removes one of this peer's own messages for everyone.
@@ -434,10 +461,13 @@ func (s *Service) trackGuild(g *domain.Guild) {
 // topic so all members converge on shared state (channels, member display
 // names). Only the fields relevant to Type are populated.
 type guildMeta struct {
-	Type        string         `json:"type"` // "channel_added" | "profile"
+	Type        string         `json:"type"` // "channel_added" | "profile" | "guild_renamed"
 	Channel     domain.Channel `json:"channel,omitempty"`
 	Fingerprint string         `json:"fingerprint,omitempty"`
 	Name        string         `json:"name,omitempty"`
+	Status      string         `json:"status,omitempty"`
+	Emoji       string         `json:"emoji,omitempty"`
+	Color       string         `json:"color,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -465,7 +495,11 @@ func (s *Service) announceProfile(guildID string) {
 	if !ok {
 		return
 	}
-	meta := guildMeta{Type: "profile", Fingerprint: s.id.Fingerprint(), Name: s.DisplayName()}
+	p := s.SelfProfile()
+	meta := guildMeta{
+		Type: "profile", Fingerprint: s.id.Fingerprint(),
+		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color,
+	}
 	payload, _ := json.Marshal(meta)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
 	if err != nil {
@@ -617,7 +651,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		s.mu.Lock()
 		_, known := s.profiles[m.Fingerprint]
-		s.profiles[m.Fingerprint] = m.Name
+		s.profiles[m.Fingerprint] = Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color}
 		s.mu.Unlock()
 		// First time we see this member: reply with our own profile so the
 		// newcomer learns us too (bounded — only on genuinely new members).
@@ -651,6 +685,9 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 		return
 	case "edit":
 		s.applyEdit(m.ReplyTo, m.Content, m.Sender)
+		return
+	case "pin":
+		s.applyPin(m.ReplyTo)
 		return
 	}
 	if err := s.store.SaveMessage(m); err != nil {

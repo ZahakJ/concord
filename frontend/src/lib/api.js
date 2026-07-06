@@ -65,6 +65,9 @@ export const api = {
   relaySignal: (toPeerID, data) => call("RelaySignal", toPeerID, data),
   sendTyping: (channelID) => call("SendTyping", channelID),
   setDisplayName: (name) => call("SetDisplayName", name),
+  setProfile: (name, status, emoji, color) => call("SetProfile", name, status, emoji, color),
+  pinMessage: (channelID, messageID) => call("PinMessage", channelID, messageID),
+  searchMessages: (query) => call("SearchMessages", query),
 };
 
 // Shared SSE connection for the browser transport.

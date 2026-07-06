@@ -47,7 +47,17 @@ type Service struct {
 	onTyping      []func(from, channelID string)
 	onGuildUpdate []func()
 
-	profiles map[string]string // fingerprint -> display name, learned from peers
+	profiles map[string]Profile // fingerprint -> profile, learned from peers
+}
+
+// Profile is a member's self-asserted presentation: display name, a short
+// status line, an avatar emoji, and an accent color. All decorative — the
+// fingerprint remains the authenticated identity.
+type Profile struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Emoji  string `json:"emoji"`
+	Color  string `json:"color"`
 }
 
 // PeerPresence is a UI-facing view of a connected peer.
@@ -138,7 +148,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		guilds:         map[string]*domain.Guild{},
 		channelToGuild: map[string]string{},
 		voiceRooms:     map[string]context.CancelFunc{},
-		profiles:       map[string]string{},
+		profiles:       map[string]Profile{},
 	}
 
 	// Owner side of the join handshake.
@@ -250,11 +260,40 @@ func (s *Service) SetDisplayName(name string) error {
 	return nil
 }
 
-// ProfileName returns a peer's learned display name for a fingerprint, or "".
-func (s *Service) ProfileName(fingerprint string) string {
+// SelfProfile returns this peer's own profile (name, status, emoji, color).
+func (s *Service) SelfProfile() Profile {
+	status, _ := s.store.GetSetting("status_text")
+	emoji, _ := s.store.GetSetting("avatar_emoji")
+	color, _ := s.store.GetSetting("accent_color")
+	return Profile{Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color}
+}
+
+// SetProfile persists the full self profile and re-announces it to every guild.
+func (s *Service) SetProfile(p Profile) error {
+	for k, v := range map[string]string{
+		"display_name": strings.TrimSpace(p.Name),
+		"status_text":  strings.TrimSpace(p.Status),
+		"avatar_emoji": strings.TrimSpace(p.Emoji),
+		"accent_color": strings.TrimSpace(p.Color),
+	} {
+		if err := s.store.SetSetting(k, v); err != nil {
+			return err
+		}
+	}
+	s.announceProfileAll()
+	return nil
+}
+
+// ProfileOf returns a peer's learned profile for a fingerprint (zero if unknown).
+func (s *Service) ProfileOf(fingerprint string) Profile {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.profiles[fingerprint]
+}
+
+// ProfileName returns a peer's learned display name for a fingerprint, or "".
+func (s *Service) ProfileName(fingerprint string) string {
+	return s.ProfileOf(fingerprint).Name
 }
 
 // Contacts returns known peers and their verification status.

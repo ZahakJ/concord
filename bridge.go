@@ -89,6 +89,9 @@ type IdentityInfo struct {
 	PeerID      string `json:"peerId"`
 	Fingerprint string `json:"fingerprint"`
 	DisplayName string `json:"displayName"`
+	Status      string `json:"status"`
+	Emoji       string `json:"emoji"`
+	Color       string `json:"color"`
 }
 
 type ChannelView struct {
@@ -113,6 +116,7 @@ type MessageView struct {
 	Content    string              `json:"content"`
 	Deleted    bool                `json:"deleted"`
 	Edited     bool                `json:"edited"`
+	Pinned     bool                `json:"pinned"`
 	Reactions  map[string][]string `json:"reactions"` // emoji -> fingerprints
 	Sent       string              `json:"sent"`
 }
@@ -120,6 +124,9 @@ type MessageView struct {
 type MemberView struct {
 	Fingerprint string `json:"fingerprint"`
 	Name        string `json:"name"`
+	Status      string `json:"status"`
+	Emoji       string `json:"emoji"`
+	Color       string `json:"color"`
 	IsSelf      bool   `json:"isSelf"`
 	Online      bool   `json:"online"`
 }
@@ -308,11 +315,50 @@ func (b *bridge) Identity() (IdentityInfo, error) {
 	if err != nil {
 		return IdentityInfo{}, err
 	}
+	p := svc.SelfProfile()
 	return IdentityInfo{
 		PeerID:      svc.PeerID(),
 		Fingerprint: svc.Fingerprint(),
-		DisplayName: svc.DisplayName(),
+		DisplayName: p.Name,
+		Status:      p.Status,
+		Emoji:       p.Emoji,
+		Color:       p.Color,
 	}, nil
+}
+
+// SetProfile updates this peer's name/status/emoji/color and re-announces.
+func (b *bridge) SetProfile(name, status, emoji, color string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetProfile(appsvc.Profile{Name: name, Status: status, Emoji: emoji, Color: color})
+}
+
+// PinMessage toggles a message's pinned state for everyone.
+func (b *bridge) PinMessage(channelID, messageID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.PinMessage(channelID, messageID)
+}
+
+// SearchMessages searches this peer's full local history.
+func (b *bridge) SearchMessages(query string) ([]MessageView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	msgs, err := svc.SearchMessages(query, 50)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MessageView, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, messageView(m))
+	}
+	return out, nil
 }
 
 // SetDisplayName updates this peer's display name.
@@ -416,13 +462,16 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 	for _, cred := range creds {
 		fpr := identity.FingerprintOf(cred)
 		isSelf := bytes.Equal(cred, self)
-		name := svc.ProfileName(fpr)
+		p := svc.ProfileOf(fpr)
 		if isSelf {
-			name = svc.DisplayName()
+			p = svc.SelfProfile()
 		}
 		out = append(out, MemberView{
 			Fingerprint: fpr,
-			Name:        name,
+			Name:        p.Name,
+			Status:      p.Status,
+			Emoji:       p.Emoji,
+			Color:       p.Color,
 			IsSelf:      isSelf,
 			Online:      isSelf || online[fpr],
 		})
@@ -492,6 +541,7 @@ func messageView(m domain.Message) MessageView {
 		Content:    m.Content,
 		Deleted:    m.Deleted,
 		Edited:     m.Edited,
+		Pinned:     m.Pinned,
 		Reactions:  m.Reactions,
 		Sent:       m.Sent.Format("2006-01-02T15:04:05Z07:00"),
 	}

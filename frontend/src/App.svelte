@@ -5,6 +5,7 @@
   import ModalCreate from "./modals/ModalCreate.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
+  import ModalProfile from "./modals/ModalProfile.svelte";
 
   let ready = $state(false);
   let identity = $state({ peerId: "", fingerprint: "", displayName: "" });
@@ -19,6 +20,83 @@
   let toast = $state("");
   let replyingTo = $state(null); // message being replied to
   let unreadChannels = $state({}); // channelId -> true
+  let showPins = $state(false);
+  let searchQuery = $state("");
+  let searchResults = $state(null); // null = closed, [] = no hits
+
+  const pinnedMessages = $derived(messages.filter((m) => m.pinned && !m.deleted));
+
+  // memberByFpr powers avatars: color + emoji come from the sender's profile.
+  function memberByFpr(fpr) {
+    return members.find((x) => x.fingerprint === fpr);
+  }
+  function avatarStyle(fpr) {
+    const c = memberByFpr(fpr)?.color;
+    return c ? `background:${c}` : "";
+  }
+  function avatarGlyph(fpr, fallbackName) {
+    const mem = memberByFpr(fpr);
+    return mem?.emoji || (mem?.name || fallbackName || "?").slice(0, 2);
+  }
+
+  function applyAccent(color) {
+    if (!color) return;
+    document.documentElement.style.setProperty("--accent", color);
+  }
+
+  async function runSearch(e) {
+    e?.preventDefault();
+    const q = searchQuery.trim();
+    if (!q) {
+      searchResults = null;
+      return;
+    }
+    try {
+      searchResults = (await api.searchMessages(q)) || [];
+    } catch (err) {
+      flash(String(err?.message || err));
+    }
+  }
+
+  function channelName(chId) {
+    for (const g of guilds) {
+      const c = g.channels.find((x) => x.id === chId);
+      if (c) return `${g.name} #${c.name}`;
+    }
+    return "unknown channel";
+  }
+
+  async function openSearchResult(m) {
+    searchResults = null;
+    searchQuery = "";
+    for (const g of guilds) {
+      if (g.channels.some((c) => c.id === m.channelId)) {
+        if (activeGuildId !== g.id) await selectGuild(g.id);
+        await selectChannel(m.channelId);
+        return;
+      }
+    }
+  }
+
+  function exportChannel() {
+    if (!activeChannel) return;
+    const lines = messages
+      .filter((m) => !m.deleted)
+      .map((m) =>
+        m.kind === "system"
+          ? `> ✨ ${m.senderName || m.sender} ${m.content}`
+          : `**${m.senderName || m.sender}** (${m.sent}):\n${m.content}\n`,
+      );
+    const blob = new Blob([`# ${channelName(activeChannelId)}\n\n` + lines.join("\n")], {
+      type: "text/markdown",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${activeChannel.name}-history.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    flash("History exported");
+  }
 
   function msgById(id) {
     return messages.find((m) => m.id === id);
@@ -83,6 +161,10 @@
   async function onLogin() {
     identity = await api.identity();
     displayName = identity.displayName || "";
+    applyAccent(identity.color);
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
     await refreshGuilds();
     ready = true;
 
@@ -98,6 +180,17 @@
         }
       } else if (m.channelId) {
         unreadChannels = { ...unreadChannels, [m.channelId]: true };
+      }
+      // Desktop notification when the window isn't focused (normal chat only).
+      if (
+        m.kind === "" &&
+        !m.deleted &&
+        m.sender !== identity.fingerprint &&
+        typeof Notification !== "undefined" &&
+        Notification.permission === "granted" &&
+        document.hidden
+      ) {
+        new Notification(m.senderName || m.sender.slice(0, 9), { body: m.content.slice(0, 120) });
       }
     });
     on("presence", () => refreshRightPanel());
@@ -178,11 +271,14 @@
     voice?.mesh.setMuted(muted);
   }
 
-  async function saveName() {
-    const n = displayName.trim();
-    if (!n) return;
-    await api.setDisplayName(n);
-    flash("Name updated");
+  async function saveProfile(p) {
+    await api.setProfile(p.name, p.status, p.emoji, p.color);
+    identity = await api.identity();
+    displayName = identity.displayName || "";
+    applyAccent(identity.color);
+    await refreshRightPanel();
+    modal = null;
+    flash("Profile updated");
   }
 
   async function refreshGuilds() {
@@ -387,17 +483,15 @@
         {/each}
       {/if}
 
-      <div class="me">
-        <input
-          class="name-input"
-          bind:value={displayName}
-          onblur={saveName}
-          onkeydown={(e) => e.key === "Enter" && e.target.blur()}
-          placeholder="Set your name"
-          maxlength="32"
-        />
-        <div class="muted mono" title={identity.peerId}>{identity.fingerprint}</div>
-      </div>
+      <button class="me" onclick={() => (modal = { kind: "profile" })} title="Edit profile">
+        <div class="me-avatar" style={identity.color ? `background:${identity.color}` : ""}>
+          {identity.emoji || (displayName || "?").slice(0, 2)}
+        </div>
+        <div class="me-text">
+          <strong>{displayName || "Set your name"}</strong>
+          <span class="muted small-status">{identity.status || "click to edit profile"}</span>
+        </div>
+      </button>
     </aside>
 
     <!-- Chat -->
@@ -407,6 +501,18 @@
           {#if activeChannel}<strong># {activeChannel.name}</strong>{:else}<span class="muted">No channel</span>{/if}
         </div>
         <div class="row">
+          <form onsubmit={runSearch}>
+            <input class="search-box" placeholder="Search…" bind:value={searchQuery} />
+          </form>
+          {#if activeChannel}
+            <button
+              class="ghost"
+              class:pin-active={showPins}
+              title="Pinned messages"
+              onclick={() => (showPins = !showPins)}>📌 {pinnedMessages.length}</button
+            >
+            <button class="ghost" title="Export history" onclick={exportChannel}>⤓</button>
+          {/if}
           {#if voice && voice.channelId === activeChannelId}
             <span class="voice-pill">🔊 {voiceParticipants.length + 1} in voice</span>
             <button class="ghost" onclick={toggleMute}>{muted ? "🔇 Unmute" : "🎙 Mute"}</button>
@@ -436,6 +542,34 @@
         </div>
       {/if}
 
+      {#if showPins}
+        <div class="pins-panel">
+          {#each pinnedMessages as m (m.id)}
+            <div class="pin-item">
+              <span>📌 <strong>{m.senderName || m.sender.slice(0, 9)}</strong>: {m.content.slice(0, 80)}</span>
+              <button class="mini" title="Unpin" onclick={() => api.pinMessage(m.channelId, m.id)}>✕</button>
+            </div>
+          {:else}
+            <div class="muted small">No pinned messages — hover a message and hit 📌.</div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if searchResults !== null}
+        <div class="search-panel">
+          <div class="search-head">
+            <span class="muted">{searchResults.length} result{searchResults.length === 1 ? "" : "s"}</span>
+            <button class="mini" onclick={() => ((searchResults = null), (searchQuery = ""))}>✕</button>
+          </div>
+          {#each searchResults as m (m.id)}
+            <button class="search-hit" onclick={() => openSearchResult(m)}>
+              <span class="muted small">{channelName(m.channelId)}</span>
+              <span><strong>{m.senderName || m.sender.slice(0, 9)}</strong>: {m.content.slice(0, 100)}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+
       <div class="feed" bind:this={feedEl}>
         {#each messages as m (m.id)}
           {#if m.kind === "system"}
@@ -444,7 +578,9 @@
             </div>
           {:else}
           <div class="msg">
-            <div class="avatar">{(m.senderName || m.sender || "?").slice(0, 2)}</div>
+            <div class="avatar" style={avatarStyle(m.sender)}>
+              {avatarGlyph(m.sender, m.senderName)}
+            </div>
             <div class="msg-main">
               {#if m.replyTo}
                 {@const r = msgById(m.replyTo)}
@@ -456,6 +592,7 @@
                 <span class="sender">{m.senderName || m.sender}</span>
                 <span class="muted mono verify-fpr" title="verified identity">{m.sender.slice(0, 9)}</span>
                 <span class="muted time">{fmtTime(m.sent)}</span>
+                {#if m.pinned}<span title="Pinned">📌</span>{/if}
               </div>
               {#if m.deleted}
                 <div class="body deleted"><em>message deleted</em></div>
@@ -495,6 +632,7 @@
                   <button title="React {e}" onclick={() => react(m, e)}>{e}</button>
                 {/each}
                 <button title="Reply" onclick={() => (replyingTo = m)}>↩</button>
+                <button title={m.pinned ? "Unpin" : "Pin"} onclick={() => api.pinMessage(m.channelId, m.id)}>📌</button>
                 {#if m.sender === identity.fingerprint}
                   <button title="Edit" onclick={() => startEdit(m)}>✏️</button>
                   <button title="Delete" onclick={() => deleteMsg(m)}>🗑</button>
@@ -533,10 +671,16 @@
       <div class="section-head"><span>Members — {activeGuild?.name ?? ""}</span></div>
       {#each members as mem (mem.fingerprint)}
         <div class="member">
-          <span class="row" style="gap:6px; min-width:0">
-            <span class="dot" class:online={mem.online} title={mem.online ? "online" : "offline"}></span>
-            <span class="member-name" title={mem.fingerprint}>
-              {mem.name || mem.fingerprint.slice(0, 9)}{mem.isSelf ? " (you)" : ""}
+          <span class="row" style="gap:8px; min-width:0">
+            <span class="member-avatar" style={mem.color ? `background:${mem.color}` : ""}>
+              {mem.emoji || (mem.name || mem.fingerprint).slice(0, 2)}
+              <span class="dot presence" class:online={mem.online}></span>
+            </span>
+            <span class="member-text">
+              <span class="member-name" title={mem.fingerprint}>
+                {mem.name || mem.fingerprint.slice(0, 9)}{mem.isSelf ? " (you)" : ""}
+              </span>
+              {#if mem.status}<span class="muted member-status">{mem.status}</span>{/if}
             </span>
           </span>
           {#if activeGuild?.isOwner && !mem.isSelf}
@@ -582,6 +726,8 @@
       hint="Renames the guild for everyone."
       placeholder={activeGuild?.name || "New name"}
     />
+  {:else if modal?.kind === "profile"}
+    <ModalProfile {identity} onSubmit={saveProfile} onClose={() => (modal = null)} />
   {:else if modal?.kind === "join"}
     <ModalJoin error={modal.error} onSubmit={joinGuild} onClose={() => (modal = null)} />
   {:else if modal?.kind === "invite"}
@@ -665,24 +811,119 @@
   }
   .me {
     margin-top: auto;
-    padding-top: 12px;
+    padding: 12px 6px 6px;
     border-top: 1px solid var(--border);
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    word-break: break-all;
-  }
-  .name-input {
+    align-items: center;
+    gap: 10px;
     background: transparent;
-    border: 1px solid transparent;
-    padding: 4px 6px;
+    color: var(--text);
+    text-align: left;
+    border-radius: 8px;
+  }
+  .me:hover {
+    background: var(--bg-input);
+  }
+  .me-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    display: grid;
+    place-items: center;
     font-weight: 600;
-    font-size: 14px;
+    text-transform: uppercase;
+    flex-shrink: 0;
   }
-  .name-input:hover {
-    border-color: var(--border);
+  .me-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    font-size: 13px;
   }
-  .name-input:focus {
+  .small-status {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .member-avatar {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: white;
+    display: grid;
+    place-items: center;
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .presence {
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    border: 2px solid var(--bg-sidebar);
+  }
+  .member-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    font-size: 13px;
+  }
+  .member-status {
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .search-box {
+    width: 150px;
+    padding: 5px 10px;
+    font-size: 13px;
+  }
+  .pin-active {
+    color: var(--accent-hover);
+  }
+  .pins-panel,
+  .search-panel {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
+    padding: 8px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .pin-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .search-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+  }
+  .search-hit {
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .search-hit:hover {
     background: var(--bg-input);
   }
   .sender {

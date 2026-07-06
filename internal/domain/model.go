@@ -47,6 +47,7 @@ type Message struct {
 	Content   string    `json:"content"`
 	Deleted   bool      `json:"deleted"`
 	Edited    bool      `json:"edited"`
+	Pinned    bool      `json:"pinned"`
 	Sent      time.Time `json:"sent"`
 
 	// Reactions aggregates emoji -> fingerprints who reacted. Populated on load;

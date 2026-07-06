@@ -157,6 +157,12 @@ func (s *webServer) dispatch(method string, args []json.RawMessage) (any, error)
 		return nil, s.b.SendTyping(argStr(args, 0))
 	case "SetDisplayName":
 		return nil, s.b.SetDisplayName(argStr(args, 0))
+	case "SetProfile":
+		return nil, s.b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+	case "PinMessage":
+		return nil, s.b.PinMessage(argStr(args, 0), argStr(args, 1))
+	case "SearchMessages":
+		return s.b.SearchMessages(argStr(args, 0))
 	case "CreateChannel":
 		return s.b.CreateChannel(argStr(args, 0), argStr(args, 1))
 	case "RenameGuild":

@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS messages (
   reply_to    TEXT NOT NULL DEFAULT '',
   deleted     INTEGER NOT NULL DEFAULT 0,
   edited      INTEGER NOT NULL DEFAULT 0,
+  pinned      INTEGER NOT NULL DEFAULT 0,
   content_enc BLOB NOT NULL,
   nonce       BLOB NOT NULL,
   sent        INTEGER NOT NULL
@@ -116,6 +117,7 @@ CREATE TABLE IF NOT EXISTS reactions (
 		`ALTER TABLE messages ADD COLUMN reply_to TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE messages ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -275,7 +277,7 @@ func (s *Store) SaveMessage(m domain.Message) error {
 // Messages returns up to limit most-recent messages for a channel, oldest
 // first, decrypting bodies. A limit <= 0 returns all messages.
 func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) {
-	q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, content_enc, nonce, sent
+	q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
 	      FROM messages WHERE channel_id = ? ORDER BY sent DESC`
 	args := []any{channelID}
 	if limit > 0 {
@@ -293,11 +295,12 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		var m domain.Message
 		var enc, nonceB []byte
 		var sent int64
-		var deleted, edited int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &enc, &nonceB, &sent); err != nil {
+		var deleted, edited, pinned int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
 			return nil, err
 		}
 		m.Edited = edited != 0
+		m.Pinned = pinned != 0
 		if deleted != 0 {
 			m.Deleted = true // leave content blank
 		} else {
@@ -396,11 +399,11 @@ func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
 	var enc, nonceB []byte
 	var sent int64
 	var deleted int
-	var edited int
+	var edited, pinned int
 	err := s.db.QueryRow(
-		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, content_enc, nonce, sent
+		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
 		 FROM messages WHERE id = ?`, id,
-	).Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &enc, &nonceB, &sent)
+	).Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent)
 	if err == sql.ErrNoRows {
 		return domain.Message{}, false, nil
 	}
@@ -408,6 +411,7 @@ func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
 		return domain.Message{}, false, err
 	}
 	m.Edited = edited != 0
+	m.Pinned = pinned != 0
 	if deleted != 0 {
 		m.Deleted = true
 	} else if content, oerr := s.open(enc, nonceB); oerr == nil {
@@ -420,6 +424,68 @@ func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
 	}
 	m.Reactions = reacts[m.ID]
 	return m, true, nil
+}
+
+// TogglePinned flips a message's pinned flag. Any guild member may pin (the
+// action itself arrives over the authenticated encrypted channel).
+func (s *Store) TogglePinned(id string) (bool, error) {
+	var pinned int
+	err := s.db.QueryRow(`SELECT pinned FROM messages WHERE id = ?`, id).Scan(&pinned)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	newVal := 1 - pinned
+	if _, err := s.db.Exec(`UPDATE messages SET pinned = ? WHERE id = ?`, newVal, id); err != nil {
+		return false, err
+	}
+	return newVal == 1, nil
+}
+
+// SearchMessages scans all stored messages for a case-insensitive substring
+// match, newest first, up to limit. Search runs entirely locally over the
+// user's own (at-rest-encrypted) history — no server ever sees the query.
+func (s *Store) SearchMessages(query string, limit int) ([]domain.Message, error) {
+	if strings.TrimSpace(query) == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(
+		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
+		 FROM messages WHERE deleted = 0 AND kind = '' ORDER BY sent DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	needle := strings.ToLower(query)
+	var out []domain.Message
+	for rows.Next() && len(out) < limit {
+		var m domain.Message
+		var enc, nonceB []byte
+		var sent int64
+		var deleted, edited, pinned int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
+			return nil, err
+		}
+		content, err := s.open(enc, nonceB)
+		if err != nil {
+			continue // skip undecryptable rows rather than abort the search
+		}
+		if !strings.Contains(strings.ToLower(content), needle) {
+			continue
+		}
+		m.Content = content
+		m.Edited = edited != 0
+		m.Pinned = pinned != 0
+		m.Sent = time.Unix(0, sent).UTC()
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // UpdateContent replaces a message's (encrypted) content, but only if bySender
