@@ -68,11 +68,17 @@ jobs:
       # bundle, so it MUST be zipped to travel as one file.
       - name: Package (Linux — bare binary)
         if: matrix.os == 'ubuntu-latest'
-        run: cp build/bin/concord-gui ${{ matrix.out }}
+        run: |
+          bin=$(find build/bin -maxdepth 1 -type f | head -1)
+          echo "packaging $bin"
+          cp "$bin" ${{ matrix.out }}
       - name: Package (Windows — bare .exe)
         if: matrix.os == 'windows-latest'
         shell: pwsh
-        run: Copy-Item build/bin/concord-gui.exe ${{ matrix.out }}.exe
+        run: |
+          $exe = Get-ChildItem build/bin -Filter *.exe | Select-Object -First 1
+          Write-Host "packaging $($exe.FullName)"
+          Copy-Item $exe.FullName ${{ matrix.out }}.exe
       - name: Package (macOS — zip the .app bundle)
         if: matrix.os == 'macos-latest'
         run: |
