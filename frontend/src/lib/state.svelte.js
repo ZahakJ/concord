@@ -330,6 +330,29 @@ export async function refreshRightPanel() {
   S.contacts = (await api.contacts()) || [];
 }
 
+// Coalesce refreshes: a member join, history sync, or presence flap can emit a
+// burst of guild-updated/presence events in quick succession, each otherwise
+// triggering full guild + member + contact refetches and a whole-list re-render.
+// scheduleRefresh batches them into a single pass ~120ms later, keeping the UI
+// smooth during exactly the multi-peer activity where events cluster.
+let _refreshTimer = null;
+let _pendingGuilds = false;
+let _pendingPanel = false;
+export function scheduleRefresh({ guilds = false, panel = false } = {}) {
+  _pendingGuilds = _pendingGuilds || guilds;
+  _pendingPanel = _pendingPanel || panel;
+  if (_refreshTimer) return;
+  _refreshTimer = setTimeout(async () => {
+    _refreshTimer = null;
+    const g = _pendingGuilds;
+    const p = _pendingPanel;
+    _pendingGuilds = false;
+    _pendingPanel = false;
+    if (g) await refreshGuilds();
+    if (p) await refreshRightPanel();
+  }, 120);
+}
+
 // jumpToChannel finds the guild owning channelId and navigates there.
 export async function jumpToChannel(channelId) {
   for (const g of S.guilds) {
@@ -453,12 +476,9 @@ function initEvents() {
     });
   });
 
-  on("presence", () => refreshRightPanel());
+  on("presence", () => scheduleRefresh({ panel: true }));
 
-  on("guild-updated", async () => {
-    await refreshGuilds();
-    await refreshRightPanel();
-  });
+  on("guild-updated", () => scheduleRefresh({ guilds: true, panel: true }));
 
   on("typing", (t) => {
     if (t.channelId !== S.activeChannelId) return;

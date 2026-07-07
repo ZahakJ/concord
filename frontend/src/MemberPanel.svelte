@@ -38,6 +38,11 @@
         <span class="member-text">
           <span class="member-name" title={mem.fingerprint}>
             {mem.name || mem.fingerprint.slice(0, 9)}{mem.isSelf ? " (you)" : ""}
+            {#if mem.isOwner}
+              <span class="role-badge owner" title="Server owner">owner</span>
+            {:else if mem.canManage}
+              <span class="role-badge mod" title="Can manage members">mod</span>
+            {/if}
             {#if mem.verified && !mem.isSelf}
               <span class="v-badge" title="Identity verified"><Icon name="check" size={11} /></span>
             {/if}
@@ -45,7 +50,7 @@
           {#if mem.status}<span class="muted member-status">{mem.status}</span>{/if}
         </span>
       </button>
-      {#if g?.isOwner && !mem.isSelf}
+      {#if g?.canManage && !mem.isSelf && !mem.isOwner}
         <button class="kick" title="Remove from server" aria-label="Remove {mem.name || 'member'} from server" onclick={() => kick(mem.fingerprint)}>
           <Icon name="close" size={12} />
         </button>
@@ -140,6 +145,23 @@
     color: var(--ok);
     display: inline-grid;
     place-items: center;
+  }
+  .role-badge {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 5px;
+    border-radius: 7px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .role-badge.owner {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--accent);
+  }
+  .role-badge.mod {
+    background: color-mix(in srgb, var(--ok) 20%, transparent);
+    color: var(--ok);
   }
   .kick {
     background: transparent;
