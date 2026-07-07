@@ -62,24 +62,29 @@ jobs:
       - name: Build native app
         run: wails build -tags webkit2_41
 
-      # Package each OS's output into ONE .zip named per-OS. The desktop names
-      # are deliberately distinct from the web track's (which also emits a
-      # concord-windows.exe) so nothing clobbers on the Release. macOS's .app is
-      # a directory bundle, so zipping is also what makes it a single download.
-      - name: Package (Linux / macOS)
-        if: matrix.os != 'windows-latest'
-        run: |
-          cd build/bin
-          zip -r -q ../../${{ matrix.out }}.zip .
-      - name: Package (Windows)
+      # Name each output per-OS so it's a direct download and doesn't collide
+      # with the web track (which also emits a concord-windows.exe). Windows and
+      # Linux ship as a bare double-click executable; macOS's .app is a directory
+      # bundle, so it MUST be zipped to travel as one file.
+      - name: Package (Linux — bare binary)
+        if: matrix.os == 'ubuntu-latest'
+        run: cp build/bin/concord-gui ${{ matrix.out }}
+      - name: Package (Windows — bare .exe)
         if: matrix.os == 'windows-latest'
         shell: pwsh
-        run: Compress-Archive -Path build/bin/* -DestinationPath ${{ matrix.out }}.zip
+        run: Copy-Item build/bin/concord-gui.exe ${{ matrix.out }}.exe
+      - name: Package (macOS — zip the .app bundle)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd build/bin
+          zip -r -q ../../${{ matrix.out }}.zip *.app
 
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.out }}
-          path: ${{ matrix.out }}.zip
+          # Matches concord-desktop-linux, concord-desktop-windows.exe, or
+          # concord-desktop-macos.zip depending on the OS.
+          path: ${{ matrix.out }}*
 
   # Gather every artifact and attach it to the tag's GitHub Release.
   publish:
