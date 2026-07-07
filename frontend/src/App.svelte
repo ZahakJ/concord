@@ -53,21 +53,11 @@
   // No open channel → show the welcome screen instead of an empty chat.
   const hasChannel = $derived(!!S.activeChannelId && !!activeGuild());
 
-  // Voice: the call box shows inline only on its own channel; elsewhere it
-  // collapses to a floating "return to call" bubble.
+  // Voice: the call box shows inline only on its own channel. When you navigate
+  // away, the persistent bottom-left voice bar (in ChannelList) is the way back.
   const callHere = $derived(S.voice && S.voice.channelId === S.activeChannelId);
-  const callElsewhere = $derived(S.voice && S.voice.channelId !== S.activeChannelId);
   const call = $derived(incomingCall());
   const ringingChannel = $derived(call?.channelId || "");
-  // A friendly label for the ongoing-call bubble: the DM name, or "Guild · #ch".
-  const callLabel = $derived.by(() => {
-    if (!S.voice) return "";
-    for (const gg of S.guilds) {
-      const c = gg.channels.find((x) => x.id === S.voice.channelId);
-      if (c) return gg.kind === "dm" ? gg.name : `${gg.name} · ${c.name}`;
-    }
-    return "";
-  });
 
   // Ring while a DM call is incoming; stops when accepted, declined, or ended.
   $effect(() => {
@@ -77,9 +67,6 @@
     return () => clearInterval(id);
   });
 
-  function returnToCall() {
-    if (S.voice) jumpToChannel(S.voice.channelId);
-  }
   async function acceptCall(channelId) {
     await jumpToChannel(channelId); // open the DM so the call box is in view
     await joinVoice(channelId);
@@ -284,18 +271,6 @@
 
   <ProfilePopover />
 
-  <!-- Ongoing call you've navigated away from: a click brings you back. -->
-  {#if callElsewhere}
-    <button class="call-return" onclick={returnToCall} title="Return to your call">
-      <span class="cr-dot"></span>
-      <span class="cr-text">
-        <strong>In call</strong>
-        <span class="cr-ch">{callLabel}</span>
-      </span>
-      <span class="cr-go">Return</span>
-    </button>
-  {/if}
-
   <!-- Someone is ringing you in a DM. -->
   {#if call}
     <div class="ring-card">
@@ -406,62 +381,6 @@
     font-size: 13px;
     box-shadow: var(--shadow-pop);
     z-index: 200;
-  }
-  /* Floating "return to call" bubble (call is running on another channel). */
-  .call-return {
-    position: fixed;
-    right: 20px;
-    bottom: 20px;
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 12px;
-    background: var(--ok-soft);
-    border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
-    border-radius: 14px;
-    color: var(--text);
-    box-shadow: var(--shadow-pop);
-    z-index: 190;
-    text-align: left;
-  }
-  .call-return:hover {
-    background: color-mix(in srgb, var(--ok) 22%, var(--bg-1));
-  }
-  .cr-dot {
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--ok);
-    animation: cr-blink 1.4s ease-in-out infinite;
-    flex-shrink: 0;
-  }
-  @keyframes cr-blink {
-    50% {
-      opacity: 0.3;
-    }
-  }
-  .cr-text {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.2;
-  }
-  .cr-text strong {
-    font-size: 12px;
-    color: var(--ok);
-  }
-  .cr-ch {
-    font-size: 11px;
-    color: var(--text-muted);
-    max-width: 160px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .cr-go {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--ok);
-    padding-left: 4px;
   }
   /* Incoming-call card. */
   .ring-card {

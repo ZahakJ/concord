@@ -14,6 +14,7 @@
     voiceMembersFor,
     nameFor,
     moveChannelToCategory,
+    jumpToChannel,
     flash,
     refreshGuilds,
   } from "./lib/state.svelte.js";
@@ -234,13 +235,18 @@
 
   {#if S.voice}
     <div class="voice-bar">
-      <span class="vb-info">
-        <Icon name="speaker" size={14} />
+      <button
+        class="vb-info"
+        title="Return to call"
+        aria-label="Return to call"
+        onclick={() => jumpToChannel(S.voice.channelId)}
+      >
+        <span class="vb-live"></span>
         <span class="vb-text">
           <strong>Voice connected</strong>
           <span class="muted vb-ch">{channelShort(S.voice.channelId)}</span>
         </span>
-      </span>
+      </button>
       <span class="vb-actions">
         <button class="vb-btn" title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} onclick={onToggleMute}>
           <Icon name={S.muted ? "micOff" : "mic"} size={14} />
@@ -579,6 +585,28 @@
     align-items: center;
     gap: 8px;
     min-width: 0;
+    flex: 1;
+    background: transparent;
+    color: var(--ok);
+    text-align: left;
+    padding: 2px 4px;
+    border-radius: var(--radius-sm);
+  }
+  .vb-info:hover {
+    background: color-mix(in srgb, var(--ok) 18%, transparent);
+  }
+  .vb-live {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    flex-shrink: 0;
+    animation: vb-blink 1.4s ease-in-out infinite;
+  }
+  @keyframes vb-blink {
+    50% {
+      opacity: 0.3;
+    }
   }
   .vb-text {
     display: flex;

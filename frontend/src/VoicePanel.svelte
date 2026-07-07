@@ -13,6 +13,21 @@
   const solo = $derived(S.voiceParticipants.length === 0);
   const isDM = $derived(activeGuild()?.kind === "dm");
 
+  // Ring for ~30s while alone in a DM call, then quietly settle into "just you
+  // in the call" if they never pick up (Discord-style).
+  let ringTimedOut = $state(false);
+  $effect(() => {
+    if (!solo) {
+      ringTimedOut = false;
+      return;
+    }
+    ringTimedOut = false;
+    const id = setTimeout(() => (ringTimedOut = true), 30000);
+    return () => clearTimeout(id);
+  });
+  const ringing = $derived(solo && isDM && !ringTimedOut);
+  const waiting = $derived(solo && !isDM); // empty guild voice channel
+
   function participant(peerId) {
     const fpr = S.voicePeerFpr[peerId];
     const mem = fpr ? memberByFpr(fpr) : null;
@@ -69,10 +84,10 @@
 </script>
 
 <div class="voice-panel" style="--n:{roster.length}">
-  {#if solo}
+  {#if ringing || waiting}
     <div class="ringing">
       <span class="dots"><span></span><span></span><span></span></span>
-      {isDM ? "Ringing…" : "Waiting for others to join…"}
+      {ringing ? "Ringing…" : "Waiting for others to join…"}
     </div>
   {/if}
 
