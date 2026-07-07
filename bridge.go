@@ -127,6 +127,9 @@ type GuildView struct {
 	IsOwner    bool           `json:"isOwner"`
 	CanManage  bool           `json:"canManage"` // viewer may invite/kick/ban here
 	MyPerms    uint32         `json:"myPerms"`   // viewer's effective permission bitmask
+	Icon        string        `json:"icon"`        // guild logo (data URI)
+	Banner      string        `json:"banner"`      // guild banner image (data URI)
+	Description string        `json:"description"` // guild blurb
 	Channels   []ChannelView  `json:"channels"`
 	Categories []CategoryView `json:"categories"`
 	Emoji      []EmojiView    `json:"emoji"`
@@ -429,6 +432,33 @@ func (b *bridge) CreateCategory(guildID, name string) error {
 	}
 	_, err = svc.CreateCategory(guildID, name)
 	return err
+}
+
+// DeleteChannel removes a channel (ManageChannels).
+func (b *bridge) DeleteChannel(guildID, channelID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.DeleteChannel(guildID, channelID)
+}
+
+// DeleteCategory removes a category, un-categorizing its channels (ManageChannels).
+func (b *bridge) DeleteCategory(guildID, categoryID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.DeleteCategory(guildID, categoryID)
+}
+
+// SetGuildProfile updates the guild's name/icon/banner/description (ManageGuild).
+func (b *bridge) SetGuildProfile(guildID, name, icon, banner, description string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetGuildProfile(guildID, name, icon, banner, description)
 }
 
 // SetChannelMeta changes a channel's type/category/position.
@@ -945,9 +975,10 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	}
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
-		CanManage: svc.CanManageMembers(g.ID),
-		MyPerms:   uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
-		Channels:  channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
+		CanManage:   svc.CanManageMembers(g.ID),
+		MyPerms:     uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
+		Icon:        g.Icon, Banner: g.Banner, Description: g.Description,
+		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
 	}
 }
 
@@ -994,6 +1025,16 @@ func (b *bridge) StartDM(fingerprint string) (GuildView, error) {
 		return GuildView{}, err
 	}
 	return guildView(svc, g), nil
+}
+
+// NewDMInvite creates a fresh DM and returns a shareable invite code (start a DM
+// with someone you don't share a guild with).
+func (b *bridge) NewDMInvite() (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.NewDMInvite()
 }
 
 func messageView(m domain.Message) MessageView {
@@ -1052,6 +1093,8 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.CreateGuild(argStr(args, 0))
 	case "NotesDM":
 		return b.NotesDM()
+	case "NewDMInvite":
+		return b.NewDMInvite()
 	case "StartDM":
 		return b.StartDM(argStr(args, 0))
 	case "InviteCode":
@@ -1118,6 +1161,12 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.CreateChannel(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "CreateCategory":
 		return nil, b.CreateCategory(argStr(args, 0), argStr(args, 1))
+	case "DeleteChannel":
+		return nil, b.DeleteChannel(argStr(args, 0), argStr(args, 1))
+	case "DeleteCategory":
+		return nil, b.DeleteCategory(argStr(args, 0), argStr(args, 1))
+	case "SetGuildProfile":
+		return nil, b.SetGuildProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4))
 	case "AddCustomEmoji":
 		return nil, b.AddCustomEmoji(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "RemoveCustomEmoji":

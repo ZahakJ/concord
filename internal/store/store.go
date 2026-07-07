@@ -176,6 +176,9 @@ CREATE TABLE IF NOT EXISTS attachments (
 		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE guilds ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE guilds ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE guilds ADD COLUMN banner TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE guilds ADD COLUMN description TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE profiles ADD COLUMN mailbox_pub BLOB`,
 		`ALTER TABLE profiles ADD COLUMN presence TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE profiles ADD COLUMN bio TEXT NOT NULL DEFAULT ''`,
@@ -277,10 +280,11 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 
 	_, err = tx.Exec(
-		`INSERT INTO guilds (id, name, group_id, owner_id, created, kind)
-		 VALUES (?, ?, ?, ?, ?, ?)
-		 ON CONFLICT(id) DO UPDATE SET name=excluded.name`,
-		g.ID, g.Name, g.GroupID, g.OwnerID, g.Created.UnixNano(), g.Kind,
+		`INSERT INTO guilds (id, name, group_id, owner_id, created, kind, icon, banner, description)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET name=excluded.name, icon=excluded.icon,
+		   banner=excluded.banner, description=excluded.description`,
+		g.ID, g.Name, g.GroupID, g.OwnerID, g.Created.UnixNano(), g.Kind, g.Icon, g.Banner, g.Description,
 	)
 	if err != nil {
 		return fmt.Errorf("store: save guild: %w", err)
@@ -300,7 +304,7 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 
 // Guilds loads all guilds with their channels.
 func (s *Store) Guilds() ([]domain.Guild, error) {
-	rows, err := s.db.Query(`SELECT id, name, group_id, owner_id, created, kind FROM guilds ORDER BY created`)
+	rows, err := s.db.Query(`SELECT id, name, group_id, owner_id, created, kind, icon, banner, description FROM guilds ORDER BY created`)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +314,7 @@ func (s *Store) Guilds() ([]domain.Guild, error) {
 	for rows.Next() {
 		var g domain.Guild
 		var created int64
-		if err := rows.Scan(&g.ID, &g.Name, &g.GroupID, &g.OwnerID, &created, &g.Kind); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &g.GroupID, &g.OwnerID, &created, &g.Kind, &g.Icon, &g.Banner, &g.Description); err != nil {
 			return nil, err
 		}
 		g.Created = time.Unix(0, created).UTC()
@@ -387,6 +391,41 @@ func (s *Store) UpdateChannelMeta(channelID, ctype, category string, position in
 		`UPDATE channels SET type=?, category=?, position=? WHERE id=?`,
 		ctype, category, position, channelID)
 	return err
+}
+
+// DeleteChannel removes a channel and its messages/reactions.
+func (s *Store) DeleteChannel(channelID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec(`DELETE FROM reactions WHERE message_id IN (SELECT id FROM messages WHERE channel_id=?)`, channelID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id=?`, channelID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM channels WHERE id=?`, channelID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// DeleteCategory removes a category and un-categorizes its channels (they stay).
+func (s *Store) DeleteCategory(guildID, categoryID string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if _, err := tx.Exec(`UPDATE channels SET category='' WHERE guild_id=? AND category=?`, guildID, categoryID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM categories WHERE id=?`, categoryID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // CustomEmojiRow is one guild custom emoji.

@@ -148,6 +148,52 @@ func (s *Service) RenameGuild(guildID, name string) error {
 	return nil
 }
 
+// SetGuildProfile updates a guild's name/icon/banner/description and announces
+// them to members. Icon/banner are data-URI images (an animated GIF banner just
+// works). Requires ManageGuild.
+func (s *Service) SetGuildProfile(guildID, name, icon, banner, description string) error {
+	if !s.hasPerm(guildID, PermManageGuild) {
+		return fmt.Errorf("app: you don't have permission to manage this guild")
+	}
+	name = strings.TrimSpace(name)
+	if len(description) > 1000 {
+		description = description[:1000]
+	}
+	for _, img := range []struct{ v, what string }{{icon, "icon"}, {banner, "banner"}} {
+		if img.v != "" && !strings.HasPrefix(img.v, "data:image/") {
+			return fmt.Errorf("app: %s must be an image", img.what)
+		}
+		if len(img.v) > maxGuildImageBytes {
+			return fmt.Errorf("app: %s image too large", img.what)
+		}
+	}
+	s.mu.Lock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		s.mu.Unlock()
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	if name != "" {
+		g.Name = name
+	}
+	g.Icon, g.Banner, g.Description = icon, banner, description
+	groupID := g.GroupID
+	guildCopy := *g
+	s.mu.Unlock()
+
+	_ = s.store.SaveGuild(guildCopy)
+	s.emitGuildUpdate()
+	s.publishMeta(groupID, guildMeta{
+		Type: "guild_profile", Name: guildCopy.Name,
+		GuildIcon: icon, GuildBanner: banner, GuildDescription: description,
+	})
+	return nil
+}
+
+// maxGuildImageBytes caps a guild icon/banner data URI so it stays under the
+// gossipsub frame limit (banners are downscaled client-side).
+const maxGuildImageBytes = 512 << 10 // 512 KiB
+
 // LeaveGuild removes a guild from this peer locally: it stops tracking it and
 // deletes its stored data. (A local action — other members keep the guild.)
 func (s *Service) LeaveGuild(guildID string) error {
@@ -659,6 +705,10 @@ type guildMeta struct {
 	MailboxPub  []byte              `json:"mbx,omitempty"`
 	CustomEmoji domain.CustomEmoji  `json:"customEmoji,omitempty"`
 	GovOp       json.RawMessage     `json:"govOp,omitempty"` // a signed governance op (roles/bans)
+	// guild_profile: icon/banner/description (Name reused from above).
+	GuildIcon        string `json:"gIcon,omitempty"`
+	GuildBanner      string `json:"gBanner,omitempty"`
+	GuildDescription string `json:"gDesc,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -802,6 +852,80 @@ func (s *Service) CreateCategory(guildID, name string) (domain.Category, error) 
 	s.emitGuildUpdate()
 	s.publishMeta(groupID, guildMeta{Type: "category_added", Category: cat})
 	return cat, nil
+}
+
+// DeleteChannel removes a channel for everyone. Requires ManageChannels.
+func (s *Service) DeleteChannel(guildID, channelID string) error {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return fmt.Errorf("app: you don't have permission to manage channels")
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	s.applyChannelRemoved(guildID, channelID)
+	s.publishMeta(groupID, guildMeta{Type: "channel_removed", Channel: domain.Channel{ID: channelID}})
+	return nil
+}
+
+// applyChannelRemoved drops a channel locally (from any source).
+func (s *Service) applyChannelRemoved(guildID, channelID string) {
+	s.mu.Lock()
+	if g, ok := s.guilds[guildID]; ok {
+		out := g.Channels[:0]
+		for _, c := range g.Channels {
+			if c.ID != channelID {
+				out = append(out, c)
+			}
+		}
+		g.Channels = out
+		delete(s.channelToGuild, channelID)
+	}
+	s.mu.Unlock()
+	_ = s.store.DeleteChannel(channelID)
+	s.emitGuildUpdate()
+}
+
+// DeleteCategory removes a category (its channels stay, un-categorized).
+// Requires ManageChannels.
+func (s *Service) DeleteCategory(guildID, categoryID string) error {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return fmt.Errorf("app: you don't have permission to manage channels")
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	s.applyCategoryRemoved(guildID, categoryID)
+	s.publishMeta(groupID, guildMeta{Type: "category_removed", Category: domain.Category{ID: categoryID}})
+	return nil
+}
+
+// applyCategoryRemoved drops a category locally and un-categorizes its channels.
+func (s *Service) applyCategoryRemoved(guildID, categoryID string) {
+	s.mu.Lock()
+	if g, ok := s.guilds[guildID]; ok {
+		for i := range g.Channels {
+			if g.Channels[i].Category == categoryID {
+				g.Channels[i].Category = ""
+			}
+		}
+	}
+	s.mu.Unlock()
+	_ = s.store.DeleteCategory(guildID, categoryID)
+	s.emitGuildUpdate()
 }
 
 // SetChannelMeta changes a channel's type/category/position and announces it.
@@ -964,6 +1088,14 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		m.Category.GuildID = guildID
 		_ = s.store.SaveCategory(m.Category)
 		s.emitGuildUpdate()
+	case "channel_removed":
+		if m.Channel.ID != "" {
+			s.applyChannelRemoved(guildID, m.Channel.ID)
+		}
+	case "category_removed":
+		if m.Category.ID != "" {
+			s.applyCategoryRemoved(guildID, m.Category.ID)
+		}
 	case "emoji_added":
 		s.applyCustomEmoji(guildID, m.CustomEmoji)
 		s.emitGuildUpdate()
@@ -979,6 +1111,26 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		s.mu.Lock()
 		if g, ok := s.guilds[guildID]; ok {
 			g.Name = m.Name
+			gc := *g
+			s.mu.Unlock()
+			_ = s.store.SaveGuild(gc)
+		} else {
+			s.mu.Unlock()
+		}
+		s.emitGuildUpdate()
+	case "guild_profile":
+		// Name/icon/banner/description update. Validate the images like a local set.
+		if (m.GuildIcon != "" && !strings.HasPrefix(m.GuildIcon, "data:image/")) ||
+			(m.GuildBanner != "" && !strings.HasPrefix(m.GuildBanner, "data:image/")) ||
+			len(m.GuildIcon) > maxGuildImageBytes || len(m.GuildBanner) > maxGuildImageBytes {
+			return
+		}
+		s.mu.Lock()
+		if g, ok := s.guilds[guildID]; ok {
+			if strings.TrimSpace(m.Name) != "" {
+				g.Name = m.Name
+			}
+			g.Icon, g.Banner, g.Description = m.GuildIcon, m.GuildBanner, m.GuildDescription
 			gc := *g
 			s.mu.Unlock()
 			_ = s.store.SaveGuild(gc)

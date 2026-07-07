@@ -28,6 +28,12 @@ type Guild struct {
 	// (rendered without server chrome). A self-DM ("Notes") is a dm with one
 	// member — yourself.
 	Kind string `json:"kind,omitempty"`
+	// Personalization (all optional). Icon/Banner are small data-URI images
+	// (an animated GIF banner just works — it's an <img>). Description is a short
+	// blurb. Propagated over the guild-meta topic like the name.
+	Icon        string `json:"icon,omitempty"`
+	Banner      string `json:"banner,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 // A Channel is a named message stream within a guild. Each channel maps to one

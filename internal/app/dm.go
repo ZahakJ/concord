@@ -52,6 +52,26 @@ type dmInvite struct {
 	Code string `json:"code"`
 }
 
+// NewDMInvite creates a fresh 2-person DM group owned by this peer and returns
+// a shareable invite code for it — so you can start a direct conversation with
+// someone you DON'T already share a guild with (they paste the code to join, no
+// guild required). The first person to redeem it becomes the other party; more
+// redeemers make it a group DM.
+func (s *Service) NewDMInvite() (string, error) {
+	gid, err := s.mls.CreateGroup(s.ctx)
+	if err != nil {
+		return "", fmt.Errorf("app: create dm group: %w", err)
+	}
+	g := domain.NewGuild("Direct message", gid, s.PublicKey())
+	g.Kind = "dm"
+	g.Channels[0].Name = "dm"
+	if err := s.store.SaveGuild(g); err != nil {
+		return "", err
+	}
+	s.trackGuild(&g)
+	return s.InviteCode(g.ID)
+}
+
 // StartDM opens (creating if needed) a direct-message conversation with the
 // peer identified by fingerprint. Clicking someone's profile → Message calls
 // this. It creates a 2-person MLS group and pushes an invite to the recipient
