@@ -286,6 +286,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 				time.Sleep(10 * time.Second)
 				s.syncFromPeer(p)
 			}
+			// If sync couldn't bridge a gap and this peer can commit, this
+			// newly-reachable committer is exactly who can re-add us.
+			s.healStrandedGuilds()
 		}()
 	})
 
@@ -300,6 +303,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	for i := range guilds {
 		s.trackGuild(&guilds[i])
 	}
+
+	// Background recovery: periodically re-attempt re-add for any stranded guild.
+	go s.runHealLoop()
 
 	return s, nil
 }
@@ -550,6 +556,11 @@ func (s *Service) setOutOfSync(guildID string, stranded bool) {
 	s.mu.Unlock()
 	if was != stranded {
 		s.emitGuildUpdate()
+	}
+	// Newly stranded: try to auto-recover immediately (re-add from an online
+	// authorized committer). The heal loop retries if none is reachable yet.
+	if stranded && !was {
+		go s.healOutOfSync(guildID)
 	}
 }
 
