@@ -43,9 +43,15 @@ web: frontend
 	go build -o bin/concord-web .
 	@echo "built bin/concord-web — run it, then open http://127.0.0.1:8787"
 
-# Self-contained release binaries (UI embedded, pure Go, no dependencies).
+# Self-contained WEB release binaries (UI embedded, pure Go, no dependencies).
 # Friends download ONE file for their OS, run it, and the browser opens.
-# Upload the contents of dist-release/ to a GitHub Release.
+#
+# This builds the web track ONLY, into dist-release/ — it does NOT build the
+# desktop apps or publish anything. Real releases are tag-driven: pushing a
+# `v*` tag runs .github/workflows/release.yml, which builds this AND the native
+# desktop apps (per-OS, via Wails) and attaches everything to the GitHub
+# Release. See README §16 "Cutting a release". Use this target only for a quick
+# local smoke test of the web binaries.
 release: frontend
 	rm -rf dist-release && mkdir -p dist-release
 	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o dist-release/concord-linux-amd64 .
@@ -102,5 +108,10 @@ help:
 	@echo "  make gui-dev       hot-reloading native dev window"
 	@echo "  make web           build the browser-served app (bin/concord-web)"
 	@echo "  make rendezvous-run run a local rendezvous/relay node"
+	@echo "  make release       build web binaries locally (smoke test only)"
 	@echo "  make test | race   run tests (optionally with the race detector)"
 	@echo "  make dev-clean      delete local test data (.dev/)"
+	@echo
+	@echo "Releases are tag-driven: 'git push origin vX.Y.Z' builds the web"
+	@echo "binaries + desktop apps and publishes them all to the GitHub Release."
+	@echo "See README section 16 'Cutting a release'."

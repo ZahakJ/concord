@@ -609,14 +609,47 @@ fly logs        # copy the ">>> SHARE THIS ADDRESS <<<" line
 
 # 2. Paste that address on YOUR login screen ("Connect with friends"), unlock.
 
-# 3. Build the friend binaries and attach them to a GitHub Release:
-make release    # → dist-release/concord-{linux,macos,windows}*
+# 3. Cut a release so friends have something to download (see below).
 ```
 
-Then create a guild → **Invite** → send your friend (a) the binary link and
+Then create a guild → **Invite** → send your friend (a) the release link and
 (b) the invite code. That's it.
 
 (A native mobile app — roadmap — will make this even more turnkey.)
+
+### Cutting a release
+
+**Releases are tag-driven and fully automated — do not upload assets by hand.**
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds both
+tracks and attaches everything to the matching GitHub Release:
+
+```sh
+git tag v0.4.0            # bump the version
+git push origin v0.4.0    # ⇒ builds + publishes the Release automatically
+gh run watch              # follow the build
+```
+
+The Release ends up with, with **no manual `gh release upload` step**:
+
+- **Web binaries** (`dist-release/*`, built by `make release`) — one
+  zero-dependency file per OS/arch; "download, run, browser opens."
+- **Desktop apps** (`concord-desktop-{linux,macos,windows}.zip`) — the branded
+  Wails window. These **must** be built in CI: Wails needs each OS's native
+  WebView + cgo, so they can't be cross-compiled from one machine.
+- `WINDOWS.md` + auto-generated release notes.
+
+Notes for future-you:
+
+- **Never move a published tag.** Bump to a new `vX.Y.Z` instead — the desktop
+  matrix and the web track key off the tag.
+- If the `publish` job 403s, it's repo settings, not the YAML: **Settings →
+  Actions → General → Workflow permissions → "Read and write"**, then
+  `gh run rerun --failed`.
+- `make release` alone only builds the **web** binaries locally (handy for a
+  quick smoke test); it does **not** produce the desktop apps or touch GitHub.
+- The rendezvous node is deployed separately and rarely — `fly deploy -c
+  fly.rendezvous.toml`. Keep `CONCORD_RELAY_SEED` stable forever; it's the
+  node's identity and every invite code ever issued embeds its PeerID.
 
 ---
 
