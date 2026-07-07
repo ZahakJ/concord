@@ -44,6 +44,9 @@ jobs:
           - { os: macos-latest, out: concord-desktop-macos }
           - { os: windows-latest, out: concord-desktop-windows }
     runs-on: ${{ matrix.os }}
+    # Wails builds are ~2-6 min; cap well above that so a hang fails fast (25 min)
+    # instead of holding a runner for the 6-hour default.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -59,8 +62,14 @@ jobs:
         run: cd frontend && npm ci && npm run build
       # `wails build` emits a raw binary (Linux), a .app bundle (macOS), or an
       # .exe (Windows) into build/bin/, all carrying the embedded Concorde icon.
+      #
+      # -skipbindings is REQUIRED: Wails v2.12.0's JS-binding *generator*
+      # (wailsbindings) deadlocks under Go 1.26, hanging the whole build. We
+      # don't use the generated files anyway — the frontend calls the runtime-
+      # injected window.go.main.App.* directly (see frontend/src/lib/api.js), so
+      # skipping generation is safe and the bound methods still work at runtime.
       - name: Build native app
-        run: wails build -tags webkit2_41
+        run: wails build -tags webkit2_41 -skipbindings
 
       # Name each output per-OS so it's a direct download and doesn't collide
       # with the web track (which also emits a concord-windows.exe). Windows and
@@ -96,8 +105,10 @@ jobs:
   publish:
     needs: [web, native]
     runs-on: ubuntu-latest
-    # Only publish for real tag pushes, not manual workflow_dispatch runs.
-    if: startsWith(github.ref, 'refs/tags/')
+    # Publish as long as the web track succeeded and this is a tag push — even if
+    # a desktop build fails/times out. That way the "download and run" web
+    # binaries always reach the Release; the desktop apps attach when they build.
+    if: always() && needs.web.result == 'success' && startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
       - name: Download all artifacts
