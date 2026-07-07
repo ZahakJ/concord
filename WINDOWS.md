@@ -5,6 +5,17 @@ and no admin rights. But because it isn't code-signed (signing costs money),
 Windows SmartScreen and sometimes Windows Defender flag *any* unknown unsigned
 program by default. This is a false positive. Here's how to get past it.
 
+> **Note:** SmartScreen trust is tied to a file's exact contents, so **every new
+> release starts fresh** and may warn again even if the last one stopped — it's
+> not a new problem, just how unsigned apps work.
+
+## Quickest path if the desktop app keeps getting blocked
+
+Grab **`concord-windows.exe`** (the *web* build) instead of
+`concord-desktop-windows.exe`. It's the same app, but it opens in your browser
+rather than its own window — and it's the build that has always run cleanly. No
+window, same features.
+
 ## If you see "Windows protected your PC" (blue popup)
 
 1. Click **More info**
@@ -42,3 +53,14 @@ Yes. Concord:
 
 The flag is purely "this program isn't signed by a company Microsoft
 recognizes," not a detection of anything harmful.
+
+## Verifying your download (optional)
+
+Every release ships a `SHA256SUMS` file listing the expected hash of each binary.
+To confirm your download wasn't tampered with, in PowerShell:
+
+```powershell
+Get-FileHash .\concord-desktop-windows.exe -Algorithm SHA256
+```
+
+Compare the printed hash against the matching line in `SHA256SUMS`.

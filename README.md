@@ -621,30 +621,53 @@ Then create a guild → **Invite** → send your friend (a) the release link and
 
 **Releases are tag-driven and fully automated — do not upload assets by hand.**
 Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds both
-tracks and attaches everything to the matching GitHub Release:
+tracks and publishes them to the **public distribution repo**
+`ZahakJ/concord-dist` (the source repo stays private; the app polls the dist
+repo's releases unauthenticated for update checks):
 
 ```sh
-git tag v0.4.0            # bump the version
-git push origin v0.4.0    # ⇒ builds + publishes the Release automatically
-gh run watch              # follow the build
+git tag v0.5.0          # bump the version (semver vX.Y.Z; drives the update check)
+git push main v0.5.0    # ⇒ builds + publishes to concord-dist automatically
+gh run watch            # follow the build
 ```
 
-The Release ends up with, with **no manual `gh release upload` step**:
+(This repo's remote is named `main`, not `origin`.)
+
+The dist-repo Release ends up with, with **no manual `gh release upload` step**:
 
 - **Web binaries** (`dist-release/*`, built by `make release`) — one
   zero-dependency file per OS/arch; "download, run, browser opens."
-- **Desktop apps** (`concord-desktop-{linux,macos,windows}.zip`) — the branded
-  Wails window. These **must** be built in CI: Wails needs each OS's native
-  WebView + cgo, so they can't be cross-compiled from one machine.
-- `WINDOWS.md` + auto-generated release notes.
+- **Desktop apps** — `concord-desktop-linux` (bare binary),
+  `concord-desktop-windows.exe`, and `concord-desktop-macos.zip` (the `.app`
+  bundle zipped). Built in CI: Wails needs each OS's native WebView + cgo.
+- `SHA256SUMS` (hashes of every asset) + `WINDOWS.md`.
+
+The tag is stamped into every binary as `main.version` (via `-ldflags`), which is
+what the in-app update check compares against `concord-dist`'s latest release.
+
+**One-time setup for the public dist repo** (already done once; documented here):
+
+1. Create the **public** repo `ZahakJ/concord-dist` (Releases only, no source).
+2. Create a **fine-grained PAT**: owner `ZahakJ`, repository access = **only
+   `concord-dist`**, permission **Contents: Read and write**. (If leaked it can
+   only write the public dist repo — never read the private source.) Set an expiry
+   + rotation reminder.
+3. Add it to this repo as the Actions secret **`DIST_REPO_TOKEN`**.
+
+**Windows false-positive submission (per release):** unsigned exes lose SmartScreen
+reputation on every new build. After a release, submit
+`concord-desktop-windows.exe` to
+<https://www.microsoft.com/en-us/wdsi/filesubmission> (category: incorrectly
+detected / false positive) to whitelist that build's hash in Defender. This must be
+redone each release (new hash). The durable fix is code signing (deferred). See
+`WINDOWS.md` for the user-facing bypass + the web-exe fallback.
 
 Notes for future-you:
 
 - **Never move a published tag.** Bump to a new `vX.Y.Z` instead — the desktop
   matrix and the web track key off the tag.
-- If the `publish` job 403s, it's repo settings, not the YAML: **Settings →
-  Actions → General → Workflow permissions → "Read and write"**, then
-  `gh run rerun --failed`.
+- Use **semver `vX.Y.Z`** tags: the update check only recognizes that shape
+  (pre-release/`-rc` tags are treated as "no update").
 - `make release` alone only builds the **web** binaries locally (handy for a
   quick smoke test); it does **not** produce the desktop apps or touch GitHub.
 - The rendezvous node is deployed separately and rarely — `fly deploy -c
