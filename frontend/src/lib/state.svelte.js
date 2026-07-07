@@ -211,7 +211,10 @@ async function recomputeUnread() {
 }
 
 function isMentionOfSelf(m) {
-  return m.kind === "" && containsMention(m.content, [S.displayName]);
+  if (m.kind !== "") return false;
+  // @everyone / @here ping every member; don't fire on your own message.
+  if (/(^|\s)@(everyone|here)\b/.test(m.content) && m.sender !== S.identity.fingerprint) return true;
+  return containsMention(m.content, [S.displayName]);
 }
 
 export function guildUnread(g) {

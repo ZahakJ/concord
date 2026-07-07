@@ -33,11 +33,12 @@
   const mem = $derived(memberByFpr(m.sender));
   const cemoji = $derived(customEmojiMap());
   // Highlight every member's @name; the viewer's own name gets the self style.
-  const mentionNames = $derived(
-    S.members
-      .filter((mm) => mm.name)
-      .map((mm) => ({ name: mm.name, self: mm.isSelf })),
-  );
+  const mentionNames = $derived([
+    // @everyone / @here highlight for everyone (self:true so they stand out).
+    { name: "everyone", self: true },
+    { name: "here", self: true },
+    ...S.members.filter((mm) => mm.name).map((mm) => ({ name: mm.name, self: mm.isSelf })),
+  ]);
 
   // @mentions open a floating profile card — on hover (with intent delay) and
   // immediately on click.
