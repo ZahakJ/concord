@@ -21,7 +21,7 @@ function renderInline(s, mentionNames, customEmoji) {
     return `\x00${codeSpans.length - 1}\x00`;
   });
 
-  // Custom server emoji: :name: -> <img>. The image is a backend-validated
+  // Custom guild emoji: :name: -> <img>. The image is a backend-validated
   // base64 data:image URI, but we still escape it here (defense in depth) so a
   // malformed value that somehow reaches this sink can't break out of the src
   // attribute and inject script. The name charset ([a-z0-9_]) can't break out.

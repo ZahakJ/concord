@@ -36,7 +36,7 @@
   </div>
   <div class="grid">
     {#if custom.length}
-      <div class="section-label">Server</div>
+      <div class="section-label">Guild</div>
       {#each custom as e (e.name)}
         <button class="cell" title=":{e.name}:" onclick={() => onPick(`:${e.name}:`)}>
           <img class="cimg" src={e.image} alt=":{e.name}:" />

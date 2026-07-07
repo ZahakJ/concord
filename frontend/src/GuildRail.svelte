@@ -45,7 +45,7 @@
     </button>
   {/each}
 
-  <button class="pill add" title="Create a server" aria-label="Create a server" onclick={() => (S.modal = { kind: "create" })}>
+  <button class="pill add" title="Create a guild" aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
     <Icon name="plus" />
   </button>
   <button class="pill add" title="Join with invite" aria-label="Join with invite" onclick={() => (S.modal = { kind: "join", code: "" })}>

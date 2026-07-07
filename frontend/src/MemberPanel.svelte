@@ -39,7 +39,7 @@
           <span class="member-name" title={mem.fingerprint}>
             {mem.name || mem.fingerprint.slice(0, 9)}{mem.isSelf ? " (you)" : ""}
             {#if mem.isOwner}
-              <span class="role-badge owner" title="Server owner">owner</span>
+              <span class="role-badge owner" title="Guild owner">owner</span>
             {:else if mem.canManage}
               <span class="role-badge mod" title="Can manage members">mod</span>
             {/if}
@@ -51,7 +51,7 @@
         </span>
       </button>
       {#if g?.canManage && !mem.isSelf && !mem.isOwner}
-        <button class="kick" title="Remove from server" aria-label="Remove {mem.name || 'member'} from server" onclick={() => kick(mem.fingerprint)}>
+        <button class="kick" title="Remove from guild" aria-label="Remove {mem.name || 'member'} from guild" onclick={() => kick(mem.fingerprint)}>
           <Icon name="close" size={12} />
         </button>
       {/if}

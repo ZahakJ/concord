@@ -1,7 +1,7 @@
 // shortcuts.js — one global keymap. Registered once by App.svelte after login.
 //
 //   Ctrl/Cmd+K        quick switcher
-//   Alt+↑ / Alt+↓     previous / next channel in the active server
+//   Alt+↑ / Alt+↓     previous / next channel in the active guild
 //   Alt+Shift+↑/↓     previous / next unread channel (across servers)
 //   Escape            close switcher / pins / search / reply (handled locally
 //                     where a more specific target has focus)

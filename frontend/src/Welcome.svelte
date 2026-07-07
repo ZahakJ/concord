@@ -9,13 +9,13 @@
   <div class="badge"><Icon name="concorde" size={40} /></div>
   <h1>Welcome to Concord</h1>
   <p class="muted">
-    Your community, on your machines, readable by no one else. Spin up a server, join a friend's
+    Your community, on your machines, readable by no one else. Spin up a guild, join a friend's
     with their invite code, or jot something in your private Notes.
   </p>
   <div class="cards">
     <button class="card" onclick={() => (S.modal = { kind: "create" })}>
       <span class="ic"><Icon name="plus" size={18} /></span>
-      <strong>Create a server</strong>
+      <strong>Create a guild</strong>
       <span class="muted sub">Start a space for your friends</span>
     </button>
     <button class="card" onclick={() => (S.modal = { kind: "join", code: "" })}>

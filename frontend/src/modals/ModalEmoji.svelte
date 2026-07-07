@@ -60,9 +60,9 @@
   }
 </script>
 
-<Modal title="Server emoji — {g?.name ?? ''}" {onClose}>
+<Modal title="Guild emoji — {g?.name ?? ''}" {onClose}>
   <p class="muted lead">
-    Upload emoji anyone in this server can use by typing <code>:name:</code>. Keep them small and
+    Upload emoji anyone in this guild can use by typing <code>:name:</code>. Keep them small and
     square.
   </p>
 

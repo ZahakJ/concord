@@ -249,8 +249,8 @@
     <ModalCreate
       onSubmit={renameGuild}
       onClose={() => (S.modal = null)}
-      title="Rename server"
-      hint="Renames the server for everyone."
+      title="Rename guild"
+      hint="Renames the guild for everyone."
       placeholder={activeGuild()?.name || "New name"}
     />
   {:else if S.modal?.kind === "profile"}

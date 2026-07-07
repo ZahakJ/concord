@@ -4,7 +4,7 @@
     onSubmit,
     onClose,
     title = "Create a guild",
-    hint = "A guild is a server: an MLS group with channels.",
+    hint = "A guild is your own end-to-end-encrypted space with channels.",
     placeholder = "Guild name",
   } = $props();
   let name = $state("");

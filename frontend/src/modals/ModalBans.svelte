@@ -44,7 +44,7 @@
   {#if loading}
     <p class="muted empty">Loading…</p>
   {:else if bans.length === 0}
-    <p class="muted empty">No one is banned from this server.</p>
+    <p class="muted empty">No one is banned from this guild.</p>
   {:else}
     <div class="list">
       {#each bans as b (b.fingerprint)}

@@ -53,7 +53,7 @@
         S.messages = [];
         await refreshGuilds();
         if (S.guilds.length) selectGuild(S.guilds[0].id);
-        flash(g.isOwner ? "Server deleted" : "Left server");
+        flash(g.isOwner ? "Guild deleted" : "Left guild");
       },
     };
   }
@@ -141,11 +141,11 @@
           </button>
         {/if}
         <button class="menu-item" onclick={() => (S.modal = { kind: "emoji" })}>
-          <Icon name="smile" size={14} /> Server emoji
+          <Icon name="smile" size={14} /> Guild emoji
         </button>
         {#if g.isOwner}
           <button class="menu-item" onclick={() => (S.modal = { kind: "rename" })}>
-            <Icon name="edit" size={14} /> Rename server
+            <Icon name="edit" size={14} /> Rename guild
           </button>
         {/if}
         {#if g.canManage}
@@ -156,7 +156,7 @@
         <div class="menu-sep"></div>
         <button class="menu-item danger" onclick={confirmLeave}>
           <Icon name={g.isOwner ? "trash" : "door"} size={14} />
-          {g.isOwner ? "Delete server" : "Leave server"}
+          {g.isOwner ? "Delete guild" : "Leave guild"}
         </button>
       </Menu>
     {/if}

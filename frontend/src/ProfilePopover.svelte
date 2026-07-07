@@ -212,7 +212,7 @@
         <strong>{mem.name || mem.fingerprint.slice(0, 9)}</strong>
         {#if mem.isSelf}<span class="tag">you</span>{/if}
         {#if mem.isOwner}
-          <span class="role-badge owner" title="Server owner">owner</span>
+          <span class="role-badge owner" title="Guild owner">owner</span>
         {:else if mem.canManage}
           <span class="role-badge mod" title="Can manage members">mod</span>
         {/if}
@@ -228,7 +228,7 @@
           <form class="nick-box" onsubmit={saveNick}>
             <input
               bind:value={nickText}
-              placeholder="Nickname for this server"
+              placeholder="Nickname for this guild"
               maxlength="64"
               disabled={nickBusy}
             />
@@ -237,7 +237,7 @@
         {:else}
           <button class="nick-edit" onclick={startEditNick}>
             <Icon name="edit" size={12} />
-            {mem.username ? "Change server nickname" : "Set server nickname"}
+            {mem.username ? "Change guild nickname" : "Set guild nickname"}
           </button>
         {/if}
       {/if}

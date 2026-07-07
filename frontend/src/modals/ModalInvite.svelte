@@ -13,7 +13,7 @@
 
 <Modal title="Invite a friend" {onClose}>
   <p class="muted lead">
-    This code carries everything your friend needs — the server, how to reach you, and your
+    This code carries everything your friend needs — the guild, how to reach you, and your
     relay. They pick a passphrase, paste it into <strong>Join with invite</strong>, and they're in.
   </p>
 

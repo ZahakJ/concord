@@ -1,5 +1,5 @@
 <script>
-  // Ctrl+K quick switcher: fuzzy jump to any channel or server.
+  // Ctrl+K quick switcher: fuzzy jump to any channel or guild.
   import Icon from "./Icon.svelte";
   import { S, jumpToChannel, selectGuild } from "./lib/state.svelte.js";
 
@@ -30,7 +30,7 @@
         all.push({ kind: "dm", label: g.name, sub: "direct", g, icon: "edit" });
         continue;
       }
-      all.push({ kind: "guild", label: g.name, sub: "server", g, icon: "diamond" });
+      all.push({ kind: "guild", label: g.name, sub: "guild", g, icon: "diamond" });
       for (const c of g.channels) {
         const icon = c.type === "voice" ? "speaker" : c.type === "announcement" ? "megaphone" : "hash";
         all.push({ kind: "channel", label: c.name, sub: g.name, c, g, icon });
@@ -84,7 +84,7 @@
     <input
       bind:this={inputEl}
       bind:value={query}
-      placeholder="Jump to a channel or server…"
+      placeholder="Jump to a channel or guild…"
       onkeydown={onKeydown}
     />
     <div class="results">

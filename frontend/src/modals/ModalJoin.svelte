@@ -21,7 +21,7 @@
   }
 </script>
 
-<Modal title="Join a server" {onClose}>
+<Modal title="Join a guild" {onClose}>
   <p class="muted lead">Paste the invite code a friend sent you.</p>
 
   <div class="input-well" class:err={!!error}>
