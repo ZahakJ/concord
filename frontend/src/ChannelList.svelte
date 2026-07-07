@@ -6,7 +6,7 @@
   import Menu from "./Menu.svelte";
   import { S, activeGuild, selectGuild, selectChannel, toggleMute, channelShort } from "./lib/state.svelte.js";
 
-  let { onJoinVoice, onLeaveVoice, onToggleMute } = $props();
+  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare } = $props();
 
   const g = $derived(activeGuild());
 
@@ -119,6 +119,15 @@
       <span class="vb-actions">
         <button class="vb-btn" title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} onclick={onToggleMute}>
           <Icon name={S.muted ? "micOff" : "mic"} size={14} />
+        </button>
+        <button
+          class="vb-btn"
+          class:on={S.sharing}
+          title={S.sharing ? "Stop sharing" : "Share screen"}
+          aria-label={S.sharing ? "Stop sharing" : "Share screen"}
+          onclick={onToggleShare}
+        >
+          <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
         </button>
         <button class="vb-btn leave" title="Disconnect" aria-label="Disconnect" onclick={onLeaveVoice}>
           <Icon name="door" size={14} />
@@ -356,6 +365,10 @@
   }
   .vb-btn:hover {
     background: color-mix(in srgb, var(--ok) 22%, transparent);
+  }
+  .vb-btn.on {
+    background: var(--ok);
+    color: #fff;
   }
   .vb-btn.leave {
     color: var(--danger);

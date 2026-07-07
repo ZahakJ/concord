@@ -14,12 +14,16 @@ const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 export class VoiceMesh {
   // selfPeerId: our libp2p peer id; channelId: the voice room; relay(to, json)
   // sends a signaling blob; onRoster(peerIds[]) reports participant changes.
-  constructor({ selfPeerId, channelId, relay, onRoster, onSpeaking }) {
+  constructor({ selfPeerId, channelId, relay, onRoster, onSpeaking, onVideo, onShare }) {
     this.selfPeerId = selfPeerId;
     this.channelId = channelId;
     this.relay = relay;
     this.onRoster = onRoster || (() => {});
     this.onSpeaking = onSpeaking || (() => {});
+    // onVideo(peerId, stream|null): a peer started/stopped sharing video.
+    // onShare(sharing): our own screen-share state changed.
+    this.onVideo = onVideo || (() => {});
+    this.onShare = onShare || (() => {});
     this.peers = new Map(); // peerId -> { pc, makingOffer, ignoreOffer, audioEl }
     this.localStream = null;
     this.muted = false;
@@ -27,6 +31,11 @@ export class VoiceMesh {
     this.analysers = new Map(); // key ("self"|peerId) -> { analyser, data }
     this._monitor = null;
     this._lastSpeaking = "";
+    // Screen sharing: one local display stream fanned out to every peer, with a
+    // per-peer sender so it can be pulled back on stop.
+    this.screenStream = null;
+    this.screenSenders = new Map(); // peerId -> RTCRtpSender
+    this.sharing = false;
   }
 
   async start() {
@@ -36,6 +45,7 @@ export class VoiceMesh {
   }
 
   stop() {
+    this.stopScreenShare();
     for (const id of [...this.peers.keys()]) this.removePeer(id);
     if (this._monitor) clearInterval(this._monitor);
     this._monitor = null;
@@ -93,6 +103,61 @@ export class VoiceMesh {
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
     }
+  }
+
+  // toggleScreenShare starts or stops sharing this tab/screen. Returns the local
+  // preview stream when starting (or null on stop / user-cancel).
+  async toggleScreenShare() {
+    if (this.sharing) {
+      this.stopScreenShare();
+      return null;
+    }
+    return this.startScreenShare();
+  }
+
+  async startScreenShare() {
+    if (this.screenStream) return this.screenStream;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 30 },
+        audio: false,
+      });
+    } catch {
+      return null; // user dismissed the picker
+    }
+    this.screenStream = stream;
+    this.sharing = true;
+    const track = stream.getVideoTracks()[0];
+    // Fires when the user clicks the browser's own "Stop sharing" chrome.
+    track.addEventListener("ended", () => this.stopScreenShare());
+    // Push the track to every current peer (each triggers renegotiation).
+    for (const [peerId, peer] of this.peers) {
+      try {
+        this.screenSenders.set(peerId, peer.pc.addTrack(track, stream));
+      } catch (err) {
+        console.warn("share addTrack", err);
+      }
+    }
+    this.onShare(true);
+    return stream;
+  }
+
+  stopScreenShare() {
+    if (!this.screenStream) return;
+    for (const [peerId, peer] of this.peers) {
+      const sender = this.screenSenders.get(peerId);
+      if (sender) {
+        try {
+          peer.pc.removeTrack(sender);
+        } catch {}
+      }
+    }
+    this.screenSenders.clear();
+    this.screenStream.getTracks().forEach((t) => t.stop());
+    this.screenStream = null;
+    this.sharing = false;
+    this.onShare(false);
   }
 
   // handlePresence reacts to a peer joining/leaving the room.
@@ -162,6 +227,15 @@ export class VoiceMesh {
         pc.addTrack(track, this.localStream);
       }
     }
+    // A peer that joins while we're already sharing gets our screen too.
+    if (this.screenStream) {
+      const track = this.screenStream.getVideoTracks()[0];
+      if (track) {
+        try {
+          this.screenSenders.set(peerId, pc.addTrack(track, this.screenStream));
+        } catch {}
+      }
+    }
 
     pc.onnegotiationneeded = async () => {
       try {
@@ -177,7 +251,16 @@ export class VoiceMesh {
     pc.onicecandidate = ({ candidate }) => {
       if (candidate) this.send(peerId, { candidate });
     };
-    pc.ontrack = ({ streams }) => {
+    pc.ontrack = ({ track, streams }) => {
+      if (track.kind === "video") {
+        // A remote screen share. Surface the stream to the UI, and clear it when
+        // the track ends (sharer stopped) or is removed.
+        const stream = streams[0] || new MediaStream([track]);
+        this.onVideo(peerId, stream);
+        track.addEventListener("ended", () => this.onVideo(peerId, null));
+        track.addEventListener("mute", () => this.onVideo(peerId, null));
+        return;
+      }
       let el = peer.audioEl;
       if (!el) {
         el = new Audio();
@@ -203,6 +286,8 @@ export class VoiceMesh {
     } catch {}
     if (peer.audioEl) peer.audioEl.srcObject = null;
     this.analysers.delete(peerId);
+    this.screenSenders.delete(peerId);
+    this.onVideo(peerId, null);
     this.peers.delete(peerId);
     this.emitRoster();
   }

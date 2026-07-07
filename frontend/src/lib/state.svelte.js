@@ -39,6 +39,12 @@ export const S = $state({
   voiceSpeaking: [],
   voicePeerFpr: {},
   muted: false,
+  sharing: false, // we are screen-sharing
+  // videoPeers: peerIds (plus "self" when previewing our own share) that
+  // currently have a live video stream. The MediaStreams themselves live in the
+  // non-reactive videoStreams map below (MediaStream objects don't belong in a
+  // reactive proxy); this array just drives which <video> tiles render.
+  videoPeers: [],
 
   searchQuery: "",
   searchResults: null, // null = closed, [] = no hits
@@ -53,6 +59,26 @@ export const activeGuild = () => S.guilds.find((g) => g.id === S.activeGuildId) 
 export const activeChannel = () =>
   activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null;
 export const memberByFpr = (fpr) => S.members.find((m) => m.fingerprint === fpr);
+
+// ---- screen-share video streams ----
+// MediaStreams are held outside the reactive store (a $state proxy corrupts
+// them); S.videoPeers mirrors the keys to drive rendering.
+const videoStreams = new Map(); // peerId | "self" -> MediaStream
+
+export function getVideoStream(peerId) {
+  return videoStreams.get(peerId) || null;
+}
+
+export function setVideoStream(peerId, stream) {
+  if (stream) videoStreams.set(peerId, stream);
+  else videoStreams.delete(peerId);
+  S.videoPeers = [...videoStreams.keys()];
+}
+
+export function clearVideoStreams() {
+  videoStreams.clear();
+  S.videoPeers = [];
+}
 
 // nameFor: the single source of truth for a peer's display name — the current
 // learned member name (same as the member list), falling back to a message's

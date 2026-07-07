@@ -16,6 +16,8 @@
     refreshRightPanel,
     applyAccent,
     flash,
+    setVideoStream,
+    clearVideoStreams,
   } from "./lib/state.svelte.js";
 
   import Login from "./Login.svelte";
@@ -77,6 +79,13 @@
       relay: api.relaySignal,
       onRoster: (ids) => (S.voiceParticipants = ids),
       onSpeaking: (keys) => (S.voiceSpeaking = keys),
+      onVideo: (peerId, stream) => setVideoStream(peerId, stream),
+      onShare: (on) => {
+        S.sharing = on;
+        // If sharing stopped via the browser's own "Stop sharing" chrome (not our
+        // button), drop the local preview tile too.
+        if (!on) setVideoStream("self", null);
+      },
     });
     try {
       await mesh.start();
@@ -99,6 +108,8 @@
     S.voiceSpeaking = [];
     S.voicePeerFpr = {};
     S.muted = false;
+    S.sharing = false;
+    clearVideoStreams();
     playVoiceLeave();
     await api.leaveVoice(ch);
   }
@@ -106,6 +117,13 @@
   function toggleMicMute() {
     S.muted = !S.muted;
     S.voice?.mesh.setMuted(S.muted);
+  }
+
+  async function toggleScreenShare() {
+    if (!S.voice) return;
+    const stream = await S.voice.mesh.toggleScreenShare();
+    // Mirror our own share as a local preview tile (or clear it when stopping).
+    setVideoStream("self", stream);
   }
 
   // ---- modal handlers ----
@@ -170,11 +188,21 @@
 {:else}
   <div class="app" class:no-panel={isDM || !hasChannel}>
     <GuildRail />
-    <ChannelList onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} onToggleMute={toggleMicMute} />
+    <ChannelList
+      onJoinVoice={joinVoice}
+      onLeaveVoice={leaveVoice}
+      onToggleMute={toggleMicMute}
+      onToggleShare={toggleScreenShare}
+    />
 
     <main class="chat">
       {#if hasChannel}
-        <ChatHeader onJoinVoice={joinVoice} onLeaveVoice={leaveVoice} onToggleMute={toggleMicMute} />
+        <ChatHeader
+          onJoinVoice={joinVoice}
+          onLeaveVoice={leaveVoice}
+          onToggleMute={toggleMicMute}
+          onToggleShare={toggleScreenShare}
+        />
         {#if S.voice && S.voice.channelId === S.activeChannelId}
           <VoicePanel />
         {/if}
