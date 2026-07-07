@@ -159,6 +159,22 @@ export function setPref(key, value) {
   saveJSON("concord.prefs", S.prefs);
 }
 
+// moveChannelToCategory reassigns a channel's category (preserving type/order).
+export async function moveChannelToCategory(channel, categoryId) {
+  try {
+    await api.setChannelMeta(
+      S.activeGuildId,
+      channel.id,
+      channel.type || "",
+      categoryId,
+      channel.position || 0,
+    );
+    await refreshGuilds();
+  } catch (err) {
+    flash(err);
+  }
+}
+
 function bumpUnread(channelId, mention) {
   const cur = S.unread[channelId] || { count: 0, mentions: 0 };
   S.unread = {

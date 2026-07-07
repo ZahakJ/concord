@@ -13,6 +13,7 @@
     channelShort,
     voiceMembersFor,
     nameFor,
+    moveChannelToCategory,
   } from "./lib/state.svelte.js";
 
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare } = $props();
@@ -105,6 +106,21 @@
               {/if}
               {#if inVoice}<Icon name="speaker" size={12} />{/if}
             </button>
+            {#if g?.canManage && (g?.categories || []).length}
+              <span class="ch-menu">
+                <Menu label="Move channel" icon="chevron" align="right" compact>
+                  <div class="menu-head">Move to…</div>
+                  <button class="menu-item" onclick={() => moveChannelToCategory(c, "")}>
+                    <Icon name="hash" size={13} /> No category
+                  </button>
+                  {#each g.categories as cat (cat.id)}
+                    <button class="menu-item" onclick={() => moveChannelToCategory(c, cat.id)}>
+                      <Icon name="chevron" size={13} /> {cat.name}
+                    </button>
+                  {/each}
+                </Menu>
+              </span>
+            {/if}
             {#if c.type !== "voice"}
               <button
                 class="mute-btn"
@@ -349,6 +365,20 @@
   }
   .count.mention {
     background: var(--danger);
+  }
+  .ch-menu {
+    display: inline-flex;
+    opacity: 0;
+  }
+  .channel-row:hover .ch-menu {
+    opacity: 1;
+  }
+  .menu-head {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+    padding: 4px 10px 2px;
   }
   .mute-btn {
     background: transparent;
