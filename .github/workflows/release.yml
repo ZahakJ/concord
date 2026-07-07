@@ -68,8 +68,13 @@ jobs:
       # don't use the generated files anyway — the frontend calls the runtime-
       # injected window.go.main.App.* directly (see frontend/src/lib/api.js), so
       # skipping generation is safe and the bound methods still work at runtime.
+      # The `wails` tag is REQUIRED: main_wails.go is behind //go:build wails and
+      # main_web.go behind //go:build !wails. Without it, `wails build` compiles
+      # the browser-served web variant instead of the native desktop app — the
+      # binary silently starts a localhost web server instead of opening a window
+      # (matches Makefile's gui-dev: -tags "wails webkit2_41").
       - name: Build native app
-        run: wails build -tags webkit2_41 -skipbindings
+        run: wails build -tags "wails webkit2_41" -skipbindings
 
       # Name each output per-OS so it's a direct download and doesn't collide
       # with the web track (which also emits a concord-windows.exe). Windows and
