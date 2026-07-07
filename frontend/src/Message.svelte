@@ -14,6 +14,7 @@
   import {
     S,
     memberByFpr,
+    nameColorFor,
     nameFor,
     customEmojiMap,
     react,
@@ -136,7 +137,10 @@
     {/if}
     {#if !compact}
       <div class="msg-head">
-        <button class="sender" onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
+        <button
+          class="sender"
+          style={nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
+          onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
           >{nameFor(m.sender, m.senderName)}</button
         >
         <span class="muted mono verify-fpr" title="verified identity">{m.sender.slice(0, 9)}</span>
@@ -165,8 +169,8 @@
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div class="body" onclick={onBodyClick} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
-          {@html renderMarkdown(bodyText, mentionNames, cemoji)}{#if m.edited}<span class="edited-tag">
-              (edited)</span
+          {@html renderMarkdown(bodyText, mentionNames, cemoji)}{#if m.edited}<span
+              class="edited-tag">(edited)</span
             >{/if}
         </div>
       {/if}
@@ -203,7 +207,7 @@
     {/if}
   </div>
 
-  {#if !m.deleted}
+  {#if !m.deleted && S.editing?.id !== m.id}
     <div class="msg-actions" role="toolbar" aria-label="Message actions">
       <div class="grp">
         {#each QUICK_EMOJIS as e (e)}
@@ -358,8 +362,11 @@
     color: var(--text-muted);
   }
   .edited-tag {
+    margin-left: 5px;
     font-size: 10px;
-    color: var(--text-muted);
+    color: var(--text-faint);
+    user-select: none;
+    vertical-align: baseline;
   }
   .edit-input {
     margin-top: 2px;

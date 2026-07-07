@@ -5,7 +5,7 @@
   import Icon from "./Icon.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
-  import { S, activeChannel, sendMessage, react, flash } from "./lib/state.svelte.js";
+  import { S, activeChannel, sendMessage, react, flash, nameColorFor } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
 
   let draft = $state("");
@@ -15,13 +15,6 @@
   let lastTypingSent = 0;
 
   const ch = $derived(activeChannel());
-  const typingLabel = $derived(
-    S.typingList.length === 0
-      ? ""
-      : S.typingList.length === 1
-        ? `${S.typingList[0].label} is typing…`
-        : `${S.typingList.length} people are typing…`,
-  );
 
   export function focus() {
     composerEl?.focus();
@@ -263,7 +256,17 @@
     </button>
   </div>
 {/if}
-<div class="typing-line muted">{typingLabel}</div>
+<div class="typing-line muted">
+  {#if S.typingList.length === 1}
+    <span
+      class="typer"
+      style={nameColorFor(S.typingList[0].from) ? `color:${nameColorFor(S.typingList[0].from)}` : ""}
+      >{S.typingList[0].label}</span
+    > is typing…
+  {:else if S.typingList.length > 1}
+    {S.typingList.length} people are typing…
+  {/if}
+</div>
 
 <div class="composer-wrap">
   {#if suggest}
@@ -336,11 +339,17 @@
     border-top: 1px solid var(--border);
   }
   .typing-line {
-    height: 18px;
+    height: 20px;
     font-size: 12px;
     font-style: italic;
-    padding: 2px 16px 0;
-    border-top: 1px solid var(--border);
+    padding: 3px 16px 1px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .typing-line .typer {
+    font-weight: 600;
+    font-style: normal;
   }
   .composer-wrap {
     position: relative;

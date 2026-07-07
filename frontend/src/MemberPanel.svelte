@@ -1,6 +1,6 @@
 <script>
   // Right panel: guild members (with the fingerprint-verification card) and
-  // the "known peers" network log. Rows are proper buttons; the owner's kick
+  // the "local peers" network log. Rows are proper buttons; the owner's kick
   // control is its own sibling button (no more button-in-button nesting).
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
@@ -83,7 +83,7 @@
   {/each}
 
   <div class="section-head">
-    <span>Known peers</span>
+    <span>Local peers</span>
     <button class="mini" aria-label={showPeers ? "Collapse" : "Expand"} onclick={() => (showPeers = !showPeers)}>
       <span class="chev" class:open={showPeers}><Icon name="chevron" size={11} /></span>
     </button>

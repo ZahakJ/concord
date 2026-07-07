@@ -1,11 +1,19 @@
 <script>
-  // The leftmost rail: one circle per guild, unread badges, create/join.
+  // The leftmost rail: a Concord "home" bubble (opens DMs), one bubble per DM
+  // and per guild with unread badges, plus create/join.
   import Icon from "./Icon.svelte";
+  import Avatar from "./Avatar.svelte";
   import { S, selectGuild, openDMs, guildUnread } from "./lib/state.svelte.js";
 
   const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
-  const notesActive = $derived(g?.kind === "dm");
+  const inDMs = $derived(g?.kind === "dm");
   const servers = $derived(S.guilds.filter((x) => x.kind !== "dm"));
+  // DMs shown as their own bubbles, Notes first.
+  const dms = $derived(
+    S.guilds
+      .filter((x) => x.kind === "dm")
+      .sort((a, b) => (a.name === "Notes" ? -1 : b.name === "Notes" ? 1 : 0)),
+  );
 
   const initials = (name) =>
     name
@@ -16,17 +24,36 @@
 </script>
 
 <nav class="rail" aria-label="Servers">
-  <div class="brand" title="Concord"><Icon name="concorde" size={26} /></div>
-
   <button
-    class="pill notes"
-    class:active={notesActive}
+    class="pill home"
+    class:active={inDMs}
     title="Direct messages"
-    aria-label="Direct messages"
+    aria-label="Home / Direct messages"
     onclick={openDMs}
   >
-    <Icon name="edit" size={18} />
+    <Icon name="concorde" size={24} />
   </button>
+
+  {#each dms as dm (dm.id)}
+    {@const u = guildUnread(dm)}
+    <button
+      class="pill"
+      class:active={dm.id === S.activeGuildId}
+      title={dm.name === "Notes" ? "Notes" : dm.name}
+      aria-label={dm.name}
+      onclick={() => selectGuild(dm.id)}
+    >
+      {#if dm.name === "Notes"}
+        <span class="face"><Icon name="edit" size={18} /></span>
+      {:else}
+        <Avatar name={dm.name} size={42} />
+      {/if}
+      {#if dm.id !== S.activeGuildId && u.count > 0}
+        <span class="badge mention">{u.count > 99 ? "99+" : u.count}</span>
+      {/if}
+    </button>
+  {/each}
+
   <div class="divider"></div>
 
   {#each servers as sv (sv.id)}
@@ -67,15 +94,6 @@
   .rail::-webkit-scrollbar {
     display: none;
   }
-  .brand {
-    color: var(--accent);
-    padding: 4px 0 10px;
-    border-bottom: 1px solid var(--border);
-    width: 60%;
-    display: grid;
-    place-items: center;
-    margin-bottom: 2px;
-  }
   .pill {
     position: relative;
     width: 42px;
@@ -103,11 +121,15 @@
     background: var(--accent);
     color: white;
   }
-  .pill.notes {
-    background: var(--bg-2);
-    color: var(--accent-hover);
+  .pill.home {
+    color: var(--accent);
+    margin-bottom: 2px;
   }
-  .pill.notes.active {
+  .pill.home:hover {
+    color: white;
+    background: var(--accent);
+  }
+  .pill.home.active {
     background: var(--accent);
     color: white;
   }

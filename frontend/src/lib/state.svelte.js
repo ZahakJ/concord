@@ -400,6 +400,13 @@ export function roleColorFor(fpr) {
   return "";
 }
 
+// nameColorFor: the color a member's name is painted in, everywhere (chat,
+// typing line). A colored role wins (Discord-style); otherwise the member's own
+// chosen accent color. "" means fall back to the default name color.
+export function nameColorFor(fpr) {
+  return roleColorFor(fpr) || memberByFpr(fpr)?.color || "";
+}
+
 // Coalesce refreshes: a member join, history sync, or presence flap can emit a
 // burst of guild-updated/presence events in quick succession, each otherwise
 // triggering full guild + member + contact refetches and a whole-list re-render.
