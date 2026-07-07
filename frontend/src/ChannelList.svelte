@@ -14,11 +14,42 @@
     voiceMembersFor,
     nameFor,
     moveChannelToCategory,
+    flash,
+    refreshGuilds,
   } from "./lib/state.svelte.js";
+  import { api } from "./lib/api.js";
+  import { PERM, has } from "./lib/perms.js";
 
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
 
   const g = $derived(activeGuild());
+  const canManageChannels = $derived(has(g?.myPerms || 0, PERM.MANAGE_CHANNELS));
+
+  function confirmDelete(title, body, onConfirm) {
+    S.modal = { kind: "confirm", title, body, confirmLabel: "Delete", onConfirm };
+  }
+  function deleteChannel(c) {
+    confirmDelete(`Delete #${c.name}?`, "This removes the channel and its messages for everyone.", async () => {
+      try {
+        await api.deleteChannel(S.activeGuildId, c.id);
+        await refreshGuilds();
+      } catch (err) {
+        flash(err);
+      }
+      S.modal = null;
+    });
+  }
+  function deleteCategory(cat) {
+    confirmDelete(`Delete category ${cat.name}?`, "Channels inside it stay, just un-categorized.", async () => {
+      try {
+        await api.deleteCategory(S.activeGuildId, cat.id);
+        await refreshGuilds();
+      } catch (err) {
+        flash(err);
+      }
+      S.modal = null;
+    });
+  }
 
   // In the DMs area, the channel column becomes a conversation list (Notes
   // first, then peer DMs).
@@ -45,16 +76,46 @@
     if (c.type === "voice") onJoinVoice?.(c.id);
     else selectChannel(c.id);
   }
+
+  async function newDMInvite() {
+    try {
+      const code = await api.newDMInvite();
+      S.modal = { kind: "invite", code };
+    } catch (err) {
+      flash(err);
+    }
+  }
 </script>
 
 <aside class="cols">
-  <header class="guild-name">
-    <strong>{g?.name ?? "Concord"}</strong>
-  </header>
+  {#if g && g.kind !== "dm"}
+    <button
+      class="guild-name guild-header"
+      class:has-banner={!!g.banner}
+      style={g.banner ? `background-image:linear-gradient(rgba(0,0,0,0.15),rgba(0,0,0,0.55)),url(${g.banner})` : ""}
+      title={g.description || g.name}
+      onclick={() => (S.modal = { kind: "guildSettings" })}
+    >
+      {#if g.icon}
+        <img class="g-icon" src={g.icon} alt="" />
+      {/if}
+      <strong>{g.name}</strong>
+      <Icon name="chevron" size={13} />
+    </button>
+  {:else}
+    <header class="guild-name">
+      <strong>{g?.kind === "dm" ? "Direct messages" : "Concord"}</strong>
+    </header>
+  {/if}
 
   <div class="scroll">
     {#if g?.kind === "dm"}
-      <div class="section-head"><span>Direct messages</span></div>
+      <div class="section-head">
+        <span>Direct messages</span>
+        <button class="cat-add" title="Invite someone to a new DM" aria-label="New DM invite" onclick={newDMInvite}>
+          <Icon name="plus" size={12} />
+        </button>
+      </div>
       {#each dms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}
         <button class="dm-item" class:active onclick={() => selectGuild(dm.id)}>
@@ -83,14 +144,26 @@
         {#if grp.name}
           <div class="cat-head">
             <span>{grp.name}</span>
-            <button
-              class="cat-add"
-              title="Create channel in {grp.name}"
-              aria-label="Create channel in {grp.name}"
-              onclick={() => (S.modal = { kind: "channel", category: grp.id })}
-            >
-              <Icon name="plus" size={12} />
-            </button>
+            {#if canManageChannels}
+              <span class="cat-actions">
+                <button
+                  class="cat-add"
+                  title="Create channel in {grp.name}"
+                  aria-label="Create channel in {grp.name}"
+                  onclick={() => (S.modal = { kind: "channel", category: grp.id })}
+                >
+                  <Icon name="plus" size={12} />
+                </button>
+                <button
+                  class="cat-add"
+                  title="Delete category {grp.name}"
+                  aria-label="Delete category {grp.name}"
+                  onclick={() => deleteCategory({ id: grp.id, name: grp.name })}
+                >
+                  <Icon name="trash" size={12} />
+                </button>
+              </span>
+            {/if}
           </div>
         {/if}
         {#each grp.channels as c (c.id)}
@@ -106,18 +179,24 @@
               {/if}
               {#if inVoice}<Icon name="speaker" size={12} />{/if}
             </button>
-            {#if g?.canManage && (g?.categories || []).length}
+            {#if canManageChannels}
               <span class="ch-menu">
-                <Menu label="Move channel" icon="chevron" align="right" compact>
-                  <div class="menu-head">Move to…</div>
-                  <button class="menu-item" onclick={() => moveChannelToCategory(c, "")}>
-                    <Icon name="hash" size={13} /> No category
-                  </button>
-                  {#each g.categories as cat (cat.id)}
-                    <button class="menu-item" onclick={() => moveChannelToCategory(c, cat.id)}>
-                      <Icon name="chevron" size={13} /> {cat.name}
+                <Menu label="Channel options" icon="chevron" align="right" compact>
+                  {#if (g?.categories || []).length}
+                    <div class="menu-head">Move to…</div>
+                    <button class="menu-item" onclick={() => moveChannelToCategory(c, "")}>
+                      <Icon name="hash" size={13} /> No category
                     </button>
-                  {/each}
+                    {#each g.categories as cat (cat.id)}
+                      <button class="menu-item" onclick={() => moveChannelToCategory(c, cat.id)}>
+                        <Icon name="chevron" size={13} /> {cat.name}
+                      </button>
+                    {/each}
+                    <div class="menu-sep"></div>
+                  {/if}
+                  <button class="menu-item danger" onclick={() => deleteChannel(c)}>
+                    <Icon name="trash" size={13} /> Delete channel
+                  </button>
                 </Menu>
               </span>
             {/if}
@@ -225,6 +304,42 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 15px;
+  }
+  .guild-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    border-radius: 0;
+  }
+  .guild-header:hover {
+    background: var(--bg-3);
+  }
+  .guild-header.has-banner {
+    background-size: cover;
+    background-position: center;
+    color: #fff;
+    min-height: 56px;
+    align-items: flex-end;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+  .guild-header strong {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 15px;
+  }
+  .g-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
   }
   .scroll {
     flex: 1;
@@ -255,6 +370,10 @@
     font-weight: 700;
     margin: 10px 8px 2px;
   }
+  .cat-actions {
+    display: inline-flex;
+    gap: 2px;
+  }
   .cat-add {
     background: transparent;
     color: var(--text-faint);
@@ -263,7 +382,8 @@
     place-items: center;
     opacity: 0;
   }
-  .cat-head:hover .cat-add {
+  .cat-head:hover .cat-add,
+  .section-head:hover .cat-add {
     opacity: 1;
   }
   .cat-add:hover {

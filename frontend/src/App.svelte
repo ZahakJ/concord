@@ -37,6 +37,7 @@
   import ModalForward from "./modals/ModalForward.svelte";
   import ModalBans from "./modals/ModalBans.svelte";
   import ModalRoles from "./modals/ModalRoles.svelte";
+  import ModalGuildSettings from "./modals/ModalGuildSettings.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
   import ModalProfile from "./modals/ModalProfile.svelte";
@@ -264,6 +265,8 @@
     <ModalBans onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "roles"}
     <ModalRoles onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "guildSettings"}
+    <ModalGuildSettings onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "rename"}
     <ModalCreate
       onSubmit={renameGuild}
