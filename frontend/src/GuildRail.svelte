@@ -8,11 +8,10 @@
   const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
   const inDMs = $derived(g?.kind === "dm");
   const servers = $derived(S.guilds.filter((x) => x.kind !== "dm"));
-  // DMs shown as their own bubbles, Notes first.
+  // DM bubbles surface only when they need attention: a DM with unread
+  // messages. Everything else (incl. Notes) lives behind the home button.
   const dms = $derived(
-    S.guilds
-      .filter((x) => x.kind === "dm")
-      .sort((a, b) => (a.name === "Notes" ? -1 : b.name === "Notes" ? 1 : 0)),
+    S.guilds.filter((x) => x.kind === "dm" && x.name !== "Notes" && guildUnread(x).count > 0),
   );
 
   const initials = (name) =>
@@ -33,39 +32,41 @@
   >
     <Icon name="concorde" size={24} />
   </button>
+  <div class="divider"></div>
 
   {#each dms as dm (dm.id)}
     {@const u = guildUnread(dm)}
     <button
       class="pill"
       class:active={dm.id === S.activeGuildId}
-      title={dm.name === "Notes" ? "Notes" : dm.name}
+      title={dm.name}
       aria-label={dm.name}
       onclick={() => selectGuild(dm.id)}
     >
-      {#if dm.name === "Notes"}
-        <span class="face"><Icon name="edit" size={18} /></span>
-      {:else}
-        <Avatar name={dm.name} size={42} />
-      {/if}
+      <Avatar name={dm.name} image={dm.icon} size={42} />
       {#if dm.id !== S.activeGuildId && u.count > 0}
         <span class="badge mention">{u.count > 99 ? "99+" : u.count}</span>
       {/if}
     </button>
   {/each}
 
-  <div class="divider"></div>
+  {#if dms.length}<div class="divider"></div>{/if}
 
   {#each servers as sv (sv.id)}
     {@const u = guildUnread(sv)}
     <button
       class="pill"
       class:active={sv.id === S.activeGuildId}
+      class:hasicon={sv.icon}
       title={sv.name}
       aria-label={sv.name}
       onclick={() => selectGuild(sv.id)}
     >
-      <span class="face">{initials(sv.name)}</span>
+      {#if sv.icon}
+        <img class="icon" src={sv.icon} alt="" />
+      {:else}
+        <span class="face">{initials(sv.name)}</span>
+      {/if}
       {#if sv.id !== S.activeGuildId && u.count > 0}
         <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
       {/if}
@@ -121,17 +122,33 @@
     background: var(--accent);
     color: white;
   }
+  /* The home bubble is deliberately not a server: a fixed rounded-square with a
+     neutral surface, so it reads as "brand / home" rather than a guild. */
   .pill.home {
+    border-radius: 15px;
+    background: var(--bg-3);
     color: var(--accent);
-    margin-bottom: 2px;
   }
   .pill.home:hover {
+    border-radius: 15px;
     color: white;
     background: var(--accent);
   }
   .pill.home.active {
+    border-radius: 15px;
     background: var(--accent);
     color: white;
+  }
+  .pill .icon {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+  }
+  /* A pill showing a real icon keeps it edge-to-edge; drop the tinted bg. */
+  .pill.hasicon {
+    background: var(--bg-2);
+    overflow: hidden;
   }
   .divider {
     width: 28px;
