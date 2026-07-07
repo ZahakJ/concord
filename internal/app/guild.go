@@ -621,6 +621,11 @@ func (s *Service) trackGuild(g *domain.Guild) {
 		_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(groupID, channelID), func(from peer.ID, _ []byte) {
 			s.emitTyping(presenceFor(from).Fingerprint, channelID)
 		})
+		// Watch voice presence for every voice channel so the sidebar shows who's
+		// in a call without us having to join it.
+		if c.ChannelType() == "voice" {
+			s.watchVoice(groupID, channelID)
+		}
 	}
 }
 
@@ -851,6 +856,9 @@ func (s *Service) addChannel(guildID string, ch domain.Channel) {
 	_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(groupID, channelID), func(from peer.ID, _ []byte) {
 		s.emitTyping(presenceFor(from).Fingerprint, channelID)
 	})
+	if ch.ChannelType() == "voice" {
+		s.watchVoice(groupID, channelID)
+	}
 	s.emitGuildUpdate()
 }
 

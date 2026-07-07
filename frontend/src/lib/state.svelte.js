@@ -44,6 +44,12 @@ export const S = $state({
   voiceParticipants: [],
   voiceSpeaking: [],
   voicePeerFpr: {},
+  // voiceRosters: guild-wide "who is in each voice channel", built from gossip
+  // presence heartbeats so the sidebar shows call participants without joining.
+  // Shape: { channelId: { peerId: { fingerprint, ts } } }.
+  voiceRosters: {},
+  // peers currently screen-sharing, keyed by peerId (surfaced as a share icon).
+  voiceSharing: {},
   muted: false,
   sharing: false, // we are screen-sharing
   // videoPeers: peerIds (plus "self" when previewing our own share) that
@@ -79,6 +85,14 @@ export function setVideoStream(peerId, stream) {
   if (stream) videoStreams.set(peerId, stream);
   else videoStreams.delete(peerId);
   S.videoPeers = [...videoStreams.keys()];
+  // Track remote sharers for the sidebar's "sharing" icon (our own share is
+  // reflected by S.sharing). "self" is the local preview, not a remote peer.
+  if (peerId !== "self") {
+    const sh = { ...S.voiceSharing };
+    if (stream) sh[peerId] = true;
+    else delete sh[peerId];
+    S.voiceSharing = sh;
+  }
 }
 
 export function clearVideoStreams() {
@@ -502,12 +516,16 @@ function initEvents() {
     S.typingList = [...S.typingList, { from: t.from, label, timer }];
   });
 
-  // Voice signaling routed to the active mesh.
+  // Voice presence is now guild-wide: every peer hears join/leave heartbeats for
+  // every voice channel, so the sidebar can show who's in each call.
   on("voice-presence", (v) => {
+    updateVoiceRoster(v.channelId, v.from, v.fingerprint, v.action);
+
+    // Additionally drive the WebRTC mesh + sounds for the room we're actually in.
     if (S.voice && v.channelId === S.voice.channelId) {
       if (v.action === "join") {
+        if (!S.voicePeerFpr[v.from]) playVoiceJoin();
         S.voicePeerFpr = { ...S.voicePeerFpr, [v.from]: v.fingerprint };
-        playVoiceJoin();
       } else {
         const c = { ...S.voicePeerFpr };
         delete c[v.from];
@@ -520,4 +538,66 @@ function initEvents() {
   on("voice-signal", (v) => {
     if (S.voice) S.voice.mesh.handleSignal(v.from, v.data);
   });
+
+  // Expire voice-roster entries whose heartbeat stopped (missed ~3 beats = 9s),
+  // covering peers that crashed or dropped without a clean "leave".
+  setInterval(() => {
+    const now = Date.now();
+    let changed = false;
+    const next = {};
+    for (const [ch, peers] of Object.entries(S.voiceRosters)) {
+      const kept = {};
+      for (const [pid, info] of Object.entries(peers)) {
+        if (now - info.ts < 9000) kept[pid] = info;
+        else changed = true;
+      }
+      if (Object.keys(kept).length) next[ch] = kept;
+      else if (Object.keys(peers).length) changed = true;
+    }
+    if (changed) S.voiceRosters = next;
+  }, 3000);
+}
+
+// updateVoiceRoster folds one presence heartbeat into the guild-wide roster.
+function updateVoiceRoster(channelId, peerId, fingerprint, action) {
+  if (!channelId || !peerId) return;
+  const rosters = { ...S.voiceRosters };
+  const room = { ...(rosters[channelId] || {}) };
+  if (action === "leave") {
+    delete room[peerId];
+  } else {
+    room[peerId] = { fingerprint, ts: Date.now() };
+  }
+  if (Object.keys(room).length) rosters[channelId] = room;
+  else delete rosters[channelId];
+  S.voiceRosters = rosters;
+}
+
+// voiceMembersFor returns the display list for a voice channel: {fingerprint,
+// self, speaking, sharing} per participant, including ourselves when we're in it.
+export function voiceMembersFor(channelId) {
+  const out = [];
+  const seen = new Set();
+  // Ourselves, if we're in this room (we don't hear our own gossip heartbeat).
+  if (S.voice && S.voice.channelId === channelId) {
+    out.push({
+      fingerprint: S.identity.fingerprint,
+      self: true,
+      speaking: S.voiceSpeaking.includes("self"),
+      sharing: S.sharing,
+    });
+    seen.add(S.identity.fingerprint);
+  }
+  for (const [pid, info] of Object.entries(S.voiceRosters[channelId] || {})) {
+    if (seen.has(info.fingerprint)) continue;
+    seen.add(info.fingerprint);
+    out.push({
+      fingerprint: info.fingerprint,
+      self: false,
+      // Speaking is only known for the room we're in (from the local mesh).
+      speaking: S.voiceSpeaking.includes(pid),
+      sharing: !!S.voiceSharing[pid],
+    });
+  }
+  return out;
 }

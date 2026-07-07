@@ -4,7 +4,16 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import Menu from "./Menu.svelte";
-  import { S, activeGuild, selectGuild, selectChannel, toggleMute, channelShort } from "./lib/state.svelte.js";
+  import {
+    S,
+    activeGuild,
+    selectGuild,
+    selectChannel,
+    toggleMute,
+    channelShort,
+    voiceMembersFor,
+    nameFor,
+  } from "./lib/state.svelte.js";
 
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare } = $props();
 
@@ -71,7 +80,17 @@
 
       {#each groups as grp (grp.id || "_uncat")}
         {#if grp.name}
-          <div class="cat-head">{grp.name}</div>
+          <div class="cat-head">
+            <span>{grp.name}</span>
+            <button
+              class="cat-add"
+              title="Create channel in {grp.name}"
+              aria-label="Create channel in {grp.name}"
+              onclick={() => (S.modal = { kind: "channel", category: grp.id })}
+            >
+              <Icon name="plus" size={12} />
+            </button>
+          </div>
         {/if}
         {#each grp.channels as c (c.id)}
           {@const u = S.unread[c.id]}
@@ -97,6 +116,17 @@
               </button>
             {/if}
           </div>
+          {#if c.type === "voice"}
+            {#each voiceMembersFor(c.id) as vm (vm.fingerprint)}
+              <button class="vc-member" onclick={() => clickChannel(c)} title={nameFor(vm.fingerprint)}>
+                <span class="vc-av" class:speaking={vm.speaking}>
+                  <Avatar name={nameFor(vm.fingerprint)} size={20} />
+                </span>
+                <span class="vc-name">{nameFor(vm.fingerprint)}{vm.self ? " (you)" : ""}</span>
+                {#if vm.sharing}<span class="vc-share" title="Sharing screen"><Icon name="screen" size={12} /></span>{/if}
+              </button>
+            {/each}
+          {/if}
         {/each}
       {/each}
     {:else}
@@ -190,6 +220,9 @@
     margin: 6px 6px 4px;
   }
   .cat-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     text-transform: uppercase;
     font-size: 10px;
     letter-spacing: 0.06em;
@@ -197,8 +230,60 @@
     font-weight: 700;
     margin: 10px 8px 2px;
   }
+  .cat-add {
+    background: transparent;
+    color: var(--text-faint);
+    padding: 2px;
+    display: grid;
+    place-items: center;
+    opacity: 0;
+  }
+  .cat-head:hover .cat-add {
+    opacity: 1;
+  }
+  .cat-add:hover {
+    color: var(--text);
+  }
   .voice-active {
     background: var(--accent-soft) !important;
+  }
+  .vc-member {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: calc(100% - 16px);
+    margin: 1px 8px 1px 22px;
+    padding: 3px 6px;
+    background: transparent;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    text-align: left;
+  }
+  .vc-member:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .vc-av {
+    display: inline-grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    line-height: 0;
+  }
+  .vc-av.speaking {
+    border-color: var(--ok);
+  }
+  .vc-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vc-share {
+    color: var(--ok);
+    display: inline-grid;
+    place-items: center;
   }
   .channel-row {
     position: relative;

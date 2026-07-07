@@ -30,14 +30,38 @@ type voiceAnnounce struct {
 	Action    string `json:"action"` // "join" | "leave"
 }
 
-// JoinVoice enters the voice room for a channel: it subscribes to the room's
-// presence topic and periodically announces its presence so peers (including
-// late joiners) discover it. Idempotent per channel.
+// watchVoice passively subscribes to a voice channel's presence topic so this
+// peer learns who is in the call WITHOUT joining it (guild-wide presence, like
+// Discord's sidebar). Called for every voice channel in every guild we're in;
+// idempotent per channel.
+func (s *Service) watchVoice(groupID []byte, channelID string) {
+	s.voiceMu.Lock()
+	if s.voiceWatched[channelID] {
+		s.voiceMu.Unlock()
+		return
+	}
+	s.voiceWatched[channelID] = true
+	s.voiceMu.Unlock()
+
+	topic := domain.VoiceTopicID(groupID, channelID)
+	_ = s.ps.Subscribe(s.ctx, topic, func(from peer.ID, data []byte) {
+		var a voiceAnnounce
+		if json.Unmarshal(data, &a) == nil && a.ChannelID == channelID {
+			s.emitVoicePresence(from.String(), presenceFor(from).Fingerprint, channelID, a.Action)
+		}
+	})
+}
+
+// JoinVoice enters the voice room for a channel: it periodically announces its
+// presence so peers (including late joiners) discover it and open a media
+// connection. Presence listening is already handled by watchVoice. Idempotent.
 func (s *Service) JoinVoice(channelID string) error {
 	groupID, err := s.groupForChannel(channelID)
 	if err != nil {
 		return err
 	}
+	// Make sure we're listening (normally already are via trackGuild/addChannel).
+	s.watchVoice(groupID, channelID)
 
 	s.voiceMu.Lock()
 	if _, in := s.voiceRooms[channelID]; in {
@@ -49,15 +73,6 @@ func (s *Service) JoinVoice(channelID string) error {
 	s.voiceMu.Unlock()
 
 	topic := domain.VoiceTopicID(groupID, channelID)
-	if err := s.ps.Subscribe(s.ctx, topic, func(from peer.ID, data []byte) {
-		var a voiceAnnounce
-		if json.Unmarshal(data, &a) == nil && a.ChannelID == channelID {
-			s.emitVoicePresence(from.String(), presenceFor(from).Fingerprint, channelID, a.Action)
-		}
-	}); err != nil {
-		return err
-	}
-
 	// Announce immediately, then heartbeat until we leave.
 	s.announceVoice(topic, channelID, "join")
 	go func() {

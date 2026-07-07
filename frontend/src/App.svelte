@@ -135,9 +135,9 @@
     S.modal = null;
   }
 
-  async function createChannel({ name, type }) {
+  async function createChannel({ name, type, category }) {
     if (!name?.trim() || !S.activeGuildId) return;
-    await api.createChannel(S.activeGuildId, name.trim(), type || "");
+    await api.createChannel(S.activeGuildId, name.trim(), type || "", category || "");
     await refreshGuilds();
     S.modal = null;
   }
@@ -203,7 +203,7 @@
           onToggleMute={toggleMicMute}
           onToggleShare={toggleScreenShare}
         />
-        {#if S.voice && S.voice.channelId === S.activeChannelId}
+        {#if S.voice}
           <VoicePanel />
         {/if}
         <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />

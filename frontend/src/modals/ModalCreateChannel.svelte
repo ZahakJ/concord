@@ -1,10 +1,17 @@
 <script>
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import { S, activeGuild } from "../lib/state.svelte.js";
   let { onSubmit, onClose } = $props();
 
   let name = $state("");
   let type = $state("text");
+  // Pre-select the category if the modal was opened from a category's "+".
+  let category = $state(S.modal?.category || "");
+
+  const categories = $derived(
+    [...(activeGuild()?.categories || [])].sort((a, b) => a.position - b.position),
+  );
 
   const TYPES = [
     { id: "text", label: "Text", icon: "hash", hint: "Send messages, files, images" },
@@ -15,7 +22,7 @@
   function submit(e) {
     e?.preventDefault();
     if (!name.trim()) return;
-    onSubmit({ name: name.trim(), type });
+    onSubmit({ name: name.trim(), type, category });
   }
 </script>
 
@@ -42,6 +49,17 @@
       placeholder={type === "voice" ? "voice channel name" : "channel-name"}
       autofocus
     />
+    {#if categories.length}
+      <label class="cat-label">
+        <span class="muted">Category</span>
+        <select bind:value={category}>
+          <option value="">No category</option>
+          {#each categories as c (c.id)}
+            <option value={c.id}>{c.name}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
     <p class="muted hint">{TYPES.find((t) => t.id === type)?.hint}</p>
     <div class="actions">
       <button type="button" class="ghost" onclick={onClose}>Cancel</button>
@@ -85,5 +103,19 @@
   .hint {
     margin: 0;
     font-size: 12px;
+  }
+  .cat-label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+  }
+  .cat-label select {
+    padding: 8px 10px;
+    font-size: 13px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3);
+    color: var(--text);
+    border: 1px solid var(--border);
   }
 </style>

@@ -43,8 +43,12 @@ type Service struct {
 	channelToGuild map[string]string        // channel ID -> guild ID
 	onMessage      []func(domain.Message)
 
-	voiceMu         sync.Mutex
-	voiceRooms      map[string]context.CancelFunc // channel ID -> heartbeat stop
+	voiceMu    sync.Mutex
+	voiceRooms map[string]context.CancelFunc // channel ID -> heartbeat stop (rooms we're IN)
+	// voiceWatched marks voice channels whose presence topic we passively listen
+	// to (for every voice channel in every guild), so the sidebar can show who's
+	// in a call without us having to join it — Discord-style guild-wide presence.
+	voiceWatched    map[string]bool
 	onVoicePresence []func(from, fingerprint, channelID, action string)
 	onVoiceSignal   []func(from string, data []byte)
 
@@ -194,6 +198,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		guilds:         map[string]*domain.Guild{},
 		channelToGuild: map[string]string{},
 		voiceRooms:     map[string]context.CancelFunc{},
+		voiceWatched:   map[string]bool{},
 		profiles:       map[string]Profile{},
 		nicks:          map[string]map[string]string{},
 		govOps:         map[string][]govOp{},
