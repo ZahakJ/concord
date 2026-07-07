@@ -130,6 +130,20 @@
     }
   }
 
+  const canMute = $derived(canModerate && has(activeGuild()?.myPerms || 0, PERM.MUTE_MEMBERS));
+  const isMuted = $derived(!!mem && mem.mutedUntil > Date.now() / 1000);
+
+  async function toggleMute() {
+    try {
+      if (isMuted) await api.unmuteMember(S.activeGuildId, mem.fingerprint);
+      else await api.muteMember(S.activeGuildId, mem.fingerprint, 10);
+      await refreshRightPanel();
+      flash(isMuted ? "Unmuted" : "Muted for 10 min");
+    } catch (err) {
+      flash(err);
+    }
+  }
+
   function kick() {
     const fpr = mem.fingerprint;
     const name = mem.name || "this member";
@@ -299,15 +313,23 @@
         </div>
       {/if}
 
-      {#if canModerate}
+      {#if canModerate || canMute}
         <div class="divider"></div>
         <div class="mod-actions">
-          <button class="mod-btn" onclick={kick}>
-            <Icon name="door" size={13} /> Kick
-          </button>
-          <button class="mod-btn danger" onclick={ban}>
-            <Icon name="trash" size={13} /> Ban
-          </button>
+          {#if canMute}
+            <button class="mod-btn" onclick={toggleMute}>
+              <Icon name={isMuted ? "micOff" : "mic"} size={13} />
+              {isMuted ? "Unmute" : "Mute 10m"}
+            </button>
+          {/if}
+          {#if canModerate}
+            <button class="mod-btn" onclick={kick}>
+              <Icon name="door" size={13} /> Kick
+            </button>
+            <button class="mod-btn danger" onclick={ban}>
+              <Icon name="trash" size={13} /> Ban
+            </button>
+          {/if}
         </div>
       {/if}
     </div>

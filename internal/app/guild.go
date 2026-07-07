@@ -436,6 +436,11 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 	if !ok {
 		return domain.Message{}, fmt.Errorf("app: unknown channel %s", channelID)
 	}
+	// A muted member can't post new messages (moderation actions like delete are
+	// still allowed).
+	if kind == "" && s.isMuted(guildID, s.id.Fingerprint()) {
+		return domain.Message{}, fmt.Errorf("app: you're muted in this guild")
+	}
 
 	msg, err := domain.NewMessage(channelID, s.PublicKey(), content)
 	if err != nil {
@@ -457,7 +462,7 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 	go s.depositForOffline(groupID, ct)
 	switch msg.Kind {
 	case "delete":
-		s.applyDelete(msg.ReplyTo, msg.Sender)
+		s.applyDelete(msg.ReplyTo, msg.Sender, channelID)
 		return msg, nil
 	case "reaction":
 		s.applyReaction(msg.ReplyTo, msg.Content, msg.Sender)
@@ -548,10 +553,18 @@ func (s *Service) DeleteMessage(channelID, targetID string) error {
 	return err
 }
 
-// applyDelete tombstones a target message (if bySender authored it) and pushes
-// the update to the UI.
-func (s *Service) applyDelete(targetID string, bySender []byte) {
-	deleted, ok, err := s.store.MarkDeleted(targetID, bySender)
+// applyDelete tombstones a target message and pushes the update to the UI. The
+// author may delete their own; a member with ManageMessages may delete anyone's
+// (the deleter is the MLS-authenticated sender, so this is enforceable).
+func (s *Service) applyDelete(targetID string, bySender []byte, channelID string) {
+	force := false
+	s.mu.RLock()
+	guildID := s.channelToGuild[channelID]
+	s.mu.RUnlock()
+	if guildID != "" {
+		force = s.memberHasPerm(guildID, identity.FingerprintOf(bySender), PermManageMessages)
+	}
+	deleted, ok, err := s.store.MarkDeleted(targetID, bySender, force)
 	if err != nil || !ok {
 		return
 	}
@@ -1028,7 +1041,7 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	m.Sender = msg.SenderID
 	switch m.Kind {
 	case "delete":
-		s.applyDelete(m.ReplyTo, m.Sender)
+		s.applyDelete(m.ReplyTo, m.Sender, m.ChannelID)
 		return
 	case "reaction":
 		s.applyReaction(m.ReplyTo, m.Content, m.Sender)
@@ -1038,6 +1051,13 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 		return
 	case "pin":
 		s.applyPin(m.ReplyTo)
+		return
+	}
+	// Advisory mute: drop a normal message from a member who is currently muted.
+	s.mu.RLock()
+	guildID := s.channelToGuild[m.ChannelID]
+	s.mu.RUnlock()
+	if guildID != "" && s.isMuted(guildID, identity.FingerprintOf(m.Sender)) {
 		return
 	}
 	// Backfill a display name from the message if we don't know this member's

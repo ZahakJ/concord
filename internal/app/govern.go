@@ -39,6 +39,9 @@ func (st GuildState) copy() GuildState {
 	for k, v := range st.Banned {
 		out.Banned[k] = v
 	}
+	for k, v := range st.Muted {
+		out.Muted[k] = v
+	}
 	return out
 }
 
@@ -140,6 +143,19 @@ func (s *Service) hasPerm(guildID string, need Permission) bool {
 
 func (s *Service) canManageMembers(guildID string) bool {
 	return s.hasPerm(guildID, PermManageMembers)
+}
+
+// memberHasPerm reports whether an arbitrary member (by fingerprint) holds a
+// permission in the guild — used to authorize an inbound moderation action
+// whose actor is the MLS-authenticated sender, not us.
+func (s *Service) memberHasPerm(guildID, fpr string, need Permission) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		return false
+	}
+	return s.govState[guildID].Can(identity.FingerprintOf(g.OwnerID), fpr, need)
 }
 
 // ---- exported accessors for the bridge ----
@@ -272,6 +288,46 @@ func (s *Service) UnbanMember(guildID, targetFpr string) error {
 	}
 	return s.issueGovOp(guildID, govOp{Type: "unban", Target: targetFpr})
 }
+
+// MuteMember times a member out for the given number of minutes (advisory —
+// honest clients drop a muted member's messages until it lifts). Requires
+// mute-members.
+func (s *Service) MuteMember(guildID, targetFpr string, minutes int) error {
+	if !s.hasPerm(guildID, PermMuteMembers) {
+		return fmt.Errorf("app: you don't have permission to mute members")
+	}
+	if minutes <= 0 {
+		minutes = 10
+	}
+	until := time.Now().Add(time.Duration(minutes) * time.Minute).Unix()
+	return s.issueGovOp(guildID, govOp{Type: "mute", Target: targetFpr, Until: until})
+}
+
+// UnmuteMember lifts a mute. Requires mute-members.
+func (s *Service) UnmuteMember(guildID, targetFpr string) error {
+	if !s.hasPerm(guildID, PermMuteMembers) {
+		return fmt.Errorf("app: you don't have permission to unmute members")
+	}
+	return s.issueGovOp(guildID, govOp{Type: "unmute", Target: targetFpr})
+}
+
+// mutedUntil returns the unix time a member is muted until (0 if not muted).
+func (s *Service) mutedUntil(guildID, fpr string) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if st, ok := s.govState[guildID]; ok {
+		return st.Muted[fpr]
+	}
+	return 0
+}
+
+// isMuted reports whether a member is currently muted in the guild.
+func (s *Service) isMuted(guildID, fpr string) bool {
+	return s.mutedUntil(guildID, fpr) > time.Now().Unix()
+}
+
+// MutedUntil is the exported accessor (0 = not muted).
+func (s *Service) MutedUntil(guildID, fpr string) int64 { return s.mutedUntil(guildID, fpr) }
 
 // removeMemberByFingerprint issues the MLS Remove for a present member.
 func (s *Service) removeMemberByFingerprint(guildID, targetFpr string) error {

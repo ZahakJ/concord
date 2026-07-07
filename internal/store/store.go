@@ -892,10 +892,10 @@ func (s *Store) UpdateContent(id string, bySender []byte, newContent string) (bo
 	return true, nil
 }
 
-// MarkDeleted tombstones a message, but only if bySender authored it (so a peer
-// can't delete someone else's message). Returns the deleted message and whether
-// a row changed.
-func (s *Store) MarkDeleted(id string, bySender []byte) (domain.Message, bool, error) {
+// MarkDeleted tombstones a message. The author may always delete their own; a
+// moderator (force=true, decided by the caller from ManageMessages) may delete
+// anyone's. Returns the deleted message and whether a row changed.
+func (s *Store) MarkDeleted(id string, bySender []byte, force bool) (domain.Message, bool, error) {
 	var m domain.Message
 	var chID string
 	var sent int64
@@ -908,8 +908,8 @@ func (s *Store) MarkDeleted(id string, bySender []byte) (domain.Message, bool, e
 	if err != nil {
 		return domain.Message{}, false, err
 	}
-	if len(bySender) == 0 || string(m.Sender) != string(bySender) {
-		return domain.Message{}, false, nil // not the author
+	if !force && (len(bySender) == 0 || string(m.Sender) != string(bySender)) {
+		return domain.Message{}, false, nil // not the author and not a moderator
 	}
 	if _, err := s.db.Exec(`UPDATE messages SET deleted = 1, updated = ? WHERE id = ?`, time.Now().UnixNano(), id); err != nil {
 		return domain.Message{}, false, err

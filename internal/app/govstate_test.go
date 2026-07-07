@@ -174,6 +174,47 @@ func TestRolesBannedMemberForfeitsRoles(t *testing.T) {
 	}
 }
 
+func TestRolesMute(t *testing.T) {
+	owner := mustID(t)
+	mod := mustID(t)
+	member := mustID(t)
+	ownerFpr := identity.FingerprintOf(owner.PublicKey())
+	modFpr := identity.FingerprintOf(mod.PublicKey())
+	memberFpr := identity.FingerprintOf(member.PublicKey())
+	rando := mustID(t)
+
+	muteOp := func(id *identity.Identity, seq uint64, typ, target string, until int64) govOp {
+		o := govOp{Seq: seq, Signer: id.PublicKey(), Type: typ, Target: target, Until: until, Time: int64(seq)}
+		o.Sig = id.Sign(o.signingBytes())
+		return o
+	}
+
+	ops := []govOp{
+		upsertRole(owner, 1, "r_mute", "Muter", PermMuteMembers, 10),
+		assignRole(owner, 2, modFpr, "r_mute", true),
+		muteOp(mod, 3, "mute", memberFpr, 9999999999), // authorized mute
+		muteOp(rando, 4, "mute", modFpr, 9999999999),  // unauthorized — no perms
+		muteOp(mod, 5, "mute", ownerFpr, 9999999999),  // can't mute the owner
+	}
+	st := replayGuildOps(owner.PublicKey(), ops)
+
+	if st.Muted[memberFpr] == 0 {
+		t.Fatal("authorized moderator should be able to mute a member")
+	}
+	if st.Muted[modFpr] != 0 {
+		t.Fatal("a member without mute-members must not be able to mute")
+	}
+	if st.Muted[ownerFpr] != 0 {
+		t.Fatal("the owner must not be mutable")
+	}
+	// Unmute lifts it.
+	ops = append(ops, muteOp(mod, 6, "unmute", memberFpr, 0))
+	st = replayGuildOps(owner.PublicKey(), ops)
+	if st.Muted[memberFpr] != 0 {
+		t.Fatal("unmute should lift the mute")
+	}
+}
+
 func TestRolesReplayOrderIndependent(t *testing.T) {
 	owner := mustID(t)
 	mod := mustID(t)

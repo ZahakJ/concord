@@ -195,12 +195,22 @@ func (s *Service) syncFromPeer(p peer.ID) bool {
 
 // syncGuildFromAnyPeer tries each connected member of a guild until one sync
 // completes. Used when a live commit fails to apply — we detected our own
-// epoch gap and need backfill right now.
+// epoch gap and need backfill right now. Members holding the SyncHost permission
+// (designated always-on hosts) are tried first.
 func (s *Service) syncGuildFromAnyPeer(guildID string) {
+	var hosts, others []peer.ID
 	for _, p := range s.host.Peers() {
-		if !s.guildHasMember(guildID, presenceFor(p).Fingerprint) {
+		fpr := presenceFor(p).Fingerprint
+		if !s.guildHasMember(guildID, fpr) {
 			continue
 		}
+		if s.memberHasPerm(guildID, fpr, PermSyncHost) {
+			hosts = append(hosts, p)
+		} else {
+			others = append(others, p)
+		}
+	}
+	for _, p := range append(hosts, others...) {
 		if err := s.syncGuildFromPeer(guildID, p); err == nil {
 			return
 		}

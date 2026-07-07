@@ -165,8 +165,9 @@ type MemberView struct {
 	Verified    bool   `json:"verified"`
 	IsOwner     bool     `json:"isOwner"`   // guild owner (implicit full authority)
 	Perms       uint32   `json:"perms"`     // effective permission bitmask
-	CanManage   bool     `json:"canManage"` // owner or manage-members holder
-	RoleIDs     []string `json:"roleIds"`   // assigned role IDs (highest-first from Roles())
+	CanManage   bool     `json:"canManage"`   // owner or manage-members holder
+	RoleIDs     []string `json:"roleIds"`     // assigned role IDs (highest-first from Roles())
+	MutedUntil  int64    `json:"mutedUntil"`  // unix seconds muted-until (0 = not muted)
 }
 
 type ContactView struct {
@@ -729,6 +730,7 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 			Perms:       perms,
 			CanManage:   isOwner || perms&uint32(appsvc.PermManageMembers) != 0,
 			RoleIDs:     svc.MemberRoleIDs(guildID, fpr),
+			MutedUntil:  svc.MutedUntil(guildID, fpr),
 		})
 	}
 	// The MLS library yields members in map order (random per call), which made
@@ -827,6 +829,24 @@ func (b *bridge) UnbanMember(guildID, fingerprint string) error {
 		return err
 	}
 	return svc.UnbanMember(guildID, fingerprint)
+}
+
+// MuteMember times a member out for `minutes` (mute-members).
+func (b *bridge) MuteMember(guildID, fingerprint string, minutes int) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.MuteMember(guildID, fingerprint, minutes)
+}
+
+// UnmuteMember lifts a mute (mute-members).
+func (b *bridge) UnmuteMember(guildID, fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.UnmuteMember(guildID, fingerprint)
 }
 
 // BanView is a banned member surfaced for the moderation UI.
@@ -1070,6 +1090,10 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
 	case "UnbanMember":
 		return nil, b.UnbanMember(argStr(args, 0), argStr(args, 1))
+	case "MuteMember":
+		return nil, b.MuteMember(argStr(args, 0), argStr(args, 1), argInt(args, 2))
+	case "UnmuteMember":
+		return nil, b.UnmuteMember(argStr(args, 0), argStr(args, 1))
 	case "Bans":
 		return b.Bans(argStr(args, 0))
 	case "Contacts":

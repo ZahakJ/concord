@@ -67,6 +67,9 @@
             {#if mem.verified && !mem.isSelf}
               <span class="v-badge" title="Identity verified"><Icon name="check" size={11} /></span>
             {/if}
+            {#if mem.mutedUntil > Date.now() / 1000}
+              <span class="muted-badge" title="Muted"><Icon name="micOff" size={11} /></span>
+            {/if}
           </span>
           {#if mem.status}<span class="muted member-status">{mem.status}</span>{/if}
         </span>
@@ -164,6 +167,11 @@
   }
   .v-badge {
     color: var(--ok);
+    display: inline-grid;
+    place-items: center;
+  }
+  .muted-badge {
+    color: var(--danger);
     display: inline-grid;
     place-items: center;
   }

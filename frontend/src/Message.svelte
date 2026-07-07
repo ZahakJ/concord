@@ -23,10 +23,15 @@
     flash,
     openProfilePopover,
     scheduleCloseProfilePopover,
+    activeGuild,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { PERM, has } from "./lib/perms.js";
 
   let { m, compact = false, replyRef = null } = $props();
+
+  // Moderators (Manage Messages) can delete anyone's message.
+  const canDeleteOthers = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
 
   const QUICK_EMOJIS = ["👍", "❤️", "😂", "🎉"];
 
@@ -230,6 +235,13 @@
         <div class="grp">
           <button title="Edit" aria-label="Edit" onclick={startEdit}><Icon name="edit" size={15} /></button>
           <button class="danger" title="Delete" aria-label="Delete" onclick={() => deleteMsg(m)}>
+            <Icon name="trash" size={15} />
+          </button>
+        </div>
+      {:else if canDeleteOthers}
+        <span class="sep"></span>
+        <div class="grp">
+          <button class="danger" title="Delete (moderator)" aria-label="Delete message" onclick={() => deleteMsg(m)}>
             <Icon name="trash" size={15} />
           </button>
         </div>

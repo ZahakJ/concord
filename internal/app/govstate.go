@@ -78,9 +78,10 @@ type govOp struct {
 	Position int    `json:"position,omitempty"`
 
 	// role_assign (Add=false removes) — Target is a member fingerprint;
-	// ban/unban also use Target.
+	// ban/unban/mute/unmute also use Target.
 	Target string `json:"target,omitempty"`
 	Add    bool   `json:"add,omitempty"`
+	Until  int64  `json:"until,omitempty"` // mute: muted-until (unix seconds)
 
 	Time int64  `json:"t"`   // author wall-clock (unix nanos), ordering tiebreak
 	Sig  []byte `json:"sig"` // signature over the op with Sig zeroed
@@ -111,6 +112,7 @@ type GuildState struct {
 	Roles       map[string]Role     // roleID -> role definition
 	MemberRoles map[string][]string // fingerprint -> assigned role IDs
 	Banned      map[string]bool     // barred fingerprints
+	Muted       map[string]int64    // fingerprint -> muted-until (unix seconds)
 }
 
 func newGuildState() GuildState {
@@ -118,6 +120,7 @@ func newGuildState() GuildState {
 		Roles:       map[string]Role{},
 		MemberRoles: map[string][]string{},
 		Banned:      map[string]bool{},
+		Muted:       map[string]int64{},
 	}
 }
 
@@ -269,6 +272,19 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 				continue
 			}
 			delete(st.Banned, o.Target)
+		case "mute":
+			if !isOwner && !st.Can(ownerFpr, signer, PermMuteMembers) {
+				continue
+			}
+			if o.Target == ownerFpr || o.Target == "" {
+				continue // the owner can't be muted
+			}
+			st.Muted[o.Target] = o.Until
+		case "unmute":
+			if !isOwner && !st.Can(ownerFpr, signer, PermMuteMembers) {
+				continue
+			}
+			delete(st.Muted, o.Target)
 		}
 	}
 	return st

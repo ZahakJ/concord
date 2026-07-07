@@ -154,8 +154,8 @@ func TestMarkDeletedAuthorization(t *testing.T) {
 		t.Fatalf("SaveMessage: %v", err)
 	}
 
-	// A different peer cannot delete it.
-	if _, ok, err := s.MarkDeleted(m.ID, []byte("eve-key")); err != nil || ok {
+	// A different peer cannot delete it (not the author, not forced).
+	if _, ok, err := s.MarkDeleted(m.ID, []byte("eve-key"), false); err != nil || ok {
 		t.Fatalf("non-author delete: ok=%v err=%v (want ok=false)", ok, err)
 	}
 	msgs, _ := s.Messages("chan-1", 0)
@@ -163,8 +163,8 @@ func TestMarkDeletedAuthorization(t *testing.T) {
 		t.Fatal("message should be intact after unauthorized delete attempt")
 	}
 
-	// The author can.
-	deleted, ok, err := s.MarkDeleted(m.ID, author)
+	// The author can delete their own.
+	deleted, ok, err := s.MarkDeleted(m.ID, author, false)
 	if err != nil || !ok {
 		t.Fatalf("author delete: ok=%v err=%v (want ok=true)", ok, err)
 	}
@@ -174,6 +174,15 @@ func TestMarkDeletedAuthorization(t *testing.T) {
 	msgs, _ = s.Messages("chan-1", 0)
 	if !msgs[0].Deleted || msgs[0].Content != "" {
 		t.Fatalf("stored message should be tombstoned with blank content, got %+v", msgs[0])
+	}
+
+	// A moderator (force=true) can delete anyone else's message.
+	other, _ := domain.NewMessage("chan-1", []byte("bob-key"), "bob's message")
+	if _, err := s.SaveMessage(other); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+	if _, ok, err := s.MarkDeleted(other.ID, []byte("mod-key"), true); err != nil || !ok {
+		t.Fatalf("forced moderator delete: ok=%v err=%v (want ok=true)", ok, err)
 	}
 }
 
@@ -327,7 +336,7 @@ func TestChangedSinceServesStateUpdates(t *testing.T) {
 	}
 
 	// A delete tombstone is served too, with blank content.
-	if _, ok, err := s.MarkDeleted(m.ID, []byte("alice")); err != nil || !ok {
+	if _, ok, err := s.MarkDeleted(m.ID, []byte("alice"), false); err != nil || !ok {
 		t.Fatalf("MarkDeleted: %v %v", ok, err)
 	}
 	got, _ = s.MessagesChangedSince("chan-1", newCursor, 0)

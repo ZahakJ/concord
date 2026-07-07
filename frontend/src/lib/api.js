@@ -87,6 +87,8 @@ export const api = {
     call("AssignRole", guildID, fingerprint, roleID, add),
   banMember: (guildID, fingerprint) => call("BanMember", guildID, fingerprint),
   unbanMember: (guildID, fingerprint) => call("UnbanMember", guildID, fingerprint),
+  muteMember: (guildID, fingerprint, minutes) => call("MuteMember", guildID, fingerprint, minutes),
+  unmuteMember: (guildID, fingerprint) => call("UnmuteMember", guildID, fingerprint),
   bans: (guildID) => call("Bans", guildID),
   contacts: () => call("Contacts"),
   joinVoice: (channelID) => call("JoinVoice", channelID),
