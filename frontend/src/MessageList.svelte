@@ -24,6 +24,16 @@
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
   const isDMView = $derived(activeGuild()?.kind === "dm");
 
+  // The id of the first message newer than where we left off (and not our own),
+  // marking where the "New messages" divider goes. "" when nothing is new.
+  const newLineId = $derived.by(() => {
+    if (!S.readAnchor) return "";
+    const m = S.messages.find(
+      (x) => x.kind === "" && x.sender !== S.identity.fingerprint && x.sent > S.readAnchor,
+    );
+    return m ? m.id : "";
+  });
+
   // rows: messages annotated with divider/grouping info.
   const GROUP_WINDOW_MS = 5 * 60 * 1000;
   const rows = $derived.by(() => {
@@ -145,6 +155,9 @@
   {#each rows as row (row.m.id)}
     {#if row.newDay}
       <div class="day-divider"><span>{fmtDay(row.day)}</span></div>
+    {/if}
+    {#if row.m.id === newLineId}
+      <div class="new-divider"><span>NEW</span></div>
     {/if}
     {#if row.m.kind === "system" && isDMView}
       <!-- DMs skip join/create notices — noise in a 1:1 -->
@@ -274,6 +287,29 @@
     flex: 1;
     height: 1px;
     background: var(--border);
+  }
+  .new-divider {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--danger);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    margin: 2px 0 -4px;
+  }
+  .new-divider::before,
+  .new-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: color-mix(in srgb, var(--danger) 55%, transparent);
+  }
+  .new-divider span {
+    padding: 1px 6px;
+    background: var(--danger);
+    color: #fff;
+    border-radius: 8px;
   }
   .system-msg {
     text-align: center;

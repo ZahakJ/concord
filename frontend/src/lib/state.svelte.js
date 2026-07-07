@@ -31,6 +31,7 @@ export const S = $state({
   // localStorage last-read map (recomputed on load).
   unread: {},
   mutes: loadJSON("concord.mutes", {}), // channelId -> true
+  readAnchor: "", // ISO time we'd last read the active channel (for the "new" line)
 
   // Privacy prefs. linkPreviews defaults OFF: fetching a preview for a link in a
   // message reveals your IP + online time to that link's host, so a message with
@@ -365,6 +366,9 @@ export async function startDM(fingerprint, text = "") {
 
 export async function selectChannel(id) {
   S.activeChannelId = id;
+  // Snapshot where we left off BEFORE marking read, to place the "new messages"
+  // divider for this viewing session.
+  S.readAnchor = lastRead[id] || "";
   markRead(id);
   S.typingList.forEach((t) => clearTimeout(t.timer));
   S.typingList = [];
