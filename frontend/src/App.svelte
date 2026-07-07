@@ -33,6 +33,7 @@
   import Welcome from "./Welcome.svelte";
   import QuickSwitcher from "./QuickSwitcher.svelte";
   import ProfilePopover from "./ProfilePopover.svelte";
+  import FloatingCall from "./FloatingCall.svelte";
   import ModalCreate from "./modals/ModalCreate.svelte";
   import ModalCreateChannel from "./modals/ModalCreateChannel.svelte";
   import ModalEmoji from "./modals/ModalEmoji.svelte";
@@ -53,11 +54,21 @@
   // No open channel → show the welcome screen instead of an empty chat.
   const hasChannel = $derived(!!S.activeChannelId && !!activeGuild());
 
-  // Voice: the call box shows inline only on its own channel. When you navigate
-  // away, the persistent bottom-left voice bar (in ChannelList) is the way back.
+  // Voice: the call box shows inline on its own channel; navigate away and it
+  // pins to a small draggable floating window instead.
   const callHere = $derived(S.voice && S.voice.channelId === S.activeChannelId);
+  const callElsewhere = $derived(S.voice && S.voice.channelId !== S.activeChannelId);
   const call = $derived(incomingCall());
   const ringingChannel = $derived(call?.channelId || "");
+  // Friendly label for the floating call window: DM name, or "Guild · #ch".
+  const callLabel = $derived.by(() => {
+    if (!S.voice) return "";
+    for (const gg of S.guilds) {
+      const c = gg.channels.find((x) => x.id === S.voice.channelId);
+      if (c) return gg.kind === "dm" ? gg.name : `${gg.name} · ${c.name}`;
+    }
+    return "";
+  });
 
   // Ring while a DM call is incoming; stops when accepted, declined, or ended.
   $effect(() => {
@@ -270,6 +281,16 @@
   {/if}
 
   <ProfilePopover />
+
+  <!-- Ongoing call you've navigated away from: a draggable pinned window. -->
+  {#if callElsewhere}
+    <FloatingCall
+      label={callLabel}
+      onLeave={leaveVoice}
+      onToggleMute={toggleMicMute}
+      onReturn={() => jumpToChannel(S.voice.channelId)}
+    />
+  {/if}
 
   <!-- Someone is ringing you in a DM. -->
   {#if call}

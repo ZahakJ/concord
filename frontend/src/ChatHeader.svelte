@@ -126,7 +126,7 @@
         class="ghost iconbtn"
         class:call={g?.kind === "dm"}
         title={g?.kind === "dm" ? "Start a call" : "Join voice"}
-        onclick={onJoinVoice}
+        onclick={() => onJoinVoice()}
       >
         <Icon name="speaker" /> <span class="n">{g?.kind === "dm" ? "Call" : "Voice"}</span>
       </button>
