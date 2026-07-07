@@ -168,7 +168,7 @@
   }
 
   async function saveProfile(p) {
-    await api.setProfile(p.name, p.status, p.emoji, p.color, p.avatar || "");
+    await api.setProfile(p.name, p.status, p.emoji, p.color, p.avatar || "", p.presence || "", p.bio || "");
     S.identity = await api.identity();
     S.displayName = S.identity.displayName || "";
     applyAccent(S.identity.color);

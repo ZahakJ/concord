@@ -203,6 +203,7 @@
           image={mem.avatar}
           size={56}
           online={mem.online}
+          presence={mem.presence}
         />
       </div>
     </div>
@@ -222,6 +223,11 @@
       </div>
       {#if mem.username}<div class="username muted">{mem.username}</div>{/if}
       {#if mem.status}<div class="status">{mem.status}</div>{/if}
+      {#if mem.bio}
+        <div class="divider"></div>
+        <div class="bio-label muted">About me</div>
+        <div class="bio">{mem.bio}</div>
+      {/if}
 
       {#if canNick}
         {#if editingNick}
@@ -361,6 +367,19 @@
   .username {
     font-size: 12px;
     margin-top: -2px;
+  }
+  .bio-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .bio {
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 120px;
+    overflow-y: auto;
   }
   .role-badge {
     font-size: 10px;

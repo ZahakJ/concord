@@ -8,10 +8,25 @@
     color = "",
     image = "",
     size = 32,
-    online = null, // null hides the dot; true/false shows presence
+    online = null, // null hides the dot; true/false shows connection state
+    presence = "", // "" | online | idle | dnd | invisible — shades the dot when connected
   } = $props();
 
   const glyph = $derived(emoji || (name || "?").slice(0, 2));
+
+  // Dot color: hidden when online is null; grey when disconnected or invisible;
+  // otherwise the chosen availability (default online = green).
+  const dotColor = $derived(
+    online === null
+      ? null
+      : !online || presence === "invisible"
+        ? "var(--text-faint)"
+        : presence === "idle"
+          ? "#f0b232"
+          : presence === "dnd"
+            ? "#f04747"
+            : "var(--ok)",
+  );
 </script>
 
 <span
@@ -25,8 +40,8 @@
   {:else}
     {glyph}
   {/if}
-  {#if online !== null}
-    <span class="dot" class:online></span>
+  {#if dotColor}
+    <span class="dot" style="background:{dotColor}"></span>
   {/if}
 </span>
 
@@ -56,10 +71,6 @@
     width: 9px;
     height: 9px;
     border-radius: 50%;
-    background: var(--text-faint);
     border: 2px solid var(--bg-1);
-  }
-  .dot.online {
-    background: var(--ok);
   }
 </style>

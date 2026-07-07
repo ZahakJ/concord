@@ -96,6 +96,8 @@ type IdentityInfo struct {
 	Emoji       string `json:"emoji"`
 	Color       string `json:"color"`
 	Avatar      string `json:"avatar"`
+	Presence    string `json:"presence"`
+	Bio         string `json:"bio"`
 }
 
 type ChannelView struct {
@@ -155,6 +157,8 @@ type MemberView struct {
 	Emoji       string `json:"emoji"`
 	Color       string `json:"color"`
 	Avatar      string `json:"avatar"`
+	Presence    string `json:"presence"` // "" | online | idle | dnd | invisible
+	Bio         string `json:"bio"`
 	IsSelf      bool   `json:"isSelf"`
 	Online      bool   `json:"online"`
 	Verified    bool   `json:"verified"`
@@ -483,16 +487,21 @@ func (b *bridge) Identity() (IdentityInfo, error) {
 		Emoji:       p.Emoji,
 		Color:       p.Color,
 		Avatar:      p.Avatar,
+		Presence:    p.Presence,
+		Bio:         p.Bio,
 	}, nil
 }
 
 // SetProfile updates this peer's profile (incl. avatar image) and re-announces.
-func (b *bridge) SetProfile(name, status, emoji, color, avatar string) error {
+func (b *bridge) SetProfile(name, status, emoji, color, avatar, presence, bio string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.SetProfile(appsvc.Profile{Name: name, Status: status, Emoji: emoji, Color: color, Avatar: avatar})
+	return svc.SetProfile(appsvc.Profile{
+		Name: name, Status: status, Emoji: emoji, Color: color, Avatar: avatar,
+		Presence: presence, Bio: bio,
+	})
 }
 
 // VerifyFingerprint marks a member's identity as verified after an out-of-band
@@ -709,6 +718,8 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 			Emoji:       p.Emoji,
 			Color:       p.Color,
 			Avatar:      p.Avatar,
+			Presence:    p.Presence,
+			Bio:         p.Bio,
 			IsSelf:      isSelf,
 			Online:      isSelf || online[fpr],
 			Verified:    isSelf || verified[fpr],
@@ -1020,7 +1031,7 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SendTyping":
 		return nil, b.SendTyping(argStr(args, 0))
 	case "SetProfile":
-		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4))
+		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6))
 	case "VerifyFingerprint":
 		return nil, b.VerifyFingerprint(argStr(args, 0))
 	case "PinMessage":

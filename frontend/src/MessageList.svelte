@@ -86,8 +86,9 @@
 
 {#if activeGuild()?.outOfSync}
   <div class="oos-banner">
-    ⚠ Out of sync — this guild moved on while you were away and no online member could bridge
-    the gap. Ask the owner to re-invite you (your history stays).
+    ⚠ Catching up… this guild changed while you were away. It'll sync automatically as soon as
+    someone who has those updates comes online. If it's stuck, ask an owner or moderator to
+    re-invite you (your history stays either way).
   </div>
 {/if}
 

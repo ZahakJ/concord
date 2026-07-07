@@ -7,9 +7,17 @@
   let emoji = $state(identity.emoji || "");
   let color = $state(identity.color || "#14a394");
   let avatar = $state(identity.avatar || "");
+  let presence = $state(identity.presence || "online");
+  let bio = $state(identity.bio || "");
   let fileInput;
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
+  const PRESENCES = [
+    { id: "online", label: "Online", dot: "var(--ok)" },
+    { id: "idle", label: "Idle", dot: "#f0b232" },
+    { id: "dnd", label: "Do Not Disturb", dot: "#f04747" },
+    { id: "invisible", label: "Invisible", dot: "var(--text-faint)" },
+  ];
 
   // ---- crop editor ----
   // When a picture is chosen or pasted, we open a small editor (drag to
@@ -103,7 +111,7 @@
   }
 
   function save() {
-    onSubmit({ name: name.trim(), status: status.trim(), emoji, color, avatar });
+    onSubmit({ name: name.trim(), status: status.trim(), emoji, color, avatar, presence, bio: bio.trim() });
   }
 </script>
 
@@ -172,9 +180,29 @@
     <span class="muted">Display name</span>
     <input bind:value={name} maxlength="32" placeholder="Your name" />
   </label>
+  <div class="field">
+    <span class="muted">Availability</span>
+    <div class="presence-row">
+      {#each PRESENCES as pr (pr.id)}
+        <button
+          type="button"
+          class="presence"
+          class:sel={presence === pr.id}
+          onclick={() => (presence = pr.id)}
+        >
+          <span class="pdot" style="background:{pr.dot}"></span>
+          {pr.label}
+        </button>
+      {/each}
+    </div>
+  </div>
   <label class="field">
     <span class="muted">Status</span>
     <input bind:value={status} maxlength="64" placeholder="e.g. building something epic" />
+  </label>
+  <label class="field">
+    <span class="muted">About me</span>
+    <textarea bind:value={bio} maxlength="600" rows="3" placeholder="A short bio — shown on your profile card"></textarea>
   </label>
   <div class="field">
     <span class="muted">Fallback emoji (used when no picture)</span>
@@ -285,6 +313,38 @@
   .emoji.sel {
     border-color: var(--accent);
     background: var(--accent-soft);
+  }
+  .presence-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .presence {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+  }
+  .presence.sel {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text);
+  }
+  .pdot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+  }
+  textarea {
+    resize: vertical;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 8px 10px;
   }
   .cropper {
     display: flex;

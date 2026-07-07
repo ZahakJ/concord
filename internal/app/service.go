@@ -92,10 +92,15 @@ type Service struct {
 // All decorative — the fingerprint remains the authenticated identity.
 type Profile struct {
 	Name   string `json:"name"`
-	Status string `json:"status"`
+	Status string `json:"status"` // short custom status line
 	Emoji  string `json:"emoji"`
 	Color  string `json:"color"`
 	Avatar string `json:"avatar"` // small image as a data URI ("" = none)
+	// Presence is the user-chosen availability: "" / "online" (default), "idle",
+	// "dnd", or "invisible" (appear offline). It shades the avatar dot.
+	Presence string `json:"presence,omitempty"`
+	// Bio is a longer "about me" shown on the profile card.
+	Bio string `json:"bio,omitempty"`
 	// MailboxPub is this member's X25519 mailbox key, shared so others can seal
 	// offline envelopes to them (see mailbox.go). Not user-facing.
 	MailboxPub []byte `json:"mbx,omitempty"`
@@ -108,6 +113,9 @@ const maxAvatarBytes = 64 * 1024
 // maxNameBytes bounds self-asserted display names and per-guild nicknames so a
 // peer can't publish a pathologically long string over the meta topic.
 const maxNameBytes = 64
+
+// maxBioBytes bounds the profile "about me" so profile broadcasts stay small.
+const maxBioBytes = 600
 
 // PeerPresence is a UI-facing view of a connected peer.
 type PeerPresence struct {
@@ -214,7 +222,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// of fingerprint-only names right after unlock).
 	if rows, err := st.Profiles(); err == nil {
 		for _, r := range rows {
-			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, MailboxPub: r.MailboxPub}
+			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub}
 		}
 	}
 
@@ -391,9 +399,11 @@ func (s *Service) SelfProfile() Profile {
 	emoji, _ := s.store.GetSetting("avatar_emoji")
 	color, _ := s.store.GetSetting("accent_color")
 	avatar, _ := s.store.GetSetting("avatar_image")
+	presence, _ := s.store.GetSetting("presence")
+	bio, _ := s.store.GetSetting("bio")
 	return Profile{
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
-		MailboxPub: s.mbxPub[:],
+		Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:],
 	}
 }
 
@@ -405,12 +415,17 @@ func (s *Service) SetProfile(p Profile) error {
 	if p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/") {
 		return fmt.Errorf("app: avatar must be an image data URI")
 	}
+	if len(p.Bio) > maxBioBytes {
+		p.Bio = p.Bio[:maxBioBytes]
+	}
 	for k, v := range map[string]string{
 		"display_name": strings.TrimSpace(p.Name),
 		"status_text":  strings.TrimSpace(p.Status),
 		"avatar_emoji": strings.TrimSpace(p.Emoji),
 		"accent_color": strings.TrimSpace(p.Color),
 		"avatar_image": p.Avatar,
+		"presence":     strings.TrimSpace(p.Presence),
+		"bio":          strings.TrimSpace(p.Bio),
 	} {
 		if err := s.store.SetSetting(k, v); err != nil {
 			return err
@@ -481,7 +496,7 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	_ = s.store.SaveProfile(store.ProfileRow{
 		Fingerprint: fingerprint,
 		Name:        p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
-		MailboxPub: p.MailboxPub,
+		Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
 	})
 	s.emitGuildUpdate()
 	return !known
@@ -489,7 +504,8 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 
 func profilesEqual(a, b Profile) bool {
 	return a.Name == b.Name && a.Status == b.Status && a.Emoji == b.Emoji &&
-		a.Color == b.Color && a.Avatar == b.Avatar && bytes.Equal(a.MailboxPub, b.MailboxPub)
+		a.Color == b.Color && a.Avatar == b.Avatar && a.Presence == b.Presence &&
+		a.Bio == b.Bio && bytes.Equal(a.MailboxPub, b.MailboxPub)
 }
 
 // learnNameHint backfills a display name from a chat message's self-asserted

@@ -34,6 +34,7 @@
           image={mem.avatar}
           size={30}
           online={mem.online}
+          presence={mem.presence}
         />
         <span class="member-text">
           <span class="member-name" title={mem.fingerprint}>
