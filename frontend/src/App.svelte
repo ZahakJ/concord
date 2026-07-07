@@ -20,6 +20,8 @@
     clearVideoStreams,
     incomingCall,
     jumpToChannel,
+    checkForUpdate,
+    dismissUpdate,
   } from "./lib/state.svelte.js";
 
   import Login from "./Login.svelte";
@@ -89,6 +91,7 @@
   // Skip the login screen if the backend is already unlocked (e.g. after a
   // browser refresh — the Go process stays running and holds the session).
   onMount(async () => {
+    checkForUpdate(); // fire-and-forget; works on the login screen too
     try {
       if (await api.session()) await start();
     } catch {
@@ -233,6 +236,16 @@
     flash("Copied to clipboard");
   }
 </script>
+
+{#if S.update}
+  <div class="update-banner">
+    <span class="ub-text">
+      <strong>Update available</strong> — Concord {S.update.latest} is out (you have {S.update.current}).
+    </span>
+    <a class="ub-dl" href={S.update.url} target="_blank" rel="noopener noreferrer">Download</a>
+    <button class="ub-close" onclick={dismissUpdate} aria-label="Dismiss">×</button>
+  </div>
+{/if}
 
 {#if !S.ready}
   <Login onLogin={start} />
@@ -402,6 +415,54 @@
     font-size: 13px;
     box-shadow: var(--shadow-pop);
     z-index: 200;
+  }
+  /* Update-available banner: a floating top-center pill (doesn't cover the rail). */
+  .update-banner {
+    position: fixed;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: calc(100vw - 24px);
+    padding: 8px 10px 8px 16px;
+    background: var(--bg-1);
+    border: 1px solid var(--accent);
+    border-radius: 22px;
+    box-shadow: var(--shadow-pop);
+    z-index: 205;
+    font-size: 13px;
+  }
+  .ub-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ub-dl {
+    flex-shrink: 0;
+    padding: 5px 14px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .ub-dl:hover {
+    background: var(--accent-hover);
+  }
+  .ub-close {
+    flex-shrink: 0;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 18px;
+    line-height: 1;
+    padding: 2px 6px;
+    border-radius: 50%;
+  }
+  .ub-close:hover {
+    background: var(--bg-3);
+    color: var(--text);
   }
   /* Incoming-call card. */
   .ring-card {

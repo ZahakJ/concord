@@ -70,6 +70,10 @@ export const S = $state({
   // newBelow: messages arrived while the user was scrolled up reading history
   // (we deliberately do NOT yank the feed to the bottom in that case).
   newBelow: false,
+
+  // update: an available app update {available, current, latest, url, notes},
+  // or null. Drives the "Download" banner. Dismissal is per-version.
+  update: null,
 });
 
 export const activeGuild = () => S.guilds.find((g) => g.id === S.activeGuildId) || null;
@@ -244,6 +248,27 @@ export function guildUnread(g) {
 export function flash(msg) {
   S.toast = String(msg?.message || msg);
   setTimeout(() => (S.toast = ""), 2500);
+}
+
+// checkForUpdate asks the backend (once, at startup) whether a newer release is
+// out, and surfaces the "Download" banner — unless the user already dismissed
+// this exact version. Silent on any error (offline / rate-limited / dev build).
+export async function checkForUpdate() {
+  try {
+    const u = await api.checkForUpdate();
+    if (!u?.available) return;
+    if (loadJSON("concord.updateDismissed", "") === u.latest) return;
+    S.update = u;
+  } catch {
+    /* offline / rate-limited — no nag */
+  }
+}
+
+// dismissUpdate hides the banner and remembers this version so it won't reappear
+// until a newer one ships.
+export function dismissUpdate() {
+  if (S.update) saveJSON("concord.updateDismissed", S.update.latest);
+  S.update = null;
 }
 
 // ---- feed scroll (MessageList registers its element) ----

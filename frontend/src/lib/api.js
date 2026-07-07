@@ -81,6 +81,7 @@ export const api = {
   fetchFile: (channelID, blobID, keys, mime) =>
     call("FetchFile", channelID, blobID, keys, mime),
   linkPreview: (url) => call("LinkPreview", url),
+  checkForUpdate: () => call("CheckForUpdate"),
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
   setNickname: (guildID, nick) => call("SetNickname", guildID, nick),

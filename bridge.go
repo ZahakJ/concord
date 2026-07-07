@@ -1115,6 +1115,8 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.FetchFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "LinkPreview":
 		return b.LinkPreview(argStr(args, 0))
+	case "CheckForUpdate":
+		return b.CheckForUpdate()
 	case "Members":
 		return b.Members(argStr(args, 0))
 	case "RemoveMember":
