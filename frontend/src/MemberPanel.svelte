@@ -4,12 +4,25 @@
   // control is its own sibling button (no more button-in-button nesting).
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
-  import { S, activeGuild, refreshRightPanel, flash, openProfilePopover } from "./lib/state.svelte.js";
+  import {
+    S,
+    activeGuild,
+    refreshRightPanel,
+    flash,
+    openProfilePopover,
+    roleColorFor,
+  } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
 
   let showPeers = $state(false);
 
   const g = $derived(activeGuild());
+
+  // A member's highest-ranked role (roles are highest-first), for a badge.
+  function topRole(mem) {
+    if (!mem.roleIds?.length) return null;
+    return S.roles.find((r) => mem.roleIds.includes(r.id)) || null;
+  }
 
   async function kick(fingerprint) {
     try {
@@ -38,11 +51,18 @@
         />
         <span class="member-text">
           <span class="member-name" title={mem.fingerprint}>
-            {mem.name || mem.fingerprint.slice(0, 9)}{mem.isSelf ? " (you)" : ""}
+            <span
+              class="mname"
+              style={roleColorFor(mem.fingerprint) ? `color:${roleColorFor(mem.fingerprint)}` : ""}
+            >{mem.name || mem.fingerprint.slice(0, 9)}</span>{mem.isSelf ? " (you)" : ""}
             {#if mem.isOwner}
               <span class="role-badge owner" title="Guild owner">owner</span>
-            {:else if mem.canManage}
-              <span class="role-badge mod" title="Can manage members">mod</span>
+            {:else if topRole(mem)}
+              {@const r = topRole(mem)}
+              <span
+                class="role-badge"
+                style="background:color-mix(in srgb, {r.color || 'var(--text-faint)'} 22%, transparent); color:{r.color || 'var(--text-muted)'}"
+                title={r.name}>{r.name}</span>
             {/if}
             {#if mem.verified && !mem.isSelf}
               <span class="v-badge" title="Identity verified"><Icon name="check" size={11} /></span>

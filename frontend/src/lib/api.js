@@ -79,8 +79,12 @@ export const api = {
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
   setNickname: (guildID, nick) => call("SetNickname", guildID, nick),
-  setMemberPermissions: (guildID, fingerprint, perms) =>
-    call("SetMemberPermissions", guildID, fingerprint, perms),
+  roles: (guildID) => call("Roles", guildID),
+  upsertRole: (guildID, roleID, name, color, perms, position) =>
+    call("UpsertRole", guildID, roleID, name, color, perms, position),
+  deleteRole: (guildID, roleID) => call("DeleteRole", guildID, roleID),
+  assignRole: (guildID, fingerprint, roleID, add) =>
+    call("AssignRole", guildID, fingerprint, roleID, add),
   banMember: (guildID, fingerprint) => call("BanMember", guildID, fingerprint),
   unbanMember: (guildID, fingerprint) => call("UnbanMember", guildID, fingerprint),
   bans: (guildID) => call("Bans", guildID),

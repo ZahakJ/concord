@@ -6,16 +6,27 @@ import (
 	"github.com/zahak/concord/internal/identity"
 )
 
-// signOp builds a govOp of the given shape signed by id.
-func signOp(id *identity.Identity, seq uint64, typ, target string, perms Permission) govOp {
+// upsertRole builds a signed role_upsert op.
+func upsertRole(id *identity.Identity, seq uint64, roleID, name string, perms Permission, pos int) govOp {
 	o := govOp{
-		Seq:    seq,
-		Signer: id.PublicKey(),
-		Type:   typ,
-		Target: target,
-		Perms:  uint32(perms),
-		Time:   int64(seq), // deterministic for tests
+		Seq: seq, Signer: id.PublicKey(), Type: "role_upsert",
+		RoleID: roleID, Name: name, Perms: uint32(perms), Position: pos, Time: int64(seq),
 	}
+	o.Sig = id.Sign(o.signingBytes())
+	return o
+}
+
+func assignRole(id *identity.Identity, seq uint64, target, roleID string, add bool) govOp {
+	o := govOp{
+		Seq: seq, Signer: id.PublicKey(), Type: "role_assign",
+		RoleID: roleID, Target: target, Add: add, Time: int64(seq),
+	}
+	o.Sig = id.Sign(o.signingBytes())
+	return o
+}
+
+func banOp(id *identity.Identity, seq uint64, typ, target string) govOp {
+	o := govOp{Seq: seq, Signer: id.PublicKey(), Type: typ, Target: target, Time: int64(seq)}
 	o.Sig = id.Sign(o.signingBytes())
 	return o
 }
@@ -29,7 +40,7 @@ func mustID(t *testing.T) *identity.Identity {
 	return id
 }
 
-func TestReplayOwnerGrantsAndModeratorBans(t *testing.T) {
+func TestRolesOwnerGrantsAndMemberActs(t *testing.T) {
 	owner := mustID(t)
 	mod := mustID(t)
 	member := mustID(t)
@@ -38,25 +49,52 @@ func TestReplayOwnerGrantsAndModeratorBans(t *testing.T) {
 	memberFpr := identity.FingerprintOf(member.PublicKey())
 
 	ops := []govOp{
-		// Owner grants the moderator manage-members.
-		signOp(owner, 1, "set_perms", modFpr, PermManageMembers),
+		// Owner defines a "Mod" role with manage-members and assigns it.
+		upsertRole(owner, 1, "r_mod", "Mod", PermManageMembers, 10),
+		assignRole(owner, 2, modFpr, "r_mod", true),
 		// The moderator (now authorized) bans a member.
-		signOp(mod, 2, "ban", memberFpr, 0),
+		banOp(mod, 3, "ban", memberFpr),
 	}
 	st := replayGuildOps(owner.PublicKey(), ops)
 
 	if !st.Can(ownerFpr, modFpr, PermManageMembers) {
-		t.Fatal("moderator should hold manage-members after owner grant")
+		t.Fatal("moderator should hold manage-members from its role")
 	}
 	if !st.Banned[memberFpr] {
 		t.Fatal("member should be banned by the authorized moderator")
 	}
-	if !st.Can(ownerFpr, ownerFpr, PermManageMembers|PermManageChannels|PermManageGuild) {
+	if !st.Can(ownerFpr, ownerFpr, permAll) {
 		t.Fatal("owner must implicitly hold every permission")
 	}
 }
 
-func TestReplayModeratorCannotEscalate(t *testing.T) {
+func TestRolesCannotEscalatePastSelf(t *testing.T) {
+	owner := mustID(t)
+	mod := mustID(t)
+	modFpr := identity.FingerprintOf(mod.PublicKey())
+
+	ops := []govOp{
+		// A role that can manage roles but nothing else, at position 10.
+		upsertRole(owner, 1, "r_roles", "RoleMgr", PermManageRoles, 10),
+		assignRole(owner, 2, modFpr, "r_roles", true),
+		// The role-manager tries to mint a role MORE powerful than itself
+		// (adds ManageMembers, which it doesn't have) — must be refused.
+		upsertRole(mod, 3, "r_evil", "Evil", PermManageRoles|PermManageMembers, 5),
+		// ...and tries to create a role at/above its own rank (position 10) —
+		// must be refused.
+		upsertRole(mod, 4, "r_high", "High", PermManageRoles, 10),
+	}
+	st := replayGuildOps(owner.PublicKey(), ops)
+
+	if _, ok := st.Roles["r_evil"]; ok {
+		t.Fatal("a role-manager must not mint a role with perms it lacks")
+	}
+	if _, ok := st.Roles["r_high"]; ok {
+		t.Fatal("a role-manager must not create a role at/above its own rank")
+	}
+}
+
+func TestRolesCannotAssignAboveRank(t *testing.T) {
 	owner := mustID(t)
 	mod := mustID(t)
 	crony := mustID(t)
@@ -65,93 +103,89 @@ func TestReplayModeratorCannotEscalate(t *testing.T) {
 	cronyFpr := identity.FingerprintOf(crony.PublicKey())
 
 	ops := []govOp{
-		signOp(owner, 1, "set_perms", modFpr, PermManageMembers),
-		// The moderator tries to grant its crony permissions — must be ignored,
-		// since only the owner may assign permissions.
-		signOp(mod, 2, "set_perms", cronyFpr, PermManageMembers),
+		upsertRole(owner, 1, "r_admin", "Admin", PermManageRoles|PermManageMembers, 20), // senior
+		upsertRole(owner, 2, "r_roles", "RoleMgr", PermManageRoles, 10),                 // junior
+		assignRole(owner, 3, modFpr, "r_roles", true),
+		// The junior role-manager tries to grant its crony the SENIOR admin role
+		// (position 20 >= its own rank 10) — must be refused.
+		assignRole(mod, 4, cronyFpr, "r_admin", true),
 	}
 	st := replayGuildOps(owner.PublicKey(), ops)
 
 	if st.Can(ownerFpr, cronyFpr, PermManageMembers) {
-		t.Fatal("a moderator must not be able to grant permissions (privilege escalation)")
+		t.Fatal("a junior must not assign a role that outranks it (privilege escalation)")
 	}
 }
 
-func TestReplayRejectsForgedSignature(t *testing.T) {
+func TestRolesRejectForgedSignature(t *testing.T) {
 	owner := mustID(t)
 	attacker := mustID(t)
-	victimFpr := identity.FingerprintOf(mustID(t).PublicKey())
 
-	// An op that CLAIMS to be from the owner but is signed by the attacker.
 	forged := govOp{
-		Seq:    1,
-		Signer: owner.PublicKey(), // lies about the author
-		Type:   "set_perms",
-		Target: victimFpr,
-		Perms:  uint32(PermManageMembers),
-		Time:   1,
+		Seq: 1, Signer: owner.PublicKey(), Type: "role_upsert",
+		RoleID: "r", Name: "x", Perms: uint32(PermManageMembers), Position: 5, Time: 1,
 	}
 	forged.Sig = attacker.Sign(forged.signingBytes()) // signed by the wrong key
 
 	st := replayGuildOps(owner.PublicKey(), []govOp{forged})
-	if len(st.Perms) != 0 {
-		t.Fatal("op with a signature that doesn't match its signer key must be rejected")
+	if len(st.Roles) != 0 {
+		t.Fatal("op whose signature doesn't match its signer key must be rejected")
 	}
 }
 
-func TestReplayOwnerCannotBeBannedOrDemoted(t *testing.T) {
+func TestRolesOwnerImmune(t *testing.T) {
 	owner := mustID(t)
 	mod := mustID(t)
 	ownerFpr := identity.FingerprintOf(owner.PublicKey())
 	modFpr := identity.FingerprintOf(mod.PublicKey())
 
 	ops := []govOp{
-		signOp(owner, 1, "set_perms", modFpr, PermManageMembers),
-		// The moderator tries to ban the owner.
-		signOp(mod, 2, "ban", ownerFpr, 0),
+		upsertRole(owner, 1, "r_mod", "Mod", PermManageMembers|PermManageRoles, 10),
+		assignRole(owner, 2, modFpr, "r_mod", true),
+		banOp(mod, 3, "ban", ownerFpr),        // can't ban the owner
+		assignRole(mod, 4, ownerFpr, "r_mod", true), // can't assign roles to the owner
 	}
 	st := replayGuildOps(owner.PublicKey(), ops)
 	if st.Banned[ownerFpr] {
 		t.Fatal("the owner must never be bannable")
 	}
-	if !st.Can(ownerFpr, ownerFpr, PermManageMembers) {
-		t.Fatal("owner authority is intrinsic and cannot be revoked")
+	if len(st.MemberRoles[ownerFpr]) != 0 {
+		t.Fatal("roles must not be assignable to the owner")
+	}
+	if !st.Can(ownerFpr, ownerFpr, permAll) {
+		t.Fatal("owner authority is intrinsic")
 	}
 }
 
-func TestReplayBannedMemberForfeitsPerms(t *testing.T) {
+func TestRolesBannedMemberForfeitsRoles(t *testing.T) {
 	owner := mustID(t)
 	mod := mustID(t)
 	ownerFpr := identity.FingerprintOf(owner.PublicKey())
 	modFpr := identity.FingerprintOf(mod.PublicKey())
 
 	ops := []govOp{
-		signOp(owner, 1, "set_perms", modFpr, PermManageMembers),
-		signOp(owner, 2, "ban", modFpr, 0),
+		upsertRole(owner, 1, "r_mod", "Mod", PermManageMembers, 10),
+		assignRole(owner, 2, modFpr, "r_mod", true),
+		banOp(owner, 3, "ban", modFpr),
 	}
 	st := replayGuildOps(owner.PublicKey(), ops)
 	if st.Can(ownerFpr, modFpr, PermManageMembers) {
-		t.Fatal("a banned member must forfeit its permissions")
-	}
-	if !st.Banned[modFpr] {
-		t.Fatal("member should be banned")
+		t.Fatal("a banned member must forfeit its roles/permissions")
 	}
 }
 
-func TestReplayIsOrderIndependent(t *testing.T) {
+func TestRolesReplayOrderIndependent(t *testing.T) {
 	owner := mustID(t)
 	mod := mustID(t)
 	memberFpr := identity.FingerprintOf(mustID(t).PublicKey())
 	modFpr := identity.FingerprintOf(mod.PublicKey())
 
-	grant := signOp(owner, 1, "set_perms", modFpr, PermManageMembers)
-	ban := signOp(mod, 2, "ban", memberFpr, 0)
+	def := upsertRole(owner, 1, "r_mod", "Mod", PermManageMembers, 10)
+	assign := assignRole(owner, 2, modFpr, "r_mod", true)
+	ban := banOp(mod, 3, "ban", memberFpr)
 
-	// Same ops, opposite arrival order → identical folded state (canonical sort
-	// by Seq means the grant is always evaluated before the moderator's ban).
-	a := replayGuildOps(owner.PublicKey(), []govOp{grant, ban})
-	b := replayGuildOps(owner.PublicKey(), []govOp{ban, grant})
-
+	a := replayGuildOps(owner.PublicKey(), []govOp{def, assign, ban})
+	b := replayGuildOps(owner.PublicKey(), []govOp{ban, assign, def})
 	if a.Banned[memberFpr] != b.Banned[memberFpr] || !a.Banned[memberFpr] {
 		t.Fatal("replay must be independent of arrival order")
 	}

@@ -12,6 +12,7 @@
     selectGuild,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { PERM, has } from "./lib/perms.js";
 
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
 
@@ -149,6 +150,11 @@
         {#if g.isOwner}
           <button class="menu-item" onclick={() => (S.modal = { kind: "rename" })}>
             <Icon name="edit" size={14} /> Rename guild
+          </button>
+        {/if}
+        {#if has(g.myPerms, PERM.MANAGE_ROLES) || g.isOwner}
+          <button class="menu-item" onclick={() => (S.modal = { kind: "roles" })}>
+            <Icon name="spark" size={14} /> Roles
           </button>
         {/if}
         {#if g.canManage}

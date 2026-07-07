@@ -15,8 +15,10 @@
     refreshRightPanel,
     startDM,
     flash,
+    roleColorFor,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { PERM, has } from "./lib/perms.js";
 
   let dmText = $state("");
   let dmBusy = $state(false);
@@ -104,23 +106,25 @@
     }
   }
 
-  // ---- moderation ----
-  const PERM_MANAGE_MEMBERS = 1;
-  // Moderation controls show for a non-self member in a real guild when the
-  // viewer can manage members. Nobody can act on the owner.
+  // ---- moderation & roles ----
+  // Controls show for a non-self, non-owner member in a real guild.
   const canModerate = $derived(
     !!mem && !mem.isSelf && !mem.isOwner && activeGuild()?.kind !== "dm" && !!activeGuild()?.canManage,
   );
-  // Only the owner promotes/demotes moderators.
-  const canPromote = $derived(canModerate && !!activeGuild()?.isOwner);
+  // Role assignment needs the Manage Roles permission (or owner).
+  const canAssignRoles = $derived(
+    !!mem &&
+      !mem.isSelf &&
+      !mem.isOwner &&
+      activeGuild()?.kind !== "dm" &&
+      (has(activeGuild()?.myPerms || 0, PERM.MANAGE_ROLES) || !!activeGuild()?.isOwner),
+  );
 
-  async function toggleModerator() {
-    const isMod = (mem.perms & PERM_MANAGE_MEMBERS) !== 0;
-    const next = isMod ? mem.perms & ~PERM_MANAGE_MEMBERS : mem.perms | PERM_MANAGE_MEMBERS;
+  async function toggleRole(role) {
+    const hasRole = mem.roleIds?.includes(role.id);
     try {
-      await api.setMemberPermissions(S.activeGuildId, mem.fingerprint, next);
+      await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, !hasRole);
       await refreshRightPanel();
-      flash(isMod ? "Removed moderator" : "Made moderator");
     } catch (err) {
       flash(err);
     }
@@ -210,7 +214,9 @@
 
     <div class="body">
       <div class="name-row">
-        <strong>{mem.name || mem.fingerprint.slice(0, 9)}</strong>
+        <strong style={roleColorFor(mem.fingerprint) ? `color:${roleColorFor(mem.fingerprint)}` : ""}
+          >{mem.name || mem.fingerprint.slice(0, 9)}</strong
+        >
         {#if mem.isSelf}<span class="tag">you</span>{/if}
         {#if mem.isOwner}
           <span class="role-badge owner" title="Guild owner">owner</span>
@@ -275,15 +281,27 @@
         </form>
       {/if}
 
+      {#if canAssignRoles && S.roles.length}
+        <div class="divider"></div>
+        <div class="roles-label muted">Roles</div>
+        <div class="role-toggles">
+          {#each S.roles as role (role.id)}
+            <button
+              class="role-toggle"
+              class:on={mem.roleIds?.includes(role.id)}
+              onclick={() => toggleRole(role)}
+            >
+              <span class="role-dot" style="background:{role.color || 'var(--text-faint)'}"></span>
+              {role.name}
+              {#if mem.roleIds?.includes(role.id)}<span class="role-x">×</span>{/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+
       {#if canModerate}
         <div class="divider"></div>
         <div class="mod-actions">
-          {#if canPromote}
-            <button class="mod-btn" onclick={toggleModerator}>
-              <Icon name="spark" size={13} />
-              {mem.canManage ? "Remove moderator" : "Make moderator"}
-            </button>
-          {/if}
           <button class="mod-btn" onclick={kick}>
             <Icon name="door" size={13} /> Kick
           </button>
@@ -396,6 +414,43 @@
   .role-badge.mod {
     background: color-mix(in srgb, var(--ok) 20%, transparent);
     color: var(--ok);
+  }
+  .roles-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 2px;
+  }
+  .role-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .role-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    font-size: 12px;
+    background: var(--bg-3);
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    border-radius: 10px;
+  }
+  .role-toggle.on {
+    background: var(--bg-4, var(--bg-3));
+    color: var(--text);
+    border-color: var(--border);
+  }
+  .role-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+  .role-x {
+    color: var(--text-faint);
+    font-size: 13px;
+    line-height: 1;
   }
   .mod-actions {
     display: flex;

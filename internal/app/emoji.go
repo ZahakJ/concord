@@ -32,6 +32,9 @@ func validEmojiImage(dataURI string) bool {
 
 // AddCustomEmoji adds (or replaces) a guild emoji and announces it.
 func (s *Service) AddCustomEmoji(guildID, name, dataURI string) error {
+	if !s.hasPerm(guildID, PermManageGuild) {
+		return fmt.Errorf("app: you don't have permission to manage this guild")
+	}
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
@@ -60,6 +63,9 @@ func (s *Service) AddCustomEmoji(guildID, name, dataURI string) error {
 
 // RemoveCustomEmoji deletes a guild emoji and announces it.
 func (s *Service) RemoveCustomEmoji(guildID, name string) error {
+	if !s.hasPerm(guildID, PermManageGuild) {
+		return fmt.Errorf("app: you don't have permission to manage this guild")
+	}
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte

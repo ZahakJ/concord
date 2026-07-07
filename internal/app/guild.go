@@ -124,15 +124,14 @@ func (s *Service) RenameGuild(guildID, name string) error {
 	if name == "" {
 		return fmt.Errorf("app: guild name is empty")
 	}
+	if !s.hasPerm(guildID, PermManageGuild) {
+		return fmt.Errorf("app: you don't have permission to manage this guild")
+	}
 	s.mu.Lock()
 	g, ok := s.guilds[guildID]
 	if !ok {
 		s.mu.Unlock()
 		return fmt.Errorf("app: unknown guild %s", guildID)
-	}
-	if !bytes.Equal(g.OwnerID, s.PublicKey()) {
-		s.mu.Unlock()
-		return fmt.Errorf("app: only the guild owner can rename it")
 	}
 	g.Name = name
 	groupID := g.GroupID
@@ -722,6 +721,9 @@ func (s *Service) SetNickname(guildID, nick string) error {
 // the other members so they add it too. ctype is "" (text), "voice", or
 // "announcement"; category is a category ID or "".
 func (s *Service) CreateChannel(guildID, name, ctype, category string) (domain.Channel, error) {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return domain.Channel{}, fmt.Errorf("app: you don't have permission to manage channels")
+	}
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
@@ -768,6 +770,9 @@ func (s *Service) CreateChannel(guildID, name, ctype, category string) (domain.C
 
 // CreateCategory adds a sidebar category and announces it to members.
 func (s *Service) CreateCategory(guildID, name string) (domain.Category, error) {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return domain.Category{}, fmt.Errorf("app: you don't have permission to manage channels")
+	}
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
@@ -788,6 +793,9 @@ func (s *Service) CreateCategory(guildID, name string) (domain.Category, error) 
 
 // SetChannelMeta changes a channel's type/category/position and announces it.
 func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, position int) error {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return fmt.Errorf("app: you don't have permission to manage channels")
+	}
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte

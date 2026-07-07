@@ -5,55 +5,87 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"math"
 	"sort"
 
 	"github.com/zahak/concord/internal/identity"
 )
 
 // govstate.go is the pure (I/O-free) core of guild governance: the permission
-// model, the signed-operation format, and the deterministic replay that folds a
-// log of ops into a GuildState. Keeping it pure makes the security-critical
-// rules — who may grant permissions, who may ban — exhaustively unit-testable
-// without spinning up networks or MLS groups.
+// model, named roles, the signed-operation format, and the deterministic replay
+// that folds a log of ops into a GuildState. Keeping it pure makes the
+// security-critical rules — who may define/assign roles, who may ban, and the
+// anti-escalation guarantees — exhaustively unit-testable without networks.
 //
-// Trust anchor: the guild owner (guild.OwnerID). The owner implicitly holds
-// every permission and is the only identity that may grant permissions to
-// others (so a moderator cannot escalate itself or a colluder). Everything else
-// derives from owner-signed ops, replayed in a canonical order.
+// Trust anchor: the guild owner (guild.OwnerID) implicitly holds every
+// permission and outranks every role. Everyone else's power comes from named
+// roles the owner (or a delegate holding ManageRoles) defines and assigns.
 
-// Permission is a capability bitmask assigned to a member.
+// Permission is a capability bit. Each maps to a concrete action in the P2P
+// system, so a role grants exactly the powers it names — not a blanket "mod".
 type Permission uint32
 
 const (
-	// PermManageMembers lets a member invite, kick, ban, and unban others. This
-	// is the capability the MLS committer gate consults: a holder's membership
-	// commits are accepted by honest peers (see authorizedCommitter).
+	// PermManageMembers: invite, kick, ban. This is the bit the MLS committer
+	// gate consults — a holder's membership commits are accepted by honest peers.
 	PermManageMembers Permission = 1 << iota
-	// PermManageChannels lets a member create/edit/delete channels & categories.
+	// PermManageMessages: delete anyone's messages and pin/unpin (moderation).
+	PermManageMessages
+	// PermManageChannels: create, rename, move, delete channels and categories.
 	PermManageChannels
-	// PermManageGuild lets a member rename the guild and manage custom emoji.
+	// PermManageGuild: rename the guild and manage custom emoji.
 	PermManageGuild
+	// PermManageRoles: define, edit, delete, and assign roles (bounded by rank).
+	PermManageRoles
+	// PermMuteMembers: mute/time-out a member (advisory — honest clients drop a
+	// muted member's messages until it lifts).
+	PermMuteMembers
+	// PermSyncHost: a designated always-on history-sync/relay host for the guild,
+	// preferred as a re-add and backfill source.
+	PermSyncHost
 )
+
+const permAll = PermManageMembers | PermManageMessages | PermManageChannels |
+	PermManageGuild | PermManageRoles | PermMuteMembers | PermSyncHost
 
 // Has reports whether the bitmask includes every bit of p.
 func (perm Permission) Has(p Permission) bool { return perm&p == p }
 
-// govOp is one signed governance mutation. Ops form a per-guild log; replaying
-// them in canonical order yields the GuildState. The signature covers every
-// field except Sig itself, binding the op to its author's account key.
-type govOp struct {
-	Seq    uint64 `json:"seq"`    // monotonic order hint (owner/moderators bump it)
-	Signer []byte `json:"signer"` // author's Ed25519 account public key
-	Type   string `json:"type"`   // "set_perms" | "ban" | "unban"
-	Target string `json:"target"` // fingerprint the op acts on
-	Perms  uint32 `json:"perms"`  // new bitmask for "set_perms"
-	Time   int64  `json:"t"`      // author's wall-clock (unix nanos), tiebreaker
-	Sig    []byte `json:"sig"`    // signature over the op with Sig zeroed
+// Role is a named, colored bundle of permissions with a hierarchy position
+// (higher = more senior). A member may hold several; effective permission is
+// the union.
+type Role struct {
+	ID       string     `json:"id"`
+	Name     string     `json:"name"`
+	Color    string     `json:"color"`
+	Perms    Permission `json:"perms"`
+	Position int        `json:"position"`
 }
 
-// signingBytes is the canonical serialization the signature covers: the op with
-// its Sig field cleared, JSON-encoded (Go sorts struct fields by declaration, so
-// this is deterministic for a fixed struct).
+// govOp is one signed governance mutation. Ops form a per-guild log; replaying
+// them in canonical order yields the GuildState. The signature covers every
+// field except Sig, binding the op to its author's account key.
+type govOp struct {
+	Seq    uint64 `json:"seq"`
+	Signer []byte `json:"signer"` // author's Ed25519 account public key
+	Type   string `json:"type"`   // role_upsert | role_delete | role_assign | ban | unban
+
+	// role_upsert
+	RoleID   string `json:"roleId,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Color    string `json:"color,omitempty"`
+	Perms    uint32 `json:"perms,omitempty"`
+	Position int    `json:"position,omitempty"`
+
+	// role_assign (Add=false removes) — Target is a member fingerprint;
+	// ban/unban also use Target.
+	Target string `json:"target,omitempty"`
+	Add    bool   `json:"add,omitempty"`
+
+	Time int64  `json:"t"`   // author wall-clock (unix nanos), ordering tiebreak
+	Sig  []byte `json:"sig"` // signature over the op with Sig zeroed
+}
+
 func (o govOp) signingBytes() []byte {
 	o.Sig = nil
 	b, _ := json.Marshal(o)
@@ -65,7 +97,6 @@ func (o govOp) hash() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// verifySig checks the op's signature against its embedded signer key.
 func (o govOp) verifySig() bool {
 	if len(o.Signer) != ed25519.PublicKeySize || len(o.Sig) != ed25519.SignatureSize {
 		return false
@@ -77,31 +108,57 @@ func (o govOp) signerFpr() string { return identity.FingerprintOf(o.Signer) }
 
 // GuildState is the folded result of replaying a guild's governance log.
 type GuildState struct {
-	// Perms maps a member fingerprint to its granted bitmask. The owner is not
-	// listed (it implicitly has everything); see Can.
-	Perms map[string]Permission
-	// Banned holds fingerprints barred from the guild; they are refused at the
-	// invite gate and removed if present.
-	Banned map[string]bool
+	Roles       map[string]Role     // roleID -> role definition
+	MemberRoles map[string][]string // fingerprint -> assigned role IDs
+	Banned      map[string]bool     // barred fingerprints
 }
 
 func newGuildState() GuildState {
-	return GuildState{Perms: map[string]Permission{}, Banned: map[string]bool{}}
-}
-
-// Can reports whether the member with fingerprint fpr holds permission p in this
-// state. ownerFpr always passes (the owner holds every capability).
-func (st GuildState) Can(ownerFpr, fpr string, p Permission) bool {
-	if fpr == ownerFpr {
-		return true
+	return GuildState{
+		Roles:       map[string]Role{},
+		MemberRoles: map[string][]string{},
+		Banned:      map[string]bool{},
 	}
-	return st.Perms[fpr].Has(p)
 }
 
-// canonicalOps sorts a log into the deterministic replay order every peer must
-// agree on: by Seq, then Time, then op hash. Sorting (rather than trusting
-// arrival order) means two peers that received ops in different orders still
-// fold to the identical GuildState.
+// permsOf returns a member's effective permission bitmask (union of its roles).
+// The owner implicitly holds everything.
+func (st GuildState) permsOf(ownerFpr, fpr string) Permission {
+	if fpr == ownerFpr {
+		return permAll
+	}
+	var p Permission
+	for _, rid := range st.MemberRoles[fpr] {
+		if r, ok := st.Roles[rid]; ok {
+			p |= r.Perms
+		}
+	}
+	return p
+}
+
+// Can reports whether the member holds every bit of need. Owner always passes.
+func (st GuildState) Can(ownerFpr, fpr string, need Permission) bool {
+	return st.permsOf(ownerFpr, fpr).Has(need)
+}
+
+// topPosition is the highest role position a member holds (its rank in the
+// hierarchy). The owner outranks everyone; a member with no roles is below all.
+func (st GuildState) topPosition(ownerFpr, fpr string) int {
+	if fpr == ownerFpr {
+		return math.MaxInt
+	}
+	top := -1
+	for _, rid := range st.MemberRoles[fpr] {
+		if r, ok := st.Roles[rid]; ok && r.Position > top {
+			top = r.Position
+		}
+	}
+	return top
+}
+
+// canonicalOps sorts a log into the deterministic replay order every peer agrees
+// on: by Seq, then Time, then op hash. Sorting (not trusting arrival order)
+// means peers that received ops differently still fold to the same state.
 func canonicalOps(ops []govOp) []govOp {
 	out := append([]govOp(nil), ops...)
 	sort.Slice(out, func(i, j int) bool {
@@ -118,14 +175,18 @@ func canonicalOps(ops []govOp) []govOp {
 }
 
 // replayGuildOps folds a governance log into a GuildState, enforcing at each step
-// that the op's signer is currently authorized to make that change:
-//   - set_perms: owner only (prevents privilege escalation by moderators).
-//   - ban / unban: owner or a current PermManageMembers holder.
+// that the op's signer is authorized AND cannot escalate beyond its own rank:
+//   - role_upsert: signer needs ManageRoles (or is owner); the new role's perms
+//     must be a subset of the signer's own, and its position strictly below the
+//     signer's rank (owner exempt). Editing a role above your rank is refused.
+//   - role_delete: ManageRoles (or owner); the role must be below your rank.
+//   - role_assign: ManageRoles (or owner); the role must be below your rank; you
+//     cannot assign roles to the owner.
+//   - ban/unban: ManageMembers (or owner); the owner cannot be banned; a ban
+//     strips the member's roles.
 //
-// Authorization is evaluated against the state accumulated from all earlier ops
-// in canonical order, so a moderator granted power by an early owner op can act
-// in later ops. Invalidly-signed or unauthorized ops are skipped, not fatal —
-// the log is gossiped and a peer may see a stray or malicious op.
+// Invalidly-signed or unauthorized ops are skipped, not fatal (the log is
+// gossiped; a peer may see a stray or malicious op).
 func replayGuildOps(owner []byte, ops []govOp) GuildState {
 	ownerFpr := identity.FingerprintOf(owner)
 	st := newGuildState()
@@ -134,34 +195,103 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 			continue
 		}
 		signer := o.signerFpr()
+		isOwner := signer == ownerFpr
+
 		switch o.Type {
-		case "set_perms":
-			if signer != ownerFpr {
-				continue // only the owner assigns permissions
-			}
-			if o.Target == ownerFpr {
-				continue // the owner's implicit full authority isn't editable
-			}
-			if o.Perms == 0 {
-				delete(st.Perms, o.Target)
-			} else {
-				st.Perms[o.Target] = Permission(o.Perms)
-			}
-		case "ban":
-			if !st.Can(ownerFpr, signer, PermManageMembers) {
+		case "role_upsert":
+			if o.RoleID == "" {
 				continue
 			}
-			if o.Target == ownerFpr {
-				continue // the owner cannot be banned
+			if !isOwner && !st.Can(ownerFpr, signer, PermManageRoles) {
+				continue
+			}
+			newPerms := Permission(o.Perms) & permAll
+			if !isOwner {
+				// Can't mint a role more powerful than yourself.
+				if !st.permsOf(ownerFpr, signer).Has(newPerms) {
+					continue
+				}
+				// Can't create/move a role at or above your own rank.
+				if o.Position >= st.topPosition(ownerFpr, signer) {
+					continue
+				}
+				// Can't edit an existing role that outranks you.
+				if existing, ok := st.Roles[o.RoleID]; ok && existing.Position >= st.topPosition(ownerFpr, signer) {
+					continue
+				}
+			}
+			st.Roles[o.RoleID] = Role{
+				ID: o.RoleID, Name: o.Name, Color: o.Color, Perms: newPerms, Position: o.Position,
+			}
+		case "role_delete":
+			r, ok := st.Roles[o.RoleID]
+			if !ok {
+				continue
+			}
+			if !isOwner {
+				if !st.Can(ownerFpr, signer, PermManageRoles) || r.Position >= st.topPosition(ownerFpr, signer) {
+					continue
+				}
+			}
+			delete(st.Roles, o.RoleID)
+			for fpr := range st.MemberRoles {
+				st.MemberRoles[fpr] = removeStr(st.MemberRoles[fpr], o.RoleID)
+			}
+		case "role_assign":
+			r, ok := st.Roles[o.RoleID]
+			if !ok || o.Target == "" || o.Target == ownerFpr {
+				continue
+			}
+			if !isOwner {
+				// Need ManageRoles, and the role must be below your own rank.
+				if !st.Can(ownerFpr, signer, PermManageRoles) || r.Position >= st.topPosition(ownerFpr, signer) {
+					continue
+				}
+			}
+			if o.Add {
+				if !containsStr(st.MemberRoles[o.Target], o.RoleID) {
+					st.MemberRoles[o.Target] = append(st.MemberRoles[o.Target], o.RoleID)
+				}
+			} else {
+				st.MemberRoles[o.Target] = removeStr(st.MemberRoles[o.Target], o.RoleID)
+			}
+		case "ban":
+			if !isOwner && !st.Can(ownerFpr, signer, PermManageMembers) {
+				continue
+			}
+			if o.Target == ownerFpr || o.Target == "" {
+				continue
 			}
 			st.Banned[o.Target] = true
-			delete(st.Perms, o.Target) // a banned member forfeits any permissions
+			delete(st.MemberRoles, o.Target) // a banned member forfeits its roles
 		case "unban":
-			if !st.Can(ownerFpr, signer, PermManageMembers) {
+			if !isOwner && !st.Can(ownerFpr, signer, PermManageMembers) {
 				continue
 			}
 			delete(st.Banned, o.Target)
 		}
 	}
 	return st
+}
+
+func containsStr(s []string, v string) bool {
+	for _, x := range s {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}
+
+func removeStr(s []string, v string) []string {
+	out := s[:0]
+	for _, x := range s {
+		if x != v {
+			out = append(out, x)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

@@ -1,6 +1,8 @@
 package app
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -10,9 +12,9 @@ import (
 
 // govern.go is the service-level wiring for guild governance: it turns the pure
 // GuildState replay (govstate.go) into live, persisted, gossiped state and
-// exposes the moderation actions (grant/revoke permissions, ban, unban, kick).
-// The signed ops propagate over the guild-meta topic and ride along in history
-// sync, so every member converges on the same roles and banlist.
+// exposes the role/moderation actions. Signed ops propagate over the guild-meta
+// topic and ride along in history sync, so every member converges on the same
+// roles, assignments, and banlist.
 
 // rebuildGovStateLocked recomputes a guild's folded governance state from its op
 // log. Caller must hold s.mu.
@@ -24,24 +26,30 @@ func (s *Service) rebuildGovStateLocked(guildID string) {
 	s.govState[guildID] = replayGuildOps(g.OwnerID, s.govOps[guildID])
 }
 
-// GovState returns a snapshot of a guild's governance state (roles + banlist).
+// govStateCopy returns a deep copy of a guild's state so callers can't mutate
+// the live maps. Caller must hold s.mu (read).
+func (st GuildState) copy() GuildState {
+	out := newGuildState()
+	for k, v := range st.Roles {
+		out.Roles[k] = v
+	}
+	for k, v := range st.MemberRoles {
+		out.MemberRoles[k] = append([]string(nil), v...)
+	}
+	for k, v := range st.Banned {
+		out.Banned[k] = v
+	}
+	return out
+}
+
+// GovState returns a snapshot of a guild's governance state.
 func (s *Service) GovState(guildID string) GuildState {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	st, ok := s.govState[guildID]
-	if !ok {
-		return newGuildState()
+	if st, ok := s.govState[guildID]; ok {
+		return st.copy()
 	}
-	// Return copies so callers can't mutate the live maps.
-	perms := make(map[string]Permission, len(st.Perms))
-	for k, v := range st.Perms {
-		perms[k] = v
-	}
-	banned := make(map[string]bool, len(st.Banned))
-	for k, v := range st.Banned {
-		banned[k] = v
-	}
-	return GuildState{Perms: perms, Banned: banned}
+	return newGuildState()
 }
 
 // isBanned reports whether a fingerprint is barred from a guild.
@@ -55,8 +63,8 @@ func (s *Service) isBanned(guildID, fingerprint string) bool {
 }
 
 // ingestGovOp validates and records a governance op (from any source: local
-// action, gossip, or sync). It dedupes by content hash, persists, appends to the
-// log, refolds the state, and refreshes the UI. Returns true if the op was new.
+// action, gossip, or sync). Dedupes by content hash, persists, appends, refolds
+// state, refreshes the UI. Returns true if the op was new.
 func (s *Service) ingestGovOp(guildID string, o govOp) bool {
 	if !o.verifySig() {
 		return false
@@ -66,7 +74,7 @@ func (s *Service) ingestGovOp(guildID string, o govOp) bool {
 	for _, existing := range s.govOps[guildID] {
 		if existing.hash() == hash {
 			s.mu.Unlock()
-			return false // already have it
+			return false
 		}
 	}
 	s.govOps[guildID] = append(s.govOps[guildID], o)
@@ -79,8 +87,7 @@ func (s *Service) ingestGovOp(guildID string, o govOp) bool {
 	return true
 }
 
-// nextGovSeq returns a sequence number one past the highest op currently known
-// for the guild, so a new op sorts after everything we've seen.
+// nextGovSeq returns one past the highest op seq known for the guild.
 func (s *Service) nextGovSeq(guildID string) uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -93,24 +100,18 @@ func (s *Service) nextGovSeq(guildID string) uint64 {
 	return max + 1
 }
 
-// issueGovOp builds, signs, records, and broadcasts a governance op. It does not
-// itself check the caller's authority — callers (SetMemberPermissions, BanMember,
-// …) enforce that first; replay re-validates on every peer regardless.
-func (s *Service) issueGovOp(guildID, typ, target string, perms Permission) error {
-	o := govOp{
-		Seq:    s.nextGovSeq(guildID),
-		Signer: s.id.PublicKey(),
-		Type:   typ,
-		Target: target,
-		Perms:  uint32(perms),
-		Time:   time.Now().UnixNano(),
-	}
+// issueGovOp fills in seq/signer/time, signs, records, and broadcasts an op.
+// Callers set Type and the op-specific fields. Replay re-validates authority on
+// every peer, so a caller that shouldn't have issued it changes nothing.
+func (s *Service) issueGovOp(guildID string, o govOp) error {
+	o.Seq = s.nextGovSeq(guildID)
+	o.Signer = s.id.PublicKey()
+	o.Time = time.Now().UnixNano()
 	o.Sig = s.id.Sign(o.signingBytes())
 
 	if !s.ingestGovOp(guildID, o) {
 		return fmt.Errorf("app: governance op rejected locally")
 	}
-
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
@@ -125,8 +126,8 @@ func (s *Service) issueGovOp(guildID, typ, target string, perms Permission) erro
 	return nil
 }
 
-// canManageMembers reports whether this peer may invite/kick/ban in the guild.
-func (s *Service) canManageMembers(guildID string) bool {
+// hasPerm reports whether THIS peer holds a permission in the guild.
+func (s *Service) hasPerm(guildID string, need Permission) bool {
 	self := s.id.Fingerprint()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -134,23 +135,56 @@ func (s *Service) canManageMembers(guildID string) bool {
 	if !ok {
 		return false
 	}
-	ownerFpr := identity.FingerprintOf(g.OwnerID)
-	st := s.govState[guildID]
-	return st.Can(ownerFpr, self, PermManageMembers)
+	return s.govState[guildID].Can(identity.FingerprintOf(g.OwnerID), self, need)
 }
 
-// CanManageMembers reports whether this peer may invite/kick/ban in the guild
-// (exported for the bridge to gate moderation UI).
+func (s *Service) canManageMembers(guildID string) bool {
+	return s.hasPerm(guildID, PermManageMembers)
+}
+
+// ---- exported accessors for the bridge ----
+
+// HasPermission reports whether this peer holds a permission bit in the guild.
+func (s *Service) HasPermission(guildID string, perm Permission) bool { return s.hasPerm(guildID, perm) }
+
+// CanManageMembers reports whether this peer may invite/kick/ban in the guild.
 func (s *Service) CanManageMembers(guildID string) bool { return s.canManageMembers(guildID) }
 
-// MemberPermission returns a member's granted permission bitmask in a guild.
+// MemberPermission returns a member's EFFECTIVE permission bitmask (union of its
+// roles; the owner holds everything).
 func (s *Service) MemberPermission(guildID, fingerprint string) Permission {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if st, ok := s.govState[guildID]; ok {
-		return st.Perms[fingerprint]
+	g, ok := s.guilds[guildID]
+	if !ok {
+		return 0
 	}
-	return 0
+	return s.govState[guildID].permsOf(identity.FingerprintOf(g.OwnerID), fingerprint)
+}
+
+// Roles returns a guild's role definitions.
+func (s *Service) Roles(guildID string) []Role {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.govState[guildID]
+	if !ok {
+		return nil
+	}
+	out := make([]Role, 0, len(st.Roles))
+	for _, r := range st.Roles {
+		out = append(out, r)
+	}
+	return out
+}
+
+// MemberRoleIDs returns the role IDs assigned to a member.
+func (s *Service) MemberRoleIDs(guildID, fingerprint string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if st, ok := s.govState[guildID]; ok {
+		return append([]string(nil), st.MemberRoles[fingerprint]...)
+	}
+	return nil
 }
 
 // IsGuildOwner reports whether a fingerprint is the guild's owner.
@@ -164,7 +198,7 @@ func (s *Service) IsGuildOwner(guildID, fingerprint string) bool {
 	return identity.FingerprintOf(g.OwnerID) == fingerprint
 }
 
-// BannedFingerprints returns the guild's banlist (fingerprints).
+// BannedFingerprints returns the guild's banlist.
 func (s *Service) BannedFingerprints(guildID string) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -179,33 +213,55 @@ func (s *Service) BannedFingerprints(guildID string) []string {
 	return out
 }
 
-// SetMemberPermissions grants (or, with perms==0, clears) a member's permission
-// bitmask. Owner-only, matching the replay rule that prevents privilege
-// escalation by moderators.
-func (s *Service) SetMemberPermissions(guildID, targetFpr string, perms Permission) error {
-	s.mu.RLock()
-	g, ok := s.guilds[guildID]
-	s.mu.RUnlock()
-	if !ok {
-		return fmt.Errorf("app: unknown guild %q", guildID)
-	}
-	if !isOwnerCred(g.OwnerID, s.PublicKey()) {
-		return fmt.Errorf("app: only the owner can assign permissions")
-	}
-	return s.issueGovOp(guildID, "set_perms", targetFpr, perms)
+// ---- role actions ----
+
+func newRoleID() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return "r_" + hex.EncodeToString(b[:])
 }
 
-// BanMember bars a fingerprint from the guild (recorded in governance state) and,
-// if that member is currently present, removes them from the MLS group. Requires
-// manage-members.
+// UpsertRole creates (roleID == "") or edits a role. Requires ManageRoles (or
+// owner); replay enforces that the perms/position don't exceed the caller.
+func (s *Service) UpsertRole(guildID, roleID, name, color string, perms Permission, position int) (string, error) {
+	if !s.hasPerm(guildID, PermManageRoles) {
+		return "", fmt.Errorf("app: you don't have permission to manage roles")
+	}
+	if roleID == "" {
+		roleID = newRoleID()
+	}
+	err := s.issueGovOp(guildID, govOp{
+		Type: "role_upsert", RoleID: roleID, Name: name, Color: color,
+		Perms: uint32(perms & permAll), Position: position,
+	})
+	return roleID, err
+}
+
+// DeleteRole removes a role and unassigns it from everyone. Requires ManageRoles.
+func (s *Service) DeleteRole(guildID, roleID string) error {
+	if !s.hasPerm(guildID, PermManageRoles) {
+		return fmt.Errorf("app: you don't have permission to manage roles")
+	}
+	return s.issueGovOp(guildID, govOp{Type: "role_delete", RoleID: roleID})
+}
+
+// AssignRole grants (add) or revokes (add=false) a role to a member. Requires
+// ManageRoles; replay enforces the rank rules.
+func (s *Service) AssignRole(guildID, targetFpr, roleID string, add bool) error {
+	if !s.hasPerm(guildID, PermManageRoles) {
+		return fmt.Errorf("app: you don't have permission to assign roles")
+	}
+	return s.issueGovOp(guildID, govOp{Type: "role_assign", Target: targetFpr, RoleID: roleID, Add: add})
+}
+
+// BanMember bars a fingerprint and, if present, evicts it. Requires manage-members.
 func (s *Service) BanMember(guildID, targetFpr string) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to ban members")
 	}
-	if err := s.issueGovOp(guildID, "ban", targetFpr, 0); err != nil {
+	if err := s.issueGovOp(guildID, govOp{Type: "ban", Target: targetFpr}); err != nil {
 		return err
 	}
-	// If present, evict them now (the ban keeps them out on any rejoin attempt).
 	return s.removeMemberByFingerprint(guildID, targetFpr)
 }
 
@@ -214,11 +270,10 @@ func (s *Service) UnbanMember(guildID, targetFpr string) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to unban members")
 	}
-	return s.issueGovOp(guildID, "unban", targetFpr, 0)
+	return s.issueGovOp(guildID, govOp{Type: "unban", Target: targetFpr})
 }
 
-// removeMemberByFingerprint issues the MLS Remove for the member whose credential
-// yields targetFpr, if they are in the group. A no-op if they aren't present.
+// removeMemberByFingerprint issues the MLS Remove for a present member.
 func (s *Service) removeMemberByFingerprint(guildID, targetFpr string) error {
 	creds, err := s.GuildMembers(guildID)
 	if err != nil {
@@ -229,10 +284,10 @@ func (s *Service) removeMemberByFingerprint(guildID, targetFpr string) error {
 			return s.RemoveMember(guildID, cred)
 		}
 	}
-	return nil // not currently a member; the banlist still bars rejoin
+	return nil
 }
 
-// govOpsFor returns the raw op log for a guild, for including in a sync payload.
+// govOpsFor returns the raw op log for a guild (for a sync payload).
 func (s *Service) govOpsFor(guildID string) []json.RawMessage {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

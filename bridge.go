@@ -126,6 +126,7 @@ type GuildView struct {
 	DMPeer     string         `json:"dmPeer,omitempty"` // for a peer DM: the other member's fingerprint
 	IsOwner    bool           `json:"isOwner"`
 	CanManage  bool           `json:"canManage"` // viewer may invite/kick/ban here
+	MyPerms    uint32         `json:"myPerms"`   // viewer's effective permission bitmask
 	Channels   []ChannelView  `json:"channels"`
 	Categories []CategoryView `json:"categories"`
 	Emoji      []EmojiView    `json:"emoji"`
@@ -162,9 +163,10 @@ type MemberView struct {
 	IsSelf      bool   `json:"isSelf"`
 	Online      bool   `json:"online"`
 	Verified    bool   `json:"verified"`
-	IsOwner     bool   `json:"isOwner"`        // guild owner (implicit full authority)
-	Perms       uint32 `json:"perms"`          // granted permission bitmask
-	CanManage   bool   `json:"canManage"`      // owner or manage-members holder
+	IsOwner     bool     `json:"isOwner"`   // guild owner (implicit full authority)
+	Perms       uint32   `json:"perms"`     // effective permission bitmask
+	CanManage   bool     `json:"canManage"` // owner or manage-members holder
+	RoleIDs     []string `json:"roleIds"`   // assigned role IDs (highest-first from Roles())
 }
 
 type ContactView struct {
@@ -726,6 +728,7 @@ func (b *bridge) Members(guildID string) ([]MemberView, error) {
 			IsOwner:     isOwner,
 			Perms:       perms,
 			CanManage:   isOwner || perms&uint32(appsvc.PermManageMembers) != 0,
+			RoleIDs:     svc.MemberRoleIDs(guildID, fpr),
 		})
 	}
 	// The MLS library yields members in map order (random per call), which made
@@ -757,13 +760,55 @@ func (b *bridge) SetNickname(guildID, nick string) error {
 	return svc.SetNickname(guildID, nick)
 }
 
-// SetMemberPermissions sets a member's permission bitmask (owner-only).
-func (b *bridge) SetMemberPermissions(guildID, fingerprint string, perms int) error {
+// RoleView is a role definition for the UI.
+type RoleView struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Color    string `json:"color"`
+	Perms    uint32 `json:"perms"`
+	Position int    `json:"position"`
+}
+
+// Roles lists a guild's roles (highest position first).
+func (b *bridge) Roles(guildID string) ([]RoleView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	roles := svc.Roles(guildID)
+	sort.Slice(roles, func(i, j int) bool { return roles[i].Position > roles[j].Position })
+	out := make([]RoleView, 0, len(roles))
+	for _, r := range roles {
+		out = append(out, RoleView{ID: r.ID, Name: r.Name, Color: r.Color, Perms: uint32(r.Perms), Position: r.Position})
+	}
+	return out, nil
+}
+
+// UpsertRole creates (empty id) or edits a role; returns the role id.
+func (b *bridge) UpsertRole(guildID, roleID, name, color string, perms, position int) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.UpsertRole(guildID, roleID, name, color, appsvc.Permission(perms), position)
+}
+
+// DeleteRole removes a role.
+func (b *bridge) DeleteRole(guildID, roleID string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.SetMemberPermissions(guildID, fingerprint, appsvc.Permission(perms))
+	return svc.DeleteRole(guildID, roleID)
+}
+
+// AssignRole grants (add=true) or revokes a role from a member.
+func (b *bridge) AssignRole(guildID, fingerprint, roleID string, add bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.AssignRole(guildID, fingerprint, roleID, add)
 }
 
 // BanMember bars a fingerprint and evicts them if present (manage-members).
@@ -881,6 +926,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
 		CanManage: svc.CanManageMembers(g.ID),
+		MyPerms:   uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Channels:  channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
 	}
 }
@@ -1012,8 +1058,14 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1))
 	case "SetNickname":
 		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
-	case "SetMemberPermissions":
-		return nil, b.SetMemberPermissions(argStr(args, 0), argStr(args, 1), argInt(args, 2))
+	case "Roles":
+		return b.Roles(argStr(args, 0))
+	case "UpsertRole":
+		return b.UpsertRole(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt(args, 4), argInt(args, 5))
+	case "DeleteRole":
+		return nil, b.DeleteRole(argStr(args, 0), argStr(args, 1))
+	case "AssignRole":
+		return nil, b.AssignRole(argStr(args, 0), argStr(args, 1), argStr(args, 2), argBool(args, 3))
 	case "BanMember":
 		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
 	case "UnbanMember":
@@ -1101,4 +1153,13 @@ func argInt(args []json.RawMessage, i int) int {
 	var n int
 	_ = json.Unmarshal(args[i], &n)
 	return n
+}
+
+func argBool(args []json.RawMessage, i int) bool {
+	if i >= len(args) {
+		return false
+	}
+	var b bool
+	_ = json.Unmarshal(args[i], &b)
+	return b
 }

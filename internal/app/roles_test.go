@@ -37,10 +37,14 @@ func TestModeratorCanInviteAndKick(t *testing.T) {
 	}
 	waitMembers(t, 20*time.Second, 2, owner, mod)
 
-	// Owner promotes the moderator.
+	// Owner defines a Mod role with manage-members and assigns it.
 	modFpr := mod.Fingerprint()
-	if err := owner.SetMemberPermissions(g.ID, modFpr, PermManageMembers); err != nil {
-		t.Fatalf("SetMemberPermissions: %v", err)
+	roleID, err := owner.UpsertRole(g.ID, "", "Mod", "#5865f2", PermManageMembers, 10)
+	if err != nil {
+		t.Fatalf("UpsertRole: %v", err)
+	}
+	if err := owner.AssignRole(g.ID, modFpr, roleID, true); err != nil {
+		t.Fatalf("AssignRole: %v", err)
 	}
 	// The grant must reach the moderator over gossip before it acts.
 	waitUntil(t, 20*time.Second, func() bool {

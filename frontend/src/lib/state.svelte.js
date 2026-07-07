@@ -15,6 +15,7 @@ export const S = $state({
   activeChannelId: "",
   messages: [],
   members: [],
+  roles: [], // active guild's roles (highest position first)
   contacts: [],
 
   replyingTo: null, // message being replied to
@@ -380,8 +381,23 @@ export async function selectChannel(id) {
 }
 
 export async function refreshRightPanel() {
-  if (S.activeGuildId) S.members = (await api.members(S.activeGuildId)) || [];
+  if (S.activeGuildId) {
+    S.members = (await api.members(S.activeGuildId)) || [];
+    const g = activeGuild();
+    S.roles = g && g.kind !== "dm" ? (await api.roles(S.activeGuildId)) || [] : [];
+  }
   S.contacts = (await api.contacts()) || [];
+}
+
+// roleColorFor: the color of a member's highest-ranked colored role (roles come
+// back highest-position first), or "" for none.
+export function roleColorFor(fpr) {
+  const m = memberByFpr(fpr);
+  if (!m?.roleIds?.length) return "";
+  for (const r of S.roles) {
+    if (m.roleIds.includes(r.id) && r.color) return r.color;
+  }
+  return "";
 }
 
 // Coalesce refreshes: a member join, history sync, or presence flap can emit a
