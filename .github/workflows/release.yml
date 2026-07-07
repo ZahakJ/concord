@@ -2,12 +2,21 @@
 # shell) AND the branded native desktop apps (real window + Concorde icon).
 # Triggered on a version tag. The web track cross-compiles from Linux; the
 # native track needs each OS's WebView, so it runs on a per-OS matrix.
+#
+# Both tracks upload their outputs as workflow artifacts, then a final `publish`
+# job gathers everything and attaches it to the GitHub Release for the tag — so
+# a push of `vX.Y.Z` produces a complete release with no manual `gh release
+# upload` afterward.
 name: release
 
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+
+# The publish job needs write access to create/update the Release.
+permissions:
+  contents: write
 
 jobs:
   # Zero-dependency web binaries — the "download one file, it just runs" track.
@@ -31,9 +40,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-latest, out: concord-linux }
-          - { os: macos-latest, out: concord-macos }
-          - { os: windows-latest, out: concord-windows }
+          - { os: ubuntu-latest, out: concord-desktop-linux }
+          - { os: macos-latest, out: concord-desktop-macos }
+          - { os: windows-latest, out: concord-desktop-windows }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -48,11 +57,52 @@ jobs:
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
       - name: Build frontend
         run: cd frontend && npm ci && npm run build
-      # `wails build` produces the packaged app (.app/.exe/binary) with the
-      # embedded icon. NSIS/DMG/AppImage packaging is configured in wails.json.
+      # `wails build` emits a raw binary (Linux), a .app bundle (macOS), or an
+      # .exe (Windows) into build/bin/, all carrying the embedded Concorde icon.
       - name: Build native app
-        run: wails build -tags webkit2_41 -o ${{ matrix.out }}
+        run: wails build -tags webkit2_41
+
+      # Package each OS's output into ONE .zip named per-OS. The desktop names
+      # are deliberately distinct from the web track's (which also emits a
+      # concord-windows.exe) so nothing clobbers on the Release. macOS's .app is
+      # a directory bundle, so zipping is also what makes it a single download.
+      - name: Package (Linux / macOS)
+        if: matrix.os != 'windows-latest'
+        run: |
+          cd build/bin
+          zip -r -q ../../${{ matrix.out }}.zip .
+      - name: Package (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Compress-Archive -Path build/bin/* -DestinationPath ${{ matrix.out }}.zip
+
       - uses: actions/upload-artifact@v4
         with:
-          name: concord-native-${{ matrix.os }}
-          path: build/bin/*
+          name: ${{ matrix.out }}
+          path: ${{ matrix.out }}.zip
+
+  # Gather every artifact and attach it to the tag's GitHub Release.
+  publish:
+    needs: [web, native]
+    runs-on: ubuntu-latest
+    # Only publish for real tag pushes, not manual workflow_dispatch runs.
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Flatten artifact tree
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f -exec cp {} release-assets/ \;
+          echo "Release assets:" && ls -lh release-assets/
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/*
+            WINDOWS.md
+          fail_on_unmatched_files: false
+          generate_release_notes: true
