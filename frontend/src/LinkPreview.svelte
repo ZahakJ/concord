@@ -3,6 +3,7 @@
   // (IntersectionObserver), so opening a link-heavy channel doesn't stampede
   // the backend. Fetched text renders via interpolation ONLY — never {@html}.
   import { loadPreview } from "./lib/embeds.js";
+  import { S } from "./lib/state.svelte.js";
 
   let { url } = $props();
   let root = $state(null);
@@ -18,7 +19,9 @@
   });
 
   $effect(() => {
-    if (!root || attempted) return;
+    // Privacy gate: fetching a preview discloses the viewer's IP to the link's
+    // host, so it only happens when the user has opted into link previews.
+    if (!root || attempted || !S.prefs.linkPreviews) return;
     const io = new IntersectionObserver(async (entries) => {
       if (!entries.some((e) => e.isIntersecting) || attempted) return;
       attempted = true;

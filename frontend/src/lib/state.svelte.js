@@ -32,6 +32,12 @@ export const S = $state({
   unread: {},
   mutes: loadJSON("concord.mutes", {}), // channelId -> true
 
+  // Privacy prefs. linkPreviews defaults OFF: fetching a preview for a link in a
+  // message reveals your IP + online time to that link's host, so a message with
+  // a link to an attacker-controlled server is a zero-click deanonymization. Opt
+  // in only if you trust who you talk to.
+  prefs: loadJSON("concord.prefs", { linkPreviews: false }),
+
   typingList: [], // [{ from, label, timer }]
 
   voice: null, // { mesh, channelId }
@@ -131,6 +137,12 @@ export function toggleMute(channelId) {
   else m[channelId] = true;
   S.mutes = m;
   saveJSON("concord.mutes", m);
+}
+
+// setPref updates a persisted privacy preference.
+export function setPref(key, value) {
+  S.prefs = { ...S.prefs, [key]: value };
+  saveJSON("concord.prefs", S.prefs);
 }
 
 function bumpUnread(channelId, mention) {

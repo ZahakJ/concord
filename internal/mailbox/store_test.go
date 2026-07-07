@@ -92,3 +92,33 @@ func TestMailboxIDStable(t *testing.T) {
 		t.Fatalf("MailboxID length = %d", len(MailboxID(pub)))
 	}
 }
+
+// TestDepositRateLimit verifies the per-peer token bucket: a burst is allowed,
+// then deposits are throttled, and tokens refill over time.
+func TestDepositRateLimit(t *testing.T) {
+	svc := NewService(New())
+	const p = "peerA"
+
+	// The full burst should be permitted up front.
+	for i := 0; i < int(depositBurst); i++ {
+		if !svc.allowDeposit(p) {
+			t.Fatalf("deposit %d within burst was rate-limited", i)
+		}
+	}
+	// The next one exceeds the burst and must be refused.
+	if svc.allowDeposit(p) {
+		t.Fatal("deposit past the burst should be rate-limited")
+	}
+	// A different peer has its own independent bucket.
+	if !svc.allowDeposit("peerB") {
+		t.Fatal("a distinct peer must not be limited by another's usage")
+	}
+
+	// Simulate elapsed time so the bucket refills, then it should allow again.
+	svc.mu.Lock()
+	svc.buckets[p].last = svc.buckets[p].last.Add(-2 * time.Second)
+	svc.mu.Unlock()
+	if !svc.allowDeposit(p) {
+		t.Fatal("bucket should refill after time passes")
+	}
+}

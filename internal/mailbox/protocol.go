@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -55,16 +56,72 @@ type EnvelopeMsg struct {
 	Data []byte `json:"data"`
 }
 
+// Deposit rate limiting. A deposit targets an arbitrary (registered) mailbox, so
+// unlike register/drain/ack it isn't self-scoped — a single peer could otherwise
+// flood the store and evict everyone's genuine offline messages (an availability
+// attack bounded only by the byte cap). A per-peer token bucket caps the rate:
+// bursts up to depositBurst (enough to fan one message out to many offline
+// members at once), then depositRate/sec sustained.
+const (
+	depositRate  = 2.0 // sustained deposits per second per peer
+	depositBurst = 120.0
+)
+
+type bucket struct {
+	tokens float64
+	last   time.Time
+}
+
 // Service handles inbound mailbox requests on a libp2p host (the rendezvous
 // node). Register/drain/ack derive the caller's mailbox from the Noise-
 // authenticated peer identity, so no separate signature is needed — the
 // libp2p PeerID *is* the account key.
 type Service struct {
 	store *Store
+
+	mu      sync.Mutex
+	buckets map[peer.ID]*bucket
 }
 
 // NewService wraps a store as a stream handler.
-func NewService(store *Store) *Service { return &Service{store: store} }
+func NewService(store *Store) *Service {
+	return &Service{store: store, buckets: map[peer.ID]*bucket{}}
+}
+
+// allowDeposit reports whether peer p may deposit right now, consuming a token.
+func (svc *Service) allowDeposit(p peer.ID) bool {
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	now := time.Now()
+	b := svc.buckets[p]
+	if b == nil {
+		b = &bucket{tokens: depositBurst, last: now}
+		svc.buckets[p] = b
+	}
+	b.tokens += now.Sub(b.last).Seconds() * depositRate
+	if b.tokens > depositBurst {
+		b.tokens = depositBurst
+	}
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+// pruneBuckets drops fully-refilled, idle buckets so the map can't grow without
+// bound as distinct peers come and go.
+func (svc *Service) pruneBuckets() {
+	svc.mu.Lock()
+	defer svc.mu.Unlock()
+	now := time.Now()
+	for p, b := range svc.buckets {
+		if b.tokens >= depositBurst && now.Sub(b.last) > time.Hour {
+			delete(svc.buckets, p)
+		}
+	}
+}
 
 // Attach registers the mailbox handler on a host and starts periodic GC.
 func (svc *Service) Attach(ctx context.Context, h host.Host) {
@@ -78,6 +135,7 @@ func (svc *Service) Attach(ctx context.Context, h host.Host) {
 				return
 			case <-t.C:
 				svc.store.GC()
+				svc.pruneBuckets()
 			}
 		}
 	}()
@@ -111,7 +169,9 @@ func (svc *Service) handle(s network.Stream) {
 		}
 	case "deposit":
 		if req.Target != "" {
-			if _, ok := svc.store.Deposit(req.Target, req.Envelope, time.Duration(req.TTLSeconds)*time.Second); ok {
+			if !svc.allowDeposit(s.Conn().RemotePeer()) {
+				resp.Error = "rate limited"
+			} else if _, ok := svc.store.Deposit(req.Target, req.Envelope, time.Duration(req.TTLSeconds)*time.Second); ok {
 				resp.OK = true
 			} else {
 				resp.Error = "rejected"

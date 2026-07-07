@@ -3,7 +3,7 @@
   import { onMount } from "svelte";
   import { api } from "../lib/api.js";
   import { soundsEnabled, setSoundsEnabled } from "../lib/sounds.js";
-  import { flash } from "../lib/state.svelte.js";
+  import { S, setPref, flash } from "../lib/state.svelte.js";
 
   let { onClose, onSaved } = $props();
   let bootstrap = $state("");
@@ -77,6 +77,22 @@
       <span class="muted tiny">Voice join/leave chimes and @mention pings</span>
     </span>
     <span class="switch" class:on={sounds}><span class="knob"></span></span>
+  </button>
+
+  <button
+    class="toggle-row"
+    onclick={() => setPref("linkPreviews", !S.prefs.linkPreviews)}
+    role="switch"
+    aria-checked={S.prefs.linkPreviews}
+  >
+    <span>
+      <strong>Link previews</strong>
+      <span class="muted tiny">
+        Off by default: loading a preview reveals your IP to the link's host, so a
+        message with a link can pinpoint you. Turn on only among people you trust.
+      </span>
+    </span>
+    <span class="switch" class:on={S.prefs.linkPreviews}><span class="knob"></span></span>
   </button>
 
   <hr />
