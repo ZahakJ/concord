@@ -3,6 +3,7 @@
   // attachments, pins/search panels, and the out-of-sync banner.
   import Icon from "./Icon.svelte";
   import Message from "./Message.svelte";
+  import Avatar from "./Avatar.svelte";
   import {
     S,
     activeGuild,
@@ -11,6 +12,9 @@
     feedNearBottom,
     channelName,
     jumpToChannel,
+    scrollToMessage,
+    memberByFpr,
+    flash,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
@@ -18,7 +22,26 @@
   let { onDropFiles } = $props();
 
   let feedEl = $state(null);
+  let atBottom = $state(true);
   $effect(() => registerFeed(feedEl));
+
+  function fmtTime(iso) {
+    try {
+      return new Date(iso).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  }
+
+  // Clicking a pinned message jumps to it in the feed (like Discord).
+  function jumpToPin(m) {
+    if (!scrollToMessage(m.id)) flash("That message isn't loaded yet");
+  }
 
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
@@ -105,11 +128,24 @@
 {#if S.showPins}
   <div class="side-panel">
     {#each pinned as m (m.id)}
+      {@const mem = memberByFpr(m.sender)}
       <div class="pin-item">
-        <span class="pin-text">
-          <Icon name="pin" size={11} />
-          <strong>{m.senderName || m.sender.slice(0, 9)}</strong>: {previewText(m.content).slice(0, 80)}
-        </span>
+        <button class="pin-jump" title="Jump to message" onclick={() => jumpToPin(m)}>
+          <Avatar
+            name={m.senderName || m.sender.slice(0, 2)}
+            emoji={mem?.emoji}
+            color={mem?.color}
+            image={mem?.avatar}
+            size={28}
+          />
+          <span class="pin-body">
+            <span class="pin-meta">
+              <strong>{m.senderName || m.sender.slice(0, 9)}</strong>
+              <span class="muted tiny">{fmtTime(m.sent)}</span>
+            </span>
+            <span class="pin-text">{previewText(m.content).slice(0, 90)}</span>
+          </span>
+        </button>
         <button class="mini" title="Unpin" aria-label="Unpin" onclick={() => api.pinMessage(m.channelId, m.id)}>
           <Icon name="close" size={11} />
         </button>
@@ -149,7 +185,8 @@
   ondragover={(e) => e.preventDefault()}
   ondrop={onDrop}
   onscroll={() => {
-    if (S.newBelow && feedNearBottom()) S.newBelow = false;
+    atBottom = feedNearBottom();
+    if (S.newBelow && atBottom) S.newBelow = false;
   }}
 >
   {#each rows as row (row.m.id)}
@@ -179,6 +216,10 @@
   {#if S.newBelow}
     <button class="new-below" onclick={scrollSoon}>
       New messages <span class="arrow">↓</span>
+    </button>
+  {:else if !atBottom}
+    <button class="jump-bottom" title="Jump to latest" aria-label="Jump to latest" onclick={scrollSoon}>
+      <Icon name="chevron" size={18} />
     </button>
   {/if}
 
@@ -343,6 +384,58 @@
   }
   .new-below .arrow {
     font-size: 13px;
+  }
+  .jump-bottom {
+    position: sticky;
+    bottom: 6px;
+    align-self: flex-end;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    color: var(--text);
+    box-shadow: var(--shadow-pop);
+    z-index: 15;
+    padding: 0;
+  }
+  .jump-bottom :global(svg) {
+    transform: rotate(90deg);
+  }
+  .jump-bottom:hover {
+    background: var(--bg-3);
+    color: var(--accent-hover);
+  }
+  .pin-jump {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+  }
+  .pin-jump:hover {
+    background: var(--bg-3);
+  }
+  .pin-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .pin-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+  }
+  .tiny {
+    font-size: 10px;
   }
   .drop-overlay {
     position: fixed;
