@@ -78,3 +78,12 @@ export function playVoiceLeave() {
 export function playMention() {
   play([[880, 0, 0.16, 0.1]]);
 }
+
+// Warm two-note bloop for an incoming direct message — distinct from the
+// single @mention ping so a DM is recognizable without looking.
+export function playDM() {
+  play([
+    [587.33, 0, 0.14, 0.11],
+    [880, 0.11, 0.2, 0.11],
+  ]);
+}

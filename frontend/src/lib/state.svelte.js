@@ -4,7 +4,7 @@
 import { api, on } from "./api.js";
 import { notify } from "./notify.js";
 import { containsMention } from "./markdown.js";
-import { playVoiceJoin, playVoiceLeave, playMention } from "./sounds.js";
+import { playVoiceJoin, playVoiceLeave, playMention, playDM } from "./sounds.js";
 
 export const S = $state({
   ready: false,
@@ -445,6 +445,12 @@ export async function jumpToChannel(channelId) {
   return false;
 }
 
+// isDMChannel reports whether a channel belongs to a kind=dm guild (a direct
+// message), so incoming DMs can ping even without an @mention.
+export function isDMChannel(channelId) {
+  return S.guilds.some((g) => g.kind === "dm" && g.channels.some((c) => c.id === channelId));
+}
+
 export function channelName(chId) {
   for (const g of S.guilds) {
     const c = g.channels.find((x) => x.id === chId);
@@ -541,8 +547,15 @@ function initEvents() {
       bumpUnread(m.channelId, isMentionOfSelf(m));
     }
     const isMention = isMentionOfSelf(m);
-    if (isMention && m.sender !== S.identity.fingerprint && !S.mutes[m.channelId]) {
-      playMention();
+    const fromOther = m.sender !== S.identity.fingerprint && !m.deleted && m.kind === "";
+    if (fromOther && !S.mutes[m.channelId]) {
+      // A direct message gets its own chime (unless you're already looking at
+      // it); an @mention elsewhere gets the mention ping.
+      if (isDMChannel(m.channelId) && (m.channelId !== S.activeChannelId || !document.hasFocus())) {
+        playDM();
+      } else if (isMention) {
+        playMention();
+      }
     }
     notify(m, {
       selfFpr: S.identity.fingerprint,
