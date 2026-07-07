@@ -21,13 +21,16 @@ function renderInline(s, mentionNames, customEmoji) {
     return `\x00${codeSpans.length - 1}\x00`;
   });
 
-  // Custom server emoji: :name: -> <img>. The image is guild metadata (a
-  // backend-validated data:image URI), not message content, so injecting it as
-  // an attribute is safe; the name charset ([a-z0-9_]) can't break out.
+  // Custom server emoji: :name: -> <img>. The image is a backend-validated
+  // base64 data:image URI, but we still escape it here (defense in depth) so a
+  // malformed value that somehow reaches this sink can't break out of the src
+  // attribute and inject script. The name charset ([a-z0-9_]) can't break out.
   if (customEmoji) {
     s = s.replace(/:([a-z0-9_]{2,32}):/g, (whole, name) => {
       const img = customEmoji[name];
-      return img ? `<img class="cemoji" src="${img}" alt=":${name}:" title=":${name}:" />` : whole;
+      return img
+        ? `<img class="cemoji" src="${escapeHtml(img)}" alt=":${name}:" title=":${name}:" />`
+        : whole;
     });
   }
 

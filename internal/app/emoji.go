@@ -17,6 +17,19 @@ const maxEmojiBytes = 256 << 10 // 256 KiB per emoji image
 
 var emojiNameRe = regexp.MustCompile(`^[a-z0-9_]{2,32}$`)
 
+// emojiImageRe pins the image to a strict base64 data-URI whitelist. This is a
+// security control, not just format hygiene: the image string is rendered into
+// an <img src="…"> in the client's markdown renderer, so a value containing a
+// double-quote (e.g. `data:image/png;base64,x" onerror=…`) would break out of
+// the attribute and inject script. The base64 charset cannot contain a quote,
+// and excluding svg avoids the scriptable-image class entirely.
+var emojiImageRe = regexp.MustCompile(`^data:image/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$`)
+
+// validEmojiImage reports whether an image data URI is safe to store and render.
+func validEmojiImage(dataURI string) bool {
+	return len(dataURI) <= maxEmojiBytes && emojiImageRe.MatchString(dataURI)
+}
+
 // AddCustomEmoji adds (or replaces) a guild emoji and announces it.
 func (s *Service) AddCustomEmoji(guildID, name, dataURI string) error {
 	s.mu.RLock()
@@ -33,8 +46,8 @@ func (s *Service) AddCustomEmoji(guildID, name, dataURI string) error {
 	if !emojiNameRe.MatchString(name) {
 		return fmt.Errorf("app: emoji name must be 2–32 chars, lowercase letters/numbers/underscore")
 	}
-	if len(dataURI) > maxEmojiBytes || !strings.HasPrefix(dataURI, "data:image/") {
-		return fmt.Errorf("app: emoji must be an image under %d KB", maxEmojiBytes/1024)
+	if !validEmojiImage(dataURI) {
+		return fmt.Errorf("app: emoji must be a base64 PNG/JPEG/GIF/WebP image under %d KB", maxEmojiBytes/1024)
 	}
 	e := domain.CustomEmoji{GuildID: guildID, Name: name, Image: dataURI}
 	if err := s.store.SaveCustomEmoji(store.CustomEmojiRow{GuildID: guildID, Name: name, Image: dataURI}); err != nil {
@@ -82,7 +95,10 @@ func (s *Service) CustomEmoji(guildID string) ([]domain.CustomEmoji, error) {
 // applyCustomEmoji stores an emoji learned from a peer (guild-meta or sync),
 // validating it the same way as a local add.
 func (s *Service) applyCustomEmoji(guildID string, e domain.CustomEmoji) {
-	if !emojiNameRe.MatchString(e.Name) || len(e.Image) > maxEmojiBytes || !strings.HasPrefix(e.Image, "data:image/") {
+	// Same strict validation as a local add — a malicious peer must not be able
+	// to plant an emoji whose image string breaks out of the client's <img src>
+	// (stored XSS). See emojiImageRe.
+	if !emojiNameRe.MatchString(e.Name) || !validEmojiImage(e.Image) {
 		return
 	}
 	_ = s.store.SaveCustomEmoji(store.CustomEmojiRow{GuildID: guildID, Name: e.Name, Image: e.Image})

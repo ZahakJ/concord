@@ -2,9 +2,61 @@ package app
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 )
+
+// TestDMInviteRejectsForcedGuildJoin covers the auto-accept hardening: a peer
+// that pushes an invite for anything other than a genuine 2-person DM with
+// itself (here, a full guild it owns) must NOT be able to silently force the
+// victim into that group.
+func TestDMInviteRejectsForcedGuildJoin(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked integration test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	attacker := startService(t, ctx)
+	victim := startService(t, ctx)
+
+	// A shared guild just to connect the two peers.
+	shared, err := attacker.CreateGuild("shared")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	code, _ := attacker.InviteCode(shared.ID)
+	if _, err := victim.JoinViaInvite(code); err != nil {
+		t.Fatalf("victim join shared: %v", err)
+	}
+	waitMembers(t, 20*time.Second, 2, attacker, victim)
+
+	// The attacker owns a SEPARATE full guild and pushes its invite over the
+	// DM-invite (auto-accept) channel — the abuse the hardening must stop.
+	trap, err := attacker.CreateGuild("trap")
+	if err != nil {
+		t.Fatalf("CreateGuild trap: %v", err)
+	}
+	trapCode, _ := attacker.InviteCode(trap.ID)
+	pid, ok := attacker.peerForFingerprint(victim.Fingerprint())
+	if !ok {
+		t.Fatal("attacker cannot reach victim")
+	}
+	req, _ := json.Marshal(dmInvite{Code: trapCode})
+	if _, err := attacker.host.RequestDMInvite(ctx, pid, req); err != nil {
+		t.Fatalf("push dm-invite: %v", err)
+	}
+
+	// Give the victim time to (attempt to) join and then undo it.
+	time.Sleep(3 * time.Second)
+
+	for _, g := range victim.Guilds() {
+		if g.ID == trap.ID {
+			t.Fatal("victim was force-joined into the attacker's guild via a DM invite")
+		}
+	}
+}
 
 // TestPeerDM covers the click-profile-to-DM flow: A and B share a guild; A
 // starts a DM with B (pushing a DM invite that B auto-redeems); both then hold

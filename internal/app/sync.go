@@ -73,7 +73,7 @@ type syncPayload struct {
 }
 
 // handleSyncRequest serves a peer's catch-up request from local state.
-func (s *Service) handleSyncRequest(ctx context.Context, _ peer.ID, request []byte) ([]byte, error) {
+func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request []byte) ([]byte, error) {
 	var req syncRequest
 	if err := json.Unmarshal(request, &req); err != nil {
 		return nil, err
@@ -87,6 +87,14 @@ func (s *Service) handleSyncRequest(ctx context.Context, _ peer.ID, request []by
 	s.mu.RUnlock()
 	if !ok {
 		return []byte{}, nil // not in that guild; nothing to serve
+	}
+	// Only serve guild history to a current member. The payload is MLS-encrypted
+	// (members-only anyway), but the commit list is plaintext and MLS Add commits
+	// embed joiners' key packages (account pubkeys) — serving them to a non-member
+	// who merely knows the guild ID (e.g. a removed/banned member) would leak the
+	// membership roster. Membership is checked against the authenticated PeerID.
+	if !s.guildHasMember(req.GuildID, presenceFor(from).Fingerprint) {
+		return []byte{}, nil
 	}
 
 	var resp syncResponse

@@ -82,6 +82,12 @@ assert(out.includes('<img class="cemoji" src="data:image/png;base64,AAAA"'), `cu
 assert(out.includes(":unknown:"), "unknown emoji left as literal text");
 // A custom-emoji image src can't be a vector for injection (name charset only).
 assert(!/<img[^>]*src="(?!data:image\/)/.test(out), "no non-image emoji src");
+// Defense in depth: even a malformed emoji URL that reaches the renderer must be
+// escaped so it can't break out of the src attribute and inject an event handler.
+const evil = { evilblob: 'data:image/png;base64,A" onerror="alert(1)' };
+out = renderMarkdown("boom :evilblob:", [], evil);
+assert(!out.includes('onerror="alert(1)"'), `emoji src must be escaped: ${out}`);
+assert(out.includes("&quot;"), "emoji src quote is entity-escaped");
 
 assert(containsMention("yo @euclid", ["euclid"]), "containsMention positive");
 assert(!containsMention("yo @euclidian", ["euclid"]), "containsMention word boundary");

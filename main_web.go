@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -127,6 +128,17 @@ func (s *webServer) handleRPC(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
 	}
+	// CSRF guard: the RPC surface is powerful (send/kick/ban, profile changes,
+	// joining invites). It binds to loopback, but any website the user visits
+	// could otherwise drive it with a cross-origin "simple" request (no preflight
+	// for text/plain). Reject requests carrying a foreign Origin; same-origin
+	// requests from our own page send a matching (loopback) Origin or none, and
+	// non-browser clients send none. This also defeats DNS-rebinding, whose
+	// Origin stays the attacker's domain.
+	if !localOrigin(r.Header.Get("Origin")) {
+		http.Error(w, "cross-origin request forbidden", http.StatusForbidden)
+		return
+	}
 	var req rpcRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, rpcResponse{Error: "bad request"})
@@ -187,6 +199,26 @@ func (s *webServer) broadcast(ev sseEvent) {
 		case ch <- ev:
 		default: // drop for a slow client rather than block the Service
 		}
+	}
+}
+
+// localOrigin reports whether an Origin header is safe to accept: empty (a
+// non-browser client or a same-origin request that sends no Origin) or a
+// loopback host. A page on any real website carries its own Origin and is
+// rejected.
+func localOrigin(origin string) bool {
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	switch u.Hostname() {
+	case "127.0.0.1", "localhost", "::1", "[::1]":
+		return true
+	default:
+		return false
 	}
 }
 

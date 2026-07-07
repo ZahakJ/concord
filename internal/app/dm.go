@@ -100,17 +100,61 @@ func (s *Service) StartDM(fingerprint string) (domain.Guild, error) {
 
 // handleDMInvite is the recipient side: auto-redeem the pushed invite code so
 // the DM appears without any manual step.
-func (s *Service) handleDMInvite(_ context.Context, _ peer.ID, request []byte) ([]byte, error) {
+func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte) ([]byte, error) {
 	var req dmInvite
 	if err := json.Unmarshal(request, &req); err != nil {
 		return []byte{}, nil
 	}
+	// The invite is authenticated to the peer that pushed it (libp2p PeerID).
+	senderFpr := presenceFor(from).Fingerprint
 	go func() {
-		if _, err := s.JoinViaInvite(req.Code); err == nil {
-			s.emitGuildUpdate()
+		g, err := s.JoinViaInvite(req.Code)
+		if err != nil {
+			return
 		}
+		// Auto-accept is ONLY for a genuine 2-person DM opened by the peer who
+		// pushed the invite. Without this check, any peer could push an arbitrary
+		// invite code and silently force us into a full guild or a group we're not
+		// the intended counterparty of (unsolicited membership + profile/mailbox-
+		// key disclosure). Anything that isn't a 2-person DM with the sender is
+		// undone immediately.
+		if !s.isLegitDMWith(g.ID, senderFpr) {
+			_ = s.LeaveGuild(g.ID)
+			return
+		}
+		s.emitGuildUpdate()
 	}()
 	return []byte("ok"), nil
+}
+
+// isLegitDMWith reports whether guildID is a 2-person DM whose other member is
+// senderFpr — i.e. a real direct message opened by the peer that invited us.
+func (s *Service) isLegitDMWith(guildID, senderFpr string) bool {
+	if senderFpr == "" {
+		return false
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	isDM := ok && g.Kind == "dm"
+	s.mu.RUnlock()
+	if !isDM {
+		return false
+	}
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil || len(creds) != 2 {
+		return false
+	}
+	self := s.id.Fingerprint()
+	for _, c := range creds {
+		if f := identity.FingerprintOf(c); f != self {
+			return f == senderFpr
+		}
+	}
+	return false
 }
 
 // findPeerDM returns an existing 2-person DM with the given fingerprint, or nil.
