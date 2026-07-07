@@ -115,9 +115,14 @@
           <Icon name="door" size={13} />
         </button>
       </span>
-    {:else if ch && g?.kind !== "dm"}
-      <button class="ghost iconbtn" title="Join voice" onclick={onJoinVoice}>
-        <Icon name="speaker" /> <span class="n">Voice</span>
+    {:else if ch}
+      <button
+        class="ghost iconbtn"
+        class:call={g?.kind === "dm"}
+        title={g?.kind === "dm" ? "Start a call" : "Join voice"}
+        onclick={onJoinVoice}
+      >
+        <Icon name="speaker" /> <span class="n">{g?.kind === "dm" ? "Call" : "Voice"}</span>
       </button>
     {/if}
 
@@ -243,5 +248,12 @@
   }
   .invite {
     padding: 6px 12px;
+  }
+  .iconbtn.call {
+    color: var(--ok);
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  }
+  .iconbtn.call:hover {
+    background: var(--ok-soft);
   }
 </style>
