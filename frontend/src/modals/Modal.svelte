@@ -30,6 +30,10 @@
   .dialog {
     width: 380px;
     max-width: 90vw;
+    /* Never taller than the viewport; scroll inside on short screens (laptops)
+       so long content like the 24-word recovery phrase stays reachable. */
+    max-height: 90vh;
+    overflow-y: auto;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -60,6 +64,13 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    /* Keep the title + close button visible while the body scrolls. */
+    position: sticky;
+    top: -20px;
+    margin: -20px -20px 0;
+    padding: 20px 20px 8px;
+    background: var(--bg-elevated);
+    z-index: 1;
   }
   h3 {
     margin: 0;

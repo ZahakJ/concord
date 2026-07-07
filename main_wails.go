@@ -4,11 +4,19 @@
 // or `go build -tags wails .`) since it links the system WebView via cgo. The
 // default build produces the browser-served variant in main_web.go, which needs
 // no native dependencies.
+//
+// The frontend talks to the backend over the SAME HTTP surface as the web build
+// (POST /rpc, SSE /events), mounted on the Wails asset server via Middleware.
+// We deliberately do NOT rely on Wails' injected JS bindings (window.go.*): its
+// binding generator deadlocks on newer Go toolchains, and -skipbindings (needed
+// to build at all) means those bindings never appear — so the HTTP transport is
+// what makes the desktop app actually work.
 package main
 
 import (
 	"context"
 	"embed"
+	"net/http"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -29,6 +37,9 @@ var appIcon []byte
 
 func main() {
 	b := newBridge(context.Background())
+	// trusted=true: the webview is native and unreachable from other origins, so
+	// the /rpc CSRF guard isn't needed (and would reject the wails:// origin).
+	api := newAPIServerWith(b, true)
 
 	err := wails.Run(&options.App{
 		Title:            "Concord",
@@ -36,11 +47,30 @@ func main() {
 		Height:           720,
 		MinWidth:         860,
 		MinHeight:        560,
-		AssetServer:      &assetserver.Options{Assets: assets},
+		AssetServer: &assetserver.Options{
+			Assets: assets,
+			// Serve /rpc and /events ourselves; everything else falls through to
+			// the embedded frontend assets.
+			Middleware: func(next http.Handler) http.Handler {
+				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/rpc":
+						api.handleRPC(w, r)
+					case "/events":
+						api.handleEvents(w, r)
+					default:
+						next.ServeHTTP(w, r)
+					}
+				})
+			},
+		},
 		BackgroundColour: &options.RGBA{R: 30, G: 32, B: 36, A: 1},
 		Linux:            &linux.Options{Icon: appIcon},
 		OnStartup: func(ctx context.Context) {
 			b.setContext(ctx)
+			// Events flow over the native Wails runtime (window.runtime.EventsOn),
+			// which is injected even with -skipbindings — unlike the Go method
+			// bindings (window.go.*), which aren't, hence RPC over HTTP.
 			b.onMessage = func(m MessageView) { wruntime.EventsEmit(ctx, "message", m) }
 			b.onPresence = func() { wruntime.EventsEmit(ctx, "presence", nil) }
 			b.onVoicePresence = func(v VoicePresence) { wruntime.EventsEmit(ctx, "voice-presence", v) }
@@ -49,7 +79,6 @@ func main() {
 			b.onGuildUpdate = func() { wruntime.EventsEmit(ctx, "guild-updated", nil) }
 		},
 		OnShutdown: func(context.Context) { b.close() },
-		Bind:       []interface{}{b},
 	})
 	if err != nil {
 		println("concord: " + err.Error())

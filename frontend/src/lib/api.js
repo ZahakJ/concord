@@ -110,12 +110,13 @@ function sse() {
 }
 
 // on subscribes to a backend event and returns an unsubscribe function.
+// The desktop app streams events over the Wails runtime (window.runtime, which
+// is injected even when the Go method bindings aren't); the browser build uses
+// SSE. We probe window.runtime directly rather than via isWails() because the
+// desktop build ships without the window.go.* bindings (RPC goes over HTTP).
 export function on(event, handler) {
-  if (isWails()) {
-    const rt = window.runtime;
-    if (rt && rt.EventsOn) return rt.EventsOn(event, handler);
-    return () => {};
-  }
+  const rt = typeof window !== "undefined" ? window.runtime : null;
+  if (rt && typeof rt.EventsOn === "function") return rt.EventsOn(event, handler);
   const listener = (e) => {
     let data = null;
     try {
