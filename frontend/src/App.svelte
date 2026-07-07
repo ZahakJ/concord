@@ -71,8 +71,11 @@
   async function joinVoice(channelId = S.activeChannelId) {
     if (!channelId) return;
     if (S.voice) {
-      if (S.voice.channelId === channelId) return; // already in it
-      await leaveVoice(); // switch rooms
+      const inThisRoom = S.voice.channelId === channelId;
+      await leaveVoice();
+      // Re-clicking the room you're already in toggles you out (no need to hunt
+      // for the disconnect button). Clicking a different one switches rooms.
+      if (inThisRoom) return;
     }
     const mesh = new VoiceMesh({
       selfPeerId: S.identity.peerId,
