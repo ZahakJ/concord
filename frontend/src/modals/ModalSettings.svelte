@@ -1,5 +1,6 @@
 <script>
   import Modal from "./Modal.svelte";
+  import Avatar from "../Avatar.svelte";
   import { onMount } from "svelte";
   import { api } from "../lib/api.js";
   import { soundsEnabled, setSoundsEnabled } from "../lib/sounds.js";
@@ -50,7 +51,23 @@
   }
 </script>
 
-<Modal title="Network settings" {onClose}>
+<Modal title="Settings" {onClose}>
+  <button class="profile-row" onclick={() => (S.modal = { kind: "profile" })}>
+    <Avatar
+      name={S.displayName || S.identity.displayName || "You"}
+      emoji={S.identity.emoji}
+      color={S.identity.color}
+      image={S.identity.avatar}
+      size={44}
+    />
+    <span class="profile-text">
+      <strong>{S.displayName || S.identity.displayName || "Your profile"}</strong>
+      <span class="muted tiny">Edit name, avatar, color, status &amp; bio</span>
+    </span>
+    <span class="muted chev-r">›</span>
+  </button>
+
+  <hr />
   <p class="muted">
     <strong>Rendezvous server</strong> — the address of the tiny relay that lets
     friends on other networks find you. You only need this if <em>you</em> host
@@ -193,6 +210,33 @@
   .small-btn.done {
     color: var(--ok);
     border-color: var(--ok);
+  }
+  .profile-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    color: var(--text);
+    text-align: left;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+  }
+  .profile-row:hover {
+    background: var(--bg-3);
+    border-color: var(--accent);
+  }
+  .profile-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-width: 0;
+  }
+  .chev-r {
+    font-size: 20px;
+    line-height: 1;
   }
   .toggle-row {
     display: flex;

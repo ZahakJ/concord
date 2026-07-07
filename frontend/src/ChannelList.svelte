@@ -284,7 +284,7 @@
         <span class="muted small-status">{S.identity.status || "click to edit profile"}</span>
       </span>
     </button>
-    <button class="me-gear ghost" title="Network settings" aria-label="Network settings" onclick={() => (S.modal = { kind: "settings" })}>
+    <button class="me-gear ghost" title="Settings" aria-label="Settings" onclick={() => (S.modal = { kind: "settings" })}>
       <Icon name="gear" />
     </button>
   </div>
