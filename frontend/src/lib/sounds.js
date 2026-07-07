@@ -87,3 +87,14 @@ export function playDM() {
     [880, 0.11, 0.2, 0.11],
   ]);
 }
+
+// One "brring" of a phone ring — two quick pulses. Call repeatedly (see
+// state's ring loop) while a call is incoming.
+export function playRing() {
+  play([
+    [480, 0, 0.28, 0.13],
+    [620, 0, 0.28, 0.13],
+    [480, 0.4, 0.28, 0.13],
+    [620, 0.4, 0.28, 0.13],
+  ]);
+}

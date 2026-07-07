@@ -7,7 +7,7 @@
   import { VoiceMesh } from "./lib/voice.js";
   import { requestPermission } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
-  import { playVoiceJoin, playVoiceLeave } from "./lib/sounds.js";
+  import { playVoiceJoin, playVoiceLeave, playRing } from "./lib/sounds.js";
   import {
     S,
     activeGuild,
@@ -18,6 +18,8 @@
     flash,
     setVideoStream,
     clearVideoStreams,
+    incomingCall,
+    jumpToChannel,
   } from "./lib/state.svelte.js";
 
   import Login from "./Login.svelte";
@@ -50,6 +52,41 @@
   const isDM = $derived(activeGuild()?.kind === "dm");
   // No open channel → show the welcome screen instead of an empty chat.
   const hasChannel = $derived(!!S.activeChannelId && !!activeGuild());
+
+  // Voice: the call box shows inline only on its own channel; elsewhere it
+  // collapses to a floating "return to call" bubble.
+  const callHere = $derived(S.voice && S.voice.channelId === S.activeChannelId);
+  const callElsewhere = $derived(S.voice && S.voice.channelId !== S.activeChannelId);
+  const call = $derived(incomingCall());
+  const ringingChannel = $derived(call?.channelId || "");
+  // A friendly label for the ongoing-call bubble: the DM name, or "Guild · #ch".
+  const callLabel = $derived.by(() => {
+    if (!S.voice) return "";
+    for (const gg of S.guilds) {
+      const c = gg.channels.find((x) => x.id === S.voice.channelId);
+      if (c) return gg.kind === "dm" ? gg.name : `${gg.name} · ${c.name}`;
+    }
+    return "";
+  });
+
+  // Ring while a DM call is incoming; stops when accepted, declined, or ended.
+  $effect(() => {
+    if (!ringingChannel) return;
+    playRing();
+    const id = setInterval(playRing, 2400);
+    return () => clearInterval(id);
+  });
+
+  function returnToCall() {
+    if (S.voice) jumpToChannel(S.voice.channelId);
+  }
+  async function acceptCall(channelId) {
+    await jumpToChannel(channelId); // open the DM so the call box is in view
+    await joinVoice(channelId);
+  }
+  function declineCall(channelId) {
+    S.dismissedCalls = [...S.dismissedCalls, channelId];
+  }
 
   // Skip the login screen if the backend is already unlocked (e.g. after a
   // browser refresh — the Go process stays running and holds the session).
@@ -221,8 +258,13 @@
           onToggleShare={toggleScreenShare}
           onToggleCamera={toggleCamera}
         />
-        {#if S.voice}
-          <VoicePanel />
+        {#if callHere}
+          <VoicePanel
+            onLeaveVoice={leaveVoice}
+            onToggleMute={toggleMicMute}
+            onToggleShare={toggleScreenShare}
+            onToggleCamera={toggleCamera}
+          />
         {/if}
         <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
         <Composer bind:this={composer} />
@@ -241,6 +283,33 @@
   {/if}
 
   <ProfilePopover />
+
+  <!-- Ongoing call you've navigated away from: a click brings you back. -->
+  {#if callElsewhere}
+    <button class="call-return" onclick={returnToCall} title="Return to your call">
+      <span class="cr-dot"></span>
+      <span class="cr-text">
+        <strong>In call</strong>
+        <span class="cr-ch">{callLabel}</span>
+      </span>
+      <span class="cr-go">Return</span>
+    </button>
+  {/if}
+
+  <!-- Someone is ringing you in a DM. -->
+  {#if call}
+    <div class="ring-card">
+      <span class="ring-pulse"></span>
+      <div class="ring-info">
+        <strong>{call.name}</strong>
+        <span class="muted">is calling you…</span>
+      </div>
+      <div class="ring-actions">
+        <button class="ring-btn decline" onclick={() => declineCall(call.channelId)}>Decline</button>
+        <button class="ring-btn accept" onclick={() => acceptCall(call.channelId)}>Join</button>
+      </div>
+    </div>
+  {/if}
 
   {#if S.toast}<div class="toast">{S.toast}</div>{/if}
 
@@ -337,5 +406,118 @@
     font-size: 13px;
     box-shadow: var(--shadow-pop);
     z-index: 200;
+  }
+  /* Floating "return to call" bubble (call is running on another channel). */
+  .call-return {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--ok-soft);
+    border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
+    border-radius: 14px;
+    color: var(--text);
+    box-shadow: var(--shadow-pop);
+    z-index: 190;
+    text-align: left;
+  }
+  .call-return:hover {
+    background: color-mix(in srgb, var(--ok) 22%, var(--bg-1));
+  }
+  .cr-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--ok);
+    animation: cr-blink 1.4s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  @keyframes cr-blink {
+    50% {
+      opacity: 0.3;
+    }
+  }
+  .cr-text {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.2;
+  }
+  .cr-text strong {
+    font-size: 12px;
+    color: var(--ok);
+  }
+  .cr-ch {
+    font-size: 11px;
+    color: var(--text-muted);
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cr-go {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ok);
+    padding-left: 4px;
+  }
+  /* Incoming-call card. */
+  .ring-card {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    background: var(--bg-elevated, var(--bg-1));
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-pop);
+    z-index: 210;
+  }
+  .ring-pulse {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
+    animation: ring-pulse 1.3s ease-out infinite;
+    flex-shrink: 0;
+  }
+  @keyframes ring-pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 60%, transparent);
+    }
+    100% {
+      box-shadow: 0 0 0 12px transparent;
+    }
+  }
+  .ring-info {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.3;
+  }
+  .ring-actions {
+    display: flex;
+    gap: 8px;
+  }
+  .ring-btn {
+    padding: 7px 16px;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .ring-btn.accept {
+    background: var(--ok);
+    color: #fff;
+  }
+  .ring-btn.decline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
   }
 </style>

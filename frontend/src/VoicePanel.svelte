@@ -5,7 +5,13 @@
   // guild voice room.
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
-  import { S, memberByFpr, getVideoStream } from "./lib/state.svelte.js";
+  import { S, memberByFpr, getVideoStream, activeGuild } from "./lib/state.svelte.js";
+
+  let { onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
+
+  // Solo in a DM call = still ringing the other person.
+  const solo = $derived(S.voiceParticipants.length === 0);
+  const isDM = $derived(activeGuild()?.kind === "dm");
 
   function participant(peerId) {
     const fpr = S.voicePeerFpr[peerId];
@@ -63,6 +69,13 @@
 </script>
 
 <div class="voice-panel" style="--n:{roster.length}">
+  {#if solo}
+    <div class="ringing">
+      <span class="dots"><span></span><span></span><span></span></span>
+      {isDM ? "Ringing…" : "Waiting for others to join…"}
+    </div>
+  {/if}
+
   <div class="stage" class:solo={roster.length === 1}>
     {#each roster as pid (pid)}
       {@const t = tileInfo(pid)}
@@ -105,6 +118,39 @@
       {/each}
     </div>
   {/if}
+
+  <div class="controls">
+    <button
+      class="ctl"
+      class:active={!S.muted}
+      title={S.muted ? "Unmute" : "Mute"}
+      aria-label={S.muted ? "Unmute" : "Mute"}
+      onclick={onToggleMute}
+    >
+      <Icon name={S.muted ? "micOff" : "mic"} size={18} />
+    </button>
+    <button
+      class="ctl"
+      class:active={S.cameraOn}
+      title={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+      aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+      onclick={onToggleCamera}
+    >
+      <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={18} />
+    </button>
+    <button
+      class="ctl"
+      class:active={S.sharing}
+      title={S.sharing ? "Stop sharing" : "Share screen"}
+      aria-label={S.sharing ? "Stop sharing" : "Share screen"}
+      onclick={onToggleShare}
+    >
+      <Icon name={S.sharing ? "screenOff" : "screen"} size={18} />
+    </button>
+    <button class="ctl hangup" title="Leave call" aria-label="Leave call" onclick={onLeaveVoice}>
+      <Icon name="door" size={18} />
+    </button>
+  </div>
 </div>
 
 <style>
@@ -231,5 +277,77 @@
     color: #fff;
     background: rgba(0, 0, 0, 0.55);
     border-radius: var(--radius-sm);
+  }
+  .ringing {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .dots {
+    display: inline-flex;
+    gap: 3px;
+  }
+  .dots span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--ok);
+    animation: dot 1.2s ease-in-out infinite;
+  }
+  .dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  .dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+  @keyframes dot {
+    0%,
+    100% {
+      opacity: 0.25;
+      transform: translateY(0);
+    }
+    50% {
+      opacity: 1;
+      transform: translateY(-3px);
+    }
+  }
+  /* Call controls, on the call box itself (Discord-style). */
+  .controls {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    padding-top: 2px;
+  }
+  .ctl {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--bg-3);
+    color: var(--text);
+    border: 1px solid var(--border);
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+  .ctl:hover {
+    background: var(--bg-1);
+  }
+  .ctl.active {
+    background: var(--bg-1);
+    color: var(--text);
+  }
+  .ctl.hangup {
+    background: var(--danger);
+    color: #fff;
+    border-color: transparent;
+  }
+  .ctl.hangup:hover {
+    background: color-mix(in srgb, var(--danger) 85%, #000);
   }
 </style>

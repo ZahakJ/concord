@@ -97,7 +97,13 @@
       <input class="search-box" placeholder="Search…  (Ctrl+K to jump)" bind:value={S.searchQuery} />
     </form>
 
-    {#if S.voice && S.voice.channelId === S.activeChannelId}
+    {#if S.voice && S.voice.channelId === S.activeChannelId && g?.kind === "dm"}
+      <!-- In a DM call, the call box carries the controls; the header is just a
+           one-click hang-up so clicking "call" again intuitively leaves. -->
+      <button class="ghost iconbtn endcall" title="Leave call" aria-label="Leave call" onclick={onLeaveVoice}>
+        <Icon name="door" /> <span class="n">End call</span>
+      </button>
+    {:else if S.voice && S.voice.channelId === S.activeChannelId}
       <!-- Active voice collapses to one pill with mute + leave inside it. -->
       <span class="voice-pill">
         <Icon name="speaker" size={12} />
@@ -255,5 +261,12 @@
   }
   .iconbtn.call:hover {
     background: var(--ok-soft);
+  }
+  .iconbtn.endcall {
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  }
+  .iconbtn.endcall:hover {
+    background: var(--danger-soft);
   }
 </style>

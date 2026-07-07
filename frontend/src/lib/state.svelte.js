@@ -52,6 +52,9 @@ export const S = $state({
   voiceRosters: {},
   // peers currently screen-sharing, keyed by peerId (surfaced as a share icon).
   voiceSharing: {},
+  // DM channels whose incoming call the user dismissed (declined) — suppressed
+  // until that call ends and the roster clears.
+  dismissedCalls: [],
   muted: false,
   sharing: false, // we are screen-sharing
   cameraOn: false, // our camera is on
@@ -633,8 +636,32 @@ function updateVoiceRoster(channelId, peerId, fingerprint, action) {
     room[peerId] = { fingerprint, ts: Date.now() };
   }
   if (Object.keys(room).length) rosters[channelId] = room;
-  else delete rosters[channelId];
+  else {
+    delete rosters[channelId];
+    // The call ended — a future call to this DM should ring again.
+    if (S.dismissedCalls.includes(channelId)) {
+      S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
+    }
+  }
   S.voiceRosters = rosters;
+}
+
+// incomingCall reports a DM whose other member is in the voice channel while we
+// are not — i.e. someone is ringing us. Returns { guildId, channelId, name } or
+// null. Dismissed (declined) calls stay suppressed until the roster clears.
+export function incomingCall() {
+  for (const g of S.guilds) {
+    if (g.kind !== "dm" || g.name === "Notes") continue;
+    const ch = g.channels?.[0];
+    if (!ch) continue;
+    if (S.voice?.channelId === ch.id) continue; // already in this call
+    if (S.dismissedCalls.includes(ch.id)) continue;
+    const roster = S.voiceRosters[ch.id];
+    if (roster && Object.keys(roster).length > 0) {
+      return { guildId: g.id, channelId: ch.id, name: g.name };
+    }
+  }
+  return null;
 }
 
 // voiceMembersFor returns the display list for a voice channel: {fingerprint,
