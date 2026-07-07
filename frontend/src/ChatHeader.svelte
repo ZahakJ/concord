@@ -13,7 +13,7 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
 
-  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare } = $props();
+  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
 
   const g = $derived(activeGuild());
   const ch = $derived(activeChannel());
@@ -103,6 +103,9 @@
         {S.voiceParticipants.length + 1}
         <button class="pill-btn" title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} onclick={onToggleMute}>
           <Icon name={S.muted ? "micOff" : "mic"} size={13} />
+        </button>
+        <button class="pill-btn" class:on={S.cameraOn} title={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"} onclick={onToggleCamera}>
+          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={13} />
         </button>
         <button class="pill-btn" class:on={S.sharing} title={S.sharing ? "Stop sharing" : "Share screen"} aria-label={S.sharing ? "Stop sharing" : "Share screen"} onclick={onToggleShare}>
           <Icon name={S.sharing ? "screenOff" : "screen"} size={13} />

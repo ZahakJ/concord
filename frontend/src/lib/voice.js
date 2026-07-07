@@ -14,28 +14,30 @@ const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
 export class VoiceMesh {
   // selfPeerId: our libp2p peer id; channelId: the voice room; relay(to, json)
   // sends a signaling blob; onRoster(peerIds[]) reports participant changes.
-  constructor({ selfPeerId, channelId, relay, onRoster, onSpeaking, onVideo, onShare }) {
+  constructor({ selfPeerId, channelId, relay, onRoster, onSpeaking, onVideo, onVideoState }) {
     this.selfPeerId = selfPeerId;
     this.channelId = channelId;
     this.relay = relay;
     this.onRoster = onRoster || (() => {});
     this.onSpeaking = onSpeaking || (() => {});
-    // onVideo(peerId, stream|null): a peer started/stopped sharing video.
-    // onShare(sharing): our own screen-share state changed.
+    // onVideo(key, stream|null, meta): a remote video source appeared/vanished.
+    //   key = `${peerId}:${streamId}`; meta = { peerId, kind }.
+    // onVideoState(kind, on): our own camera/screen toggled.
     this.onVideo = onVideo || (() => {});
-    this.onShare = onShare || (() => {});
-    this.peers = new Map(); // peerId -> { pc, makingOffer, ignoreOffer, audioEl }
+    this.onVideoState = onVideoState || (() => {});
+    this.peers = new Map(); // peerId -> { pc, makingOffer, ignoreOffer, audioEl, videoKeys }
     this.localStream = null;
     this.muted = false;
     this.audioCtx = null;
     this.analysers = new Map(); // key ("self"|peerId) -> { analyser, data }
     this._monitor = null;
     this._lastSpeaking = "";
-    // Screen sharing: one local display stream fanned out to every peer, with a
-    // per-peer sender so it can be pulled back on stop.
-    this.screenStream = null;
-    this.screenSenders = new Map(); // peerId -> RTCRtpSender
-    this.sharing = false;
+    // Local video sources: independent "screen" and "camera", each a stream +
+    // per-peer sender so either can be added/removed without touching the other.
+    this.videoSources = { screen: null, camera: null }; // kind -> { stream, senders: Map }
+    // Remote stream-id -> kind ("screen"|"camera"), learned from a signaling note.
+    this.remoteKinds = new Map();
+    this._pendingVideo = new Map(); // streamId -> re-emit fn (kind arrived late)
   }
 
   async start() {
@@ -45,7 +47,8 @@ export class VoiceMesh {
   }
 
   stop() {
-    this.stopScreenShare();
+    this.stopVideo("screen");
+    this.stopVideo("camera");
     for (const id of [...this.peers.keys()]) this.removePeer(id);
     if (this._monitor) clearInterval(this._monitor);
     this._monitor = null;
@@ -105,59 +108,59 @@ export class VoiceMesh {
     }
   }
 
-  // toggleScreenShare starts or stops sharing this tab/screen. Returns the local
-  // preview stream when starting (or null on stop / user-cancel).
-  async toggleScreenShare() {
-    if (this.sharing) {
-      this.stopScreenShare();
+  // toggleVideo(kind) starts/stops a local video source ("screen" or "camera").
+  // Returns the local preview stream when starting (null on stop/cancel).
+  async toggleVideo(kind) {
+    if (this.videoSources[kind]) {
+      this.stopVideo(kind);
       return null;
     }
-    return this.startScreenShare();
+    return this.startVideo(kind);
   }
 
-  async startScreenShare() {
-    if (this.screenStream) return this.screenStream;
+  async startVideo(kind) {
+    if (this.videoSources[kind]) return this.videoSources[kind].stream;
     let stream;
     try {
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: false,
-      });
+      stream =
+        kind === "screen"
+          ? await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false })
+          : await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
     } catch {
-      return null; // user dismissed the picker
+      return null; // user dismissed the picker / denied the camera
     }
-    this.screenStream = stream;
-    this.sharing = true;
+    const senders = new Map();
+    this.videoSources[kind] = { stream, senders };
     const track = stream.getVideoTracks()[0];
-    // Fires when the user clicks the browser's own "Stop sharing" chrome.
-    track.addEventListener("ended", () => this.stopScreenShare());
-    // Push the track to every current peer (each triggers renegotiation).
+    // Fires on the browser's "Stop sharing" chrome or a camera unplug.
+    track.addEventListener("ended", () => this.stopVideo(kind));
     for (const [peerId, peer] of this.peers) {
       try {
-        this.screenSenders.set(peerId, peer.pc.addTrack(track, stream));
+        senders.set(peerId, peer.pc.addTrack(track, stream));
       } catch (err) {
-        console.warn("share addTrack", err);
+        console.warn("video addTrack", err);
       }
+      // Tell the peer which kind this new stream is, so it labels the tile.
+      this.send(peerId, { videoMeta: { streamId: stream.id, kind } });
     }
-    this.onShare(true);
+    this.onVideoState(kind, true);
     return stream;
   }
 
-  stopScreenShare() {
-    if (!this.screenStream) return;
+  stopVideo(kind) {
+    const src = this.videoSources[kind];
+    if (!src) return;
     for (const [peerId, peer] of this.peers) {
-      const sender = this.screenSenders.get(peerId);
+      const sender = src.senders.get(peerId);
       if (sender) {
         try {
           peer.pc.removeTrack(sender);
         } catch {}
       }
     }
-    this.screenSenders.clear();
-    this.screenStream.getTracks().forEach((t) => t.stop());
-    this.screenStream = null;
-    this.sharing = false;
-    this.onShare(false);
+    src.stream.getTracks().forEach((t) => t.stop());
+    this.videoSources[kind] = null;
+    this.onVideoState(kind, false);
   }
 
   // handlePresence reacts to a peer joining/leaving the room.
@@ -181,6 +184,13 @@ export class VoiceMesh {
       return;
     }
     if (msg.channelId !== this.channelId) return;
+
+    // A note about which kind a remote video stream is (camera vs screen).
+    if (msg.videoMeta) {
+      this.remoteKinds.set(msg.videoMeta.streamId, msg.videoMeta.kind);
+      this._pendingVideo.get(msg.videoMeta.streamId)?.(); // re-label if track already arrived
+      return;
+    }
 
     const peer = this.peers.get(from) || this.addPeer(from);
     const { pc } = peer;
@@ -219,6 +229,7 @@ export class VoiceMesh {
       // Deterministic, opposite roles on the two ends.
       polite: this.selfPeerId > peerId,
       audioEl: null,
+      videoKeys: new Set(), // remote video tile keys from this peer
     };
     this.peers.set(peerId, peer);
 
@@ -227,13 +238,16 @@ export class VoiceMesh {
         pc.addTrack(track, this.localStream);
       }
     }
-    // A peer that joins while we're already sharing gets our screen too.
-    if (this.screenStream) {
-      const track = this.screenStream.getVideoTracks()[0];
+    // A peer that joins while we're already sending video (camera and/or screen)
+    // gets those sources too, with a note about each one's kind.
+    for (const kind of ["screen", "camera"]) {
+      const src = this.videoSources[kind];
+      const track = src?.stream.getVideoTracks()[0];
       if (track) {
         try {
-          this.screenSenders.set(peerId, pc.addTrack(track, this.screenStream));
+          src.senders.set(peerId, pc.addTrack(track, src.stream));
         } catch {}
+        this.send(peerId, { videoMeta: { streamId: src.stream.id, kind } });
       }
     }
 
@@ -253,12 +267,23 @@ export class VoiceMesh {
     };
     pc.ontrack = ({ track, streams }) => {
       if (track.kind === "video") {
-        // A remote screen share. Surface the stream to the UI, and clear it when
-        // the track ends (sharer stopped) or is removed.
+        // A remote camera/screen. One tile per stream, so a peer sending both
+        // shows two tiles. The kind may arrive slightly before or after; re-emit
+        // when it does so the label corrects itself.
         const stream = streams[0] || new MediaStream([track]);
-        this.onVideo(peerId, stream);
-        track.addEventListener("ended", () => this.onVideo(peerId, null));
-        track.addEventListener("mute", () => this.onVideo(peerId, null));
+        const key = `${peerId}:${stream.id}`;
+        peer.videoKeys.add(key);
+        const emit = () =>
+          this.onVideo(key, stream, { peerId, kind: this.remoteKinds.get(stream.id) || "video" });
+        emit();
+        this._pendingVideo.set(stream.id, emit);
+        const clear = () => {
+          peer.videoKeys.delete(key);
+          this._pendingVideo.delete(stream.id);
+          this.onVideo(key, null);
+        };
+        track.addEventListener("ended", clear);
+        track.addEventListener("mute", clear);
         return;
       }
       let el = peer.audioEl;
@@ -286,8 +311,10 @@ export class VoiceMesh {
     } catch {}
     if (peer.audioEl) peer.audioEl.srcObject = null;
     this.analysers.delete(peerId);
-    this.screenSenders.delete(peerId);
-    this.onVideo(peerId, null);
+    // Drop any video tiles this peer was showing.
+    for (const key of peer.videoKeys) this.onVideo(key, null);
+    // Forget our senders to this peer across all local video sources.
+    for (const kind of ["screen", "camera"]) this.videoSources[kind]?.senders.delete(peerId);
     this.peers.delete(peerId);
     this.emitRoster();
   }

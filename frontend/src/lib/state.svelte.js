@@ -52,11 +52,11 @@ export const S = $state({
   voiceSharing: {},
   muted: false,
   sharing: false, // we are screen-sharing
-  // videoPeers: peerIds (plus "self" when previewing our own share) that
-  // currently have a live video stream. The MediaStreams themselves live in the
-  // non-reactive videoStreams map below (MediaStream objects don't belong in a
-  // reactive proxy); this array just drives which <video> tiles render.
-  videoPeers: [],
+  cameraOn: false, // our camera is on
+  // videoTiles: [{ key, peerId, kind, self }] — one per live video source
+  // (camera/screen, ours or a peer's). Streams live in the non-reactive
+  // videoStreams map below; this array just drives which <video> tiles render.
+  videoTiles: [],
 
   searchQuery: "",
   searchResults: null, // null = closed, [] = no hits
@@ -72,32 +72,37 @@ export const activeChannel = () =>
   activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null;
 export const memberByFpr = (fpr) => S.members.find((m) => m.fingerprint === fpr);
 
-// ---- screen-share video streams ----
+// ---- voice video streams (camera + screenshare) ----
 // MediaStreams are held outside the reactive store (a $state proxy corrupts
-// them); S.videoPeers mirrors the keys to drive rendering.
-const videoStreams = new Map(); // peerId | "self" -> MediaStream
+// them); S.videoTiles mirrors the keys+meta to drive rendering. Each video
+// source (a peer's camera, a peer's screen, our own preview) is one tile keyed
+// uniquely, so a peer can show camera AND screen at once.
+const videoStreams = new Map(); // key -> MediaStream
+const videoMetaMap = new Map(); // key -> { peerId, kind, self }
 
-export function getVideoStream(peerId) {
-  return videoStreams.get(peerId) || null;
+export function getVideoStream(key) {
+  return videoStreams.get(key) || null;
 }
 
-export function setVideoStream(peerId, stream) {
-  if (stream) videoStreams.set(peerId, stream);
-  else videoStreams.delete(peerId);
-  S.videoPeers = [...videoStreams.keys()];
-  // Track remote sharers for the sidebar's "sharing" icon (our own share is
-  // reflected by S.sharing). "self" is the local preview, not a remote peer.
-  if (peerId !== "self") {
-    const sh = { ...S.voiceSharing };
-    if (stream) sh[peerId] = true;
-    else delete sh[peerId];
-    S.voiceSharing = sh;
+export function setVideoStream(key, stream, meta = {}) {
+  if (stream) {
+    videoStreams.set(key, stream);
+    videoMetaMap.set(key, meta);
+  } else {
+    videoStreams.delete(key);
+    videoMetaMap.delete(key);
   }
+  S.videoTiles = [...videoStreams.keys()].map((k) => ({ key: k, ...videoMetaMap.get(k) }));
+  // Sidebar "sharing" icon: any live video from a remote peer marks them.
+  const sh = {};
+  for (const m of videoMetaMap.values()) if (m.peerId && !m.self) sh[m.peerId] = true;
+  S.voiceSharing = sh;
 }
 
 export function clearVideoStreams() {
   videoStreams.clear();
-  S.videoPeers = [];
+  videoMetaMap.clear();
+  S.videoTiles = [];
 }
 
 // nameFor: the single source of truth for a peer's display name — the current

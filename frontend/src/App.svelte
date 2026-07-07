@@ -79,12 +79,17 @@
       relay: api.relaySignal,
       onRoster: (ids) => (S.voiceParticipants = ids),
       onSpeaking: (keys) => (S.voiceSpeaking = keys),
-      onVideo: (peerId, stream) => setVideoStream(peerId, stream),
-      onShare: (on) => {
-        S.sharing = on;
-        // If sharing stopped via the browser's own "Stop sharing" chrome (not our
-        // button), drop the local preview tile too.
-        if (!on) setVideoStream("self", null);
+      onVideo: (key, stream, meta) => setVideoStream(key, stream, meta),
+      onVideoState: (kind, on) => {
+        // If a source stopped via the browser's own chrome (not our button),
+        // update the flag and drop our local preview tile too.
+        if (kind === "screen") {
+          S.sharing = on;
+          if (!on) setVideoStream("self:screen", null);
+        } else {
+          S.cameraOn = on;
+          if (!on) setVideoStream("self:camera", null);
+        }
       },
     });
     try {
@@ -109,6 +114,7 @@
     S.voicePeerFpr = {};
     S.muted = false;
     S.sharing = false;
+    S.cameraOn = false;
     clearVideoStreams();
     playVoiceLeave();
     await api.leaveVoice(ch);
@@ -121,9 +127,14 @@
 
   async function toggleScreenShare() {
     if (!S.voice) return;
-    const stream = await S.voice.mesh.toggleScreenShare();
-    // Mirror our own share as a local preview tile (or clear it when stopping).
-    setVideoStream("self", stream);
+    const stream = await S.voice.mesh.toggleVideo("screen");
+    setVideoStream("self:screen", stream, { self: true, kind: "screen" });
+  }
+
+  async function toggleCamera() {
+    if (!S.voice) return;
+    const stream = await S.voice.mesh.toggleVideo("camera");
+    setVideoStream("self:camera", stream, { self: true, kind: "camera" });
   }
 
   // ---- modal handlers ----
@@ -193,6 +204,7 @@
       onLeaveVoice={leaveVoice}
       onToggleMute={toggleMicMute}
       onToggleShare={toggleScreenShare}
+      onToggleCamera={toggleCamera}
     />
 
     <main class="chat">
@@ -202,6 +214,7 @@
           onLeaveVoice={leaveVoice}
           onToggleMute={toggleMicMute}
           onToggleShare={toggleScreenShare}
+          onToggleCamera={toggleCamera}
         />
         {#if S.voice}
           <VoicePanel />

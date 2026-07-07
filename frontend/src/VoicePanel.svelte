@@ -16,10 +16,9 @@
     };
   }
 
-  // Label a video tile: "self" is our own preview, otherwise the sharer's name.
-  function videoLabel(key) {
-    if (key === "self") return "You";
-    return participant(key).name;
+  // Label a video tile: your own preview, or the source peer's name.
+  function tileLabel(tile) {
+    return tile.self ? "You" : participant(tile.peerId).name;
   }
 
   // Svelte action: bind a MediaStream to a <video>'s srcObject (not a plain attr).
@@ -45,7 +44,7 @@
         image={S.identity.avatar}
         size={34}
       />
-      <span>You{S.muted ? " (muted)" : ""}{S.sharing ? " · sharing" : ""}</span>
+      <span>You{S.muted ? " (muted)" : ""}{S.sharing ? " · sharing" : ""}{S.cameraOn ? " · camera" : ""}</span>
     </div>
     {#each S.voiceParticipants as pid (pid)}
       {@const p = participant(pid)}
@@ -56,13 +55,22 @@
     {/each}
   </div>
 
-  {#if S.videoPeers.length}
+  {#if S.videoTiles.length}
     <div class="video-grid">
-      {#each S.videoPeers as key (key)}
+      {#each S.videoTiles as tile (tile.key)}
         <div class="video-tile">
           <!-- svelte-ignore a11y_media_has_caption -->
-          <video use:srcObject={key} autoplay playsinline muted={key === "self"}></video>
-          <span class="video-label"><Icon name="screen" size={12} /> {videoLabel(key)}</span>
+          <video
+            use:srcObject={tile.key}
+            autoplay
+            playsinline
+            muted={tile.self}
+            class:mirror={tile.self && tile.kind === "camera"}
+          ></video>
+          <span class="video-label">
+            <Icon name={tile.kind === "camera" ? "camera" : "screen"} size={12} />
+            {tileLabel(tile)}
+          </span>
         </div>
       {/each}
     </div>
@@ -114,6 +122,10 @@
     height: 100%;
     object-fit: contain;
     display: block;
+  }
+  /* Your own camera reads as a mirror, like every video app. */
+  .video-tile video.mirror {
+    transform: scaleX(-1);
   }
   .video-label {
     position: absolute;

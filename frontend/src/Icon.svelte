@@ -29,6 +29,8 @@
     spark: "M8 1.5 9.6 6l4.4 1.6L9.6 9.2 8 13.7 6.4 9.2 2 7.6 6.4 6z",
     screen: "M2 3.5h12v8H2z M6 14h4 M8 11.5V14",
     screenOff: "M2 3.5h12v8H2z M6 14h4 M8 11.5V14 M2 2.5l12 11",
+    camera: "M2 4.5h8v7H2z M10 7l3.5-2v6L10 9",
+    cameraOff: "M2 4.5h8v7H2z M10 7l3.5-2v6L10 9 M2 2.5l12 11",
     diamond: "M8 1.5 14.5 8 8 14.5 1.5 8z",
   };
 

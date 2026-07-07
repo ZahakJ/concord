@@ -16,7 +16,7 @@
     moveChannelToCategory,
   } from "./lib/state.svelte.js";
 
-  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare } = $props();
+  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
 
   const g = $derived(activeGuild());
 
@@ -139,7 +139,7 @@
                   <Avatar name={nameFor(vm.fingerprint)} size={20} />
                 </span>
                 <span class="vc-name">{nameFor(vm.fingerprint)}{vm.self ? " (you)" : ""}</span>
-                {#if vm.sharing}<span class="vc-share" title="Sharing screen"><Icon name="screen" size={12} /></span>{/if}
+                {#if vm.sharing}<span class="vc-share" title="Sharing video"><Icon name="screen" size={12} /></span>{/if}
               </button>
             {/each}
           {/if}
@@ -165,6 +165,15 @@
       <span class="vb-actions">
         <button class="vb-btn" title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} onclick={onToggleMute}>
           <Icon name={S.muted ? "micOff" : "mic"} size={14} />
+        </button>
+        <button
+          class="vb-btn"
+          class:on={S.cameraOn}
+          title={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+          aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+          onclick={onToggleCamera}
+        >
+          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={14} />
         </button>
         <button
           class="vb-btn"
