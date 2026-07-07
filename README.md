@@ -620,10 +620,12 @@ Then create a guild → **Invite** → send your friend (a) the release link and
 ### Cutting a release
 
 **Releases are tag-driven and fully automated — do not upload assets by hand.**
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds both
-tracks and publishes them to the **public distribution repo**
-`ZahakJ/concord-dist` (the source repo stays private; the app polls the dist
-repo's releases unauthenticated for update checks):
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds both tracks
+and publishes them to **this private repo** — and *also* to the **public
+distribution repo** `ZahakJ/concord-dist` once that's wired up (see setup below).
+The app polls the dist repo's releases unauthenticated for update checks, so the
+source can stay private. Until `DIST_REPO_TOKEN` is added, the dist publish is
+simply skipped and the release still lands here:
 
 ```sh
 git tag v0.5.0          # bump the version (semver vX.Y.Z; drives the update check)

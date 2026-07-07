@@ -124,6 +124,10 @@ jobs:
   publish:
     needs: [web, native]
     runs-on: ubuntu-latest
+    # Mapped to an env var so a step `if:` can detect whether the public dist
+    # repo is wired up yet (secrets can't be read directly in `if:`).
+    env:
+      DIST_TOKEN: ${{ secrets.DIST_REPO_TOKEN }}
     # Publish as long as the web track succeeded and this is a tag push — even if
     # a desktop build fails/times out. That way the "download and run" web
     # binaries always reach the Release; the desktop apps attach when they build.
@@ -141,16 +145,28 @@ jobs:
           echo "Release assets:" && ls -lh release-assets/
       - name: Generate SHA256SUMS
         run: cd release-assets && sha256sum * > SHA256SUMS && cat SHA256SUMS
-      # Publish to the SEPARATE PUBLIC dist repo so the source repo stays private
-      # while the app can poll releases unauthenticated. DIST_REPO_TOKEN is a
-      # fine-grained PAT scoped to contents:write on ZahakJ/concord-dist ONLY.
-      # tag_name is explicit because the dist repo has no such ref (the action
-      # creates the tag there).
+      # Always publish to the private source repo (archive + how you distribute
+      # today). Uses the default GITHUB_TOKEN via `permissions: contents: write`.
+      - name: Publish GitHub Release (private repo)
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/*
+            WINDOWS.md
+          fail_on_unmatched_files: false
+          generate_release_notes: true
+      # ALSO publish to the SEPARATE PUBLIC dist repo — but only once it's wired
+      # up. The app polls concord-dist's releases unauthenticated for updates, so
+      # the source repo can stay private. Until DIST_REPO_TOKEN (a fine-grained
+      # PAT scoped to contents:write on ZahakJ/concord-dist ONLY) is added, this
+      # step is skipped and the release still succeeds to the private repo.
+      # tag_name is explicit because the dist repo has no such ref.
       - name: Publish GitHub Release (public dist repo)
+        if: env.DIST_TOKEN != ''
         uses: softprops/action-gh-release@v2
         with:
           repository: ZahakJ/concord-dist
-          token: ${{ secrets.DIST_REPO_TOKEN }}
+          token: ${{ env.DIST_TOKEN }}
           tag_name: ${{ github.ref_name }}
           files: |
             release-assets/*
