@@ -28,7 +28,8 @@ jobs:
         with: { go-version-file: go.mod }
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
-      - run: make release
+      # Stamp the git tag into the binary (main.version) for the update check.
+      - run: make release VERSION=${{ github.ref_name }}
       - uses: actions/upload-artifact@v4
         with:
           name: concord-web-binaries
@@ -73,8 +74,21 @@ jobs:
       # the browser-served web variant instead of the native desktop app — the
       # binary silently starts a localhost web server instead of opening a window
       # (matches Makefile's gui-dev: -tags "wails webkit2_41").
+      # Stamp the Windows version resource (Properties → Details) from the tag.
+      # ProductVersion must be numeric (no "v"); only on tag builds so a manual
+      # workflow_dispatch keeps the valid static value in wails.json.
+      - name: Stamp Windows version resource
+        if: matrix.os == 'windows-latest' && startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}" -replace '^v',''
+          (Get-Content wails.json -Raw) -replace '"productVersion": "[^"]*"', ('"productVersion": "' + $v + '"') | Set-Content wails.json
+          Write-Host "productVersion -> $v"
+      # -ldflags stamps main.version (the tag) into the binary for the update
+      # check. Wails still adds -w -s in production; that's fine — the version
+      # string survives stripping.
       - name: Build native app
-        run: wails build -tags "wails webkit2_41" -skipbindings
+        run: wails build -tags "wails webkit2_41" -skipbindings -ldflags "-X main.version=${{ github.ref_name }}"
 
       # Name each output per-OS so it's a direct download and doesn't collide
       # with the web track (which also emits a concord-windows.exe). Windows and
@@ -125,11 +139,20 @@ jobs:
           mkdir -p release-assets
           find artifacts -type f -exec cp {} release-assets/ \;
           echo "Release assets:" && ls -lh release-assets/
-      - name: Publish GitHub Release
+      - name: Generate SHA256SUMS
+        run: cd release-assets && sha256sum * > SHA256SUMS && cat SHA256SUMS
+      # Publish to the SEPARATE PUBLIC dist repo so the source repo stays private
+      # while the app can poll releases unauthenticated. DIST_REPO_TOKEN is a
+      # fine-grained PAT scoped to contents:write on ZahakJ/concord-dist ONLY.
+      # tag_name is explicit because the dist repo has no such ref (the action
+      # creates the tag there).
+      - name: Publish GitHub Release (public dist repo)
         uses: softprops/action-gh-release@v2
         with:
+          repository: ZahakJ/concord-dist
+          token: ${{ secrets.DIST_REPO_TOKEN }}
+          tag_name: ${{ github.ref_name }}
           files: |
             release-assets/*
             WINDOWS.md
           fail_on_unmatched_files: false
-          generate_release_notes: true

@@ -10,7 +10,10 @@
     "name": "Concord"
   },
   "info": {
+    "companyName": "Concord",
     "productName": "Concord",
-    "comments": "Secure peer-to-peer chat"
+    "productVersion": "0.4.9",
+    "copyright": "Concord contributors. MIT licensed.",
+    "comments": "Secure peer-to-peer chat — https://github.com/ZahakJ/concord"
   }
 }
