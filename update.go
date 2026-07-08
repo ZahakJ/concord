@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +25,13 @@ type UpdateView struct {
 	Latest    string `json:"latest"`
 	URL       string `json:"url"`   // release html_url (opened in the browser)
 	Notes     string `json:"notes"` // release body (markdown)
+	// Download is a DIRECT link to the release asset for THIS machine's OS (so
+	// the banner can offer a one-click download of the right binary). Empty if
+	// no matching asset was found — the UI falls back to the release page (URL).
+	Download string `json:"download"`
+	// Asset is the matched asset's filename, shown so the user knows what they're
+	// getting (it carries the version, e.g. concord-desktop-windows-v0.6.0.exe).
+	Asset string `json:"asset"`
 }
 
 // CheckForUpdate polls the public dist repo's latest release and compares its
@@ -58,10 +66,22 @@ func (b *bridge) CheckForUpdate() (UpdateView, error) {
 		TagName string `json:"tag_name"`
 		HTMLURL string `json:"html_url"`
 		Body    string `json:"body"`
+		Assets  []struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+		} `json:"assets"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
 		return UpdateView{Available: false, Current: cur}, nil
 	}
+
+	dl, asset := matchAsset(runtime.GOOS, func() []assetRef {
+		out := make([]assetRef, len(rel.Assets))
+		for i, a := range rel.Assets {
+			out[i] = assetRef{Name: a.Name, URL: a.URL}
+		}
+		return out
+	}())
 
 	return UpdateView{
 		Available: semverLess(cur, rel.TagName),
@@ -69,7 +89,46 @@ func (b *bridge) CheckForUpdate() (UpdateView, error) {
 		Latest:    rel.TagName,
 		URL:       rel.HTMLURL,
 		Notes:     rel.Body,
+		Download:  dl,
+		Asset:     asset,
 	}, nil
+}
+
+type assetRef struct{ Name, URL string }
+
+// matchAsset picks the release asset for the running OS from the release's
+// assets, preferring the branded desktop build. It matches on keywords, not
+// exact names, so a version stamped into the filename (e.g.
+// concord-desktop-windows-v0.6.0.exe) still resolves. Returns the download URL
+// and the matched filename, or ("","") if nothing fits.
+func matchAsset(goos string, assets []assetRef) (url, name string) {
+	// os keyword -> the token our release assets carry (see .github/workflows).
+	osKey := map[string]string{
+		"windows": "windows",
+		"linux":   "linux",
+		"darwin":  "macos",
+	}[goos]
+	if osKey == "" {
+		return "", ""
+	}
+	var deskURL, deskName, anyURL, anyName string
+	for _, a := range assets {
+		n := strings.ToLower(a.Name)
+		if !strings.Contains(n, osKey) {
+			continue
+		}
+		if anyURL == "" {
+			anyURL, anyName = a.URL, a.Name
+		}
+		// Prefer the native desktop build over the zero-dep web binary.
+		if strings.Contains(n, "desktop") && deskURL == "" {
+			deskURL, deskName = a.URL, a.Name
+		}
+	}
+	if deskURL != "" {
+		return deskURL, deskName
+	}
+	return anyURL, anyName
 }
 
 // --- tiny semver, strictly vMAJOR.MINOR.PATCH -----------------------------

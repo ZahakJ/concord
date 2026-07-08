@@ -94,24 +94,27 @@ jobs:
       # with the web track (which also emits a concord-windows.exe). Windows and
       # Linux ship as a bare double-click executable; macOS's .app is a directory
       # bundle, so it MUST be zipped to travel as one file.
+      # The tag is stamped into each filename (e.g. concord-desktop-windows-
+      # v0.6.0.exe) so downloaded builds are visibly different across releases.
+      # The updater matches assets by OS keyword, so the version suffix is fine.
       - name: Package (Linux — bare binary)
         if: matrix.os == 'ubuntu-latest'
         run: |
           bin=$(find build/bin -maxdepth 1 -type f | head -1)
           echo "packaging $bin"
-          cp "$bin" ${{ matrix.out }}
+          cp "$bin" ${{ matrix.out }}-${{ github.ref_name }}
       - name: Package (Windows — bare .exe)
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
           $exe = Get-ChildItem build/bin -Filter *.exe | Select-Object -First 1
           Write-Host "packaging $($exe.FullName)"
-          Copy-Item $exe.FullName ${{ matrix.out }}.exe
+          Copy-Item $exe.FullName ${{ matrix.out }}-${{ github.ref_name }}.exe
       - name: Package (macOS — zip the .app bundle)
         if: matrix.os == 'macos-latest'
         run: |
           cd build/bin
-          zip -r -q ../../${{ matrix.out }}.zip *.app
+          zip -r -q ../../${{ matrix.out }}-${{ github.ref_name }}.zip *.app
 
       - uses: actions/upload-artifact@v4
         with:

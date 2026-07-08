@@ -58,14 +58,16 @@ web: frontend
 # local smoke test of the web binaries.
 release: frontend
 	rm -rf dist-release && mkdir -p dist-release
-	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-linux-amd64 .
-	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-linux-arm64 .
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-macos-arm64 .
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-macos-intel .
+	# The version is stamped into each filename so downloaded builds are visibly
+	# distinct across releases; the updater matches assets by OS keyword.
+	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-linux-amd64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-linux-arm64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-macos-arm64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-macos-intel-$(VERSION) .
 	# Windows: embed version info + manifest (goversioninfo) and DON'T strip
 	# symbols — both markedly reduce Defender false positives on unsigned exes.
 	go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 -o resource_windows_amd64.syso build/versioninfo.json
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o dist-release/concord-windows.exe .
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o dist-release/concord-windows-$(VERSION).exe .
 	@rm -f resource_windows_amd64.syso
 	@echo && echo "Release binaries in dist-release/:" && ls -lh dist-release/
 

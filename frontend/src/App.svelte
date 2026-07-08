@@ -64,6 +64,17 @@
 
   // Voice: the call box shows inline on its own channel; navigate away and it
   // pins to a small draggable floating window instead.
+  // Friendly OS name for the update banner's download button (cosmetic — the
+  // actual asset is chosen server-side from runtime.GOOS).
+  const ua = navigator.userAgent;
+  const osLabel = /windows/i.test(ua)
+    ? "Windows"
+    : /mac/i.test(ua)
+      ? "macOS"
+      : /linux|x11/i.test(ua)
+        ? "Linux"
+        : "your OS";
+
   const callHere = $derived(S.voice && S.voice.channelId === S.activeChannelId);
   const callElsewhere = $derived(S.voice && S.voice.channelId !== S.activeChannelId);
   const call = $derived(incomingCall());
@@ -248,7 +259,21 @@
     <span class="ub-text">
       <strong>Update available</strong> — Concord {S.update.latest} is out (you have {S.update.current}).
     </span>
-    <a class="ub-dl" href={S.update.url} target="_blank" rel="noopener noreferrer">Download</a>
+    {#if S.update.download}
+      <!-- One-click: the direct asset for this machine's OS. -->
+      <a
+        class="ub-dl"
+        href={S.update.download}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={S.update.asset}
+      >
+        Download for {osLabel}
+      </a>
+      <a class="ub-alt" href={S.update.url} target="_blank" rel="noopener noreferrer">All files</a>
+    {:else}
+      <a class="ub-dl" href={S.update.url} target="_blank" rel="noopener noreferrer">Download</a>
+    {/if}
     <button class="ub-close" onclick={dismissUpdate} aria-label="Dismiss">×</button>
   </div>
 {/if}
@@ -476,6 +501,16 @@
   }
   .ub-dl:hover {
     background: var(--accent-hover);
+  }
+  .ub-alt {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 12px;
+  }
+  .ub-alt:hover {
+    color: var(--text);
+    text-decoration: underline;
   }
   .ub-close {
     flex-shrink: 0;
