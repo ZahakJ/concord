@@ -88,6 +88,11 @@
         icon: S.mutes[c.id] ? "bell" : "bellOff",
         onClick: () => toggleMute(c.id),
       },
+      canManageChannels && c.type !== "voice" && {
+        label: "Edit Topic",
+        icon: "edit",
+        onClick: () => (S.modal = { kind: "channelTopic", channel: c }),
+      },
       canManageChannels && { sep: true },
       canManageChannels && {
         label: "Delete Channel",

@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS channels (
   name     TEXT NOT NULL,
   type     TEXT NOT NULL DEFAULT '',
   category TEXT NOT NULL DEFAULT '',
-  position INTEGER NOT NULL DEFAULT 0
+  position INTEGER NOT NULL DEFAULT 0,
+  topic    TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS categories (
   id       TEXT PRIMARY KEY,
@@ -175,6 +176,7 @@ CREATE TABLE IF NOT EXISTS attachments (
 		`ALTER TABLE channels ADD COLUMN type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE channels ADD COLUMN topic TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE guilds ADD COLUMN kind TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE guilds ADD COLUMN icon TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE guilds ADD COLUMN banner TEXT NOT NULL DEFAULT ''`,
@@ -291,10 +293,10 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 	}
 	for _, c := range g.Channels {
 		if _, err := tx.Exec(
-			`INSERT INTO channels (id, guild_id, name, type, category, position) VALUES (?, ?, ?, ?, ?, ?)
+			`INSERT INTO channels (id, guild_id, name, type, category, position, topic) VALUES (?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type,
-			   category=excluded.category, position=excluded.position`,
-			c.ID, g.ID, c.Name, c.Type, c.Category, c.Position,
+			   category=excluded.category, position=excluded.position, topic=excluded.topic`,
+			c.ID, g.ID, c.Name, c.Type, c.Category, c.Position, c.Topic,
 		); err != nil {
 			return fmt.Errorf("store: save channel: %w", err)
 		}
@@ -336,7 +338,7 @@ func (s *Store) Guilds() ([]domain.Guild, error) {
 
 func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	rows, err := s.db.Query(
-		`SELECT id, guild_id, name, type, category, position FROM channels
+		`SELECT id, guild_id, name, type, category, position, topic FROM channels
 		 WHERE guild_id = ? ORDER BY position ASC, rowid ASC`, guildID)
 	if err != nil {
 		return nil, err
@@ -345,7 +347,7 @@ func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	var out []domain.Channel
 	for rows.Next() {
 		var c domain.Channel
-		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Type, &c.Category, &c.Position); err != nil {
+		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Type, &c.Category, &c.Position, &c.Topic); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -385,11 +387,12 @@ func (s *Store) Categories(guildID string) ([]domain.Category, error) {
 	return out, rows.Err()
 }
 
-// UpdateChannelMeta sets a channel's type/category/position (layout only).
-func (s *Store) UpdateChannelMeta(channelID, ctype, category string, position int) error {
+// UpdateChannelMeta sets a channel's type/category/position/topic (layout +
+// advisory metadata).
+func (s *Store) UpdateChannelMeta(channelID, ctype, category string, position int, topic string) error {
 	_, err := s.db.Exec(
-		`UPDATE channels SET type=?, category=?, position=? WHERE id=?`,
-		ctype, category, position, channelID)
+		`UPDATE channels SET type=?, category=?, position=?, topic=? WHERE id=?`,
+		ctype, category, position, topic, channelID)
 	return err
 }
 

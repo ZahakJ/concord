@@ -47,6 +47,7 @@ type Channel struct {
 	Type     string `json:"type,omitempty"`     // "" or "text" | "voice" | "announcement"
 	Category string `json:"category,omitempty"` // category ID this channel sits under, or ""
 	Position int    `json:"position,omitempty"` // sort order within its category
+	Topic    string `json:"topic,omitempty"`    // channel topic/description (advisory)
 }
 
 // ChannelType returns a channel's type, defaulting to "text".

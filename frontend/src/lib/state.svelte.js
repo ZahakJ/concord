@@ -198,7 +198,7 @@ export function setPref(key, value) {
   saveJSON("concord.prefs", S.prefs);
 }
 
-// moveChannelToCategory reassigns a channel's category (preserving type/order).
+// moveChannelToCategory reassigns a channel's category (preserving type/order/topic).
 export async function moveChannelToCategory(channel, categoryId) {
   try {
     await api.setChannelMeta(
@@ -207,6 +207,24 @@ export async function moveChannelToCategory(channel, categoryId) {
       channel.type || "",
       categoryId,
       channel.position || 0,
+      channel.topic || "",
+    );
+    await refreshGuilds();
+  } catch (err) {
+    flash(err);
+  }
+}
+
+// setChannelTopic updates a channel's topic (preserving type/category/order).
+export async function setChannelTopic(channel, topic) {
+  try {
+    await api.setChannelMeta(
+      S.activeGuildId,
+      channel.id,
+      channel.type || "",
+      channel.category || "",
+      channel.position || 0,
+      topic,
     );
     await refreshGuilds();
   } catch (err) {

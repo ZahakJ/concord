@@ -928,8 +928,8 @@ func (s *Service) applyCategoryRemoved(guildID, categoryID string) {
 	s.emitGuildUpdate()
 }
 
-// SetChannelMeta changes a channel's type/category/position and announces it.
-func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, position int) error {
+// SetChannelMeta changes a channel's type/category/position/topic and announces it.
+func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, position int, topic string) error {
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
 	}
@@ -943,19 +943,21 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 	if !ok {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
-	_ = s.store.UpdateChannelMeta(channelID, ctype, category, position)
+	topic = strings.TrimSpace(topic)
+	_ = s.store.UpdateChannelMeta(channelID, ctype, category, position, topic)
 	s.mu.Lock()
 	for i := range g.Channels {
 		if g.Channels[i].ID == channelID {
 			g.Channels[i].Type = ctype
 			g.Channels[i].Category = category
 			g.Channels[i].Position = position
+			g.Channels[i].Topic = topic
 		}
 	}
 	s.mu.Unlock()
 	s.emitGuildUpdate()
 	s.publishMeta(groupID, guildMeta{Type: "channel_updated",
-		Channel: domain.Channel{ID: channelID, GuildID: guildID, Type: ctype, Category: category, Position: position}})
+		Channel: domain.Channel{ID: channelID, GuildID: guildID, Type: ctype, Category: category, Position: position, Topic: topic}})
 	return nil
 }
 
@@ -1068,7 +1070,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if m.Channel.ID == "" {
 			return
 		}
-		_ = s.store.UpdateChannelMeta(m.Channel.ID, m.Channel.Type, m.Channel.Category, m.Channel.Position)
+		_ = s.store.UpdateChannelMeta(m.Channel.ID, m.Channel.Type, m.Channel.Category, m.Channel.Position, m.Channel.Topic)
 		s.mu.Lock()
 		if g, ok := s.guilds[guildID]; ok {
 			for i := range g.Channels {
@@ -1076,6 +1078,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 					g.Channels[i].Type = m.Channel.Type
 					g.Channels[i].Category = m.Channel.Category
 					g.Channels[i].Position = m.Channel.Position
+					g.Channels[i].Topic = m.Channel.Topic
 				}
 			}
 		}

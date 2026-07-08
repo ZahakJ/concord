@@ -22,6 +22,7 @@
     jumpToChannel,
     checkForUpdate,
     dismissUpdate,
+    setChannelTopic,
   } from "./lib/state.svelte.js";
 
   import Login from "./Login.svelte";
@@ -44,6 +45,7 @@
   import ModalBans from "./modals/ModalBans.svelte";
   import ModalRoles from "./modals/ModalRoles.svelte";
   import ModalGuildSettings from "./modals/ModalGuildSettings.svelte";
+  import ModalChannelTopic from "./modals/ModalChannelTopic.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
   import ModalProfile from "./modals/ModalProfile.svelte";
@@ -347,6 +349,15 @@
     <ModalRoles onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "guildSettings"}
     <ModalGuildSettings onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "channelTopic"}
+    <ModalChannelTopic
+      channel={S.modal.channel}
+      onSubmit={(t) => {
+        setChannelTopic(S.modal.channel, t.trim());
+        S.modal = null;
+      }}
+      onClose={() => (S.modal = null)}
+    />
   {:else if S.modal?.kind === "rename"}
     <ModalCreate
       onSubmit={renameGuild}

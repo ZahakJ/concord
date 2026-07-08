@@ -88,6 +88,10 @@
     {:else if ch}
       <Icon name="hash" size={15} />
       <strong>{ch.name}</strong>
+      {#if ch.topic}
+        <span class="topic-sep"></span>
+        <span class="chan-topic" title={ch.topic}>{ch.topic}</span>
+      {/if}
     {:else}
       <span class="muted">No channel</span>
     {/if}
@@ -200,6 +204,21 @@
   .title strong {
     color: var(--text);
     white-space: nowrap;
+  }
+  .topic-sep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--border);
+    margin: 3px 2px;
+    flex-shrink: 0;
+  }
+  .chan-topic {
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
   }
   .search-box {
     width: 190px;

@@ -106,6 +106,7 @@ type ChannelView struct {
 	Type     string `json:"type"`     // "text" | "voice" | "announcement"
 	Category string `json:"category"` // category ID or ""
 	Position int    `json:"position"`
+	Topic    string `json:"topic"`    // channel topic/description
 }
 
 type CategoryView struct {
@@ -461,13 +462,13 @@ func (b *bridge) SetGuildProfile(guildID, name, icon, banner, description string
 	return svc.SetGuildProfile(guildID, name, icon, banner, description)
 }
 
-// SetChannelMeta changes a channel's type/category/position.
-func (b *bridge) SetChannelMeta(guildID, channelID, ctype, category string, position int) error {
+// SetChannelMeta changes a channel's type/category/position/topic.
+func (b *bridge) SetChannelMeta(guildID, channelID, ctype, category string, position int, topic string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.SetChannelMeta(guildID, channelID, ctype, category, position)
+	return svc.SetChannelMeta(guildID, channelID, ctype, category, position, topic)
 }
 
 // SendTyping broadcasts an ephemeral typing hint for a channel.
@@ -934,7 +935,7 @@ func (b *bridge) Contacts() ([]ContactView, error) {
 // ---- mapping helpers ----
 
 func channelView(c domain.Channel) ChannelView {
-	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category, Position: c.Position}
+	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category, Position: c.Position, Topic: c.Topic}
 }
 
 func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
@@ -1174,7 +1175,7 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "RemoveCustomEmoji":
 		return nil, b.RemoveCustomEmoji(argStr(args, 0), argStr(args, 1))
 	case "SetChannelMeta":
-		return nil, b.SetChannelMeta(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt(args, 4))
+		return nil, b.SetChannelMeta(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt(args, 4), argStr(args, 5))
 	case "RenameGuild":
 		return nil, b.RenameGuild(argStr(args, 0), argStr(args, 1))
 	case "LeaveGuild":

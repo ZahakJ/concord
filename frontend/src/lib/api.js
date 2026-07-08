@@ -58,8 +58,8 @@ export const api = {
   newDMInvite: () => call("NewDMInvite"),
   addCustomEmoji: (guildID, name, dataURI) => call("AddCustomEmoji", guildID, name, dataURI),
   removeCustomEmoji: (guildID, name) => call("RemoveCustomEmoji", guildID, name),
-  setChannelMeta: (guildID, channelID, type, category, position) =>
-    call("SetChannelMeta", guildID, channelID, type, category, position),
+  setChannelMeta: (guildID, channelID, type, category, position, topic = "") =>
+    call("SetChannelMeta", guildID, channelID, type, category, position, topic),
   renameGuild: (guildID, name) => call("RenameGuild", guildID, name),
   leaveGuild: (guildID) => call("LeaveGuild", guildID),
   deleteMessage: (channelID, messageID) => call("DeleteMessage", channelID, messageID),
