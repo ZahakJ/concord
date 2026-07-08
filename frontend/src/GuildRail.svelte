@@ -12,7 +12,7 @@
   // DM bubbles surface only when they need attention: a DM with unread
   // messages. Everything else (incl. Notes) lives behind the home button.
   const dms = $derived(
-    S.guilds.filter((x) => x.kind === "dm" && x.name !== "Notes" && guildUnread(x).count > 0),
+    S.guilds.filter((x) => x.kind === "dm" && !x.dmNotes && guildUnread(x).count > 0),
   );
 
   const initials = (name) =>
@@ -38,7 +38,7 @@
   {#each dms as dm (dm.id)}
     {@const u = guildUnread(dm)}
     <button
-      class="pill"
+      class="pill dm"
       class:active={dm.id === S.activeGuildId}
       title={dm.name}
       aria-label={dm.name}
@@ -132,6 +132,24 @@
     border-radius: 14px;
     background: var(--accent);
     color: white;
+  }
+  /* DM/group bubbles stay circular (their avatar is a circle, so the squircle
+     hover/active would bleed colored corners around it). Active = an accent
+     ring instead. */
+  .pill.dm:hover,
+  .pill.dm.active {
+    border-radius: 50%;
+  }
+  .pill.dm.active {
+    background: var(--bg-2);
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  /* On a DM bubble the unread badge moves to the top corner so it doesn't sit
+     on the presence dot (which lives bottom-right). */
+  .pill.dm .badge {
+    top: -3px;
+    bottom: auto;
   }
   /* The home bubble is deliberately not a server: a fixed rounded-square with a
      neutral surface, so it reads as "brand / home" rather than a guild. */

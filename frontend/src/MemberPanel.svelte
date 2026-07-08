@@ -212,11 +212,22 @@
   }
   .member-name {
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    min-width: 0;
+  }
+  /* The name itself ellipsizes (text-overflow doesn't work on the flex parent);
+     the role/verified badges keep their size instead of being shoved out. */
+  .member-name .mname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .member-name .role-badge,
+  .member-name .v-badge {
+    flex-shrink: 0;
   }
   .member-status {
     font-size: 11px;

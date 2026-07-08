@@ -437,7 +437,10 @@
     grid-template-columns: 64px 220px 1fr;
   }
   @media (max-width: 900px) {
-    .app {
+    /* Both selectors so .app.no-panel (higher specificity) doesn't keep the
+       wide 220px column in DM/Welcome view below 900px. */
+    .app,
+    .app.no-panel {
       grid-template-columns: 64px 190px 1fr;
     }
     .app > :global(.panel) {

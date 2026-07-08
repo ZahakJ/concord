@@ -135,6 +135,7 @@ type GuildView struct {
 	// single face for a peer DM, several for a group DM (rendered as a collage).
 	DMFaces []DMFace `json:"dmFaces,omitempty"`
 	DMNamed bool     `json:"dmNamed,omitempty"` // group DM has a user-set custom name
+	DMNotes bool     `json:"dmNotes,omitempty"` // the self-notes DM (stored name, immune to a peer named "Notes")
 	IsOwner    bool           `json:"isOwner"`
 	CanManage  bool           `json:"canManage"` // viewer may invite/kick/ban here
 	MyPerms    uint32         `json:"myPerms"`   // viewer's effective permission bitmask
@@ -1069,6 +1070,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		DMPeerPresence: dmPeerPresence, DMPeerOnline: dmPeerOnline,
 		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers, DMFaces: dmFaces,
 		DMNamed:     g.Kind == "dm" && isCustomDMName(g.Name),
+		DMNotes:     g.Kind == "dm" && g.Name == "Notes",
 		CanManage:   svc.CanManageMembers(g.ID),
 		MyPerms:     uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:        g.Icon, Banner: g.Banner, Description: g.Description,

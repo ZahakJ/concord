@@ -14,6 +14,7 @@
     channelShort,
     voiceMembersFor,
     nameFor,
+    memberByFpr,
     moveChannelToCategory,
     jumpToChannel,
     markRead,
@@ -62,9 +63,9 @@
     // freshly-created invite nobody has joined yet (just you) is noise until a
     // peer redeems it and it gets a name/avatar.
     const list = S.guilds.filter(
-      (x) => x.kind === "dm" && (x.name === "Notes" || (x.dmMembers ?? 2) >= 2),
+      (x) => x.kind === "dm" && (x.dmNotes || (x.dmMembers ?? 2) >= 2),
     );
-    return list.sort((a, b) => (a.name === "Notes" ? -1 : b.name === "Notes" ? 1 : 0));
+    return list.sort((a, b) => (a.dmNotes ? -1 : b.dmNotes ? 1 : 0));
   });
 
   // Group channels under their category (uncategorized first), each group
@@ -188,7 +189,7 @@
     {#if g?.kind === "dm"}
       <div class="section-head">
         <span>Direct messages</span>
-        <button class="cat-add" title="New message" aria-label="New message" onclick={newMessage}>
+        <button class="cat-add always" title="New message" aria-label="New message" onclick={newMessage}>
           <Icon name="plus" size={12} />
         </button>
       </div>
@@ -198,9 +199,9 @@
           class="dm-item"
           class:active
           onclick={() => selectGuild(dm.id)}
-          oncontextmenu={dm.name === "Notes" ? undefined : (e) => dmMenu(e, dm)}
+          oncontextmenu={dm.dmNotes ? undefined : (e) => dmMenu(e, dm)}
         >
-          {#if dm.name === "Notes"}
+          {#if dm.dmNotes}
             <span class="dm-notes-icon"><Icon name="edit" size={15} /></span>
           {:else if (dm.dmMembers ?? 2) > 2}
             <GroupAvatar faces={dm.dmFaces || []} size={26} />
@@ -213,7 +214,7 @@
               presence={dm.dmPeerPresence || ""}
             />
           {/if}
-          <span class="dm-name">{dm.name === "Notes" ? "Notes (you)" : dm.name}</span>
+          <span class="dm-name">{dm.dmNotes ? "Notes (you)" : dm.name}</span>
         </button>
       {/each}
     {:else if g}
@@ -302,9 +303,16 @@
           </div>
           {#if c.type === "voice"}
             {#each voiceMembersFor(c.id) as vm (vm.fingerprint)}
+              {@const vmem = memberByFpr(vm.fingerprint)}
               <button class="vc-member" onclick={() => clickChannel(c)} title={nameFor(vm.fingerprint)}>
                 <span class="vc-av" class:speaking={vm.speaking}>
-                  <Avatar name={nameFor(vm.fingerprint)} size={20} />
+                  <Avatar
+                    name={nameFor(vm.fingerprint)}
+                    image={vmem?.avatar || ""}
+                    emoji={vmem?.emoji || ""}
+                    color={vmem?.color || ""}
+                    size={20}
+                  />
                 </span>
                 <span class="vc-name">{nameFor(vm.fingerprint)}{vm.self ? " (you)" : ""}</span>
                 {#if vm.sharing}<span class="vc-share" title="Sharing video"><Icon name="screen" size={12} /></span>{/if}
@@ -321,7 +329,10 @@
     {/if}
   </div>
 
-  {#if S.voice}
+  <!-- The bottom voice bar is the "you're in a call elsewhere" indicator; while
+       you're viewing the call itself the VoicePanel already has the controls, so
+       showing it too would triplicate them. -->
+  {#if S.voice && S.voice.channelId !== S.activeChannelId}
     <div class="voice-bar">
       <button
         class="vb-info"
@@ -477,6 +488,17 @@
     place-items: center;
     opacity: 0;
   }
+  /* The DM "New message" + is the only way to start a conversation, so it's
+     always visible (not hover-gated like the category adders). */
+  .cat-add.always {
+    opacity: 0.7;
+  }
+  .cat-add.always:hover {
+    opacity: 1;
+  }
+  .cat-add:focus-visible {
+    opacity: 1; /* keyboard users must see the control they've tabbed onto */
+  }
   .cat-head:hover .cat-add,
   .section-head:hover .cat-add {
     opacity: 1;
@@ -491,7 +513,7 @@
     display: flex;
     align-items: center;
     gap: 7px;
-    width: calc(100% - 16px);
+    width: calc(100% - 30px); /* == the 8px + 22px horizontal margins, so it doesn't overflow */
     margin: 1px 8px 1px 22px;
     padding: 3px 6px;
     background: transparent;
@@ -767,6 +789,11 @@
     flex-direction: column;
     min-width: 0;
     font-size: 13px;
+  }
+  .me-text strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .small-status {
     font-size: 11px;
