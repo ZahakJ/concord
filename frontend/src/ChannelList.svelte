@@ -9,6 +9,7 @@
     S,
     activeGuild,
     selectGuild,
+    selectNotes,
     selectChannel,
     toggleMute,
     channelShort,
@@ -60,13 +61,18 @@
   // In the DMs area, the channel column becomes a conversation list (Notes
   // first, then peer DMs).
   const dms = $derived.by(() => {
-    // Notes (your self-DM) always shows; otherwise hide empty pending DMs — a
-    // freshly-created invite nobody has joined yet (just you) is noise until a
-    // peer redeems it and it gets a name/avatar.
+    // Hide empty pending DMs — a freshly-created invite nobody has joined yet
+    // (just you) is noise until a peer redeems it and it gets a name/avatar.
     const list = S.guilds.filter(
       (x) => x.kind === "dm" && (x.dmNotes || (x.dmMembers ?? 2) >= 2),
     );
-    return list.sort((a, b) => (a.dmNotes ? -1 : b.dmNotes ? 1 : 0));
+    list.sort((a, b) => (a.dmNotes ? -1 : b.dmNotes ? 1 : 0));
+    // Notes always appears first, even before it's been created (a placeholder
+    // that materializes the self-DM on first click).
+    if (!list.some((x) => x.dmNotes)) {
+      list.unshift({ id: "__notes__", dmNotes: true, name: "Notes", dmMembers: 1 });
+    }
+    return list;
   });
 
   // Group channels under their category (uncategorized first), each group
@@ -211,7 +217,7 @@
           class="dm-item"
           class:active
           class:unread={unread.count > 0 && !active}
-          onclick={() => selectGuild(dm.id)}
+          onclick={() => (dm.dmNotes ? selectNotes() : selectGuild(dm.id))}
           oncontextmenu={dm.dmNotes ? undefined : (e) => dmMenu(e, dm)}
         >
           {#if dm.dmNotes}
@@ -221,7 +227,7 @@
           {:else}
             <Avatar
               name={dm.name}
-              image={dm.dmPeerAvatar || dm.icon}
+              image={dm.dmPeerAvatar || dm.dmFaces?.[0]?.avatar || dm.icon}
               size={26}
               online={dm.dmPeer ? !!dm.dmPeerOnline : null}
               presence={dm.dmPeerPresence || ""}

@@ -44,51 +44,55 @@
 
   {#each dms as dm (dm.id)}
     {@const u = guildUnread(dm)}
-    <button
-      class="pill dm"
-      class:active={dm.id === S.activeGuildId}
-      title={dm.name}
-      aria-label={dm.name}
-      onclick={() => selectGuild(dm.id)}
-    >
-      {#if (dm.dmMembers ?? 2) > 2}
-        <GroupAvatar faces={dm.dmFaces || []} size={42} />
-      {:else}
-        <Avatar
-          name={dm.name}
-          image={dm.dmPeerAvatar || dm.icon}
-          size={42}
-          online={dm.dmPeer ? !!dm.dmPeerOnline : null}
-          presence={dm.dmPeerPresence || ""}
-        />
-      {/if}
+    <div class="bubble-wrap">
+      <button
+        class="pill dm"
+        class:active={dm.id === S.activeGuildId}
+        title={dm.name}
+        aria-label={dm.name}
+        onclick={() => selectGuild(dm.id)}
+      >
+        {#if (dm.dmMembers ?? 2) > 2}
+          <GroupAvatar faces={dm.dmFaces || []} size={42} />
+        {:else}
+          <Avatar
+            name={dm.name}
+            image={dm.dmPeerAvatar || dm.dmFaces?.[0]?.avatar || dm.icon}
+            size={42}
+            online={dm.dmPeer ? !!dm.dmPeerOnline : null}
+            presence={dm.dmPeerPresence || ""}
+          />
+        {/if}
+      </button>
       {#if dm.id !== S.activeGuildId && u.count > 0}
-        <span class="badge mention">{u.count > 99 ? "99+" : u.count}</span>
+        <span class="badge">{u.count > 99 ? "99+" : u.count}</span>
       {/if}
-    </button>
+    </div>
   {/each}
 
   {#if dms.length}<div class="divider"></div>{/if}
 
   {#each servers as sv (sv.id)}
     {@const u = guildUnread(sv)}
-    <button
-      class="pill"
-      class:active={sv.id === S.activeGuildId}
-      class:hasicon={sv.icon}
-      title={sv.name}
-      aria-label={sv.name}
-      onclick={() => selectGuild(sv.id)}
-    >
-      {#if sv.icon}
-        <img class="icon" src={sv.icon} alt="" />
-      {:else}
-        <span class="face">{initials(sv.name)}</span>
-      {/if}
+    <div class="bubble-wrap">
+      <button
+        class="pill"
+        class:active={sv.id === S.activeGuildId}
+        class:hasicon={sv.icon}
+        title={sv.name}
+        aria-label={sv.name}
+        onclick={() => selectGuild(sv.id)}
+      >
+        {#if sv.icon}
+          <img class="icon" src={sv.icon} alt="" />
+        {:else}
+          <span class="face">{initials(sv.name)}</span>
+        {/if}
+      </button>
       {#if sv.id !== S.activeGuildId && u.count > 0}
         <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
       {/if}
-    </button>
+    </div>
   {/each}
 
   <button class="pill add" title="Create a guild" aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
@@ -204,23 +208,29 @@
     border-color: var(--accent-hover);
     background: var(--bg-2);
   }
+  /* A wrapper so the unread badge can sit at the bubble's corner WITHOUT being
+     clipped by a pill's overflow:hidden (which was cutting the number off). */
+  .bubble-wrap {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+  }
   .badge {
     position: absolute;
-    bottom: -3px;
+    top: -3px;
     right: -3px;
-    min-width: 17px;
-    height: 17px;
-    padding: 0 4px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
     border-radius: 9px;
-    background: var(--text-faint);
-    color: white;
-    font-size: 10px;
+    background: var(--danger); /* unread = a clean red corner bubble */
+    color: #fff;
+    font-size: 11px;
     font-weight: 700;
+    line-height: 1;
     display: grid;
     place-items: center;
     border: 2px solid var(--bg-0);
-  }
-  .badge.mention {
-    background: var(--danger);
+    pointer-events: none;
   }
 </style>
