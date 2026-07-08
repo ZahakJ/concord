@@ -235,15 +235,24 @@
       <div class="reactions">
         {#each Object.entries(m.reactions) as [emoji, fprs] (emoji)}
           {@const cimg = /^:([a-z0-9_]{2,32}):$/.test(emoji) ? cemoji[emoji.slice(1, -1)] : null}
-          <button
-            class="reaction"
-            class:mine={fprs.includes(S.identity.fingerprint)}
-            onclick={() => react(m, emoji)}
-            title={fprs.map((f) => memberByFpr(f)?.name || f.slice(0, 9)).join(", ")}
-          >
-            {#if cimg}<img class="cemoji" src={cimg} alt={emoji} />{:else}{emoji}{/if}
-            {fprs.length}
-          </button>
+          <span class="react-wrap">
+            <button
+              class="reaction"
+              class:mine={fprs.includes(S.identity.fingerprint)}
+              onclick={() => react(m, emoji)}
+            >
+              {#if cimg}<img class="cemoji" src={cimg} alt={emoji} />{:else}{emoji}{/if}
+              {fprs.length}
+            </button>
+            <!-- who reacted, on hover -->
+            <span class="react-who">
+              <strong>{cimg ? emoji : emoji} · {fprs.length}</strong>
+              {#each fprs.slice(0, 12) as f (f)}
+                <span class="rw-row">{memberByFpr(f)?.name || f.slice(0, 9)}</span>
+              {/each}
+              {#if fprs.length > 12}<span class="rw-more">+{fprs.length - 12} more</span>{/if}
+            </span>
+          </span>
         {/each}
       </div>
     {/if}
@@ -430,6 +439,41 @@
   .reaction.mine {
     border-color: var(--accent);
     background: var(--accent-soft);
+  }
+  .react-wrap {
+    position: relative;
+    display: inline-flex;
+  }
+  /* Who-reacted popover, on hover. */
+  .react-who {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    min-width: 120px;
+    max-width: 220px;
+    padding: 7px 10px;
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--bg-elevated, var(--bg-1));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-pop);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .react-wrap:hover .react-who {
+    display: flex;
+  }
+  .react-who strong {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .rw-more {
+    color: var(--text-faint);
+    font-size: 11px;
   }
   .msg-actions {
     position: absolute;
