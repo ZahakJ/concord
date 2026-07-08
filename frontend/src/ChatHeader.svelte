@@ -20,15 +20,74 @@
   const ch = $derived(activeChannel());
   const pinnedCount = $derived(S.messages.filter((m) => m.pinned && !m.deleted).length);
 
+  // Parse Discord-style search operators out of the query. The remaining free
+  // text is the substring the backend searches; filters are applied on-device.
+  //   from:name  in:#channel  has:link|image|file  before:YYYY-MM-DD  after:…
+  function parseQuery(raw) {
+    const f = { from: null, in: null, has: [], before: null, after: null };
+    const text = raw
+      .replace(/(\w+):("[^"]+"|\S+)/g, (m, key, val) => {
+        val = val.replace(/^"|"$/g, "");
+        switch (key.toLowerCase()) {
+          case "from":
+            f.from = val.toLowerCase();
+            return "";
+          case "in":
+            f.in = val.replace(/^#/, "").toLowerCase();
+            return "";
+          case "has":
+            f.has.push(val.toLowerCase());
+            return "";
+          case "before":
+            f.before = new Date(val);
+            return "";
+          case "after":
+            f.after = new Date(val);
+            return "";
+          default:
+            return m; // unknown operator: keep as search text
+        }
+      })
+      .trim();
+    return { text, filters: f };
+  }
+
+  function channelNameFor(chId) {
+    for (const gg of S.guilds) {
+      const c = gg.channels.find((x) => x.id === chId);
+      if (c) return c.name;
+    }
+    return "";
+  }
+
+  function matchFilters(m, f) {
+    if (f.from && !(m.senderName || m.name || "").toLowerCase().includes(f.from)) return false;
+    if (f.in) {
+      const cn = channelNameFor(m.channelId).toLowerCase();
+      if (!cn.includes(f.in)) return false;
+    }
+    if (f.before && !isNaN(f.before) && new Date(m.sent) >= f.before) return false;
+    if (f.after && !isNaN(f.after) && new Date(m.sent) <= f.after) return false;
+    const c = m.content || "";
+    for (const h of f.has) {
+      if (h === "link" && !/https?:\/\//.test(c)) return false;
+      if (h === "image" && !/concord:\/\/attach|data:image\//.test(c)) return false;
+      if (h === "file" && !/concord:\/\/file/.test(c)) return false;
+    }
+    return true;
+  }
+
   async function runSearch(e) {
     e?.preventDefault();
-    const q = S.searchQuery.trim();
-    if (!q) {
+    const raw = S.searchQuery.trim();
+    if (!raw) {
       S.searchResults = null;
       return;
     }
+    const { text, filters } = parseQuery(raw);
     try {
-      S.searchResults = (await api.searchMessages(q)) || [];
+      const res = (await api.searchMessages(text)) || [];
+      S.searchResults = res.filter((m) => matchFilters(m, filters));
     } catch (err) {
       flash(err);
     }
@@ -98,7 +157,12 @@
   </div>
   <div class="row">
     <form onsubmit={runSearch}>
-      <input class="search-box" placeholder="Search…  (Ctrl+K to jump)" bind:value={S.searchQuery} />
+      <input
+        class="search-box"
+        placeholder="Search — try from: in: has: before:"
+        title="Filters: from:name  in:#channel  has:link|image|file  before:YYYY-MM-DD  after:YYYY-MM-DD"
+        bind:value={S.searchQuery}
+      />
     </form>
 
     {#if S.voice && S.voice.channelId === S.activeChannelId && g?.kind === "dm"}
