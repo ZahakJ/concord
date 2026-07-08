@@ -151,9 +151,15 @@ function saveJSON(key, value) {
 
 const lastRead = loadJSON("concord.lastRead", {}); // channelId -> ISO time
 
-export function markRead(channelId) {
+// markRead marks a channel read as of now. throughTime (the newest message's
+// `sent`, when known) guards against peer clock skew: if a message we've
+// actually seen is timestamped ahead of our clock, "now" alone would leave it
+// counting as unread forever, so we advance lastRead past it.
+export function markRead(channelId, throughTime = "") {
   if (!channelId) return;
-  lastRead[channelId] = new Date().toISOString();
+  let t = new Date().toISOString();
+  if (throughTime && new Date(throughTime) > new Date(t)) t = new Date(throughTime).toISOString();
+  lastRead[channelId] = t;
   saveJSON("concord.lastRead", lastRead);
   if (S.unread[channelId]) {
     const u = { ...S.unread };
@@ -261,7 +267,8 @@ async function recomputeUnread() {
         let count = 0;
         let mentions = 0;
         for (const m of msgs) {
-          if (m.deleted || m.sender === S.identity.fingerprint) continue;
+          // Match the live counter: only normal messages from others count.
+          if (m.kind !== "" || m.deleted || m.sender === S.identity.fingerprint) continue;
           if (since && new Date(m.sent) <= since) continue;
           count++;
           if (isMentionOfSelf(m)) mentions++;
@@ -465,6 +472,11 @@ export async function selectChannel(id) {
   S.editing = null;
   S.showPins = false;
   S.messages = (await api.messages(id)) || [];
+  // Advance the read mark past the newest message actually loaded, so a peer's
+  // clock-skewed (future-dated) message we've now seen can't keep the badge lit.
+  let newest = "";
+  for (const m of S.messages) if (m.sent > newest) newest = m.sent;
+  if (newest) markRead(id, newest);
   scrollSoon();
 }
 
@@ -629,10 +641,14 @@ function initEvents() {
         } else {
           S.newBelow = true;
         }
-        if (document.hasFocus()) markRead(m.channelId);
+        if (document.hasFocus()) markRead(m.channelId, m.sent);
       }
     } else if (m.channelId && m.kind === "" && !m.deleted && m.sender !== S.identity.fingerprint) {
-      bumpUnread(m.channelId, isMentionOfSelf(m));
+      // Only genuinely-new messages bump the badge. Edits/reactions and sync
+      // re-deliveries of an already-read message keep their original `sent`, so
+      // gating on lastRead stops them from resurrecting a phantom unread count.
+      const since = lastRead[m.channelId];
+      if (!since || new Date(m.sent) > new Date(since)) bumpUnread(m.channelId, isMentionOfSelf(m));
     }
     const isMention = isMentionOfSelf(m);
     const fromOther = m.sender !== S.identity.fingerprint && !m.deleted && m.kind === "";
