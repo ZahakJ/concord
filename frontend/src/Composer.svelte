@@ -10,6 +10,7 @@
   import { api } from "./lib/api.js";
 
   let draft = $state("");
+  let uploading = $state(0); // in-flight attachment sends (for a pending indicator)
   let composerEl = $state(null);
   let fileInput = $state(null);
   let suggest = $state(null); // { kind:"emoji"|"mention", start, items, sel }
@@ -270,6 +271,7 @@
   // attachImage: images go out as inline-rendered blobs (existing path).
   export async function attachImage(file) {
     if (!file || !S.activeChannelId) return;
+    uploading++;
     try {
       let dataUrl, w, h;
       if (NATIVE_TYPES.includes(file.type) && file.size <= MAX_IMAGE_BYTES) {
@@ -288,6 +290,8 @@
           ? "Image too large (max 5 MB, even after compression)"
           : "Couldn't read that image format",
       );
+    } finally {
+      uploading--;
     }
   }
 
@@ -303,6 +307,7 @@
       flash("File too large (max 25 MB)");
       return;
     }
+    uploading++;
     try {
       const dataUrl = await readAsDataURL(file);
       const replyTo = S.replyingTo?.id || "";
@@ -310,6 +315,8 @@
       await api.sendFile(S.activeChannelId, dataUrl, file.name || "file", replyTo);
     } catch (err) {
       flash(err);
+    } finally {
+      uploading--;
     }
   }
 
@@ -343,7 +350,9 @@
   </div>
 {/if}
 <div class="typing-line muted">
-  {#if S.typingList.length === 1}
+  {#if uploading > 0}
+    <span class="up-dot"></span> Sending {uploading > 1 ? `${uploading} attachments` : "attachment"}…
+  {:else if S.typingList.length === 1}
     <span
       class="typer"
       style={nameColorFor(S.typingList[0].from) ? `color:${nameColorFor(S.typingList[0].from)}` : ""}
@@ -388,7 +397,7 @@
         class="iconbtn"
         title="Attach a file or image (or paste / drop one)"
         aria-label="Attach a file"
-        disabled={!ch}
+        disabled={!ch || uploading > 0}
         onclick={() => fileInput.click()}
       >
         <Icon name="attach" size={20} />
@@ -403,6 +412,7 @@
         oninput={onInput}
         onkeydown={onKeydown}
         onpaste={onPaste}
+        onblur={() => setTimeout(() => (suggest = null), 150)}
       ></textarea>
       <button
         type="button"
@@ -439,6 +449,20 @@
   .typing-line .typer {
     font-weight: 600;
     font-style: normal;
+  }
+  .up-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: up-pulse 0.9s ease-in-out infinite;
+    vertical-align: middle;
+  }
+  @keyframes up-pulse {
+    50% {
+      opacity: 0.3;
+    }
   }
   .composer-wrap {
     position: relative;

@@ -37,7 +37,12 @@
   });
 
   let lightbox = $state(false);
+  function onKeydown(e) {
+    if (lightbox && e.key === "Escape") lightbox = false;
+  }
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 {#if state === "done"}
   <button class="frame done" onclick={() => (lightbox = true)} title="Click to enlarge">
