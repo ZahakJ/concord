@@ -58,6 +58,8 @@ export const api = {
   newDMInvite: () => call("NewDMInvite"),
   createGroupDM: (fingerprints) => call("CreateGroupDM", fingerprints),
   renameDM: (guildID, name) => call("RenameDM", guildID, name),
+  setRichPresence: (enabled) => call("SetRichPresence", enabled),
+  richPresenceEnabled: () => call("RichPresenceEnabled"),
   addCustomEmoji: (guildID, name, dataURI) => call("AddCustomEmoji", guildID, name, dataURI),
   removeCustomEmoji: (guildID, name) => call("RemoveCustomEmoji", guildID, name),
   setChannelMeta: (guildID, channelID, type, category, position, topic = "") =>

@@ -57,6 +57,13 @@ type Service struct {
 	dmInviteMu       sync.Mutex
 	pendingDMInvites map[string]map[string]bool
 
+	// Rich presence: an auto-detected "now playing" line that overlays the manual
+	// status while something is playing. activity is the current overlay (empty =
+	// use the manual status); richPresenceStop cancels the poller when disabled.
+	activityMu       sync.Mutex
+	activity         string
+	richPresenceStop context.CancelFunc
+
 	voiceMu    sync.Mutex
 	voiceRooms map[string]context.CancelFunc // channel ID -> heartbeat stop (rooms we're IN)
 	// voiceWatched marks voice channels whose presence topic we passively listen
@@ -325,6 +332,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()
 
+	// Resume rich presence if the user had it on.
+	if s.RichPresenceEnabled() {
+		s.startRichPresence()
+	}
+
 	return s, nil
 }
 
@@ -425,6 +437,13 @@ func (s *Service) SelfProfile() Profile {
 	avatar, _ := s.store.GetSetting("avatar_image")
 	presence, _ := s.store.GetSetting("presence")
 	bio, _ := s.store.GetSetting("bio")
+	// Rich-presence overlay: while something is playing, it stands in for the
+	// manual status; when it clears, the manual status returns.
+	s.activityMu.Lock()
+	if s.activity != "" {
+		status = s.activity
+	}
+	s.activityMu.Unlock()
 	return Profile{
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:],

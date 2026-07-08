@@ -18,6 +18,19 @@
     setSoundsEnabled(sounds);
   }
 
+  let richPresence = $state(false);
+  // Linux (and the Linux web build) can read MPRIS now-playing today.
+  const richPresenceSupported = /linux|x11/i.test(navigator.userAgent);
+  async function toggleRichPresence() {
+    richPresence = !richPresence;
+    try {
+      await api.setRichPresence(richPresence);
+    } catch (err) {
+      richPresence = !richPresence; // revert on failure
+      flash(err);
+    }
+  }
+
   async function reveal() {
     try {
       phrase = await api.revealMnemonic();
@@ -34,6 +47,11 @@
   onMount(async () => {
     try {
       bootstrap = ((await api.getBootstrap()) || []).join("\n");
+    } catch {
+      /* ignore */
+    }
+    try {
+      richPresence = await api.richPresenceEnabled();
     } catch {
       /* ignore */
     }
@@ -111,6 +129,20 @@
       </span>
     </span>
     <span class="switch" class:on={S.prefs.linkPreviews}><span class="knob"></span></span>
+  </button>
+
+  <button class="toggle-row" onclick={toggleRichPresence} role="switch" aria-checked={richPresence}>
+    <span>
+      <strong>Rich presence</strong>
+      <span class="muted tiny">
+        Shows what you're listening to as your status ("🎵 Artist — Title"),
+        read on-device from your media player. Only the status text is shared,
+        with the people you already share it with. {richPresenceSupported
+          ? ""
+          : "(Not supported on this platform yet.)"}
+      </span>
+    </span>
+    <span class="switch" class:on={richPresence}><span class="knob"></span></span>
   </button>
 
   <hr />

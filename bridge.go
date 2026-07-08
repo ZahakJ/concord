@@ -1137,6 +1137,24 @@ func (b *bridge) CreateGroupDM(fingerprints []string) (GuildView, error) {
 	return guildView(svc, g), nil
 }
 
+// SetRichPresence toggles now-playing rich presence (auto status).
+func (b *bridge) SetRichPresence(enabled bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetRichPresence(enabled)
+}
+
+// RichPresenceEnabled reports whether rich presence is on.
+func (b *bridge) RichPresenceEnabled() (bool, error) {
+	svc, err := b.service()
+	if err != nil {
+		return false, nil
+	}
+	return svc.RichPresenceEnabled(), nil
+}
+
 // RenameDM sets (or, with an empty name, resets) a group DM's name.
 func (b *bridge) RenameDM(guildID, name string) error {
 	svc, err := b.service()
@@ -1218,6 +1236,10 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.CreateGroupDM(argStrs(args, 0))
 	case "RenameDM":
 		return nil, b.RenameDM(argStr(args, 0), argStr(args, 1))
+	case "SetRichPresence":
+		return nil, b.SetRichPresence(argBool(args, 0))
+	case "RichPresenceEnabled":
+		return b.RichPresenceEnabled()
 	case "StartDM":
 		return b.StartDM(argStr(args, 0))
 	case "InviteCode":
