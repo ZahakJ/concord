@@ -56,6 +56,7 @@ export const api = {
   setGuildProfile: (guildID, name, icon, banner, description) =>
     call("SetGuildProfile", guildID, name, icon, banner, description),
   newDMInvite: () => call("NewDMInvite"),
+  createGroupDM: (fingerprints) => call("CreateGroupDM", fingerprints),
   addCustomEmoji: (guildID, name, dataURI) => call("AddCustomEmoji", guildID, name, dataURI),
   removeCustomEmoji: (guildID, name) => call("RemoveCustomEmoji", guildID, name),
   setChannelMeta: (guildID, channelID, type, category, position, topic = "") =>

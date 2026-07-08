@@ -43,6 +43,13 @@ type Service struct {
 	channelToGuild map[string]string        // channel ID -> guild ID
 	onMessage      []func(domain.Message)
 
+	// inviteMu serializes the add-and-publish critical section of
+	// handleInviteRequest. The owner is the sole committer, but libp2p runs one
+	// handler goroutine per inbound stream, so two joiners dialing at once (e.g.
+	// a group DM fanning invites to several people) would otherwise produce two
+	// commits at the same epoch. Serializing keeps each add on its own epoch.
+	inviteMu sync.Mutex
+
 	voiceMu    sync.Mutex
 	voiceRooms map[string]context.CancelFunc // channel ID -> heartbeat stop (rooms we're IN)
 	// voiceWatched marks voice channels whose presence topic we passively listen

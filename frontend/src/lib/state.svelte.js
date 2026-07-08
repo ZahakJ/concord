@@ -444,6 +444,15 @@ export async function startDM(fingerprint, text = "") {
   return dm;
 }
 
+// createGroupDM opens a group DM with the given verified contacts, then
+// navigates to it. Powers the "New group DM" modal.
+export async function createGroupDM(fingerprints) {
+  const dm = await api.createGroupDM(fingerprints);
+  await refreshGuilds();
+  await selectGuild(dm.id);
+  return dm;
+}
+
 export async function selectChannel(id) {
   S.activeChannelId = id;
   // Snapshot where we left off BEFORE marking read, to place the "new messages"

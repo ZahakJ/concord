@@ -32,6 +32,8 @@
     camera: "M2 4.5h8v7H2z M10 7l3.5-2v6L10 9",
     cameraOff: "M2 4.5h8v7H2z M10 7l3.5-2v6L10 9 M2 2.5l12 11",
     diamond: "M8 1.5 14.5 8 8 14.5 1.5 8z",
+    members:
+      "M6 7.5a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4z M1.8 13v-.8a3.7 3.7 0 0 1 7.4 0v.8 M10.6 3.4a2.2 2.2 0 0 1 0 4.2 M11.4 9.1a3.7 3.7 0 0 1 2.8 3.1V13",
   };
 
   // The Concorde logo is a filled silhouette (not stroked like the icon set),

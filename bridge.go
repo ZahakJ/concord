@@ -181,6 +181,7 @@ type MemberView struct {
 type ContactView struct {
 	PeerID      string `json:"peerId"`
 	Fingerprint string `json:"fingerprint"`
+	Name        string `json:"name"` // profile display name (may be "" if unknown)
 	Verified    bool   `json:"verified"`
 }
 
@@ -931,7 +932,7 @@ func (b *bridge) Contacts() ([]ContactView, error) {
 	}
 	out := make([]ContactView, 0, len(contacts))
 	for _, c := range contacts {
-		out = append(out, ContactView{PeerID: c.PeerID, Fingerprint: c.Fingerprint, Verified: c.Verified})
+		out = append(out, ContactView{PeerID: c.PeerID, Fingerprint: c.Fingerprint, Name: svc.ProfileName(c.Fingerprint), Verified: c.Verified})
 	}
 	return out, nil
 }
@@ -973,7 +974,8 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 				}
 			}
 			// A 2-person DM shows the other member's name + a status dot. A group
-			// DM has no single presence, so leave DMPeer* empty there.
+			// DM has no single presence, so leave DMPeer* empty and name it after
+			// its members (Discord-style "Alice, Bob").
 			if len(others) == 1 {
 				dmPeer = others[0]
 				if n := svc.ProfileName(dmPeer); n != "" {
@@ -986,6 +988,17 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 						break
 					}
 				}
+			} else if len(others) > 1 {
+				names := make([]string, 0, len(others))
+				for _, f := range others {
+					if n := svc.ProfileName(f); n != "" {
+						names = append(names, n)
+					} else {
+						names = append(names, f[:min(9, len(f))])
+					}
+				}
+				sort.Strings(names)
+				name = strings.Join(names, ", ")
 			}
 		}
 	}
@@ -1038,6 +1051,20 @@ func (b *bridge) StartDM(fingerprint string) (GuildView, error) {
 		return GuildView{}, err
 	}
 	g, err := svc.StartDM(fingerprint)
+	if err != nil {
+		return GuildView{}, err
+	}
+	return guildView(svc, g), nil
+}
+
+// CreateGroupDM opens a group DM with the given (verified) contacts and returns
+// the new conversation for the UI to navigate to.
+func (b *bridge) CreateGroupDM(fingerprints []string) (GuildView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return GuildView{}, err
+	}
+	g, err := svc.CreateGroupDM(fingerprints)
 	if err != nil {
 		return GuildView{}, err
 	}
@@ -1112,6 +1139,8 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.NotesDM()
 	case "NewDMInvite":
 		return b.NewDMInvite()
+	case "CreateGroupDM":
+		return b.CreateGroupDM(argStrs(args, 0))
 	case "StartDM":
 		return b.StartDM(argStr(args, 0))
 	case "InviteCode":
@@ -1234,6 +1263,15 @@ func argStr(args []json.RawMessage, i int) string {
 		return ""
 	}
 	var s string
+	_ = json.Unmarshal(args[i], &s)
+	return s
+}
+
+func argStrs(args []json.RawMessage, i int) []string {
+	if i >= len(args) {
+		return nil
+	}
+	var s []string
 	_ = json.Unmarshal(args[i], &s)
 	return s
 }

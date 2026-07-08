@@ -138,9 +138,19 @@
     {#if g?.kind === "dm"}
       <div class="section-head">
         <span>Direct messages</span>
-        <button class="cat-add" title="Invite someone to a new DM" aria-label="New DM invite" onclick={newDMInvite}>
-          <Icon name="plus" size={12} />
-        </button>
+        <span class="dm-actions">
+          <button
+            class="cat-add"
+            title="New group DM (verified contacts)"
+            aria-label="New group DM"
+            onclick={() => (S.modal = { kind: "groupDM" })}
+          >
+            <Icon name="members" size={13} />
+          </button>
+          <button class="cat-add" title="Invite someone to a new DM" aria-label="New DM invite" onclick={newDMInvite}>
+            <Icon name="plus" size={12} />
+          </button>
+        </span>
       </div>
       {#each dms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}

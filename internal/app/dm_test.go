@@ -58,6 +58,91 @@ func TestDMInviteRejectsForcedGuildJoin(t *testing.T) {
 	}
 }
 
+// TestCreateGroupDMRequiresVerified covers the verified-gate: unverified
+// contacts are rejected up front, before any group is created or network used.
+func TestCreateGroupDMRequiresVerified(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := startService(t, ctx)
+
+	before := len(a.Guilds())
+	// Arbitrary, unverified fingerprints are rejected.
+	if _, err := a.CreateGroupDM([]string{"fpr-bob-000", "fpr-cara-00"}); err == nil {
+		t.Fatal("CreateGroupDM accepted unverified contacts")
+	}
+	// A single target (even ignoring verification) can't form a group.
+	if _, err := a.CreateGroupDM([]string{"fpr-bob-000"}); err == nil {
+		t.Fatal("CreateGroupDM accepted a group of one")
+	}
+	// No stray group was created by the rejected calls.
+	if n := len(a.Guilds()); n != before {
+		t.Fatalf("rejected CreateGroupDM left %d guilds, want %d", n, before)
+	}
+}
+
+// TestGroupDMHappyPath covers the full verified-gated flow: A shares a guild
+// with B and C, verifies both, then opens a group DM. B and C auto-accept
+// (they share a group with the inviter) and all three converge on one 3-member
+// DM group they can talk in.
+func TestGroupDMHappyPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked integration test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	b := startService(t, ctx)
+	c := startService(t, ctx)
+
+	// A shared guild connects the three peers.
+	g, err := a.CreateGuild("hub")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	code, _ := a.InviteCode(g.ID)
+	if _, err := b.JoinViaInvite(code); err != nil {
+		t.Fatalf("B join: %v", err)
+	}
+	if _, err := c.JoinViaInvite(code); err != nil {
+		t.Fatalf("C join: %v", err)
+	}
+	waitMembers(t, 30*time.Second, 3, a, b, c)
+
+	// A verifies both, then opens the group DM.
+	if err := a.VerifyFingerprint(b.Fingerprint()); err != nil {
+		t.Fatalf("verify B: %v", err)
+	}
+	if err := a.VerifyFingerprint(c.Fingerprint()); err != nil {
+		t.Fatalf("verify C: %v", err)
+	}
+	dm, err := a.CreateGroupDM([]string{b.Fingerprint(), c.Fingerprint()})
+	if err != nil {
+		t.Fatalf("CreateGroupDM: %v", err)
+	}
+	if dm.Kind != "dm" {
+		t.Fatalf("group DM kind = %q, want dm", dm.Kind)
+	}
+
+	// All three converge on the same 3-member DM group (B and C accepted, did
+	// not leave).
+	waitUntil(t, 30*time.Second, func() bool {
+		for _, s := range []*Service{a, b, c} {
+			n, _ := s.MemberCount(dm.ID)
+			if n != 3 {
+				return false
+			}
+		}
+		return true
+	}, "group DM did not converge to 3 members on all peers")
+
+	// And they can actually talk in it.
+	rb, rc := &recorder{}, &recorder{}
+	b.OnMessage(rb.add)
+	c.OnMessage(rc.add)
+	sendUntilReceived(t, a, dm.Channels[0].ID, "welcome to the group", rb, rc)
+}
+
 // TestPeerDM covers the click-profile-to-DM flow: A and B share a guild; A
 // starts a DM with B (pushing a DM invite that B auto-redeems); both then hold
 // the 2-person DM and can exchange end-to-end-encrypted messages.

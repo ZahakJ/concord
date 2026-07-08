@@ -399,6 +399,11 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 		return json.Marshal(inviteResponse{Error: "you are banned from this server"})
 	}
 
+	// Serialize the add + epoch-advancing publish: concurrent joins (a group DM
+	// invites several people at once) must not commit at the same epoch.
+	s.inviteMu.Lock()
+	defer s.inviteMu.Unlock()
+
 	commit, welcome, err := s.mls.Invite(ctx, g.GroupID, req.KeyPackage)
 	if err != nil {
 		// Most common cause: this is a RETRY where the joiner is already in the

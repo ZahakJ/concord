@@ -72,6 +72,82 @@ func (s *Service) NewDMInvite() (string, error) {
 	return s.InviteCode(g.ID)
 }
 
+// groupDMMax bounds a group DM so it stays a small conversation, not a guild.
+const groupDMMax = 10
+
+// CreateGroupDM opens a group direct message with the given fingerprints. Every
+// invitee must be a VERIFIED contact — verification is the trust gate for group
+// DMs (you pull people you've confirmed into a private group, Discord-style but
+// stricter). The group is an ordinary kind="dm" MLS group owned by this peer;
+// each reachable invitee is pushed the standard DM invite and auto-redeems it.
+// Unreachable invitees simply don't join yet (they can be re-invited later).
+func (s *Service) CreateGroupDM(fingerprints []string) (domain.Guild, error) {
+	verified, err := s.store.VerifiedFingerprints()
+	if err != nil {
+		verified = map[string]bool{}
+	}
+	self := s.id.Fingerprint()
+	seen := map[string]bool{}
+	var targets []string
+	for _, f := range fingerprints {
+		if f == "" || f == self || seen[f] {
+			continue
+		}
+		seen[f] = true
+		if !verified[f] {
+			return domain.Guild{}, fmt.Errorf("app: everyone in a group DM must be a verified contact — verify %s first", shortFpr(f))
+		}
+		targets = append(targets, f)
+	}
+	if len(targets) < 2 {
+		return domain.Guild{}, fmt.Errorf("app: a group DM needs at least two other people")
+	}
+	if len(targets) > groupDMMax {
+		return domain.Guild{}, fmt.Errorf("app: a group DM tops out at %d people", groupDMMax)
+	}
+
+	gid, err := s.mls.CreateGroup(s.ctx)
+	if err != nil {
+		return domain.Guild{}, fmt.Errorf("app: create group dm: %w", err)
+	}
+	g := domain.NewGuild("Group message", gid, s.PublicKey())
+	g.Kind = "dm"
+	g.Channels[0].Name = "dm"
+	if err := s.store.SaveGuild(g); err != nil {
+		return domain.Guild{}, err
+	}
+	s.trackGuild(&g)
+
+	code, err := s.InviteCode(g.ID)
+	if err != nil {
+		return domain.Guild{}, err
+	}
+	req, _ := json.Marshal(dmInvite{Code: code})
+	// Push to each reachable target; they dial back and get added via
+	// handleInviteRequest, whose inviteMu serializes the concurrent adds.
+	for _, f := range targets {
+		pid, ok := s.peerForFingerprint(f)
+		if !ok {
+			continue // offline — can be re-invited once they're reachable
+		}
+		p := pid
+		go func() {
+			ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
+			defer cancel()
+			_, _ = s.host.RequestDMInvite(ctx, p, req)
+		}()
+	}
+	return g, nil
+}
+
+// shortFpr abbreviates a fingerprint for user-facing messages.
+func shortFpr(f string) string {
+	if len(f) > 9 {
+		return f[:9]
+	}
+	return f
+}
+
 // StartDM opens (creating if needed) a direct-message conversation with the
 // peer identified by fingerprint. Clicking someone's profile → Message calls
 // this. It creates a 2-person MLS group and pushes an invite to the recipient
@@ -132,13 +208,16 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 		if err != nil {
 			return
 		}
-		// Auto-accept is ONLY for a genuine 2-person DM opened by the peer who
-		// pushed the invite. Without this check, any peer could push an arbitrary
-		// invite code and silently force us into a full guild or a group we're not
-		// the intended counterparty of (unsolicited membership + profile/mailbox-
-		// key disclosure). Anything that isn't a 2-person DM with the sender is
-		// undone immediately.
-		if !s.isLegitDMWith(g.ID, senderFpr) {
+		// Auto-accept guards against a peer pushing an arbitrary invite code to
+		// force us into unsolicited membership (which would disclose our profile +
+		// mailbox key). We accept two shapes:
+		//   - a genuine 2-person DM whose other member is the sender (like getting
+		//     a first text from someone — low harm), or
+		//   - a GROUP DM whose inviter we already trust: someone we've verified, or
+		//     someone we already share a 2-person DM with. That trust gate is what
+		//     stops a stranger from silently pulling us into a group.
+		// Anything else is undone immediately.
+		if !s.isLegitDMWith(g.ID, senderFpr) && !s.isTrustedGroupDMInvite(g.ID, senderFpr) {
 			_ = s.LeaveGuild(g.ID)
 			return
 		}
@@ -172,6 +251,77 @@ func (s *Service) isLegitDMWith(guildID, senderFpr string) bool {
 	for _, c := range creds {
 		if f := identity.FingerprintOf(c); f != self {
 			return f == senderFpr
+		}
+	}
+	return false
+}
+
+// isTrustedGroupDMInvite reports whether guildID is a group DM (a kind="dm"
+// group with more than two members) that senderFpr is a member of AND whose
+// inviter we already have a relationship with — we've verified them, or we
+// already share some other group (a guild or an existing DM) with them. That is
+// what "approved" means in practice, and it stops a stranger who merely pushed
+// an invite code out of nowhere from pulling us into a group.
+func (s *Service) isTrustedGroupDMInvite(guildID, senderFpr string) bool {
+	if senderFpr == "" {
+		return false
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	isDM := ok && g.Kind == "dm"
+	s.mu.RUnlock()
+	if !isDM {
+		return false
+	}
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil || len(creds) <= 2 {
+		return false // not a group DM
+	}
+	senderIsMember := false
+	for _, c := range creds {
+		if identity.FingerprintOf(c) == senderFpr {
+			senderIsMember = true
+			break
+		}
+	}
+	if !senderIsMember {
+		return false
+	}
+	if verified, err := s.store.VerifiedFingerprints(); err == nil && verified[senderFpr] {
+		return true
+	}
+	return s.sharesOtherGroupWith(senderFpr, guildID)
+}
+
+// sharesOtherGroupWith reports whether we already share some group — a guild or
+// an existing DM — with fingerprint, excluding exclID (the group currently being
+// evaluated, which the sender is a member of too and would match trivially).
+func (s *Service) sharesOtherGroupWith(fingerprint, exclID string) bool {
+	s.mu.RLock()
+	type ref struct {
+		id  string
+		gid []byte
+	}
+	var groups []ref
+	for id, g := range s.guilds {
+		if id != exclID {
+			groups = append(groups, ref{id, g.GroupID})
+		}
+	}
+	s.mu.RUnlock()
+	for _, r := range groups {
+		creds, err := s.mls.Members(s.ctx, r.gid)
+		if err != nil {
+			continue
+		}
+		for _, c := range creds {
+			if identity.FingerprintOf(c) == fingerprint {
+				return true
+			}
 		}
 	}
 	return false
