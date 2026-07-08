@@ -15,6 +15,7 @@
     voiceMembersFor,
     nameFor,
     memberByFpr,
+    guildUnread,
     moveChannelToCategory,
     jumpToChannel,
     markRead,
@@ -195,9 +196,11 @@
       </div>
       {#each dms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}
+        {@const unread = dm.dmNotes ? { count: 0 } : guildUnread(dm)}
         <button
           class="dm-item"
           class:active
+          class:unread={unread.count > 0 && !active}
           onclick={() => selectGuild(dm.id)}
           oncontextmenu={dm.dmNotes ? undefined : (e) => dmMenu(e, dm)}
         >
@@ -215,6 +218,11 @@
             />
           {/if}
           <span class="dm-name">{dm.dmNotes ? "Notes (you)" : dm.name}</span>
+          {#if unread.count > 0 && !active}
+            <span class="count" class:mention={unread.mentions > 0}
+              >{unread.count > 99 ? "99+" : unread.count}</span
+            >
+          {/if}
         </button>
       {/each}
     {:else if g}
@@ -671,6 +679,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 14px;
+  }
+  .dm-item.unread {
+    color: var(--text);
+  }
+  .dm-item.unread .dm-name {
+    font-weight: 600;
   }
   .dm-notes-icon {
     width: 26px;
