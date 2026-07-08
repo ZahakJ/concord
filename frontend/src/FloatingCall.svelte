@@ -31,6 +31,10 @@
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
   }
+  // Keep the dock on-screen when the window is resized smaller.
+  function onResize() {
+    pos = clamp(pos.x, pos.y);
+  }
 
   const roster = $derived(["self", ...S.voiceParticipants]);
   function part(pid) {
@@ -54,6 +58,8 @@
     };
   }
 </script>
+
+<svelte:window onresize={onResize} />
 
 <div class="dock" style="left:{pos.x}px; top:{pos.y}px">
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -94,7 +100,7 @@
   .dock {
     position: fixed;
     width: 214px;
-    z-index: 300;
+    z-index: 90; /* above chat, but BELOW modals (100) so dialogs aren't covered */
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -138,6 +144,8 @@
     flex-wrap: wrap;
     gap: 6px;
     padding: 10px;
+    max-height: 120px; /* ~3 rows; a big call scrolls instead of growing off-screen */
+    overflow-y: auto;
   }
   .face :global(.avatar) {
     border: 2px solid transparent;

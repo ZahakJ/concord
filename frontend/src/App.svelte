@@ -254,7 +254,7 @@
   }
 </script>
 
-{#if S.update}
+{#if S.update && !ringingChannel}
   <div class="update-banner">
     <span class="ub-text">
       <strong>Update available</strong> — Concord {S.update.latest} is out (you have {S.update.current}).
