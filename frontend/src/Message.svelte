@@ -55,6 +55,13 @@
     return m ? { el, fpr: m.fingerprint } : null;
   }
   function onBodyClick(e) {
+    // Reveal a spoiler on click (first click only).
+    const spoiler = e.target.closest?.(".spoiler");
+    if (spoiler && !spoiler.classList.contains("revealed")) {
+      e.preventDefault();
+      spoiler.classList.add("revealed");
+      return;
+    }
     const hit = mentionMember(e.target);
     if (hit) {
       e.preventDefault();
@@ -503,6 +510,62 @@
   }
   .body :global(.mention-self:hover) {
     background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  /* Spoiler: blacked-out until clicked. */
+  .body :global(.spoiler) {
+    background: var(--text);
+    color: transparent;
+    border-radius: 4px;
+    padding: 0 3px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s ease;
+  }
+  .body :global(.spoiler:hover) {
+    background: color-mix(in srgb, var(--text) 82%, var(--bg-2));
+  }
+  .body :global(.spoiler.revealed) {
+    background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+    color: inherit;
+    cursor: text;
+    user-select: text;
+  }
+  /* Inline headers (chat-sized). */
+  .body :global(.md-h) {
+    margin: 4px 0 2px;
+    font-weight: 700;
+    line-height: 1.25;
+  }
+  .body :global(h3.md-h) {
+    font-size: 1.25em;
+  }
+  .body :global(h4.md-h) {
+    font-size: 1.1em;
+  }
+  .body :global(h5.md-h) {
+    font-size: 1em;
+  }
+  .body :global(u) {
+    text-decoration: underline;
+  }
+  .body :global(s) {
+    text-decoration: line-through;
+    opacity: 0.85;
+  }
+  /* Code-fence language label. */
+  .body :global(pre[data-lang]) {
+    position: relative;
+    padding-top: 20px;
+  }
+  .body :global(pre[data-lang])::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: 3px;
+    right: 8px;
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
   }
   .body :global(img.attachment) {
     max-width: 380px;

@@ -2,8 +2,10 @@
 // HTML-escaped FIRST, then a fixed set of our own tags is layered on top — so
 // no user-controlled string can open a tag or attribute. Keep it that way.
 //
-// Supported: ```code fences```, `inline code`, **bold**, *italic*, > quotes,
-// - / 1. lists, bare links, ![image](data:image/...) attachments, @mentions.
+// Supported: ```code fences``` (with language label), `inline code`, **bold**,
+// *italic*, __underline__, ~~strike~~, ||spoiler||, # headers, > and >>> quotes,
+// - / 1. lists, bare + [masked](url) links, ![image](data:image/...) attachments,
+// @mentions.
 
 export function escapeHtml(s) {
   return s.replace(
@@ -39,12 +41,27 @@ function renderInline(s, mentionNames, customEmoji) {
     /!\[image\]\((data:image\/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+)\)/g,
     '<img class="attachment" loading="lazy" src="$1" alt="attachment" />',
   );
+  // Spoilers ||text|| — revealed on click (handler in Message.svelte). Runs
+  // before emphasis so **bold**/etc. inside a spoiler still render.
+  s = s.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" role="button" tabindex="0">$1</span>');
+  // Strikethrough ~~text~~ and underline __text__ (underscore is free — italic
+  // uses *, so __ never collides with emphasis).
+  s = s.replace(/~~(.+?)~~/g, "<s>$1</s>");
+  s = s.replace(/__(.+?)__/g, "<u>$1</u>");
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  // Masked links [text](url): only http(s) URLs, and stashed so the bare-URL
+  // autolinker below doesn't re-wrap the href. Text may already carry emphasis.
+  const links = [];
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) => {
+    links.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`);
+    return `\x01${links.length - 1}\x01`;
+  });
   s = s.replace(
     /(https?:\/\/[^\s<]+)/g,
     '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
   );
+  s = s.replace(/\x01(\d+)\x01/g, (_, i) => links[+i]);
   if (mentionNames?.length) {
     // Longest name first so "@Ann Lee" wins over "@Ann". Names arrive escaped
     // with the same escapeHtml, so they match the escaped text. `self` (the
@@ -75,10 +92,11 @@ export function renderMarkdown(text, mentionNames = [], customEmoji = null) {
   let out = "";
   for (let i = 0; i < parts.length; i++) {
     if (i % 2 === 1) {
-      // Inside a fence (unclosed runs to the end, like Discord). Strip one
-      // leading language line.
+      // Inside a fence (unclosed runs to the end, like Discord). Keep the
+      // leading language line as a label (data-lang), then strip it.
+      const lang = (/^([a-zA-Z0-9+-]+)\n/.exec(parts[i]) || [])[1] || "";
       const body = parts[i].replace(/^[a-zA-Z0-9+-]*\n/, "");
-      out += `<pre><code>${escapeHtml(body.replace(/\n$/, ""))}</code></pre>`;
+      out += `<pre${lang ? ` data-lang="${escapeHtml(lang)}"` : ""}><code>${escapeHtml(body.replace(/\n$/, ""))}</code></pre>`;
     } else {
       out += renderBlocks(escapeHtml(parts[i]), mentionNames, customEmoji);
     }
@@ -97,10 +115,24 @@ function renderBlocks(s, mentionNames, customEmoji) {
   };
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    // Multi-line blockquote: >>> turns the rest of the message into one quote.
+    const bq3 = /^&gt;&gt;&gt;\s?([\s\S]*)$/.exec(line);
+    if (bq3) {
+      closeList();
+      const rest = [bq3[1], ...lines.slice(i + 1)].join("\n");
+      out += `<blockquote>${renderBlocks(rest, mentionNames, customEmoji)}</blockquote>`;
+      return out;
+    }
+    // Headers # / ## / ### (mapped to h3–h5 so they stay chat-sized).
+    const hdr = /^(#{1,3}) (.+)$/.exec(line);
     const ul = /^\s*[-*] (.*)$/.exec(line);
     const ol = /^\s*\d+[.)] (.*)$/.exec(line);
     const quote = /^&gt; ?(.*)$/.exec(line);
-    if (ul || ol) {
+    if (hdr) {
+      closeList();
+      const tag = ["h3", "h4", "h5"][hdr[1].length - 1];
+      out += `<${tag} class="md-h">${renderInline(hdr[2], mentionNames, customEmoji)}</${tag}>`;
+    } else if (ul || ol) {
       const kind = ul ? "ul" : "ol";
       if (list !== kind) {
         closeList();
