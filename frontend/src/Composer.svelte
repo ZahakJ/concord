@@ -4,6 +4,7 @@
   // banner, and ArrowUp-in-empty-composer to edit your last message.
   import Icon from "./Icon.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
+  import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { S, activeChannel, sendMessage, react, flash, nameColorFor } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
@@ -18,6 +19,73 @@
 
   export function focus() {
     composerEl?.focus();
+  }
+
+  // ---- per-channel drafts (survive reloads + channel switches) ----
+  const draftKey = (id) => `concord.draft.${id}`;
+  function saveDraft(id, text) {
+    if (!id) return;
+    try {
+      if (text) localStorage.setItem(draftKey(id), text);
+      else localStorage.removeItem(draftKey(id));
+    } catch {
+      /* storage blocked */
+    }
+  }
+  function loadDraft(id) {
+    try {
+      return (id && localStorage.getItem(draftKey(id))) || "";
+    } catch {
+      return "";
+    }
+  }
+
+  let prevChannel = S.activeChannelId;
+  draft = loadDraft(prevChannel);
+  // On channel switch: stash the outgoing draft, restore the incoming one.
+  $effect(() => {
+    const cur = S.activeChannelId;
+    untrack(() => {
+      if (cur === prevChannel) return;
+      saveDraft(prevChannel, draft);
+      draft = loadDraft(cur);
+      prevChannel = cur;
+      queueAutosize();
+    });
+  });
+
+  // Size to a restored draft once the textarea mounts.
+  $effect(() => {
+    if (composerEl) queueAutosize();
+  });
+
+  // ---- auto-growing textarea ----
+  function autosize() {
+    if (!composerEl) return;
+    composerEl.style.height = "auto";
+    composerEl.style.height = Math.min(composerEl.scrollHeight, 200) + "px";
+  }
+  const queueAutosize = () => requestAnimationFrame(autosize);
+
+  // ---- slash commands (client-side text expansion) ----
+  function applySlash(text) {
+    const m = text.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
+    if (!m) return text;
+    const rest = (m[2] || "").trim();
+    switch (m[1]) {
+      case "shrug":
+        return (rest ? rest + " " : "") + "¯\\_(ツ)_/¯";
+      case "tableflip":
+        return (rest ? rest + " " : "") + "(╯°□°)╯︵ ┻━┻";
+      case "unflip":
+        return (rest ? rest + " " : "") + "┬─┬ ノ( ゜-゜ノ)";
+      case "me":
+        return rest ? `*${rest}*` : text;
+      case "spoiler":
+        return rest ? `||${rest}||` : text;
+      default:
+        return text;
+    }
   }
 
   // ---- autocomplete (emoji + mentions share one popover) ----
@@ -61,6 +129,7 @@
     draft = draft.slice(0, suggest.start) + insert + " " + draft.slice(caret);
     suggest = null;
     composerEl?.focus();
+    queueAutosize();
   }
 
   function editLastOwnMessage() {
@@ -86,7 +155,11 @@
       }
       return;
     }
-    if (e.key === "ArrowUp" && !draft.trim()) {
+    // Enter sends; Shift+Enter inserts a newline (textarea default).
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    } else if (e.key === "ArrowUp" && !draft) {
       e.preventDefault();
       editLastOwnMessage();
     } else if (e.key === "Escape" && S.replyingTo) {
@@ -100,15 +173,20 @@
       lastTypingSent = now;
       api.sendTyping(S.activeChannelId).catch(() => {});
     }
+    saveDraft(S.activeChannelId, draft);
+    autosize();
     updateSuggest();
   }
 
   async function send(e) {
     e?.preventDefault();
-    const text = replaceShortcodes(draft.trim());
+    const text = replaceShortcodes(applySlash(draft.trim()).trim());
     if (!text || !S.activeChannelId) return;
+    const chId = S.activeChannelId;
     draft = "";
+    saveDraft(chId, "");
     suggest = null;
+    queueAutosize();
     const replyTo = S.replyingTo?.id || "";
     S.replyingTo = null;
     try {
@@ -306,15 +384,17 @@
     >
       <Icon name="attach" />
     </button>
-    <input
+    <textarea
       bind:this={composerEl}
-      placeholder={ch ? `Message #${ch.name} — try :fire: or @name` : "Select a channel"}
+      class="draft"
+      rows="1"
+      placeholder={ch ? `Message #${ch.name} — Shift+Enter for a new line` : "Select a channel"}
       bind:value={draft}
       disabled={!ch}
       oninput={onInput}
       onkeydown={onKeydown}
       onpaste={onPaste}
-    />
+    ></textarea>
     <button
       type="button"
       class="ghost iconbtn"
@@ -387,8 +467,20 @@
   }
   .composer {
     display: flex;
+    align-items: flex-end;
     gap: 8px;
     padding: 0 16px 14px;
+  }
+  .draft {
+    flex: 1;
+    min-width: 0;
+    resize: none;
+    overflow-y: auto;
+    max-height: 200px;
+    height: auto;
+    font-family: inherit;
+    line-height: 1.4;
+    box-sizing: border-box;
   }
   .iconbtn {
     display: grid;
