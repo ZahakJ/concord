@@ -3,6 +3,7 @@
   // and per guild with unread badges, plus create/join.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
+  import GroupAvatar from "./GroupAvatar.svelte";
   import { S, selectGuild, openDMs, guildUnread } from "./lib/state.svelte.js";
 
   const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
@@ -43,13 +44,17 @@
       aria-label={dm.name}
       onclick={() => selectGuild(dm.id)}
     >
-      <Avatar
-        name={dm.name}
-        image={dm.dmPeerAvatar || dm.icon}
-        size={42}
-        online={dm.dmPeer ? !!dm.dmPeerOnline : null}
-        presence={dm.dmPeerPresence || ""}
-      />
+      {#if (dm.dmMembers ?? 2) > 2}
+        <GroupAvatar faces={dm.dmFaces || []} size={42} />
+      {:else}
+        <Avatar
+          name={dm.name}
+          image={dm.dmPeerAvatar || dm.icon}
+          size={42}
+          online={dm.dmPeer ? !!dm.dmPeerOnline : null}
+          presence={dm.dmPeerPresence || ""}
+        />
+      {/if}
       {#if dm.id !== S.activeGuildId && u.count > 0}
         <span class="badge mention">{u.count > 99 ? "99+" : u.count}</span>
       {/if}

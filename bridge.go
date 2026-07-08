@@ -131,6 +131,9 @@ type GuildView struct {
 	DMPeerOnline   bool   `json:"dmPeerOnline,omitempty"`
 	DMPeerAvatar   string `json:"dmPeerAvatar,omitempty"` // the other member's profile picture (data URI)
 	DMMembers      int    `json:"dmMembers,omitempty"`    // total members in a DM (incl. self); lets the UI hide empty pending DMs
+	// DMFaces is the other members (excluding self) of a DM, for the bubble: a
+	// single face for a peer DM, several for a group DM (rendered as a collage).
+	DMFaces []DMFace `json:"dmFaces,omitempty"`
 	IsOwner    bool           `json:"isOwner"`
 	CanManage  bool           `json:"canManage"` // viewer may invite/kick/ban here
 	MyPerms    uint32         `json:"myPerms"`   // viewer's effective permission bitmask
@@ -143,6 +146,15 @@ type GuildView struct {
 	// OutOfSync: this member is stranded at an old MLS epoch that no reachable
 	// peer could bridge; new messages can't be decrypted until re-invited.
 	OutOfSync bool `json:"outOfSync,omitempty"`
+}
+
+// DMFace is one member's avatar data for a DM bubble (used to build the group
+// DM collage). Mirrors the fields Avatar needs to render an image or initials.
+type DMFace struct {
+	Name   string `json:"name"`
+	Avatar string `json:"avatar,omitempty"`
+	Color  string `json:"color,omitempty"`
+	Emoji  string `json:"emoji,omitempty"`
 }
 
 type MessageView struct {
@@ -966,6 +978,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	// A peer DM shows the OTHER member (name + avatar handled UI-side via the
 	// fingerprint); a self-DM stays "Notes".
 	dmPeer, dmPeerPresence, dmPeerAvatar, dmPeerOnline, dmMembers := "", "", "", false, 0
+	var dmFaces []DMFace
 	if g.Kind == "dm" {
 		if creds, err := svc.GuildMembers(g.ID); err == nil {
 			self := svc.PublicKey()
@@ -976,6 +989,18 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 				}
 			}
 			dmMembers = len(creds)
+			// One face per other member, for the bubble (a single avatar for a peer
+			// DM, a collage for a group DM).
+			names := make([]string, 0, len(others))
+			for _, f := range others {
+				prof := svc.ProfileOf(f)
+				dn := prof.Name
+				if dn == "" {
+					dn = f[:min(9, len(f))]
+				}
+				names = append(names, dn)
+				dmFaces = append(dmFaces, DMFace{Name: dn, Avatar: prof.Avatar, Color: prof.Color, Emoji: prof.Emoji})
+			}
 			// A 2-person DM shows the other member's name + avatar + status dot. A
 			// group DM has no single presence, so leave DMPeer* empty and name it
 			// after its members (Discord-style "Alice, Bob").
@@ -994,23 +1019,16 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 					}
 				}
 			} else if len(others) > 1 {
-				names := make([]string, 0, len(others))
-				for _, f := range others {
-					if n := svc.ProfileName(f); n != "" {
-						names = append(names, n)
-					} else {
-						names = append(names, f[:min(9, len(f))])
-					}
-				}
-				sort.Strings(names)
-				name = strings.Join(names, ", ")
+				sorted := append([]string(nil), names...)
+				sort.Strings(sorted)
+				name = strings.Join(sorted, ", ")
 			}
 		}
 	}
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
 		DMPeerPresence: dmPeerPresence, DMPeerOnline: dmPeerOnline,
-		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers,
+		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers, DMFaces: dmFaces,
 		CanManage:   svc.CanManageMembers(g.ID),
 		MyPerms:     uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:        g.Icon, Banner: g.Banner, Description: g.Description,

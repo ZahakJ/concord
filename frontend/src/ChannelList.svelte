@@ -3,6 +3,7 @@
   // mute, and the self row (profile + network settings) pinned to the bottom.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
+  import GroupAvatar from "./GroupAvatar.svelte";
   import Menu from "./Menu.svelte";
   import {
     S,
@@ -108,13 +109,43 @@
     ]);
   }
 
-  async function newDMInvite() {
-    try {
-      const code = await api.newDMInvite();
-      S.modal = { kind: "invite", code };
-    } catch (err) {
-      flash(err);
-    }
+  // One entry point for starting conversations: pick one person (→ a 1:1 DM)
+  // or several (→ a group DM), or invite by link from inside the picker.
+  function newMessage() {
+    S.modal = { kind: "newDM" };
+  }
+
+  // Right-click a DM to close it (leaves the group; local delete). Group DMs
+  // can be left; a 1:1 just disappears from your list.
+  function dmMenu(e, dm) {
+    openContextMenu(e, [
+      {
+        label: "Mark As Read",
+        icon: "check",
+        onClick: () => markRead(dm.channels?.[0]?.id),
+      },
+      { sep: true },
+      {
+        label: (dm.dmMembers ?? 2) > 2 ? "Leave Group" : "Close DM",
+        icon: "door",
+        danger: true,
+        onClick: () =>
+          confirmDelete(
+            (dm.dmMembers ?? 2) > 2 ? `Leave “${dm.name}”?` : `Close DM with ${dm.name}?`,
+            "It's removed from your list. You can be re-invited later.",
+            async () => {
+              try {
+                if (S.activeGuildId === dm.id) S.activeGuildId = null;
+                await api.leaveGuild(dm.id);
+                await refreshGuilds();
+              } catch (err) {
+                flash(err);
+              }
+              S.modal = null;
+            },
+          ),
+      },
+    ]);
   }
 </script>
 
@@ -143,25 +174,22 @@
     {#if g?.kind === "dm"}
       <div class="section-head">
         <span>Direct messages</span>
-        <span class="dm-actions">
-          <button
-            class="cat-add"
-            title="New group DM (verified contacts)"
-            aria-label="New group DM"
-            onclick={() => (S.modal = { kind: "groupDM" })}
-          >
-            <Icon name="members" size={13} />
-          </button>
-          <button class="cat-add" title="Invite someone to a new DM" aria-label="New DM invite" onclick={newDMInvite}>
-            <Icon name="plus" size={12} />
-          </button>
-        </span>
+        <button class="cat-add" title="New message" aria-label="New message" onclick={newMessage}>
+          <Icon name="plus" size={12} />
+        </button>
       </div>
       {#each dms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}
-        <button class="dm-item" class:active onclick={() => selectGuild(dm.id)}>
+        <button
+          class="dm-item"
+          class:active
+          onclick={() => selectGuild(dm.id)}
+          oncontextmenu={dm.name === "Notes" ? undefined : (e) => dmMenu(e, dm)}
+        >
           {#if dm.name === "Notes"}
             <span class="dm-notes-icon"><Icon name="edit" size={15} /></span>
+          {:else if (dm.dmMembers ?? 2) > 2}
+            <GroupAvatar faces={dm.dmFaces || []} size={26} />
           {:else}
             <Avatar
               name={dm.name}

@@ -106,6 +106,12 @@ func (s *Service) CreateGroupDM(fingerprints []string) (domain.Guild, error) {
 		return domain.Guild{}, fmt.Errorf("app: a group DM tops out at %d people", groupDMMax)
 	}
 
+	// If we already have a DM with exactly this set of people, reuse it instead
+	// of spawning a duplicate conversation.
+	if g := s.findDMByMembers(targets); g != nil {
+		return *g, nil
+	}
+
 	gid, err := s.mls.CreateGroup(s.ctx)
 	if err != nil {
 		return domain.Guild{}, fmt.Errorf("app: create group dm: %w", err)
@@ -325,6 +331,52 @@ func (s *Service) sharesOtherGroupWith(fingerprint, exclID string) bool {
 		}
 	}
 	return false
+}
+
+// findDMByMembers returns an existing DM whose set of OTHER members (everyone
+// but us) exactly equals want, or nil. Used to avoid creating a duplicate DM
+// for a group of people we already have a conversation with.
+func (s *Service) findDMByMembers(want []string) *domain.Guild {
+	wantSet := make(map[string]bool, len(want))
+	for _, f := range want {
+		wantSet[f] = true
+	}
+	self := s.id.Fingerprint()
+	s.mu.RLock()
+	var candidates []*domain.Guild
+	for _, g := range s.guilds {
+		if g.Kind == "dm" {
+			candidates = append(candidates, g)
+		}
+	}
+	s.mu.RUnlock()
+	for _, g := range candidates {
+		creds, err := s.mls.Members(s.ctx, g.GroupID)
+		if err != nil {
+			continue
+		}
+		others := make(map[string]bool)
+		for _, c := range creds {
+			if f := identity.FingerprintOf(c); f != self {
+				others[f] = true
+			}
+		}
+		if len(others) != len(wantSet) {
+			continue
+		}
+		match := true
+		for f := range wantSet {
+			if !others[f] {
+				match = false
+				break
+			}
+		}
+		if match {
+			gc := *g
+			return &gc
+		}
+	}
+	return nil
 }
 
 // findPeerDM returns an existing 2-person DM with the given fingerprint, or nil.

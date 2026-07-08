@@ -141,6 +141,16 @@ func TestGroupDMHappyPath(t *testing.T) {
 	b.OnMessage(rb.add)
 	c.OnMessage(rc.add)
 	sendUntilReceived(t, a, dm.Channels[0].ID, "welcome to the group", rb, rc)
+
+	// Asking for a group with the same people again reuses the conversation
+	// instead of creating a duplicate (order-independent).
+	dm2, err := a.CreateGroupDM([]string{c.Fingerprint(), b.Fingerprint()})
+	if err != nil {
+		t.Fatalf("CreateGroupDM (repeat): %v", err)
+	}
+	if dm2.ID != dm.ID {
+		t.Fatalf("duplicate group DM created (%s vs %s)", dm2.ID, dm.ID)
+	}
 }
 
 // TestPeerDM covers the click-profile-to-DM flow: A and B share a guild; A
