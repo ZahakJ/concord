@@ -116,7 +116,7 @@
   }
 </script>
 
-<div class="voice-panel" class:theater={!!focused}>
+<div class="voice-panel" class:theater={inTheater}>
   {#if ringing || waiting}
     <div class="ringing">
       <span class="dots"><span></span><span></span><span></span></span>
