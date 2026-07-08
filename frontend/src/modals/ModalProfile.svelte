@@ -102,23 +102,81 @@
     rawImg = null;
   }
 
+  // ---- banner (wide header image) ----
+  let banner = $state(identity.banner || "");
+  let bannerInput;
+  // Whether a paste should target the banner (pointer over it) vs the avatar.
+  let pasteTarget = $state("avatar");
+
+  // Downscale a chosen banner to a reasonable width so the profile broadcast
+  // stays small, then store it as a JPEG data URI.
+  function loadBanner(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const maxW = 640;
+      const scale = Math.min(1, maxW / img.naturalWidth);
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.naturalWidth * scale);
+      c.height = Math.round(img.naturalHeight * scale);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      banner = c.toDataURL("image/jpeg", 0.82);
+    };
+    img.onerror = () => URL.revokeObjectURL(url);
+    img.src = url;
+  }
+
   function onPaste(e) {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
-    if (item) {
-      e.preventDefault();
-      loadForCrop(item.getAsFile());
-    }
+    if (!item) return;
+    e.preventDefault();
+    if (pasteTarget === "banner") loadBanner(item.getAsFile());
+    else loadForCrop(item.getAsFile());
   }
 
   function save() {
-    onSubmit({ name: name.trim(), status: status.trim(), emoji, color, avatar, presence, bio: bio.trim() });
+    onSubmit({ name: name.trim(), status: status.trim(), emoji, color, avatar, banner, presence, bio: bio.trim() });
   }
 </script>
 
 <svelte:window onpaste={onPaste} />
 
 <Modal title="Your profile" {onClose}>
-  <div class="preview">
+  <!-- Banner header (click or paste an image over it). -->
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+  <div
+    class="banner-strip"
+    style={banner ? `background-image:url(${banner})` : ""}
+    onmouseenter={() => (pasteTarget = "banner")}
+    onclick={() => bannerInput.click()}
+    title="Click or paste an image to set your banner"
+  >
+    <span class="banner-hint">{banner ? "Change banner" : "Add banner"}</span>
+    {#if banner}
+      <button
+        class="banner-remove"
+        title="Remove banner"
+        aria-label="Remove banner"
+        onclick={(e) => {
+          e.stopPropagation();
+          banner = "";
+        }}>✕</button>
+    {/if}
+  </div>
+  <input
+    type="file"
+    accept="image/*"
+    bind:this={bannerInput}
+    style="display:none"
+    onchange={(e) => {
+      loadBanner(e.target.files?.[0]);
+      e.target.value = "";
+    }}
+  />
+
+  <div class="preview" onmouseenter={() => (pasteTarget = "avatar")} role="group">
     <button
       class="avatar"
       style="background:{color}"
@@ -230,6 +288,46 @@
 </Modal>
 
 <style>
+  .banner-strip {
+    position: relative;
+    height: 90px;
+    border-radius: 8px;
+    background: var(--bg-input);
+    background-size: cover;
+    background-position: center;
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px dashed var(--border);
+  }
+  .banner-strip:hover {
+    border-color: var(--accent);
+  }
+  .banner-hint {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 3px 8px;
+    border-radius: 10px;
+    opacity: 0.85;
+  }
+  .banner-remove {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    display: grid;
+    place-items: center;
+  }
   .preview {
     display: flex;
     align-items: center;

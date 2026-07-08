@@ -211,7 +211,15 @@
     onmouseenter={holdProfilePopover}
     onmouseleave={scheduleCloseProfilePopover}
   >
-    <div class="banner" style={mem.color ? `background:${mem.color}` : ""}></div>
+    <div
+      class="banner"
+      class:has-image={!!mem.banner}
+      style={mem.banner
+        ? `background-image:url(${mem.banner})`
+        : mem.color
+          ? `background:${mem.color}`
+          : ""}
+    ></div>
     <div class="head">
       <div class="av-wrap">
         <Avatar
@@ -360,8 +368,12 @@
     }
   }
   .banner {
-    height: 48px;
+    height: 60px;
     background: linear-gradient(120deg, var(--accent), var(--accent-hover));
+  }
+  .banner.has-image {
+    background-size: cover;
+    background-position: center;
   }
   .head {
     padding: 0 14px;

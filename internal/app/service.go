@@ -117,6 +117,9 @@ type Profile struct {
 	Emoji  string `json:"emoji"`
 	Color  string `json:"color"`
 	Avatar string `json:"avatar"` // small image as a data URI ("" = none)
+	// Banner is a wide profile-header image (data URI, "" = none), like a guild
+	// banner but for a person; shown on the profile card.
+	Banner string `json:"banner,omitempty"`
 	// Presence is the user-chosen availability: "" / "online" (default), "idle",
 	// "dnd", or "invisible" (appear offline). It shades the avatar dot.
 	Presence string `json:"presence,omitempty"`
@@ -130,6 +133,11 @@ type Profile struct {
 // maxAvatarBytes caps the avatar data URI so profile broadcasts stay far below
 // the gossipsub frame limit (the UI downscales to ~96px JPEG, typically <10 KB).
 const maxAvatarBytes = 64 * 1024
+
+// maxProfileBannerBytes caps a user's profile banner. Larger than the avatar
+// (it's a wide header) but still bounded so profile broadcasts stay reasonable;
+// the UI downscales before sending.
+const maxProfileBannerBytes = 256 * 1024
 
 // maxNameBytes bounds self-asserted display names and per-guild nicknames so a
 // peer can't publish a pathologically long string over the meta topic.
@@ -244,7 +252,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// of fingerprint-only names right after unlock).
 	if rows, err := st.Profiles(); err == nil {
 		for _, r := range rows {
-			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub}
+			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub}
 		}
 	}
 
@@ -435,6 +443,7 @@ func (s *Service) SelfProfile() Profile {
 	emoji, _ := s.store.GetSetting("avatar_emoji")
 	color, _ := s.store.GetSetting("accent_color")
 	avatar, _ := s.store.GetSetting("avatar_image")
+	banner, _ := s.store.GetSetting("banner_image")
 	presence, _ := s.store.GetSetting("presence")
 	bio, _ := s.store.GetSetting("bio")
 	// Rich-presence overlay: while something is playing, it stands in for the
@@ -446,7 +455,7 @@ func (s *Service) SelfProfile() Profile {
 	s.activityMu.Unlock()
 	return Profile{
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
-		Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:],
+		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:],
 	}
 }
 
@@ -458,6 +467,12 @@ func (s *Service) SetProfile(p Profile) error {
 	if p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/") {
 		return fmt.Errorf("app: avatar must be an image data URI")
 	}
+	if len(p.Banner) > maxProfileBannerBytes {
+		return fmt.Errorf("app: banner image too large (max %d KB)", maxProfileBannerBytes/1024)
+	}
+	if p.Banner != "" && !strings.HasPrefix(p.Banner, "data:image/") {
+		return fmt.Errorf("app: banner must be an image data URI")
+	}
 	if len(p.Bio) > maxBioBytes {
 		p.Bio = p.Bio[:maxBioBytes]
 	}
@@ -467,6 +482,7 @@ func (s *Service) SetProfile(p Profile) error {
 		"avatar_emoji": strings.TrimSpace(p.Emoji),
 		"accent_color": strings.TrimSpace(p.Color),
 		"avatar_image": p.Avatar,
+		"banner_image": p.Banner,
 		"presence":     strings.TrimSpace(p.Presence),
 		"bio":          strings.TrimSpace(p.Bio),
 	} {
@@ -524,6 +540,9 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	if len(p.Avatar) > maxAvatarBytes || (p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/")) {
 		p.Avatar = "" // reject oversized or non-image avatars from peers
 	}
+	if len(p.Banner) > maxProfileBannerBytes || (p.Banner != "" && !strings.HasPrefix(p.Banner, "data:image/")) {
+		p.Banner = "" // reject oversized or non-image banners from peers
+	}
 	// Don't let a partial update wipe fields we already learned. Peers relay each
 	// other's profiles over the sync roster, and a peer that only knows someone
 	// as "unknown" (empty name) would otherwise blank a good name — which the UI
@@ -548,7 +567,7 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	_ = s.store.SaveProfile(store.ProfileRow{
 		Fingerprint: fingerprint,
 		Name:        p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
-		Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
+		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
 	})
 	s.emitGuildUpdate()
 	return !known
@@ -556,8 +575,8 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 
 func profilesEqual(a, b Profile) bool {
 	return a.Name == b.Name && a.Status == b.Status && a.Emoji == b.Emoji &&
-		a.Color == b.Color && a.Avatar == b.Avatar && a.Presence == b.Presence &&
-		a.Bio == b.Bio && bytes.Equal(a.MailboxPub, b.MailboxPub)
+		a.Color == b.Color && a.Avatar == b.Avatar && a.Banner == b.Banner &&
+		a.Presence == b.Presence && a.Bio == b.Bio && bytes.Equal(a.MailboxPub, b.MailboxPub)
 }
 
 // learnNameHint backfills a display name from a chat message's self-asserted

@@ -105,8 +105,8 @@ export const api = {
   leaveVoice: (channelID) => call("LeaveVoice", channelID),
   relaySignal: (toPeerID, data) => call("RelaySignal", toPeerID, data),
   sendTyping: (channelID) => call("SendTyping", channelID),
-  setProfile: (name, status, emoji, color, avatar, presence = "", bio = "") =>
-    call("SetProfile", name, status, emoji, color, avatar, presence, bio),
+  setProfile: (name, status, emoji, color, avatar, banner = "", presence = "", bio = "") =>
+    call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio),
   verifyFingerprint: (fingerprint) => call("VerifyFingerprint", fingerprint),
   pinMessage: (channelID, messageID) => call("PinMessage", channelID, messageID),
   searchMessages: (query) => call("SearchMessages", query),
