@@ -48,6 +48,33 @@
     return S.roles.find((r) => mem.roleIds.includes(r.id)) || null;
   }
 
+  const sortMembers = (ms) =>
+    [...ms].sort(
+      (a, b) =>
+        (b.online ? 1 : 0) - (a.online ? 1 : 0) ||
+        (a.name || a.fingerprint).localeCompare(b.name || b.fingerprint),
+    );
+
+  // Group members under their highest role (Discord-style hoisting), roles
+  // highest-position first, with a "Members" catch-all for the roleless.
+  const memberGroups = $derived.by(() => {
+    const roles = [...S.roles].sort((a, b) => b.position - a.position);
+    const bucket = new Map();
+    const noRole = [];
+    for (const m of S.members) {
+      const r = topRole(m);
+      if (r) (bucket.get(r.id) || bucket.set(r.id, []).get(r.id)).push(m);
+      else noRole.push(m);
+    }
+    const out = [];
+    for (const r of roles) {
+      const ms = bucket.get(r.id);
+      if (ms?.length) out.push({ id: r.id, name: r.name, color: r.color, members: sortMembers(ms) });
+    }
+    if (noRole.length) out.push({ id: "", name: "Members", color: "", members: sortMembers(noRole) });
+    return out;
+  });
+
   async function kick(fingerprint) {
     try {
       await api.removeMember(S.activeGuildId, fingerprint);
@@ -60,9 +87,12 @@
 </script>
 
 <aside class="panel">
-  <div class="section-head"><span>Members — {g?.name ?? ""}</span></div>
-  {#each S.members as mem (mem.fingerprint)}
-    <div class="member-row">
+  {#each memberGroups as grp (grp.id)}
+    <div class="section-head">
+      <span style={grp.color ? `color:${grp.color}` : ""}>{grp.name} — {grp.members.length}</span>
+    </div>
+    {#each grp.members as mem (mem.fingerprint)}
+      <div class="member-row">
       <button
         class="member"
         onclick={(e) => openProfilePopover(mem.fingerprint, e.currentTarget)}
@@ -102,12 +132,13 @@
           {#if mem.status}<span class="muted member-status">{mem.status}</span>{/if}
         </span>
       </button>
-      {#if g?.canManage && !mem.isSelf && !mem.isOwner}
-        <button class="kick" title="Remove from guild" aria-label="Remove {mem.name || 'member'} from guild" onclick={() => kick(mem.fingerprint)}>
-          <Icon name="close" size={12} />
-        </button>
-      {/if}
-    </div>
+        {#if g?.canManage && !mem.isSelf && !mem.isOwner}
+          <button class="kick" title="Remove from guild" aria-label="Remove {mem.name || 'member'} from guild" onclick={() => kick(mem.fingerprint)}>
+            <Icon name="close" size={12} />
+          </button>
+        {/if}
+      </div>
+    {/each}
   {/each}
 
   <div class="section-head">
