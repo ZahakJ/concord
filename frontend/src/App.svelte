@@ -46,6 +46,7 @@
   import ModalRoles from "./modals/ModalRoles.svelte";
   import ModalGuildSettings from "./modals/ModalGuildSettings.svelte";
   import ModalChannelTopic from "./modals/ModalChannelTopic.svelte";
+  import ModalShortcuts from "./modals/ModalShortcuts.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
   import ModalProfile from "./modals/ModalProfile.svelte";
@@ -349,6 +350,8 @@
     <ModalRoles onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "guildSettings"}
     <ModalGuildSettings onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "shortcuts"}
+    <ModalShortcuts onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "channelTopic"}
     <ModalChannelTopic
       channel={S.modal.channel}

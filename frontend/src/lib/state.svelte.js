@@ -162,6 +162,14 @@ export function markRead(channelId) {
   }
 }
 
+// markAllRead clears unread across every channel (Shift+Esc).
+export function markAllRead() {
+  const now = new Date().toISOString();
+  for (const g of S.guilds) for (const c of g.channels) lastRead[c.id] = now;
+  saveJSON("concord.lastRead", lastRead);
+  S.unread = {};
+}
+
 export function toggleMute(channelId) {
   const m = { ...S.mutes };
   if (m[channelId]) delete m[channelId];

@@ -3,9 +3,11 @@
 //   Ctrl/Cmd+K        quick switcher
 //   Alt+↑ / Alt+↓     previous / next channel in the active guild
 //   Alt+Shift+↑/↓     previous / next unread channel (across servers)
-//   Escape            close switcher / pins / search / reply (handled locally
-//                     where a more specific target has focus)
-import { S, activeGuild, selectChannel, jumpToChannel } from "./state.svelte.js";
+//   Escape            close switcher / pins / search / reply — or, if nothing
+//                     is open, mark the current channel read
+//   Shift+Escape      mark ALL channels read
+//   ? or Ctrl+/       keyboard-shortcut cheat sheet
+import { S, activeGuild, selectChannel, jumpToChannel, markRead, markAllRead } from "./state.svelte.js";
 
 function channelsOfActive() {
   return activeGuild()?.channels ?? [];
@@ -50,14 +52,26 @@ export function installShortcuts() {
       else stepChannel(dir);
       return;
     }
+    // Cheat sheet: ? (Shift+/) or Ctrl+/.
+    if ((mod && e.key === "/") || (e.key === "?" && !inputFocused())) {
+      e.preventDefault();
+      S.modal = S.modal?.kind === "shortcuts" ? null : { kind: "shortcuts" };
+      return;
+    }
     if (e.key === "Escape" && !inputFocused()) {
-      if (S.quickSwitcher) S.quickSwitcher = false;
+      if (e.shiftKey) {
+        markAllRead();
+      } else if (S.contextMenu) S.contextMenu = null;
+      else if (S.quickSwitcher) S.quickSwitcher = false;
       else if (S.pickerTarget) S.pickerTarget = null;
       else if (S.showPins) S.showPins = false;
       else if (S.searchResults !== null) {
         S.searchResults = null;
         S.searchQuery = "";
       } else if (S.replyingTo) S.replyingTo = null;
+      else if (S.modal) S.modal = null;
+      // Nothing to dismiss → mark the current channel read (Discord-style).
+      else if (S.activeChannelId) markRead(S.activeChannelId);
     }
   };
   window.addEventListener("keydown", handler);
