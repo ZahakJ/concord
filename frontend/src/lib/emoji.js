@@ -105,6 +105,37 @@ export const EMOJI = {
 
 const NAMES = Object.keys(EMOJI);
 
+// Category tabs for the picker, derived from EMOJI's section order (no
+// re-listing of names). Hearts + symbols share the Symbols tab.
+const idx = (n) => NAMES.indexOf(n);
+const range = (a, b) => NAMES.slice(idx(a), idx(b) + 1);
+export const CATEGORIES = [
+  { key: "people", label: "Smileys & People", icon: "😀", names: range("smile", "wizard") },
+  { key: "nature", label: "Animals & Nature", icon: "🐻", names: range("dog", "earth") },
+  { key: "food", label: "Food & Drink", icon: "🍔", names: range("apple", "champagne") },
+  { key: "activity", label: "Activities & Objects", icon: "⚽", names: range("soccer", "syringe") },
+  { key: "symbols", label: "Symbols", icon: "✅", names: [...range("heart", "gift_heart"), ...range("check", "pirate")] },
+];
+
+// Recently-used emoji (chars), most-recent first, persisted locally.
+const RECENT_KEY = "concord.emojiRecent";
+export function recentEmoji() {
+  try {
+    return JSON.parse(localStorage.getItem(RECENT_KEY)) || [];
+  } catch {
+    return [];
+  }
+}
+export function pushRecentEmoji(e) {
+  if (!e) return;
+  try {
+    const next = [e, ...recentEmoji().filter((x) => x !== e)].slice(0, 24);
+    localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  } catch {
+    /* storage blocked */
+  }
+}
+
 // searchEmoji returns up to `limit` [name, emoji] pairs matching a prefix or
 // substring of the shortcode name (prefix matches ranked first).
 export function searchEmoji(query, limit = 8) {

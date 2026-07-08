@@ -1,54 +1,95 @@
 <script>
-  import { EMOJI, searchEmoji } from "./lib/emoji.js";
+  import { EMOJI, CATEGORIES, searchEmoji, recentEmoji, pushRecentEmoji } from "./lib/emoji.js";
   import { activeGuild } from "./lib/state.svelte.js";
 
-  // Small searchable emoji grid. onPick(emoji) fires on selection. Closes on
-  // Escape or an outside click (a short guard ignores the opening click, which
-  // also bubbles to the window).
+  // Searchable, tabbed emoji grid. onPick(emoji) fires on selection. Closes on
+  // Escape or an outside click (a short guard ignores the opening click).
   let { onPick, onClose } = $props();
   let query = $state("");
+  let recents = $state(recentEmoji());
   const openedAt = Date.now();
 
-  const results = $derived(
-    query.trim() ? searchEmoji(query.trim(), 64) : Object.entries(EMOJI).slice(0, 120),
-  );
-  // The active guild's custom emoji, filtered by the search query.
-  const custom = $derived.by(() => {
-    const list = activeGuild()?.emoji || [];
-    const q = query.trim().toLowerCase();
-    return q ? list.filter((e) => e.name.includes(q)) : list;
+  const customList = $derived(activeGuild()?.emoji || []);
+  // Tabs: recent (if any) + the standard categories + guild (if any custom).
+  const tabs = $derived([
+    ...(recents.length ? [{ key: "recent", label: "Recently Used", icon: "🕘" }] : []),
+    ...CATEGORIES,
+    ...(customList.length ? [{ key: "guild", label: "Guild", icon: "🖼️" }] : []),
+  ]);
+  let activeCat = $state("");
+  // Default to the first available tab.
+  $effect(() => {
+    if (!tabs.some((t) => t.key === activeCat)) activeCat = tabs[0]?.key || "people";
   });
+
+  const q = $derived(query.trim().toLowerCase());
+  const searchHits = $derived(q ? searchEmoji(q, 64) : []);
+  const searchCustom = $derived(q ? customList.filter((e) => e.name.includes(q)) : []);
+  const catNames = $derived(CATEGORIES.find((c) => c.key === activeCat)?.names || []);
+
+  function pick(e) {
+    if (!/^:[a-z0-9_]+:$/i.test(e)) {
+      pushRecentEmoji(e); // store unicode chars only (custom emoji are guild-scoped)
+      recents = recentEmoji();
+    }
+    onPick(e);
+  }
 
   function onOutside(e) {
     if (Date.now() - openedAt > 250 && !e.target.closest(".picker")) onClose();
   }
 </script>
 
-<svelte:window
-  onpointerdown={onOutside}
-  onkeydown={(e) => e.key === "Escape" && onClose()}
-/>
+<svelte:window onpointerdown={onOutside} onkeydown={(e) => e.key === "Escape" && onClose()} />
 
 <div class="picker" role="dialog">
   <div class="row">
     <input placeholder="Search emoji…" bind:value={query} autofocus />
     <button class="mini" onclick={onClose}>✕</button>
   </div>
+
+  {#if !q}
+    <div class="tabs">
+      {#each tabs as t (t.key)}
+        <button
+          class="tab"
+          class:sel={activeCat === t.key}
+          title={t.label}
+          onclick={() => (activeCat = t.key)}>{t.icon}</button>
+      {/each}
+    </div>
+  {/if}
+
   <div class="grid">
-    {#if custom.length}
-      <div class="section-label">Guild</div>
-      {#each custom as e (e.name)}
-        <button class="cell" title=":{e.name}:" onclick={() => onPick(`:${e.name}:`)}>
+    {#if q}
+      {#if searchCustom.length}
+        <div class="section-label">Guild</div>
+        {#each searchCustom as e (e.name)}
+          <button class="cell" title=":{e.name}:" onclick={() => pick(`:${e.name}:`)}>
+            <img class="cimg" src={e.image} alt=":{e.name}:" />
+          </button>
+        {/each}
+      {/if}
+      {#if searchHits.length}<div class="section-label">Emoji</div>{/if}
+      {#each searchHits as [name, e] (name)}
+        <button class="cell" title=":{name}:" onclick={() => pick(e)}>{e}</button>
+      {/each}
+      {#if !searchHits.length && !searchCustom.length}<div class="muted none">No match</div>{/if}
+    {:else if activeCat === "recent"}
+      {#each recents as e, i (e + i)}
+        <button class="cell" onclick={() => pick(e)}>{e}</button>
+      {/each}
+    {:else if activeCat === "guild"}
+      {#each customList as e (e.name)}
+        <button class="cell" title=":{e.name}:" onclick={() => pick(`:${e.name}:`)}>
           <img class="cimg" src={e.image} alt=":{e.name}:" />
         </button>
       {/each}
-      <div class="section-label">Emoji</div>
-    {/if}
-    {#each results as [name, e] (name)}
-      <button class="cell" title=":{name}:" onclick={() => onPick(e)}>{e}</button>
     {:else}
-      {#if !custom.length}<div class="muted none">No match</div>{/if}
-    {/each}
+      {#each catNames as name (name)}
+        <button class="cell" title=":{name}:" onclick={() => pick(EMOJI[name])}>{EMOJI[name]}</button>
+      {/each}
+    {/if}
   </div>
 </div>
 
@@ -72,6 +113,29 @@
     display: flex;
     gap: 6px;
     align-items: center;
+  }
+  .tabs {
+    display: flex;
+    gap: 2px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 6px;
+  }
+  .tab {
+    background: transparent;
+    font-size: 17px;
+    padding: 3px 6px;
+    border-radius: 6px;
+    line-height: 1;
+    opacity: 0.7;
+  }
+  .tab:hover {
+    background: var(--bg-input);
+    opacity: 1;
+  }
+  .tab.sel {
+    background: var(--bg-input);
+    opacity: 1;
+    box-shadow: inset 0 -2px 0 var(--accent);
   }
   .grid {
     display: grid;
