@@ -505,12 +505,21 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	if len(p.Avatar) > maxAvatarBytes || (p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/")) {
 		p.Avatar = "" // reject oversized or non-image avatars from peers
 	}
-	// Don't let a profile update that omits the mailbox key wipe one we already
-	// learned (e.g. a name backfill or an older peer's announce).
+	// Don't let a partial update wipe fields we already learned. Peers relay each
+	// other's profiles over the sync roster, and a peer that only knows someone
+	// as "unknown" (empty name) would otherwise blank a good name — which the UI
+	// then shows as a fingerprint stub, causing the name to flicker. An empty
+	// name is never an intentional clear (users always have a display name), so
+	// keep the previous one; likewise keep a known mailbox key.
 	s.mu.Lock()
 	prev, known := s.profiles[fingerprint]
-	if known && len(p.MailboxPub) == 0 && len(prev.MailboxPub) > 0 {
-		p.MailboxPub = prev.MailboxPub
+	if known {
+		if p.Name == "" && prev.Name != "" {
+			p.Name = prev.Name
+		}
+		if len(p.MailboxPub) == 0 && len(prev.MailboxPub) > 0 {
+			p.MailboxPub = prev.MailboxPub
+		}
 	}
 	s.profiles[fingerprint] = p
 	s.mu.Unlock()

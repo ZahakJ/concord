@@ -448,6 +448,10 @@ func (s *Service) profileRoster() map[string]Profile {
 	s.mu.RLock()
 	out := make(map[string]Profile, len(s.profiles)+1)
 	for fpr, p := range s.profiles {
+		if p.Name == "" {
+			continue // don't relay someone we only know as "unknown" — it would
+			// blank the name for a peer who already learned it
+		}
 		out[fpr] = p
 	}
 	s.mu.RUnlock()
@@ -688,8 +692,10 @@ func (s *Service) trackGuild(g *domain.Guild) {
 			s.emitTyping(presenceFor(from).Fingerprint, channelID)
 		})
 		// Watch voice presence for every voice channel so the sidebar shows who's
-		// in a call without us having to join it.
-		if c.ChannelType() == "voice" {
+		// in a call without us having to join it. In a DM there's no dedicated
+		// voice channel — the conversation's single channel doubles as the call
+		// room — so watch it too, or the other peer never sees you ringing.
+		if c.ChannelType() == "voice" || g.Kind == "dm" {
 			s.watchVoice(groupID, channelID)
 		}
 	}
