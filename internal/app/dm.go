@@ -128,22 +128,110 @@ func (s *Service) CreateGroupDM(fingerprints []string) (domain.Guild, error) {
 	if err != nil {
 		return domain.Guild{}, err
 	}
-	req, _ := json.Marshal(dmInvite{Code: code})
-	// Push to each reachable target; they dial back and get added via
-	// handleInviteRequest, whose inviteMu serializes the concurrent adds.
+	// Remember everyone we intend to add, then push to whoever's reachable now.
+	// Unreachable invitees stay pending and are invited when they next connect
+	// (see deliverPendingDMInvites), so the group eventually gathers everyone.
+	s.dmInviteMu.Lock()
+	s.pendingDMInvites[g.ID] = map[string]bool{}
 	for _, f := range targets {
-		pid, ok := s.peerForFingerprint(f)
-		if !ok {
-			continue // offline — can be re-invited once they're reachable
+		s.pendingDMInvites[g.ID][f] = true
+	}
+	s.dmInviteMu.Unlock()
+
+	for _, f := range targets {
+		if pid, ok := s.peerForFingerprint(f); ok {
+			s.pushDMInvite(pid, code)
 		}
-		p := pid
-		go func() {
-			ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
-			defer cancel()
-			_, _ = s.host.RequestDMInvite(ctx, p, req)
-		}()
 	}
 	return g, nil
+}
+
+// retryPendingDMInvites re-pushes group-DM invites to any pending invitee who
+// is reachable right now but hasn't joined yet — covering the case where the
+// initial push failed while they stayed connected (so no reconnect fires the
+// redelivery). Runs on the heal-loop tick.
+func (s *Service) retryPendingDMInvites() {
+	s.dmInviteMu.Lock()
+	type todo struct{ gid, fpr string }
+	var pending []todo
+	for gid, set := range s.pendingDMInvites {
+		for fpr := range set {
+			pending = append(pending, todo{gid, fpr})
+		}
+	}
+	s.dmInviteMu.Unlock()
+
+	for _, t := range pending {
+		if s.guildHasMember(t.gid, t.fpr) {
+			s.clearPendingDMInvite(t.gid, t.fpr)
+			continue
+		}
+		pid, ok := s.peerForFingerprint(t.fpr)
+		if !ok {
+			continue // still offline
+		}
+		if code, err := s.InviteCode(t.gid); err == nil {
+			s.pushDMInvite(pid, code)
+		}
+	}
+}
+
+// clearPendingDMInvite drops a fingerprint from a group DM's pending set once
+// they've joined (called from the add path). Safe for non-DM guilds (no-op).
+func (s *Service) clearPendingDMInvite(guildID, fpr string) {
+	s.dmInviteMu.Lock()
+	defer s.dmInviteMu.Unlock()
+	if set, ok := s.pendingDMInvites[guildID]; ok {
+		delete(set, fpr)
+		if len(set) == 0 {
+			delete(s.pendingDMInvites, guildID)
+		}
+	}
+}
+
+// pushDMInvite fires the standard DM-invite push to a reachable peer; they dial
+// back and are added via handleInviteRequest.
+func (s *Service) pushDMInvite(pid peer.ID, code string) {
+	req, _ := json.Marshal(dmInvite{Code: code})
+	go func() {
+		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
+		defer cancel()
+		_, _ = s.host.RequestDMInvite(ctx, pid, req)
+	}()
+}
+
+// deliverPendingDMInvites is called when a peer connects: if they're an
+// outstanding group-DM invitee we couldn't reach earlier, invite them now.
+// Entries for peers who have since joined are pruned.
+func (s *Service) deliverPendingDMInvites(p peer.ID) {
+	fpr := presenceFor(p).Fingerprint
+	if fpr == "" {
+		return
+	}
+	s.dmInviteMu.Lock()
+	var invite []string // guild IDs to (re)push for this peer
+	for gid, set := range s.pendingDMInvites {
+		if !set[fpr] {
+			continue
+		}
+		if s.guildHasMember(gid, fpr) {
+			delete(set, fpr) // already in — nothing to do
+		} else {
+			invite = append(invite, gid)
+		}
+		if len(set) == 0 {
+			delete(s.pendingDMInvites, gid)
+		}
+	}
+	s.dmInviteMu.Unlock()
+
+	for _, gid := range invite {
+		code, err := s.InviteCode(gid)
+		if err != nil {
+			continue
+		}
+		s.pushDMInvite(p, code)
+	}
 }
 
 // shortFpr abbreviates a fingerprint for user-facing messages.

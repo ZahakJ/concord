@@ -434,6 +434,9 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	}
 	// Keep this member reachable (esp. over a relay) and refresh the roster.
 	s.host.Protect(from)
+	if len(req.Credential) > 0 {
+		s.clearPendingDMInvite(req.GuildID, identity.FingerprintOf(req.Credential))
+	}
 	s.emitGuildUpdate()
 	return json.Marshal(inviteResponse{Welcome: welcome, Guild: *g, Profiles: s.profileRoster()})
 }

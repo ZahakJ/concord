@@ -151,6 +151,14 @@ func TestGroupDMHappyPath(t *testing.T) {
 	if dm2.ID != dm.ID {
 		t.Fatalf("duplicate group DM created (%s vs %s)", dm2.ID, dm.ID)
 	}
+
+	// Both invitees joined, so nothing should remain pending.
+	a.dmInviteMu.Lock()
+	leftover := len(a.pendingDMInvites)
+	a.dmInviteMu.Unlock()
+	if leftover != 0 {
+		t.Fatalf("pending DM invites not cleared after everyone joined: %d", leftover)
+	}
 }
 
 // TestPeerDM covers the click-profile-to-DM flow: A and B share a guild; A

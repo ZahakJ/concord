@@ -50,6 +50,13 @@ type Service struct {
 	// commits at the same epoch. Serializing keeps each add on its own epoch.
 	inviteMu sync.Mutex
 
+	// pendingDMInvites tracks group-DM invitees we couldn't reach at creation
+	// time (guild ID -> set of fingerprints). When such a peer later connects we
+	// push them the invite, so a group DM eventually gathers everyone even if
+	// some were offline when it was made. Best-effort, in-memory.
+	dmInviteMu       sync.Mutex
+	pendingDMInvites map[string]map[string]bool
+
 	voiceMu    sync.Mutex
 	voiceRooms map[string]context.CancelFunc // channel ID -> heartbeat stop (rooms we're IN)
 	// voiceWatched marks voice channels whose presence topic we passively listen
@@ -210,9 +217,10 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		ps:             ps,
 		mls:            engine,
 		store:          st,
-		guilds:         map[string]*domain.Guild{},
-		channelToGuild: map[string]string{},
-		voiceRooms:     map[string]context.CancelFunc{},
+		guilds:           map[string]*domain.Guild{},
+		channelToGuild:   map[string]string{},
+		pendingDMInvites: map[string]map[string]bool{},
+		voiceRooms:       map[string]context.CancelFunc{},
 		voiceWatched:   map[string]bool{},
 		profiles:       map[string]Profile{},
 		nicks:          map[string]map[string]string{},
@@ -284,6 +292,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 				s.drainMailbox(p)
 			}()
 		}
+		// If this peer is an outstanding group-DM invitee we couldn't reach
+		// earlier, invite them now that they're online.
+		go s.deliverPendingDMInvites(p)
 		go func() {
 			time.Sleep(1500 * time.Millisecond)
 			s.announceProfileAll()
