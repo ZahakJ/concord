@@ -134,6 +134,7 @@ type GuildView struct {
 	// DMFaces is the other members (excluding self) of a DM, for the bubble: a
 	// single face for a peer DM, several for a group DM (rendered as a collage).
 	DMFaces []DMFace `json:"dmFaces,omitempty"`
+	DMNamed bool     `json:"dmNamed,omitempty"` // group DM has a user-set custom name
 	IsOwner    bool           `json:"isOwner"`
 	CanManage  bool           `json:"canManage"` // viewer may invite/kick/ban here
 	MyPerms    uint32         `json:"myPerms"`   // viewer's effective permission bitmask
@@ -151,10 +152,11 @@ type GuildView struct {
 // DMFace is one member's avatar data for a DM bubble (used to build the group
 // DM collage). Mirrors the fields Avatar needs to render an image or initials.
 type DMFace struct {
-	Name   string `json:"name"`
-	Avatar string `json:"avatar,omitempty"`
-	Color  string `json:"color,omitempty"`
-	Emoji  string `json:"emoji,omitempty"`
+	Name    string `json:"name"`
+	Avatar  string `json:"avatar,omitempty"`
+	Color   string `json:"color,omitempty"`
+	Emoji   string `json:"emoji,omitempty"`
+	Pending bool   `json:"pending,omitempty"` // invited but hasn't joined yet
 }
 
 type MessageView struct {
@@ -953,6 +955,17 @@ func (b *bridge) Contacts() ([]ContactView, error) {
 
 // ---- mapping helpers ----
 
+// isCustomDMName reports whether a DM guild's stored name is a user-chosen group
+// name (vs. the auto-defaults), so guildView keeps it instead of recomputing the
+// member-list name.
+func isCustomDMName(n string) bool {
+	switch n {
+	case "", "Direct message", "Group message", "Notes":
+		return false
+	}
+	return true
+}
+
 func channelView(c domain.Channel) ChannelView {
 	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category, Position: c.Position, Topic: c.Topic}
 }
@@ -982,29 +995,51 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	if g.Kind == "dm" {
 		if creds, err := svc.GuildMembers(g.ID); err == nil {
 			self := svc.PublicKey()
+			joined := map[string]bool{}
 			var others []string
 			for _, c := range creds {
 				if !bytes.Equal(c, self) {
-					others = append(others, identity.FingerprintOf(c))
+					f := identity.FingerprintOf(c)
+					others = append(others, f)
+					joined[f] = true
 				}
 			}
-			dmMembers = len(creds)
-			// One face per other member, for the bubble (a single avatar for a peer
-			// DM, a collage for a group DM).
-			names := make([]string, 0, len(others))
-			for _, f := range others {
+			// Fold in people we've invited who haven't joined yet, so the group
+			// shows everyone you picked (Discord-style) even while some are away.
+			var pending []string
+			for _, f := range svc.PendingDMInvitees(g.ID) {
+				if !joined[f] {
+					pending = append(pending, f)
+				}
+			}
+			intended := append(append([]string(nil), others...), pending...)
+			dmMembers = len(intended) + 1 // + self
+
+			// One face per other member (joined + pending), for the bubble.
+			face := func(f string, isPending bool) (DMFace, string) {
 				prof := svc.ProfileOf(f)
 				dn := prof.Name
 				if dn == "" {
 					dn = f[:min(9, len(f))]
 				}
-				names = append(names, dn)
-				dmFaces = append(dmFaces, DMFace{Name: dn, Avatar: prof.Avatar, Color: prof.Color, Emoji: prof.Emoji})
+				return DMFace{Name: dn, Avatar: prof.Avatar, Color: prof.Color, Emoji: prof.Emoji, Pending: isPending}, dn
 			}
-			// A 2-person DM shows the other member's name + avatar + status dot. A
-			// group DM has no single presence, so leave DMPeer* empty and name it
-			// after its members (Discord-style "Alice, Bob").
-			if len(others) == 1 {
+			names := make([]string, 0, len(intended))
+			for _, f := range others {
+				fc, dn := face(f, false)
+				dmFaces = append(dmFaces, fc)
+				names = append(names, dn)
+			}
+			for _, f := range pending {
+				fc, dn := face(f, true)
+				dmFaces = append(dmFaces, fc)
+				names = append(names, dn)
+			}
+
+			// A genuine 2-person DM (one other, nobody pending) shows that member's
+			// name + avatar + status dot. Otherwise it's a group: name it after its
+			// members, unless the user gave it a custom name.
+			if len(others) == 1 && len(pending) == 0 {
 				dmPeer = others[0]
 				prof := svc.ProfileOf(dmPeer)
 				if prof.Name != "" {
@@ -1018,10 +1053,14 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 						break
 					}
 				}
-			} else if len(others) > 1 {
-				sorted := append([]string(nil), names...)
-				sort.Strings(sorted)
-				name = strings.Join(sorted, ", ")
+			} else if len(intended) > 1 {
+				if isCustomDMName(g.Name) {
+					name = g.Name // user renamed the group; keep it
+				} else {
+					sorted := append([]string(nil), names...)
+					sort.Strings(sorted)
+					name = strings.Join(sorted, ", ")
+				}
 			}
 		}
 	}
@@ -1029,6 +1068,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
 		DMPeerPresence: dmPeerPresence, DMPeerOnline: dmPeerOnline,
 		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers, DMFaces: dmFaces,
+		DMNamed:     g.Kind == "dm" && isCustomDMName(g.Name),
 		CanManage:   svc.CanManageMembers(g.ID),
 		MyPerms:     uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:        g.Icon, Banner: g.Banner, Description: g.Description,
@@ -1093,6 +1133,15 @@ func (b *bridge) CreateGroupDM(fingerprints []string) (GuildView, error) {
 		return GuildView{}, err
 	}
 	return guildView(svc, g), nil
+}
+
+// RenameDM sets (or, with an empty name, resets) a group DM's name.
+func (b *bridge) RenameDM(guildID, name string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.RenameDM(guildID, name)
 }
 
 // NewDMInvite creates a fresh DM and returns a shareable invite code (start a DM
@@ -1165,6 +1214,8 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.NewDMInvite()
 	case "CreateGroupDM":
 		return b.CreateGroupDM(argStrs(args, 0))
+	case "RenameDM":
+		return nil, b.RenameDM(argStr(args, 0), argStr(args, 1))
 	case "StartDM":
 		return b.StartDM(argStr(args, 0))
 	case "InviteCode":

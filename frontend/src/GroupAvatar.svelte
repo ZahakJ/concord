@@ -29,7 +29,12 @@
     title={faces.map((f) => f.name).join(", ")}
   >
     {#each shown as f (f.name + (f.avatar || ""))}
-      <span class="cell" style={f.color ? `background:${f.color}` : ""}>
+      <span
+        class="cell"
+        class:pending={f.pending}
+        title={f.pending ? `${f.name} (invited)` : f.name}
+        style={f.color ? `background:${f.color}` : ""}
+      >
         {#if f.avatar}<img src={f.avatar} alt="" />{:else}{glyph(f)}{/if}
       </span>
     {/each}
@@ -81,6 +86,11 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+  /* Invited-but-not-joined members show faded, so the group reads as complete
+     while making clear who hasn't landed yet. */
+  .cell.pending {
+    opacity: 0.45;
   }
   .cell.more {
     background: var(--bg-3);

@@ -118,11 +118,22 @@
   // Right-click a DM to close it (leaves the group; local delete). Group DMs
   // can be left; a 1:1 just disappears from your list.
   function dmMenu(e, dm) {
+    const isGroup = (dm.dmMembers ?? 2) > 2;
     openContextMenu(e, [
       {
         label: "Mark As Read",
         icon: "check",
         onClick: () => markRead(dm.channels?.[0]?.id),
+      },
+      isGroup && {
+        label: "Rename Group",
+        icon: "edit",
+        onClick: () =>
+          (S.modal = {
+            kind: "renameGroup",
+            guildId: dm.id,
+            current: dm.dmNamed ? dm.name : "",
+          }),
       },
       { sep: true },
       {

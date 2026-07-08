@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -174,6 +175,52 @@ func (s *Service) retryPendingDMInvites() {
 			s.pushDMInvite(pid, code)
 		}
 	}
+}
+
+// RenameDM sets a custom name for a group DM and syncs it to the other members
+// (any member may rename it, like Discord). An empty name resets to the auto
+// member-list name. Reuses the guild_renamed meta lane (advisory, same trust
+// model as a channel rename).
+func (s *Service) RenameDM(guildID, name string) error {
+	name = strings.TrimSpace(name)
+	if len(name) > maxNameBytes {
+		name = name[:maxNameBytes]
+	}
+	s.mu.Lock()
+	g, ok := s.guilds[guildID]
+	if !ok || g.Kind != "dm" {
+		s.mu.Unlock()
+		return fmt.Errorf("app: not a group DM")
+	}
+	if name == "" {
+		name = "Group message" // reset sentinel → guildView recomputes from members
+	}
+	g.Name = name
+	groupID := g.GroupID
+	gc := *g
+	s.mu.Unlock()
+
+	_ = s.store.SaveGuild(gc)
+	s.emitGuildUpdate()
+	payload, _ := json.Marshal(guildMeta{Type: "guild_renamed", Name: name})
+	if ct, err := s.mls.Encrypt(s.ctx, groupID, payload); err == nil {
+		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct)
+	}
+	return nil
+}
+
+// PendingDMInvitees returns the fingerprints we've invited to a group DM who
+// haven't joined yet, so the UI can show the full intended group (everyone you
+// picked) even while some are still offline.
+func (s *Service) PendingDMInvitees(guildID string) []string {
+	s.dmInviteMu.Lock()
+	defer s.dmInviteMu.Unlock()
+	set := s.pendingDMInvites[guildID]
+	out := make([]string, 0, len(set))
+	for fpr := range set {
+		out = append(out, fpr)
+	}
+	return out
 }
 
 // clearPendingDMInvite drops a fingerprint from a group DM's pending set once
