@@ -10,7 +10,11 @@
   let busy = $state(false);
 
   const sizeLabel = $derived(fmtSize(tok.size));
-  const ext = $derived((tok.name.split(".").pop() || "").slice(0, 5).toUpperCase());
+  // Only show an extension badge when the name actually has one (so "README"
+  // doesn't render a bogus "READM" badge).
+  const ext = $derived(
+    tok.name.includes(".") ? tok.name.split(".").pop().slice(0, 5).toUpperCase() : "",
+  );
 
   function fmtSize(n) {
     if (n < 1024) return `${n} B`;

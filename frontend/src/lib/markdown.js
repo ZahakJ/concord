@@ -21,12 +21,15 @@ export function escapeHtml(s) {
 const EMOJI_RE =
   /(?:\p{RI}\p{RI}|\p{Extended_Pictographic}(?:\u{FE0F}|\u{20E3}|[\u{1F3FB}-\u{1F3FF}]|\u{200D}\p{Extended_Pictographic})*)/gu;
 
-// emojiOnly: true when a message is nothing but emoji (and whitespace), so the
-// caller can render it "jumbo" like Discord. Bounded to a handful of emoji.
+// emojiOnly: true when a message is nothing but emoji (unicode and/or custom
+// :name: shortcodes) and whitespace, so the caller can render it "jumbo" like
+// Discord. Bounded to a handful of emoji.
+const CUSTOM_EMOJI_RE = /:[a-z0-9_]{2,32}:/gi;
 export function emojiOnly(text) {
-  const stripped = text.replace(EMOJI_RE, "").trim();
+  const stripped = text.replace(EMOJI_RE, "").replace(CUSTOM_EMOJI_RE, "").trim();
   if (stripped) return false;
-  const count = (text.match(EMOJI_RE) || []).length;
+  const count =
+    (text.match(EMOJI_RE) || []).length + (text.match(CUSTOM_EMOJI_RE) || []).length;
   return count > 0 && count <= 27;
 }
 

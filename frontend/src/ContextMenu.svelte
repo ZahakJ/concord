@@ -65,6 +65,10 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
+    /* Never taller than the viewport — a long menu scrolls instead of pushing
+       items off-screen where they can't be reached. */
+    max-height: calc(100vh - 16px);
+    overflow-y: auto;
   }
   .cm-item {
     display: flex;

@@ -57,6 +57,16 @@
     const m = S.members.find((mm) => mm.name === el.dataset.mention);
     return m ? { el, fpr: m.fingerprint } : null;
   }
+  // Reveal a focused spoiler with Enter/Space (it's role=button tabindex=0).
+  function onBodyKeydown(e) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const spoiler = e.target.closest?.(".spoiler");
+    if (spoiler && !spoiler.classList.contains("revealed")) {
+      e.preventDefault();
+      spoiler.classList.add("revealed");
+    }
+  }
+
   function onBodyClick(e) {
     // Reveal a spoiler on click (first click only).
     const spoiler = e.target.closest?.(".spoiler");
@@ -145,7 +155,7 @@
       isOwn && { label: "Edit", icon: "edit", onClick: startEdit },
       { label: "Add Reaction", icon: "smile", onClick: () => (S.pickerTarget = m) },
       { sep: true },
-      { label: "Copy Text", icon: "edit", onClick: () => copy(m.content, "Copied text") },
+      { label: "Copy Text", icon: "edit", onClick: () => copy(stripAttachTokens(m.content).trim() || previewText(m.content), "Copied text") },
       {
         label: "Copy Message Link",
         icon: "forward",
@@ -233,7 +243,7 @@
     {:else}
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="body" class:jumbo={emojiOnly(bodyText)} onclick={onBodyClick} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
+        <div class="body" class:jumbo={emojiOnly(bodyText)} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
           {@html renderMarkdown(bodyText, mentionNames, cemoji)}{#if m.edited}<span
               class="edited-tag">(edited)</span
             >{/if}
@@ -269,7 +279,10 @@
             </button>
             <!-- who reacted, on hover -->
             <span class="react-who">
-              <strong>{cimg ? emoji : emoji} · {fprs.length}</strong>
+              <strong>
+                {#if cimg}<img class="cemoji" src={cimg} alt={emoji} />{:else}{emoji}{/if}
+                · {fprs.length}
+              </strong>
               {#each fprs.slice(0, 12) as f (f)}
                 <span class="rw-row">{memberByFpr(f)?.name || f.slice(0, 9)}</span>
               {/each}
