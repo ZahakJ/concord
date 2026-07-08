@@ -129,6 +129,8 @@ type GuildView struct {
 	// show a status dot on the DM bubble (empty for group DMs / non-DMs).
 	DMPeerPresence string `json:"dmPeerPresence,omitempty"` // "" | online | idle | dnd | invisible
 	DMPeerOnline   bool   `json:"dmPeerOnline,omitempty"`
+	DMPeerAvatar   string `json:"dmPeerAvatar,omitempty"` // the other member's profile picture (data URI)
+	DMMembers      int    `json:"dmMembers,omitempty"`    // total members in a DM (incl. self); lets the UI hide empty pending DMs
 	IsOwner    bool           `json:"isOwner"`
 	CanManage  bool           `json:"canManage"` // viewer may invite/kick/ban here
 	MyPerms    uint32         `json:"myPerms"`   // viewer's effective permission bitmask
@@ -963,7 +965,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	name := g.Name
 	// A peer DM shows the OTHER member (name + avatar handled UI-side via the
 	// fingerprint); a self-DM stays "Notes".
-	dmPeer, dmPeerPresence, dmPeerOnline := "", "", false
+	dmPeer, dmPeerPresence, dmPeerAvatar, dmPeerOnline, dmMembers := "", "", "", false, 0
 	if g.Kind == "dm" {
 		if creds, err := svc.GuildMembers(g.ID); err == nil {
 			self := svc.PublicKey()
@@ -973,15 +975,18 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 					others = append(others, identity.FingerprintOf(c))
 				}
 			}
-			// A 2-person DM shows the other member's name + a status dot. A group
-			// DM has no single presence, so leave DMPeer* empty and name it after
-			// its members (Discord-style "Alice, Bob").
+			dmMembers = len(creds)
+			// A 2-person DM shows the other member's name + avatar + status dot. A
+			// group DM has no single presence, so leave DMPeer* empty and name it
+			// after its members (Discord-style "Alice, Bob").
 			if len(others) == 1 {
 				dmPeer = others[0]
-				if n := svc.ProfileName(dmPeer); n != "" {
-					name = n
+				prof := svc.ProfileOf(dmPeer)
+				if prof.Name != "" {
+					name = prof.Name
 				}
-				dmPeerPresence = svc.ProfileOf(dmPeer).Presence
+				dmPeerPresence = prof.Presence
+				dmPeerAvatar = prof.Avatar
 				for _, p := range svc.Peers() {
 					if p.Fingerprint == dmPeer {
 						dmPeerOnline = true
@@ -1005,6 +1010,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
 		DMPeerPresence: dmPeerPresence, DMPeerOnline: dmPeerOnline,
+		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers,
 		CanManage:   svc.CanManageMembers(g.ID),
 		MyPerms:     uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:        g.Icon, Banner: g.Banner, Description: g.Description,

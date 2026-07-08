@@ -57,7 +57,12 @@
   // In the DMs area, the channel column becomes a conversation list (Notes
   // first, then peer DMs).
   const dms = $derived.by(() => {
-    const list = S.guilds.filter((x) => x.kind === "dm");
+    // Notes (your self-DM) always shows; otherwise hide empty pending DMs — a
+    // freshly-created invite nobody has joined yet (just you) is noise until a
+    // peer redeems it and it gets a name/avatar.
+    const list = S.guilds.filter(
+      (x) => x.kind === "dm" && (x.name === "Notes" || (x.dmMembers ?? 2) >= 2),
+    );
     return list.sort((a, b) => (a.name === "Notes" ? -1 : b.name === "Notes" ? 1 : 0));
   });
 
@@ -160,7 +165,7 @@
           {:else}
             <Avatar
               name={dm.name}
-              image={dm.icon}
+              image={dm.dmPeerAvatar || dm.icon}
               size={26}
               online={dm.dmPeer ? !!dm.dmPeerOnline : null}
               presence={dm.dmPeerPresence || ""}

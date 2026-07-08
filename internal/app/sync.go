@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -348,10 +349,35 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
 		ch.GuildID = guildID
 		s.addChannel(guildID, ch)
 	}
-	if payload.Guild.Name != "" {
-		s.mu.Lock()
-		if g, ok := s.guilds[guildID]; ok && g.Name != payload.Guild.Name {
+	// Adopt the guild profile (name/icon/banner/description) the peer served —
+	// the catch-up path for a member that was offline when the owner changed the
+	// logo, so the gossip'd guild_profile update never reached it. Only non-empty
+	// values are taken (like the rename above), so a peer that simply hasn't
+	// learned the new image yet can't clobber ours back to blank. Images are
+	// validated defensively, same as receiveGuildMeta.
+	validImg := func(v string) bool {
+		return strings.HasPrefix(v, "data:image/") && len(v) <= maxGuildImageBytes
+	}
+	s.mu.Lock()
+	if g, ok := s.guilds[guildID]; ok {
+		changed := false
+		if payload.Guild.Name != "" && g.Name != payload.Guild.Name {
 			g.Name = payload.Guild.Name
+			changed = true
+		}
+		if payload.Guild.Icon != "" && g.Icon != payload.Guild.Icon && validImg(payload.Guild.Icon) {
+			g.Icon = payload.Guild.Icon
+			changed = true
+		}
+		if payload.Guild.Banner != "" && g.Banner != payload.Guild.Banner && validImg(payload.Guild.Banner) {
+			g.Banner = payload.Guild.Banner
+			changed = true
+		}
+		if payload.Guild.Description != "" && g.Description != payload.Guild.Description {
+			g.Description = payload.Guild.Description
+			changed = true
+		}
+		if changed {
 			gc := *g
 			s.mu.Unlock()
 			_ = s.store.SaveGuild(gc)
@@ -359,6 +385,8 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
 		} else {
 			s.mu.Unlock()
 		}
+	} else {
+		s.mu.Unlock()
 	}
 
 	for fpr, p := range payload.Profiles {

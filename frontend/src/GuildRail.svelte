@@ -45,7 +45,7 @@
     >
       <Avatar
         name={dm.name}
-        image={dm.icon}
+        image={dm.dmPeerAvatar || dm.icon}
         size={42}
         online={dm.dmPeer ? !!dm.dmPeerOnline : null}
         presence={dm.dmPeerPresence || ""}
