@@ -174,8 +174,11 @@
     {:else if S.voice && S.voice.channelId === S.activeChannelId}
       <!-- Active voice collapses to one pill with mute + leave inside it. -->
       <span class="voice-pill">
-        <Icon name="speaker" size={12} />
-        {S.voiceParticipants.length + 1}
+        <span class="pill-label" title="{S.voiceParticipants.length + 1} in this call">
+          <Icon name="speaker" size={12} />
+          {S.voiceParticipants.length + 1}
+        </span>
+        <span class="pill-sep"></span>
         <button class="pill-btn" title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} onclick={onToggleMute}>
           <Icon name={S.muted ? "micOff" : "mic"} size={13} />
         </button>
@@ -310,14 +313,26 @@
   .voice-pill {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     font-size: 12px;
     font-weight: 600;
     color: var(--ok);
-    padding: 3px 6px 3px 10px;
+    padding: 3px 5px 3px 9px;
     background: var(--ok-soft);
     border-radius: 13px;
     white-space: nowrap;
+  }
+  .pill-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    line-height: 1;
+  }
+  .pill-sep {
+    width: 1px;
+    align-self: stretch;
+    margin: 2px 2px;
+    background: color-mix(in srgb, var(--ok) 35%, transparent);
   }
   .pill-btn {
     background: transparent;

@@ -82,8 +82,11 @@
   const typeIcon = (t) => (t === "voice" ? "speaker" : t === "announcement" ? "megaphone" : "hash");
 
   function clickChannel(c) {
-    if (c.type === "voice") onJoinVoice?.(c.id);
-    else selectChannel(c.id);
+    // Always open the channel's view — never auto-join. For a voice channel you
+    // can read its chat without joining, and if you're already in the call this
+    // opens the call view (Discord-style). Joining is the header's explicit
+    // "Join voice" button.
+    selectChannel(c.id);
   }
 
   function channelMenu(e, c) {
@@ -254,7 +257,7 @@
         {/if}
         {#each grp.channels as c (c.id)}
           {@const u = S.unread[c.id]}
-          {@const active = c.id === S.activeChannelId && c.type !== "voice"}
+          {@const active = c.id === S.activeChannelId}
           {@const inVoice = S.voice && S.voice.channelId === c.id}
           <div class="channel-row" class:active class:voice-active={inVoice}>
             <button class="channel" class:muted-ch={S.mutes[c.id]} onclick={() => clickChannel(c)} oncontextmenu={(e) => channelMenu(e, c)}>
