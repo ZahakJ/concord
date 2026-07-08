@@ -377,6 +377,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    overflow-x: hidden; /* the column is a fixed width; never scroll sideways */
   }
   .guild-name {
     padding: 14px;
@@ -628,6 +629,8 @@
     color: var(--text);
   }
   .dm-name {
+    flex: 1;
+    min-width: 0; /* let it shrink so long group-DM names ellipsize, not overflow */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

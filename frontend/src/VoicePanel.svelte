@@ -50,6 +50,18 @@
   // Screen shares get their own wide tiles — a share isn't a person.
   const screens = $derived(S.videoTiles.filter((t) => t.kind === "screen"));
 
+  // Discord-style focus: click a screen share to zoom it big; participants drop
+  // to a small strip of bubbles. Click again (or the shrink button) to exit.
+  let focusedKey = $state(null);
+  const focused = $derived(screens.find((t) => t.key === focusedKey) || null);
+  // Auto-clear focus if the focused share goes away.
+  $effect(() => {
+    if (focusedKey && !screens.some((t) => t.key === focusedKey)) focusedKey = null;
+  });
+  function toggleFocus(key) {
+    focusedKey = focusedKey === key ? null : key;
+  }
+
   function tileInfo(pid) {
     if (pid === "self") {
       return {
@@ -83,7 +95,7 @@
   }
 </script>
 
-<div class="voice-panel" style="--n:{roster.length}">
+<div class="voice-panel" class:theater={!!focused} style="--n:{roster.length}">
   {#if ringing || waiting}
     <div class="ringing">
       <span class="dots"><span></span><span></span><span></span></span>
@@ -91,47 +103,76 @@
     </div>
   {/if}
 
-  <div class="stage" class:solo={roster.length === 1}>
-    {#each roster as pid (pid)}
-      {@const t = tileInfo(pid)}
-      {@const cam = camTile(pid)}
-      <div class="tile" class:speaking={t.speaking}>
-        {#if cam}
-          <!-- svelte-ignore a11y_media_has_caption -->
-          <video
-            use:srcObject={cam.key}
-            autoplay
-            playsinline
-            muted={t.self}
-            class:mirror={t.self}
-          ></video>
-        {:else}
-          <div class="face" style={t.color ? `--tint:${t.color}` : ""}>
-            <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={72} />
-          </div>
-        {/if}
-        <span class="ring" aria-hidden="true"></span>
-        <span class="name">
-          {#if t.muted}<Icon name="micOff" size={12} />{/if}
-          {t.self ? `${t.name} (you)` : t.name}
-        </span>
-      </div>
-    {/each}
-  </div>
-
-  {#if screens.length}
-    <div class="screens">
+  {#if focused}
+    <!-- Theater mode: one big share, everyone else shrinks to a strip. -->
+    <div class="focus-main">
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video use:srcObject={focused.key} autoplay playsinline muted={focused.self}></video>
+      <span class="screen-label"><Icon name="screen" size={12} /> {screenLabel(focused)}'s screen</span>
+      <button class="shrink" title="Exit full view" aria-label="Exit full view" onclick={() => (focusedKey = null)}>
+        <Icon name="close" size={14} />
+      </button>
+    </div>
+    <div class="strip">
       {#each screens as tile (tile.key)}
-        <div class="screen-tile">
-          <!-- svelte-ignore a11y_media_has_caption -->
-          <video use:srcObject={tile.key} autoplay playsinline muted={tile.self}></video>
-          <span class="screen-label">
-            <Icon name="screen" size={12} />
-            {screenLabel(tile)}'s screen
+        {#if tile.key !== focused.key}
+          <button class="thumb" title="{screenLabel(tile)}'s screen" onclick={() => toggleFocus(tile.key)}>
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video use:srcObject={tile.key} autoplay playsinline muted={tile.self}></video>
+            <span class="thumb-badge"><Icon name="screen" size={10} /></span>
+          </button>
+        {/if}
+      {/each}
+      {#each roster as pid (pid)}
+        {@const t = tileInfo(pid)}
+        <div class="bubble" class:speaking={t.speaking} title={t.self ? `${t.name} (you)` : t.name}>
+          <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={34} />
+        </div>
+      {/each}
+    </div>
+  {:else}
+    <div class="stage" class:solo={roster.length === 1}>
+      {#each roster as pid (pid)}
+        {@const t = tileInfo(pid)}
+        {@const cam = camTile(pid)}
+        <div class="tile" class:speaking={t.speaking}>
+          {#if cam}
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video
+              use:srcObject={cam.key}
+              autoplay
+              playsinline
+              muted={t.self}
+              class:mirror={t.self}
+            ></video>
+          {:else}
+            <div class="face" style={t.color ? `--tint:${t.color}` : ""}>
+              <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={64} />
+            </div>
+          {/if}
+          <span class="ring" aria-hidden="true"></span>
+          <span class="name">
+            {#if t.muted}<Icon name="micOff" size={12} />{/if}
+            {t.self ? `${t.name} (you)` : t.name}
           </span>
         </div>
       {/each}
     </div>
+
+    {#if screens.length}
+      <div class="screens">
+        {#each screens as tile (tile.key)}
+          <button class="screen-tile" title="Click to zoom" onclick={() => toggleFocus(tile.key)}>
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video use:srcObject={tile.key} autoplay playsinline muted={tile.self}></video>
+            <span class="screen-label">
+              <Icon name="screen" size={12} />
+              {screenLabel(tile)}'s screen · click to zoom
+            </span>
+          </button>
+        {/each}
+      </div>
+    {/if}
   {/if}
 
   <div class="controls">
@@ -181,17 +222,20 @@
   }
   .stage {
     display: grid;
-    /* Big squares that reflow: fewer people → bigger tiles. */
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    /* Reflowing tiles, but CAPPED so a wide window doesn't blow them up into a
+       scrolling monster: each tile is at most 240px wide, centered. */
+    grid-template-columns: repeat(auto-fit, minmax(130px, 200px));
+    justify-content: center;
     gap: 12px;
   }
   .stage.solo {
-    grid-template-columns: minmax(180px, 320px);
+    grid-template-columns: minmax(180px, 260px);
     justify-content: center;
   }
   .tile {
     position: relative;
-    aspect-ratio: 1 / 1;
+    /* 4:3 rather than 1:1 — shorter, so rows fit the panel without scrolling. */
+    aspect-ratio: 4 / 3;
     border-radius: var(--radius-lg);
     overflow: hidden;
     background: var(--bg-1);
@@ -264,7 +308,8 @@
   }
   .screens {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(220px, 320px));
+    justify-content: center;
     gap: 10px;
   }
   .screen-tile {
@@ -273,6 +318,95 @@
     overflow: hidden;
     background: #000;
     aspect-ratio: 16 / 9;
+    padding: 0;
+    border: 1px solid var(--border);
+    cursor: pointer;
+  }
+  .screen-tile:hover {
+    border-color: var(--accent);
+  }
+  /* Theater / focus mode: the panel gets a bit taller for a usable big view. */
+  .voice-panel.theater {
+    max-height: 62vh;
+  }
+  .focus-main {
+    position: relative;
+    background: #000;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    aspect-ratio: 16 / 9;
+    max-height: 46vh;
+    margin: 0 auto;
+    width: 100%;
+  }
+  .focus-main video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+  }
+  .shrink {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    border: none;
+  }
+  .shrink:hover {
+    background: rgba(0, 0, 0, 0.8);
+  }
+  .strip {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+  }
+  .strip .thumb {
+    position: relative;
+    width: 84px;
+    height: 48px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: #000;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .strip .thumb:hover {
+    border-color: var(--accent);
+  }
+  .strip .thumb video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .thumb-badge {
+    position: absolute;
+    left: 3px;
+    bottom: 3px;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: 3px;
+    padding: 1px 3px;
+    display: grid;
+    place-items: center;
+  }
+  .bubble {
+    border-radius: 50%;
+    padding: 2px;
+    border: 2px solid transparent;
+  }
+  .bubble.speaking {
+    border-color: var(--ok);
   }
   .screen-tile video {
     width: 100%;
