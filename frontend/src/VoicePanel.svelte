@@ -340,6 +340,7 @@
   .ctl {
     width: 44px;
     height: 44px;
+    padding: 0;
     border-radius: 50%;
     display: grid;
     place-items: center;

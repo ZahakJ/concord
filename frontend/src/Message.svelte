@@ -8,7 +8,7 @@
   import FileAttachment from "./FileAttachment.svelte";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
-  import { renderMarkdown } from "./lib/markdown.js";
+  import { renderMarkdown, emojiOnly } from "./lib/markdown.js";
   import { parseAttachTokens, parseFileTokens, stripAttachTokens, previewText } from "./lib/attachments.js";
   import { extractLinks, youtubeID } from "./lib/embeds.js";
   import {
@@ -210,7 +210,7 @@
     {:else}
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="body" onclick={onBodyClick} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
+        <div class="body" class:jumbo={emojiOnly(bodyText)} onclick={onBodyClick} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
           {@html renderMarkdown(bodyText, mentionNames, cemoji)}{#if m.edited}<span
               class="edited-tag">(edited)</span
             >{/if}
@@ -653,11 +653,26 @@
     display: block;
     margin-top: 4px;
   }
+  /* Inline unicode emoji: a touch larger than text and vertically centered,
+     so they read as emoji rather than shrunken glyphs (Discord-style). */
+  .body :global(.emoji) {
+    font-size: 1.375em;
+    line-height: 1;
+    vertical-align: -0.25em;
+  }
   .body :global(img.cemoji) {
     height: 1.4em;
     width: auto;
     vertical-align: -0.3em;
     margin: 0 1px;
+  }
+  /* Emoji-only messages render jumbo, like Discord. */
+  .body.jumbo :global(.emoji) {
+    font-size: 2.6em;
+    vertical-align: -0.15em;
+  }
+  .body.jumbo :global(img.cemoji) {
+    height: 2.6em;
   }
   .reaction :global(img.cemoji),
   .reaction .cemoji {

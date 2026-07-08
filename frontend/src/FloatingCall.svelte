@@ -156,6 +156,7 @@
   .ico {
     width: 34px;
     height: 34px;
+    padding: 0;
     border-radius: 50%;
     display: grid;
     place-items: center;

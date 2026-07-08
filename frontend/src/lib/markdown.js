@@ -14,6 +14,22 @@ export function escapeHtml(s) {
   );
 }
 
+// Matches a single rendered emoji: a regional-indicator pair (flags), or a
+// pictographic base plus any modifiers/variation-selectors/ZWJ-joined
+// sequence (skin tones, 👨‍👩‍👧, etc.). ASCII digits/# aren't Extended_Pictographic,
+// so plain text and our own markup delimiters are untouched.
+const EMOJI_RE =
+  /(?:\p{RI}\p{RI}|\p{Extended_Pictographic}(?:\u{FE0F}|\u{20E3}|[\u{1F3FB}-\u{1F3FF}]|\u{200D}\p{Extended_Pictographic})*)/gu;
+
+// emojiOnly: true when a message is nothing but emoji (and whitespace), so the
+// caller can render it "jumbo" like Discord. Bounded to a handful of emoji.
+export function emojiOnly(text) {
+  const stripped = text.replace(EMOJI_RE, "").trim();
+  if (stripped) return false;
+  const count = (text.match(EMOJI_RE) || []).length;
+  return count > 0 && count <= 27;
+}
+
 // Inline rules applied to already-escaped text (code spans are cut out first
 // so *bold* inside backticks stays literal).
 function renderInline(s, mentionNames, customEmoji) {
@@ -22,6 +38,11 @@ function renderInline(s, mentionNames, customEmoji) {
     codeSpans.push(code);
     return `\x00${codeSpans.length - 1}\x00`;
   });
+
+  // Wrap unicode emoji so CSS can size them nicely (larger than text, like
+  // Discord). Done on escaped plain text before any of our tags are inserted,
+  // so the wrap can never land inside an attribute or tag we add later.
+  s = s.replace(EMOJI_RE, '<span class="emoji">$&</span>');
 
   // Custom guild emoji: :name: -> <img>. The image is a backend-validated
   // base64 data:image URI, but we still escape it here (defense in depth) so a
