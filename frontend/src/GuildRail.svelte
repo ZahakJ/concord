@@ -43,7 +43,13 @@
       aria-label={dm.name}
       onclick={() => selectGuild(dm.id)}
     >
-      <Avatar name={dm.name} image={dm.icon} size={42} />
+      <Avatar
+        name={dm.name}
+        image={dm.icon}
+        size={42}
+        online={dm.dmPeer ? !!dm.dmPeerOnline : null}
+        presence={dm.dmPeerPresence || ""}
+      />
       {#if dm.id !== S.activeGuildId && u.count > 0}
         <span class="badge mention">{u.count > 99 ? "99+" : u.count}</span>
       {/if}

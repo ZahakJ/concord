@@ -125,6 +125,10 @@ type GuildView struct {
 	Name       string         `json:"name"`
 	Kind       string         `json:"kind,omitempty"`   // "" guild, "dm" direct message
 	DMPeer     string         `json:"dmPeer,omitempty"` // for a peer DM: the other member's fingerprint
+	// For a 2-person peer DM, the other member's availability so the rail can
+	// show a status dot on the DM bubble (empty for group DMs / non-DMs).
+	DMPeerPresence string `json:"dmPeerPresence,omitempty"` // "" | online | idle | dnd | invisible
+	DMPeerOnline   bool   `json:"dmPeerOnline,omitempty"`
 	IsOwner    bool           `json:"isOwner"`
 	CanManage  bool           `json:"canManage"` // viewer may invite/kick/ban here
 	MyPerms    uint32         `json:"myPerms"`   // viewer's effective permission bitmask
@@ -958,24 +962,36 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	name := g.Name
 	// A peer DM shows the OTHER member (name + avatar handled UI-side via the
 	// fingerprint); a self-DM stays "Notes".
-	dmPeer := ""
+	dmPeer, dmPeerPresence, dmPeerOnline := "", "", false
 	if g.Kind == "dm" {
 		if creds, err := svc.GuildMembers(g.ID); err == nil {
 			self := svc.PublicKey()
+			var others []string
 			for _, c := range creds {
 				if !bytes.Equal(c, self) {
-					fpr := identity.FingerprintOf(c)
-					dmPeer = fpr
-					if n := svc.ProfileName(fpr); n != "" {
-						name = n
+					others = append(others, identity.FingerprintOf(c))
+				}
+			}
+			// A 2-person DM shows the other member's name + a status dot. A group
+			// DM has no single presence, so leave DMPeer* empty there.
+			if len(others) == 1 {
+				dmPeer = others[0]
+				if n := svc.ProfileName(dmPeer); n != "" {
+					name = n
+				}
+				dmPeerPresence = svc.ProfileOf(dmPeer).Presence
+				for _, p := range svc.Peers() {
+					if p.Fingerprint == dmPeer {
+						dmPeerOnline = true
+						break
 					}
-					break
 				}
 			}
 		}
 	}
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
+		DMPeerPresence: dmPeerPresence, DMPeerOnline: dmPeerOnline,
 		CanManage:   svc.CanManageMembers(g.ID),
 		MyPerms:     uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:        g.Icon, Banner: g.Banner, Description: g.Description,

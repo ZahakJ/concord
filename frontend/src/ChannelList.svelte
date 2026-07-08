@@ -148,7 +148,13 @@
           {#if dm.name === "Notes"}
             <span class="dm-notes-icon"><Icon name="edit" size={15} /></span>
           {:else}
-            <Avatar name={dm.name} size={26} />
+            <Avatar
+              name={dm.name}
+              image={dm.icon}
+              size={26}
+              online={dm.dmPeer ? !!dm.dmPeerOnline : null}
+              presence={dm.dmPeerPresence || ""}
+            />
           {/if}
           <span class="dm-name">{dm.name === "Notes" ? "Notes (you)" : dm.name}</span>
         </button>
