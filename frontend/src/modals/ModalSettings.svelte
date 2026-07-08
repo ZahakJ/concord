@@ -74,7 +74,8 @@
     the server; friends get it automatically from your invite code.
   </p>
   <textarea
-    rows="3"
+    class="code-box"
+    rows="4"
     placeholder="/dns/your-app.fly.dev/tcp/4001/p2p/12D3Koo…"
     bind:value={bootstrap}
   ></textarea>
@@ -160,6 +161,17 @@
     font-family: ui-monospace, monospace;
     font-size: 11px;
     resize: vertical;
+  }
+  /* The rendezvous multiaddr is long — give it room and wrap it so the whole
+     code is visible instead of scrolling inside a tiny box. */
+  .code-box {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 84px;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-all;
   }
   hr {
     border: none;

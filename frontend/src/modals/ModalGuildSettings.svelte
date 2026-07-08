@@ -22,24 +22,34 @@
 
   // Read an image file to a data URI. Kept raw (no canvas re-encode) so animated
   // GIF banners keep animating; rejected if too big for a gossip frame.
+  function applyImageFile(file, setter) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (String(reader.result).length > MAX) {
+        flash("Image too large — keep it under ~350 KB");
+        return;
+      }
+      setter(reader.result);
+    };
+    reader.readAsDataURL(file);
+  }
   function pickImage(setter) {
     const input = document.createElement("input");
     input.type = "file";
     input.accept = "image/*";
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (String(reader.result).length > MAX) {
-          flash("Image too large — keep it under ~350 KB");
-          return;
-        }
-        setter(reader.result);
-      };
-      reader.readAsDataURL(file);
-    };
+    input.onchange = () => applyImageFile(input.files?.[0], setter);
     input.click();
+  }
+
+  // Paste an image straight into whichever target the pointer is over.
+  let pasteTarget = $state("banner");
+  function onPaste(e) {
+    if (!canEdit) return;
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+    if (!item) return;
+    e.preventDefault();
+    applyImageFile(item.getAsFile(), pasteTarget === "icon" ? (v) => (icon = v) : (v) => (banner = v));
   }
 
   async function save() {
@@ -58,9 +68,16 @@
   }
 </script>
 
+<svelte:window onpaste={onPaste} />
+
 <Modal title="Guild settings" {onClose}>
   <!-- Banner preview -->
-  <div class="banner-box" style={banner ? `background-image:url(${banner})` : ""}>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="banner-box"
+    style={banner ? `background-image:url(${banner})` : ""}
+    onmouseenter={() => (pasteTarget = "banner")}
+  >
     {#if canEdit}
       <div class="banner-actions">
         <button class="chip" onclick={() => pickImage((v) => (banner = v))}>
@@ -72,7 +89,12 @@
   </div>
 
   <div class="id-row">
-    <button class="icon-btn" onclick={() => canEdit && pickImage((v) => (icon = v))} disabled={!canEdit}>
+    <button
+      class="icon-btn"
+      onclick={() => canEdit && pickImage((v) => (icon = v))}
+      onmouseenter={() => (pasteTarget = "icon")}
+      disabled={!canEdit}
+    >
       {#if icon}<img src={icon} alt="icon" />{:else}<span>{(name || "?").slice(0, 1)}</span>{/if}
       {#if canEdit}<span class="cam">📷</span>{/if}
     </button>

@@ -130,7 +130,7 @@
       {:else}
         {emoji || (name || "?").slice(0, 2)}
       {/if}
-      <span class="cam">📷</span>
+      <span class="cam-overlay">Change</span>
     </button>
     <div class="preview-text">
       <strong>{name || "Your name"}</strong>
@@ -258,14 +258,24 @@
     height: 100%;
     object-fit: cover;
   }
-  .cam {
+  /* A clean centered hover hint instead of a clipped edge badge. */
+  .cam-overlay {
     position: absolute;
-    bottom: -2px;
-    right: -2px;
-    font-size: 13px;
-    background: var(--bg-elevated);
-    border-radius: 50%;
-    padding: 1px;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .avatar:hover .cam-overlay,
+  .avatar:focus-visible .cam-overlay {
+    opacity: 1;
   }
   .small-btn {
     font-size: 12px;
