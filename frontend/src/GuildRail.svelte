@@ -12,7 +12,14 @@
   // DM bubbles surface only when they need attention: a DM with unread
   // messages. Everything else (incl. Notes) lives behind the home button.
   const dms = $derived(
-    S.guilds.filter((x) => x.kind === "dm" && !x.dmNotes && guildUnread(x).count > 0),
+    S.guilds.filter(
+      (x) =>
+        x.kind === "dm" &&
+        !x.dmNotes &&
+        // Unread DMs surface here; the currently-open DM stays pinned so clicking
+        // it (which marks it read) doesn't make the bubble you're in vanish.
+        (guildUnread(x).count > 0 || x.id === S.activeGuildId),
+    ),
   );
 
   const initials = (name) =>
