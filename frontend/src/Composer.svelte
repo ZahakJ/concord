@@ -155,8 +155,9 @@
       }
       return;
     }
-    // Enter sends; Shift+Enter inserts a newline (textarea default).
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Enter sends; Shift+Enter inserts a newline (textarea default). Ignore
+    // Enter mid-IME-composition so CJK candidate selection doesn't send.
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       send();
     } else if (e.key === "ArrowUp" && !draft) {
@@ -183,6 +184,8 @@
     const text = replaceShortcodes(applySlash(draft.trim()).trim());
     if (!text || !S.activeChannelId) return;
     const chId = S.activeChannelId;
+    const prevDraft = draft;
+    const prevReply = S.replyingTo;
     draft = "";
     saveDraft(chId, "");
     suggest = null;
@@ -192,6 +195,11 @@
     try {
       await sendMessage(text, replyTo);
     } catch (err) {
+      // Don't lose what they typed — put it back so they can retry.
+      draft = prevDraft;
+      saveDraft(chId, prevDraft);
+      S.replyingTo = prevReply;
+      queueAutosize();
       flash(err);
     }
   }

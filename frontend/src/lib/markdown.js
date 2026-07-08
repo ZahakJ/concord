@@ -71,18 +71,22 @@ function renderInline(s, mentionNames, customEmoji) {
   s = s.replace(/__(.+?)__/g, "<u>$1</u>");
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-  // Masked links [text](url): only http(s) URLs, and stashed so the bare-URL
-  // autolinker below doesn't re-wrap the href. Text may already carry emphasis.
+  // Links are stashed as placeholders and only restored at the very end — so
+  // neither the autolinker nor the @mention pass ever runs inside a generated
+  // href (e.g. a member named "Foo" must not turn https://x.com/@Foo into a
+  // mention span, which would corrupt the attribute). Masked links first, then
+  // bare URLs.
   const links = [];
-  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) => {
-    links.push(`<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`);
+  const stash = (html) => {
+    links.push(html);
     return `\x01${links.length - 1}\x01`;
-  });
-  s = s.replace(
-    /(https?:\/\/[^\s<]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>',
+  };
+  s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) =>
+    stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`),
   );
-  s = s.replace(/\x01(\d+)\x01/g, (_, i) => links[+i]);
+  s = s.replace(/(https?:\/\/[^\s<]+)/g, (url) =>
+    stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`),
+  );
   if (mentionNames?.length) {
     // Longest name first so "@Ann Lee" wins over "@Ann". Names arrive escaped
     // with the same escapeHtml, so they match the escaped text. `self` (the
@@ -103,6 +107,8 @@ function renderInline(s, mentionNames, customEmoji) {
     }
   }
 
+  // Restore links (after mentions) and code spans.
+  s = s.replace(/\x01(\d+)\x01/g, (_, i) => links[+i]);
   return s.replace(/\x00(\d+)\x00/g, (_, i) => `<code>${codeSpans[+i]}</code>`);
 }
 

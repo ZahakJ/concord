@@ -95,7 +95,7 @@
   }
 </script>
 
-<div class="voice-panel" class:theater={!!focused} style="--n:{roster.length}">
+<div class="voice-panel" class:theater={!!focused}>
   {#if ringing || waiting}
     <div class="ringing">
       <span class="dots"><span></span><span></span><span></span></span>
@@ -105,7 +105,8 @@
 
   {#if focused}
     <!-- Theater mode: one big share, everyone else shrinks to a strip. -->
-    <div class="focus-main">
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="focus-main" onclick={() => (focusedKey = null)} title="Click to exit full view">
       <!-- svelte-ignore a11y_media_has_caption -->
       <video use:srcObject={focused.key} autoplay playsinline muted={focused.self}></video>
       <span class="screen-label"><Icon name="screen" size={12} /> {screenLabel(focused)}'s screen</span>
@@ -178,7 +179,7 @@
   <div class="controls">
     <button
       class="ctl"
-      class:active={!S.muted}
+      class:danger={S.muted}
       title={S.muted ? "Unmute" : "Mute"}
       aria-label={S.muted ? "Unmute" : "Mute"}
       onclick={onToggleMute}
@@ -464,12 +465,18 @@
       transform: translateY(-3px);
     }
   }
-  /* Call controls, on the call box itself (Discord-style). */
+  /* Call controls, on the call box itself (Discord-style). Sticky to the bottom
+     of the (scrollable) panel so mute/leave are always reachable, never scrolled
+     off when there are many tiles or a big screen share. */
   .controls {
+    position: sticky;
+    bottom: 0;
     display: flex;
     justify-content: center;
     gap: 10px;
-    padding-top: 2px;
+    padding: 8px 0 2px;
+    background: linear-gradient(to top, var(--bg-0) 55%, transparent);
+    z-index: 1;
   }
   .ctl {
     width: 44px;
@@ -489,8 +496,15 @@
     background: var(--bg-1);
   }
   .ctl.active {
-    background: var(--bg-1);
-    color: var(--text);
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  /* Muted mic reads as a clear "off/alert" state (Discord-style red). */
+  .ctl.danger {
+    background: color-mix(in srgb, var(--danger) 20%, transparent);
+    color: var(--danger);
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
   }
   .ctl.hangup {
     background: var(--danger);

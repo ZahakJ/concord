@@ -8,6 +8,7 @@
   import FileAttachment from "./FileAttachment.svelte";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
+  import { untrack } from "svelte";
   import { renderMarkdown, emojiOnly } from "./lib/markdown.js";
   import { parseAttachTokens, parseFileTokens, stripAttachTokens, previewText } from "./lib/attachments.js";
   import { extractLinks, youtubeID } from "./lib/embeds.js";
@@ -92,15 +93,30 @@
     return null;
   });
   let editDraft = $state("");
+  let editCancelled = false;
+  let wasEditing = false;
 
-  // Seed the edit draft whenever this message becomes the edit target — the
-  // trigger can come from elsewhere too (ArrowUp in an empty composer).
+  // Seed the edit draft ONCE, when this message becomes the edit target (via the
+  // menu or ArrowUp in an empty composer). untrack keeps a later reaction/edit
+  // event that swaps `m` from wiping what the user is typing.
   $effect(() => {
-    if (S.editing?.id === m.id) editDraft = m.content;
+    const editing = S.editing?.id === m.id;
+    if (editing && !wasEditing) {
+      editDraft = untrack(() => m.content);
+      editCancelled = false;
+    }
+    wasEditing = editing;
   });
 
   function startEdit() {
     S.editing = m;
+  }
+  function cancelEdit() {
+    editCancelled = true; // so the textarea's blur handler doesn't save it
+    S.editing = null;
+  }
+  function commitEdit() {
+    if (!editCancelled) saveEdit(m, editDraft);
   }
 
   function fmtTime(iso) {
@@ -197,16 +213,23 @@
       <div class="body deleted"><em>message deleted</em></div>
     {:else if S.editing?.id === m.id}
       <!-- svelte-ignore a11y_autofocus -->
-      <input
+      <textarea
         class="edit-input"
+        rows="1"
         bind:value={editDraft}
         autofocus
         onkeydown={(e) => {
-          if (e.key === "Enter") saveEdit(m, editDraft);
-          else if (e.key === "Escape") S.editing = null;
+          if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+            e.preventDefault();
+            commitEdit();
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            cancelEdit();
+          }
         }}
-        onblur={() => saveEdit(m, editDraft)}
-      />
+        onblur={commitEdit}
+      ></textarea>
+      <div class="edit-hint muted">escape to cancel · enter to save</div>
     {:else}
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -421,6 +444,16 @@
   }
   .edit-input {
     margin-top: 2px;
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    min-height: 38px;
+    font-family: inherit;
+    line-height: 1.4;
+  }
+  .edit-hint {
+    font-size: 11px;
+    margin-top: 3px;
   }
   .reactions {
     display: flex;
