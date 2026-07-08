@@ -268,6 +268,8 @@
   .title strong {
     color: var(--text);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .topic-sep {
     width: 1px;
@@ -285,7 +287,10 @@
     min-width: 0;
   }
   .search-box {
-    width: 190px;
+    /* Fluid: shrinks with the window so it never overlaps the channel name,
+       but stays usable (min 84px) and caps at its comfortable width. */
+    width: clamp(84px, 20vw, 190px);
+    min-width: 0;
     padding: 5px 10px;
     font-size: 13px;
   }
