@@ -50,16 +50,37 @@
   // Screen shares get their own wide tiles — a share isn't a person.
   const screens = $derived(S.videoTiles.filter((t) => t.kind === "screen"));
 
-  // Discord-style focus: click a screen share to zoom it big; participants drop
-  // to a small strip of bubbles. Click again (or the shrink button) to exit.
+  // Discord-style focus/theater: one thing fills the stage (a screen share OR a
+  // participant), everyone else drops to a small strip. A shared screen
+  // auto-focuses so it isn't a same-size tile you have to scroll to. Click a
+  // strip item to switch focus; click the big view (or shrink) to exit.
   let focusedKey = $state(null);
-  const focused = $derived(screens.find((t) => t.key === focusedKey) || null);
-  // Auto-clear focus if the focused share goes away.
+  const focusedScreen = $derived(screens.find((t) => t.key === focusedKey) || null);
+  const focusedPid = $derived(roster.includes(focusedKey) ? focusedKey : null);
+  const inTheater = $derived(!!focusedScreen || !!focusedPid);
+
+  // Auto-focus the first screen share when it appears (once), and clear focus if
+  // the focused thing goes away.
+  let autoFocused = $state(false);
   $effect(() => {
-    if (focusedKey && !screens.some((t) => t.key === focusedKey)) focusedKey = null;
+    if (screens.length && !focusedKey && !autoFocused) {
+      focusedKey = screens[0].key;
+      autoFocused = true;
+    }
+    if (!screens.length) autoFocused = false;
+    if (focusedKey && !screens.some((t) => t.key === focusedKey) && !roster.includes(focusedKey)) {
+      focusedKey = null;
+    }
   });
   function toggleFocus(key) {
     focusedKey = focusedKey === key ? null : key;
+  }
+
+  // Fullscreen the focused view (the "zoom" affordance).
+  let stageEl = $state(null);
+  function toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen?.();
+    else stageEl?.requestFullscreen?.();
   }
 
   function tileInfo(pid) {
@@ -103,20 +124,39 @@
     </div>
   {/if}
 
-  {#if focused}
-    <!-- Theater mode: one big share, everyone else shrinks to a strip. -->
-    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="focus-main" onclick={() => (focusedKey = null)} title="Click to exit full view">
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video use:srcObject={focused.key} autoplay playsinline muted={focused.self}></video>
-      <span class="screen-label"><Icon name="screen" size={12} /> {screenLabel(focused)}'s screen</span>
-      <button class="shrink" title="Exit full view" aria-label="Exit full view" onclick={() => (focusedKey = null)}>
-        <Icon name="close" size={14} />
-      </button>
+  {#if inTheater}
+    <!-- Theater mode: one big view (a share or a participant), everyone else in
+         a clickable strip. -->
+    <div class="focus-main" bind:this={stageEl}>
+      {#if focusedScreen}
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video use:srcObject={focusedScreen.key} autoplay playsinline muted={focusedScreen.self}></video>
+        <span class="screen-label"><Icon name="screen" size={12} /> {screenLabel(focusedScreen)}'s screen</span>
+      {:else}
+        {@const t = tileInfo(focusedPid)}
+        {@const cam = camTile(focusedPid)}
+        {#if cam}
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video use:srcObject={cam.key} autoplay playsinline muted={t.self} class:mirror={t.self}></video>
+        {:else}
+          <div class="focus-face" style={t.color ? `--tint:${t.color}` : ""}>
+            <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={96} />
+          </div>
+        {/if}
+        <span class="screen-label">{t.self ? `${t.name} (you)` : t.name}</span>
+      {/if}
+      <div class="focus-actions">
+        <button class="fbtn" title="Fullscreen" aria-label="Fullscreen" onclick={toggleFullscreen}>
+          <Icon name="screen" size={14} />
+        </button>
+        <button class="fbtn" title="Exit full view" aria-label="Exit full view" onclick={() => (focusedKey = null)}>
+          <Icon name="close" size={14} />
+        </button>
+      </div>
     </div>
     <div class="strip">
       {#each screens as tile (tile.key)}
-        {#if tile.key !== focused.key}
+        {#if tile.key !== focusedKey}
           <button class="thumb" title="{screenLabel(tile)}'s screen" onclick={() => toggleFocus(tile.key)}>
             <!-- svelte-ignore a11y_media_has_caption -->
             <video use:srcObject={tile.key} autoplay playsinline muted={tile.self}></video>
@@ -125,10 +165,17 @@
         {/if}
       {/each}
       {#each roster as pid (pid)}
-        {@const t = tileInfo(pid)}
-        <div class="bubble" class:speaking={t.speaking} title={t.self ? `${t.name} (you)` : t.name}>
-          <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={34} />
-        </div>
+        {#if pid !== focusedKey}
+          {@const t = tileInfo(pid)}
+          <button
+            class="bubble"
+            class:speaking={t.speaking}
+            title={t.self ? `${t.name} (you)` : t.name}
+            onclick={() => toggleFocus(pid)}
+          >
+            <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={34} />
+          </button>
+        {/if}
       {/each}
     </div>
   {:else}
@@ -136,7 +183,13 @@
       {#each roster as pid (pid)}
         {@const t = tileInfo(pid)}
         {@const cam = camTile(pid)}
-        <div class="tile" class:speaking={t.speaking}>
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div
+          class="tile"
+          class:speaking={t.speaking}
+          onclick={() => toggleFocus(pid)}
+          title="Click to focus {t.self ? 'yourself' : t.name}"
+        >
           {#if cam}
             <!-- svelte-ignore a11y_media_has_caption -->
             <video
@@ -243,6 +296,13 @@
     border: 1px solid var(--border);
     display: grid;
     place-items: center;
+    cursor: pointer;
+  }
+  .tile:hover {
+    border-color: var(--accent);
+  }
+  .strip .bubble {
+    background: transparent;
   }
   .tile video {
     position: absolute;
@@ -346,10 +406,23 @@
     object-fit: contain;
     display: block;
   }
-  .shrink {
+  .focus-face {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(70% 70% at 50% 40%, color-mix(in srgb, var(--tint, var(--accent)) 26%, transparent), transparent),
+      var(--bg-1);
+  }
+  .focus-actions {
     position: absolute;
     top: 8px;
     right: 8px;
+    display: flex;
+    gap: 6px;
+  }
+  .fbtn {
     width: 30px;
     height: 30px;
     padding: 0;
@@ -360,7 +433,7 @@
     color: #fff;
     border: none;
   }
-  .shrink:hover {
+  .fbtn:hover {
     background: rgba(0, 0, 0, 0.8);
   }
   .strip {

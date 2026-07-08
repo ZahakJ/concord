@@ -84,15 +84,25 @@
   const typeIcon = (t) => (t === "voice" ? "speaker" : t === "announcement" ? "megaphone" : "hash");
 
   function clickChannel(c) {
-    // Always open the channel's view — never auto-join. For a voice channel you
-    // can read its chat without joining, and if you're already in the call this
-    // opens the call view (Discord-style). Joining is the header's explicit
-    // "Join voice" button.
-    selectChannel(c.id);
+    if (c.type === "voice") {
+      // Clicking a voice channel joins it and shows the call view. Clicking it
+      // again while already in does nothing extra (no rejoin). To read its chat
+      // WITHOUT joining, right-click → Open Chat.
+      selectChannel(c.id);
+      if (!S.voice || S.voice.channelId !== c.id) onJoinVoice?.(c.id);
+    } else {
+      selectChannel(c.id);
+    }
   }
 
   function channelMenu(e, c) {
     openContextMenu(e, [
+      c.type === "voice" && {
+        label: "Open Chat",
+        icon: "hash",
+        onClick: () => selectChannel(c.id), // view messages without joining the call
+      },
+      c.type === "voice" && { sep: true },
       { label: "Mark As Read", icon: "check", onClick: () => markRead(c.id) },
       {
         label: S.mutes[c.id] ? "Unmute Channel" : "Mute Channel",
