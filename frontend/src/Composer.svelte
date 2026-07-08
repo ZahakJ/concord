@@ -374,38 +374,39 @@
         e.target.value = "";
       }}
     />
-    <button
-      type="button"
-      class="ghost iconbtn"
-      title="Attach a file or image (or paste / drop one)"
-      aria-label="Attach a file"
-      disabled={!ch}
-      onclick={() => fileInput.click()}
-    >
-      <Icon name="attach" />
-    </button>
-    <textarea
-      bind:this={composerEl}
-      class="draft"
-      rows="1"
-      placeholder={ch ? `Message #${ch.name} — Shift+Enter for a new line` : "Select a channel"}
-      bind:value={draft}
-      disabled={!ch}
-      oninput={onInput}
-      onkeydown={onKeydown}
-      onpaste={onPaste}
-    ></textarea>
-    <button
-      type="button"
-      class="ghost iconbtn"
-      title="Emoji"
-      aria-label="Emoji picker"
-      disabled={!ch}
-      onclick={() => (S.pickerTarget = S.pickerTarget === "composer" ? null : "composer")}
-    >
-      <Icon name="smile" />
-    </button>
-    <button type="submit" disabled={!draft.trim()}>Send</button>
+    <div class="input-box" class:focused={ch}>
+      <button
+        type="button"
+        class="iconbtn"
+        title="Attach a file or image (or paste / drop one)"
+        aria-label="Attach a file"
+        disabled={!ch}
+        onclick={() => fileInput.click()}
+      >
+        <Icon name="attach" size={20} />
+      </button>
+      <textarea
+        bind:this={composerEl}
+        class="draft"
+        rows="1"
+        placeholder={ch ? `Message #${ch.name}` : "Select a channel"}
+        bind:value={draft}
+        disabled={!ch}
+        oninput={onInput}
+        onkeydown={onKeydown}
+        onpaste={onPaste}
+      ></textarea>
+      <button
+        type="button"
+        class="iconbtn"
+        title="Emoji"
+        aria-label="Emoji picker"
+        disabled={!ch}
+        onclick={() => (S.pickerTarget = S.pickerTarget === "composer" ? null : "composer")}
+      >
+        <Icon name="smile" size={22} />
+      </button>
+    </div>
   </form>
 </div>
 
@@ -466,10 +467,21 @@
     margin-right: 6px;
   }
   .composer {
+    padding: 0 16px 16px;
+  }
+  /* One unified rounded bar — icons live inside it, Discord-style. */
+  .input-box {
     display: flex;
     align-items: flex-end;
-    gap: 8px;
-    padding: 0 16px 14px;
+    gap: 2px;
+    background: var(--bg-input);
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    padding: 2px 6px;
+    transition: border-color 0.15s ease;
+  }
+  .input-box.focused:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
   .draft {
     flex: 1;
@@ -478,14 +490,33 @@
     overflow-y: auto;
     max-height: 200px;
     height: auto;
+    background: transparent;
+    border: none;
+    padding: 9px 4px;
     font-family: inherit;
     line-height: 1.4;
     box-sizing: border-box;
+    width: auto;
   }
+  .draft:focus {
+    border: none;
+  }
+  /* Bare icon buttons: muted glyphs that brighten on hover, no box. */
   .iconbtn {
     display: grid;
     place-items: center;
-    padding: 0 11px;
+    background: transparent;
+    color: var(--text-muted);
+    padding: 7px;
+    border-radius: var(--radius-sm);
+    align-self: flex-end;
+  }
+  .iconbtn:hover:not(:disabled) {
+    background: transparent;
+    color: var(--text);
+  }
+  .iconbtn:disabled {
+    opacity: 0.4;
   }
   .mini {
     padding: 2px 6px;
