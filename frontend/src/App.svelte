@@ -35,6 +35,7 @@
   import Welcome from "./Welcome.svelte";
   import QuickSwitcher from "./QuickSwitcher.svelte";
   import ProfilePopover from "./ProfilePopover.svelte";
+  import ContextMenu from "./ContextMenu.svelte";
   import FloatingCall from "./FloatingCall.svelte";
   import ModalCreate from "./modals/ModalCreate.svelte";
   import ModalCreateChannel from "./modals/ModalCreateChannel.svelte";
@@ -294,6 +295,7 @@
   {/if}
 
   <ProfilePopover />
+  <ContextMenu />
 
   <!-- Ongoing call you've navigated away from: a draggable pinned window. -->
   {#if callElsewhere}

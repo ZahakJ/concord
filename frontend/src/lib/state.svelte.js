@@ -74,6 +74,9 @@ export const S = $state({
   // update: an available app update {available, current, latest, url, notes},
   // or null. Drives the "Download" banner. Dismissal is per-version.
   update: null,
+
+  // contextMenu: right-click menu {x, y, items} or null.
+  contextMenu: null,
 });
 
 export const activeGuild = () => S.guilds.find((g) => g.id === S.activeGuildId) || null;
@@ -165,6 +168,28 @@ export function toggleMute(channelId) {
   else m[channelId] = true;
   S.mutes = m;
   saveJSON("concord.mutes", m);
+}
+
+// markUnread rewinds a channel's read cursor to just before a message, so it
+// (and everything after) shows as unread again, with the NEW divider restored.
+export function markUnread(channelId, msg) {
+  if (!channelId || !msg) return;
+  const before = new Date(new Date(msg.sent).getTime() - 1).toISOString();
+  lastRead[channelId] = before;
+  saveJSON("concord.lastRead", lastRead);
+  recomputeUnread();
+  if (channelId === S.activeChannelId) S.readAnchor = before;
+}
+
+// ---- shared right-click context menu ----
+// S.contextMenu = { x, y, items:[{label, icon?, danger?, onClick}|null] } | null
+export function openContextMenu(e, items) {
+  e.preventDefault();
+  e.stopPropagation();
+  S.contextMenu = { x: e.clientX, y: e.clientY, items: items.filter(Boolean) };
+}
+export function closeContextMenu() {
+  S.contextMenu = null;
 }
 
 // setPref updates a persisted privacy preference.

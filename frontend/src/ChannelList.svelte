@@ -15,6 +15,8 @@
     nameFor,
     moveChannelToCategory,
     jumpToChannel,
+    markRead,
+    openContextMenu,
     flash,
     refreshGuilds,
   } from "./lib/state.svelte.js";
@@ -76,6 +78,24 @@
   function clickChannel(c) {
     if (c.type === "voice") onJoinVoice?.(c.id);
     else selectChannel(c.id);
+  }
+
+  function channelMenu(e, c) {
+    openContextMenu(e, [
+      { label: "Mark As Read", icon: "check", onClick: () => markRead(c.id) },
+      {
+        label: S.mutes[c.id] ? "Unmute Channel" : "Mute Channel",
+        icon: S.mutes[c.id] ? "bell" : "bellOff",
+        onClick: () => toggleMute(c.id),
+      },
+      canManageChannels && { sep: true },
+      canManageChannels && {
+        label: "Delete Channel",
+        icon: "trash",
+        danger: true,
+        onClick: () => deleteChannel(c),
+      },
+    ]);
   }
 
   async function newDMInvite() {
@@ -172,7 +192,7 @@
           {@const active = c.id === S.activeChannelId && c.type !== "voice"}
           {@const inVoice = S.voice && S.voice.channelId === c.id}
           <div class="channel-row" class:active class:voice-active={inVoice}>
-            <button class="channel" class:muted-ch={S.mutes[c.id]} onclick={() => clickChannel(c)}>
+            <button class="channel" class:muted-ch={S.mutes[c.id]} onclick={() => clickChannel(c)} oncontextmenu={(e) => channelMenu(e, c)}>
               <Icon name={typeIcon(c.type)} size={13} />
               <span class="ch-name">{c.name}</span>
               {#if c.type !== "voice" && c.id !== S.activeChannelId && u && !S.mutes[c.id]}

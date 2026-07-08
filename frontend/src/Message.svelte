@@ -24,6 +24,8 @@
     flash,
     openProfilePopover,
     scheduleCloseProfilePopover,
+    openContextMenu,
+    markUnread,
     activeGuild,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
@@ -112,9 +114,42 @@
   function jumpToReply() {
     if (m.replyTo && !scrollToMessage(m.replyTo)) flash("Original message not loaded");
   }
+
+  function copy(text, ok) {
+    navigator.clipboard?.writeText(text);
+    flash(ok);
+  }
+
+  const isOwn = $derived(m.sender === S.identity.fingerprint);
+
+  function messageMenu(e) {
+    if (m.deleted) return;
+    openContextMenu(e, [
+      { label: "Reply", icon: "reply", onClick: () => (S.replyingTo = m) },
+      isOwn && { label: "Edit", icon: "edit", onClick: startEdit },
+      { label: "Add Reaction", icon: "smile", onClick: () => (S.pickerTarget = m) },
+      { sep: true },
+      { label: "Copy Text", icon: "edit", onClick: () => copy(m.content, "Copied text") },
+      {
+        label: "Copy Message Link",
+        icon: "forward",
+        onClick: () => copy(`concord://msg/${m.channelId}/${m.id}`, "Copied message link"),
+      },
+      { label: m.pinned ? "Unpin" : "Pin", icon: "pin", onClick: () => api.pinMessage(m.channelId, m.id) },
+      { label: "Forward", icon: "forward", onClick: () => (S.modal = { kind: "forward", message: m }) },
+      { label: "Mark Unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
+      (isOwn || canDeleteOthers) && { sep: true },
+      (isOwn || canDeleteOthers) && {
+        label: "Delete",
+        icon: "trash",
+        danger: true,
+        onClick: () => deleteMsg(m),
+      },
+    ]);
+  }
 </script>
 
-<div class="msg" class:compact data-msg-id={m.id}>
+<div class="msg" class:compact data-msg-id={m.id} oncontextmenu={messageMenu}>
   {#if compact}
     <span class="gutter-time muted">{fmtTime(m.sent)}</span>
   {:else}

@@ -10,6 +10,7 @@
     refreshRightPanel,
     flash,
     openProfilePopover,
+    openContextMenu,
     roleColorFor,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
@@ -17,6 +18,29 @@
   let showPeers = $state(false);
 
   const g = $derived(activeGuild());
+
+  function memberMenu(e, mem) {
+    openContextMenu(e, [
+      { label: "View Profile", icon: "spark", onClick: () => openProfilePopover(mem.fingerprint, e.target) },
+      {
+        label: "Copy User ID",
+        icon: "check",
+        onClick: () => {
+          navigator.clipboard?.writeText(mem.fingerprint);
+          flash("Copied user ID");
+        },
+      },
+      g?.canManage && !mem.isSelf && !mem.isOwner && { sep: true },
+      g?.canManage &&
+        !mem.isSelf &&
+        !mem.isOwner && {
+          label: "Remove from Guild",
+          icon: "close",
+          danger: true,
+          onClick: () => kick(mem.fingerprint),
+        },
+    ]);
+  }
 
   // A member's highest-ranked role (roles are highest-first), for a badge.
   function topRole(mem) {
@@ -39,7 +63,11 @@
   <div class="section-head"><span>Members — {g?.name ?? ""}</span></div>
   {#each S.members as mem (mem.fingerprint)}
     <div class="member-row">
-      <button class="member" onclick={(e) => openProfilePopover(mem.fingerprint, e.currentTarget)}>
+      <button
+        class="member"
+        onclick={(e) => openProfilePopover(mem.fingerprint, e.currentTarget)}
+        oncontextmenu={(e) => memberMenu(e, mem)}
+      >
         <Avatar
           name={mem.name || mem.fingerprint}
           emoji={mem.emoji}
