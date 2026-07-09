@@ -127,7 +127,11 @@
   {#if inTheater}
     <!-- Theater mode: one big view (a share or a participant), everyone else in
          a clickable strip. -->
-    <div class="focus-main" bind:this={stageEl}>
+    <div
+      class="focus-main"
+      class:speaking={focusedPid ? tileInfo(focusedPid).speaking : false}
+      bind:this={stageEl}
+    >
       {#if focusedScreen}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video use:srcObject={focusedScreen.key} autoplay playsinline muted={focusedScreen.self}></video>
@@ -144,6 +148,12 @@
           </div>
         {/if}
         <span class="screen-label">{t.self ? `${t.name} (you)` : t.name}</span>
+        {#if t.speaking}
+          <span class="eq" aria-hidden="true"><span></span><span></span><span></span></span>
+        {/if}
+        {#if t.muted}
+          <span class="mute-badge" title="Muted" aria-label="Muted"><Icon name="micOff" size={11} /></span>
+        {/if}
       {/if}
       <div class="focus-actions">
         <button class="fbtn" title="Fullscreen" aria-label="Fullscreen" onclick={toggleFullscreen}>
@@ -205,10 +215,13 @@
             </div>
           {/if}
           <span class="ring" aria-hidden="true"></span>
-          <span class="name">
-            {#if t.muted}<Icon name="micOff" size={12} />{/if}
-            {t.self ? `${t.name} (you)` : t.name}
-          </span>
+          {#if t.speaking}
+            <span class="eq" aria-hidden="true"><span></span><span></span><span></span></span>
+          {/if}
+          {#if t.muted}
+            <span class="mute-badge" title="Muted" aria-label="Muted"><Icon name="micOff" size={11} /></span>
+          {/if}
+          <span class="name">{t.self ? `${t.name} (you)` : t.name}</span>
         </div>
       {/each}
     </div>
@@ -297,9 +310,19 @@
     display: grid;
     place-items: center;
     cursor: pointer;
+    transition:
+      transform 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
   }
+  /* Hover lift — a gentle rise + shadow so tiles feel tactile. */
   .tile:hover {
-    border-color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px -8px rgba(0, 0, 0, 0.45);
+  }
+  .tile.speaking {
+    border-color: color-mix(in srgb, var(--ok) 55%, transparent);
   }
   .strip .bubble {
     background: transparent;
@@ -314,16 +337,23 @@
   .tile video.mirror {
     transform: scaleX(-1);
   }
+  /* Idle tile face: soft member-color gradient — a top glow melting into a
+     faint tinted wash, so every tile carries its owner's color. */
   .face {
     width: 100%;
     height: 100%;
     display: grid;
     place-items: center;
     background:
-      radial-gradient(90% 90% at 50% 35%, color-mix(in srgb, var(--tint, var(--accent)) 26%, transparent), transparent),
-      var(--bg-1);
+      radial-gradient(
+        120% 95% at 50% 0%,
+        color-mix(in srgb, var(--tint, var(--accent)) 30%, transparent),
+        transparent 62%
+      ),
+      linear-gradient(180deg, color-mix(in srgb, var(--tint, var(--accent)) 10%, var(--bg-1)), var(--bg-1) 80%);
   }
-  /* Animated speaking ring — a soft pulsing glow around the tile. */
+  /* Animated speaking ring — layered: a crisp inner ring, an inner wash of
+     color, and a breathing outer halo. */
   .ring {
     position: absolute;
     inset: 0;
@@ -333,21 +363,75 @@
     transition: box-shadow 0.12s ease;
   }
   .tile.speaking .ring {
-    box-shadow: inset 0 0 0 3px var(--ok);
-    animation: pulse 1.3s ease-in-out infinite;
+    animation: pulse 1.6s ease-in-out infinite;
   }
   @keyframes pulse {
     0%,
     100% {
       box-shadow:
-        inset 0 0 0 3px var(--ok),
-        0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent);
+        inset 0 0 0 2px var(--ok),
+        inset 0 0 22px -6px color-mix(in srgb, var(--ok) 40%, transparent),
+        0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
+        0 0 6px 0 color-mix(in srgb, var(--ok) 25%, transparent);
     }
     50% {
       box-shadow:
-        inset 0 0 0 3px var(--ok),
-        0 0 14px 3px color-mix(in srgb, var(--ok) 45%, transparent);
+        inset 0 0 0 2px var(--ok),
+        inset 0 0 30px -4px color-mix(in srgb, var(--ok) 52%, transparent),
+        0 0 0 3px color-mix(in srgb, var(--ok) 45%, transparent),
+        0 0 18px 4px color-mix(in srgb, var(--ok) 40%, transparent);
     }
+  }
+  /* Tiny equalizer badge — three bars bouncing while someone speaks. */
+  .eq {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 12px;
+    padding: 4px 5px;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: var(--radius-sm);
+    pointer-events: none;
+  }
+  .eq span {
+    width: 3px;
+    height: 35%;
+    border-radius: 2px;
+    background: var(--ok);
+    animation: eq-bounce 0.9s ease-in-out infinite;
+  }
+  .eq span:nth-child(2) {
+    animation-delay: 0.18s;
+  }
+  .eq span:nth-child(3) {
+    animation-delay: 0.36s;
+  }
+  @keyframes eq-bounce {
+    0%,
+    100% {
+      height: 35%;
+    }
+    50% {
+      height: 100%;
+    }
+  }
+  /* Muted-mic badge (shown for yourself — the only mute state we truly know). */
+  .mute-badge {
+    position: absolute;
+    right: 8px;
+    bottom: 8px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    background: color-mix(in srgb, var(--danger) 82%, #000);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
   }
   .name {
     position: absolute;
@@ -400,6 +484,20 @@
     margin: 0 auto;
     width: 100%;
   }
+  /* Speaking glow on the big focused view (participant focus only). */
+  .focus-main.speaking {
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  /* The eq badge would collide with the fullscreen/close buttons top-right, so
+     it sits top-left in the big view. */
+  .focus-main .eq {
+    right: auto;
+    left: 8px;
+  }
+  .focus-main .mute-badge {
+    right: 8px;
+    bottom: 8px;
+  }
   .focus-main video {
     width: 100%;
     height: 100%;
@@ -412,8 +510,12 @@
     display: grid;
     place-items: center;
     background:
-      radial-gradient(70% 70% at 50% 40%, color-mix(in srgb, var(--tint, var(--accent)) 26%, transparent), transparent),
-      var(--bg-1);
+      radial-gradient(
+        90% 80% at 50% 20%,
+        color-mix(in srgb, var(--tint, var(--accent)) 28%, transparent),
+        transparent 65%
+      ),
+      linear-gradient(180deg, color-mix(in srgb, var(--tint, var(--accent)) 10%, var(--bg-1)), var(--bg-1) 80%);
   }
   .focus-actions {
     position: absolute;
@@ -478,9 +580,25 @@
     border-radius: 50%;
     padding: 2px;
     border: 2px solid transparent;
+    transition:
+      transform 0.12s ease,
+      border-color 0.12s ease;
+  }
+  .bubble:hover {
+    transform: translateY(-1px);
   }
   .bubble.speaking {
     border-color: var(--ok);
+    animation: bubble-glow 1.6s ease-in-out infinite;
+  }
+  @keyframes bubble-glow {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 40%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 10px 3px color-mix(in srgb, var(--ok) 45%, transparent);
+    }
   }
   .screen-tile video {
     width: 100%;
@@ -501,14 +619,29 @@
     background: rgba(0, 0, 0, 0.55);
     border-radius: var(--radius-sm);
   }
+  /* Ringing / waiting: a soft pill that breathes in, dots doing the talking. */
   .ringing {
-    display: flex;
+    align-self: center;
+    display: inline-flex;
     align-items: center;
-    justify-content: center;
     gap: 8px;
+    padding: 6px 16px;
     font-size: 13px;
     color: var(--text-muted);
-    font-style: italic;
+    background: color-mix(in srgb, var(--bg-1) 80%, transparent);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    animation: ring-in 0.35s ease both;
+  }
+  @keyframes ring-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
   .dots {
     display: inline-flex;

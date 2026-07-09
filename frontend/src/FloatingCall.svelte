@@ -151,9 +151,23 @@
     border: 2px solid transparent;
     transition: border-color 0.1s ease;
   }
+  /* Speaking: same layered ring-and-glow as the big call tiles, mini-sized. */
   .face.speaking :global(.avatar) {
     border-color: var(--ok);
-    box-shadow: 0 0 0 2px var(--ok-soft);
+    animation: fc-glow 1.6s ease-in-out infinite;
+  }
+  @keyframes fc-glow {
+    0%,
+    100% {
+      box-shadow:
+        0 0 0 2px var(--ok-soft),
+        0 0 3px 0 color-mix(in srgb, var(--ok) 30%, transparent);
+    }
+    50% {
+      box-shadow:
+        0 0 0 2px color-mix(in srgb, var(--ok) 28%, transparent),
+        0 0 8px 2px color-mix(in srgb, var(--ok) 45%, transparent);
+    }
   }
   .ctl {
     display: flex;
