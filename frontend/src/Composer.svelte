@@ -270,7 +270,8 @@
 
   // attachImage: images go out as inline-rendered blobs (existing path).
   export async function attachImage(file) {
-    if (!file || !S.activeChannelId) return;
+    const chId = S.activeChannelId; // capture now — we await below and the user may switch channels
+    if (!file || !chId) return;
     uploading++;
     try {
       let dataUrl, w, h;
@@ -282,7 +283,7 @@
       }
       const replyTo = S.replyingTo?.id || "";
       S.replyingTo = null;
-      await api.sendAttachment(S.activeChannelId, dataUrl, w, h, replyTo);
+      await api.sendAttachment(chId, dataUrl, w, h, replyTo);
     } catch (err) {
       const msg = String(err?.message || err);
       flash(
@@ -298,7 +299,8 @@
   // attachFile: the general entry point — images render inline, everything
   // else becomes a download card (up to 25 MB).
   export async function attachFile(file) {
-    if (!file || !S.activeChannelId) return;
+    const chId = S.activeChannelId; // capture before any await
+    if (!file || !chId) return;
     if (file.type.startsWith("image/")) {
       await attachImage(file);
       return;
@@ -312,7 +314,7 @@
       const dataUrl = await readAsDataURL(file);
       const replyTo = S.replyingTo?.id || "";
       S.replyingTo = null;
-      await api.sendFile(S.activeChannelId, dataUrl, file.name || "file", replyTo);
+      await api.sendFile(chId, dataUrl, file.name || "file", replyTo);
     } catch (err) {
       flash(err);
     } finally {

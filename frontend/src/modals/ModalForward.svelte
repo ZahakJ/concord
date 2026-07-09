@@ -25,9 +25,12 @@
       }
     }
     const q = query.trim().toLowerCase();
+    // Drop destinations with no channel id (a channel-less DM) — they can't be
+    // forwarded to anyway, and duplicate `undefined` keys crash the {#each}.
+    const withId = out.filter((d) => d.id);
     return q
-      ? out.filter((d) => (d.label + " " + d.sub).toLowerCase().includes(q))
-      : out;
+      ? withId.filter((d) => (d.label + " " + d.sub).toLowerCase().includes(q))
+      : withId;
   });
 
   async function send(dest) {

@@ -37,7 +37,7 @@
           label: "Remove from Guild",
           icon: "close",
           danger: true,
-          onClick: () => kick(mem.fingerprint),
+          onClick: () => kick(mem),
         },
     ]);
   }
@@ -75,14 +75,26 @@
     return out;
   });
 
-  async function kick(fingerprint) {
-    try {
-      await api.removeMember(S.activeGuildId, fingerprint);
-      await refreshRightPanel();
-      flash("Member removed");
-    } catch (err) {
-      flash(err);
-    }
+  // Kicking ejects a member — confirm first (a hover-revealed danger button is
+  // one stray click otherwise), matching the profile popover's flow.
+  function kick(mem) {
+    const name = mem.name || mem.fingerprint.slice(0, 9);
+    S.modal = {
+      kind: "confirm",
+      title: `Remove ${name}?`,
+      body: `${name} will be removed from this guild. They can rejoin with a new invite unless you ban them.`,
+      confirmLabel: "Remove",
+      onConfirm: async () => {
+        S.modal = null;
+        try {
+          await api.removeMember(S.activeGuildId, mem.fingerprint);
+          await refreshRightPanel();
+          flash("Member removed");
+        } catch (err) {
+          flash(err);
+        }
+      },
+    };
   }
 </script>
 
@@ -133,7 +145,7 @@
         </span>
       </button>
         {#if g?.canManage && !mem.isSelf && !mem.isOwner}
-          <button class="kick" title="Remove from guild" aria-label="Remove {mem.name || 'member'} from guild" onclick={() => kick(mem.fingerprint)}>
+          <button class="kick" title="Remove from guild" aria-label="Remove {mem.name || 'member'} from guild" onclick={() => kick(mem)}>
             <Icon name="close" size={12} />
           </button>
         {/if}

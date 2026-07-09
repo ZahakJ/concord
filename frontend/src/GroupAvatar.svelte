@@ -28,7 +28,7 @@
     style="width:{size}px;height:{size}px;font-size:{cellFont}"
     title={faces.map((f) => f.name).join(", ")}
   >
-    {#each shown as f (f.name + (f.avatar || ""))}
+    {#each shown as f, i (i)}
       <span
         class="cell"
         class:pending={f.pending}

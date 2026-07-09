@@ -211,7 +211,13 @@
           onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
           >{nameFor(m.sender, m.senderName)}</button
         >
-        <span class="muted mono verify-fpr" title="verified identity">{m.sender.slice(0, 9)}</span>
+        <span
+          class="muted mono verify-fpr"
+          class:verified={memberByFpr(m.sender)?.verified}
+          title={memberByFpr(m.sender)?.verified
+            ? "Identity verified"
+            : "Sender fingerprint — not verified"}>{m.sender.slice(0, 9)}</span
+        >
         <span class="muted time">{fmtTime(m.sent)}</span>
         {#if m.pinned}<span class="pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
       </div>
