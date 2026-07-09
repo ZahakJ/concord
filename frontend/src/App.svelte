@@ -38,6 +38,7 @@
   import ProfilePopover from "./ProfilePopover.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import FloatingCall from "./FloatingCall.svelte";
+  import Toasts from "./Toasts.svelte";
   import ModalCreate from "./modals/ModalCreate.svelte";
   import ModalCreateChannel from "./modals/ModalCreateChannel.svelte";
   import ModalEmoji from "./modals/ModalEmoji.svelte";
@@ -158,7 +159,7 @@
     try {
       await mesh.start();
     } catch {
-      flash("Microphone access denied");
+      flash("Microphone access denied", "error");
       joining = false;
       return;
     }
@@ -177,7 +178,7 @@
     if (S.dismissedCalls.includes(channelId))
       S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
     playVoiceJoin();
-    flash("Joined voice");
+    flash("Joined voice", "success");
     joining = false;
   }
 
@@ -266,12 +267,12 @@
     applyAppearance(); // new profile color, unless an accent preset overrides it
     await refreshRightPanel();
     S.modal = null;
-    flash("Profile updated");
+    flash("Profile updated", "success");
   }
 
   function copy(text) {
     navigator.clipboard?.writeText(text);
-    flash("Copied to clipboard");
+    flash("Copied to clipboard", "success");
   }
 </script>
 
@@ -373,7 +374,7 @@
     </div>
   {/if}
 
-  {#if S.toast}<div class="toast">{S.toast}</div>{/if}
+  <Toasts />
 
   <!-- Modals -->
   {#if S.modal?.kind === "create"}
@@ -428,7 +429,7 @@
   {:else if S.modal?.kind === "profile"}
     <ModalProfile identity={S.identity} onSubmit={saveProfile} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "settings"}
-    <ModalSettings onClose={() => (S.modal = null)} onSaved={() => flash("Rendezvous saved")} />
+    <ModalSettings onClose={() => (S.modal = null)} onSaved={() => flash("Rendezvous saved", "success")} />
   {:else if S.modal?.kind === "appearance"}
     <ModalAppearance onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "join"}
@@ -479,19 +480,6 @@
     min-height: 0;
     overflow: hidden;
     background: var(--bg-2);
-  }
-  .toast {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    padding: 10px 16px;
-    border-radius: var(--radius-md);
-    font-size: 13px;
-    box-shadow: var(--shadow-pop);
-    z-index: 200;
   }
   /* Update-available banner: a floating top-center pill (doesn't cover the rail). */
   .update-banner {

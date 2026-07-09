@@ -29,7 +29,7 @@
       await api.unbanMember(S.activeGuildId, fpr);
       await refreshRightPanel();
       bans = bans.filter((b) => b.fingerprint !== fpr);
-      flash("Ban lifted");
+      flash("Ban lifted", "success");
     } catch (err) {
       flash(err);
     } finally {

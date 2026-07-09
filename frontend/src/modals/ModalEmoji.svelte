@@ -15,7 +15,7 @@
   // Downscale to a 64px PNG (keeps transparency) — small enough to distribute.
   async function pick(file) {
     if (!file || !file.type.startsWith("image/")) {
-      flash("Pick an image");
+      flash("Pick an image", "error");
       return;
     }
     try {
@@ -31,7 +31,7 @@
       pending = { dataURI: canvas.toDataURL("image/png") };
       if (!name) name = (file.name || "").replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 32);
     } catch {
-      flash("Couldn't read that image");
+      flash("Couldn't read that image", "error");
     }
   }
 

@@ -165,7 +165,7 @@
 
   function copy(text, ok) {
     navigator.clipboard?.writeText(text);
-    flash(ok);
+    flash(ok, "success");
   }
 
   const isOwn = $derived(m.sender === S.identity.fingerprint);

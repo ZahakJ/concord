@@ -27,7 +27,7 @@
     const reader = new FileReader();
     reader.onload = () => {
       if (String(reader.result).length > MAX) {
-        flash("Image too large — keep it under ~350 KB");
+        flash("Image too large — keep it under ~350 KB", "error");
         return;
       }
       setter(reader.result);
@@ -58,7 +58,7 @@
     try {
       await api.setGuildProfile(S.activeGuildId, name.trim(), icon, banner, description.trim());
       await refreshGuilds();
-      flash("Guild updated");
+      flash("Guild updated", "success");
       onClose();
     } catch (err) {
       flash(err);

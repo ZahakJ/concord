@@ -27,7 +27,7 @@
         icon: "check",
         onClick: () => {
           navigator.clipboard?.writeText(mem.fingerprint);
-          flash("Copied user ID");
+          flash("Copied user ID", "success");
         },
       },
       g?.canManage && !mem.isSelf && !mem.isOwner && { sep: true },

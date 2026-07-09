@@ -135,7 +135,7 @@
     a.download = `${ch.name}-history.md`;
     a.click();
     URL.revokeObjectURL(a.href);
-    flash("History exported");
+    flash("History exported", "success");
   }
 </script>
 

@@ -42,7 +42,7 @@
       await api.setNickname(S.activeGuildId, nickText.trim());
       await refreshRightPanel();
       editingNick = false;
-      flash(nickText.trim() ? "Nickname set" : "Nickname cleared");
+      flash(nickText.trim() ? "Nickname set" : "Nickname cleared", "success");
     } catch (err) {
       flash(err);
     } finally {
@@ -100,7 +100,7 @@
     try {
       await api.verifyFingerprint(mem.fingerprint);
       await refreshRightPanel();
-      flash("Member verified ✓");
+      flash("Member verified ✓", "success");
     } catch (err) {
       flash(err);
     }

@@ -25,7 +25,7 @@ export const S = $state({
   // viewport box. Opened by hovering/clicking a mention or a member row.
   profilePopover: null,
   modal: null, // { kind, ... }
-  toast: "",
+  toasts: [], // [{ id, kind, text }] — kind: "info" | "success" | "error"
   quickSwitcher: false,
 
   // unread[channelId] = { count, mentions } — counts survive refresh via the
@@ -314,11 +314,39 @@ export function guildUnread(g) {
 }
 
 // ---- toasts ----
+// A stack of { id, kind, text }, rendered by Toasts.svelte. Each toast owns
+// its expiry timer (the old single-slot toast raced: an earlier flash's
+// timeout would clear a later one). Errors linger a bit longer than info.
 
-export function flash(msg) {
-  S.toast = String(msg?.message || msg);
-  setTimeout(() => (S.toast = ""), 2500);
+let toastSeq = 0;
+const toastTimers = new Map(); // id -> timeout handle
+
+export function flash(msg, kind = "info") {
+  // Back-compat: flash(err) with an Error (or anything error-shaped) reads as
+  // a failure without every existing call site having to opt in.
+  if (kind === "info" && (msg instanceof Error || (typeof msg === "object" && msg?.message)))
+    kind = "error";
+  const id = ++toastSeq;
+  S.toasts.push({ id, kind, text: String(msg?.message || msg) });
+  // Bound the backlog even if something flashes in a tight loop.
+  while (S.toasts.length > 8) dismissToast(S.toasts[0].id);
+  toastTimers.set(
+    id,
+    setTimeout(() => dismissToast(id), kind === "error" ? 5000 : 3000),
+  );
+  return id;
 }
+
+export function dismissToast(id) {
+  clearTimeout(toastTimers.get(id));
+  toastTimers.delete(id);
+  const i = S.toasts.findIndex((t) => t.id === id);
+  if (i !== -1) S.toasts.splice(i, 1);
+}
+
+// Intent-named sugar over flash(); prefer these at new call sites.
+export const toastOk = (msg) => flash(msg, "success");
+export const toastError = (msg) => flash(msg, "error");
 
 // checkForUpdate asks the backend (once, at startup) whether a newer release is
 // out, and surfaces the "Download" banner — unless the user already dismissed

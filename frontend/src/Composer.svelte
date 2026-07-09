@@ -315,6 +315,7 @@
         msg.includes("too large")
           ? "Image too large (max 5 MB, even after compression)"
           : "Couldn't read that image format",
+        "error",
       );
     } finally {
       uploading--;
@@ -331,7 +332,7 @@
       return;
     }
     if (file.size > MAX_FILE_BYTES) {
-      flash("File too large (max 25 MB)");
+      flash("File too large (max 25 MB)", "error");
       return;
     }
     uploading++;
