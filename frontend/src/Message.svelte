@@ -33,7 +33,9 @@
   import { PERM, has } from "./lib/perms.js";
   import { recentEmoji, pushRecentEmoji } from "./lib/emoji.js";
 
-  let { m, compact = false, replyRef = null } = $props();
+  // `entering` is set by MessageList for the newest appended message only, so
+  // it fades/slides in once — history rows never animate.
+  let { m, compact = false, replyRef = null, entering = false } = $props();
 
   // Moderators (Manage Messages) can delete anyone's message.
   const canDeleteOthers = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
@@ -195,7 +197,7 @@
   }
 </script>
 
-<div class="msg" class:compact data-msg-id={m.id} oncontextmenu={messageMenu}>
+<div class="msg" class:compact class:enter={entering} data-msg-id={m.id} oncontextmenu={messageMenu}>
   {#if compact}
     <span class="gutter-time muted">{fmtTime(m.sent)}</span>
   {:else}
@@ -386,6 +388,17 @@
   }
   .msg.compact {
     margin-top: var(--msg-group-pull, -10px);
+  }
+  /* Newest appended message only (see MessageList): quick fade + slide-up.
+     The global reduced-motion override in app.css zeroes the duration. */
+  .msg.enter {
+    animation: msg-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  }
+  @keyframes msg-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
   }
   .gutter-time {
     width: 38px;

@@ -379,14 +379,27 @@
 <div class="typing-line muted">
   {#if uploading > 0}
     <span class="up-dot"></span> Sending {uploading > 1 ? `${uploading} attachments` : "attachment"}…
-  {:else if S.typingList.length === 1}
-    <span
-      class="typer"
-      style={nameColorFor(S.typingList[0].from) ? `color:${nameColorFor(S.typingList[0].from)}` : ""}
-      >{S.typingList[0].label}</span
-    > is typing…
-  {:else if S.typingList.length > 1}
-    {S.typingList.length} people are typing…
+  {:else if S.typingList.length > 0}
+    <span class="t-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+    {#if S.typingList.length === 1}
+      <span
+        class="typer"
+        style={nameColorFor(S.typingList[0].from) ? `color:${nameColorFor(S.typingList[0].from)}` : ""}
+        >{S.typingList[0].label}</span
+      > is typing…
+    {:else if S.typingList.length === 2}
+      <span
+        class="typer"
+        style={nameColorFor(S.typingList[0].from) ? `color:${nameColorFor(S.typingList[0].from)}` : ""}
+        >{S.typingList[0].label}</span
+      > and <span
+        class="typer"
+        style={nameColorFor(S.typingList[1].from) ? `color:${nameColorFor(S.typingList[1].from)}` : ""}
+        >{S.typingList[1].label}</span
+      > are typing…
+    {:else}
+      {S.typingList.length} people are typing…
+    {/if}
   {/if}
 </div>
 
@@ -482,6 +495,48 @@
   .typing-line .typer {
     font-weight: 600;
     font-style: normal;
+  }
+  /* Three staggered bouncing dots ahead of "X is typing…". */
+  .t-dots {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-right: 5px;
+    vertical-align: middle;
+  }
+  .t-dots span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: t-bounce 1.2s ease-in-out infinite;
+  }
+  .t-dots span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+  .t-dots span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+  @keyframes t-bounce {
+    0%,
+    55%,
+    100% {
+      transform: none;
+      opacity: 0.35;
+    }
+    28% {
+      transform: translateY(-3px);
+      opacity: 1;
+    }
+  }
+  /* The global reduced-motion rule only shortens durations — an infinite loop
+     would still churn, so stop the dots entirely and hold a steady frame. */
+  @media (prefers-reduced-motion: reduce) {
+    .t-dots span,
+    .up-dot {
+      animation: none;
+      opacity: 0.7;
+    }
   }
   .up-dot {
     display: inline-block;

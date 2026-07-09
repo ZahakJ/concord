@@ -18,12 +18,37 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
+  import { untrack } from "svelte";
 
   let { onDropFiles } = $props();
 
   let feedEl = $state(null);
   let atBottom = $state(true);
   $effect(() => registerFeed(feedEl));
+
+  // Entrance animation: only a genuinely-APPENDED newest message animates in.
+  // Channel switches, history loads, and jump-to-message replacements render
+  // statically — old rows never re-animate.
+  let animateId = $state("");
+  let prevCh = null;
+  let prevLastId = "";
+  let prevIds = new Set();
+  $effect(() => {
+    const msgs = S.messages;
+    const ch = S.activeChannelId;
+    untrack(() => {
+      const ids = new Set(msgs.map((m) => m.id));
+      const last = msgs[msgs.length - 1];
+      // Append = same conversation AND the previous tail is still present
+      // (a wholesale replacement — switch/jump — drops it).
+      const appended = ch === prevCh && (!prevLastId || ids.has(prevLastId));
+      if (last && appended && !prevIds.has(last.id)) animateId = last.id;
+      else if (!appended) animateId = "";
+      prevCh = ch;
+      prevIds = ids;
+      prevLastId = last?.id || "";
+    });
+  });
 
   function fmtTime(iso) {
     try {
@@ -199,7 +224,7 @@
     {#if row.m.kind === "system" && isDMView}
       <!-- DMs skip join/create notices — noise in a 1:1 -->
     {:else if row.m.kind === "system"}
-      <div class="system-msg">
+      <div class="system-msg" class:enter={row.m.id === animateId}>
         <span>
           <Icon name="spark" size={11} />
           <strong>{row.m.senderName || row.m.sender.slice(0, 9)}</strong>
@@ -207,7 +232,12 @@
         </span>
       </div>
     {:else}
-      <Message m={row.m} compact={row.compact} replyRef={row.m.replyTo ? byId.get(row.m.replyTo) : null} />
+      <Message
+        m={row.m}
+        compact={row.compact}
+        entering={row.m.id === animateId}
+        replyRef={row.m.replyTo ? byId.get(row.m.replyTo) : null}
+      />
     {/if}
   {:else}
     <div class="empty muted">No messages yet. Say hello 👋</div>
@@ -317,7 +347,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -328,13 +358,24 @@
     content: "";
     flex: 1;
     height: 1px;
-    background: var(--border);
+    /* rule fades out toward the edges — reads as a soft centered break */
+    background: linear-gradient(to right, transparent, var(--border));
+  }
+  .day-divider::after {
+    background: linear-gradient(to left, transparent, var(--border));
+  }
+  .day-divider span {
+    padding: 2px 10px;
+    font-weight: 600;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: 999px;
   }
   .new-divider {
     display: flex;
     align-items: center;
     gap: 8px;
-    color: var(--danger);
+    color: var(--accent);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -345,19 +386,40 @@
     content: "";
     flex: 1;
     height: 1px;
-    background: color-mix(in srgb, var(--danger) 55%, transparent);
+    background: color-mix(in srgb, var(--accent) 55%, transparent);
   }
   .new-divider span {
-    padding: 1px 6px;
-    background: var(--danger);
+    padding: 1px 7px;
+    background: var(--accent);
     color: #fff;
-    border-radius: 8px;
+    border-radius: 999px;
+    /* one gentle pulse when the divider appears, then settle */
+    animation: new-pulse 1.5s ease-out 0.35s 1;
+  }
+  @keyframes new-pulse {
+    0% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent);
+    }
+    100% {
+      box-shadow: 0 0 0 9px transparent;
+    }
   }
   .system-msg {
     text-align: center;
     font-size: 12px;
     color: var(--text-muted);
     padding: 2px 0;
+  }
+  /* Newest appended system row slides in like a message (zeroed under the
+     global reduced-motion override in app.css). */
+  .system-msg.enter {
+    animation: row-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+  }
+  @keyframes row-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
   }
   .system-msg span {
     display: inline-flex;
