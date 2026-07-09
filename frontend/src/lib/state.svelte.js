@@ -247,6 +247,42 @@ export async function moveChannelToCategory(channel, categoryId) {
   }
 }
 
+// reorderChannel places `channel` at display index `index` inside `categoryId`
+// (an empty string = uncategorized), then renumbers that category's channels to
+// sequential positions so the sidebar's position-sort renders exactly the
+// dropped order. Positions/categories are applied to local state first (S is
+// deeply reactive, so the list snaps into place immediately), then persisted —
+// only rows whose category or position actually changed hit the API. On
+// failure, refreshGuilds() restores the backend's truth.
+export async function reorderChannel(channel, categoryId, index) {
+  const g = S.guilds.find((x) => x.id === S.activeGuildId);
+  if (!g) return;
+  const inCat = (c) => (c.category || "") === categoryId;
+  const byPos = (a, b) => (a.position || 0) - (b.position || 0);
+  const before = g.channels.filter(inCat).sort(byPos).map((c) => c.id);
+  const list = g.channels.filter((c) => inCat(c) && c.id !== channel.id).sort(byPos);
+  list.splice(Math.max(0, Math.min(index, list.length)), 0, channel);
+  // Dropped back into its own slot? The visible order is unchanged — skip the
+  // renumbering writes entirely.
+  if (before.join("\n") === list.map((c) => c.id).join("\n")) return;
+  const moves = list
+    .map((c, i) => ({ c, pos: i }))
+    .filter(({ c, pos }) => (c.category || "") !== categoryId || (c.position || 0) !== pos);
+  for (const { c, pos } of moves) {
+    c.category = categoryId;
+    c.position = pos;
+  }
+  try {
+    for (const { c, pos } of moves) {
+      await api.setChannelMeta(S.activeGuildId, c.id, c.type || "", categoryId, pos, c.topic || "");
+    }
+    await refreshGuilds();
+  } catch (err) {
+    flash(err);
+    await refreshGuilds();
+  }
+}
+
 // setChannelTopic updates a channel's topic (preserving type/category/order).
 export async function setChannelTopic(channel, topic) {
   try {

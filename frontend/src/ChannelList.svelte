@@ -20,6 +20,7 @@
     memberByFpr,
     guildUnread,
     moveChannelToCategory,
+    reorderChannel,
     jumpToChannel,
     markRead,
     openContextMenu,
@@ -132,6 +133,87 @@
     ]);
   }
 
+  // --- Drag-to-reorder (Manage Channels only) -------------------------------
+  // Text channel rows are HTML5-draggable: drop between rows to reorder within
+  // a category, or onto a category header to move the channel there (top).
+  // `drag` holds the lifted channel; `dropHint` drives the insertion line.
+  // Keyboard/non-drag users keep the row menu's "Move to…" as before.
+  let drag = $state(null); // { channel } — the row being dragged
+  let dropHint = $state(null); // { catId, rowId, edge: "before"|"after" } | { catId, head: true }
+
+  function dragStart(e, c) {
+    drag = { channel: c };
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", c.id); // Firefox needs data for a drag to start
+    // A compact "lifted" ghost chip instead of the browser's full-row snapshot.
+    const ghost = document.createElement("div");
+    ghost.textContent = `# ${c.name}`;
+    ghost.style.cssText =
+      "position:fixed;top:-100px;left:-100px;max-width:220px;overflow:hidden;" +
+      "white-space:nowrap;text-overflow:ellipsis;padding:6px 14px;font-size:13px;" +
+      "font-weight:600;color:var(--text);background:var(--bg-2);" +
+      "border:1px solid var(--accent);border-radius:8px;" +
+      "box-shadow:0 8px 24px rgba(0,0,0,0.35);pointer-events:none;";
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 16, 16);
+    requestAnimationFrame(() => ghost.remove()); // only needed for the snapshot
+  }
+  function dragEnd() {
+    drag = null;
+    dropHint = null;
+  }
+  // Which side of a row the pointer is on decides insert-before vs after.
+  const rowEdge = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return e.clientY < r.top + r.height / 2 ? "before" : "after";
+  };
+  // Insertion index in grp's list *without* the dragged row (what reorderChannel
+  // splices into), or -1 when the drop wouldn't move anything — used both to
+  // hide no-op indicators and to skip no-op drops.
+  function dropIndex(e, grp, c) {
+    let idx = grp.channels.findIndex((x) => x.id === c.id);
+    if (rowEdge(e) === "after") idx++;
+    const from = grp.channels.findIndex((x) => x.id === drag.channel.id);
+    if (from !== -1) {
+      if (idx === from || idx === from + 1) return -1; // its own slot
+      if (from < idx) idx--;
+    }
+    return idx;
+  }
+  function rowDragOver(e, grp, c) {
+    if (!drag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    dropHint =
+      dropIndex(e, grp, c) === -1 ? null : { catId: grp.id, rowId: c.id, edge: rowEdge(e) };
+  }
+  function rowDrop(e, grp, c) {
+    if (!drag) return;
+    e.preventDefault();
+    const idx = dropIndex(e, grp, c);
+    const ch = drag.channel;
+    dragEnd();
+    if (idx !== -1) reorderChannel(ch, grp.id, idx);
+  }
+  function headDragOver(e, grp) {
+    if (!drag) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    // Already the first channel of this category? Dropping here is a no-op.
+    dropHint = grp.channels[0]?.id === drag.channel.id ? null : { catId: grp.id, head: true };
+  }
+  function headDrop(e, grp) {
+    if (!drag) return;
+    e.preventDefault();
+    const ch = drag.channel;
+    dragEnd();
+    reorderChannel(ch, grp.id, 0);
+  }
+  // Clear the indicator when the drag leaves the channel column entirely.
+  function listDragLeave(e) {
+    if (drag && !e.currentTarget.contains(e.relatedTarget)) dropHint = null;
+  }
+
   // Presence + custom-status popover, anchored to the self-row avatar. Stores
   // the trigger's rect at open so the popover can position itself fixed (the
   // column clips overflow, so it can't be absolutely positioned in here).
@@ -228,7 +310,10 @@
     </header>
   {/if}
 
-  <div class="scroll">
+  <!-- Drag-to-reorder is a pointer-only enhancement; keyboard users reorder via
+       the row menu's "Move to…", so the drag handlers stay off the a11y tree. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="scroll" ondragleave={listDragLeave}>
     {#if g?.kind === "dm"}
       <div class="section-head">
         <span>Direct messages</span>
@@ -294,7 +379,13 @@
 
       {#each groups as grp (grp.id || "_uncat")}
         {#if grp.name}
-          <div class="cat-head">
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="cat-head"
+            class:drop-into={dropHint?.head && dropHint.catId === grp.id}
+            ondragover={(e) => headDragOver(e, grp)}
+            ondrop={(e) => headDrop(e, grp)}
+          >
             <span>{grp.name}</span>
             {#if canManageChannels}
               <span class="cat-actions">
@@ -322,7 +413,20 @@
           {@const u = S.unread[c.id]}
           {@const active = c.id === S.activeChannelId}
           {@const inVoice = S.voice && S.voice.channelId === c.id}
-          <div class="channel-row" class:active class:voice-active={inVoice}>
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <div
+            class="channel-row"
+            class:active
+            class:voice-active={inVoice}
+            class:dragging={drag?.channel.id === c.id}
+            class:drop-before={dropHint?.rowId === c.id && dropHint.edge === "before"}
+            class:drop-after={dropHint?.rowId === c.id && dropHint.edge === "after"}
+            draggable={canManageChannels && c.type !== "voice"}
+            ondragstart={(e) => dragStart(e, c)}
+            ondragend={dragEnd}
+            ondragover={(e) => rowDragOver(e, grp, c)}
+            ondrop={(e) => rowDrop(e, grp, c)}
+          >
             <button class="channel" class:muted-ch={S.mutes[c.id]} onclick={() => clickChannel(c)} oncontextmenu={(e) => channelMenu(e, c)}>
               <Icon name={typeIcon(c.type)} size={13} />
               <span class="ch-name">{c.name}</span>
@@ -660,6 +764,35 @@
   }
   .channel-row.active .channel {
     color: var(--text);
+  }
+  /* Drag-to-reorder affordances. The source row dims while lifted; the target
+     shows a slim accent insertion line in the 2px gap between rows. Transitions
+     are already zeroed globally under prefers-reduced-motion. */
+  .channel-row.dragging {
+    opacity: 0.35;
+  }
+  .channel-row.drop-before::after,
+  .channel-row.drop-after::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+    pointer-events: none;
+    z-index: 1;
+  }
+  .channel-row.drop-before::after {
+    top: -2px;
+  }
+  .channel-row.drop-after::after {
+    bottom: -2px;
+  }
+  /* Hovering a drag over a category header: "drop here to file it under…". */
+  .cat-head.drop-into {
+    color: var(--accent);
+    box-shadow: inset 0 -2px 0 var(--accent);
   }
   .channel {
     flex: 1;
