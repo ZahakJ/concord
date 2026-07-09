@@ -435,6 +435,12 @@ func (s *Service) isTrustedGroupDMInvite(guildID, senderFpr string) bool {
 	if verified, err := s.store.VerifiedFingerprints(); err == nil && verified[senderFpr] {
 		return true
 	}
+	// Accept from someone we already share a group with (a guild or an existing
+	// DM). This is consistent with 1:1 DMs, which already auto-accept from any
+	// reachable peer. (An audit flagged that a shared *large/public* guild widens
+	// this to near-strangers; tightening it to verified-or-existing-DM is a
+	// trust-model choice that would require mutual verification for the common
+	// "add people from our shared server" flow — left as a deliberate decision.)
 	return s.sharesOtherGroupWith(senderFpr, guildID)
 }
 

@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -62,14 +63,22 @@ func run() error {
 		return err
 	}
 
+	// Relay service for NAT'd peers. Generous per-circuit limits (a friend group
+	// behind a symmetric NAT may hold a long relayed session) but NOT infinite:
+	// infinite limits turn the public fly.io node into a free open relay anyone
+	// can proxy unbounded traffic through, exhausting its bandwidth/bill.
+	relayRes := relay.DefaultResources()
+	relayRes.Limit = &relay.RelayLimit{Duration: time.Hour, Data: 512 << 20} // 512 MB/hr per circuit
+	relayRes.MaxReservations = 512
+	relayRes.MaxCircuits = 64
+	relayRes.MaxReservationsPerPeer = 8
+	relayRes.MaxReservationsPerIP = 16
+
 	h, err := libp2p.New(
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(listen...),
 		libp2p.Security(noise.ID, noise.New),
-		// Offer relay service to NAT'd peers, with generous limits so a
-		// friend-group's traffic isn't throttled if it can't hole-punch to a
-		// direct connection.
-		libp2p.EnableRelayService(relay.WithInfiniteLimits()),
+		libp2p.EnableRelayService(relay.WithResources(relayRes)),
 		libp2p.EnableNATService(),
 	)
 	if err != nil {
