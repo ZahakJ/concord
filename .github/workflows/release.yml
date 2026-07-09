@@ -19,8 +19,20 @@ permissions:
   contents: write
 
 jobs:
+  # Frontend lint gate: catches "referenced something that doesn't exist"
+  # (no-undef) — the class of bug that let a stray template variable ship and
+  # crash the UI at runtime while the build stayed green. Builds wait on it.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: cd frontend && npm ci && npm run lint
+
   # Zero-dependency web binaries — the "download one file, it just runs" track.
   web:
+    needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +49,7 @@ jobs:
 
   # Branded native desktop apps via Wails (cgo + system WebView per OS).
   native:
+    needs: lint
     strategy:
       fail-fast: false
       matrix:

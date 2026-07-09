@@ -1,0 +1,35 @@
+# Fast feedback on every push/PR — so a bug is caught here, not in a release.
+# The lint step is the important one: it fails on an undeclared reference
+# (no-undef), the class of bug that once shipped a stray template variable and
+# crashed the UI at runtime while the build stayed green.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - run: cd frontend && npm ci
+      - name: Lint (no-undef gate)
+        run: cd frontend && npm run lint
+      - name: Build
+        run: cd frontend && npm run build
+      - name: Markdown/render tests
+        run: cd frontend && npm test
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - run: go build ./...
+      - run: go vet ./...
