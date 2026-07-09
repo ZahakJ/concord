@@ -7,6 +7,7 @@
   import {
     S,
     activeGuild,
+    activeChannel,
     registerFeed,
     scrollSoon,
     feedNearBottom,
@@ -71,6 +72,38 @@
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
   const isDMView = $derived(activeGuild()?.kind === "dm");
+
+  // Empty-channel greeting: what to show before the first message exists.
+  // Notes and DMs get personal copy; guild channels get "start of #channel".
+  const emptyInfo = $derived.by(() => {
+    const g = activeGuild();
+    if (g?.dmNotes)
+      return {
+        icon: "edit",
+        title: "Your private notes",
+        body: "A scratchpad only you can read — drafts, links, reminders. It syncs to your other devices, encrypted the whole way.",
+      };
+    if (g?.kind === "dm") {
+      const group = (g.dmMembers ?? 2) > 2;
+      return {
+        icon: "smile",
+        title: g.name || "New conversation",
+        body: group
+          ? `This is the very start of ${g.name || "this group"}. Everything here is end-to-end encrypted. Say hi 👋`
+          : `This is the very beginning of your conversation with ${g.name || "your friend"}. It's end-to-end encrypted — just the two of you. Say hi 👋`,
+      };
+    }
+    const c = activeChannel();
+    const name = c?.name || "this-channel";
+    return {
+      icon: c?.type === "voice" ? "speaker" : "hash",
+      title: `Welcome to #${name}`,
+      body:
+        c?.type === "voice"
+          ? `This is the chat alongside the ${name} voice channel. Drop a link or a note for whoever's on the call.`
+          : `This is the start of #${name}. Say hi 👋`,
+    };
+  });
 
   // The id of the first message newer than where we left off (and not our own),
   // marking where the "New messages" divider goes. "" when nothing is new.
@@ -240,7 +273,13 @@
       />
     {/if}
   {:else}
-    <div class="empty muted">No messages yet. Say hello 👋</div>
+    <div class="empty">
+      <div class="empty-badge">
+        <Icon name={emptyInfo.icon} size={28} />
+      </div>
+      <h3>{emptyInfo.title}</h3>
+      <p class="muted">{emptyInfo.body}</p>
+    </div>
   {/each}
 
   {#if S.newBelow}
@@ -342,6 +381,53 @@
   }
   .empty {
     margin: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 4px;
+    max-width: 400px;
+    padding: 24px 16px;
+  }
+  .empty-badge {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    border-radius: 22px;
+    display: grid;
+    place-items: center;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    margin-bottom: 10px;
+  }
+  /* A dashed "orbit" ring + a small satellite dot make it feel illustrated
+     without any image assets (strict CSP: inline CSS only). */
+  .empty-badge::before {
+    content: "";
+    position: absolute;
+    inset: -9px;
+    border-radius: 28px;
+    border: 1.5px dashed color-mix(in srgb, var(--accent) 38%, transparent);
+  }
+  .empty-badge::after {
+    content: "";
+    position: absolute;
+    top: -13px;
+    right: -11px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.55;
+  }
+  .empty h3 {
+    margin: 0;
+    font-size: 18px;
+  }
+  .empty p {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.55;
   }
   .day-divider {
     display: flex;

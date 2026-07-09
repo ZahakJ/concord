@@ -14,6 +14,28 @@
   let restoring = $state(false);
   let restorePhrase = $state("");
 
+  // After CREATING a fresh identity we hold the door and make the user save
+  // their 24-word recovery phrase — it's the only way back into the account.
+  let backupPhrase = $state(""); // non-empty ⇒ show the "save this now" step
+  let showPhrase = $state(false);
+  let revealedOnce = $state(false); // confirm stays disabled until they've looked
+  let copiedPhrase = $state(false);
+  const backupWords = $derived(backupPhrase.trim().split(/\s+/).filter(Boolean));
+
+  function toggleReveal() {
+    showPhrase = !showPhrase;
+    if (showPhrase) revealedOnce = true;
+  }
+  function copyPhrase() {
+    navigator.clipboard?.writeText(backupPhrase);
+    copiedPhrase = true;
+    setTimeout(() => (copiedPhrase = false), 1600);
+  }
+  function finishBackup() {
+    backupPhrase = "";
+    onLogin();
+  }
+
   async function doRestore(e) {
     e?.preventDefault();
     if (busy) return;
@@ -49,7 +71,7 @@
 
   async function submit(e) {
     e?.preventDefault();
-    if (!passphrase || busy) return;
+    if (!passphrase || busy || backupPhrase) return;
     if (!hasIdentity && passphrase !== confirmPass) {
       error = "Passphrases don't match";
       return;
@@ -57,7 +79,18 @@
     busy = true;
     error = "";
     try {
+      const creating = !hasIdentity;
       await api.login(passphrase);
+      if (creating) {
+        // Brand-new account: show the recovery phrase as an explicit save
+        // step. If reveal fails for any reason, don't trap them at the door.
+        try {
+          backupPhrase = (await api.revealMnemonic()) || "";
+        } catch {
+          backupPhrase = "";
+        }
+        if (backupPhrase) return;
+      }
       onLogin();
     } catch (err) {
       error = String(err?.message || err).replace(/^.*: /, "");
@@ -84,12 +117,38 @@
 </script>
 
 <div class="login">
-  <form class="card" onsubmit={submit}>
+  <form class="card" class:wide={!!backupPhrase} onsubmit={submit}>
     <div class="logo"><Icon name="concorde" size={44} /></div>
-    <h1>Concord</h1>
+    <h1>{backupPhrase ? "Save your recovery phrase" : "Concord"}</h1>
 
     {#if !checked}
       <p class="muted">Loading…</p>
+    {:else if backupPhrase}
+      <p class="muted">
+        These 24 words are the <strong>only</strong> way to get your account back if you lose this
+        device or forget your passphrase. Write them down somewhere safe — a password manager or
+        paper, not a screenshot.
+      </p>
+      <div class="words" class:veiled={!showPhrase} aria-label="Recovery phrase">
+        {#each backupWords as w, i (i)}
+          <span class="word"><span class="wn">{i + 1}</span>{w}</span>
+        {/each}
+      </div>
+      <div class="phrase-actions">
+        <button type="button" class="ghost-sm" onclick={toggleReveal}>
+          {showPhrase ? "Hide" : "Show phrase"}
+        </button>
+        <button type="button" class="ghost-sm" disabled={!showPhrase} onclick={copyPhrase}>
+          {copiedPhrase ? "Copied ✓" : "Copy"}
+        </button>
+      </div>
+      <p class="muted tiny warn">
+        Anyone with these words can become you — never share them. You can view them again later in
+        Settings.
+      </p>
+      <button type="button" disabled={!revealedOnce} onclick={finishBackup}>
+        I've saved my recovery phrase
+      </button>
     {:else if confirmingReset}
       <p class="muted">
         This permanently deletes your identity and all data on <strong>this device</strong>
@@ -133,8 +192,8 @@
       </button>
     {:else}
       <p class="muted">
-        Create a passphrase to protect your identity. Save the recovery phrase
-        afterwards (Settings → Recovery phrase) so you can restore it later.
+        Create a passphrase to protect your identity on this device. Next you'll
+        get a 24-word recovery phrase — the key to your account — to save.
       </p>
       <input type="password" placeholder="Choose a passphrase" bind:value={passphrase} autofocus />
       <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
@@ -147,10 +206,12 @@
       </button>
     {/if}
 
-    <p class="muted tiny">
-      To join a friend, just unlock then paste their invite code — it sets up
-      everything for you.
-    </p>
+    {#if !backupPhrase}
+      <p class="muted tiny">
+        To join a friend, just unlock then paste their invite code — it sets up
+        everything for you.
+      </p>
+    {/if}
   </form>
 </div>
 
@@ -207,10 +268,70 @@
     font-size: 13px;
     line-height: 1.5;
   }
+  .card.wide {
+    width: 430px;
+    max-width: calc(100vw - 32px);
+  }
   .phrase-in {
     font-family: ui-monospace, monospace;
     font-size: 13px;
     resize: vertical;
+  }
+  /* The 24-word grid: numbered, monospace, blurred until revealed so nobody
+     shoulder-surfs it before the user is ready. */
+  .words {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 5px 10px;
+    padding: 12px;
+    background: var(--bg-input, var(--bg-3));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: ui-monospace, monospace;
+    font-size: 12.5px;
+    text-align: left;
+  }
+  .word {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: filter 0.15s ease;
+  }
+  .wn {
+    color: var(--text-faint);
+    font-size: 10px;
+    min-width: 14px;
+    text-align: right;
+  }
+  .words.veiled .word {
+    filter: blur(6px);
+    user-select: none;
+  }
+  .phrase-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+  }
+  .ghost-sm {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 5px 12px;
+  }
+  .ghost-sm:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .ghost-sm:disabled {
+    opacity: 0.45;
+  }
+  .warn {
+    color: var(--danger);
+    opacity: 0.85;
   }
   .link {
     background: transparent;

@@ -6,12 +6,20 @@
 </script>
 
 <div class="welcome">
-  <div class="badge"><Icon name="concorde" size={40} /></div>
+  <div class="hero">
+    <span class="contrail" aria-hidden="true"></span>
+    <div class="badge"><Icon name="concorde" size={40} /></div>
+  </div>
   <h1>Welcome to Concord</h1>
-  <p class="muted">
+  <p class="muted lede">
     Your community, on your machines, readable by no one else. Spin up a guild, join a friend's
     with their invite code, or jot something in your private Notes.
   </p>
+  <div class="chips">
+    <span class="chip"><Icon name="lock" size={12} /> End-to-end encrypted</span>
+    <span class="chip"><Icon name="members" size={12} /> Peer-to-peer</span>
+    <span class="chip"><Icon name="spark" size={12} /> No central servers</span>
+  </div>
   <div class="cards">
     <button class="card" onclick={() => (S.modal = { kind: "create" })}>
       <span class="ic"><Icon name="plus" size={18} /></span>
@@ -43,7 +51,31 @@
     gap: 10px;
     overflow-y: auto;
   }
+  .hero {
+    position: relative;
+    display: grid;
+    place-items: center;
+    padding: 10px 0;
+  }
+  /* The jet's contrail: a fading dashed streak behind the badge, plus a soft
+     accent glow. Pure CSS — no images (strict CSP). */
+  .contrail {
+    position: absolute;
+    top: 50%;
+    right: 66px;
+    width: 150px;
+    height: 2px;
+    border-radius: 2px;
+    background: repeating-linear-gradient(
+      90deg,
+      transparent 0 8px,
+      color-mix(in srgb, var(--accent) 45%, transparent) 8px 22px
+    );
+    mask-image: linear-gradient(90deg, transparent, black);
+    -webkit-mask-image: linear-gradient(90deg, transparent, black);
+  }
   .badge {
+    position: relative;
     width: 76px;
     height: 76px;
     border-radius: 20px;
@@ -51,7 +83,20 @@
     place-items: center;
     background: linear-gradient(120deg, var(--accent), var(--accent-hover));
     color: white;
-    box-shadow: var(--shadow-pop);
+    box-shadow:
+      var(--shadow-pop),
+      0 0 44px color-mix(in srgb, var(--accent) 30%, transparent);
+    animation: arrive 0.5s ease both;
+  }
+  @keyframes arrive {
+    from {
+      transform: translateX(-14px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
   }
   h1 {
     margin: 8px 0 0;
@@ -62,6 +107,24 @@
     line-height: 1.55;
     font-size: 14px;
     margin: 0;
+  }
+  .chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 4px;
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    font-size: 12px;
+    font-weight: 600;
   }
   .cards {
     display: flex;
@@ -107,6 +170,9 @@
   @media (prefers-reduced-motion: reduce) {
     .card:hover {
       transform: none;
+    }
+    .badge {
+      animation: none;
     }
   }
 </style>

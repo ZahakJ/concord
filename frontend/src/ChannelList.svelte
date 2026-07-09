@@ -257,6 +257,18 @@
           {/if}
         </button>
       {/each}
+      {#if !dms.some((d) => !d.dmNotes)}
+        <div class="empty-block">
+          <span class="empty-ic"><Icon name="smile" size={18} /></span>
+          <p class="muted">
+            It's quiet in here. Start a conversation — every DM is end-to-end encrypted, just
+            between you two.
+          </p>
+          <button class="empty-cta" onclick={newMessage}>
+            <Icon name="plus" size={13} /> New message
+          </button>
+        </div>
+      {/if}
     {:else if g}
       <div class="section-head">
         <span>Channels</span>
@@ -362,10 +374,19 @@
         {/each}
       {/each}
     {:else}
-      <p class="muted empty-hint">
-        No servers yet. Create one with <Icon name="plus" size={12} /> in the rail, or join a
-        friend's with their invite code.
-      </p>
+      <div class="empty-block">
+        <span class="empty-ic"><Icon name="concorde" size={20} /></span>
+        <p class="muted">
+          No guilds yet — a guild is your own space: channels, voice, files, all encrypted and
+          hosted by its members.
+        </p>
+        <button class="empty-cta" onclick={() => (S.modal = { kind: "create" })}>
+          <Icon name="plus" size={13} /> Create a guild
+        </button>
+        <button class="empty-cta ghost-cta" onclick={() => (S.modal = { kind: "join", code: "" })}>
+          <Icon name="download" size={13} /> Join with an invite
+        </button>
+      </div>
     {/if}
   </div>
 
@@ -698,10 +719,53 @@
     background: transparent;
     color: var(--text);
   }
-  .empty-hint {
-    font-size: 13px;
+  /* Gentle empty states for "no DMs yet" / "no guilds yet": a soft icon chip,
+     one line of copy, and the single action that fixes it. */
+  .empty-block {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 8px;
+    margin: 14px 6px;
+    padding: 16px 12px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-md);
+  }
+  .empty-block p {
+    margin: 0;
+    font-size: 12.5px;
     line-height: 1.5;
-    padding: 8px;
+  }
+  .empty-ic {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .empty-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    justify-content: center;
+    padding: 7px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+  }
+  .ghost-cta {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .ghost-cta:hover {
+    color: var(--text);
+    border-color: var(--accent);
+    background: transparent;
   }
   .dm-item {
     display: flex;
