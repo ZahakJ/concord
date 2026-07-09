@@ -1,7 +1,8 @@
 <script>
-  // The message composer: draft, :emoji: and @mention autocomplete, emoji
-  // picker, image attach (button/paste/drop via parent), typing signals, reply
-  // banner, and ArrowUp-in-empty-composer to edit your last message.
+  // The message composer: draft, :emoji: / @mention / slash-command
+  // autocomplete, emoji picker, image attach (button/paste/drop via parent),
+  // typing signals, reply banner, and ArrowUp-in-empty-composer to edit your
+  // last message.
   import Icon from "./Icon.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
   import { untrack } from "svelte";
@@ -69,27 +70,33 @@
   const queueAutosize = () => requestAnimationFrame(autosize);
 
   // ---- slash commands (client-side text expansion) ----
+  // One registry drives both the "/" autocomplete menu and applySlash(), so
+  // the menu can never drift out of sync with what actually expands. `args`
+  // controls whether accepting a command leaves the caret after "/cmd ".
+  const kaomoji = (face) => (rest) => (rest ? rest + " " : "") + face;
+  const SLASH_COMMANDS = [
+    { name: "shrug", usage: "/shrug [message]", desc: "Appends ¯\\_(ツ)_/¯", args: true, expand: kaomoji("¯\\_(ツ)_/¯") },
+    { name: "tableflip", usage: "/tableflip [message]", desc: "Appends (╯°□°)╯︵ ┻━┻", args: true, expand: kaomoji("(╯°□°)╯︵ ┻━┻") },
+    { name: "unflip", usage: "/unflip [message]", desc: "Appends ┬─┬ ノ( ゜-゜ノ)", args: true, expand: kaomoji("┬─┬ ノ( ゜-゜ノ)") },
+    { name: "me", usage: "/me <action>", desc: "Italicized action text", args: true, expand: (rest, text) => (rest ? `*${rest}*` : text) },
+    { name: "spoiler", usage: "/spoiler <text>", desc: "Hides text until clicked", args: true, expand: (rest, text) => (rest ? `||${rest}||` : text) },
+  ];
+
   function applySlash(text) {
     const m = text.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
-    if (!m) return text;
-    const rest = (m[2] || "").trim();
-    switch (m[1]) {
-      case "shrug":
-        return (rest ? rest + " " : "") + "¯\\_(ツ)_/¯";
-      case "tableflip":
-        return (rest ? rest + " " : "") + "(╯°□°)╯︵ ┻━┻";
-      case "unflip":
-        return (rest ? rest + " " : "") + "┬─┬ ノ( ゜-゜ノ)";
-      case "me":
-        return rest ? `*${rest}*` : text;
-      case "spoiler":
-        return rest ? `||${rest}||` : text;
-      default:
-        return text;
-    }
+    const cmd = m && SLASH_COMMANDS.find((c) => c.name === m[1]);
+    return cmd ? cmd.expand((m[2] || "").trim(), text) : text;
   }
 
-  // ---- autocomplete (emoji + mentions share one popover) ----
+  // ---- autocomplete (emoji + mentions + slash commands share one popover) ----
+
+  // Only while the caret is still inside the first "/word" token — once a
+  // space is typed the command is committed and the menu stays out of the way.
+  function activeSlash(text, caret) {
+    const m = text.match(/^\/(\w*)/);
+    if (!m || caret < 1 || caret > m[0].length) return null;
+    return { query: text.slice(1, caret).toLowerCase() };
+  }
 
   function activeMention(text, caret) {
     const upto = text.slice(0, caret);
@@ -102,6 +109,12 @@
 
   function updateSuggest() {
     const caret = composerEl?.selectionStart ?? draft.length;
+    const slash = activeSlash(draft, caret);
+    if (slash) {
+      const items = SLASH_COMMANDS.filter((c) => c.name.startsWith(slash.query));
+      suggest = items.length ? { kind: "slash", start: 0, items, sel: 0 } : null;
+      return;
+    }
     const emoji = activeShortcode(draft, caret);
     if (emoji) {
       const items = searchEmoji(emoji.query, 8);
@@ -126,11 +139,20 @@
     if (!suggest) return;
     const caret = composerEl?.selectionStart ?? draft.length;
     const item = suggest.items[idx ?? suggest.sel];
-    const insert = suggest.kind === "emoji" ? item[1] : `@${item.name}`;
-    draft = draft.slice(0, suggest.start) + insert + " " + draft.slice(caret);
+    const insert =
+      suggest.kind === "emoji"
+        ? item[1] + " "
+        : suggest.kind === "mention"
+          ? `@${item.name} `
+          : `/${item.name}` + (item.args ? " " : "");
+    const pos = suggest.start + insert.length;
+    draft = draft.slice(0, suggest.start) + insert + draft.slice(caret);
     suggest = null;
     composerEl?.focus();
     queueAutosize();
+    // Land the caret right after what we inserted (e.g. after "/spoiler ") so
+    // the user can keep typing the args — bind:value alone parks it at the end.
+    requestAnimationFrame(() => composerEl?.setSelectionRange(pos, pos));
   }
 
   function editLastOwnMessage() {
@@ -142,13 +164,16 @@
 
   function onKeydown(e) {
     if (suggest) {
-      if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey)) {
+      // Tab cycles for emoji/mentions (long-standing behavior) but accepts for
+      // slash commands, where there's a single obvious completion.
+      const tabAccepts = suggest.kind === "slash";
+      if (e.key === "ArrowDown" || (e.key === "Tab" && !e.shiftKey && !tabAccepts)) {
         e.preventDefault();
         suggest = { ...suggest, sel: (suggest.sel + 1) % suggest.items.length };
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         suggest = { ...suggest, sel: (suggest.sel - 1 + suggest.items.length) % suggest.items.length };
-      } else if (e.key === "Enter") {
+      } else if (e.key === "Enter" || (e.key === "Tab" && !e.shiftKey && tabAccepts)) {
         e.preventDefault();
         accept();
       } else if (e.key === "Escape") {
@@ -368,10 +393,16 @@
 <div class="composer-wrap">
   {#if suggest}
     <div class="suggest-pop">
-      {#each suggest.items as item, i (suggest.kind === "emoji" ? item[0] : item.fingerprint)}
+      {#if suggest.kind === "slash"}
+        <div class="suggest-head">Commands</div>
+      {/if}
+      {#each suggest.items as item, i (suggest.kind === "emoji" ? item[0] : suggest.kind === "slash" ? item.name : item.fingerprint)}
         <button class="suggest-item" class:sel={i === suggest.sel} onclick={() => accept(i)}>
           {#if suggest.kind === "emoji"}
             <span class="s-emoji">{item[1]}</span> :{item[0]}:
+          {:else if suggest.kind === "slash"}
+            <span class="s-cmd">{item.usage}</span>
+            <span class="s-desc">{item.desc}</span>
           {:else}
             <span class="s-emoji">@</span>{item.name}
           {/if}
@@ -500,6 +531,29 @@
     font-size: 16px;
     margin-right: 6px;
   }
+  .suggest-head {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 4px 10px 3px;
+  }
+  .s-cmd {
+    font-weight: 600;
+  }
+  /* Description sits flush right, in the UI font rather than the mono used
+     for the command itself. */
+  .s-desc {
+    float: right;
+    margin-left: 16px;
+    font-family:
+      system-ui,
+      -apple-system,
+      sans-serif;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
   .composer {
     padding: 0 16px 16px;
   }
@@ -512,10 +566,14 @@
     border: 1px solid transparent;
     border-radius: var(--radius-md);
     padding: 2px 6px;
-    transition: border-color 0.15s ease;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
   }
+  /* Soft focus ring: tinted border plus a faint halo of the accent color. */
   .input-box.focused:focus-within {
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .draft {
     flex: 1;
@@ -544,13 +602,28 @@
     padding: 7px;
     border-radius: var(--radius-sm);
     align-self: flex-end;
+    transition:
+      color 0.12s ease,
+      transform 0.12s ease;
   }
   .iconbtn:hover:not(:disabled) {
     background: transparent;
     color: var(--text);
+    transform: scale(1.1);
+  }
+  .iconbtn:active:not(:disabled) {
+    transform: scale(0.92);
   }
   .iconbtn:disabled {
     opacity: 0.4;
+  }
+  /* app.css already zeroes transition durations under reduced motion; also
+     drop the scale so hover doesn't snap the glyph around. */
+  @media (prefers-reduced-motion: reduce) {
+    .iconbtn:hover:not(:disabled),
+    .iconbtn:active:not(:disabled) {
+      transform: none;
+    }
   }
   .mini {
     padding: 2px 6px;
