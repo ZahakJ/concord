@@ -124,8 +124,9 @@
 
   // ---- voice lifecycle (owns the mesh; state lives in S) ----
 
+  let joining = false;
   async function joinVoice(channelId = S.activeChannelId) {
-    if (!channelId) return;
+    if (!channelId || joining) return; // re-entrancy guard: no orphan meshes
     if (S.voice) {
       const inThisRoom = S.voice.channelId === channelId;
       await leaveVoice();
@@ -133,6 +134,7 @@
       // for the disconnect button). Clicking a different one switches rooms.
       if (inThisRoom) return;
     }
+    joining = true;
     const mesh = new VoiceMesh({
       selfPeerId: S.identity.peerId,
       channelId,
@@ -156,12 +158,26 @@
       await mesh.start();
     } catch {
       flash("Microphone access denied");
+      joining = false;
+      return;
+    }
+    try {
+      await api.joinVoice(channelId);
+    } catch (err) {
+      // Presence never broadcast — don't leave a phantom "in call" with a live
+      // mesh (open mic, peer connections) that leaveVoice can't fully undo.
+      mesh.stop();
+      flash(err);
+      joining = false;
       return;
     }
     S.voice = { mesh, channelId };
-    await api.joinVoice(channelId);
+    // Rejoining a call clears any prior "declined" suppression for this channel.
+    if (S.dismissedCalls.includes(channelId))
+      S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
     playVoiceJoin();
     flash("Joined voice");
+    joining = false;
   }
 
   async function leaveVoice() {
@@ -169,6 +185,10 @@
     const ch = S.voice.channelId;
     S.voice.mesh.stop();
     S.voice = null;
+    // Suppress the incoming-call ring for this channel: the others may still be
+    // in the room, and without this you'd immediately re-ring yourself for the
+    // call you just left. (Auto-cleared when the room's roster empties.)
+    if (ch && !S.dismissedCalls.includes(ch)) S.dismissedCalls = [...S.dismissedCalls, ch];
     S.voiceParticipants = [];
     S.voiceSpeaking = [];
     S.voicePeerFpr = {};

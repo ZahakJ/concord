@@ -150,6 +150,9 @@ function saveJSON(key, value) {
 }
 
 const lastRead = loadJSON("concord.lastRead", {}); // channelId -> ISO time
+// Message ids already accounted for (unread bump + chime/notify), so the
+// backend re-emitting a message (edit/reaction/pin/sync) doesn't double-count.
+const countedMsgIds = new Set();
 
 // markRead marks a channel read as of now. throughTime (the newest message's
 // `sent`, when known) guards against peer clock skew: if a message we've
@@ -411,13 +414,33 @@ export async function onLogin() {
 
 export async function refreshGuilds() {
   S.guilds = (await api.guilds()) || [];
-  if (!S.activeGuildId && S.guilds.length) await selectGuild(S.guilds[0].id);
+  if (!S.activeGuildId && S.guilds.length) {
+    await selectGuild(S.guilds[0].id);
+    return;
+  }
+  // If the active channel was deleted remotely (guild-updated -> refresh), don't
+  // strand the user in a phantom channel that still renders + sends messages.
+  const g = S.guilds.find((x) => x.id === S.activeGuildId);
+  if (S.activeChannelId && !g?.channels?.some((c) => c.id === S.activeChannelId)) {
+    if (g?.channels?.length) await selectChannel(g.channels[0].id);
+    else {
+      S.activeChannelId = "";
+      S.messages = [];
+    }
+  }
 }
 
 export async function selectGuild(id) {
   S.activeGuildId = id;
   const g = S.guilds.find((x) => x.id === id);
   if (g && g.channels.length) await selectChannel(g.channels[0].id);
+  else {
+    // A guild with no channels (or an unknown id) must not keep the previous
+    // guild's channel active — otherwise the old feed renders and, worse,
+    // messages get sent to the previous guild's channel.
+    S.activeChannelId = "";
+    S.messages = [];
+  }
   await refreshRightPanel();
 }
 
@@ -471,7 +494,17 @@ export async function selectChannel(id) {
   S.replyingTo = null;
   S.editing = null;
   S.showPins = false;
-  S.messages = (await api.messages(id)) || [];
+  let msgs;
+  try {
+    msgs = (await api.messages(id)) || [];
+  } catch (err) {
+    if (S.activeChannelId === id) flash(err);
+    return;
+  }
+  // Guard against a stale fetch: if the user switched channels while this was in
+  // flight, don't overwrite the now-active channel's messages/read-cursor.
+  if (S.activeChannelId !== id) return;
+  S.messages = msgs;
   // Advance the read mark past the newest message actually loaded, so a peer's
   // clock-skewed (future-dated) message we've now seen can't keep the badge lit.
   let newest = "";
@@ -628,6 +661,18 @@ function initEvents() {
   eventsWired = true;
 
   on("message", (m) => {
+    // Is this the FIRST time we've seen this message id? The backend re-emits the
+    // whole message on every edit/reaction/pin and on sync backfill, all reusing
+    // the original id + `sent`. Deduping by id is what keeps those from inflating
+    // unread counts and re-firing chimes/notifications.
+    const firstSeen = !!m.id && !countedMsgIds.has(m.id);
+    if (m.id) {
+      countedMsgIds.add(m.id);
+      if (countedMsgIds.size > 12000) countedMsgIds.clear(); // bound memory (rare)
+    }
+    // Live (not a sync backfill of old history): within the last minute.
+    const isLive = Date.now() - new Date(m.sent).getTime() < 60000;
+
     if (m.channelId === S.activeChannelId) {
       const i = S.messages.findIndex((x) => x.id === m.id);
       if (i >= 0) {
@@ -643,16 +688,17 @@ function initEvents() {
         }
         if (document.hasFocus()) markRead(m.channelId, m.sent);
       }
-    } else if (m.channelId && m.kind === "" && !m.deleted && m.sender !== S.identity.fingerprint) {
-      // Only genuinely-new messages bump the badge. Edits/reactions and sync
-      // re-deliveries of an already-read message keep their original `sent`, so
-      // gating on lastRead stops them from resurrecting a phantom unread count.
+    } else if (firstSeen && m.channelId && m.kind === "" && !m.deleted && m.sender !== S.identity.fingerprint) {
+      // Genuinely-new (first-seen) message in an unread channel bumps the badge.
       const since = lastRead[m.channelId];
       if (!since || new Date(m.sent) > new Date(since)) bumpUnread(m.channelId, isMentionOfSelf(m));
     }
+
+    // Chimes + desktop notifications: only for a genuinely-new, live message from
+    // someone else (not edits/reactions/pins, not a sync backfill of old msgs).
     const isMention = isMentionOfSelf(m);
-    const fromOther = m.sender !== S.identity.fingerprint && !m.deleted && m.kind === "";
-    if (fromOther && !S.mutes[m.channelId]) {
+    const genuinelyNew = firstSeen && isLive && m.sender !== S.identity.fingerprint && !m.deleted && m.kind === "";
+    if (genuinelyNew && !S.mutes[m.channelId]) {
       // A direct message gets its own chime (unless you're already looking at
       // it); an @mention elsewhere gets the mention ping.
       if (isDMChannel(m.channelId) && (m.channelId !== S.activeChannelId || !document.hasFocus())) {
@@ -661,13 +707,15 @@ function initEvents() {
         playMention();
       }
     }
-    notify(m, {
-      selfFpr: S.identity.fingerprint,
-      mention: isMention,
-      muted: !!S.mutes[m.channelId],
-      activeChannel: S.activeChannelId,
-      onClick: () => jumpToChannel(m.channelId),
-    });
+    if (genuinelyNew) {
+      notify(m, {
+        selfFpr: S.identity.fingerprint,
+        mention: isMention,
+        muted: !!S.mutes[m.channelId],
+        activeChannel: S.activeChannelId,
+        onClick: () => jumpToChannel(m.channelId),
+      });
+    }
   });
 
   on("presence", () => scheduleRefresh({ panel: true }));
@@ -677,6 +725,10 @@ function initEvents() {
   on("typing", (t) => {
     if (t.channelId !== S.activeChannelId) return;
     const label = t.name || (t.from || "").slice(0, 9);
+    // Clear the previous timer for this person, else its stale 4s timeout fires
+    // and removes the FRESH entry — making a continuously-typing peer flicker off.
+    const prev = S.typingList.find((x) => x.from === t.from);
+    if (prev) clearTimeout(prev.timer);
     S.typingList = S.typingList.filter((x) => x.from !== t.from);
     const timer = setTimeout(() => {
       S.typingList = S.typingList.filter((x) => x.from !== t.from);

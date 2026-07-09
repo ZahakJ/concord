@@ -65,7 +65,14 @@ export function hasAttachment(content) {
 export function previewText(content) {
   const stripped = stripAttachTokens(content);
   if (!hasAttachment(content)) return content;
+  // Reset lastIndex: these are global (/g) regexes, and .test() advances it —
+  // leaving it non-zero would make a later matchAll() (parseAttachTokens etc.)
+  // start mid-string and silently drop early tokens.
+  FILE_RE.lastIndex = 0;
+  ATTACH_RE.lastIndex = 0;
   const glyph = FILE_RE.test(content) && !ATTACH_RE.test(content) ? "📎" : "🖼";
+  FILE_RE.lastIndex = 0;
+  ATTACH_RE.lastIndex = 0;
   const label = glyph === "📎" ? "file" : "image";
   return stripped ? `${glyph} ${stripped}` : `${glyph} ${label}`;
 }
