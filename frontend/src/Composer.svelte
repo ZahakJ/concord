@@ -155,6 +155,119 @@
     requestAnimationFrame(() => composerEl?.setSelectionRange(pos, pos));
   }
 
+  // ---- markdown formatting (toolbar buttons + Ctrl/Cmd shortcuts) ----
+  // Wraps the current selection with markers, or inserts a selected
+  // placeholder when nothing is selected. Mirrors accept(): mutate `draft`,
+  // refocus, then place the selection on the next frame because bind:value
+  // alone would park the caret at the end.
+
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
+  const MOD_LABEL = isMac ? "⌘" : "Ctrl+";
+  const WRAPS = {
+    bold: { pre: "**", post: "**", ph: "bold" },
+    italic: { pre: "*", post: "*", ph: "italic" },
+    strike: { pre: "~~", post: "~~", ph: "strikethrough" },
+    spoiler: { pre: "||", post: "||", ph: "spoiler" },
+    code: { pre: "`", post: "`", ph: "code" },
+  };
+  // Groups render with a thin separator between them. `keys` is only the
+  // tooltip hint — the actual bindings live in onKeydown.
+  const FMT_GROUPS = [
+    [
+      { kind: "bold", label: "Bold", keys: "B" },
+      { kind: "italic", label: "Italic", keys: "I" },
+      { kind: "strike", label: "Strikethrough" },
+      { kind: "spoiler", label: "Spoiler", keys: "Shift+X" },
+    ],
+    [
+      { kind: "code", label: "Inline code", keys: "E" },
+      { kind: "codeblock", label: "Code block" },
+    ],
+    [
+      { kind: "quote", label: "Quote", keys: "Shift+." },
+      { kind: "link", label: "Link", keys: "K" },
+    ],
+  ];
+  const fmtTitle = (b) => (b.keys ? `${b.label} (${MOD_LABEL}${b.keys})` : b.label);
+
+  function applyFormat(kind) {
+    if (!composerEl || !ch) return;
+    const start = composerEl.selectionStart ?? draft.length;
+    const end = composerEl.selectionEnd ?? start;
+    const sel = draft.slice(start, end);
+    let selStart, selEnd;
+
+    if (kind === "quote") {
+      // Toggle "> " on every line the selection touches.
+      const lineStart = draft.lastIndexOf("\n", start - 1) + 1;
+      let lineEnd = draft.indexOf("\n", end);
+      if (lineEnd < 0) lineEnd = draft.length;
+      const lines = draft.slice(lineStart, lineEnd).split("\n");
+      const quoted = lines.every((l) => l.startsWith("> "));
+      const block = lines.map((l) => (quoted ? l.slice(2) : "> " + l)).join("\n");
+      draft = draft.slice(0, lineStart) + block + draft.slice(lineEnd);
+      if (start === end) {
+        const p = Math.max(lineStart, start + (quoted ? -2 : 2));
+        selStart = selEnd = Math.min(p, lineStart + block.length);
+      } else {
+        selStart = lineStart;
+        selEnd = lineStart + block.length;
+      }
+    } else if (kind === "link") {
+      // A selection becomes the label with "url" selected to type over; with
+      // nothing selected, insert a full placeholder and select the label.
+      const label = sel || "text";
+      draft = draft.slice(0, start) + `[${label}](url)` + draft.slice(end);
+      if (sel) {
+        selStart = start + label.length + 3; // just past "[label]("
+        selEnd = selStart + 3;
+      } else {
+        selStart = start + 1;
+        selEnd = selStart + label.length;
+      }
+    } else if (kind === "codeblock") {
+      // Fences want their own lines — only add the newlines that are missing.
+      const text = sel || "code";
+      const pre = (start > 0 && draft[start - 1] !== "\n" ? "\n" : "") + "```\n";
+      const post = "\n```" + (end < draft.length && draft[end] !== "\n" ? "\n" : "");
+      draft = draft.slice(0, start) + pre + text + post + draft.slice(end);
+      selStart = start + pre.length;
+      selEnd = selStart + text.length;
+    } else {
+      const { pre, post, ph } = WRAPS[kind];
+      // Already wrapped (markers just outside, or included in the selection)?
+      // Then this press toggles the formatting back off. The italic guard
+      // keeps a lone "*" check from eating half of a surrounding "**".
+      const outside =
+        sel &&
+        draft.slice(start - pre.length, start) === pre &&
+        draft.slice(end, end + post.length) === post &&
+        !(kind === "italic" && draft.slice(start - 2, start) === "**" && draft.slice(end, end + 2) === "**");
+      const inside = sel.length >= pre.length + post.length && sel.startsWith(pre) && sel.endsWith(post);
+      if (outside) {
+        draft = draft.slice(0, start - pre.length) + sel + draft.slice(end + post.length);
+        selStart = start - pre.length;
+        selEnd = selStart + sel.length;
+      } else if (inside) {
+        const inner = sel.slice(pre.length, sel.length - post.length);
+        draft = draft.slice(0, start) + inner + draft.slice(end);
+        selStart = start;
+        selEnd = start + inner.length;
+      } else {
+        const text = sel || ph;
+        draft = draft.slice(0, start) + pre + text + post + draft.slice(end);
+        selStart = start + pre.length;
+        selEnd = selStart + text.length;
+      }
+    }
+
+    saveDraft(S.activeChannelId, draft);
+    suggest = null;
+    composerEl.focus();
+    queueAutosize();
+    requestAnimationFrame(() => composerEl?.setSelectionRange(selStart, selEnd));
+  }
+
   function editLastOwnMessage() {
     const own = [...S.messages].reverse().find(
       (m) => m.sender === S.identity.fingerprint && !m.deleted && m.kind === "",
@@ -163,6 +276,31 @@
   }
 
   function onKeydown(e) {
+    // Formatting shortcuts first — they all carry Ctrl/Cmd, so they can't
+    // collide with autocomplete nav, Enter-send, or ArrowUp-edit below.
+    if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+      const k = e.key.toLowerCase();
+      const kind = !e.shiftKey
+        ? k === "b"
+          ? "bold"
+          : k === "i"
+            ? "italic"
+            : k === "e"
+              ? "code"
+              : k === "k"
+                ? "link"
+                : null
+        : k === "x"
+          ? "spoiler"
+          : e.code === "Period" || k === "." || k === ">"
+            ? "quote"
+            : null;
+      if (kind) {
+        e.preventDefault();
+        applyFormat(kind);
+        return;
+      }
+    }
     if (suggest) {
       // Tab cycles for emoji/mentions (long-standing behavior) but accepts for
       // slash commands, where there's a single obvious completion.
@@ -438,6 +576,24 @@
         e.target.value = "";
       }}
     />
+    <div class="fmt-bar" role="toolbar" aria-label="Text formatting">
+      {#each FMT_GROUPS as group, gi (gi)}
+        {#if gi > 0}<span class="fmt-sep" aria-hidden="true"></span>{/if}
+        {#each group as b (b.kind)}
+          <button
+            type="button"
+            class="fmtbtn"
+            title={fmtTitle(b)}
+            aria-label={b.label}
+            disabled={!ch}
+            onmousedown={(e) => e.preventDefault()}
+            onclick={() => applyFormat(b.kind)}
+          >
+            <Icon name={b.kind} size={15} />
+          </button>
+        {/each}
+      {/each}
+    </div>
     <div class="input-box" class:focused={ch}>
       <button
         type="button"
@@ -612,6 +768,51 @@
   }
   .composer {
     padding: 0 16px 16px;
+  }
+  /* Formatting toolbar: a whisper-quiet row above the input that comes up to
+     full strength while the composer is hovered or focused. No transforms, so
+     the global reduced-motion duration-zeroing covers it. */
+  .fmt-bar {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    padding: 0 2px 4px;
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+  }
+  .composer:hover .fmt-bar,
+  .composer:focus-within .fmt-bar {
+    opacity: 1;
+  }
+  .fmtbtn {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+  .fmtbtn:hover:not(:disabled) {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .fmtbtn:active:not(:disabled) {
+    background: var(--bg-3);
+  }
+  .fmtbtn:disabled {
+    opacity: 0.35;
+  }
+  .fmt-sep {
+    width: 1px;
+    height: 14px;
+    background: var(--border);
+    margin: 0 5px;
+    flex: none;
   }
   /* One unified rounded bar — icons live inside it, Discord-style. */
   .input-box {
