@@ -105,6 +105,61 @@ export const EMOJI = {
 
 const NAMES = Object.keys(EMOJI);
 
+// ── Skin tones ───────────────────────────────────────────────────────────────
+// The five Fitzpatrick modifiers ("" = default yellow). Applied only to the
+// curated TONABLE set below — human/hand emoji whose single-modifier form is
+// universally supported. Everything else renders unchanged.
+export const SKIN_TONES = [
+  { key: "", label: "Default" },
+  { key: "\u{1F3FB}", label: "Light" },
+  { key: "\u{1F3FC}", label: "Medium-light" },
+  { key: "\u{1F3FD}", label: "Medium" },
+  { key: "\u{1F3FE}", label: "Medium-dark" },
+  { key: "\u{1F3FF}", label: "Dark" },
+];
+
+export const TONABLE = new Set([
+  "wave", "raised_hand", "ok_hand", "pinch", "v", "crossed_fingers",
+  "love_you", "metal", "call_me", "point_left", "point_right", "point_up",
+  "point_down", "thumbsup", "+1", "thumbsdown", "-1", "fist", "punch",
+  "clap", "raised_hands", "open_hands", "pray", "muscle", "writing",
+  "ear", "nose", "shrug", "facepalm", "bow", "dancer", "running", "wizard",
+]);
+
+// applyTone renders an emoji char with a Fitzpatrick modifier. Toned emoji
+// drop the VS16 (U+FE0F) — a modifier already forces emoji presentation.
+export function applyTone(char, tone) {
+  if (!tone) return char;
+  return char.replace(/\uFE0F/gu, "") + tone;
+}
+
+// The user's preferred tone (a modifier char or ""), persisted locally.
+const TONE_KEY = "concord.emojiTone";
+export function emojiTone() {
+  try {
+    const t = localStorage.getItem(TONE_KEY) || "";
+    return SKIN_TONES.some((s) => s.key === t) ? t : "";
+  } catch {
+    return "";
+  }
+}
+export function setEmojiTone(tone) {
+  try {
+    localStorage.setItem(TONE_KEY, tone);
+  } catch {
+    /* storage blocked */
+  }
+}
+
+// emojiName reverse-maps a char back to its shortcode (tone modifiers are
+// stripped first, so 👍🏾 -> "thumbsup"). Returns "" for unknown chars.
+const NAME_OF = new Map();
+for (const n of NAMES) if (!NAME_OF.has(EMOJI[n])) NAME_OF.set(EMOJI[n], n);
+export function emojiName(char) {
+  const base = char.replace(/[\u{1F3FB}-\u{1F3FF}]/gu, "");
+  return NAME_OF.get(char) || NAME_OF.get(base) || NAME_OF.get(base + "\uFE0F") || "";
+}
+
 // Category tabs for the picker, derived from EMOJI's section order (no
 // re-listing of names). Hearts + symbols share the Symbols tab.
 const idx = (n) => NAMES.indexOf(n);

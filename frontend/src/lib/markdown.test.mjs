@@ -97,6 +97,17 @@ assert(out.includes("&quot;"), "emoji src quote is entity-escaped");
 assert(containsMention("yo @euclid", ["euclid"]), "containsMention positive");
 assert(!containsMention("yo @euclidian", ["euclid"]), "containsMention word boundary");
 
+// Skin-tone helpers (picker): modifier appended, VS16 dropped on toned forms,
+// and the reverse name lookup survives both directions.
+const { applyTone, emojiName, TONABLE, EMOJI } = await import("./emoji.js");
+assert(applyTone("👍", "\u{1F3FE}") === "👍🏾", "applyTone appends modifier");
+assert(applyTone("✌️", "\u{1F3FB}") === "✌🏻", "applyTone drops VS16 on toned form");
+assert(applyTone("✌️", "") === "✌️", "empty tone is a no-op");
+assert(emojiName("👍🏾") === "thumbsup", "emojiName strips tone");
+assert(emojiName("✌🏻") === "v", "emojiName restores VS16 base");
+assert(emojiName(EMOJI.fire) === "fire", "emojiName direct hit");
+assert([...TONABLE].every((n) => EMOJI[n]), "every TONABLE name exists in EMOJI");
+
 if (failures) {
   console.error(`${failures} failure(s)`);
   process.exit(1);
