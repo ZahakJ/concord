@@ -5,6 +5,8 @@
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
   import Menu from "./Menu.svelte";
+  import StatusPopover from "./StatusPopover.svelte";
+  import { splitStatus, presenceLabel } from "./lib/presence.js";
   import {
     S,
     activeGuild,
@@ -129,6 +131,20 @@
       },
     ]);
   }
+
+  // Presence + custom-status popover, anchored to the self-row avatar. Stores
+  // the trigger's rect at open so the popover can position itself fixed (the
+  // column clips overflow, so it can't be absolutely positioned in here).
+  let statusPop = $state(null);
+  function toggleStatusPop(e) {
+    if (statusPop) {
+      statusPop = null;
+      return;
+    }
+    const r = e.currentTarget.getBoundingClientRect();
+    statusPop = { x: r.x, y: r.y, w: r.width, h: r.height };
+  }
+  const myStatus = $derived(splitStatus(S.identity.status));
 
   // One entry point for starting conversations: pick one person (→ a 1:1 DM)
   // or several (→ a group DM), or invite by link from inside the picker.
@@ -400,17 +416,31 @@
   {/if}
 
   <div class="me-row">
-    <button class="me" onclick={() => (S.modal = { kind: "profile" })} title="Edit profile">
+    <button
+      class="me-status-trigger"
+      title="Set status"
+      aria-label="Set status"
+      aria-haspopup="dialog"
+      aria-expanded={!!statusPop}
+      onclick={toggleStatusPop}
+    >
       <Avatar
         name={S.displayName}
         emoji={S.identity.emoji}
         color={S.identity.color}
         image={S.identity.avatar}
         size={34}
+        online={true}
+        presence={S.identity.presence || ""}
       />
+    </button>
+    <button class="me" onclick={() => (S.modal = { kind: "profile" })} title="Edit profile">
       <span class="me-text">
         <strong>{S.displayName || "Set your name"}</strong>
-        <span class="muted small-status">{S.identity.status || "click to edit profile"}</span>
+        <span class="muted small-status">
+          {#if myStatus.emoji}<span class="st-emoji">{myStatus.emoji}</span>{/if}
+          {myStatus.text || presenceLabel(S.identity.presence)}
+        </span>
       </span>
     </button>
     <button class="me-gear ghost" title="Settings" aria-label="Settings" onclick={() => (S.modal = { kind: "settings" })}>
@@ -418,6 +448,10 @@
     </button>
   </div>
 </aside>
+
+{#if statusPop}
+  <StatusPopover anchor={statusPop} onClose={() => (statusPop = null)} />
+{/if}
 
 <style>
   .cols {
@@ -799,11 +833,29 @@
     border-top: 1px solid var(--border);
     background: var(--bg-0);
   }
+  .me-status-trigger {
+    background: transparent;
+    padding: 3px;
+    border-radius: 50%;
+    line-height: 0;
+    flex-shrink: 0;
+    transition: background 0.12s ease;
+  }
+  .me-status-trigger:hover {
+    background: var(--bg-3);
+  }
+  /* The dot's cutout ring should match this row's background, not the column's. */
+  .me-status-trigger :global(.dot) {
+    border-color: var(--bg-0);
+  }
+  .st-emoji {
+    margin-right: 3px;
+  }
   .me {
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
     background: transparent;
     color: var(--text);
     text-align: left;
