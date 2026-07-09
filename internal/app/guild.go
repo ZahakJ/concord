@@ -393,6 +393,19 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 		return json.Marshal(inviteResponse{Error: "unknown guild"})
 	}
 
+	// Bind the claimed credential to the AUTHENTICATED caller. The libp2p PeerID
+	// is the account key, so presenceFor(from) is who actually dialed us.
+	// Without this, req.Credential is attacker-supplied and drives both the ban
+	// check and the retry-time Remove below — letting anyone with an invite code
+	// (a) evict any member by fingerprint (bad KeyPackage + Credential=victim →
+	// owner-authored Remove commit) and (b) bypass the ban gate (real KeyPackage
+	// + Credential=some non-banned fingerprint). Requiring Credential == caller
+	// makes the Remove self-only and binds the ban check to the real joiner.
+	callerFpr := presenceFor(from).Fingerprint
+	if len(req.Credential) > 0 && identity.FingerprintOf(req.Credential) != callerFpr {
+		return json.Marshal(inviteResponse{Error: "credential does not match caller"})
+	}
+
 	// Enforce the banlist at the gate: a banned fingerprint cannot rejoin, even
 	// with a fresh invite code. This is what makes a ban survive rejoin.
 	if len(req.Credential) > 0 && s.isBanned(req.GuildID, identity.FingerprintOf(req.Credential)) {
