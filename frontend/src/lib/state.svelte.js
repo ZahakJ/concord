@@ -390,12 +390,26 @@ export function feedNearBottom() {
   if (!feedEl) return true;
   return feedEl.scrollHeight - feedEl.scrollTop - feedEl.clientHeight < 120;
 }
+// scrollToMessage: center the target row and flash-highlight it so the eye
+// lands on it (shared by reply-ref clicks, pin jumps, and search results).
+// The flash is restartable — jumping again (same row or another) clears any
+// in-flight highlight and replays the animation from the start.
+let flashTimer = null;
+let flashEl = null;
 export function scrollToMessage(id) {
   const el = feedEl?.querySelector(`[data-msg-id="${CSS.escape(id)}"]`);
   if (!el) return false;
-  el.scrollIntoView({ block: "center" });
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  el.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
+  clearTimeout(flashTimer);
+  flashEl?.classList.remove("flash-highlight");
+  void el.offsetWidth; // reflow so the CSS animation replays on re-add
   el.classList.add("flash-highlight");
-  setTimeout(() => el.classList.remove("flash-highlight"), 1600);
+  flashEl = el;
+  flashTimer = setTimeout(() => {
+    el.classList.remove("flash-highlight");
+    if (flashEl === el) flashEl = null;
+  }, 1200);
   return true;
 }
 

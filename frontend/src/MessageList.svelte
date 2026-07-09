@@ -15,6 +15,8 @@
     jumpToChannel,
     scrollToMessage,
     memberByFpr,
+    nameFor,
+    nameColorFor,
     flash,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
@@ -64,9 +66,11 @@
     }
   }
 
-  // Clicking a pinned message jumps to it in the feed (like Discord).
+  // Clicking a pinned message jumps to it in the feed (like Discord) and
+  // closes the panel so the flash-highlighted row isn't hidden behind it.
   function jumpToPin(m) {
-    if (!scrollToMessage(m.id)) flash("That message isn't loaded yet");
+    if (scrollToMessage(m.id)) S.showPins = false;
+    else flash("That message isn't loaded yet");
   }
 
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
@@ -172,6 +176,9 @@
     S.searchResults = null;
     S.searchQuery = "";
     await jumpToChannel(m.channelId);
+    // Flash the hit once the channel's messages are in the DOM (silently a
+    // no-op if the message is further back than the loaded window).
+    requestAnimationFrame(() => scrollToMessage(m.id));
   }
 </script>
 
@@ -184,33 +191,58 @@
 {/if}
 
 {#if S.showPins}
-  <div class="side-panel">
-    {#each pinned as m (m.id)}
-      {@const mem = memberByFpr(m.sender)}
-      <div class="pin-item">
-        <button class="pin-jump" title="Jump to message" onclick={() => jumpToPin(m)}>
-          <Avatar
-            name={m.senderName || m.sender.slice(0, 2)}
-            emoji={mem?.emoji}
-            color={mem?.color}
-            image={mem?.avatar}
-            size={28}
-          />
-          <span class="pin-body">
-            <span class="pin-meta">
-              <strong>{m.senderName || m.sender.slice(0, 9)}</strong>
-              <span class="muted tiny">{fmtTime(m.sent)}</span>
-            </span>
-            <span class="pin-text">{previewText(m.content).slice(0, 90)}</span>
-          </span>
+  <div class="pins-anchor">
+    <section class="pins-pop" aria-label="Pinned messages">
+      <header class="pins-head">
+        <span class="pins-title">
+          <Icon name="pin" size={13} />
+          Pinned messages
+          {#if pinned.length}<span class="pins-count">{pinned.length}</span>{/if}
+        </span>
+        <button class="mini" title="Close" aria-label="Close pinned messages" onclick={() => (S.showPins = false)}>
+          <Icon name="close" size={12} />
         </button>
-        <button class="mini" title="Unpin" aria-label="Unpin" onclick={() => api.pinMessage(m.channelId, m.id)}>
-          <Icon name="close" size={11} />
-        </button>
+      </header>
+      <div class="pins-list">
+        {#each pinned as m (m.id)}
+          {@const mem = memberByFpr(m.sender)}
+          <div class="pin-item">
+            <button class="pin-jump" title="Jump to message" onclick={() => jumpToPin(m)}>
+              <Avatar
+                name={nameFor(m.sender, m.senderName)}
+                emoji={mem?.emoji}
+                color={mem?.color}
+                image={mem?.avatar}
+                size={28}
+              />
+              <span class="pin-body">
+                <span class="pin-meta">
+                  <strong style={nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
+                    >{nameFor(m.sender, m.senderName)}</strong
+                  >
+                  <span class="muted tiny">{fmtTime(m.sent)}</span>
+                </span>
+                <span class="pin-text">{previewText(m.content).replace(/\s+/g, " ").trim().slice(0, 160) || "(empty message)"}</span>
+              </span>
+            </button>
+            <button
+              class="mini unpin"
+              title="Unpin"
+              aria-label="Unpin message"
+              onclick={() => api.pinMessage(m.channelId, m.id)}
+            >
+              <Icon name="close" size={11} />
+            </button>
+          </div>
+        {:else}
+          <div class="pins-empty">
+            <span class="pins-empty-badge"><Icon name="pin" size={18} /></span>
+            <strong>No pinned messages yet</strong>
+            <span class="muted small">Hover a message and hit the pin — it'll show up here for everyone.</span>
+          </div>
+        {/each}
       </div>
-    {:else}
-      <div class="muted small">No pinned messages — hover a message and hit the pin.</div>
-    {/each}
+    </section>
   </div>
 {/if}
 
@@ -321,21 +353,121 @@
     max-height: 200px;
     overflow-y: auto;
   }
-  .pin-item {
+  /* Pinned-messages popover: floats below the header's pin button, over the
+     feed, via a zero-height positioning anchor (the chat column clips it). */
+  .pins-anchor {
+    position: relative;
+    height: 0;
+    z-index: 25;
+  }
+  .pins-pop {
+    position: absolute;
+    top: 8px;
+    right: 14px;
+    width: min(380px, calc(100vw - 48px));
+    max-height: min(420px, 60vh);
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-elevated, var(--bg-1));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-pop);
+    overflow: hidden;
+    animation: pins-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+    transform-origin: top right;
+  }
+  @keyframes pins-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+  }
+  .pins-head {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 8px;
-    font-size: 13px;
+    padding: 9px 8px 9px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
   }
-  .pin-text {
+  .pins-title {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: var(--text);
+  }
+  .pins-count {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .pins-list {
+    overflow-y: auto;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pin-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 2px;
+    font-size: 13px;
+    border-radius: var(--radius-sm);
+  }
+  .pin-item .unpin {
+    opacity: 0;
+    margin-top: 6px;
+    transition: opacity 0.1s ease;
+  }
+  .pin-item:hover .unpin,
+  .pin-item:focus-within .unpin {
+    opacity: 1;
+  }
+  .pin-item .unpin:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+  }
+  .pin-text {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--text-muted);
+  }
+  .pin-jump:hover .pin-text {
+    color: var(--text);
+  }
+  .pins-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 4px;
+    padding: 22px 18px;
+  }
+  .pins-empty-badge {
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    margin-bottom: 4px;
+  }
+  .pins-empty strong {
+    font-size: 13px;
+  }
+  .pins-empty .small {
+    line-height: 1.45;
   }
   .search-head {
     display: flex;
@@ -610,16 +742,22 @@
   .small {
     font-size: 12px;
   }
+  /* Shared jump-target flash (applied by scrollToMessage): a brief accent
+     wash + hairline ring that fades, so the eye finds the row. Duration
+     matches the 1.2s class removal in state.svelte.js; the global
+     reduced-motion override in app.css collapses it to a blink. */
   :global(.flash-highlight) {
-    animation: flash-bg 1.6s ease;
+    animation: flash-bg 1.2s ease;
   }
   @keyframes flash-bg {
     0%,
-    40% {
+    35% {
       background: var(--accent-soft);
+      box-shadow: inset 2px 0 0 var(--accent);
     }
     100% {
       background: transparent;
+      box-shadow: inset 2px 0 0 transparent;
     }
   }
 </style>

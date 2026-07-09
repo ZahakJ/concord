@@ -163,6 +163,14 @@
     if (m.replyTo && !scrollToMessage(m.replyTo)) flash("Original message not loaded");
   }
 
+  // Reply preview: the original message with attachment tokens turned into a
+  // readable placeholder, whitespace collapsed, and capped for one line.
+  const replySnippet = $derived(
+    replyRef && !replyRef.deleted
+      ? previewText(replyRef.content).replace(/\s+/g, " ").trim().slice(0, 80) || "(empty message)"
+      : "",
+  );
+
   function copy(text, ok) {
     navigator.clipboard?.writeText(text);
     flash(ok, "success");
@@ -218,11 +226,22 @@
 
   <div class="msg-main">
     {#if m.replyTo && !compact}
-      <button class="reply-ref" onclick={jumpToReply}>
-        <Icon name="reply" size={11} />
-        {replyRef
-          ? `${nameFor(replyRef.sender, replyRef.senderName)}: ${replyRef.deleted ? "(deleted)" : previewText(replyRef.content).slice(0, 60)}`
-          : "(original message)"}
+      <button class="reply-ref" title="Jump to original message" onclick={jumpToReply}>
+        <span class="reply-icon"><Icon name="reply" size={11} /></span>
+        {#if replyRef}
+          <span
+            class="reply-author"
+            style={nameColorFor(replyRef.sender) ? `color:${nameColorFor(replyRef.sender)}` : ""}
+            >{nameFor(replyRef.sender, replyRef.senderName)}</span
+          >
+          {#if replyRef.deleted}
+            <em class="reply-snippet faded">message deleted</em>
+          {:else}
+            <span class="reply-snippet">{replySnippet}</span>
+          {/if}
+        {:else}
+          <em class="reply-snippet faded">original message not loaded</em>
+        {/if}
       </button>
     {/if}
     {#if !compact}
@@ -422,17 +441,42 @@
     font-size: 12px;
     color: var(--text-muted);
     border-left: 2px solid var(--border);
-    padding: 0 0 0 8px;
+    padding: 1px 8px 1px 8px;
     margin-bottom: 2px;
+    background: transparent;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    max-width: 100%;
+    min-width: 0;
+    transition:
+      background 0.12s ease,
+      border-color 0.12s ease,
+      color 0.12s ease;
+  }
+  .reply-ref:hover {
+    background: color-mix(in srgb, var(--bg-3) 65%, transparent);
+    border-left-color: var(--accent);
+    color: var(--text);
+  }
+  .reply-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    opacity: 0.75;
+  }
+  .reply-author {
+    font-weight: 600;
+    color: var(--accent-hover);
+    flex-shrink: 0;
+  }
+  .reply-snippet {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    background: transparent;
-    border-radius: 0;
-    max-width: 100%;
   }
-  .reply-ref:hover {
-    background: transparent;
+  .reply-snippet.faded {
+    color: var(--text-faint);
+  }
+  .reply-ref:hover .reply-snippet:not(.faded) {
     color: var(--text);
   }
   .msg-head {
