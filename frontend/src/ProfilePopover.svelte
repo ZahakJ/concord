@@ -19,6 +19,7 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
+  import { splitStatus } from "./lib/presence.js";
 
   let dmText = $state("");
   let dmBusy = $state(false);
@@ -68,11 +69,12 @@
   }
 
   const mem = $derived(S.profilePopover ? memberByFpr(S.profilePopover.fingerprint) : null);
-  // Clear the quick-message box when the card switches to a different person.
+  // Clear per-person editor state when the card switches to a different person.
   $effect(() => {
     S.profilePopover?.fingerprint;
     dmText = "";
     editingNick = false;
+    copied = false;
   });
 
   let card = $state(null);
@@ -189,6 +191,50 @@
   }
 
   const fprShort = $derived(mem ? mem.fingerprint.replace(/(.{4})/g, "$1 ").trim() : "");
+
+  // Custom status split into emoji + text so each part can be styled.
+  const statusParts = $derived(mem ? splitStatus(mem.status) : { emoji: "", text: "" });
+
+  // The member's roles as read-only pills (managers get the toggle UI instead,
+  // which already shows membership state).
+  const memberRoles = $derived(mem ? S.roles.filter((r) => mem.roleIds?.includes(r.id)) : []);
+
+  // Best-effort "also in": peer DMs carry the other side's fingerprint, so
+  // shared DMs are cheap to count. Guild member lists other than the active
+  // guild's aren't loaded, so mutual guilds are skipped silently.
+  const sharedDMs = $derived(
+    mem && !mem.isSelf
+      ? S.guilds.filter(
+          (g) => g.kind === "dm" && g.dmPeer === mem.fingerprint && g.id !== S.activeGuildId,
+        ).length
+      : 0,
+  );
+
+  // Copy the full fingerprint; the button flips to "Copied" briefly.
+  let copied = $state(false);
+  let copyTimer;
+  async function copyFpr() {
+    const full = mem.fingerprint;
+    try {
+      await navigator.clipboard.writeText(full);
+    } catch {
+      // Clipboard API unavailable (e.g. insecure context): textarea fallback.
+      const ta = document.createElement("textarea");
+      ta.value = full;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try {
+        document.execCommand("copy");
+      } finally {
+        ta.remove();
+      }
+    }
+    copied = true;
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => (copied = false), 1600);
+  }
 </script>
 
 <svelte:window
@@ -232,6 +278,11 @@
           presence={mem.presence}
         />
       </div>
+      {#if mem.verified && !mem.isSelf}
+        <span class="verified" title="You've verified this identity">
+          <Icon name="check" size={12} /> Verified
+        </span>
+      {/if}
     </div>
 
     <div class="body">
@@ -245,15 +296,25 @@
         {:else if mem.canManage}
           <span class="role-badge mod" title="Can manage members">mod</span>
         {/if}
-        {#if mem.verified && !mem.isSelf}
-          <span class="verified" title="Identity verified"><Icon name="check" size={12} /> verified</span>
-        {/if}
       </div>
       {#if mem.username}<div class="username muted">{mem.username}</div>{/if}
-      {#if mem.status}<div class="status">{mem.status}</div>{/if}
+      {#if sharedDMs > 0}
+        <div class="mutual muted">
+          <Icon name="members" size={12} />
+          {sharedDMs === 1 ? "1 shared DM" : `${sharedDMs} shared DMs`}
+        </div>
+      {/if}
+
+      {#if statusParts.emoji || statusParts.text}
+        <div class="status-box">
+          {#if statusParts.emoji}<span class="status-emoji">{statusParts.emoji}</span>{/if}
+          {#if statusParts.text}<span class="status-text">{statusParts.text}</span>{/if}
+        </div>
+      {/if}
+
       {#if mem.bio}
         <div class="divider"></div>
-        <div class="bio-label muted">About me</div>
+        <div class="sec-label muted">About me</div>
         <div class="bio">{mem.bio}</div>
       {/if}
 
@@ -276,9 +337,50 @@
         {/if}
       {/if}
 
+      {#if canAssignRoles && S.roles.length}
+        <div class="divider"></div>
+        <div class="sec-label muted">Roles</div>
+        <div class="role-toggles">
+          {#each S.roles as role (role.id)}
+            <button
+              class="role-toggle"
+              class:on={mem.roleIds?.includes(role.id)}
+              onclick={() => toggleRole(role)}
+            >
+              <span class="role-dot" style="background:{role.color || 'var(--text-faint)'}"></span>
+              {role.name}
+              {#if mem.roleIds?.includes(role.id)}<span class="role-x">×</span>{/if}
+            </button>
+          {/each}
+        </div>
+      {:else if memberRoles.length}
+        <div class="divider"></div>
+        <div class="sec-label muted">Roles</div>
+        <div class="role-pills">
+          {#each memberRoles as role (role.id)}
+            <span class="role-pill">
+              <span class="role-dot" style="background:{role.color || 'var(--text-faint)'}"></span>
+              {role.name}
+            </span>
+          {/each}
+        </div>
+      {/if}
+
       <div class="divider"></div>
 
-      <div class="fpr-label muted">Safety number</div>
+      <div class="sec-head">
+        <span class="sec-label muted">Safety number</span>
+        <button
+          class="copy-btn"
+          class:copied
+          onclick={copyFpr}
+          title="Copy the full safety number"
+          aria-label="Copy safety number"
+        >
+          <Icon name={copied ? "check" : "copy"} size={11} />
+          {copied ? "Copied" : "Copy"}
+        </button>
+      </div>
       <code class="fpr">{fprShort}</code>
 
       {#if mem.isSelf}
@@ -301,24 +403,6 @@
             <Icon name={dmBusy ? "spark" : "reply"} size={15} />
           </button>
         </form>
-      {/if}
-
-      {#if canAssignRoles && S.roles.length}
-        <div class="divider"></div>
-        <div class="roles-label muted">Roles</div>
-        <div class="role-toggles">
-          {#each S.roles as role (role.id)}
-            <button
-              class="role-toggle"
-              class:on={mem.roleIds?.includes(role.id)}
-              onclick={() => toggleRole(role)}
-            >
-              <span class="role-dot" style="background:{role.color || 'var(--text-faint)'}"></span>
-              {role.name}
-              {#if mem.roleIds?.includes(role.id)}<span class="role-x">×</span>{/if}
-            </button>
-          {/each}
-        </div>
       {/if}
 
       {#if canModerate || canMute}
@@ -348,7 +432,7 @@
   .pop {
     position: fixed;
     z-index: 250;
-    width: 260px;
+    width: 272px;
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -368,7 +452,7 @@
     }
   }
   .banner {
-    height: 60px;
+    height: 64px;
     background: linear-gradient(120deg, var(--accent), var(--accent-hover));
   }
   .banner.has-image {
@@ -376,6 +460,9 @@
     background-position: center;
   }
   .head {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
     padding: 0 14px;
   }
   .av-wrap {
@@ -384,6 +471,19 @@
     padding: 3px;
     background: var(--bg-1);
     border-radius: 50%;
+  }
+  .verified {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 4px;
+    padding: 2px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 999px;
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
   }
   .body {
     padding: 6px 14px 14px;
@@ -409,21 +509,45 @@
     padding: 1px 6px;
     border-radius: 8px;
   }
-  .verified {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 11px;
-    color: var(--ok);
-  }
   .username {
     font-size: 12px;
     margin-top: -2px;
   }
-  .bio-label {
+  .mutual {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+  }
+  .status-box {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-top: 4px;
+    padding: 7px 10px;
+    background: var(--bg-0);
+    border-radius: var(--radius-sm);
+  }
+  .status-emoji {
+    font-size: 16px;
+    line-height: 1.25;
+  }
+  .status-text {
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--text);
+    word-break: break-word;
+  }
+  .sec-label {
     font-size: 10px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
+  }
+  .sec-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
   }
   .bio {
     font-size: 12px;
@@ -449,27 +573,29 @@
     background: color-mix(in srgb, var(--ok) 20%, transparent);
     color: var(--ok);
   }
-  .roles-label {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 2px;
-  }
-  .role-toggles {
+  .role-toggles,
+  .role-pills {
     display: flex;
     flex-wrap: wrap;
     gap: 5px;
+    margin-top: 2px;
   }
-  .role-toggle {
+  .role-toggle,
+  .role-pill {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 3px 8px;
+    padding: 3px 9px;
     font-size: 12px;
     background: var(--bg-3);
     color: var(--text-muted);
     border: 1px solid transparent;
     border-radius: 10px;
+  }
+  .role-pill {
+    color: var(--text);
+    border-color: var(--border);
+    border-radius: 999px;
   }
   .role-toggle.on {
     background: var(--bg-4, var(--bg-3));
@@ -480,6 +606,7 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    flex: none;
   }
   .role-x {
     color: var(--text-faint);
@@ -512,10 +639,6 @@
   }
   .mod-btn.danger:hover {
     background: color-mix(in srgb, var(--danger, #f04747) 18%, transparent);
-  }
-  .status {
-    font-size: 13px;
-    color: var(--text-muted);
   }
   .nick-edit {
     display: inline-flex;
@@ -552,10 +675,21 @@
     background: var(--border);
     margin: 8px 0 4px;
   }
-  .fpr-label {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
+  .copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    font-size: 11px;
+    background: var(--bg-3);
+    color: var(--text-muted);
+    border-radius: 8px;
+  }
+  .copy-btn:hover {
+    color: var(--text);
+  }
+  .copy-btn.copied {
+    color: var(--ok);
   }
   .fpr {
     font-family: ui-monospace, monospace;
