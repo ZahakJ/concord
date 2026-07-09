@@ -51,7 +51,8 @@ assert(out.includes("<code>c</code>"), `code: ${out}`);
 assert(out.includes('<a href="https://x.dev"'), `link: ${out}`);
 
 out = renderMarkdown("```go\nx < y\n```");
-assert(out.includes("<pre><code>x &lt; y</code></pre>"), `fence: ${out}`);
+// Code fences carry a language label (data-lang) when one is given.
+assert(out.includes('<pre data-lang="go"><code>x &lt; y</code></pre>'), `fence: ${out}`);
 
 out = renderMarkdown("- a\n- b\n1. c");
 assert(out.includes("<ul><li>a</li><li>b</li></ul><ol><li>c</li></ol>"), `lists: ${out}`);
@@ -59,7 +60,11 @@ assert(out.includes("<ul><li>a</li><li>b</li></ul><ol><li>c</li></ol>"), `lists:
 assert(renderMarkdown("> quoted").includes("<blockquote>quoted</blockquote>"), "quote");
 // Forwarded messages render as an attribution blockquote followed by the body.
 let fwd = renderMarkdown("> ↪ Forwarded from axioms #general\nthe *point* stands");
-assert(fwd.includes("<blockquote>↪ Forwarded from axioms #general</blockquote>"), `forward attribution: ${fwd}`);
+// The ↪ arrow is an emoji, so it's wrapped for sizing (emoji-wrapping feature).
+assert(
+  fwd.includes('<blockquote><span class="emoji">↪</span> Forwarded from axioms #general</blockquote>'),
+  `forward attribution: ${fwd}`,
+);
 assert(fwd.includes("<em>point</em>"), `forward body renders markdown: ${fwd}`);
 let mentionOut = renderMarkdown("hey @euclid look", ["euclid"]);
 assert(mentionOut.includes('class="mention"'), "mention render (string form)");
