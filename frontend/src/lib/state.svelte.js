@@ -77,6 +77,9 @@ export const S = $state({
 
   searchQuery: "",
   searchResults: null, // null = closed, [] = no hits
+  searchChips: [], // parsed operator chips [{key, raw, label}] shown above results
+  searchTerms: [], // free-text terms, for match highlighting in results
+  searchLoading: false, // a search round-trip is in flight
   showPins: false,
 
   // newBelow: messages arrived while the user was scrolled up reading history

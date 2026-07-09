@@ -8,6 +8,7 @@
 //   Shift+Escape      mark ALL channels read
 //   ? or Ctrl+/       keyboard-shortcut cheat sheet
 import { S, activeGuild, selectChannel, jumpToChannel, markRead, markAllRead } from "./state.svelte.js";
+import { closeSearch } from "./search.js";
 
 function channelsOfActive() {
   return activeGuild()?.channels ?? [];
@@ -65,10 +66,8 @@ export function installShortcuts() {
       else if (S.quickSwitcher) S.quickSwitcher = false;
       else if (S.pickerTarget) S.pickerTarget = null;
       else if (S.showPins) S.showPins = false;
-      else if (S.searchResults !== null) {
-        S.searchResults = null;
-        S.searchQuery = "";
-      } else if (S.replyingTo) S.replyingTo = null;
+      else if (S.searchResults !== null || S.searchLoading) closeSearch();
+      else if (S.replyingTo) S.replyingTo = null;
       else if (S.modal) S.modal = null;
       // Nothing to dismiss → mark the current channel read (Discord-style).
       else if (S.activeChannelId) markRead(S.activeChannelId);

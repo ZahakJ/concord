@@ -4,6 +4,7 @@
   import Icon from "./Icon.svelte";
   import Message from "./Message.svelte";
   import Avatar from "./Avatar.svelte";
+  import SearchPanel from "./SearchPanel.svelte";
   import {
     S,
     activeGuild,
@@ -11,8 +12,6 @@
     registerFeed,
     scrollSoon,
     feedNearBottom,
-    channelName,
-    jumpToChannel,
     scrollToMessage,
     memberByFpr,
     nameFor,
@@ -171,15 +170,6 @@
     dragOver = false;
     onDropFiles?.([...(e.dataTransfer?.files || [])]);
   }
-
-  async function openSearchResult(m) {
-    S.searchResults = null;
-    S.searchQuery = "";
-    await jumpToChannel(m.channelId);
-    // Flash the hit once the channel's messages are in the DOM (silently a
-    // no-op if the message is further back than the loaded window).
-    requestAnimationFrame(() => scrollToMessage(m.id));
-  }
 </script>
 
 {#if activeGuild()?.outOfSync}
@@ -246,24 +236,7 @@
   </div>
 {/if}
 
-{#if S.searchResults !== null}
-  <div class="side-panel">
-    <div class="search-head">
-      <span class="muted">
-        {S.searchResults.length} result{S.searchResults.length === 1 ? "" : "s"}
-      </span>
-      <button class="mini" aria-label="Close search" onclick={() => ((S.searchResults = null), (S.searchQuery = ""))}>
-        <Icon name="close" size={11} />
-      </button>
-    </div>
-    {#each S.searchResults as m (m.id)}
-      <button class="search-hit" onclick={() => openSearchResult(m)}>
-        <span class="muted small">{channelName(m.channelId)}</span>
-        <span><strong>{m.senderName || m.sender.slice(0, 9)}</strong>: {previewText(m.content).slice(0, 100)}</span>
-      </button>
-    {/each}
-  </div>
-{/if}
+<SearchPanel />
 
 <div
   class="feed"
@@ -468,26 +441,6 @@
   }
   .pins-empty .small {
     line-height: 1.45;
-  }
-  .search-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 12px;
-  }
-  .search-hit {
-    background: transparent;
-    color: var(--text);
-    text-align: left;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 6px 8px;
-    border-radius: var(--radius-sm);
-    font-size: 13px;
-  }
-  .search-hit:hover {
-    background: var(--bg-3);
   }
   .mini {
     padding: 2px 6px;
