@@ -34,11 +34,20 @@ export const S = $state({
   mutes: loadJSON("concord.mutes", {}), // channelId -> true
   readAnchor: "", // ISO time we'd last read the active channel (for the "new" line)
 
-  // Privacy prefs. linkPreviews defaults OFF: fetching a preview for a link in a
-  // message reveals your IP + online time to that link's host, so a message with
-  // a link to an attacker-controlled server is a zero-click deanonymization. Opt
-  // in only if you trust who you talk to.
-  prefs: loadJSON("concord.prefs", { linkPreviews: false }),
+  // Privacy + appearance prefs. linkPreviews defaults OFF: fetching a preview
+  // for a link in a message reveals your IP + online time to that link's host,
+  // so a message with a link to an attacker-controlled server is a zero-click
+  // deanonymization. Opt in only if you trust who you talk to.
+  // theme: "dark" | "light" | "system"; density: "cozy" | "compact";
+  // accent: a preset hex, or "" to follow the profile color (the old behavior).
+  // Spread over defaults so prefs saved before a key existed still get it.
+  prefs: {
+    linkPreviews: false,
+    theme: "dark",
+    accent: "",
+    density: "cozy",
+    ...loadJSON("concord.prefs", {}),
+  },
 
   typingList: [], // [{ from, label, timer }]
 
@@ -400,12 +409,48 @@ export function applyAccent(color) {
   document.documentElement.style.setProperty("--accent", color);
 }
 
+// ---- appearance (theme / accent preset / density) ----
+// Device-local prefs, stamped onto <html>: data-theme picks the palette in
+// app.css, data-density the message spacing, and a non-empty accent pref
+// overrides the profile color (--accent-hover/-soft derive from it in CSS).
+
+const sysDark = window.matchMedia?.("(prefers-color-scheme: dark)");
+
+export function applyAppearance() {
+  const el = document.documentElement;
+  const t = S.prefs.theme || "dark";
+  el.dataset.theme = t === "system" ? (sysDark && !sysDark.matches ? "light" : "dark") : t;
+  el.dataset.density = S.prefs.density === "compact" ? "compact" : "cozy";
+  applyAccent(S.prefs.accent || S.identity.color);
+}
+
+// setAppearance persists one appearance pref and applies it under a brief
+// cross-fade (app.css .theme-fade; zeroed for prefers-reduced-motion there).
+let fadeTimer;
+export function setAppearance(key, value) {
+  setPref(key, value);
+  const el = document.documentElement;
+  el.classList.add("theme-fade");
+  applyAppearance();
+  clearTimeout(fadeTimer);
+  fadeTimer = setTimeout(() => el.classList.remove("theme-fade"), 300);
+}
+
+// Track the OS while in System mode (fires when the OS theme flips live).
+sysDark?.addEventListener?.("change", () => {
+  if (S.prefs.theme === "system") setAppearance("theme", "system");
+});
+
+// Stamp saved theme/density at import time, so even the login screen (before
+// onLogin runs) honors them instead of flashing dark.
+applyAppearance();
+
 // ---- session / navigation ----
 
 export async function onLogin() {
   S.identity = await api.identity();
   S.displayName = S.identity.displayName || "";
-  applyAccent(S.identity.color);
+  applyAppearance(); // profile color, unless an accent preset overrides it
   await refreshGuilds();
   S.ready = true;
   initEvents();

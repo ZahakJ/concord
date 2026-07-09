@@ -12,10 +12,13 @@
   --text-muted: #969aa3;
   --text-faint: #6b6f78;
 
-  /* Concord teal — the brand accent. A member's profile color overrides
-     --accent at runtime (applyAccent), so treat it as a default, not a law. */
+  /* Concord teal — the brand accent. A member's profile color (or an accent
+     preset from Appearance) overrides --accent at runtime (applyAccent), so
+     treat it as a default, not a law. --accent-hover is derived so it tracks
+     whatever accent is active: lighter in dark mode, darker in light mode
+     (where it doubles as link/name text and needs the contrast). */
   --accent: #14a394;
-  --accent-hover: #2cc0b0;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
 
   --danger: #e0555b;
@@ -29,6 +32,13 @@
   --radius-lg: 14px;
   --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);
 
+  /* Message density (Appearance setting). Compact overrides these to tighten
+     the feed; components read the vars so the whole rhythm shifts together. */
+  --msg-pad-y: 2px;
+  --msg-gap: 12px;
+  --msg-group-pull: -10px;
+  --feed-pad: 16px;
+
   /* Legacy aliases (pre-token components reference these). */
   --bg: var(--bg-2);
   --bg-elevated: var(--bg-3);
@@ -39,6 +49,56 @@
 
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   color-scheme: dark;
+}
+
+/* Light theme (Appearance → Theme). Same depth scale, inverted: bg-2 is the
+   page, bg-0 the deepest chrome (guild rail), and bg-3 — hover/input fill —
+   stays DARKER than the page so existing hover styles read in both themes.
+   Popovers/dialogs get their own near-white elevation instead of bg-3. */
+:root[data-theme="light"] {
+  --bg-0: #d9dce1;
+  --bg-1: #e9ebee;
+  --bg-2: #f6f7f9;
+  --bg-3: #e2e4e9;
+
+  --border: #c6cad2;
+  --text: #1c1e22;
+  --text-muted: #59606c;
+  --text-faint: #868c98;
+
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, black);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --danger: #c93a41;
+  --ok: #2e8b4d;
+  --warn: #a3701a;
+
+  --shadow-pop: 0 8px 24px rgba(20, 24, 32, 0.16);
+  --bg-elevated: #fdfdfe;
+
+  color-scheme: light;
+}
+
+/* Compact density: tighter feed rhythm for information density. */
+:root[data-density="compact"] {
+  --msg-pad-y: 1px;
+  --msg-gap: 5px;
+  --msg-group-pull: -4px;
+  --feed-pad: 12px;
+}
+
+/* Momentary cross-fade while the theme/accent swaps — setAppearance() adds
+   .theme-fade around the change and removes it right after. Kept out of the
+   steady state so scrolling/hover never pays for it; the reduced-motion
+   override below (later in the cascade) zeroes it for those users. */
+.theme-fade,
+.theme-fade *,
+.theme-fade *::before,
+.theme-fade *::after {
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease !important;
 }
 
 * {

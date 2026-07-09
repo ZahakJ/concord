@@ -303,10 +303,11 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    padding: 16px;
+    /* Spacing tracks the density vars (Appearance: Cozy/Compact) in app.css. */
+    padding: var(--feed-pad, 16px);
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--msg-gap, 12px);
     position: relative;
   }
   .empty {

@@ -85,6 +85,17 @@
     <span class="muted chev-r">›</span>
   </button>
 
+  <!-- Appearance: theme / accent / density (device-local, applies live). The
+       chip previews the current accent against the current theme's chrome. -->
+  <button class="profile-row" onclick={() => (S.modal = { kind: "appearance" })}>
+    <span class="appearance-chip" aria-hidden="true"></span>
+    <span class="profile-text">
+      <strong>Appearance</strong>
+      <span class="muted tiny">Theme, accent color &amp; message density</span>
+    </span>
+    <span class="muted chev-r">›</span>
+  </button>
+
   <hr />
   <p class="muted">
     <strong>Rendezvous server</strong> — the address of the tiny relay that lets
@@ -281,6 +292,14 @@
   .chev-r {
     font-size: 20px;
     line-height: 1;
+  }
+  .appearance-chip {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: linear-gradient(135deg, var(--accent) 0% 50%, var(--bg-0) 50% 100%);
   }
   .toggle-row {
     display: flex;

@@ -159,7 +159,8 @@
     height: 100%;
     display: grid;
     place-items: center;
-    background: radial-gradient(circle at 50% 30%, #26282d, var(--bg));
+    /* Subtle vignette in either theme: bg-3 is a step off the page both ways. */
+    background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--bg-3) 70%, var(--bg)), var(--bg));
   }
   .card {
     width: 340px;

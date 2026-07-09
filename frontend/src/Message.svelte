@@ -372,18 +372,20 @@
 </div>
 
 <style>
+  /* Row rhythm comes from the density vars in app.css (Appearance setting):
+     cozy is today's spacing, compact tightens padding + group pull together. */
   .msg {
     display: flex;
     gap: 12px;
     position: relative;
-    padding: 2px 0;
+    padding: var(--msg-pad-y, 2px) 0;
     border-radius: var(--radius-sm);
   }
   .msg:hover {
     background: color-mix(in srgb, var(--bg-3) 40%, transparent);
   }
   .msg.compact {
-    margin-top: -10px;
+    margin-top: var(--msg-group-pull, -10px);
   }
   .gutter-time {
     width: 38px;

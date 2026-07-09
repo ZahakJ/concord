@@ -14,7 +14,7 @@
     onLogin,
     refreshGuilds,
     refreshRightPanel,
-    applyAccent,
+    applyAppearance,
     flash,
     setVideoStream,
     clearVideoStreams,
@@ -53,6 +53,7 @@
   import ModalInvite from "./modals/ModalInvite.svelte";
   import ModalProfile from "./modals/ModalProfile.svelte";
   import ModalSettings from "./modals/ModalSettings.svelte";
+  import ModalAppearance from "./modals/ModalAppearance.svelte";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
 
   let composer = $state(null);
@@ -262,7 +263,7 @@
     await api.setProfile(p.name, p.status, p.emoji, p.color, p.avatar || "", p.banner || "", p.presence || "", p.bio || "");
     S.identity = await api.identity();
     S.displayName = S.identity.displayName || "";
-    applyAccent(S.identity.color);
+    applyAppearance(); // new profile color, unless an accent preset overrides it
     await refreshRightPanel();
     S.modal = null;
     flash("Profile updated");
@@ -428,6 +429,8 @@
     <ModalProfile identity={S.identity} onSubmit={saveProfile} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "settings"}
     <ModalSettings onClose={() => (S.modal = null)} onSaved={() => flash("Rendezvous saved")} />
+  {:else if S.modal?.kind === "appearance"}
+    <ModalAppearance onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "join"}
     <ModalJoin error={S.modal.error} onSubmit={joinGuild} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "invite"}
