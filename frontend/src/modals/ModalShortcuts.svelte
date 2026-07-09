@@ -6,7 +6,7 @@
     {
       name: "Navigation",
       keys: [
-        [["Ctrl/⌘", "K"], "Quick switcher (jump to channel / DM / guild)"],
+        [["Ctrl/⌘", "K"], "Command palette (jump anywhere, run actions)"],
         [["Alt", "↑/↓"], "Previous / next channel"],
         [["Alt", "Shift", "↑/↓"], "Previous / next unread channel"],
       ],

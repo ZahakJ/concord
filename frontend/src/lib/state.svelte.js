@@ -27,6 +27,9 @@ export const S = $state({
   modal: null, // { kind, ... }
   toasts: [], // [{ id, kind, text }] — kind: "info" | "success" | "error"
   quickSwitcher: false,
+  // Raised by the command palette's "Set status" action; ChannelList consumes
+  // it and opens the status popover anchored to the self row.
+  statusPopRequest: false,
 
   // unread[channelId] = { count, mentions } — counts survive refresh via the
   // localStorage last-read map (recomputed on load).

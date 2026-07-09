@@ -136,6 +136,7 @@
   // the trigger's rect at open so the popover can position itself fixed (the
   // column clips overflow, so it can't be absolutely positioned in here).
   let statusPop = $state(null);
+  let statusTrigger = $state(null);
   function toggleStatusPop(e) {
     if (statusPop) {
       statusPop = null;
@@ -144,6 +145,15 @@
     const r = e.currentTarget.getBoundingClientRect();
     statusPop = { x: r.x, y: r.y, w: r.width, h: r.height };
   }
+  // The command palette's "Set status" action can't reach this local popover
+  // state, so it raises S.statusPopRequest; consume it and open at the self row.
+  $effect(() => {
+    if (S.statusPopRequest && statusTrigger) {
+      S.statusPopRequest = false;
+      const r = statusTrigger.getBoundingClientRect();
+      statusPop = { x: r.x, y: r.y, w: r.width, h: r.height };
+    }
+  });
   const myStatus = $derived(splitStatus(S.identity.status));
 
   // One entry point for starting conversations: pick one person (→ a 1:1 DM)
@@ -438,6 +448,7 @@
 
   <div class="me-row">
     <button
+      bind:this={statusTrigger}
       class="me-status-trigger"
       title="Set status"
       aria-label="Set status"
