@@ -31,13 +31,33 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
+  import { recentEmoji, pushRecentEmoji } from "./lib/emoji.js";
 
   let { m, compact = false, replyRef = null } = $props();
 
   // Moderators (Manage Messages) can delete anyone's message.
   const canDeleteOthers = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
 
-  const QUICK_EMOJIS = ["👍", "❤️", "😂", "🎉"];
+  // Quick-reaction bar: the viewer's recently-used emoji padded with a
+  // default set, capped at 5. Computed once per row (fresh rows pick up new
+  // recents; recents only ever hold unicode chars).
+  const DEFAULT_QUICK = ["👍", "❤️", "😂", "🎉", "🔥"];
+  const quickEmojis = [...new Set([...recentEmoji(), ...DEFAULT_QUICK])].slice(0, 5);
+
+  // The emoji the user just tapped bounces briefly (quick bar + pills share
+  // this, keyed by emoji char).
+  let bounced = $state(null);
+  let bounceTimer;
+  function reactWithBounce(emoji) {
+    clearTimeout(bounceTimer);
+    bounced = null; // restart the CSS animation on rapid re-clicks
+    requestAnimationFrame(() => {
+      bounced = emoji;
+      bounceTimer = setTimeout(() => (bounced = null), 500);
+    });
+    if (!emoji.startsWith(":")) pushRecentEmoji(emoji); // unicode only (custom emoji are guild-scoped)
+    react(m, emoji);
+  }
 
   const mem = $derived(memberByFpr(m.sender));
   const cemoji = $derived(customEmojiMap());
@@ -278,10 +298,13 @@
             <button
               class="reaction"
               class:mine={fprs.includes(S.identity.fingerprint)}
-              onclick={() => react(m, emoji)}
+              onclick={() => reactWithBounce(emoji)}
             >
-              {#if cimg}<img class="cemoji" src={cimg} alt={emoji} />{:else}{emoji}{/if}
-              {fprs.length}
+              <span class="remoji" class:bounce={bounced === emoji}>
+                {#if cimg}<img class="cemoji" src={cimg} alt={emoji} />{:else}{emoji}{/if}
+              </span>
+              <!-- keyed so the count re-mounts (and animates) when it changes -->
+              {#key fprs.length}<span class="rcount">{fprs.length}</span>{/key}
             </button>
             <!-- who reacted, on hover -->
             <span class="react-who">
@@ -303,11 +326,12 @@
   {#if !m.deleted && S.editing?.id !== m.id}
     <div class="msg-actions" role="toolbar" aria-label="Message actions">
       <div class="grp">
-        {#each QUICK_EMOJIS as e (e)}
-          <button class="emoji-btn" title="React {e}" aria-label="React {e}" onclick={() => react(m, e)}>{e}</button>
+        {#each quickEmojis as e (e)}
+          <button class="emoji-btn" class:bounce={bounced === e} title="React {e}" aria-label="React {e}" onclick={() => reactWithBounce(e)}>{e}</button>
         {/each}
-        <button title="More reactions" aria-label="More reactions" onclick={() => (S.pickerTarget = m)}>
+        <button class="add-react" title="More reactions" aria-label="More reactions" onclick={() => (S.pickerTarget = m)}>
           <Icon name="smile" size={15} />
+          <span class="plus" aria-hidden="true">+</span>
         </button>
       </div>
       <span class="sep"></span>
@@ -481,16 +505,81 @@
     margin-top: 4px;
   }
   .reaction {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     background: var(--bg-3);
     border: 1px solid var(--border);
     color: var(--text);
     padding: 1px 8px;
     font-size: 12px;
     border-radius: 10px;
+    /* springy pop when a new pill appears (overshoot bezier) */
+    animation: pill-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition:
+      transform 0.1s ease,
+      border-color 0.12s ease,
+      background 0.12s ease,
+      box-shadow 0.12s ease;
+  }
+  .reaction:hover {
+    transform: translateY(-1px);
+    border-color: var(--text-faint);
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+  }
+  .reaction:active {
+    transform: scale(0.93);
   }
   .reaction.mine {
     border-color: var(--accent);
     background: var(--accent-soft);
+    box-shadow: 0 0 0 1px var(--accent); /* accent ring: you reacted */
+  }
+  .reaction.mine:hover {
+    border-color: var(--accent);
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 2px 6px rgb(0 0 0 / 0.18);
+  }
+  .reaction.mine .rcount {
+    color: var(--accent-hover);
+    font-weight: 600;
+  }
+  .remoji {
+    display: inline-flex;
+    line-height: 1;
+  }
+  .rcount {
+    display: inline-block;
+    min-width: 1ch;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    animation: count-in 0.18s ease; /* replays on {#key} re-mount */
+  }
+  /* Click-bounce for the emoji you just tapped (pill glyph + quick bar). */
+  .remoji.bounce,
+  .msg-actions .emoji-btn.bounce {
+    animation: emoji-bounce 0.45s ease;
+  }
+  @keyframes pill-in {
+    from {
+      transform: scale(0.5);
+      opacity: 0;
+    }
+  }
+  @keyframes count-in {
+    from {
+      transform: translateY(-7px);
+      opacity: 0;
+    }
+  }
+  @keyframes emoji-bounce {
+    30% {
+      transform: scale(1.35) rotate(-8deg);
+    }
+    55% {
+      transform: scale(0.92) rotate(6deg);
+    }
   }
   .react-wrap {
     position: relative;
@@ -583,6 +672,18 @@
   .msg-actions .emoji-btn:hover {
     transform: scale(1.18);
     background: transparent;
+  }
+  /* "smiley +" picker opener */
+  .msg-actions .add-react {
+    position: relative;
+  }
+  .msg-actions .add-react .plus {
+    position: absolute;
+    top: 0;
+    right: 2px;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1;
   }
   .msg-actions button.on {
     color: var(--warn);
