@@ -11,6 +11,7 @@
   let hasIdentity = $state(true); // assume until checked, then correct
   let checked = $state(false);
   let confirmingReset = $state(false);
+  let forgot = $state(false); // forgot-passphrase menu (recover vs start over)
   let restoring = $state(false);
   let restorePhrase = $state("");
 
@@ -50,7 +51,11 @@
     busy = true;
     error = "";
     try {
-      await api.restoreFromMnemonic(restorePhrase.trim(), passphrase);
+      // If a (locked) identity is still on this device, this is the
+      // forgot-passphrase recovery — validate the phrase, then replace it under
+      // the new passphrase. Otherwise it's a fresh-device restore.
+      if (hasIdentity) await api.restoreOverExisting(restorePhrase.trim(), passphrase);
+      else await api.restoreFromMnemonic(restorePhrase.trim(), passphrase);
       await api.login(passphrase);
       onLogin();
     } catch (err) {
@@ -160,20 +165,10 @@
         {busy ? "Resetting…" : "Yes, delete and start over"}
       </button>
       <button type="button" class="link" onclick={() => (confirmingReset = false)}>Cancel</button>
-    {:else if hasIdentity}
-      <p class="muted">Welcome back — enter your passphrase to unlock.</p>
-      <input type="password" placeholder="Passphrase" bind:value={passphrase} autofocus />
-      {#if error}<div class="error">{error}</div>{/if}
-      <button type="submit" disabled={!passphrase || busy}>
-        {busy ? "Unlocking…" : "Unlock"}
-      </button>
-      <button type="button" class="link" onclick={() => ((confirmingReset = true), (error = ""))}>
-        Forgot passphrase? Start over
-      </button>
     {:else if restoring}
       <p class="muted">
         Enter your 24-word recovery phrase and a new passphrase for this device.
-        Your identity, servers, and history come back as you sync.
+        Your identity, servers, and history come back as you sync — nothing is lost.
       </p>
       <textarea
         class="phrase-in"
@@ -189,6 +184,30 @@
       </button>
       <button type="button" class="link" onclick={() => ((restoring = false), (error = ""))}>
         Back
+      </button>
+    {:else if forgot}
+      <p class="muted">
+        Your passphrase can't be looked up — it's never stored anywhere. But if you saved your
+        <strong>24-word recovery phrase</strong>, you can get your account back with a new
+        passphrase: your identity and servers return and history re-syncs from friends.
+      </p>
+      {#if error}<div class="error">{error}</div>{/if}
+      <button type="button" onclick={() => ((restoring = true), (forgot = false), (error = ""))}>
+        I have my recovery phrase
+      </button>
+      <button type="button" class="link warn-link" onclick={() => ((confirmingReset = true), (forgot = false), (error = ""))}>
+        I don't have it — start over (deletes everything)
+      </button>
+      <button type="button" class="link" onclick={() => (forgot = false)}>Back</button>
+    {:else if hasIdentity}
+      <p class="muted">Welcome back — enter your passphrase to unlock.</p>
+      <input type="password" placeholder="Passphrase" bind:value={passphrase} autofocus />
+      {#if error}<div class="error">{error}</div>{/if}
+      <button type="submit" disabled={!passphrase || busy}>
+        {busy ? "Unlocking…" : "Unlock"}
+      </button>
+      <button type="button" class="link" onclick={() => ((forgot = true), (error = ""))}>
+        Forgot passphrase?
       </button>
     {:else}
       <p class="muted">
@@ -345,6 +364,9 @@
   .link:hover {
     color: var(--text);
     text-decoration: underline;
+  }
+  .warn-link:hover {
+    color: var(--danger);
   }
   .danger-btn {
     background: var(--danger);

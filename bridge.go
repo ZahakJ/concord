@@ -260,6 +260,37 @@ func (b *bridge) RestoreFromMnemonic(phrase, passphrase string) error {
 	return appsvc.RestoreIdentity(dir, phrase, passphrase)
 }
 
+// RestoreOverExisting is the forgot-passphrase recovery path: a (locked,
+// inaccessible) identity already exists on this device, and the user is
+// recovering the SAME account from its recovery phrase under a new passphrase.
+// The phrase is validated FIRST — a typo can never destroy data — and only then
+// is the old local keystore/data replaced. Account, guilds, and history re-sync
+// from peers on the next login.
+func (b *bridge) RestoreOverExisting(phrase, passphrase string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.svc != nil {
+		return errors.New("already unlocked; restart the app to restore")
+	}
+	if strings.TrimSpace(passphrase) == "" {
+		return errors.New("choose a new passphrase to protect the restored identity")
+	}
+	// Validate the recovery phrase before touching anything on disk.
+	if _, err := identity.SeedFromMnemonic(phrase); err != nil {
+		return errors.New("that doesn't look like a valid 24-word recovery phrase — check the words and their order")
+	}
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return err
+	}
+	if appsvc.HasIdentity(dir) {
+		if err := appsvc.ResetIdentity(dir); err != nil {
+			return err
+		}
+	}
+	return appsvc.RestoreIdentity(dir, phrase, passphrase)
+}
+
 // ResetIdentity deletes the identity and all data tied to it so a new identity
 // can be created (forgotten passphrase / corrupted keystore). Only allowed
 // while locked.
@@ -1225,6 +1256,8 @@ func (b *bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.RevealMnemonic()
 	case "RestoreFromMnemonic":
 		return nil, b.RestoreFromMnemonic(argStr(args, 0), argStr(args, 1))
+	case "RestoreOverExisting":
+		return nil, b.RestoreOverExisting(argStr(args, 0), argStr(args, 1))
 	case "Login":
 		return nil, b.Login(argStr(args, 0))
 	case "Identity":

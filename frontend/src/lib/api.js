@@ -42,6 +42,7 @@ export const api = {
   resetIdentity: () => call("ResetIdentity"),
   revealMnemonic: () => call("RevealMnemonic"),
   restoreFromMnemonic: (phrase, passphrase) => call("RestoreFromMnemonic", phrase, passphrase),
+  restoreOverExisting: (phrase, passphrase) => call("RestoreOverExisting", phrase, passphrase),
   login: (passphrase) => call("Login", passphrase),
   identity: () => call("Identity"),
   guilds: () => call("Guilds"),
