@@ -305,8 +305,13 @@
       <Icon name="chevron" size={13} />
     </button>
   {:else}
-    <header class="guild-name">
+    <header class="guild-name" class:dm-head={g?.kind === "dm"}>
       <strong>{g?.kind === "dm" ? "Direct messages" : "Concord"}</strong>
+      {#if g?.kind === "dm"}
+        <button class="cat-add always" title="New message" aria-label="New message" onclick={newMessage}>
+          <Icon name="plus" size={13} />
+        </button>
+      {/if}
     </header>
   {/if}
 
@@ -315,12 +320,6 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="scroll" ondragleave={listDragLeave}>
     {#if g?.kind === "dm"}
-      <div class="section-head">
-        <span>Direct messages</span>
-        <button class="cat-add always" title="New message" aria-label="New message" onclick={newMessage}>
-          <Icon name="plus" size={12} />
-        </button>
-      </div>
       {#each dms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}
         {@const unread = dm.dmNotes ? { count: 0 } : guildUnread(dm)}
@@ -605,6 +604,15 @@
     overflow: hidden;
     text-overflow: ellipsis;
     font-size: 15px;
+  }
+  /* DM column title carries the "New message" + on the right (no separate
+     "Direct messages" section header below — that was a duplicate label). */
+  .guild-name.dm-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    overflow: visible;
   }
   .guild-header {
     display: flex;

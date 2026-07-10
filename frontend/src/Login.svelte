@@ -235,13 +235,16 @@
     text-align: center;
   }
   .logo {
-    color: var(--accent);
+    /* Neutral, theme-agnostic badge — the login is pre-accent, so it doesn't
+       try to match the user's in-app accent (which it can't know yet). */
+    color: var(--text);
     display: grid;
     place-items: center;
     width: 72px;
     height: 72px;
     border-radius: 50%;
-    background: var(--accent-soft);
+    background: var(--bg-3);
+    border: 1px solid var(--border);
     animation: takeoff 0.6s ease both;
   }
   @keyframes takeoff {
@@ -324,7 +327,7 @@
   }
   .ghost-sm:hover:not(:disabled) {
     color: var(--text);
-    border-color: var(--accent);
+    border-color: var(--text-muted);
   }
   .ghost-sm:disabled {
     opacity: 0.45;
