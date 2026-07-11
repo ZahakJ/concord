@@ -104,6 +104,10 @@ export const S = $state({
 
   // contextMenu: right-click menu {x, y, items} or null.
   contextMenu: null,
+
+  // pendingLinkCode: a device-link code that arrived via a concord:// deep
+  // link (OS camera scanned the QR). The Login screen consumes it.
+  pendingLinkCode: "",
 });
 
 export const activeGuild = () => S.guilds.find((g) => g.id === S.activeGuildId) || null;
@@ -601,7 +605,10 @@ export async function nudge() {
 export async function refreshGuilds() {
   S.guilds = (await api.guilds()) || [];
   if (!S.activeGuildId && S.guilds.length) {
-    await selectGuild(S.guilds[0].id);
+    // Land on the top server in the rail, not Notes/DMs (those sort first in
+    // the raw list because they're usually the oldest guilds).
+    const first = S.guilds.find((g) => g.kind !== "dm") || S.guilds[0];
+    await selectGuild(first.id);
     return;
   }
   // If the active channel was deleted remotely (guild-updated -> refresh), don't

@@ -5,6 +5,7 @@
   import { onMount, onDestroy } from "svelte";
   import QRCode from "qrcode";
   import { api } from "../lib/api.js";
+  import { linkURLFor } from "../lib/deeplink.js";
   import { flash } from "../lib/state.svelte.js";
   import Modal from "./Modal.svelte";
 
@@ -18,7 +19,10 @@
   onMount(async () => {
     try {
       code = await api.linkOffer();
-      qr = await QRCode.toDataURL(code, { margin: 1, width: 320, errorCorrectionLevel: "L" });
+      // The QR carries the concord:// deep-link form, so a plain OS-camera
+      // scan opens the Concord app with the code already filled in. The
+      // in-app scanner and the paste box accept both forms.
+      qr = await QRCode.toDataURL(linkURLFor(code), { margin: 1, width: 320, errorCorrectionLevel: "L" });
     } catch (e) {
       error = String(e?.message || e);
     }

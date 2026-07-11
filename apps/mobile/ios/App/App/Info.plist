@@ -62,5 +62,18 @@
 	<array>
 		<string>audio</string>
 	</array>
+	<!-- concord:// deep links: the device-linking QR encodes
+	     concord://link?c=<code> so the iOS camera opens the app with the code. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>app.concord.mobile</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>concord</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

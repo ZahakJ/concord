@@ -41,7 +41,11 @@
     {glyph}
   {/if}
   {#if dotColor}
-    <span class="dot" style="background:{dotColor}"></span>
+    <span
+      class="dot"
+      class:live={online && (!presence || presence === "online")}
+      style="background:{dotColor}"
+    ></span>
   {/if}
 </span>
 
@@ -72,5 +76,23 @@
     height: 9px;
     border-radius: 50%;
     border: 2px solid var(--bg-1);
+  }
+  /* Online friends breathe: a slow soft glow on the green dot. */
+  .dot.live {
+    animation: dot-breathe 3.2s ease-in-out infinite;
+  }
+  @keyframes dot-breathe {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 6px 1.5px color-mix(in srgb, var(--ok) 45%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot.live {
+      animation: none;
+    }
   }
 </style>

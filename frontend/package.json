@@ -20,6 +20,7 @@
     "vite": "^6.0.7"
   },
   "dependencies": {
+    "jsqr": "^1.4.0",
     "qrcode": "^1.5.4"
   }
 }

@@ -280,6 +280,33 @@
       opacity: 0;
     }
   }
+  /* Mentions demand attention: after the pop, a slow heartbeat. */
+  .badge.mention {
+    animation:
+      badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+      badge-beat 2.6s ease-in-out 0.4s infinite;
+  }
+  @keyframes badge-beat {
+    0%,
+    72%,
+    100% {
+      transform: scale(1);
+    }
+    80% {
+      transform: scale(1.18);
+    }
+    88% {
+      transform: scale(1);
+    }
+    94% {
+      transform: scale(1.12);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .badge.mention {
+      animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+  }
   /* Touch: bubbles grow to a comfortable 48px tap target. */
   @media (pointer: coarse), (max-width: 700px) {
     .rail {

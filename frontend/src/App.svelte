@@ -28,6 +28,7 @@
   } from "./lib/state.svelte.js";
 
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
+  import { initDeepLinks } from "./lib/deeplink.js";
   import Icon from "./Icon.svelte";
   import Login from "./Login.svelte";
   import MobileShell from "./MobileShell.svelte";
@@ -118,6 +119,7 @@
   onMount(async () => {
     // Skip the self-update check on mobile — the app stores own updates there.
     if (!window.Capacitor) checkForUpdate(); // fire-and-forget; works on the login screen too
+    initDeepLinks(); // concord:// links (QR scanned with the OS camera)
     try {
       if (await api.session()) await start();
     } catch {
@@ -125,7 +127,18 @@
     }
   });
 
-  async function start() {
+  // Concorde fly-in: a short takeoff moment between unlocking and the app.
+  // Only on a real login (not session-restore refreshes), and never under
+  // prefers-reduced-motion.
+  let flyIn = $state(false);
+  function playFlyIn() {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    flyIn = true;
+    setTimeout(() => (flyIn = false), 1500);
+  }
+
+  async function start(fromLogin = false) {
+    if (fromLogin) playFlyIn();
     await onLogin();
     requestPermission();
     installShortcuts();
@@ -410,7 +423,7 @@
 {/if}
 
 {#if !S.ready}
-  <Login onLogin={start} />
+  <Login onLogin={() => start(true)} />
 {:else if S.isMobile}
   <MobileShell
     bind:composer
@@ -494,6 +507,18 @@
   {/if}
 
   <Toasts />
+
+  <!-- Concorde fly-in: the jet crosses the screen trailing a contrail while
+       the overlay fades out to reveal the app. Pure theater, 1.5s, once per
+       unlock. pointer-events:none the whole time — never blocks input. -->
+  {#if flyIn}
+    <div class="flyin" aria-hidden="true">
+      <div class="flyin-jet">
+        <span class="contrail"></span>
+        <Icon name="concorde" size={54} />
+      </div>
+    </div>
+  {/if}
 
   <!-- App lock: fully opaque (privacy in the app switcher), above everything. -->
   {#if appLocked}
@@ -590,6 +615,61 @@
 {/if}
 
 <style>
+  /* Concorde fly-in: overlay fades from the login backdrop to nothing while
+     the jet sweeps lower-left → upper-right. Under the app lock (privacy
+     wins), above everything else. */
+  .flyin {
+    position: fixed;
+    inset: 0;
+    z-index: 490;
+    pointer-events: none;
+    background:
+      radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 55%),
+      radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--bg-3) 70%, var(--bg)), var(--bg));
+    animation: flyin-fade 1.5s ease forwards;
+    overflow: hidden;
+  }
+  .flyin-jet {
+    position: absolute;
+    top: 58%;
+    left: -80px;
+    color: var(--text);
+    filter: drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 55%, transparent));
+    animation: flyin-jet 1.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  }
+  .contrail {
+    position: absolute;
+    top: 50%;
+    right: 46px;
+    width: 46vw;
+    height: 2.5px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 75%, white));
+    opacity: 0.8;
+  }
+  @keyframes flyin-jet {
+    0% {
+      transform: translate(0, 0) rotate(-14deg) scale(0.8);
+      opacity: 0;
+    }
+    18% {
+      opacity: 1;
+    }
+    100% {
+      transform: translate(calc(100vw + 220px), calc(-0.28 * 100vh)) rotate(-14deg) scale(1.12);
+      opacity: 1;
+    }
+  }
+  @keyframes flyin-fade {
+    0%,
+    45% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
   /* App lock overlay: opaque so chat content is never visible behind it. */
   .lock-gate {
     position: fixed;

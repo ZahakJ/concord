@@ -22,6 +22,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- concord:// deep links — the device-linking QR encodes
+                 concord://link?c=<code>, so scanning it with the system camera
+                 opens the app with the code (handled via @capacitor/app's
+                 appUrlOpen in frontend/src/lib/deeplink.js). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="concord" />
+            </intent-filter>
         </activity>
 
         <!-- Keeps the P2P node alive in the background so messages arrive. -->

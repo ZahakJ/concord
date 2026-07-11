@@ -1,8 +1,11 @@
 <script>
   import { onMount } from "svelte";
   import { api } from "./lib/api.js";
+  import { S } from "./lib/state.svelte.js";
+  import { linkCodeFrom } from "./lib/deeplink.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import Icon from "./Icon.svelte";
+  import QRScanner from "./QRScanner.svelte";
 
   let { onLogin } = $props();
   let passphrase = $state("");
@@ -64,11 +67,42 @@
   let restorePhrase = $state("");
   let linking = $state(false); // "link this device to an existing account" flow
   let linkCode = $state("");
+  let scanning = $state(false); // in-app QR scanner overlay
+  // Scan is offered where a camera makes sense: touch devices with getUserMedia.
+  const canScan =
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    matchMedia("(pointer: coarse)").matches;
+
+  // A concord://link deep link (OS camera scanned the QR) drops the code here —
+  // jump straight into the linking step with it filled in.
+  $effect(() => {
+    if (S.pendingLinkCode) {
+      linkCode = S.pendingLinkCode;
+      S.pendingLinkCode = "";
+      linking = true;
+      forgot = false;
+      error = "";
+    }
+  });
+
+  function onScanned(text) {
+    scanning = false;
+    const code = linkCodeFrom(text);
+    if (code) {
+      linkCode = code;
+      error = "";
+    } else {
+      error = "That QR code isn't a Concord link code";
+    }
+  }
 
   async function doLink(e) {
     e?.preventDefault();
     if (busy) return;
-    if (!linkCode.trim()) {
+    // Accept the raw code or the concord://link?c=… URL form (scans/pastes).
+    const code = linkCodeFrom(linkCode);
+    if (!code) {
       error = "Paste the code shown on your other device";
       return;
     }
@@ -81,7 +115,7 @@
     try {
       // Dials the other device, adopts the account, logs in linked, and joins
       // your existing servers — then we're in.
-      await api.redeemLinkCode(linkCode.trim(), passphrase);
+      await api.redeemLinkCode(code, passphrase);
       onLogin();
     } catch (err) {
       error = String(err?.message || err).replace(/^.*: /, "");
@@ -261,11 +295,17 @@
       <button type="button" class="link" onclick={() => (confirmingReset = false)}>Cancel</button>
     {:else if linking}
       <p class="muted">
-        On your other device, open <strong>Settings → Link a device</strong> and
-        scan or copy the code, then paste it here with a passphrase for this
-        device (it becomes this device's passphrase, replacing any old one).
-        Both devices need to be online.
+        On your other device, open <strong>Settings → Link a device</strong>.
+        {#if canScan}Scan the QR code, or paste the code{:else}Copy the code and paste it here{/if}
+        with a passphrase for this device (it becomes this device's passphrase,
+        replacing any old one). Both devices need to be online.
       </p>
+      {#if canScan}
+        <button type="button" class="scan-btn" onclick={() => (scanning = true)}>
+          <Icon name="camera" size={17} /> Scan QR code
+        </button>
+        <div class="or"><span>or paste it</span></div>
+      {/if}
       <textarea
         class="phrase-in"
         rows="3"
@@ -368,6 +408,10 @@
     {/if}
   </form>
 </div>
+
+{#if scanning}
+  <QRScanner onScan={onScanned} onClose={() => (scanning = false)} />
+{/if}
 
 <style>
   .login {
@@ -478,6 +522,29 @@
     font-family: ui-monospace, monospace;
     font-size: 13px;
     resize: vertical;
+  }
+  .scan-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  /* "or paste it" divider between the scan CTA and the manual box. */
+  .or {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-faint);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .or::before,
+  .or::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border);
   }
   /* The 24-word grid: numbered, monospace, blurred until revealed so nobody
      shoulder-surfs it before the user is ready. */
