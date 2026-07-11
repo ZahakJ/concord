@@ -323,6 +323,7 @@
     </button>
   {:else if !atBottom}
     <button class="jump-bottom" title="Jump to latest" aria-label="Jump to latest" onclick={scrollSoon}>
+      <span class="jb-label">Jump to latest</span>
       <Icon name="chevron" size={18} />
     </button>
   {/if}
@@ -681,22 +682,46 @@
     position: sticky;
     bottom: 10px;
     align-self: flex-end;
-    width: 42px;
+    min-width: 42px;
     height: 42px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
+    border-radius: 21px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     background: linear-gradient(135deg, var(--accent), var(--accent-hover));
     border: none;
     color: #fff;
     box-shadow: var(--float-shadow);
     z-index: 15;
     padding: 0;
-    animation: float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
-    transition: transform 0.15s ease, filter 0.15s ease;
+    animation:
+      float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1),
+      jump-glow 3.2s ease-in-out 0.8s infinite;
+    transition: transform 0.15s ease, filter 0.15s ease, padding 0.25s ease;
   }
   .jump-bottom :global(svg) {
     transform: rotate(90deg) translateX(1px);
+    flex-shrink: 0;
+  }
+  /* Hover unfolds the circle into a labeled pill (fine pointers only). */
+  .jb-label {
+    max-width: 0;
+    opacity: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 13px;
+    font-weight: 600;
+    transition: max-width 0.25s ease, opacity 0.2s ease, margin 0.25s ease;
+  }
+  @media (pointer: fine) {
+    .jump-bottom:hover {
+      padding: 0 6px 0 14px;
+    }
+    .jump-bottom:hover .jb-label {
+      max-width: 110px;
+      opacity: 1;
+      margin-right: 4px;
+    }
   }
   .jump-bottom:hover {
     background: linear-gradient(135deg, var(--accent), var(--accent-hover));
@@ -706,6 +731,22 @@
   }
   .jump-bottom:active {
     transform: scale(0.92);
+  }
+  @keyframes jump-glow {
+    0%,
+    100% {
+      box-shadow: var(--float-shadow);
+    }
+    50% {
+      box-shadow:
+        var(--float-shadow),
+        0 0 16px color-mix(in srgb, var(--accent) 42%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .jump-bottom {
+      animation: none;
+    }
   }
   @keyframes float-in {
     from {

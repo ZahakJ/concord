@@ -546,12 +546,15 @@ func (s *Service) SelfProfile() Profile {
 	banner, _ := s.store.GetSetting("banner_image")
 	presence, _ := s.store.GetSetting("presence")
 	bio, _ := s.store.GetSetting("bio")
-	// Rich-presence overlay: while something is playing, it stands in for the
-	// manual status; when it clears, the manual status returns.
+	// Rich presence travels as structured Activity alongside the manual status
+	// — it does NOT replace a status the user chose. The 🎵 string only stands
+	// in when there's no manual status (also what pre-activity clients show).
 	s.activityMu.Lock()
 	var act *Activity
 	if s.activity != "" {
-		status = s.activity
+		if status == "" {
+			status = s.activity
+		}
 		act = s.activityInfo
 	}
 	s.activityMu.Unlock()

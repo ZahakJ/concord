@@ -195,6 +195,13 @@
 
   // Custom status split into emoji + text so each part can be styled.
   const statusParts = $derived(mem ? splitStatus(mem.status) : { emoji: "", text: "" });
+  // When the member has no manual status, the backend fills status with the
+  // "Artist — Title" line for old clients — don't render that twice here.
+  const activityLine = $derived.by(() => {
+    const a = mem?.activity;
+    if (!a) return "";
+    return a.artist ? `${a.artist} — ${a.title}` : a.title;
+  });
 
   // Now-playing progress ticks locally: position snapshot + wall time since it
   // was taken, capped at the track length. One 1s interval, only while a card
@@ -334,9 +341,16 @@
         </div>
       {/if}
 
+      {#if (statusParts.emoji || statusParts.text) && !(mem.activity && statusParts.text === activityLine)}
+        <div class="status-box">
+          {#if statusParts.emoji}<span class="status-emoji">{statusParts.emoji}</span>{/if}
+          {#if statusParts.text}<span class="status-text">{statusParts.text}</span>{/if}
+        </div>
+      {/if}
       {#if mem.activity}
         <!-- Rich presence: live now-playing card (progress extrapolated locally
-             from the broadcast position snapshot — no network ticking). -->
+             from the broadcast position snapshot — no network ticking). Shown
+             alongside the manual status, never instead of it. -->
         <div class="activity">
           <div class="act-label">
             <Icon name="speaker" size={12} /> Listening to music
@@ -361,11 +375,6 @@
               {/if}
             </div>
           </div>
-        </div>
-      {:else if statusParts.emoji || statusParts.text}
-        <div class="status-box">
-          {#if statusParts.emoji}<span class="status-emoji">{statusParts.emoji}</span>{/if}
-          {#if statusParts.text}<span class="status-text">{statusParts.text}</span>{/if}
         </div>
       {/if}
 
