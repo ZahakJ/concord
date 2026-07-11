@@ -41,8 +41,8 @@ import (
 
 // maxAttachmentPlain caps a decoded inline image; maxFilePlain caps a generic
 // file attachment (larger, since files aren't rendered inline).
-const maxAttachmentPlain = 5 << 20  // 5 MiB
-const maxFilePlain = 25 << 20       // 25 MiB
+const maxAttachmentPlain = 5 << 20 // 5 MiB
+const maxFilePlain = 25 << 20      // 25 MiB
 const maxFilenameLen = 200
 
 const attachKeysLen = 32 + 24 // secretbox key + nonce

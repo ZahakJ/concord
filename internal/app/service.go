@@ -63,6 +63,7 @@ type Service struct {
 	// use the manual status); richPresenceStop cancels the poller when disabled.
 	activityMu       sync.Mutex
 	activity         string
+	activityInfo     *Activity
 	richPresenceStop context.CancelFunc
 
 	voiceMu    sync.Mutex
@@ -147,6 +148,10 @@ type Profile struct {
 	// MailboxPub is this member's X25519 mailbox key, shared so others can seal
 	// offline envelopes to them (see mailbox.go). Not user-facing.
 	MailboxPub []byte `json:"mbx,omitempty"`
+	// Activity is the structured rich-presence payload (now playing: art,
+	// duration, position snapshot). Ephemeral — never persisted; old clients
+	// ignore it and fall back to the 🎵 status string.
+	Activity *Activity `json:"activity,omitempty"`
 }
 
 // maxAvatarBytes caps the avatar data URI so profile broadcasts stay far below
@@ -544,13 +549,15 @@ func (s *Service) SelfProfile() Profile {
 	// Rich-presence overlay: while something is playing, it stands in for the
 	// manual status; when it clears, the manual status returns.
 	s.activityMu.Lock()
+	var act *Activity
 	if s.activity != "" {
 		status = s.activity
+		act = s.activityInfo
 	}
 	s.activityMu.Unlock()
 	return Profile{
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
-		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:],
+		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:], Activity: act,
 	}
 }
 
@@ -638,6 +645,16 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	if len(p.Banner) > maxProfileBannerBytes || (p.Banner != "" && !strings.HasPrefix(p.Banner, "data:image/")) {
 		p.Banner = "" // reject oversized or non-image banners from peers
 	}
+	if a := p.Activity; a != nil {
+		// Peers only get to broadcast plausible activity: web art URLs (no
+		// file:///javascript: junk that a client might render), bounded sizes.
+		if len(a.Title) > maxActivityBytes || len(a.Artist) > maxActivityBytes {
+			p.Activity = nil
+		} else if a.ArtURL != "" && (len(a.ArtURL) > maxArtURLBytes ||
+			!(strings.HasPrefix(a.ArtURL, "https://") || strings.HasPrefix(a.ArtURL, "http://"))) {
+			a.ArtURL = ""
+		}
+	}
 	// Don't let a partial update wipe fields we already learned. Peers relay each
 	// other's profiles over the sync roster, and a peer that only knows someone
 	// as "unknown" (empty name) would otherwise blank a good name — which the UI
@@ -671,7 +688,17 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 func profilesEqual(a, b Profile) bool {
 	return a.Name == b.Name && a.Status == b.Status && a.Emoji == b.Emoji &&
 		a.Color == b.Color && a.Avatar == b.Avatar && a.Banner == b.Banner &&
-		a.Presence == b.Presence && a.Bio == b.Bio && bytes.Equal(a.MailboxPub, b.MailboxPub)
+		a.Presence == b.Presence && a.Bio == b.Bio && bytes.Equal(a.MailboxPub, b.MailboxPub) &&
+		activityEqual(a.Activity, b.Activity) && activityPosEqual(a.Activity, b.Activity)
+}
+
+// activityPosEqual detects re-announced position snapshots (seeks) so they
+// reach the UI even when the track itself didn't change.
+func activityPosEqual(a, b *Activity) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.PositionMs == b.PositionMs && a.AtMs == b.AtMs
 }
 
 // learnNameHint backfills a display name from a chat message's self-asserted

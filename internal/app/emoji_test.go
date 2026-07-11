@@ -20,15 +20,15 @@ func TestEmojiImageValidationRejectsXSS(t *testing.T) {
 	}
 
 	bad := []string{
-		`data:image/png;base64,x" onerror="alert(1)`,               // attribute breakout → XSS
-		`data:image/png;base64,x"><script>alert(1)</script>`,       // tag breakout
-		`data:image/svg+xml,<svg onload=alert(1)>`,                 // scriptable svg
-		`data:image/png;base64,valid=='"`,                          // trailing quote
-		`javascript:alert(1)`,                                      // script URL
-		`data:image/png;base64,` + "a b",                          // space (not base64)
-		`data:text/html;base64,PHNjcmlwdD4=`,                       // wrong mime
-		`https://evil.example/x.png`,                               // remote URL
-		"",                                                         // empty
+		`data:image/png;base64,x" onerror="alert(1)`,         // attribute breakout → XSS
+		`data:image/png;base64,x"><script>alert(1)</script>`, // tag breakout
+		`data:image/svg+xml,<svg onload=alert(1)>`,           // scriptable svg
+		`data:image/png;base64,valid=='"`,                    // trailing quote
+		`javascript:alert(1)`,                                // script URL
+		`data:image/png;base64,` + "a b",                     // space (not base64)
+		`data:text/html;base64,PHNjcmlwdD4=`,                 // wrong mime
+		`https://evil.example/x.png`,                         // remote URL
+		"",                                                   // empty
 	}
 	for _, b := range bad {
 		if validEmojiImage(b) {

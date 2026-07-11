@@ -161,7 +161,9 @@ func (s *Service) memberHasPerm(guildID, fpr string, need Permission) bool {
 // ---- exported accessors for the bridge ----
 
 // HasPermission reports whether this peer holds a permission bit in the guild.
-func (s *Service) HasPermission(guildID string, perm Permission) bool { return s.hasPerm(guildID, perm) }
+func (s *Service) HasPermission(guildID string, perm Permission) bool {
+	return s.hasPerm(guildID, perm)
+}
 
 // CanManageMembers reports whether this peer may invite/kick/ban in the guild.
 func (s *Service) CanManageMembers(guildID string) bool { return s.canManageMembers(guildID) }

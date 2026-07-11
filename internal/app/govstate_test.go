@@ -142,7 +142,7 @@ func TestRolesOwnerImmune(t *testing.T) {
 	ops := []govOp{
 		upsertRole(owner, 1, "r_mod", "Mod", PermManageMembers|PermManageRoles, 10),
 		assignRole(owner, 2, modFpr, "r_mod", true),
-		banOp(mod, 3, "ban", ownerFpr),        // can't ban the owner
+		banOp(mod, 3, "ban", ownerFpr),              // can't ban the owner
 		assignRole(mod, 4, ownerFpr, "r_mod", true), // can't assign roles to the owner
 	}
 	st := replayGuildOps(owner.PublicKey(), ops)

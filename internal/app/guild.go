@@ -760,6 +760,7 @@ type guildMeta struct {
 	Presence    string             `json:"presence,omitempty"`
 	Bio         string             `json:"bio,omitempty"`
 	MailboxPub  []byte             `json:"mbx,omitempty"`
+	Activity    *Activity          `json:"activity,omitempty"` // structured now-playing (rich presence)
 	CustomEmoji domain.CustomEmoji `json:"customEmoji,omitempty"`
 	GovOp       json.RawMessage    `json:"govOp,omitempty"` // a signed governance op (roles/bans)
 	// guild_profile: icon/banner/description (Name reused from above).
@@ -798,6 +799,7 @@ func (s *Service) announceProfile(guildID string) {
 		Type: "profile", Fingerprint: s.id.Fingerprint(),
 		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
 		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
+		Activity: p.Activity,
 	}
 	payload, _ := json.Marshal(meta)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
@@ -1201,7 +1203,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	case "profile":
 		// First time we see this member: reply with our own profile so the
 		// newcomer learns us too (bounded — only on genuinely new members).
-		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub}) {
+		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity}) {
 			s.announceProfile(guildID)
 		}
 	case "nickname":

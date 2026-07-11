@@ -21,7 +21,7 @@ func TestUnauthorizedCommitRejected(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	owner := startService(t, ctx)  // A: guild owner, the only authorized committer
+	owner := startService(t, ctx)    // A: guild owner, the only authorized committer
 	attacker := startService(t, ctx) // B: a member who will try to kick C
 	victim := startService(t, ctx)   // C: the member B tries to remove
 

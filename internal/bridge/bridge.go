@@ -89,16 +89,17 @@ func (b *Bridge) service() (*appsvc.Service, error) {
 // ---- View types (JSON shapes the frontend consumes) ----
 
 type IdentityInfo struct {
-	PeerID      string `json:"peerId"`
-	Fingerprint string `json:"fingerprint"`
-	DisplayName string `json:"displayName"`
-	Status      string `json:"status"`
-	Emoji       string `json:"emoji"`
-	Color       string `json:"color"`
-	Avatar      string `json:"avatar"`
-	Banner      string `json:"banner"`
-	Presence    string `json:"presence"`
-	Bio         string `json:"bio"`
+	PeerID      string           `json:"peerId"`
+	Fingerprint string           `json:"fingerprint"`
+	DisplayName string           `json:"displayName"`
+	Status      string           `json:"status"`
+	Emoji       string           `json:"emoji"`
+	Color       string           `json:"color"`
+	Avatar      string           `json:"avatar"`
+	Banner      string           `json:"banner"`
+	Presence    string           `json:"presence"`
+	Bio         string           `json:"bio"`
+	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 }
 
 type ChannelView struct {
@@ -177,24 +178,25 @@ type MessageView struct {
 }
 
 type MemberView struct {
-	Fingerprint string   `json:"fingerprint"`
-	Name        string   `json:"name"`     // effective display name (nickname if set, else profile name)
-	Username    string   `json:"username"` // underlying profile name, surfaced when a nickname shadows it
-	Status      string   `json:"status"`
-	Emoji       string   `json:"emoji"`
-	Color       string   `json:"color"`
-	Avatar      string   `json:"avatar"`
-	Banner      string   `json:"banner"`
-	Presence    string   `json:"presence"` // "" | online | idle | dnd | invisible
-	Bio         string   `json:"bio"`
-	IsSelf      bool     `json:"isSelf"`
-	Online      bool     `json:"online"`
-	Verified    bool     `json:"verified"`
-	IsOwner     bool     `json:"isOwner"`    // guild owner (implicit full authority)
-	Perms       uint32   `json:"perms"`      // effective permission bitmask
-	CanManage   bool     `json:"canManage"`  // owner or manage-members holder
-	RoleIDs     []string `json:"roleIds"`    // assigned role IDs (highest-first from Roles())
-	MutedUntil  int64    `json:"mutedUntil"` // unix seconds muted-until (0 = not muted)
+	Fingerprint string           `json:"fingerprint"`
+	Name        string           `json:"name"`     // effective display name (nickname if set, else profile name)
+	Username    string           `json:"username"` // underlying profile name, surfaced when a nickname shadows it
+	Status      string           `json:"status"`
+	Emoji       string           `json:"emoji"`
+	Color       string           `json:"color"`
+	Avatar      string           `json:"avatar"`
+	Banner      string           `json:"banner"`
+	Presence    string           `json:"presence"` // "" | online | idle | dnd | invisible
+	Bio         string           `json:"bio"`
+	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
+	IsSelf      bool             `json:"isSelf"`
+	Online      bool             `json:"online"`
+	Verified    bool             `json:"verified"`
+	IsOwner     bool             `json:"isOwner"`    // guild owner (implicit full authority)
+	Perms       uint32           `json:"perms"`      // effective permission bitmask
+	CanManage   bool             `json:"canManage"`  // owner or manage-members holder
+	RoleIDs     []string         `json:"roleIds"`    // assigned role IDs (highest-first from Roles())
+	MutedUntil  int64            `json:"mutedUntil"` // unix seconds muted-until (0 = not muted)
 }
 
 type ContactView struct {
@@ -579,6 +581,7 @@ func (b *Bridge) Identity() (IdentityInfo, error) {
 		Banner:      p.Banner,
 		Presence:    p.Presence,
 		Bio:         p.Bio,
+		Activity:    p.Activity,
 	}, nil
 }
 
@@ -828,6 +831,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Emoji:       p.Emoji,
 			Color:       p.Color,
 			Avatar:      p.Avatar,
+			Activity:    p.Activity,
 			Banner:      p.Banner,
 			Presence:    p.Presence,
 			Bio:         p.Bio,

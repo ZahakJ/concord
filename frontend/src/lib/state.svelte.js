@@ -753,6 +753,15 @@ export function scheduleRefresh({ guilds = false, panel = false } = {}) {
     _pendingPanel = false;
     if (g) await refreshGuilds();
     if (p) await refreshRightPanel();
+    // Own profile can change server-side without user input (rich-presence
+    // overlay) — keep S.identity live so your own card/status match reality.
+    if (p && S.ready) {
+      try {
+        S.identity = await api.identity();
+      } catch {
+        /* locked or transport down */
+      }
+    }
   }, 120);
 }
 

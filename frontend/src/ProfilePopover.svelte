@@ -196,6 +196,29 @@
   // Custom status split into emoji + text so each part can be styled.
   const statusParts = $derived(mem ? splitStatus(mem.status) : { emoji: "", text: "" });
 
+  // Now-playing progress ticks locally: position snapshot + wall time since it
+  // was taken, capped at the track length. One 1s interval, only while a card
+  // with a duration is actually showing.
+  let nowMs = $state(Date.now());
+  $effect(() => {
+    if (!mem?.activity?.durationMs) return;
+    const id = setInterval(() => (nowMs = Date.now()), 1000);
+    return () => clearInterval(id);
+  });
+  const actPosMs = $derived.by(() => {
+    const a = mem?.activity;
+    if (!a) return 0;
+    const pos = (a.positionMs || 0) + (a.atMs ? nowMs - a.atMs : 0);
+    return Math.max(0, a.durationMs ? Math.min(pos, a.durationMs) : pos);
+  });
+  const actPct = $derived(mem?.activity?.durationMs ? (actPosMs / mem.activity.durationMs) * 100 : 0);
+
+  function fmtTime(ms) {
+    const s = Math.floor(ms / 1000);
+    const m = Math.floor(s / 60);
+    return `${m}:${String(s % 60).padStart(2, "0")}`;
+  }
+
   // The member's roles as read-only pills (managers get the toggle UI instead,
   // which already shows membership state).
   const memberRoles = $derived(mem ? S.roles.filter((r) => mem.roleIds?.includes(r.id)) : []);
@@ -311,7 +334,35 @@
         </div>
       {/if}
 
-      {#if statusParts.emoji || statusParts.text}
+      {#if mem.activity}
+        <!-- Rich presence: live now-playing card (progress extrapolated locally
+             from the broadcast position snapshot — no network ticking). -->
+        <div class="activity">
+          <div class="act-label">
+            <Icon name="speaker" size={12} /> Listening to music
+          </div>
+          <div class="act-row">
+            {#if mem.activity.artUrl && S.prefs.linkPreviews}
+              <img class="act-art" src={mem.activity.artUrl} alt="" />
+            {:else}
+              <span class="act-art ph" title={mem.activity.artUrl ? "Enable link previews to load album art" : ""}>🎵</span>
+            {/if}
+            <div class="act-meta">
+              <div class="act-title" title={mem.activity.title}>{mem.activity.title}</div>
+              {#if mem.activity.artist}<div class="act-artist">{mem.activity.artist}</div>{/if}
+              {#if mem.activity.durationMs > 0}
+                <div class="act-progress">
+                  <div class="act-bar" style="width:{actPct}%"></div>
+                </div>
+                <div class="act-times">
+                  <span>{fmtTime(actPosMs)}</span>
+                  <span>{fmtTime(mem.activity.durationMs)}</span>
+                </div>
+              {/if}
+            </div>
+          </div>
+        </div>
+      {:else if statusParts.emoji || statusParts.text}
         <div class="status-box">
           {#if statusParts.emoji}<span class="status-emoji">{statusParts.emoji}</span>{/if}
           {#if statusParts.text}<span class="status-text">{statusParts.text}</span>{/if}
@@ -595,6 +646,84 @@
     padding: 7px 10px;
     background: var(--bg-0);
     border-radius: var(--radius-sm);
+  }
+  /* Now-playing card: art + track + a live progress bar. */
+  .activity {
+    margin-top: 4px;
+    padding: 9px 10px 8px;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--bg-0)), var(--bg-0) 70%);
+    border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+    border-radius: var(--radius-sm);
+  }
+  .act-label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    margin-bottom: 7px;
+  }
+  .act-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  .act-art {
+    width: 52px;
+    height: 52px;
+    border-radius: 8px;
+    object-fit: cover;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
+  }
+  .act-art.ph {
+    display: grid;
+    place-items: center;
+    font-size: 22px;
+    background: var(--bg-3);
+  }
+  .act-meta {
+    flex: 1;
+    min-width: 0;
+  }
+  .act-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .act-artist {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .act-progress {
+    margin-top: 6px;
+    height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--text-faint) 30%, transparent);
+    overflow: hidden;
+  }
+  .act-bar {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent);
+    transition: width 1s linear;
+  }
+  .act-times {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10.5px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+    margin-top: 3px;
   }
   .status-emoji {
     font-size: 16px;
