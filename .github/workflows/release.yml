@@ -40,7 +40,7 @@ jobs:
         with: { go-version-file: go.mod }
       - uses: actions/setup-node@v4
         with: { node-version: "20" }
-      # Stamp the git tag into the binary (main.version) for the update check.
+      # Stamp the git tag into the binary (internal/version.Version) for the update check.
       - run: make release VERSION=${{ github.ref_name }}
       - uses: actions/upload-artifact@v4
         with:
@@ -97,11 +97,11 @@ jobs:
           $v = "${{ github.ref_name }}" -replace '^v',''
           (Get-Content wails.json -Raw) -replace '"productVersion": "[^"]*"', ('"productVersion": "' + $v + '"') | Set-Content wails.json
           Write-Host "productVersion -> $v"
-      # -ldflags stamps main.version (the tag) into the binary for the update
+      # -ldflags stamps internal/version.Version (the tag) into the binary for the update
       # check. Wails still adds -w -s in production; that's fine — the version
       # string survives stripping.
       - name: Build native app
-        run: wails build -tags "wails webkit2_41" -skipbindings -ldflags "-X main.version=${{ github.ref_name }}"
+        run: wails build -tags "wails webkit2_41" -skipbindings -ldflags "-X github.com/zahak/concord/internal/version.Version=${{ github.ref_name }}"
 
       # Name each output per-OS so it's a direct download and doesn't collide
       # with the web track (which also emits a concord-windows.exe). Windows and
@@ -136,6 +136,78 @@ jobs:
           # concord-desktop-macos.zip depending on the OS.
           path: ${{ matrix.out }}*
 
+  # Android app bundle (.aab) via gomobile + Gradle. Builds the shared Go core
+  # into an .aar, then the Capacitor project into a release bundle. Signs it when
+  # an upload keystore secret is present; otherwise emits the unsigned bundle so
+  # the build still validates on every tag. Play upload stays manual for now.
+  mobile-android:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "21" }
+      - uses: android-actions/setup-android@v3
+      - name: Install NDK + gomobile
+        run: |
+          sdkmanager "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Decode signing keystore
+        if: env.ANDROID_KEYSTORE_B64 != ''
+        run: echo "$ANDROID_KEYSTORE_B64" | base64 -d > apps/mobile/android/upload.keystore
+      # Reuses the Makefile target (frontend -> android-core -> cap sync -> gradle),
+      # so local and CI builds stay identical. VERSION stamps the Go core.
+      - name: Build app bundle
+        run: make android-app VERSION=${{ github.ref_name }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: concord-android
+          path: apps/mobile/android/app/build/outputs/bundle/release/*.aab
+
+  # iOS archive via gomobile + Xcode on a macOS runner. Produces the .xcarchive;
+  # exporting a signed .ipa / TestFlight upload needs an Apple Developer account
+  # and provisioning, wired via secrets when available (kept manual until then).
+  mobile-ios:
+    needs: lint
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+      - name: Build iOS core (xcframework)
+        run: make ios-core VERSION=${{ github.ref_name }}
+      # Archive without signing here (no secrets required to validate the build);
+      # a signed export/TestFlight step is added once the Apple account is set up.
+      - name: Build + archive app
+        run: |
+          cd apps/mobile && npm ci && npx cap sync ios
+          cd ios/App && xcodebuild -workspace App.xcworkspace -scheme App \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath build/App.xcarchive archive \
+            CODE_SIGNING_ALLOWED=NO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: concord-ios-archive
+          path: apps/mobile/ios/App/build/App.xcarchive
+
   # Gather every artifact and attach it to the tag's GitHub Release.
   publish:
     needs: [web, native]
@@ -155,9 +227,15 @@ jobs:
         with:
           path: artifacts
       - name: Flatten artifact tree
+        # Mobile artifacts (.aab / .xcarchive) are distributed through the app
+        # stores, not as GitHub Release downloads — exclude them here (they stay
+        # available as workflow artifacts for the store-upload step).
         run: |
           mkdir -p release-assets
-          find artifacts -type f -exec cp {} release-assets/ \;
+          find artifacts -type f \
+            -not -path '*/concord-android/*' \
+            -not -path '*/concord-ios-archive/*' \
+            -exec cp {} release-assets/ \;
           echo "Release assets:" && ls -lh release-assets/
       - name: Generate SHA256SUMS
         run: cd release-assets && sha256sum * > SHA256SUMS && cat SHA256SUMS

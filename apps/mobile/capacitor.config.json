@@ -1,0 +1,9 @@
+{
+  "appId": "app.concord.mobile",
+  "appName": "Concord",
+  "webDir": "../../frontend/dist",
+  "server": {
+    "androidScheme": "http",
+    "cleartext": true
+  }
+}

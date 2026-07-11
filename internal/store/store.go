@@ -234,6 +234,25 @@ func (s *Store) SetVerifiedByFingerprint(fingerprint string) error {
 	return nil
 }
 
+// ImportVerifiedFingerprint marks a fingerprint verified before any peer
+// carrying it has been sighted — device linking transfers the account's
+// verifications, and the new device usually hasn't met those peers yet. The
+// placeholder row is keyed by the fingerprint itself ("fpr:…" can't collide
+// with a real libp2p peer ID); a later real sighting just adds another row,
+// and every verified-lookup already aggregates by fingerprint.
+func (s *Store) ImportVerifiedFingerprint(fingerprint string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO contacts (peer_id, fingerprint, verified, first_seen)
+		 VALUES (?, ?, 1, ?)
+		 ON CONFLICT(peer_id) DO UPDATE SET verified = 1`,
+		"fpr:"+fingerprint, fingerprint, time.Now().UnixNano(),
+	)
+	if err != nil {
+		return fmt.Errorf("store: import verified: %w", err)
+	}
+	return nil
+}
+
 // VerifiedFingerprints returns the set of fingerprints the user has verified.
 func (s *Store) VerifiedFingerprints() (map[string]bool, error) {
 	rows, err := s.db.Query(`SELECT DISTINCT fingerprint FROM contacts WHERE verified = 1`)
@@ -993,9 +1012,9 @@ func (s *Store) GetSetting(key string) (string, error) {
 // ProfileRow is a peer's learned profile as persisted (see app.Profile).
 type ProfileRow struct {
 	Fingerprint, Name, Status, Emoji, Color, Avatar string
-	Banner                                           string
-	Presence, Bio                                    string
-	MailboxPub                                       []byte
+	Banner                                          string
+	Presence, Bio                                   string
+	MailboxPub                                      []byte
 }
 
 // SaveProfile upserts a peer's learned profile so display names (and their

@@ -224,7 +224,7 @@ func (s *Service) attachmentCiphertext(channelID, blobID string) ([]byte, error)
 	// Sequential, not fanned out: parallel multi-megabyte downloads of the
 	// same blob waste bandwidth for no latency win at this scale.
 	for _, p := range s.host.Peers() {
-		if !s.guildHasMember(guildID, presenceFor(p).Fingerprint) {
+		if !s.guildHasMember(guildID, s.presence(p).Fingerprint) {
 			continue
 		}
 		ct, err := s.requestBlobFrom(p, req)

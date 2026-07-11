@@ -51,7 +51,7 @@ func (s *Service) authorizedCommitter(guildID string, senderCred []byte) bool {
 	// A member the owner granted "manage members" may also invite/kick. This is
 	// what lets moderation happen without the owner being online — the crux of
 	// not being load-bearing. (Phase 4b self-device commits slot in here too.)
-	return st.Can(identity.FingerprintOf(ownerID), identity.FingerprintOf(senderCred), PermManageMembers)
+	return st.Can(identity.FingerprintOf(ownerID), accountFingerprintOf(senderCred), PermManageMembers)
 }
 
 // commitAuthorized extracts a commit's author from its MLS framing and runs it

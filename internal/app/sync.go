@@ -9,7 +9,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
 	"github.com/zahak/concord/internal/store"
 )
 
@@ -69,7 +68,7 @@ type syncPayload struct {
 	Profiles   map[string]Profile          `json:"profiles,omitempty"`
 	Categories []domain.Category           `json:"categories,omitempty"`
 	Emoji      []domain.CustomEmoji        `json:"emoji,omitempty"`
-	GovOps     []json.RawMessage           `json:"govOps,omitempty"` // signed governance log (roles/bans)
+	GovOps     []json.RawMessage           `json:"govOps,omitempty"`   // signed governance log (roles/bans)
 	Messages   map[string][]domain.Message `json:"messages,omitempty"` // channelID -> changed rows
 }
 
@@ -94,7 +93,7 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	// embed joiners' key packages (account pubkeys) — serving them to a non-member
 	// who merely knows the guild ID (e.g. a removed/banned member) would leak the
 	// membership roster. Membership is checked against the authenticated PeerID.
-	if !s.guildHasMember(req.GuildID, presenceFor(from).Fingerprint) {
+	if !s.guildHasMember(req.GuildID, s.presence(from).Fingerprint) {
 		return []byte{}, nil
 	}
 
@@ -174,7 +173,7 @@ func bridges(rows []store.CommitRow, afterEpoch, wantEpoch uint64) bool {
 // Best-effort; reports whether every attempted guild sync at least reached the
 // peer (so the caller can retry once on transport-level failure).
 func (s *Service) syncFromPeer(p peer.ID) bool {
-	fpr := presenceFor(p).Fingerprint
+	fpr := s.presence(p).Fingerprint
 	s.mu.RLock()
 	ids := make([]string, 0, len(s.guilds))
 	for id := range s.guilds {
@@ -201,7 +200,7 @@ func (s *Service) syncFromPeer(p peer.ID) bool {
 func (s *Service) syncGuildFromAnyPeer(guildID string) {
 	var hosts, others []peer.ID
 	for _, p := range s.host.Peers() {
-		fpr := presenceFor(p).Fingerprint
+		fpr := s.presence(p).Fingerprint
 		if !s.guildHasMember(guildID, fpr) {
 			continue
 		}
@@ -239,7 +238,7 @@ func (s *Service) guildHasMember(guildID, fingerprint string) bool {
 		return false
 	}
 	for _, c := range creds {
-		if identity.FingerprintOf(c) == fingerprint {
+		if accountFingerprintOf(c) == fingerprint {
 			return true
 		}
 	}

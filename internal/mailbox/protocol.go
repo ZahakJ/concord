@@ -36,11 +36,18 @@ func MailboxID(accountPub []byte) string {
 
 // Request is the client→node message.
 type Request struct {
-	Op         string   `json:"op"`               // register | deposit | drain | ack
+	Op         string   `json:"op"`               // register | deposit | drain | ack | register-push | unregister-push
 	Target     string   `json:"target,omitempty"` // deposit: recipient mailbox ID
 	Envelope   []byte   `json:"envelope,omitempty"`
 	TTLSeconds int64    `json:"ttl,omitempty"`
 	AckIDs     []string `json:"ackIds,omitempty"`
+	// Push registration: bind a device push token to the caller's own mailbox so
+	// the node can send a contentless wake when a deposit lands while they're
+	// offline. Platform is "apns" or "fcm". Tokens are keyed only by the opaque
+	// mailbox tag — never by identity — so this adds no linkage the node didn't
+	// already have (it maps tag↔peer at drain time regardless).
+	Platform string `json:"platform,omitempty"`
+	Token    string `json:"token,omitempty"`
 }
 
 // Response is the node→client reply.
@@ -79,6 +86,14 @@ type bucket struct {
 type Service struct {
 	store *Store
 
+	// notifier, when set, is asked to send a contentless push wake to a
+	// mailbox's registered devices after a deposit lands. nil disables push
+	// (the mailbox still works over live sockets + drain-on-reconnect).
+	notifier Notifier
+	// pushes maps a mailbox tag to its registered device tokens. Persisted by
+	// the notifier's own store; here it's the in-memory lookup for deposits.
+	pushes *PushStore
+
 	mu      sync.Mutex
 	buckets map[peer.ID]*bucket
 }
@@ -86,6 +101,15 @@ type Service struct {
 // NewService wraps a store as a stream handler.
 func NewService(store *Store) *Service {
 	return &Service{store: store, buckets: map[peer.ID]*bucket{}}
+}
+
+// WithPush enables push notifications: register-push tokens go to ps, and a
+// deposit to a mailbox with registered tokens triggers n.Notify. Both may be
+// nil independently (a store with no notifier just remembers tokens).
+func (svc *Service) WithPush(ps *PushStore, n Notifier) *Service {
+	svc.pushes = ps
+	svc.notifier = n
+	return svc
 }
 
 // allowDeposit reports whether peer p may deposit right now, consuming a token.
@@ -173,9 +197,28 @@ func (svc *Service) handle(s network.Stream) {
 				resp.Error = "rate limited"
 			} else if _, ok := svc.store.Deposit(req.Target, req.Envelope, time.Duration(req.TTLSeconds)*time.Second); ok {
 				resp.OK = true
+				// A deposit means the recipient is (probably) offline — wake their
+				// registered devices so they foreground and drain. Contentless and
+				// rate-limited inside the notifier; runs in the background so the
+				// depositor isn't blocked on a push round-trip.
+				if svc.notifier != nil && svc.pushes != nil {
+					if toks := svc.pushes.Tokens(req.Target); len(toks) > 0 {
+						go svc.notifier.Notify(req.Target, toks)
+					}
+				}
 			} else {
 				resp.Error = "rejected"
 			}
+		}
+	case "register-push":
+		if callerMailbox != "" && req.Platform != "" && req.Token != "" && svc.pushes != nil {
+			svc.pushes.Register(callerMailbox, DeviceToken{Platform: req.Platform, Token: req.Token})
+			resp.OK = true
+		}
+	case "unregister-push":
+		if callerMailbox != "" && req.Token != "" && svc.pushes != nil {
+			svc.pushes.Unregister(callerMailbox, req.Token)
+			resp.OK = true
 		}
 	case "drain":
 		if callerMailbox != "" {

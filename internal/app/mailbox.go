@@ -98,12 +98,12 @@ func (s *Service) depositForOffline(groupID []byte, ct []byte) {
 	}
 	online := map[string]bool{s.id.Fingerprint(): true}
 	for _, p := range s.host.Peers() {
-		online[presenceFor(p).Fingerprint] = true
+		online[s.presence(p).Fingerprint] = true
 	}
 
 	payload, _ := json.Marshal(mbxPayload{GroupID: groupID, CT: ct})
 	for _, cred := range creds {
-		fpr := identity.FingerprintOf(cred)
+		fpr := accountFingerprintOf(cred)
 		if online[fpr] {
 			continue
 		}
@@ -115,7 +115,7 @@ func (s *Service) depositForOffline(groupID []byte, ct []byte) {
 		if err != nil {
 			continue
 		}
-		target := mailbox.MailboxID(cred)
+		target := mailbox.MailboxID(mailboxKeyOf(cred))
 		for _, node := range nodes {
 			s.mbxDeposit(node, target, env)
 		}
@@ -128,6 +128,40 @@ func (s *Service) registerMailbox(node peer.ID) {
 	ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
 	defer cancel()
 	_, _ = mailbox.RequestOn(ctx, s.host.Libp2p(), node, mailbox.Request{Op: "register"})
+}
+
+// RegisterPush binds a device push token to our mailbox on every connected
+// rendezvous node, so a deposit that lands while we're offline triggers a
+// contentless wake. platform is "apns" or "fcm". Best-effort and idempotent;
+// the mobile shell calls it after login and on token rotation. A no-op when no
+// rendezvous node is connected (re-registration happens on the next connect via
+// the mailbox-register path is per-node; push tokens are pushed here explicitly).
+func (s *Service) RegisterPush(platform, token string) {
+	if platform == "" || token == "" {
+		return
+	}
+	for _, node := range s.mailboxNodes() {
+		ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+		_, _ = mailbox.RequestOn(ctx, s.host.Libp2p(), node, mailbox.Request{
+			Op: "register-push", Platform: platform, Token: token,
+		})
+		cancel()
+	}
+}
+
+// UnregisterPush removes a device token from our mailbox on all connected nodes
+// (e.g. on logout).
+func (s *Service) UnregisterPush(token string) {
+	if token == "" {
+		return
+	}
+	for _, node := range s.mailboxNodes() {
+		ctx, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+		_, _ = mailbox.RequestOn(ctx, s.host.Libp2p(), node, mailbox.Request{
+			Op: "unregister-push", Token: token,
+		})
+		cancel()
+	}
 }
 
 func (s *Service) mbxDeposit(node peer.ID, target string, env []byte) {

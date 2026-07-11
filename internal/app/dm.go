@@ -10,7 +10,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
 )
 
 // Direct messages are ordinary MLS groups tagged kind="dm", rendered without
@@ -251,7 +250,7 @@ func (s *Service) pushDMInvite(pid peer.ID, code string) {
 // outstanding group-DM invitee we couldn't reach earlier, invite them now.
 // Entries for peers who have since joined are pruned.
 func (s *Service) deliverPendingDMInvites(p peer.ID) {
-	fpr := presenceFor(p).Fingerprint
+	fpr := s.presence(p).Fingerprint
 	if fpr == "" {
 		return
 	}
@@ -343,7 +342,7 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 		return []byte{}, nil
 	}
 	// The invite is authenticated to the peer that pushed it (libp2p PeerID).
-	senderFpr := presenceFor(from).Fingerprint
+	senderFpr := s.presence(from).Fingerprint
 	go func() {
 		g, err := s.JoinViaInvite(req.Code)
 		if err != nil {
@@ -390,7 +389,7 @@ func (s *Service) isLegitDMWith(guildID, senderFpr string) bool {
 	}
 	self := s.id.Fingerprint()
 	for _, c := range creds {
-		if f := identity.FingerprintOf(c); f != self {
+		if f := accountFingerprintOf(c); f != self {
 			return f == senderFpr
 		}
 	}
@@ -424,7 +423,7 @@ func (s *Service) isTrustedGroupDMInvite(guildID, senderFpr string) bool {
 	}
 	senderIsMember := false
 	for _, c := range creds {
-		if identity.FingerprintOf(c) == senderFpr {
+		if accountFingerprintOf(c) == senderFpr {
 			senderIsMember = true
 			break
 		}
@@ -466,7 +465,7 @@ func (s *Service) sharesOtherGroupWith(fingerprint, exclID string) bool {
 			continue
 		}
 		for _, c := range creds {
-			if identity.FingerprintOf(c) == fingerprint {
+			if accountFingerprintOf(c) == fingerprint {
 				return true
 			}
 		}
@@ -498,7 +497,7 @@ func (s *Service) findDMByMembers(want []string) *domain.Guild {
 		}
 		others := make(map[string]bool)
 		for _, c := range creds {
-			if f := identity.FingerprintOf(c); f != self {
+			if f := accountFingerprintOf(c); f != self {
 				others[f] = true
 			}
 		}
@@ -536,7 +535,7 @@ func (s *Service) findPeerDM(fingerprint string) *domain.Guild {
 			continue
 		}
 		for _, c := range creds {
-			if identity.FingerprintOf(c) == fingerprint {
+			if accountFingerprintOf(c) == fingerprint {
 				gc := *g
 				return &gc
 			}
@@ -548,7 +547,7 @@ func (s *Service) findPeerDM(fingerprint string) *domain.Guild {
 // peerForFingerprint resolves a connected peer's libp2p ID from its fingerprint.
 func (s *Service) peerForFingerprint(fingerprint string) (peer.ID, bool) {
 	for _, p := range s.host.Peers() {
-		if presenceFor(p).Fingerprint == fingerprint {
+		if s.presence(p).Fingerprint == fingerprint {
 			return p, true
 		}
 	}

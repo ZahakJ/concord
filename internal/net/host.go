@@ -11,7 +11,9 @@ package net
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
+	"log"
 	"sync"
 
 	"github.com/libp2p/go-libp2p"
@@ -39,8 +41,15 @@ var defaultListenAddrs = []string{
 
 // Config configures a Host.
 type Config struct {
-	// Identity is the account keypair; the libp2p PeerID is derived from it.
+	// Identity is the account keypair; the libp2p PeerID is derived from it by
+	// default (single-device, and every pre-multi-device client).
 	Identity *identity.Identity
+	// HostKey, when set, overrides the account key as the libp2p host key — a
+	// LINKED device uses its own per-device key so its PeerID doesn't collide
+	// with the same account running on another device. The account seed still
+	// lives in Identity (for MLS credentials, mailbox keys, etc.); only the
+	// network identity differs. nil = derive the PeerID from the account key.
+	HostKey ed25519.PrivateKey
 	// ListenAddrs overrides the default listen multiaddrs when non-empty.
 	ListenAddrs []string
 	// ServiceTag overrides the mDNS discovery namespace when non-empty.
@@ -81,7 +90,11 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		return nil, fmt.Errorf("net: Config.Identity is required")
 	}
 
-	priv, err := p2pcrypto.UnmarshalEd25519PrivateKey(cfg.Identity.PrivateKey())
+	hostKey := ed25519.PrivateKey(cfg.Identity.PrivateKey())
+	if cfg.HostKey != nil {
+		hostKey = cfg.HostKey
+	}
+	priv, err := p2pcrypto.UnmarshalEd25519PrivateKey(hostKey)
 	if err != nil {
 		return nil, fmt.Errorf("net: convert identity to libp2p key: %w", err)
 	}
@@ -138,10 +151,12 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 	node.registerConnEvents()
 
 	if cfg.EnableMDNS {
+		// mDNS is best-effort LAN discovery. Its failure must not abort startup:
+		// Android's SELinux denies the netlink socket bind zeroconf needs, and
+		// locked-down/corporate networks block multicast — in both cases the node
+		// still works over DHT + relay. Log and continue.
 		if err := node.startMDNS(); err != nil {
-			_ = h.Close()
-			cancel()
-			return nil, err
+			log.Printf("concord/net: mDNS discovery unavailable, continuing without LAN discovery: %v", err)
 		}
 	}
 	if cfg.EnableDHT {

@@ -1,0 +1,17 @@
+# Node
+node_modules/
+
+# Capacitor / Gradle / Xcode build output
+android/build/
+android/app/build/
+android/.gradle/
+android/app/libs/concord.aar
+android/local.properties
+ios/App/Pods/
+ios/App/build/
+ios/Frameworks/Concord.xcframework/
+DerivedData/
+
+# The gomobile-built cores are produced by `make android-core` / `make ios-core`
+*.aar
+*.xcframework

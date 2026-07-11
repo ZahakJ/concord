@@ -40,7 +40,7 @@ func (s *Service) authorizedCommitterOnline(guildID string) (peer.ID, bool) {
 	var fallback peer.ID
 	var haveFallback bool
 	for _, p := range s.host.Peers() {
-		fpr := presenceFor(p).Fingerprint
+		fpr := s.presence(p).Fingerprint
 		if fpr == ownerFpr {
 			return p, true // the owner is always an authorized committer
 		}

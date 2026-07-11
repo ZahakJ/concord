@@ -3,7 +3,6 @@ package app
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -14,7 +13,6 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
 )
 
 // This file implements the guild lifecycle: creating a guild, generating and
@@ -93,7 +91,7 @@ func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error
 	if err == nil {
 		for _, m := range msgs {
 			if m.Name != "" {
-				s.learnNameHint(identity.FingerprintOf(m.Sender), m.Name)
+				s.learnNameHint(accountFingerprintOf(m.Sender), m.Name)
 			}
 		}
 	}
@@ -247,10 +245,13 @@ func (s *Service) RemoveMember(guildID string, memberCredential []byte) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to remove members")
 	}
-	if bytes.Equal(g.OwnerID, memberCredential) {
+	// Compare on the account key so a device leaf is recognized as its account
+	// (owner protection and self-check must hold across all of an account's
+	// devices, not just the exact credential bytes).
+	if bytes.Equal(accountKeyOf(g.OwnerID), accountKeyOf(memberCredential)) {
 		return fmt.Errorf("app: the owner cannot be removed")
 	}
-	if bytes.Equal(memberCredential, s.PublicKey()) {
+	if bytes.Equal(accountKeyOf(memberCredential), s.PublicKey()) {
 		return fmt.Errorf("app: use Leave to remove yourself")
 	}
 	commit, err := s.mls.Remove(s.ctx, g.GroupID, memberCredential)
@@ -285,7 +286,7 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 			addrs = append(addrs, b+"/p2p-circuit")
 		}
 	}
-	code := inviteCode{
+	return encodeInviteCode(inviteCode{
 		GuildID:   g.ID,
 		GuildName: g.Name,
 		OwnerID:   ai.ID.String(),
@@ -293,24 +294,15 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 		// Embed our rendezvous nodes so the joiner is configured by the code
 		// alone — one paste connects them to the same network.
 		Bootstrap: bootstrap,
-	}
-	raw, err := json.Marshal(code)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
+	}), nil
 }
 
 // JoinViaInvite redeems an invite code: it contacts the owner, exchanges an MLS
 // KeyPackage for a Welcome, joins the group, and subscribes to guild topics.
 func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(code)
+	ic, err := decodeInviteCode(strings.TrimSpace(code))
 	if err != nil {
-		return domain.Guild{}, fmt.Errorf("app: bad invite code: %w", err)
-	}
-	var ic inviteCode
-	if err := json.Unmarshal(raw, &ic); err != nil {
-		return domain.Guild{}, fmt.Errorf("app: bad invite code: %w", err)
+		return domain.Guild{}, err
 	}
 
 	// Adopt any rendezvous nodes carried by the invite: persist them for future
@@ -330,7 +322,7 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 		return domain.Guild{}, fmt.Errorf("app: build key package: %w", err)
 	}
 	reqBytes, _ := json.Marshal(inviteRequest{
-		GuildID: ic.GuildID, KeyPackage: kp, Credential: s.PublicKey(),
+		GuildID: ic.GuildID, KeyPackage: kp, Credential: s.myCredential,
 		Profile: s.SelfProfile(),
 	})
 
@@ -370,11 +362,31 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	go s.syncGuildFromPeer(g.ID, owner.ID)
 	// Tell existing members our display name (and learn theirs in reply).
 	s.announceProfile(g.ID)
-	// Announce arrival with a system message in the default channel.
-	if len(g.Channels) > 0 {
+	// Announce arrival with a system message — but only for a genuine first join.
+	// When this is an additional DEVICE of an account already in the guild (device
+	// linking), the account has another leaf here already, so stay quiet rather
+	// than posting a bogus "joined the server" for a member who never left.
+	if len(g.Channels) > 0 && s.accountLeafCount(g.GroupID) <= 1 {
 		s.sendSystem(g.Channels[0].ID, "joined the server")
 	}
 	return g, nil
+}
+
+// accountLeafCount returns how many MLS leaves in a group belong to THIS account
+// (>1 means this install's account already has another device in the group).
+func (s *Service) accountLeafCount(groupID []byte) int {
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil {
+		return 0
+	}
+	mine := s.id.Fingerprint()
+	n := 0
+	for _, c := range creds {
+		if accountFingerprintOf(c) == mine {
+			n++
+		}
+	}
+	return n
 }
 
 // handleInviteRequest is the owner side of the join handshake: it adds the
@@ -401,14 +413,20 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// owner-authored Remove commit) and (b) bypass the ban gate (real KeyPackage
 	// + Credential=some non-banned fingerprint). Requiring Credential == caller
 	// makes the Remove self-only and binds the ban check to the real joiner.
-	callerFpr := presenceFor(from).Fingerprint
-	if len(req.Credential) > 0 && identity.FingerprintOf(req.Credential) != callerFpr {
+	// Bind the claimed credential to the dialing device: a bare credential to the
+	// caller's account key, a device cert to the caller's device key (and the cert
+	// must chain to an account). This works for both a legacy account-key PeerID
+	// and a linked device's device-key PeerID.
+	if len(req.Credential) > 0 && !credentialBoundToPeer(req.Credential, from) {
 		return json.Marshal(inviteResponse{Error: "credential does not match caller"})
 	}
+	// Learn this joiner's device→account mapping so their PeerID resolves to the
+	// account in presence/roster (a device cert; a no-op for a bare credential).
+	s.learnDeviceCert(req.Credential)
 
 	// Enforce the banlist at the gate: a banned fingerprint cannot rejoin, even
 	// with a fresh invite code. This is what makes a ban survive rejoin.
-	if len(req.Credential) > 0 && s.isBanned(req.GuildID, identity.FingerprintOf(req.Credential)) {
+	if len(req.Credential) > 0 && s.isBanned(req.GuildID, accountFingerprintOf(req.Credential)) {
 		return json.Marshal(inviteResponse{Error: "you are banned from this server"})
 	}
 
@@ -443,12 +461,12 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// announce may be lost while their mesh warms up), and hand back the member
 	// roster so they show real names immediately.
 	if len(req.Credential) > 0 {
-		s.learnProfile(identity.FingerprintOf(req.Credential), req.Profile)
+		s.learnProfile(accountFingerprintOf(req.Credential), req.Profile)
 	}
 	// Keep this member reachable (esp. over a relay) and refresh the roster.
 	s.host.Protect(from)
 	if len(req.Credential) > 0 {
-		s.clearPendingDMInvite(req.GuildID, identity.FingerprintOf(req.Credential))
+		s.clearPendingDMInvite(req.GuildID, accountFingerprintOf(req.Credential))
 	}
 	s.emitGuildUpdate()
 	return json.Marshal(inviteResponse{Welcome: welcome, Guild: *g, Profiles: s.profileRoster()})
@@ -494,6 +512,17 @@ func (s *Service) SendMessage(channelID, content, replyTo string) (domain.Messag
 // swallowed since these are best-effort UI sugar.
 func (s *Service) sendSystem(channelID, content string) {
 	_, _ = s.send(channelID, content, "system", "")
+}
+
+// SendCallNotice posts a lightweight call event into a channel — e.g. a
+// "call-missed" line when a DM ring went unanswered. It rides the normal
+// encrypted message path (both sides store and render it) but, like every
+// non-"" kind, never pings or counts as unread on the client.
+func (s *Service) SendCallNotice(channelID, kind, content string) (domain.Message, error) {
+	if kind != "call-missed" {
+		return domain.Message{}, fmt.Errorf("app: bad call notice kind %q", kind)
+	}
+	return s.send(channelID, content, kind, "")
 }
 
 func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message, error) {
@@ -564,7 +593,7 @@ func (s *Service) applyReaction(targetID, emoji string, bySender []byte) {
 	if targetID == "" || emoji == "" {
 		return
 	}
-	fpr := identity.FingerprintOf(bySender)
+	fpr := accountFingerprintOf(bySender)
 	if _, err := s.store.ToggleReaction(targetID, fpr, emoji); err != nil {
 		return
 	}
@@ -633,7 +662,7 @@ func (s *Service) applyDelete(targetID string, bySender []byte, channelID string
 	guildID := s.channelToGuild[channelID]
 	s.mu.RUnlock()
 	if guildID != "" {
-		force = s.memberHasPerm(guildID, identity.FingerprintOf(bySender), PermManageMessages)
+		force = s.memberHasPerm(guildID, accountFingerprintOf(bySender), PermManageMessages)
 	}
 	deleted, ok, err := s.store.MarkDeleted(targetID, bySender, force)
 	if err != nil || !ok {
@@ -718,21 +747,21 @@ func (s *Service) trackGuild(g *domain.Guild) {
 // topic so all members converge on shared state (channels, member display
 // names). Only the fields relevant to Type are populated.
 type guildMeta struct {
-	Type string `json:"type"` // channel_added | channel_updated | category_added | profile | nickname | guild_renamed
-	Channel     domain.Channel  `json:"channel,omitempty"`
-	Category    domain.Category `json:"category,omitempty"`
-	Fingerprint string              `json:"fingerprint,omitempty"`
-	Name        string              `json:"name,omitempty"`
-	Status      string              `json:"status,omitempty"`
-	Emoji       string              `json:"emoji,omitempty"`
-	Color       string              `json:"color,omitempty"`
-	Avatar      string              `json:"avatar,omitempty"`
-	Banner      string              `json:"banner,omitempty"` // user profile banner (not the guild banner below)
-	Presence    string              `json:"presence,omitempty"`
-	Bio         string              `json:"bio,omitempty"`
-	MailboxPub  []byte              `json:"mbx,omitempty"`
-	CustomEmoji domain.CustomEmoji  `json:"customEmoji,omitempty"`
-	GovOp       json.RawMessage     `json:"govOp,omitempty"` // a signed governance op (roles/bans)
+	Type        string             `json:"type"` // channel_added | channel_updated | category_added | profile | nickname | guild_renamed
+	Channel     domain.Channel     `json:"channel,omitempty"`
+	Category    domain.Category    `json:"category,omitempty"`
+	Fingerprint string             `json:"fingerprint,omitempty"`
+	Name        string             `json:"name,omitempty"`
+	Status      string             `json:"status,omitempty"`
+	Emoji       string             `json:"emoji,omitempty"`
+	Color       string             `json:"color,omitempty"`
+	Avatar      string             `json:"avatar,omitempty"`
+	Banner      string             `json:"banner,omitempty"` // user profile banner (not the guild banner below)
+	Presence    string             `json:"presence,omitempty"`
+	Bio         string             `json:"bio,omitempty"`
+	MailboxPub  []byte             `json:"mbx,omitempty"`
+	CustomEmoji domain.CustomEmoji `json:"customEmoji,omitempty"`
+	GovOp       json.RawMessage    `json:"govOp,omitempty"` // a signed governance op (roles/bans)
 	// guild_profile: icon/banner/description (Name reused from above).
 	GuildIcon        string `json:"gIcon,omitempty"`
 	GuildBanner      string `json:"gBanner,omitempty"`
@@ -1220,8 +1249,14 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	if !tracked {
 		return
 	}
-	// Trust MLS's authenticated sender over the self-reported field.
-	m.Sender = msg.SenderID
+	// Learn the sender's device→account mapping (if it's a device cert) so their
+	// linked-device PeerID resolves to the account in presence/roster views.
+	s.learnDeviceCert(msg.SenderID)
+	// Trust MLS's authenticated sender over the self-reported field, and
+	// normalize it to the account key: a message from any of an account's linked
+	// devices (whose leaf credential is a device cert) is attributed to the one
+	// account, and every stored/compared Sender is a uniform 32-byte account key.
+	m.Sender = accountKeyOf(msg.SenderID)
 	switch m.Kind {
 	case "delete":
 		s.applyDelete(m.ReplyTo, m.Sender, m.ChannelID)
@@ -1240,12 +1275,12 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	s.mu.RLock()
 	guildID := s.channelToGuild[m.ChannelID]
 	s.mu.RUnlock()
-	if guildID != "" && s.isMuted(guildID, identity.FingerprintOf(m.Sender)) {
+	if guildID != "" && s.isMuted(guildID, accountFingerprintOf(m.Sender)) {
 		return
 	}
 	// Backfill a display name from the message if we don't know this member's
 	// name yet, so the roster and chat stay consistent.
-	s.learnNameHint(identity.FingerprintOf(m.Sender), m.Name)
+	s.learnNameHint(accountFingerprintOf(m.Sender), m.Name)
 	inserted, err := s.store.SaveMessage(m)
 	if err != nil || !inserted {
 		return // duplicate (gossip re-delivery or already synced): stay silent

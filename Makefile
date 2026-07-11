@@ -7,12 +7,20 @@
 GUI_TAGS := wails desktop production webkit2_41
 N ?= 2
 
-# Stamped into the binary as main.version (drives the in-app update check).
+# Stamped into the binary as internal/version.Version (drives the in-app update check).
 # CI passes the git tag (e.g. VERSION=v0.4.9); local builds stay "dev" (no nag).
 VERSION ?= dev
 
 .PHONY: gui gui-dev web cli rendezvous frontend test race fmt clean \
-        peers rendezvous-run dev-clean help release icons native
+        peers rendezvous-run dev-clean help release icons native \
+        android-core ios-core android-app ios-app
+
+# gomobile bind flags shared by both mobile cores.
+#   -checklinkname=0: github.com/wlynxg/anet (libp2p's Android net shim) uses
+#    go:linkname into net internals that Go 1.23+ rejects by default.
+MOBILE_LDFLAGS := -checklinkname=0 -s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)
+ANDROID_API    := 26
+IOS_VERSION    := 15.0
 
 frontend:
 	cd frontend && npm install && npm run build
@@ -47,6 +55,65 @@ web: frontend
 	go build -o bin/concord-web .
 	@echo "built bin/concord-web — run it, then open http://127.0.0.1:8787"
 
+# Mobile core: the whole Go backend (identity, MLS, libp2p, store, bridge)
+# bound for the native shells under apps/mobile/. Needs gomobile on PATH
+# (go install golang.org/x/mobile/cmd/gomobile@latest) and, for Android,
+# ANDROID_HOME + an NDK. iOS requires building on macOS with Xcode.
+# The x86 ABIs need a one-file patch on modernc.org/libc: Android's seccomp
+# filter denies the legacy x86_64 path syscalls it uses, so the process dies
+# with SIGSYS on emulators the moment sqlite opens. The patched file lives in
+# third_party/_libc-overlay/ (committed); the target materializes a local module
+# fork under build/libc-fork/ (gitignored) and builds against it via an
+# alternate -modfile, leaving go.mod and all desktop builds untouched. arm64
+# (real devices) never compiles the patched file.
+LIBC_VERSION = $(shell go list -m -f '{{.Version}}' modernc.org/libc)
+
+android-core:
+	mkdir -p apps/mobile/android/app/libs build/libc-fork
+	go mod download modernc.org/libc
+	rsync -a --delete --chmod=u+w "$$(go env GOMODCACHE)/modernc.org/libc@$(LIBC_VERSION)/" build/libc-fork/
+	cp third_party/_libc-overlay/syscall_musl.go build/libc-fork/syscall_musl.go
+	# The replace lives in go.mod only while the bind runs (gomobile spawns its
+	# own temp work modules, so a GOFLAGS=-modfile override would poison them);
+	# it is dropped again even when the bind fails.
+	go mod edit -replace modernc.org/libc=$(CURDIR)/build/libc-fork
+	gomobile bind -target=android -androidapi $(ANDROID_API) -trimpath \
+		-ldflags "$(MOBILE_LDFLAGS)" \
+		-o apps/mobile/android/app/libs/concord.aar ./mobile; \
+	status=$$?; go mod edit -dropreplace modernc.org/libc; exit $$status
+	@echo "built apps/mobile/android/app/libs/concord.aar"
+
+ios-core:
+	mkdir -p apps/mobile/ios/Frameworks
+	gomobile bind -target=ios,iossimulator -iosversion $(IOS_VERSION) -trimpath \
+		-ldflags "$(MOBILE_LDFLAGS)" \
+		-o apps/mobile/ios/Frameworks/Concord.xcframework ./mobile
+	@echo "built apps/mobile/ios/Frameworks/Concord.xcframework"
+
+# Installable mobile apps. Each rebuilds the web UI, the gomobile core, syncs
+# Capacitor, then invokes the platform build. Android needs a JDK 17–21 on
+# JAVA_HOME (see apps/mobile/android/gradle.properties); iOS needs macOS + Xcode.
+# Release signing is supplied out-of-band (keystore / provisioning profile); an
+# unconfigured build still produces an unsigned artifact for testing.
+# MOBILE_VERSION_NAME strips a leading "v" from VERSION (v0.6.0 -> 0.6.0) for
+# the store-required numeric versionName; MOBILE_VERSION_CODE is a monotonic int
+# (CI passes the run number; local builds default to 1).
+MOBILE_VERSION_NAME := $(patsubst v%,%,$(VERSION))
+MOBILE_VERSION_CODE ?= 1
+
+android-app: frontend android-core
+	cd apps/mobile && npm ci && npx cap sync android
+	cd apps/mobile/android && ./gradlew bundleRelease \
+		-PconcordVersionName=$(MOBILE_VERSION_NAME) \
+		-PconcordVersionCode=$(MOBILE_VERSION_CODE)
+	@echo "built apps/mobile/android/app/build/outputs/bundle/release/app-release.aab"
+
+ios-app: frontend ios-core
+	cd apps/mobile && npm ci && npx cap sync ios
+	cd apps/mobile/ios/App && xcodebuild -workspace App.xcworkspace -scheme App \
+		-configuration Release -archivePath build/App.xcarchive archive
+	@echo "archived apps/mobile/ios/App/build/App.xcarchive"
+
 # Self-contained WEB release binaries (UI embedded, pure Go, no dependencies).
 # Friends download ONE file for their OS, run it, and the browser opens.
 #
@@ -60,14 +127,14 @@ release: frontend
 	rm -rf dist-release && mkdir -p dist-release
 	# The version is stamped into each filename so downloaded builds are visibly
 	# distinct across releases; the updater matches assets by OS keyword.
-	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-linux-amd64-$(VERSION) .
-	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-linux-arm64-$(VERSION) .
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-macos-arm64-$(VERSION) .
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w -X main.version=$(VERSION)" -o dist-release/concord-macos-intel-$(VERSION) .
+	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-linux-amd64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-linux-arm64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-macos-arm64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-macos-intel-$(VERSION) .
 	# Windows: embed version info + manifest (goversioninfo) and DON'T strip
 	# symbols — both markedly reduce Defender false positives on unsigned exes.
 	go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 -o resource_windows_amd64.syso build/versioninfo.json
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X main.version=$(VERSION)" -o dist-release/concord-windows-$(VERSION).exe .
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-windows-$(VERSION).exe .
 	@rm -f resource_windows_amd64.syso
 	@echo && echo "Release binaries in dist-release/:" && ls -lh dist-release/
 

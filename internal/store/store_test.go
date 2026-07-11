@@ -146,6 +146,36 @@ func TestContactsTOFUAndVerify(t *testing.T) {
 	}
 }
 
+// Device linking imports the account's verifications before this device has
+// ever sighted those peers; a later real sighting must not clear the flag.
+func TestImportVerifiedFingerprint(t *testing.T) {
+	s, _ := openTestStore(t)
+
+	if err := s.ImportVerifiedFingerprint("FPRX"); err != nil {
+		t.Fatalf("ImportVerifiedFingerprint: %v", err)
+	}
+	vf, err := s.VerifiedFingerprints()
+	if err != nil {
+		t.Fatalf("VerifiedFingerprints: %v", err)
+	}
+	if !vf["FPRX"] {
+		t.Fatal("imported fingerprint should be verified before any sighting")
+	}
+
+	// The peer shows up for real later — still verified, and importing again
+	// stays idempotent.
+	if err := s.RecordContact("peer-x", "FPRX"); err != nil {
+		t.Fatalf("RecordContact: %v", err)
+	}
+	if err := s.ImportVerifiedFingerprint("FPRX"); err != nil {
+		t.Fatalf("ImportVerifiedFingerprint (repeat): %v", err)
+	}
+	vf, _ = s.VerifiedFingerprints()
+	if !vf["FPRX"] {
+		t.Fatal("fingerprint should stay verified after a real sighting")
+	}
+}
+
 func TestMarkDeletedAuthorization(t *testing.T) {
 	s, _ := openTestStore(t)
 	author := []byte("alice-key")

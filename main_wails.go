@@ -23,6 +23,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+
+	"github.com/zahak/concord/internal/bridge"
+	"github.com/zahak/concord/internal/httpapi"
 )
 
 //go:embed all:frontend/dist
@@ -36,10 +39,10 @@ var assets embed.FS
 var appIcon []byte
 
 func main() {
-	b := newBridge(context.Background())
+	b := bridge.New(context.Background())
 	// trusted=true: the webview is native and unreachable from other origins, so
 	// the /rpc CSRF guard isn't needed (and would reject the wails:// origin).
-	api := newAPIServerWith(b, true)
+	api := httpapi.NewWith(b, true)
 
 	err := wails.Run(&options.App{
 		Title:            "Concord",
@@ -55,9 +58,9 @@ func main() {
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
 					case "/rpc":
-						api.handleRPC(w, r)
+						api.HandleRPC(w, r)
 					case "/events":
-						api.handleEvents(w, r)
+						api.HandleEvents(w, r)
 					default:
 						next.ServeHTTP(w, r)
 					}
@@ -67,18 +70,18 @@ func main() {
 		BackgroundColour: &options.RGBA{R: 30, G: 32, B: 36, A: 1},
 		Linux:            &linux.Options{Icon: appIcon},
 		OnStartup: func(ctx context.Context) {
-			b.setContext(ctx)
+			b.SetContext(ctx)
 			// Events flow over the native Wails runtime (window.runtime.EventsOn),
 			// which is injected even with -skipbindings — unlike the Go method
 			// bindings (window.go.*), which aren't, hence RPC over HTTP.
-			b.onMessage = func(m MessageView) { wruntime.EventsEmit(ctx, "message", m) }
-			b.onPresence = func() { wruntime.EventsEmit(ctx, "presence", nil) }
-			b.onVoicePresence = func(v VoicePresence) { wruntime.EventsEmit(ctx, "voice-presence", v) }
-			b.onVoiceSignal = func(v VoiceSignal) { wruntime.EventsEmit(ctx, "voice-signal", v) }
-			b.onTyping = func(t TypingInfo) { wruntime.EventsEmit(ctx, "typing", t) }
-			b.onGuildUpdate = func() { wruntime.EventsEmit(ctx, "guild-updated", nil) }
+			b.OnMessage = func(m bridge.MessageView) { wruntime.EventsEmit(ctx, "message", m) }
+			b.OnPresence = func() { wruntime.EventsEmit(ctx, "presence", nil) }
+			b.OnVoicePresence = func(v bridge.VoicePresence) { wruntime.EventsEmit(ctx, "voice-presence", v) }
+			b.OnVoiceSignal = func(v bridge.VoiceSignal) { wruntime.EventsEmit(ctx, "voice-signal", v) }
+			b.OnTyping = func(t bridge.TypingInfo) { wruntime.EventsEmit(ctx, "typing", t) }
+			b.OnGuildUpdate = func() { wruntime.EventsEmit(ctx, "guild-updated", nil) }
 		},
-		OnShutdown: func(context.Context) { b.close() },
+		OnShutdown: func(context.Context) { b.Close() },
 	})
 	if err != nil {
 		println("concord: " + err.Error())

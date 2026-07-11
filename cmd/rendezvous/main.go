@@ -101,6 +101,21 @@ func run() error {
 	// peer is online. The node sees only opaque ciphertext + a 16-byte tag.
 	// Bounded and in-memory (no disk, no storage cost to grow).
 	mbox := mailbox.NewService(mailbox.New())
+	// Optional push wake bridge: if APNs/FCM credentials are configured, register
+	// a persistent token store (survives restarts, unlike envelopes) and a
+	// notifier that sends contentless wakes on deposit. With no credentials this
+	// is a no-op and the mailbox works exactly as before. See internal/mailbox/push.go.
+	notifier, err := mailbox.NewNotifier()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "push notifier disabled:", err)
+	} else if notifier != nil {
+		tokPath := os.Getenv("CONCORD_PUSH_TOKENS")
+		if tokPath == "" {
+			tokPath = "push-tokens.json"
+		}
+		mbox.WithPush(mailbox.OpenPushStore(tokPath), notifier)
+		fmt.Println("Push wake bridge enabled (tokens:", tokPath+").")
+	}
 	mbox.Attach(ctx, h)
 
 	fmt.Println("Concord rendezvous node running (DHT + relay + mailbox).")

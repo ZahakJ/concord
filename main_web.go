@@ -19,6 +19,8 @@ import (
 	"runtime"
 	"syscall"
 	"time"
+
+	"github.com/zahak/concord/internal/httpapi"
 )
 
 //go:embed all:frontend/dist
@@ -35,13 +37,13 @@ func main() {
 
 	// Browser build: enforce the cross-origin CSRF guard (trusted=false) and
 	// stream events over SSE.
-	srv := newAPIServer(ctx, false)
-	srv.wireSSE()
-	defer srv.b.close()
+	srv := httpapi.New(ctx, false)
+	srv.WireSSE()
+	defer srv.Bridge().Close()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/rpc", srv.handleRPC)
-	mux.HandleFunc("/events", srv.handleEvents)
+	mux.HandleFunc("/rpc", srv.HandleRPC)
+	mux.HandleFunc("/events", srv.HandleEvents)
 	mux.Handle("/", staticAssets())
 
 	httpSrv := &http.Server{Addr: addr, Handler: mux}

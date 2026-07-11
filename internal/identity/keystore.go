@@ -19,7 +19,11 @@ import (
 // the ciphertext so the file is self-describing on load.
 
 const (
-	keystoreVersion = 1
+	// keystoreVersion 2 adds an optional sealed device seed alongside the account
+	// seed (see identity.go). v1 files (account seed only) still load; they are
+	// upgraded to v2 on first unlock (LoadOrCreate generates a device seed and
+	// re-saves). Both versions are accepted on load.
+	keystoreVersion = 2
 	saltSize        = 16
 	nonceSize       = 24 // secretbox nonce
 	keySize         = 32 // secretbox key
@@ -48,6 +52,11 @@ type keystoreFile struct {
 	ArgonThreads uint8  `json:"argon_threads"`
 	Nonce        []byte `json:"nonce"`
 	Ciphertext   []byte `json:"ciphertext"`
+	// v2: the per-device seed, sealed under the same passphrase-derived key with
+	// its own nonce. Absent in v1 files (and in v2 files that predate the device
+	// seed being set).
+	DeviceNonce      []byte `json:"device_nonce,omitempty"`
+	DeviceCiphertext []byte `json:"device_ciphertext,omitempty"`
 }
 
 // SaveKeystore encrypts id's seed under passphrase and writes it to path,
@@ -78,6 +87,15 @@ func SaveKeystore(path, passphrase string, id *Identity) error {
 		ArgonThreads: argonThreads,
 		Nonce:        nonce[:],
 		Ciphertext:   sealed,
+	}
+	// Seal the device seed too, under the same derived key with a fresh nonce.
+	if ds := id.DeviceSeed(); ds != nil {
+		var dnonce [nonceSize]byte
+		if _, err := rand.Read(dnonce[:]); err != nil {
+			return fmt.Errorf("identity: read device nonce: %w", err)
+		}
+		env.DeviceNonce = dnonce[:]
+		env.DeviceCiphertext = secretbox.Seal(nil, ds, &dnonce, &key)
 	}
 	blob, err := json.MarshalIndent(env, "", "  ")
 	if err != nil {
@@ -112,7 +130,7 @@ func LoadKeystore(path, passphrase string) (*Identity, error) {
 	if err := json.Unmarshal(blob, &env); err != nil {
 		return nil, fmt.Errorf("identity: parse keystore: %w", err)
 	}
-	if env.Version != keystoreVersion {
+	if env.Version < 1 || env.Version > keystoreVersion {
 		return nil, fmt.Errorf("identity: unsupported keystore version %d", env.Version)
 	}
 	if env.KDF != "argon2id" {
@@ -130,7 +148,21 @@ func LoadKeystore(path, passphrase string) (*Identity, error) {
 	if !ok {
 		return nil, ErrWrongPassphrase
 	}
-	return FromSeed(seed)
+	id, err := FromSeed(seed)
+	if err != nil {
+		return nil, err
+	}
+	// Unseal the device seed if this file has one (v2). A wrong device nonce/
+	// ciphertext shouldn't strand the account, so a failure here just leaves the
+	// device seed unset (it'll be regenerated + re-saved by LoadOrCreate).
+	if len(env.DeviceCiphertext) > 0 && len(env.DeviceNonce) == nonceSize {
+		var dnonce [nonceSize]byte
+		copy(dnonce[:], env.DeviceNonce)
+		if ds, ok := secretbox.Open(nil, env.DeviceCiphertext, &dnonce, &key); ok && len(ds) == SeedSize {
+			id.deviceSeed = ds
+		}
+	}
+	return id, nil
 }
 
 // LoadOrCreate loads the identity at path, or generates and persists a new one
@@ -139,6 +171,12 @@ func LoadKeystore(path, passphrase string) (*Identity, error) {
 func LoadOrCreate(path, passphrase string) (*Identity, bool, error) {
 	id, err := LoadKeystore(path, passphrase)
 	if err == nil {
+		// Transparently upgrade a legacy (v1) keystore: give it a device seed and
+		// persist as v2. Non-fatal if the re-save fails — the device seed lives in
+		// memory for this session and the upgrade retries next unlock.
+		if created, derr := id.ensureDeviceSeed(); derr == nil && created {
+			_ = SaveKeystore(path, passphrase, id)
+		}
 		return id, false, nil
 	}
 	if !os.IsNotExist(err) {

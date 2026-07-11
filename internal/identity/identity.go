@@ -25,21 +25,100 @@ const SeedSize = ed25519.SeedSize // 32
 
 // Identity is a peer's long-term cryptographic identity.
 //
-// The private key never leaves the process except through the encrypted
-// keystore (see keystore.go). The public key is safe to share and is what
-// other peers use to address and verify this peer.
+// The account key (priv/pub) is the mnemonic-backed root: it *is* the account,
+// stable across every device the user links, and what fingerprints/safety
+// numbers are computed from. The device key is per-install (random, never
+// leaves the device): it is what will drive this device's libp2p PeerID and MLS
+// leaf once multi-device linking is enabled, so a phone and desktop under one
+// account don't collide. Until that migration is switched on, the device key is
+// carried but unused — the network/MLS layers still derive from the account
+// seed, so existing single-device behavior is unchanged.
+//
+// The private material never leaves the process except through the encrypted
+// keystore (see keystore.go).
 type Identity struct {
 	priv ed25519.PrivateKey
 	pub  ed25519.PublicKey
+
+	// deviceSeed is a 32-byte per-device secret. nil on a legacy identity loaded
+	// from a v1 keystore until it is upgraded (LoadOrCreate generates + persists
+	// one on first unlock).
+	deviceSeed []byte
 }
 
-// Generate creates a brand-new random identity.
+// Generate creates a brand-new random identity, including a fresh device seed.
 func Generate() (*Identity, error) {
 	pub, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("generate ed25519 key: %w", err)
 	}
-	return &Identity{priv: priv, pub: pub}, nil
+	dseed := make([]byte, SeedSize)
+	if _, err := rand.Read(dseed); err != nil {
+		return nil, fmt.Errorf("generate device seed: %w", err)
+	}
+	return &Identity{priv: priv, pub: pub, deviceSeed: dseed}, nil
+}
+
+// DeviceSeed returns this device's 32-byte seed (secret), or nil on a
+// not-yet-upgraded legacy identity.
+func (id *Identity) DeviceSeed() []byte {
+	if id.deviceSeed == nil {
+		return nil
+	}
+	out := make([]byte, len(id.deviceSeed))
+	copy(out, id.deviceSeed)
+	return out
+}
+
+// ensureDeviceSeed generates a device seed if one isn't present, returning
+// whether it created a new one (so callers know to persist the upgrade).
+func (id *Identity) ensureDeviceSeed() (bool, error) {
+	if id.deviceSeed != nil {
+		return false, nil
+	}
+	dseed := make([]byte, SeedSize)
+	if _, err := rand.Read(dseed); err != nil {
+		return false, fmt.Errorf("generate device seed: %w", err)
+	}
+	id.deviceSeed = dseed
+	return true, nil
+}
+
+// DeviceKey returns the Ed25519 private key derived from the device seed, or nil
+// if the device seed hasn't been set. Used (once multi-device is enabled) for
+// this device's libp2p host key and MLS signing key.
+func (id *Identity) DeviceKey() ed25519.PrivateKey {
+	if id.deviceSeed == nil {
+		return nil
+	}
+	return ed25519.NewKeyFromSeed(id.deviceSeed)
+}
+
+// DevicePublicKey returns the device key's public half, or nil if unset.
+func (id *Identity) DevicePublicKey() ed25519.PublicKey {
+	if id.deviceSeed == nil {
+		return nil
+	}
+	pk, _ := ed25519.NewKeyFromSeed(id.deviceSeed).Public().(ed25519.PublicKey)
+	return pk
+}
+
+// FromSeeds reconstructs an identity from an account seed and a device seed —
+// how a linked device rebuilds its identity after the linking handshake hands it
+// the account seed (it keeps its own device seed). deviceSeed may be nil to
+// leave the device key unset.
+func FromSeeds(accountSeed, deviceSeed []byte) (*Identity, error) {
+	id, err := FromSeed(accountSeed)
+	if err != nil {
+		return nil, err
+	}
+	if deviceSeed != nil {
+		if len(deviceSeed) != SeedSize {
+			return nil, fmt.Errorf("identity: device seed must be %d bytes, got %d", SeedSize, len(deviceSeed))
+		}
+		id.deviceSeed = append([]byte(nil), deviceSeed...)
+	}
+	return id, nil
 }
 
 // FromSeed reconstructs an identity from a 32-byte seed. This is how the

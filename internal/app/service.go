@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -106,6 +107,24 @@ type Service struct {
 	mbxPriv   [32]byte
 	mbxPub    [32]byte
 	bootstrap []peer.AddrInfo
+
+	// Device linking (issuer side): the secret of the currently-displayed link
+	// offer, consumed once a joiner proves it. nil = no active offer. See link.go.
+	linkMu     sync.Mutex
+	linkSecret []byte
+
+	// myCredential is this install's MLS leaf credential — the bare account key
+	// (single-device) or this device's cert (linked). It's what we present when
+	// joining a guild, so it matches our KeyPackage's leaf.
+	myCredential []byte
+
+	// deviceAccounts maps a linked device's public key (hex) to its account
+	// fingerprint, learned from device certs seen in rosters/messages. It lets
+	// presence() recover the ACCOUNT a device-keyed PeerID belongs to, so a
+	// linked phone doesn't surface as a separate "cryptic" peer. Keyed by the
+	// raw pubkey embedded in the PeerID.
+	deviceMu       sync.RWMutex
+	deviceAccounts map[string]string
 }
 
 // Profile is a member's self-asserted presentation: display name, a short
@@ -190,8 +209,18 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		_ = st.Close()
 		return nil, err
 	}
+	// Linked-device mode: if a device marker is present and verifies, this
+	// install uses its own device key for the libp2p PeerID and its device cert
+	// as the MLS credential. Absent → default single-device behavior (account-key
+	// PeerID, bare account credential), unchanged.
+	marker, linked := loadDeviceMarker(cfg.DataDir, id.PublicKey())
+	var hostKey ed25519.PrivateKey
+	if linked {
+		hostKey = id.DeviceKey()
+	}
 	host, err := cnet.New(ctx, cnet.Config{
 		Identity:       id,
+		HostKey:        hostKey,
 		EnableMDNS:     !cfg.DisableMDNS,
 		EnableDHT:      len(bootstrap) > 0,
 		BootstrapPeers: bootstrap,
@@ -214,10 +243,12 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		_ = st.Close()
 		return nil, fmt.Errorf("app: mls storage dir: %w", err)
 	}
-	// Persistent MLS storage + a deterministic signing key derived from the
-	// identity give full restart recovery: group state from disk, signing key
-	// reproduced, so a restarted node can both receive and send.
-	engine, err := mls.NewPersistent([]byte(id.PublicKey()), deriveMLSSigningKey(id), mlsDir)
+	// Persistent MLS storage + a deterministic signing key give full restart
+	// recovery: group state from disk, signing key reproduced, so a restarted
+	// node can both receive and send. mlsIdentity selects the account-key
+	// credential (default) or the device cert + device signing key (linked).
+	mlsCred, mlsSigning := mlsIdentity(id, marker)
+	engine, err := mls.NewPersistent(mlsCred, mlsSigning, mlsDir)
 	if err != nil {
 		_ = host.Close()
 		_ = st.Close()
@@ -225,25 +256,26 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	}
 
 	s := &Service{
-		ctx:            ctx,
-		dataDir:        cfg.DataDir,
-		id:             id,
-		host:           host,
-		ps:             ps,
-		mls:            engine,
-		store:          st,
+		ctx:              ctx,
+		dataDir:          cfg.DataDir,
+		id:               id,
+		host:             host,
+		ps:               ps,
+		mls:              engine,
+		myCredential:     mlsCred,
+		store:            st,
 		guilds:           map[string]*domain.Guild{},
 		channelToGuild:   map[string]string{},
 		pendingDMInvites: map[string]map[string]bool{},
 		voiceRooms:       map[string]context.CancelFunc{},
-		voiceWatched:   map[string]bool{},
-		profiles:       map[string]Profile{},
-		nicks:          map[string]map[string]string{},
-		govOps:         map[string][]govOp{},
-		govState:       map[string]GuildState{},
-		outOfSync:      map[string]bool{},
-		previews:       newPreviewCache(),
-		bootstrap:      bootstrap,
+		voiceWatched:     map[string]bool{},
+		profiles:         map[string]Profile{},
+		nicks:            map[string]map[string]string{},
+		govOps:           map[string][]govOp{},
+		govState:         map[string]GuildState{},
+		outOfSync:        map[string]bool{},
+		previews:         newPreviewCache(),
+		bootstrap:        bootstrap,
 	}
 	s.mbxPriv, s.mbxPub = deriveMailboxKeys(id)
 
@@ -276,6 +308,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// Owner side of the join handshake.
 	host.HandleInvites(s.handleInviteRequest)
 
+	// Issuer side of the device-linking handshake.
+	host.HandleLink(s.handleLinkRequest)
+
 	// Serve history catch-up requests from reconnecting peers.
 	host.HandleSync(s.handleSyncRequest)
 
@@ -297,7 +332,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// reliably (each side re-announces, and learning a new profile triggers a
 	// reply, so both peers end up with each other's names).
 	host.OnPeerConnected(func(p peer.ID) {
-		pp := presenceFor(p)
+		pp := s.presence(p)
 		_ = st.RecordContact(pp.PeerID, pp.Fingerprint)
 		// When a rendezvous node connects, register our mailbox with it and
 		// drain anything deposited while we were offline.
@@ -365,19 +400,79 @@ func (s *Service) Peers() []PeerPresence {
 	ids := s.host.Peers()
 	out := make([]PeerPresence, 0, len(ids))
 	for _, p := range ids {
-		out = append(out, presenceFor(p))
+		out = append(out, s.presence(p))
 	}
 	return out
 }
 
+// NetStatus is an aggregate view of connectivity for the UI's connection
+// indicator. It's cheap to compute and safe to poll.
+type NetStatus struct {
+	Peers            int  `json:"peers"`            // total connected peers
+	BootstrapReached bool `json:"bootstrapReached"` // at least one rendezvous node connected
+	HasBootstrap     bool `json:"hasBootstrap"`     // any rendezvous node is configured
+	OutOfSyncGuilds  int  `json:"outOfSyncGuilds"`  // guilds currently stranded (healing)
+}
+
+// NetworkStatus reports current connectivity for the UI banner: how many peers
+// are connected, whether a rendezvous/relay node is reachable, and how many
+// guilds are mid-heal. Mobile surfaces this as a connecting/online/offline pill.
+func (s *Service) NetworkStatus() NetStatus {
+	ns := NetStatus{
+		Peers:        len(s.host.Peers()),
+		HasBootstrap: len(s.bootstrap) > 0,
+	}
+	ns.BootstrapReached = len(s.mailboxNodes()) > 0
+	s.mu.RLock()
+	for _, g := range s.guilds {
+		if s.outOfSync[g.ID] {
+			ns.OutOfSyncGuilds++
+		}
+	}
+	s.mu.RUnlock()
+	return ns
+}
+
+// Nudge forces a fast reconnect + catch-up, called when the OS resumes the app
+// (mobile) or the user hits "reconnect". It re-dials bootstrap nodes, re-drains
+// the mailbox on any that are up, re-syncs history from every connected peer,
+// and retries heal for stranded guilds. Safe to call repeatedly; each step is
+// idempotent. Runs in the background so callers don't block on the network.
+func (s *Service) Nudge() {
+	go func() {
+		// Re-dial configured rendezvous nodes we've lost.
+		connected := map[peer.ID]bool{}
+		for _, p := range s.host.Peers() {
+			connected[p] = true
+		}
+		for _, pi := range s.bootstrap {
+			if !connected[pi.ID] {
+				ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
+				_ = s.host.Connect(ctx, pi)
+				cancel()
+			}
+		}
+		// Drain the mailbox on every reachable rendezvous node.
+		for _, node := range s.mailboxNodes() {
+			s.registerMailbox(node)
+			s.drainMailbox(node)
+		}
+		// Catch up history from every connected peer, then heal stragglers.
+		for _, p := range s.host.Peers() {
+			s.syncFromPeer(p)
+		}
+		s.healStrandedGuilds()
+	}()
+}
+
 // OnPeerConnected registers a presence-up callback.
 func (s *Service) OnPeerConnected(fn func(PeerPresence)) {
-	s.host.OnPeerConnected(func(p peer.ID) { fn(presenceFor(p)) })
+	s.host.OnPeerConnected(func(p peer.ID) { fn(s.presence(p)) })
 }
 
 // OnPeerDisconnected registers a presence-down callback.
 func (s *Service) OnPeerDisconnected(fn func(PeerPresence)) {
-	s.host.OnPeerDisconnected(func(p peer.ID) { fn(presenceFor(p)) })
+	s.host.OnPeerDisconnected(func(p peer.ID) { fn(s.presence(p)) })
 }
 
 // OnMessage registers a callback fired for every message — sent or received —
@@ -651,6 +746,15 @@ func (s *Service) VerifyFingerprint(fingerprint string) error {
 	return s.store.SetVerifiedByFingerprint(fingerprint)
 }
 
+// ImportVerifiedFingerprints seeds verifications carried over from another
+// device (device linking). Unlike VerifyFingerprint it doesn't require the
+// peers to have been sighted on this device yet. Best-effort per entry.
+func (s *Service) ImportVerifiedFingerprints(fprs []string) {
+	for _, f := range fprs {
+		_ = s.store.ImportVerifiedFingerprint(f)
+	}
+}
+
 // VerifiedFingerprints returns which fingerprints the user has verified.
 func (s *Service) VerifiedFingerprints() map[string]bool {
 	m, err := s.store.VerifiedFingerprints()
@@ -725,14 +829,91 @@ func deriveMLSSigningKey(id *identity.Identity) ed25519.PrivateKey {
 	return ed25519.NewKeyFromSeed(seed)
 }
 
-// presenceFor derives the UI view for a peer, recovering the fingerprint from
-// the Ed25519 key embedded in the libp2p peer ID.
+// accountKeyOf returns the account public key that a member credential
+// authenticates under — the single identity that ownership, bans, roles, and
+// message attribution are all keyed on, regardless of which device produced the
+// leaf. A legacy bare 32-byte credential IS the account key (single-device, and
+// every pre-multi-device client), so it passes straight through — this keeps the
+// whole authorization model unchanged for existing guilds. A device-cert
+// credential (multi-device) carries its accountPub and is only honored when the
+// account's signature over the device key verifies; an unverified/garbage cert
+// returns the raw bytes so a forged cert can't silently masquerade as some other
+// account (it just fails to match any real member).
+func accountKeyOf(cred []byte) []byte {
+	if cert, ok := identity.ParseDeviceCert(cred); ok {
+		if cert.Verify() {
+			return cert.AccountPub
+		}
+		return cred // invalid cert: don't let it resolve to a claimed account
+	}
+	return cred
+}
+
+// accountFingerprintOf is the safety-number fingerprint of the account behind a
+// credential — use this instead of FingerprintOf(cred) everywhere a credential
+// is turned into a member identity, so device leaves map to their account.
+func accountFingerprintOf(cred []byte) string {
+	return identity.FingerprintOf(accountKeyOf(cred))
+}
+
+// AccountKeyOf / AccountFingerprintOf expose credential normalization to the
+// bridge, so a member view collapses all of an account's device leaves onto the
+// single account identity (one row, the account's name, not a per-device cert).
+func (s *Service) AccountKeyOf(cred []byte) []byte         { return accountKeyOf(cred) }
+func (s *Service) AccountFingerprintOf(cred []byte) string { return accountFingerprintOf(cred) }
+
+// presenceFor derives the UI view for a peer from the key embedded in its
+// PeerID. This is correct for a legacy account-key PeerID (PeerID == account);
+// a linked device's PeerID is its device key, which this can't map to an
+// account — use Service.presence for that.
 func presenceFor(p peer.ID) PeerPresence {
 	pp := PeerPresence{PeerID: p.String()}
 	if pub, err := p.ExtractPublicKey(); err == nil {
 		if raw, err := pub.Raw(); err == nil {
 			pp.Fingerprint = identity.FingerprintOf(raw)
 		}
+	}
+	return pp
+}
+
+// learnDeviceCert records the device→account mapping from a credential, so a
+// later presence() lookup for that device's PeerID resolves to the account.
+// A no-op for a legacy bare credential (PeerID already == account).
+func (s *Service) learnDeviceCert(cred []byte) {
+	cert, ok := identity.ParseDeviceCert(cred)
+	if !ok || !cert.Verify() {
+		return
+	}
+	key := hex.EncodeToString(cert.DevicePub)
+	fpr := identity.FingerprintOf(cert.AccountPub)
+	s.deviceMu.Lock()
+	if s.deviceAccounts == nil {
+		s.deviceAccounts = map[string]string{}
+	}
+	s.deviceAccounts[key] = fpr
+	s.deviceMu.Unlock()
+}
+
+// presence is the account-aware presenceFor: it resolves a linked device's
+// PeerID (its device key) to the account fingerprint via the learned map,
+// falling back to the raw key's fingerprint for a legacy account-key PeerID.
+func (s *Service) presence(p peer.ID) PeerPresence {
+	pp := PeerPresence{PeerID: p.String()}
+	pub, err := p.ExtractPublicKey()
+	if err != nil {
+		return pp
+	}
+	raw, err := pub.Raw()
+	if err != nil {
+		return pp
+	}
+	s.deviceMu.RLock()
+	fpr, isDevice := s.deviceAccounts[hex.EncodeToString(raw)]
+	s.deviceMu.RUnlock()
+	if isDevice {
+		pp.Fingerprint = fpr
+	} else {
+		pp.Fingerprint = identity.FingerprintOf(raw)
 	}
 	return pp
 }
