@@ -81,10 +81,11 @@
   let pos = $state(null); // {left, top} once measured
 
   // Measure then place: above the anchor if it fits, else below; clamp to
-  // the viewport with an 8px margin.
+  // the viewport with an 8px margin. (Desktop only — the mobile presentation
+  // is a bottom sheet and ignores the anchor entirely.)
   $effect(() => {
     const pop = S.profilePopover;
-    if (!pop || !card) {
+    if (!pop || !card || S.isMobile) {
       pos = null;
       return;
     }
@@ -247,11 +248,16 @@
 />
 
 {#if S.profilePopover && mem}
+  {#if S.isMobile}
+    <!-- Sheet presentation gets a dimming scrim; tap it to dismiss. -->
+    <button class="pp-scrim" onclick={closeProfilePopover} aria-label="Close profile"></button>
+  {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="pop"
+    class:sheet={S.isMobile}
     bind:this={card}
-    style={pos ? `left:${pos.left}px;top:${pos.top}px` : "opacity:0;pointer-events:none"}
+    style={S.isMobile ? "" : pos ? `left:${pos.left}px;top:${pos.top}px` : "opacity:0;pointer-events:none"}
     role="dialog"
     aria-label="{mem.name || 'Member'} profile"
     onmouseenter={holdProfilePopover}
@@ -450,6 +456,68 @@
     .pop {
       animation: none;
     }
+  }
+  /* ---- mobile: the same card as a bottom sheet ---- */
+  .pp-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 400;
+    border: none;
+    animation: pp-fade 0.16s ease;
+  }
+  @keyframes pp-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  .pop.sheet {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    max-height: 84vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    z-index: 401;
+    border: none;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: pp-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes pp-up {
+    from {
+      transform: translateY(100%);
+    }
+  }
+  .pop.sheet .banner {
+    height: 84px;
+  }
+  .pop.sheet .body {
+    padding: 8px 18px 18px;
+    gap: 6px;
+  }
+  .pop.sheet .name-row strong {
+    font-size: 19px;
+  }
+  .pop.sheet .bio,
+  .pop.sheet .status-text {
+    font-size: 14px;
+  }
+  /* 16px inputs: stops iOS auto-zoom on focus, and finger-sized buttons. */
+  .pop.sheet input {
+    font-size: 16px;
+    padding: 10px 12px;
+  }
+  .pop.sheet .mod-btn,
+  .pop.sheet .verify-btn,
+  .pop.sheet .nick-edit {
+    min-height: 42px;
+    font-size: 14px;
+  }
+  .pop.sheet .dm-send {
+    min-width: 48px;
   }
   .banner {
     height: 64px;

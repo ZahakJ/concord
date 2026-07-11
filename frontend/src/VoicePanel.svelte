@@ -720,4 +720,27 @@
   .ctl.hangup:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
   }
+
+  /* ---- touch adjustments: call controls you can't fat-finger. ---- */
+  @media (pointer: coarse) {
+    .controls {
+      gap: 14px;
+      padding: 10px 0 4px;
+    }
+    .ctl {
+      width: 52px;
+      height: 52px;
+    }
+    .fbtn {
+      width: 40px;
+      height: 40px;
+    }
+    .strip .thumb {
+      width: 96px;
+      height: 56px;
+    }
+    .strip {
+      gap: 10px;
+    }
+  }
 </style>

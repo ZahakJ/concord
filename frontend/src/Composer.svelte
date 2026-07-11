@@ -18,6 +18,18 @@
   let lastTypingSent = 0;
 
   const ch = $derived(activeChannel());
+  // Touch layout: hide the desktop formatting toolbar (it can't hover-reveal on
+  // touch and just eats a row), send with an explicit button instead of Enter
+  // (Enter is a newline on a phone keyboard), and roomier tap targets.
+  // `mobile` drives LAYOUT (S.isMobile also matches a narrow desktop window);
+  // Enter behavior keys off actual pointer coarseness so a physical keyboard
+  // in a narrow window keeps Enter-to-send.
+  const mobile = $derived(S.isMobile);
+  const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+  const canSend = $derived(!!draft.trim() && !!ch);
+  // Mobile markdown lives behind a toggle rather than an always-on toolbar row.
+  let showFmt = $state(false);
+  const showFmtBar = $derived(!mobile || showFmt);
 
   export function focus() {
     composerEl?.focus();
@@ -319,9 +331,13 @@
       }
       return;
     }
-    // Enter sends; Shift+Enter inserts a newline (textarea default). Ignore
-    // Enter mid-IME-composition so CJK candidate selection doesn't send.
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    // Physical keyboard: Enter sends, Shift+Enter is a newline. Touch: Enter is
+    // always a newline (you send with the button) — matches every phone
+    // messenger and avoids firing off half-typed messages on the on-screen
+    // keyboard. Keyed on pointer coarseness, not layout: a narrow desktop
+    // window keeps Enter-to-send. Ignore Enter mid-IME-composition so CJK
+    // candidate selection doesn't send.
+    if (!coarse && e.key === "Enter" && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       send();
     } else if (e.key === "ArrowUp" && !draft) {
@@ -566,7 +582,7 @@
     <EmojiPicker onPick={pickEmoji} onClose={() => (S.pickerTarget = null)} />
   {/if}
 
-  <form class="composer" onsubmit={send}>
+  <form class="composer" class:mobile onsubmit={send}>
     <input
       type="file"
       bind:this={fileInput}
@@ -576,6 +592,7 @@
         e.target.value = "";
       }}
     />
+    {#if showFmtBar}
     <div class="fmt-bar" role="toolbar" aria-label="Text formatting">
       {#each FMT_GROUPS as group, gi (gi)}
         {#if gi > 0}<span class="fmt-sep" aria-hidden="true"></span>{/if}
@@ -594,6 +611,7 @@
         {/each}
       {/each}
     </div>
+    {/if}
     <div class="input-box" class:focused={ch}>
       <button
         type="button"
@@ -617,6 +635,19 @@
         onpaste={onPaste}
         onblur={() => setTimeout(() => (suggest = null), 150)}
       ></textarea>
+      {#if mobile}
+        <!-- Formatting lives behind a toggle on phones — no room for a
+             permanent toolbar row, and hover-reveal doesn't exist on touch. -->
+        <button
+          type="button"
+          class="iconbtn fmt-toggle"
+          class:on={showFmt}
+          title="Formatting"
+          aria-label="Toggle formatting toolbar"
+          disabled={!ch}
+          onclick={() => (showFmt = !showFmt)}
+        >Aa</button>
+      {/if}
       <button
         type="button"
         class="iconbtn"
@@ -627,6 +658,12 @@
       >
         <Icon name="smile" size={22} />
       </button>
+      {#if mobile}
+        <!-- Explicit send button: Enter is a newline on the phone keyboard. -->
+        <button type="submit" class="sendbtn" aria-label="Send" disabled={!canSend}>
+          <Icon name="send" size={17} />
+        </button>
+      {/if}
     </div>
   </form>
 </div>
@@ -714,7 +751,9 @@
   }
   .suggest-pop {
     position: absolute;
-    bottom: 54px;
+    /* Anchor to the wrap's top edge, not a fixed offset — the mobile input is
+       taller than desktop's, and a hardcoded bottom overlapped it. */
+    bottom: calc(100% + 6px);
     left: 60px;
     background: var(--bg-1);
     border: 1px solid var(--border);
@@ -892,5 +931,56 @@
   .mini:hover {
     background: var(--bg-3);
     color: var(--text);
+  }
+
+  /* ---- mobile composer ---- */
+  .composer.mobile {
+    padding: 0 10px calc(10px + env(safe-area-inset-bottom));
+  }
+  /* 16px stops iOS WebKit from auto-zooming the page onto a focused input;
+     also simply more readable at arm's length. */
+  .composer.mobile .draft {
+    font-size: 16px;
+    padding: 10px 4px;
+  }
+  /* On touch the fmt bar can't hover-reveal — when toggled on, show it at
+     full strength and give the buttons real finger targets. */
+  .composer.mobile .fmt-bar {
+    opacity: 1;
+    padding-bottom: 6px;
+    gap: 4px;
+  }
+  .composer.mobile .fmtbtn {
+    width: 38px;
+    height: 32px;
+  }
+  .fmt-toggle {
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    line-height: 1;
+  }
+  .fmt-toggle.on {
+    color: var(--accent);
+  }
+  .sendbtn {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    padding: 0; /* beat the global button padding — it un-centers the icon */
+    flex-shrink: 0;
+    align-self: flex-end;
+    margin: 2px 0 2px 2px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    transition: opacity 0.12s ease, transform 0.12s ease;
+  }
+  .sendbtn:active:not(:disabled) {
+    transform: scale(0.9);
+  }
+  .sendbtn:disabled {
+    opacity: 0.35;
   }
 </style>

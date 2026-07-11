@@ -63,9 +63,15 @@
     align-self: flex-start;
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
     font-size: 13px;
-    padding: 7px 14px;
+    font-weight: 600;
+    padding: 7px 16px;
+    transition: transform 0.12s ease;
+  }
+  .copy:active {
+    transform: scale(0.97);
   }
   .copy.copied {
     background: var(--ok);
@@ -76,5 +82,12 @@
     gap: 6px;
     margin: 0;
     font-size: 12px;
+  }
+  /* Phone: the copy action is the whole point — make it unmissable. */
+  @media (pointer: coarse), (max-width: 700px) {
+    .copy {
+      align-self: stretch;
+      min-height: 48px;
+    }
   }
 </style>

@@ -3,7 +3,7 @@
     EMOJI, CATEGORIES, searchEmoji, recentEmoji, pushRecentEmoji,
     SKIN_TONES, TONABLE, applyTone, emojiTone, setEmojiTone, emojiName,
   } from "./lib/emoji.js";
-  import { activeGuild } from "./lib/state.svelte.js";
+  import { S, activeGuild } from "./lib/state.svelte.js";
 
   // Searchable, tabbed emoji grid. onPick(emoji) fires on selection. Closes on
   // Escape or an outside click (a short guard ignores the opening click).
@@ -65,8 +65,18 @@
 <svelte:window onpointerdown={onOutside} onkeydown={(e) => e.key === "Escape" && onClose()} />
 
 <div class="picker" role="dialog">
+  {#if S.isMobile}
+    <!-- Scrim lives INSIDE .picker (z-index:-1 within its stacking context):
+         taps on it close the picker without also landing on the chat below,
+         it matches the .picker exclusion in the shell's swipe handler, and
+         the window-pointerdown outside-close skips it (closest(".picker")). -->
+    <button class="ep-scrim" aria-label="Close emoji picker" onclick={onClose}></button>
+  {/if}
   <div class="row">
-    <input placeholder="Search emoji…" bind:value={query} autofocus />
+    <!-- svelte-ignore a11y_autofocus -->
+    <!-- No autofocus on touch: it would pop the keyboard over the grid the
+         moment the picker opens. -->
+    <input placeholder="Search emoji…" bind:value={query} autofocus={!S.isMobile} />
     <div class="tones">
       <button
         class="mini tone-btn"
@@ -194,6 +204,22 @@
   .tones {
     position: relative;
     display: flex;
+  }
+  /* Quiet header buttons (skin tone, ✕): without this they fall through to
+     the global accent-filled button style — two loud blue boxes by the search. */
+  .mini {
+    display: grid;
+    place-items: center;
+    min-width: 36px;
+    min-height: 36px;
+    padding: 0;
+    background: transparent;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+  }
+  .mini:hover {
+    background: var(--bg-3);
+    color: var(--text);
   }
   .tone-btn {
     font-size: 16px;
@@ -336,5 +362,73 @@
   .phint {
     font-size: 12px;
     color: var(--text-muted);
+  }
+  /* Hidden on desktop (anchored popover closes via outside-click). */
+  .ep-scrim {
+    display: none;
+  }
+  /* Mobile: a full-width bottom panel with finger-sized cells and tabs,
+     instead of the small anchored popover. */
+  @media (pointer: coarse), (max-width: 700px) {
+    .ep-scrim {
+      display: block;
+      position: fixed;
+      inset: 0;
+      z-index: -1; /* behind the panel, above everything under it */
+      background: rgba(0, 0, 0, 0.5);
+      border: none;
+      border-radius: 0;
+      animation: ep-fade 0.16s ease;
+    }
+    @keyframes ep-fade {
+      from {
+        opacity: 0;
+      }
+    }
+    .picker {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      width: auto;
+      border-left: none;
+      border-right: none;
+      border-bottom: none;
+      border-radius: 16px 16px 0 0;
+      padding-bottom: calc(10px + env(safe-area-inset-bottom));
+      box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+      z-index: 90;
+    }
+    .row input {
+      font-size: 16px; /* stops iOS auto-zoom on focus */
+    }
+    .row :global(.mini) {
+      min-width: 44px;
+      min-height: 40px;
+    }
+    .tabs {
+      justify-content: space-between;
+    }
+    .tab {
+      font-size: 20px;
+      padding: 9px 8px 11px;
+      min-width: 44px;
+    }
+    .grid {
+      height: 42vh;
+      gap: 4px;
+    }
+    .cell {
+      font-size: 27px;
+      padding: 8px 0;
+      min-height: 44px;
+    }
+    .cimg {
+      width: 30px;
+      height: 30px;
+    }
+    .pchar {
+      font-size: 30px;
+    }
   }
 </style>

@@ -30,6 +30,7 @@
     activeGuild,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { longpress } from "./lib/touch.js";
   import { PERM, has } from "./lib/perms.js";
   import { recentEmoji, pushRecentEmoji } from "./lib/emoji.js";
 
@@ -39,6 +40,30 @@
 
   // Moderators (Manage Messages) can delete anyone's message.
   const canDeleteOthers = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
+
+  // Touch device? Drives which gesture owns the context menu (see the .msg div).
+  const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+
+  // Long-press a reaction pill: who reacted — the touch counterpart of the
+  // hover card. Rows are informational; tapping one just closes the sheet.
+  function whoReacted(emoji, fprs) {
+    return (e) =>
+      openContextMenu(
+        e,
+        fprs.map((f) => ({ label: memberByFpr(f)?.name || f.slice(0, 9), onClick: () => {} })),
+        { title: `${emoji} reactions` },
+      );
+  }
+
+  // Svelte delegates touchstart at the root, so an ontouchstart attribute
+  // would run AFTER the .msg longpress action's native listener — too late to
+  // stop it. A native listener on the pill stops the bubble before .msg arms,
+  // so a pill long-press opens only the who-reacted sheet, never both.
+  function stopTouch(node) {
+    const h = (ev) => ev.stopPropagation();
+    node.addEventListener("touchstart", h, { passive: true });
+    return { destroy: () => node.removeEventListener("touchstart", h) };
+  }
 
   // Quick-reaction bar: the viewer's recently-used emoji padded with a
   // default set, capped at 5. Computed once per row (fresh rows pick up new
@@ -201,11 +226,25 @@
         danger: true,
         onClick: () => deleteMsg(m),
       },
-    ]);
+    ], {
+      // Mobile action sheet only: tap-to-react row on top, recents first
+      // (desktop's anchored popover ignores these extras).
+      quick: { emojis: quickEmojis, onPick: reactWithBounce },
+    });
   }
 </script>
 
-<div class="msg" class:compact class:enter={entering} data-msg-id={m.id} oncontextmenu={messageMenu}>
+<!-- Touch: only the longpress action opens the menu (Android's WebView also
+     synthesizes contextmenu on long-press — letting both run opens the sheet
+     twice: double haptic + re-keyed rows). Mouse right-click keeps contextmenu. -->
+<div
+  class="msg"
+  class:compact
+  class:enter={entering}
+  data-msg-id={m.id}
+  oncontextmenu={coarse ? (e) => e.preventDefault() : messageMenu}
+  use:longpress={{ handler: messageMenu }}
+>
   {#if compact}
     <span class="gutter-time muted">{fmtTime(m.sent)}</span>
   {:else}
@@ -320,6 +359,8 @@
               class="reaction"
               class:mine={fprs.includes(S.identity.fingerprint)}
               onclick={() => reactWithBounce(emoji)}
+              use:stopTouch
+              use:longpress={{ handler: whoReacted(emoji, fprs) }}
             >
               <span class="remoji" class:bounce={bounced === emoji}>
                 {#if cimg}<img class="cemoji" src={cimg} alt={emoji} />{:else}{emoji}{/if}
@@ -698,6 +739,20 @@
   .msg:focus-within .msg-actions {
     opacity: 1;
     transform: none;
+  }
+  /* Touch devices have no hover — a tap would emulate it and pop this bar up
+     right under the finger, causing accidental reacts/replies. Long-press
+     (action sheet) is the mobile entry point instead. */
+  @media (pointer: coarse) {
+    .msg-actions {
+      display: none;
+    }
+    /* Long-press opens the action sheet — don't let the WebView start a text
+       selection under it ("Copy Text" in the sheet covers copying). */
+    .msg {
+      -webkit-user-select: none;
+      user-select: none;
+    }
   }
   .grp {
     display: flex;

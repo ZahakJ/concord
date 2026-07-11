@@ -5,6 +5,8 @@
 
   const P = {
     hash: "M5 2 4 14 M12 2 11 14 M2.5 5.5h11 M2 10.5h11",
+    menu: "M2.5 4.5h11 M2.5 8h11 M2.5 11.5h11",
+    devices: "M1.5 3.5h8v6h-8z M3 11.5h5 M11 6h3v7.5h-3z M12.5 12h.01",
     pin: "M6 2h4 M8 2v5 M4.5 7h7l-1 4h-5z M8 11v3.5",
     reply: "M6.5 3.5 3 7l3.5 3.5 M3 7h6a4 4 0 0 1 4 4v1.5",
     forward: "M9.5 3.5 13 7l-3.5 3.5 M13 7H7a4 4 0 0 0-4 4v1.5",
@@ -49,6 +51,13 @@
     codeblock: "M2.5 3.5h11v9h-11z M6.5 6 4.5 8l2 2 M9.5 6l2 2-2 2",
     quote: "M3 2.5v11 M6.5 4.5H13 M6.5 8h6.5 M6.5 11.5h4.5",
     link: "M6.8 9.2l2.4-2.4 M5.6 6.8 3.9 8.5a2.6 2.6 0 0 0 3.6 3.6l1.7-1.7 M10.4 9.2l1.7-1.7a2.6 2.6 0 0 0-3.6-3.6L6.8 5.6",
+    // Mobile composer: paper-plane send button.
+    send: "M14.5 1.5 1.5 7.2 6.9 9.1 8.8 14.5z M14.5 1.5 6.9 9.1",
+    // Mobile top bar: vertical-ellipsis "more" menu.
+    dots: "M8 3.4h.01 M8 8h.01 M8 12.6h.01",
+    // Call events (missed-call lines in DMs).
+    phone:
+      "M4.4 2.5c.4 0 .8.2.9.6l.9 2.1a1 1 0 0 1-.2 1.1L4.8 7.5a9.8 9.8 0 0 0 3.7 3.7l1.2-1.2a1 1 0 0 1 1.1-.2l2.1.9c.4.1.6.5.6.9v1.4c0 .6-.5 1.1-1.1 1A11.9 11.9 0 0 1 2.5 3.6c-.1-.6.4-1.1 1-1.1z",
   };
 
   // The Concorde logo is a filled silhouette (not stroked like the icon set),

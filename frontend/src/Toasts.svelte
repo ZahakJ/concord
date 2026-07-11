@@ -41,7 +41,9 @@
     position: fixed;
     bottom: 16px;
     right: 16px;
-    z-index: 210;
+    /* Above the bottom sheets/scrims (400/401) so a toast fired from a sheet
+       action is visible; still under the app lock (500). */
+    z-index: 450;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -109,5 +111,24 @@
   .t-close:hover {
     color: var(--text);
     background: var(--bg-3);
+  }
+
+  /* ---- touch adjustments: top-center, below the mobile top bar, so toasts
+     never cover the composer or hide behind the keyboard. ---- */
+  @media (pointer: coarse) {
+    .toasts {
+      bottom: auto;
+      top: calc(62px + env(safe-area-inset-top));
+      right: 50%;
+      transform: translateX(50%);
+      width: min(420px, calc(100vw - 24px));
+    }
+    .toast {
+      font-size: 14px;
+    }
+    .t-close {
+      width: 32px;
+      height: 32px;
+    }
   }
 </style>

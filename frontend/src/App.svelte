@@ -19,13 +19,18 @@
     setVideoStream,
     clearVideoStreams,
     incomingCall,
+    isDMChannel,
     jumpToChannel,
     checkForUpdate,
     dismissUpdate,
     setChannelTopic,
+    nudge,
   } from "./lib/state.svelte.js";
 
+  import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
+  import Icon from "./Icon.svelte";
   import Login from "./Login.svelte";
+  import MobileShell from "./MobileShell.svelte";
   import GuildRail from "./GuildRail.svelte";
   import ChannelList from "./ChannelList.svelte";
   import ChatHeader from "./ChatHeader.svelte";
@@ -54,6 +59,7 @@
   import ModalInvite from "./modals/ModalInvite.svelte";
   import ModalProfile from "./modals/ModalProfile.svelte";
   import ModalSettings from "./modals/ModalSettings.svelte";
+  import ModalLinkDevice from "./modals/ModalLinkDevice.svelte";
   import ModalAppearance from "./modals/ModalAppearance.svelte";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
 
@@ -110,7 +116,8 @@
   // Skip the login screen if the backend is already unlocked (e.g. after a
   // browser refresh — the Go process stays running and holds the session).
   onMount(async () => {
-    checkForUpdate(); // fire-and-forget; works on the login screen too
+    // Skip the self-update check on mobile — the app stores own updates there.
+    if (!window.Capacitor) checkForUpdate(); // fire-and-forget; works on the login screen too
     try {
       if (await api.session()) await start();
     } catch {
@@ -122,11 +129,102 @@
     await onLogin();
     requestPermission();
     installShortcuts();
+    wireMobileLifecycle();
+    registerPushToken();
+    applyStayConnected();
+    // App lock: the Go core (and its unlocked session) stays alive in the
+    // background, so reopening the app skips the passphrase. With the pref on,
+    // gate re-entry behind the device biometric instead of walking straight in.
+    if (shouldAppLock()) {
+      appLocked = true;
+      tryBioGate();
+    }
+  }
+
+  // ---- app lock (biometric re-entry gate) ----
+  let appLocked = $state(false);
+  const shouldAppLock = () => S.isMobile && S.prefs.appLock === true && bioEnrolled();
+  async function tryBioGate() {
+    const pass = await unlockWithBiometric(); // retrieval is biometric-gated
+    if (pass) appLocked = false;
+  }
+
+  // "Stay connected" (Android): run a foreground service so the P2P node keeps
+  // receiving messages while the app is backgrounded. Default on; a settings
+  // toggle (S.prefs.stayConnected) can turn it off. No-op on web/desktop/iOS.
+  function applyStayConnected() {
+    const core = window.Capacitor?.Plugins?.ConcordCore;
+    if (!core?.startBackground) return;
+    if (S.prefs.stayConnected === false) core.stopBackground?.().catch(() => {});
+    else core.startBackground().catch(() => {});
+  }
+
+  // Acquire the platform push token (FCM on Android, APNs on iOS) and register
+  // it with the rendezvous mailbox, so deposits that land while the app is
+  // backgrounded trigger a contentless wake.
+  //
+  // DISABLED until push credentials are configured: PushNotifications.register()
+  // calls FirebaseMessaging, which throws a NATIVE exception on a real device
+  // when there's no google-services.json — and that exception crashes the app
+  // (it's on a background handler thread, so a JS try/catch can't stop it).
+  // Foreground delivery + mailbox-drain-on-open work fine without this. To
+  // enable: add google-services.json (Android) / APNs entitlement (iOS), then
+  // set window.__CONCORD_PUSH = true at build time.
+  async function registerPushToken() {
+    if (!window.__CONCORD_PUSH) return; // push not provisioned — do NOT call register()
+    const cap = typeof window !== "undefined" ? window.Capacitor : null;
+    const Push = cap?.Plugins?.PushNotifications;
+    if (!Push) return;
+    try {
+      const perm = await Push.requestPermissions();
+      if (perm.receive !== "granted") return;
+      Push.addListener("registration", (t) => {
+        const platform = cap.getPlatform?.() === "ios" ? "apns" : "fcm";
+        api.registerPush(platform, t.value).catch(() => {});
+      });
+      Push.addListener("pushNotificationReceived", () => nudge());
+      await Push.register();
+    } catch {
+      /* no push available — foreground delivery still works */
+    }
+  }
+
+  // On Capacitor, hook the OS: hardware back closes an open drawer/sheet before
+  // leaving the app, and resuming from the background triggers a fast reconnect
+  // + resync (the libp2p sockets die while suspended). No-op on web/desktop.
+  function wireMobileLifecycle() {
+    const cap = typeof window !== "undefined" ? window.Capacitor : null;
+    const App = cap?.Plugins?.App;
+    if (!App) return;
+    App.addListener("backButton", ({ canGoBack }) => {
+      if (S.drawerOpen || S.membersOpen) {
+        S.drawerOpen = false;
+        S.membersOpen = false;
+      } else if (S.modal) {
+        S.modal = null;
+      } else if (!canGoBack) {
+        App.exitApp();
+      }
+    });
+    App.addListener("resume", () => {
+      nudge();
+      if (appLocked) tryBioGate();
+    });
+    // Lock the moment the app leaves the foreground, so the next open (and
+    // the OS app-switcher, once the WebView repaints) meets the gate.
+    App.addListener("pause", () => {
+      if (S.ready && shouldAppLock()) appLocked = true;
+    });
   }
 
   // ---- voice lifecycle (owns the mesh; state lives in S) ----
 
   let joining = false;
+  // Missed-call detection: did anyone else ever show up during this call, and
+  // did we enter it by accepting someone's ring (vs. initiating)? The caller's
+  // client is the source of truth for the "Missed call" line.
+  let voiceHadPeer = false;
+  let voiceWasAccept = false;
   async function joinVoice(channelId = S.activeChannelId) {
     if (!channelId || joining) return; // re-entrancy guard: no orphan meshes
     if (S.voice) {
@@ -137,11 +235,16 @@
       if (inThisRoom) return;
     }
     joining = true;
+    voiceHadPeer = false;
+    voiceWasAccept = incomingCall()?.channelId === channelId;
     const mesh = new VoiceMesh({
       selfPeerId: S.identity.peerId,
       channelId,
       relay: api.relaySignal,
-      onRoster: (ids) => (S.voiceParticipants = ids),
+      onRoster: (ids) => {
+        S.voiceParticipants = ids;
+        if (ids.length > 0) voiceHadPeer = true;
+      },
       onSpeaking: (keys) => (S.voiceSpeaking = keys),
       onVideo: (key, stream, meta) => setVideoStream(key, stream, meta),
       onVideoState: (kind, on) => {
@@ -200,6 +303,12 @@
     clearVideoStreams();
     playVoiceLeave();
     await api.leaveVoice(ch);
+    // A DM ring we initiated where the other side never showed → leave a quiet
+    // "Missed call" line in the conversation (both sides render it; it never
+    // pings or counts as unread — any non-"" kind is exempt).
+    if (!voiceHadPeer && !voiceWasAccept && isDMChannel(ch)) {
+      api.sendCallNotice(ch, "call-missed", "Missed call").catch(() => {});
+    }
   }
 
   function toggleMicMute() {
@@ -302,6 +411,15 @@
 
 {#if !S.ready}
   <Login onLogin={start} />
+{:else if S.isMobile}
+  <MobileShell
+    bind:composer
+    onJoinVoice={joinVoice}
+    onLeaveVoice={leaveVoice}
+    onToggleMute={toggleMicMute}
+    onToggleShare={toggleScreenShare}
+    onToggleCamera={toggleCamera}
+  />
 {:else}
   <div class="app" class:no-panel={isDM || !hasChannel}>
     <GuildRail />
@@ -340,7 +458,8 @@
     {#if !isDM && hasChannel}
       <MemberPanel />
     {/if}
-  </div>
+  </div>{/if}
+{#if S.ready}
 
   {#if S.quickSwitcher}
     <QuickSwitcher />
@@ -375,6 +494,27 @@
   {/if}
 
   <Toasts />
+
+  <!-- App lock: fully opaque (privacy in the app switcher), above everything. -->
+  {#if appLocked}
+    <div class="lock-gate" role="dialog" aria-label="Locked">
+      <div class="lock-inner">
+        <span class="lock-badge"><Icon name="lock" size={26} /></span>
+        <h2>Concord is locked</h2>
+        <p class="muted">Unlock with your fingerprint or face.</p>
+        <button class="lock-btn" onclick={tryBioGate}>Unlock</button>
+        <button
+          class="lock-alt"
+          onclick={async () => {
+            await api.logout();
+            location.reload();
+          }}
+        >
+          Use passphrase instead
+        </button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Modals -->
   {#if S.modal?.kind === "create"}
@@ -430,6 +570,8 @@
     <ModalProfile identity={S.identity} onSubmit={saveProfile} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "settings"}
     <ModalSettings onClose={() => (S.modal = null)} onSaved={() => flash("Rendezvous saved", "success")} />
+  {:else if S.modal?.kind === "linkDevice"}
+    <ModalLinkDevice onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "appearance"}
     <ModalAppearance onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "join"}
@@ -448,6 +590,58 @@
 {/if}
 
 <style>
+  /* App lock overlay: opaque so chat content is never visible behind it. */
+  .lock-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    display: grid;
+    place-items: center;
+    background: var(--bg-2);
+  }
+  .lock-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    text-align: center;
+    padding: 24px;
+  }
+  .lock-badge {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .lock-gate h2 {
+    margin: 0;
+    font-size: 20px;
+  }
+  .lock-gate p {
+    margin: 0 0 8px;
+    font-size: 14px;
+  }
+  .lock-btn {
+    min-width: 200px;
+    min-height: 48px;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: var(--radius-md);
+  }
+  .lock-alt {
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 13px;
+    padding: 10px;
+  }
+  .lock-alt:hover {
+    background: transparent;
+    color: var(--text);
+  }
   .app {
     display: grid;
     grid-template-columns: 64px 220px 1fr 260px;

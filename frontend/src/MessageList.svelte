@@ -150,6 +150,16 @@
     return d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
   }
 
+  // Missed-call lines carry their own small timestamp (regular messages get
+  // theirs from Message.svelte; system join notices don't need one).
+  function fmtCallTime(iso) {
+    try {
+      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return "";
+    }
+  }
+
   // Drag & drop attachments over the feed.
   let dragOver = $state(false);
   let dragDepth = 0;
@@ -269,6 +279,20 @@
           {row.m.content}
         </span>
       </div>
+    {:else if row.m.kind === "call-missed"}
+      <!-- A DM ring that went unanswered. The caller's client emits it, both
+           sides render it; never pings (non-"" kinds are unread-exempt). -->
+      <div class="system-msg call-missed" class:enter={row.m.id === animateId}>
+        <span>
+          <span class="call-ic"><Icon name="phone" size={11} /></span>
+          {#if row.m.sender === S.identity.fingerprint}
+            You called — no answer
+          {:else}
+            Missed call from <strong>{row.m.senderName || row.m.sender.slice(0, 9)}</strong>
+          {/if}
+          <span class="call-time">{fmtCallTime(row.m.sent)}</span>
+        </span>
+      </div>
     {:else}
       <Message
         m={row.m}
@@ -288,7 +312,13 @@
   {/each}
 
   {#if S.newBelow}
-    <button class="new-below" onclick={scrollSoon}>
+    <button
+      class="new-below"
+      role="status"
+      aria-live="polite"
+      aria-label="New messages below — jump to latest"
+      onclick={scrollSoon}
+    >
       New messages <span class="arrow">↓</span>
     </button>
   {:else if !atBottom}
@@ -457,6 +487,10 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
+    /* Never let one long unbroken string (URL, fingerprint, code) give the
+       whole chat a horizontal scrollbar — content wraps or scrolls inside its
+       own box (pre/code have their own overflow-x). */
+    overflow-x: hidden;
     /* Spacing tracks the density vars (Appearance: Cozy/Compact) in app.css. */
     padding: var(--feed-pad, 16px);
     display: flex;
@@ -600,47 +634,84 @@
   .system-msg strong {
     color: var(--text);
   }
+  /* Missed-call line: same quiet centered stripe as system notices, with a
+     red-tinted phone badge so it reads as a call event at a glance. */
+  .call-missed .call-ic {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--danger, #f04747) 16%, transparent);
+    color: var(--danger, #f04747);
+  }
+  .call-missed .call-time {
+    color: var(--text-faint);
+    font-size: 11px;
+    margin-left: 2px;
+  }
+  /* The return-to-latest cluster: both buttons share the accent-gradient
+     "floating" look — a soft colored glow instead of the old flat chip. */
   .new-below {
     position: sticky;
-    bottom: 6px;
+    bottom: 10px;
     align-self: center;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    border-radius: 14px;
-    background: var(--accent);
+    gap: 7px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
     color: white;
     font-size: 12px;
     font-weight: 600;
-    box-shadow: var(--shadow-pop);
+    letter-spacing: 0.01em;
+    box-shadow: var(--float-shadow);
     z-index: 15;
+    animation: float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
+    transition: transform 0.15s ease;
+  }
+  .new-below:hover {
+    transform: translateY(-2px);
   }
   .new-below .arrow {
     font-size: 13px;
   }
   .jump-bottom {
     position: sticky;
-    bottom: 6px;
+    bottom: 10px;
     align-self: flex-end;
-    width: 38px;
-    height: 38px;
+    width: 42px;
+    height: 42px;
     border-radius: 50%;
     display: grid;
     place-items: center;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    color: var(--text);
-    box-shadow: var(--shadow-pop);
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    border: none;
+    color: #fff;
+    box-shadow: var(--float-shadow);
     z-index: 15;
     padding: 0;
+    animation: float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
+    transition: transform 0.15s ease, filter 0.15s ease;
   }
   .jump-bottom :global(svg) {
-    transform: rotate(90deg);
+    transform: rotate(90deg) translateX(1px);
   }
   .jump-bottom:hover {
-    background: var(--bg-3);
-    color: var(--accent-hover);
+    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+    color: #fff;
+    transform: translateY(-2px);
+    filter: brightness(1.08);
+  }
+  .jump-bottom:active {
+    transform: scale(0.92);
+  }
+  @keyframes float-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.85);
+    }
   }
   .pin-jump {
     flex: 1;
@@ -711,6 +782,38 @@
     100% {
       background: transparent;
       box-shadow: inset 2px 0 0 transparent;
+    }
+  }
+
+  /* ---- touch adjustments ---- */
+  @media (pointer: coarse) {
+    /* Finger-sized jump-to-latest, lifted clear of the composer edge. */
+    .jump-bottom {
+      width: 46px;
+      height: 46px;
+      bottom: 10px;
+    }
+    .new-below {
+      padding: 10px 18px;
+      font-size: 13px;
+      bottom: 10px;
+    }
+    /* A touch more air between message groups at arm's length. */
+    .feed {
+      gap: calc(var(--msg-gap, 12px) + 4px);
+    }
+    .day-divider {
+      font-size: 12px;
+      margin: 10px 0 -2px;
+    }
+    .day-divider span {
+      padding: 3px 12px;
+    }
+    /* Unpin is hover-revealed on desktop — hover doesn't exist here, so keep
+       it visible and give it a real target. */
+    .pin-item .unpin {
+      opacity: 1;
+      padding: 8px;
     }
   }
 </style>

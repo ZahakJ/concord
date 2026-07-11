@@ -129,8 +129,13 @@
     gap: 8px;
     text-align: left;
   }
+  /* Match the sectioned settings look: small uppercase group labels. */
   .label {
-    font-size: 13px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
   }
   p {
     margin: 0;
@@ -310,5 +315,19 @@
   }
   .rows span:nth-child(2n) {
     width: 70%;
+  }
+  /* Finger-sized pickers on touch. */
+  @media (pointer: coarse) {
+    .swatch {
+      width: 36px;
+      height: 36px;
+    }
+    .theme-card {
+      padding: 10px 8px;
+      font-size: 13px;
+    }
+    .seg > button {
+      min-height: 48px;
+    }
   }
 </style>

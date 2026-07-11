@@ -31,6 +31,18 @@ export const S = $state({
   // it and opens the status popover anchored to the self row.
   statusPopRequest: false,
 
+  // Mobile shell: a coarse pointer or narrow viewport gets the drawer-based
+  // MobileShell instead of the desktop 4-column grid. drawerOpen = the left
+  // nav drawer (guild rail + channels); membersOpen = the right member sheet.
+  isMobile: detectMobile(),
+  drawerOpen: false,
+  membersOpen: false,
+
+  // Connectivity for the connection pill: { peers, bootstrapReached,
+  // hasBootstrap, outOfSyncGuilds }, refreshed on presence events + a slow poll.
+  // null until the first fetch (login).
+  netStatus: null,
+
   // unread[channelId] = { count, mentions } — counts survive refresh via the
   // localStorage last-read map (recomputed on load).
   unread: {},
@@ -147,6 +159,25 @@ export function customEmojiMap() {
   return m;
 }
 
+// detectMobile reports whether to use the touch/drawer layout: a coarse pointer
+// (phone/tablet) or a narrow viewport. Re-evaluated on resize/orientation via
+// the listener below so a desktop window narrowed past the breakpoint adapts too.
+function detectMobile() {
+  if (typeof window === "undefined") return false;
+  const coarse = window.matchMedia?.("(pointer: coarse)")?.matches;
+  const narrow = window.matchMedia?.("(max-width: 768px)")?.matches;
+  return !!(coarse || narrow);
+}
+
+if (typeof window !== "undefined") {
+  const sync = () => {
+    const now = detectMobile();
+    if (now !== S.isMobile) S.isMobile = now;
+  };
+  window.addEventListener("resize", sync);
+  window.matchMedia?.("(orientation: portrait)")?.addEventListener?.("change", sync);
+}
+
 // ---- persistence helpers (device-local UI state) ----
 
 function loadJSON(key, fallback) {
@@ -215,10 +246,12 @@ export function markUnread(channelId, msg) {
 
 // ---- shared right-click context menu ----
 // S.contextMenu = { x, y, items:[{label, icon?, danger?, onClick}|null] } | null
-export function openContextMenu(e, items) {
+// opts (used by the mobile action-sheet presentation): `title` labels the
+// sheet; `quick` = {emojis:[…], onPick(emoji)} renders a quick-reaction row.
+export function openContextMenu(e, items, opts = {}) {
   e.preventDefault();
   e.stopPropagation();
-  S.contextMenu = { x: e.clientX, y: e.clientY, items: items.filter(Boolean) };
+  S.contextMenu = { x: e.clientX, y: e.clientY, items: items.filter(Boolean), ...opts };
 }
 export function closeContextMenu() {
   S.contextMenu = null;
@@ -539,6 +572,30 @@ export async function onLogin() {
   S.ready = true;
   initEvents();
   recomputeUnread();
+  refreshNetStatus();
+  // Slow poll backstops the presence-event refresh (covers bootstrap dials that
+  // don't produce a peer-presence event, e.g. a relay reservation forming).
+  setInterval(refreshNetStatus, 15000);
+}
+
+// refreshNetStatus pulls the current connectivity snapshot into S.netStatus.
+export async function refreshNetStatus() {
+  try {
+    S.netStatus = await api.networkStatus();
+  } catch {
+    /* locked or transport down — leave the last known status */
+  }
+}
+
+// nudge asks the core to reconnect + resync now (called on app resume / by the
+// "reconnect" affordance), then refreshes the pill.
+export async function nudge() {
+  try {
+    await api.nudge();
+  } catch {
+    /* ignore */
+  }
+  refreshNetStatus();
 }
 
 export async function refreshGuilds() {
@@ -815,7 +872,11 @@ function initEvents() {
         } else {
           S.newBelow = true;
         }
-        if (document.hasFocus()) markRead(m.channelId, m.sent);
+        // Mark read when the channel is on-screen. Use visibility, not
+        // document.hasFocus(): the latter tracks keyboard focus and is unreliable
+        // in a mobile WebView (often false while you're actively reading), which
+        // left the unread badge stuck on the channel you were looking at.
+        if (!document.hidden) markRead(m.channelId, m.sent);
       }
     } else if (firstSeen && m.channelId && m.kind === "" && !m.deleted && m.sender !== S.identity.fingerprint) {
       // Genuinely-new (first-seen) message in an unread channel bumps the badge.
@@ -847,7 +908,10 @@ function initEvents() {
     }
   });
 
-  on("presence", () => scheduleRefresh({ panel: true }));
+  on("presence", () => {
+    scheduleRefresh({ panel: true });
+    refreshNetStatus();
+  });
 
   on("guild-updated", () => scheduleRefresh({ guilds: true, panel: true }));
 

@@ -311,4 +311,32 @@
     padding-top: 2px;
     border-top: 1px solid var(--border);
   }
+  /* Mobile: the palette drops in full-width from the top edge; keyboard
+     shortcut hints are meaningless on touch. */
+  @media (pointer: coarse), (max-width: 700px) {
+    .overlay {
+      padding-top: 0;
+      align-items: flex-start;
+    }
+    .switcher {
+      width: 100%;
+      max-width: none;
+      border: none;
+      border-radius: 0 0 16px 16px;
+      padding-top: calc(12px + env(safe-area-inset-top));
+    }
+    .switcher input {
+      font-size: 16px; /* stops iOS auto-zoom on focus */
+    }
+    .hit {
+      min-height: 44px;
+      font-size: 15px;
+    }
+    .results {
+      max-height: 60vh;
+    }
+    .hint {
+      display: none;
+    }
+  }
 </style>

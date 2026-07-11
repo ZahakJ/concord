@@ -8,14 +8,19 @@
 
   let { label = "", onLeave, onToggleMute, onReturn } = $props();
 
-  // Position (top-right by default), clamped to the viewport, draggable.
+  // Position (top-right by default), clamped to the viewport, draggable. On
+  // touch the margins are wider so the dock can't be parked under the top bar
+  // (status bar + title) or over the composer/home-indicator strip.
+  const coarse =
+    typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  const MARGIN = coarse ? { top: 64, bottom: 130 } : { top: 8, bottom: 90 };
   let pos = $state({ x: Math.max(12, window.innerWidth - 250), y: 70 });
   let drag = null;
 
   function clamp(x, y) {
     return {
       x: Math.max(8, Math.min(window.innerWidth - 230, x)),
-      y: Math.max(8, Math.min(window.innerHeight - 90, y)),
+      y: Math.max(MARGIN.top, Math.min(window.innerHeight - MARGIN.bottom, y)),
     };
   }
   function onDown(e) {
@@ -203,5 +208,23 @@
   }
   .ico.hang:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
+  }
+
+  /* ---- touch adjustments: draggable dock with tappable controls. ---- */
+  @media (pointer: coarse) {
+    .ico {
+      width: 44px;
+      height: 44px;
+    }
+    .ico.expand {
+      width: 32px;
+      height: 32px;
+    }
+    .head {
+      padding: 10px 10px 10px 12px;
+    }
+    .ctl {
+      gap: 14px;
+    }
   }
 </style>

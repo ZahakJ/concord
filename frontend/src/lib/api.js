@@ -1,11 +1,26 @@
-// api.js is the frontend's single door to the Go backend. It works with two
+// api.js is the frontend's single door to the Go backend. It works with three
 // transports, chosen automatically:
 //
 //   - Wails desktop: calls the bindings Wails injects at window.go.main.App.*
 //     and subscribes to events via window.runtime.EventsOn.
 //   - Browser-served: POSTs to /rpc and streams events from /events (SSE).
+//   - Mobile (Capacitor): same HTTP/SSE surface, but served by the in-process
+//     Go core on a loopback port with a bearer token — the shell calls
+//     configureTransport() with both before the app mounts.
 //
 // The rest of the UI is transport-agnostic — it only ever calls api.* and on().
+
+// Mobile transport configuration. Empty base/token means the desktop behavior
+// (relative URLs, no auth) — the webview origin IS the API origin there.
+let apiBase = "";
+let apiToken = "";
+
+// configureTransport points the HTTP/SSE transport at the mobile core's
+// loopback server. Must be called before the first api.* call.
+export function configureTransport({ baseURL, authToken }) {
+  apiBase = baseURL || "";
+  apiToken = authToken || "";
+}
 
 function wailsBindings() {
   return typeof window !== "undefined" && window.go && window.go.main
@@ -21,9 +36,11 @@ async function call(name, ...args) {
     return b[name](...args);
   }
   // Browser transport.
-  const res = await fetch("/rpc", {
+  const headers = { "Content-Type": "application/json" };
+  if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
+  const res = await fetch(`${apiBase}/rpc`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ method: name, args }),
   });
   if (!res.ok) throw new Error(`rpc ${name}: HTTP ${res.status}`);
@@ -37,6 +54,12 @@ export const api = {
   setBootstrap: (addrs) => call("SetBootstrap", addrs),
   setBootstrapLive: (addrs) => call("SetBootstrapLive", addrs),
   session: () => call("Session"),
+  networkStatus: () => call("NetworkStatus"),
+  nudge: () => call("Nudge"),
+  registerPush: (platform, token) => call("RegisterPush", platform, token),
+  linkOffer: () => call("LinkOffer"),
+  cancelLinkOffer: () => call("CancelLinkOffer"),
+  redeemLinkCode: (code, passphrase) => call("RedeemLinkCode", code, passphrase),
   logout: () => call("Logout"),
   hasIdentity: () => call("HasIdentity"),
   resetIdentity: () => call("ResetIdentity"),
@@ -77,6 +100,8 @@ export const api = {
   messages: (channelID) => call("Messages", channelID),
   sendMessage: (channelID, content, replyTo = "") =>
     call("SendMessage", channelID, content, replyTo),
+  sendCallNotice: (channelID, kind, content) =>
+    call("SendCallNotice", channelID, kind, content),
   sendAttachment: (channelID, dataURL, w, h, replyTo = "") =>
     call("SendAttachment", channelID, dataURL, w, h, replyTo),
   fetchAttachment: (channelID, blobID, keys, subtype) =>
@@ -113,10 +138,14 @@ export const api = {
   searchMessages: (query) => call("SearchMessages", query),
 };
 
-// Shared SSE connection for the browser transport.
+// Shared SSE connection for the browser transport. EventSource can't set
+// headers, so the mobile token rides a query parameter instead.
 let eventSource = null;
 function sse() {
-  if (!eventSource) eventSource = new EventSource("/events");
+  if (!eventSource) {
+    const qs = apiToken ? `?token=${apiToken}` : "";
+    eventSource = new EventSource(`${apiBase}/events${qs}`);
+  }
   return eventSource;
 }
 

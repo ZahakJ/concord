@@ -79,11 +79,12 @@
   }
 
   // Measure then place (see ProfilePopover): above the anchor if it fits,
-  // else below; clamp to the viewport with an 8px margin.
+  // else below; clamp to the viewport with an 8px margin. (Desktop only —
+  // the mobile presentation is a bottom sheet and ignores the anchor.)
   let card = $state(null);
   let pos = $state(null);
   $effect(() => {
-    if (!card || !anchor) {
+    if (!card || !anchor || S.isMobile) {
       pos = null;
       return;
     }
@@ -106,10 +107,15 @@
   }}
 />
 
+{#if S.isMobile}
+  <!-- Sheet presentation gets a dimming scrim; tap anywhere on it to close. -->
+  <button class="sp-scrim" onclick={onClose} aria-label="Close status picker"></button>
+{/if}
 <div
   class="status-pop"
+  class:sheet={S.isMobile}
   bind:this={card}
-  style={pos ? `left:${pos.left}px;top:${pos.top}px` : "opacity:0;pointer-events:none"}
+  style={S.isMobile ? "" : pos ? `left:${pos.left}px;top:${pos.top}px` : "opacity:0;pointer-events:none"}
   role="dialog"
   aria-label="Set status"
 >
@@ -310,5 +316,64 @@
   .clear:hover {
     color: var(--danger);
     background: var(--danger-soft);
+  }
+  .sp-scrim {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 400;
+    border: none;
+    animation: sp-fade 0.16s ease;
+  }
+  @keyframes sp-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  /* Mobile: present as a full-width bottom sheet with finger-sized rows. */
+  .status-pop.sheet {
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    z-index: 401; /* above its scrim */
+    border: none;
+    border-radius: 16px 16px 0 0;
+    padding: 14px 14px calc(16px + env(safe-area-inset-bottom));
+    animation: sheet-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(100%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .status-pop.sheet {
+      animation: none;
+    }
+  }
+  @media (pointer: coarse), (max-width: 700px) {
+    .presence {
+      min-height: 46px;
+    }
+    .em {
+      font-size: 20px;
+      padding: 8px 0;
+    }
+    .st-box input {
+      font-size: 16px; /* stops iOS auto-zoom on focus */
+      padding: 10px 12px;
+    }
+    .st-save {
+      min-width: 48px;
+    }
+    .preset {
+      padding: 10px 6px;
+      font-size: 13px;
+    }
+    .clear {
+      min-height: 42px;
+    }
   }
 </style>

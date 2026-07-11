@@ -131,18 +131,24 @@
     place-items: center;
     padding: 0;
     transition:
-      border-radius 0.15s ease,
-      background 0.15s ease;
+      border-radius 0.18s cubic-bezier(0.2, 0.9, 0.3, 1),
+      background 0.18s ease,
+      transform 0.12s ease,
+      box-shadow 0.18s ease;
     flex-shrink: 0;
   }
   .pill:hover {
     border-radius: 14px;
     background: var(--bg-3);
   }
+  .pill:active {
+    transform: scale(0.92);
+  }
   .pill.active {
     border-radius: 14px;
     background: var(--accent);
     color: white;
+    box-shadow: var(--accent-glow);
   }
   /* DM/group bubbles stay circular (their avatar is a circle, so the squircle
      hover/active would bleed colored corners around it). Active = an accent
@@ -215,6 +221,40 @@
     display: flex;
     flex-shrink: 0;
   }
+  /* Discord-style edge indicator on the rail's left: a small nub on hover
+     that grows into a tall pill for the active guild. Sized off the 11px gap
+     between the 42px bubble and the 64px rail edge (8px on touch, below). */
+  .bubble-wrap::before {
+    content: "";
+    position: absolute;
+    left: -11px;
+    top: 50%;
+    translate: 0 -50%;
+    width: 4px;
+    height: 0;
+    border-radius: 0 4px 4px 0;
+    background: var(--accent);
+    opacity: 0;
+    pointer-events: none;
+    transition:
+      height 0.18s cubic-bezier(0.2, 0.9, 0.3, 1),
+      opacity 0.18s ease;
+  }
+  .bubble-wrap:hover::before {
+    height: 16px;
+    opacity: 0.7;
+  }
+  .bubble-wrap:has(.pill.active)::before {
+    height: 30px;
+    opacity: 1;
+  }
+  /* Older WebKit (WebKitGTK < 2.46) has no :has() — skip the animated edge
+     pill and mark the active guild with a static accent ring instead. */
+  @supports not selector(:has(*)) {
+    .pill.active {
+      box-shadow: 0 0 0 2px var(--accent);
+    }
+  }
   .badge {
     position: absolute;
     top: -3px;
@@ -232,5 +272,27 @@
     place-items: center;
     border: 2px solid var(--bg-0);
     pointer-events: none;
+    animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes badge-pop {
+    from {
+      transform: scale(0.4);
+      opacity: 0;
+    }
+  }
+  /* Touch: bubbles grow to a comfortable 48px tap target. */
+  @media (pointer: coarse), (max-width: 700px) {
+    .rail {
+      gap: 10px;
+      padding: 12px 0;
+    }
+    .pill {
+      width: 48px;
+      height: 48px;
+    }
+    /* 48px bubbles in the 64px rail → the edge gap shrinks to 8px. */
+    .bubble-wrap::before {
+      left: -8px;
+    }
   }
 </style>

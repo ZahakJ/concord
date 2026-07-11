@@ -1,6 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { api } from "./lib/api.js";
+  import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import Icon from "./Icon.svelte";
 
   let { onLogin } = $props();
@@ -10,10 +11,84 @@
   let busy = $state(false);
   let hasIdentity = $state(true); // assume until checked, then correct
   let checked = $state(false);
+
+  // Biometric unlock (mobile). bioCanEnroll: hardware present; bioOn: the user
+  // has already stored their passphrase behind the biometric on this device.
+  let bioCanEnroll = $state(false);
+  let bioOn = $state(false);
+  // After a successful password unlock we offer to enable biometric — holds the
+  // just-verified passphrase so an opt-in can store it.
+  let offerBio = $state(false);
+  let pendingPass = $state("");
+
+  async function tryBiometricUnlock() {
+    if (busy) return;
+    // NEVER let biometric create an identity — login() creates one when no
+    // keystore exists, which silently spawned a throwaway account. Biometric
+    // must only UNLOCK an account that already exists on this device.
+    if (!hasIdentity) {
+      try {
+        if (!(await api.hasIdentity())) return;
+      } catch {
+        return;
+      }
+    }
+    busy = true;
+    error = "";
+    try {
+      const pass = await unlockWithBiometric();
+      if (!pass) return; // cancelled or failed — fall back to the passphrase field
+      await api.login(pass);
+      onLogin();
+    } catch (err) {
+      error = String(err?.message || err).replace(/^.*: /, "");
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function confirmEnableBio() {
+    await enableBiometric(pendingPass);
+    pendingPass = "";
+    offerBio = false;
+    onLogin();
+  }
+  function skipEnableBio() {
+    pendingPass = "";
+    offerBio = false;
+    onLogin();
+  }
   let confirmingReset = $state(false);
   let forgot = $state(false); // forgot-passphrase menu (recover vs start over)
   let restoring = $state(false);
   let restorePhrase = $state("");
+  let linking = $state(false); // "link this device to an existing account" flow
+  let linkCode = $state("");
+
+  async function doLink(e) {
+    e?.preventDefault();
+    if (busy) return;
+    if (!linkCode.trim()) {
+      error = "Paste the code shown on your other device";
+      return;
+    }
+    if (!passphrase || passphrase !== confirmPass) {
+      error = "Passphrases don't match";
+      return;
+    }
+    busy = true;
+    error = "";
+    try {
+      // Dials the other device, adopts the account, logs in linked, and joins
+      // your existing servers — then we're in.
+      await api.redeemLinkCode(linkCode.trim(), passphrase);
+      onLogin();
+    } catch (err) {
+      error = String(err?.message || err).replace(/^.*: /, "");
+    } finally {
+      busy = false;
+    }
+  }
 
   // After CREATING a fresh identity we hold the door and make the user save
   // their 24-word recovery phrase — it's the only way back into the account.
@@ -72,6 +147,10 @@
       hasIdentity = false;
     }
     checked = true;
+    bioCanEnroll = await bioAvailable();
+    bioOn = bioCanEnroll && bioEnrolled();
+    // If biometric unlock is set up, offer it straight away on the lock screen.
+    if (hasIdentity && bioOn) tryBiometricUnlock();
   });
 
   async function submit(e) {
@@ -95,6 +174,13 @@
           backupPhrase = "";
         }
         if (backupPhrase) return;
+      }
+      // Offer biometric unlock after a successful password unlock on a device
+      // that supports it and hasn't enrolled yet.
+      if (bioCanEnroll && !bioOn) {
+        pendingPass = passphrase;
+        offerBio = true;
+        return;
       }
       onLogin();
     } catch (err) {
@@ -128,6 +214,14 @@
 
     {#if !checked}
       <p class="muted">Loading…</p>
+    {:else if offerBio}
+      <p class="muted">
+        Unlock Concord with your fingerprint or face next time, instead of typing
+        your passphrase. It's stored in this device's secure hardware — your
+        passphrase never leaves the device.
+      </p>
+      <button type="button" onclick={confirmEnableBio}>Enable biometric unlock</button>
+      <button type="button" class="link" onclick={skipEnableBio}>Not now</button>
     {:else if backupPhrase}
       <p class="muted">
         These 24 words are the <strong>only</strong> way to get your account back if you lose this
@@ -165,6 +259,26 @@
         {busy ? "Resetting…" : "Yes, delete and start over"}
       </button>
       <button type="button" class="link" onclick={() => (confirmingReset = false)}>Cancel</button>
+    {:else if linking}
+      <p class="muted">
+        On your other device, open <strong>Settings → Link a device</strong> and
+        scan or copy the code, then paste it here with a passphrase for this device.
+      </p>
+      <textarea
+        class="phrase-in"
+        rows="3"
+        placeholder="Paste the link code…"
+        bind:value={linkCode}
+      ></textarea>
+      <input type="password" placeholder="Passphrase for this device" bind:value={passphrase} />
+      <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
+      {#if error}<div class="error">{error}</div>{/if}
+      <button type="button" disabled={busy} onclick={doLink}>
+        {busy ? "Linking…" : "Link this device"}
+      </button>
+      <button type="button" class="link" onclick={() => ((linking = false), (error = ""))}>
+        Back
+      </button>
     {:else if restoring}
       <p class="muted">
         Enter your 24-word recovery phrase and a new passphrase for this device.
@@ -206,6 +320,11 @@
       <button type="submit" disabled={!passphrase || busy}>
         {busy ? "Unlocking…" : "Unlock"}
       </button>
+      {#if bioOn}
+        <button type="button" class="ghost-sm" disabled={busy} onclick={tryBiometricUnlock}>
+          Unlock with biometrics
+        </button>
+      {/if}
       <button type="button" class="link" onclick={() => ((forgot = true), (error = ""))}>
         Forgot passphrase?
       </button>
@@ -223,6 +342,9 @@
       <button type="button" class="link" onclick={() => ((restoring = true), (error = ""))}>
         Restore from a recovery phrase
       </button>
+      <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
+        Link to an existing account
+      </button>
     {/if}
 
     {#if !backupPhrase}
@@ -239,8 +361,11 @@
     height: 100%;
     display: grid;
     place-items: center;
-    /* Subtle vignette in either theme: bg-3 is a step off the page both ways. */
-    background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--bg-3) 70%, var(--bg)), var(--bg));
+    /* Subtle vignette + a whisper of accent, so the door already feels like
+       the app behind it. */
+    background:
+      radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 55%),
+      radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--bg-3) 70%, var(--bg)), var(--bg));
   }
   .card {
     width: 340px;
@@ -250,21 +375,34 @@
     padding: 32px;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: var(--radius);
+    border-radius: var(--radius-lg);
     text-align: center;
+    box-shadow: var(--shadow-pop);
   }
   .logo {
-    /* Neutral, theme-agnostic badge — the login is pre-accent, so it doesn't
-       try to match the user's in-app accent (which it can't know yet). */
+    /* Hero badge: a soft conic accent ring around the jet, breathing a slow
+       ambient glow (the app's one continuously-running animation). */
+    position: relative;
     color: var(--text);
     display: grid;
     place-items: center;
     width: 72px;
     height: 72px;
     border-radius: 50%;
-    background: var(--bg-3);
-    border: 1px solid var(--border);
-    animation: takeoff 0.6s ease both;
+    border: 2px solid transparent;
+    background:
+      linear-gradient(var(--bg-3), var(--bg-3)) padding-box,
+      conic-gradient(
+          from 210deg,
+          var(--accent),
+          color-mix(in srgb, var(--accent) 25%, transparent) 40%,
+          color-mix(in srgb, var(--accent) 55%, transparent) 75%,
+          var(--accent)
+        )
+        border-box;
+    animation:
+      takeoff 0.6s ease both,
+      logo-breathe 4.5s ease-in-out 0.6s infinite;
   }
   @keyframes takeoff {
     from {
@@ -276,10 +414,39 @@
       opacity: 1;
     }
   }
+  @keyframes logo-breathe {
+    0%,
+    100% {
+      box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 16%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 34px color-mix(in srgb, var(--accent) 36%, transparent);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .logo {
       animation: none;
     }
+  }
+  /* Primary CTAs: gradient fill + a soft lift on hover. (Quiet buttons — the
+     .link/.ghost-sm/.danger-btn variants — keep their own styling.) */
+  .card button:not(.link):not(.ghost-sm):not(.danger-btn) {
+    background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--accent-hover)));
+    font-weight: 600;
+    box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 28%, transparent);
+    transition:
+      transform 0.15s ease,
+      box-shadow 0.15s ease,
+      filter 0.15s ease;
+  }
+  .card button:not(.link):not(.ghost-sm):not(.danger-btn):hover:not(:disabled) {
+    transform: translateY(-1px);
+    filter: brightness(1.07);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 38%, transparent);
+  }
+  .card button:not(.link):not(.ghost-sm):not(.danger-btn):active:not(:disabled) {
+    transform: none;
+    filter: brightness(0.97);
   }
   h1 {
     margin: 0;
@@ -375,5 +542,46 @@
     font-size: 11px;
     opacity: 0.7;
     margin-top: 4px;
+  }
+
+  /* ---- touch adjustments ---- */
+  @media (pointer: coarse) {
+    /* flex + margin:auto centers like place-items but still scrolls when the
+       card outgrows the screen (recovery-phrase step with the keyboard up). */
+    .login {
+      display: flex;
+      overflow-y: auto;
+      padding: calc(12px + env(safe-area-inset-top)) 16px
+        calc(12px + env(safe-area-inset-bottom));
+    }
+    .card {
+      margin: auto;
+      width: min(400px, 100%);
+      padding: 28px 22px;
+      gap: 16px;
+    }
+    .card.wide {
+      width: min(440px, 100%);
+    }
+    /* 16px inputs: readable at arm's length, and iOS won't auto-zoom. */
+    input,
+    .phrase-in {
+      font-size: 16px;
+      padding: 12px;
+    }
+    p {
+      font-size: 14px;
+    }
+    button {
+      min-height: 48px;
+    }
+    .phrase-actions .ghost-sm {
+      min-height: 42px;
+      font-size: 13px;
+    }
+    .link {
+      min-height: 44px;
+      font-size: 13px;
+    }
   }
 </style>

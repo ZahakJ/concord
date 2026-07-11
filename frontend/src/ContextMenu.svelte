@@ -1,8 +1,15 @@
 <script>
-  // The shared right-click menu. Driven by S.contextMenu = {x,y,items}. Items
-  // are {label, icon?, danger?, onClick} or null (skipped). A `sep:true` item
+  // The shared context menu. Driven by S.contextMenu = {x,y,items}. Items are
+  // {label, icon?, danger?, onClick} or null (skipped). A `sep:true` item
   // renders a divider.
+  //
+  // Two presentations, one call-site contract: desktop gets the classic
+  // anchored popover at the cursor; mobile gets a bottom action sheet (there
+  // is no meaningful cursor position under a finger, and touch targets need
+  // to be finger-sized). Every openContextMenu() caller — messages, channels,
+  // guilds, members — upgrades automatically.
   import Icon from "./Icon.svelte";
+  import BottomSheet from "./BottomSheet.svelte";
   import { S, closeContextMenu } from "./lib/state.svelte.js";
 
   let el = $state(null);
@@ -30,23 +37,125 @@
 />
 
 {#if S.contextMenu}
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="cm-backdrop" onpointerdown={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
-  <div class="cm" bind:this={el} style="left:{pos.x}px; top:{pos.y}px" role="menu">
-    {#each S.contextMenu.items as item (item)}
-      {#if item.sep}
-        <div class="cm-sep"></div>
-      {:else}
-        <button class="cm-item" class:danger={item.danger} role="menuitem" onclick={() => run(item)}>
-          {#if item.icon}<Icon name={item.icon} size={14} />{/if}
-          <span>{item.label}</span>
-        </button>
+  {#if S.isMobile}
+    <BottomSheet onClose={closeContextMenu} title={S.contextMenu.title || ""}>
+      {#if S.contextMenu.quick}
+        {@const quick = S.contextMenu.quick}
+        <!-- Quick-reaction row: the most common action gets the top slot. -->
+        <div class="as-quick">
+          {#each quick.emojis as em (em)}
+            <button
+              class="as-emoji"
+              aria-label={"React " + em}
+              onclick={() => {
+                closeContextMenu();
+                quick.onPick(em);
+              }}
+            >{em}</button>
+          {/each}
+        </div>
       {/if}
-    {/each}
-  </div>
+      <div class="as-list" role="menu">
+        {#each S.contextMenu.items as item (item)}
+          {#if item.sep}
+            <div class="as-sep"></div>
+          {:else}
+            <button
+              class="as-item"
+              class:danger={item.danger}
+              role="menuitem"
+              onclick={() => run(item)}
+            >
+              {#if item.icon}<span class="as-icon"><Icon name={item.icon} size={18} /></span>{/if}
+              <span>{item.label}</span>
+            </button>
+          {/if}
+        {/each}
+      </div>
+    </BottomSheet>
+  {:else}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="cm-backdrop" onpointerdown={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
+    <div class="cm" bind:this={el} style="left:{pos.x}px; top:{pos.y}px" role="menu">
+      {#each S.contextMenu.items as item (item)}
+        {#if item.sep}
+          <div class="cm-sep"></div>
+        {:else}
+          <button class="cm-item" class:danger={item.danger} role="menuitem" onclick={() => run(item)}>
+            {#if item.icon}<Icon name={item.icon} size={14} />{/if}
+            <span>{item.label}</span>
+          </button>
+        {/if}
+      {/each}
+    </div>
+  {/if}
 {/if}
 
 <style>
+  /* ---- mobile action-sheet rows ---- */
+  .as-quick {
+    display: flex;
+    justify-content: space-between;
+    gap: 4px;
+    padding: 2px 6px 10px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 6px;
+  }
+  .as-emoji {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0; /* beat the global button padding — it un-centers the glyph */
+    font-size: 24px;
+    line-height: 1;
+    background: var(--bg-2);
+    border-radius: 50%;
+  }
+  .as-emoji:active {
+    background: var(--bg-3);
+    transform: scale(1.15);
+  }
+  .as-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding-bottom: 2px;
+  }
+  .as-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 12px;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    font-size: 15px;
+    border-radius: var(--radius-md);
+  }
+  .as-item:active {
+    background: var(--bg-3);
+  }
+  .as-icon {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .as-item.danger,
+  .as-item.danger .as-icon {
+    color: var(--danger);
+  }
+  .as-sep {
+    height: 1px;
+    background: var(--border);
+    margin: 5px 10px;
+  }
+
+  /* ---- desktop popover ---- */
   .cm-backdrop {
     position: fixed;
     inset: 0;

@@ -146,13 +146,32 @@
     color: var(--text);
     text-align: left;
     transition:
-      transform 0.12s ease,
-      border-color 0.12s ease;
+      transform 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+    /* Staggered arrival: each card fades up a beat after the previous. */
+    animation: card-in 0.35s ease backwards;
+  }
+  .cards .card:nth-child(2) {
+    animation-delay: 0.07s;
+  }
+  .cards .card:nth-child(3) {
+    animation-delay: 0.14s;
+  }
+  @keyframes card-in {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
   }
   .card:hover {
     background: var(--bg-1);
     border-color: var(--accent);
     transform: translateY(-2px);
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .card:active {
+    transform: translateY(0);
   }
   .ic {
     width: 36px;
@@ -160,7 +179,11 @@
     border-radius: var(--radius-md);
     display: grid;
     place-items: center;
-    background: var(--accent-soft);
+    background: linear-gradient(
+      135deg,
+      var(--accent-soft),
+      color-mix(in srgb, var(--accent) 30%, transparent)
+    );
     color: var(--accent-hover);
     margin-bottom: 6px;
   }
@@ -168,11 +191,37 @@
     font-size: 12px;
   }
   @media (prefers-reduced-motion: reduce) {
+    .card,
     .card:hover {
+      animation: none;
       transform: none;
     }
     .badge {
       animation: none;
+    }
+  }
+
+  /* ---- touch adjustments: cards stack full-width, comfy targets ---- */
+  @media (pointer: coarse) {
+    .cards {
+      flex-direction: column;
+      width: 100%;
+      max-width: 380px;
+      gap: 10px;
+    }
+    .card {
+      width: 100%;
+      padding: 16px 18px;
+    }
+    .card:active {
+      border-color: var(--accent);
+      background: var(--bg-1);
+    }
+    .chip {
+      padding: 6px 12px;
+    }
+    .welcome {
+      padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
     }
   }
 </style>

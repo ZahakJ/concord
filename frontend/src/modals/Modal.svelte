@@ -1,5 +1,7 @@
 <script>
-  let { title, onClose, children } = $props();
+  // `wide` widens the desktop dialog for content that benefits from the room
+  // (sectioned settings); the mobile sheet presentation ignores it.
+  let { title, onClose, wide = false, children } = $props();
   let dialog = $state(null);
 
   // Escape closes reliably regardless of focus (the overlay keydown only fired
@@ -31,7 +33,13 @@
 <svelte:window onkeydown={onKeydown} />
 
 <div class="overlay" onclick={onClose} role="presentation">
-  <div bind:this={dialog} class="dialog" onclick={(e) => e.stopPropagation()} role="presentation">
+  <div
+    bind:this={dialog}
+    class="dialog"
+    class:wide
+    onclick={(e) => e.stopPropagation()}
+    role="presentation"
+  >
     <div class="head">
       <h3>{title}</h3>
       <button class="x" onclick={onClose} aria-label="Close">✕</button>
@@ -66,6 +74,9 @@
     gap: 12px;
     animation: pop 0.14s ease;
   }
+  .dialog.wide {
+    width: 460px;
+  }
   @keyframes fade {
     from {
       opacity: 0;
@@ -75,6 +86,47 @@
     from {
       opacity: 0;
       transform: translateY(8px) scale(0.98);
+    }
+  }
+  /* Mobile: dialogs present as full-width bottom sheets instead of floating
+     cards — thumb-reachable, roomy, and keyboard-friendly. Desktop (fine
+     pointer + wide viewport) is untouched. */
+  @media (pointer: coarse), (max-width: 700px) {
+    .overlay {
+      place-items: end stretch;
+    }
+    /* Both selectors so `wide` (higher specificity) can't pin the sheet to a
+       fixed desktop width. */
+    .dialog,
+    .dialog.wide {
+      width: auto;
+      max-width: none;
+      border: none;
+      border-radius: 16px 16px 0 0;
+      padding-bottom: calc(20px + env(safe-area-inset-bottom));
+      animation: sheet-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+    }
+    /* ≥16px inputs stop iOS auto-zoom on focus; ≥44px buttons are the
+       touch-target floor. Reaches into each modal's own markup. */
+    .dialog :global(input:not([type="checkbox"]):not([type="radio"])),
+    .dialog :global(textarea),
+    .dialog :global(select) {
+      font-size: 16px;
+    }
+    .dialog :global(button) {
+      min-height: 44px;
+    }
+    .head .x {
+      min-height: 0;
+      width: 40px;
+      height: 40px;
+      display: grid;
+      place-items: center;
+    }
+  }
+  @keyframes sheet-up {
+    from {
+      transform: translateY(100%);
     }
   }
   @media (prefers-reduced-motion: reduce) {

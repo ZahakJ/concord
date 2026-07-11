@@ -213,6 +213,10 @@
     padding: 11px 16px;
     border-bottom: 1px solid var(--border);
     gap: 10px;
+    /* Faint drop under the header: elevation over the feed it caps. */
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    position: relative;
+    z-index: 5;
   }
   .title {
     gap: 6px;
@@ -292,6 +296,17 @@
     align-items: center;
     gap: 5px;
     padding: 6px 9px;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease,
+      transform 0.12s ease;
+  }
+  .iconbtn:hover {
+    transform: translateY(-1px);
+  }
+  .iconbtn:active {
+    transform: none;
   }
   .n {
     font-size: 12px;
@@ -299,6 +314,7 @@
   .pin-active {
     color: var(--accent-hover);
     border-color: var(--accent);
+    background: var(--accent-soft);
   }
   .voice-pill {
     display: inline-flex;
@@ -311,6 +327,7 @@
     background: var(--ok-soft);
     border-radius: 13px;
     white-space: nowrap;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
   }
   .pill-label {
     display: inline-flex;

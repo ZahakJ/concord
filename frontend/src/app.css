@@ -30,7 +30,18 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
-  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.45);
+  /* Two-layer depth: a tight contact shadow plus a wide ambient one, so
+     popovers/sheets sit visibly ABOVE the page instead of smudging it. */
+  --shadow-pop:
+    0 2px 6px rgba(0, 0, 0, 0.3),
+    0 12px 32px rgba(0, 0, 0, 0.5);
+  /* Soft colored halo for accent-charged elements (active pills, CTAs). */
+  --accent-glow: 0 0 24px color-mix(in srgb, var(--accent) 30%, transparent);
+  /* Floating accent buttons (jump-to-latest, "new messages"): colored glow +
+     contact shadow, per-theme so light mode doesn't get dark smudges. */
+  --float-shadow:
+    0 4px 16px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 2px 5px rgba(0, 0, 0, 0.35);
 
   /* Message density (Appearance setting). Compact overrides these to tighten
      the feed; components read the vars so the whole rhythm shifts together. */
@@ -72,7 +83,12 @@
   --ok: #2e8b4d;
   --warn: #a3701a;
 
-  --shadow-pop: 0 8px 24px rgba(20, 24, 32, 0.16);
+  --shadow-pop:
+    0 2px 6px rgba(20, 24, 32, 0.08),
+    0 12px 32px rgba(20, 24, 32, 0.18);
+  --float-shadow:
+    0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 2px 5px rgba(20, 24, 32, 0.14);
   --bg-elevated: #fdfdfe;
 
   color-scheme: light;
@@ -154,7 +170,8 @@ button:disabled {
 
 :focus-visible {
   outline: 2px solid var(--accent-hover);
-  outline-offset: 1px;
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 input,
@@ -167,10 +184,15 @@ textarea {
   padding: 10px 12px;
   outline: none;
   width: 100%;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 input:focus,
 textarea:focus {
   border-color: var(--accent);
+  /* A soft accent halo instead of a bare border swap — matches the composer. */
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .muted {
@@ -195,12 +217,42 @@ textarea:focus {
   gap: 8px;
   margin-top: 8px;
 }
+/* Slim, quiet scrollbars: a rounded thumb floating on a transparent track
+   (the 2px transparent border + padding-box clip gives it breathing room). */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: var(--border);
-  border-radius: 4px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
+* {
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: var(--border) transparent;
+}
+
+/* Touch devices: kill the grey tap flash (components style :active states
+   themselves) and stop scroll chaining/pull-to-refresh from hijacking inner
+   scrollers. Desktop styles are untouched. */
+@media (pointer: coarse) {
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  html,
+  body {
+    overscroll-behavior: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

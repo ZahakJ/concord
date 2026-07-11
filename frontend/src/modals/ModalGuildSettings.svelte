@@ -96,7 +96,7 @@
       disabled={!canEdit}
     >
       {#if icon}<img src={icon} alt="icon" />{:else}<span>{(name || "?").slice(0, 1)}</span>{/if}
-      {#if canEdit}<span class="cam">📷</span>{/if}
+      {#if canEdit}<span class="cam-overlay">Change</span>{/if}
     </button>
     <label class="field grow">
       <span class="muted">Guild name</span>
@@ -171,14 +171,31 @@
     height: 100%;
     object-fit: cover;
   }
-  .cam {
+  /* Same centered hover hint as the profile avatar — no clipped edge badge. */
+  .cam-overlay {
     position: absolute;
-    bottom: -2px;
-    right: -2px;
-    font-size: 12px;
-    background: var(--bg-elevated);
-    border-radius: 50%;
-    padding: 1px;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .icon-btn:hover .cam-overlay,
+  .icon-btn:focus-visible .cam-overlay {
+    opacity: 1;
+  }
+  /* Touch has no hover — keep a faint persistent hint so it's discoverable. */
+  @media (pointer: coarse) {
+    .cam-overlay {
+      opacity: 0.55;
+      background: rgba(0, 0, 0, 0.35);
+    }
   }
   .field {
     display: flex;

@@ -29,6 +29,12 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
+  import { longpress } from "./lib/touch.js";
+
+  // Touch: long-press opens row menus (iOS never synthesizes contextmenu for
+  // plain elements, and Android's synthesized one would double-fire alongside
+  // the longpress action — so on coarse pointers longpress is the only path).
+  const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
 
@@ -328,7 +334,8 @@
           class:active
           class:unread={unread.count > 0 && !active}
           onclick={() => (dm.dmNotes ? selectNotes() : selectGuild(dm.id))}
-          oncontextmenu={dm.dmNotes ? undefined : (e) => dmMenu(e, dm)}
+          oncontextmenu={dm.dmNotes ? undefined : coarse ? (e) => e.preventDefault() : (e) => dmMenu(e, dm)}
+          use:longpress={{ handler: (e) => !dm.dmNotes && dmMenu(e, dm) }}
         >
           {#if dm.dmNotes}
             <span class="dm-notes-icon"><Icon name="edit" size={15} /></span>
@@ -426,7 +433,13 @@
             ondragover={(e) => rowDragOver(e, grp, c)}
             ondrop={(e) => rowDrop(e, grp, c)}
           >
-            <button class="channel" class:muted-ch={S.mutes[c.id]} onclick={() => clickChannel(c)} oncontextmenu={(e) => channelMenu(e, c)}>
+            <button
+              class="channel"
+              class:muted-ch={S.mutes[c.id]}
+              onclick={() => clickChannel(c)}
+              oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => channelMenu(e, c)}
+              use:longpress={{ handler: (e) => channelMenu(e, c) }}
+            >
               <Icon name={typeIcon(c.type)} size={13} />
               <span class="ch-name">{c.name}</span>
               {#if c.type !== "voice" && c.id !== S.activeChannelId && u && !S.mutes[c.id]}
@@ -663,7 +676,8 @@
     align-items: center;
     text-transform: uppercase;
     font-size: 11px;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.06em;
+    font-weight: 700;
     color: var(--text-muted);
     margin: 6px 6px 4px;
   }
@@ -754,6 +768,7 @@
     display: flex;
     align-items: center;
     border-radius: var(--radius-sm);
+    transition: background 0.15s ease;
   }
   .channel-row.active::before {
     content: "";
@@ -765,10 +780,14 @@
     height: 60%;
     border-radius: 0 3px 3px 0;
     background: var(--accent);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
   }
-  .channel-row:hover,
-  .channel-row.active {
+  .channel-row:hover {
     background: var(--bg-3);
+  }
+  /* Active reads as "accent-charged", distinct from a passing hover. */
+  .channel-row.active {
+    background: var(--accent-soft);
   }
   .channel-row.active .channel {
     color: var(--text);
@@ -929,13 +948,16 @@
     color: var(--text-muted);
     text-align: left;
     border-radius: var(--radius-sm);
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
   }
   .dm-item:hover {
     background: var(--bg-3);
     color: var(--text);
   }
   .dm-item.active {
-    background: var(--bg-3);
+    background: var(--accent-soft);
     color: var(--text);
   }
   .dm-name {
@@ -972,6 +994,8 @@
     border-radius: var(--radius-md);
     background: var(--ok-soft);
     color: var(--ok);
+    border: 1px solid color-mix(in srgb, var(--ok) 28%, transparent);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 10%, transparent);
   }
   .vb-info {
     display: flex;
@@ -1102,5 +1126,38 @@
   .me-gear {
     padding: 8px;
     border: none;
+  }
+  /* Touch: taller rows (44px+ targets), slightly larger type, and the
+     hover-revealed affordances (category +/trash, channel menu, mute bell)
+     always visible at reduced opacity — hover doesn't exist on a phone. */
+  @media (pointer: coarse), (max-width: 700px) {
+    .channel {
+      min-height: 44px;
+      font-size: 15px;
+    }
+    .dm-item {
+      min-height: 48px;
+    }
+    .dm-name {
+      font-size: 15px;
+    }
+    .cat-add,
+    .ch-menu,
+    .mute-btn {
+      opacity: 0.55;
+    }
+    .mute-btn {
+      padding: 8px 10px;
+    }
+    .vc-member {
+      min-height: 38px;
+    }
+    .me {
+      min-height: 44px;
+    }
+    .me-gear {
+      min-width: 44px;
+      min-height: 44px;
+    }
   }
 </style>

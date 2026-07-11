@@ -30,4 +30,15 @@
   button.danger:hover {
     background: color-mix(in srgb, var(--danger) 85%, white);
   }
+  /* Phone: two equal, full-width choices — no tiny side-by-side chips. */
+  @media (pointer: coarse), (max-width: 700px) {
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .actions button {
+      min-height: 48px;
+    }
+  }
 </style>

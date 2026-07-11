@@ -14,6 +14,12 @@
     roleColorFor,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { longpress } from "./lib/touch.js";
+
+  // Touch: long-press opens the member menu (iOS never synthesizes contextmenu
+  // for plain elements, and Android's synthesized one would double-fire
+  // alongside the longpress action).
+  const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 
   let showPeers = $state(false);
 
@@ -108,7 +114,8 @@
       <button
         class="member"
         onclick={(e) => openProfilePopover(mem.fingerprint, e.currentTarget)}
-        oncontextmenu={(e) => memberMenu(e, mem)}
+        oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => memberMenu(e, mem)}
+        use:longpress={{ handler: (e) => memberMenu(e, mem) }}
       >
         <Avatar
           name={mem.name || mem.fingerprint}
@@ -216,6 +223,14 @@
   .member:hover {
     background: transparent;
   }
+  /* Finger-sized rows in the mobile members drawer. */
+  @media (pointer: coarse) {
+    .member {
+      min-height: 46px;
+      padding: 8px 10px;
+      font-size: 15px;
+    }
+  }
   .member-text {
     display: flex;
     flex-direction: column;
@@ -286,6 +301,14 @@
   }
   .kick:hover {
     background: var(--danger-soft);
+  }
+  /* Hover doesn't exist on touch — keep the control visible but quiet (same
+     treatment as ChannelList's always-visible affordances). */
+  @media (pointer: coarse) {
+    .kick {
+      opacity: 0.55;
+      padding: 8px 10px;
+    }
   }
   .peers-info {
     padding: 4px 8px;
