@@ -243,6 +243,12 @@
     }
   });
   const myStatus = $derived(splitStatus(S.identity.status));
+  // Footer one-liner mirrors the member list: live activity wins over status.
+  const myActivityLine = $derived.by(() => {
+    const a = S.identity.activity;
+    if (!a) return "";
+    return a.artist ? `${a.artist} — ${a.title}` : a.title;
+  });
 
   // One entry point for starting conversations: pick one person (→ a 1:1 DM)
   // or several (→ a group DM), or invite by link from inside the picker.
@@ -586,8 +592,13 @@
       <span class="me-text">
         <strong>{S.displayName || "Set your name"}</strong>
         <span class="muted small-status">
-          {#if myStatus.emoji}<span class="st-emoji">{myStatus.emoji}</span>{/if}
-          {myStatus.text || presenceLabel(S.identity.presence)}
+          {#if myActivityLine}
+            <span class="st-emoji">🎵</span>
+            {myActivityLine}
+          {:else}
+            {#if myStatus.emoji}<span class="st-emoji">{myStatus.emoji}</span>{/if}
+            {myStatus.text || presenceLabel(S.identity.presence)}
+          {/if}
         </span>
       </span>
     </button>

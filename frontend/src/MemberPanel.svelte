@@ -148,7 +148,13 @@
               <span class="muted-badge" title="Muted"><Icon name="micOff" size={11} /></span>
             {/if}
           </span>
-          {#if mem.status}<span class="muted member-status">{mem.status}</span>{/if}
+          <!-- Sidebar one-liner: live activity wins (Discord-style); the custom
+               status still lives on the expanded profile card. -->
+          {#if mem.activity}
+            <span class="muted member-status">🎵 {mem.activity.artist ? `${mem.activity.artist} — ${mem.activity.title}` : mem.activity.title}</span>
+          {:else if mem.status}
+            <span class="muted member-status">{mem.status}</span>
+          {/if}
         </span>
       </button>
         {#if g?.canManage && !mem.isSelf && !mem.isOwner}
