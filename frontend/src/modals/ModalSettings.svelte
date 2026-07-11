@@ -87,6 +87,14 @@
       flash(err);
     }
   }
+
+  // Live shape-check of the rendezvous field so the box answers back while you
+  // type: every non-blank line should be a /…/p2p/<PeerID> multiaddr.
+  const bootstrapLines = $derived(bootstrap.split("\n").filter((l) => l.trim()));
+  const bootstrapOk = $derived(
+    bootstrapLines.length > 0 && bootstrapLines.every((l) => l.trim().startsWith("/") && l.includes("/p2p/")),
+  );
+  const bootstrapBad = $derived(bootstrapLines.length > 0 && !bootstrapOk);
 </script>
 
 <Modal title="Settings" wide {onClose}>
@@ -141,12 +149,19 @@
           </span>
         </span>
       </div>
-      <textarea
-        class="code-box"
-        rows="3"
-        placeholder="/dns/your-app.fly.dev/tcp/4001/p2p/12D3Koo…"
-        bind:value={bootstrap}
-      ></textarea>
+      <div class="code-wrap" class:ok={bootstrapOk} class:bad={bootstrapBad}>
+        <textarea
+          class="code-box"
+          rows="3"
+          placeholder="/dns/your-app.fly.dev/tcp/4001/p2p/12D3Koo…"
+          bind:value={bootstrap}
+        ></textarea>
+        {#if bootstrapOk}
+          <span class="code-state"><Icon name="check" size={13} /> address looks good</span>
+        {:else if bootstrapBad}
+          <span class="code-state">should start with /dns or /ip4 and contain /p2p/…</span>
+        {/if}
+      </div>
       <div class="conn-foot">
         <span class="row-sub">Blank = same-Wi-Fi only. Applies live to new connections.</span>
         <button class="save-btn" onclick={save}>{saved ? "Saved ✓" : "Save"}</button>
@@ -392,16 +407,58 @@
   .conn-head .chip {
     margin-top: 2px;
   }
+  .code-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
   .code-box {
     width: 100%;
     box-sizing: border-box;
-    min-height: 72px;
-    font-family: ui-monospace, monospace;
-    font-size: 12px;
-    line-height: 1.5;
+    min-height: 84px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12.5px;
+    line-height: 1.65;
+    letter-spacing: 0.01em;
     white-space: pre-wrap;
     word-break: break-all;
     resize: vertical;
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  /* The field answers back while you type: accent ring when the address
+     parses, warm hint when it doesn't. */
+  .code-wrap.ok .code-box {
+    border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+  }
+  .code-wrap.ok .code-box:focus {
+    border-color: var(--ok);
+    box-shadow:
+      inset 0 1px 2px rgb(0 0 0 / 0.08),
+      0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent);
+  }
+  .code-wrap.bad .code-box {
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+  }
+  .code-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    animation: state-in 0.18s ease both;
+  }
+  .code-wrap.ok .code-state {
+    color: var(--ok);
+  }
+  .code-wrap.bad .code-state {
+    color: color-mix(in srgb, var(--danger) 80%, var(--text));
+  }
+  @keyframes state-in {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
+    }
   }
   .conn-foot {
     display: flex;
