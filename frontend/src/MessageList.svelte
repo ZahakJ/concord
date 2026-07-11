@@ -322,9 +322,9 @@
       New messages <span class="arrow">↓</span>
     </button>
   {:else if !atBottom}
-    <button class="jump-bottom" title="Jump to latest" aria-label="Jump to latest" onclick={scrollSoon}>
-      <span class="jb-label">Jump to latest</span>
-      <Icon name="chevron" size={18} />
+    <button class="older-bar" aria-label="Viewing older messages — jump to latest" onclick={scrollSoon}>
+      <span class="ob-text">Viewing older messages</span>
+      <span class="ob-cta">Jump to latest</span>
     </button>
   {/if}
 
@@ -678,80 +678,53 @@
   .new-below .arrow {
     font-size: 13px;
   }
-  .jump-bottom {
+  /* "You're scrolled up" indicator: a slim glassy bar above the composer —
+     quiet context plus one accent action, not a floating blob. */
+  .older-bar {
     position: sticky;
-    bottom: 10px;
-    align-self: flex-end;
-    min-width: 42px;
-    height: 42px;
-    border-radius: 21px;
+    bottom: 8px;
+    align-self: center;
     display: flex;
     align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    border: none;
-    color: #fff;
+    gap: 12px;
+    padding: 7px 16px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--bg-1) 84%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 12.5px;
     box-shadow: var(--float-shadow);
     z-index: 15;
-    padding: 0;
-    animation:
-      float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1),
-      jump-glow 3.2s ease-in-out 0.8s infinite;
-    transition: transform 0.15s ease, filter 0.15s ease, padding 0.25s ease;
+    animation: float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
+    transition: border-color 0.15s ease, transform 0.15s ease;
   }
-  .jump-bottom :global(svg) {
-    transform: rotate(90deg) translateX(1px);
-    flex-shrink: 0;
-  }
-  /* Hover unfolds the circle into a labeled pill (fine pointers only). */
-  .jb-label {
-    max-width: 0;
-    opacity: 0;
-    overflow: hidden;
-    white-space: nowrap;
-    font-size: 13px;
+  .ob-cta {
+    color: var(--accent);
     font-weight: 600;
-    transition: max-width 0.25s ease, opacity 0.2s ease, margin 0.25s ease;
+    white-space: nowrap;
   }
-  @media (pointer: fine) {
-    .jump-bottom:hover {
-      padding: 0 6px 0 14px;
-    }
-    .jump-bottom:hover .jb-label {
-      max-width: 110px;
-      opacity: 1;
-      margin-right: 4px;
-    }
+  .older-bar:hover {
+    background: color-mix(in srgb, var(--bg-1) 92%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    transform: translateY(-1px);
   }
-  .jump-bottom:hover {
-    background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    color: #fff;
-    transform: translateY(-2px);
-    filter: brightness(1.08);
-  }
-  .jump-bottom:active {
-    transform: scale(0.92);
-  }
-  @keyframes jump-glow {
-    0%,
-    100% {
-      box-shadow: var(--float-shadow);
-    }
-    50% {
-      box-shadow:
-        var(--float-shadow),
-        0 0 16px color-mix(in srgb, var(--accent) 42%, transparent);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .jump-bottom {
-      animation: none;
-    }
+  .older-bar:active {
+    transform: none;
   }
   @keyframes float-in {
     from {
       opacity: 0;
       transform: translateY(10px) scale(0.85);
+    }
+  }
+  @media (pointer: coarse) {
+    .older-bar .ob-text {
+      display: none; /* phones: just the action, no caption */
+    }
+    .older-bar {
+      padding: 10px 18px;
     }
   }
   .pin-jump {
@@ -828,12 +801,6 @@
 
   /* ---- touch adjustments ---- */
   @media (pointer: coarse) {
-    /* Finger-sized jump-to-latest, lifted clear of the composer edge. */
-    .jump-bottom {
-      width: 46px;
-      height: 46px;
-      bottom: 10px;
-    }
     .new-below {
       padding: 10px 18px;
       font-size: 13px;

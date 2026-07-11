@@ -4,7 +4,20 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
-  import { S, selectGuild, openDMs, guildUnread } from "./lib/state.svelte.js";
+  import { S, selectGuild, openDMs, guildUnread, openContextMenu } from "./lib/state.svelte.js";
+
+  // Mobile: one + bubble → an action sheet (create / join). Two near-identical
+  // mystery bubbles are a desktop-ism; the sheet explains itself.
+  function addMenu(e) {
+    openContextMenu(
+      e,
+      [
+        { label: "Create a server", icon: "spark", onClick: () => (S.modal = { kind: "create" }) },
+        { label: "Join with an invite code", icon: "download", onClick: () => (S.modal = { kind: "join", code: "" }) },
+      ],
+      { title: "Add a server" },
+    );
+  }
 
   const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
   const inDMs = $derived(g?.kind === "dm");
@@ -95,12 +108,18 @@
     </div>
   {/each}
 
-  <button class="pill add" title="Create a guild" aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
-    <Icon name="plus" />
-  </button>
-  <button class="pill add" title="Join with invite" aria-label="Join with invite" onclick={() => (S.modal = { kind: "join", code: "" })}>
-    <Icon name="download" />
-  </button>
+  {#if S.isMobile}
+    <button class="pill add" title="Add a server" aria-label="Add a server" onclick={addMenu}>
+      <Icon name="plus" />
+    </button>
+  {:else}
+    <button class="pill add" title="Create a guild" aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
+      <Icon name="plus" />
+    </button>
+    <button class="pill add" title="Join with invite" aria-label="Join with invite" onclick={() => (S.modal = { kind: "join", code: "" })}>
+      <Icon name="download" />
+    </button>
+  {/if}
 </nav>
 
 <style>

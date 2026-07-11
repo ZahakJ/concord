@@ -232,6 +232,18 @@ textarea:focus {
   gap: 8px;
   margin-top: 8px;
 }
+/* Phones: modal footers become stacked full-width buttons, primary on top —
+   the side-by-side desktop row is cramped and back-to-front under a thumb. */
+@media (pointer: coarse) {
+  .actions {
+    flex-direction: column-reverse;
+    gap: 10px;
+  }
+  .actions button {
+    width: 100%;
+    min-height: 48px;
+  }
+}
 /* Slim, quiet scrollbars: a rounded thumb floating on a transparent track
    (the 2px transparent border + padding-box clip gives it breathing room). */
 ::-webkit-scrollbar {
