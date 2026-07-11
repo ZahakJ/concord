@@ -28,10 +28,31 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Release signing: reads android/keystore.properties (gitignored) if present.
+    // The keystore itself lives outside the repo (~/Android/concord-release.keystore).
+    // Losing it means friends must uninstall/reinstall to take future updates — back it up.
+    def ksProps = new Properties()
+    def ksPropsFile = rootProject.file('keystore.properties')
+    if (ksPropsFile.exists()) {
+        ksPropsFile.withInputStream { ksProps.load(it) }
+    }
+    signingConfigs {
+        if (ksProps.getProperty('storeFile')) {
+            release {
+                storeFile file(ksProps['storeFile'])
+                storePassword ksProps['storePassword']
+                keyAlias ksProps['keyAlias']
+                keyPassword ksProps['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (ksProps.getProperty('storeFile')) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
