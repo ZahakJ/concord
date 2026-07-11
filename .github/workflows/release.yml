@@ -214,6 +214,7 @@ jobs:
       # a signed export/TestFlight step is added once the Apple account is set up.
       - name: Build + archive app
         run: |
+          cd frontend && npm ci && npm run build && cd ..
           cd apps/mobile && npm ci && npx cap sync ios
           cd ios/App && xcodebuild -workspace App.xcworkspace -scheme App \
             -configuration Release -destination 'generic/platform=iOS' \
