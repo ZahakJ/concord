@@ -10,7 +10,6 @@
 
   let { onClose, onSaved } = $props();
   let bootstrap = $state("");
-  let saved = $state(false);
   let sounds = $state(soundsEnabled());
   let phrase = $state("");
   let copiedPhrase = $state(false);
@@ -77,24 +76,39 @@
     }
   });
 
-  async function save() {
+  // Rendezvous is display-first: the address shows as a copyable chip; editing
+  // (a once-ever action for self-hosters) hides behind the pencil.
+  let editingBootstrap = $state(false);
+  let bootstrapDraft = $state("");
+  let copiedAddr = $state(false);
+
+  function startEditBootstrap() {
+    bootstrapDraft = bootstrap;
+    editingBootstrap = true;
+  }
+  function copyAddr() {
+    navigator.clipboard?.writeText(bootstrap);
+    copiedAddr = true;
+    setTimeout(() => (copiedAddr = false), 1600);
+  }
+  async function saveBootstrap() {
     try {
-      await api.setBootstrapLive(bootstrap);
-      saved = true;
-      onSaved?.();
-      setTimeout(() => onClose(), 700);
+      await api.setBootstrapLive(bootstrapDraft);
+      bootstrap = bootstrapDraft;
+      editingBootstrap = false;
+      onSaved?.(); // parent toasts the confirmation
     } catch (err) {
       flash(err);
     }
   }
 
-  // Live shape-check of the rendezvous field so the box answers back while you
-  // type: every non-blank line should be a /…/p2p/<PeerID> multiaddr.
-  const bootstrapLines = $derived(bootstrap.split("\n").filter((l) => l.trim()));
-  const bootstrapOk = $derived(
-    bootstrapLines.length > 0 && bootstrapLines.every((l) => l.trim().startsWith("/") && l.includes("/p2p/")),
+  // Live shape-check while editing: every non-blank line should be a
+  // /…/p2p/<PeerID> multiaddr.
+  const draftLines = $derived(bootstrapDraft.split("\n").filter((l) => l.trim()));
+  const draftOk = $derived(
+    draftLines.length > 0 && draftLines.every((l) => l.trim().startsWith("/") && l.includes("/p2p/")),
   );
-  const bootstrapBad = $derived(bootstrapLines.length > 0 && !bootstrapOk);
+  const draftBad = $derived(draftLines.length > 0 && !draftOk);
 </script>
 
 <Modal title="Settings" wide {onClose}>
@@ -149,23 +163,42 @@
           </span>
         </span>
       </div>
-      <div class="code-wrap" class:ok={bootstrapOk} class:bad={bootstrapBad}>
-        <textarea
-          class="code-box"
-          rows="3"
-          placeholder="/dns/your-app.fly.dev/tcp/4001/p2p/12D3Koo…"
-          bind:value={bootstrap}
-        ></textarea>
-        {#if bootstrapOk}
-          <span class="code-state"><Icon name="check" size={13} /> address looks good</span>
-        {:else if bootstrapBad}
-          <span class="code-state">should start with /dns or /ip4 and contain /p2p/…</span>
-        {/if}
-      </div>
-      <div class="conn-foot">
-        <span class="row-sub">Blank = same-Wi-Fi only. Applies live to new connections.</span>
-        <button class="save-btn" onclick={save}>{saved ? "Saved ✓" : "Save"}</button>
-      </div>
+      {#if editingBootstrap}
+        <div class="code-wrap" class:ok={draftOk} class:bad={draftBad}>
+          <textarea
+            class="code-box"
+            rows="3"
+            placeholder="/dns/your-app.fly.dev/tcp/4001/p2p/12D3Koo…"
+            bind:value={bootstrapDraft}
+          ></textarea>
+          {#if draftOk}
+            <span class="code-state"><Icon name="check" size={13} /> address looks good</span>
+          {:else if draftBad}
+            <span class="code-state">should start with /dns or /ip4 and contain /p2p/…</span>
+          {/if}
+        </div>
+        <div class="conn-foot">
+          <span class="row-sub">Blank = same-Wi-Fi only. Applies live to new connections.</span>
+          <button class="ghost cancel-btn" onclick={() => (editingBootstrap = false)}>Cancel</button>
+          <button class="save-btn" disabled={draftBad} onclick={saveBootstrap}>Save</button>
+        </div>
+      {:else if bootstrap.trim()}
+        <div class="addr-row">
+          <code class="addr" title={bootstrap}>{bootstrap.trim()}</code>
+          <button class="addr-act" onclick={copyAddr} aria-label="Copy address">
+            {#if copiedAddr}<Icon name="check" size={15} />{:else}<Icon name="copy" size={15} />{/if}
+          </button>
+          <button class="addr-act" onclick={startEditBootstrap} aria-label="Edit address">
+            <Icon name="edit" size={15} />
+          </button>
+        </div>
+        <span class="row-sub">Friends get this automatically from your invite codes.</span>
+      {:else}
+        <div class="addr-row empty">
+          <span class="row-sub">Not set — you can only reach friends on the same Wi-Fi.</span>
+          <button class="save-btn" onclick={startEditBootstrap}>Set address</button>
+        </div>
+      {/if}
     </div>
   </section>
 
@@ -407,6 +440,52 @@
   .conn-head .chip {
     margin-top: 2px;
   }
+  /* Display state: the address as a copyable chip with quiet icon actions. */
+  .addr-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .addr {
+    flex: 1;
+    min-width: 0;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-0) 42%, var(--bg-3));
+    border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .addr-act {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .addr-act:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .addr-row.empty {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+  .cancel-btn {
+    padding: 7px 14px;
+    font-size: 13px;
+  }
   .code-wrap {
     display: flex;
     flex-direction: column;
@@ -422,7 +501,7 @@
     letter-spacing: 0.01em;
     white-space: pre-wrap;
     word-break: break-all;
-    resize: vertical;
+    resize: none; /* it's an address, not an essay */
     border-radius: 12px;
     padding: 12px 14px;
   }
