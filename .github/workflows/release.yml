@@ -216,7 +216,9 @@ jobs:
         run: |
           cd frontend && npm ci && npm run build && cd ..
           cd apps/mobile && npm ci && npx cap sync ios
-          cd ios/App && xcodebuild -workspace App.xcworkspace -scheme App \
+          # SPM-based Capacitor project (CapApp-SPM): no CocoaPods workspace,
+          # the .xcodeproj is the build entry point.
+          cd ios/App && xcodebuild -project App.xcodeproj -scheme App \
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath build/App.xcarchive archive \
             CODE_SIGNING_ALLOWED=NO

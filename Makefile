@@ -119,7 +119,7 @@ android-app: frontend android-core
 
 ios-app: frontend ios-core
 	cd apps/mobile && npm ci && npx cap sync ios
-	cd apps/mobile/ios/App && xcodebuild -workspace App.xcworkspace -scheme App \
+	cd apps/mobile/ios/App && xcodebuild -project App.xcodeproj -scheme App \
 		-configuration Release -archivePath build/App.xcarchive archive
 	@echo "archived apps/mobile/ios/App/build/App.xcarchive"
 
