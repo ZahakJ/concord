@@ -262,7 +262,9 @@
     {:else if linking}
       <p class="muted">
         On your other device, open <strong>Settings → Link a device</strong> and
-        scan or copy the code, then paste it here with a passphrase for this device.
+        scan or copy the code, then paste it here with a passphrase for this
+        device (it becomes this device's passphrase, replacing any old one).
+        Both devices need to be online.
       </p>
       <textarea
         class="phrase-in"
@@ -301,16 +303,21 @@
       </button>
     {:else if forgot}
       <p class="muted">
-        Your passphrase can't be looked up — it's never stored anywhere. But if you saved your
-        <strong>24-word recovery phrase</strong>, you can get your account back with a new
-        passphrase: your identity and servers return and history re-syncs from friends.
+        Your passphrase can't be looked up — it's never stored anywhere. If this
+        account is also on <strong>another device</strong>, re-linking from it is
+        the best fix: everything comes back — profile, servers, and history. The
+        <strong>24-word recovery phrase</strong> restores your identity, but
+        servers and history only return by re-linking or re-invites.
       </p>
       {#if error}<div class="error">{error}</div>{/if}
-      <button type="button" onclick={() => ((restoring = true), (forgot = false), (error = ""))}>
-        I have my recovery phrase
+      <button type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
+        Re-link from my other device
+      </button>
+      <button type="button" class="ghost" onclick={() => ((restoring = true), (forgot = false), (error = ""))}>
+        Use my recovery phrase
       </button>
       <button type="button" class="link warn-link" onclick={() => ((confirmingReset = true), (forgot = false), (error = ""))}>
-        I don't have it — start over (deletes everything)
+        I have neither — start over (deletes everything)
       </button>
       <button type="button" class="link" onclick={() => (forgot = false)}>Back</button>
     {:else if hasIdentity}
@@ -327,6 +334,12 @@
       {/if}
       <button type="button" class="link" onclick={() => ((forgot = true), (error = ""))}>
         Forgot passphrase?
+      </button>
+      <!-- Re-link works over an existing keystore too (the device key is kept,
+           only the account material is re-adopted) — handy for refreshing a
+           device from the desktop without digging through recovery flows. -->
+      <button type="button" class="link" onclick={() => ((linking = true), (error = ""))}>
+        Re-link from another device
       </button>
     {:else}
       <p class="muted">
