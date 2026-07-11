@@ -107,6 +107,15 @@ android-app: frontend android-core
 		-PconcordVersionName=$(MOBILE_VERSION_NAME) \
 		-PconcordVersionCode=$(MOBILE_VERSION_CODE)
 	@echo "built apps/mobile/android/app/build/outputs/bundle/release/app-release.aab"
+	# Sideloadable APK for direct distribution (GitHub Release download).
+	# arm64-only: every phone since ~2017; halves the size vs universal.
+	cd apps/mobile/android && ./gradlew assembleRelease \
+		-PconcordAbi=arm64-v8a \
+		-PconcordVersionName=$(MOBILE_VERSION_NAME) \
+		-PconcordVersionCode=$(MOBILE_VERSION_CODE)
+	cp apps/mobile/android/app/build/outputs/apk/release/app-release.apk \
+		apps/mobile/android/app/build/outputs/apk/release/concord-$(MOBILE_VERSION_NAME)-android.apk
+	@echo "built apps/mobile/android/app/build/outputs/apk/release/concord-$(MOBILE_VERSION_NAME)-android.apk"
 
 ios-app: frontend ios-core
 	cd apps/mobile && npm ci && npx cap sync ios

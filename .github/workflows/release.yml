@@ -146,6 +146,7 @@ jobs:
     timeout-minutes: 30
     env:
       ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -164,7 +165,16 @@ jobs:
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Decode signing keystore
         if: env.ANDROID_KEYSTORE_B64 != ''
-        run: echo "$ANDROID_KEYSTORE_B64" | base64 -d > apps/mobile/android/upload.keystore
+        # keystore.properties is what app/build.gradle reads (gitignored; local
+        # builds keep their own copy). storeFile resolves relative to app/.
+        run: |
+          echo "$ANDROID_KEYSTORE_B64" | base64 -d > apps/mobile/android/upload.keystore
+          cat > apps/mobile/android/keystore.properties <<EOF
+          storeFile=../upload.keystore
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyAlias=concord
+          keyPassword=$ANDROID_KEYSTORE_PASSWORD
+          EOF
       # Reuses the Makefile target (frontend -> android-core -> cap sync -> gradle),
       # so local and CI builds stay identical. VERSION stamps the Go core.
       - name: Build app bundle
@@ -173,6 +183,12 @@ jobs:
         with:
           name: concord-android
           path: apps/mobile/android/app/build/outputs/bundle/release/*.aab
+      # The sideloadable APK ships as a GitHub Release download (unlike the
+      # .aab) — separate artifact so the publish job can include just it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: concord-android-apk
+          path: apps/mobile/android/app/build/outputs/apk/release/concord-*-android.apk
 
   # iOS archive via gomobile + Xcode on a macOS runner. Produces the .xcarchive;
   # exporting a signed .ipa / TestFlight upload needs an Apple Developer account
@@ -210,7 +226,10 @@ jobs:
 
   # Gather every artifact and attach it to the tag's GitHub Release.
   publish:
-    needs: [web, native]
+    # mobile-android is in needs so its APK artifact exists before download;
+    # the `if` below still only requires the web track to have succeeded, so a
+    # failed mobile build never blocks the desktop release.
+    needs: [web, native, mobile-android]
     runs-on: ubuntu-latest
     # Mapped to an env var so a step `if:` can detect whether the public dist
     # repo is wired up yet (secrets can't be read directly in `if:`).
@@ -227,9 +246,9 @@ jobs:
         with:
           path: artifacts
       - name: Flatten artifact tree
-        # Mobile artifacts (.aab / .xcarchive) are distributed through the app
-        # stores, not as GitHub Release downloads — exclude them here (they stay
-        # available as workflow artifacts for the store-upload step).
+        # Store-track artifacts (.aab / .xcarchive) stay workflow-only; the
+        # sideloadable APK (concord-android-apk) IS a Release download so
+        # friends can install directly from the release page.
         run: |
           mkdir -p release-assets
           find artifacts -type f \
