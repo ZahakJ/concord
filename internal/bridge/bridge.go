@@ -110,9 +110,9 @@ type IdentityInfo struct {
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
-	Color2      string           `json:"color2,omitempty"` // gradient partner color
-	Frame       string           `json:"frame,omitempty"`  // avatar frame enum id
-	Effect      string           `json:"effect,omitempty"` // card effect enum id
+	Color2      string           `json:"color2,omitempty"`   // gradient partner color
+	Frame       string           `json:"frame,omitempty"`    // avatar frame enum id
+	Effect      string           `json:"effect,omitempty"`   // card effect enum id
 }
 
 type ChannelView struct {
@@ -210,9 +210,9 @@ type MemberView struct {
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
-	Color2      string           `json:"color2,omitempty"` // gradient partner color
-	Frame       string           `json:"frame,omitempty"`  // avatar frame enum id
-	Effect      string           `json:"effect,omitempty"` // card effect enum id
+	Color2      string           `json:"color2,omitempty"`   // gradient partner color
+	Frame       string           `json:"frame,omitempty"`    // avatar frame enum id
+	Effect      string           `json:"effect,omitempty"`   // card effect enum id
 	IsSelf      bool             `json:"isSelf"`
 	Online      bool             `json:"online"`
 	Verified    bool             `json:"verified"`
@@ -931,7 +931,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Avatar:      p.Avatar,
 			Activity:    p.Activity,
 			Games:       p.Games,
-				Color2:      p.Color2,
+			Color2:      p.Color2,
 			Frame:       p.Frame,
 			Effect:      p.Effect,
 			Banner:      p.Banner,
