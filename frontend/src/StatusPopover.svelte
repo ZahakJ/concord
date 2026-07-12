@@ -46,6 +46,7 @@
         id.color2 || "",
         id.frame || "",
         id.effect || "",
+        id.style ? JSON.stringify(id.style) : "",
       );
       S.identity = await api.identity();
       await refreshRightPanel(); // your own dot in the member list

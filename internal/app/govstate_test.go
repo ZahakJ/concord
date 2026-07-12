@@ -231,3 +231,65 @@ func TestRolesReplayOrderIndependent(t *testing.T) {
 		t.Fatal("replay must be independent of arrival order")
 	}
 }
+
+// TestOwnerSelfAssignsRole: the owner may give a role to THEMSELVES (that's
+// how they take the Admin badge — it grants nothing they don't already hold),
+// while a moderator still cannot decorate the owner. Regression: the blanket
+// "no roles on the owner" rule silently dropped the owner's own op, so
+// "Make admin" appeared to do nothing.
+func TestOwnerSelfAssignsRole(t *testing.T) {
+	owner := mustID(t)
+	mod := mustID(t)
+	ownerFpr := identity.FingerprintOf(owner.PublicKey())
+	modFpr := identity.FingerprintOf(mod.PublicKey())
+
+	ops := []govOp{
+		upsertRole(owner, 1, "r_admin", "Admin", permAll, 100),
+		upsertRole(owner, 2, "r_mod", "Mod", PermManageRoles, 10),
+		assignRole(owner, 3, modFpr, "r_mod", true),
+		assignRole(owner, 4, ownerFpr, "r_admin", true), // owner → self: allowed
+		assignRole(mod, 5, ownerFpr, "r_mod", true),     // mod → owner: refused
+	}
+	st := replayGuildOps(owner.PublicKey(), ops)
+	if !containsStr(st.MemberRoles[ownerFpr], "r_admin") {
+		t.Fatal("the owner must be able to assign a role to themselves")
+	}
+	if containsStr(st.MemberRoles[ownerFpr], "r_mod") {
+		t.Fatal("a moderator must not be able to assign roles to the owner")
+	}
+}
+
+// TestModeratorCannotSelfPromote is the escalation gate, stated as a test: a
+// member holding ManageRoles cannot make themselves an admin — not by minting
+// an all-powerful role (capped at their own permissions), and not by granting
+// themselves an existing role that outranks them.
+func TestModeratorCannotSelfPromote(t *testing.T) {
+	owner := mustID(t)
+	mod := mustID(t)
+	modFpr := identity.FingerprintOf(mod.PublicKey())
+
+	ops := []govOp{
+		// An admin role the owner created, ranked above the moderator.
+		upsertRole(owner, 1, "r_admin", "Admin", permAll, 100),
+		upsertRole(owner, 2, "r_mod", "Mod", PermManageRoles, 10),
+		assignRole(owner, 3, modFpr, "r_mod", true),
+
+		// The moderator tries every escalation path: mint an all-powerful role…
+		upsertRole(mod, 4, "r_evil", "Evil", permAll, 5),
+		assignRole(mod, 5, modFpr, "r_evil", true),
+		// …and grab the existing admin role that outranks them.
+		assignRole(mod, 6, modFpr, "r_admin", true),
+	}
+	st := replayGuildOps(owner.PublicKey(), ops)
+
+	ownerFpr := identity.FingerprintOf(owner.PublicKey())
+	if st.Can(ownerFpr, modFpr, PermManageGuild) {
+		t.Fatal("a moderator escalated to permissions they never held")
+	}
+	if containsStr(st.MemberRoles[modFpr], "r_admin") {
+		t.Fatal("a moderator assigned themselves a role above their rank")
+	}
+	if _, minted := st.Roles["r_evil"]; minted {
+		t.Fatal("a moderator minted a role more powerful than themselves")
+	}
+}

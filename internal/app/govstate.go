@@ -183,8 +183,12 @@ func canonicalOps(ops []govOp) []govOp {
 //     must be a subset of the signer's own, and its position strictly below the
 //     signer's rank (owner exempt). Editing a role above your rank is refused.
 //   - role_delete: ManageRoles (or owner); the role must be below your rank.
-//   - role_assign: ManageRoles (or owner); the role must be below your rank; you
-//     cannot assign roles to the owner.
+//   - role_assign: ManageRoles (or owner); the role must be below your rank;
+//     only the OWNER may assign a role to the owner. Note what this
+//     combination forbids: a member holding ManageRoles cannot escalate — any
+//     role they mint is capped at their own permissions (role_upsert) and any
+//     role they assign must rank below them, so "make myself admin" is
+//     impossible unless you already are one.
 //   - ban/unban: ManageMembers (or owner); the owner cannot be banned; a ban
 //     strips the member's roles.
 //
@@ -242,7 +246,11 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 			}
 		case "role_assign":
 			r, ok := st.Roles[o.RoleID]
-			if !ok || o.Target == "" || o.Target == ownerFpr {
+			// Nobody but the owner may hand roles TO the owner — that keeps a
+			// moderator from decorating (or re-ranking) them. The owner giving
+			// THEMSELVES a role is fine and is how they take the Admin badge;
+			// it grants nothing they don't already have.
+			if !ok || o.Target == "" || (o.Target == ownerFpr && !isOwner) {
 				continue
 			}
 			if !isOwner {

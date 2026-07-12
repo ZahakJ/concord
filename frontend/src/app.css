@@ -413,14 +413,18 @@ textarea:focus {
 .avatar-frame-gem::before {
   content: "";
   position: absolute;
-  inset: -3px;
+  /* Ring thickness is a dial (--ring-w, 1–5px). */
+  inset: calc(-1px - var(--ring-w, 2px));
   border-radius: 50%;
   z-index: -1;
-  animation: frame-spin 3.6s linear infinite;
+  /* Speed + direction are dials too; the glow rides the same knob. */
+  animation: frame-spin var(--ring-dur, 3.6s) linear infinite;
+  animation-direction: var(--ring-dir, normal);
+  filter: drop-shadow(0 0 var(--ring-glow, 10px) currentColor);
 }
 .avatar-frame-aurora::before {
   background: conic-gradient(from 0deg, #35e0c8, #6f7cff, #a06bff, #35e0c8);
-  filter: blur(0.5px);
+  color: #6f7cff;
 }
 .avatar-frame-rainbow::before {
   background: conic-gradient(
@@ -434,7 +438,7 @@ textarea:focus {
     #d94dff,
     #ff4d4d
   );
-  animation-duration: 5s;
+  color: #d94dff;
 }
 .avatar-frame-gem::before {
   background: conic-gradient(
@@ -448,16 +452,38 @@ textarea:focus {
     #7ad7f0 88%,
     #b9f2ff
   );
-  animation-duration: 2.8s;
+  color: #b9f2ff;
 }
 @keyframes frame-spin {
   to {
     transform: rotate(360deg);
   }
 }
+/* Theme ring: spun from the member's OWN two profile colors. */
+.avatar-frame-theme {
+  position: relative;
+}
+.avatar-frame-theme::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1px - var(--ring-w, 2px));
+  border-radius: 50%;
+  z-index: -1;
+  background: conic-gradient(
+    from 0deg,
+    var(--ring-color, var(--accent)),
+    var(--ring-color2, var(--accent-hover)),
+    var(--ring-color, var(--accent))
+  );
+  color: var(--ring-color, var(--accent));
+  animation: frame-spin var(--ring-dur, 3.6s) linear infinite;
+  animation-direction: var(--ring-dir, normal);
+  filter: drop-shadow(0 0 var(--ring-glow, 10px) currentColor);
+}
+
 /* Pulse: a breathing halo in the accent (no ring, pure energy). */
 .avatar-frame-pulse {
-  animation: frame-pulse 2.4s ease-in-out infinite;
+  animation: frame-pulse var(--ring-dur, 2.4s) ease-in-out infinite;
 }
 @keyframes frame-pulse {
   0%,
@@ -479,17 +505,25 @@ textarea:focus {
 .avatar-frame-orbit::after {
   content: "";
   position: absolute;
-  inset: -6px;
+  inset: calc(-4px - var(--ring-w, 2px));
   border-radius: 50%;
-  animation: frame-spin 3s linear infinite;
+  animation: frame-spin var(--ring-dur, 3s) linear infinite;
+  animation-direction: var(--ring-dir, normal);
   background:
-    radial-gradient(circle 3.5px at 50% 0%, var(--accent) 96%, transparent) no-repeat;
+    radial-gradient(
+        circle calc(1.5px + var(--ring-w, 2px)) at 50% 0%,
+        var(--ring-color, var(--accent)) 96%,
+        transparent
+      )
+      no-repeat;
+  filter: drop-shadow(0 0 var(--ring-glow, 10px) var(--ring-color, var(--accent)));
   pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .avatar-frame-aurora::before,
   .avatar-frame-rainbow::before,
   .avatar-frame-gem::before,
+  .avatar-frame-theme::before,
   .avatar-frame-orbit::after,
   .avatar-frame-pulse {
     animation: none;

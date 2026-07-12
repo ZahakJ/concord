@@ -194,6 +194,7 @@ CREATE TABLE IF NOT EXISTS read_state (
 		`ALTER TABLE profiles ADD COLUMN color2 TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE profiles ADD COLUMN frame TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE profiles ADD COLUMN effect TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE profiles ADD COLUMN style TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN parent TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN links TEXT NOT NULL DEFAULT ''`,
 	} {
@@ -1053,22 +1054,22 @@ type ProfileRow struct {
 	Presence, Bio                                   string
 	MailboxPub                                      []byte
 	Games                                           string // JSON array of games ("" = none)
-	Color2, Frame, Effect                           string
+	Color2, Frame, Effect, Style                    string
 }
 
 // SaveProfile upserts a peer's learned profile so display names (and their
 // mailbox key) survive restarts instead of living only in memory.
 func (s *Store) SaveProfile(p ProfileRow) error {
 	_, err := s.db.Exec(
-		`INSERT INTO profiles (fingerprint, name, status, emoji, color, avatar, banner, presence, bio, mailbox_pub, games, color2, frame, effect, updated)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO profiles (fingerprint, name, status, emoji, color, avatar, banner, presence, bio, mailbox_pub, games, color2, frame, effect, style, updated)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(fingerprint) DO UPDATE SET
 		   name=excluded.name, status=excluded.status, emoji=excluded.emoji,
 		   color=excluded.color, avatar=excluded.avatar, banner=excluded.banner,
 		   presence=excluded.presence, bio=excluded.bio, mailbox_pub=excluded.mailbox_pub,
 		   games=excluded.games, color2=excluded.color2,
-		   frame=excluded.frame, effect=excluded.effect, updated=excluded.updated`,
-		p.Fingerprint, p.Name, p.Status, p.Emoji, p.Color, p.Avatar, p.Banner, p.Presence, p.Bio, p.MailboxPub, p.Games, p.Color2, p.Frame, p.Effect, time.Now().UnixNano(),
+		   frame=excluded.frame, effect=excluded.effect, style=excluded.style, updated=excluded.updated`,
+		p.Fingerprint, p.Name, p.Status, p.Emoji, p.Color, p.Avatar, p.Banner, p.Presence, p.Bio, p.MailboxPub, p.Games, p.Color2, p.Frame, p.Effect, p.Style, time.Now().UnixNano(),
 	)
 	if err != nil {
 		return fmt.Errorf("store: save profile: %w", err)
@@ -1078,7 +1079,7 @@ func (s *Store) SaveProfile(p ProfileRow) error {
 
 // Profiles returns every learned peer profile.
 func (s *Store) Profiles() ([]ProfileRow, error) {
-	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar, banner, presence, bio, mailbox_pub, games, color2, frame, effect FROM profiles`)
+	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar, banner, presence, bio, mailbox_pub, games, color2, frame, effect, style FROM profiles`)
 	if err != nil {
 		return nil, err
 	}
@@ -1086,7 +1087,7 @@ func (s *Store) Profiles() ([]ProfileRow, error) {
 	var out []ProfileRow
 	for rows.Next() {
 		var p ProfileRow
-		if err := rows.Scan(&p.Fingerprint, &p.Name, &p.Status, &p.Emoji, &p.Color, &p.Avatar, &p.Banner, &p.Presence, &p.Bio, &p.MailboxPub, &p.Games, &p.Color2, &p.Frame, &p.Effect); err != nil {
+		if err := rows.Scan(&p.Fingerprint, &p.Name, &p.Status, &p.Emoji, &p.Color, &p.Avatar, &p.Banner, &p.Presence, &p.Bio, &p.MailboxPub, &p.Games, &p.Color2, &p.Frame, &p.Effect, &p.Style); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

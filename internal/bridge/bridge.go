@@ -113,6 +113,7 @@ type IdentityInfo struct {
 	Color2      string           `json:"color2,omitempty"`   // gradient partner color
 	Frame       string           `json:"frame,omitempty"`    // avatar frame enum id
 	Effect      string           `json:"effect,omitempty"`   // card effect enum id
+	Style       *appsvc.Style    `json:"style,omitempty"`    // fine-grained style dials
 }
 
 type ChannelView struct {
@@ -213,6 +214,7 @@ type MemberView struct {
 	Color2      string           `json:"color2,omitempty"`   // gradient partner color
 	Frame       string           `json:"frame,omitempty"`    // avatar frame enum id
 	Effect      string           `json:"effect,omitempty"`   // card effect enum id
+	Style       *appsvc.Style    `json:"style,omitempty"`    // fine-grained style dials
 	IsSelf      bool             `json:"isSelf"`
 	Online      bool             `json:"online"`
 	Verified    bool             `json:"verified"`
@@ -660,6 +662,7 @@ func (b *Bridge) Identity() (IdentityInfo, error) {
 		Color2:      p.Color2,
 		Frame:       p.Frame,
 		Effect:      p.Effect,
+		Style:       p.Style,
 	}, nil
 }
 
@@ -684,7 +687,7 @@ func (b *Bridge) SearchGames(query string) ([]appsvc.GameSearchResult, error) {
 
 // SetProfile updates this peer's profile (incl. avatar + banner images) and
 // re-announces.
-func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect string) error {
+func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, styleJSON string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
@@ -692,8 +695,20 @@ func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence
 	return svc.SetProfile(appsvc.Profile{
 		Name: name, Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Banner: banner, Presence: presence, Bio: bio,
-		Color2: color2, Frame: frame, Effect: effect,
+		Color2: color2, Frame: frame, Effect: effect, Style: parseStyle(styleJSON),
 	})
+}
+
+// parseStyle turns the UI's style JSON into the app struct ("" = defaults).
+func parseStyle(raw string) *appsvc.Style {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var st appsvc.Style
+	if json.Unmarshal([]byte(raw), &st) != nil {
+		return nil
+	}
+	return &st
 }
 
 // VerifyFingerprint marks a member's identity as verified after an out-of-band
@@ -934,6 +949,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Color2:      p.Color2,
 			Frame:       p.Frame,
 			Effect:      p.Effect,
+			Style:       p.Style,
 			Banner:      p.Banner,
 			Presence:    p.Presence,
 			Bio:         p.Bio,
@@ -1650,7 +1666,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SendTyping":
 		return nil, b.SendTyping(argStr(args, 0))
 	case "SetProfile":
-		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9), argStr(args, 10))
+		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9), argStr(args, 10), argStr(args, 11))
 	case "VerifyFingerprint":
 		return nil, b.VerifyFingerprint(argStr(args, 0))
 	case "PinMessage":

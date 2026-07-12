@@ -1,4 +1,5 @@
 <script>
+  import { ringVars } from "./lib/profilestyle.js";
   // The one avatar. Renders, in priority order: uploaded image, profile emoji,
   // name/fingerprint initials — tinted by the member's accent color, with an
   // optional presence dot. Replaces five copy-pasted implementations.
@@ -10,7 +11,9 @@
     size = 32,
     online = null, // null hides the dot; true/false shows connection state
     presence = "", // "" | online | idle | dnd | invisible — shades the dot when connected
-    frame = "", // decorative ring: "" | gold | neon | ember | frost (see app.css)
+    frame = "", // decorative ring: "" | gold | neon | ember | frost | … (app.css)
+    style = null, // ring dials: { speed, dir, glow, width } (lib/profilestyle.js)
+    color2 = "", // second theme color — the "theme" ring spins between the two
   } = $props();
 
   const glyph = $derived(emoji || (name || "?").slice(0, 2));
@@ -33,8 +36,8 @@
 <span
   class="avatar {frame ? `avatar-frame-${frame}` : ''}"
   style="width:{size}px;height:{size}px;font-size:{Math.round(size * 0.38)}px;{color
-    ? `background:${color}`
-    : ''}"
+    ? `background:${color};`
+    : ''}{frame ? ringVars(style, color) : ''}{color2 ? `--ring-color2:${color2};` : ''}"
 >
   {#if image}
     <img src={image} alt="" />

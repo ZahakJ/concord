@@ -787,6 +787,11 @@
   .scroll {
     flex: 1;
     overflow-y: auto;
+    /* Decorative avatar rings (which spin OUTSIDE the avatar box) must not
+       make this column think it needs a horizontal scrollbar — that's what
+       made the divider "pulsate". clip keeps them visible; hidden would too,
+       but clip doesn't create a scroll port. */
+    overflow-x: clip;
     padding: 8px;
     display: flex;
     flex-direction: column;
@@ -1332,6 +1337,8 @@
     padding: 8px;
     border-top: 1px solid var(--border);
     background: var(--bg-0);
+    /* Your own framed avatar lives here; its ring overflows by design. */
+    overflow: clip;
   }
   .me-status-trigger {
     background: transparent;

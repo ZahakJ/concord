@@ -193,6 +193,71 @@ type Profile struct {
 	// Effect is a card-wide flourish by enum id (see validEffect): animated
 	// gradient banners, sparkles, sheen. Also pure CSS.
 	Effect string `json:"effect,omitempty"`
+	// Style holds the fine-grained knobs (ring speed/direction/glow, banner
+	// gradient angle…). One small struct so the profile broadcast gains one
+	// short JSON object, not a dozen fields.
+	Style *Style `json:"style,omitempty"`
+}
+
+// Style is the customization dial-set behind Frame/Effect. Every value is an
+// enum or a bounded number — never free text or a URL — so a hostile peer's
+// profile can't inject anything into the CSS we render it with.
+type Style struct {
+	// Ring animation.
+	Speed string `json:"speed,omitempty"` // slow | normal | fast
+	Dir   string `json:"dir,omitempty"`   // cw | ccw
+	Glow  string `json:"glow,omitempty"`  // off | soft | strong
+	Width int    `json:"width,omitempty"` // ring thickness, 1..5
+	// Banner.
+	Angle int    `json:"angle,omitempty"` // gradient angle, 0..360
+	Fill  string `json:"fill,omitempty"`  // gradient | solid  (when no image)
+}
+
+func oneOf(v string, allowed ...string) bool {
+	for _, a := range allowed {
+		if v == a {
+			return true
+		}
+	}
+	return false
+}
+
+// sanitizeStyle bounds every dial (and drops the struct when it's all
+// defaults, so a plain profile stays byte-identical to before).
+func sanitizeStyle(st *Style) *Style {
+	if st == nil {
+		return nil
+	}
+	out := Style{}
+	if oneOf(st.Speed, "slow", "normal", "fast") {
+		out.Speed = st.Speed
+	}
+	if oneOf(st.Dir, "cw", "ccw") {
+		out.Dir = st.Dir
+	}
+	if oneOf(st.Glow, "off", "soft", "strong") {
+		out.Glow = st.Glow
+	}
+	if st.Width >= 1 && st.Width <= 5 {
+		out.Width = st.Width
+	}
+	if st.Angle >= 0 && st.Angle <= 360 {
+		out.Angle = st.Angle
+	}
+	if oneOf(st.Fill, "gradient", "solid") {
+		out.Fill = st.Fill
+	}
+	if out == (Style{}) {
+		return nil
+	}
+	return &out
+}
+
+func stylesEqual(a, b *Style) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // validColor admits "" or a #hex color — profile colors render into inline
@@ -206,7 +271,7 @@ func validColor(c string) bool { return c == "" || hexColorRe.MatchString(c) }
 // ones — the animation lives in CSS on the viewer's machine.
 func validFrame(f string) bool {
 	switch f {
-	case "", "gold", "neon", "ember", "frost", "aurora", "rainbow", "orbit", "pulse", "gem":
+	case "", "gold", "neon", "ember", "frost", "aurora", "rainbow", "orbit", "pulse", "gem", "theme":
 		return true
 	}
 	return false
@@ -233,6 +298,7 @@ func sanitizeProfileExtras(p *Profile) {
 	if !validEffect(p.Effect) {
 		p.Effect = ""
 	}
+	p.Style = sanitizeStyle(p.Style)
 }
 
 // Game is one entry in a member's game collection.
@@ -336,6 +402,30 @@ func sanitizeGames(games []Game) []Game {
 		}
 	}
 	return out
+}
+
+// encodeStyle/decodeStyle persist the style dials as one small JSON blob.
+func encodeStyle(st *Style) string {
+	st = sanitizeStyle(st)
+	if st == nil {
+		return ""
+	}
+	b, err := json.Marshal(st)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeStyle(raw string) *Style {
+	if raw == "" {
+		return nil
+	}
+	var st Style
+	if json.Unmarshal([]byte(raw), &st) != nil {
+		return nil
+	}
+	return sanitizeStyle(&st)
 }
 
 // decodeGames parses a persisted game list. It tolerates the pre-cover format
@@ -495,7 +585,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// of fingerprint-only names right after unlock).
 	if rows, err := st.Profiles(); err == nil {
 		for _, r := range rows {
-			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub, Games: decodeGames(r.Games), Color2: r.Color2, Frame: r.Frame, Effect: r.Effect}
+			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub, Games: decodeGames(r.Games), Color2: r.Color2, Frame: r.Frame, Effect: r.Effect, Style: decodeStyle(r.Style)}
 		}
 	}
 
@@ -779,10 +869,17 @@ func (s *Service) SelfProfile() Profile {
 	color2, _ := s.store.GetSetting("accent_color2")
 	frame, _ := s.store.GetSetting("avatar_frame")
 	effect, _ := s.store.GetSetting("card_effect")
+	var style *Style
+	if raw, _ := s.store.GetSetting("card_style"); raw != "" {
+		var st Style
+		if json.Unmarshal([]byte(raw), &st) == nil {
+			style = sanitizeStyle(&st)
+		}
+	}
 	return Profile{
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:], Activity: act,
-		Games: decodeGames(rawGames), Color2: color2, Frame: frame, Effect: effect,
+		Games: decodeGames(rawGames), Color2: color2, Frame: frame, Effect: effect, Style: style,
 	}
 }
 
@@ -830,6 +927,7 @@ func (s *Service) SetProfile(p Profile) error {
 		"accent_color2": p.Color2,
 		"avatar_frame":  p.Frame,
 		"card_effect":   p.Effect,
+		"card_style":    encodeStyle(p.Style),
 	} {
 		if err := s.store.SetSetting(k, v); err != nil {
 			return err
@@ -930,7 +1028,7 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 		Fingerprint: fingerprint,
 		Name:        p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
 		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
-		Games: gamesJSON, Color2: p.Color2, Frame: p.Frame, Effect: p.Effect,
+		Games: gamesJSON, Color2: p.Color2, Frame: p.Frame, Effect: p.Effect, Style: encodeStyle(p.Style),
 	})
 	s.emitGuildUpdate()
 	return !known
@@ -941,6 +1039,7 @@ func profilesEqual(a, b Profile) bool {
 		a.Color == b.Color && a.Avatar == b.Avatar && a.Banner == b.Banner &&
 		a.Presence == b.Presence && a.Bio == b.Bio && bytes.Equal(a.MailboxPub, b.MailboxPub) &&
 		a.Color2 == b.Color2 && a.Frame == b.Frame && a.Effect == b.Effect &&
+		stylesEqual(a.Style, b.Style) &&
 		activityEqual(a.Activity, b.Activity) && activityPosEqual(a.Activity, b.Activity) &&
 		gamesEqual(a.Games, b.Games)
 }

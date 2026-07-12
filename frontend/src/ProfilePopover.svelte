@@ -21,6 +21,7 @@
   import { api } from "./lib/api.js";
   import { PERM, PERM_ALL, has } from "./lib/perms.js";
   import { splitStatus } from "./lib/presence.js";
+  import { bannerStyle } from "./lib/profilestyle.js";
 
   let dmText = $state("");
   let dmBusy = $state(false);
@@ -123,10 +124,12 @@
     !!mem && !mem.isSelf && !mem.isOwner && activeGuild()?.kind !== "dm" && !!activeGuild()?.canManage,
   );
   // Role assignment needs the Manage Roles permission (or owner).
+  // Role assignment works on ANY member, including yourself: if you can manage
+  // roles you can already grant them to others, so hiding your own card just
+  // made it impossible to give yourself a role (e.g. the owner taking the
+  // Admin badge). The guild owner keeps full authority regardless of roles.
   const canAssignRoles = $derived(
     !!mem &&
-      !mem.isSelf &&
-      !mem.isOwner &&
       activeGuild()?.kind !== "dm" &&
       (has(activeGuild()?.myPerms || 0, PERM.MANAGE_ROLES) || !!activeGuild()?.isOwner),
   );
@@ -136,12 +139,14 @@
   // it. Owner or Manage Roles only.
   const adminRole = $derived(S.roles.find((r) => r.perms === PERM_ALL));
   const isAdmin = $derived(!!adminRole && !!mem?.roleIds?.includes(adminRole.id));
+  // Only offer "Make admin" to someone whose op would actually stick: the
+  // guild's governance refuses a role granting MORE than the actor holds, so
+  // a plain moderator clicking this would just watch it vanish. Owner, or a
+  // member who already holds every permission.
   const canMakeAdmin = $derived(
     !!mem &&
-      !mem.isSelf &&
-      !mem.isOwner &&
       activeGuild()?.kind !== "dm" &&
-      (has(activeGuild()?.myPerms || 0, PERM.MANAGE_ROLES) || !!activeGuild()?.isOwner),
+      (!!activeGuild()?.isOwner || has(activeGuild()?.myPerms || 0, PERM_ALL)),
   );
 
   async function toggleAdmin() {
@@ -334,17 +339,7 @@
     <!-- Banner: image wins; else the member's PROFILE THEME (their two chosen
          colors as a gradient — Nitro-style); else a single color; else the
          default accent gradient from CSS. -->
-    <div
-      class="banner"
-      class:has-image={!!mem.banner}
-      style={mem.banner
-        ? `background-image:url(${mem.banner})`
-        : mem.color && mem.color2
-          ? `background:linear-gradient(120deg, ${mem.color}, ${mem.color2})`
-          : mem.color
-            ? `background:${mem.color}`
-            : ""}
-    ></div>
+    <div class="banner" class:has-image={!!mem.banner} style={bannerStyle(mem)}></div>
     <div class="head">
       <div class="av-wrap">
         {#if mem.color}
@@ -364,6 +359,8 @@
           online={mem.online}
           presence={mem.presence}
           frame={mem.frame}
+          style={mem.style}
+          color2={mem.color2}
         />
       </div>
       {#if mem.verified && !mem.isSelf}
@@ -530,7 +527,7 @@
         </form>
       {/if}
 
-      {#if canModerate || canMute}
+      {#if canModerate || canMute || canMakeAdmin}
         <div class="divider"></div>
         <div class="mod-actions">
           {#if canMakeAdmin}

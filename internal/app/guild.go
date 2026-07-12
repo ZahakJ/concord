@@ -896,6 +896,7 @@ type guildMeta struct {
 	Color2      string             `json:"color2,omitempty"`   // profile: gradient partner color
 	Frame       string             `json:"frame,omitempty"`    // profile: avatar frame enum id
 	Effect      string             `json:"effect,omitempty"`   // profile: card effect enum id
+	Style       *Style             `json:"style,omitempty"`    // profile: fine-grained style dials
 	CustomEmoji domain.CustomEmoji `json:"customEmoji,omitempty"`
 	GovOp       json.RawMessage    `json:"govOp,omitempty"` // a signed governance op (roles/bans)
 	// guild_profile: icon/banner/description (Name reused from above).
@@ -941,7 +942,7 @@ func (s *Service) announceProfile(guildID string) {
 		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
 		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
 		Activity: p.Activity, Games: p.Games,
-		Color2: p.Color2, Frame: p.Frame, Effect: p.Effect,
+		Color2: p.Color2, Frame: p.Frame, Effect: p.Effect, Style: p.Style,
 	}
 	payload, _ := json.Marshal(meta)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
@@ -1480,7 +1481,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	case "profile":
 		// First time we see this member: reply with our own profile so the
 		// newcomer learns us too (bounded — only on genuinely new members).
-		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games, Color2: m.Color2, Frame: m.Frame, Effect: m.Effect}) {
+		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games, Color2: m.Color2, Frame: m.Frame, Effect: m.Effect, Style: m.Style}) {
 			s.announceProfile(guildID)
 		}
 	case "nickname":

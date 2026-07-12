@@ -200,6 +200,9 @@
     border-left: 1px solid var(--border);
     padding: 12px 8px;
     overflow-y: auto;
+    /* Spinning avatar rings overflow their box by design — don't let that
+       summon a horizontal scrollbar (see ChannelList .scroll). */
+    overflow-x: clip;
   }
   .section-head {
     display: flex;

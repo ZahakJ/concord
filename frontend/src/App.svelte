@@ -405,6 +405,7 @@
     await api.setProfile(
       p.name, p.status, p.emoji, p.color, p.avatar || "", p.banner || "",
       p.presence || "", p.bio || "", p.color2 || "", p.frame || "", p.effect || "",
+      p.style ? JSON.stringify(p.style) : "",
     );
     S.identity = await api.identity();
     S.displayName = S.identity.displayName || "";
