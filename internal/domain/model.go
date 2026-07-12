@@ -44,10 +44,17 @@ type Channel struct {
 	ID       string `json:"id"`
 	GuildID  string `json:"guildId"`
 	Name     string `json:"name"`
-	Type     string `json:"type,omitempty"`     // "" or "text" | "voice" | "announcement"
+	Type     string `json:"type,omitempty"`     // "" or "text" | "voice" | "announcement" | "forum" | "thread"
 	Category string `json:"category,omitempty"` // category ID this channel sits under, or ""
 	Position int    `json:"position,omitempty"` // sort order within its category
 	Topic    string `json:"topic,omitempty"`    // channel topic/description (advisory)
+	// Parent is the forum channel a thread (post) lives under, "" otherwise.
+	// Threads are ordinary channels — same topics, encryption, unread logic —
+	// that the UI nests under their forum instead of the sidebar.
+	Parent string `json:"parent,omitempty"`
+	// Links are the consumer channels an ANNOUNCEMENT channel publishes to
+	// (channel IDs in the same guild). Advisory metadata, like Category.
+	Links []string `json:"links,omitempty"`
 }
 
 // ChannelType returns a channel's type, defaulting to "text".

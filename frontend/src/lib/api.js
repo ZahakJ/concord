@@ -75,6 +75,9 @@ export const api = {
   createChannel: (guildID, name, type = "", category = "") =>
     call("CreateChannel", guildID, name, type, category),
   createCategory: (guildID, name) => call("CreateCategory", guildID, name),
+  setChannelLinks: (guildID, channelID, links) => call("SetChannelLinks", guildID, channelID, links),
+  createThread: (guildID, forumID, title, firstMessage) =>
+    call("CreateThread", guildID, forumID, title, firstMessage),
   deleteChannel: (guildID, channelID) => call("DeleteChannel", guildID, channelID),
   deleteCategory: (guildID, categoryID) => call("DeleteCategory", guildID, categoryID),
   setGuildProfile: (guildID, name, icon, banner, description) =>

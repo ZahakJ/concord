@@ -960,7 +960,7 @@ func (s *Service) CreateChannel(guildID, name, ctype, category string) (domain.C
 		return domain.Channel{}, fmt.Errorf("app: channel name is empty")
 	}
 	switch ctype {
-	case "", "text", "voice", "announcement":
+	case "", "text", "voice", "announcement", "forum":
 	default:
 		return domain.Channel{}, fmt.Errorf("app: unknown channel type %q", ctype)
 	}
@@ -1119,6 +1119,118 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 	return nil
 }
 
+// SetChannelLinks records which channels an ANNOUNCEMENT channel publishes to
+// (ManageChannels). Links must be text channels of the same guild; the
+// announcement channel itself and anything unknown are dropped. Synced to
+// members over the channel_updated meta lane, like categories.
+func (s *Service) SetChannelLinks(guildID, channelID string, links []string) error {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return fmt.Errorf("app: you don't have permission to manage channels")
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	valid := map[string]bool{}
+	if ok {
+		groupID = g.GroupID
+		for _, c := range g.Channels {
+			if c.ID != channelID && c.ChannelType() == "text" && c.Parent == "" {
+				valid[c.ID] = true
+			}
+		}
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	var clean []string
+	seen := map[string]bool{}
+	for _, l := range links {
+		if valid[l] && !seen[l] {
+			seen[l] = true
+			clean = append(clean, l)
+		}
+	}
+	s.mu.Lock()
+	var updated domain.Channel
+	for i := range g.Channels {
+		if g.Channels[i].ID == channelID {
+			g.Channels[i].Links = clean
+			updated = g.Channels[i]
+		}
+	}
+	gc := *g
+	s.mu.Unlock()
+	if updated.ID == "" {
+		return fmt.Errorf("app: unknown channel")
+	}
+	_ = s.store.SaveGuild(gc)
+	s.emitGuildUpdate()
+	s.publishMeta(groupID, guildMeta{Type: "channel_updated", Channel: updated})
+	return nil
+}
+
+// CreateThread opens a forum POST: a thread channel nested under a forum.
+// Unlike CreateChannel this needs no ManageChannels — posts are member
+// content, exactly like messages. The creator's first message rides along.
+func (s *Service) CreateThread(guildID, forumID, title, firstMessage string) (domain.Channel, error) {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return domain.Channel{}, fmt.Errorf("app: a post needs a title")
+	}
+	if len(title) > maxNameBytes {
+		title = title[:maxNameBytes]
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	isForum := false
+	if ok {
+		groupID = g.GroupID
+		for _, c := range g.Channels {
+			if c.ID == forumID && c.Type == "forum" {
+				isForum = true
+			}
+		}
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return domain.Channel{}, fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	if !isForum {
+		return domain.Channel{}, fmt.Errorf("app: posts can only be created in a forum channel")
+	}
+
+	ch := domain.Channel{
+		ID: domain.NewID(), GuildID: guildID, Name: title, Type: "thread", Parent: forumID,
+	}
+	s.addChannel(guildID, ch)
+	payload, _ := json.Marshal(guildMeta{Type: "channel_added", Channel: ch})
+	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
+	if err != nil {
+		return domain.Channel{}, fmt.Errorf("app: encrypt guild meta: %w", err)
+	}
+	if err := s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct); err != nil {
+		return domain.Channel{}, err
+	}
+	if strings.TrimSpace(firstMessage) != "" {
+		if _, err := s.SendMessage(ch.ID, firstMessage, ""); err != nil {
+			return ch, nil // the post exists; the body can be retyped
+		}
+	}
+	return ch, nil
+}
+
+// ChannelLastActivity returns the newest message time (UnixNano) in one
+// channel — drives forum post ordering.
+func (s *Service) ChannelLastActivity(channelID string) int64 {
+	t, err := s.store.LatestTimestamp(channelID)
+	if err != nil {
+		return 0
+	}
+	return t
+}
+
 // Categories returns a guild's sidebar categories.
 func (s *Service) Categories(guildID string) ([]domain.Category, error) {
 	return s.store.Categories(guildID)
@@ -1246,6 +1358,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		_ = s.store.UpdateChannelMeta(m.Channel.ID, m.Channel.Type, m.Channel.Category, m.Channel.Position, m.Channel.Topic)
 		s.mu.Lock()
+		var gc domain.Guild
 		if g, ok := s.guilds[guildID]; ok {
 			for i := range g.Channels {
 				if g.Channels[i].ID == m.Channel.ID {
@@ -1253,10 +1366,15 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 					g.Channels[i].Category = m.Channel.Category
 					g.Channels[i].Position = m.Channel.Position
 					g.Channels[i].Topic = m.Channel.Topic
+					g.Channels[i].Links = m.Channel.Links
 				}
 			}
+			gc = *g
 		}
 		s.mu.Unlock()
+		if gc.ID != "" {
+			_ = s.store.SaveGuild(gc) // persists links/parent too
+		}
 		s.emitGuildUpdate()
 	case "category_added":
 		if m.Category.ID == "" {

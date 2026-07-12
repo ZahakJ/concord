@@ -116,12 +116,16 @@ type IdentityInfo struct {
 }
 
 type ChannelView struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Type     string `json:"type"`     // "text" | "voice" | "announcement"
-	Category string `json:"category"` // category ID or ""
-	Position int    `json:"position"`
-	Topic    string `json:"topic"` // channel topic/description
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Type     string   `json:"type"`     // "text" | "voice" | "announcement" | "forum" | "thread"
+	Category string   `json:"category"` // category ID or ""
+	Position int      `json:"position"`
+	Topic    string   `json:"topic"`            // channel topic/description
+	Parent   string   `json:"parent,omitempty"` // forum this thread (post) lives under
+	Links    []string `json:"links,omitempty"`  // announcement: consumer channel IDs
+	// LastActivity is the newest message time (UnixNano) — forum post ordering.
+	LastActivity int64 `json:"lastActivity,omitempty"`
 }
 
 type CategoryView struct {
@@ -524,6 +528,28 @@ func (b *Bridge) CreateChannel(guildID, name, ctype, category string) (ChannelVi
 		return ChannelView{}, err
 	}
 	ch, err := svc.CreateChannel(guildID, name, ctype, category)
+	if err != nil {
+		return ChannelView{}, err
+	}
+	return channelView(ch), nil
+}
+
+// SetChannelLinks records an announcement channel's consumer channels.
+func (b *Bridge) SetChannelLinks(guildID, channelID string, links []string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetChannelLinks(guildID, channelID, links)
+}
+
+// CreateThread opens a forum post (thread) — any member may.
+func (b *Bridge) CreateThread(guildID, forumID, title, firstMessage string) (ChannelView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return ChannelView{}, err
+	}
+	ch, err := svc.CreateThread(guildID, forumID, title, firstMessage)
 	if err != nil {
 		return ChannelView{}, err
 	}
@@ -1209,14 +1235,18 @@ func isCustomDMName(n string) bool {
 }
 
 func channelView(c domain.Channel) ChannelView {
-	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category, Position: c.Position, Topic: c.Topic}
+	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category, Position: c.Position, Topic: c.Topic, Parent: c.Parent, Links: c.Links}
 }
 
 func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	channels := make([]ChannelView, 0, len(g.Channels))
 	lastActivity := svc.GuildLastActivity(g.ID)
 	for _, c := range g.Channels {
-		channels = append(channels, channelView(c))
+		cv := channelView(c)
+		if c.Parent != "" {
+			cv.LastActivity = svc.ChannelLastActivity(c.ID) // forum post ordering
+		}
+		channels = append(channels, cv)
 	}
 	cats := []CategoryView{}
 	if cc, err := svc.Categories(g.ID); err == nil {
@@ -1595,6 +1625,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.SearchMessages(argStr(args, 0))
 	case "CreateChannel":
 		return b.CreateChannel(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+	case "SetChannelLinks":
+		return nil, b.SetChannelLinks(argStr(args, 0), argStr(args, 1), argStrs(args, 2))
+	case "CreateThread":
+		return b.CreateThread(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "CreateCategory":
 		return nil, b.CreateCategory(argStr(args, 0), argStr(args, 1))
 	case "DeleteChannel":

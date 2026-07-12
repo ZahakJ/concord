@@ -17,6 +17,7 @@
     { id: "text", label: "Text", icon: "hash", hint: "Send messages, files, images" },
     { id: "voice", label: "Voice", icon: "speaker", hint: "Talk together in a call" },
     { id: "announcement", label: "Announce", icon: "megaphone", hint: "A text channel for updates" },
+    { id: "forum", label: "Forum", icon: "forum", hint: "A board of posts, each its own thread" },
   ];
 
   function submit(e) {

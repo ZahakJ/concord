@@ -5,6 +5,7 @@
   import {
     S,
     activeGuild,
+    selectChannel,
     activeChannel,
     channelName,
     flash,
@@ -74,8 +75,21 @@
     {#if g?.kind === "dm"}
       <Icon name="edit" size={15} />
       <strong>{g.name}</strong>
+    {:else if ch?.parent}
+      <!-- A forum post: breadcrumb back to its board. -->
+      <button
+        class="thread-back"
+        title="Back to the forum"
+        aria-label="Back to the forum"
+        onclick={() => selectChannel(ch.parent)}
+      >
+        <Icon name="forum" size={14} />
+        {activeGuild()?.channels.find((c) => c.id === ch.parent)?.name || "forum"}
+        <span class="tb-sep">›</span>
+      </button>
+      <strong>{ch.name}</strong>
     {:else if ch}
-      <Icon name="hash" size={15} />
+      <Icon name={ch.type === "forum" ? "forum" : ch.type === "announcement" ? "megaphone" : "hash"} size={15} />
       <strong>{ch.name}</strong>
       {#if ch.topic}
         <span class="topic-sep"></span>
@@ -426,5 +440,24 @@
   }
   .iconbtn.endcall:hover {
     background: var(--danger-soft);
+  }
+  .thread-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .thread-back:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .tb-sep {
+    color: var(--text-faint);
   }
 </style>

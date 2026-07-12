@@ -36,6 +36,7 @@
     openContextMenu,
     markUnread,
     activeGuild,
+    activeChannel,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { longpress } from "./lib/touch.js";
@@ -347,6 +348,11 @@
         onClick: () => copy(`concord://msg/${m.channelId}/${m.id}`, "Copied message link"),
       },
       { label: m.pinned ? "Unpin" : "Pin", icon: "pin", onClick: () => api.pinMessage(m.channelId, m.id) },
+      activeChannel()?.type === "announcement" && (isOwn || canDeleteOthers) && {
+        label: "Publish",
+        icon: "megaphone",
+        onClick: () => (S.modal = { kind: "publish", message: m, channel: activeChannel() }),
+      },
       { label: "Forward", icon: "forward", onClick: () => (S.modal = { kind: "forward", message: m }) },
       { label: "Mark Unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
       (isOwn || canDeleteOthers) && { sep: true },

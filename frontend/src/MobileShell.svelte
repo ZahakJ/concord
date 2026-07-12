@@ -22,6 +22,7 @@
   import GuildRail from "./GuildRail.svelte";
   import ChannelList from "./ChannelList.svelte";
   import MessageList from "./MessageList.svelte";
+  import ForumView from "./ForumView.svelte";
   import Composer from "./Composer.svelte";
   import MemberPanel from "./MemberPanel.svelte";
   import VoicePanel from "./VoicePanel.svelte";
@@ -39,6 +40,10 @@
 
   const isDM = $derived(activeGuild()?.kind === "dm");
   const hasChannel = $derived(!!S.activeChannelId && !!activeGuild());
+  // Forum channels swap the chat feed for the post board.
+  const activeChannelObj = $derived(
+    activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null,
+  );
   const callHere = $derived(S.voice && S.voice.channelId === S.activeChannelId);
   const canRight = $derived(hasChannel && !isDM);
 
@@ -379,8 +384,12 @@
           {onToggleCamera}
         />
       {/if}
-      <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
-      <Composer bind:this={composer} />
+      {#if activeChannelObj?.type === "forum"}
+        <ForumView forum={activeChannelObj} />
+      {:else}
+        <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
+        <Composer bind:this={composer} />
+      {/if}
     {:else}
       <Welcome />
     {/if}

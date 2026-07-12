@@ -94,13 +94,16 @@
     if (!g) return [];
     const cats = [...(g.categories || [])].sort((a, b) => a.position - b.position);
     const byCat = (id) =>
-      g.channels.filter((c) => (c.category || "") === id).sort((a, b) => a.position - b.position);
+      g.channels
+        .filter((c) => !c.parent && (c.category || "") === id) // threads nest under their forum
+        .sort((a, b) => a.position - b.position);
     const out = [{ id: "", name: "", channels: byCat("") }];
     for (const cat of cats) out.push({ id: cat.id, name: cat.name, channels: byCat(cat.id) });
     return out.filter((grp) => grp.channels.length || grp.id);
   });
 
-  const typeIcon = (t) => (t === "voice" ? "speaker" : t === "announcement" ? "megaphone" : "hash");
+  const typeIcon = (t) =>
+    t === "voice" ? "speaker" : t === "announcement" ? "megaphone" : t === "forum" ? "forum" : "hash";
 
   function clickChannel(c) {
     if (c.type === "voice") {
@@ -132,6 +135,11 @@
         label: "Edit Topic",
         icon: "edit",
         onClick: () => (S.modal = { kind: "channelTopic", channel: c }),
+      },
+      canManageChannels && c.type === "announcement" && {
+        label: "Linked Channels",
+        icon: "link",
+        onClick: () => (S.modal = { kind: "channelLinks", channel: c }),
       },
       canManageChannels && { sep: true },
       canManageChannels && {

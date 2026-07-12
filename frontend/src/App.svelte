@@ -40,6 +40,7 @@
   import Composer from "./Composer.svelte";
   import MemberPanel from "./MemberPanel.svelte";
   import Welcome from "./Welcome.svelte";
+  import ForumView from "./ForumView.svelte";
   import QuickSwitcher from "./QuickSwitcher.svelte";
   import ProfilePopover from "./ProfilePopover.svelte";
   import ContextMenu from "./ContextMenu.svelte";
@@ -53,6 +54,9 @@
   import ModalRoles from "./modals/ModalRoles.svelte";
   import ModalGuildSettings from "./modals/ModalGuildSettings.svelte";
   import ModalChannelTopic from "./modals/ModalChannelTopic.svelte";
+  import ModalChannelLinks from "./modals/ModalChannelLinks.svelte";
+  import ModalPublish from "./modals/ModalPublish.svelte";
+  import ModalNewPost from "./modals/ModalNewPost.svelte";
   import ModalShortcuts from "./modals/ModalShortcuts.svelte";
   import ModalNewDM from "./modals/ModalNewDM.svelte";
   import ModalRenameGroup from "./modals/ModalRenameGroup.svelte";
@@ -70,6 +74,10 @@
   const isDM = $derived(activeGuild()?.kind === "dm");
   // No open channel → show the welcome screen instead of an empty chat.
   const hasChannel = $derived(!!S.activeChannelId && !!activeGuild());
+  // Forum channels swap the chat feed for the post board.
+  const activeChannelObj = $derived(
+    activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null,
+  );
 
   // Voice: the call box shows inline on its own channel; navigate away and it
   // pins to a small draggable floating window instead.
@@ -454,8 +462,12 @@
             onToggleCamera={toggleCamera}
           />
         {/if}
-        <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
-        <Composer bind:this={composer} />
+        {#if activeChannelObj?.type === "forum"}
+          <ForumView forum={activeChannelObj} />
+        {:else}
+          <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
+          <Composer bind:this={composer} />
+        {/if}
       {:else}
         <Welcome />
       {/if}
@@ -589,6 +601,12 @@
       }}
       onClose={() => (S.modal = null)}
     />
+  {:else if S.modal?.kind === "channelLinks"}
+    <ModalChannelLinks channel={S.modal.channel} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "publish"}
+    <ModalPublish message={S.modal.message} channel={S.modal.channel} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "newPost"}
+    <ModalNewPost forum={S.modal.forum} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "rename"}
     <ModalCreate
       onSubmit={renameGuild}

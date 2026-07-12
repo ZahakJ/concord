@@ -524,6 +524,30 @@
     }
   }
 
+  // Typing anywhere focuses the composer — the pressed character lands in the
+  // box naturally (focus moves during keydown, before the char is inserted).
+  // Skips modifier chords, modals/menus, and anything already editable, so
+  // shortcuts and other inputs keep working untouched.
+  function typeToFocus(e) {
+    if (!ch || S.modal || S.contextMenu || S.editing) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key.length !== 1) return; // printable characters only
+    const t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    composerEl?.focus();
+  }
+
+  // Focus follows intent: switching channels or starting a reply puts the
+  // caret in the box (desktop only — popping the keyboard on the phone for a
+  // mere channel switch would be rude).
+  $effect(() => {
+    S.activeChannelId;
+    if (!mobile && ch) composerEl?.focus();
+  });
+  $effect(() => {
+    if (S.replyingTo && !mobile) composerEl?.focus();
+  });
+
   function pickEmoji(e) {
     if (S.pickerTarget === "composer") {
       draft += e;
@@ -534,6 +558,8 @@
     S.pickerTarget = null;
   }
 </script>
+
+<svelte:window onkeydown={typeToFocus} />
 
 {#if S.replyingTo}
   <div class="reply-banner">
@@ -608,6 +634,7 @@
         e.target.value = "";
       }}
     />
+    <div class="input-shell" class:active={!!ch}>
     {#if showFmtBar}
     <div class="fmt-bar" role="toolbar" aria-label="Text formatting">
       {#each FMT_GROUPS as group, gi (gi)}
@@ -680,6 +707,7 @@
           <Icon name="send" size={17} />
         </button>
       {/if}
+    </div>
     </div>
   </form>
 </div>
@@ -870,13 +898,30 @@
   /* Formatting toolbar: a whisper-quiet row above the input that comes up to
      full strength while the composer is hovered or focused. No transforms, so
      the global reduced-motion duration-zeroing covers it. */
+  /* One seamless input shell: toolbar, attach, text, and emoji all live
+     INSIDE a single rounded well — no borders between the pieces. */
+  .input-shell {
+    background: var(--bg-input);
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .input-shell.active:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+    background: color-mix(in srgb, var(--accent) 3%, var(--bg-input));
+  }
   .fmt-bar {
     display: flex;
     align-items: center;
     gap: 1px;
-    padding: 0 2px 4px;
-    opacity: 0.55;
+    padding: 5px 8px 4px;
+    opacity: 0.45;
     transition: opacity 0.15s ease;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   }
   .composer:hover .fmt-bar,
   .composer:focus-within .fmt-bar {
@@ -917,22 +962,12 @@
     display: flex;
     align-items: flex-end;
     gap: 2px;
-    background: var(--bg-input);
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
+    background: transparent;
+    border: none;
+    border-radius: 0;
     padding: 2px 6px;
-    transition:
-      border-color 0.15s ease,
-      background 0.15s ease,
-      box-shadow 0.15s ease;
   }
-  /* Soft focus ring: tinted border plus a faint halo of the accent color, and
-     the well warms a touch toward the accent so focus reads at a glance. */
-  .input-box.focused:focus-within {
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-    background: color-mix(in srgb, var(--bg-input) 94%, var(--accent));
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
+  /* (Focus ring moved up to .input-shell — the whole well glows as one.) */
   .draft {
     flex: 1;
     min-width: 0;
@@ -940,8 +975,13 @@
     overflow-y: auto;
     max-height: 200px;
     height: auto;
-    background: transparent;
-    border: none;
+    /* Naked inside the shell: the global textarea "recessed well" styling
+       would draw a SECOND border/inset inside the composer. */
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important; /* the SHELL carries the focus ring */
+    border-radius: 0;
     padding: 9px 4px;
     font-family: inherit;
     line-height: 1.4;

@@ -14,6 +14,7 @@ package store
 import (
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -193,6 +194,8 @@ CREATE TABLE IF NOT EXISTS read_state (
 		`ALTER TABLE profiles ADD COLUMN pronouns TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE profiles ADD COLUMN color2 TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE profiles ADD COLUMN frame TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE channels ADD COLUMN parent TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE channels ADD COLUMN links TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -321,10 +324,11 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 	}
 	for _, c := range g.Channels {
 		if _, err := tx.Exec(
-			`INSERT INTO channels (id, guild_id, name, type, category, position, topic) VALUES (?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO channels (id, guild_id, name, type, category, position, topic, parent, links) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type,
-			   category=excluded.category, position=excluded.position, topic=excluded.topic`,
-			c.ID, g.ID, c.Name, c.Type, c.Category, c.Position, c.Topic,
+			   category=excluded.category, position=excluded.position, topic=excluded.topic,
+			   parent=excluded.parent, links=excluded.links`,
+			c.ID, g.ID, c.Name, c.Type, c.Category, c.Position, c.Topic, c.Parent, encodeLinks(c.Links),
 		); err != nil {
 			return fmt.Errorf("store: save channel: %w", err)
 		}
@@ -366,7 +370,7 @@ func (s *Store) Guilds() ([]domain.Guild, error) {
 
 func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	rows, err := s.db.Query(
-		`SELECT id, guild_id, name, type, category, position, topic FROM channels
+		`SELECT id, guild_id, name, type, category, position, topic, parent, links FROM channels
 		 WHERE guild_id = ? ORDER BY position ASC, rowid ASC`, guildID)
 	if err != nil {
 		return nil, err
@@ -375,12 +379,37 @@ func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	var out []domain.Channel
 	for rows.Next() {
 		var c domain.Channel
-		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Type, &c.Category, &c.Position, &c.Topic); err != nil {
+		var links string
+		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Type, &c.Category, &c.Position, &c.Topic, &c.Parent, &links); err != nil {
 			return nil, err
 		}
+		c.Links = decodeLinks(links)
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// encodeLinks/decodeLinks pack a channel's consumer links as JSON ("" = none).
+func encodeLinks(links []string) string {
+	if len(links) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(links)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeLinks(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	if json.Unmarshal([]byte(raw), &out) != nil {
+		return nil
+	}
+	return out
 }
 
 // SaveCategory upserts a guild category (layout metadata).
