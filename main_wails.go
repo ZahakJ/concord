@@ -39,6 +39,12 @@ var assets embed.FS
 var appIcon []byte
 
 func main() {
+	// Windows: behave like a real installed app no matter where the exe was
+	// launched from — self-install to %LOCALAPPDATA%\Concord, register
+	// shortcuts + Add/Remove, and hand over to the installed copy.
+	if ensureInstalled() {
+		return
+	}
 	// Native build: the update check must only ever offer desktop assets.
 	bridge.NativeBuild = true
 	// Clear the parked binary from a completed self-update, if any.
