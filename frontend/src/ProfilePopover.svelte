@@ -379,10 +379,12 @@
             <Icon name="speaker" size={12} /> Listening to music
           </div>
           <div class="act-row">
-            {#if mem.activity.artUrl && S.prefs.linkPreviews}
+            <!-- Art renders by default: the backend only admits allowlisted
+                 music-CDN URLs into profiles, so no arbitrary-host IP leak. -->
+            {#if mem.activity.artUrl}
               <img class="act-art" src={mem.activity.artUrl} alt="" />
             {:else}
-              <span class="act-art ph" title={mem.activity.artUrl ? "Enable link previews to load album art" : ""}>🎵</span>
+              <span class="act-art ph">🎵</span>
             {/if}
             <div class="act-meta">
               <div class="act-title" title={mem.activity.title}>{mem.activity.title}</div>

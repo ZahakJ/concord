@@ -236,6 +236,41 @@ const (
 	maxGameCoverBytes = 300
 )
 
+// validArtURL admits album-art URLs only from known music CDNs (https). The
+// allowlist is what lets clients render art by DEFAULT, Discord-style: a peer
+// broadcasting an Activity cannot point ArtURL at a host they control and
+// harvest the IP of everyone who views their profile. Anything else is
+// dropped — the card falls back to the 🎵 placeholder.
+func validArtURL(u string) bool {
+	if u == "" || len(u) > maxArtURLBytes || !strings.HasPrefix(u, "https://") {
+		return false
+	}
+	rest := strings.TrimPrefix(u, "https://")
+	host, _, _ := strings.Cut(rest, "/")
+	host, _, _ = strings.Cut(strings.ToLower(host), ":") // strip any port
+	for _, suffix := range []string{
+		".scdn.co",                // Spotify
+		".spotifycdn.com",         // Spotify
+		".ytimg.com",              // YouTube
+		".googleusercontent.com",  // YouTube Music / Google
+		".mzstatic.com",           // Apple Music
+		".bcbits.com",             // Bandcamp
+		".sndcdn.com",             // SoundCloud
+		".coverartarchive.org",    // MusicBrainz
+		".archive.org",            // MusicBrainz art storage
+		".steamstatic.com",        // Steam (game soundtracks)
+		".fanart.tv",              // Kodi/Plex scrapers
+		".plex.direct",            // Plex
+		".last.fm",                // Last.fm
+		".lastfm.freetls.fastly.net", // Last.fm CDN
+	} {
+		if strings.HasSuffix(host, suffix) || host == strings.TrimPrefix(suffix, ".") {
+			return true
+		}
+	}
+	return false
+}
+
 // validGameCover admits only https images on Steam's CDNs. This is a security
 // gate, not pedantry: covers arrive in PEERS' profile broadcasts and render as
 // <img> for everyone, so without an allowlist a peer could plant a tracking
@@ -837,8 +872,7 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 		// file:///javascript: junk that a client might render), bounded sizes.
 		if len(a.Title) > maxActivityBytes || len(a.Artist) > maxActivityBytes {
 			p.Activity = nil
-		} else if a.ArtURL != "" && (len(a.ArtURL) > maxArtURLBytes ||
-			!(strings.HasPrefix(a.ArtURL, "https://") || strings.HasPrefix(a.ArtURL, "http://"))) {
+		} else if !validArtURL(a.ArtURL) {
 			a.ArtURL = ""
 		}
 	}

@@ -14,9 +14,9 @@
 
   let { games = [], editable = false, onchange } = $props();
 
-  // Own covers always render (you picked them); others' remote covers follow
-  // the link-previews privacy pref, same as now-playing album art.
-  const allowRemote = $derived(editable || !!S.prefs.linkPreviews);
+  // Covers always render: the backend only admits Steam-CDN URLs into
+  // profiles, so there's no arbitrary-host IP leak to gate against.
+  const allowRemote = true;
 
   const STRIP = 5; // mini covers shown before "+N"
 
