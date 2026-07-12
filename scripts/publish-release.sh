@@ -39,8 +39,17 @@ else
   echo "==> webkit2gtk-4.1 not found; skipping the native Linux desktop build"
 fi
 
-# Optional: a pre-built Android APK dropped into dist-release/ by `make
-# android-app` (or by hand) rides along automatically.
+# Android: ship the sideload APK when it's been built for THIS version
+# (`make android-app VERSION=vX.Y.Z MOBILE_VERSION_CODE=<monotonic int>`).
+# Missing APK is a loud warning, not a failure — but don't let Android
+# silently fall out of releases again.
+APK="apps/mobile/android/app/build/outputs/apk/release/concord-${VERSION#v}-android.apk"
+if [[ -f "$APK" ]]; then
+  cp "$APK" dist-release/
+  echo "==> including $(basename "$APK")"
+else
+  echo "!!! NO ANDROID APK for $VERSION — run: make android-app VERSION=$VERSION MOBILE_VERSION_CODE=<n>" >&2
+fi
 
 cp WINDOWS.md dist-release/
 (cd dist-release && sha256sum $(ls | grep -v '^SHA256SUMS$') > SHA256SUMS)

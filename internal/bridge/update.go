@@ -113,10 +113,14 @@ type assetRef struct{ Name, URL string }
 // so version-stamped filenames still resolve. Returns ("","") if nothing fits.
 func matchAsset(goos string, assets []assetRef) (url, name string) {
 	// os keyword -> the token our release assets carry (see .github/workflows).
+	// Android matches the sideload APK (concord-X.Y.Z-android.apk): the app
+	// can't swap itself there, but the update card deep-links the download and
+	// Android's installer upgrades in place (same signing key).
 	osKey := map[string]string{
 		"windows": "windows",
 		"linux":   "linux",
 		"darwin":  "macos",
+		"android": "android",
 	}[goos]
 	if osKey == "" {
 		return "", ""

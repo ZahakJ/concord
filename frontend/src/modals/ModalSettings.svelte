@@ -73,7 +73,10 @@
   }
 
   // ---- software update (full in-place self-update) ----
-  const isMobileApp = !!window.Capacitor; // app stores own mobile updates
+  // Desktop/web swap their own binary. Android can't self-swap, but the card
+  // still checks and one-taps the APK download — the OS installer upgrades in
+  // place (same signing key). iOS is store-only, so the card hides there.
+  const isMobileApp = window.Capacitor?.getPlatform?.() === "ios";
   let updInfo = $state(null); // CheckForUpdate view, once the user checks
   let checking = $state(false);
   let canSelf = $state(false); // this install can swap its own binary
