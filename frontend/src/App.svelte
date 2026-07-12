@@ -57,6 +57,7 @@
   import ModalChannelLinks from "./modals/ModalChannelLinks.svelte";
   import ModalPublish from "./modals/ModalPublish.svelte";
   import ModalNewPost from "./modals/ModalNewPost.svelte";
+  import ModalMeeting from "./modals/ModalMeeting.svelte";
   import ModalShortcuts from "./modals/ModalShortcuts.svelte";
   import ModalNewDM from "./modals/ModalNewDM.svelte";
   import ModalRenameGroup from "./modals/ModalRenameGroup.svelte";
@@ -360,14 +361,24 @@
 
   async function createChannel({ name, type, category }) {
     if (!name?.trim() || !S.activeGuildId) return;
-    await api.createChannel(S.activeGuildId, name.trim(), type || "", category || "");
+    try {
+      await api.createChannel(S.activeGuildId, name.trim(), type || "", category || "");
+    } catch (err) {
+      flash(err); // e.g. "you don't have permission" — never fail silently
+      return;
+    }
     await refreshGuilds();
     S.modal = null;
   }
 
   async function createCategory(name) {
     if (!name?.trim() || !S.activeGuildId) return;
-    await api.createCategory(S.activeGuildId, name.trim());
+    try {
+      await api.createCategory(S.activeGuildId, name.trim());
+    } catch (err) {
+      flash(err);
+      return;
+    }
     await refreshGuilds();
     S.modal = null;
   }
@@ -605,6 +616,8 @@
     <ModalChannelLinks channel={S.modal.channel} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "publish"}
     <ModalPublish message={S.modal.message} channel={S.modal.channel} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "meeting"}
+    <ModalMeeting code={S.modal.code} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "newPost"}
     <ModalNewPost forum={S.modal.forum} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "rename"}

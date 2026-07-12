@@ -130,7 +130,7 @@
       {/if}
     </form>
 
-    {#if S.voice && S.voice.channelId === S.activeChannelId && g?.kind === "dm"}
+    {#if S.voice && S.voice.channelId === S.activeChannelId && (g?.kind === "dm" || g?.kind === "meeting")}
       <!-- In a DM call, the call box carries the controls; the header is just a
            one-click hang-up so clicking "call" again intuitively leaves. -->
       <button class="ghost iconbtn endcall" title="Leave call" aria-label="Leave call" onclick={onLeaveVoice}>
@@ -160,11 +160,11 @@
     {:else if ch}
       <button
         class="ghost iconbtn"
-        class:call={g?.kind === "dm"}
-        title={g?.kind === "dm" ? "Start a call" : "Join voice"}
+        class:call={g?.kind === "dm" || g?.kind === "meeting"}
+        title={g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Join voice"}
         onclick={() => onJoinVoice()}
       >
-        <Icon name="speaker" /> <span class="n">{g?.kind === "dm" ? "Call" : "Voice"}</span>
+        <Icon name="speaker" /> <span class="n">{g?.kind === "dm" || g?.kind === "meeting" ? "Call" : "Voice"}</span>
       </button>
     {/if}
 

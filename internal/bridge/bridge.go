@@ -1377,6 +1377,26 @@ func (b *Bridge) RemoveCustomEmoji(guildID, name string) error {
 	return svc.RemoveCustomEmoji(guildID, name)
 }
 
+// MeetingView is what StartMeeting hands the UI: the room plus its invite.
+type MeetingView struct {
+	Guild GuildView `json:"guild"`
+	Code  string    `json:"code"`
+}
+
+// StartMeeting creates a disposable meeting room and returns it with its
+// shareable invite code.
+func (b *Bridge) StartMeeting() (MeetingView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return MeetingView{}, err
+	}
+	g, code, err := svc.StartMeeting()
+	if err != nil {
+		return MeetingView{}, err
+	}
+	return MeetingView{Guild: guildView(svc, g), Code: code}, nil
+}
+
 // NotesDM returns (creating if needed) the user's personal self-DM.
 func (b *Bridge) NotesDM() (GuildView, error) {
 	svc, err := b.service()
@@ -1537,6 +1557,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.ReadState()
 	case "CreateGuild":
 		return b.CreateGuild(argStr(args, 0))
+	case "StartMeeting":
+		return b.StartMeeting()
 	case "NotesDM":
 		return b.NotesDM()
 	case "NewDMInvite":

@@ -395,6 +395,17 @@
     {:else if g}
       <div class="section-head">
         <span>Channels</span>
+        {#if !canManageChannels}
+          <!-- No silent nothing: members without Manage Channels see WHY. -->
+          <button
+            class="add-locked"
+            title="You need the Manage Channels permission to add channels"
+            aria-label="Adding channels requires the Manage Channels permission"
+            onclick={() => flash("You need the Manage Channels permission to add channels here — ask an admin for a role that grants it.")}
+          >
+            <Icon name="plus" size={13} />
+          </button>
+        {:else}
         <Menu label="Add channel or category" icon="plus" align="right" compact>
           <button class="menu-item" onclick={() => (S.modal = { kind: "channel" })}>
             <Icon name="hash" size={14} /> New channel
@@ -403,6 +414,7 @@
             <Icon name="chevron" size={14} /> New category
           </button>
         </Menu>
+        {/if}
       </div>
 
       {#each groups as grp (grp.id || "_uncat")}
@@ -1298,5 +1310,22 @@
       min-width: 44px;
       min-height: 44px;
     }
+  }
+  .add-locked {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text-faint);
+    opacity: 0.55;
+    cursor: help;
+  }
+  .add-locked:hover {
+    background: var(--bg-3);
+    opacity: 0.8;
   }
 </style>

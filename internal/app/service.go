@@ -573,6 +573,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// no longer exist.
 	s.loadDMState()
 
+	// Instant meetings are disposable — clear any that outlived their TTL.
+	s.sweepExpiredMeetings()
+
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()
 

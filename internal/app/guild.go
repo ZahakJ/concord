@@ -72,6 +72,50 @@ func (s *Service) CreateGuild(name string) (domain.Guild, error) {
 	return g, nil
 }
 
+// meetingTTL is how long an instant meeting outlives its creation before
+// every participant's client sweeps it away on startup.
+const meetingTTL = 24 * time.Hour
+
+// StartMeeting spins up a TEMPORARY room — the Zoom-link move: one click
+// makes a disposable guild with a single channel that doubles as the call
+// room (like a DM), and hands back an invite code to send to anyone. Every
+// participant's client deletes expired meetings on startup, so the room
+// cleans itself up.
+func (s *Service) StartMeeting() (domain.Guild, string, error) {
+	gid, err := s.mls.CreateGroup(s.ctx)
+	if err != nil {
+		return domain.Guild{}, "", fmt.Errorf("app: create meeting group: %w", err)
+	}
+	g := domain.NewGuild("⚡ Meeting "+time.Now().Format("Jan 2, 15:04"), gid, s.PublicKey())
+	g.Kind = "meeting"
+	g.Channels[0].Name = "meeting"
+	if err := s.store.SaveGuild(g); err != nil {
+		return domain.Guild{}, "", err
+	}
+	s.trackGuild(&g)
+	code, err := s.InviteCode(g.ID)
+	if err != nil {
+		return domain.Guild{}, "", err
+	}
+	return g, code, nil
+}
+
+// sweepExpiredMeetings hard-deletes instant meetings past their TTL. Called
+// at startup on every participant, so nobody accumulates dead rooms.
+func (s *Service) sweepExpiredMeetings() {
+	s.mu.RLock()
+	var expired []string
+	for id, g := range s.guilds {
+		if g.Kind == "meeting" && time.Since(g.Created) > meetingTTL {
+			expired = append(expired, id)
+		}
+	}
+	s.mu.RUnlock()
+	for _, id := range expired {
+		_ = s.deleteGuildLocal(id)
+	}
+}
+
 // Guilds returns the guilds this peer belongs to. Closed DMs stay tracked
 // underneath (messages still arrive and reopen them) but are not listed.
 func (s *Service) Guilds() []domain.Guild {
@@ -821,10 +865,10 @@ func (s *Service) trackGuild(g *domain.Guild) {
 			s.emitTyping(presenceFor(from).Fingerprint, channelID)
 		})
 		// Watch voice presence for every voice channel so the sidebar shows who's
-		// in a call without us having to join it. In a DM there's no dedicated
-		// voice channel — the conversation's single channel doubles as the call
-		// room — so watch it too, or the other peer never sees you ringing.
-		if c.ChannelType() == "voice" || g.Kind == "dm" {
+		// in a call without us having to join it. In a DM (and an instant
+		// meeting) there's no dedicated voice channel — the single channel
+		// doubles as the call room — so watch it too, or nobody sees the ring.
+		if c.ChannelType() == "voice" || g.Kind == "dm" || g.Kind == "meeting" {
 			s.watchVoice(groupID, channelID)
 		}
 	}

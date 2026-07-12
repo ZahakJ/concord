@@ -724,6 +724,20 @@ export async function startDM(fingerprint, text = "") {
   return dm;
 }
 
+// startMeeting creates a disposable meeting room (voice + chat, 24h TTL),
+// opens it, and pops the shareable invitation — the "send them a Concord
+// meeting instead of a Zoom link" move.
+export async function startMeeting() {
+  try {
+    const m = await api.startMeeting();
+    await refreshGuilds();
+    await selectGuild(m.guild.id);
+    S.modal = { kind: "meeting", code: m.code };
+  } catch (err) {
+    flash(err);
+  }
+}
+
 // createGroupDM opens a group DM with the given verified contacts, then
 // navigates to it. Powers the "New group DM" modal.
 export async function createGroupDM(fingerprints) {

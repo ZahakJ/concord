@@ -4,7 +4,7 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
-  import { S, selectGuild, openDMs, guildUnread, openContextMenu } from "./lib/state.svelte.js";
+  import { S, selectGuild, openDMs, guildUnread, openContextMenu, startMeeting } from "./lib/state.svelte.js";
 
   // Mobile: one + bubble → an action sheet (create / join). Two near-identical
   // mystery bubbles are a desktop-ism; the sheet explains itself.
@@ -14,6 +14,7 @@
       [
         { label: "Create a server", icon: "spark", onClick: () => (S.modal = { kind: "create" }) },
         { label: "Join with an invite code", icon: "download", onClick: () => (S.modal = { kind: "join", code: "" }) },
+        { label: "Instant meeting (24h room)", icon: "bolt", onClick: startMeeting },
       ],
       { title: "Add a server" },
     );
@@ -125,6 +126,9 @@
     <button class="pill add" title="Create a guild" aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
       <Icon name="plus" />
     </button>
+    <button class="pill add meet" title="Instant meeting — a disposable room + invite to send anyone" aria-label="Start an instant meeting" onclick={startMeeting}>
+      <Icon name="bolt" />
+    </button>
     <button class="pill add" title="Join with invite" aria-label="Join with invite" onclick={() => (S.modal = { kind: "join", code: "" })}>
       <Icon name="download" />
     </button>
@@ -231,6 +235,14 @@
   .pill.hasicon {
     background: var(--bg-2);
     overflow: hidden;
+  }
+  /* The meeting bolt: a bit of electric identity so it reads as "instant". */
+  .pill.meet {
+    color: var(--warn);
+  }
+  .pill.meet:hover {
+    background: color-mix(in srgb, var(--warn) 24%, var(--bg-3));
+    color: #fff;
   }
   .divider {
     width: 28px;
