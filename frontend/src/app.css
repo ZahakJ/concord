@@ -94,6 +94,84 @@
   color-scheme: light;
 }
 
+/* ---- Theme packs (Appearance → Theme pack) --------------------------------
+   Curated full palettes — each retints the whole depth scale plus the accent,
+   so the app reads as a different "skin", not just a swapped highlight color.
+   Device-local (never broadcast). A pack supplies its own accent via CSS;
+   applyAppearance() skips the inline accent override while a pack is active
+   (unless the user ALSO picked an explicit accent preset, which wins). Placed
+   after the light block so a pack wins regardless of the dark/light setting. */
+:root[data-theme-pack="midnight"] {
+  --bg-0: #0b0e1a;
+  --bg-1: #111527;
+  --bg-2: #171c33;
+  --bg-3: #222946;
+  --border: #2e3654;
+  --text: #e6e9f5;
+  --text-muted: #949cbd;
+  --text-faint: #666e8f;
+  --accent: #6f7cff;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="nebula"] {
+  --bg-0: #120c1c;
+  --bg-1: #191129;
+  --bg-2: #201636;
+  --bg-3: #2e2149;
+  --border: #3c2c5e;
+  --text: #ece5f7;
+  --text-muted: #a394c2;
+  --text-faint: #75689a;
+  --accent: #a06bff;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="sakura"] {
+  --bg-0: #1a0f16;
+  --bg-1: #24141e;
+  --bg-2: #2e1a27;
+  --bg-3: #402637;
+  --border: #533146;
+  --text: #f5e8ef;
+  --text-muted: #bd94aa;
+  --text-faint: #8c687b;
+  --accent: #f06ba8;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="forest"] {
+  --bg-0: #0c1410;
+  --bg-1: #111c16;
+  --bg-2: #17251d;
+  --bg-3: #22342a;
+  --border: #2e4437;
+  --text: #e6f0ea;
+  --text-muted: #92ac9d;
+  --text-faint: #64806f;
+  --accent: #3fb96e;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="abyss"] {
+  --bg-0: #000000;
+  --bg-1: #070709;
+  --bg-2: #0d0e11;
+  --bg-3: #17181d;
+  --border: #24262d;
+  --text: #e8eaed;
+  --text-muted: #8f939c;
+  --text-faint: #5e626b;
+  --accent: #22d3ee;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+
 /* Compact density: tighter feed rhythm for information density. */
 :root[data-density="compact"] {
   --msg-pad-y: 1px;
@@ -291,4 +369,33 @@ textarea:focus {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* ---- avatar frames -------------------------------------------------------
+   Decorative rings picked in the profile editor. The id travels in profile
+   broadcasts as a few bytes; the art is pure CSS here, so no image ever hits
+   the wire. Applied by Avatar.svelte (and previewed in the profile modal). */
+.avatar-frame-gold {
+  box-shadow:
+    0 0 0 2px #d9a93f,
+    0 0 0 3.5px rgba(217, 169, 63, 0.35),
+    0 0 10px rgba(217, 169, 63, 0.5);
+}
+.avatar-frame-neon {
+  box-shadow:
+    0 0 0 2px #29d5e8,
+    0 0 8px rgba(41, 213, 232, 0.6),
+    0 0 18px rgba(214, 64, 214, 0.45);
+}
+.avatar-frame-ember {
+  box-shadow:
+    0 0 0 2px #e8642a,
+    0 0 0 3.5px rgba(232, 100, 42, 0.3),
+    0 0 12px rgba(232, 100, 42, 0.55);
+}
+.avatar-frame-frost {
+  box-shadow:
+    0 0 0 2px #bfe3ff,
+    0 0 0 3.5px rgba(191, 227, 255, 0.28),
+    0 0 12px rgba(160, 210, 255, 0.55);
 }

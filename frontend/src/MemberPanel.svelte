@@ -125,6 +125,7 @@
           size={30}
           online={mem.online}
           presence={mem.presence}
+          frame={mem.frame}
         />
         <span class="member-text">
           <span class="member-name" title={mem.fingerprint}>

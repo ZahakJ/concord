@@ -10,6 +10,7 @@
     size = 32,
     online = null, // null hides the dot; true/false shows connection state
     presence = "", // "" | online | idle | dnd | invisible — shades the dot when connected
+    frame = "", // decorative ring: "" | gold | neon | ember | frost (see app.css)
   } = $props();
 
   const glyph = $derived(emoji || (name || "?").slice(0, 2));
@@ -30,7 +31,7 @@
 </script>
 
 <span
-  class="avatar"
+  class="avatar {frame ? `avatar-frame-${frame}` : ''}"
   style="width:{size}px;height:{size}px;font-size:{Math.round(size * 0.38)}px;{color
     ? `background:${color}`
     : ''}"

@@ -41,6 +41,8 @@ var appIcon []byte
 func main() {
 	// Native build: the update check must only ever offer desktop assets.
 	bridge.NativeBuild = true
+	// Clear the parked binary from a completed self-update, if any.
+	bridge.CleanupOldBinary()
 	b := bridge.New(context.Background())
 	// trusted=true: the webview is native and unreachable from other origins, so
 	// the /rpc CSRF guard isn't needed (and would reject the wails:// origin).

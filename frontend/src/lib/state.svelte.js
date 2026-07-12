@@ -63,6 +63,7 @@ export const S = $state({
     linkPreviews: false,
     theme: "dark",
     accent: "",
+    themePack: "", // curated full-palette skin ("" = default palette)
     density: "cozy",
     ...loadJSON("concord.prefs", {}),
   },
@@ -585,7 +586,14 @@ export function applyAppearance() {
   const t = S.prefs.theme || "dark";
   el.dataset.theme = t === "system" ? (sysDark && !sysDark.matches ? "light" : "dark") : t;
   el.dataset.density = S.prefs.density === "compact" ? "compact" : "cozy";
-  applyAccent(S.prefs.accent || S.identity.color);
+  if (S.prefs.themePack) el.dataset.themePack = S.prefs.themePack;
+  else delete el.dataset.themePack;
+  // Accent precedence: explicit preset > theme pack's own accent (CSS) >
+  // profile color. An inline --accent would defeat the pack's palette, so
+  // clear it when the pack should win.
+  if (S.prefs.accent) applyAccent(S.prefs.accent);
+  else if (S.prefs.themePack) document.documentElement.style.removeProperty("--accent");
+  else applyAccent(S.identity.color);
 }
 
 // setAppearance persists one appearance pref and applies it under a brief

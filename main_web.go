@@ -12,6 +12,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -20,6 +21,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/zahak/concord/internal/bridge"
 	"github.com/zahak/concord/internal/httpapi"
 )
 
@@ -46,18 +48,36 @@ func main() {
 	mux.HandleFunc("/events", srv.HandleEvents)
 	mux.Handle("/", staticAssets())
 
-	httpSrv := &http.Server{Addr: addr, Handler: mux}
+	// Clear the parked binary from a completed self-update, if any.
+	bridge.CleanupOldBinary()
+
+	httpSrv := &http.Server{Handler: mux}
 	go func() {
 		<-ctx.Done()
 		_ = httpSrv.Close()
 	}()
 
 	url := "http://" + addr
+	// Bind with a short retry: after a self-update restart the previous process
+	// may hold the port for a beat (Windows spawn-and-exit path especially).
+	var ln net.Listener
+	var err error
+	for i := 0; i < 25; i++ {
+		ln, err = net.Listen("tcp", addr)
+		if err == nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "concord:", err)
+		os.Exit(1)
+	}
 	fmt.Printf("Concord is running — %s\n", url)
 	if os.Getenv("CONCORD_NO_OPEN") == "" {
 		go openBrowser(url)
 	}
-	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintln(os.Stderr, "concord:", err)
 		os.Exit(1)
 	}

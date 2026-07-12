@@ -29,6 +29,18 @@
   const accent = $derived(S.prefs.accent || "");
   const density = $derived(S.prefs.density || "cozy");
   const profileColor = $derived(S.identity.color || "#14a394");
+  const themePack = $derived(S.prefs.themePack || "");
+
+  // Curated full-palette skins (see app.css [data-theme-pack=…]). The preview
+  // colors mirror each pack's bg-1/bg-3/accent tokens.
+  const PACKS = [
+    { id: "", label: "Default", bg: "#16181c", hi: "#282c33", ac: "#14a394" },
+    { id: "midnight", label: "Midnight", bg: "#111527", hi: "#222946", ac: "#6f7cff" },
+    { id: "nebula", label: "Nebula", bg: "#191129", hi: "#2e2149", ac: "#a06bff" },
+    { id: "sakura", label: "Sakura", bg: "#24141e", hi: "#402637", ac: "#f06ba8" },
+    { id: "forest", label: "Forest", bg: "#111c16", hi: "#22342a", ac: "#3fb96e" },
+    { id: "abyss", label: "Abyss", bg: "#070709", hi: "#17181d", ac: "#22d3ee" },
+  ];
 </script>
 
 <Modal title="Appearance" {onClose}>
@@ -54,6 +66,36 @@
       {/each}
     </div>
     <p class="muted tiny">System follows your OS setting, live.</p>
+  </section>
+
+  <hr />
+  <section>
+    <strong class="label">Theme pack</strong>
+    <div class="pack-row" role="radiogroup" aria-label="Theme pack">
+      {#each PACKS as p (p.id)}
+        <button
+          class="pack-card"
+          class:sel={themePack === p.id}
+          role="radio"
+          aria-checked={themePack === p.id}
+          onclick={() => setAppearance("themePack", p.id)}
+        >
+          <span class="pk" style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac}" aria-hidden="true">
+            <span class="pk-rail"></span>
+            <span class="pk-body">
+              <span class="pk-ac"></span>
+              <span class="pk-line"></span>
+              <span class="pk-line short"></span>
+            </span>
+          </span>
+          {p.label}
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">
+      A full palette for the whole app — each pack brings its own accent (an
+      accent preset below still overrides it).
+    </p>
   </section>
 
   <hr />
@@ -227,6 +269,70 @@
     width: 85%;
   }
   .pv-lines .l2 {
+    width: 55%;
+  }
+
+  /* Theme-pack cards: a mini app-window painted in the pack's own palette. */
+  .pack-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+  }
+  .pack-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text-muted);
+    font-size: 12px;
+    align-items: center;
+  }
+  .pack-card:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .pack-card.sel {
+    border-color: var(--accent);
+    color: var(--text);
+    background: var(--accent-soft);
+  }
+  .pk {
+    width: 100%;
+    height: 40px;
+    border-radius: 7px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: var(--pk-bg);
+    display: flex;
+    overflow: hidden;
+  }
+  .pk-rail {
+    width: 12px;
+    background: color-mix(in srgb, var(--pk-bg) 55%, black);
+    flex: none;
+  }
+  .pk-body {
+    flex: 1;
+    padding: 7px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .pk-ac {
+    width: 16px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--pk-ac);
+  }
+  .pk-line {
+    height: 4px;
+    border-radius: 2px;
+    width: 85%;
+    background: var(--pk-hi);
+  }
+  .pk-line.short {
     width: 55%;
   }
 

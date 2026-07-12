@@ -110,6 +110,9 @@ type IdentityInfo struct {
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
+	Pronouns    string           `json:"pronouns,omitempty"`
+	Color2      string           `json:"color2,omitempty"` // gradient partner color
+	Frame       string           `json:"frame,omitempty"`  // avatar frame enum id
 }
 
 type ChannelView struct {
@@ -203,6 +206,9 @@ type MemberView struct {
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
+	Pronouns    string           `json:"pronouns,omitempty"`
+	Color2      string           `json:"color2,omitempty"` // gradient partner color
+	Frame       string           `json:"frame,omitempty"`  // avatar frame enum id
 	IsSelf      bool             `json:"isSelf"`
 	Online      bool             `json:"online"`
 	Verified    bool             `json:"verified"`
@@ -625,6 +631,9 @@ func (b *Bridge) Identity() (IdentityInfo, error) {
 		Bio:         p.Bio,
 		Activity:    p.Activity,
 		Games:       p.Games,
+		Pronouns:    p.Pronouns,
+		Color2:      p.Color2,
+		Frame:       p.Frame,
 	}, nil
 }
 
@@ -649,7 +658,7 @@ func (b *Bridge) SearchGames(query string) ([]appsvc.GameSearchResult, error) {
 
 // SetProfile updates this peer's profile (incl. avatar + banner images) and
 // re-announces.
-func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio string) error {
+func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio, pronouns, color2, frame string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
@@ -657,6 +666,7 @@ func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence
 	return svc.SetProfile(appsvc.Profile{
 		Name: name, Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Banner: banner, Presence: presence, Bio: bio,
+		Pronouns: pronouns, Color2: color2, Frame: frame,
 	})
 }
 
@@ -895,6 +905,9 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Avatar:      p.Avatar,
 			Activity:    p.Activity,
 			Games:       p.Games,
+			Pronouns:    p.Pronouns,
+			Color2:      p.Color2,
+			Frame:       p.Frame,
 			Banner:      p.Banner,
 			Presence:    p.Presence,
 			Bio:         p.Bio,
@@ -1528,6 +1541,14 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.FetchFile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "LinkPreview":
 		return b.LinkPreview(argStr(args, 0))
+	case "UpdateState":
+		return b.UpdateState(), nil
+	case "ApplyUpdate":
+		return nil, b.ApplyUpdate()
+	case "CanSelfUpdate":
+		return b.CanSelfUpdate(), nil
+	case "RestartApp":
+		return nil, b.RestartApp()
 	case "CheckForUpdate":
 		return b.CheckForUpdate()
 	case "Members":
@@ -1565,7 +1586,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SendTyping":
 		return nil, b.SendTyping(argStr(args, 0))
 	case "SetProfile":
-		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6), argStr(args, 7))
+		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9), argStr(args, 10))
 	case "VerifyFingerprint":
 		return nil, b.VerifyFingerprint(argStr(args, 0))
 	case "PinMessage":

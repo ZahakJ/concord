@@ -96,3 +96,33 @@ export function loadAttachment(channelId, tok) {
   }
   return p;
 }
+
+// ---- image clipboard/save helpers (right-click menu on images) ------------
+
+// copyImageToClipboard puts an image (any src the webview can draw) on the
+// system clipboard as a real PNG — pasteable inside Concord or in any other
+// app, like Discord's "Copy Image".
+export async function copyImageToClipboard(src) {
+  const img = new Image();
+  await new Promise((res, rej) => {
+    img.onload = res;
+    img.onerror = rej;
+    img.src = src;
+  });
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  c.getContext("2d").drawImage(img, 0, 0);
+  const blob = await new Promise((res) => c.toBlob(res, "image/png"));
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+}
+
+// saveImageSrc downloads an image src to disk.
+export function saveImageSrc(src, name = "concord-image.png") {
+  const a = document.createElement("a");
+  a.href = src;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}

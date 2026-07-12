@@ -93,6 +93,10 @@ export const api = {
   markRead: (channelID, atMs) => call("MarkRead", channelID, atMs),
   readState: () => call("ReadState"),
   appVersion: () => call("AppVersion"),
+  canSelfUpdate: () => call("CanSelfUpdate"),
+  applyUpdate: () => call("ApplyUpdate"),
+  updateState: () => call("UpdateState"),
+  restartApp: () => call("RestartApp"),
   setGames: (games) => call("SetGames", games),
   searchGames: (query) => call("SearchGames", query),
   deleteMessage: (channelID, messageID) => call("DeleteMessage", channelID, messageID),
@@ -136,8 +140,8 @@ export const api = {
   leaveVoice: (channelID) => call("LeaveVoice", channelID),
   relaySignal: (toPeerID, data) => call("RelaySignal", toPeerID, data),
   sendTyping: (channelID) => call("SendTyping", channelID),
-  setProfile: (name, status, emoji, color, avatar, banner = "", presence = "", bio = "") =>
-    call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio),
+  setProfile: (name, status, emoji, color, avatar, banner = "", presence = "", bio = "", pronouns = "", color2 = "", frame = "") =>
+    call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, pronouns, color2, frame),
   verifyFingerprint: (fingerprint) => call("VerifyFingerprint", fingerprint),
   pinMessage: (channelID, messageID) => call("PinMessage", channelID, messageID),
   searchMessages: (query) => call("SearchMessages", query),

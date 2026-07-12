@@ -5,9 +5,35 @@
   // click zooms to the cursor, wheel zooms, drag pans, pinch works on touch,
   // Esc / backdrop / ✕ close.
   import Icon from "./Icon.svelte";
-  import { loadAttachment } from "./lib/attachments.js";
+  import { loadAttachment, copyImageToClipboard, saveImageSrc } from "./lib/attachments.js";
+  import { openContextMenu, flash } from "./lib/state.svelte.js";
 
   let { channelId, tok } = $props();
+
+  // Right-click on the image (thumbnail or lightbox): copy to the system
+  // clipboard as a real image (paste it anywhere — in Concord or outside),
+  // or save it to disk. Like Discord.
+  function imageMenu(e) {
+    openContextMenu(e, [
+      {
+        label: "Copy Image",
+        icon: "copy",
+        onClick: async () => {
+          try {
+            await copyImageToClipboard(src);
+            flash("Image copied", "success");
+          } catch (err) {
+            flash(`Couldn't copy image: ${err?.message || err}`);
+          }
+        },
+      },
+      {
+        label: "Save Image",
+        icon: "download",
+        onClick: () => saveImageSrc(src, `concord-${(tok.blobId || "image").slice(0, 8)}.png`),
+      },
+    ]);
+  }
 
   let state = $state("loading"); // loading | done | error
   let src = $state("");
@@ -180,7 +206,7 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if state === "done"}
-  <button class="frame done" onclick={openLightbox} title="Click to enlarge">
+  <button class="frame done" onclick={openLightbox} oncontextmenu={imageMenu} title="Click to enlarge">
     <img {src} alt="attachment" style="max-width:{MAXW}px;max-height:{MAXH}px" />
   </button>
   {#if lightbox}
@@ -205,6 +231,7 @@
         class:dragging
         style="transform: translate({tx}px, {ty}px) scale({zoom})"
         draggable="false"
+        oncontextmenu={imageMenu}
       />
       <div class="lb-bar">
         <span class="lb-zoom" class:show={zoom > 1}>{Math.round(zoom * 100)}%</span>

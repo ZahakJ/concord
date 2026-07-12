@@ -2,7 +2,7 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { api } from "../lib/api.js";
   import { soundsEnabled, setSoundsEnabled } from "../lib/sounds.js";
   import { bioEnrolled } from "../lib/biometric.js";
@@ -72,6 +72,69 @@
     setTimeout(() => (copiedVersion = false), 1400);
   }
 
+  // ---- software update (full in-place self-update) ----
+  const isMobileApp = !!window.Capacitor; // app stores own mobile updates
+  let updInfo = $state(null); // CheckForUpdate view, once the user checks
+  let checking = $state(false);
+  let canSelf = $state(false); // this install can swap its own binary
+  let upd = $state({ phase: "idle", percent: 0 }); // backend UpdateProgress
+  let restarting = $state(false);
+  let pollTimer;
+
+  async function checkNow() {
+    checking = true;
+    try {
+      updInfo = await api.checkForUpdate();
+    } catch (err) {
+      flash(err);
+    } finally {
+      checking = false;
+    }
+  }
+  async function updateNow() {
+    try {
+      await api.applyUpdate();
+      poll();
+    } catch (err) {
+      flash(err);
+    }
+  }
+  function poll() {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        upd = await api.updateState();
+      } catch {
+        return;
+      }
+      if (upd.phase === "ready" || upd.phase === "error" || upd.phase === "idle") {
+        clearInterval(pollTimer);
+      }
+    }, 450);
+  }
+  // Restart the backend into the new binary, wait for it to come back, reload.
+  async function restartNow() {
+    restarting = true;
+    try {
+      await api.restartApp();
+    } catch {
+      /* the connection may drop mid-response — that IS the restart */
+    }
+    const t0 = Date.now();
+    const timer = setInterval(async () => {
+      try {
+        await api.session();
+        clearInterval(timer);
+        location.reload();
+      } catch {
+        if (Date.now() - t0 > 30000) {
+          clearInterval(timer);
+          location.reload();
+        }
+      }
+    }, 700);
+  }
+
   onMount(async () => {
     try {
       bootstrap = ((await api.getBootstrap()) || []).join("\n");
@@ -88,7 +151,19 @@
     } catch {
       /* ignore */
     }
+    try {
+      canSelf = !!(await api.canSelfUpdate());
+      // Resume progress display if an update is already in flight/installed.
+      upd = await api.updateState();
+      if (upd.phase === "downloading" || upd.phase === "verifying") poll();
+    } catch {
+      /* older backend without self-update — the card just offers Check */
+    }
+    // The boot-time check may already know an update exists; surface it.
+    if (S.update?.available) updInfo = S.update;
   });
+
+  onDestroy(() => clearInterval(pollTimer));
 
   // Rendezvous is display-first: the address shows as a copyable chip; editing
   // (a once-ever action for self-hosters) hides behind the pencil.
@@ -162,6 +237,62 @@
       </button>
     </div>
   </section>
+
+  <!-- SOFTWARE UPDATE (not on mobile — app stores own updates there) -->
+  {#if !isMobileApp}
+    <section class="grp">
+      <div class="sec-label">Software update</div>
+      <div class="card pad upd-card">
+        <div class="upd-head">
+          <span class="chip upd-chip" class:spin-chip={upd.phase === "downloading" || upd.phase === "verifying"}>
+            <Icon name="download" size={16} />
+          </span>
+          <span class="row-text">
+            <span class="row-title">
+              Concord {appVersion === "dev" ? "dev build" : appVersion}
+            </span>
+            <span class="row-sub">
+              {#if upd.phase === "downloading"}
+                Downloading {upd.version}… {upd.percent}%
+              {:else if upd.phase === "verifying"}
+                Verifying {upd.version}…
+              {:else if upd.phase === "ready"}
+                {upd.version} installed — restart to finish.
+              {:else if upd.phase === "error"}
+                {upd.error}
+              {:else if updInfo?.available}
+                {updInfo.latest} is available.
+              {:else if updInfo}
+                You're on the latest version. ✨
+              {:else}
+                Updates install in place — one click, no downloads to juggle.
+              {/if}
+            </span>
+          </span>
+          {#if restarting}
+            <button class="upd-btn" disabled>Restarting…</button>
+          {:else if upd.phase === "downloading" || upd.phase === "verifying"}
+            <button class="upd-btn" disabled>{upd.percent}%</button>
+          {:else if upd.phase === "ready"}
+            <button class="upd-btn" onclick={restartNow}>Restart now</button>
+          {:else if updInfo?.available && canSelf}
+            <button class="upd-btn" onclick={updateNow}>Update now</button>
+          {:else if updInfo?.available}
+            <a class="upd-btn link" href={updInfo.download || updInfo.url} target="_blank" rel="noreferrer">
+              Download {updInfo.latest}
+            </a>
+          {:else}
+            <button class="upd-btn ghosted" onclick={checkNow} disabled={checking}>
+              {checking ? "Checking…" : "Check for updates"}
+            </button>
+          {/if}
+        </div>
+        {#if upd.phase === "downloading" || upd.phase === "verifying"}
+          <div class="upd-bar"><span style="width:{upd.percent}%"></span></div>
+        {/if}
+      </div>
+    </section>
+  {/if}
 
   <!-- CONNECTION -->
   <section class="grp">
@@ -374,6 +505,81 @@
       animation: none;
     }
   }
+  /* ---- software update card ---- */
+  .upd-card {
+    gap: 10px;
+  }
+  .upd-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .upd-chip {
+    flex: none;
+  }
+  .spin-chip :global(svg) {
+    animation: upd-bob 1.1s ease-in-out infinite;
+  }
+  @keyframes upd-bob {
+    0%,
+    100% {
+      transform: translateY(-1px);
+    }
+    50% {
+      transform: translateY(2px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spin-chip :global(svg) {
+      animation: none;
+    }
+  }
+  .upd-btn {
+    flex: none;
+    font-size: 12.5px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: none;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+    text-decoration: none;
+    box-shadow: var(--accent-glow);
+  }
+  .upd-btn:hover {
+    background: var(--accent-hover);
+  }
+  .upd-btn:disabled {
+    opacity: 0.7;
+    cursor: default;
+    box-shadow: none;
+  }
+  .upd-btn.ghosted {
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+    color: var(--accent);
+    box-shadow: none;
+  }
+  .upd-btn.ghosted:hover {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  .upd-btn.link {
+    display: inline-flex;
+    align-items: center;
+  }
+  .upd-bar {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    overflow: hidden;
+  }
+  .upd-bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    transition: width 0.3s ease;
+  }
+
   .about {
     align-self: center;
     background: none;

@@ -48,25 +48,37 @@ func TestMatchAsset(t *testing.T) {
 		{"concord-desktop-macos-v0.6.0.zip", "u/dmac"},
 		{"concord-windows-v0.6.0.exe", "u/wwin"}, // zero-dep web build
 		{"concord-linux-amd64-v0.6.0", "u/wlin"},
+		{"concord-linux-arm64-v0.6.0", "u/wlin-arm"},
 		{"SHA256SUMS", "u/sums"},
 	}
-	cases := []struct {
-		goos, wantURL string
-	}{
-		{"windows", "u/dwin"}, // prefers desktop over web
+
+	// Native track: desktop assets only — self-update must never swap a
+	// windowed app for the web binary.
+	defer func(prev bool) { NativeBuild = prev }(NativeBuild)
+	NativeBuild = true
+	for _, c := range []struct{ goos, wantURL string }{
+		{"windows", "u/dwin"},
 		{"linux", "u/dlin"},
 		{"darwin", "u/dmac"},
 		{"plan9", ""}, // unsupported OS
-	}
-	for _, c := range cases {
-		got, _ := matchAsset(c.goos, assets)
-		if got != c.wantURL {
-			t.Errorf("matchAsset(%q) = %q, want %q", c.goos, got, c.wantURL)
+	} {
+		if got, _ := matchAsset(c.goos, assets); got != c.wantURL {
+			t.Errorf("native matchAsset(%q) = %q, want %q", c.goos, got, c.wantURL)
 		}
 	}
-	// Falls back to the web build if no desktop asset exists for the OS.
-	if got, _ := matchAsset("windows", []assetRef{{"concord-windows.exe", "u/w"}}); got != "u/w" {
-		t.Errorf("fallback web match = %q, want u/w", got)
+	// A native build with no desktop asset gets NOTHING, not the web exe.
+	if got, _ := matchAsset("windows", []assetRef{{"concord-windows.exe", "u/w"}}); got != "" {
+		t.Errorf("native fallback = %q, want empty", got)
+	}
+
+	// Web track: web assets only (arch-matched), never a desktop binary that
+	// may need webviews this machine doesn't have.
+	NativeBuild = false
+	if got, _ := matchAsset("windows", assets); got != "u/wwin" {
+		t.Errorf("web matchAsset(windows) = %q, want u/wwin", got)
+	}
+	if got, _ := matchAsset("linux", assets); got != "u/wlin" && got != "u/wlin-arm" {
+		t.Errorf("web matchAsset(linux) = %q, want an arch web asset", got)
 	}
 	// No assets -> empty.
 	if got, _ := matchAsset("linux", nil); got != "" {

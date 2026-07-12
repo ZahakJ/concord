@@ -100,13 +100,15 @@
 
   const remove = (name) => commit(games.filter((g) => g.name !== name));
 
-  // Generated box art: title hash -> gradient pair + monogram.
+  // Generated box art: a muted duotone from the title hash — deliberately
+  // restrained so placeholder tiles sit quietly next to real covers instead
+  // of screaming random rainbow.
   function coverStyle(name) {
     let h = 0;
     for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
     const h1 = h % 360;
-    const h2 = (h1 + 40 + (h % 80)) % 360;
-    return `background:linear-gradient(160deg, hsl(${h1} 62% 42%), hsl(${h2} 72% 24%))`;
+    const h2 = (h1 + 30 + (h % 50)) % 360;
+    return `background:linear-gradient(165deg, hsl(${h1} 32% 30%), hsl(${h2} 38% 15%))`;
   }
   const initials = (name) =>
     name
@@ -202,6 +204,7 @@
       {/if}
 
       {#if games.length}
+        <div class="gs-body">
         <div class="g-shelf">
           {#each games as g, i (g.name)}
             <div class="g-tile" style="--tile-i:{Math.min(i, 20)}" title={g.name}>
@@ -215,7 +218,9 @@
                     onerror={() => (broken = { ...broken, [g.name]: true })}
                   />
                 {:else}
-                  <span class="g-glyph">{initials(g.name)}</span>
+                  <!-- Placeholder "box art": the title set like a cover, not a monogram. -->
+                  <span class="g-ph-title">{g.name}</span>
+                  <span class="g-ph-base"></span>
                 {/if}
                 <span class="g-sheen"></span>
                 {#if editable}
@@ -227,6 +232,7 @@
               <span class="g-name">{g.name}</span>
             </div>
           {/each}
+        </div>
         </div>
       {:else}
         <div class="g-empty muted">Nothing here yet.</div>
@@ -335,19 +341,27 @@
     }
   }
   .gs-card {
-    width: 470px;
+    width: 496px;
     max-width: 94vw;
     max-height: 80vh;
-    overflow-y: auto;
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
-    padding: 14px;
+    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
+    overflow: hidden; /* the GRID scrolls (gs-body), the header stays put */
     animation: gs-pop 0.22s cubic-bezier(0.34, 1.4, 0.5, 1);
+  }
+  .gs-body {
+    overflow-y: auto;
+    margin: 0 -6px;
+    padding: 2px 6px 6px;
+    scrollbar-width: thin;
+    /* Soft fade at the scroll edge instead of a hard mid-tile chop. */
+    mask-image: linear-gradient(to bottom, black calc(100% - 18px), transparent);
   }
   @keyframes gs-pop {
     from {
@@ -381,6 +395,8 @@
     place-items: center;
     width: 28px;
     height: 28px;
+    padding: 0; /* global button padding would shove the icon off center */
+    line-height: 0;
     border-radius: 50%;
     border: none;
     background: transparent;
@@ -407,6 +423,8 @@
     place-items: center;
     width: 26px;
     height: 26px;
+    padding: 0;
+    line-height: 0;
     border-radius: 50%;
     border: none;
     background: transparent;
@@ -478,8 +496,8 @@
   /* ---- full shelf grid (in the popup) ---- */
   .g-shelf {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
   }
   .g-tile {
     display: flex;
@@ -520,13 +538,33 @@
     height: 100%;
     object-fit: cover;
   }
-  .g-glyph {
-    font-size: 15px;
+  /* Placeholder box art: the title typeset like a cover. */
+  .g-ph-title {
+    position: relative;
+    z-index: 1;
+    padding: 10px 8px;
+    font-size: 11px;
     font-weight: 800;
-    letter-spacing: 0.03em;
+    line-height: 1.25;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    text-align: center;
     color: rgba(255, 255, 255, 0.92);
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
     user-select: none;
+  }
+  /* Subtle vignette + base band so placeholders read as designed covers. */
+  .g-ph-base {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.09), transparent 55%),
+      linear-gradient(to top, rgba(0, 0, 0, 0.38), transparent 34%);
+    pointer-events: none;
   }
   .g-sheen {
     position: absolute;
@@ -540,13 +578,15 @@
     transform: translateX(120%);
   }
   .g-name {
-    font-size: 10.5px;
-    line-height: 1.2;
+    font-size: 11px;
+    line-height: 1.25;
     color: var(--text-muted);
     text-align: center;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   /* Remove control: a quiet scrim button inside the art, revealed on hover. */
   .g-x {
@@ -557,6 +597,8 @@
     place-items: center;
     width: 22px;
     height: 22px;
+    padding: 0; /* global button padding pushed the trash glyph off center */
+    line-height: 0;
     border-radius: 6px;
     border: none;
     background: rgba(0, 0, 0, 0.55);

@@ -301,17 +301,30 @@
     onmouseenter={holdProfilePopover}
     onmouseleave={scheduleCloseProfilePopover}
   >
+    <!-- Banner: image wins; else the member's PROFILE THEME (their two chosen
+         colors as a gradient — Nitro-style); else a single color; else the
+         default accent gradient from CSS. -->
     <div
       class="banner"
       class:has-image={!!mem.banner}
       style={mem.banner
         ? `background-image:url(${mem.banner})`
-        : mem.color
-          ? `background:${mem.color}`
-          : ""}
+        : mem.color && mem.color2
+          ? `background:linear-gradient(120deg, ${mem.color}, ${mem.color2})`
+          : mem.color
+            ? `background:${mem.color}`
+            : ""}
     ></div>
     <div class="head">
       <div class="av-wrap">
+        {#if mem.color}
+          <!-- A soft breathing halo in the member's theme colors. -->
+          <span
+            class="av-glow"
+            style={`background:radial-gradient(circle, ${mem.color2 || mem.color} 0%, transparent 70%)`}
+            aria-hidden="true"
+          ></span>
+        {/if}
         <Avatar
           name={mem.name || mem.fingerprint}
           emoji={mem.emoji}
@@ -320,6 +333,7 @@
           size={56}
           online={mem.online}
           presence={mem.presence}
+          frame={mem.frame}
         />
       </div>
       {#if mem.verified && !mem.isSelf}
@@ -341,6 +355,7 @@
           <span class="role-badge mod" title="Can manage members">mod</span>
         {/if}
       </div>
+      {#if mem.pronouns}<div class="pronouns muted">{mem.pronouns}</div>{/if}
       {#if mem.username}<div class="username muted">{mem.username}</div>{/if}
       {#if sharedDMs > 0}
         <div class="mutual muted">
@@ -607,11 +622,43 @@
     padding: 0 14px;
   }
   .av-wrap {
+    position: relative;
     width: fit-content;
     margin-top: -28px;
     padding: 3px;
     background: var(--bg-1);
     border-radius: 50%;
+  }
+  /* Breathing theme-colored halo behind the avatar — pure delight, no data. */
+  .av-glow {
+    position: absolute;
+    inset: -12px;
+    border-radius: 50%;
+    opacity: 0.35;
+    filter: blur(10px);
+    animation: av-breathe 4s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes av-breathe {
+    0%,
+    100% {
+      opacity: 0.22;
+      transform: scale(0.94);
+    }
+    50% {
+      opacity: 0.42;
+      transform: scale(1.05);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .av-glow {
+      animation: none;
+      opacity: 0.25;
+    }
+  }
+  .pronouns {
+    font-size: 11.5px;
+    margin-top: -1px;
   }
   .verified {
     display: inline-flex;

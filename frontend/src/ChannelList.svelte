@@ -598,6 +598,7 @@
         size={34}
         online={true}
         presence={S.identity.presence || ""}
+        frame={S.identity.frame || ""}
       />
     </button>
     <button class="me" onclick={() => (S.modal = { kind: "profile" })} title="Edit profile">

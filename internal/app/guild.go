@@ -849,6 +849,9 @@ type guildMeta struct {
 	MailboxPub  []byte             `json:"mbx,omitempty"`
 	Activity    *Activity          `json:"activity,omitempty"` // structured now-playing (rich presence)
 	Games       []Game             `json:"games,omitempty"`    // profile: curated game collection
+	Pronouns    string             `json:"pronouns,omitempty"` // profile: pronouns line
+	Color2      string             `json:"color2,omitempty"`   // profile: gradient partner color
+	Frame       string             `json:"frame,omitempty"`    // profile: avatar frame enum id
 	CustomEmoji domain.CustomEmoji `json:"customEmoji,omitempty"`
 	GovOp       json.RawMessage    `json:"govOp,omitempty"` // a signed governance op (roles/bans)
 	// guild_profile: icon/banner/description (Name reused from above).
@@ -894,6 +897,7 @@ func (s *Service) announceProfile(guildID string) {
 		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
 		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
 		Activity: p.Activity, Games: p.Games,
+		Pronouns: p.Pronouns, Color2: p.Color2, Frame: p.Frame,
 	}
 	payload, _ := json.Marshal(meta)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
@@ -1314,7 +1318,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	case "profile":
 		// First time we see this member: reply with our own profile so the
 		// newcomer learns us too (bounded — only on genuinely new members).
-		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games}) {
+		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games, Pronouns: m.Pronouns, Color2: m.Color2, Frame: m.Frame}) {
 			s.announceProfile(guildID)
 		}
 	case "nickname":

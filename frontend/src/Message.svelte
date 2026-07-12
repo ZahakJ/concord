@@ -3,6 +3,7 @@
   // avatar/header, hover timestamp). The action bar is keyboard-reachable
   // (focus-within) with labelled icon buttons.
   import Icon from "./Icon.svelte";
+  import EmojiPicker from "./EmojiPicker.svelte";
   import Avatar from "./Avatar.svelte";
   import Attachment from "./Attachment.svelte";
   import FileAttachment from "./FileAttachment.svelte";
@@ -10,7 +11,14 @@
   import LinkPreview from "./LinkPreview.svelte";
   import { untrack } from "svelte";
   import { renderMarkdown, emojiOnly } from "./lib/markdown.js";
-  import { parseAttachTokens, parseFileTokens, stripAttachTokens, previewText } from "./lib/attachments.js";
+  import {
+    parseAttachTokens,
+    parseFileTokens,
+    stripAttachTokens,
+    previewText,
+    copyImageToClipboard,
+    saveImageSrc,
+  } from "./lib/attachments.js";
   import { extractLinks, youtubeID } from "./lib/embeds.js";
   import {
     S,
@@ -152,6 +160,17 @@
   let editDraft = $state("");
   let editCancelled = false;
   let wasEditing = false;
+  let editEl = $state(null);
+  let editPicker = $state(false);
+  let editPickerBelow = $state(false);
+  function toggleEditPicker() {
+    if (!editPicker) {
+      // Open toward the roomier side: a message near the top of the feed gets
+      // the picker BELOW the edit box (above would clip off-screen).
+      editPickerBelow = (editEl?.getBoundingClientRect().top ?? 999) < 460;
+    }
+    editPicker = !editPicker;
+  }
 
   // Seed the edit draft ONCE, when this message becomes the edit target (via the
   // menu or ArrowUp in an empty composer). untrack keeps a later reaction/edit
@@ -205,6 +224,28 @@
 
   function messageMenu(e) {
     if (m.deleted) return;
+    // Right-clicking an INLINE image (markdown data-URI) gets the image menu —
+    // "Copy Text" on a picture just copies the word "image", which helps nobody.
+    // (Encrypted attachments render via Attachment.svelte, which has its own.)
+    const img = e.target.closest?.("img.attachment");
+    if (img) {
+      openContextMenu(e, [
+        {
+          label: "Copy Image",
+          icon: "copy",
+          onClick: async () => {
+            try {
+              await copyImageToClipboard(img.src);
+              flash("Image copied", "success");
+            } catch (err) {
+              flash(`Couldn't copy image: ${err?.message || err}`);
+            }
+          },
+        },
+        { label: "Save Image", icon: "download", onClick: () => saveImageSrc(img.src) },
+      ]);
+      return;
+    }
     openContextMenu(e, [
       { label: "Reply", icon: "reply", onClick: () => (S.replyingTo = m) },
       isOwn && { label: "Edit", icon: "edit", onClick: startEdit },
@@ -308,23 +349,53 @@
     {#if m.deleted}
       <div class="body deleted"><em>message deleted</em></div>
     {:else if S.editing?.id === m.id}
-      <!-- svelte-ignore a11y_autofocus -->
-      <textarea
-        class="edit-input"
-        rows="1"
-        bind:value={editDraft}
-        autofocus
-        onkeydown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-            e.preventDefault();
-            commitEdit();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            cancelEdit();
-          }
-        }}
-        onblur={commitEdit}
-      ></textarea>
+      <div class="edit-wrap" class:pick-below={editPickerBelow}>
+        <!-- svelte-ignore a11y_autofocus -->
+        <textarea
+          class="edit-input"
+          rows="1"
+          bind:value={editDraft}
+          bind:this={editEl}
+          autofocus
+          onkeydown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+              e.preventDefault();
+              commitEdit();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              cancelEdit();
+            }
+          }}
+          onblur={(e) => {
+            // Focus moving WITHIN the edit UI (the emoji button/picker) must
+            // not commit-and-close — that's what made inserting emoji into an
+            // edit impossible.
+            if (!e.relatedTarget?.closest?.(".edit-wrap")) commitEdit();
+          }}
+        ></textarea>
+        <button
+          type="button"
+          class="edit-emoji"
+          title="Insert emoji"
+          aria-label="Insert emoji"
+          onclick={toggleEditPicker}
+        >
+          <Icon name="smile" size={17} />
+        </button>
+        {#if editPicker}
+          <EmojiPicker
+            onPick={(e) => {
+              editDraft += e;
+              editPicker = false;
+              editEl?.focus();
+            }}
+            onClose={() => {
+              editPicker = false;
+              editEl?.focus();
+            }}
+          />
+        {/if}
+      </div>
       <div class="edit-hint muted">escape to cancel · enter to save</div>
     {:else}
       {#if bodyText}
@@ -598,6 +669,21 @@
       opacity: 0;
     }
   }
+  .edit-wrap {
+    position: relative; /* anchors the emoji button + picker */
+  }
+  /* The shared picker defaults to composer placement (bottom:54px); in the
+     edit context anchor it just above the box — or just below when the
+     message sits too close to the top of the window to fit it above. */
+  .edit-wrap :global(.picker) {
+    bottom: calc(100% + 6px);
+    top: auto;
+    right: 0;
+  }
+  .edit-wrap.pick-below :global(.picker) {
+    top: calc(100% + 6px);
+    bottom: auto;
+  }
   .edit-input {
     margin-top: 2px;
     width: 100%;
@@ -606,6 +692,30 @@
     min-height: 38px;
     font-family: inherit;
     line-height: 1.4;
+    padding-right: 34px; /* keep text clear of the emoji button */
+  }
+  .edit-emoji {
+    position: absolute;
+    top: 8px;
+    right: 6px;
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    line-height: 0;
+    border: none;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-faint);
+    cursor: pointer;
+    transition:
+      color 0.12s ease,
+      background 0.12s ease;
+  }
+  .edit-emoji:hover {
+    color: var(--text);
+    background: var(--bg-3);
   }
   .edit-hint {
     font-size: 11px;

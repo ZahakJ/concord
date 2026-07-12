@@ -104,11 +104,13 @@ func (b *Bridge) CheckForUpdate() (UpdateView, error) {
 
 type assetRef struct{ Name, URL string }
 
-// matchAsset picks the release asset for the running OS from the release's
-// assets, preferring the branded desktop build. It matches on keywords, not
-// exact names, so a version stamped into the filename (e.g.
-// concord-desktop-windows-v0.6.0.exe) still resolves. Returns the download URL
-// and the matched filename, or ("","") if nothing fits.
+// matchAsset picks the release asset for the running OS **and build track**:
+// a native (Wails) build only ever matches desktop assets, and a web build
+// only ever matches web assets — self-update swaps the binary in place, so
+// crossing tracks would silently turn a windowed app into a browser-server
+// (or hand a webkit-dependent binary to a machine without webkit). Web assets
+// are further narrowed by architecture. Matches on keywords, not exact names,
+// so version-stamped filenames still resolve. Returns ("","") if nothing fits.
 func matchAsset(goos string, assets []assetRef) (url, name string) {
 	// os keyword -> the token our release assets carry (see .github/workflows).
 	osKey := map[string]string{
@@ -119,25 +121,36 @@ func matchAsset(goos string, assets []assetRef) (url, name string) {
 	if osKey == "" {
 		return "", ""
 	}
-	var deskURL, deskName, anyURL, anyName string
+	// Web assets carry an arch token (linux-amd64, macos-intel/arm64); Windows
+	// ships amd64 only, so anything matching the OS is fine there.
+	archKey := runtime.GOARCH // "amd64" | "arm64"
+	if goos == "darwin" && archKey == "amd64" {
+		archKey = "intel"
+	}
+	var deskURL, deskName, archURL, archName, anyURL, anyName string
 	for _, a := range assets {
 		n := strings.ToLower(a.Name)
 		if !strings.Contains(n, osKey) {
 			continue
 		}
+		if strings.Contains(n, "desktop") {
+			if deskURL == "" {
+				deskURL, deskName = a.URL, a.Name
+			}
+			continue // never counts as a web-track candidate
+		}
 		if anyURL == "" {
 			anyURL, anyName = a.URL, a.Name
 		}
-		// Prefer the native desktop build over the zero-dep web binary.
-		if strings.Contains(n, "desktop") && deskURL == "" {
-			deskURL, deskName = a.URL, a.Name
+		if strings.Contains(n, archKey) && archURL == "" {
+			archURL, archName = a.URL, a.Name
 		}
 	}
-	if deskURL != "" {
-		return deskURL, deskName
-	}
 	if NativeBuild {
-		return "", "" // no desktop asset: don't hand a native app the web exe
+		return deskURL, deskName // "" when absent: never hand a native app the web exe
+	}
+	if archURL != "" {
+		return archURL, archName
 	}
 	return anyURL, anyName
 }

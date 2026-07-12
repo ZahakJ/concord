@@ -9,7 +9,20 @@
   let avatar = $state(identity.avatar || "");
   let presence = $state(identity.presence || "online");
   let bio = $state(identity.bio || "");
+  let pronouns = $state(identity.pronouns || "");
+  let color2 = $state(identity.color2 || "");
+  let frame = $state(identity.frame || "");
   let fileInput;
+
+  // Avatar frames: decorative rings rendered client-side from an enum id, so
+  // they cost bytes on the wire, never images.
+  const FRAMES = [
+    { id: "", label: "None" },
+    { id: "gold", label: "Gold" },
+    { id: "neon", label: "Neon" },
+    { id: "ember", label: "Ember" },
+    { id: "frost", label: "Frost" },
+  ];
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
   const PRESENCES = [
@@ -137,7 +150,19 @@
   }
 
   function save() {
-    onSubmit({ name: name.trim(), status: status.trim(), emoji, color, avatar, banner, presence, bio: bio.trim() });
+    onSubmit({
+      name: name.trim(),
+      status: status.trim(),
+      emoji,
+      color,
+      avatar,
+      banner,
+      presence,
+      bio: bio.trim(),
+      pronouns: pronouns.trim(),
+      color2,
+      frame,
+    });
   }
 </script>
 
@@ -238,6 +263,10 @@
     <span class="muted">Display name</span>
     <input bind:value={name} maxlength="32" placeholder="Your name" />
   </label>
+  <label class="field">
+    <span class="muted">Pronouns</span>
+    <input bind:value={pronouns} maxlength="40" placeholder="e.g. they/them" />
+  </label>
   <div class="field">
     <span class="muted">Availability</span>
     <div class="presence-row">
@@ -271,10 +300,51 @@
       {/each}
     </div>
   </div>
-  <label class="field row-field">
-    <span class="muted">Accent color</span>
-    <input type="color" bind:value={color} />
-  </label>
+  <div class="field">
+    <span class="muted">Profile theme</span>
+    <!-- Two colors form the card's gradient; the strip previews it live. -->
+    <div
+      class="theme-preview"
+      style={`background:linear-gradient(120deg, ${color}, ${color2 || color})`}
+    ></div>
+    <div class="theme-row">
+      <label class="theme-color">
+        <input type="color" bind:value={color} />
+        <span class="muted tiny">Primary</span>
+      </label>
+      <label class="theme-color">
+        <input
+          type="color"
+          value={color2 || color}
+          oninput={(e) => (color2 = e.target.value)}
+        />
+        <span class="muted tiny">Secondary</span>
+      </label>
+      {#if color2}
+        <button type="button" class="ghost small-btn" onclick={() => (color2 = "")}>
+          Single color
+        </button>
+      {/if}
+    </div>
+  </div>
+
+  <div class="field">
+    <span class="muted">Avatar frame</span>
+    <div class="frame-row">
+      {#each FRAMES as f (f.id)}
+        <button
+          type="button"
+          class="frame-opt"
+          class:sel={frame === f.id}
+          onclick={() => (frame = f.id)}
+          title={f.label}
+        >
+          <span class="frame-demo avatar-frame-{f.id || 'none'}"></span>
+          <span class="tiny muted">{f.label}</span>
+        </button>
+      {/each}
+    </div>
+  </div>
 
   <div class="field verify-info">
     <span class="muted">Your identity fingerprint (others verify you with this):</span>
@@ -417,6 +487,57 @@
     flex-direction: row;
     align-items: center;
     justify-content: space-between;
+  }
+  .theme-preview {
+    height: 34px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    margin-bottom: 6px;
+  }
+  .theme-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .theme-color {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .frame-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .frame-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 7px 9px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .frame-opt:hover {
+    background: var(--bg-3);
+  }
+  .frame-opt.sel {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .frame-demo {
+    display: block;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--bg-3), var(--bg-2));
+    margin: 3px;
+  }
+  .tiny {
+    font-size: 10px;
   }
   .row-field input[type="color"] {
     width: 48px;

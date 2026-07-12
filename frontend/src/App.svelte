@@ -383,7 +383,10 @@
   }
 
   async function saveProfile(p) {
-    await api.setProfile(p.name, p.status, p.emoji, p.color, p.avatar || "", p.banner || "", p.presence || "", p.bio || "");
+    await api.setProfile(
+      p.name, p.status, p.emoji, p.color, p.avatar || "", p.banner || "",
+      p.presence || "", p.bio || "", p.pronouns || "", p.color2 || "", p.frame || "",
+    );
     S.identity = await api.identity();
     S.displayName = S.identity.displayName || "";
     applyAppearance(); // new profile color, unless an accent preset overrides it
@@ -403,21 +406,11 @@
     <span class="ub-text">
       <strong>Update available</strong> — Concord {S.update.latest} is out (you have {S.update.current}).
     </span>
-    {#if S.update.download}
-      <!-- One-click: the direct asset for this machine's OS. -->
-      <a
-        class="ub-dl"
-        href={S.update.download}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={S.update.asset}
-      >
-        Download for {osLabel}
-      </a>
-      <a class="ub-alt" href={S.update.url} target="_blank" rel="noopener noreferrer">All files</a>
-    {:else}
-      <a class="ub-dl" href={S.update.url} target="_blank" rel="noopener noreferrer">Download</a>
-    {/if}
+    <!-- One click into the in-app updater (Settings → Software update). -->
+    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings" })}>Update now</button>
+    <a class="ub-alt" href={S.update.url} target="_blank" rel="noopener noreferrer" title={S.update.asset}>
+      All files
+    </a>
     <button class="ub-close" onclick={dismissUpdate} aria-label="Dismiss">×</button>
   </div>
 {/if}

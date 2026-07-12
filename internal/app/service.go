@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -176,6 +177,47 @@ type Profile struct {
 	// the profile card. A name plus an optional cover URL (validated against
 	// the Steam CDN allowlist) — art stays a URL, keeping broadcasts tiny.
 	Games []Game `json:"games,omitempty"`
+	// Pronouns is a short free-text line shown under the name ("they/them").
+	Pronouns string `json:"pronouns,omitempty"`
+	// Color2 pairs with Color to form the profile's gradient theme
+	// (Nitro-style). Empty = single-color/default rendering.
+	Color2 string `json:"color2,omitempty"`
+	// Frame is a decorative avatar ring, by enum id (see validFrame) — art is
+	// pure client-side CSS, so the broadcast stays a few bytes.
+	Frame string `json:"frame,omitempty"`
+}
+
+// maxPronounsBytes bounds the pronouns line.
+const maxPronounsBytes = 40
+
+// validColor admits "" or a #hex color — profile colors render into inline
+// CSS, so anything else from a peer is dropped.
+var hexColorRe = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
+
+func validColor(c string) bool { return c == "" || hexColorRe.MatchString(c) }
+
+// validFrame admits the known avatar-frame ids (and "none").
+func validFrame(f string) bool {
+	switch f {
+	case "", "gold", "neon", "ember", "frost":
+		return true
+	}
+	return false
+}
+
+// sanitizeProfileExtras bounds the newer decorative fields, for our own edits
+// and peers' broadcasts alike.
+func sanitizeProfileExtras(p *Profile) {
+	p.Pronouns = strings.TrimSpace(p.Pronouns)
+	if len(p.Pronouns) > maxPronounsBytes {
+		p.Pronouns = p.Pronouns[:maxPronounsBytes]
+	}
+	if !validColor(p.Color2) {
+		p.Color2 = ""
+	}
+	if !validFrame(p.Frame) {
+		p.Frame = ""
+	}
 }
 
 // Game is one entry in a member's game collection.
@@ -403,7 +445,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// of fingerprint-only names right after unlock).
 	if rows, err := st.Profiles(); err == nil {
 		for _, r := range rows {
-			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub, Games: decodeGames(r.Games)}
+			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub, Games: decodeGames(r.Games), Pronouns: r.Pronouns, Color2: r.Color2, Frame: r.Frame}
 		}
 	}
 
@@ -678,10 +720,13 @@ func (s *Service) SelfProfile() Profile {
 	}
 	s.activityMu.Unlock()
 	rawGames, _ := s.store.GetSetting("games")
+	pronouns, _ := s.store.GetSetting("pronouns")
+	color2, _ := s.store.GetSetting("accent_color2")
+	frame, _ := s.store.GetSetting("avatar_frame")
 	return Profile{
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:], Activity: act,
-		Games: decodeGames(rawGames),
+		Games: decodeGames(rawGames), Pronouns: pronouns, Color2: color2, Frame: frame,
 	}
 }
 
@@ -716,15 +761,19 @@ func (s *Service) SetProfile(p Profile) error {
 	if len(p.Bio) > maxBioBytes {
 		p.Bio = p.Bio[:maxBioBytes]
 	}
+	sanitizeProfileExtras(&p)
 	for k, v := range map[string]string{
-		"display_name": strings.TrimSpace(p.Name),
-		"status_text":  strings.TrimSpace(p.Status),
-		"avatar_emoji": strings.TrimSpace(p.Emoji),
-		"accent_color": strings.TrimSpace(p.Color),
-		"avatar_image": p.Avatar,
-		"banner_image": p.Banner,
-		"presence":     strings.TrimSpace(p.Presence),
-		"bio":          strings.TrimSpace(p.Bio),
+		"display_name":  strings.TrimSpace(p.Name),
+		"status_text":   strings.TrimSpace(p.Status),
+		"avatar_emoji":  strings.TrimSpace(p.Emoji),
+		"accent_color":  strings.TrimSpace(p.Color),
+		"avatar_image":  p.Avatar,
+		"banner_image":  p.Banner,
+		"presence":      strings.TrimSpace(p.Presence),
+		"bio":           strings.TrimSpace(p.Bio),
+		"pronouns":      p.Pronouns,
+		"accent_color2": p.Color2,
+		"avatar_frame":  p.Frame,
 	} {
 		if err := s.store.SetSetting(k, v); err != nil {
 			return err
@@ -794,6 +843,7 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 		}
 	}
 	p.Games = sanitizeGames(p.Games) // bound peers' collections like our own
+	sanitizeProfileExtras(&p)        // and their decorative extras
 	// Don't let a partial update wipe fields we already learned. Peers relay each
 	// other's profiles over the sync roster, and a peer that only knows someone
 	// as "unknown" (empty name) would otherwise blank a good name — which the UI
@@ -825,7 +875,7 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 		Fingerprint: fingerprint,
 		Name:        p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
 		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
-		Games: gamesJSON,
+		Games: gamesJSON, Pronouns: p.Pronouns, Color2: p.Color2, Frame: p.Frame,
 	})
 	s.emitGuildUpdate()
 	return !known
@@ -835,6 +885,7 @@ func profilesEqual(a, b Profile) bool {
 	return a.Name == b.Name && a.Status == b.Status && a.Emoji == b.Emoji &&
 		a.Color == b.Color && a.Avatar == b.Avatar && a.Banner == b.Banner &&
 		a.Presence == b.Presence && a.Bio == b.Bio && bytes.Equal(a.MailboxPub, b.MailboxPub) &&
+		a.Pronouns == b.Pronouns && a.Color2 == b.Color2 && a.Frame == b.Frame &&
 		activityEqual(a.Activity, b.Activity) && activityPosEqual(a.Activity, b.Activity) &&
 		gamesEqual(a.Games, b.Games)
 }
