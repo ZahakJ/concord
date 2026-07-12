@@ -46,6 +46,9 @@ export const S = $state({
   // feedLoading: a channel switch is fetching history (drives the skeleton —
   // without it the OLD channel's rows linger under the new header).
   feedLoading: false,
+  // restarting: a self-update restart is in flight; the app shows a full-bleed
+  // "right back" curtain so the outgoing version is never visible mid-swap.
+  restarting: false,
   // unread[channelId] = { count, mentions } — counts survive refresh via the
   // localStorage last-read map (recomputed on load).
   unread: {},

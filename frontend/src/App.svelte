@@ -406,11 +406,11 @@
     <span class="ub-text">
       <strong>Update available</strong> — Concord {S.update.latest} is out (you have {S.update.current}).
     </span>
-    <!-- One click into the in-app updater (Settings → Software update). -->
-    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings" })}>Update now</button>
-    <a class="ub-alt" href={S.update.url} target="_blank" rel="noopener noreferrer" title={S.update.asset}>
-      All files
-    </a>
+    <!-- Fully in-app: opens Settings → Software update AND kicks the install
+         off immediately. No external links — the app updates itself. -->
+    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings", startUpdate: true })}>
+      Update now
+    </button>
     <button class="ub-close" onclick={dismissUpdate} aria-label="Dismiss">×</button>
   </div>
 {/if}
@@ -509,6 +509,19 @@
       <div class="flyin-jet">
         <span class="contrail"></span>
         <Icon name="concorde" size={54} />
+      </div>
+    </div>
+  {/if}
+
+  <!-- Self-update curtain: goes up the moment "Restart now" is clicked, so
+       the outgoing version's UI (update banner and all) is never seen while
+       the process swaps binaries. The page reloads into the new version. -->
+  {#if S.restarting}
+    <div class="restart-curtain" role="status" aria-live="polite">
+      <div class="rc-inner">
+        <span class="rc-jet"><Icon name="concorde" size={44} /></span>
+        <h2>Installing update</h2>
+        <p class="muted">Concord will be right back…</p>
       </div>
     </div>
   {/if}
@@ -664,6 +677,56 @@
   }
 
   /* App lock overlay: opaque so chat content is never visible behind it. */
+  /* Self-update curtain: opaque, above everything but the app lock. */
+  .restart-curtain {
+    position: fixed;
+    inset: 0;
+    z-index: 480;
+    display: grid;
+    place-items: center;
+    background: var(--bg-0);
+    animation: rc-in 0.2s ease;
+  }
+  @keyframes rc-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .rc-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+  }
+  .rc-inner h2 {
+    margin: 4px 0 0;
+    font-size: 18px;
+  }
+  .rc-inner p {
+    margin: 0;
+    font-size: 13px;
+  }
+  .rc-jet {
+    color: var(--accent);
+    animation: rc-bob 1.6s ease-in-out infinite;
+  }
+  @keyframes rc-bob {
+    0%,
+    100% {
+      transform: translateY(2px) rotate(-4deg);
+    }
+    50% {
+      transform: translateY(-4px) rotate(3deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .restart-curtain,
+    .rc-jet {
+      animation: none;
+    }
+  }
+
   .lock-gate {
     position: fixed;
     inset: 0;

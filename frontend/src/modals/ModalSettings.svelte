@@ -115,9 +115,19 @@
       }
     }, 450);
   }
-  // Restart the backend into the new binary, wait for it to come back, reload.
+  // Restart the backend into the new binary, wait for the NEW version to be
+  // the one answering, then reload. Two subtleties make this seamless:
+  //  - a full-bleed curtain (S.restarting, App.svelte) goes up first, so the
+  //    outgoing version's UI — update banner and all — is never visible while
+  //    the old process winds down;
+  //  - the poll compares AppVersion instead of merely waiting for an answer,
+  //    so a reply from the not-yet-dead OLD process can't trigger a premature
+  //    reload into the old frontend.
   async function restartNow() {
     restarting = true;
+    const before = appVersion;
+    S.restarting = true; // raise the curtain
+    S.modal = null;
     try {
       await api.restartApp();
     } catch {
@@ -126,16 +136,20 @@
     const t0 = Date.now();
     const timer = setInterval(async () => {
       try {
-        await api.session();
-        clearInterval(timer);
-        location.reload();
-      } catch {
-        if (Date.now() - t0 > 30000) {
+        const v = await api.appVersion();
+        if (v && v !== before) {
           clearInterval(timer);
           location.reload();
+          return;
         }
+      } catch {
+        /* backend mid-swap — keep waiting */
       }
-    }, 700);
+      if (Date.now() - t0 > 45000) {
+        clearInterval(timer);
+        location.reload(); // give up gracefully; worst case the old UI returns
+      }
+    }, 600);
   }
 
   onMount(async () => {
@@ -164,6 +178,11 @@
     }
     // The boot-time check may already know an update exists; surface it.
     if (S.update?.available) updInfo = S.update;
+    // Arriving from the update banner's "Update now": start installing right
+    // away (when this build can self-swap) — one click, zero ceremony.
+    if (S.modal?.startUpdate && updInfo?.available && canSelf && upd.phase === "idle") {
+      updateNow();
+    }
   });
 
   onDestroy(() => clearInterval(pollTimer));
