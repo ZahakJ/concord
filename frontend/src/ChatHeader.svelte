@@ -230,7 +230,11 @@
     /* Faint drop under the header: elevation over the feed it caps. */
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
     position: relative;
-    z-index: 5;
+    /* Above the message rows (which raise their hover bar / attachments to
+       z-30): the header's dropdown menus overhang the feed, and a menu that
+       paints UNDER a message also hands it the pointer — that's what made
+       hovering the guild menu pop message hover-bars and images. */
+    z-index: 40;
   }
   /* An accent thread under the channel name, fading out rightward — the
      header quietly points at where you are. */

@@ -43,9 +43,9 @@
         id.banner || "",
         patch.presence ?? id.presence ?? "",
         id.bio || "",
-        id.pronouns || "",
         id.color2 || "",
         id.frame || "",
+        id.effect || "",
       );
       S.identity = await api.identity();
       await refreshRightPanel(); // your own dot in the member list

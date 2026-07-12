@@ -102,6 +102,62 @@
     return out.filter((grp) => grp.channels.length || grp.id);
   });
 
+  // A channel's unread, INCLUDING its forum posts: threads don't appear in the
+  // sidebar, so their unread has to surface on the forum row or it's invisible.
+  function channelUnread(c) {
+    const own = S.unread[c.id];
+    if (c.type !== "forum") return own;
+    let count = own?.count || 0;
+    let mentions = own?.mentions || 0;
+    for (const t of g?.channels || []) {
+      if (t.parent !== c.id || S.mutes[t.id]) continue;
+      const u = S.unread[t.id];
+      if (!u) continue;
+      count += u.count;
+      mentions += u.mentions;
+    }
+    return count ? { count, mentions } : null;
+  }
+
+  // Unread channels in this guild, in sidebar order — powers the jump pill and
+  // Alt+↑/↓ navigation (a real gap in Discord: it has the shortcut but no
+  // visible affordance telling you how many are waiting or where).
+  const unreadChannels = $derived.by(() =>
+    groups
+      .flatMap((grp) => grp.channels)
+      .filter(
+        (c) =>
+          c.type !== "voice" &&
+          c.id !== S.activeChannelId &&
+          !S.mutes[c.id] &&
+          !!channelUnread(c),
+      ),
+  );
+  const unreadMentions = $derived(
+    unreadChannels.reduce((n, c) => n + (channelUnread(c)?.mentions || 0), 0),
+  );
+
+  function jumpToNextUnread() {
+    const list = unreadChannels;
+    if (!list.length) return;
+    // Prefer a channel with a mention; otherwise the next one after the
+    // current position (wrapping), so repeated presses walk the list.
+    const mention = list.find((c) => (channelUnread(c)?.mentions || 0) > 0);
+    if (mention) {
+      selectChannel(mention.id);
+      return;
+    }
+    const all = groups.flatMap((grp) => grp.channels);
+    const here = all.findIndex((c) => c.id === S.activeChannelId);
+    const next =
+      list.find((c) => all.indexOf(c) > here) || list[0];
+    selectChannel(next.id);
+  }
+
+  // (Alt+Shift+↑/↓ already walks unread channels — see lib/shortcuts.js. The
+  // pill below is the DISCOVERABLE version of that: it says how many are
+  // waiting and jumps mention-first on click.)
+
   const typeIcon = (t) =>
     t === "voice" ? "speaker" : t === "announcement" ? "megaphone" : t === "forum" ? "forum" : "hash";
 
@@ -393,6 +449,24 @@
         </div>
       {/if}
     {:else if g}
+      {#if unreadChannels.length}
+        <!-- Better than Discord: it hides "jump to unread" behind a shortcut.
+             We SHOW what's waiting, where, and let one click walk it. -->
+        <button
+          class="unread-jump"
+          class:mention={unreadMentions > 0}
+          title="Jump to the next unread channel (mentions first) · Alt+Shift+↓"
+          onclick={jumpToNextUnread}
+        >
+          <span class="uj-dot"></span>
+          <span class="uj-text">
+            {unreadChannels.length}
+            {unreadChannels.length === 1 ? "channel" : "channels"} unread
+            {#if unreadMentions > 0}· {unreadMentions} @you{/if}
+          </span>
+          <span class="uj-cta">Jump ↓</span>
+        </button>
+      {/if}
       <div class="section-head">
         <span>Channels</span>
         {#if !canManageChannels}
@@ -450,7 +524,7 @@
           </div>
         {/if}
         {#each grp.channels as c (c.id)}
-          {@const u = S.unread[c.id]}
+          {@const u = channelUnread(c)}
           {@const active = c.id === S.activeChannelId}
           {@const inVoice = S.voice && S.voice.channelId === c.id}
           {@const occupied = c.type === "voice" && voiceMembersFor(c.id).length > 0}
@@ -458,6 +532,8 @@
           <div
             class="channel-row"
             class:active
+            class:unread={!!u && !active && !S.mutes[c.id]}
+            class:mentioned={!!u?.mentions && !active && !S.mutes[c.id]}
             class:voice-active={inVoice}
             class:dragging={drag?.channel.id === c.id}
             class:drop-before={dropHint?.rowId === c.id && dropHint.edge === "before"}
@@ -477,8 +553,10 @@
             >
               <Icon name={typeIcon(c.type)} size={13} />
               <span class="ch-name">{c.name}</span>
-              {#if c.type !== "voice" && c.id !== S.activeChannelId && u && !S.mutes[c.id]}
-                <span class="count" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
+              {#if c.type !== "voice" && !active && u && !S.mutes[c.id]}
+                <span class="count" class:mention={u.mentions > 0}>
+                  {u.mentions > 0 ? (u.mentions > 99 ? "99+" : u.mentions) : u.count > 99 ? "99+" : u.count}
+                </span>
               {/if}
               {#if occupied}
                 <!-- Live equalizer: someone is in this voice channel right now. -->
@@ -971,6 +1049,49 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* ---- unread & mentions ----------------------------------------------
+     Discord marks unread with a white bar + bold name. We do that AND tint
+     the bar (accent = unread, danger = @you), tint the count pill to match,
+     and keep the whole row a touch brighter so it reads at a glance. */
+  .channel-row {
+    position: relative;
+  }
+  .channel-row.unread::before {
+    content: "";
+    position: absolute;
+    left: -6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 18px;
+    border-radius: 0 3px 3px 0;
+    background: var(--text);
+    animation: unread-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .channel-row.mentioned::before {
+    background: var(--danger);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--danger) 55%, transparent);
+  }
+  @keyframes unread-in {
+    from {
+      transform: translateY(-50%) scaleY(0.2);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .channel-row.unread::before {
+      animation: none;
+    }
+  }
+  .channel-row.unread .channel {
+    color: var(--text);
+  }
+  .channel-row.unread .ch-name {
+    font-weight: 600;
+  }
+  .channel-row.mentioned .ch-name {
+    color: var(--text);
+  }
   .count {
     min-width: 18px;
     padding: 0 5px;
@@ -989,6 +1110,9 @@
       transform: scale(0.4);
       opacity: 0;
     }
+  }
+  .channel-row.unread .count {
+    background: var(--accent);
   }
   .count.mention {
     background: var(--danger);
@@ -1327,5 +1451,89 @@
   .add-locked:hover {
     background: var(--bg-3);
     opacity: 0.8;
+  }
+  /* Unread summary pill: the affordance Discord never gives you. */
+  .unread-jump {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin: 0 0 6px;
+    padding: 7px 10px;
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    color: var(--text);
+    font-size: 12px;
+    cursor: pointer;
+    animation: uj-in 0.25s ease;
+    transition:
+      background 0.14s ease,
+      border-color 0.14s ease;
+  }
+  @keyframes uj-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .unread-jump {
+      animation: none;
+    }
+  }
+  .unread-jump:hover {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border-color: var(--accent);
+  }
+  .unread-jump.mention {
+    border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
+  }
+  .unread-jump.mention:hover {
+    background: color-mix(in srgb, var(--danger) 20%, transparent);
+  }
+  .uj-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: none;
+    animation: uj-pulse 2.4s ease-in-out infinite;
+  }
+  .unread-jump.mention .uj-dot {
+    background: var(--danger);
+  }
+  @keyframes uj-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 50%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 4px transparent;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .uj-dot {
+      animation: none;
+    }
+  }
+  .uj-text {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .uj-cta {
+    flex: none;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.02em;
+  }
+  .unread-jump.mention .uj-cta {
+    color: var(--danger);
   }
 </style>

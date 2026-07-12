@@ -9,19 +9,36 @@
   let avatar = $state(identity.avatar || "");
   let presence = $state(identity.presence || "online");
   let bio = $state(identity.bio || "");
-  let pronouns = $state(identity.pronouns || "");
   let color2 = $state(identity.color2 || "");
   let frame = $state(identity.frame || "");
+  let effect = $state(identity.effect || "");
   let fileInput;
 
   // Avatar frames: decorative rings rendered client-side from an enum id, so
   // they cost bytes on the wire, never images.
+  // Avatar rings. The bottom four ANIMATE (spinning conic gradients, a
+  // breathing halo, an orbiting satellite) — pure CSS, so they cost the same
+  // few bytes on the wire as the plain ones.
   const FRAMES = [
     { id: "", label: "None" },
     { id: "gold", label: "Gold" },
     { id: "neon", label: "Neon" },
     { id: "ember", label: "Ember" },
     { id: "frost", label: "Frost" },
+    { id: "aurora", label: "Aurora ✨" },
+    { id: "rainbow", label: "Rainbow ✨" },
+    { id: "gem", label: "Diamond ✨" },
+    { id: "pulse", label: "Pulse ✨" },
+    { id: "orbit", label: "Orbit ✨" },
+  ];
+
+  // Card effects: animated flourishes over the profile banner.
+  const EFFECTS = [
+    { id: "", label: "None" },
+    { id: "aurora", label: "Aurora drift" },
+    { id: "sheen", label: "Sheen sweep" },
+    { id: "sparkle", label: "Sparkles" },
+    { id: "nebula", label: "Nebula" },
   ];
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
@@ -159,9 +176,9 @@
       banner,
       presence,
       bio: bio.trim(),
-      pronouns: pronouns.trim(),
       color2,
       frame,
+      effect,
     });
   }
 </script>
@@ -263,10 +280,6 @@
     <span class="muted">Display name</span>
     <input bind:value={name} maxlength="32" placeholder="Your name" />
   </label>
-  <label class="field">
-    <span class="muted">Pronouns</span>
-    <input bind:value={pronouns} maxlength="40" placeholder="e.g. they/them" />
-  </label>
   <div class="field">
     <span class="muted">Availability</span>
     <div class="presence-row">
@@ -329,7 +342,7 @@
   </div>
 
   <div class="field">
-    <span class="muted">Avatar frame</span>
+    <span class="muted">Avatar frame <em class="tiny">— ✨ ones animate</em></span>
     <div class="frame-row">
       {#each FRAMES as f (f.id)}
         <button
@@ -344,6 +357,31 @@
         </button>
       {/each}
     </div>
+  </div>
+
+  <div class="field">
+    <span class="muted">Card effect</span>
+    <div class="fx-row">
+      {#each EFFECTS as f (f.id)}
+        <button
+          type="button"
+          class="fx-opt card-effect-{f.id || 'none'}"
+          class:sel={effect === f.id}
+          onclick={() => (effect = f.id)}
+          title={f.label}
+        >
+          <span
+            class="banner fx-demo"
+            style={`background:linear-gradient(120deg, ${color}, ${color2 || color})`}
+          ></span>
+          <span class="tiny muted">{f.label}</span>
+        </button>
+      {/each}
+    </div>
+    <p class="tiny muted fx-note">
+      Effects animate the banner on your profile card — with or without an
+      image.
+    </p>
   </div>
 
   <div class="field verify-info">
@@ -529,12 +567,48 @@
     background: var(--accent-soft);
   }
   .frame-demo {
+    position: relative;
     display: block;
     width: 26px;
     height: 26px;
     border-radius: 50%;
     background: linear-gradient(135deg, var(--bg-3), var(--bg-2));
-    margin: 3px;
+    margin: 4px;
+    isolation: isolate;
+  }
+  .fx-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .fx-opt {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+    padding: 6px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+  }
+  .fx-opt:hover {
+    background: var(--bg-3);
+  }
+  .fx-opt.sel {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .fx-demo {
+    display: block;
+    width: 62px;
+    height: 30px;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .fx-note {
+    margin: 6px 0 0;
+    line-height: 1.45;
   }
   .tiny {
     font-size: 10px;

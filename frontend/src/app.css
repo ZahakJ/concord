@@ -399,3 +399,190 @@ textarea:focus {
     0 0 0 3.5px rgba(191, 227, 255, 0.28),
     0 0 12px rgba(160, 210, 255, 0.55);
 }
+
+/* ---- ANIMATED frames (still just an enum id on the wire) ---------------- */
+/* The conic rings live on a ::before so they can spin behind the round
+   avatar without dragging the image with them. */
+.avatar-frame-aurora,
+.avatar-frame-rainbow,
+.avatar-frame-gem {
+  position: relative;
+}
+.avatar-frame-aurora::before,
+.avatar-frame-rainbow::before,
+.avatar-frame-gem::before {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  z-index: -1;
+  animation: frame-spin 3.6s linear infinite;
+}
+.avatar-frame-aurora::before {
+  background: conic-gradient(from 0deg, #35e0c8, #6f7cff, #a06bff, #35e0c8);
+  filter: blur(0.5px);
+}
+.avatar-frame-rainbow::before {
+  background: conic-gradient(
+    from 0deg,
+    #ff4d4d,
+    #ffa64d,
+    #ffe14d,
+    #4dff88,
+    #4dd2ff,
+    #7a6ff0,
+    #d94dff,
+    #ff4d4d
+  );
+  animation-duration: 5s;
+}
+.avatar-frame-gem::before {
+  background: conic-gradient(
+    from 0deg,
+    #b9f2ff,
+    #ffffff 12%,
+    #b9f2ff 24%,
+    #7ad7f0 40%,
+    #ffffff 55%,
+    #b9f2ff 70%,
+    #7ad7f0 88%,
+    #b9f2ff
+  );
+  animation-duration: 2.8s;
+}
+@keyframes frame-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Pulse: a breathing halo in the accent (no ring, pure energy). */
+.avatar-frame-pulse {
+  animation: frame-pulse 2.4s ease-in-out infinite;
+}
+@keyframes frame-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent),
+      0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px var(--accent),
+      0 0 0 7px transparent;
+  }
+}
+/* Orbit: a little satellite circling the avatar. */
+.avatar-frame-orbit {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.avatar-frame-orbit::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  animation: frame-spin 3s linear infinite;
+  background:
+    radial-gradient(circle 3.5px at 50% 0%, var(--accent) 96%, transparent) no-repeat;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .avatar-frame-aurora::before,
+  .avatar-frame-rainbow::before,
+  .avatar-frame-gem::before,
+  .avatar-frame-orbit::after,
+  .avatar-frame-pulse {
+    animation: none;
+  }
+}
+
+/* ---- Profile-card EFFECTS ---------------------------------------------- */
+/* Applied to the popover card; each is CSS-only, driven by the member's two
+   theme colors, and respects reduced motion. */
+.card-effect-aurora .banner {
+  background-size: 220% 220% !important;
+  animation: fx-aurora 9s ease infinite;
+}
+@keyframes fx-aurora {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+.card-effect-sheen .banner {
+  position: relative;
+  overflow: hidden;
+}
+.card-effect-sheen .banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.35) 50%, transparent 65%);
+  transform: translateX(-120%);
+  animation: fx-sheen 4.5s ease-in-out infinite;
+}
+@keyframes fx-sheen {
+  0% {
+    transform: translateX(-120%);
+  }
+  45%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+.card-effect-sparkle .banner {
+  position: relative;
+  overflow: hidden;
+}
+.card-effect-sparkle .banner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle 1.5px at 20% 30%, #fff 96%, transparent),
+    radial-gradient(circle 1.2px at 70% 20%, #fff 96%, transparent),
+    radial-gradient(circle 1.6px at 45% 70%, #fff 96%, transparent),
+    radial-gradient(circle 1.1px at 85% 60%, #fff 96%, transparent),
+    radial-gradient(circle 1.4px at 12% 75%, #fff 96%, transparent);
+  animation: fx-sparkle 3.2s ease-in-out infinite;
+}
+@keyframes fx-sparkle {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translateY(-3px);
+  }
+}
+.card-effect-nebula .banner {
+  position: relative;
+  overflow: hidden;
+}
+.card-effect-nebula .banner::after {
+  content: "";
+  position: absolute;
+  inset: -30%;
+  background:
+    radial-gradient(circle at 30% 40%, rgba(255, 255, 255, 0.22), transparent 45%),
+    radial-gradient(circle at 70% 60%, rgba(0, 0, 0, 0.25), transparent 50%);
+  animation: fx-nebula 12s ease-in-out infinite alternate;
+}
+@keyframes fx-nebula {
+  to {
+    transform: rotate(25deg) scale(1.15);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-effect-aurora .banner,
+  .card-effect-sheen .banner::after,
+  .card-effect-sparkle .banner::after,
+  .card-effect-nebula .banner::after {
+    animation: none;
+  }
+}

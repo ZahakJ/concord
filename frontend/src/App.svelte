@@ -404,7 +404,7 @@
   async function saveProfile(p) {
     await api.setProfile(
       p.name, p.status, p.emoji, p.color, p.avatar || "", p.banner || "",
-      p.presence || "", p.bio || "", p.pronouns || "", p.color2 || "", p.frame || "",
+      p.presence || "", p.bio || "", p.color2 || "", p.frame || "", p.effect || "",
     );
     S.identity = await api.identity();
     S.displayName = S.identity.displayName || "";

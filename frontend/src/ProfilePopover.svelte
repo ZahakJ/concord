@@ -19,7 +19,7 @@
     roleColorFor,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
-  import { PERM, has } from "./lib/perms.js";
+  import { PERM, PERM_ALL, has } from "./lib/perms.js";
   import { splitStatus } from "./lib/presence.js";
 
   let dmText = $state("");
@@ -130,6 +130,36 @@
       activeGuild()?.kind !== "dm" &&
       (has(activeGuild()?.myPerms || 0, PERM.MANAGE_ROLES) || !!activeGuild()?.isOwner),
   );
+
+  // One-click admin: Discord makes you hand-build a role first; here, "Make
+  // admin" finds (or creates) an Admin role with every permission and assigns
+  // it. Owner or Manage Roles only.
+  const adminRole = $derived(S.roles.find((r) => r.perms === PERM_ALL));
+  const isAdmin = $derived(!!adminRole && !!mem?.roleIds?.includes(adminRole.id));
+  const canMakeAdmin = $derived(
+    !!mem &&
+      !mem.isSelf &&
+      !mem.isOwner &&
+      activeGuild()?.kind !== "dm" &&
+      (has(activeGuild()?.myPerms || 0, PERM.MANAGE_ROLES) || !!activeGuild()?.isOwner),
+  );
+
+  async function toggleAdmin() {
+    try {
+      let role = adminRole;
+      if (!role) {
+        await api.upsertRole(S.activeGuildId, "", "Admin", "#e0a63c", PERM_ALL, 100);
+        S.roles = (await api.roles(S.activeGuildId)) || [];
+        role = S.roles.find((r) => r.perms === PERM_ALL);
+      }
+      if (!role) throw new Error("couldn't create the Admin role");
+      await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, !isAdmin);
+      await refreshRightPanel();
+      flash(isAdmin ? "Admin removed" : `${mem.name || "Member"} is now an admin 👑`, "success");
+    } catch (err) {
+      flash(err);
+    }
+  }
 
   async function toggleRole(role) {
     const hasRole = mem.roleIds?.includes(role.id);
@@ -292,7 +322,7 @@
   {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="pop"
+    class="pop {mem.effect ? `card-effect-${mem.effect}` : ''}"
     class:sheet={S.isMobile}
     bind:this={card}
     style={S.isMobile ? "" : pos ? `left:${pos.left}px;top:${pos.top}px` : "opacity:0;pointer-events:none"}
@@ -355,7 +385,6 @@
           <span class="role-badge mod" title="Can manage members">mod</span>
         {/if}
       </div>
-      {#if mem.pronouns}<div class="pronouns muted">{mem.pronouns}</div>{/if}
       {#if mem.username}<div class="username muted">{mem.username}</div>{/if}
       {#if sharedDMs > 0}
         <div class="mutual muted">
@@ -504,6 +533,12 @@
       {#if canModerate || canMute}
         <div class="divider"></div>
         <div class="mod-actions">
+          {#if canMakeAdmin}
+            <button class="mod-btn admin" class:on={isAdmin} onclick={toggleAdmin}>
+              <Icon name="spark" size={13} />
+              {isAdmin ? "Remove admin" : "Make admin"}
+            </button>
+          {/if}
           {#if canMute}
             <button class="mod-btn" onclick={toggleMute}>
               <Icon name={isMuted ? "micOff" : "mic"} size={13} />
@@ -525,6 +560,17 @@
 {/if}
 
 <style>
+  .mod-btn.admin {
+    border-color: color-mix(in srgb, #e0a63c 55%, var(--border));
+    color: #e0a63c;
+  }
+  .mod-btn.admin:hover {
+    background: color-mix(in srgb, #e0a63c 16%, transparent);
+  }
+  .mod-btn.admin.on {
+    background: color-mix(in srgb, #e0a63c 20%, transparent);
+    color: #f0c169;
+  }
   .pop {
     position: fixed;
     z-index: 250;
@@ -657,10 +703,6 @@
       animation: none;
       opacity: 0.25;
     }
-  }
-  .pronouns {
-    font-size: 11.5px;
-    margin-top: -1px;
   }
   .verified {
     display: inline-flex;

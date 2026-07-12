@@ -21,3 +21,6 @@ export const PERM_LIST = [
 ];
 
 export const has = (perms, bit) => (perms & bit) === bit;
+
+// Every permission — what the one-click "Make admin" role grants.
+export const PERM_ALL = PERM_LIST.reduce((n, p) => n | p.bit, 0);

@@ -110,9 +110,9 @@ type IdentityInfo struct {
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
-	Pronouns    string           `json:"pronouns,omitempty"`
 	Color2      string           `json:"color2,omitempty"` // gradient partner color
 	Frame       string           `json:"frame,omitempty"`  // avatar frame enum id
+	Effect      string           `json:"effect,omitempty"` // card effect enum id
 }
 
 type ChannelView struct {
@@ -210,9 +210,9 @@ type MemberView struct {
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
-	Pronouns    string           `json:"pronouns,omitempty"`
 	Color2      string           `json:"color2,omitempty"` // gradient partner color
 	Frame       string           `json:"frame,omitempty"`  // avatar frame enum id
+	Effect      string           `json:"effect,omitempty"` // card effect enum id
 	IsSelf      bool             `json:"isSelf"`
 	Online      bool             `json:"online"`
 	Verified    bool             `json:"verified"`
@@ -657,9 +657,9 @@ func (b *Bridge) Identity() (IdentityInfo, error) {
 		Bio:         p.Bio,
 		Activity:    p.Activity,
 		Games:       p.Games,
-		Pronouns:    p.Pronouns,
 		Color2:      p.Color2,
 		Frame:       p.Frame,
+		Effect:      p.Effect,
 	}, nil
 }
 
@@ -684,7 +684,7 @@ func (b *Bridge) SearchGames(query string) ([]appsvc.GameSearchResult, error) {
 
 // SetProfile updates this peer's profile (incl. avatar + banner images) and
 // re-announces.
-func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio, pronouns, color2, frame string) error {
+func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
@@ -692,7 +692,7 @@ func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence
 	return svc.SetProfile(appsvc.Profile{
 		Name: name, Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Banner: banner, Presence: presence, Bio: bio,
-		Pronouns: pronouns, Color2: color2, Frame: frame,
+		Color2: color2, Frame: frame, Effect: effect,
 	})
 }
 
@@ -931,9 +931,9 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Avatar:      p.Avatar,
 			Activity:    p.Activity,
 			Games:       p.Games,
-			Pronouns:    p.Pronouns,
-			Color2:      p.Color2,
+				Color2:      p.Color2,
 			Frame:       p.Frame,
+			Effect:      p.Effect,
 			Banner:      p.Banner,
 			Presence:    p.Presence,
 			Bio:         p.Bio,
