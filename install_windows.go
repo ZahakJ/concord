@@ -47,9 +47,17 @@ func ensureInstalled() bool {
 		return false
 	}
 
-	// Running from OUTSIDE the install home: install ourselves there.
+	// Running from OUTSIDE the install home: install ourselves there — unless
+	// a NEWER version is already installed (re-running a stale exe from
+	// Downloads must never downgrade a self-updated install; just hand over).
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false // read-only environment: stay portable rather than break
+	}
+	if installedIsNewer() {
+		if cmd := exec.Command(target, os.Args[1:]...); cmd.Start() == nil {
+			return true
+		}
+		return false
 	}
 	if err := copySelf(exe, target); err != nil {
 		// Couldn't place the binary (an instance may hold an odd lock). If an
@@ -66,6 +74,61 @@ func ensureInstalled() bool {
 		return false // couldn't launch it; keep running from here instead
 	}
 	return true
+}
+
+// installedIsNewer reports whether the Add/Remove registry entry (which
+// registerApp refreshes on every launch from the install home) records a
+// version strictly newer than this binary's. Unparseable/absent = not newer.
+func installedIsNewer() bool {
+	out, err := exec.Command("reg", "query",
+		`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Concord`,
+		"/v", "DisplayVersion").Output()
+	if err != nil {
+		return false
+	}
+	fields := strings.Fields(string(out))
+	installed := ""
+	for i, f := range fields {
+		if f == "REG_SZ" && i+1 < len(fields) {
+			installed = fields[i+1]
+		}
+	}
+	return semverLess(version.Version, installed)
+}
+
+// semverLess mirrors the updater's comparison (vX.Y.Z; anything unparseable
+// compares as "not less", so dev builds always reinstall).
+func semverLess(a, b string) bool {
+	parse := func(v string) ([3]int, bool) {
+		var out [3]int
+		v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+		parts := strings.Split(v, ".")
+		if len(parts) != 3 {
+			return out, false
+		}
+		for i, p := range parts {
+			n := 0
+			for _, c := range p {
+				if c < '0' || c > '9' {
+					return out, false
+				}
+				n = n*10 + int(c-'0')
+			}
+			out[i] = n
+		}
+		return out, true
+	}
+	pa, ok1 := parse(a)
+	pb, ok2 := parse(b)
+	if !ok1 || !ok2 {
+		return false
+	}
+	for i := 0; i < 3; i++ {
+		if pa[i] != pb[i] {
+			return pa[i] < pb[i]
+		}
+	}
+	return false
 }
 
 // copySelf places our own bytes at target, swapping atomically so it works
