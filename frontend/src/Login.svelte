@@ -415,11 +415,19 @@
 
 <style>
   .login {
+    /* The door is deliberately UNBRANDED: a neutral silver stands in for the
+       accent here, because whatever color the user later picks (profile or
+       preset) shouldn't be presumed — or clashed with — before they're even
+       in. The derived accent vars are re-declared since :root computed them
+       from ITS --accent; a scoped override alone wouldn't reach them. */
+    --accent: #97a1b2;
+    --accent-hover: #b9c1cd;
+    --accent-soft: rgba(151, 161, 178, 0.16);
+    --accent-glow: 0 0 24px rgba(151, 161, 178, 0.3);
     height: 100%;
     display: grid;
     place-items: center;
-    /* Subtle vignette + a whisper of accent, so the door already feels like
-       the app behind it. */
+    /* Subtle vignette, same silver whisper. */
     background:
       radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 55%),
       radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--bg-3) 70%, var(--bg)), var(--bg));

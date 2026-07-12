@@ -1,8 +1,18 @@
 # Running Concord on Windows
 
-Concord's `.exe` is **safe** — it's an open-source Go program with no installer
-and no admin rights. But because it isn't code-signed (signing costs money),
-Windows SmartScreen and sometimes Windows Defender flag *any* unknown unsigned
+**The easy way: download `Concord-Setup-<version>.exe` and run it.** It's a
+one-click installer, Discord-style — no admin prompt, no wizard: it installs
+Concord for your user account, puts it in the Start Menu and on the Desktop,
+and launches it. Updates after that happen from inside the app (Settings →
+Software update). Uninstall from Windows' "Add or remove programs" as usual
+(your chat history and identity are kept).
+
+Everything below is for the standalone `.exe` downloads and for getting past
+SmartScreen, which can flag the installer too.
+
+Concord's `.exe` is **safe** — it's an open-source Go program that needs no
+admin rights. But because it isn't code-signed (signing costs money), Windows
+SmartScreen and sometimes Windows Defender flag *any* unknown unsigned
 program by default. This is a false positive. Here's how to get past it.
 
 > **Note:** SmartScreen trust is tied to a file's exact contents, so **every new

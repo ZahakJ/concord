@@ -40,7 +40,7 @@
   import { api } from "./lib/api.js";
   import { longpress } from "./lib/touch.js";
   import { PERM, has } from "./lib/perms.js";
-  import { recentEmoji, pushRecentEmoji } from "./lib/emoji.js";
+  import { recentEmoji, pushRecentEmoji, replaceShortcodes } from "./lib/emoji.js";
 
   // `entering` is set by MessageList for the newest appended message only, so
   // it fades/slides in once — history rows never animate.
@@ -76,8 +76,10 @@
   // Quick-reaction bar: the viewer's recently-used emoji padded with a
   // default set, capped at 5. Computed once per row (fresh rows pick up new
   // recents; recents only ever hold unicode chars).
-  const DEFAULT_QUICK = ["👍", "❤️", "😂", "🎉", "🔥"];
-  const quickEmojis = [...new Set([...recentEmoji(), ...DEFAULT_QUICK])].slice(0, 5);
+  // Keep the hover bar minimal, Discord-style: three quick reactions (your
+  // recents first) — the smile button opens the full picker for everything else.
+  const DEFAULT_QUICK = ["👍", "❤️", "😂"];
+  const quickEmojis = [...new Set([...recentEmoji(), ...DEFAULT_QUICK])].slice(0, 3);
 
   // The emoji the user just tapped bounces briefly (quick bar + pills share
   // this, keyed by emoji char).
@@ -192,7 +194,23 @@
     S.editing = null;
   }
   function commitEdit() {
-    if (!editCancelled) saveEdit(m, editDraft);
+    // Same shortcode treatment as the composer: :fire: saves as 🔥.
+    if (!editCancelled) saveEdit(m, replaceShortcodes(editDraft));
+  }
+
+  // Live shortcode conversion while editing: typing the closing colon of a
+  // known :name: swaps it for the emoji immediately (like the composer's
+  // suggest flow, minus the popup).
+  function onEditInput(e) {
+    const el = e.target;
+    if (editDraft[el.selectionStart - 1] !== ":") return;
+    const converted = replaceShortcodes(editDraft);
+    if (converted !== editDraft) {
+      const shift = editDraft.length - converted.length;
+      const caret = el.selectionStart - shift;
+      editDraft = converted;
+      requestAnimationFrame(() => el.setSelectionRange(caret, caret));
+    }
   }
 
   function fmtTime(iso) {
@@ -356,6 +374,7 @@
           rows="1"
           bind:value={editDraft}
           bind:this={editEl}
+          oninput={onEditInput}
           autofocus
           onkeydown={(e) => {
             if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {

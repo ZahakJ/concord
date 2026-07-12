@@ -52,6 +52,35 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
   -o "dist-release/concord-desktop-windows-$VERSION.exe" .
 rm -f resource_windows_amd64.syso
 
+# Windows one-click INSTALLER (Concord-Setup-*.exe): NSIS compiled under wine
+# (fully user-space; the portable NSIS zip is cached on first use). The name
+# deliberately carries no OS keyword so the in-app updater can never mistake
+# the installer for the app binary.
+NSIS_DIR="$HOME/.cache/concord-nsis/nsis-3.11"
+if command -v wine >/dev/null; then
+  if [[ ! -x "$NSIS_DIR/makensis.exe" && ! -f "$NSIS_DIR/makensis.exe" ]]; then
+    echo "==> fetching portable NSIS"
+    mkdir -p "$HOME/.cache/concord-nsis"
+    curl -sL --max-time 180 -o "$HOME/.cache/concord-nsis/nsis.zip" \
+      "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip" &&
+      python3 -c "import zipfile;zipfile.ZipFile('$HOME/.cache/concord-nsis/nsis.zip').extractall('$HOME/.cache/concord-nsis')" || true
+  fi
+  if [[ -f "$NSIS_DIR/makensis.exe" ]]; then
+    echo "==> building Windows installer (Concord-Setup-$VERSION.exe)"
+    WINEDEBUG=-all wine "$NSIS_DIR/makensis.exe" \
+      "/DVERSION=$VERSION" \
+      "/DEXE=$(winepath -w "dist-release/concord-desktop-windows-$VERSION.exe")" \
+      "/DICON=$(winepath -w build/windows/icon.ico)" \
+      "/DOUT=$(winepath -w "dist-release/Concord-Setup-$VERSION.exe")" \
+      "$(winepath -w build/windows/installer.nsi)" >/dev/null
+    ls -lh "dist-release/Concord-Setup-$VERSION.exe"
+  else
+    echo "!!! NSIS unavailable — release will lack the Windows installer" >&2
+  fi
+else
+  echo "!!! wine unavailable — release will lack the Windows installer" >&2
+fi
+
 # Android: ship the sideload APK when it's been built for THIS version
 # (`make android-app VERSION=vX.Y.Z MOBILE_VERSION_CODE=<monotonic int>`).
 # Missing APK is a loud warning, not a failure — but don't let Android
