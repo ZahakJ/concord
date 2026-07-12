@@ -47,12 +47,28 @@ cp WINDOWS.md dist-release/
 echo && ls -lh dist-release/ && echo
 
 echo "==> publishing $VERSION to $DIST_REPO"
-if [[ -n "$NOTES_FILE" ]]; then
-  gh release create "$VERSION" --repo "$DIST_REPO" --title "Concord $VERSION" \
-    --notes-file "$NOTES_FILE" dist-release/*
-else
-  gh release create "$VERSION" --repo "$DIST_REPO" --title "Concord $VERSION" \
-    --notes "Concord $VERSION" dist-release/*
+# Create the release EMPTY, then upload assets one-by-one with retries.
+# (`gh release create` with assets rolls the whole release back if any single
+# upload hiccups — and large uploads DO hiccup with transient TLS resets.)
+if ! gh release view "$VERSION" --repo "$DIST_REPO" >/dev/null 2>&1; then
+  if [[ -n "$NOTES_FILE" ]]; then
+    gh release create "$VERSION" --repo "$DIST_REPO" --title "Concord $VERSION" --notes-file "$NOTES_FILE"
+  else
+    gh release create "$VERSION" --repo "$DIST_REPO" --title "Concord $VERSION" --notes "Concord $VERSION"
+  fi
 fi
+for f in dist-release/*; do
+  ok=""
+  for try in 1 2 3 4 5; do
+    if gh release upload "$VERSION" "$f" --repo "$DIST_REPO" --clobber; then
+      ok=1
+      echo "uploaded: $(basename "$f")"
+      break
+    fi
+    echo "upload hiccup ($try/5): $(basename "$f") — retrying" >&2
+    sleep 2
+  done
+  [[ -n "$ok" ]] || { echo "error: gave up on $(basename "$f")" >&2; exit 1; }
+done
 
 echo "done: https://github.com/$DIST_REPO/releases/tag/$VERSION"
