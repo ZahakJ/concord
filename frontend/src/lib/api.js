@@ -72,6 +72,7 @@ export const api = {
   createGuild: (name) => call("CreateGuild", name),
   notesDM: () => call("NotesDM"),
   startMeeting: () => call("StartMeeting"),
+  createGuestLink: (guildID) => call("CreateGuestLink", guildID),
   startDM: (fingerprint) => call("StartDM", fingerprint),
   createChannel: (guildID, name, type = "", category = "") =>
     call("CreateChannel", guildID, name, type, category),

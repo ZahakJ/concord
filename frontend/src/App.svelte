@@ -617,7 +617,7 @@
   {:else if S.modal?.kind === "publish"}
     <ModalPublish message={S.modal.message} channel={S.modal.channel} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "meeting"}
-    <ModalMeeting code={S.modal.code} onClose={() => (S.modal = null)} />
+    <ModalMeeting code={S.modal.code} guestLink={S.modal.guestLink || ""} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "newPost"}
     <ModalNewPost forum={S.modal.forum} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "rename"}

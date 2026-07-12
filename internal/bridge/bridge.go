@@ -1397,6 +1397,16 @@ func (b *Bridge) StartMeeting() (MeetingView, error) {
 	return MeetingView{Guild: guildView(svc, g), Code: code}, nil
 }
 
+// CreateGuestLink issues a browser-guest URL for a meeting (no install
+// needed on the other end).
+func (b *Bridge) CreateGuestLink(guildID string) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.CreateGuestLink(guildID)
+}
+
 // NotesDM returns (creating if needed) the user's personal self-DM.
 func (b *Bridge) NotesDM() (GuildView, error) {
 	svc, err := b.service()
@@ -1557,6 +1567,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.ReadState()
 	case "CreateGuild":
 		return b.CreateGuild(argStr(args, 0))
+	case "CreateGuestLink":
+		return b.CreateGuestLink(argStr(args, 0))
 	case "StartMeeting":
 		return b.StartMeeting()
 	case "NotesDM":

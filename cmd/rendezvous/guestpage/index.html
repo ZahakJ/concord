@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <title>Concord meeting</title>
+    <style>
+      :root {
+        --bg-0: #101114;
+        --bg-1: #16181c;
+        --bg-2: #1d2025;
+        --bg-3: #282c33;
+        --border: #32363e;
+        --text: #e8eaed;
+        --muted: #969aa3;
+        --faint: #6b6f78;
+        --accent: #14a394;
+        --accent-hi: color-mix(in srgb, var(--accent) 76%, white);
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: radial-gradient(circle at 50% 0%, #1b2b31, var(--bg-0) 60%);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        display: grid;
+        place-items: center;
+      }
+      .card {
+        width: 420px;
+        max-width: 94vw;
+        background: var(--bg-1);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 24px 60px rgba(0,0,0,.5);
+        padding: 26px 24px;
+        text-align: center;
+        animation: pop .28s cubic-bezier(.34,1.4,.5,1);
+      }
+      @keyframes pop { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+      .logo {
+        width: 54px; height: 54px; margin: 0 auto 10px;
+        display: grid; place-items: center;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        color: var(--accent);
+        font-size: 26px;
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; }
+      p.sub { margin: 0 0 18px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
+      input, button { font: inherit; }
+      input {
+        width: 100%;
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        color: var(--text);
+        padding: 11px 13px;
+        outline: none;
+      }
+      input:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+      button.primary {
+        width: 100%;
+        margin-top: 10px;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 10px;
+        padding: 12px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.primary:hover { background: var(--accent-hi); }
+      button.primary:disabled { opacity: .55; cursor: default; }
+      .foot { margin-top: 14px; font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+      .foot a { color: var(--muted); }
+
+      /* ---- chat ---- */
+      .room {
+        display: none;
+        width: 760px; max-width: 96vw;
+        height: min(84vh, 720px);
+        background: var(--bg-1);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 24px 60px rgba(0,0,0,.5);
+        overflow: hidden;
+        flex-direction: column;
+      }
+      .room.on { display: flex; }
+      .head {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-2);
+      }
+      .head .dot { width: 8px; height: 8px; border-radius: 50%; background: #3ba55d; flex: none; }
+      .head .t { font-weight: 600; font-size: 14.5px; }
+      .head .you { margin-left: auto; font-size: 12px; color: var(--muted); }
+      .feed { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+      .m { display: flex; flex-direction: column; gap: 2px; animation: mi .2s ease; }
+      @keyframes mi { from { opacity: 0; transform: translateY(4px); } }
+      .m .who { font-size: 12.5px; font-weight: 600; color: var(--accent); }
+      .m .body { font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+      .m.sys .body { color: var(--faint); font-size: 12.5px; font-style: italic; }
+      .bar { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); background: var(--bg-2); }
+      .bar input { flex: 1; }
+      .bar button {
+        background: var(--accent); color: #fff; border: none; border-radius: 10px;
+        padding: 0 18px; font-weight: 600; cursor: pointer;
+      }
+      .notice { padding: 10px 16px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--muted); font-size: 12px; text-align: center; border-bottom: 1px solid var(--border); }
+      .err { color: #e0555b; font-size: 13px; margin-top: 10px; min-height: 18px; }
+      @media (max-width: 700px) {
+        .room { height: 100dvh; max-width: 100vw; width: 100vw; border-radius: 0; border: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Join card -->
+    <div class="card" id="join">
+      <div class="logo">✈</div>
+      <h1 id="title">Join the meeting</h1>
+      <p class="sub" id="sub">
+        You've been invited to a Concord meeting. Pick a name and hop in — no
+        account, no download.
+      </p>
+      <input id="name" placeholder="Your name" maxlength="24" autocomplete="off" />
+      <button class="primary" id="go">Join meeting</button>
+      <div class="err" id="err"></div>
+      <div class="foot">
+        Concord is a serverless, end-to-end-encrypted chat app.<br />
+        You're joining as a <strong>guest</strong>: your messages are visible to the
+        meeting host, who relays them into the room.<br />
+        <a href="https://github.com/ZahakJ/concord-dist/releases/latest" target="_blank" rel="noreferrer">Get the full app →</a>
+      </div>
+    </div>
+
+    <!-- Room -->
+    <div class="room" id="room">
+      <div class="head">
+        <span class="dot"></span>
+        <span class="t" id="roomName">Meeting</span>
+        <span class="you" id="youAre"></span>
+      </div>
+      <div class="notice">You're a guest — the host can read what you send here.</div>
+      <div class="feed" id="feed"></div>
+      <form class="bar" id="bar">
+        <input id="msg" placeholder="Message the meeting…" maxlength="2000" autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+    </div>
+
+    <script>
+      // The link's fragment carries the host peer id + token. Fragments are
+      // never sent to the server in the HTTP request, so the token reaches the
+      // gateway only inside the (TLS) WebSocket — and only the meeting HOST
+      // can actually validate it.
+      const frag = new URLSearchParams(location.hash.slice(1));
+      const hostId = frag.get("h") || "";
+      const token = frag.get("t") || "";
+
+      const $ = (id) => document.getElementById(id);
+      const feed = $("feed");
+      let ws = null;
+
+      if (!hostId || !token) {
+        $("title").textContent = "Invalid meeting link";
+        $("sub").textContent = "This link is missing its meeting details. Ask for a fresh one.";
+        $("name").style.display = "none";
+        $("go").style.display = "none";
+      }
+
+      function addMsg(who, body, sys) {
+        const el = document.createElement("div");
+        el.className = "m" + (sys ? " sys" : "");
+        if (!sys) {
+          const w = document.createElement("div");
+          w.className = "who";
+          w.textContent = who;
+          el.appendChild(w);
+        }
+        const b = document.createElement("div");
+        b.className = "body";
+        b.textContent = body;
+        el.appendChild(b);
+        feed.appendChild(el);
+        feed.scrollTop = feed.scrollHeight;
+      }
+
+      $("go").onclick = () => {
+        const name = ($("name").value || "").trim() || "Guest";
+        $("go").disabled = true;
+        $("err").textContent = "Connecting…";
+
+        const proto = location.protocol === "https:" ? "wss:" : "ws:";
+        ws = new WebSocket(`${proto}//${location.host}/guest/ws?h=${encodeURIComponent(hostId)}`);
+
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "hello", token, name }));
+        };
+        ws.onmessage = (ev) => {
+          for (const line of String(ev.data).split("\n")) {
+            if (!line.trim()) continue;
+            let f;
+            try { f = JSON.parse(line); } catch { continue; }
+            if (f.type === "welcome") {
+              $("join").style.display = "none";
+              $("room").classList.add("on");
+              $("roomName").textContent = f.meeting || "Meeting";
+              $("youAre").textContent = "you: " + (f.name || name);
+              $("msg").focus();
+            } else if (f.type === "msg") {
+              // Strip the host's guest-attribution markup for readability.
+              const body = String(f.content || "").replace(/^👤 \*\*(.+?)\*\* · /, "");
+              const who = /^👤 \*\*(.+?)\*\* · /.exec(f.content || "");
+              addMsg(who ? who[1] + " (guest)" : f.from || "Someone", body, false);
+            } else if (f.type === "info") {
+              addMsg("", f.reason || "", true);
+            } else if (f.type === "end") {
+              addMsg("", f.reason || "The meeting has ended.", true);
+              $("err").textContent = f.reason || "";
+              $("go").disabled = false;
+              ws.close();
+            }
+          }
+        };
+        ws.onerror = () => {
+          $("err").textContent = "Couldn't reach the meeting. Ask the host to keep Concord open.";
+          $("go").disabled = false;
+        };
+        ws.onclose = () => {
+          $("go").disabled = false;
+          if ($("room").classList.contains("on")) addMsg("", "Disconnected.", true);
+        };
+      };
+
+      $("bar").onsubmit = (e) => {
+        e.preventDefault();
+        const text = $("msg").value.trim();
+        if (!text || !ws || ws.readyState !== 1) return;
+        ws.send(JSON.stringify({ type: "msg", content: text }));
+        $("msg").value = "";
+      };
+
+      $("name").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("go").click();
+      });
+    </script>
+  </body>
+</html>

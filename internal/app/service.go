@@ -99,6 +99,12 @@ type Service struct {
 	pendingReadMark map[string]int64
 	readMarkTimer   *time.Timer
 
+	// Browser-guest sessions (see guest.go): issued meeting tokens and the
+	// live sessions per channel.
+	guestMu       sync.Mutex
+	guestTokens   map[string]guestToken
+	guestSessions map[string][]*guestSession
+
 	profiles map[string]Profile // fingerprint -> profile, learned from peers
 
 	// nicks holds per-guild display-name overrides: guildID -> fingerprint ->
@@ -249,19 +255,19 @@ func validArtURL(u string) bool {
 	host, _, _ := strings.Cut(rest, "/")
 	host, _, _ = strings.Cut(strings.ToLower(host), ":") // strip any port
 	for _, suffix := range []string{
-		".scdn.co",                // Spotify
-		".spotifycdn.com",         // Spotify
-		".ytimg.com",              // YouTube
-		".googleusercontent.com",  // YouTube Music / Google
-		".mzstatic.com",           // Apple Music
-		".bcbits.com",             // Bandcamp
-		".sndcdn.com",             // SoundCloud
-		".coverartarchive.org",    // MusicBrainz
-		".archive.org",            // MusicBrainz art storage
-		".steamstatic.com",        // Steam (game soundtracks)
-		".fanart.tv",              // Kodi/Plex scrapers
-		".plex.direct",            // Plex
-		".last.fm",                // Last.fm
+		".scdn.co",                   // Spotify
+		".spotifycdn.com",            // Spotify
+		".ytimg.com",                 // YouTube
+		".googleusercontent.com",     // YouTube Music / Google
+		".mzstatic.com",              // Apple Music
+		".bcbits.com",                // Bandcamp
+		".sndcdn.com",                // SoundCloud
+		".coverartarchive.org",       // MusicBrainz
+		".archive.org",               // MusicBrainz art storage
+		".steamstatic.com",           // Steam (game soundtracks)
+		".fanart.tv",                 // Kodi/Plex scrapers
+		".plex.direct",               // Plex
+		".last.fm",                   // Last.fm
 		".lastfm.freetls.fastly.net", // Last.fm CDN
 	} {
 		if strings.HasSuffix(host, suffix) || host == strings.TrimPrefix(suffix, ".") {
@@ -575,6 +581,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 	// Instant meetings are disposable — clear any that outlived their TTL.
 	s.sweepExpiredMeetings()
+
+	// Browser guests: token validation + the relayed-session handler.
+	s.initGuests()
 
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()

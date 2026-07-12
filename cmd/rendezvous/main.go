@@ -118,7 +118,12 @@ func run() error {
 	}
 	mbox.Attach(ctx, h)
 
-	fmt.Println("Concord rendezvous node running (DHT + relay + mailbox).")
+	// Guest gateway: plain-HTTPS door for browser guests joining a meeting
+	// (see guest.go). It relays their WebSocket to the meeting host and never
+	// reads the meeting itself.
+	serveGuestGateway(ctx, h)
+
+	fmt.Println("Concord rendezvous node running (DHT + relay + mailbox + guest gateway).")
 	fmt.Println("PeerID:", h.ID())
 
 	// When deployed behind a stable public hostname (e.g. fly.io), print the

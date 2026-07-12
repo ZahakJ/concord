@@ -732,7 +732,15 @@ export async function startMeeting() {
     const m = await api.startMeeting();
     await refreshGuilds();
     await selectGuild(m.guild.id);
-    S.modal = { kind: "meeting", code: m.code };
+    // A browser-guest link needs a rendezvous server; without one the modal
+    // just offers the invite code (the app-to-app path).
+    let guestLink = "";
+    try {
+      guestLink = await api.createGuestLink(m.guild.id);
+    } catch {
+      /* no rendezvous configured — code-only invitation */
+    }
+    S.modal = { kind: "meeting", code: m.code, guestLink };
   } catch (err) {
     flash(err);
   }

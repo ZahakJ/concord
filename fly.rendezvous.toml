@@ -12,6 +12,9 @@ primary_region = "iad"
 
 [env]
   PORT = "4001"
+  # Guest gateway (browser guests joining a meeting — see cmd/rendezvous/guest.go).
+  CONCORD_GUEST_PORT = "8080"
+  CONCORD_PUBLIC_HOST = "concord-rendezvous.fly.dev"
 
 # A single always-on machine is plenty for a personal/small deployment.
 [[vm]]
@@ -33,3 +36,20 @@ primary_region = "iad"
   protocol = "udp"
   [[services.ports]]
     port = 4001
+
+# HTTPS for the guest gateway: fly terminates TLS and forwards to :8080.
+# This is the ONLY plain-web surface Concord has — it serves the guest page
+# and pipes each guest's WebSocket to the meeting host. It cannot read the
+# meeting (member traffic stays end-to-end encrypted).
+[[services]]
+  internal_port = 8080
+  protocol = "tcp"
+  auto_stop_machines = false
+  min_machines_running = 1
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+    force_https = true
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
