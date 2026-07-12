@@ -39,6 +39,19 @@ else
   echo "==> webkit2gtk-4.1 not found; skipping the native Linux desktop build"
 fi
 
+# Native WINDOWS desktop app — the one Wails target that cross-compiles from
+# Linux (its WebView2 backend is pure Go, no cgo). -H windowsgui hides the
+# console; the goversioninfo .syso stamps icon + version resource. macOS's
+# .app still needs a Mac (or the manual CI workflow).
+echo "==> cross-building native Windows desktop app"
+go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 \
+  -o resource_windows_amd64.syso build/versioninfo.json
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
+  -tags "wails desktop production" \
+  -ldflags "-s -w -H windowsgui -X github.com/zahak/concord/internal/version.Version=$VERSION" \
+  -o "dist-release/concord-desktop-windows-$VERSION.exe" .
+rm -f resource_windows_amd64.syso
+
 # Android: ship the sideload APK when it's been built for THIS version
 # (`make android-app VERSION=vX.Y.Z MOBILE_VERSION_CODE=<monotonic int>`).
 # Missing APK is a loud warning, not a failure — but don't let Android
