@@ -40,7 +40,13 @@
   import { api } from "./lib/api.js";
   import { longpress } from "./lib/touch.js";
   import { PERM, has } from "./lib/perms.js";
-  import { recentEmoji, pushRecentEmoji, replaceShortcodes } from "./lib/emoji.js";
+  import {
+    recentEmoji,
+    pushRecentEmoji,
+    replaceShortcodes,
+    activeShortcode,
+    searchEmoji,
+  } from "./lib/emoji.js";
 
   // `entering` is set by MessageList for the newest appended message only, so
   // it fades/slides in once — history rows never animate.
@@ -198,18 +204,83 @@
     if (!editCancelled) saveEdit(m, replaceShortcodes(editDraft));
   }
 
-  // Live shortcode conversion while editing: typing the closing colon of a
-  // known :name: swaps it for the emoji immediately (like the composer's
-  // suggest flow, minus the popup).
+  // The ":colon command" while editing — same autocomplete as the composer:
+  // typing :fir pops suggestions; ↑/↓ pick, Enter/Tab insert, Esc dismisses
+  // (without cancelling the edit). A fully-typed :name: also converts inline.
+  let editSuggest = $state(null); // { items: [[name, emoji]…], sel, start }
+
+  function updateEditSuggest() {
+    const el = editEl;
+    if (!el) {
+      editSuggest = null;
+      return;
+    }
+    const sc = activeShortcode(editDraft, el.selectionStart);
+    if (!sc) {
+      editSuggest = null;
+      return;
+    }
+    const items = searchEmoji(sc.query, 8);
+    editSuggest = items.length ? { items, sel: 0, start: sc.start } : null;
+  }
+
+  function acceptEditSuggest(i) {
+    const el = editEl;
+    const [, emoji] = editSuggest.items[i];
+    const end = el.selectionStart;
+    editDraft = editDraft.slice(0, editSuggest.start) + emoji + " " + editDraft.slice(end);
+    const caret = editSuggest.start + emoji.length + 1;
+    editSuggest = null;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  }
+
   function onEditInput(e) {
     const el = e.target;
-    if (editDraft[el.selectionStart - 1] !== ":") return;
-    const converted = replaceShortcodes(editDraft);
-    if (converted !== editDraft) {
-      const shift = editDraft.length - converted.length;
-      const caret = el.selectionStart - shift;
-      editDraft = converted;
-      requestAnimationFrame(() => el.setSelectionRange(caret, caret));
+    // Typing the closing colon of a known :name: converts it immediately.
+    if (editDraft[el.selectionStart - 1] === ":") {
+      const converted = replaceShortcodes(editDraft);
+      if (converted !== editDraft) {
+        const shift = editDraft.length - converted.length;
+        const caret = el.selectionStart - shift;
+        editDraft = converted;
+        editSuggest = null;
+        requestAnimationFrame(() => el.setSelectionRange(caret, caret));
+        return;
+      }
+    }
+    updateEditSuggest();
+  }
+
+  // Suggest-aware keys, layered over the save/cancel keys the textarea has.
+  function onEditKeydown(e) {
+    if (editSuggest) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const n = editSuggest.items.length;
+        const d = e.key === "ArrowDown" ? 1 : -1;
+        editSuggest = { ...editSuggest, sel: (editSuggest.sel + d + n) % n };
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        acceptEditSuggest(editSuggest.sel);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        editSuggest = null; // dismiss the popup, keep editing
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      commitEdit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
     }
   }
 
@@ -376,15 +447,7 @@
           bind:this={editEl}
           oninput={onEditInput}
           autofocus
-          onkeydown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-              e.preventDefault();
-              commitEdit();
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              cancelEdit();
-            }
-          }}
+          onkeydown={onEditKeydown}
           onblur={(e) => {
             // Focus moving WITHIN the edit UI (the emoji button/picker) must
             // not commit-and-close — that's what made inserting emoji into an
@@ -401,6 +464,23 @@
         >
           <Icon name="smile" size={17} />
         </button>
+        {#if editSuggest}
+          <div class="edit-suggest" role="listbox" aria-label="Emoji suggestions">
+            {#each editSuggest.items as item, i (item[0])}
+              <button
+                type="button"
+                class="es-item"
+                class:sel={i === editSuggest.sel}
+                role="option"
+                aria-selected={i === editSuggest.sel}
+                onclick={() => acceptEditSuggest(i)}
+              >
+                <span class="es-emoji">{item[1]}</span> :{item[0]}:
+                {#if i === editSuggest.sel}<kbd class="es-enter" aria-hidden="true">↵</kbd>{/if}
+              </button>
+            {/each}
+          </div>
+        {/if}
         {#if editPicker}
           <EmojiPicker
             onPick={(e) => {
@@ -739,6 +819,53 @@
   .edit-hint {
     font-size: 11px;
     margin-top: 3px;
+  }
+  /* :shortcode autocomplete inside the edit box (composer parity). */
+  .edit-suggest {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 4px);
+    min-width: 220px;
+    max-width: 320px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-pop);
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    z-index: 30;
+  }
+  .es-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 8px;
+    background: transparent;
+    border: none;
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .es-item:hover,
+  .es-item.sel {
+    background: var(--accent-soft);
+  }
+  .es-emoji {
+    font-size: 16px;
+    width: 20px;
+    text-align: center;
+  }
+  .es-enter {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0 4px;
   }
   .reactions {
     display: flex;
