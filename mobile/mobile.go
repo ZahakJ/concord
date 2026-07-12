@@ -180,6 +180,13 @@ func (n *Node) SetEventSink(sink EventSink) {
 		}
 		emit("guild-updated", nil)
 	}
+	prevReadState := b.OnReadState
+	b.OnReadState = func(r bridge.ReadStateView) {
+		if prevReadState != nil {
+			prevReadState(r)
+		}
+		emit("read-state", r)
+	}
 }
 
 // Nudge asks the core to hurry reconnection after the OS resumes the app:

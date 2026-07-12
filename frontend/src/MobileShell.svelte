@@ -106,11 +106,16 @@
   function confirmLeave() {
     const g = activeGuild();
     if (!g) return;
-    const verb = g.isOwner ? "Delete" : "Leave";
+    // A 1:1 DM is only CLOSED (hidden; messaging again reopens it, history
+    // intact) — the backend keeps the conversation alive underneath.
+    const closeDM = g.kind === "dm" && (g.dmMembers ?? 2) <= 2;
+    const verb = closeDM ? "Close" : g.isOwner ? "Delete" : "Leave";
     S.modal = {
       kind: "confirm",
       title: `${verb} "${g.name}"?`,
-      body: "Its messages will be removed from this device.",
+      body: closeDM
+        ? "The conversation is hidden from your list — messaging each other brings it back."
+        : "Its messages will be removed from this device.",
       confirmLabel: verb,
       onConfirm: async () => {
         S.modal = null;
@@ -120,7 +125,7 @@
         S.messages = [];
         await refreshGuilds();
         if (S.guilds.length) selectGuild(S.guilds[0].id);
-        flash(g.isOwner ? "Guild deleted" : "Left guild");
+        flash(closeDM ? "Conversation closed" : g.isOwner ? "Guild deleted" : "Left guild");
       },
     };
   }
@@ -159,7 +164,13 @@
         },
         !g.dmNotes && { sep: true },
         !g.dmNotes && {
-          label: g.isOwner ? (dm ? "Delete conversation" : "Delete guild") : dm ? "Leave conversation" : "Leave guild",
+          label: dm
+            ? (g.dmMembers ?? 2) > 2
+              ? "Leave group"
+              : "Close conversation"
+            : g.isOwner
+              ? "Delete guild"
+              : "Leave guild",
           icon: g.isOwner ? "trash" : "door",
           danger: true,
           onClick: confirmLeave,

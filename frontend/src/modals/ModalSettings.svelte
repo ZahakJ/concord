@@ -63,6 +63,15 @@
     setTimeout(() => (copiedPhrase = false), 1600);
   }
 
+  // App version for the subtle footer ("dev" for unstamped local builds).
+  let appVersion = $state("");
+  let copiedVersion = $state(false);
+  function copyVersion() {
+    navigator.clipboard?.writeText(`Concord ${appVersion}`);
+    copiedVersion = true;
+    setTimeout(() => (copiedVersion = false), 1400);
+  }
+
   onMount(async () => {
     try {
       bootstrap = ((await api.getBootstrap()) || []).join("\n");
@@ -71,6 +80,11 @@
     }
     try {
       richPresence = await api.richPresenceEnabled();
+    } catch {
+      /* ignore */
+    }
+    try {
+      appVersion = (await api.appVersion()) || "";
     } catch {
       /* ignore */
     }
@@ -320,6 +334,13 @@
       Sign out (lock this device)
     </button>
   </section>
+
+  <!-- ABOUT: quiet version stamp; click copies it for bug reports. -->
+  {#if appVersion}
+    <button class="about" onclick={copyVersion} title="Copy version">
+      {copiedVersion ? "Copied ✓" : `Concord ${appVersion === "dev" ? "dev build" : appVersion}`}
+    </button>
+  {/if}
 </Modal>
 
 <style>
@@ -352,6 +373,22 @@
     .grp {
       animation: none;
     }
+  }
+  .about {
+    align-self: center;
+    background: none;
+    border: none;
+    padding: 2px 8px;
+    margin-top: -2px;
+    font-size: 11px;
+    letter-spacing: 0.03em;
+    color: var(--text-faint);
+    cursor: pointer;
+    border-radius: 999px;
+    transition: color 0.15s ease;
+  }
+  .about:hover {
+    color: var(--text-muted);
   }
   .sec-label {
     font-size: 11px;

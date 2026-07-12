@@ -17,6 +17,13 @@ import (
 // embedded in the shipped binary.
 const updateRepo = "ZahakJ/concord-dist"
 
+// NativeBuild is set by the Wails desktop main. A native build must never be
+// offered the zero-dep WEB binary as its update — that silently "upgrades" a
+// real windowed app into the browser-served variant (exactly what happened
+// when a release shipped without desktop assets). When no desktop asset
+// exists, the banner falls back to the release page instead.
+var NativeBuild bool
+
 var updateClient = &http.Client{Timeout: 6 * time.Second}
 
 // UpdateView is the notifier payload the UI renders as a dismissible banner.
@@ -128,6 +135,9 @@ func matchAsset(goos string, assets []assetRef) (url, name string) {
 	}
 	if deskURL != "" {
 		return deskURL, deskName
+	}
+	if NativeBuild {
+		return "", "" // no desktop asset: don't hand a native app the web exe
 	}
 	return anyURL, anyName
 }

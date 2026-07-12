@@ -239,3 +239,165 @@ func TestPeerDM(t *testing.T) {
 		t.Fatalf("self StartDM should be Notes: %q %v", notes.Name, err)
 	}
 }
+
+// TestStartDMNeverReturnsGroupDM pins the regression where "Message X" routed
+// into a group DM that happened to contain X: with only a group DM in common,
+// StartDM must create a fresh 1:1 conversation, never reuse the group.
+func TestStartDMNeverReturnsGroupDM(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked integration test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	b := startService(t, ctx)
+	c := startService(t, ctx)
+
+	g, err := a.CreateGuild("hub")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	code, _ := a.InviteCode(g.ID)
+	if _, err := b.JoinViaInvite(code); err != nil {
+		t.Fatalf("B join: %v", err)
+	}
+	if _, err := c.JoinViaInvite(code); err != nil {
+		t.Fatalf("C join: %v", err)
+	}
+	waitMembers(t, 30*time.Second, 3, a, b, c)
+
+	if err := a.VerifyFingerprint(b.Fingerprint()); err != nil {
+		t.Fatalf("verify B: %v", err)
+	}
+	if err := a.VerifyFingerprint(c.Fingerprint()); err != nil {
+		t.Fatalf("verify C: %v", err)
+	}
+	group, err := a.CreateGroupDM([]string{b.Fingerprint(), c.Fingerprint()})
+	if err != nil {
+		t.Fatalf("CreateGroupDM: %v", err)
+	}
+	waitUntil(t, 30*time.Second, func() bool {
+		n, _ := a.MemberCount(group.ID)
+		return n == 3
+	}, "group DM did not converge")
+
+	dm, err := a.StartDM(b.Fingerprint())
+	if err != nil {
+		t.Fatalf("StartDM: %v", err)
+	}
+	if dm.ID == group.ID {
+		t.Fatal("StartDM returned the group DM instead of a 1:1 conversation")
+	}
+	// And it stays stable: asking again reuses the same 1:1.
+	dm2, err := a.StartDM(b.Fingerprint())
+	if err != nil {
+		t.Fatalf("StartDM (repeat): %v", err)
+	}
+	if dm2.ID != dm.ID {
+		t.Fatalf("repeat StartDM made another DM (%s vs %s)", dm2.ID, dm.ID)
+	}
+}
+
+// TestCloseDMHidesAndReopens pins the close/reopen lifecycle: closing a 1:1 DM
+// hides it (it leaves the guild list) but does NOT destroy the conversation —
+// StartDM with the same peer returns the SAME conversation, history intact,
+// and it is listed again.
+func TestCloseDMHidesAndReopens(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := startService(t, ctx)
+
+	// An offline-start DM: the peer isn't reachable, so this exercises both the
+	// pending-invite path and the recorded-peer identity.
+	other := "fpr-remote-friend-000000"
+	dm, err := a.StartDM(other)
+	if err != nil {
+		t.Fatalf("StartDM (offline peer): %v", err)
+	}
+	if dm.Kind != "dm" {
+		t.Fatalf("kind = %q, want dm", dm.Kind)
+	}
+	listed := func(id string) bool {
+		for _, g := range a.Guilds() {
+			if g.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+	if !listed(dm.ID) {
+		t.Fatal("new DM not listed")
+	}
+	// The peer is pending an invite (delivered when they come online).
+	if p := a.PendingDMInvitees(dm.ID); len(p) != 1 || p[0] != other {
+		t.Fatalf("pending invitees = %v, want [%s]", p, other)
+	}
+
+	// Close it: hidden from the list, but not destroyed.
+	if err := a.LeaveGuild(dm.ID); err != nil {
+		t.Fatalf("LeaveGuild(dm): %v", err)
+	}
+	if listed(dm.ID) {
+		t.Fatal("closed DM still listed")
+	}
+
+	// Reopen via StartDM: same conversation, visible again — never a duplicate.
+	dm2, err := a.StartDM(other)
+	if err != nil {
+		t.Fatalf("StartDM (reopen): %v", err)
+	}
+	if dm2.ID != dm.ID {
+		t.Fatalf("reopening created a new DM (%s vs %s)", dm2.ID, dm.ID)
+	}
+	if !listed(dm.ID) {
+		t.Fatal("reopened DM not listed")
+	}
+}
+
+// TestDMStateSurvivesRestart: closed DMs stay closed and the recorded peer of
+// a pending DM is still honored after the service is restarted.
+func TestDMStateSurvivesRestart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dir := t.TempDir()
+	a1, err := Start(ctx, Config{DataDir: dir, Passphrase: "test-pass", DisableMDNS: true})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	other := "fpr-remote-friend-111111"
+	dm, err := a1.StartDM(other)
+	if err != nil {
+		t.Fatalf("StartDM: %v", err)
+	}
+	if err := a1.LeaveGuild(dm.ID); err != nil {
+		t.Fatalf("LeaveGuild: %v", err)
+	}
+	if err := a1.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	a2, err := Start(ctx, Config{DataDir: dir, Passphrase: "test-pass", DisableMDNS: true})
+	if err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	defer a2.Close()
+	for _, g := range a2.Guilds() {
+		if g.ID == dm.ID {
+			t.Fatal("closed DM resurfaced after restart")
+		}
+	}
+	// The conversation identity survived: reopening finds the same DM.
+	dm2, err := a2.StartDM(other)
+	if err != nil {
+		t.Fatalf("StartDM after restart: %v", err)
+	}
+	if dm2.ID != dm.ID {
+		t.Fatalf("restart lost the DM identity (%s vs %s)", dm2.ID, dm.ID)
+	}
+	// And the pending invite survived too.
+	if p := a2.PendingDMInvitees(dm.ID); len(p) != 1 || p[0] != other {
+		t.Fatalf("pending invitees after restart = %v, want [%s]", p, other)
+	}
+}

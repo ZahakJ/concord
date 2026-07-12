@@ -51,12 +51,25 @@ type Service struct {
 	// commits at the same epoch. Serializing keeps each add on its own epoch.
 	inviteMu sync.Mutex
 
-	// pendingDMInvites tracks group-DM invitees we couldn't reach at creation
-	// time (guild ID -> set of fingerprints). When such a peer later connects we
-	// push them the invite, so a group DM eventually gathers everyone even if
-	// some were offline when it was made. Best-effort, in-memory.
+	// pendingDMInvites tracks DM invitees (1:1 and group) who haven't joined
+	// yet (guild ID -> set of fingerprints). When such a peer later connects we
+	// push them the invite, and the heal loop re-pushes periodically, so a DM
+	// eventually reaches everyone even if they were offline (or the push was
+	// lost) when it was made. Persisted in the settings table (see dmState).
 	dmInviteMu       sync.Mutex
 	pendingDMInvites map[string]map[string]bool
+
+	// hiddenDMs marks DM conversations the user has closed. Discord-style: the
+	// conversation stays fully alive (MLS membership, subscriptions, history)
+	// but the UI hides it until the user reopens it or a new message arrives.
+	// Guarded by mu; persisted in the settings table (see dmState).
+	hiddenDMs map[string]bool
+
+	// dmPeers records which peer a 1:1 DM was created FOR (guild ID ->
+	// fingerprint). It keeps the conversation identifiable even while the peer
+	// hasn't joined yet (or has left), so StartDM re-opens it instead of
+	// minting a duplicate. Guarded by mu; persisted (see dmState).
+	dmPeers map[string]string
 
 	// Rich presence: an auto-detected "now playing" line that overlays the manual
 	// status while something is playing. activity is the current overlay (empty =
@@ -77,6 +90,7 @@ type Service struct {
 
 	onTyping      []func(from, channelID string)
 	onGuildUpdate []func()
+	onReadState   []func(channelID string, at int64)
 
 	profiles map[string]Profile // fingerprint -> profile, learned from peers
 
@@ -152,6 +166,43 @@ type Profile struct {
 	// duration, position snapshot). Ephemeral — never persisted; old clients
 	// ignore it and fall back to the 🎵 status string.
 	Activity *Activity `json:"activity,omitempty"`
+	// Games is the member's curated game collection (Discord-style), shown on
+	// the profile card. Just names — art is generated client-side, keeping
+	// profile broadcasts tiny. Bounded by maxGames/maxGameNameBytes.
+	Games []string `json:"games,omitempty"`
+}
+
+// maxGames caps the game collection; maxGameNameBytes bounds each entry.
+const (
+	maxGames         = 12
+	maxGameNameBytes = 64
+)
+
+// sanitizeGames normalizes a game collection: trimmed, non-empty, deduped
+// (case-insensitively), each name bounded, at most maxGames entries. Applied
+// to our own edits and to peers' broadcasts alike.
+func sanitizeGames(games []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, g := range games {
+		g = strings.TrimSpace(g)
+		if g == "" {
+			continue
+		}
+		if len(g) > maxGameNameBytes {
+			g = g[:maxGameNameBytes]
+		}
+		key := strings.ToLower(g)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, g)
+		if len(out) == maxGames {
+			break
+		}
+	}
+	return out
 }
 
 // maxAvatarBytes caps the avatar data URI so profile broadcasts stay far below
@@ -272,6 +323,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		guilds:           map[string]*domain.Guild{},
 		channelToGuild:   map[string]string{},
 		pendingDMInvites: map[string]map[string]bool{},
+		hiddenDMs:        map[string]bool{},
+		dmPeers:          map[string]string{},
 		voiceRooms:       map[string]context.CancelFunc{},
 		voiceWatched:     map[string]bool{},
 		profiles:         map[string]Profile{},
@@ -289,7 +342,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// of fingerprint-only names right after unlock).
 	if rows, err := st.Profiles(); err == nil {
 		for _, r := range rows {
-			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub}
+			var games []string
+			if r.Games != "" {
+				_ = json.Unmarshal([]byte(r.Games), &games)
+			}
+			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub, Games: games}
 		}
 	}
 
@@ -376,6 +433,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	for i := range guilds {
 		s.trackGuild(&guilds[i])
 	}
+
+	// Restore DM lifecycle state (closed conversations, intended peers, pending
+	// invites) now that the guild set is known, pruning entries for guilds that
+	// no longer exist.
+	s.loadDMState()
 
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()
@@ -558,10 +620,29 @@ func (s *Service) SelfProfile() Profile {
 		act = s.activityInfo
 	}
 	s.activityMu.Unlock()
+	var games []string
+	if raw, _ := s.store.GetSetting("games"); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &games)
+	}
 	return Profile{
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:], Activity: act,
+		Games: games,
 	}
+}
+
+// SetGames replaces this peer's game collection and re-announces the profile
+// to every guild so members' profile cards update.
+func (s *Service) SetGames(games []string) error {
+	raw, err := json.Marshal(sanitizeGames(games))
+	if err != nil {
+		return err
+	}
+	if err := s.store.SetSetting("games", string(raw)); err != nil {
+		return err
+	}
+	s.announceProfileAll()
+	return nil
 }
 
 // SetProfile persists the full self profile and re-announces it to every guild.
@@ -658,6 +739,7 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 			a.ArtURL = ""
 		}
 	}
+	p.Games = sanitizeGames(p.Games) // bound peers' collections like our own
 	// Don't let a partial update wipe fields we already learned. Peers relay each
 	// other's profiles over the sync roster, and a peer that only knows someone
 	// as "unknown" (empty name) would otherwise blank a good name — which the UI
@@ -679,10 +761,17 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	if known && profilesEqual(prev, p) {
 		return false // nothing new; skip the store write and UI refresh
 	}
+	gamesJSON := ""
+	if len(p.Games) > 0 {
+		if raw, err := json.Marshal(p.Games); err == nil {
+			gamesJSON = string(raw)
+		}
+	}
 	_ = s.store.SaveProfile(store.ProfileRow{
 		Fingerprint: fingerprint,
 		Name:        p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
 		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
+		Games: gamesJSON,
 	})
 	s.emitGuildUpdate()
 	return !known
@@ -692,7 +781,20 @@ func profilesEqual(a, b Profile) bool {
 	return a.Name == b.Name && a.Status == b.Status && a.Emoji == b.Emoji &&
 		a.Color == b.Color && a.Avatar == b.Avatar && a.Banner == b.Banner &&
 		a.Presence == b.Presence && a.Bio == b.Bio && bytes.Equal(a.MailboxPub, b.MailboxPub) &&
-		activityEqual(a.Activity, b.Activity) && activityPosEqual(a.Activity, b.Activity)
+		activityEqual(a.Activity, b.Activity) && activityPosEqual(a.Activity, b.Activity) &&
+		gamesEqual(a.Games, b.Games)
+}
+
+func gamesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // activityPosEqual detects re-announced position snapshots (seeks) so they

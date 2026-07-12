@@ -468,3 +468,35 @@ func TestAttachmentRoundTrip(t *testing.T) {
 		t.Fatal("missing blob reported present")
 	}
 }
+
+// TestReadStateAdvance covers the newest-wins read cursor: advancing works,
+// stale/duplicate marks are rejected, and the map read returns everything.
+func TestReadStateAdvance(t *testing.T) {
+	s, _ := openTestStore(t)
+
+	adv, err := s.AdvanceReadState("ch1", 1000)
+	if err != nil || !adv {
+		t.Fatalf("first advance = (%v, %v), want (true, nil)", adv, err)
+	}
+	// Stale and duplicate marks must not move the cursor.
+	if adv, _ = s.AdvanceReadState("ch1", 900); adv {
+		t.Fatal("stale mark advanced the cursor")
+	}
+	if adv, _ = s.AdvanceReadState("ch1", 1000); adv {
+		t.Fatal("duplicate mark advanced the cursor")
+	}
+	if adv, _ = s.AdvanceReadState("ch1", 2000); !adv {
+		t.Fatal("newer mark did not advance")
+	}
+	if adv, _ = s.AdvanceReadState("ch2", 500); !adv {
+		t.Fatal("second channel did not advance")
+	}
+
+	got, err := s.ReadState()
+	if err != nil {
+		t.Fatalf("ReadState: %v", err)
+	}
+	if got["ch1"] != 2000 || got["ch2"] != 500 || len(got) != 2 {
+		t.Fatalf("ReadState = %v, want ch1:2000 ch2:500", got)
+	}
+}

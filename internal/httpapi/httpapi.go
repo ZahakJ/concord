@@ -92,6 +92,7 @@ func (s *Server) WireSSE() {
 	s.b.OnVoiceSignal = func(v bridge.VoiceSignal) { s.broadcast(sseEvent{"voice-signal", v}) }
 	s.b.OnTyping = func(t bridge.TypingInfo) { s.broadcast(sseEvent{"typing", t}) }
 	s.b.OnGuildUpdate = func() { s.broadcast(sseEvent{"guild-updated", nil}) }
+	s.b.OnReadState = func(r bridge.ReadStateView) { s.broadcast(sseEvent{"read-state", r}) }
 }
 
 // rpcRequest/rpcResponse are the POST /rpc envelope. args are decoded per method.

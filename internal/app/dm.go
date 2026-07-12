@@ -20,6 +20,140 @@ import (
 
 const notesGuildName = "Notes"
 
+// dmStateKey is the settings-table key holding persisted DM lifecycle state.
+const dmStateKey = "dm.state"
+
+// dmState is the persisted shape of the DM bookkeeping that must survive a
+// restart: which conversations are closed (hidden), who each 1:1 DM is FOR,
+// and which invitees are still pending delivery.
+type dmState struct {
+	Hidden  []string            `json:"hidden,omitempty"`
+	Peers   map[string]string   `json:"peers,omitempty"`
+	Pending map[string][]string `json:"pending,omitempty"`
+}
+
+// persistDMState snapshots hiddenDMs/dmPeers/pendingDMInvites into the settings
+// table. Called after every mutation; cheap (one small JSON row).
+func (s *Service) persistDMState() {
+	var st dmState
+	s.mu.RLock()
+	for id := range s.hiddenDMs {
+		st.Hidden = append(st.Hidden, id)
+	}
+	if len(s.dmPeers) > 0 {
+		st.Peers = make(map[string]string, len(s.dmPeers))
+		for id, f := range s.dmPeers {
+			st.Peers[id] = f
+		}
+	}
+	s.mu.RUnlock()
+	s.dmInviteMu.Lock()
+	if len(s.pendingDMInvites) > 0 {
+		st.Pending = make(map[string][]string, len(s.pendingDMInvites))
+		for id, set := range s.pendingDMInvites {
+			for f := range set {
+				st.Pending[id] = append(st.Pending[id], f)
+			}
+		}
+	}
+	s.dmInviteMu.Unlock()
+	if raw, err := json.Marshal(st); err == nil {
+		_ = s.store.SetSetting(dmStateKey, string(raw))
+	}
+}
+
+// loadDMState restores persisted DM lifecycle state at startup, dropping
+// entries for guilds that no longer exist locally.
+func (s *Service) loadDMState() {
+	raw, err := s.store.GetSetting(dmStateKey)
+	if err != nil || raw == "" {
+		return
+	}
+	var st dmState
+	if json.Unmarshal([]byte(raw), &st) != nil {
+		return
+	}
+	s.mu.Lock()
+	for _, id := range st.Hidden {
+		if _, ok := s.guilds[id]; ok {
+			s.hiddenDMs[id] = true
+		}
+	}
+	for id, f := range st.Peers {
+		if _, ok := s.guilds[id]; ok {
+			s.dmPeers[id] = f
+		}
+	}
+	known := make(map[string]bool, len(s.guilds))
+	for id := range s.guilds {
+		known[id] = true
+	}
+	s.mu.Unlock()
+	s.dmInviteMu.Lock()
+	for id, fprs := range st.Pending {
+		if !known[id] {
+			continue
+		}
+		set := map[string]bool{}
+		for _, f := range fprs {
+			if f != "" {
+				set[f] = true
+			}
+		}
+		if len(set) > 0 {
+			s.pendingDMInvites[id] = set
+		}
+	}
+	s.dmInviteMu.Unlock()
+}
+
+// hideDM closes a DM conversation: it disappears from the UI but stays fully
+// alive underneath, so history is kept and a new message reopens it.
+func (s *Service) hideDM(guildID string) {
+	s.mu.Lock()
+	s.hiddenDMs[guildID] = true
+	s.mu.Unlock()
+	s.persistDMState()
+	s.emitGuildUpdate()
+}
+
+// unhideDM reopens a closed DM. Reports whether it was hidden (so callers can
+// skip redundant UI refreshes).
+func (s *Service) unhideDM(guildID string) bool {
+	s.mu.Lock()
+	was := s.hiddenDMs[guildID]
+	if was {
+		delete(s.hiddenDMs, guildID)
+	}
+	s.mu.Unlock()
+	if was {
+		s.persistDMState()
+		s.emitGuildUpdate()
+	}
+	return was
+}
+
+// dmOtherAccounts returns the deduped ACCOUNT fingerprints of a group's members
+// besides ourselves. Linked devices collapse into their account, so a peer with
+// a phone and a desktop counts as ONE other person — every "how many people are
+// in this DM" decision must use this, never the raw leaf count.
+func (s *Service) dmOtherAccounts(groupID []byte) []string {
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil {
+		return nil
+	}
+	self := s.id.Fingerprint()
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range creds {
+		if f := accountFingerprintOf(c); f != self && !seen[f] {
+			seen[f] = true
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 // NotesDM returns your personal self-DM, creating it on first use. It is a
 // one-member MLS group, so nothing leaves your device until you have linked a
 // second one.
@@ -29,6 +163,7 @@ func (s *Service) NotesDM() (domain.Guild, error) {
 		if g.Kind == "dm" && len(g.OwnerID) > 0 && string(g.OwnerID) == string(s.PublicKey()) && g.Name == notesGuildName {
 			gc := *g
 			s.mu.RUnlock()
+			s.unhideDM(gc.ID) // opening Notes always surfaces it
 			return gc, nil
 		}
 	}
@@ -107,8 +242,9 @@ func (s *Service) CreateGroupDM(fingerprints []string) (domain.Guild, error) {
 	}
 
 	// If we already have a DM with exactly this set of people, reuse it instead
-	// of spawning a duplicate conversation.
+	// of spawning a duplicate conversation (reopening it if it was closed).
 	if g := s.findDMByMembers(targets); g != nil {
+		s.unhideDM(g.ID)
 		return *g, nil
 	}
 
@@ -124,24 +260,12 @@ func (s *Service) CreateGroupDM(fingerprints []string) (domain.Guild, error) {
 	}
 	s.trackGuild(&g)
 
-	code, err := s.InviteCode(g.ID)
-	if err != nil {
-		return domain.Guild{}, err
-	}
 	// Remember everyone we intend to add, then push to whoever's reachable now.
-	// Unreachable invitees stay pending and are invited when they next connect
-	// (see deliverPendingDMInvites), so the group eventually gathers everyone.
-	s.dmInviteMu.Lock()
-	s.pendingDMInvites[g.ID] = map[string]bool{}
+	// Unreachable invitees stay pending (persisted) and are invited when they
+	// next connect (see deliverPendingDMInvites) or on the heal tick, so the
+	// group eventually gathers everyone.
 	for _, f := range targets {
-		s.pendingDMInvites[g.ID][f] = true
-	}
-	s.dmInviteMu.Unlock()
-
-	for _, f := range targets {
-		if pid, ok := s.peerForFingerprint(f); ok {
-			s.pushDMInvite(pid, code)
-		}
+		s.queueDMInvite(g.ID, f)
 	}
 	return g, nil
 }
@@ -222,16 +346,23 @@ func (s *Service) PendingDMInvitees(guildID string) []string {
 	return out
 }
 
-// clearPendingDMInvite drops a fingerprint from a group DM's pending set once
+// clearPendingDMInvite drops a fingerprint from a DM's pending set once
 // they've joined (called from the add path). Safe for non-DM guilds (no-op).
 func (s *Service) clearPendingDMInvite(guildID, fpr string) {
 	s.dmInviteMu.Lock()
-	defer s.dmInviteMu.Unlock()
+	changed := false
 	if set, ok := s.pendingDMInvites[guildID]; ok {
-		delete(set, fpr)
+		if set[fpr] {
+			delete(set, fpr)
+			changed = true
+		}
 		if len(set) == 0 {
 			delete(s.pendingDMInvites, guildID)
 		}
+	}
+	s.dmInviteMu.Unlock()
+	if changed {
+		s.persistDMState()
 	}
 }
 
@@ -256,12 +387,14 @@ func (s *Service) deliverPendingDMInvites(p peer.ID) {
 	}
 	s.dmInviteMu.Lock()
 	var invite []string // guild IDs to (re)push for this peer
+	pruned := false
 	for gid, set := range s.pendingDMInvites {
 		if !set[fpr] {
 			continue
 		}
 		if s.guildHasMember(gid, fpr) {
 			delete(set, fpr) // already in — nothing to do
+			pruned = true
 		} else {
 			invite = append(invite, gid)
 		}
@@ -270,6 +403,9 @@ func (s *Service) deliverPendingDMInvites(p peer.ID) {
 		}
 	}
 	s.dmInviteMu.Unlock()
+	if pruned {
+		s.persistDMState()
+	}
 
 	for _, gid := range invite {
 		code, err := s.InviteCode(gid)
@@ -288,23 +424,29 @@ func shortFpr(f string) string {
 	return f
 }
 
-// StartDM opens (creating if needed) a direct-message conversation with the
+// StartDM opens (creating if needed) the direct-message conversation with the
 // peer identified by fingerprint. Clicking someone's profile → Message calls
-// this. It creates a 2-person MLS group and pushes an invite to the recipient
-// over the dm-invite stream; the recipient's client auto-redeems it and joins.
-// Requires the recipient to be reachable (a connected member of a shared
-// guild); offline delivery arrives with the mailbox.
+// this. Exactly ONE 1:1 conversation exists per peer: an existing DM is reused
+// (and reopened if it was closed), even when the peer hasn't joined it yet.
+// When a new conversation is created, the invite is pushed immediately if the
+// peer is reachable and kept pending otherwise — it is (re)delivered when they
+// next connect, so starting a DM with someone offline just works.
 func (s *Service) StartDM(fingerprint string) (domain.Guild, error) {
 	if fingerprint == "" || fingerprint == s.id.Fingerprint() {
-		return s.NotesDM()
+		g, err := s.NotesDM()
+		if err == nil {
+			s.unhideDM(g.ID)
+		}
+		return g, err
 	}
 	if g := s.findPeerDM(fingerprint); g != nil {
+		s.unhideDM(g.ID)
+		// The peer isn't in the group (their join never completed, or they left):
+		// re-extend the invite rather than leaving a dead conversation.
+		if len(s.dmOtherAccounts(g.GroupID)) == 0 {
+			s.queueDMInvite(g.ID, fingerprint)
+		}
 		return *g, nil
-	}
-
-	pid, ok := s.peerForFingerprint(fingerprint)
-	if !ok {
-		return domain.Guild{}, fmt.Errorf("app: that person isn't reachable right now — they need to be online")
 	}
 
 	gid, err := s.mls.CreateGroup(s.ctx)
@@ -318,20 +460,35 @@ func (s *Service) StartDM(fingerprint string) (domain.Guild, error) {
 		return domain.Guild{}, err
 	}
 	s.trackGuild(&g)
-
-	// Reuse the guild invite code + handshake: push it to the recipient, who
-	// redeems it (dials us back, we add them via handleInviteRequest).
-	code, err := s.InviteCode(g.ID)
-	if err != nil {
-		return domain.Guild{}, err
-	}
-	req, _ := json.Marshal(dmInvite{Code: code})
-	go func() {
-		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
-		defer cancel()
-		_, _ = s.host.RequestDMInvite(ctx, pid, req)
-	}()
+	s.mu.Lock()
+	s.dmPeers[g.ID] = fingerprint
+	s.mu.Unlock()
+	s.queueDMInvite(g.ID, fingerprint)
+	s.emitGuildUpdate()
 	return g, nil
+}
+
+// queueDMInvite registers fingerprint as a pending invitee of a DM and pushes
+// the invite right away when they're reachable. Pending invites persist across
+// restarts and are re-pushed on reconnect and on the heal tick until the peer
+// joins — this is what makes "my friend never got my DM" impossible short of
+// them never coming online.
+func (s *Service) queueDMInvite(guildID, fingerprint string) {
+	if fingerprint == "" || s.guildHasMember(guildID, fingerprint) {
+		return
+	}
+	s.dmInviteMu.Lock()
+	if s.pendingDMInvites[guildID] == nil {
+		s.pendingDMInvites[guildID] = map[string]bool{}
+	}
+	s.pendingDMInvites[guildID][fingerprint] = true
+	s.dmInviteMu.Unlock()
+	s.persistDMState()
+	if pid, ok := s.peerForFingerprint(fingerprint); ok {
+		if code, err := s.InviteCode(guildID); err == nil {
+			s.pushDMInvite(pid, code)
+		}
+	}
 }
 
 // handleDMInvite is the recipient side: auto-redeem the pushed invite code so
@@ -341,12 +498,19 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 	if err := json.Unmarshal(request, &req); err != nil {
 		return []byte{}, nil
 	}
-	// The invite is authenticated to the peer that pushed it (libp2p PeerID).
-	senderFpr := s.presence(from).Fingerprint
 	go func() {
 		g, err := s.JoinViaInvite(req.Code)
 		if err != nil {
 			return
+		}
+		// The invite is authenticated to the peer that pushed it (libp2p PeerID),
+		// but resolving that PeerID to an account fingerprint can lag on a fresh
+		// connection (presence / device certs still settling). Wait for it rather
+		// than misjudging — and silently dropping — a legitimate first DM.
+		senderFpr := s.presence(from).Fingerprint
+		for i := 0; senderFpr == "" && i < 20; i++ {
+			time.Sleep(500 * time.Millisecond)
+			senderFpr = s.presence(from).Fingerprint
 		}
 		// Auto-accept guards against a peer pushing an arbitrary invite code to
 		// force us into unsolicited membership (which would disclose our profile +
@@ -356,18 +520,23 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 		//   - a GROUP DM whose inviter we already trust: someone we've verified, or
 		//     someone we already share a 2-person DM with. That trust gate is what
 		//     stops a stranger from silently pulling us into a group.
-		// Anything else is undone immediately.
+		// Anything else is undone immediately. (Hard delete: LeaveGuild would
+		// merely close a DM, which must not keep unsolicited membership around.)
 		if !s.isLegitDMWith(g.ID, senderFpr) && !s.isTrustedGroupDMInvite(g.ID, senderFpr) {
-			_ = s.LeaveGuild(g.ID)
+			_ = s.deleteGuildLocal(g.ID)
 			return
 		}
+		// A reopened conversation (we closed it, they messaged/re-invited us)
+		// must surface again.
+		s.unhideDM(g.ID)
 		s.emitGuildUpdate()
 	}()
 	return []byte("ok"), nil
 }
 
-// isLegitDMWith reports whether guildID is a 2-person DM whose other member is
+// isLegitDMWith reports whether guildID is a 2-person DM whose other account is
 // senderFpr — i.e. a real direct message opened by the peer that invited us.
+// Accounts, not leaves: the sender's linked devices don't disqualify the DM.
 func (s *Service) isLegitDMWith(guildID, senderFpr string) bool {
 	if senderFpr == "" {
 		return false
@@ -383,17 +552,8 @@ func (s *Service) isLegitDMWith(guildID, senderFpr string) bool {
 	if !isDM {
 		return false
 	}
-	creds, err := s.mls.Members(s.ctx, groupID)
-	if err != nil || len(creds) != 2 {
-		return false
-	}
-	self := s.id.Fingerprint()
-	for _, c := range creds {
-		if f := accountFingerprintOf(c); f != self {
-			return f == senderFpr
-		}
-	}
-	return false
+	others := s.dmOtherAccounts(groupID)
+	return len(others) == 1 && others[0] == senderFpr
 }
 
 // isTrustedGroupDMInvite reports whether guildID is a group DM (a kind="dm"
@@ -417,13 +577,13 @@ func (s *Service) isTrustedGroupDMInvite(guildID, senderFpr string) bool {
 	if !isDM {
 		return false
 	}
-	creds, err := s.mls.Members(s.ctx, groupID)
-	if err != nil || len(creds) <= 2 {
-		return false // not a group DM
+	others := s.dmOtherAccounts(groupID)
+	if len(others) < 2 {
+		return false // not a group DM (accounts, not device leaves)
 	}
 	senderIsMember := false
-	for _, c := range creds {
-		if accountFingerprintOf(c) == senderFpr {
+	for _, f := range others {
+		if f == senderFpr {
 			senderIsMember = true
 			break
 		}
@@ -519,29 +679,53 @@ func (s *Service) findDMByMembers(want []string) *domain.Guild {
 	return nil
 }
 
-// findPeerDM returns an existing 2-person DM with the given fingerprint, or nil.
+// findPeerDM returns the existing 1:1 DM with the given fingerprint, or nil.
+// Strict by design: only a conversation whose set of OTHER accounts is exactly
+// {fingerprint} counts — a group DM that merely contains the peer must never
+// match (that bug once routed "Message X" into an unrelated group chat). A DM
+// the peer hasn't joined yet (or has left) is matched via the recorded
+// intended peer, so reopening never mints a duplicate conversation. If legacy
+// duplicates exist, an open conversation beats a closed one, then the most
+// recently active wins.
 func (s *Service) findPeerDM(fingerprint string) *domain.Guild {
+	type cand struct {
+		g      *domain.Guild
+		hidden bool
+		peer   string
+	}
 	s.mu.RLock()
-	var candidates []*domain.Guild
-	for _, g := range s.guilds {
+	var candidates []cand
+	for id, g := range s.guilds {
 		if g.Kind == "dm" {
-			candidates = append(candidates, g)
+			candidates = append(candidates, cand{g, s.hiddenDMs[id], s.dmPeers[id]})
 		}
 	}
 	s.mu.RUnlock()
-	for _, g := range candidates {
-		creds, err := s.mls.Members(s.ctx, g.GroupID)
-		if err != nil {
+
+	var best *domain.Guild
+	bestHidden, bestActivity := true, int64(-1)
+	for _, c := range candidates {
+		others := s.dmOtherAccounts(c.g.GroupID)
+		match := false
+		switch len(others) {
+		case 1:
+			match = others[0] == fingerprint
+		case 0:
+			// Nobody else in the group (peer never joined, or left): identify the
+			// conversation by who it was created for. Notes never matches — it has
+			// no recorded peer.
+			match = c.peer == fingerprint
+		}
+		if !match {
 			continue
 		}
-		for _, c := range creds {
-			if accountFingerprintOf(c) == fingerprint {
-				gc := *g
-				return &gc
-			}
+		act := s.GuildLastActivity(c.g.ID)
+		if best == nil || (bestHidden && !c.hidden) || (bestHidden == c.hidden && act > bestActivity) {
+			gc := *c.g
+			best, bestHidden, bestActivity = &gc, c.hidden, act
 		}
 	}
-	return nil
+	return best
 }
 
 // peerForFingerprint resolves a connected peer's libp2p ID from its fingerprint.

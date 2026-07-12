@@ -14,6 +14,7 @@ import (
 	appsvc "github.com/zahak/concord/internal/app"
 	"github.com/zahak/concord/internal/domain"
 	"github.com/zahak/concord/internal/identity"
+	"github.com/zahak/concord/internal/version"
 )
 
 // bridge is the transport-agnostic API surface the UI drives. It wraps Concord's
@@ -38,6 +39,14 @@ type Bridge struct {
 	OnVoiceSignal   func(VoiceSignal)
 	OnTyping        func(TypingInfo)
 	OnGuildUpdate   func()
+	OnReadState     func(ReadStateView)
+}
+
+// ReadStateView reports a channel's read cursor advancing (locally, in another
+// session of this backend, or on another linked device). At is UnixMilli.
+type ReadStateView struct {
+	ChannelID string `json:"channelId"`
+	At        int64  `json:"at"`
 }
 
 // TypingInfo reports that a peer is typing in a channel.
@@ -100,6 +109,7 @@ type IdentityInfo struct {
 	Presence    string           `json:"presence"`
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
+	Games       []string         `json:"games,omitempty"`    // curated game collection
 }
 
 type ChannelView struct {
@@ -192,6 +202,7 @@ type MemberView struct {
 	Presence    string           `json:"presence"` // "" | online | idle | dnd | invisible
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
+	Games       []string         `json:"games,omitempty"`    // curated game collection
 	IsSelf      bool             `json:"isSelf"`
 	Online      bool             `json:"online"`
 	Verified    bool             `json:"verified"`
@@ -312,6 +323,10 @@ func (b *Bridge) ResetIdentity() error {
 	return appsvc.ResetIdentity(dir)
 }
 
+// AppVersion returns the release tag stamped into this binary ("dev" for
+// unstamped local builds). Needs no session — the login screen can show it too.
+func (b *Bridge) AppVersion() string { return version.Version }
+
 // Session reports whether the identity is already unlocked (a Service is
 // running) — lets the UI skip the login screen after a page refresh.
 func (b *Bridge) Session() bool {
@@ -422,8 +437,32 @@ func (b *Bridge) Login(passphrase string) error {
 			b.OnGuildUpdate()
 		}
 	})
+	svc.OnReadState(func(channelID string, at int64) {
+		if b.OnReadState != nil {
+			b.OnReadState(ReadStateView{ChannelID: channelID, At: at})
+		}
+	})
 	b.svc = svc
 	return nil
+}
+
+// MarkRead records the user read a channel through at (UnixMilli) and fans the
+// new cursor out to every session/device.
+func (b *Bridge) MarkRead(channelID string, at int64) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.MarkRead(channelID, at)
+}
+
+// ReadState returns every channel's read-through time (UnixMilli).
+func (b *Bridge) ReadState() (map[string]int64, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.ReadState()
 }
 
 // ToggleReaction adds/removes an emoji reaction on a message.
@@ -585,7 +624,17 @@ func (b *Bridge) Identity() (IdentityInfo, error) {
 		Presence:    p.Presence,
 		Bio:         p.Bio,
 		Activity:    p.Activity,
+		Games:       p.Games,
 	}, nil
+}
+
+// SetGames replaces this peer's game collection (profile card section).
+func (b *Bridge) SetGames(games []string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetGames(games)
 }
 
 // SetProfile updates this peer's profile (incl. avatar + banner images) and
@@ -835,6 +884,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Color:       p.Color,
 			Avatar:      p.Avatar,
 			Activity:    p.Activity,
+			Games:       p.Games,
 			Banner:      p.Banner,
 			Presence:    p.Presence,
 			Bio:         p.Bio,
@@ -1388,6 +1438,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SetBootstrapLive(argStr(args, 0))
 	case "Session":
 		return b.Session(), nil
+	case "AppVersion":
+		return b.AppVersion(), nil
+	case "SetGames":
+		return nil, b.SetGames(argStrs(args, 0))
 	case "NetworkStatus":
 		return b.NetworkStatus(), nil
 	case "Nudge":
@@ -1418,6 +1472,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.Identity()
 	case "Guilds":
 		return b.Guilds()
+	case "MarkRead":
+		return nil, b.MarkRead(argStr(args, 0), argInt64(args, 1))
+	case "ReadState":
+		return b.ReadState()
 	case "CreateGuild":
 		return b.CreateGuild(argStr(args, 0))
 	case "NotesDM":
@@ -1574,6 +1632,15 @@ func argInt(args []json.RawMessage, i int) int {
 		return 0
 	}
 	var n int
+	_ = json.Unmarshal(args[i], &n)
+	return n
+}
+
+func argInt64(args []json.RawMessage, i int) int64 {
+	if i >= len(args) {
+		return 0
+	}
+	var n int64
 	_ = json.Unmarshal(args[i], &n)
 	return n
 }

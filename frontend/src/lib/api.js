@@ -90,6 +90,10 @@ export const api = {
     call("SetChannelMeta", guildID, channelID, type, category, position, topic),
   renameGuild: (guildID, name) => call("RenameGuild", guildID, name),
   leaveGuild: (guildID) => call("LeaveGuild", guildID),
+  markRead: (channelID, atMs) => call("MarkRead", channelID, atMs),
+  readState: () => call("ReadState"),
+  appVersion: () => call("AppVersion"),
+  setGames: (games) => call("SetGames", games),
   deleteMessage: (channelID, messageID) => call("DeleteMessage", channelID, messageID),
   editMessage: (channelID, messageID, content) =>
     call("EditMessage", channelID, messageID, content),

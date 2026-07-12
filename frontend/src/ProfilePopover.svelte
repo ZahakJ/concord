@@ -75,7 +75,53 @@
     dmText = "";
     editingNick = false;
     copied = false;
+    addingGame = false;
+    gameText = "";
   });
+
+  // ---- game collection (Discord-style, on the profile card) ----
+  // Covers are generated locally from the title (hash → gradient + monogram),
+  // so a collection costs a few bytes on the wire, not kilobytes of art.
+  let addingGame = $state(false);
+  let gameText = $state("");
+  let gamesBusy = $state(false);
+  const games = $derived(mem?.games || []);
+
+  function gameCover(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    const h1 = h % 360;
+    const h2 = (h1 + 40 + (h % 80)) % 360;
+    return `background:linear-gradient(135deg, hsl(${h1} 62% 42%), hsl(${h2} 72% 26%))`;
+  }
+  const gameInitials = (name) =>
+    name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() || "")
+      .join("");
+
+  async function saveGames(next) {
+    if (gamesBusy) return;
+    gamesBusy = true;
+    try {
+      await api.setGames(next);
+      S.identity = await api.identity();
+      await refreshRightPanel();
+    } catch (err) {
+      flash(err);
+    } finally {
+      gamesBusy = false;
+    }
+  }
+  function addGame(e) {
+    e?.preventDefault();
+    const name = gameText.trim();
+    gameText = "";
+    addingGame = false;
+    if (name) saveGames([...games, name]);
+  }
+  const removeGame = (name) => saveGames(games.filter((g) => g !== name));
 
   let card = $state(null);
   let pos = $state(null); // {left, top} once measured
@@ -382,6 +428,49 @@
         <div class="divider"></div>
         <div class="sec-label muted">About me</div>
         <div class="bio">{mem.bio}</div>
+      {/if}
+
+      {#if games.length || mem.isSelf}
+        <div class="divider"></div>
+        <div class="sec-head">
+          <span class="sec-label muted">
+            Game collection{#if games.length}&nbsp;· {games.length}{/if}
+          </span>
+          {#if mem.isSelf && !addingGame}
+            <button class="game-add-btn" onclick={() => (addingGame = true)} title="Add a game">
+              <Icon name="plus" size={12} /> Add
+            </button>
+          {/if}
+        </div>
+        {#if addingGame}
+          <form class="game-form" onsubmit={addGame}>
+            <input
+              bind:value={gameText}
+              placeholder="Game title"
+              maxlength="64"
+              disabled={gamesBusy}
+            />
+            <button type="submit" disabled={gamesBusy}>Add</button>
+          </form>
+        {/if}
+        {#if games.length}
+          <div class="game-shelf">
+            {#each games as g, i (g)}
+              <div class="game-tile" title={g} style="--tile-i:{i}">
+                <div class="game-art" style={gameCover(g)}>
+                  <span class="game-glyph">{gameInitials(g)}</span>
+                  <span class="game-sheen"></span>
+                </div>
+                <span class="game-name">{g}</span>
+                {#if mem.isSelf}
+                  <button class="game-x" onclick={() => removeGame(g)} title="Remove {g}">×</button>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {:else if mem.isSelf && !addingGame}
+          <div class="game-empty muted">Show off what you play — add your first game.</div>
+        {/if}
       {/if}
 
       {#if canNick}
@@ -762,6 +851,139 @@
     word-break: break-word;
     max-height: 120px;
     overflow-y: auto;
+  }
+  /* ---- game collection: a shelf of generated "box art" tiles ---- */
+  .game-shelf {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 2px;
+  }
+  .game-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    animation: tile-in 0.25s ease both;
+    animation-delay: calc(var(--tile-i, 0) * 0.03s);
+  }
+  @keyframes tile-in {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .game-tile {
+      animation: none;
+    }
+  }
+  .game-art {
+    position: relative;
+    aspect-ratio: 4 / 3;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+  }
+  .game-tile:hover .game-art {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+      0 6px 14px rgba(0, 0, 0, 0.35);
+  }
+  .game-glyph {
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    color: rgba(255, 255, 255, 0.92);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+    user-select: none;
+  }
+  /* A diagonal sheen that sweeps on hover — box-art shine. */
+  .game-sheen {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.22) 48%, transparent 62%);
+    transform: translateX(-120%);
+    transition: transform 0.5s ease;
+    pointer-events: none;
+  }
+  .game-tile:hover .game-sheen {
+    transform: translateX(120%);
+  }
+  .game-name {
+    font-size: 10.5px;
+    line-height: 1.2;
+    color: var(--text-muted);
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .game-x {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 17px;
+    height: 17px;
+    border-radius: 50%;
+    border: none;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    line-height: 1;
+    background: var(--bg-0);
+    color: var(--text-muted);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity 0.12s ease, color 0.12s ease;
+  }
+  .game-tile:hover .game-x {
+    opacity: 1;
+  }
+  .game-x:hover {
+    color: var(--danger, #e5484d);
+  }
+  .game-add-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10.5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: none;
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .game-add-btn:hover {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  .game-form {
+    display: flex;
+    gap: 6px;
+  }
+  .game-form input {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    padding: 6px 9px;
+  }
+  .game-form button {
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+  }
+  .game-empty {
+    font-size: 11.5px;
   }
   .role-badge {
     font-size: 10px;

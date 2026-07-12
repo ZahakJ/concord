@@ -403,6 +403,7 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
 	s.ingestGovOpsRaw(guildID, payload.GovOps)
 
 	self := s.id.Fingerprint()
+	anyNew := false
 	for chID, msgs := range payload.Messages {
 		s.mu.RLock()
 		_, tracked := s.channelToGuild[chID]
@@ -420,9 +421,15 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
 			if err != nil || !changed {
 				continue
 			}
+			anyNew = true
 			if full, ok, err := s.store.MessageByID(m.ID); err == nil && ok {
 				s.emitMessage(full)
 			}
 		}
+	}
+	// Activity that arrived while we were offline must reopen a closed DM, same
+	// as a live message would.
+	if anyNew {
+		s.unhideDM(guildID)
 	}
 }

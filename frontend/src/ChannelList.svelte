@@ -41,8 +41,8 @@
   const g = $derived(activeGuild());
   const canManageChannels = $derived(has(g?.myPerms || 0, PERM.MANAGE_CHANNELS));
 
-  function confirmDelete(title, body, onConfirm) {
-    S.modal = { kind: "confirm", title, body, confirmLabel: "Delete", onConfirm };
+  function confirmDelete(title, body, onConfirm, confirmLabel = "Delete") {
+    S.modal = { kind: "confirm", title, body, confirmLabel, onConfirm };
   }
   function deleteChannel(c) {
     confirmDelete(`Delete #${c.name}?`, "This removes the channel and its messages for everyone.", async () => {
@@ -260,8 +260,9 @@
     S.modal = { kind: "newDM" };
   }
 
-  // Right-click a DM to close it (leaves the group; local delete). Group DMs
-  // can be left; a 1:1 just disappears from your list.
+  // Right-click a DM to close it. Closing a 1:1 DM only hides the conversation
+  // (Discord-style) — it reopens, history intact, when either side messages
+  // again. Leaving a group DM removes it locally.
   function dmMenu(e, dm) {
     const isGroup = (dm.dmMembers ?? 2) > 2;
     openContextMenu(e, [
@@ -288,7 +289,9 @@
         onClick: () =>
           confirmDelete(
             (dm.dmMembers ?? 2) > 2 ? `Leave “${dm.name}”?` : `Close DM with ${dm.name}?`,
-            "It's removed from your list. You can be re-invited later.",
+            (dm.dmMembers ?? 2) > 2
+              ? "It's removed from your list. You can be re-invited later."
+              : "The conversation is hidden from your list — messaging each other brings it back, history intact.",
             async () => {
               try {
                 if (S.activeGuildId === dm.id) S.activeGuildId = null;
@@ -299,6 +302,7 @@
               }
               S.modal = null;
             },
+            (dm.dmMembers ?? 2) > 2 ? "Leave" : "Close",
           ),
       },
     ]);

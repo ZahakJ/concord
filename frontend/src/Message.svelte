@@ -955,23 +955,28 @@
       transform: translateY(4px);
     }
   }
-  /* Inline unicode emoji: a touch larger than text and vertically centered,
-     so they read as emoji rather than shrunken glyphs (Discord-style). */
+  /* Inline unicode emoji: a touch larger than text, sitting ON the text
+     baseline (Discord-style). The glyph is text, so it already carries its own
+     baseline — only a hair of offset is needed to optically center it; the old
+     -0.25em (at the ENLARGED font size, so ~-0.34em of body text) sank emoji
+     visibly below the line. line-height 1 keeps the bigger glyph from
+     inflating the row height. */
   .body :global(.emoji) {
     font-size: 1.375em;
     line-height: 1;
-    vertical-align: -0.25em;
+    vertical-align: -0.08em;
   }
   .body :global(img.cemoji) {
-    height: 1.4em;
+    height: 1.375em;
     width: auto;
-    vertical-align: -0.3em;
+    vertical-align: -0.2em;
     margin: 0 1px;
+    object-fit: contain;
   }
   /* Emoji-only messages render jumbo, like Discord. */
   .body.jumbo :global(.emoji) {
     font-size: 2.6em;
-    vertical-align: -0.15em;
+    vertical-align: -0.06em;
   }
   .body.jumbo :global(img.cemoji) {
     height: 2.6em;

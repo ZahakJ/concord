@@ -208,6 +208,10 @@ const countedMsgIds = new Set();
 // `sent`, when known) guards against peer clock skew: if a message we've
 // actually seen is timestamped ahead of our clock, "now" alone would leave it
 // counting as unread forever, so we advance lastRead past it.
+//
+// The cursor is also pushed to the backend, which fans it out to every other
+// session and linked device (they get a "read-state" event), so reading here
+// clears the badge everywhere.
 export function markRead(channelId, throughTime = "") {
   if (!channelId) return;
   let t = new Date().toISOString();
@@ -219,12 +223,18 @@ export function markRead(channelId, throughTime = "") {
     delete u[channelId];
     S.unread = u;
   }
+  api.markRead(channelId, Date.parse(t)).catch(() => {});
 }
 
 // markAllRead clears unread across every channel (Shift+Esc).
 export function markAllRead() {
   const now = new Date().toISOString();
-  for (const g of S.guilds) for (const c of g.channels) lastRead[c.id] = now;
+  const at = Date.parse(now);
+  for (const g of S.guilds)
+    for (const c of g.channels) {
+      lastRead[c.id] = now;
+      api.markRead(c.id, at).catch(() => {});
+    }
   saveJSON("concord.lastRead", lastRead);
   S.unread = {};
 }
@@ -345,6 +355,23 @@ function bumpUnread(channelId, mention) {
   };
 }
 
+// countChannelUnread tallies one channel's unread from its history and the
+// last-read cursor. Returns null for "nothing unread".
+async function countChannelUnread(channelId) {
+  const msgs = (await api.messages(channelId)) || [];
+  const since = lastRead[channelId] ? new Date(lastRead[channelId]) : null;
+  let count = 0;
+  let mentions = 0;
+  for (const m of msgs) {
+    // Match the live counter: only normal messages from others count.
+    if (m.kind !== "" || m.deleted || m.sender === S.identity.fingerprint) continue;
+    if (since && new Date(m.sent) <= since) continue;
+    count++;
+    if (isMentionOfSelf(m)) mentions++;
+  }
+  return count ? { count, mentions } : null;
+}
+
 // Recompute unread counts for every channel from persisted last-read marks —
 // called once after login so a refresh doesn't wipe the badges.
 async function recomputeUnread() {
@@ -353,24 +380,34 @@ async function recomputeUnread() {
     for (const c of g.channels) {
       if (c.id === S.activeChannelId) continue;
       try {
-        const msgs = (await api.messages(c.id)) || [];
-        const since = lastRead[c.id] ? new Date(lastRead[c.id]) : null;
-        let count = 0;
-        let mentions = 0;
-        for (const m of msgs) {
-          // Match the live counter: only normal messages from others count.
-          if (m.kind !== "" || m.deleted || m.sender === S.identity.fingerprint) continue;
-          if (since && new Date(m.sent) <= since) continue;
-          count++;
-          if (isMentionOfSelf(m)) mentions++;
-        }
-        if (count) unread[c.id] = { count, mentions };
+        const u = await countChannelUnread(c.id);
+        if (u) unread[c.id] = u;
       } catch {
         /* channel unreadable right now — skip */
       }
     }
   }
   S.unread = unread;
+}
+
+// syncReadState pulls the backend's account-wide read cursors (which include
+// reads from other sessions and linked devices) and merges them into the
+// local ones — newest wins per channel.
+async function syncReadState() {
+  try {
+    const remote = (await api.readState()) || {};
+    let changed = false;
+    for (const [chId, at] of Object.entries(remote)) {
+      const local = lastRead[chId] ? Date.parse(lastRead[chId]) : 0;
+      if (at > local) {
+        lastRead[chId] = new Date(at).toISOString();
+        changed = true;
+      }
+    }
+    if (changed) saveJSON("concord.lastRead", lastRead);
+  } catch {
+    /* backend without read-state support — local cursors still work */
+  }
 }
 
 function isMentionOfSelf(m) {
@@ -575,6 +612,9 @@ export async function onLogin() {
   await refreshGuilds();
   S.ready = true;
   initEvents();
+  // Adopt reads that happened in other sessions/devices BEFORE counting, so
+  // badges cleared elsewhere stay cleared here.
+  await syncReadState();
   recomputeUnread();
   refreshNetStatus();
   // Slow poll backstops the presence-event refresh (covers bootstrap dials that
@@ -930,6 +970,27 @@ function initEvents() {
   });
 
   on("guild-updated", () => scheduleRefresh({ guilds: true, panel: true }));
+
+  // Another session (a second window) or another linked device advanced a
+  // channel's read cursor: adopt it and re-count that channel's badge, so a
+  // message read anywhere clears (or trims) the badge here immediately.
+  on("read-state", async (r) => {
+    if (!r?.channelId || !r?.at) return;
+    const local = lastRead[r.channelId] ? Date.parse(lastRead[r.channelId]) : 0;
+    if (r.at <= local) return; // we already know a newer read
+    lastRead[r.channelId] = new Date(r.at).toISOString();
+    saveJSON("concord.lastRead", lastRead);
+    if (r.channelId === S.activeChannelId) return; // on-screen: nothing to badge
+    try {
+      const u = await countChannelUnread(r.channelId);
+      const next = { ...S.unread };
+      if (u) next[r.channelId] = u;
+      else delete next[r.channelId];
+      S.unread = next;
+    } catch {
+      /* history unreadable right now — badge stays until the next recount */
+    }
+  });
 
   on("typing", (t) => {
     if (t.channelId !== S.activeChannelId) return;

@@ -39,17 +39,19 @@ var assets embed.FS
 var appIcon []byte
 
 func main() {
+	// Native build: the update check must only ever offer desktop assets.
+	bridge.NativeBuild = true
 	b := bridge.New(context.Background())
 	// trusted=true: the webview is native and unreachable from other origins, so
 	// the /rpc CSRF guard isn't needed (and would reject the wails:// origin).
 	api := httpapi.NewWith(b, true)
 
 	err := wails.Run(&options.App{
-		Title:            "Concord",
-		Width:            1120,
-		Height:           720,
-		MinWidth:         860,
-		MinHeight:        560,
+		Title:     "Concord",
+		Width:     1120,
+		Height:    720,
+		MinWidth:  860,
+		MinHeight: 560,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 			// Serve /rpc and /events ourselves; everything else falls through to
@@ -80,6 +82,7 @@ func main() {
 			b.OnVoiceSignal = func(v bridge.VoiceSignal) { wruntime.EventsEmit(ctx, "voice-signal", v) }
 			b.OnTyping = func(t bridge.TypingInfo) { wruntime.EventsEmit(ctx, "typing", t) }
 			b.OnGuildUpdate = func() { wruntime.EventsEmit(ctx, "guild-updated", nil) }
+			b.OnReadState = func(r bridge.ReadStateView) { wruntime.EventsEmit(ctx, "read-state", r) }
 		},
 		OnShutdown: func(context.Context) { b.Close() },
 	})

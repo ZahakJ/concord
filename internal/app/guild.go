@@ -72,12 +72,16 @@ func (s *Service) CreateGuild(name string) (domain.Guild, error) {
 	return g, nil
 }
 
-// Guilds returns the guilds this peer belongs to.
+// Guilds returns the guilds this peer belongs to. Closed DMs stay tracked
+// underneath (messages still arrive and reopen them) but are not listed.
 func (s *Service) Guilds() []domain.Guild {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]domain.Guild, 0, len(s.guilds))
-	for _, g := range s.guilds {
+	for id, g := range s.guilds {
+		if s.hiddenDMs[id] {
+			continue
+		}
 		out = append(out, *g)
 	}
 	return out
@@ -212,9 +216,54 @@ func (s *Service) SetGuildProfile(guildID, name, icon, banner, description strin
 // gossipsub frame limit (banners are downscaled client-side).
 const maxGuildImageBytes = 512 << 10 // 512 KiB
 
-// LeaveGuild removes a guild from this peer locally: it stops tracking it and
-// deletes its stored data. (A local action — other members keep the guild.)
+// LeaveGuild removes a guild from this peer locally. (A local action — other
+// members keep the guild.) A 1:1 DM (including Notes) is special-cased,
+// Discord-style: "closing" it only hides the conversation — membership,
+// subscriptions, and history stay intact, and it reopens (history and all)
+// when either side messages again. Destroying the group here is what used to
+// strand the other side typing into a conversation we could no longer see.
+// Group DMs and guilds keep the hard behavior: stop tracking, delete local data.
 func (s *Service) LeaveGuild(guildID string) error {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	isDM := ok && g.Kind == "dm"
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	if isDM && !s.isGroupDM(guildID) {
+		s.hideDM(guildID)
+		return nil
+	}
+	return s.deleteGuildLocal(guildID)
+}
+
+// isGroupDM reports whether a DM has (or is gathering, counting pending
+// invitees) more than one other person — accounts, not device leaves.
+func (s *Service) isGroupDM(guildID string) bool {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	people := map[string]bool{}
+	for _, f := range s.dmOtherAccounts(groupID) {
+		people[f] = true
+	}
+	for _, f := range s.PendingDMInvitees(guildID) {
+		people[f] = true
+	}
+	return len(people) > 1
+}
+
+// deleteGuildLocal is the hard removal: stop tracking the guild and delete its
+// stored data (and any DM bookkeeping for it).
+func (s *Service) deleteGuildLocal(guildID string) error {
 	s.mu.Lock()
 	g, ok := s.guilds[guildID]
 	if ok {
@@ -222,11 +271,17 @@ func (s *Service) LeaveGuild(guildID string) error {
 			delete(s.channelToGuild, c.ID)
 		}
 		delete(s.guilds, guildID)
+		delete(s.hiddenDMs, guildID)
+		delete(s.dmPeers, guildID)
 	}
 	s.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
+	s.dmInviteMu.Lock()
+	delete(s.pendingDMInvites, guildID)
+	s.dmInviteMu.Unlock()
+	s.persistDMState()
 	_ = s.store.DeleteGuild(guildID)
 	s.emitGuildUpdate()
 	return nil
@@ -781,12 +836,17 @@ type guildMeta struct {
 	Bio         string             `json:"bio,omitempty"`
 	MailboxPub  []byte             `json:"mbx,omitempty"`
 	Activity    *Activity          `json:"activity,omitempty"` // structured now-playing (rich presence)
+	Games       []string           `json:"games,omitempty"`    // profile: curated game collection
 	CustomEmoji domain.CustomEmoji `json:"customEmoji,omitempty"`
 	GovOp       json.RawMessage    `json:"govOp,omitempty"` // a signed governance op (roles/bans)
 	// guild_profile: icon/banner/description (Name reused from above).
 	GuildIcon        string `json:"gIcon,omitempty"`
 	GuildBanner      string `json:"gBanner,omitempty"`
 	GuildDescription string `json:"gDesc,omitempty"`
+	// read_marker (sent over the Notes self-group only — own devices): the user
+	// read ChannelID through At (UnixMilli) on some device.
+	ChannelID string `json:"channelId,omitempty"`
+	At        int64  `json:"at,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -819,7 +879,7 @@ func (s *Service) announceProfile(guildID string) {
 		Type: "profile", Fingerprint: s.id.Fingerprint(),
 		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
 		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
-		Activity: p.Activity,
+		Activity: p.Activity, Games: p.Games,
 	}
 	payload, _ := json.Marshal(meta)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
@@ -1142,6 +1202,14 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		return
 	}
 	switch m.Type {
+	case "read_marker":
+		// Read markers only ever travel the Notes self-group, and only OUR OWN
+		// account's devices may move our read cursor — a marker authored by
+		// anyone else is dropped (MLS authenticates the sender, so this holds).
+		if accountFingerprintOf(msg.SenderID) == s.id.Fingerprint() && m.ChannelID != "" {
+			s.applyRemoteReadMarker(m.ChannelID, m.At)
+		}
+		return
 	case "channel_added":
 		m.Channel.GuildID = guildID
 		s.addChannel(guildID, m.Channel)
@@ -1223,7 +1291,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	case "profile":
 		// First time we see this member: reply with our own profile so the
 		// newcomer learns us too (bounded — only on genuinely new members).
-		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity}) {
+		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games}) {
 			s.announceProfile(guildID)
 		}
 	case "nickname":
@@ -1308,6 +1376,11 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 		return // duplicate (gossip re-delivery or already synced): stay silent
 	}
 	s.emitMessage(m)
+	// A message landing in a closed DM reopens the conversation (Discord
+	// behavior: closing hides it, new activity surfaces it again).
+	if guildID != "" {
+		s.unhideDM(guildID)
+	}
 }
 
 // adoptBootstrap merges invite-carried rendezvous addrs into the saved network

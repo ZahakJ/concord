@@ -159,6 +159,10 @@ CREATE TABLE IF NOT EXISTS attachments (
   created   INTEGER NOT NULL,
   last_used INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS read_state (
+  channel_id TEXT PRIMARY KEY,
+  at         INTEGER NOT NULL
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -185,6 +189,7 @@ CREATE TABLE IF NOT EXISTS attachments (
 		`ALTER TABLE profiles ADD COLUMN presence TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE profiles ADD COLUMN bio TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE profiles ADD COLUMN banner TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE profiles ADD COLUMN games TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -1015,19 +1020,21 @@ type ProfileRow struct {
 	Banner                                          string
 	Presence, Bio                                   string
 	MailboxPub                                      []byte
+	Games                                           string // JSON array of game names ("" = none)
 }
 
 // SaveProfile upserts a peer's learned profile so display names (and their
 // mailbox key) survive restarts instead of living only in memory.
 func (s *Store) SaveProfile(p ProfileRow) error {
 	_, err := s.db.Exec(
-		`INSERT INTO profiles (fingerprint, name, status, emoji, color, avatar, banner, presence, bio, mailbox_pub, updated)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO profiles (fingerprint, name, status, emoji, color, avatar, banner, presence, bio, mailbox_pub, games, updated)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(fingerprint) DO UPDATE SET
 		   name=excluded.name, status=excluded.status, emoji=excluded.emoji,
 		   color=excluded.color, avatar=excluded.avatar, banner=excluded.banner,
-		   presence=excluded.presence, bio=excluded.bio, mailbox_pub=excluded.mailbox_pub, updated=excluded.updated`,
-		p.Fingerprint, p.Name, p.Status, p.Emoji, p.Color, p.Avatar, p.Banner, p.Presence, p.Bio, p.MailboxPub, time.Now().UnixNano(),
+		   presence=excluded.presence, bio=excluded.bio, mailbox_pub=excluded.mailbox_pub,
+		   games=excluded.games, updated=excluded.updated`,
+		p.Fingerprint, p.Name, p.Status, p.Emoji, p.Color, p.Avatar, p.Banner, p.Presence, p.Bio, p.MailboxPub, p.Games, time.Now().UnixNano(),
 	)
 	if err != nil {
 		return fmt.Errorf("store: save profile: %w", err)
@@ -1037,7 +1044,7 @@ func (s *Store) SaveProfile(p ProfileRow) error {
 
 // Profiles returns every learned peer profile.
 func (s *Store) Profiles() ([]ProfileRow, error) {
-	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar, banner, presence, bio, mailbox_pub FROM profiles`)
+	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar, banner, presence, bio, mailbox_pub, games FROM profiles`)
 	if err != nil {
 		return nil, err
 	}
@@ -1045,10 +1052,48 @@ func (s *Store) Profiles() ([]ProfileRow, error) {
 	var out []ProfileRow
 	for rows.Next() {
 		var p ProfileRow
-		if err := rows.Scan(&p.Fingerprint, &p.Name, &p.Status, &p.Emoji, &p.Color, &p.Avatar, &p.Banner, &p.Presence, &p.Bio, &p.MailboxPub); err != nil {
+		if err := rows.Scan(&p.Fingerprint, &p.Name, &p.Status, &p.Emoji, &p.Color, &p.Avatar, &p.Banner, &p.Presence, &p.Bio, &p.MailboxPub, &p.Games); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// AdvanceReadState records that the user has read a channel through at
+// (UnixMilli), keeping the newest value seen. Reports whether the stored
+// cursor actually advanced (false = we already knew a newer read time, e.g.
+// a stale marker from another device arriving late).
+func (s *Store) AdvanceReadState(channelID string, at int64) (bool, error) {
+	res, err := s.db.Exec(
+		`INSERT INTO read_state (channel_id, at) VALUES (?, ?)
+		 ON CONFLICT(channel_id) DO UPDATE SET at=excluded.at WHERE excluded.at > read_state.at`,
+		channelID, at)
+	if err != nil {
+		return false, fmt.Errorf("store: advance read state: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// ReadState returns every channel's read-through time (UnixMilli).
+func (s *Store) ReadState() (map[string]int64, error) {
+	rows, err := s.db.Query(`SELECT channel_id, at FROM read_state`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var id string
+		var at int64
+		if err := rows.Scan(&id, &at); err != nil {
+			return nil, err
+		}
+		out[id] = at
 	}
 	return out, rows.Err()
 }
