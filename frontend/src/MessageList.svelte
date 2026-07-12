@@ -17,6 +17,7 @@
     nameFor,
     nameColorFor,
     flash,
+    markRead,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
@@ -267,7 +268,18 @@
       <div class="day-divider"><span>{fmtDay(row.day)}</span></div>
     {/if}
     {#if row.m.id === newLineId}
-      <div class="new-divider"><span>NEW</span></div>
+      <div class="new-divider">
+        <span>NEW</span>
+        <button
+          class="mark-read"
+          onclick={() => {
+            markRead(S.activeChannelId);
+            S.readAnchor = "";
+          }}
+        >
+          Mark as read <Icon name="check" size={11} />
+        </button>
+      </div>
     {/if}
     {#if row.m.kind === "system" && isDMView}
       <!-- DMs skip join/create notices — noise in a 1:1 -->
@@ -302,13 +314,29 @@
       />
     {/if}
   {:else}
-    <div class="empty">
-      <div class="empty-badge">
-        <Icon name={emptyInfo.icon} size={28} />
+    {#if S.feedLoading}
+      <!-- Channel switch in flight: shimmer rows instead of a misleading
+           "start of channel" welcome (or the old channel's messages). -->
+      <div class="feed-skeleton" aria-hidden="true">
+        {#each [72, 46, 88, 58, 34] as w, i (i)}
+          <div class="sk-row">
+            <span class="sk-av"></span>
+            <span class="sk-lines">
+              <span class="sk-line" style="width:{w + 40}px"></span>
+              <span class="sk-line body" style="width:{w * 3}px"></span>
+            </span>
+          </div>
+        {/each}
       </div>
-      <h3>{emptyInfo.title}</h3>
-      <p class="muted">{emptyInfo.body}</p>
-    </div>
+    {:else}
+      <div class="empty">
+        <div class="empty-badge">
+          <Icon name={emptyInfo.icon} size={28} />
+        </div>
+        <h3>{emptyInfo.title}</h3>
+        <p class="muted">{emptyInfo.body}</p>
+      </div>
+    {/if}
   {/each}
 
   {#if S.newBelow}
@@ -601,6 +629,87 @@
     border-radius: 999px;
     /* one gentle pulse when the divider appears, then settle */
     animation: new-pulse 1.5s ease-out 0.35s 1;
+  }
+  /* Flex-order the pseudo lines so "Mark as read" sits at the far right:
+     [line][NEW][line————————][mark as read] */
+  .new-divider::before {
+    order: 0;
+  }
+  .new-divider span {
+    order: 1;
+  }
+  .new-divider::after {
+    order: 2;
+  }
+  .new-divider .mark-read {
+    order: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    border: none;
+    background: transparent;
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 1px 5px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .new-divider .mark-read:hover {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  /* Loading shimmer while a channel switch fetches history. */
+  .feed-skeleton {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    padding: 18px 4px;
+  }
+  .sk-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .sk-av {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    flex: none;
+  }
+  .sk-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding-top: 3px;
+  }
+  .sk-line {
+    height: 10px;
+    border-radius: 5px;
+  }
+  .sk-line.body {
+    height: 12px;
+  }
+  .sk-av,
+  .sk-line {
+    background: linear-gradient(90deg, var(--bg-2) 25%, var(--bg-3) 45%, var(--bg-2) 65%);
+    background-size: 220% 100%;
+    animation: sk-shimmer 1.3s ease infinite;
+  }
+  @keyframes sk-shimmer {
+    from {
+      background-position: 120% 0;
+    }
+    to {
+      background-position: -120% 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sk-av,
+    .sk-line {
+      animation: none;
+    }
   }
   @keyframes new-pulse {
     0% {

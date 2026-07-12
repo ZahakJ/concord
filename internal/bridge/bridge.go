@@ -109,7 +109,7 @@ type IdentityInfo struct {
 	Presence    string           `json:"presence"`
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
-	Games       []string         `json:"games,omitempty"`    // curated game collection
+	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
 }
 
 type ChannelView struct {
@@ -202,7 +202,7 @@ type MemberView struct {
 	Presence    string           `json:"presence"` // "" | online | idle | dnd | invisible
 	Bio         string           `json:"bio"`
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
-	Games       []string         `json:"games,omitempty"`    // curated game collection
+	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
 	IsSelf      bool             `json:"isSelf"`
 	Online      bool             `json:"online"`
 	Verified    bool             `json:"verified"`
@@ -629,12 +629,22 @@ func (b *Bridge) Identity() (IdentityInfo, error) {
 }
 
 // SetGames replaces this peer's game collection (profile card section).
-func (b *Bridge) SetGames(games []string) error {
+func (b *Bridge) SetGames(games []appsvc.Game) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
 	return svc.SetGames(games)
+}
+
+// SearchGames suggests real games (name + box art) for the collection
+// editor's autocomplete. Best-effort; empty on network trouble.
+func (b *Bridge) SearchGames(query string) ([]appsvc.GameSearchResult, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.SearchGames(query), nil
 }
 
 // SetProfile updates this peer's profile (incl. avatar + banner images) and
@@ -1441,7 +1451,13 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "AppVersion":
 		return b.AppVersion(), nil
 	case "SetGames":
-		return nil, b.SetGames(argStrs(args, 0))
+		var games []appsvc.Game
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &games)
+		}
+		return nil, b.SetGames(games)
+	case "SearchGames":
+		return b.SearchGames(argStr(args, 0))
 	case "NetworkStatus":
 		return b.NetworkStatus(), nil
 	case "Nudge":

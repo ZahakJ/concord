@@ -43,6 +43,9 @@ export const S = $state({
   // null until the first fetch (login).
   netStatus: null,
 
+  // feedLoading: a channel switch is fetching history (drives the skeleton —
+  // without it the OLD channel's rows linger under the new header).
+  feedLoading: false,
   // unread[channelId] = { count, mentions } — counts survive refresh via the
   // localStorage last-read map (recomputed on load).
   unread: {},
@@ -373,21 +376,24 @@ async function countChannelUnread(channelId) {
 }
 
 // Recompute unread counts for every channel from persisted last-read marks —
-// called once after login so a refresh doesn't wipe the badges.
+// called once after login so a refresh doesn't wipe the badges. Applied
+// per-channel as each count lands (never a wholesale S.unread swap at the
+// end): live bumps arriving during the awaits must not be clobbered.
 async function recomputeUnread() {
-  const unread = {};
   for (const g of S.guilds) {
     for (const c of g.channels) {
       if (c.id === S.activeChannelId) continue;
       try {
         const u = await countChannelUnread(c.id);
-        if (u) unread[c.id] = u;
+        const next = { ...S.unread };
+        if (u) next[c.id] = u;
+        else delete next[c.id];
+        S.unread = next;
       } catch {
         /* channel unreadable right now — skip */
       }
     }
   }
-  S.unread = unread;
 }
 
 // syncReadState pulls the backend's account-wide read cursors (which include
@@ -727,23 +733,49 @@ export async function selectChannel(id) {
   S.replyingTo = null;
   S.editing = null;
   S.showPins = false;
+  // Clear the outgoing channel's rows right away — they must not linger under
+  // the new channel's header while history loads.
+  S.messages = [];
+  S.feedLoading = true;
   let msgs;
   try {
     msgs = (await api.messages(id)) || [];
   } catch (err) {
-    if (S.activeChannelId === id) flash(err);
+    if (S.activeChannelId === id) {
+      S.feedLoading = false;
+      flash(err);
+    }
     return;
   }
   // Guard against a stale fetch: if the user switched channels while this was in
   // flight, don't overwrite the now-active channel's messages/read-cursor.
   if (S.activeChannelId !== id) return;
   S.messages = msgs;
+  S.feedLoading = false;
   // Advance the read mark past the newest message actually loaded, so a peer's
   // clock-skewed (future-dated) message we've now seen can't keep the badge lit.
   let newest = "";
   for (const m of S.messages) if (m.sent > newest) newest = m.sent;
   if (newest) markRead(id, newest);
-  scrollSoon();
+  // Land on the "NEW" divider when there's unread history (Discord behavior),
+  // instead of dumping the reader at the bottom past everything they missed.
+  const hasUnread =
+    S.readAnchor &&
+    msgs.some((m) => m.kind === "" && m.sender !== S.identity.fingerprint && m.sent > S.readAnchor);
+  if (hasUnread) scrollToNewDivider();
+  else scrollSoon();
+}
+
+// scrollToNewDivider places the unread divider comfortably in view (falling
+// back to the bottom if it isn't rendered for any reason).
+function scrollToNewDivider() {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const el = feedEl?.querySelector(".new-divider");
+      if (el) el.scrollIntoView({ block: "center" });
+      else if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+    });
+  });
 }
 
 export async function refreshRightPanel() {

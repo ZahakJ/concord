@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/zahak/concord/internal/domain"
 )
@@ -64,10 +65,36 @@ func (s *Service) applyRemoteReadMarker(channelID string, at int64) {
 	s.emitReadState(channelID, at)
 }
 
-// broadcastReadMarker publishes a read marker to the Notes self-group so the
-// account's other devices converge. No Notes group (or a channel we don't
-// track) simply means nothing to sync to — single-device accounts pay nothing.
+// broadcastReadMarker queues a read marker for the account's other devices.
+// Markers coalesce for a short beat so a burst (opening a channel, Shift+Esc
+// mark-all-read) travels as ONE encrypted publish instead of dozens.
 func (s *Service) broadcastReadMarker(channelID string, at int64) {
+	s.readMarkMu.Lock()
+	if s.pendingReadMark == nil {
+		s.pendingReadMark = map[string]int64{}
+	}
+	if at > s.pendingReadMark[channelID] {
+		s.pendingReadMark[channelID] = at
+	}
+	if s.readMarkTimer == nil {
+		s.readMarkTimer = time.AfterFunc(1200*time.Millisecond, s.flushReadMarkers)
+	}
+	s.readMarkMu.Unlock()
+}
+
+// flushReadMarkers publishes the queued markers to the Notes self-group. No
+// Notes group (or nothing queued) simply means nothing to sync to —
+// single-device accounts pay nothing.
+func (s *Service) flushReadMarkers() {
+	s.readMarkMu.Lock()
+	markers := s.pendingReadMark
+	s.pendingReadMark = nil
+	s.readMarkTimer = nil
+	s.readMarkMu.Unlock()
+	if len(markers) == 0 {
+		return
+	}
+
 	s.mu.RLock()
 	var notes *domain.Guild
 	for _, g := range s.guilds {
@@ -80,7 +107,7 @@ func (s *Service) broadcastReadMarker(channelID string, at int64) {
 	if notes == nil {
 		return
 	}
-	payload, _ := json.Marshal(guildMeta{Type: "read_marker", ChannelID: channelID, At: at})
+	payload, _ := json.Marshal(guildMeta{Type: "read_marker", Markers: markers})
 	if ct, err := s.mls.Encrypt(s.ctx, notes.GroupID, payload); err == nil {
 		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(notes.GroupID), ct)
 	}

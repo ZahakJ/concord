@@ -9,9 +9,15 @@
 # upload` afterward.
 name: release
 
+# MANUAL ONLY (workflow_dispatch). Tag pushes deliberately do NOT trigger this
+# any more: on a private repo the macOS jobs (native + mobile-ios) bill at a
+# 10x minute multiplier, so every `git push origin vX.Y.Z` quietly burned
+# hundreds of billed minutes. The normal release path is now LOCAL:
+# scripts/publish-release.sh builds the web binaries (and whatever native
+# artifacts this machine can produce) and uploads them to the dist repo with
+# `gh` — zero Actions compute. Run this workflow by hand only when you
+# specifically want CI-built per-OS desktop apps and have billing headroom.
 on:
-  push:
-    tags: ["v*"]
   workflow_dispatch:
 
 # The publish job needs write access to create/update the Release.

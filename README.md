@@ -619,21 +619,21 @@ Then create a guild → **Invite** → send your friend (a) the release link and
 
 ### Cutting a release
 
-**Releases are tag-driven and fully automated — do not upload assets by hand.**
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds both tracks
-and publishes them to **this private repo** — and *also* to the **public
-distribution repo** `ZahakJ/concord-dist` once that's wired up (see setup below).
-The app polls the dist repo's releases unauthenticated for update checks, so the
-source can stay private. Until `DIST_REPO_TOKEN` is added, the dist publish is
-simply skipped and the release still lands here:
+**Releases are built LOCALLY and uploaded with `gh` — zero GitHub Actions
+compute.** (CI-built releases used to burn paid macOS runner minutes at a 10×
+multiplier on this private repo; the `release` workflow is now
+`workflow_dispatch`-only for the rare case you want CI-built Windows/macOS
+desktop apps and have billing headroom.)
 
 ```sh
-git tag v0.5.0          # bump the version (semver vX.Y.Z; drives the update check)
-git push main v0.5.0    # ⇒ builds + publishes to concord-dist automatically
-gh run watch            # follow the build
+git tag v0.9.0 && git push origin main v0.9.0   # version the source
+scripts/publish-release.sh v0.9.0 notes.md      # build + publish to concord-dist
 ```
 
-(This repo's remote is named `main`, not `origin`.)
+The script cross-compiles the web binaries for every OS, builds the native
+Linux desktop app when webkit2gtk is installed, generates `SHA256SUMS`, and
+creates the Release on the public dist repo. The app polls the dist repo's
+releases unauthenticated for update checks, so the source stays private.
 
 The dist-repo Release ends up with, with **no manual `gh release upload` step**:
 

@@ -1,19 +1,21 @@
 <script>
   // In-app replacement for window.confirm(): consistent styling, keyboard
-  // accessible (Esc cancels, the confirm button is focused on open).
+  // accessible. CANCEL is focused on open — a stray Enter right after the
+  // dialog appears must never fire the destructive action; Tab (or a click)
+  // reaches the confirm button deliberately.
   import Modal from "./Modal.svelte";
 
   let { title = "Are you sure?", body = "", confirmLabel = "Confirm", danger = true, onConfirm, onClose } = $props();
 
-  let btn;
-  $effect(() => btn?.focus());
+  let cancelBtn;
+  $effect(() => cancelBtn?.focus());
 </script>
 
 <Modal {title} {onClose}>
   <p>{body}</p>
   <div class="actions">
-    <button class="ghost" onclick={onClose}>Cancel</button>
-    <button bind:this={btn} class:danger onclick={onConfirm}>{confirmLabel}</button>
+    <button bind:this={cancelBtn} class="ghost" onclick={onClose}>Cancel</button>
+    <button class:danger onclick={onConfirm}>{confirmLabel}</button>
   </div>
 </Modal>
 
@@ -26,8 +28,7 @@
   }
   button.danger {
     background: var(--danger);
-    /* It's auto-focused — a soft halo makes the armed destructive action
-       unmistakable before any key is pressed. */
+    /* A soft halo keeps the destructive choice unmistakable. */
     box-shadow: 0 0 12px color-mix(in srgb, var(--danger) 35%, transparent);
     transition: background 0.15s ease;
   }

@@ -846,6 +846,11 @@
       box-shadow: 0 0 0 12px transparent;
     }
   }
+  @media (prefers-reduced-motion: reduce) {
+    .ring-pulse {
+      animation: none;
+    }
+  }
   .ring-info {
     display: flex;
     flex-direction: column;

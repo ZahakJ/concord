@@ -41,6 +41,15 @@
       .map((w) => w[0])
       .join("")
       .slice(0, 2);
+
+  // Icon-less guilds get a stable per-guild tint (hash of the id) so several
+  // of them don't collapse into identical grey circles.
+  function guildTint(id) {
+    let h = 0;
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+    const hue = h % 360;
+    return `background:linear-gradient(135deg, hsl(${hue} 42% 34%), hsl(${(hue + 45) % 360} 48% 25%));color:#fff`;
+  }
 </script>
 
 <nav class="rail" aria-label="Servers">
@@ -99,7 +108,7 @@
         {#if sv.icon}
           <img class="icon" src={sv.icon} alt="" />
         {:else}
-          <span class="face">{initials(sv.name)}</span>
+          <span class="face" style={guildTint(sv.id)}>{initials(sv.name)}</span>
         {/if}
       </button>
       {#if sv.id !== S.activeGuildId && u.count > 0}
@@ -384,5 +393,13 @@
     .bubble-wrap::before {
       left: -8px;
     }
+  }
+  .face {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    border-radius: inherit;
+    font-weight: 700;
   }
 </style>

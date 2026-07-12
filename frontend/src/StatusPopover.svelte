@@ -4,6 +4,7 @@
   // anchor (below when there's no room), clamped to the viewport. Every change
   // applies via api.setProfile while preserving the rest of the profile.
   import Icon from "./Icon.svelte";
+  import GameShelf from "./GameShelf.svelte";
   import { S, flash, refreshRightPanel } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PRESENCE_OPTIONS, splitStatus, joinStatus } from "./lib/presence.js";
@@ -76,6 +77,14 @@
     statusEmoji = "";
     statusText = "";
     await save({ status: "" });
+  }
+
+  // Game collection: editable right from your own card (same shelf as the
+  // profile popover). Saving re-announces the profile to every guild.
+  async function saveGames(next) {
+    await api.setGames(next);
+    S.identity = await api.identity();
+    await refreshRightPanel();
   }
 
   // Measure then place (see ProfilePopover): above the anchor if it fits,
@@ -159,6 +168,9 @@
       <Icon name="close" size={12} /> Clear status
     </button>
   {/if}
+
+  <div class="divider"></div>
+  <GameShelf games={S.identity.games || []} editable={true} onchange={saveGames} />
 </div>
 
 <style>
@@ -368,7 +380,7 @@
     width: auto;
     z-index: 401; /* above its scrim */
     border: none;
-    border-radius: 16px 16px 0 0;
+    border-radius: 18px 18px 0 0;
     padding: 14px 14px calc(16px + env(safe-area-inset-bottom));
     animation: sheet-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
   }

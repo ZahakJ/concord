@@ -1135,6 +1135,11 @@
       opacity: 0.3;
     }
   }
+  @media (prefers-reduced-motion: reduce) {
+    .vb-live {
+      animation: none;
+    }
+  }
   .vb-text {
     display: flex;
     flex-direction: column;

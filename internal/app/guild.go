@@ -232,6 +232,9 @@ func (s *Service) LeaveGuild(guildID string) error {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
 	if isDM && !s.isGroupDM(guildID) {
+		// 1:1 (or membership unresolvable — hiding is the safe default: it never
+		// destroys history, and a mistaken hide of a group merely resurfaces it
+		// on the next message).
 		s.hideDM(guildID)
 		return nil
 	}
@@ -239,7 +242,9 @@ func (s *Service) LeaveGuild(guildID string) error {
 }
 
 // isGroupDM reports whether a DM has (or is gathering, counting pending
-// invitees) more than one other person — accounts, not device leaves.
+// invitees) more than one other person — accounts, not device leaves. When
+// membership can't be resolved it answers false, which steers LeaveGuild to
+// the non-destructive hide path.
 func (s *Service) isGroupDM(guildID string) bool {
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
@@ -251,8 +256,12 @@ func (s *Service) isGroupDM(guildID string) bool {
 	if !ok {
 		return false
 	}
+	others, resolved := s.dmOtherAccounts(groupID)
+	if !resolved {
+		return false
+	}
 	people := map[string]bool{}
-	for _, f := range s.dmOtherAccounts(groupID) {
+	for _, f := range others {
 		people[f] = true
 	}
 	for _, f := range s.PendingDMInvitees(guildID) {
@@ -266,15 +275,18 @@ func (s *Service) isGroupDM(guildID string) bool {
 func (s *Service) deleteGuildLocal(guildID string) error {
 	s.mu.Lock()
 	g, ok := s.guilds[guildID]
+	var chIDs []string
 	if ok {
 		for _, c := range g.Channels {
 			delete(s.channelToGuild, c.ID)
+			chIDs = append(chIDs, c.ID)
 		}
 		delete(s.guilds, guildID)
 		delete(s.hiddenDMs, guildID)
 		delete(s.dmPeers, guildID)
 	}
 	s.mu.Unlock()
+	_ = s.store.DeleteReadState(chIDs)
 	if !ok {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
@@ -836,7 +848,7 @@ type guildMeta struct {
 	Bio         string             `json:"bio,omitempty"`
 	MailboxPub  []byte             `json:"mbx,omitempty"`
 	Activity    *Activity          `json:"activity,omitempty"` // structured now-playing (rich presence)
-	Games       []string           `json:"games,omitempty"`    // profile: curated game collection
+	Games       []Game             `json:"games,omitempty"`    // profile: curated game collection
 	CustomEmoji domain.CustomEmoji `json:"customEmoji,omitempty"`
 	GovOp       json.RawMessage    `json:"govOp,omitempty"` // a signed governance op (roles/bans)
 	// guild_profile: icon/banner/description (Name reused from above).
@@ -844,9 +856,11 @@ type guildMeta struct {
 	GuildBanner      string `json:"gBanner,omitempty"`
 	GuildDescription string `json:"gDesc,omitempty"`
 	// read_marker (sent over the Notes self-group only — own devices): the user
-	// read ChannelID through At (UnixMilli) on some device.
-	ChannelID string `json:"channelId,omitempty"`
-	At        int64  `json:"at,omitempty"`
+	// read these channels through the given times (UnixMilli) on some device.
+	// ChannelID/At is the single-marker form; Markers carries a coalesced batch.
+	ChannelID string           `json:"channelId,omitempty"`
+	At        int64            `json:"at,omitempty"`
+	Markers   map[string]int64 `json:"markers,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -1028,6 +1042,7 @@ func (s *Service) applyChannelRemoved(guildID, channelID string) {
 	}
 	s.mu.Unlock()
 	_ = s.store.DeleteChannel(channelID)
+	_ = s.store.DeleteReadState([]string{channelID})
 	s.emitGuildUpdate()
 }
 
@@ -1206,8 +1221,16 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// Read markers only ever travel the Notes self-group, and only OUR OWN
 		// account's devices may move our read cursor — a marker authored by
 		// anyone else is dropped (MLS authenticates the sender, so this holds).
-		if accountFingerprintOf(msg.SenderID) == s.id.Fingerprint() && m.ChannelID != "" {
+		if accountFingerprintOf(msg.SenderID) != s.id.Fingerprint() {
+			return
+		}
+		if m.ChannelID != "" {
 			s.applyRemoteReadMarker(m.ChannelID, m.At)
+		}
+		for ch, at := range m.Markers {
+			if ch != "" {
+				s.applyRemoteReadMarker(ch, at)
+			}
 		}
 		return
 	case "channel_added":

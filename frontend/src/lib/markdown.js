@@ -33,6 +33,16 @@ export function emojiOnly(text) {
   return count > 0 && count <= 27;
 }
 
+// twemojiCode maps an emoji sequence to its Twemoji asset filename: hex
+// codepoints joined by '-'. FE0F variation selectors are dropped unless the
+// sequence contains a ZWJ (Twemoji's own grabTheRightIcon convention).
+export function twemojiCode(seq) {
+  const raw = seq.indexOf("\u200D") < 0 ? seq.replace(/\uFE0F/g, "") : seq;
+  const out = [];
+  for (const ch of raw) out.push(ch.codePointAt(0).toString(16));
+  return out.join("-");
+}
+
 // Inline rules applied to already-escaped text (code spans are cut out first
 // so *bold* inside backticks stays literal).
 function renderInline(s, mentionNames, customEmoji) {
@@ -42,10 +52,17 @@ function renderInline(s, mentionNames, customEmoji) {
     return `\x00${codeSpans.length - 1}\x00`;
   });
 
-  // Wrap unicode emoji so CSS can size them nicely (larger than text, like
-  // Discord). Done on escaped plain text before any of our tags are inserted,
-  // so the wrap can never land inside an attribute or tag we add later.
-  s = s.replace(EMOJI_RE, '<span class="emoji">$&</span>');
+  // Unicode emoji render as bundled Twemoji images — uniform squares on every
+  // OS, exactly like Discord — instead of native font glyphs (whose size and
+  // baseline wobble per platform). Done on escaped plain text before any of
+  // our tags are inserted, so the swap can never land inside an attribute or
+  // tag we add later. An emoji newer than the bundled set falls back to the
+  // raw glyph via onerror.
+  s = s.replace(
+    EMOJI_RE,
+    (m) =>
+      `<img class="emoji" draggable="false" src="/twemoji/${twemojiCode(m)}.svg" alt="${m}" onerror="this.replaceWith(this.alt)" />`,
+  );
 
   // Custom guild emoji: :name: -> <img>. The image is a backend-validated
   // base64 data:image URI, but we still escape it here (defense in depth) so a

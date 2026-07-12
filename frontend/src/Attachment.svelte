@@ -49,6 +49,7 @@
   let ty = $state(0);
   let dragging = $state(false);
   let overlayEl; // for backdrop-click detection and pointer math
+  let imgEl; // for pan clamping (fitted size × zoom = rendered size)
 
   function openLightbox() {
     zoom = 1;
@@ -89,6 +90,18 @@
       tx = 0;
       ty = 0;
     }
+    clampPan();
+  }
+
+  // clampPan keeps the image on screen: edges never pan past the viewport
+  // center-ish, so a wild drag can't strand you on an all-black overlay.
+  function clampPan() {
+    if (!imgEl || !overlayEl) return;
+    const r = overlayEl.getBoundingClientRect();
+    const maxX = Math.max(0, (imgEl.offsetWidth * zoom - r.width) / 2) + r.width * 0.25;
+    const maxY = Math.max(0, (imgEl.offsetHeight * zoom - r.height) / 2) + r.height * 0.25;
+    tx = Math.max(-maxX, Math.min(maxX, tx));
+    ty = Math.max(-maxY, Math.min(maxY, ty));
   }
 
   function onWheel(e) {
@@ -141,6 +154,7 @@
       dragging = true;
       tx += dx;
       ty += dy;
+      clampPan();
     }
   }
 
@@ -186,6 +200,7 @@
       <img
         {src}
         alt="attachment full size"
+        bind:this={imgEl}
         class:zoomed={zoom > 1}
         class:dragging
         style="transform: translate({tx}px, {ty}px) scale({zoom})"

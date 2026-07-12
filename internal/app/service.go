@@ -92,6 +92,12 @@ type Service struct {
 	onGuildUpdate []func()
 	onReadState   []func(channelID string, at int64)
 
+	// Read markers awaiting broadcast to our own devices. Coalesced (see
+	// broadcastReadMarker) so a mark-all-read burst becomes ONE publish.
+	readMarkMu      sync.Mutex
+	pendingReadMark map[string]int64
+	readMarkTimer   *time.Timer
+
 	profiles map[string]Profile // fingerprint -> profile, learned from peers
 
 	// nicks holds per-guild display-name overrides: guildID -> fingerprint ->
@@ -167,32 +173,65 @@ type Profile struct {
 	// ignore it and fall back to the 🎵 status string.
 	Activity *Activity `json:"activity,omitempty"`
 	// Games is the member's curated game collection (Discord-style), shown on
-	// the profile card. Just names — art is generated client-side, keeping
-	// profile broadcasts tiny. Bounded by maxGames/maxGameNameBytes.
-	Games []string `json:"games,omitempty"`
+	// the profile card. A name plus an optional cover URL (validated against
+	// the Steam CDN allowlist) — art stays a URL, keeping broadcasts tiny.
+	Games []Game `json:"games,omitempty"`
 }
 
-// maxGames caps the game collection; maxGameNameBytes bounds each entry.
+// Game is one entry in a member's game collection.
+type Game struct {
+	Name  string `json:"name"`
+	Cover string `json:"cover,omitempty"` // https box-art URL (Steam CDN only)
+}
+
+// maxGames caps the game collection; maxGameNameBytes bounds each entry's
+// name; maxGameCoverBytes bounds the cover URL.
 const (
-	maxGames         = 12
-	maxGameNameBytes = 64
+	maxGames          = 12
+	maxGameNameBytes  = 64
+	maxGameCoverBytes = 300
 )
 
+// validGameCover admits only https images on Steam's CDNs. This is a security
+// gate, not pedantry: covers arrive in PEERS' profile broadcasts and render as
+// <img> for everyone, so without an allowlist a peer could plant a tracking
+// URL that leaks every viewer's IP to a host they control.
+func validGameCover(u string) bool {
+	if u == "" || len(u) > maxGameCoverBytes {
+		return false
+	}
+	for _, prefix := range []string{
+		"https://cdn.cloudflare.steamstatic.com/",
+		"https://cdn.akamai.steamstatic.com/",
+		"https://shared.cloudflare.steamstatic.com/",
+		"https://shared.akamai.steamstatic.com/",
+		"https://store.steampowered.com/",
+	} {
+		if strings.HasPrefix(u, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // sanitizeGames normalizes a game collection: trimmed, non-empty, deduped
-// (case-insensitively), each name bounded, at most maxGames entries. Applied
-// to our own edits and to peers' broadcasts alike.
-func sanitizeGames(games []string) []string {
+// (case-insensitively), names bounded, covers allowlisted, at most maxGames
+// entries. Applied to our own edits and to peers' broadcasts alike.
+func sanitizeGames(games []Game) []Game {
 	seen := map[string]bool{}
-	var out []string
+	var out []Game
 	for _, g := range games {
-		g = strings.TrimSpace(g)
-		if g == "" {
+		g.Name = strings.TrimSpace(g.Name)
+		if g.Name == "" {
 			continue
 		}
-		if len(g) > maxGameNameBytes {
-			g = g[:maxGameNameBytes]
+		if len(g.Name) > maxGameNameBytes {
+			g.Name = g.Name[:maxGameNameBytes]
 		}
-		key := strings.ToLower(g)
+		if !validGameCover(g.Cover) {
+			g.Cover = ""
+		}
+		key := strings.ToLower(g.Name)
 		if seen[key] {
 			continue
 		}
@@ -203,6 +242,26 @@ func sanitizeGames(games []string) []string {
 		}
 	}
 	return out
+}
+
+// decodeGames parses a persisted game list. It tolerates the pre-cover format
+// (a bare JSON array of name strings) so nothing is lost across the upgrade.
+func decodeGames(raw string) []Game {
+	if raw == "" {
+		return nil
+	}
+	var games []Game
+	if json.Unmarshal([]byte(raw), &games) == nil && len(games) > 0 && games[0].Name != "" {
+		return games
+	}
+	var names []string
+	if json.Unmarshal([]byte(raw), &names) == nil {
+		for _, n := range names {
+			games = append(games, Game{Name: n})
+		}
+		return games
+	}
+	return nil
 }
 
 // maxAvatarBytes caps the avatar data URI so profile broadcasts stay far below
@@ -342,11 +401,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// of fingerprint-only names right after unlock).
 	if rows, err := st.Profiles(); err == nil {
 		for _, r := range rows {
-			var games []string
-			if r.Games != "" {
-				_ = json.Unmarshal([]byte(r.Games), &games)
-			}
-			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub, Games: games}
+			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub, Games: decodeGames(r.Games)}
 		}
 	}
 
@@ -620,20 +675,17 @@ func (s *Service) SelfProfile() Profile {
 		act = s.activityInfo
 	}
 	s.activityMu.Unlock()
-	var games []string
-	if raw, _ := s.store.GetSetting("games"); raw != "" {
-		_ = json.Unmarshal([]byte(raw), &games)
-	}
+	rawGames, _ := s.store.GetSetting("games")
 	return Profile{
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:], Activity: act,
-		Games: games,
+		Games: decodeGames(rawGames),
 	}
 }
 
 // SetGames replaces this peer's game collection and re-announces the profile
 // to every guild so members' profile cards update.
-func (s *Service) SetGames(games []string) error {
+func (s *Service) SetGames(games []Game) error {
 	raw, err := json.Marshal(sanitizeGames(games))
 	if err != nil {
 		return err
@@ -785,7 +837,7 @@ func profilesEqual(a, b Profile) bool {
 		gamesEqual(a.Games, b.Games)
 }
 
-func gamesEqual(a, b []string) bool {
+func gamesEqual(a, b []Game) bool {
 	if len(a) != len(b) {
 		return false
 	}

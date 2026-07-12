@@ -60,9 +60,9 @@ assert(out.includes("<ul><li>a</li><li>b</li></ul><ol><li>c</li></ol>"), `lists:
 assert(renderMarkdown("> quoted").includes("<blockquote>quoted</blockquote>"), "quote");
 // Forwarded messages render as an attribution blockquote followed by the body.
 let fwd = renderMarkdown("> ↪ Forwarded from axioms #general\nthe *point* stands");
-// The ↪ arrow is an emoji, so it's wrapped for sizing (emoji-wrapping feature).
+// The ↪ arrow is an emoji, so it renders as a Twemoji image (uniform sizing).
 assert(
-  fwd.includes('<blockquote><span class="emoji">↪</span> Forwarded from axioms #general</blockquote>'),
+  fwd.includes('<blockquote><img class="emoji" draggable="false" src="/twemoji/21aa.svg" alt="\u21aa" onerror="this.replaceWith(this.alt)" /> Forwarded from axioms #general</blockquote>'),
   `forward attribution: ${fwd}`,
 );
 assert(fwd.includes("<em>point</em>"), `forward body renders markdown: ${fwd}`);

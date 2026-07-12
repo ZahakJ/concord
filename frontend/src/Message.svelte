@@ -246,7 +246,7 @@
   use:longpress={{ handler: messageMenu }}
 >
   {#if compact}
-    <span class="gutter-time muted">{fmtTime(m.sent)}</span>
+    <span class="gutter-time muted" title={new Date(m.sent).toLocaleString()}>{fmtTime(m.sent)}</span>
   {:else}
     <button
       class="av-btn"
@@ -298,7 +298,7 @@
             ? "Identity verified"
             : "Sender fingerprint — not verified"}>{m.sender.slice(0, 9)}</span
         >
-        <span class="muted time">{fmtTime(m.sent)}</span>
+        <span class="muted time" title={new Date(m.sent).toLocaleString()}>{fmtTime(m.sent)}</span>
         {#if m.pinned}<span class="pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
       </div>
     {:else if m.pinned}
@@ -955,16 +955,15 @@
       transform: translateY(4px);
     }
   }
-  /* Inline unicode emoji: a touch larger than text, sitting ON the text
-     baseline (Discord-style). The glyph is text, so it already carries its own
-     baseline — only a hair of offset is needed to optically center it; the old
-     -0.25em (at the ENLARGED font size, so ~-0.34em of body text) sank emoji
-     visibly below the line. line-height 1 keeps the bigger glyph from
-     inflating the row height. */
-  .body :global(.emoji) {
-    font-size: 1.375em;
-    line-height: 1;
-    vertical-align: -0.08em;
+  /* Inline unicode emoji: bundled Twemoji images at Discord's exact sizing —
+     uniform 1.375em squares hanging slightly below the baseline, identical on
+     every platform (native font glyphs wobble in size and baseline per OS). */
+  .body :global(img.emoji) {
+    width: 1.375em;
+    height: 1.375em;
+    vertical-align: -0.3em;
+    margin: 0 0.5px;
+    object-fit: contain;
   }
   .body :global(img.cemoji) {
     height: 1.375em;
@@ -974,9 +973,11 @@
     object-fit: contain;
   }
   /* Emoji-only messages render jumbo, like Discord. */
-  .body.jumbo :global(.emoji) {
-    font-size: 2.6em;
-    vertical-align: -0.06em;
+  .body.jumbo :global(img.emoji) {
+    width: 3em;
+    height: 3em;
+    vertical-align: bottom;
+    margin: 0 1.5px;
   }
   .body.jumbo :global(img.cemoji) {
     height: 2.6em;

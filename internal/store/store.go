@@ -1079,6 +1079,17 @@ func (s *Store) AdvanceReadState(channelID string, at int64) (bool, error) {
 	return n > 0, nil
 }
 
+// DeleteReadState drops the read cursors for channels that no longer exist
+// (guild left, channel removed), so the table doesn't accumulate orphans.
+func (s *Store) DeleteReadState(channelIDs []string) error {
+	for _, id := range channelIDs {
+		if _, err := s.db.Exec(`DELETE FROM read_state WHERE channel_id = ?`, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ReadState returns every channel's read-through time (UnixMilli).
 func (s *Store) ReadState() (map[string]int64, error) {
 	rows, err := s.db.Query(`SELECT channel_id, at FROM read_state`)

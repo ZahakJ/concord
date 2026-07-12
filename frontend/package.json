@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "npm run prep-twemoji && vite",
+    "prep-twemoji": "rm -rf public/twemoji && mkdir -p public/twemoji && cp node_modules/@twemoji/svg/*.svg public/twemoji/",
+    "build": "npm run prep-twemoji && vite build",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{js,mjs,svelte}\"",
     "test": "node src/lib/markdown.test.mjs"
@@ -20,6 +21,7 @@
     "vite": "^6.0.7"
   },
   "dependencies": {
+    "@twemoji/svg": "^15.0.0",
     "jsqr": "^1.4.0",
     "qrcode": "^1.5.4"
   }

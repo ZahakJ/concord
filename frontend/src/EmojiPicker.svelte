@@ -187,12 +187,12 @@
     width: 320px;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     padding: 10px;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--shadow-pop);
     z-index: 50;
     transform-origin: bottom right;
     animation: ep-pop 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -246,7 +246,7 @@
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: 8px;
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-pop);
     z-index: 5;
     transform-origin: top right;
     animation: ep-pop 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -417,9 +417,9 @@
       border-left: none;
       border-right: none;
       border-bottom: none;
-      border-radius: 16px 16px 0 0;
+      border-radius: 18px 18px 0 0;
       padding-bottom: calc(10px + env(safe-area-inset-bottom));
-      box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+      box-shadow: var(--shadow-pop);
       z-index: 90;
       /* Bottom-panel presentation slides up like the app's sheets. */
       transform-origin: bottom center;
