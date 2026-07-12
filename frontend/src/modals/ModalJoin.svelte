@@ -19,19 +19,29 @@
       /* clipboard blocked — user can paste manually */
     }
   }
+
+  // Cheap shape-check so the well answers back the moment a real code lands:
+  // compact codes are "CI1…", legacy ones are base64url JSON blobs (long).
+  const looksValid = $derived.by(() => {
+    const t = code.trim();
+    return t.startsWith("CI1") || t.length > 200;
+  });
 </script>
 
 <Modal title="Join a guild" {onClose}>
   <p class="muted lead">Paste the invite code a friend sent you.</p>
 
-  <div class="input-well" class:err={!!error}>
+  <div class="input-well" class:err={!!error} class:ok={looksValid && !error}>
     <textarea rows="4" placeholder="Paste invite code here…" bind:value={code}></textarea>
     <button class="paste" title="Paste from clipboard" aria-label="Paste from clipboard" onclick={paste}>
       <Icon name="download" size={13} /> Paste
     </button>
   </div>
 
-  {#if error}<div class="error"><Icon name="close" size={12} /> {error}</div>{/if}
+  {#if looksValid && !error}
+    <div class="ok-chip"><Icon name="check" size={12} /> invite code detected</div>
+  {/if}
+  {#if error}<div class="error shake"><Icon name="close" size={12} /> {error}</div>{/if}
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
@@ -56,6 +66,52 @@
   }
   .input-well.err {
     border-color: var(--danger);
+  }
+  .input-well.ok {
+    border-color: color-mix(in srgb, var(--ok) 60%, transparent);
+  }
+  .ok-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    align-self: flex-start;
+    font-size: 12px;
+    color: var(--ok);
+    animation: chip-in 0.18s ease both;
+  }
+  @keyframes chip-in {
+    from {
+      opacity: 0;
+      transform: translateY(-2px);
+    }
+  }
+  /* A quick left-right shudder when a join fails — reads as "nope" without a
+     modal-on-modal. */
+  .shake {
+    animation: shake 0.35s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+  }
+  @keyframes shake {
+    10%,
+    90% {
+      transform: translateX(-1px);
+    }
+    20%,
+    80% {
+      transform: translateX(2px);
+    }
+    30%,
+    70% {
+      transform: translateX(-3px);
+    }
+    50% {
+      transform: translateX(3px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ok-chip,
+    .shake {
+      animation: none;
+    }
   }
   textarea {
     border: none;

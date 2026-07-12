@@ -67,6 +67,18 @@
     height: 100%;
     object-fit: cover;
     border-radius: 50%;
+    /* Avatars fade in instead of popping — lists feel settled while loading. */
+    animation: img-in 0.18s ease;
+  }
+  @keyframes img-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    img {
+      animation: none;
+    }
   }
   .dot {
     position: absolute;

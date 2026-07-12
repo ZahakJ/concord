@@ -75,7 +75,11 @@
     const list = S.guilds.filter(
       (x) => x.kind === "dm" && (x.dmNotes || (x.dmMembers ?? 2) >= 2),
     );
-    list.sort((a, b) => (a.dmNotes ? -1 : b.dmNotes ? 1 : 0));
+    // Notes pinned on top, then conversations by recency — the DM you just
+    // got a message in is always first.
+    list.sort(
+      (a, b) => (a.dmNotes ? -1 : b.dmNotes ? 1 : 0) || (b.lastActivity || 0) - (a.lastActivity || 0),
+    );
     // Notes always appears first, even before it's been created (a placeholder
     // that materializes the self-DM on first click).
     if (!list.some((x) => x.dmNotes)) {
@@ -425,6 +429,7 @@
           {@const u = S.unread[c.id]}
           {@const active = c.id === S.activeChannelId}
           {@const inVoice = S.voice && S.voice.channelId === c.id}
+          {@const occupied = c.type === "voice" && voiceMembersFor(c.id).length > 0}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="channel-row"
@@ -451,7 +456,10 @@
               {#if c.type !== "voice" && c.id !== S.activeChannelId && u && !S.mutes[c.id]}
                 <span class="count" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
               {/if}
-              {#if inVoice}<Icon name="speaker" size={12} />{/if}
+              {#if occupied}
+                <!-- Live equalizer: someone is in this voice channel right now. -->
+                <span class="eq" class:you={inVoice} aria-label="Voice active"><i></i><i></i><i></i></span>
+              {/if}
             </button>
             {#if canManageChannels}
               <span class="ch-menu">
@@ -593,7 +601,7 @@
         <strong>{S.displayName || "Set your name"}</strong>
         <span class="muted small-status">
           {#if myActivityLine}
-            <span class="st-emoji">🎵</span>
+            <span class="eq me-eq" aria-label="Listening"><i></i><i></i><i></i></span>
             {myActivityLine}
           {:else}
             {#if myStatus.emoji}<span class="st-emoji">{myStatus.emoji}</span>{/if}
@@ -762,6 +770,21 @@
   }
   .vc-av.speaking {
     border-color: var(--ok);
+    animation: speak-ring 1.1s ease-in-out infinite;
+  }
+  @keyframes speak-ring {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 40%, transparent);
+    }
+    50% {
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .vc-av.speaking {
+      animation: none;
+    }
   }
   .vc-name {
     flex: 1;
@@ -792,6 +815,12 @@
     border-radius: 0 3px 3px 0;
     background: var(--accent);
     box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+    animation: nub-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes nub-in {
+    from {
+      transform: translateY(-50%) scaleY(0.2);
+    }
   }
   .channel-row:hover {
     background: var(--bg-3);
@@ -849,6 +878,65 @@
     background: transparent;
     color: var(--text);
   }
+  /* Rows glide a hair right on hover — the list feels sprung, not painted. */
+  .channel,
+  .dm-item {
+    transition:
+      background 0.15s ease,
+      color 0.15s ease,
+      transform 0.15s ease;
+  }
+  @media (pointer: fine) {
+    .channel-row:hover .channel,
+    .dm-item:hover {
+      transform: translateX(2px);
+    }
+  }
+  /* Live-voice equalizer: three bars dancing while the room is occupied.
+     Only occupied voice channels run it (a rarity, not a list-wide loop). */
+  .eq {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 1.5px;
+    height: 12px;
+    flex-shrink: 0;
+    color: var(--ok);
+  }
+  .eq.you {
+    color: var(--accent);
+  }
+  .eq i {
+    width: 2.5px;
+    border-radius: 1px;
+    background: currentColor;
+    height: 30%;
+    animation: eq-bounce 1s ease-in-out infinite;
+  }
+  .eq i:nth-child(2) {
+    animation-delay: 0.25s;
+  }
+  .eq i:nth-child(3) {
+    animation-delay: 0.5s;
+  }
+  @keyframes eq-bounce {
+    0%,
+    100% {
+      height: 30%;
+    }
+    50% {
+      height: 100%;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .eq i {
+      animation: none;
+      height: 60%;
+    }
+    .channel-row:hover .channel,
+    .dm-item:hover {
+      transform: none;
+    }
+  }
   .channel.muted-ch {
     color: var(--text-faint);
   }
@@ -869,6 +957,13 @@
     font-weight: 700;
     display: grid;
     place-items: center;
+    animation: count-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes count-pop {
+    from {
+      transform: scale(0.4);
+      opacity: 0;
+    }
   }
   .count.mention {
     background: var(--danger);
@@ -1090,10 +1185,25 @@
     border-radius: 50%;
     line-height: 0;
     flex-shrink: 0;
-    transition: background 0.12s ease;
+    transition:
+      background 0.12s ease,
+      transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .me-status-trigger:hover {
     background: var(--bg-3);
+    transform: scale(1.07);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .me-status-trigger:hover {
+      transform: none;
+    }
+  }
+  /* The footer's listening equalizer sits inline with the status line. */
+  .me-eq {
+    height: 9px;
+    margin-right: 4px;
+    vertical-align: baseline;
+    color: var(--accent);
   }
   /* The dot's cutout ring should match this row's background, not the column's. */
   .me-status-trigger :global(.dot) {

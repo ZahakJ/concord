@@ -42,6 +42,7 @@
     line-height: 1.55;
   }
   .code-well {
+    position: relative;
     background: var(--bg-0);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -49,6 +50,33 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overflow: hidden;
+  }
+  /* One shimmer sweep on open — "here's the valuable thing". */
+  .code-well::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 30%,
+      color-mix(in srgb, var(--accent) 14%, transparent) 50%,
+      transparent 70%
+    );
+    transform: translateX(-100%);
+    animation: shimmer 1.1s ease 0.25s 1 forwards;
+    pointer-events: none;
+  }
+  @keyframes shimmer {
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .code-well::after {
+      animation: none;
+      opacity: 0;
+    }
   }
   code {
     font-family: ui-monospace, monospace;
@@ -68,13 +96,28 @@
     font-size: 13px;
     font-weight: 600;
     padding: 7px 16px;
-    transition: transform 0.12s ease;
+    transition:
+      transform 0.12s ease,
+      background 0.25s ease,
+      box-shadow 0.25s ease;
   }
   .copy:active {
     transform: scale(0.97);
   }
   .copy.copied {
     background: var(--ok);
+    box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 45%, transparent);
+    animation: copied-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes copied-pop {
+    40% {
+      transform: scale(1.06);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .copy.copied {
+      animation: none;
+    }
   }
   .hint {
     display: flex;

@@ -174,7 +174,15 @@
         {item.label}
       {/if}
     </span>
-    {#if item.sub}<span class="muted hit-sub">{item.sub}</span>{/if}
+    {#if item.sub}
+      <!-- Action subs are keyboard shortcuts — render them as kbd chips. -->
+      {#if item.kind === "action"}
+        <kbd class="hit-kbd">{item.sub}</kbd>
+      {:else}
+        <span class="muted hit-sub">{item.sub}</span>
+      {/if}
+    {/if}
+    <span class="hit-enter" aria-hidden="true">↵</span>
   </button>
 {/snippet}
 
@@ -212,6 +220,8 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
     display: flex;
     justify-content: center;
     padding-top: 12vh;
@@ -222,7 +232,10 @@
     width: 460px;
     max-width: 92vw;
     height: fit-content;
-    background: var(--bg-1);
+    /* Glassy command palette: translucent surface over the blurred app. */
+    background: color-mix(in srgb, var(--bg-1) 88%, transparent);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     padding: 12px;
@@ -231,7 +244,7 @@
     gap: 8px;
     box-shadow: var(--shadow-pop);
     transform-origin: top center;
-    animation: qs-pop 0.14s ease;
+    animation: qs-pop 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
   }
   @keyframes qs-fade {
     from {
@@ -268,6 +281,7 @@
     margin-top: 6px;
   }
   .hit {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 9px;
@@ -278,15 +292,54 @@
     padding: 8px 10px;
     border-radius: var(--radius-sm);
     font-size: 14px;
+    transition:
+      background 0.1s ease,
+      transform 0.12s ease;
   }
   .hit.sel,
   .hit:hover {
     background: var(--bg-3);
+    transform: translateX(2px);
+  }
+  /* The selected row carries an accent edge + tinted icon, so keyboard focus
+     reads instantly even while the mouse hovers elsewhere. */
+  .hit.sel {
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-3));
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  .hit.sel .hit-icon {
+    color: var(--accent);
   }
   .hit-icon {
     color: var(--text-muted);
     display: grid;
     place-items: center;
+    transition: color 0.1s ease;
+  }
+  /* ↵ affordance surfaces only on the selected row. */
+  .hit-enter {
+    color: var(--accent);
+    font-size: 12px;
+    opacity: 0;
+    transform: translateX(-3px);
+    transition:
+      opacity 0.12s ease,
+      transform 0.12s ease;
+  }
+  .hit.sel .hit-enter {
+    opacity: 0.9;
+    transform: none;
+  }
+  .hit-kbd {
+    font-family: inherit;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    padding: 1px 6px;
+    white-space: nowrap;
   }
   .hit-label {
     flex: 1;

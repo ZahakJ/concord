@@ -359,10 +359,24 @@
     updateSuggest();
   }
 
+  // Send-button launch: the paper plane flies off and glides back in. State
+  // toggles the CSS animation; cleared on a timer so rapid sends replay it.
+  let launching = $state(false);
+  let launchTimer;
+  function playLaunch() {
+    clearTimeout(launchTimer);
+    launching = false;
+    requestAnimationFrame(() => {
+      launching = true;
+      launchTimer = setTimeout(() => (launching = false), 450);
+    });
+  }
+
   async function send(e) {
     e?.preventDefault();
     const text = replaceShortcodes(applySlash(draft.trim()).trim());
     if (!text || !S.activeChannelId) return;
+    if (mobile) playLaunch();
     const chId = S.activeChannelId;
     const prevDraft = draft;
     const prevReply = S.replyingTo;
@@ -561,19 +575,21 @@
 <div class="composer-wrap">
   {#if suggest}
     <div class="suggest-pop">
-      {#if suggest.kind === "slash"}
-        <div class="suggest-head">Commands</div>
-      {/if}
+      <div class="suggest-head">
+        {suggest.kind === "slash" ? "Commands" : suggest.kind === "emoji" ? "Emoji" : "Members"}
+      </div>
       {#each suggest.items as item, i (suggest.kind === "emoji" ? item[0] : suggest.kind === "slash" ? item.name : item.fingerprint)}
         <button class="suggest-item" class:sel={i === suggest.sel} onclick={() => accept(i)}>
           {#if suggest.kind === "emoji"}
             <span class="s-emoji">{item[1]}</span> :{item[0]}:
           {:else if suggest.kind === "slash"}
+            <span class="s-slash" aria-hidden="true"><Icon name="code" size={13} /></span>
             <span class="s-cmd">{item.usage}</span>
             <span class="s-desc">{item.desc}</span>
           {:else}
             <span class="s-emoji">@</span>{item.name}
           {/if}
+          <kbd class="s-enter" aria-hidden="true">↵</kbd>
         </button>
       {/each}
     </div>
@@ -660,7 +676,7 @@
       </button>
       {#if mobile}
         <!-- Explicit send button: Enter is a newline on the phone keyboard. -->
-        <button type="submit" class="sendbtn" aria-label="Send" disabled={!canSend}>
+        <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
           <Icon name="send" size={17} />
         </button>
       {/if}
@@ -755,17 +771,30 @@
        taller than desktop's, and a hardcoded bottom overlapped it. */
     bottom: calc(100% + 6px);
     left: 60px;
-    background: var(--bg-1);
+    /* Glassy floating panel over the feed, matching the command palette. */
+    background: color-mix(in srgb, var(--bg-1) 90%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     padding: 4px;
     display: flex;
     flex-direction: column;
-    min-width: 220px;
+    min-width: 240px;
     box-shadow: var(--shadow-pop);
     z-index: 50;
+    transform-origin: bottom left;
+    animation: sg-pop 0.14s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes sg-pop {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
+    }
   }
   .suggest-item {
+    display: flex;
+    align-items: center;
     background: transparent;
     color: var(--text);
     text-align: left;
@@ -773,14 +802,41 @@
     border-radius: var(--radius-sm);
     font-size: 13px;
     font-family: ui-monospace, monospace;
+    transition:
+      background 0.1s ease,
+      transform 0.12s ease;
   }
   .suggest-item.sel,
   .suggest-item:hover {
     background: var(--bg-3);
+    transform: translateX(2px);
+  }
+  .suggest-item.sel {
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-3));
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  /* ↵ affordance on the selected row only (matches the command palette). */
+  .s-enter {
+    margin-left: auto;
+    padding-left: 12px;
+    font-family: inherit;
+    font-size: 11px;
+    color: var(--accent);
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .suggest-item.sel .s-enter {
+    opacity: 0.9;
   }
   .s-emoji {
     font-size: 16px;
     margin-right: 6px;
+  }
+  .s-slash {
+    display: inline-flex;
+    color: var(--accent);
+    margin-right: 7px;
+    opacity: 0.9;
   }
   .suggest-head {
     font-size: 10px;
@@ -793,17 +849,20 @@
   .s-cmd {
     font-weight: 600;
   }
-  /* Description sits flush right, in the UI font rather than the mono used
-     for the command itself. */
+  /* Description trails the command in the UI font (the command stays mono). */
   .s-desc {
-    float: right;
-    margin-left: 16px;
+    flex: 1;
+    min-width: 0;
+    margin-left: 14px;
     font-family:
       system-ui,
       -apple-system,
       sans-serif;
     font-size: 12px;
     color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .composer {
     padding: 0 16px 16px;
@@ -864,11 +923,14 @@
     padding: 2px 6px;
     transition:
       border-color 0.15s ease,
+      background 0.15s ease,
       box-shadow 0.15s ease;
   }
-  /* Soft focus ring: tinted border plus a faint halo of the accent color. */
+  /* Soft focus ring: tinted border plus a faint halo of the accent color, and
+     the well warms a touch toward the accent so focus reads at a glance. */
   .input-box.focused:focus-within {
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    background: color-mix(in srgb, var(--bg-input) 94%, var(--accent));
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .draft {
@@ -982,5 +1044,27 @@
   }
   .sendbtn:disabled {
     opacity: 0.35;
+  }
+  /* On send the plane takes off up-right, then glides back in from the left —
+     one quick whoosh, clipped to the round button. */
+  .sendbtn {
+    overflow: hidden;
+  }
+  .sendbtn.launch :global(svg) {
+    animation: send-launch 0.45s cubic-bezier(0.4, 0, 0.6, 1);
+  }
+  @keyframes send-launch {
+    45% {
+      transform: translate(26px, -26px);
+      opacity: 0;
+    }
+    46% {
+      transform: translate(-20px, 20px);
+      opacity: 0;
+    }
+    100% {
+      transform: none;
+      opacity: 1;
+    }
   }
 </style>

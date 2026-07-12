@@ -16,6 +16,7 @@
   const MARGIN = coarse ? { top: 64, bottom: 130 } : { top: 8, bottom: 90 };
   let pos = $state({ x: Math.max(12, window.innerWidth - 250), y: 70 });
   let drag = null;
+  let dragging = $state(false); // lifts the dock visually while it moves
 
   function clamp(x, y) {
     return {
@@ -25,6 +26,7 @@
   }
   function onDown(e) {
     drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    dragging = true;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   }
@@ -33,6 +35,7 @@
   }
   function onUp() {
     drag = null;
+    dragging = false;
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
   }
@@ -66,7 +69,7 @@
 
 <svelte:window onresize={onResize} />
 
-<div class="dock" style="left:{pos.x}px; top:{pos.y}px">
+<div class="dock" class:dragging style="left:{pos.x}px; top:{pos.y}px">
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="head" onpointerdown={onDown} ondblclick={onReturn} title="Drag to move · double-click to open">
     <span class="live"></span>
@@ -112,6 +115,29 @@
     box-shadow: var(--shadow-pop);
     overflow: hidden;
     user-select: none;
+    /* The dock breathes softly while the call is live — a low green ambience
+       that says "this is running" without demanding attention. */
+    animation: dock-breathe 4s ease-in-out infinite;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  /* Lifted while dragged: bigger shadow + a slight grow under the pointer. */
+  .dock.dragging {
+    transform: scale(1.03);
+    box-shadow:
+      var(--shadow-pop),
+      0 18px 44px rgb(0 0 0 / 0.4);
+    animation: none;
+  }
+  @keyframes dock-breathe {
+    0%,
+    100% {
+      box-shadow: var(--shadow-pop);
+    }
+    50% {
+      box-shadow:
+        var(--shadow-pop),
+        0 0 18px color-mix(in srgb, var(--ok) 22%, transparent);
+    }
   }
   .head {
     display: flex;
@@ -208,6 +234,14 @@
   }
   .ico.hang:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dock,
+    .live,
+    .face.speaking :global(.avatar) {
+      animation: none;
+    }
   }
 
   /* ---- touch adjustments: draggable dock with tappable controls. ---- */

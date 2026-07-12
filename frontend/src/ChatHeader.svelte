@@ -218,10 +218,27 @@
     position: relative;
     z-index: 5;
   }
+  /* An accent thread under the channel name, fading out rightward — the
+     header quietly points at where you are. */
+  .chat-head::after {
+    content: "";
+    position: absolute;
+    left: 16px;
+    bottom: -1px;
+    width: 180px;
+    height: 1px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
+    pointer-events: none;
+  }
   .title {
     gap: 6px;
     color: var(--text-muted);
     min-width: 0;
+  }
+  /* The channel-type glyph carries the accent — a small "you are here" tint. */
+  .title :global(svg) {
+    color: var(--accent);
+    flex-shrink: 0;
   }
   .title strong {
     color: var(--text);
@@ -251,11 +268,21 @@
   }
   .search-box {
     /* Fluid: shrinks with the window so it never overlaps the channel name,
-       but stays usable (min 84px) and caps at its comfortable width. */
+       but stays usable (min 84px) and caps at its comfortable width. Focus
+       stretches it — room appears exactly when you start typing. */
     width: clamp(84px, 20vw, 190px);
     min-width: 0;
     padding: 5px 10px;
     font-size: 13px;
+    transition: width 0.25s cubic-bezier(0.2, 0.9, 0.3, 1), border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+  }
+  .search-box:focus {
+    width: clamp(84px, 28vw, 260px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .search-box {
+      transition: border-color 0.16s ease, box-shadow 0.16s ease;
+    }
   }
   /* Leave room for the clear button / spinner once there's something to show. */
   .search-box.busy {
@@ -328,6 +355,27 @@
     border-radius: 13px;
     white-space: nowrap;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
+    /* One quiet breath while the call is live (the pill only exists then). */
+    animation: pill-breathe 3.6s ease-in-out infinite;
+  }
+  @keyframes pill-breathe {
+    0%,
+    100% {
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
+    }
+    50% {
+      box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
+        0 0 10px color-mix(in srgb, var(--ok) 30%, transparent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .voice-pill {
+      animation: none;
+    }
+    .iconbtn:hover {
+      transform: none;
+    }
   }
   .pill-label {
     display: inline-flex;

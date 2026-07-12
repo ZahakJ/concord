@@ -131,6 +131,15 @@
     align-items: flex-end;
     justify-content: flex-end;
     padding: 8px;
+    transition: box-shadow 0.15s ease;
+  }
+  .banner-box:hover {
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .banner-box {
+      transition: none;
+    }
   }
   .banner-actions {
     display: flex;

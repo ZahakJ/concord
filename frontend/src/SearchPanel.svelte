@@ -265,9 +265,29 @@
     text-align: left;
     border-radius: var(--radius-sm);
     font-size: 13px;
+    transition:
+      background 0.1s ease,
+      transform 0.12s ease;
+    animation: sp-in 0.2s ease backwards;
+  }
+  /* Entrance stagger, capped after the first rows — anything past the fold
+     shouldn't hold a long animation chain. */
+  .sp-hit:nth-child(2) { animation-delay: 0.025s; }
+  .sp-hit:nth-child(3) { animation-delay: 0.05s; }
+  .sp-hit:nth-child(4) { animation-delay: 0.075s; }
+  .sp-hit:nth-child(5) { animation-delay: 0.1s; }
+  .sp-hit:nth-child(6) { animation-delay: 0.125s; }
+  .sp-hit:nth-child(7) { animation-delay: 0.15s; }
+  .sp-hit:nth-child(n + 8) { animation-delay: 0.17s; }
+  @keyframes sp-in {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
   }
   .sp-hit:hover {
     background: var(--bg-3);
+    transform: translateX(2px);
   }
   .sp-body {
     display: flex;

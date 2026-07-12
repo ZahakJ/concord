@@ -150,6 +150,9 @@ type GuildView struct {
 	// OutOfSync: this member is stranded at an old MLS epoch that no reachable
 	// peer could bridge; new messages can't be decrypted until re-invited.
 	OutOfSync bool `json:"outOfSync,omitempty"`
+	// LastActivity is the newest message time (UnixNano) across the guild's
+	// channels — the UI sorts DM conversations by it, most recent first.
+	LastActivity int64 `json:"lastActivity,omitempty"`
 }
 
 // DMFace is one member's avatar data for a DM bubble (used to build the group
@@ -1138,6 +1141,7 @@ func channelView(c domain.Channel) ChannelView {
 
 func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	channels := make([]ChannelView, 0, len(g.Channels))
+	lastActivity := svc.GuildLastActivity(g.ID)
 	for _, c := range g.Channels {
 		channels = append(channels, channelView(c))
 	}
@@ -1248,6 +1252,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		MyPerms:   uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:      g.Icon, Banner: g.Banner, Description: g.Description,
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
+		LastActivity: lastActivity,
 	}
 }
 

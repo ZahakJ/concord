@@ -86,6 +86,17 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    animation: img-in 0.18s ease;
+  }
+  @keyframes img-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cell img {
+      animation: none;
+    }
   }
   /* Invited-but-not-joined members show faded, so the group reads as complete
      while making clear who hasn't landed yet. */

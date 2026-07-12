@@ -55,9 +55,9 @@
   </button>
   <div class="divider"></div>
 
-  {#each dms as dm (dm.id)}
+  {#each dms as dm, i (dm.id)}
     {@const u = guildUnread(dm)}
-    <div class="bubble-wrap">
+    <div class="bubble-wrap" style="--i:{i}">
       <button
         class="pill dm"
         class:active={dm.id === S.activeGuildId}
@@ -85,9 +85,9 @@
 
   {#if dms.length}<div class="divider"></div>{/if}
 
-  {#each servers as sv (sv.id)}
+  {#each servers as sv, i (sv.id)}
     {@const u = guildUnread(sv)}
-    <div class="bubble-wrap">
+    <div class="bubble-wrap" style="--i:{i}">
       <button
         class="pill"
         class:active={sv.id === S.activeGuildId}
@@ -159,6 +159,7 @@
   .pill:hover {
     border-radius: 14px;
     background: var(--bg-3);
+    transform: translateY(-1px) scale(1.04);
   }
   .pill:active {
     transform: scale(0.92);
@@ -199,6 +200,13 @@
     color: white;
     background: var(--accent);
   }
+  /* The jet noses up on hover — a tiny on-brand takeoff. */
+  .pill.home :global(svg) {
+    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .pill.home:hover :global(svg) {
+    transform: rotate(-10deg) translateY(-1px);
+  }
   .pill.home.active {
     border-radius: 15px;
     background: var(--accent);
@@ -228,10 +236,17 @@
     border: 1px dashed var(--border);
     color: var(--text-muted);
   }
+  .pill.add :global(svg) {
+    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
   .pill.add:hover {
     color: var(--accent-hover);
     border-color: var(--accent-hover);
     background: var(--bg-2);
+  }
+  /* The + winds up a quarter turn on hover — "something new is coming". */
+  .pill.add:hover :global(svg) {
+    transform: rotate(90deg);
   }
   /* A wrapper so the unread badge can sit at the bubble's corner WITHOUT being
      clipped by a pill's overflow:hidden (which was cutting the number off). */
@@ -239,6 +254,23 @@
     position: relative;
     display: flex;
     flex-shrink: 0;
+    /* Cascade entrance: each bubble drops in a beat after the previous one.
+       Keyed each-blocks mean this replays only for genuinely new bubbles. */
+    animation: rail-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+    animation-delay: calc(40ms + var(--i, 0) * 25ms);
+  }
+  .pill.home,
+  .pill.add {
+    animation: rail-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  }
+  .pill.add {
+    animation-delay: 0.18s;
+  }
+  @keyframes rail-in {
+    from {
+      opacity: 0;
+      transform: translateX(-14px) scale(0.8);
+    }
   }
   /* Discord-style edge indicator on the rail's left: a small nub on hover
      that grows into a tall pill for the active guild. Sized off the 11px gap
@@ -256,7 +288,7 @@
     opacity: 0;
     pointer-events: none;
     transition:
-      height 0.18s cubic-bezier(0.2, 0.9, 0.3, 1),
+      height 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
       opacity 0.18s ease;
   }
   .bubble-wrap:hover::before {
@@ -324,6 +356,18 @@
   @media (prefers-reduced-motion: reduce) {
     .badge.mention {
       animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+    .bubble-wrap,
+    .pill.home,
+    .pill.add {
+      animation: none;
+    }
+    .pill:hover {
+      transform: none;
+    }
+    .pill.add:hover :global(svg),
+    .pill.home:hover :global(svg) {
+      transform: none;
     }
   }
   /* Touch: bubbles grow to a comfortable 48px tap target. */

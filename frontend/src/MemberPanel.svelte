@@ -151,7 +151,10 @@
           <!-- Sidebar one-liner: live activity wins (Discord-style); the custom
                status still lives on the expanded profile card. -->
           {#if mem.activity}
-            <span class="muted member-status">🎵 {mem.activity.artist ? `${mem.activity.artist} — ${mem.activity.title}` : mem.activity.title}</span>
+            <span class="muted member-status listening">
+              <span class="eq" aria-label="Listening"><i></i><i></i><i></i></span>
+              {mem.activity.artist ? `${mem.activity.artist} — ${mem.activity.title}` : mem.activity.title}
+            </span>
           {:else if mem.status}
             <span class="muted member-status">{mem.status}</span>
           {/if}
@@ -202,18 +205,32 @@
     justify-content: space-between;
     align-items: center;
     text-transform: uppercase;
-    font-size: 11px;
-    letter-spacing: 0.05em;
+    font-size: 10.5px;
+    letter-spacing: 0.07em;
+    font-weight: 700;
     color: var(--text-muted);
-    margin: 10px 8px 4px;
+    margin: 12px 8px 4px;
   }
   .member-row {
     display: flex;
     align-items: center;
     border-radius: var(--radius-sm);
+    transition:
+      background 0.15s ease,
+      transform 0.15s ease;
   }
   .member-row:hover {
     background: var(--bg-3);
+  }
+  @media (pointer: fine) {
+    .member-row:hover {
+      transform: translateX(2px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .member-row:hover {
+      transform: none;
+    }
   }
   .member {
     flex: 1;
@@ -268,10 +285,63 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Listening members get a tiny live equalizer instead of a static emoji.
+     Only playing members animate — not a list-wide loop. */
+  .member-status.listening {
+    color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
+  }
+  .eq {
+    display: inline-flex;
+    align-items: flex-end;
+    gap: 1.5px;
+    height: 9px;
+    margin-right: 3px;
+    color: var(--accent);
+  }
+  .eq i {
+    width: 2px;
+    border-radius: 1px;
+    background: currentColor;
+    height: 30%;
+    animation: eq-bounce 1s ease-in-out infinite;
+  }
+  .eq i:nth-child(2) {
+    animation-delay: 0.25s;
+  }
+  .eq i:nth-child(3) {
+    animation-delay: 0.5s;
+  }
+  @keyframes eq-bounce {
+    0%,
+    100% {
+      height: 30%;
+    }
+    50% {
+      height: 100%;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .eq i {
+      animation: none;
+      height: 60%;
+    }
+  }
   .v-badge {
     color: var(--ok);
     display: inline-grid;
     place-items: center;
+    animation: v-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes v-pop {
+    from {
+      transform: scale(0.3) rotate(-30deg);
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .v-badge {
+      animation: none;
+    }
   }
   .muted-badge {
     color: var(--danger);

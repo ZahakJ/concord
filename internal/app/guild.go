@@ -83,6 +83,26 @@ func (s *Service) Guilds() []domain.Guild {
 	return out
 }
 
+// GuildLastActivity returns the newest message/update time (UnixNano) across
+// all of a guild's channels, or 0 for a silent guild. Drives recency ordering
+// of the DM list.
+func (s *Service) GuildLastActivity(guildID string) int64 {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var chans []domain.Channel
+	if ok {
+		chans = append(chans, g.Channels...)
+	}
+	s.mu.RUnlock()
+	var newest int64
+	for _, c := range chans {
+		if t, err := s.store.LatestTimestamp(c.ID); err == nil && t > newest {
+			newest = t
+		}
+	}
+	return newest
+}
+
 // Messages returns stored history for a channel (oldest first). Opening a
 // channel also backfills display names from message authors we don't have a
 // name for yet, so old history converges the roster and chat onto one name.

@@ -52,11 +52,15 @@
   .overlay {
     position: fixed;
     inset: 0;
+    /* Frosted scrim: the app dims AND recedes, so the dialog reads as the
+       only in-focus surface. */
     background: rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
     display: grid;
     place-items: center;
     z-index: 100;
-    animation: fade 0.12s ease;
+    animation: fade 0.16s ease;
   }
   .dialog {
     width: 380px;
@@ -72,7 +76,9 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    animation: pop 0.14s ease;
+    box-shadow: var(--shadow-pop);
+    /* A touch of spring on entry — overshoots ~1% then settles. */
+    animation: pop 0.26s cubic-bezier(0.34, 1.4, 0.5, 1);
   }
   .dialog.wide {
     width: 460px;
@@ -85,7 +91,7 @@
   @keyframes pop {
     from {
       opacity: 0;
-      transform: translateY(8px) scale(0.98);
+      transform: translateY(14px) scale(0.95);
     }
   }
   /* Mobile: dialogs present as full-width bottom sheets instead of floating
@@ -102,9 +108,9 @@
       width: auto;
       max-width: none;
       border: none;
-      border-radius: 16px 16px 0 0;
+      border-radius: 18px 18px 0 0;
       padding-bottom: calc(20px + env(safe-area-inset-bottom));
-      animation: sheet-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+      animation: sheet-up 0.28s cubic-bezier(0.22, 1.1, 0.36, 1);
     }
     /* ≥16px inputs stop iOS auto-zoom on focus; ≥44px buttons are the
        touch-target floor. Reaches into each modal's own markup. */
@@ -149,15 +155,28 @@
   }
   h3 {
     margin: 0;
-    font-size: 16px;
+    font-size: 16.5px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
   }
   .x {
     background: transparent;
     color: var(--text-muted);
     padding: 4px 8px;
+    border-radius: 8px;
+    transition:
+      color 0.15s ease,
+      background 0.15s ease,
+      transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
   .x:hover {
     color: var(--text);
     background: var(--bg-input);
+    transform: rotate(90deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .x {
+      transition: none;
+    }
   }
 </style>

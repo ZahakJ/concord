@@ -122,7 +122,7 @@
   <div class="sec-label muted">Presence</div>
   {#each PRESENCE_OPTIONS as p (p.id)}
     <button class="presence" class:sel={myPresence === p.id} onclick={() => pickPresence(p.id)} disabled={busy}>
-      <span class="dot" style="background:{p.color}"></span>
+      <span class="dot" style="--pc:{p.color};background:var(--pc)"></span>
       <span class="p-text">
         <strong>{p.label}</strong>
         <span class="muted p-desc">{p.desc}</span>
@@ -174,17 +174,22 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    animation: pop-in 0.12s ease;
+    animation: pop-in 0.18s cubic-bezier(0.34, 1.4, 0.64, 1);
   }
   @keyframes pop-in {
     from {
       opacity: 0;
-      transform: translateY(4px) scale(0.98);
+      transform: translateY(6px) scale(0.96);
     }
   }
   @media (prefers-reduced-motion: reduce) {
     .status-pop {
       animation: none;
+    }
+    .presence:hover .dot,
+    .em:hover,
+    .em:active {
+      transform: none;
     }
   }
   .sec-label {
@@ -204,6 +209,9 @@
     text-align: left;
     border-radius: var(--radius-sm);
   }
+  .presence {
+    transition: background 0.12s ease;
+  }
   .presence:hover {
     background: var(--bg-3);
   }
@@ -215,6 +223,15 @@
     height: 10px;
     border-radius: 50%;
     flex-shrink: 0;
+    transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
+  }
+  /* The dot answers the hover: grows and glows in its own presence color. */
+  .presence:hover .dot {
+    transform: scale(1.35);
+    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--pc) 65%, transparent);
+  }
+  .presence.sel .dot {
+    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--pc) 55%, transparent);
   }
   .p-text {
     flex: 1;
@@ -256,8 +273,15 @@
     line-height: 1.2;
     transition: background 0.12s ease;
   }
+  .em {
+    transition: background 0.12s ease, transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
   .em:hover {
     background: var(--bg-3);
+    transform: scale(1.18);
+  }
+  .em:active {
+    transform: scale(0.95);
   }
   .em.sel {
     background: var(--accent-soft);
@@ -278,6 +302,11 @@
     padding: 0 11px;
     display: grid;
     place-items: center;
+    transition: box-shadow 0.2s ease, opacity 0.15s ease;
+  }
+  /* A ready-to-save glow the moment the draft differs from the saved status. */
+  .st-save:not(:disabled) {
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 40%, transparent);
   }
   .st-save:disabled {
     opacity: 0.45;

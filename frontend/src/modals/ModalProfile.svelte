@@ -301,8 +301,14 @@
     overflow: hidden;
     border: 1px dashed var(--border);
   }
+  .banner-strip {
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
   .banner-strip:hover {
     border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .banner-hint {
     font-size: 11px;
@@ -350,6 +356,19 @@
     flex-shrink: 0;
     padding: 0;
     overflow: hidden;
+    transition:
+      transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+      box-shadow 0.18s ease;
+  }
+  .avatar:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .avatar,
+    .banner-strip {
+      transition: none;
+    }
   }
   .avatar img {
     width: 100%;
@@ -417,10 +436,29 @@
     font-size: 16px;
     border-radius: 6px;
     color: var(--text);
+    transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .emoji:hover {
+    transform: scale(1.12);
   }
   .emoji.sel {
     border-color: var(--accent);
     background: var(--accent-soft);
+    animation: sel-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes sel-pop {
+    40% {
+      transform: scale(1.18);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .emoji {
+      transition: none;
+      animation: none;
+    }
+    .emoji.sel {
+      animation: none;
+    }
   }
   .presence-row {
     display: flex;
@@ -437,11 +475,23 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text-muted);
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease,
+      color 0.15s ease;
   }
   .presence.sel {
     border-color: var(--accent);
     background: var(--accent-soft);
     color: var(--text);
+    animation: sel-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .presence,
+    .presence.sel {
+      transition: none;
+      animation: none;
+    }
   }
   .pdot {
     width: 9px;

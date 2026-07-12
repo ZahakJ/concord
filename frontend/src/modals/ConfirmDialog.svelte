@@ -26,6 +26,10 @@
   }
   button.danger {
     background: var(--danger);
+    /* It's auto-focused — a soft halo makes the armed destructive action
+       unmistakable before any key is pressed. */
+    box-shadow: 0 0 12px color-mix(in srgb, var(--danger) 35%, transparent);
+    transition: background 0.15s ease;
   }
   button.danger:hover {
     background: color-mix(in srgb, var(--danger) 85%, white);

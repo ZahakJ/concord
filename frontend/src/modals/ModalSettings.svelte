@@ -330,6 +330,28 @@
     flex-direction: column;
     gap: 7px;
     text-align: left;
+    animation: grp-in 0.3s ease both;
+  }
+  /* Sections cascade in — a beat apart, settled fast. */
+  .grp:nth-child(2) {
+    animation-delay: 0.04s;
+  }
+  .grp:nth-child(3) {
+    animation-delay: 0.08s;
+  }
+  .grp:nth-child(4) {
+    animation-delay: 0.12s;
+  }
+  @keyframes grp-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .grp {
+      animation: none;
+    }
   }
   .sec-label {
     font-size: 11px;
@@ -362,6 +384,9 @@
     color: var(--text);
     text-align: left;
     border-radius: 0;
+  }
+  .row {
+    transition: background 0.14s ease;
   }
   .row:hover {
     background: var(--bg-3);

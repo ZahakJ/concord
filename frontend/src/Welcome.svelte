@@ -6,11 +6,12 @@
 </script>
 
 <div class="welcome">
+  <span class="ambient" aria-hidden="true"></span>
   <div class="hero">
     <span class="contrail" aria-hidden="true"></span>
     <div class="badge"><Icon name="concorde" size={40} /></div>
   </div>
-  <h1>Welcome to Concord</h1>
+  <h1>Welcome to <span class="brand">Concord</span></h1>
   <p class="muted lede">
     Your community, on your machines, readable by no one else. Spin up a guild, join a friend's
     with their invite code, or jot something in your private Notes.
@@ -50,6 +51,41 @@
     padding: 24px;
     gap: 10px;
     overflow-y: auto;
+    position: relative;
+    overflow-x: hidden;
+  }
+  /* Ambient aurora: one soft accent blob drifting slowly behind everything —
+     the room feels lit, not flat. Single element, GPU-cheap (transform only). */
+  .ambient {
+    position: absolute;
+    top: 8%;
+    left: 50%;
+    width: 420px;
+    height: 420px;
+    margin-left: -210px;
+    border-radius: 50%;
+    background: radial-gradient(circle, color-mix(in srgb, var(--accent) 12%, transparent), transparent 65%);
+    pointer-events: none;
+    animation: drift 14s ease-in-out infinite;
+  }
+  @keyframes drift {
+    0%,
+    100% {
+      transform: translate(0, 0) scale(1);
+    }
+    33% {
+      transform: translate(50px, 26px) scale(1.12);
+    }
+    66% {
+      transform: translate(-40px, -14px) scale(0.94);
+    }
+  }
+  /* "Concord" carries the accent — a soft gradient so the wordmark glows. */
+  .brand {
+    background: linear-gradient(120deg, var(--accent-hover), var(--accent));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
   }
   .hero {
     position: relative;
@@ -86,7 +122,10 @@
     box-shadow:
       var(--shadow-pop),
       0 0 44px color-mix(in srgb, var(--accent) 30%, transparent);
-    animation: arrive 0.5s ease both;
+    /* Arrive, then float: the jet gently bobs at cruise altitude. */
+    animation:
+      arrive 0.5s ease both,
+      hover-bob 5s ease-in-out 0.5s infinite;
   }
   @keyframes arrive {
     from {
@@ -96,6 +135,15 @@
     to {
       transform: none;
       opacity: 1;
+    }
+  }
+  @keyframes hover-bob {
+    0%,
+    100% {
+      transform: translateY(0) rotate(0deg);
+    }
+    50% {
+      transform: translateY(-5px) rotate(-1.2deg);
     }
   }
   h1 {
@@ -125,6 +173,14 @@
     color: var(--accent-hover);
     font-size: 12px;
     font-weight: 600;
+    /* Chips land a beat after the headline, left to right. */
+    animation: card-in 0.35s ease backwards;
+  }
+  .chip:nth-child(2) {
+    animation-delay: 0.08s;
+  }
+  .chip:nth-child(3) {
+    animation-delay: 0.16s;
   }
   .cards {
     display: flex;
@@ -186,18 +242,28 @@
     );
     color: var(--accent-hover);
     margin-bottom: 6px;
+    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  /* The card's icon leans into the hover — a playful tilt with the lift. */
+  .card:hover .ic {
+    transform: scale(1.12) rotate(-5deg);
   }
   .sub {
     font-size: 12px;
   }
   @media (prefers-reduced-motion: reduce) {
     .card,
-    .card:hover {
+    .card:hover,
+    .chip {
       animation: none;
       transform: none;
     }
-    .badge {
+    .badge,
+    .ambient {
       animation: none;
+    }
+    .card:hover .ic {
+      transform: none;
     }
   }
 

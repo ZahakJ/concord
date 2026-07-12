@@ -164,11 +164,14 @@
 
   <div class="preview">
     {#if preview}
-      {#if preview.img}
-        <img class="pimg" src={preview.img} alt=":{preview.name}:" />
-      {:else}
-        <span class="pchar">{preview.char}</span>
-      {/if}
+      <!-- keyed so the glyph re-mounts (and pops) as the hover moves -->
+      {#key preview.name || preview.char}
+        {#if preview.img}
+          <img class="pimg" src={preview.img} alt=":{preview.name}:" />
+        {:else}
+          <span class="pchar">{preview.char}</span>
+        {/if}
+      {/key}
       {#if preview.name}<span class="pname">:{preview.name}:</span>{/if}
     {:else}
       <span class="phint">{hint}</span>
@@ -191,6 +194,14 @@
     gap: 8px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
     z-index: 50;
+    transform-origin: bottom right;
+    animation: ep-pop 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes ep-pop {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.97);
+    }
   }
   .row {
     display: flex;
@@ -237,6 +248,8 @@
     border-radius: 8px;
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
     z-index: 5;
+    transform-origin: top right;
+    animation: ep-pop 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
   }
   .tone-cell.sel {
     background: var(--bg-input);
@@ -306,6 +319,9 @@
     background: var(--bg-input);
     transform: scale(1.14);
   }
+  .cell:active {
+    transform: scale(0.92); /* satisfying squash on pick */
+  }
   .cimg {
     width: 24px;
     height: 24px;
@@ -345,6 +361,13 @@
   .pchar {
     font-size: 26px;
     line-height: 1;
+    animation: pv-pop 0.14s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes pv-pop {
+    from {
+      transform: scale(0.6);
+      opacity: 0;
+    }
   }
   .pimg {
     width: 26px;
@@ -398,6 +421,15 @@
       padding-bottom: calc(10px + env(safe-area-inset-bottom));
       box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
       z-index: 90;
+      /* Bottom-panel presentation slides up like the app's sheets. */
+      transform-origin: bottom center;
+      animation: ep-rise 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+    }
+    @keyframes ep-rise {
+      from {
+        transform: translateY(48px);
+        opacity: 0.4;
+      }
     }
     .row input {
       font-size: 16px; /* stops iOS auto-zoom on focus */

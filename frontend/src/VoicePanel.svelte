@@ -3,9 +3,16 @@
   // camera), animated speaking rings, plus wide tiles for any screen shares.
   // Discord-style — dynamic and animated, works the same in a DM call or a
   // guild voice room.
+  import { scale } from "svelte/transition";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
   import { S, memberByFpr, getVideoStream, activeGuild } from "./lib/state.svelte.js";
+
+  // Join/leave pop for tiles and strip bubbles; zero-duration under
+  // prefers-reduced-motion (Svelte transitions don't read the media query).
+  const noMotion =
+    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const pop = { duration: noMotion ? 0 : 190, start: 0.82 };
 
   let { onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
 
@@ -180,6 +187,7 @@
           <button
             class="bubble"
             class:speaking={t.speaking}
+            transition:scale={pop}
             title={t.self ? `${t.name} (you)` : t.name}
             onclick={() => toggleFocus(pid)}
           >
@@ -197,6 +205,7 @@
         <div
           class="tile"
           class:speaking={t.speaking}
+          transition:scale={pop}
           onclick={() => toggleFocus(pid)}
           title="Click to focus {t.self ? 'yourself' : t.name}"
         >
@@ -696,10 +705,19 @@
     border: 1px solid var(--border);
     transition:
       background 0.12s ease,
-      color 0.12s ease;
+      color 0.12s ease,
+      transform 0.12s ease,
+      box-shadow 0.15s ease;
   }
   .ctl:hover {
     background: var(--bg-1);
+    transform: translateY(-2px);
+  }
+  .ctl:active {
+    transform: scale(0.9);
+  }
+  .ctl.hangup:hover {
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--danger) 45%, transparent);
   }
   .ctl.active {
     background: var(--accent-soft);
@@ -719,6 +737,26 @@
   }
   .ctl.hangup:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tile.speaking .ring,
+    .focus-main.speaking,
+    .bubble.speaking,
+    .eq span,
+    .dots span,
+    .ringing {
+      animation: none;
+    }
+    /* Speaking still reads without motion: hold the ring's base frame. */
+    .tile.speaking .ring {
+      box-shadow: inset 0 0 0 2px var(--ok);
+    }
+    .ctl:hover,
+    .tile:hover,
+    .bubble:hover {
+      transform: none;
+    }
   }
 
   /* ---- touch adjustments: call controls you can't fat-finger. ---- */

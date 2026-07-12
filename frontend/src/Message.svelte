@@ -566,6 +566,13 @@
   }
   .pin-mark {
     color: var(--warn);
+    animation: pin-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @keyframes pin-in {
+    from {
+      transform: scale(0.4) rotate(-30deg);
+      opacity: 0;
+    }
   }
   .pin-mark.inline {
     float: right;
@@ -584,6 +591,12 @@
     color: var(--text-faint);
     user-select: none;
     vertical-align: baseline;
+    animation: tag-in 0.3s ease;
+  }
+  @keyframes tag-in {
+    from {
+      opacity: 0;
+    }
   }
   .edit-input {
     margin-top: 2px;
@@ -633,7 +646,9 @@
   .reaction.mine {
     border-color: var(--accent);
     background: var(--accent-soft);
-    box-shadow: 0 0 0 1px var(--accent); /* accent ring: you reacted */
+    box-shadow:
+      0 0 0 1px var(--accent),
+      0 0 8px color-mix(in srgb, var(--accent) 26%, transparent); /* accent ring + faint charge: you reacted */
   }
   .reaction.mine:hover {
     border-color: var(--accent);
@@ -706,6 +721,13 @@
   }
   .react-wrap:hover .react-who {
     display: flex;
+    animation: who-in 0.15s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes who-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
   }
   .react-who strong {
     font-size: 11px;
@@ -724,7 +746,7 @@
     align-items: center;
     gap: 3px;
     opacity: 0;
-    transform: translateY(2px);
+    transform: translateY(3px) scale(0.97);
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -732,8 +754,8 @@
     box-shadow: var(--shadow-pop);
     z-index: 5;
     transition:
-      opacity 0.1s ease,
-      transform 0.1s ease;
+      opacity 0.12s ease,
+      transform 0.14s cubic-bezier(0.2, 0.9, 0.3, 1);
   }
   .msg:hover .msg-actions,
   .msg:focus-within .msg-actions {
@@ -838,6 +860,12 @@
   }
   .body :global(a) {
     color: var(--accent-hover);
+    text-decoration: none;
+  }
+  .body :global(a:hover) {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: color-mix(in srgb, var(--accent) 65%, transparent);
   }
   .body :global(.mention) {
     background: color-mix(in srgb, var(--text-muted) 22%, transparent);
@@ -919,6 +947,13 @@
     border-radius: var(--radius-sm);
     display: block;
     margin-top: 4px;
+    animation: att-in 0.25s ease;
+  }
+  @keyframes att-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
   }
   /* Inline unicode emoji: a touch larger than text and vertically centered,
      so they read as emoji rather than shrunken glyphs (Discord-style). */

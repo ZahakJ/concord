@@ -6,6 +6,7 @@
   // the rest polite status. Enter/exit animations collapse to instant when the
   // user prefers reduced motion.
   import { fly } from "svelte/transition";
+  import { backOut } from "svelte/easing";
   import { S, dismissToast } from "./lib/state.svelte.js";
   import Icon from "./Icon.svelte";
 
@@ -17,6 +18,9 @@
   const dur = reducedMotion ? 0 : 150;
 
   const ICONS = { info: "info", success: "check", error: "alert" };
+  // Mirrors the auto-dismiss timers in flash() so the progress rail drains in
+  // sync with the real timeout (they start within the same frame).
+  const TTL = { error: 5000, success: 3000, info: 3000 };
 </script>
 
 <div class="toasts">
@@ -25,13 +29,21 @@
       class="toast {t.kind}"
       role={t.kind === "error" ? "alert" : "status"}
       aria-live={t.kind === "error" ? "assertive" : "polite"}
-      transition:fly={{ y: 8, duration: dur }}
+      in:fly={{ y: 14, duration: dur * 2, easing: backOut }}
+      out:fly={{ x: 24, duration: dur }}
     >
       <span class="t-icon"><Icon name={ICONS[t.kind] || "info"} size={15} /></span>
       <span class="t-text">{t.text}</span>
       <button class="t-close" onclick={() => dismissToast(t.id)} aria-label="Dismiss notification">
         <Icon name="close" size={12} />
       </button>
+      {#if !reducedMotion}
+        <span
+          class="t-rail"
+          aria-hidden="true"
+          style="animation-duration: {TTL[t.kind] || 3000}ms"
+        ></span>
+      {/if}
     </div>
   {/each}
 </div>
@@ -52,12 +64,13 @@
     pointer-events: none;
   }
   .toast {
+    position: relative;
+    overflow: hidden; /* clips the progress rail to the rounded corners */
     pointer-events: auto;
     display: flex;
     align-items: flex-start;
     gap: 10px;
     padding: 10px 8px 10px 12px;
-    background: var(--bg-1);
     color: var(--text);
     border: 1px solid var(--border);
     border-left-width: 3px;
@@ -66,23 +79,56 @@
     line-height: 1.4;
     box-shadow: var(--shadow-pop);
   }
+  /* Each variant gets a whisper of its color washed into the surface, plus
+     the colored edge — reads at a glance without shouting. */
   .toast.error {
     border-left-color: var(--danger);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 9%, var(--bg-1)), var(--bg-1) 55%);
   }
   .toast.error .t-icon {
     color: var(--danger);
   }
   .toast.success {
     border-left-color: var(--ok);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 9%, var(--bg-1)), var(--bg-1) 55%);
   }
   .toast.success .t-icon {
     color: var(--ok);
   }
   .toast.info {
     border-left-color: var(--accent);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, var(--bg-1)), var(--bg-1) 55%);
   }
   .toast.info .t-icon {
     color: var(--text-muted);
+  }
+  /* Time-left rail along the bottom, draining toward dismissal. Duration is
+     set inline to match the flash() timer for this kind. */
+  .t-rail {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    width: 100%;
+    transform-origin: left;
+    background: color-mix(in srgb, currentColor 28%, transparent);
+    animation-name: t-drain;
+    animation-timing-function: linear;
+    animation-fill-mode: forwards;
+  }
+  .toast.error .t-rail {
+    color: var(--danger);
+  }
+  .toast.success .t-rail {
+    color: var(--ok);
+  }
+  .toast.info .t-rail {
+    color: var(--accent);
+  }
+  @keyframes t-drain {
+    to {
+      transform: scaleX(0);
+    }
   }
   .t-icon {
     flex-shrink: 0;
