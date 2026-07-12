@@ -1,9 +1,13 @@
 <script>
-  // The game-collection shelf shown on profile cards, plus (when editable)
-  // Discord-style add/remove: typing a title suggests real games with real
-  // box art (backend-proxied Steam search); picking one stores its cover URL.
-  // Titles without art — or with remote images disabled — render a generated
-  // gradient cover, so the shelf always looks intentional.
+  // Game collection, Discord-style: profile cards show a COMPACT strip (a few
+  // mini covers + "+N"), and clicking it opens a popup with the full library —
+  // big tiles, titles, and (on your own card) add/remove. Adding suggests real
+  // games with real box art (backend-proxied Steam search); titles without
+  // art — or with remote images disabled — get a generated gradient cover.
+  //
+  // The popup is rendered INSIDE the host popover's DOM (position:fixed), so
+  // the popovers' outside-click/hover-close logic treats it as "inside" and
+  // the card stays open underneath.
   import Icon from "./Icon.svelte";
   import { S, flash } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
@@ -14,6 +18,9 @@
   // the link-previews privacy pref, same as now-playing album art.
   const allowRemote = $derived(editable || !!S.prefs.linkPreviews);
 
+  const STRIP = 5; // mini covers shown before "+N"
+
+  let expanded = $state(false);
   let adding = $state(false);
   let q = $state("");
   let results = $state([]);
@@ -22,11 +29,26 @@
   let searchSeq = 0;
   let debounce;
 
-  function reset() {
+  function openLibrary(withAdd = false) {
+    expanded = true;
+    adding = withAdd;
+  }
+  function closeLibrary() {
+    expanded = false;
+    resetAdd();
+  }
+  function resetAdd() {
     adding = false;
     q = "";
     results = [];
     clearTimeout(debounce);
+  }
+  // Capture-phase so Esc closes just the library, not the popover under it.
+  function onKeydown(e) {
+    if (e.key === "Escape" && expanded) {
+      e.stopPropagation();
+      closeLibrary();
+    }
   }
 
   function onInput() {
@@ -63,7 +85,7 @@
 
   function pick(r) {
     const entry = { name: r.name, cover: r.cover || "" };
-    reset();
+    resetAdd();
     if (!have(entry.name)) commit([...games, entry]);
   }
 
@@ -72,7 +94,7 @@
     e?.preventDefault();
     if (results.length) return pick(results[0]);
     const name = q.trim();
-    reset();
+    resetAdd();
     if (name && !have(name)) commit([...games, { name }]);
   }
 
@@ -92,82 +114,125 @@
       .slice(0, 2)
       .map((w) => w[0]?.toUpperCase() || "")
       .join("");
+
+  const showCover = (g) => g.cover && !broken[g.name] && allowRemote;
 </script>
+
+<svelte:window onkeydowncapture={onKeydown} />
 
 <div class="sec-head">
   <span class="sec-label muted">
     Game collection{#if games.length}&nbsp;· {games.length}{/if}
   </span>
-  {#if editable && !adding}
-    <button class="g-add" onclick={() => (adding = true)} title="Add a game">
+  {#if editable}
+    <button class="g-add" onclick={() => openLibrary(true)} title="Add a game">
       <Icon name="plus" size={12} /> Add
     </button>
   {/if}
 </div>
 
-{#if adding}
-  <form class="g-form" onsubmit={submit}>
-    <input
-      bind:value={q}
-      oninput={onInput}
-      placeholder="Search games…"
-      maxlength="64"
-      disabled={busy}
-    />
-    <button type="button" class="g-cancel" onclick={reset} aria-label="Cancel">
-      <Icon name="close" size={13} />
-    </button>
-  </form>
-  {#if results.length}
-    <div class="g-results">
-      {#each results as r (r.name)}
-        <button class="g-result" onclick={() => pick(r)} disabled={have(r.name)}>
-          {#if r.thumb}
-            <img class="g-rthumb" src={r.thumb} alt="" loading="lazy" />
-          {:else}
-            <span class="g-rthumb ph" style={coverStyle(r.name)}></span>
-          {/if}
-          <span class="g-rname">{r.name}</span>
-          {#if have(r.name)}<span class="g-rhave">added</span>{/if}
-        </button>
-      {/each}
-    </div>
-  {:else if q.trim().length >= 2}
-    <button class="g-result g-free" onclick={submit}>
-      <Icon name="plus" size={12} /> Add “{q.trim()}”
-    </button>
-  {/if}
+{#if games.length}
+  <button class="g-strip" onclick={() => openLibrary(false)} title="View the collection">
+    {#each games.slice(0, STRIP) as g (g.name)}
+      <span class="g-mini" style={showCover(g) ? "" : coverStyle(g.name)}>
+        {#if showCover(g)}
+          <img src={g.cover} alt="" loading="lazy" onerror={() => (broken = { ...broken, [g.name]: true })} />
+        {:else}
+          <span class="g-mini-glyph">{initials(g.name)}</span>
+        {/if}
+      </span>
+    {/each}
+    {#if games.length > STRIP}
+      <span class="g-mini g-more">+{games.length - STRIP}</span>
+    {/if}
+    <span class="g-chev">›</span>
+  </button>
+{:else if editable}
+  <div class="g-empty muted">Show off what you play — add your first game.</div>
 {/if}
 
-{#if games.length}
-  <div class="g-shelf">
-    {#each games as g, i (g.name)}
-      <div class="g-tile" style="--tile-i:{i}" title={g.name}>
-        <div class="g-art" style={g.cover && !broken[g.name] && allowRemote ? "" : coverStyle(g.name)}>
-          {#if g.cover && !broken[g.name] && allowRemote}
-            <img
-              class="g-img"
-              src={g.cover}
-              alt=""
-              loading="lazy"
-              onerror={() => (broken = { ...broken, [g.name]: true })}
-            />
-          {:else}
-            <span class="g-glyph">{initials(g.name)}</span>
+{#if expanded}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="gs-overlay" onclick={(e) => e.target === e.currentTarget && closeLibrary()}>
+    <div class="gs-card" role="dialog" aria-label="Game collection">
+      <div class="gs-head">
+        <strong>Game collection · {games.length}</strong>
+        <span class="gs-actions">
+          {#if editable && !adding}
+            <button class="g-add" onclick={() => (adding = true)}><Icon name="plus" size={12} /> Add</button>
           {/if}
-          <span class="g-sheen"></span>
-          {#if editable}
-            <button class="g-x" onclick={() => remove(g.name)} title="Remove {g.name}" aria-label="Remove {g.name}">
-              <Icon name="trash" size={11} />
-            </button>
-          {/if}
-        </div>
-        <span class="g-name">{g.name}</span>
+          <button class="gs-close" onclick={closeLibrary} aria-label="Close">
+            <Icon name="close" size={14} />
+          </button>
+        </span>
       </div>
-    {/each}
+
+      {#if adding}
+        <form class="g-form" onsubmit={submit}>
+          <input
+            bind:value={q}
+            oninput={onInput}
+            placeholder="Search games…"
+            maxlength="64"
+            disabled={busy}
+          />
+          <button type="button" class="g-cancel" onclick={resetAdd} aria-label="Cancel">
+            <Icon name="close" size={13} />
+          </button>
+        </form>
+        {#if results.length}
+          <div class="g-results">
+            {#each results as r (r.name)}
+              <button class="g-result" onclick={() => pick(r)} disabled={have(r.name)}>
+                {#if r.thumb}
+                  <img class="g-rthumb" src={r.thumb} alt="" loading="lazy" />
+                {:else}
+                  <span class="g-rthumb ph" style={coverStyle(r.name)}></span>
+                {/if}
+                <span class="g-rname">{r.name}</span>
+                {#if have(r.name)}<span class="g-rhave">added</span>{/if}
+              </button>
+            {/each}
+          </div>
+        {:else if q.trim().length >= 2}
+          <button class="g-result g-free" onclick={submit}>
+            <Icon name="plus" size={12} /> Add “{q.trim()}”
+          </button>
+        {/if}
+      {/if}
+
+      {#if games.length}
+        <div class="g-shelf">
+          {#each games as g, i (g.name)}
+            <div class="g-tile" style="--tile-i:{Math.min(i, 20)}" title={g.name}>
+              <div class="g-art" style={showCover(g) ? "" : coverStyle(g.name)}>
+                {#if showCover(g)}
+                  <img
+                    class="g-img"
+                    src={g.cover}
+                    alt=""
+                    loading="lazy"
+                    onerror={() => (broken = { ...broken, [g.name]: true })}
+                  />
+                {:else}
+                  <span class="g-glyph">{initials(g.name)}</span>
+                {/if}
+                <span class="g-sheen"></span>
+                {#if editable}
+                  <button class="g-x" onclick={() => remove(g.name)} title="Remove {g.name}" aria-label="Remove {g.name}">
+                    <Icon name="trash" size={11} />
+                  </button>
+                {/if}
+              </div>
+              <span class="g-name">{g.name}</span>
+            </div>
+          {/each}
+        </div>
+      {:else}
+        <div class="g-empty muted">Nothing here yet.</div>
+      {/if}
+    </div>
   </div>
-{:else if editable && !adding}
-  <div class="g-empty muted">Show off what you play — add your first game.</div>
 {/if}
 
 <style>
@@ -197,17 +262,145 @@
   .g-add:hover {
     background: color-mix(in srgb, var(--accent) 26%, transparent);
   }
+  /* ---- collapsed strip (on the card) ---- */
+  .g-strip {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: 100%;
+    padding: 5px 6px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: pointer;
+    transition: background 0.13s ease;
+  }
+  .g-strip:hover {
+    background: var(--bg-3);
+  }
+  .g-mini {
+    position: relative;
+    width: 26px;
+    height: 35px;
+    border-radius: 5px;
+    overflow: hidden;
+    display: grid;
+    place-items: center;
+    flex: none;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.09);
+  }
+  .g-mini img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .g-mini-glyph {
+    font-size: 9px;
+    font-weight: 800;
+    color: rgba(255, 255, 255, 0.92);
+    user-select: none;
+  }
+  .g-more {
+    background: var(--bg-2);
+    color: var(--text-muted);
+    font-size: 10px;
+    font-weight: 700;
+  }
+  .g-chev {
+    margin-left: auto;
+    color: var(--text-faint);
+    font-size: 15px;
+    transition: transform 0.13s ease;
+  }
+  .g-strip:hover .g-chev {
+    transform: translateX(2px);
+    color: var(--text-muted);
+  }
+  /* ---- the library popup ---- */
+  .gs-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 320;
+    background: rgba(0, 0, 0, 0.55);
+    display: grid;
+    place-items: center;
+    padding: 5vh 5vw;
+    animation: gs-fade 0.14s ease;
+  }
+  @keyframes gs-fade {
+    from {
+      opacity: 0;
+    }
+  }
+  .gs-card {
+    width: 470px;
+    max-width: 94vw;
+    max-height: 80vh;
+    overflow-y: auto;
+    background: var(--bg-elevated, var(--bg-1));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-pop);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    animation: gs-pop 0.22s cubic-bezier(0.34, 1.4, 0.5, 1);
+  }
+  @keyframes gs-pop {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.96);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .gs-overlay,
+    .gs-card,
+    .g-tile {
+      animation: none;
+    }
+  }
+  .gs-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .gs-head strong {
+    font-size: 14px;
+  }
+  .gs-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .gs-close {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .gs-close:hover {
+    background: var(--bg-3);
+  }
+  /* ---- add form + autocomplete ---- */
   .g-form {
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-top: 2px;
   }
   .g-form input {
     flex: 1;
     min-width: 0;
-    font-size: 12px;
-    padding: 6px 9px;
+    font-size: 12.5px;
+    padding: 7px 10px;
   }
   .g-cancel {
     display: grid;
@@ -226,13 +419,11 @@
   .g-results {
     display: flex;
     flex-direction: column;
-    margin-top: 4px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     overflow: hidden;
     max-height: 190px;
     overflow-y: auto;
-    animation: g-in 0.15s ease;
   }
   .g-result {
     display: flex;
@@ -281,15 +472,14 @@
   .g-free {
     border: 1px dashed var(--border);
     border-radius: var(--radius-sm);
-    margin-top: 4px;
     justify-content: center;
     color: var(--text-muted);
   }
+  /* ---- full shelf grid (in the popup) ---- */
   .g-shelf {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 8px;
-    margin-top: 2px;
+    grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    gap: 10px;
   }
   .g-tile {
     display: flex;
@@ -297,18 +487,12 @@
     gap: 4px;
     min-width: 0;
     animation: g-in 0.25s ease both;
-    animation-delay: calc(var(--tile-i, 0) * 0.03s);
+    animation-delay: calc(var(--tile-i, 0) * 0.02s);
   }
   @keyframes g-in {
     from {
       opacity: 0;
       transform: translateY(5px);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .g-tile,
-    .g-results {
-      animation: none;
     }
   }
   .g-art {
@@ -364,8 +548,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Remove control: a quiet scrim button INSIDE the art, revealed on hover —
-     no floating × bleeding outside the tile. */
+  /* Remove control: a quiet scrim button inside the art, revealed on hover. */
   .g-x {
     position: absolute;
     top: 4px;

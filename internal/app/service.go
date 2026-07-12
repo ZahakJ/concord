@@ -184,10 +184,12 @@ type Game struct {
 	Cover string `json:"cover,omitempty"` // https box-art URL (Steam CDN only)
 }
 
-// maxGames caps the game collection; maxGameNameBytes bounds each entry's
-// name; maxGameCoverBytes bounds the cover URL.
+// maxGames caps the game collection — generous (a library, not a top-10), but
+// still bounded: entries ride every profile broadcast, and a worst-case entry
+// (64B name + 300B cover URL) × 100 stays ~36KB, well inside the gossip frame
+// budget. maxGameNameBytes bounds each name; maxGameCoverBytes the cover URL.
 const (
-	maxGames          = 12
+	maxGames          = 100
 	maxGameNameBytes  = 64
 	maxGameCoverBytes = 300
 )
