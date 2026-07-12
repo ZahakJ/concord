@@ -1,7 +1,7 @@
-//go:build wails && !windows
+//go:build wails && !windows && !linux
 
 package main
 
-// ensureInstalled is Windows-only self-installation (see install_windows.go);
-// everywhere else the desktop app runs from wherever it lives.
+// ensureInstalled is self-installation for Windows (install_windows.go) and
+// Linux (install_linux.go); macOS would get it with a native .app build.
 func ensureInstalled() bool { return false }

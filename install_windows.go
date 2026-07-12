@@ -9,6 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
+
+	"golang.org/x/sys/windows/registry"
 
 	"github.com/zahak/concord/internal/version"
 )
@@ -21,6 +24,10 @@ import (
 // shortcuts and an Add/Remove Programs entry, relaunch the installed copy,
 // and exit — Discord's exact self-install behavior. Running from the install
 // home is a no-op (plus cleanup of a self-update's parked .old binary).
+//
+// Everything here is silent: registry work goes through syscalls, and the
+// few helper processes (shortcut creation, uninstall sweep) run with hidden
+// windows — no console flashes on launch or install.
 //
 // Returns true when the caller must exit (we relaunched or uninstalled).
 func ensureInstalled() bool {
@@ -43,7 +50,11 @@ func ensureInstalled() bool {
 
 	if strings.EqualFold(exe, target) {
 		os.Remove(target + ".old") // finished self-update: drop the parked copy
-		registerApp(target)        // keep shortcuts/registry fresh (cheap, idempotent)
+		// Re-register only when the recorded version is stale (first run after
+		// a self-update) — not on every launch.
+		if installedVersion() != version.Version {
+			registerApp(target)
+		}
 		return false
 	}
 
@@ -53,7 +64,7 @@ func ensureInstalled() bool {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false // read-only environment: stay portable rather than break
 	}
-	if installedIsNewer() {
+	if semverLess(version.Version, installedVersion()) {
 		if cmd := exec.Command(target, os.Args[1:]...); cmd.Start() == nil {
 			return true
 		}
@@ -76,24 +87,20 @@ func ensureInstalled() bool {
 	return true
 }
 
-// installedIsNewer reports whether the Add/Remove registry entry (which
-// registerApp refreshes on every launch from the install home) records a
-// version strictly newer than this binary's. Unparseable/absent = not newer.
-func installedIsNewer() bool {
-	out, err := exec.Command("reg", "query",
-		`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Concord`,
-		"/v", "DisplayVersion").Output()
+const uninstKeyPath = `Software\Microsoft\Windows\CurrentVersion\Uninstall\Concord`
+
+// installedVersion reads the version registerApp recorded ("" when absent).
+func installedVersion() string {
+	k, err := registry.OpenKey(registry.CURRENT_USER, uninstKeyPath, registry.QUERY_VALUE)
 	if err != nil {
-		return false
+		return ""
 	}
-	fields := strings.Fields(string(out))
-	installed := ""
-	for i, f := range fields {
-		if f == "REG_SZ" && i+1 < len(fields) {
-			installed = fields[i+1]
-		}
+	defer k.Close()
+	v, _, err := k.GetStringValue("DisplayVersion")
+	if err != nil {
+		return ""
 	}
-	return semverLess(version.Version, installed)
+	return v
 }
 
 // semverLess mirrors the updater's comparison (vX.Y.Z; anything unparseable
@@ -166,22 +173,27 @@ func copySelf(src, target string) error {
 }
 
 // registerApp creates the shortcuts and the per-user Add/Remove Programs
-// entry. Every step is best-effort and idempotent.
+// entry. Registry writes are direct syscalls (no processes); the shortcut
+// helper runs with a hidden window. Best-effort and idempotent.
 func registerApp(target string) {
 	dir := filepath.Dir(target)
 	makeShortcut(filepath.Join(os.Getenv("APPDATA"), "Microsoft", "Windows", "Start Menu", "Programs", "Concord.lnk"), target)
 	if home, err := os.UserHomeDir(); err == nil {
 		makeShortcut(filepath.Join(home, "Desktop", "Concord.lnk"), target)
 	}
-	const key = `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Concord`
-	regAdd(key, "DisplayName", "REG_SZ", "Concord")
-	regAdd(key, "DisplayVersion", "REG_SZ", version.Version)
-	regAdd(key, "DisplayIcon", "REG_SZ", target)
-	regAdd(key, "InstallLocation", "REG_SZ", dir)
-	regAdd(key, "UninstallString", "REG_SZ", fmt.Sprintf(`"%s" --uninstall`, target))
-	regAdd(key, "Publisher", "REG_SZ", "Concord contributors")
-	regAdd(key, "NoModify", "REG_DWORD", "1")
-	regAdd(key, "NoRepair", "REG_DWORD", "1")
+	k, _, err := registry.CreateKey(registry.CURRENT_USER, uninstKeyPath, registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer k.Close()
+	_ = k.SetStringValue("DisplayName", "Concord")
+	_ = k.SetStringValue("DisplayVersion", version.Version)
+	_ = k.SetStringValue("DisplayIcon", target)
+	_ = k.SetStringValue("InstallLocation", dir)
+	_ = k.SetStringValue("UninstallString", fmt.Sprintf(`"%s" --uninstall`, target))
+	_ = k.SetStringValue("Publisher", "Concord contributors")
+	_ = k.SetDWordValue("NoModify", 1)
+	_ = k.SetDWordValue("NoRepair", 1)
 }
 
 // uninstall undoes registerApp and removes the install dir (the encrypted
@@ -192,14 +204,13 @@ func uninstall() {
 	if home, err := os.UserHomeDir(); err == nil {
 		os.Remove(filepath.Join(home, "Desktop", "Concord.lnk"))
 	}
-	_ = exec.Command("reg", "delete",
-		`HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Concord`, "/f").Run()
-	// The running exe can't delete itself; a detached shell sweeps the install
-	// dir right after we exit.
+	_ = registry.DeleteKey(registry.CURRENT_USER, uninstKeyPath)
+	// The running exe can't delete itself; a detached (hidden) shell sweeps
+	// the install dir right after we exit.
 	if exe, err := os.Executable(); err == nil {
 		dir := filepath.Dir(exe)
 		if strings.EqualFold(filepath.Base(dir), "Concord") {
-			_ = exec.Command("cmd", "/C",
+			_ = hiddenCmd("cmd", "/C",
 				"ping -n 6 127.0.0.1 > nul & rmdir /S /Q \""+dir+"\"").Start()
 		}
 	}
@@ -210,9 +221,16 @@ func makeShortcut(lnk, target string) {
 	ps := fmt.Sprintf(
 		`$s=(New-Object -ComObject WScript.Shell).CreateShortcut(%q);$s.TargetPath=%q;$s.WorkingDirectory=%q;$s.Save()`,
 		lnk, target, filepath.Dir(target))
-	_ = exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", ps).Run()
+	_ = hiddenCmd("powershell", "-NoProfile", "-NonInteractive", "-Command", ps).Run()
 }
 
-func regAdd(key, name, typ, value string) {
-	_ = exec.Command("reg", "add", key, "/v", name, "/t", typ, "/d", value, "/f").Run()
+// hiddenCmd builds an exec.Cmd whose process never shows a console window —
+// GUI apps spawning console helpers otherwise flash black boxes at the user.
+func hiddenCmd(name string, args ...string) *exec.Cmd {
+	cmd := exec.Command(name, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000, // CREATE_NO_WINDOW
+	}
+	return cmd
 }
