@@ -52,8 +52,8 @@ Concord inverts the model. The design goals, in order:
    history at rest. Not as a feature, but as the load-bearing structure.
 2. **Peer-to-peer** — peers talk to each other. Any helper infrastructure is
    *untrusted*: useful for routing, cryptographically incapable of reading.
-3. **Clean and efficient** — a small, layered Go core (~4k lines of product
-   code), pure-Go dependencies (no C toolchain needed), one binary.
+3. **Clean and efficient** — a layered Go core (~15k lines of product code),
+   pure-Go dependencies (no C toolchain needed), one binary.
 4. **Actually pleasant** — Discord-grade UX: guilds, channels, replies,
    reactions, pins, profiles, voice with speaking indicators, search.
 
@@ -680,9 +680,10 @@ Notes for future-you:
 
 ## 17. Engineering notes
 
-- **~4k lines of product Go** across a strict layer stack, plus a Svelte front
-  end. Pure-Go dependencies (no C toolchain): `go-libp2p`, `go-libp2p-pubsub`,
-  `go-libp2p-kad-dht`, `mls-go`, `modernc.org/sqlite`.
+- **~15k lines of product Go** (plus ~4k of tests) across a strict layer
+  stack, plus a Svelte front end. Pure-Go dependencies (no C toolchain):
+  `go-libp2p`, `go-libp2p-pubsub`, `go-libp2p-kad-dht`, `mls-go`,
+  `modernc.org/sqlite`.
 - **One core, two front ends.** A transport-agnostic `bridge` exposes the
   `Service` to both the browser build (HTTP + Server-Sent Events) and the native
   Wails window (runtime events) — identical behaviour.
@@ -724,16 +725,23 @@ deletes, reactions, pins; markdown (code blocks, lists, quotes) with clickable
 and keyboard navigation; unread counts + per-channel mute; synthesized
 voice/mention sounds; system join/create notices; live presence, typing, and
 full profiles (avatar emoji, accent color, custom status, drag/paste + crop
-avatar editor); voice mesh with a speaking-ring participant panel; guild rename;
-local full-history search; desktop notifications; Markdown export; offline
-history sync; encrypted-at-rest storage; browser **and** native desktop front
-ends; a self-hostable rendezvous/relay node.
+avatar editor); voice mesh with a speaking-ring participant panel — plus
+**camera video and screen sharing** with Discord-style focus/theater tiles;
+guild rename; local full-history search; desktop notifications; Markdown
+export; offline history sync; encrypted-at-rest storage; browser **and**
+native desktop front ends; a self-hostable rendezvous/relay node; a **friends
+list and end-to-end-encrypted 1:1 direct messages**, with an encrypted
+**offline mailbox** on the rendezvous node (ciphertext-only deposits, optional
+contentless push wakes) so DMs land even when the recipient is offline;
+**channel categories and roles & permissions** (signed, replayable governance
+log); **multi-device linking** (QR pair a phone/second desktop; device
+certificates keep MLS identity intact); **native mobile apps** (Capacitor
+Android + iOS shells over a gomobile core — Android APKs ship with releases);
+and in-app **self-update**.
 
-**Next** — a **friends list** (add people you meet on your LAN or invite into a
-guild, so you can find them again without re-sharing codes); direct messages
-(1:1); channel categories, roles & permissions; screen sharing and an optional
-SFU for larger voice rooms; onion-routed metadata privacy; multi-device key
-sync; and **native mobile apps** (iOS + Android) for a fully turnkey experience.
+**Next** — an optional **SFU** (forwarding still-encrypted frames) for larger
+voice rooms; onion-routed metadata privacy; and iOS distribution
+(TestFlight/App Store) to match Android's turnkey install.
 
 The single deliberate trade — peer count per room — buys privacy by
 construction, data ownership, and independence from any operator.
