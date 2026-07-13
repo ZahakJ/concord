@@ -30,7 +30,15 @@
   let editingNick = $state(false);
   let nickText = $state("");
   let nickBusy = $state(false);
-  const canNick = $derived(!!mem?.isSelf && activeGuild()?.kind !== "dm" && !!S.activeGuildId);
+  // You can always rename yourself in a guild. A moderator with MANAGE_MEMBERS
+  // can rename anyone they outrank — never the owner (Discord's rule, and the
+  // one every peer re-checks when the change arrives).
+  const canNick = $derived.by(() => {
+    const g = activeGuild();
+    if (!mem || !S.activeGuildId || g?.kind === "dm") return false;
+    if (mem.isSelf) return true;
+    return !!g?.canManage && !mem.isOwner;
+  });
 
   function startEditNick() {
     nickText = mem?.username ? mem.name : "";
@@ -42,7 +50,8 @@
     if (nickBusy) return;
     nickBusy = true;
     try {
-      await api.setNickname(S.activeGuildId, nickText.trim());
+      if (mem.isSelf) await api.setNickname(S.activeGuildId, nickText.trim());
+      else await api.setMemberNickname(S.activeGuildId, mem.fingerprint, nickText.trim());
       await refreshRightPanel();
       editingNick = false;
       flash(nickText.trim() ? "Nickname set" : "Nickname cleared", "success");
@@ -460,7 +469,11 @@
         {:else}
           <button class="nick-edit" onclick={startEditNick}>
             <Icon name="edit" size={12} />
-            {mem.username ? "Change guild nickname" : "Set guild nickname"}
+            {#if mem.isSelf}
+              {mem.username ? "Change guild nickname" : "Set guild nickname"}
+            {:else}
+              {mem.username ? "Change their nickname" : "Give them a nickname"}
+            {/if}
           </button>
         {/if}
       {/if}

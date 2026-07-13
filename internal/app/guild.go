@@ -13,6 +13,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/zahak/concord/internal/domain"
+	"github.com/zahak/concord/internal/identity"
 )
 
 // This file implements the guild lifecycle: creating a guild, generating and
@@ -961,6 +962,62 @@ func (s *Service) announceProfile(guildID string) {
 // SetNickname sets (or, with an empty nick, clears) this member's own display
 // name inside one guild. It shadows the global profile name for that guild only.
 // The change is persisted locally and announced to the other members.
+// nickAllowed decides whether `actor` may set `target`'s nickname in a guild.
+// You may always rename yourself. Renaming someone else needs MANAGE_MEMBERS —
+// and you must outrank them, so a moderator cannot rename the owner or a peer
+// of equal standing. Same shape as the kick/ban gate: authority is never
+// self-asserted, it's replayed from the signed op log.
+func (s *Service) nickAllowed(guildID, actor, target string) bool {
+	if actor == "" || target == "" {
+		return false
+	}
+	if actor == target {
+		return true
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		return false
+	}
+	owner := identity.FingerprintOf(g.OwnerID)
+	st := s.govState[guildID]
+	if !st.Can(owner, actor, PermManageMembers) {
+		return false
+	}
+	if target == owner {
+		return false // nobody renames the owner but the owner
+	}
+	return actor == owner || st.topPosition(owner, actor) > st.topPosition(owner, target)
+}
+
+// SetMemberNickname sets ANOTHER member's per-guild nickname (a moderator
+// action). The same gate runs on every peer that receives it, so a client that
+// skips this check convinces nobody.
+func (s *Service) SetMemberNickname(guildID, fingerprint, nick string) error {
+	nick = strings.TrimSpace(nick)
+	if len(nick) > maxNameBytes {
+		nick = nick[:maxNameBytes]
+	}
+	if !s.nickAllowed(guildID, s.id.Fingerprint(), fingerprint) {
+		return fmt.Errorf("app: you can't change that member's nickname")
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("app: unknown guild %q", guildID)
+	}
+	s.rememberNick(guildID, fingerprint, nick)
+	s.publishMeta(groupID, guildMeta{Type: "nickname", Fingerprint: fingerprint, Name: nick})
+	s.emitGuildUpdate()
+	return nil
+}
+
 func (s *Service) SetNickname(guildID, nick string) error {
 	nick = strings.TrimSpace(nick)
 	if len(nick) > maxNameBytes {
@@ -1485,9 +1542,27 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			s.announceProfile(guildID)
 		}
 	case "nickname":
-		// A member set their own per-guild nickname (self-asserted, same trust
-		// model as profiles). Empty Name clears it back to the profile name.
-		if m.Fingerprint == "" || m.Fingerprint == s.id.Fingerprint() {
+		// A per-guild nickname. Two legitimate authors: the member themselves,
+		// or a moderator with MANAGE_MEMBERS renaming someone (Discord-style).
+		// EVERY peer checks this independently against the replayed op log —
+		// the payload names its target, so without this check any member could
+		// rename anyone on everyone else's screen. MLS authenticates SenderID,
+		// which is what makes the check meaningful.
+		if m.Fingerprint == "" {
+			return
+		}
+		actor := accountFingerprintOf(msg.SenderID)
+		if !s.nickAllowed(guildID, actor, m.Fingerprint) {
+			return
+		}
+		if m.Fingerprint == s.id.Fingerprint() {
+			// Someone renamed US. Keep it — but it must have passed the same gate.
+			nick := m.Name
+			if len(nick) > maxNameBytes {
+				nick = nick[:maxNameBytes]
+			}
+			s.rememberNick(guildID, m.Fingerprint, nick)
+			s.emitGuildUpdate()
 			return
 		}
 		nick := m.Name

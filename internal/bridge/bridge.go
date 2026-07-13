@@ -992,6 +992,17 @@ func (b *Bridge) SetNickname(guildID, nick string) error {
 	return svc.SetNickname(guildID, nick)
 }
 
+// SetMemberNickname sets ANOTHER member's per-guild nickname. Requires
+// MANAGE_MEMBERS and outranking them — enforced again on every peer that
+// receives the change, not just here.
+func (b *Bridge) SetMemberNickname(guildID, fingerprint, nick string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetMemberNickname(guildID, fingerprint, nick)
+}
+
 // RoleView is a role definition for the UI.
 type RoleView struct {
 	ID       string `json:"id"`
@@ -1637,6 +1648,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1))
 	case "SetNickname":
 		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
+	case "SetMemberNickname":
+		return nil, b.SetMemberNickname(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "Roles":
 		return b.Roles(argStr(args, 0))
 	case "UpsertRole":

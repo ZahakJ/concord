@@ -293,3 +293,66 @@ func TestModeratorCannotSelfPromote(t *testing.T) {
 		t.Fatal("a moderator minted a role more powerful than themselves")
 	}
 }
+
+// TestNicknameAuthority pins who may rename whom. The rule matters because the
+// nickname payload NAMES ITS TARGET: without a check on the (MLS-authenticated)
+// sender, any member could rename anyone on everyone else's screen. Renaming
+// someone else needs MANAGE_MEMBERS and outranking them; the owner is
+// untouchable; renaming yourself is always fine.
+func TestNicknameAuthority(t *testing.T) {
+	owner := mustID(t)
+	mod := mustID(t)
+	member := mustID(t)
+	ownerFpr := identity.FingerprintOf(owner.PublicKey())
+	modFpr := identity.FingerprintOf(mod.PublicKey())
+	memberFpr := identity.FingerprintOf(member.PublicKey())
+
+	st := replayGuildOps(owner.PublicKey(), []govOp{
+		upsertRole(owner, 1, "r_mod", "Mod", PermManageMembers, 10),
+		assignRole(owner, 2, modFpr, "r_mod", true),
+	})
+
+	// allowed reproduces Service.nickAllowed against a replayed state.
+	allowed := func(actor, target string) bool {
+		if actor == target {
+			return true
+		}
+		if !st.Can(ownerFpr, actor, PermManageMembers) {
+			return false
+		}
+		if target == ownerFpr {
+			return false
+		}
+		return actor == ownerFpr || st.topPosition(ownerFpr, actor) > st.topPosition(ownerFpr, target)
+	}
+
+	cases := []struct {
+		name          string
+		actor, target string
+		want          bool
+	}{
+		{"a member renames themselves", memberFpr, memberFpr, true},
+		{"a mod renames a member", modFpr, memberFpr, true},
+		{"the owner renames a mod", ownerFpr, modFpr, true},
+		{"a plain member renames someone else", memberFpr, modFpr, false},
+		{"a mod renames the owner", modFpr, ownerFpr, false},
+		{"a mod renames another mod (equal rank)", modFpr, modFpr, true}, // self
+	}
+	for _, c := range cases {
+		if got := allowed(c.actor, c.target); got != c.want {
+			t.Errorf("%s: allowed=%v, want %v", c.name, got, c.want)
+		}
+	}
+
+	// Two mods of equal rank: neither may rename the other.
+	mod2 := mustID(t)
+	mod2Fpr := identity.FingerprintOf(mod2.PublicKey())
+	st = replayGuildOps(owner.PublicKey(), []govOp{
+		upsertRole(owner, 1, "r_mod", "Mod", PermManageMembers, 10),
+		assignRole(owner, 2, modFpr, "r_mod", true),
+		assignRole(owner, 3, mod2Fpr, "r_mod", true),
+	})
+	if allowed(modFpr, mod2Fpr) {
+		t.Error("a moderator must not rename a moderator of equal rank")
+	}
+}
