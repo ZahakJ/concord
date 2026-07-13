@@ -791,8 +791,11 @@
       >
         <Icon name="smile" size={22} />
       </button>
-      {#if mobile}
-        <!-- Explicit send button: Enter is a newline on the phone keyboard. -->
+      {#if coarse}
+        <!-- Touch only: on a phone Enter is a newline, so this is the only way
+             to send. On desktop (even a narrow window) Enter sends and this
+             button is just noise — keyed on pointer coarseness, not layout, so
+             it never shows there. -->
         <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
           <Icon name="send" size={17} />
         </button>
