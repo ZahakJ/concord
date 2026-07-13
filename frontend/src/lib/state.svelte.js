@@ -65,6 +65,8 @@ export const S = $state({
   // Spread over defaults so prefs saved before a key existed still get it.
   prefs: {
     linkPreviews: false,
+    showDeleted: false, // off = deleted messages vanish; on = leave a faint marker
+    hideCallIp: false, // on = always relay calls through the rendezvous (hide IP)
     theme: "dark",
     accent: "",
     themePack: "", // curated full-palette skin ("" = default palette)
@@ -496,8 +498,17 @@ export const countsAsChat = (m) => m.kind === "" || m.kind === "guest";
 
 function isMentionOfSelf(m) {
   if (m.kind !== "" && m.kind !== "guest") return false;
-  // @everyone / @here ping every member; don't fire on your own message.
-  if (/(^|\s)@(everyone|here)\b/.test(m.content) && m.sender !== S.identity.fingerprint) return true;
+  // @everyone / @here ping every member — but ONLY a real member may wield them.
+  // A guest is chat-scoped; their message is relayed under the host's key, so
+  // without this guard a guest typing "@everyone" would ping the whole guild.
+  if (
+    m.kind === "" &&
+    /(^|\s)@(everyone|here)\b/.test(m.content) &&
+    m.sender !== S.identity.fingerprint
+  )
+    return true;
+  // A direct @mention of you still notifies (a guest greeting you by name is
+  // fine — it's one ping to one person, not a broadcast).
   return containsMention(m.content, [S.displayName]);
 }
 

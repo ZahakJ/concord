@@ -261,9 +261,35 @@
     joining = true;
     voiceHadPeer = false;
     voiceWasAccept = incomingCall()?.channelId === channelId;
+
+    // IP privacy. Fetch ICE config (STUN + optional TURN relay) up front. We
+    // force-relay — hiding our IP from the call's peers — when either:
+    //   • this is a MEETING (guests join meetings from public links; a stranger
+    //     must never learn the host's IP, and forcing relay on both ends is what
+    //     makes that mutual — the guest page already relays), or
+    //   • the user turned on "Hide my IP on calls" globally.
+    // If no relay is available we fall back to a normal call (can't hide, but
+    // still connects) rather than failing.
+    const kind = S.guilds.find((g) => g.id === S.activeGuildId)?.kind;
+    let iceServers;
+    let forceRelay = false;
+    try {
+      const cfg = await api.callIceServers();
+      iceServers = cfg?.iceServers;
+      const wantRelay = kind === "meeting" || S.prefs.hideCallIp === true;
+      forceRelay = wantRelay && cfg?.relayAvailable === true;
+      if (wantRelay && !cfg?.relayAvailable) {
+        flash("No relay available — this call won't hide your IP.", "info");
+      }
+    } catch {
+      // stay on defaults (plain STUN, no relay)
+    }
+
     const mesh = new VoiceMesh({
       selfPeerId: S.identity.peerId,
       channelId,
+      iceServers,
+      forceRelay,
       relay: api.relaySignal,
       onRoster: (ids) => {
         S.voiceParticipants = ids;

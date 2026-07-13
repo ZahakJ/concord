@@ -118,10 +118,15 @@ func run() error {
 	}
 	mbox.Attach(ctx, h)
 
+	// TURN relay: lets a call hide participants' IPs from each other by relaying
+	// media through this node (see turn.go). Off unless CONCORD_TURN_SECRET is
+	// set. Its credential endpoint is served on the guest gateway below.
+	ts := serveTURN(ctx)
+
 	// Guest gateway: plain-HTTPS door for browser guests joining a meeting
 	// (see guest.go). It relays their WebSocket to the meeting host and never
-	// reads the meeting itself.
-	serveGuestGateway(ctx, h)
+	// reads the meeting itself; it also serves TURN credentials when TURN is on.
+	serveGuestGateway(ctx, h, ts)
 
 	fmt.Println("Concord rendezvous node running (DHT + relay + mailbox + guest gateway).")
 	fmt.Println("PeerID:", h.ID())

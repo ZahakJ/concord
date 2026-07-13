@@ -128,6 +128,10 @@
     const out = [];
     let prev = null;
     for (const m of S.messages) {
+      // A deleted message is gone by default — no tombstone, no gap, as if it
+      // was never posted. Opt in (Settings → "Show deleted messages") to keep a
+      // faint marker where one was, so you can see that something was removed.
+      if (m.deleted && !S.prefs.showDeleted) continue;
       const day = new Date(m.sent).toDateString();
       const newDay = !prev || new Date(prev.sent).toDateString() !== day;
       // Grouping follows the AUTHOR, not the signing key: a relayed guest is a

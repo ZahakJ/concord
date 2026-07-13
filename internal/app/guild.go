@@ -363,6 +363,19 @@ func (s *Service) IsOwner(guildID string) bool {
 	return ok && bytes.Equal(g.OwnerID, s.PublicKey())
 }
 
+// GuildOwnerFingerprint is the account fingerprint of a guild's owner. Used to
+// authenticate relayed guest messages: a "guest" message is only genuine if the
+// meeting's OWNER (the host running the guest gateway) signed it.
+func (s *Service) GuildOwnerFingerprint(guildID string) string {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	s.mu.RUnlock()
+	if !ok {
+		return ""
+	}
+	return identity.FingerprintOf(g.OwnerID)
+}
+
 // RemoveMember evicts a member from a guild. The caller must be the owner or
 // hold the manage-members permission; the resulting MLS commit is published to
 // the control topic so remaining members re-key, and honest peers accept it

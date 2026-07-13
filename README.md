@@ -745,3 +745,26 @@ voice rooms; onion-routed metadata privacy; and iOS distribution
 
 The single deliberate trade — peer count per room — buys privacy by
 construction, data ownership, and independence from any operator.
+
+---
+
+## License
+
+Concord is free and open-source software, licensed under the
+**GNU Affero General Public License v3.0** (AGPL-3.0). See [LICENSE](LICENSE).
+
+The AGPL is a deliberate choice for a privacy tool. You are free to use, study,
+modify, and self-host Concord. But the AGPL closes the "SaaS loophole": if you
+run a **modified** version as a network service that others interact with, you
+must make your modified source available to those users. Nobody gets to take
+Concord, quietly fork it into a closed hosted product, and deny their users the
+freedoms you have here.
+
+Copyright (C) 2026 Concord contributors.
+
+    This program is free software: you can redistribute it and/or modify it
+    under the terms of the GNU Affero General Public License as published by the
+    Free Software Foundation, either version 3 of the License, or (at your
+    option) any later version. This program is distributed WITHOUT ANY WARRANTY;
+    without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+    PARTICULAR PURPOSE. See the GNU AGPL for more details.

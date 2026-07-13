@@ -431,6 +431,39 @@
         </span>
         <span class="switch" class:on={S.prefs.linkPreviews}><span class="knob"></span></span>
       </button>
+      <button
+        class="row"
+        onclick={() => setPref("showDeleted", !S.prefs.showDeleted)}
+        role="switch"
+        aria-checked={S.prefs.showDeleted}
+      >
+        <span class="chip"><Icon name="trash" size={16} /></span>
+        <span class="row-text">
+          <span class="row-title">Show deleted messages</span>
+          <span class="row-sub">
+            Off by default: deleted messages simply disappear. Turn on to leave a
+            faint "deleted" marker where one used to be.
+          </span>
+        </span>
+        <span class="switch" class:on={S.prefs.showDeleted}><span class="knob"></span></span>
+      </button>
+      <button
+        class="row"
+        onclick={() => setPref("hideCallIp", !S.prefs.hideCallIp)}
+        role="switch"
+        aria-checked={S.prefs.hideCallIp}
+      >
+        <span class="chip"><Icon name="lock" size={16} /></span>
+        <span class="row-text">
+          <span class="row-title">Hide my IP on calls</span>
+          <span class="row-sub">
+            Relays call media through the rendezvous instead of connecting
+            directly, so the people you call can't see your IP address. Meetings
+            with browser guests always relay. Slightly higher latency.
+          </span>
+        </span>
+        <span class="switch" class:on={S.prefs.hideCallIp}><span class="knob"></span></span>
+      </button>
       <button class="row" onclick={toggleRichPresence} role="switch" aria-checked={richPresence}>
         <span class="chip"><Icon name="spark" size={16} /></span>
         <span class="row-text">

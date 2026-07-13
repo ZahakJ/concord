@@ -154,18 +154,22 @@ type GuildView struct {
 	DMMembers      int    `json:"dmMembers,omitempty"`    // total members in a DM (incl. self); lets the UI hide empty pending DMs
 	// DMFaces is the other members (excluding self) of a DM, for the bubble: a
 	// single face for a peer DM, several for a group DM (rendered as a collage).
-	DMFaces     []DMFace       `json:"dmFaces,omitempty"`
-	DMNamed     bool           `json:"dmNamed,omitempty"` // group DM has a user-set custom name
-	DMNotes     bool           `json:"dmNotes,omitempty"` // the self-notes DM (stored name, immune to a peer named "Notes")
-	IsOwner     bool           `json:"isOwner"`
-	CanManage   bool           `json:"canManage"`   // viewer may invite/kick/ban here
-	MyPerms     uint32         `json:"myPerms"`     // viewer's effective permission bitmask
-	Icon        string         `json:"icon"`        // guild logo (data URI)
-	Banner      string         `json:"banner"`      // guild banner image (data URI)
-	Description string         `json:"description"` // guild blurb
-	Channels    []ChannelView  `json:"channels"`
-	Categories  []CategoryView `json:"categories"`
-	Emoji       []EmojiView    `json:"emoji"`
+	DMFaces []DMFace `json:"dmFaces,omitempty"`
+	DMNamed bool     `json:"dmNamed,omitempty"` // group DM has a user-set custom name
+	DMNotes bool     `json:"dmNotes,omitempty"` // the self-notes DM (stored name, immune to a peer named "Notes")
+	IsOwner bool     `json:"isOwner"`
+	// OwnerFingerprint authenticates relayed guest messages: kind:"guest" is only
+	// honoured in a meeting when the owner (the host) signed it. Without it a
+	// member could forge an unaccountable "guest" author.
+	OwnerFingerprint string         `json:"ownerFingerprint,omitempty"`
+	CanManage        bool           `json:"canManage"`   // viewer may invite/kick/ban here
+	MyPerms          uint32         `json:"myPerms"`     // viewer's effective permission bitmask
+	Icon             string         `json:"icon"`        // guild logo (data URI)
+	Banner           string         `json:"banner"`      // guild banner image (data URI)
+	Description      string         `json:"description"` // guild blurb
+	Channels         []ChannelView  `json:"channels"`
+	Categories       []CategoryView `json:"categories"`
+	Emoji            []EmojiView    `json:"emoji"`
 	// OutOfSync: this member is stranded at an old MLS epoch that no reachable
 	// peer could bridge; new messages can't be decrypted until re-invited.
 	OutOfSync bool `json:"outOfSync,omitempty"`
@@ -1001,6 +1005,16 @@ func (b *Bridge) SetNickname(guildID, nick string) error {
 // SetMemberNickname sets ANOTHER member's per-guild nickname. Requires
 // MANAGE_MEMBERS and outranking them — enforced again on every peer that
 // receives the change, not just here.
+// CallIceServers returns ICE config (STUN + optional TURN with fresh creds) for
+// starting a call. See internal/app/ice.go.
+func (b *Bridge) CallIceServers() (appsvc.IceConfig, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.IceConfig{}, err
+	}
+	return svc.CallIceServers(), nil
+}
+
 // PurgeMessages clears the last n messages in a channel (needs MANAGE_MESSAGES).
 func (b *Bridge) PurgeMessages(channelID string, n int) (int, error) {
 	svc, err := b.service()
@@ -1398,7 +1412,8 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	}
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
-		DMPeerPresence: dmPeerPresence, DMPeerOnline: dmPeerOnline,
+		OwnerFingerprint: svc.GuildOwnerFingerprint(g.ID),
+		DMPeerPresence:   dmPeerPresence, DMPeerOnline: dmPeerOnline,
 		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers, DMFaces: dmFaces,
 		DMNamed:   g.Kind == "dm" && isCustomDMName(g.Name),
 		DMNotes:   g.Kind == "dm" && g.Name == "Notes",
@@ -1672,6 +1687,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1))
 	case "SetNickname":
 		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
+	case "CallIceServers":
+		return b.CallIceServers()
 	case "PurgeMessages":
 		return b.PurgeMessages(argStr(args, 0), argInt(args, 1))
 	case "AddMember":

@@ -59,7 +59,7 @@ var upgrader = websocket.Upgrader{
 
 // serveGuestGateway starts the HTTPS side of the node (fly.io terminates TLS
 // in front of it). Disabled when CONCORD_GUEST_PORT is empty.
-func serveGuestGateway(ctx context.Context, h host.Host) {
+func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 	port := os.Getenv("CONCORD_GUEST_PORT")
 	if port == "" {
 		port = "8080"
@@ -94,6 +94,11 @@ func serveGuestGateway(ctx context.Context, h host.Host) {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
+	// TURN credentials for IP-private calls. Present only when TURN is enabled;
+	// returns fresh time-windowed creds (see turn.go).
+	if ts != nil {
+		mux.HandleFunc("/turn", ts.handleTURNCreds)
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + port,

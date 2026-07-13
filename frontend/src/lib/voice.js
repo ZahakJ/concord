@@ -9,15 +9,30 @@
 // negotiation" pattern, with the politeness role decided deterministically by
 // comparing peer IDs so the two sides always disagree.
 
-const ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+const DEFAULT_ICE = [{ urls: "stun:stun.l.google.com:19302" }];
 
 export class VoiceMesh {
   // selfPeerId: our libp2p peer id; channelId: the voice room; relay(to, json)
   // sends a signaling blob; onRoster(peerIds[]) reports participant changes.
-  constructor({ selfPeerId, channelId, relay, onRoster, onSpeaking, onVideo, onVideoState }) {
+  constructor({
+    selfPeerId,
+    channelId,
+    relay,
+    onRoster,
+    onSpeaking,
+    onVideo,
+    onVideoState,
+    iceServers,
+    forceRelay = false,
+  }) {
     this.selfPeerId = selfPeerId;
     this.channelId = channelId;
     this.relay = relay;
+    this.iceServers = iceServers?.length ? iceServers : DEFAULT_ICE;
+    // forceRelay = never emit our real address: only relayed candidates, so a
+    // call peer (e.g. a stranger on a meeting link) can't learn our IP. Requires
+    // a TURN relay to be reachable, or the call can't connect.
+    this.iceTransportPolicy = forceRelay ? "relay" : "all";
     this.onRoster = onRoster || (() => {});
     this.onSpeaking = onSpeaking || (() => {});
     // onVideo(key, stream|null, meta): a remote video source appeared/vanished.
@@ -221,7 +236,10 @@ export class VoiceMesh {
   }
 
   addPeer(peerId) {
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+    const pc = new RTCPeerConnection({
+      iceServers: this.iceServers,
+      iceTransportPolicy: this.iceTransportPolicy,
+    });
     const peer = {
       pc,
       makingOffer: false,

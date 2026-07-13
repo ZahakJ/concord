@@ -147,6 +147,7 @@ export const api = {
   joinVoice: (channelID) => call("JoinVoice", channelID),
   leaveVoice: (channelID) => call("LeaveVoice", channelID),
   relaySignal: (toPeerID, data) => call("RelaySignal", toPeerID, data),
+  callIceServers: () => call("CallIceServers"),
   sendTyping: (channelID) => call("SendTyping", channelID),
   setProfile: (name, status, emoji, color, avatar, banner = "", presence = "", bio = "", color2 = "", frame = "", effect = "", style = "") =>
     call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style),

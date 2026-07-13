@@ -23,9 +23,19 @@
   const preset = $derived(presetOf(banner));
   const angle = $derived(Number.isFinite(style?.angle) ? style.angle : 120);
 
+  // Defense in depth: the backend already restricts a peer's banner to a strict
+  // base64 image data-URI (validImageDataURI), but this value lands inside a CSS
+  // url("…"). Only ever emit a banner image if it still looks like that exact
+  // shape — never interpolate an arbitrary string into CSS.
+  const safeImage = $derived(
+    banner && !isPreset(banner) && /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(banner)
+      ? banner
+      : "",
+  );
+
   const bg = $derived.by(() => {
     if (preset) return preset.base;
-    if (banner && !isPreset(banner)) return `url("${banner}") center/cover`;
+    if (safeImage) return `url("${safeImage}") center/cover`;
     if (!color) return ""; // the CSS default accent gradient
     if (style?.fill === "solid" || !color2) return color;
     return `linear-gradient(${angle}deg, ${color}, ${color2})`;

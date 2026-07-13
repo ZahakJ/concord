@@ -314,7 +314,17 @@
   // A browser guest has no key: their message is relayed under the host's
   // signature. It is NOT the host talking, so it gets its own author row and
   // never inherits the host's name, color, avatar or fingerprint.
-  const guest = $derived(m.kind === "guest");
+  // `kind:"guest"` is only honoured where guests can actually exist: a meeting
+  // guild, relayed by that meeting's owner (the host). Anywhere else it's a
+  // forgery — a member setting kind/Name themselves to post as an
+  // unaccountable "guest" — so we fall back to normal member rendering, which
+  // always shows the MLS-authenticated sender's fingerprint. This keeps the
+  // guest feature while making the true author impossible to hide.
+  const guest = $derived(
+    m.kind === "guest" &&
+      activeGuild()?.kind === "meeting" &&
+      m.sender === activeGuild()?.ownerFingerprint,
+  );
   const guestName = $derived(m.senderName || "Guest");
 
   function messageMenu(e) {
@@ -460,7 +470,7 @@
     {/if}
 
     {#if m.deleted}
-      <div class="body deleted"><em>message deleted</em></div>
+      <div class="body deleted"><em>deleted</em></div>
     {:else if S.editing?.id === m.id}
       <div class="edit-wrap" class:pick-below={editPickerBelow}>
         <!-- svelte-ignore a11y_autofocus -->

@@ -233,8 +233,8 @@ func validSat(s string) bool {
 	if s == "" {
 		return true
 	}
-	if strings.HasPrefix(s, "data:image/") {
-		return len(s) <= maxSatBytes
+	if strings.HasPrefix(s, "data:") {
+		return validImageDataURI(s, maxSatBytes)
 	}
 	return len(s) <= 16 && utf8.ValidString(s) && !strings.ContainsAny(s, "\"'<>\\;()")
 }
@@ -413,9 +413,47 @@ func validID(id string) bool {
 	return true
 }
 
+// validImageDataURI enforces a STRICT data-URI shape: a known raster image type
+// followed by base64. This matters because a banner is interpolated into a CSS
+// url("…") — a value like `data:image/svg+xml,x");background:url(//attacker)` is
+// still "data:image/…" but breaks out of the quotes and injects CSS that fetches
+// an attacker URL (deanonymizing every viewer). Restricting to base64 raster
+// images admits exactly what the app itself produces (canvas.toDataURL) while
+// making the quote/paren/semicolon breakout characters impossible.
+func validImageDataURI(u string, maxLen int) bool {
+	if len(u) > maxLen {
+		return false
+	}
+	rest, ok := strings.CutPrefix(u, "data:image/")
+	if !ok {
+		return false
+	}
+	meta, b64, ok := strings.Cut(rest, ",")
+	if !ok {
+		return false
+	}
+	typ, enc, ok := strings.Cut(meta, ";")
+	if !ok || enc != "base64" {
+		return false
+	}
+	if !oneOf(typ, "png", "jpeg", "jpg", "gif", "webp") {
+		return false
+	}
+	for _, r := range b64 {
+		if !(r >= 'A' && r <= 'Z') && !(r >= 'a' && r <= 'z') &&
+			!(r >= '0' && r <= '9') && r != '+' && r != '/' && r != '=' {
+			return false
+		}
+	}
+	return b64 != ""
+}
+
 func validBanner(b string) bool {
-	if b == "" || strings.HasPrefix(b, "data:image/") {
+	if b == "" {
 		return true
+	}
+	if strings.HasPrefix(b, "data:") {
+		return validImageDataURI(b, maxProfileBannerBytes)
 	}
 	id, ok := strings.CutPrefix(b, "preset:")
 	if !ok || id == "" || len(id) > 32 {
@@ -1057,8 +1095,8 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	if fingerprint == "" || fingerprint == s.id.Fingerprint() {
 		return false
 	}
-	if len(p.Avatar) > maxAvatarBytes || (p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/")) {
-		p.Avatar = "" // reject oversized or non-image avatars from peers
+	if p.Avatar != "" && !validImageDataURI(p.Avatar, maxAvatarBytes) {
+		p.Avatar = "" // reject oversized / malformed / non-image avatars from peers
 	}
 	if len(p.Banner) > maxProfileBannerBytes || !validBanner(p.Banner) {
 		p.Banner = "" // reject oversized / malformed banners from peers

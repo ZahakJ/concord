@@ -394,7 +394,27 @@
       // We are always the POLITE peer: the app offers, we answer. That's the
       // standard perfect-negotiation role split, and it means no glare here.
       // ---------------------------------------------------------------------
-      const ICE = [{ urls: "stun:stun.l.google.com:19302" }];
+      // ICE config. We fetch a TURN relay from this same origin and, when one
+      // exists, FORCE-RELAY the guest's media: a meeting link must never hand the
+      // stranger who clicked it your real IP. If there's no relay we fall back to
+      // a direct call (the historic behaviour) rather than failing to connect.
+      let ICE = [{ urls: "stun:stun.l.google.com:19302" }];
+      let relayOnly = false;
+      async function loadIce() {
+        try {
+          const r = await fetch("/turn", { cache: "no-store" });
+          if (!r.ok) return;
+          const cfg = await r.json();
+          if (cfg?.iceServers?.length) {
+            ICE = cfg.iceServers;
+            relayOnly = cfg.iceServers.some((s) =>
+              (s.urls || []).some((u) => String(u).startsWith("turn:")),
+            );
+          }
+        } catch {
+          /* no relay on this deployment — direct call */
+        }
+      }
       let pc = null;
       let local = null; // our camera+mic stream
       let channelId = ""; // the voice room, learned from `welcome`
@@ -432,7 +452,10 @@
         $("callBtn").style.display = "none";
         setStat("connecting…");
 
-        pc = new RTCPeerConnection({ iceServers: ICE });
+        pc = new RTCPeerConnection({
+          iceServers: ICE,
+          iceTransportPolicy: relayOnly ? "relay" : "all",
+        });
         for (const track of local.getTracks()) pc.addTrack(track, local);
         // Ask for a slot to RECEIVE the host's camera even though we're sending
         // none, so they can turn theirs on later without renegotiating from
@@ -583,6 +606,7 @@
         $("camBtn").classList.remove("off");
       }
 
+      loadIce();
       $("callBtn").onclick = joinCall;
       $("hangBtn").onclick = leaveCall;
       $("micBtn").onclick = () => {
