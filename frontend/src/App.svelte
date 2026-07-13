@@ -63,6 +63,8 @@
   import ModalRenameGroup from "./modals/ModalRenameGroup.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
+  import ModalAddMembers from "./modals/ModalAddMembers.svelte";
+  import ModalGuildInvite from "./modals/ModalGuildInvite.svelte";
   import ModalProfile from "./modals/ModalProfile.svelte";
   import ModalSettings from "./modals/ModalSettings.svelte";
   import ModalLinkDevice from "./modals/ModalLinkDevice.svelte";
@@ -639,6 +641,10 @@
     <ModalAppearance onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "join"}
     <ModalJoin error={S.modal.error} onSubmit={joinGuild} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "guildInvite"}
+    <ModalGuildInvite invite={S.modal.invite} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "addMembers"}
+    <ModalAddMembers onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "invite"}
     <ModalInvite code={S.modal.code} onCopy={copy} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "confirm"}

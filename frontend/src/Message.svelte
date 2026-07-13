@@ -310,7 +310,12 @@
     flash(ok, "success");
   }
 
-  const isOwn = $derived(m.sender === S.identity.fingerprint);
+  const isOwn = $derived(m.sender === S.identity.fingerprint && m.kind !== "guest");
+  // A browser guest has no key: their message is relayed under the host's
+  // signature. It is NOT the host talking, so it gets its own author row and
+  // never inherits the host's name, color, avatar or fingerprint.
+  const guest = $derived(m.kind === "guest");
+  const guestName = $derived(m.senderName || "Guest");
 
   function messageMenu(e) {
     if (m.deleted) return;
@@ -384,19 +389,25 @@
   {#if compact}
     <span class="gutter-time muted" title={new Date(m.sent).toLocaleString()}>{fmtTime(m.sent)}</span>
   {:else}
-    <button
-      class="av-btn"
-      title="View profile"
-      onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
-    >
-      <Avatar
-        name={nameFor(m.sender, m.senderName)}
-        emoji={mem?.emoji}
-        color={mem?.color}
-        image={mem?.avatar}
-        size={38}
-      />
-    </button>
+    {#if guest}
+      <span class="av-btn guest-av" title="A guest in this meeting">
+        <Avatar name={guestName} emoji="👤" color="#5b6270" size={38} />
+      </span>
+    {:else}
+      <button
+        class="av-btn"
+        title="View profile"
+        onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
+      >
+        <Avatar
+          name={nameFor(m.sender, m.senderName)}
+          emoji={mem?.emoji}
+          color={mem?.color}
+          image={mem?.avatar}
+          size={38}
+        />
+      </button>
+    {/if}
   {/if}
 
   <div class="msg-main">
@@ -421,19 +432,26 @@
     {/if}
     {#if !compact}
       <div class="msg-head">
-        <button
-          class="sender"
-          style={nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
-          onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
-          >{nameFor(m.sender, m.senderName)}</button
-        >
-        <span
-          class="muted mono verify-fpr"
-          class:verified={memberByFpr(m.sender)?.verified}
-          title={memberByFpr(m.sender)?.verified
-            ? "Identity verified"
-            : "Sender fingerprint — not verified"}>{m.sender.slice(0, 9)}</span
-        >
+        {#if guest}
+          <span class="sender guest-name">{guestName}</span>
+          <span class="guest-badge" title="Joined from a meeting link — no account, unverified"
+            >guest</span
+          >
+        {:else}
+          <button
+            class="sender"
+            style={nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
+            onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
+            >{nameFor(m.sender, m.senderName)}</button
+          >
+          <span
+            class="muted mono verify-fpr"
+            class:verified={memberByFpr(m.sender)?.verified}
+            title={memberByFpr(m.sender)?.verified
+              ? "Identity verified"
+              : "Sender fingerprint — not verified"}>{m.sender.slice(0, 9)}</span
+          >
+        {/if}
         <span class="muted time" title={new Date(m.sent).toLocaleString()}>{fmtTime(m.sent)}</span>
         {#if m.pinned}<span class="pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
       </div>
@@ -749,6 +767,32 @@
       transform: scale(0.4) rotate(-30deg);
       opacity: 0;
     }
+  }
+  /* A guest is visibly not a member: muted name, an explicit badge, no
+     fingerprint (they have no key to show). */
+  .guest-name {
+    color: var(--text);
+    cursor: default;
+    background: none;
+    border: none;
+    padding: 0;
+    font: inherit;
+    font-weight: 600;
+  }
+  .guest-badge {
+    padding: 0 6px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+    border-radius: 4px;
+    background: var(--bg-3);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .guest-av {
+    display: inline-flex;
+    cursor: default;
   }
   .pin-mark.inline {
     float: right;

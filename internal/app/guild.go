@@ -394,6 +394,43 @@ func (s *Service) RemoveMember(guildID string, memberCredential []byte) error {
 	return s.ps.Publish(s.ctx, domain.ControlTopicID(g.GroupID), commit)
 }
 
+// AddMember drops a VERIFIED contact straight into a guild — the thing you can
+// already do with a DM, and there was never a reason servers couldn't do it too.
+// It mints an invite and pushes it to them over the same channel a DM invite
+// uses; their client auto-accepts only because they verified US (see
+// isVerifiedGuildInvite). Both halves are required: we must be allowed to invite
+// here, and they must have verified us. Anyone else still needs a code.
+func (s *Service) AddMember(guildID, fingerprint string) error {
+	if fingerprint == "" {
+		return fmt.Errorf("app: no contact given")
+	}
+	if !s.canManageMembers(guildID) {
+		return fmt.Errorf("app: you don't have permission to invite people here")
+	}
+	if !s.VerifiedFingerprints()[fingerprint] {
+		return fmt.Errorf("app: verify this contact first — only verified contacts can be added directly")
+	}
+	if s.guildHasMember(guildID, fingerprint) {
+		return fmt.Errorf("app: they're already in this server")
+	}
+	pid, ok := s.peerForFingerprint(fingerprint)
+	if !ok {
+		return fmt.Errorf("app: they're offline — try again when they're online, or send them an invite code")
+	}
+	code, err := s.InviteCode(guildID)
+	if err != nil {
+		return err
+	}
+	s.mu.RLock()
+	name := ""
+	if g, ok := s.guilds[guildID]; ok {
+		name = g.Name
+	}
+	s.mu.RUnlock()
+	s.pushGuildInvite(pid, code, name)
+	return nil
+}
+
 // InviteCode returns a shareable invite string for a guild this peer owns.
 func (s *Service) InviteCode(guildID string) (string, error) {
 	s.mu.RLock()
@@ -658,6 +695,12 @@ func (s *Service) SendCallNotice(channelID, kind, content string) (domain.Messag
 }
 
 func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message, error) {
+	return s.sendAs(channelID, content, kind, replyTo, "")
+}
+
+// sendAs is send() with an explicit author name — used only for relayed guest
+// messages, which are signed by the host but spoken by someone else.
+func (s *Service) sendAs(channelID, content, kind, replyTo, guestName string) (domain.Message, error) {
 	s.mu.RLock()
 	guildID, ok := s.channelToGuild[channelID]
 	var groupID []byte
@@ -679,6 +722,14 @@ func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message
 		return domain.Message{}, err
 	}
 	msg.Name = s.DisplayName()
+	if kind == "guest" && guestName != "" {
+		// A guest has no key of their own: the message is relayed under the
+		// host's signature, but it is NOT the host speaking. The guest's name
+		// rides in the (self-asserted, decorative) Name field and the kind marks
+		// it, so every client can render them as their own author instead of
+		// nesting their words under the host's.
+		msg.Name = guestName
+	}
 	msg.Kind = kind
 	msg.ReplyTo = replyTo
 	payload, _ := json.Marshal(msg)
@@ -780,9 +831,58 @@ func (s *Service) SearchMessages(query string, limit int) ([]domain.Message, err
 }
 
 // DeleteMessage removes one of this peer's own messages for everyone.
+// maxPurge bounds one /clear: a slip of the finger shouldn't be able to erase a
+// channel, and each delete is its own signed message on the wire.
+const maxPurge = 100
+
 func (s *Service) DeleteMessage(channelID, targetID string) error {
 	_, err := s.send(channelID, "deleted", "delete", targetID)
 	return err
+}
+
+// PurgeMessages deletes the most recent n messages in a channel — the "/clear
+// 20" moderator broom. It needs MANAGE_MESSAGES here, and every peer re-checks
+// that permission when the delete arrives (see applyDelete), so a patched client
+// that skips the check convinces nobody.
+//
+// Only actual chat is swept (normal messages and relayed guest ones): system
+// notices and call records are the room's history of itself, not clutter
+// someone posted.
+func (s *Service) PurgeMessages(channelID string, n int) (int, error) {
+	if n <= 0 {
+		return 0, fmt.Errorf("app: how many messages? (e.g. /clear 10)")
+	}
+	if n > maxPurge {
+		return 0, fmt.Errorf("app: %d at a time, max", maxPurge)
+	}
+	s.mu.RLock()
+	guildID, ok := s.channelToGuild[channelID]
+	s.mu.RUnlock()
+	if !ok {
+		return 0, fmt.Errorf("app: unknown channel %s", channelID)
+	}
+	if !s.hasPerm(guildID, PermManageMessages) {
+		return 0, fmt.Errorf("app: you need the Manage messages permission to clear messages")
+	}
+	// Over-fetch: deleted tombstones and notices don't count toward n.
+	msgs, err := s.store.Messages(channelID, n*4+40)
+	if err != nil {
+		return 0, err
+	}
+	var targets []string
+	for i := len(msgs) - 1; i >= 0 && len(targets) < n; i-- {
+		m := msgs[i]
+		if m.Deleted || (m.Kind != "" && m.Kind != "guest") {
+			continue
+		}
+		targets = append(targets, m.ID)
+	}
+	for _, id := range targets {
+		if err := s.DeleteMessage(channelID, id); err != nil {
+			return len(targets), err
+		}
+	}
+	return len(targets), nil
 }
 
 // applyDelete tombstones a target message and pushes the update to the UI. The

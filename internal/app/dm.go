@@ -186,6 +186,14 @@ func (s *Service) NotesDM() (domain.Guild, error) {
 
 type dmInvite struct {
 	Code string `json:"code"`
+	// Kind "" = a DM invite (auto-redeemed, historic behaviour). Kind "guild" =
+	// someone adding you to a SERVER: that is never auto-redeemed. Redeeming an
+	// invite is what puts you in the MLS group, so auto-joining and then quietly
+	// discarding it would leave a GHOST member in the inviter's roster — they'd
+	// see you in the server you never joined. We offer it instead, and only the
+	// invitee's "yes" redeems the code.
+	Kind  string `json:"kind,omitempty"`
+	Guild string `json:"guild,omitempty"` // server name, for the prompt
 }
 
 // NewDMInvite creates a fresh 2-person DM group owned by this peer and returns
@@ -369,6 +377,17 @@ func (s *Service) clearPendingDMInvite(guildID, fpr string) {
 
 // pushDMInvite fires the standard DM-invite push to a reachable peer; they dial
 // back and are added via handleInviteRequest.
+// pushGuildInvite offers a server to a peer. Their client shows it as an invite
+// they can accept or ignore — we never redeem it for them.
+func (s *Service) pushGuildInvite(pid peer.ID, code, guildName string) {
+	req, _ := json.Marshal(dmInvite{Code: code, Kind: "guild", Guild: guildName})
+	go func() {
+		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
+		defer cancel()
+		_, _ = s.host.RequestDMInvite(ctx, pid, req)
+	}()
+}
+
 func (s *Service) pushDMInvite(pid peer.ID, code string) {
 	req, _ := json.Marshal(dmInvite{Code: code})
 	go func() {
@@ -502,6 +521,27 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 	// Resolve the sender NOW — usually immediate (the fingerprint derives from
 	// the authenticated PeerID), making the wait below the rare path.
 	senderFpr := s.presence(from).Fingerprint
+	if req.Kind == "guild" {
+		go func() {
+			for i := 0; senderFpr == "" && i < 20; i++ {
+				time.Sleep(500 * time.Millisecond)
+				senderFpr = s.presence(from).Fingerprint
+			}
+			// Only someone we VERIFIED may even ring our doorbell about a server.
+			// A stranger's invite is dropped without a trace — no prompt to
+			// dismiss, no spam surface.
+			if senderFpr == "" || !s.VerifiedFingerprints()[senderFpr] {
+				return
+			}
+			s.emitGuildInvite(GuildInvite{
+				Code:     req.Code,
+				Guild:    req.Guild,
+				From:     senderFpr,
+				FromName: s.ProfileName(senderFpr),
+			})
+		}()
+		return []byte("ok"), nil
+	}
 	go func() {
 		g, err := s.JoinViaInvite(req.Code)
 		if err != nil {
@@ -516,16 +556,20 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 		}
 		// Auto-accept guards against a peer pushing an arbitrary invite code to
 		// force us into unsolicited membership (which would disclose our profile +
-		// mailbox key). We accept two shapes:
+		// mailbox key). We accept three shapes:
 		//   - a genuine 2-person DM whose other member is the sender (like getting
-		//     a first text from someone — low harm), or
+		//     a first text from someone — low harm),
 		//   - a GROUP DM whose inviter we already trust: someone we've verified, or
-		//     someone we already share a 2-person DM with. That trust gate is what
-		//     stops a stranger from silently pulling us into a group.
+		//     someone we already share a 2-person DM with, or
+		//   - a SERVER we were added to by someone we have VERIFIED out-of-band.
+		//     Verification is the whole point: you compared safety numbers with
+		//     this person, so them dropping you into their guild is a favour, not
+		//     an attack. A stranger's server invite still lands nowhere.
 		// Anything else is undone immediately. (Hard delete: LeaveGuild would
 		// merely close a DM, which must not keep unsolicited membership around.)
 		legit := s.isLegitDMWith(g.ID, senderFpr)
-		if !legit && !s.isTrustedGroupDMInvite(g.ID, senderFpr) {
+		if !legit && !s.isTrustedGroupDMInvite(g.ID, senderFpr) &&
+			!s.isVerifiedGuildInvite(g.ID, senderFpr) {
 			_ = s.deleteGuildLocal(g.ID)
 			return
 		}
@@ -562,6 +606,23 @@ func (s *Service) isLegitDMWith(guildID, senderFpr string) bool {
 	}
 	others, ok := s.dmOtherAccounts(groupID)
 	return ok && len(others) == 1 && others[0] == senderFpr
+}
+
+// isVerifiedGuildInvite reports whether guildID is a real guild (not a DM) and
+// the peer who pushed us into it is one we have VERIFIED. That's the only way an
+// invite for a server auto-lands: no verification, no membership.
+func (s *Service) isVerifiedGuildInvite(guildID, senderFpr string) bool {
+	if senderFpr == "" {
+		return false
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	isGuild := ok && g.Kind != "dm"
+	s.mu.RUnlock()
+	if !isGuild {
+		return false
+	}
+	return s.VerifiedFingerprints()[senderFpr]
 }
 
 // isTrustedGroupDMInvite reports whether guildID is a group DM (a kind="dm"

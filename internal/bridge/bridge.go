@@ -39,6 +39,7 @@ type Bridge struct {
 	OnVoiceSignal   func(VoiceSignal)
 	OnTyping        func(TypingInfo)
 	OnGuildUpdate   func()
+	OnGuildInvite   func(appsvc.GuildInvite)
 	OnReadState     func(ReadStateView)
 }
 
@@ -447,6 +448,11 @@ func (b *Bridge) Login(passphrase string) error {
 	svc.OnGuildUpdate(func() {
 		if b.OnGuildUpdate != nil {
 			b.OnGuildUpdate()
+		}
+	})
+	svc.OnGuildInvite(func(inv appsvc.GuildInvite) {
+		if b.OnGuildInvite != nil {
+			b.OnGuildInvite(inv)
 		}
 	})
 	svc.OnReadState(func(channelID string, at int64) {
@@ -995,6 +1001,24 @@ func (b *Bridge) SetNickname(guildID, nick string) error {
 // SetMemberNickname sets ANOTHER member's per-guild nickname. Requires
 // MANAGE_MEMBERS and outranking them — enforced again on every peer that
 // receives the change, not just here.
+// PurgeMessages clears the last n messages in a channel (needs MANAGE_MESSAGES).
+func (b *Bridge) PurgeMessages(channelID string, n int) (int, error) {
+	svc, err := b.service()
+	if err != nil {
+		return 0, err
+	}
+	return svc.PurgeMessages(channelID, n)
+}
+
+// AddMember adds a verified contact to a guild directly (see Service.AddMember).
+func (b *Bridge) AddMember(guildID, fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.AddMember(guildID, fingerprint)
+}
+
 func (b *Bridge) SetMemberNickname(guildID, fingerprint, nick string) error {
 	svc, err := b.service()
 	if err != nil {
@@ -1648,6 +1672,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1))
 	case "SetNickname":
 		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
+	case "PurgeMessages":
+		return b.PurgeMessages(argStr(args, 0), argInt(args, 1))
+	case "AddMember":
+		return nil, b.AddMember(argStr(args, 0), argStr(args, 1))
 	case "SetMemberNickname":
 		return nil, b.SetMemberNickname(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "Roles":

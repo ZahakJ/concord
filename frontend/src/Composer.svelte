@@ -7,7 +7,8 @@
   import EmojiPicker from "./EmojiPicker.svelte";
   import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
-  import { S, activeChannel, sendMessage, react, flash, nameColorFor } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor } from "./lib/state.svelte.js";
+  import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
 
   let draft = $state("");
@@ -92,7 +93,35 @@
     { name: "unflip", usage: "/unflip [message]", desc: "Appends ┬─┬ ノ( ゜-゜ノ)", args: true, expand: kaomoji("┬─┬ ノ( ゜-゜ノ)") },
     { name: "me", usage: "/me <action>", desc: "Italicized action text", args: true, expand: (rest, text) => (rest ? `*${rest}*` : text) },
     { name: "spoiler", usage: "/spoiler <text>", desc: "Hides text until clicked", args: true, expand: (rest, text) => (rest ? `||${rest}||` : text) },
+    // An ACTION, not a text expansion: it runs instead of sending (see runAction).
+    { name: "clear", usage: "/clear <n>", desc: "Delete the last n messages (moderators)", args: true, mod: true, expand: (_, text) => text },
   ];
+
+  const canModerate = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
+  const slashCommands = $derived(SLASH_COMMANDS.filter((c) => !c.mod || canModerate));
+
+  // Action commands do something instead of sending text. Returns true if the
+  // draft was consumed.
+  async function runAction(text) {
+    const m = text.match(/^\/clear(?:\s+(\d+))?\s*$/i);
+    if (!m) return false;
+    if (!canModerate) {
+      flash("You need the Manage messages permission to clear messages");
+      return true;
+    }
+    const n = parseInt(m[1] || "", 10);
+    if (!n) {
+      flash("How many? e.g. /clear 10");
+      return true;
+    }
+    try {
+      const cleared = await api.purgeMessages(S.activeChannelId, n);
+      flash(`Cleared ${cleared} message${cleared === 1 ? "" : "s"}`, "success");
+    } catch (err) {
+      flash(err);
+    }
+    return true;
+  }
 
   function applySlash(text) {
     const m = text.match(/^\/(\w+)(?:\s+([\s\S]*))?$/);
@@ -123,7 +152,7 @@
     const caret = composerEl?.selectionStart ?? draft.length;
     const slash = activeSlash(draft, caret);
     if (slash) {
-      const items = SLASH_COMMANDS.filter((c) => c.name.startsWith(slash.query));
+      const items = slashCommands.filter((c) => c.name.startsWith(slash.query));
       suggest = items.length ? { kind: "slash", start: 0, items, sel: 0 } : null;
       return;
     }
@@ -374,7 +403,15 @@
 
   async function send(e) {
     e?.preventDefault();
-    const text = replaceShortcodes(applySlash(draft.trim()).trim());
+    const raw = draft.trim();
+    if (raw.startsWith("/") && S.activeChannelId && (await runAction(raw))) {
+      draft = "";
+      saveDraft(S.activeChannelId, "");
+      suggest = null;
+      queueAutosize();
+      return;
+    }
+    const text = replaceShortcodes(applySlash(raw).trim());
     if (!text || !S.activeChannelId) return;
     if (mobile) playLaunch();
     const chId = S.activeChannelId;

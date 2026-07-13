@@ -138,6 +138,14 @@
     <button class="pill add" title="Add a server" aria-label="Add a server" onclick={addMenu}>
       <Icon name="plus" />
     </button>
+    <button
+      class="pill add meet"
+      title="Instant meeting — a disposable room + invite to send anyone"
+      aria-label="Start an instant meeting"
+      onclick={startMeeting}
+    >
+      <Icon name="bolt" />
+    </button>
   {:else}
     <button class="pill add" title="Create a guild" aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
       <Icon name="plus" />

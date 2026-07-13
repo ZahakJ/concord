@@ -114,7 +114,10 @@
   const newLineId = $derived.by(() => {
     if (!S.readAnchor) return "";
     const m = S.messages.find(
-      (x) => x.kind === "" && x.sender !== S.identity.fingerprint && x.sent > S.readAnchor,
+      (x) =>
+        (x.kind === "" || x.kind === "guest") &&
+        (x.sender !== S.identity.fingerprint || x.kind === "guest") &&
+        x.sent > S.readAnchor,
     );
     return m ? m.id : "";
   });
@@ -127,12 +130,20 @@
     for (const m of S.messages) {
       const day = new Date(m.sent).toDateString();
       const newDay = !prev || new Date(prev.sent).toDateString() !== day;
+      // Grouping follows the AUTHOR, not the signing key: a relayed guest is a
+      // different author even though the host signed their message, so their
+      // words never tuck under the host's name (and two lines from the same
+      // guest still group together).
+      const sameAuthor =
+        prev &&
+        prev.sender === m.sender &&
+        prev.kind === m.kind &&
+        (m.kind !== "guest" || prev.senderName === m.senderName);
+      const groupable = m.kind === "" || m.kind === "guest";
       const compact =
         !newDay &&
-        prev &&
-        prev.kind === "" &&
-        m.kind === "" &&
-        prev.sender === m.sender &&
+        sameAuthor &&
+        groupable &&
         !m.replyTo &&
         !prev.deleted &&
         new Date(m.sent) - new Date(prev.sent) < GROUP_WINDOW_MS;

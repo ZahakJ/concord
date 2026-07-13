@@ -292,8 +292,13 @@ export function guildMenuItems(g) {
   const canRoles = g.isOwner || has(g.myPerms, PERM.MANAGE_ROLES);
   return [
     g.canManage && {
-      label: "Invite people",
+      label: "Add a verified contact",
       icon: "members",
+      onClick: () => (S.modal = { kind: "addMembers" }),
+    },
+    g.canManage && {
+      label: "Invite with a code",
+      icon: "copy",
       onClick: async () => (S.modal = { kind: "invite", code: await api.inviteCode(g.id) }),
     },
     {
@@ -431,8 +436,11 @@ async function countChannelUnread(channelId) {
   let count = 0;
   let mentions = 0;
   for (const m of msgs) {
-    // Match the live counter: only normal messages from others count.
-    if (m.kind !== "" || m.deleted || m.sender === S.identity.fingerprint) continue;
+    // Match the live counter: normal messages from others count — and so do
+    // relayed GUEST messages, which are real chat even though our own key signed
+    // them (the host relays them; someone else said them).
+    if (!countsAsChat(m) || m.deleted) continue;
+    if (m.kind !== "guest" && m.sender === S.identity.fingerprint) continue;
     if (since && new Date(m.sent) <= since) continue;
     count++;
     if (isMentionOfSelf(m)) mentions++;
@@ -481,8 +489,13 @@ async function syncReadState() {
   }
 }
 
+// countsAsChat: a message a human said in the room — a normal message, or a
+// browser guest's relayed one. System notices, call notices, reactions etc. are
+// bookkeeping and never count.
+export const countsAsChat = (m) => m.kind === "" || m.kind === "guest";
+
 function isMentionOfSelf(m) {
-  if (m.kind !== "") return false;
+  if (m.kind !== "" && m.kind !== "guest") return false;
   // @everyone / @here ping every member; don't fire on your own message.
   if (/(^|\s)@(everyone|here)\b/.test(m.content) && m.sender !== S.identity.fingerprint) return true;
   return containsMention(m.content, [S.displayName]);
@@ -1060,7 +1073,14 @@ function initEvents() {
         // left the unread badge stuck on the channel you were looking at.
         if (!document.hidden) markRead(m.channelId, m.sent);
       }
-    } else if (firstSeen && m.channelId && m.kind === "" && !m.deleted && m.sender !== S.identity.fingerprint) {
+    } else if (
+      firstSeen &&
+      m.channelId &&
+      countsAsChat(m) &&
+      !m.deleted &&
+      // Our own key signs relayed guest messages, but a guest is not us.
+      (m.sender !== S.identity.fingerprint || m.kind === "guest")
+    ) {
       // Genuinely-new (first-seen) message in an unread channel bumps the badge.
       const since = lastRead[m.channelId];
       if (!since || new Date(m.sent) > new Date(since)) bumpUnread(m.channelId, isMentionOfSelf(m));
@@ -1164,6 +1184,13 @@ function initEvents() {
       }
       S.voice.mesh.handlePresence(v.from, v.action);
     }
+  });
+  // A verified contact is offering to add us to their server. We show it; we
+  // never join on their say-so.
+  on("guild-invite", (inv) => {
+    if (!inv?.code) return;
+    playDM();
+    S.modal = { kind: "guildInvite", invite: inv };
   });
   on("voice-signal", (v) => {
     if (S.voice) S.voice.mesh.handleSignal(v.from, v.data);

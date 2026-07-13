@@ -101,7 +101,7 @@ func (s *Service) initGuests() {
 	})
 	// Forward every message in a guest-attended channel to its guests.
 	s.OnMessage(func(m domain.Message) {
-		if m.Deleted || (m.Kind != "" && m.Kind != "system") {
+		if m.Deleted || (m.Kind != "" && m.Kind != "system" && m.Kind != "guest") {
 			return
 		}
 		s.guestMu.Lock()
@@ -218,6 +218,10 @@ func (s *Service) relayToGuest(peerID string, data []byte) error {
 }
 
 func (s *Service) senderLabel(m domain.Message) string {
+	// A relayed guest message is signed by the host but spoken by the guest.
+	if m.Kind == "guest" && m.Name != "" {
+		return m.Name + " (guest)"
+	}
 	if n := s.ProfileName(accountFingerprintOf(m.Sender)); n != "" {
 		return n
 	}
@@ -365,7 +369,7 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	})
 	if msgs, err := s.store.Messages(tok.channelID, guestHistoryCount); err == nil {
 		for _, m := range msgs {
-			if m.Deleted || (m.Kind != "" && m.Kind != "system") {
+			if m.Deleted || (m.Kind != "" && m.Kind != "system" && m.Kind != "guest") {
 				continue
 			}
 			typ := "msg"
@@ -471,7 +475,10 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 			writeGuestFrame(conn, guestFrame{Type: "end", Reason: "This meeting has ended."})
 			return
 		}
-		if _, err := s.SendMessage(tok.channelID, "👤 **"+sess.name+"** · "+content, ""); err != nil {
+		// Relayed under our signature, but authored by THEM: kind "guest" + their
+		// name, so clients give them their own bubble instead of tucking their
+		// words under the host's like a subheading.
+		if _, err := s.sendAs(tok.channelID, content, "guest", "", sess.name); err != nil {
 			writeGuestFrame(conn, guestFrame{Type: "info", Reason: "Message didn't send — try again."})
 		}
 	}

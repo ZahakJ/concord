@@ -270,6 +270,7 @@
         <div class="ctrls">
           <button id="micBtn" title="Mute / unmute">🎤 Mute</button>
           <button id="camBtn" title="Turn your camera on">📷 Turn on camera</button>
+          <button id="shareBtn" title="Share your screen">🖥️ Share screen</button>
           <button id="hangBtn" class="danger" title="Leave the call">Leave call</button>
           <span class="callstat" id="callStat">connecting…</span>
         </div>
@@ -351,10 +352,8 @@
             } else if (f.type === "signal") {
               onSignal(f.data);
             } else if (f.type === "msg") {
-              // Strip the host's guest-attribution markup for readability.
-              const body = String(f.content || "").replace(/^👤 \*\*(.+?)\*\* · /, "");
-              const who = /^👤 \*\*(.+?)\*\* · /.exec(f.content || "");
-              addMsg(who ? who[1] + " (guest)" : f.from || "Someone", body, false);
+              // The host now attributes guests properly, so `from` is the truth.
+              addMsg(f.from || "Someone", String(f.content || ""), false);
             } else if (f.type === "sys") {
               addMsg("", String(f.content || ""), true); // room notice, no author
             } else if (f.type === "info") {
@@ -563,6 +562,7 @@
       function leaveCall() {
         if (!inCall) return;
         inCall = false;
+        stopShare();
         camSender = null;
         if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "call", action: "leave" }));
         if (pc) {
@@ -632,6 +632,42 @@
         $("camBtn").classList.add("off");
       };
       const anyRemoteVideo = () => remoteTiles.size > 0;
+
+      // Screen sharing, same shape as the camera: an extra track on the same
+      // connection, labelled "screen" so the app renders it as a shared screen
+      // rather than a face. Ends when the browser's own "stop sharing" is hit.
+      let shareSender = null;
+      let shareStream = null;
+      function stopShare() {
+        if (!shareSender) return;
+        try {
+          pc?.removeTrack(shareSender);
+        } catch {}
+        shareStream?.getTracks().forEach((t) => t.stop());
+        shareSender = null;
+        shareStream = null;
+        $("shareBtn").textContent = "🖥️ Share screen";
+        $("shareBtn").classList.remove("off");
+      }
+      $("shareBtn").onclick = async () => {
+        if (!pc || !inCall) return;
+        if (shareSender) {
+          stopShare();
+          return;
+        }
+        try {
+          shareStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        } catch {
+          return; // they cancelled the picker — nothing to say
+        }
+        const track = shareStream.getVideoTracks()[0];
+        if (!track) return;
+        shareSender = pc.addTrack(track, shareStream);
+        sig({ videoMeta: { streamId: shareStream.id, kind: "screen" } });
+        track.addEventListener("ended", stopShare); // the browser's stop button
+        $("shareBtn").textContent = "🖥️ Stop sharing";
+        $("shareBtn").classList.add("off");
+      };
       window.addEventListener("beforeunload", leaveCall);
 
       $("name").addEventListener("keydown", (e) => {

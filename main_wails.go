@@ -24,6 +24,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	appsvc "github.com/zahak/concord/internal/app"
 	"github.com/zahak/concord/internal/bridge"
 	"github.com/zahak/concord/internal/httpapi"
 )
@@ -90,6 +91,7 @@ func main() {
 			b.OnVoiceSignal = func(v bridge.VoiceSignal) { wruntime.EventsEmit(ctx, "voice-signal", v) }
 			b.OnTyping = func(t bridge.TypingInfo) { wruntime.EventsEmit(ctx, "typing", t) }
 			b.OnGuildUpdate = func() { wruntime.EventsEmit(ctx, "guild-updated", nil) }
+			b.OnGuildInvite = func(inv appsvc.GuildInvite) { wruntime.EventsEmit(ctx, "guild-invite", inv) }
 			b.OnReadState = func(r bridge.ReadStateView) { wruntime.EventsEmit(ctx, "read-state", r) }
 		},
 		OnShutdown: func(context.Context) { b.Close() },

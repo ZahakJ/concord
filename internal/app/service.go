@@ -92,6 +92,7 @@ type Service struct {
 
 	onTyping      []func(from, channelID string)
 	onGuildUpdate []func()
+	onGuildInvite []func(GuildInvite)
 	onReadState   []func(channelID string, at int64)
 
 	// Read markers awaiting broadcast to our own devices. Coalesced (see
@@ -1197,6 +1198,32 @@ func (s *Service) ProfileName(fingerprint string) string {
 }
 
 // Contacts returns known peers and their verification status.
+// GuildInvite is an offer to join a server, pushed by a contact you verified.
+// It is NOT membership: nothing happens until the invitee accepts and redeems
+// the code themselves.
+type GuildInvite struct {
+	Code     string `json:"code"`
+	Guild    string `json:"guild"`
+	From     string `json:"from"`     // inviter's fingerprint
+	FromName string `json:"fromName"` // inviter's display name
+}
+
+// OnGuildInvite fires when a verified contact offers to add us to a server.
+func (s *Service) OnGuildInvite(fn func(GuildInvite)) {
+	s.mu.Lock()
+	s.onGuildInvite = append(s.onGuildInvite, fn)
+	s.mu.Unlock()
+}
+
+func (s *Service) emitGuildInvite(inv GuildInvite) {
+	s.mu.RLock()
+	cbs := append([]func(GuildInvite){}, s.onGuildInvite...)
+	s.mu.RUnlock()
+	for _, cb := range cbs {
+		cb(inv)
+	}
+}
+
 func (s *Service) Contacts() ([]domain.Contact, error) {
 	return s.store.Contacts()
 }
