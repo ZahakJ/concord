@@ -90,6 +90,12 @@ func serveTURN(ctx context.Context) *turnServer {
 				RelayAddress: net.ParseIP(relayIP),
 				Address:      "0.0.0.0",
 			},
+			// CRITICAL: without a PermissionHandler, pion admits ALL peer
+			// addresses — turning this internet-exposed relay into an SSRF pivot
+			// (a client could Allocate then relay UDP to 127.0.0.1 or an RFC1918
+			// neighbour, reaching internal services). A media relay only ever
+			// needs to reach other public peers, so we refuse everything else.
+			PermissionHandler: publicPeersOnly,
 		}},
 	})
 	if err != nil {
@@ -112,6 +118,32 @@ type turnServer struct {
 	secret string
 	public string
 	port   string
+}
+
+// publicPeersOnly is the TURN permission filter: relay ONLY toward globally
+// routable addresses. It denies loopback, unspecified, link-local (incl. cloud
+// metadata 169.254.169.254), multicast, RFC1918/ULA private ranges, and RFC6598
+// CGNAT space — every address class an attacker could use to pivot from this
+// public relay into a private network or the relay host itself.
+//
+// CONCORD_TURN_ALLOW_PRIVATE=1 disables the filter for LOCAL development only,
+// where peers are 127.0.0.1. Never set it in production.
+var allowPrivatePeers = os.Getenv("CONCORD_TURN_ALLOW_PRIVATE") == "1"
+
+func publicPeersOnly(_ net.Addr, peerIP net.IP) bool {
+	if allowPrivatePeers {
+		return true
+	}
+	if peerIP == nil || peerIP.IsLoopback() || peerIP.IsUnspecified() ||
+		peerIP.IsPrivate() || peerIP.IsLinkLocalUnicast() ||
+		peerIP.IsLinkLocalMulticast() || peerIP.IsMulticast() {
+		return false
+	}
+	// RFC 6598 shared/CGNAT space (100.64.0.0/10) — not covered by IsPrivate.
+	if v4 := peerIP.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
+		return false
+	}
+	return true
 }
 
 // credentials mints a fresh time-windowed username/password. Username is the

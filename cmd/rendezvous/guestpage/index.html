@@ -451,6 +451,17 @@
         $("tiles").classList.add("audio-only");
         $("callBtn").style.display = "none";
         setStat("connecting…");
+        // Honesty about IP privacy: with a relay we're IP-private (relayOnly).
+        // Without one (a host on a relay-less deployment) the call is direct and
+        // the other participants can see your IP — say so plainly rather than
+        // leak it silently.
+        if (!relayOnly) {
+          addMsg(
+            "",
+            "⚠️ This meeting has no private relay — the other participants may see your IP address.",
+            true,
+          );
+        }
 
         pc = new RTCPeerConnection({
           iceServers: ICE,
