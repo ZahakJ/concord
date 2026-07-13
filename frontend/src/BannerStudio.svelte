@@ -1,4 +1,5 @@
 <script>
+  import { registerOverlay } from "./lib/state.svelte.js";
   // The banner editor: one place, three ways in.
   //   • Presets — 40+ LIVE scenes: snow falls, meteors streak, lightning
   //     strikes, lava bubbles, an equalizer dances. They cost a dozen bytes on
@@ -19,6 +20,7 @@
     onApply,
     onClose,
   } = $props();
+  $effect(() => registerOverlay(() => onClose?.()));
 
   // An overlay that plays ON TOP of whatever banner you chose — preset, image
   // or colors. It lives here, with the banner, because that's the only thing it
@@ -379,7 +381,7 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 8px;
   }
   /* Offscreen tiles don't paint and don't animate: with 43 live scenes in the

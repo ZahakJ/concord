@@ -618,18 +618,15 @@
         {/each}
       {/each}
     {:else}
+      <!-- No CTAs here: the center welcome cards already offer Create/Join
+           prominently, so repeating them in the sidebar was redundant. Just a
+           gentle pointer. -->
       <div class="empty-block">
         <span class="empty-ic"><Icon name="concorde" size={20} /></span>
         <p class="muted">
-          No guilds yet — a guild is your own space: channels, voice, files, all encrypted and
-          hosted by its members.
+          No guilds yet. A guild is your own space — channels, voice, files, all
+          encrypted and hosted by its members. Start one from the welcome cards →
         </p>
-        <button class="empty-cta" onclick={() => (S.modal = { kind: "create" })}>
-          <Icon name="plus" size={13} /> Create a guild
-        </button>
-        <button class="empty-cta ghost-cta" onclick={() => (S.modal = { kind: "join", code: "" })}>
-          <Icon name="download" size={13} /> Join with an invite
-        </button>
       </div>
     {/if}
   </div>

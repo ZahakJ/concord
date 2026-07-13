@@ -285,6 +285,36 @@ export function closeContextMenu() {
   S.contextMenu = null;
 }
 
+// Overlay-closer stack: component-local overlays that AREN'T S.modal (the QR
+// scanner, the Ring/Banner studios, …) register their onClose here on mount, so
+// the mobile hardware-back button can dismiss the topmost one before falling
+// through to closing a modal or exiting the app.
+const overlayClosers = [];
+export function registerOverlay(close) {
+  overlayClosers.push(close);
+  return () => {
+    const i = overlayClosers.indexOf(close);
+    if (i >= 0) overlayClosers.splice(i, 1);
+  };
+}
+// closeTopOverlay dismisses the highest-priority open overlay and reports
+// whether it closed anything — the mobile back handler consults this first.
+export function closeTopOverlay() {
+  if (S.contextMenu) {
+    closeContextMenu();
+    return true;
+  }
+  if (overlayClosers.length) {
+    overlayClosers[overlayClosers.length - 1]();
+    return true;
+  }
+  if (S.profilePopover) {
+    closeProfilePopover();
+    return true;
+  }
+  return false;
+}
+
 // guildMenuItems: everything you can do to a guild, in one list — so the rail's
 // right-click, the header's "More" menu and the mobile sheet can never drift
 // apart. Each entry is permission-gated the same way the backend gates the op:

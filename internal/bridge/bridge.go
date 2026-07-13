@@ -1400,6 +1400,10 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 				prof := svc.ProfileOf(dmPeer)
 				if prof.Name != "" {
 					name = prof.Name
+				} else {
+					// The peer's profile hasn't synced yet — show a friendly
+					// placeholder instead of a raw fingerprint stub.
+					name = "New conversation"
 				}
 				dmPeerPresence = prof.Presence
 				dmPeerAvatar = prof.Avatar

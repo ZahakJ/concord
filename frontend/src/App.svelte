@@ -25,6 +25,7 @@
     dismissUpdate,
     setChannelTopic,
     nudge,
+    closeTopOverlay,
   } from "./lib/state.svelte.js";
 
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
@@ -221,6 +222,11 @@
     const App = cap?.Plugins?.App;
     if (!App) return;
     App.addListener("backButton", ({ canGoBack }) => {
+      // Dismiss overlays innermost-first, one per press: a context sheet or a
+      // component overlay (QR scanner, Ring/Banner studio) or the profile card,
+      // THEN drawers, THEN a modal, and only then leave the app. Without this,
+      // back on a scanner/studio jumped straight to exiting.
+      if (closeTopOverlay()) return;
       if (S.drawerOpen || S.membersOpen) {
         S.drawerOpen = false;
         S.membersOpen = false;

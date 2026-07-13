@@ -6,7 +6,11 @@
   import jsQR from "jsqr";
   import Icon from "./Icon.svelte";
 
+  import { registerOverlay } from "./lib/state.svelte.js";
   let { onScan, onClose } = $props();
+  // Hardware-back / global overlay stack: closing this scanner is what back
+  // should do, not exit the app.
+  $effect(() => registerOverlay(() => onClose?.()));
 
   let video = $state(null);
   let error = $state("");

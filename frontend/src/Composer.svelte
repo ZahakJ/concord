@@ -8,6 +8,7 @@
   import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor } from "./lib/state.svelte.js";
+
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
 
@@ -17,6 +18,16 @@
   let fileInput = $state(null);
   let suggest = $state(null); // { kind:"emoji"|"mention", start, items, sel }
   let lastTypingSent = 0;
+
+  // A composer placeholder that reads like the conversation you're in — never
+  // the internal "#dm" channel name.
+  const composerPlaceholder = $derived.by(() => {
+    if (!ch) return "Select a channel";
+    const g = activeGuild();
+    if (g?.dmNotes) return "Write a note to yourself…";
+    if (g?.kind === "dm") return `Message ${g.name || "your friend"}`;
+    return `Message #${ch.name}`;
+  });
 
   const ch = $derived(activeChannel());
   // Touch layout: hide the desktop formatting toolbar (it can't hover-reveal on
@@ -707,7 +718,7 @@
         bind:this={composerEl}
         class="draft"
         rows="1"
-        placeholder={ch ? `Message #${ch.name}` : "Select a channel"}
+        placeholder={composerPlaceholder}
         bind:value={draft}
         disabled={!ch}
         oninput={onInput}

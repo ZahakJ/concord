@@ -11,6 +11,7 @@
   let passphrase = $state("");
   let confirmPass = $state("");
   let displayName = $state(""); // asked once, when CREATING a fresh account
+  let scanned = $state(false); // a link code came from the QR scanner
   let error = $state("");
   let busy = $state(false);
   let hasIdentity = $state(true); // assume until checked, then correct
@@ -92,9 +93,12 @@
     const code = linkCodeFrom(text);
     if (code) {
       linkCode = code;
+      scanned = true;
       error = "";
+      // Auto-advance: the code is captured, so send focus to the passphrase.
+      requestAnimationFrame(() => document.querySelector('.login input[type="password"]')?.focus());
     } else {
-      error = "That QR code isn't a Concord link code";
+      error = "That QR code isn't a Concord link code — make sure it's the one under Settings → Link a device.";
     }
   }
 
@@ -309,25 +313,37 @@
         with a passphrase for this device (it becomes this device's passphrase,
         replacing any old one). Both devices need to be online.
       </p>
-      {#if canScan}
-        <button type="button" class="scan-btn" onclick={() => (scanning = true)}>
-          <Icon name="camera" size={17} /> Scan QR code
-        </button>
-        <div class="or"><span>or paste it</span></div>
+      {#if scanned}
+        <!-- The QR scan worked: confirm it clearly and get out of the way, so
+             the scan doesn't feel like it did nothing. Just set a passphrase. -->
+        <div class="scanned-ok">
+          <span class="tick"><Icon name="check" size={15} /></span>
+          <span>Code received from your other device</span>
+          <button type="button" class="rescan" onclick={() => { scanned = false; linkCode = ""; scanning = true; }}>
+            Rescan
+          </button>
+        </div>
+      {:else}
+        {#if canScan}
+          <button type="button" class="scan-btn" onclick={() => (scanning = true)}>
+            <Icon name="camera" size={17} /> Scan QR code
+          </button>
+          <div class="or"><span>or paste it</span></div>
+        {/if}
+        <textarea
+          class="phrase-in"
+          rows="3"
+          placeholder="Paste the link code…"
+          bind:value={linkCode}
+        ></textarea>
       {/if}
-      <textarea
-        class="phrase-in"
-        rows="3"
-        placeholder="Paste the link code…"
-        bind:value={linkCode}
-      ></textarea>
       <input type="password" placeholder="Passphrase for this device" bind:value={passphrase} />
       <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
       {#if error}<div class="error">{error}</div>{/if}
       <button type="button" disabled={busy} onclick={doLink}>
         {busy ? "Linking…" : "Link this device"}
       </button>
-      <button type="button" class="link" onclick={() => ((linking = false), (error = ""))}>
+      <button type="button" class="link" onclick={() => ((linking = false), (scanned = false), (error = ""))}>
         Back
       </button>
     {:else if restoring}
@@ -572,6 +588,38 @@
     height: 1px;
     background: var(--border);
   }
+  /* Post-scan confirmation — the scan clearly "took". */
+  .scanned-ok {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 11px 13px;
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--ok) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
+    font-size: 13.5px;
+    text-align: left;
+  }
+  .scanned-ok .tick {
+    display: grid;
+    place-items: center;
+    width: 26px;
+    height: 26px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--ok);
+    color: #fff;
+  }
+  .scanned-ok .rescan {
+    margin-left: auto;
+    padding: 4px 10px;
+    font-size: 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
   /* The 24-word grid: numbered, monospace, blurred until revealed so nobody
      shoulder-surfs it before the user is ready. */
   .words {
@@ -660,14 +708,21 @@
       padding: calc(12px + env(safe-area-inset-top)) 16px
         calc(12px + env(safe-area-inset-bottom));
     }
+    /* Full-bleed onboarding on a phone — no floating "card in a box". It blends
+       into the screen like every other native sheet, top-aligned with room to
+       breathe, and still scrolls if the recovery-phrase step + keyboard need it. */
     .card {
-      margin: auto;
-      width: min(400px, 100%);
-      padding: 28px 22px;
+      margin: 6vh auto auto;
+      width: 100%;
+      max-width: 460px;
+      padding: 8px 20px 20px;
       gap: 16px;
+      background: transparent;
+      border: none;
+      box-shadow: none;
     }
     .card.wide {
-      width: min(440px, 100%);
+      max-width: 460px;
     }
     /* 16px inputs: readable at arm's length, and iOS won't auto-zoom. */
     input,

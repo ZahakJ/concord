@@ -475,13 +475,13 @@
             onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
             >{nameFor(m.sender, m.senderName)}</button
           >
-          <span
-            class="muted mono verify-fpr"
-            class:verified={memberByFpr(m.sender)?.verified}
-            title={memberByFpr(m.sender)?.verified
-              ? "Identity verified"
-              : "Sender fingerprint — not verified"}>{m.sender.slice(0, 9)}</span
-          >
+          <!-- The raw fingerprint used to sit on EVERY row (clutter, and
+               meaningless on your own messages). Verification lives in the
+               profile card now; here we show only a small check for a verified
+               sender. -->
+          {#if !isOwn && memberByFpr(m.sender)?.verified}
+            <span class="verify-check" title="Identity verified"><Icon name="check" size={11} /></span>
+          {/if}
         {/if}
         <span class="muted time" title={new Date(m.sent).toLocaleString()}>{fmtTime(m.sent)}</span>
         {#if m.pinned}<span class="pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
@@ -797,8 +797,10 @@
     background: transparent;
     text-decoration: underline;
   }
-  .verify-fpr {
-    font-size: 10px;
+  .verify-check {
+    display: inline-flex;
+    align-items: center;
+    color: var(--ok);
   }
   .time {
     font-size: 11px;

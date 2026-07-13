@@ -309,7 +309,8 @@
   </div>
 
   <div class="field">
-    <span class="muted">Game collection</span>
+    <!-- GameShelf renders its own "Game collection · N" header, so no field
+         label here (that was a duplicate). -->
     <GameShelf games={games} editable onchange={saveGames} />
   </div>
 

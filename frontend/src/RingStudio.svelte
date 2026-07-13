@@ -1,4 +1,5 @@
 <script>
+  import { registerOverlay } from "./lib/state.svelte.js";
   // The avatar-ring editor: pick from the library — weather, cosmic, fire,
   // orbiting friends — then tune it (speed, direction, glow, thickness) with a
   // live preview at the top. Pick "Your satellite" and an emoji (or your own
@@ -23,6 +24,7 @@
     onApply,
     onClose,
   } = $props();
+  $effect(() => registerOverlay(() => onClose?.()));
 
   let sel = $state(ring);
   let sp = $state(speed);
@@ -358,7 +360,9 @@
   }
   .grid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    /* auto-fill by a min tile width so nothing clips on a narrow phone (was a
+       fixed 6 columns that sliced the last ring per row at 390px). */
+    grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
     gap: 6px;
   }
   /* Room to breathe: rings, weather and riders all overflow the avatar by
