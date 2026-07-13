@@ -35,6 +35,17 @@
     );
   }
 
+  // Easter egg: clicking the home logo flies the Concorde through a barrel roll
+  // (à la "do a barrel roll") — pure flair on top of opening DMs. Re-armable on
+  // every click; the class clears itself on animationend.
+  let rolling = $state(false);
+  function homeClick() {
+    openDMs();
+    rolling = false;
+    // Reflow so re-clicking mid-idle restarts the animation cleanly.
+    requestAnimationFrame(() => (rolling = true));
+  }
+
   const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
   const inDMs = $derived(g?.kind === "dm");
   const servers = $derived(S.guilds.filter((x) => x.kind !== "dm"));
@@ -74,9 +85,11 @@
     class:active={inDMs}
     title="Direct messages"
     aria-label="Home / Direct messages"
-    onclick={openDMs}
+    onclick={homeClick}
   >
-    <Icon name="concorde" size={24} />
+    <span class="jet" class:roll={rolling} onanimationend={() => (rolling = false)}>
+      <Icon name="concorde" size={24} />
+    </span>
   </button>
   <div class="divider"></div>
 
@@ -244,6 +257,26 @@
   .pill.home:hover :global(svg) {
     transform: rotate(-10deg) translateY(-1px);
   }
+  /* Easter egg: barrel roll on click (see homeClick). The wrapper spins so the
+     svg's own hover-nose transform stays independent. */
+  .jet {
+    display: inline-flex;
+    transform-origin: 50% 55%;
+  }
+  .jet.roll {
+    animation: barrel-roll 0.72s cubic-bezier(0.5, 0.05, 0.2, 1);
+  }
+  @keyframes barrel-roll {
+    0% {
+      transform: rotate(0) scale(1);
+    }
+    55% {
+      transform: rotate(235deg) scale(1.28);
+    }
+    100% {
+      transform: rotate(360deg) scale(1);
+    }
+  }
   .pill.home.active {
     border-radius: 15px;
     background: var(--accent);
@@ -404,7 +437,8 @@
     }
     .bubble-wrap,
     .pill.home,
-    .pill.add {
+    .pill.add,
+    .jet.roll {
       animation: none;
     }
     .pill:hover {
