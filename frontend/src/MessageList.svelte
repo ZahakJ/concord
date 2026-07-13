@@ -20,7 +20,6 @@
     markRead,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
-  import { PERM, has } from "./lib/perms.js";
   import { previewText } from "./lib/attachments.js";
   import { untrack } from "svelte";
 
@@ -152,20 +151,17 @@
 
   // rows: messages annotated with divider/grouping info.
   const GROUP_WINDOW_MS = 5 * 60 * 1000;
-  // A guild moderator can reveal deleted messages, so they must SEE the
-  // tombstones even without the "show deleted" pref.
-  const canRevealDeleted = $derived(
-    activeGuild()?.kind !== "dm" && has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES),
-  );
 
   const rows = $derived.by(() => {
     const out = [];
     let prev = null;
     for (const m of S.messages) {
-      // A deleted message is gone by default — no tombstone, no gap, as if it
-      // was never posted. Opt in (Settings → "Show deleted messages") to keep a
-      // faint marker where one was, so you can see that something was removed.
-      if (m.deleted && !S.prefs.showDeleted && !canRevealDeleted) continue;
+      // A deleted message is gone unless you opt in via Settings → "Show deleted
+      // messages" — and that toggle is absolute: OFF hides them for EVERYONE,
+      // moderators included. (A guild mod who turns it ON also gets a "Show
+      // original" button on the tombstone; the capability rides the toggle, it
+      // doesn't bypass it.)
+      if (m.deleted && !S.prefs.showDeleted) continue;
       const day = new Date(m.sent).toDateString();
       const newDay = !prev || new Date(prev.sent).toDateString() !== day;
       // Grouping follows the AUTHOR, not the signing key: a relayed guest is a
