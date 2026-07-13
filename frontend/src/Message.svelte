@@ -1007,13 +1007,13 @@
   .reaction {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     background: var(--bg-3);
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 1px 8px;
-    font-size: 12px;
-    border-radius: 10px;
+    padding: 3px 9px;
+    font-size: 13px;
+    border-radius: 9px;
     /* springy pop when a new pill appears (overshoot bezier) */
     animation: pill-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
     transition:
@@ -1047,14 +1047,19 @@
     color: var(--accent-hover);
     font-weight: 600;
   }
+  /* Discord sizes the emoji noticeably larger than the count — the glyph is
+     the thing you read at a glance. Overrides the pill's 13px font. */
   .remoji {
     display: inline-flex;
     line-height: 1;
+    font-size: 18px;
   }
   .rcount {
     display: inline-block;
     min-width: 1ch;
     text-align: center;
+    font-size: 13px;
+    font-weight: 600;
     font-variant-numeric: tabular-nums;
     animation: count-in 0.18s ease; /* replays on {#key} re-mount */
   }
@@ -1371,7 +1376,7 @@
   }
   .reaction :global(img.cemoji),
   .reaction .cemoji {
-    height: 16px;
+    height: 20px;
     width: auto;
     vertical-align: -3px;
   }
