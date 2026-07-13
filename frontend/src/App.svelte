@@ -469,6 +469,16 @@
   </div>
 {/if}
 
+{#if S.ready}
+  <!-- Live backdrop for animated theme packs; inert/hidden otherwise (CSS gates
+       it on [data-anim-bg]). Sits behind the app; surfaces go translucent. -->
+  <div class="theme-bg" aria-hidden="true">
+    <span class="tb-a"></span>
+    <span class="tb-b"></span>
+    <span class="tb-c"></span>
+  </div>
+{/if}
+
 {#if !S.ready}
   <Login onLogin={() => start(true)} />
 {:else if S.isMobile}
@@ -852,6 +862,9 @@
     display: grid;
     grid-template-columns: 64px 220px 1fr 260px;
     height: 100%;
+    /* Sit above the animated theme backdrop (.theme-bg, z-index 0). */
+    position: relative;
+    z-index: 1;
     /* Pin the single row to the viewport so tall columns (the chat feed)
        scroll internally instead of pushing the layout past the screen. */
     grid-template-rows: 100%;

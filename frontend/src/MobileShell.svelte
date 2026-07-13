@@ -459,6 +459,15 @@
     height: 100%;
     overflow: hidden;
     background: var(--bg-2);
+    /* Sit above the animated theme backdrop (App.svelte .theme-bg). */
+    position: relative;
+    z-index: 1;
+  }
+  /* Under an animated pack, let the backdrop show through: the outer shell goes
+     transparent so only the inner panels (translucent bg-*) tint it — no
+     double-dark stacking. */
+  :global(:root[data-anim-bg]) .mshell {
+    background: transparent;
   }
   .mtopbar {
     display: flex;

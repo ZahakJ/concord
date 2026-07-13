@@ -41,6 +41,15 @@
     { id: "forest", label: "Forest", bg: "#111c16", hi: "#22342a", ac: "#3fb96e" },
     { id: "abyss", label: "Abyss", bg: "#070709", hi: "#17181d", ac: "#22d3ee" },
   ];
+
+  // Animated packs: a live backdrop moves behind translucent surfaces. The mini
+  // preview animates too (see .pk.live styles) so the card sells the effect.
+  const LIVE_PACKS = [
+    { id: "aurora", label: "Aurora", bg: "#06202a", hi: "#123d43", ac: "#39d9b0", grad: "linear-gradient(135deg,#31e0a0,#22d3ee 55%,#7b6cff)" },
+    { id: "synthwave", label: "Synthwave", bg: "#180a28", hi: "#360c4e", ac: "#ff4fd8", grad: "linear-gradient(180deg,#ffd873,#ff7ec9 55%,#2de2e6)" },
+    { id: "cosmos", label: "Cosmos", bg: "#070818", hi: "#161a32", ac: "#7c8bff", grad: "radial-gradient(circle at 40% 40%,#7c8bff,#be6eff 60%,#0a0b16)" },
+    { id: "molten", label: "Molten", bg: "#180c06", hi: "#301a10", ac: "#ff7a2f", grad: "linear-gradient(0deg,#ff5722,#ff7a2f 55%,#ffb35a)" },
+  ];
 </script>
 
 <Modal title="Appearance" {onClose}>
@@ -96,6 +105,33 @@
       A full palette for the whole app — each pack brings its own accent (an
       accent preset below still overrides it).
     </p>
+
+    <div class="live-head">
+      <span class="live-tag">✨ Animated</span>
+      <span class="muted tiny">A living backdrop drifts behind the app.</span>
+    </div>
+    <div class="pack-row" role="radiogroup" aria-label="Animated theme pack">
+      {#each LIVE_PACKS as p (p.id)}
+        <button
+          class="pack-card"
+          class:sel={themePack === p.id}
+          role="radio"
+          aria-checked={themePack === p.id}
+          onclick={() => setAppearance("themePack", p.id)}
+        >
+          <span class="pk live" style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac};--pk-grad:{p.grad}" aria-hidden="true">
+            <span class="pk-glow"></span>
+            <span class="pk-rail"></span>
+            <span class="pk-body">
+              <span class="pk-ac"></span>
+              <span class="pk-line"></span>
+              <span class="pk-line short"></span>
+            </span>
+          </span>
+          {p.label}
+        </button>
+      {/each}
+    </div>
   </section>
 
   <hr />
@@ -334,6 +370,60 @@
   }
   .pk-line.short {
     width: 55%;
+  }
+
+  /* Animated-pack subsection heading + the live preview shimmer. */
+  .live-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .live-tag {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .pk.live {
+    position: relative;
+  }
+  /* A soft blob of the pack's own gradient drifting behind the mini window —
+     the same idea as the real backdrop, in miniature. */
+  .pk-glow {
+    position: absolute;
+    inset: -30%;
+    background: var(--pk-grad);
+    opacity: 0.55;
+    filter: blur(6px);
+    animation: pk-drift 6s ease-in-out infinite alternate;
+  }
+  .pk.live .pk-rail,
+  .pk.live .pk-body {
+    position: relative;
+    z-index: 1;
+  }
+  /* Let the glow read through the mini surfaces, like the real translucent UI. */
+  .pk.live .pk-rail {
+    background: color-mix(in srgb, var(--pk-bg) 78%, transparent);
+  }
+  .pk.live .pk-line {
+    background: color-mix(in srgb, var(--pk-hi) 85%, transparent);
+  }
+  @keyframes pk-drift {
+    0% {
+      transform: translate(-8%, -6%) scale(1.05);
+    }
+    100% {
+      transform: translate(8%, 6%) scale(1.25);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pk-glow {
+      animation: none;
+    }
   }
 
   /* Accent swatches: filled dots; the profile one is hollow (a ring of the

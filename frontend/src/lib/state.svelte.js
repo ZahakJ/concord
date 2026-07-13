@@ -699,6 +699,9 @@ export function applyAccent(color) {
 
 const sysDark = window.matchMedia?.("(prefers-color-scheme: dark)");
 
+// Packs whose backdrop animates (see app.css .theme-bg + [data-anim-bg]).
+export const ANIMATED_PACKS = new Set(["aurora", "synthwave", "cosmos", "molten"]);
+
 export function applyAppearance() {
   const el = document.documentElement;
   const t = S.prefs.theme || "dark";
@@ -706,6 +709,10 @@ export function applyAppearance() {
   el.dataset.density = S.prefs.density === "compact" ? "compact" : "cozy";
   if (S.prefs.themePack) el.dataset.themePack = S.prefs.themePack;
   else delete el.dataset.themePack;
+  // Animated packs render a live backdrop (.theme-bg) and need translucent
+  // surfaces so it shows through; a single flag drives both regardless of pack.
+  if (ANIMATED_PACKS.has(S.prefs.themePack)) el.dataset.animBg = "1";
+  else delete el.dataset.animBg;
   // Accent precedence: explicit preset > theme pack's own accent (CSS) >
   // profile color. An inline --accent would defeat the pack's palette, so
   // clear it when the pack should win.
