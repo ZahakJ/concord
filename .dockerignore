@@ -1,0 +1,32 @@
+# The rendezvous image builds ONLY the Go relay node (see infra/rendezvous/
+# Dockerfile: `go build ./cmd/rendezvous`). Everything below is irrelevant to
+# that build and was bloating the build context to ~960MB (slow, timeout-prone
+# deploys). Excluding it keeps the context to just the source.
+
+# Local dev binaries + peer data (hundreds of MB).
+.dev/
+
+# Node deps + built frontend — the rendezvous is pure Go, none of this is needed.
+node_modules/
+frontend/node_modules/
+frontend/dist/
+apps/mobile/node_modules/
+apps/mobile/android/app/build/
+apps/mobile/android/.gradle/
+apps/mobile/ios/
+
+# Built desktop/mobile artifacts.
+build/bin/
+*.apk
+*.aar
+*.exe
+
+# VCS, editor, CI, and tooling metadata.
+.git/
+.github/
+.claude/
+.vscode/
+.idea/
+
+# Docs/tests aren't part of the relay binary.
+*.md
