@@ -159,6 +159,26 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
+        display: none; /* shown only once the tile actually has video */
+      }
+      .tile.has-video video {
+        display: block;
+      }
+      .tile.has-video .ph {
+        display: none;
+      }
+      .ph {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font-size: 30px;
+        color: #6b6f78;
+        background: #101114;
+      }
+      /* Voice-only calls don't need a big empty stage. */
+      .tiles.audio-only .tile {
+        aspect-ratio: 5 / 2;
       }
       .tile.self video {
         transform: scaleX(-1); /* a mirror is what people expect of themselves */
@@ -231,8 +251,8 @@
         <span class="dot"></span>
         <span class="t" id="roomName">Meeting</span>
         <span class="you" id="youAre"></span>
-        <button class="callbtn" id="callBtn" title="Join the call with camera and mic">
-          🎥 Join call
+        <button class="callbtn" id="callBtn" title="Join the voice call">
+          🎤 Join call
         </button>
       </div>
       <div class="notice">You're a guest — the host can read what you send here.</div>
@@ -241,14 +261,15 @@
            host's app (DTLS-SRTP); it never touches this server. -->
       <div class="stage" id="stage">
         <div class="tiles" id="tiles">
-          <div class="tile self">
+          <div class="tile self" id="selfTile">
             <video id="selfVid" autoplay playsinline muted></video>
+            <span class="ph" id="selfPh">🎤</span>
             <span class="lbl">you</span>
           </div>
         </div>
         <div class="ctrls">
           <button id="micBtn" title="Mute / unmute">🎤 Mute</button>
-          <button id="camBtn" title="Camera on / off">📷 Camera off</button>
+          <button id="camBtn" title="Turn your camera on">📷 Turn on camera</button>
           <button id="hangBtn" class="danger" title="Leave the call">Leave call</button>
           <span class="callstat" id="callStat">connecting…</span>
         </div>
@@ -395,24 +416,31 @@
       };
       const setStat = (t) => ($("callStat").textContent = t);
 
+      // Joining is a VOICE call: we ask for the microphone and nothing else,
+      // exactly like every other call app. The camera is opt-in — its own
+      // button, its own permission prompt, whenever you feel like it (or never).
       async function joinCall() {
         if (inCall) return;
         try {
-          local = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          local = await navigator.mediaDevices.getUserMedia({ audio: true });
         } catch {
-          setStat("");
-          $("err").textContent = "";
-          addMsg("", "Couldn't use your camera/mic — check the browser's permission prompt.", true);
+          addMsg("", "Couldn't use your microphone — allow mic access and try again.", true);
           return;
         }
         inCall = true;
         $("stage").classList.add("on");
+        $("tiles").classList.add("audio-only");
         $("callBtn").style.display = "none";
-        $("selfVid").srcObject = local;
         setStat("connecting…");
 
         pc = new RTCPeerConnection({ iceServers: ICE });
         for (const track of local.getTracks()) pc.addTrack(track, local);
+        // Ask for a slot to RECEIVE the host's camera even though we're sending
+        // none, so they can turn theirs on later without renegotiating from
+        // scratch.
+        try {
+          pc.addTransceiver("video", { direction: "recvonly" });
+        } catch {}
 
         pc.onicecandidate = (e) => e.candidate && sig({ candidate: e.candidate });
         // We negotiate too, or our camera would never get an m-line: the app
@@ -445,6 +473,17 @@
               document.body.appendChild(a);
             }
             a.srcObject = stream;
+            if (!remoteTiles.has("audio")) {
+              const t = document.createElement("div");
+              t.className = "tile";
+              t.innerHTML = '<span class="ph">🎤</span>';
+              const l = document.createElement("span");
+              l.className = "lbl";
+              l.textContent = $("roomName").textContent || "host";
+              t.appendChild(l);
+              $("tiles").appendChild(t);
+              remoteTiles.set("audio", t);
+            }
             setStat("connected");
             return;
           }
@@ -459,7 +498,9 @@
           lbl.className = "lbl";
           lbl.textContent = $("roomName").textContent || "host";
           tile.append(v, lbl);
+          tile.classList.add("has-video");
           $("tiles").appendChild(tile);
+          $("tiles").classList.remove("audio-only");
           remoteTiles.set(stream.id, tile);
           stream.onremovetrack = () => {
             if (!stream.getTracks().length) {
@@ -479,7 +520,6 @@
         // Tell the app we're here; it opens the connection and offers. The
         // videoMeta note labels our stream in its UI ("camera", not "video").
         ws.send(JSON.stringify({ type: "call", action: "join" }));
-        sig({ videoMeta: { streamId: local.id, kind: "camera" } });
         setStat("waiting for the host…");
       }
 
@@ -494,10 +534,10 @@
           if (data.description) {
             if (data.description.type === "offer" && !hostHere) {
               hostHere = true;
-              // The host is listening now — (re)send the note that labels our
-              // stream as a camera. The one we sent at join time went nowhere if
-              // they hadn't joined the call yet.
-              if (local) sig({ videoMeta: { streamId: local.id, kind: "camera" } });
+              // The host is listening now. If our camera is already on, re-send
+              // the note that labels our stream — the one we sent earlier went
+              // nowhere if they hadn't joined the call yet.
+              if (camSender && local) sig({ videoMeta: { streamId: local.id, kind: "camera" } });
             }
             const ready =
               !makingOffer && (pc.signalingState === "stable" || settingRemoteAnswer);
@@ -523,6 +563,7 @@
       function leaveCall() {
         if (!inCall) return;
         inCall = false;
+        camSender = null;
         if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "call", action: "leave" }));
         if (pc) {
           pc.close();
@@ -535,8 +576,11 @@
         for (const tile of remoteTiles.values()) tile.remove();
         remoteTiles.clear();
         $("selfVid").srcObject = null;
+        $("selfTile").classList.remove("has-video");
         $("stage").classList.remove("on");
         $("callBtn").style.display = "";
+        $("camBtn").textContent = "📷 Turn on camera";
+        $("camBtn").classList.remove("off");
       }
 
       $("callBtn").onclick = joinCall;
@@ -549,14 +593,45 @@
         $("micBtn").textContent = t.enabled ? "🎤 Mute" : "🔇 Unmute";
         $("micBtn").classList.toggle("off", !t.enabled);
       };
-      $("camBtn").onclick = () => {
-        if (!local) return;
-        const t = local.getVideoTracks()[0];
-        if (!t) return;
-        t.enabled = !t.enabled;
-        $("camBtn").textContent = t.enabled ? "📷 Camera off" : "📷 Camera on";
-        $("camBtn").classList.toggle("off", !t.enabled);
+      // The camera is a separate, optional step: the browser only prompts for it
+      // if the guest actually asks for video. Turning it on adds a track (which
+      // renegotiates); turning it off drops the track and frees the light.
+      let camSender = null;
+      $("camBtn").onclick = async () => {
+        if (!pc || !inCall) return;
+        if (camSender) {
+          const track = camSender.track;
+          try {
+            pc.removeTrack(camSender);
+          } catch {}
+          track?.stop();
+          camSender = null;
+          $("selfVid").srcObject = null;
+          $("selfTile").classList.remove("has-video");
+          if (!anyRemoteVideo()) $("tiles").classList.add("audio-only");
+          $("camBtn").textContent = "📷 Turn on camera";
+          $("camBtn").classList.remove("off");
+          return;
+        }
+        let cam;
+        try {
+          cam = await navigator.mediaDevices.getUserMedia({ video: true });
+        } catch {
+          addMsg("", "Couldn't use your camera — allow camera access, or stay on voice.", true);
+          return;
+        }
+        const track = cam.getVideoTracks()[0];
+        if (!track) return;
+        local.addTrack(track);
+        camSender = pc.addTrack(track, local);
+        sig({ videoMeta: { streamId: local.id, kind: "camera" } });
+        $("selfVid").srcObject = local;
+        $("selfTile").classList.add("has-video");
+        $("tiles").classList.remove("audio-only");
+        $("camBtn").textContent = "📷 Turn off camera";
+        $("camBtn").classList.add("off");
       };
+      const anyRemoteVideo = () => remoteTiles.size > 0;
       window.addEventListener("beforeunload", leaveCall);
 
       $("name").addEventListener("keydown", (e) => {
