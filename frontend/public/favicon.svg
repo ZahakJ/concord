@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Concord brand mark: same rounded-teal tile + white glyph as the inline
+       favicon in index.html; kept in lockstep with it. -->
+  <rect width="16" height="16" rx="4" fill="#14a394"/>
+  <path fill="#fff" d="M14.8 8.4c-.2.3-.6.5-1.2.5l-3.2.2-3 3.2c-.2.2-.5.2-.6 0l-.1-.3 1-2.9-3 .1-1.5 1.3c-.1.1-.3 0-.3-.1l.7-1.7-.7-1.7c0-.2.2-.3.3-.1l1.5 1.3 3 .1-1-2.9.1-.3c.1-.2.4-.2.6 0l3 3.2 3.2.2c.6 0 1 .2 1.2.5z"/>
+</svg>

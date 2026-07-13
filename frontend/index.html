@@ -2,12 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover: extend under the iPhone notch/home bar so the
+         app's env(safe-area-inset-*) padding takes over. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <meta name="theme-color" content="#14a394" />
     <title>Concord</title>
+    <!-- Same Concord mark as public/favicon.svg (data URI = zero extra fetch);
+         keep the two in lockstep. -->
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%2314a394'/%3E%3Cpath fill='white' d='M14.8 8.4c-.2.3-.6.5-1.2.5l-3.2.2-3 3.2c-.2.2-.5.2-.6 0l-.1-.3 1-2.9-3 .1-1.5 1.3c-.1.1-.3 0-.3-.1l.7-1.7-.7-1.7c0-.2.2-.3.3-.1l1.5 1.3 3 .1-1-2.9.1-.3c.1-.2.4-.2.6 0l3 3.2 3.2.2c.6 0 1 .2 1.2.5z'/%3E%3C/svg%3E"
+    />
+    <!-- PWA: installable from the browser (Add to Home Screen on iOS). -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Concord" />
+    <!-- black-translucent: content draws under the iOS status bar; the mobile
+         shell already pads with env(safe-area-inset-top). -->
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
     />
   </head>
   <body>

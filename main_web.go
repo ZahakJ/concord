@@ -12,6 +12,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -84,6 +85,10 @@ func main() {
 }
 
 func staticAssets() http.Handler {
+	// The PWA manifest's type isn't in Go's builtin table and the host OS's
+	// mime database may not know it either (Windows registry, notably) —
+	// register it so installability checks see the right Content-Type.
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	sub, err := fs.Sub(assets, "frontend/dist")
 	if err != nil {
 		panic(err) // dist is embedded at build time; absence is a build bug
