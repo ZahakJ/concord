@@ -24,6 +24,7 @@
     jumpToChannel,
     markRead,
     openContextMenu,
+    guildMenuItems,
     flash,
     refreshGuilds,
   } from "./lib/state.svelte.js";
@@ -381,6 +382,7 @@
       style={g.banner ? `background-image:linear-gradient(rgba(0,0,0,0.15),rgba(0,0,0,0.55)),url(${g.banner})` : ""}
       title={g.description || g.name}
       onclick={() => (S.modal = { kind: "guildSettings" })}
+      oncontextmenu={(e) => openContextMenu(e, guildMenuItems(g), { title: g.name })}
     >
       {#if g.icon}
         <img class="g-icon" src={g.icon} alt="" />

@@ -2,7 +2,10 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
-  import { ringVars } from "../lib/profilestyle.js";
+  import Banner from "../Banner.svelte";
+  import BannerStudio from "../BannerStudio.svelte";
+  import RingStudio from "../RingStudio.svelte";
+  import { RING_BY_ID, RINGS } from "../lib/rings.js";
   let { identity, onSubmit, onClose } = $props();
   let name = $state(identity.displayName || "");
   let status = $state(identity.status || "");
@@ -14,7 +17,7 @@
   let color2 = $state(identity.color2 || "");
   let frame = $state(identity.frame || "");
   let effect = $state(identity.effect || "");
-  // Fine-grained dials (see lib/profilestyle.js + app.css).
+  // Fine-grained dials (RingStudio/BannerStudio own the UI for these).
   const st0 = identity.style || {};
   let speed = $state(st0.speed || "normal");
   let dir = $state(st0.dir || "cw");
@@ -22,36 +25,12 @@
   let ringW = $state(st0.width || 2);
   let angle = $state(Number.isFinite(st0.angle) ? st0.angle : 120);
   let fill = $state(st0.fill || "gradient");
-  const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill });
+  let sat = $state(st0.sat || ""); // your rider: an emoji or an uploaded picture
+  let pal = $state(st0.pal || ""); // the Gradient ring's colorway
+  let bannerStudio = $state(false);
+  let ringStudio = $state(false);
+  const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal });
   let fileInput;
-
-  // Avatar frames: decorative rings rendered client-side from an enum id, so
-  // they cost bytes on the wire, never images.
-  // Avatar rings. The bottom four ANIMATE (spinning conic gradients, a
-  // breathing halo, an orbiting satellite) — pure CSS, so they cost the same
-  // few bytes on the wire as the plain ones.
-  const FRAMES = [
-    { id: "", label: "None" },
-    { id: "theme", label: "Your colors ✨" },
-    { id: "gold", label: "Gold" },
-    { id: "neon", label: "Neon" },
-    { id: "ember", label: "Ember" },
-    { id: "frost", label: "Frost" },
-    { id: "aurora", label: "Aurora ✨" },
-    { id: "rainbow", label: "Rainbow ✨" },
-    { id: "gem", label: "Diamond ✨" },
-    { id: "pulse", label: "Pulse ✨" },
-    { id: "orbit", label: "Orbit ✨" },
-  ];
-
-  // Card effects: animated flourishes over the profile banner.
-  const EFFECTS = [
-    { id: "", label: "None" },
-    { id: "aurora", label: "Aurora drift" },
-    { id: "sheen", label: "Sheen sweep" },
-    { id: "sparkle", label: "Sparkles" },
-    { id: "nebula", label: "Nebula" },
-  ];
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
   const PRESENCES = [
@@ -201,144 +180,44 @@
 <Modal title="Your profile" wide {onClose}>
   <!-- ===== LIVE PREVIEW: exactly what other people see. ===== -->
   <div class="studio">
+    <!-- Discord-style: a tall banner the avatar straddles, so the card is
+         mostly art instead of mostly empty background. Hover the banner and it
+         blurs behind an "Edit banner" call to action — the banner IS the
+         button. -->
     <div class="pv-card card-effect-{effect || 'none'}">
-      <div
-        class="banner"
-        style={banner
-          ? `background-image:url(${banner})`
-          : fill === "solid" || !color2
-            ? `background:${color}`
-            : `background:linear-gradient(${angle}deg, ${color}, ${color2})`}
-      ></div>
-      <div class="pv-av">
-        <Avatar
-          name={name || "You"}
-          {emoji}
-          {color}
-          image={avatar}
-          size={56}
-          {frame}
-          style={styleObj}
-          {color2}
-        />
+      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+      <Banner
+        {banner}
+        {color}
+        {color2}
+        style={{ angle, fill }}
+        class="pv-banner"
+        onclick={() => (bannerStudio = true)}
+        title="Edit banner"
+      >
+        <span class="banner-edit"><Icon name="edit" size={14} /> Edit banner</span>
+      </Banner>
+      <div class="pv-head">
+        <div class="pv-av">
+          <Avatar
+            name={name || "You"}
+            {emoji}
+            {color}
+            image={avatar}
+            size={72}
+            {frame}
+            style={styleObj}
+            {color2}
+          />
+        </div>
+        <div class="pv-id">
+          <div class="pv-name">{name || "Your name"}</div>
+          {#if status}<div class="pv-status tiny muted">{status}</div>{/if}
+        </div>
       </div>
-      <div class="pv-name">{name || "Your name"}</div>
     </div>
     <p class="tiny muted pv-note">Live preview — this is your profile card.</p>
   </div>
-
-  <!-- ===== BANNER: an explicit, labelled section (image OR gradient). ===== -->
-  <div class="field">
-    <span class="muted">Profile banner</span>
-    <div class="banner-modes">
-      <button
-        type="button"
-        class="bmode"
-        class:sel={!banner && fill === "gradient"}
-        onclick={() => {
-          banner = "";
-          fill = "gradient";
-        }}
-      >
-        Gradient
-      </button>
-      <button
-        type="button"
-        class="bmode"
-        class:sel={!banner && fill === "solid"}
-        onclick={() => {
-          banner = "";
-          fill = "solid";
-        }}
-      >
-        Solid
-      </button>
-      <button type="button" class="bmode" class:sel={!!banner} onclick={() => bannerInput.click()}>
-        Image…
-      </button>
-      {#if banner}
-        <button type="button" class="bmode remove" onclick={() => (banner = "")}>Remove image</button>
-      {/if}
-    </div>
-    {#if !banner && fill === "gradient"}
-      <label class="dial">
-        <span class="tiny muted">Gradient angle · {angle}°</span>
-        <input type="range" min="0" max="360" step="5" bind:value={angle} />
-      </label>
-    {/if}
-    <p class="tiny muted">
-      The gradient uses your two profile colors below. Or drop in an image —
-      you can also just paste one anywhere in this dialog.
-    </p>
-  </div>
-  <input
-    type="file"
-    accept="image/*"
-    bind:this={bannerInput}
-    style="display:none"
-    onchange={(e) => {
-      loadBanner(e.target.files?.[0]);
-      e.target.value = "";
-    }}
-  />
-
-  <div class="preview" onmouseenter={() => (pasteTarget = "avatar")} role="group">
-    <button
-      class="avatar"
-      style="background:{color}"
-      title="Click to upload a picture"
-      onclick={() => fileInput.click()}
-    >
-      {#if avatar}
-        <img src={avatar} alt="avatar" />
-      {:else}
-        {emoji || (name || "?").slice(0, 2)}
-      {/if}
-      <span class="cam-overlay">Change</span>
-    </button>
-    <div class="preview-text">
-      <strong>{name || "Your name"}</strong>
-      {#if status}<span class="muted">{status}</span>{/if}
-    </div>
-  </div>
-  <input
-    type="file"
-    accept="image/*"
-    bind:this={fileInput}
-    style="display:none"
-    onchange={(e) => {
-      loadForCrop(e.target.files?.[0]);
-      e.target.value = "";
-    }}
-  />
-
-  {#if rawImg}
-    <div class="cropper">
-      <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div
-        class="crop-view"
-        onpointerdown={onDown}
-        onpointermove={onMove}
-        onpointerup={onUp}
-        onpointerleave={onUp}
-      >
-        <canvas bind:this={cropCanvas} width={VIEW} height={VIEW}></canvas>
-        <div class="crop-ring"></div>
-      </div>
-      <label class="zoom">
-        <Icon name="search" size={13} />
-        <input type="range" min="1" max="3" step="0.01" bind:value={zoom} />
-      </label>
-      <p class="muted tiny">Drag to reposition · slide to zoom</p>
-      <div class="crop-actions">
-        <button class="ghost small-btn" onclick={() => (rawImg = null)}>Cancel</button>
-        <button class="small-btn" onclick={applyCrop}>Apply</button>
-      </div>
-    </div>
-  {:else if avatar}
-    <button class="ghost small-btn" onclick={() => (avatar = "")}>Remove picture</button>
-  {/if}
-  <p class="muted tiny paste-hint">Tip: you can paste an image from your clipboard.</p>
 
   <label class="field">
     <span class="muted">Display name</span>
@@ -406,84 +285,15 @@
   </div>
 
   <div class="field">
-    <span class="muted">Avatar frame <em class="tiny">— ✨ ones animate</em></span>
-    <div class="frame-row">
-      {#each FRAMES as f (f.id)}
-        <button
-          type="button"
-          class="frame-opt"
-          class:sel={frame === f.id}
-          onclick={() => (frame = f.id)}
-          title={f.label}
-        >
-          <span
-            class="frame-demo avatar-frame-{f.id || 'none'}"
-            style={`${ringVars(styleObj, color)}${color2 ? `--ring-color2:${color2};` : ""}`}
-          ></span>
-          <span class="tiny muted">{f.label}</span>
-        </button>
-      {/each}
-    </div>
-  </div>
-
-  {#if frame}
-    <div class="field">
-      <span class="muted">Ring animation</span>
-      <div class="dials">
-        <div class="dial-group">
-          <span class="tiny muted">Speed</span>
-          <div class="seg">
-            {#each ["slow", "normal", "fast"] as sp (sp)}
-              <button type="button" class:sel={speed === sp} onclick={() => (speed = sp)}>{sp}</button>
-            {/each}
-          </div>
-        </div>
-        <div class="dial-group">
-          <span class="tiny muted">Direction</span>
-          <div class="seg">
-            <button type="button" class:sel={dir === "cw"} onclick={() => (dir = "cw")}>↻ cw</button>
-            <button type="button" class:sel={dir === "ccw"} onclick={() => (dir = "ccw")}>↺ ccw</button>
-          </div>
-        </div>
-        <div class="dial-group">
-          <span class="tiny muted">Glow</span>
-          <div class="seg">
-            {#each ["off", "soft", "strong"] as gl (gl)}
-              <button type="button" class:sel={glow === gl} onclick={() => (glow = gl)}>{gl}</button>
-            {/each}
-          </div>
-        </div>
-        <label class="dial-group">
-          <span class="tiny muted">Thickness · {ringW}px</span>
-          <input type="range" min="1" max="5" step="1" bind:value={ringW} />
-        </label>
-      </div>
-    </div>
-  {/if}
-
-  <div class="field">
-    <span class="muted">Card effect</span>
-    <div class="fx-row">
-      {#each EFFECTS as f (f.id)}
-        <button
-          type="button"
-          class="fx-opt card-effect-{f.id || 'none'}"
-          class:sel={effect === f.id}
-          onclick={() => (effect = f.id)}
-          title={f.label}
-        >
-          <span
-            class="banner fx-demo"
-            style={`background:linear-gradient(120deg, ${color}, ${color2 || color})`}
-          ></span>
-          <span class="tiny muted">{f.label}</span>
-        </button>
-      {/each}
-    </div>
-    <p class="tiny muted fx-note">
-      Effects animate the banner on your profile card — with or without an
-      image.
-    </p>
+    <span class="muted">Avatar ring</span>
+    <button type="button" class="ring-entry" onclick={() => (ringStudio = true)}>
+      <Avatar name={name || "You"} {emoji} {color} image={avatar} size={30} {frame} style={styleObj} {color2} />
+      <span class="re-text">
+        <strong>{RING_BY_ID[frame]?.name || "None"}</strong>
+        <span class="tiny muted">{RINGS.length - 1} effects · weather, orbits, riders, colorways</span>
+      </span>
+      <span class="chev">›</span>
+    </button>
   </div>
 
   <div class="field verify-info">
@@ -495,6 +305,51 @@
     <button class="ghost" onclick={onClose}>Cancel</button>
     <button onclick={save} disabled={!name.trim()}>Save</button>
   </div>
+
+  {#if ringStudio}
+    <RingStudio
+      ring={frame}
+      speed={speed}
+      dir={dir}
+      glow={glow}
+      width={ringW}
+      {sat}
+      {pal}
+      {color}
+      {color2}
+      {avatar}
+      {emoji}
+      name={name || "You"}
+      onApply={(r) => {
+        frame = r.ring;
+        speed = r.speed;
+        dir = r.dir;
+        glow = r.glow;
+        ringW = r.width;
+        sat = r.sat;
+        pal = r.pal;
+        ringStudio = false;
+      }}
+      onClose={() => (ringStudio = false)}
+    />
+  {/if}
+
+  {#if bannerStudio}
+    <BannerStudio
+      {banner}
+      {color}
+      {color2}
+      {angle}
+      overlay={effect}
+      onApply={(r) => {
+        banner = r.banner;
+        angle = r.angle;
+        effect = r.effect;
+        bannerStudio = false;
+      }}
+      onClose={() => (bannerStudio = false)}
+    />
+  {/if}
 </Modal>
 
 <style>
@@ -682,135 +537,90 @@
     background: var(--bg-1);
     padding-bottom: 12px;
   }
-  .pv-card .banner {
-    height: 74px;
-    background-size: cover;
-    background-position: center;
+  .pv-card :global(.pv-banner) {
+    height: 120px;
+    cursor: pointer;
+  }
+  /* The avatar straddles the banner's bottom edge and the name sits beside it,
+     so the space under the banner is used instead of left blank. */
+  .pv-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 0 14px;
+    margin-top: -34px;
+  }
+  .pv-id {
+    padding-top: 30px; /* clears the half of the avatar that hangs down */
+    min-width: 0;
+  }
+  .ring-entry {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--bg-0);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    text-align: left;
+    overflow: clip;
+  }
+  .ring-entry:hover {
+    background: var(--bg-3);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .re-text {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .chev {
+    color: var(--text-faint);
+    font-size: 16px;
+  }
+  .banner-edit {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.42);
+    backdrop-filter: blur(3px);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .pv-card :global(.pv-banner:hover .banner-edit),
+  .pv-card :global(.pv-banner:focus-visible .banner-edit) {
+    opacity: 1;
   }
   .pv-av {
     width: fit-content;
-    margin: -28px 0 0 14px;
     padding: 3px;
     background: var(--bg-1);
     border-radius: 50%;
     position: relative;
+    z-index: 1;
   }
   .pv-name {
-    padding: 6px 14px 0;
     font-weight: 700;
-    font-size: 15px;
+    font-size: 16px;
+  }
+  .pv-status {
+    margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .pv-note {
     text-align: center;
     margin: 0;
-  }
-  /* ---- banner mode buttons ---- */
-  .banner-modes {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .bmode {
-    padding: 6px 12px;
-    font-size: 12.5px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-  .bmode:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .bmode.sel {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--text);
-  }
-  .bmode.remove {
-    border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
-    color: var(--danger);
-  }
-  /* ---- dials ---- */
-  .dials {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
-  }
-  .dial-group,
-  .dial {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .seg {
-    display: flex;
-    gap: 4px;
-  }
-  .seg button {
-    flex: 1;
-    padding: 5px 6px;
-    font-size: 11.5px;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-muted);
-    text-transform: capitalize;
-    cursor: pointer;
-  }
-  .seg button:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .seg button.sel {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--text);
-  }
-  .frame-demo {
-    position: relative;
-    display: block;
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, var(--bg-3), var(--bg-2));
-    margin: 4px;
-    isolation: isolate;
-  }
-  .fx-row {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .fx-opt {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    padding: 6px;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-  }
-  .fx-opt:hover {
-    background: var(--bg-3);
-  }
-  .fx-opt.sel {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-  }
-  .fx-demo {
-    display: block;
-    width: 62px;
-    height: 30px;
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .fx-note {
-    margin: 6px 0 0;
-    line-height: 1.45;
   }
   .tiny {
     font-size: 10px;

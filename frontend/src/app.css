@@ -371,165 +371,6 @@ textarea:focus {
   }
 }
 
-/* ---- avatar frames -------------------------------------------------------
-   Decorative rings picked in the profile editor. The id travels in profile
-   broadcasts as a few bytes; the art is pure CSS here, so no image ever hits
-   the wire. Applied by Avatar.svelte (and previewed in the profile modal). */
-.avatar-frame-gold {
-  box-shadow:
-    0 0 0 2px #d9a93f,
-    0 0 0 3.5px rgba(217, 169, 63, 0.35),
-    0 0 10px rgba(217, 169, 63, 0.5);
-}
-.avatar-frame-neon {
-  box-shadow:
-    0 0 0 2px #29d5e8,
-    0 0 8px rgba(41, 213, 232, 0.6),
-    0 0 18px rgba(214, 64, 214, 0.45);
-}
-.avatar-frame-ember {
-  box-shadow:
-    0 0 0 2px #e8642a,
-    0 0 0 3.5px rgba(232, 100, 42, 0.3),
-    0 0 12px rgba(232, 100, 42, 0.55);
-}
-.avatar-frame-frost {
-  box-shadow:
-    0 0 0 2px #bfe3ff,
-    0 0 0 3.5px rgba(191, 227, 255, 0.28),
-    0 0 12px rgba(160, 210, 255, 0.55);
-}
-
-/* ---- ANIMATED frames (still just an enum id on the wire) ---------------- */
-/* The conic rings live on a ::before so they can spin behind the round
-   avatar without dragging the image with them. */
-.avatar-frame-aurora,
-.avatar-frame-rainbow,
-.avatar-frame-gem {
-  position: relative;
-}
-.avatar-frame-aurora::before,
-.avatar-frame-rainbow::before,
-.avatar-frame-gem::before {
-  content: "";
-  position: absolute;
-  /* Ring thickness is a dial (--ring-w, 1–5px). */
-  inset: calc(-1px - var(--ring-w, 2px));
-  border-radius: 50%;
-  z-index: -1;
-  /* Speed + direction are dials too; the glow rides the same knob. */
-  animation: frame-spin var(--ring-dur, 3.6s) linear infinite;
-  animation-direction: var(--ring-dir, normal);
-  filter: drop-shadow(0 0 var(--ring-glow, 10px) currentColor);
-}
-.avatar-frame-aurora::before {
-  background: conic-gradient(from 0deg, #35e0c8, #6f7cff, #a06bff, #35e0c8);
-  color: #6f7cff;
-}
-.avatar-frame-rainbow::before {
-  background: conic-gradient(
-    from 0deg,
-    #ff4d4d,
-    #ffa64d,
-    #ffe14d,
-    #4dff88,
-    #4dd2ff,
-    #7a6ff0,
-    #d94dff,
-    #ff4d4d
-  );
-  color: #d94dff;
-}
-.avatar-frame-gem::before {
-  background: conic-gradient(
-    from 0deg,
-    #b9f2ff,
-    #ffffff 12%,
-    #b9f2ff 24%,
-    #7ad7f0 40%,
-    #ffffff 55%,
-    #b9f2ff 70%,
-    #7ad7f0 88%,
-    #b9f2ff
-  );
-  color: #b9f2ff;
-}
-@keyframes frame-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-/* Theme ring: spun from the member's OWN two profile colors. */
-.avatar-frame-theme {
-  position: relative;
-}
-.avatar-frame-theme::before {
-  content: "";
-  position: absolute;
-  inset: calc(-1px - var(--ring-w, 2px));
-  border-radius: 50%;
-  z-index: -1;
-  background: conic-gradient(
-    from 0deg,
-    var(--ring-color, var(--accent)),
-    var(--ring-color2, var(--accent-hover)),
-    var(--ring-color, var(--accent))
-  );
-  color: var(--ring-color, var(--accent));
-  animation: frame-spin var(--ring-dur, 3.6s) linear infinite;
-  animation-direction: var(--ring-dir, normal);
-  filter: drop-shadow(0 0 var(--ring-glow, 10px) currentColor);
-}
-
-/* Pulse: a breathing halo in the accent (no ring, pure energy). */
-.avatar-frame-pulse {
-  animation: frame-pulse var(--ring-dur, 2.4s) ease-in-out infinite;
-}
-@keyframes frame-pulse {
-  0%,
-  100% {
-    box-shadow:
-      0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent),
-      0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
-  }
-  50% {
-    box-shadow:
-      0 0 0 2px var(--accent),
-      0 0 0 7px transparent;
-  }
-}
-/* Orbit: a little satellite circling the avatar. */
-.avatar-frame-orbit {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
-}
-.avatar-frame-orbit::after {
-  content: "";
-  position: absolute;
-  inset: calc(-4px - var(--ring-w, 2px));
-  border-radius: 50%;
-  animation: frame-spin var(--ring-dur, 3s) linear infinite;
-  animation-direction: var(--ring-dir, normal);
-  background:
-    radial-gradient(
-        circle calc(1.5px + var(--ring-w, 2px)) at 50% 0%,
-        var(--ring-color, var(--accent)) 96%,
-        transparent
-      )
-      no-repeat;
-  filter: drop-shadow(0 0 var(--ring-glow, 10px) var(--ring-color, var(--accent)));
-  pointer-events: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .avatar-frame-aurora::before,
-  .avatar-frame-rainbow::before,
-  .avatar-frame-gem::before,
-  .avatar-frame-theme::before,
-  .avatar-frame-orbit::after,
-  .avatar-frame-pulse {
-    animation: none;
-  }
-}
-
 /* ---- Profile-card EFFECTS ---------------------------------------------- */
 /* Applied to the popover card; each is CSS-only, driven by the member's two
    theme colors, and respects reduced motion. */
@@ -618,5 +459,398 @@ textarea:focus {
   .card-effect-sparkle .banner::after,
   .card-effect-nebula .banner::after {
     animation: none;
+  }
+}
+
+/* Animated banner presets drift slowly (galaxies, auroras, prisms…). The
+   preset art itself is CSS; this just moves it. */
+.banner-drift {
+  background-size: 160% 160% !important;
+  animation: banner-drift 18s ease-in-out infinite alternate;
+}
+@keyframes banner-drift {
+  from {
+    background-position: 0% 50%;
+  }
+  to {
+    background-position: 100% 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .banner-drift {
+    animation: none;
+  }
+}
+
+/* ============================================================
+   FX ENGINE — the particle/animation layer shared by avatar rings
+   (AvatarRing.svelte) and profile banners (Banner.svelte). Effects are
+   described as data in lib/rings.js / lib/banners.js; lib/fx.js turns that
+   into particles; these keyframes do the moving. Global (not Svelte-scoped)
+   precisely so both components share one implementation.
+
+   A particle is a zero-width, FULL-HEIGHT track (.fxp) whose ::before is the
+   visible speck. Percentages in the track's transform therefore resolve
+   against the container's height — so the same snowfall works in a 32px
+   avatar ring and a 300px banner with no JS measuring anything.
+   ============================================================ */
+.fxfield {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: inherit;
+}
+.fxp {
+  position: absolute;
+  left: var(--x);
+  top: 0;
+  width: 0;
+  height: 100%;
+  will-change: transform;
+}
+.fxp::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--sz);
+  height: var(--sz);
+  margin: 0 0 0 calc(var(--sz) / -2);
+  border-radius: 50%;
+  background: var(--c);
+  opacity: var(--o);
+  box-shadow: 0 0 var(--gl) var(--c);
+}
+/* Glyph particles (❄ ✦ ♥ 🍂 …): the speck becomes text we can color. */
+.fxp[data-g]::before {
+  content: attr(data-g);
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+  font-size: calc(var(--sz) * 2.2);
+  line-height: 1;
+  color: var(--c);
+  text-shadow: 0 0 var(--gl) var(--c);
+}
+
+/* ---- fall: snow, rain, petals, ash, matrix ---- */
+.fx-fall .fxp {
+  animation: fx-fall var(--du) linear infinite;
+  animation-delay: var(--d);
+}
+@keyframes fx-fall {
+  from {
+    transform: translate3d(calc(var(--dx) * -1), -25%, 0);
+  }
+  to {
+    transform: translate3d(var(--dx), 120%, 0);
+  }
+}
+/* ---- rise: embers, bubbles, hearts, smoke, notes ---- */
+.fx-rise .fxp {
+  animation: fx-rise var(--du) linear infinite;
+  animation-delay: var(--d);
+}
+@keyframes fx-rise {
+  from {
+    transform: translate3d(calc(var(--dx) * -1), 115%, 0);
+  }
+  to {
+    transform: translate3d(var(--dx), -25%, 0);
+  }
+}
+/* Falling/rising things tumble as they go (leaves, confetti, petals). */
+.fx-tumble .fxp::before {
+  animation: fx-tumble var(--du) linear infinite;
+  animation-delay: var(--d);
+}
+@keyframes fx-tumble {
+  to {
+    transform: rotate(var(--rot));
+  }
+}
+/* Rain and matrix streaks are drawn as elongated drops, not dots. */
+.fx-rain .fxp::before,
+.fx-matrix .fxp::before {
+  width: 1.4px;
+  height: calc(var(--sz) * 3.2);
+  margin-left: 0;
+  border-radius: 1px;
+  background: linear-gradient(transparent, var(--c));
+}
+
+/* ---- streak: shooting stars / meteors crossing the box ---- */
+.fx-streak .fxp {
+  left: 0;
+  width: 100%;
+  animation: fx-streak var(--du) ease-in infinite;
+  animation-delay: var(--d);
+  opacity: 0;
+}
+.fx-streak .fxp::before {
+  left: var(--x);
+  top: var(--y);
+  margin: 0;
+  box-shadow:
+    0 0 var(--gl) var(--c),
+    calc(var(--sz) * -6) calc(var(--sz) * -4) calc(var(--sz) * 3) calc(var(--sz) * -1) var(--c);
+}
+@keyframes fx-streak {
+  0% {
+    transform: translate3d(-40%, -60%, 0);
+    opacity: 0;
+  }
+  10% {
+    opacity: var(--o);
+  }
+  70% {
+    opacity: var(--o);
+  }
+  100% {
+    transform: translate3d(60%, 90%, 0);
+    opacity: 0;
+  }
+}
+/* ---- twinkle: fireflies, stardust, sparkles (drift + blink in place) ---- */
+.fx-twinkle .fxp {
+  left: var(--x);
+  top: var(--y);
+  height: 0;
+  animation: fx-drift var(--du) ease-in-out infinite alternate;
+  animation-delay: var(--d);
+}
+.fx-twinkle .fxp::before {
+  animation: fx-blink calc(var(--du) / 2.4) ease-in-out infinite;
+  animation-delay: var(--d);
+}
+@keyframes fx-drift {
+  to {
+    transform: translate3d(var(--dx), calc(var(--dx) * 0.7), 0);
+  }
+}
+@keyframes fx-blink {
+  0%,
+  100% {
+    opacity: 0.05;
+    transform: scale(0.6);
+  }
+  50% {
+    opacity: var(--o);
+    transform: scale(1.15);
+  }
+}
+
+/* ---- ripple: sonar / water rings expanding outward ---- */
+.fx-ripple .fxr {
+  position: absolute;
+  inset: 12%;
+  border-radius: 50%;
+  border: 1.5px solid var(--c);
+  opacity: 0;
+  animation: fx-ripple var(--du) ease-out infinite;
+  animation-delay: var(--d);
+}
+@keyframes fx-ripple {
+  0% {
+    transform: scale(0.35);
+    opacity: var(--o, 0.85);
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+/* ---- bolt: lightning flash + a jagged strike ---- */
+.fx-bolt .fxb {
+  position: absolute;
+  inset: 0;
+  animation: fx-flash var(--du) steps(1, end) infinite;
+  animation-delay: var(--d);
+  background: radial-gradient(120% 90% at var(--x) 0%, var(--c), transparent 70%);
+  opacity: 0;
+}
+.fx-bolt .fxb.strike {
+  left: var(--x);
+  top: -6%;
+  right: auto;
+  width: 12%;
+  height: 78%;
+  background: var(--c);
+  clip-path: polygon(52% 0, 20% 46%, 46% 46%, 24% 100%, 82% 38%, 52% 38%, 76% 0);
+  filter: drop-shadow(0 0 6px var(--c));
+}
+@keyframes fx-flash {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  2% {
+    opacity: var(--o);
+  }
+  4% {
+    opacity: 0.1;
+  }
+  6% {
+    opacity: calc(var(--o) * 0.8);
+  }
+  11% {
+    opacity: 0;
+  }
+}
+/* ---- bars: an equalizer dancing along the bottom ---- */
+.fx-bars .fxbar {
+  position: absolute;
+  bottom: 0;
+  left: var(--x);
+  width: var(--sz);
+  height: 100%;
+  transform-origin: 50% 100%;
+  background: linear-gradient(var(--c), transparent);
+  opacity: var(--o);
+  animation: fx-bar var(--du) ease-in-out infinite alternate;
+  animation-delay: var(--d);
+}
+@keyframes fx-bar {
+  from {
+    transform: scaleY(0.12);
+  }
+  to {
+    transform: scaleY(0.75);
+  }
+}
+/* ---- blobs: lava-lamp globs drifting behind everything ---- */
+.fx-blobs .fxblob {
+  position: absolute;
+  left: var(--x);
+  top: var(--y);
+  width: calc(var(--sz) * 14);
+  height: calc(var(--sz) * 14);
+  margin: calc(var(--sz) * -7);
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--c), transparent 68%);
+  opacity: var(--o);
+  filter: blur(6px);
+  animation: fx-blob var(--du) ease-in-out infinite alternate;
+  animation-delay: var(--d);
+}
+@keyframes fx-blob {
+  from {
+    transform: translate3d(0, 0, 0) scale(0.85);
+  }
+  to {
+    transform: translate3d(var(--dx), calc(var(--dx) * -2.2), 0) scale(1.25);
+  }
+}
+/* ---- grid: the synthwave horizon, scrolling toward you ---- */
+.fx-grid .fxg {
+  position: absolute;
+  inset: 42% -60% -30% -60%;
+  background:
+    repeating-linear-gradient(90deg, var(--c) 0 1px, transparent 1px 9%),
+    repeating-linear-gradient(0deg, var(--c) 0 1px, transparent 1px 14%);
+  opacity: var(--o);
+  transform: perspective(120px) rotateX(62deg);
+  transform-origin: 50% 0;
+  animation: fx-grid var(--du) linear infinite;
+  mask-image: linear-gradient(transparent, #000 40%);
+}
+@keyframes fx-grid {
+  to {
+    background-position:
+      0 0,
+      0 14%;
+  }
+}
+/* ---- waves: liquid layers sliding past each other ---- */
+.fx-waves .fxw {
+  position: absolute;
+  left: -50%;
+  right: -50%;
+  bottom: 0;
+  height: var(--sz);
+  border-radius: 45%;
+  background: var(--c);
+  opacity: var(--o);
+  animation: fx-wave var(--du) ease-in-out infinite alternate;
+  animation-delay: var(--d);
+}
+@keyframes fx-wave {
+  from {
+    transform: translate3d(-6%, 8%, 0) rotate(-2deg);
+  }
+  to {
+    transform: translate3d(6%, -4%, 0) rotate(2deg);
+  }
+}
+/* ---- sheen: a specular sweep across glass/holo ---- */
+.fx-sheen .fxs {
+  position: absolute;
+  inset: -50% -120%;
+  background: linear-gradient(105deg, transparent 42%, var(--c) 50%, transparent 58%);
+  opacity: var(--o);
+  animation: fx-sheen var(--du) ease-in-out infinite;
+  animation-delay: var(--d);
+}
+@keyframes fx-sheen {
+  0% {
+    transform: translate3d(-60%, 0, 0);
+  }
+  55%,
+  100% {
+    transform: translate3d(60%, 0, 0);
+  }
+}
+/* ---- scan: a CRT/security scanline crawling down ---- */
+.fx-scan .fxs {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 22%;
+  background: linear-gradient(transparent, var(--c), transparent);
+  opacity: var(--o);
+  animation: fx-scan var(--du) linear infinite;
+}
+@keyframes fx-scan {
+  from {
+    transform: translate3d(0, -110%, 0);
+  }
+  to {
+    transform: translate3d(0, 460%, 0);
+  }
+}
+/* ---- rays: god-rays / sunbeams rotating from a point ---- */
+.fx-rays .fxs {
+  position: absolute;
+  inset: -60%;
+  background: repeating-conic-gradient(from 0deg, var(--c) 0 4deg, transparent 4deg 22deg);
+  opacity: var(--o);
+  animation: fx-spin var(--du) linear infinite;
+  mask-image: radial-gradient(circle, #000 10%, transparent 62%);
+}
+@keyframes fx-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fxfield .fxp,
+  .fxfield .fxp::before,
+  .fxfield .fxr,
+  .fxfield .fxb,
+  .fxfield .fxbar,
+  .fxfield .fxblob,
+  .fxfield .fxg,
+  .fxfield .fxw,
+  .fxfield .fxs {
+    animation: none !important;
+  }
+  /* Static effects still read as the effect — just frozen. */
+  .fx-bolt .fxb,
+  .fx-streak .fxp {
+    opacity: var(--o);
   }
 }

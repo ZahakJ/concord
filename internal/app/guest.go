@@ -83,8 +83,12 @@ func (s *Service) initGuests() {
 		if len(sessions) == 0 {
 			return
 		}
+		typ := "msg"
+		if m.Kind == "system" {
+			typ = "sys" // a room notice, not something the host said
+		}
 		line, _ := json.Marshal(guestFrame{
-			Type: "msg", From: s.senderLabel(m), Content: m.Content,
+			Type: typ, From: s.senderLabel(m), Content: m.Content,
 			Sent: m.Sent.UTC().Format(time.RFC3339),
 		})
 		for _, g := range sessions {
@@ -234,8 +238,12 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 			if m.Deleted || (m.Kind != "" && m.Kind != "system") {
 				continue
 			}
+			typ := "msg"
+			if m.Kind == "system" {
+				typ = "sys"
+			}
 			writeGuestFrame(conn, guestFrame{
-				Type: "msg", From: s.senderLabel(m), Content: m.Content,
+				Type: typ, From: s.senderLabel(m), Content: m.Content,
 				Sent: m.Sent.UTC().Format(time.RFC3339),
 			})
 		}

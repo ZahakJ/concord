@@ -21,7 +21,7 @@
   import { api } from "./lib/api.js";
   import { PERM, PERM_ALL, has } from "./lib/perms.js";
   import { splitStatus } from "./lib/presence.js";
-  import { bannerStyle } from "./lib/profilestyle.js";
+  import Banner from "./Banner.svelte";
 
   let dmText = $state("");
   let dmBusy = $state(false);
@@ -336,10 +336,16 @@
     onmouseenter={holdProfilePopover}
     onmouseleave={scheduleCloseProfilePopover}
   >
-    <!-- Banner: image wins; else the member's PROFILE THEME (their two chosen
-         colors as a gradient — Nitro-style); else a single color; else the
-         default accent gradient from CSS. -->
-    <div class="banner" class:has-image={!!mem.banner} style={bannerStyle(mem)}></div>
+    <!-- Banner: a live preset scene wins, then an uploaded image, then the
+         member's two theme colors as a gradient. It's tall, and the avatar
+         straddles its bottom edge — the card is art, not empty background. -->
+    <Banner
+      banner={mem.banner}
+      color={mem.color}
+      color2={mem.color2}
+      style={mem.style}
+      class="banner"
+    />
     <div class="head">
       <div class="av-wrap">
         {#if mem.color}
@@ -355,7 +361,7 @@
           emoji={mem.emoji}
           color={mem.color}
           image={mem.avatar}
-          size={56}
+          size={72}
           online={mem.online}
           presence={mem.presence}
           frame={mem.frame}
@@ -624,8 +630,8 @@
       transform: translateY(100%);
     }
   }
-  .pop.sheet .banner {
-    height: 84px;
+  .pop.sheet :global(.banner) {
+    height: 130px;
   }
   .pop.sheet .body {
     padding: 8px 18px 18px;
@@ -652,13 +658,8 @@
   .pop.sheet .dm-send {
     min-width: 48px;
   }
-  .banner {
-    height: 64px;
-    background: linear-gradient(120deg, var(--accent), var(--accent-hover));
-  }
-  .banner.has-image {
-    background-size: cover;
-    background-position: center;
+  .pop :global(.banner) {
+    height: 112px;
   }
   .head {
     display: flex;
@@ -669,10 +670,11 @@
   .av-wrap {
     position: relative;
     width: fit-content;
-    margin-top: -28px;
+    margin-top: -38px;
     padding: 3px;
     background: var(--bg-1);
     border-radius: 50%;
+    z-index: 1;
   }
   /* Breathing theme-colored halo behind the avatar — pure delight, no data. */
   .av-glow {

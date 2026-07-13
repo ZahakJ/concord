@@ -217,6 +217,8 @@
               const body = String(f.content || "").replace(/^👤 \*\*(.+?)\*\* · /, "");
               const who = /^👤 \*\*(.+?)\*\* · /.exec(f.content || "");
               addMsg(who ? who[1] + " (guest)" : f.from || "Someone", body, false);
+            } else if (f.type === "sys") {
+              addMsg("", String(f.content || ""), true); // room notice, no author
             } else if (f.type === "info") {
               addMsg("", f.reason || "", true);
             } else if (f.type === "end") {

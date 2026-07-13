@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -211,6 +212,28 @@ type Style struct {
 	// Banner.
 	Angle int    `json:"angle,omitempty"` // gradient angle, 0..360
 	Fill  string `json:"fill,omitempty"`  // gradient | solid  (when no image)
+	// The thing orbiting your avatar on an orbit ring: an emoji, or a 64px
+	// sprite the user uploaded (data URI).
+	Sat string `json:"sat,omitempty"`
+	// The Gradient ring's colorway id (see frontend lib/rings.js PALETTES).
+	Pal string `json:"pal,omitempty"`
+}
+
+// maxSatBytes caps the orbiting sprite. The frontend bakes it to 64×64 PNG
+// (~2-8KB); this leaves headroom without letting a peer ship a megabyte in a
+// field that renders on everyone's screen.
+const maxSatBytes = 32 * 1024
+
+// validSat: a short emoji, or a small image data URI. Rejecting everything else
+// matters because this string comes from PEERS and ends up in an <img src>.
+func validSat(s string) bool {
+	if s == "" {
+		return true
+	}
+	if strings.HasPrefix(s, "data:image/") {
+		return len(s) <= maxSatBytes
+	}
+	return len(s) <= 16 && utf8.ValidString(s) && !strings.ContainsAny(s, "\"'<>\\;()")
 }
 
 func oneOf(v string, allowed ...string) bool {
@@ -247,6 +270,12 @@ func sanitizeStyle(st *Style) *Style {
 	if oneOf(st.Fill, "gradient", "solid") {
 		out.Fill = st.Fill
 	}
+	if validSat(st.Sat) {
+		out.Sat = st.Sat
+	}
+	if validID(st.Pal) {
+		out.Pal = st.Pal
+	}
 	if out == (Style{}) {
 		return nil
 	}
@@ -266,15 +295,23 @@ var hexColorRe = regexp.MustCompile(`^#[0-9a-fA-F]{3,8}$`)
 
 func validColor(c string) bool { return c == "" || hexColorRe.MatchString(c) }
 
-// validFrame admits the known avatar-frame ids (and "none"). The animated
-// ones (aurora/rainbow/orbit/pulse) cost exactly as many bytes as the static
-// ones — the animation lives in CSS on the viewer's machine.
+// validFrame admits an avatar-ring id. The id is looked up in the client's
+// ring table (frontend/src/lib/rings.js) and, like a banner preset, ends up
+// inside CSS — so it is held to a strict charset here. An id this client
+// doesn't know simply renders as no ring.
 func validFrame(f string) bool {
-	switch f {
-	case "", "gold", "neon", "ember", "frost", "aurora", "rainbow", "orbit", "pulse", "gem", "theme":
+	if f == "" {
 		return true
 	}
-	return false
+	if len(f) > 32 {
+		return false
+	}
+	for _, r := range f {
+		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // validEffect admits the known profile-card effects.
@@ -350,6 +387,43 @@ func validArtURL(u string) bool {
 		}
 	}
 	return false
+}
+
+// validBanner admits an image data URI or a preset id ("preset:galaxy"). The
+// preset id is rendered into CSS on every viewer's machine, so it is held to
+// a strict charset — a peer must never be able to smuggle CSS through it.
+// validID admits the short lowercase ids we mint ourselves (ring palettes,
+// banner presets). Peers send these and we interpolate them into CSS class
+// names / lookups, so anything outside [a-z0-9-] is rejected outright.
+func validID(id string) bool {
+	if id == "" {
+		return true
+	}
+	if len(id) > 32 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func validBanner(b string) bool {
+	if b == "" || strings.HasPrefix(b, "data:image/") {
+		return true
+	}
+	id, ok := strings.CutPrefix(b, "preset:")
+	if !ok || id == "" || len(id) > 32 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 // validGameCover admits only https images on Steam's CDNs. This is a security
@@ -908,8 +982,8 @@ func (s *Service) SetProfile(p Profile) error {
 	if len(p.Banner) > maxProfileBannerBytes {
 		return fmt.Errorf("app: banner image too large (max %d KB)", maxProfileBannerBytes/1024)
 	}
-	if p.Banner != "" && !strings.HasPrefix(p.Banner, "data:image/") {
-		return fmt.Errorf("app: banner must be an image data URI")
+	if !validBanner(p.Banner) {
+		return fmt.Errorf("app: banner must be an image or a preset")
 	}
 	if len(p.Bio) > maxBioBytes {
 		p.Bio = p.Bio[:maxBioBytes]
@@ -983,8 +1057,8 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	if len(p.Avatar) > maxAvatarBytes || (p.Avatar != "" && !strings.HasPrefix(p.Avatar, "data:image/")) {
 		p.Avatar = "" // reject oversized or non-image avatars from peers
 	}
-	if len(p.Banner) > maxProfileBannerBytes || (p.Banner != "" && !strings.HasPrefix(p.Banner, "data:image/")) {
-		p.Banner = "" // reject oversized or non-image banners from peers
+	if len(p.Banner) > maxProfileBannerBytes || !validBanner(p.Banner) {
+		p.Banner = "" // reject oversized / malformed banners from peers
 	}
 	if a := p.Activity; a != nil {
 		// Peers only get to broadcast plausible activity: web art URLs (no

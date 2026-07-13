@@ -5,6 +5,7 @@ import { api, on } from "./api.js";
 import { notify } from "./notify.js";
 import { containsMention } from "./markdown.js";
 import { playVoiceJoin, playVoiceLeave, playMention, playDM } from "./sounds.js";
+import { PERM, has } from "./perms.js";
 
 export const S = $state({
   ready: false,
@@ -276,6 +277,62 @@ export function openContextMenu(e, items, opts = {}) {
 }
 export function closeContextMenu() {
   S.contextMenu = null;
+}
+
+// guildMenuItems: everything you can do to a guild, in one list — so the rail's
+// right-click, the header's "More" menu and the mobile sheet can never drift
+// apart. Each entry is permission-gated the same way the backend gates the op:
+// what you can't do, you don't see.
+export function guildMenuItems(g) {
+  if (!g || g.kind === "dm") return [];
+  const canRoles = g.isOwner || has(g.myPerms, PERM.MANAGE_ROLES);
+  return [
+    g.canManage && {
+      label: "Invite people",
+      icon: "members",
+      onClick: async () => (S.modal = { kind: "invite", code: await api.inviteCode(g.id) }),
+    },
+    {
+      label: "Mark as read",
+      icon: "check",
+      onClick: () => g.channels.forEach((c) => markRead(c.id)),
+    },
+    { sep: true },
+    { label: "Guild emoji", icon: "smile", onClick: () => (S.modal = { kind: "emoji" }) },
+    g.isOwner && { label: "Rename guild", icon: "edit", onClick: () => (S.modal = { kind: "rename" }) },
+    canRoles && { label: "Roles & permissions", icon: "spark", onClick: () => (S.modal = { kind: "roles" }) },
+    g.canManage && { label: "Banned members", icon: "door", onClick: () => (S.modal = { kind: "bans" }) },
+    { sep: true },
+    {
+      label: g.isOwner ? "Delete guild" : "Leave guild",
+      icon: g.isOwner ? "trash" : "door",
+      danger: true,
+      onClick: () => confirmLeaveGuild(g),
+    },
+  ].filter(Boolean);
+}
+
+// confirmLeaveGuild: leaving is destructive and irreversible for the owner, so
+// it always goes through a confirm — wherever it's triggered from.
+export function confirmLeaveGuild(g) {
+  if (!g) return;
+  const verb = g.isOwner ? "Delete" : "Leave";
+  S.modal = {
+    kind: "confirm",
+    title: `${verb} "${g.name}"?`,
+    body: "Its messages will be removed from this device.",
+    confirmLabel: verb,
+    onConfirm: async () => {
+      S.modal = null;
+      await api.leaveGuild(g.id);
+      S.activeGuildId = "";
+      S.activeChannelId = "";
+      S.messages = [];
+      await refreshGuilds();
+      if (S.guilds.length) selectGuild(S.guilds[0].id);
+      flash(g.isOwner ? "Guild deleted" : "Left guild");
+    },
+  };
 }
 
 // setPref updates a persisted privacy preference.

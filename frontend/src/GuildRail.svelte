@@ -4,7 +4,22 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
-  import { S, selectGuild, openDMs, guildUnread, openContextMenu, startMeeting } from "./lib/state.svelte.js";
+  import {
+    S,
+    selectGuild,
+    openDMs,
+    guildUnread,
+    openContextMenu,
+    startMeeting,
+    guildMenuItems,
+  } from "./lib/state.svelte.js";
+
+  // Right-click a server bubble for everything you can do to it — the same list
+  // the header's "More" menu shows, permission-gated identically. On touch this
+  // becomes the bottom action sheet (long-press), so it isn't desktop-only.
+  function guildMenu(e, sv) {
+    openContextMenu(e, guildMenuItems(sv), { title: sv.name });
+  }
 
   // Mobile: one + bubble → an action sheet (create / join). Two near-identical
   // mystery bubbles are a desktop-ism; the sheet explains itself.
@@ -105,6 +120,7 @@
         title={sv.name}
         aria-label={sv.name}
         onclick={() => selectGuild(sv.id)}
+        oncontextmenu={(e) => guildMenu(e, sv)}
       >
         {#if sv.icon}
           <img class="icon" src={sv.icon} alt="" />

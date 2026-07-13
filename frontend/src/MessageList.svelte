@@ -287,8 +287,15 @@
       <div class="system-msg" class:enter={row.m.id === animateId}>
         <span>
           <Icon name="spark" size={11} />
-          <strong>{row.m.senderName || row.m.sender.slice(0, 9)}</strong>
-          {row.m.content}
+          {#if row.m.content.startsWith("👤")}
+            <!-- Guest notices carry their own actor ("👤 Sam joined as a
+                 guest") — prefixing the HOST's name made it read as if the
+                 host said it. -->
+            {row.m.content}
+          {:else}
+            <strong>{row.m.senderName || row.m.sender.slice(0, 9)}</strong>
+            {row.m.content}
+          {/if}
         </span>
       </div>
     {:else if row.m.kind === "call-missed"}

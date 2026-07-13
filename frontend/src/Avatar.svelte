@@ -1,5 +1,5 @@
 <script>
-  import { ringVars } from "./lib/profilestyle.js";
+  import AvatarRing from "./AvatarRing.svelte";
   // The one avatar. Renders, in priority order: uploaded image, profile emoji,
   // name/fingerprint initials — tinted by the member's accent color, with an
   // optional presence dot. Replaces five copy-pasted implementations.
@@ -11,8 +11,8 @@
     size = 32,
     online = null, // null hides the dot; true/false shows connection state
     presence = "", // "" | online | idle | dnd | invisible — shades the dot when connected
-    frame = "", // decorative ring: "" | gold | neon | ember | frost | … (app.css)
-    style = null, // ring dials: { speed, dir, glow, width } (lib/profilestyle.js)
+    frame = "", // decorative ring id — see lib/rings.js (snow, comet, orbit-cow…)
+    style = null, // ring dials: { speed, dir, glow, width, sat } (lib/rings.js)
     color2 = "", // second theme color — the "theme" ring spins between the two
   } = $props();
 
@@ -34,11 +34,15 @@
 </script>
 
 <span
-  class="avatar {frame ? `avatar-frame-${frame}` : ''}"
+  class="avatar"
+  class:ringed={!!frame}
   style="width:{size}px;height:{size}px;font-size:{Math.round(size * 0.38)}px;{color
     ? `background:${color};`
-    : ''}{frame ? ringVars(style, color) : ''}{color2 ? `--ring-color2:${color2};` : ''}"
+    : ''}"
 >
+  {#if frame}
+    <AvatarRing ring={frame} {size} {style} {color} {color2} />
+  {/if}
   {#if image}
     <img src={image} alt="" />
   {:else}
@@ -56,6 +60,7 @@
 <style>
   .avatar {
     position: relative;
+    isolation: isolate; /* the ring sits behind the avatar, not the page */
     border-radius: 50%;
     background: var(--accent);
     color: white;
