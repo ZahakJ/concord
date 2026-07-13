@@ -1161,7 +1161,11 @@ function initEvents() {
   });
 
   on("presence", () => {
-    scheduleRefresh({ panel: true });
+    // Refresh BOTH the member panel and the guild list. A DM peer's online/idle
+    // dot is computed as part of the GuildView (dmPeerOnline/dmPeerPresence), so
+    // without `guilds` a presence change updated the guild member list but left
+    // DM/rail dots stale — "right in the guild, wrong in the DM".
+    scheduleRefresh({ panel: true, guilds: true });
     refreshNetStatus();
   });
 
