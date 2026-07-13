@@ -5,7 +5,9 @@
   import Banner from "../Banner.svelte";
   import BannerStudio from "../BannerStudio.svelte";
   import RingStudio from "../RingStudio.svelte";
+  import GameShelf from "../GameShelf.svelte";
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
+  import { api } from "../lib/api.js";
   let { identity, onSubmit, onClose } = $props();
   let name = $state(identity.displayName || "");
   let status = $state(identity.status || "");
@@ -17,6 +19,16 @@
   let color2 = $state(identity.color2 || "");
   let frame = $state(identity.frame || "");
   let effect = $state(identity.effect || "");
+  let games = $state(identity.games || []);
+
+  // Games save immediately (like in the profile card) — independent of the
+  // Save button, which commits the rest of the profile.
+  async function saveGames(next) {
+    games = next;
+    try {
+      await api.setGames(next);
+    } catch {}
+  }
   // Fine-grained dials (RingStudio/BannerStudio own the UI for these).
   const st0 = identity.style || {};
   let speed = $state(st0.speed || "normal");
@@ -294,6 +306,11 @@
       </span>
       <span class="chev">›</span>
     </button>
+  </div>
+
+  <div class="field">
+    <span class="muted">Game collection</span>
+    <GameShelf games={games} editable onchange={saveGames} />
   </div>
 
   <div class="field verify-info">

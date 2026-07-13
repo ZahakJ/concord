@@ -10,6 +10,7 @@
   let { onLogin } = $props();
   let passphrase = $state("");
   let confirmPass = $state("");
+  let displayName = $state(""); // asked once, when CREATING a fresh account
   let error = $state("");
   let busy = $state(false);
   let hasIdentity = $state(true); // assume until checked, then correct
@@ -200,6 +201,14 @@
       const creating = !hasIdentity;
       await api.login(passphrase);
       if (creating) {
+        // Give the fresh account the name they chose, so they never appear as a
+        // fingerprint stub. Best-effort — a failure here shouldn't block entry.
+        const nm = displayName.trim();
+        if (nm) {
+          try {
+            await api.setProfile(nm, "", "", "", "");
+          } catch {}
+        }
         // Brand-new account: show the recovery phrase as an explicit save
         // step. If reveal fails for any reason, don't trap them at the door.
         try {
@@ -383,13 +392,22 @@
       </button>
     {:else}
       <p class="muted">
-        Create a passphrase to protect your identity on this device. Next you'll
-        get a 24-word recovery phrase — the key to your account — to save.
+        Pick a name and a passphrase to protect your identity on this device.
+        Next you'll get a 24-word recovery phrase — the key to your account — to
+        save.
       </p>
-      <input type="password" placeholder="Choose a passphrase" bind:value={passphrase} autofocus />
+      <input
+        type="text"
+        placeholder="Your name (what people see)"
+        maxlength="32"
+        autocomplete="off"
+        bind:value={displayName}
+        autofocus
+      />
+      <input type="password" placeholder="Choose a passphrase" bind:value={passphrase} />
       <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
       {#if error}<div class="error">{error}</div>{/if}
-      <button type="submit" disabled={!passphrase || !confirmPass || busy}>
+      <button type="submit" disabled={!displayName.trim() || !passphrase || !confirmPass || busy}>
         {busy ? "Creating…" : "Create identity"}
       </button>
       <button type="button" class="link" onclick={() => ((restoring = true), (error = ""))}>
