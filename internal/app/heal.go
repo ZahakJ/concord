@@ -120,6 +120,31 @@ func (s *Service) runHealLoop() {
 		case <-t.C:
 			s.healStrandedGuilds()
 			s.retryPendingDMInvites()
+			s.reconcileGuilds()
 		}
+	}
+}
+
+// reconcileGuilds is periodic anti-entropy: every heal tick, pull each guild's
+// state from a connected member and fold it in. Live gossip (channels, roles,
+// messages, profiles) is best-effort — a peer can miss an update and, before
+// this, would stay diverged until it reconnected. Now every peer re-syncs on a
+// timer, so whoever knows the most propagates it and views converge within one
+// tick even if the live message was dropped. The sync is incremental (per-
+// channel `since` cursor + epoch), so a steady-state tick transfers almost
+// nothing. Each guild runs in its own goroutine so one slow/timing-out peer
+// doesn't stall the others.
+//
+// Note: the merge in applySyncPayload is additive (it adopts channels/ops a peer
+// has), so ADDITIONS converge; deletions still need their own propagation.
+func (s *Service) reconcileGuilds() {
+	s.mu.RLock()
+	ids := make([]string, 0, len(s.guilds))
+	for id := range s.guilds {
+		ids = append(ids, id)
+	}
+	s.mu.RUnlock()
+	for _, id := range ids {
+		go s.syncGuildFromAnyPeer(id)
 	}
 }
