@@ -10,7 +10,9 @@ untrusted by construction.
 
 This document is both the manual and the architecture paper: it explains what
 peer-to-peer actually means, how every layer of Concord works, and why the
-design is more private than a centralized platform can ever be.
+design is more private than a centralized platform can ever be. For the short,
+plain-language version of what data exists and who can read it, see
+**[PRIVACY.md](PRIVACY.md)**.
 
 ---
 
