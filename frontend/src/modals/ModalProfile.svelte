@@ -210,7 +210,15 @@
         <span class="banner-edit"><Icon name="edit" size={14} /> Edit banner</span>
       </Banner>
       <div class="pv-head">
-        <div class="pv-av">
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div
+          class="pv-av"
+          role="button"
+          tabindex="0"
+          title="Change picture"
+          onpointerenter={() => (pasteTarget = "avatar")}
+          onclick={() => fileInput?.click()}
+        >
           <Avatar
             name={name || "You"}
             {emoji}
@@ -221,6 +229,7 @@
             style={styleObj}
             {color2}
           />
+          <span class="av-edit"><Icon name="edit" size={13} /></span>
         </div>
         <div class="pv-id">
           <div class="pv-name">{name || "Your name"}</div>
@@ -228,8 +237,48 @@
         </div>
       </div>
     </div>
-    <p class="tiny muted pv-note">Live preview — this is your profile card.</p>
+    <p class="tiny muted pv-note">
+      Live preview — click the avatar to change your picture (or paste an image).
+    </p>
   </div>
+
+  <!-- Hidden picker: clicking the avatar (or "Change picture") opens it, and a
+       chosen file drops into the crop editor below. -->
+  <input
+    type="file"
+    accept="image/*"
+    bind:this={fileInput}
+    style="display:none"
+    onchange={(e) => {
+      loadForCrop(e.target.files?.[0]);
+      e.target.value = "";
+    }}
+  />
+
+  {#if rawImg}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="cropper">
+      <p class="tiny muted paste-hint">Drag to reposition · slider to zoom</p>
+      <div
+        class="crop-view"
+        onpointerdown={onDown}
+        onpointermove={onMove}
+        onpointerup={onUp}
+        onpointercancel={onUp}
+      >
+        <canvas bind:this={cropCanvas} width={VIEW} height={VIEW}></canvas>
+        <span class="crop-ring"></span>
+      </div>
+      <label class="zoom">
+        <Icon name="search" size={14} />
+        <input type="range" min="1" max="4" step="0.01" bind:value={zoom} />
+      </label>
+      <div class="crop-actions">
+        <button type="button" class="ghost" onclick={() => (rawImg = null)}>Cancel</button>
+        <button type="button" onclick={applyCrop}>Apply</button>
+      </div>
+    </div>
+  {/if}
 
   <label class="field">
     <span class="muted">Display name</span>
@@ -625,6 +674,30 @@
     border-radius: 50%;
     position: relative;
     z-index: 1;
+    cursor: pointer;
+  }
+  /* Camera/edit badge on the avatar — mirrors the banner's "Edit" affordance. */
+  .av-edit {
+    position: absolute;
+    right: 2px;
+    bottom: 2px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    border: 2px solid var(--bg-1);
+    opacity: 0.9;
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease;
+  }
+  .pv-av:hover .av-edit,
+  .pv-av:focus-visible .av-edit {
+    opacity: 1;
+    transform: scale(1.1);
   }
   .pv-name {
     font-weight: 700;
