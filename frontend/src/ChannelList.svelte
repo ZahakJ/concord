@@ -631,10 +631,12 @@
     {/if}
   </div>
 
-  <!-- The bottom voice bar is the "you're in a call elsewhere" indicator; while
-       you're viewing the call itself the VoicePanel already has the controls, so
-       showing it too would triplicate them. -->
-  {#if S.voice && S.voice.channelId !== S.activeChannelId}
+  <!-- Persistent bottom-left call controller (Discord-style): shows whenever
+       you're in a call, whatever you're viewing. When you're on the call's own
+       channel the VoicePanel also shows full controls — that's fine, this is the
+       always-there compact bar; when you navigate away the FloatingCall dock
+       joins it too. -->
+  {#if S.voice}
     <div class="voice-bar">
       <button
         class="vb-info"
