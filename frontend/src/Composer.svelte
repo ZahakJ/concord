@@ -13,7 +13,11 @@
   import { api } from "./lib/api.js";
 
   let draft = $state("");
-  let uploading = $state(0); // in-flight attachment sends (for a pending indicator)
+  let uploading = $state(0); // files being read into `pending` (brief)
+  // Staged attachments: pasting/dropping/picking a file adds a PREVIEW to the
+  // composer (Discord-style), sent together with the text on submit.
+  // Each: { id, dataUrl, w, h, name, isImage }
+  let pending = $state([]);
   let composerEl = $state(null);
   let fileInput = $state(null);
   let suggest = $state(null); // { kind:"emoji"|"mention", start, items, sel }
@@ -38,7 +42,7 @@
   // in a narrow window keeps Enter-to-send.
   const mobile = $derived(S.isMobile);
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
-  const canSend = $derived(!!draft.trim() && !!ch);
+  const canSend = $derived((!!draft.trim() || pending.length > 0) && !!ch);
   // Mobile markdown lives behind a toggle rather than an always-on toolbar row.
   let showFmt = $state(false);
   const showFmtBar = $derived(!mobile || showFmt);
@@ -423,22 +427,37 @@
       return;
     }
     const text = replaceShortcodes(applySlash(raw).trim());
-    if (!text || !S.activeChannelId) return;
+    const atts = pending;
+    if ((!text && atts.length === 0) || !S.activeChannelId) return;
     if (mobile) playLaunch();
     const chId = S.activeChannelId;
     const prevDraft = draft;
     const prevReply = S.replyingTo;
     draft = "";
+    pending = [];
     saveDraft(chId, "");
     suggest = null;
     queueAutosize();
-    const replyTo = S.replyingTo?.id || "";
+    // The reply attaches to the FIRST message we send; the rest are plain.
+    let rt = S.replyingTo?.id || "";
+    const nextReply = () => {
+      const r = rt;
+      rt = "";
+      return r;
+    };
     S.replyingTo = null;
     try {
-      await sendMessage(text, replyTo);
+      // Attachments first, then the caption — so a pasted image sits above its
+      // text in the feed, the way Discord shows an image with a caption below.
+      for (const a of atts) {
+        if (a.isImage) await api.sendAttachment(chId, a.dataUrl, a.w, a.h, nextReply());
+        else await api.sendFile(chId, a.dataUrl, a.name, nextReply());
+      }
+      if (text) await sendMessage(text, nextReply());
     } catch (err) {
-      // Don't lose what they typed — put it back so they can retry.
+      // Don't lose what they staged/typed — put it back so they can retry.
       draft = prevDraft;
+      pending = atts;
       saveDraft(chId, prevDraft);
       S.replyingTo = prevReply;
       queueAutosize();
@@ -509,10 +528,15 @@
 
   const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-  // attachImage: images go out as inline-rendered blobs (existing path).
-  export async function attachImage(file) {
-    const chId = S.activeChannelId; // capture now — we await below and the user may switch channels
-    if (!file || !chId) return;
+  function removePending(id) {
+    pending = pending.filter((p) => p.id !== id);
+  }
+  const uid = () =>
+    (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random());
+
+  // stageImage: read + normalize an image and hold it as a pending attachment.
+  async function stageImage(file) {
+    if (!file || !S.activeChannelId) return;
     uploading++;
     try {
       let dataUrl, w, h;
@@ -522,9 +546,7 @@
       } else {
         ({ dataUrl, w, h } = await normalizeToJpeg(file));
       }
-      const replyTo = S.replyingTo?.id || "";
-      S.replyingTo = null;
-      await api.sendAttachment(chId, dataUrl, w, h, replyTo);
+      pending = [...pending, { id: uid(), dataUrl, w, h, isImage: true }];
     } catch (err) {
       const msg = String(err?.message || err);
       flash(
@@ -538,13 +560,12 @@
     }
   }
 
-  // attachFile: the general entry point — images render inline, everything
-  // else becomes a download card (up to 25 MB).
+  // attachFile: the general entry point (paste / drop / file button). Images and
+  // other files alike are STAGED; nothing sends until submit.
   export async function attachFile(file) {
-    const chId = S.activeChannelId; // capture before any await
-    if (!file || !chId) return;
+    if (!file || !S.activeChannelId) return;
     if (file.type.startsWith("image/")) {
-      await attachImage(file);
+      await stageImage(file);
       return;
     }
     if (file.size > MAX_FILE_BYTES) {
@@ -554,21 +575,21 @@
     uploading++;
     try {
       const dataUrl = await readAsDataURL(file);
-      const replyTo = S.replyingTo?.id || "";
-      S.replyingTo = null;
-      await api.sendFile(chId, dataUrl, file.name || "file", replyTo);
+      pending = [...pending, { id: uid(), dataUrl, name: file.name || "file", isImage: false }];
     } catch (err) {
       flash(err);
     } finally {
       uploading--;
     }
   }
+  // Kept for callers that expect the old name; now stages too.
+  export const attachImage = stageImage;
 
   function onPaste(e) {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (item) {
       e.preventDefault();
-      attachImage(item.getAsFile());
+      stageImage(item.getAsFile());
     }
   }
 
@@ -621,7 +642,7 @@
 {/if}
 <div class="typing-line muted">
   {#if uploading > 0}
-    <span class="up-dot"></span> Sending {uploading > 1 ? `${uploading} attachments` : "attachment"}…
+    <span class="up-dot"></span> Adding {uploading > 1 ? `${uploading} attachments` : "attachment"}…
   {:else if S.typingList.length > 0}
     <span class="t-dots" aria-hidden="true"><span></span><span></span><span></span></span>
     {#if S.typingList.length === 1}
@@ -683,6 +704,27 @@
       }}
     />
     <div class="input-shell" class:active={!!ch}>
+    {#if pending.length || uploading > 0}
+      <div class="attach-tray">
+        {#each pending as p (p.id)}
+          <div class="att-chip" class:file={!p.isImage}>
+            {#if p.isImage}
+              <img src={p.dataUrl} alt="" />
+            {:else}
+              <span class="att-file"><Icon name="attach" size={16} /><span class="att-name">{p.name}</span></span>
+            {/if}
+            <button
+              type="button"
+              class="att-x"
+              aria-label="Remove attachment"
+              title="Remove"
+              onclick={() => removePending(p.id)}
+            >✕</button>
+          </div>
+        {/each}
+        {#if uploading > 0}<div class="att-chip loading"><span class="att-spin"></span></div>{/if}
+      </div>
+    {/if}
     {#if showFmtBar}
     <div class="fmt-bar" role="toolbar" aria-label="Text formatting">
       {#each FMT_GROUPS as group, gi (gi)}
@@ -961,6 +1003,92 @@
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
     background: color-mix(in srgb, var(--accent) 3%, var(--bg-input));
+  }
+  .attach-tray {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px 10px 6px;
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  }
+  .att-chip {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--border) 30%, var(--bg-input));
+    border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  }
+  .att-chip img {
+    display: block;
+    width: 64px;
+    height: 64px;
+    object-fit: cover;
+  }
+  .att-chip.file {
+    display: flex;
+    align-items: center;
+    min-height: 40px;
+  }
+  .att-file {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 34px 8px 10px;
+    max-width: 220px;
+    color: var(--text-muted);
+  }
+  .att-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+  .att-x {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.65);
+    color: #fff;
+    font-size: 10px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.12s ease;
+  }
+  .att-chip:hover .att-x,
+  .att-x:focus-visible {
+    opacity: 1;
+  }
+  .att-chip.loading {
+    width: 64px;
+    height: 64px;
+    display: grid;
+    place-items: center;
+  }
+  .att-spin {
+    width: 20px;
+    height: 20px;
+    border: 2px solid color-mix(in srgb, var(--border) 60%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: att-spin 0.7s linear infinite;
+  }
+  @keyframes att-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  /* Coarse pointers can't hover to reveal the remove button — keep it visible. */
+  @media (pointer: coarse) {
+    .att-x {
+      opacity: 1;
+    }
   }
   .fmt-bar {
     display: flex;
