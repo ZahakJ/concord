@@ -1,5 +1,13 @@
 package app.concord.mobile;
 
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Build;
+
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -78,6 +86,64 @@ public class ConcordCorePlugin extends Plugin {
     @PluginMethod
     public void stopBackground(PluginCall call) {
         ConcordForegroundService.stop(getContext());
+        call.resolve();
+    }
+
+    // ---- local message notifications ----
+    // Post a heads-up notification for a new message/mention. This is the mobile
+    // counterpart to the web Notification API (which the Android WebView doesn't
+    // surface to the tray): the JS gate in notify.js decides WHEN to call this;
+    // here we just render it. No content leaves the device — it's already been
+    // decrypted locally. Tapping opens the app. Needs no Firebase/push creds.
+    private static final String MSG_CHANNEL_ID = "concord_messages";
+    private static final int MSG_NOTIF_ID = 2;
+
+    @PluginMethod
+    public void postNotification(PluginCall call) {
+        String title = call.getString("title", "Concord");
+        String body = call.getString("body", "");
+        // Per-conversation tag: a new message in a channel REPLACES the last one
+        // for that channel instead of stacking a fresh alert each time.
+        String tag = call.getString("tag", "concord");
+
+        Context ctx = getContext();
+        NotificationManager nm =
+            (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch = new NotificationChannel(
+                MSG_CHANNEL_ID, "Messages", NotificationManager.IMPORTANCE_HIGH);
+            ch.setDescription("New messages and mentions.");
+            nm.createNotificationChannel(ch);
+        }
+
+        Intent launch = new Intent(ctx, MainActivity.class);
+        launch.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        int piFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            piFlags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent pi = PendingIntent.getActivity(ctx, tag.hashCode(), launch, piFlags);
+
+        Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+            ? new Notification.Builder(ctx, MSG_CHANNEL_ID)
+            : new Notification.Builder(ctx);
+        Notification n = b
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(new Notification.BigTextStyle().bigText(body))
+            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+            .setPriority(Notification.PRIORITY_HIGH)
+            .build();
+
+        try {
+            nm.notify(tag, MSG_NOTIF_ID, n);
+        } catch (SecurityException e) {
+            // POST_NOTIFICATIONS not granted (Android 13+): silently no-op — the
+            // in-app badge/chime still fired.
+        }
         call.resolve();
     }
 }
