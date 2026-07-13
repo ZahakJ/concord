@@ -311,6 +311,27 @@
   }
 
   const isOwn = $derived(m.sender === S.identity.fingerprint && m.kind !== "guest");
+
+  // Moderator reveal of a deleted GUILD message. The content only exists to
+  // reveal in guilds — DM deletes erase it — so this is guild-only and gated on
+  // Manage Messages (re-checked on the backend). `revealed` holds the fetched
+  // original once shown.
+  const canRevealDeleted = $derived(
+    m.deleted && activeGuild()?.kind !== "dm" && canDeleteOthers,
+  );
+  let revealed = $state(null);
+  let revealing = $state(false);
+  async function revealOriginal() {
+    if (revealing) return;
+    revealing = true;
+    try {
+      revealed = (await api.revealDeleted(m.channelId, m.id)) || "(the original was empty)";
+    } catch (err) {
+      flash(err);
+    } finally {
+      revealing = false;
+    }
+  }
   // A browser guest has no key: their message is relayed under the host's
   // signature. It is NOT the host talking, so it gets its own author row and
   // never inherits the host's name, color, avatar or fingerprint.
@@ -470,7 +491,21 @@
     {/if}
 
     {#if m.deleted}
-      <div class="body deleted"><em>deleted</em></div>
+      <div class="body deleted">
+        {#if revealed !== null}
+          <span class="revealed-tag" title="Deleted — shown to you as a moderator">
+            <Icon name="lock" size={10} /> deleted · original
+          </span>
+          <span class="revealed-text">{revealed}</span>
+        {:else}
+          <em>deleted</em>
+          {#if canRevealDeleted}
+            <button class="reveal-btn" onclick={revealOriginal} disabled={revealing}>
+              {revealing ? "…" : "Show original"}
+            </button>
+          {/if}
+        {/if}
+      </div>
     {:else if S.editing?.id === m.id}
       <div class="edit-wrap" class:pick-below={editPickerBelow}>
         <!-- svelte-ignore a11y_autofocus -->
@@ -811,6 +846,40 @@
     margin-top: 2px;
     white-space: pre-wrap;
     word-break: break-word;
+  }
+  .reveal-btn {
+    margin-left: 8px;
+    padding: 1px 8px;
+    font-size: 11px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    vertical-align: middle;
+  }
+  .reveal-btn:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .revealed-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-right: 7px;
+    padding: 0 6px;
+    font-size: 10px;
+    font-style: normal;
+    border-radius: 4px;
+    background: var(--accent-soft);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .revealed-text {
+    color: var(--text);
+    font-style: normal;
+    white-space: pre-wrap;
   }
   .body.deleted {
     color: var(--text-muted);

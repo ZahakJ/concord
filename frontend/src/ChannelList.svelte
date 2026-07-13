@@ -1336,7 +1336,12 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    /* Pad past the phone's bottom system bar (Android gesture/button bar, iOS
+       home indicator) — without this, edge-to-edge draw (viewport-fit=cover)
+       lets the OS nav overlap the self row and its settings/sign-out button.
+       env() is 0 on desktop, so this is a no-op there. */
     padding: 8px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
     border-top: 1px solid var(--border);
     background: var(--bg-0);
     /* Your own framed avatar lives here; its ring overflows by design. */

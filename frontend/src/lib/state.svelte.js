@@ -1029,10 +1029,19 @@ export async function forwardMessage(m, destChannelId) {
 export async function deleteMsg(m) {
   try {
     await api.deleteMessage(m.channelId, m.id);
+    // Honesty: in a guild, deleting hides a message from members but moderators
+    // can still reveal it. In a DM the delete is real (content erased on both
+    // sides). Tell the user which they got — once per session, not every time.
+    const g = activeGuild();
+    if (g && g.kind !== "dm" && m.sender === S.identity.fingerprint && !deleteHintShown) {
+      deleteHintShown = true;
+      flash("Deleted for members — moderators can still view it in this server.", "info");
+    }
   } catch (err) {
     flash(err);
   }
 }
+let deleteHintShown = false;
 
 export async function saveEdit(m, text) {
   S.editing = null;

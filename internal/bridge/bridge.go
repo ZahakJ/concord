@@ -1005,6 +1005,16 @@ func (b *Bridge) SetNickname(guildID, nick string) error {
 // SetMemberNickname sets ANOTHER member's per-guild nickname. Requires
 // MANAGE_MEMBERS and outranking them — enforced again on every peer that
 // receives the change, not just here.
+// RevealDeleted returns a moderator the original text of a soft-deleted guild
+// message (see Service.RevealDeleted). DM deletes are unrecoverable.
+func (b *Bridge) RevealDeleted(channelID, messageID string) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.RevealDeleted(channelID, messageID)
+}
+
 // CallIceServers returns ICE config (STUN + optional TURN with fresh creds) for
 // starting a call. See internal/app/ice.go.
 func (b *Bridge) CallIceServers() (appsvc.IceConfig, error) {
@@ -1689,6 +1699,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
 	case "CallIceServers":
 		return b.CallIceServers()
+	case "RevealDeleted":
+		return b.RevealDeleted(argStr(args, 0), argStr(args, 1))
 	case "PurgeMessages":
 		return b.PurgeMessages(argStr(args, 0), argInt(args, 1))
 	case "AddMember":

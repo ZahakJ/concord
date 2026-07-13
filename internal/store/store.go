@@ -1021,6 +1021,39 @@ func (s *Store) MarkDeleted(id string, bySender []byte, force bool) (domain.Mess
 	return m, true, nil
 }
 
+// EraseContent overwrites a message's stored body with an encrypted empty
+// string — a REAL delete, for DMs. Once erased there is nothing left to recover
+// in-app on either side (both honest clients run this when they process the
+// delete). The row survives as a tombstone (deleted=1) so the "deleted" marker
+// can still show; only the content is gone.
+func (s *Store) EraseContent(id string) error {
+	var nonce [nonceSize]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
+	sealed := secretbox.Seal(nil, []byte(""), &nonce, &s.key)
+	_, err := s.db.Exec(
+		`UPDATE messages SET content_enc = ?, nonce = ? WHERE id = ?`,
+		sealed, nonce[:], id,
+	)
+	return err
+}
+
+// MessageContent returns one message's decrypted body (empty if the row is
+// missing or its content was erased). Used to let a moderator reveal a
+// soft-deleted guild message's original text.
+func (s *Store) MessageContent(id string) (string, error) {
+	var enc, nonceB []byte
+	err := s.db.QueryRow(`SELECT content_enc, nonce FROM messages WHERE id = ?`, id).Scan(&enc, &nonceB)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return s.open(enc, nonceB)
+}
+
 // SetSetting stores a key/value app setting (e.g. the display name).
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(

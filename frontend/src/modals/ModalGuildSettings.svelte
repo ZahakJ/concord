@@ -118,9 +118,25 @@
   {:else}
     <p class="muted tiny">Only members with Manage Guild can edit this.</p>
   {/if}
+
+  <p class="muted tiny privacy-note">
+    <Icon name="info" size={12} /> Deleting a message hides it from members, but
+    moderators (Manage Messages) can still view the original — this keeps
+    moderation honest in a shared space. Direct messages are different: there,
+    deleting erases the content for both people.
+  </p>
 </Modal>
 
 <style>
+  .privacy-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    line-height: 1.5;
+  }
   .banner-box {
     height: 100px;
     border-radius: var(--radius-md);

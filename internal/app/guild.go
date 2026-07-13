@@ -913,7 +913,43 @@ func (s *Service) applyDelete(targetID string, bySender []byte, channelID string
 	if err != nil || !ok {
 		return
 	}
+	// DMs get a REAL delete: wipe the content at rest so neither side can recover
+	// it in-app (the chosen model — unsend actually unsends). Guild deletes keep
+	// the content so a moderator can reveal it (see RevealDeleted).
+	s.mu.RLock()
+	isDM := false
+	if g, gok := s.guilds[guildID]; gok {
+		isDM = g.Kind == "dm"
+	}
+	s.mu.RUnlock()
+	if isDM {
+		_ = s.store.EraseContent(targetID)
+	}
 	s.emitMessage(deleted)
+}
+
+// RevealDeleted returns the original text of a soft-deleted GUILD message, for a
+// moderator. It is gated on MANAGE_MESSAGES here, but the real protection is
+// that the content only EXISTS to reveal in guilds — DM deletes erase it (see
+// applyDelete), so there is nothing to return for a DM even to its participant.
+func (s *Service) RevealDeleted(channelID, messageID string) (string, error) {
+	s.mu.RLock()
+	guildID, ok := s.channelToGuild[channelID]
+	isDM := false
+	if g, gok := s.guilds[guildID]; ok && gok {
+		isDM = g.Kind == "dm"
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("app: unknown channel %s", channelID)
+	}
+	if isDM {
+		return "", fmt.Errorf("app: deleted direct messages can't be recovered")
+	}
+	if !s.hasPerm(guildID, PermManageMessages) {
+		return "", fmt.Errorf("app: only moderators can view deleted messages")
+	}
+	return s.store.MessageContent(messageID)
 }
 
 // trackGuild records a guild in memory and subscribes to its control and
