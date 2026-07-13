@@ -569,10 +569,9 @@
 
   <Toasts />
 
-  <!-- Concorde fly-in: the jet takes off diagonally (lower-left → upper-right,
-       nose leading) trailing a contrail while the overlay fades to reveal the
-       app. Pure theater, 1.5s, once per unlock. pointer-events:none the whole
-       time — never blocks input. -->
+  <!-- Concorde fly-in: the jet takes off straight up (nose-first) trailing a
+       vertical vapour trail while the overlay fades to reveal the app. Pure
+       theater, 1.5s, once per unlock. pointer-events:none — never blocks input. -->
   {#if flyIn}
     <div class="flyin" aria-hidden="true">
       <div class="flyin-jet">
@@ -716,38 +715,40 @@
     animation: flyin-fade 1.5s ease forwards;
     overflow: hidden;
   }
-  /* The mark is a head-on front view (nose up), so it climbs diagonally from
-     the lower-left and exits top-right with the nose leading — a takeoff, not a
-     sideways sweep. The 45° tilt matches the travel vector, and the contrail
-     (a child) rotates with it so it trails directly behind. */
+  /* The mark is a head-on front view (nose up), so it takes off STRAIGHT UP from
+     the centre — nose already pointing where it goes — with a vertical vapour
+     trail directly beneath it (no awkward diagonal). */
   .flyin-jet {
     position: absolute;
-    top: 88%;
-    left: 2vw;
+    left: 50%;
+    top: 82%;
     color: var(--text);
     filter: drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 55%, transparent));
     animation: flyin-jet 1.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
+  /* Trail hangs straight down from the jet's tail, brightest at the nozzle and
+     fading with distance. It's a child, so it rides the jet's climb. */
   .contrail {
     position: absolute;
-    top: 50%;
-    right: 40px;
-    width: 44vw;
-    height: 2.5px;
+    top: 90%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 3px;
+    height: 62vh;
     border-radius: 2px;
-    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 75%, white));
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 75%, white), transparent);
     opacity: 0.8;
   }
   @keyframes flyin-jet {
     0% {
-      transform: translate(0, 0) rotate(45deg) scale(0.85);
+      transform: translate(-50%, 0) scale(0.85);
       opacity: 0;
     }
     18% {
       opacity: 1;
     }
     100% {
-      transform: translate(62vw, -120vh) rotate(45deg) scale(1.2);
+      transform: translate(-50%, -118vh) scale(1.2);
       opacity: 1;
     }
   }
