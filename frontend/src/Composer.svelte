@@ -1056,6 +1056,16 @@
     width: 38px;
     height: 32px;
   }
+  /* Finger-sized (≥44px) targets for the icon row and send button; glyphs
+     stay grid-centered so only the tap area grows. */
+  .composer.mobile .iconbtn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .composer.mobile .sendbtn {
+    width: 44px;
+    height: 44px;
+  }
   .fmt-toggle {
     font-size: 14px;
     font-weight: 700;

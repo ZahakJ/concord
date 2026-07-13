@@ -1432,6 +1432,13 @@
     }
     .mute-btn {
       padding: 8px 10px;
+      /* Invisible overlay pads the tap area out to ~44px. */
+      position: relative;
+    }
+    .mute-btn::after {
+      content: "";
+      position: absolute;
+      inset: -3px -6px;
     }
     .vc-member {
       min-height: 38px;
@@ -1442,6 +1449,15 @@
     .me-gear {
       min-width: 44px;
       min-height: 44px;
+    }
+    /* Invisible overlay pads the avatar/status tap area out to 44px. */
+    .me-status-trigger {
+      position: relative;
+    }
+    .me-status-trigger::after {
+      content: "";
+      position: absolute;
+      inset: -2px;
     }
   }
   .add-locked {

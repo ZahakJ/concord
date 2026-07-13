@@ -428,6 +428,18 @@
     background: var(--bg-3);
     color: var(--text);
   }
+  /* Touch: invisible overlay pads the small expand/collapse toggle's tap
+     area out to ~44px without growing the glyph. */
+  @media (pointer: coarse) {
+    .mini {
+      position: relative;
+    }
+    .mini::after {
+      content: "";
+      position: absolute;
+      inset: -12px;
+    }
+  }
   .chev {
     display: inline-grid;
     place-items: center;

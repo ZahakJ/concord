@@ -56,6 +56,19 @@
     background: var(--bg-3);
     color: var(--text);
   }
+  /* Touch: the compact glyph stays small, but its tap area doesn't — an
+     invisible overlay pads the hit box out to ~44px. (The dropdown anchors
+     to .menu-root, so relative positioning here is inert.) */
+  @media (pointer: coarse) {
+    .trigger.compact {
+      position: relative;
+    }
+    .trigger.compact::after {
+      content: "";
+      position: absolute;
+      inset: -14px -11px;
+    }
+  }
   .menu {
     position: absolute;
     top: calc(100% + 6px);
