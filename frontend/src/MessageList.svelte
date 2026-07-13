@@ -30,6 +30,33 @@
   let atBottom = $state(true);
   $effect(() => registerFeed(feedEl));
 
+  // Keep the feed pinned to the newest message while the user is at the bottom,
+  // even as late-loading content (images, embeds, avatars, custom fonts) grows
+  // the thread AFTER the initial scroll. Without this, opening a channel scrolls
+  // to "bottom" before images lay out, then the images push the real bottom down
+  // and strand the reader above the latest message. A ResizeObserver re-pins on
+  // every size change as long as we were already at the bottom.
+  $effect(() => {
+    if (!feedEl) return;
+    const repin = () => {
+      if (atBottom) feedEl.scrollTop = feedEl.scrollHeight;
+    };
+    // A fixed-height scroll container's OWN box doesn't change as content grows,
+    // so we observe its children (each message row) — an image loading grows a
+    // row, which re-pins us. New rows are observed as they're added.
+    const ro = new ResizeObserver(repin);
+    ro.observe(feedEl); // container resize (e.g. mobile keyboard opening)
+    for (const child of feedEl.children) ro.observe(child);
+    const mo = new MutationObserver(() => {
+      for (const child of feedEl.children) ro.observe(child);
+    });
+    mo.observe(feedEl, { childList: true });
+    return () => {
+      ro.disconnect();
+      mo.disconnect();
+    };
+  });
+
   // Entrance animation: only a genuinely-APPENDED newest message animates in.
   // Channel switches, history loads, and jump-to-message replacements render
   // statically — old rows never re-animate.
