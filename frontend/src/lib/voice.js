@@ -238,6 +238,15 @@ export class VoiceMesh {
         pc.addTrack(track, this.localStream);
       }
     }
+    // A browser guest answers our offer and never gets to add an m-line of its
+    // own for a track we didn't ask for. So if we're not sending video (camera
+    // off — the common case), the guest's camera would have nowhere to land and
+    // we'd never see them. Offer a receive-only video slot up front.
+    if (peerId.startsWith("guest:")) {
+      try {
+        pc.addTransceiver("video", { direction: "recvonly" });
+      } catch {}
+    }
     // A peer that joins while we're already sending video (camera and/or screen)
     // gets those sources too, with a note about each one's kind.
     for (const kind of ["screen", "camera"]) {
@@ -273,8 +282,12 @@ export class VoiceMesh {
         const stream = streams[0] || new MediaStream([track]);
         const key = `${peerId}:${stream.id}`;
         peer.videoKeys.add(key);
+        // An unlabeled video track defaults to "camera": the kind note may be
+        // lost or late (a browser guest sends it before we're even in the call),
+        // and the UI only renders "camera"/"screen" tiles. Guessing camera shows
+        // the person; dropping the track shows nothing.
         const emit = () =>
-          this.onVideo(key, stream, { peerId, kind: this.remoteKinds.get(stream.id) || "video" });
+          this.onVideo(key, stream, { peerId, kind: this.remoteKinds.get(stream.id) || "camera" });
         emit();
         this._pendingVideo.set(stream.id, emit);
         const clear = () => {

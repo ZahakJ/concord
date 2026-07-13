@@ -100,11 +100,13 @@ type Service struct {
 	pendingReadMark map[string]int64
 	readMarkTimer   *time.Timer
 
-	// Browser-guest sessions (see guest.go): issued meeting tokens and the
-	// live sessions per channel.
+	// Browser-guest sessions (see guest.go): issued meeting tokens, the live
+	// sessions per channel, and the same sessions by id — a guest in a call is
+	// addressed as the voice peer "guest:<id>".
 	guestMu       sync.Mutex
 	guestTokens   map[string]guestToken
 	guestSessions map[string][]*guestSession
+	guestByID     map[string]*guestSession
 
 	profiles map[string]Profile // fingerprint -> profile, learned from peers
 

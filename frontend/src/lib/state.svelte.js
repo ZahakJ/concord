@@ -160,6 +160,10 @@ export function clearVideoStreams() {
 // learned member name (same as the member list), falling back to a message's
 // self-asserted name, then a short fingerprint. Keeps chat and roster in sync.
 export function nameFor(fpr, frozenName = "") {
+  // A browser guest has no account to look up — their name rides in the
+  // fingerprint slot ("guest:Alice"). One branch here labels them everywhere:
+  // sidebar, call roster, video tiles.
+  if (isGuestFpr(fpr)) return `${guestName(fpr)} (guest)`;
   return memberByFpr(fpr)?.name || frozenName || (fpr ? fpr.slice(0, 9) : "?");
 }
 
@@ -1133,6 +1137,20 @@ function initEvents() {
   on("voice-presence", (v) => {
     updateVoiceRoster(v.channelId, v.from, v.fingerprint, v.action);
 
+    // A browser guest joined the call from their invite link. If we're not in
+    // the call yet they'd be sitting there alone, so say so — one nudge per
+    // guest, not once per heartbeat.
+    if (isGuestPeer(v.from)) {
+      const inThisCall = S.voice && S.voice.channelId === v.channelId;
+      if (v.action === "join" && !inThisCall && !announcedGuests.has(v.from)) {
+        announcedGuests.add(v.from);
+        playDM();
+        flash(`${guestName(v.fingerprint)} is waiting in the call — hit Call to join them`, "info");
+      } else if (v.action === "leave") {
+        announcedGuests.delete(v.from);
+      }
+    }
+
     // Additionally drive the WebRTC mesh + sounds for the room we're actually in.
     if (S.voice && v.channelId === S.voice.channelId) {
       if (v.action === "join") {
@@ -1169,6 +1187,14 @@ function initEvents() {
     if (changed) S.voiceRosters = next;
   }, 3000);
 }
+
+// A browser guest in a meeting call is the voice peer "guest:<session>", and
+// carries its display name where a member's fingerprint would be — a guest has
+// no identity to look up, which is the entire point of being a guest.
+export const isGuestPeer = (peerId = "") => peerId.startsWith("guest:");
+export const isGuestFpr = (fpr = "") => fpr.startsWith("guest:");
+export const guestName = (fpr = "") => fpr.slice(6) || "Guest";
+const announcedGuests = new Set();
 
 // updateVoiceRoster folds one presence heartbeat into the guild-wide roster.
 function updateVoiceRoster(channelId, peerId, fingerprint, action) {

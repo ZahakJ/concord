@@ -6,7 +6,7 @@
   import { scale } from "svelte/transition";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
-  import { S, memberByFpr, getVideoStream, activeGuild } from "./lib/state.svelte.js";
+  import { S, memberByFpr, nameFor, getVideoStream, activeGuild } from "./lib/state.svelte.js";
 
   // Join/leave pop for tiles and strip bubbles; zero-duration under
   // prefers-reduced-motion (Svelte transitions don't read the media query).
@@ -39,7 +39,9 @@
     const fpr = S.voicePeerFpr[peerId];
     const mem = fpr ? memberByFpr(fpr) : null;
     return {
-      name: mem?.name || (fpr ? fpr.slice(0, 9) : peerId.slice(0, 8)),
+      // nameFor is the one place names resolve — it knows about browser guests
+      // ("Zaza (guest)"), who have no member record to look up.
+      name: fpr ? nameFor(fpr) : peerId.slice(0, 8),
       emoji: mem?.emoji || "",
       color: mem?.color || "",
       image: mem?.avatar || "",

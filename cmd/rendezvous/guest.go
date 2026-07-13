@@ -1,10 +1,10 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"embed"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"sync"
@@ -36,7 +36,10 @@ var guestPage embed.FS
 
 const (
 	guestIdleTimeout  = 10 * time.Minute
-	guestMaxFrameSize = 8 << 10
+	// Big enough for a WebRTC offer/answer (SDP with video runs to several KB),
+	// not big enough to be a pipe: the gateway is a dumb relay of bytes it
+	// cannot read.
+	guestMaxFrameSize = 32 << 10
 )
 
 var upgrader = websocket.Upgrader{
@@ -74,9 +77,12 @@ func serveGuestGateway(ctx context.Context, h host.Host) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		// Hard CSP: the page is self-contained; it must not be able to load or
-		// exfiltrate anything anywhere.
+		// exfiltrate anything anywhere. media-src admits the guest's own camera
+		// and the host's inbound tracks (MediaStreams attached via srcObject) —
+		// nothing is fetched, so this widens no exfiltration path.
 		w.Header().Set("Content-Security-Policy",
-			"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self' wss:; img-src data:;")
+			"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "+
+				"connect-src 'self' wss:; img-src data:; media-src mediastream: blob:;")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		_, _ = w.Write(b)
@@ -143,22 +149,23 @@ func relayGuest(ctx context.Context, h host.Host, w http.ResponseWriter, r *http
 		})
 	}
 
-	// host → guest
+	// host → guest. The host protocol is line-delimited JSON, so forward whole
+	// LINES — never raw chunks. A chat line fits in one read; a WebRTC offer is
+	// several KB of SDP and would otherwise be split across two WebSocket
+	// messages, leaving the browser with two unparseable halves (which is
+	// exactly what silently broke guest calls).
 	go func() {
 		defer shut()
-		buf := make([]byte, 4096)
+		r := bufio.NewReaderSize(stream, guestMaxFrameSize)
 		for {
-			n, err := stream.Read(buf)
-			if n > 0 {
+			line, err := r.ReadBytes('\n')
+			if len(line) > 0 {
 				_ = ws.SetWriteDeadline(time.Now().Add(20 * time.Second))
-				if werr := ws.WriteMessage(websocket.TextMessage, buf[:n]); werr != nil {
+				if werr := ws.WriteMessage(websocket.TextMessage, line); werr != nil {
 					return
 				}
 			}
 			if err != nil {
-				if err != io.EOF {
-					return
-				}
 				return
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -110,7 +111,15 @@ func (s *Service) LeaveVoice(channelID string) error {
 }
 
 // RelaySignal forwards an opaque WebRTC signaling blob to a specific peer.
+//
+// A browser guest in a meeting is a peer too — "guest:<session>" — but it has
+// no libp2p identity, so its signaling goes back down the guest stream it
+// arrived on (see guest.go). The mesh upstairs never has to know the
+// difference: media is still direct, P2P, DTLS-SRTP.
 func (s *Service) RelaySignal(toPeerID string, data []byte) error {
+	if strings.HasPrefix(toPeerID, "guest:") {
+		return s.relayToGuest(toPeerID, data)
+	}
 	pid, err := peer.Decode(toPeerID)
 	if err != nil {
 		return fmt.Errorf("app: bad peer id: %w", err)

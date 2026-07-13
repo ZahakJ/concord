@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -31,6 +33,16 @@ const (
 	maxGuestsPerMeeting = 5
 	maxGuestNameBytes   = 24
 	maxGuestMsgBytes    = 2000
+	// A WebRTC offer/answer is far bigger than a chat line (a few KB of SDP,
+	// more once video codecs are in it). Frames are capped generously; the chat
+	// CONTENT limit above still applies to messages.
+	maxGuestFrameBytes = 32 << 10
+	// Signaling bypasses the chat rate limit (ICE trickles in bursts) but is
+	// bounded on its own: enough for several renegotiations, not enough to be a
+	// pipe into the app.
+	guestSignalBurst  = 240
+	guestSignalRefill = 12 // frames per second, replenished
+
 	guestHistoryCount   = 30
 	// Rate limit: a small burst, then one message per second.
 	guestBurst      = 5
@@ -44,10 +56,19 @@ type guestToken struct {
 	expires   time.Time
 }
 
-// guestSession is one live browser guest.
+// guestSession is one live browser guest. `id` makes it addressable as a voice
+// peer ("guest:<id>"): the WebRTC mesh in the app treats a guest exactly like
+// any other participant, and RelaySignal routes that prefix down this session's
+// stream instead of over libp2p. Media itself is direct browser↔app (P2P,
+// DTLS-SRTP) — it never touches the rendezvous.
 type guestSession struct {
-	name string
-	send chan []byte // JSON lines queued to the guest (dropped when full)
+	id        string
+	name      string
+	channelID string
+	send      chan []byte // JSON lines queued to the guest (dropped when full)
+
+	callMu sync.Mutex
+	inCall bool
 }
 
 type guestFrame struct {
@@ -59,6 +80,11 @@ type guestFrame struct {
 	Sent    string `json:"sent,omitempty"`
 	Meeting string `json:"meeting,omitempty"`
 	Reason  string `json:"reason,omitempty"`
+	// Call frames: "call" carries Action ("join"/"leave"); "signal" carries an
+	// opaque WebRTC SDP/ICE blob, relayed verbatim in both directions.
+	Action  string          `json:"action,omitempty"`
+	Data    json.RawMessage `json:"data,omitempty"`
+	Channel string          `json:"channel,omitempty"` // the voice room the guest signals about
 }
 
 // initGuests wires the stream handler and the message tap. Called from Start.
@@ -67,6 +93,7 @@ func (s *Service) initGuests() {
 	if s.guestTokens == nil {
 		s.guestTokens = map[string]guestToken{}
 		s.guestSessions = map[string][]*guestSession{} // channelID -> sessions
+		s.guestByID = map[string]*guestSession{}       // session id -> session
 	}
 	s.guestMu.Unlock()
 	s.host.HandleGuestSessions(func(conn io.ReadWriteCloser, remote peer.ID) {
@@ -98,6 +125,96 @@ func (s *Service) initGuests() {
 			}
 		}
 	})
+}
+
+// guestPeerID is how a browser guest appears to the voice mesh. The app's
+// RelaySignal recognizes this prefix and writes down the guest's stream instead
+// of dialing libp2p, so the mesh needs no idea guests exist.
+func guestPeerID(id string) string { return "guest:" + id }
+
+// guestFingerprint carries the guest's NAME where a member's fingerprint would
+// go, so the call roster can label them without inventing an identity for
+// someone who has none. (A guest is not authenticated — that's the whole point
+// of a guest.)
+func guestFingerprint(name string) string { return "guest:" + name }
+
+func newGuestSessionID() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
+}
+
+func (g *guestSession) callActive() bool {
+	g.callMu.Lock()
+	defer g.callMu.Unlock()
+	return g.inCall
+}
+
+// guestJoinCall announces the guest to the app as a voice participant. The mesh
+// then offers them a connection exactly like it would any peer.
+func (s *Service) guestJoinCall(sess *guestSession) {
+	sess.callMu.Lock()
+	if sess.inCall {
+		sess.callMu.Unlock()
+		return
+	}
+	sess.inCall = true
+	sess.callMu.Unlock()
+	s.emitVoicePresence(guestPeerID(sess.id), guestFingerprint(sess.name), sess.channelID, "join")
+	// Peers announce themselves on a heartbeat and the UI evicts anyone silent
+	// for ~9s (that's how a crashed peer disappears). A guest has no gossip, so
+	// beat on their behalf until they leave — otherwise they'd vanish from the
+	// call roster after nine seconds while still perfectly connected.
+	go func() {
+		t := time.NewTicker(voiceHeartbeat)
+		defer t.Stop()
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-t.C:
+				if !sess.callActive() {
+					return
+				}
+				s.emitVoicePresence(guestPeerID(sess.id), guestFingerprint(sess.name), sess.channelID, "join")
+			}
+		}
+	}()
+}
+
+func (s *Service) guestLeaveCall(sess *guestSession) {
+	sess.callMu.Lock()
+	if !sess.inCall {
+		sess.callMu.Unlock()
+		return
+	}
+	sess.inCall = false
+	sess.callMu.Unlock()
+	s.emitVoicePresence(guestPeerID(sess.id), guestFingerprint(sess.name), sess.channelID, "leave")
+}
+
+// relayToGuest delivers a WebRTC signaling blob to a guest session. Called by
+// RelaySignal when the destination "peer" is a guest.
+func (s *Service) relayToGuest(peerID string, data []byte) error {
+	id := strings.TrimPrefix(peerID, "guest:")
+	s.guestMu.Lock()
+	sess := s.guestByID[id]
+	s.guestMu.Unlock()
+	if sess == nil {
+		return fmt.Errorf("app: no such guest session")
+	}
+	line, err := json.Marshal(guestFrame{Type: "signal", Data: json.RawMessage(data)})
+	if err != nil {
+		return err
+	}
+	select {
+	case sess.send <- line:
+		return nil
+	default:
+		return fmt.Errorf("app: guest is not keeping up")
+	}
 }
 
 func (s *Service) senderLabel(m domain.Message) string {
@@ -209,7 +326,12 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	}
 
 	name := sanitizeGuestName(hello.Name)
-	sess := &guestSession{name: name, send: make(chan []byte, 64)}
+	sess := &guestSession{
+		id:        newGuestSessionID(),
+		name:      name,
+		channelID: tok.channelID,
+		send:      make(chan []byte, 64),
+	}
 	s.guestMu.Lock()
 	if len(s.guestSessions[tok.channelID]) >= maxGuestsPerMeeting {
 		s.guestMu.Unlock()
@@ -217,6 +339,7 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 		return
 	}
 	s.guestSessions[tok.channelID] = append(s.guestSessions[tok.channelID], sess)
+	s.guestByID[sess.id] = sess
 	s.guestMu.Unlock()
 	defer func() {
 		s.guestMu.Lock()
@@ -227,12 +350,19 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 				break
 			}
 		}
+		delete(s.guestByID, sess.id)
 		s.guestMu.Unlock()
+		// A guest who drops mid-call must leave the call too, or the app keeps a
+		// dead RTCPeerConnection and a ghost in the roster.
+		s.guestLeaveCall(sess)
 		s.sendSystem(tok.channelID, fmt.Sprintf("👤 %s (guest) left", name))
 	}()
 
-	// Welcome + recent history so the guest has context.
-	writeGuestFrame(conn, guestFrame{Type: "welcome", Meeting: meetingName, Name: name})
+	// Welcome + recent history so the guest has context. `Channel` tells the
+	// guest which voice room to label its signaling with.
+	writeGuestFrame(conn, guestFrame{
+		Type: "welcome", Meeting: meetingName, Name: name, Channel: tok.channelID,
+	})
 	if msgs, err := s.store.Messages(tok.channelID, guestHistoryCount); err == nil {
 		for _, m := range msgs {
 			if m.Deleted || (m.Kind != "" && m.Kind != "system") {
@@ -266,19 +396,53 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	}()
 	defer close(done)
 
-	// Reader: guest messages, token-bucket rate limited.
+	// Reader: guest messages, token-bucket rate limited. Signaling gets its own,
+	// looser bucket — it's machine traffic, not typing.
 	budget := float64(guestBurst)
 	last := time.Now()
+	sigBudget := float64(guestSignalBurst)
+	sigLast := time.Now()
 	for {
 		line, err := r.ReadBytes('\n')
 		if err != nil {
 			return
 		}
-		if len(line) > maxGuestMsgBytes+512 {
+		if len(line) > maxGuestFrameBytes {
 			continue
 		}
 		var f guestFrame
-		if json.Unmarshal(line, &f) != nil || f.Type != "msg" {
+		if json.Unmarshal(line, &f) != nil {
+			continue
+		}
+		// Call control + WebRTC signaling. These are relayed to the app's voice
+		// mesh, which treats this guest as the peer "guest:<id>". They're small
+		// and bursty (ICE trickles), so they bypass the chat rate limit but are
+		// bounded by the frame-size cap above.
+		switch f.Type {
+		case "call":
+			if f.Action == "join" {
+				s.guestJoinCall(sess)
+			} else {
+				s.guestLeaveCall(sess)
+			}
+			continue
+		case "signal":
+			now := time.Now()
+			sigBudget += now.Sub(sigLast).Seconds() * guestSignalRefill
+			if sigBudget > guestSignalBurst {
+				sigBudget = guestSignalBurst
+			}
+			sigLast = now
+			if sigBudget < 1 {
+				continue // flooding: drop, don't disconnect (ICE is retry-tolerant)
+			}
+			sigBudget--
+			if len(f.Data) > 0 && sess.callActive() {
+				s.emitVoiceSignal(guestPeerID(sess.id), f.Data)
+			}
+			continue
+		case "msg":
+		default:
 			continue
 		}
 		content := strings.TrimSpace(f.Content)
