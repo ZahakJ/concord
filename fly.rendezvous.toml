@@ -4,7 +4,7 @@
 # The node is untrusted infrastructure: it relays end-to-end-encrypted traffic
 # and serves the DHT; it never sees plaintext or media.
 
-app = "concord-rendezvous"
+app = "concord-rdv-zahak"
 primary_region = "iad"
 
 [build]
@@ -14,7 +14,7 @@ primary_region = "iad"
   PORT = "4001"
   # Guest gateway (browser guests joining a meeting — see cmd/rendezvous/guest.go).
   CONCORD_GUEST_PORT = "8080"
-  CONCORD_PUBLIC_HOST = "concord-rendezvous.fly.dev"
+  # (CONCORD_PUBLIC_HOST is set as a fly SECRET on the app — not here.)
 
 # A single always-on machine is plenty for a personal/small deployment.
 [[vm]]

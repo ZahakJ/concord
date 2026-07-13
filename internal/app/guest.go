@@ -153,7 +153,14 @@ func (s *Service) guestGatewayBase() string {
 	if b := strings.TrimRight(os.Getenv("CONCORD_GUEST_BASE"), "/"); b != "" {
 		return b
 	}
-	for _, b := range LoadNetConfig(s.dataDir).Bootstrap {
+	// Saved settings first, then the env override that can supply bootstrap
+	// without ever touching netconfig (CONCORD_BOOTSTRAP) — otherwise an
+	// env-configured peer could never mint a guest link.
+	addrs := LoadNetConfig(s.dataDir).Bootstrap
+	if env := os.Getenv("CONCORD_BOOTSTRAP"); env != "" {
+		addrs = append(addrs, strings.Split(env, ",")...)
+	}
+	for _, b := range addrs {
 		fields := strings.Split(b, "/")
 		for i := 0; i+1 < len(fields); i++ {
 			if fields[i] == "dns" || fields[i] == "dns4" || fields[i] == "dns6" {
