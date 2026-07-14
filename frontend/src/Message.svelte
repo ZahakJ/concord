@@ -848,6 +848,9 @@
     margin-top: 2px;
     white-space: pre-wrap;
     word-break: break-word;
+    /* Comfortable reading measure for multi-line messages — matches Discord's
+       roomier line-height without stretching single-line rows noticeably. */
+    line-height: 1.45;
   }
   .reveal-btn {
     margin-left: 8px;
