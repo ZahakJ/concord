@@ -216,12 +216,13 @@
 </div>
 
 <style>
+  /* Just a dim — the frosted look comes from the palette's OWN backdrop-filter
+     below (a small, bounded region). A full-screen blur here would be the exact
+     GPU hazard we avoid, for no visible gain over the glass panel. */
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(3px);
-    -webkit-backdrop-filter: blur(3px);
+    background: rgba(0, 0, 0, 0.5);
     display: flex;
     justify-content: center;
     padding-top: 12vh;
