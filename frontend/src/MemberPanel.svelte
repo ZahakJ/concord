@@ -113,6 +113,7 @@
       <div class="member-row">
       <button
         class="member"
+        class:offline={!mem.online}
         onclick={(e) => openProfilePopover(mem.fingerprint, e.currentTarget)}
         oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => memberMenu(e, mem)}
         use:longpress={{ handler: (e) => memberMenu(e, mem) }}
@@ -249,6 +250,21 @@
   }
   .member:hover {
     background: transparent;
+  }
+  /* Offline members recede (Discord-style) so the online roster reads first;
+     hovering or focusing a row brings the person fully back. */
+  .member.offline {
+    opacity: 0.62;
+    transition: opacity 0.15s ease;
+  }
+  .member-row:hover .member.offline,
+  .member.offline:focus-visible {
+    opacity: 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .member.offline {
+      transition: none;
+    }
   }
   /* Finger-sized rows in the mobile members drawer. */
   @media (pointer: coarse) {

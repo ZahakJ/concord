@@ -726,19 +726,40 @@
     color: var(--accent-hover);
     border-color: color-mix(in srgb, var(--accent) 45%, transparent);
   }
+  /* Toggles keep their tinted state on hover (a deeper wash) instead of falling
+     back to the neutral hover grey — so an on/muted control still reads on/off. */
+  .ctl.active:hover {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
   /* Muted mic reads as a clear "off/alert" state (Discord-style red). */
   .ctl.danger {
     background: color-mix(in srgb, var(--danger) 20%, transparent);
     color: var(--danger);
     border-color: color-mix(in srgb, var(--danger) 45%, transparent);
   }
+  .ctl.danger:hover {
+    background: color-mix(in srgb, var(--danger) 30%, transparent);
+  }
+  /* Leave is a separate kind of action from the toggles — a little breathing
+     room sets it apart so it's never fat-fingered mid-call. */
   .ctl.hangup {
     background: var(--danger);
     color: #fff;
     border-color: transparent;
+    margin-left: 6px;
   }
   .ctl.hangup:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
+  }
+  /* Circular controls keep a circular focus ring — the global :focus-visible
+     rule otherwise squares their corners to --radius-sm. */
+  .ctl:focus-visible,
+  .fbtn:focus-visible,
+  .bubble:focus-visible {
+    border-radius: 50%;
+  }
+  .screen-tile:focus-visible {
+    border-radius: var(--radius-md);
   }
 
   @media (prefers-reduced-motion: reduce) {

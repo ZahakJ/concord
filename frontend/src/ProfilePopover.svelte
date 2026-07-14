@@ -919,10 +919,19 @@
     border-color: var(--border);
     border-radius: 999px;
   }
+  /* A clickable role chip should answer the pointer — the un-toggled state was
+     visually inert on hover. */
+  .role-toggle:hover {
+    color: var(--text);
+    border-color: var(--border);
+  }
   .role-toggle.on {
     background: var(--bg-4, var(--bg-3));
     color: var(--text);
     border-color: var(--border);
+  }
+  .role-toggle.on:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   }
   .role-dot {
     width: 8px;

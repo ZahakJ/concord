@@ -428,6 +428,12 @@
   .pill-btn.leave:hover {
     background: var(--danger-soft);
   }
+  /* Round controls keep a round focus ring (the global :focus-visible rule
+     would otherwise square their corners to --radius-sm). */
+  .pill-btn:focus-visible,
+  .search-clear:focus-visible {
+    border-radius: 50%;
+  }
   .invite {
     padding: 6px 12px;
   }
