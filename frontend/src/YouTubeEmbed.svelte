@@ -73,4 +73,25 @@
   .thumb:hover .play {
     background: rgba(0, 0, 0, 0.05);
   }
+  .play svg {
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+    transition:
+      transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+      filter 0.15s ease;
+  }
+  /* The red button swells slightly under the cursor — the whole thumbnail
+     feels like a play control. */
+  .thumb:hover .play svg {
+    transform: scale(1.12);
+    filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.5));
+  }
+  .thumb:active .play svg {
+    transform: scale(0.96);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .thumb:hover .play svg,
+    .thumb:active .play svg {
+      transform: none;
+    }
+  }
 </style>

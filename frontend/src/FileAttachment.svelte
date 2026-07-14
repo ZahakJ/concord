@@ -68,10 +68,18 @@
     border-radius: var(--radius-md);
     text-align: left;
     color: var(--text);
+    transition:
+      background 0.13s ease,
+      border-color 0.13s ease,
+      box-shadow 0.13s ease;
   }
   .file-card:hover {
     background: var(--bg-3);
     border-color: var(--accent);
+    box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
+  }
+  .file-card:active {
+    background: var(--bg-2);
   }
   .thumb {
     position: relative;
@@ -116,9 +124,19 @@
   .dl {
     color: var(--text-muted);
     flex-shrink: 0;
+    transition:
+      color 0.13s ease,
+      transform 0.13s ease;
   }
   .file-card:hover .dl {
     color: var(--accent-hover);
+    /* the arrow dips toward the "download" — a small directional cue */
+    transform: translateY(2px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .file-card:hover .dl {
+      transform: none;
+    }
   }
   .spin {
     width: 18px;
