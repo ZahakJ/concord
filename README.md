@@ -2,6 +2,12 @@
 
 **A serverless, end-to-end-encrypted Discord alternative — your community, on your machines, readable by no one else.**
 
+![Concord walkthrough — guild, channels, an end-to-end-encrypted conversation, and out-of-band identity verification](docs/demo.gif)
+
+> *Two peers on one machine (isolated dev instances) chatting over a real guild:
+> channels, an MLS-encrypted conversation, and the safety-number verification
+> that defeats impersonation. No server sits between them.*
+
 Concord is a peer-to-peer group chat and voice application written in Go with a
 Svelte front end. There is no company, no account database, and no server that
 stores your messages. Every guild ("server") is a cryptographic group; every
@@ -10,7 +16,9 @@ untrusted by construction.
 
 This document is both the manual and the architecture paper: it explains what
 peer-to-peer actually means, how every layer of Concord works, and why the
-design is more private than a centralized platform can ever be.
+design is more private than a centralized platform can ever be. For the short,
+plain-language version of what data exists and who can read it, see
+**[PRIVACY.md](PRIVACY.md)**.
 
 ---
 
