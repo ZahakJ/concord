@@ -7,8 +7,11 @@
       name: "Navigation",
       keys: [
         [["Ctrl/⌘", "K"], "Command palette (jump anywhere, run actions)"],
+        [["Ctrl/⌘", "F"], "Search messages"],
+        [["Ctrl/⌘", ","], "User settings"],
         [["Alt", "↑/↓"], "Previous / next channel"],
         [["Alt", "Shift", "↑/↓"], "Previous / next unread channel"],
+        [["Ctrl", "Alt", "↑/↓"], "Previous / next server"],
       ],
     },
     {
@@ -17,6 +20,10 @@
         [["Esc"], "Close what's open — or mark this channel read"],
         [["Shift", "Esc"], "Mark all channels read"],
       ],
+    },
+    {
+      name: "Voice",
+      keys: [[["Ctrl", "Shift", "M"], "Toggle mute (while in a call)"]],
     },
     {
       name: "Composer",
