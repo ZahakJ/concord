@@ -235,6 +235,11 @@
   .ico.hang:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
   }
+  /* Round controls keep a round focus ring (the global :focus-visible rule
+     would otherwise square their corners). */
+  .ico:focus-visible {
+    border-radius: 50%;
+  }
 
   @media (prefers-reduced-motion: reduce) {
     .dock,
