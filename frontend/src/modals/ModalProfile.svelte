@@ -203,7 +203,7 @@
         {color}
         {color2}
         style={{ angle, fill }}
-        class="pv-banner"
+        class="pv-banner banner"
         onclick={() => (bannerStudio = true)}
         title="Edit banner"
       >
@@ -420,123 +420,10 @@
 </Modal>
 
 <style>
-  .banner-strip {
-    position: relative;
-    height: 90px;
-    border-radius: 8px;
-    background: var(--bg-input);
-    background-size: cover;
-    background-position: center;
-    cursor: pointer;
-    display: grid;
-    place-items: center;
-    overflow: hidden;
-    border: 1px dashed var(--border);
-  }
-  .banner-strip {
-    transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
-  }
-  .banner-strip:hover {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
-  .banner-hint {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.5);
-    padding: 3px 8px;
-    border-radius: 10px;
-    opacity: 0.85;
-  }
-  .banner-remove {
-    position: absolute;
-    top: 6px;
-    right: 6px;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.55);
-    color: #fff;
-    display: grid;
-    place-items: center;
-  }
-  .preview {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px;
-    background: var(--bg-input);
-    border-radius: 8px;
-  }
-  .avatar {
-    position: relative;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    font-size: 22px;
-    color: white;
-    font-weight: 600;
-    text-transform: uppercase;
-    flex-shrink: 0;
-    padding: 0;
-    overflow: hidden;
-    transition:
-      transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-      box-shadow 0.18s ease;
-  }
-  .avatar:hover {
-    transform: scale(1.05);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .avatar,
-    .banner-strip {
-      transition: none;
-    }
-  }
-  .avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  /* A clean centered hover hint instead of a clipped edge badge. */
-  .cam-overlay {
-    position: absolute;
-    inset: 0;
-    display: grid;
-    place-items: center;
-    font-size: 10px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.5);
-    opacity: 0;
-    transition: opacity 0.12s ease;
-  }
-  .avatar:hover .cam-overlay,
-  .avatar:focus-visible .cam-overlay {
-    opacity: 1;
-  }
   .small-btn {
     font-size: 12px;
     padding: 4px 10px;
     align-self: flex-start;
-  }
-  .preview-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 13px;
-    text-align: left;
   }
   .field {
     display: flex;
@@ -544,11 +431,6 @@
     gap: 4px;
     text-align: left;
     font-size: 12px;
-  }
-  .row-field {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
   }
   .theme-preview {
     height: 34px;
@@ -566,29 +448,6 @@
     flex-direction: column;
     align-items: center;
     gap: 2px;
-  }
-  .frame-row {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .frame-opt {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 5px;
-    padding: 7px 9px;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-  }
-  .frame-opt:hover {
-    background: var(--bg-3);
-  }
-  .frame-opt.sel {
-    border-color: var(--accent);
-    background: var(--accent-soft);
   }
   /* ---- live preview ---- */
   .studio {
@@ -634,6 +493,11 @@
     text-align: left;
     overflow: clip;
   }
+  .ring-entry {
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease;
+  }
   .ring-entry:hover {
     background: var(--bg-3);
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
@@ -647,6 +511,22 @@
   .chev {
     color: var(--text-faint);
     font-size: 16px;
+    transition:
+      transform 0.15s ease,
+      color 0.15s ease;
+  }
+  .ring-entry:hover .chev {
+    color: var(--accent);
+    transform: translateX(3px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ring-entry,
+    .chev {
+      transition: none;
+    }
+    .ring-entry:hover .chev {
+      transform: none;
+    }
   }
   .banner-edit {
     position: absolute;
@@ -712,15 +592,6 @@
   .pv-note {
     text-align: center;
     margin: 0;
-  }
-  .tiny {
-    font-size: 10px;
-  }
-  .row-field input[type="color"] {
-    width: 48px;
-    height: 30px;
-    padding: 2px;
-    cursor: pointer;
   }
   .emoji-row {
     display: flex;

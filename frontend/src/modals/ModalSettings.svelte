@@ -723,6 +723,17 @@
     line-height: 1;
     color: var(--text-faint);
   }
+  /* Nav chevrons drift toward the destination on hover (the disclosure caret
+     rotates instead — handled below — so it's excluded). */
+  .chev:not(.disclose) {
+    transition:
+      transform 0.15s ease,
+      color 0.15s ease;
+  }
+  .row:hover .chev:not(.disclose) {
+    color: var(--text-muted);
+    transform: translateX(2px);
+  }
   .disclose {
     transform: rotate(90deg);
     transition: transform 0.15s ease;
@@ -1017,8 +1028,12 @@
   @media (prefers-reduced-motion: reduce) {
     .switch,
     .knob,
-    .disclose {
+    .disclose,
+    .chev:not(.disclose) {
       transition: none;
+    }
+    .row:hover .chev:not(.disclose) {
+      transform: none;
     }
   }
 </style>
