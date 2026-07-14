@@ -602,22 +602,17 @@
       opacity: 0.35;
     }
   }
-  /* Drawers over a scrim whose opacity tracks the drag. The scrim frosts the
-     chat behind it (blur) where supported; plain dimming elsewhere. */
+  /* Drawers over a scrim whose opacity tracks the drag. Deliberately a plain
+     dim, NOT a full-screen backdrop-filter blur: this element is live while a
+     finger drags at 60fps, and blurring the whole viewport every frame is what
+     melted the GPU last time. A solid scrim composites for free. */
   .scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(0, 0, 0, 0.58);
     z-index: 60;
     border: none;
     transition: opacity 0.22s ease;
-  }
-  @supports (backdrop-filter: blur(4px)) {
-    .scrim {
-      background: rgba(0, 0, 0, 0.42);
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-    }
   }
   .drawer {
     position: fixed;
