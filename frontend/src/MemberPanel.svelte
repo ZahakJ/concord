@@ -273,6 +273,11 @@
       padding: 8px 10px;
       font-size: 15px;
     }
+    /* Touch never hovers/focuses, so the recede-then-restore can't kick in —
+       keep offline members readable (a gentler dim than the desktop 0.62). */
+    .member.offline {
+      opacity: 0.8;
+    }
   }
   .member-text {
     display: flex;
