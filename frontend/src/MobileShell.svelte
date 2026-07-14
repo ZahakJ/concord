@@ -466,7 +466,8 @@
   /* Under an animated pack, let the backdrop show through: the outer shell goes
      transparent so only the inner panels (translucent bg-*) tint it — no
      double-dark stacking. */
-  :global(:root[data-anim-bg]) .mshell {
+  :global(:root[data-anim-bg]) .mshell,
+  :global(:root[data-textured]) .mshell {
     background: transparent;
   }
   .mtopbar {

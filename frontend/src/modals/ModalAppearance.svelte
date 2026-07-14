@@ -40,6 +40,19 @@
     { id: "sakura", label: "Sakura", bg: "#24141e", hi: "#402637", ac: "#f06ba8" },
     { id: "forest", label: "Forest", bg: "#111c16", hi: "#22342a", ac: "#3fb96e" },
     { id: "abyss", label: "Abyss", bg: "#070709", hi: "#17181d", ac: "#22d3ee" },
+    { id: "nord", label: "Nord", bg: "#2e3440", hi: "#434c5e", ac: "#88c0d0" },
+    { id: "dracula", label: "Dracula", bg: "#282a36", hi: "#424456", ac: "#bd93f9" },
+    { id: "gruvbox", label: "Gruvbox", bg: "#282828", hi: "#3c3836", ac: "#fabd2f" },
+    { id: "rose", label: "Rosé", bg: "#1f1d2e", hi: "#2f2b45", ac: "#ebbcba" },
+    { id: "oceanic", label: "Oceanic", bg: "#16232b", hi: "#294049", ac: "#5ec8cc" },
+  ];
+
+  // Textured packs: a static coloured mesh glows through translucent surfaces —
+  // richer than a flat palette, but zero animation cost. `grad` drives the card.
+  const TEXTURE_PACKS = [
+    { id: "frost", label: "Frost", bg: "#111b26", hi: "#1c2a3a", ac: "#7dd3fc", grad: "radial-gradient(circle at 20% 20%,#38bdf8,transparent 55%),radial-gradient(circle at 85% 70%,#2dd4bf,#0d1a26)" },
+    { id: "dusk", label: "Dusk", bg: "#26181c", hi: "#382428", ac: "#fb7185", grad: "radial-gradient(circle at 18% 18%,#fb923c,transparent 55%),radial-gradient(circle at 82% 75%,#a855f7,#241318)" },
+    { id: "grape", label: "Grape", bg: "#1e162a", hi: "#2c203c", ac: "#c084fc", grad: "radial-gradient(circle at 20% 20%,#c084fc,transparent 55%),radial-gradient(circle at 85% 72%,#ec4899,#180f24)" },
   ];
 
   // Animated packs: a live backdrop moves behind translucent surfaces. The mini
@@ -120,6 +133,33 @@
           onclick={() => setAppearance("themePack", p.id)}
         >
           <span class="pk live" style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac};--pk-grad:{p.grad}" aria-hidden="true">
+            <span class="pk-glow"></span>
+            <span class="pk-rail"></span>
+            <span class="pk-body">
+              <span class="pk-ac"></span>
+              <span class="pk-line"></span>
+              <span class="pk-line short"></span>
+            </span>
+          </span>
+          {p.label}
+        </button>
+      {/each}
+    </div>
+
+    <div class="live-head">
+      <span class="live-tag texture-tag">▦ Textured</span>
+      <span class="muted tiny">A soft colour mesh, no animation.</span>
+    </div>
+    <div class="pack-row" role="radiogroup" aria-label="Textured theme pack">
+      {#each TEXTURE_PACKS as p (p.id)}
+        <button
+          class="pack-card"
+          class:sel={themePack === p.id}
+          role="radio"
+          aria-checked={themePack === p.id}
+          onclick={() => setAppearance("themePack", p.id)}
+        >
+          <span class="pk live textured" style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac};--pk-grad:{p.grad}" aria-hidden="true">
             <span class="pk-glow"></span>
             <span class="pk-rail"></span>
             <span class="pk-body">
@@ -419,6 +459,13 @@
     100% {
       transform: translate(8%, 6%) scale(1.25);
     }
+  }
+  /* Textured previews: the same mesh, but held still (matches the real theme). */
+  .pk.textured .pk-glow {
+    inset: 0;
+    opacity: 0.7;
+    filter: blur(3px);
+    animation: none;
   }
   @media (prefers-reduced-motion: reduce) {
     .pk-glow {

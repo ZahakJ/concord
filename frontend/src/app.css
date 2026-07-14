@@ -172,6 +172,79 @@
   color-scheme: dark;
 }
 
+/* More curated palettes — flat/opaque (zero runtime cost), each a cohesive
+   color story that flows through every surface via the --bg/--text tokens. */
+:root[data-theme-pack="nord"] {
+  --bg-0: #22272f;
+  --bg-1: #2e3440;
+  --bg-2: #3b4252;
+  --bg-3: #434c5e;
+  --border: #4c566a;
+  --text: #eceff4;
+  --text-muted: #a8b1c4;
+  --text-faint: #7b8698;
+  --accent: #88c0d0;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="dracula"] {
+  --bg-0: #21222c;
+  --bg-1: #282a36;
+  --bg-2: #343746;
+  --bg-3: #424456;
+  --border: #4d5066;
+  --text: #f8f8f2;
+  --text-muted: #bcc0d8;
+  --text-faint: #7f83a3;
+  --accent: #bd93f9;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="gruvbox"] {
+  --bg-0: #1d2021;
+  --bg-1: #282828;
+  --bg-2: #32302f;
+  --bg-3: #3c3836;
+  --border: #504945;
+  --text: #ebdbb2;
+  --text-muted: #bdae93;
+  --text-faint: #928374;
+  --accent: #fabd2f;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="rose"] {
+  --bg-0: #16141f;
+  --bg-1: #1f1d2e;
+  --bg-2: #26233a;
+  --bg-3: #2f2b45;
+  --border: #403c58;
+  --text: #e0def4;
+  --text-muted: #a7a3c8;
+  --text-faint: #6e6a86;
+  --accent: #ebbcba;
+  --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="oceanic"] {
+  --bg-0: #0f1b21;
+  --bg-1: #16232b;
+  --bg-2: #1e2f38;
+  --bg-3: #294049;
+  --border: #34505b;
+  --text: #e0eaee;
+  --text-muted: #8faab6;
+  --text-faint: #5f7b86;
+  --accent: #5ec8cc;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+
 /* ── Animated theme packs ─────────────────────────────────────────────────
    These four go beyond a static palette: a live backdrop (.theme-bg, rendered
    once in App.svelte / behind the mobile shell) animates, and the surface
@@ -239,11 +312,15 @@
   color-scheme: dark;
 }
 
-/* The backdrop element is inert until an animated pack turns it on. */
+/* The backdrop element is inert until an animated OR textured pack turns it on.
+   Animated packs drift the .tb-* layers; textured packs paint a STATIC mesh on
+   .theme-bg itself (no animation → composited once, effectively free). Both let
+   the mesh/glow show through translucent surfaces app-wide. */
 .theme-bg {
   display: none;
 }
-:root[data-anim-bg] .theme-bg {
+:root[data-anim-bg] .theme-bg,
+:root[data-textured] .theme-bg {
   display: block;
   position: fixed;
   inset: 0;
@@ -258,6 +335,15 @@
   position: absolute;
   inset: -60%;
   display: block;
+}
+/* GPU-promote the ANIMATED layers only (textured packs leave the spans empty):
+   every backdrop animation is transform/opacity, so on their own compositor
+   layers they run without repaint and the translucent UI above just composites
+   over a cached layer — this is what keeps animated themes cheap. */
+:root[data-anim-bg] .theme-bg > span {
+  will-change: transform, opacity;
+  transform: translateZ(0);
+  backface-visibility: hidden;
 }
 
 /* Aurora: teal night with green/violet ribbons swimming + faint stars. */
@@ -465,6 +551,77 @@
   .theme-bg > span {
     animation: none !important;
   }
+}
+
+/* ── Textured theme packs ─────────────────────────────────────────────────
+   Like the animated packs, surfaces are translucent so a backdrop shows through
+   the whole app — but the backdrop is a STATIC multi-radial gradient mesh (no
+   animation, so it paints once and costs nothing after). state stamps
+   [data-textured] so surfaces + backdrop switch together. Gives channels,
+   profiles, settings — every panel — a soft coloured depth instead of flat
+   fills. */
+:root[data-theme-pack="frost"] {
+  --bg-0: rgba(11, 18, 26, 0.5);
+  --bg-1: rgba(17, 27, 38, 0.84);
+  --bg-2: rgba(13, 22, 32, 0.82);
+  --bg-3: rgba(28, 42, 58, 0.88);
+  --border: #2a3f52;
+  --text: #e6f0f7;
+  --text-muted: #9db4c6;
+  --text-faint: #647d90;
+  --accent: #7dd3fc;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(18, 30, 42, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="frost"] .theme-bg {
+  background:
+    radial-gradient(60% 50% at 15% 10%, rgba(56, 189, 248, 0.16), transparent 60%),
+    radial-gradient(55% 45% at 90% 20%, rgba(129, 140, 248, 0.14), transparent 60%),
+    radial-gradient(70% 60% at 70% 95%, rgba(45, 212, 191, 0.12), transparent 60%),
+    radial-gradient(120% 100% at 50% 0%, #0d1a26 0%, #071019 70%);
+}
+:root[data-theme-pack="dusk"] {
+  --bg-0: rgba(26, 16, 20, 0.5);
+  --bg-1: rgba(38, 24, 28, 0.84);
+  --bg-2: rgba(30, 18, 22, 0.82);
+  --bg-3: rgba(56, 36, 40, 0.88);
+  --border: #513438;
+  --text: #f6e7e6;
+  --text-muted: #c7a2a2;
+  --text-faint: #906a6c;
+  --accent: #fb7185;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(40, 26, 30, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="dusk"] .theme-bg {
+  background:
+    radial-gradient(60% 50% at 12% 8%, rgba(251, 146, 60, 0.18), transparent 60%),
+    radial-gradient(55% 45% at 88% 18%, rgba(244, 114, 182, 0.16), transparent 60%),
+    radial-gradient(75% 65% at 65% 98%, rgba(168, 85, 247, 0.16), transparent 62%),
+    radial-gradient(120% 100% at 50% 0%, #241318 0%, #140a0d 70%);
+}
+:root[data-theme-pack="grape"] {
+  --bg-0: rgba(20, 14, 28, 0.5);
+  --bg-1: rgba(30, 22, 42, 0.84);
+  --bg-2: rgba(24, 17, 34, 0.82);
+  --bg-3: rgba(44, 32, 60, 0.88);
+  --border: #3d2c54;
+  --text: #efe6f7;
+  --text-muted: #b6a2c9;
+  --text-faint: #7f6a94;
+  --accent: #c084fc;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: rgba(32, 23, 44, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="grape"] .theme-bg {
+  background:
+    radial-gradient(60% 50% at 14% 10%, rgba(192, 132, 252, 0.18), transparent 60%),
+    radial-gradient(55% 45% at 88% 22%, rgba(96, 165, 250, 0.14), transparent 60%),
+    radial-gradient(72% 62% at 68% 96%, rgba(236, 72, 153, 0.14), transparent 62%),
+    radial-gradient(120% 100% at 50% 0%, #180f24 0%, #0d0916 70%);
 }
 
 /* Compact density: tighter feed rhythm for information density. */

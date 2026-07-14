@@ -701,6 +701,8 @@ const sysDark = window.matchMedia?.("(prefers-color-scheme: dark)");
 
 // Packs whose backdrop animates (see app.css .theme-bg + [data-anim-bg]).
 export const ANIMATED_PACKS = new Set(["aurora", "synthwave", "cosmos", "molten"]);
+// Packs with a STATIC coloured mesh behind translucent surfaces ([data-textured]).
+export const TEXTURED_PACKS = new Set(["frost", "dusk", "grape"]);
 
 export function applyAppearance() {
   const el = document.documentElement;
@@ -713,6 +715,9 @@ export function applyAppearance() {
   // surfaces so it shows through; a single flag drives both regardless of pack.
   if (ANIMATED_PACKS.has(S.prefs.themePack)) el.dataset.animBg = "1";
   else delete el.dataset.animBg;
+  // Textured packs use the same translucent-surface trick over a STATIC mesh.
+  if (TEXTURED_PACKS.has(S.prefs.themePack)) el.dataset.textured = "1";
+  else delete el.dataset.textured;
   // Accent precedence: explicit preset > theme pack's own accent (CSS) >
   // profile color. An inline --accent would defeat the pack's palette, so
   // clear it when the pack should win.
