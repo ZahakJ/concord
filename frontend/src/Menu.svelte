@@ -82,12 +82,27 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    transform-origin: top;
+    animation: menu-in 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes menu-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px) scale(0.97);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .menu {
+      animation: none;
+    }
   }
   .menu.right {
     right: 0;
+    transform-origin: top right;
   }
   .menu.left {
     left: 0;
+    transform-origin: top left;
   }
   /* Menu items are plain buttons with .menu-item from the consumer. */
   .menu :global(.menu-item) {

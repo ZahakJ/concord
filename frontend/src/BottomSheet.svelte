@@ -10,14 +10,20 @@
   let sheetEl = $state(null);
   let dragY = $state(0); // translateY while dragging (px, downward only)
   let dragging = $state(false);
+  let sheetH = $state(0); // sheet height captured at grab, for the scrim dim
   let prevY = 0;
   let prevT = 0;
   let velocity = 0; // px/ms, positive = downward
+
+  // Scrim tracks the pull: as the sheet slides down, the backdrop lightens —
+  // the sheet feels physically attached to the dim behind it (iOS-style).
+  const scrimO = $derived(dragging && sheetH ? Math.max(0.3, 1 - dragY / sheetH) : 1);
 
   function onTouchStart(e) {
     const t = e.touches[0];
     if (!t) return;
     dragging = true;
+    sheetH = sheetEl?.offsetHeight || 0;
     prevY = t.clientY;
     prevT = performance.now();
     velocity = 0;
@@ -44,7 +50,13 @@
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && onClose?.()} />
 
-<button class="bs-scrim" aria-label="Close" onclick={onClose}></button>
+<button
+  class="bs-scrim"
+  class:dragging
+  style="opacity:{scrimO}"
+  aria-label="Close"
+  onclick={onClose}
+></button>
 <div
   class="bs-sheet"
   class:dragging
@@ -77,6 +89,11 @@
     z-index: 400;
     border: none;
     animation: bs-fade 0.16s ease;
+    /* Springs the dim back in sync with the sheet on a released half-swipe. */
+    transition: opacity 0.18s ease;
+  }
+  .bs-scrim.dragging {
+    transition: none;
   }
   .bs-sheet {
     position: fixed;

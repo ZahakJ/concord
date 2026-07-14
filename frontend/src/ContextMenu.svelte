@@ -178,6 +178,21 @@
        items off-screen where they can't be reached. */
     max-height: calc(100vh - 16px);
     overflow-y: auto;
+    /* Gentle rise-in so the menu arrives instead of blinking into place. Only
+       opacity/translate animate — never scale — so the on-open flip measurement
+       (which reads width/height) stays exact. */
+    animation: cm-in 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes cm-in {
+    from {
+      opacity: 0;
+      transform: translateY(-5px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cm {
+      animation: none;
+    }
   }
   .cm-item {
     display: flex;
