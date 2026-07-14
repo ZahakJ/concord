@@ -632,7 +632,8 @@
 
 {#if S.replyingTo}
   <div class="reply-banner">
-    <span class="muted">
+    <span class="rb-label">
+      <span class="rb-icon"><Icon name="reply" size={12} /></span>
       Replying to <strong>{S.replyingTo.senderName || S.replyingTo.sender.slice(0, 9)}</strong>
     </span>
     <button class="mini" aria-label="Cancel reply" onclick={() => (S.replyingTo = null)}>
@@ -810,9 +811,38 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 8px;
     padding: 6px 16px;
     font-size: 13px;
     border-top: 1px solid var(--border);
+    /* Faint accent wash ties the banner to the reply you're composing. */
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+    animation: rb-in 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes rb-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+  .rb-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rb-label strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .rb-icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--accent);
   }
   .typing-line {
     height: 20px;
