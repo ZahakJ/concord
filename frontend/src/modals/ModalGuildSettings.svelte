@@ -20,6 +20,13 @@
   const canEdit = has(g?.myPerms || 0, PERM.MANAGE_GUILD);
   const MAX = 500 * 1024;
 
+  // Defense in depth (mirrors Banner.svelte): the banner lands inside a CSS
+  // url("…"), so only ever emit it when it still looks like a base64 image
+  // data-URI — never interpolate an arbitrary string into the background.
+  const safeBanner = $derived(
+    /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(banner) ? banner : "",
+  );
+
   // Read an image file to a data URI. Kept raw (no canvas re-encode) so animated
   // GIF banners keep animating; rejected if too big for a gossip frame.
   function applyImageFile(file, setter) {
@@ -75,7 +82,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="banner-box"
-    style={banner ? `background-image:url(${banner})` : ""}
+    style={safeBanner ? `background-image:url("${safeBanner}")` : ""}
     onmouseenter={() => (pasteTarget = "banner")}
   >
     {#if canEdit}
