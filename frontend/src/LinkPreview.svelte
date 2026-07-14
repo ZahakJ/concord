@@ -9,6 +9,9 @@
   let root = $state(null);
   let preview = $state(null);
   let attempted = $state(false);
+  // A preview image that 404s / is blocked would otherwise render the browser's
+  // broken-image glyph inside the card — hide it and keep the text-only card.
+  let imgFailed = $state(false);
 
   const hostname = $derived.by(() => {
     try {
@@ -41,8 +44,14 @@
         <span class="title">{preview.title}</span>
         {#if preview.description}<span class="desc muted">{preview.description}</span>{/if}
       </span>
-      {#if preview.imageUrl}
-        <img src={preview.imageUrl} alt="" loading="lazy" referrerpolicy="no-referrer" />
+      {#if preview.imageUrl && !imgFailed}
+        <img
+          src={preview.imageUrl}
+          alt=""
+          loading="lazy"
+          referrerpolicy="no-referrer"
+          onerror={() => (imgFailed = true)}
+        />
       {/if}
     </a>
   {/if}
@@ -60,9 +69,15 @@
     background: var(--bg-1);
     text-decoration: none;
     color: var(--text);
+    transition:
+      background 0.14s ease,
+      box-shadow 0.14s ease,
+      transform 0.14s ease;
   }
   .card:hover {
     background: var(--bg-3);
+    box-shadow: 0 2px 10px rgb(0 0 0 / 0.14);
+    transform: translateY(-1px);
   }
   .meta {
     display: flex;

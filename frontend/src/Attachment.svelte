@@ -278,6 +278,11 @@
   .frame.done img {
     display: block;
     border-radius: var(--radius-sm);
+    transition: filter 0.15s ease;
+  }
+  /* Dim a touch on hover so the thumbnail reads as "click to enlarge". */
+  .frame.done:hover img {
+    filter: brightness(0.9);
   }
   .placeholder {
     background: var(--bg-1);

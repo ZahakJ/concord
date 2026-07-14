@@ -588,6 +588,15 @@
     gap: 4px;
     max-width: 400px;
     padding: 24px 16px;
+    /* Settle in gently instead of popping when a fresh channel opens.
+       (The global reduced-motion rule in app.css zeroes the duration.) */
+    animation: empty-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  @keyframes empty-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
   }
   .empty-badge {
     position: relative;
@@ -619,6 +628,18 @@
     border-radius: 50%;
     background: var(--accent);
     opacity: 0.55;
+    /* The satellite drifts gently, giving the illustrated badge some life. */
+    animation: sat-float 4.5s ease-in-out infinite;
+  }
+  @keyframes sat-float {
+    50% {
+      transform: translateY(-4px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .empty-badge::after {
+      animation: none;
+    }
   }
   .empty h3 {
     margin: 0;
