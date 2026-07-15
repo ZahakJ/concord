@@ -40,6 +40,7 @@
     activeChannel,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { addReminder } from "./lib/scheduled.svelte.js";
   import { longpress } from "./lib/touch.js";
   import { PERM, has } from "./lib/perms.js";
   import {
@@ -392,6 +393,20 @@
       },
       { label: "Forward", icon: "forward", onClick: () => (S.modal = { kind: "forward", message: m }) },
       { label: "Mark Unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
+      {
+        label: "Remind Me",
+        icon: "clock",
+        onClick: () =>
+          (S.modal = {
+            kind: "when",
+            title: "Remind me about this",
+            cta: "Remind me",
+            onPick: (at) => {
+              addReminder(m.channelId, m.id, stripAttachTokens(m.content).trim() || previewText(m.content), at);
+              flash("Reminder set", "success");
+            },
+          }),
+      },
       (isOwn || canDeleteOthers) && { sep: true },
       (isOwn || canDeleteOthers) && {
         label: "Delete",

@@ -70,6 +70,9 @@
   import ModalSettings from "./modals/ModalSettings.svelte";
   import ModalLinkDevice from "./modals/ModalLinkDevice.svelte";
   import ModalAppearance from "./modals/ModalAppearance.svelte";
+  import ModalWhen from "./modals/ModalWhen.svelte";
+  import ModalScheduled from "./modals/ModalScheduled.svelte";
+  import { startScheduler } from "./lib/scheduled.svelte.js";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
 
   let composer = $state(null);
@@ -154,6 +157,7 @@
     await onLogin();
     requestPermission();
     installShortcuts();
+    startScheduler();
     wireMobileLifecycle();
     registerPushToken();
     applyStayConnected();
@@ -640,6 +644,10 @@
     <ModalGuildSettings onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "shortcuts"}
     <ModalShortcuts onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "when"}
+    <ModalWhen onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "scheduled"}
+    <ModalScheduled onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "newDM"}
     <ModalNewDM onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "renameGroup"}

@@ -11,6 +11,7 @@
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
+  import { scheduleMessage } from "./lib/scheduled.svelte.js";
 
   let draft = $state("");
   let uploading = $state(0); // files being read into `pending` (brief)
@@ -662,6 +663,33 @@
     `${Math.floor(recSecs / 60)}:${(recSecs % 60).toString().padStart(2, "0")}`,
   );
 
+  // ---- scheduled send ----
+  // With a draft: pick a time and queue it (see lib/scheduled). Empty: open the
+  // manager so the clock is also the way to see/cancel what's queued.
+  function scheduleSend() {
+    if (!S.activeChannelId) return;
+    const text = replaceShortcodes(draft.trim());
+    if (!text) {
+      S.modal = { kind: "scheduled" };
+      return;
+    }
+    const chId = S.activeChannelId;
+    const replyTo = S.replyingTo?.id || "";
+    S.modal = {
+      kind: "when",
+      title: "Send later",
+      cta: "Schedule",
+      onPick: (at) => {
+        scheduleMessage(chId, text, replyTo, at);
+        draft = "";
+        saveDraft(chId, "");
+        S.replyingTo = null;
+        queueAutosize();
+        flash("Message scheduled", "success");
+      },
+    };
+  }
+
   function onPaste(e) {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (item) {
@@ -896,6 +924,16 @@
             <Icon name="mic" size={20} />
           </button>
         {/if}
+        <button
+          type="button"
+          class="iconbtn"
+          title={draft.trim() ? "Schedule this message" : "Scheduled messages & reminders"}
+          aria-label="Schedule message"
+          disabled={!ch}
+          onclick={scheduleSend}
+        >
+          <Icon name="clock" size={19} />
+        </button>
         <button
           type="button"
           class="iconbtn"
