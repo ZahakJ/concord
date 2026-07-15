@@ -1,9 +1,18 @@
 <script>
   import { S } from "../lib/state.svelte.js";
+  import Icon from "../Icon.svelte";
   // `wide` widens the desktop dialog for content that benefits from the room
   // (sectioned settings); the mobile sheet presentation ignores it.
   let { title, onClose, wide = false, children } = $props();
   let dialog = $state(null);
+
+  // A modal opened with a `from` remembers where it came from, so it can show a
+  // back arrow that returns there instead of closing outright — e.g. Settings →
+  // Appearance → back to Settings.
+  const from = $derived(S.modal?.from || "");
+  function goBack() {
+    if (from) S.modal = { kind: from };
+  }
 
   // Mobile: the sheet can be flicked/dragged DOWN to dismiss — the native
   // gesture people expect, so they don't have to reach the tiny ✕ in the top
@@ -90,6 +99,11 @@
       onpointercancel={onRelease}
       role="presentation"
     >
+      {#if from}
+        <button class="back" onclick={goBack} aria-label="Back" title="Back">
+          <Icon name="chevron" size={16} />
+        </button>
+      {/if}
       <h3>{title}</h3>
       <button class="x" onclick={onClose} aria-label="Close">✕</button>
     </div>
@@ -229,6 +243,29 @@
     font-size: 16.5px;
     font-weight: 700;
     letter-spacing: 0.01em;
+  }
+  /* Back arrow sits before the title; title takes the slack so ✕ stays right. */
+  .head h3 {
+    margin-right: auto;
+  }
+  .back {
+    display: grid;
+    place-items: center;
+    background: transparent;
+    color: var(--text-muted);
+    padding: 4px 6px;
+    margin: 0 4px 0 -4px;
+    border-radius: 8px;
+    transition:
+      color 0.15s ease,
+      background 0.15s ease;
+  }
+  .back :global(svg) {
+    transform: rotate(180deg);
+  }
+  .back:hover {
+    color: var(--text);
+    background: var(--bg-input);
   }
   .x {
     background: transparent;

@@ -227,7 +227,7 @@
   <section class="grp">
     <div class="sec-label">Account</div>
     <div class="card">
-      <button class="row" onclick={() => (S.modal = { kind: "profile" })}>
+      <button class="row" onclick={() => (S.modal = { kind: "profile", from: "settings" })}>
         <Avatar
           name={S.displayName || S.identity.displayName || "You"}
           emoji={S.identity.emoji}
@@ -241,7 +241,7 @@
         </span>
         <span class="chev">›</span>
       </button>
-      <button class="row" onclick={() => (S.modal = { kind: "appearance" })}>
+      <button class="row" onclick={() => (S.modal = { kind: "appearance", from: "settings" })}>
         <span class="appearance-chip" aria-hidden="true"></span>
         <span class="row-text">
           <span class="row-title">Appearance</span>
@@ -249,7 +249,7 @@
         </span>
         <span class="chev">›</span>
       </button>
-      <button class="row" onclick={() => (S.modal = { kind: "linkDevice" })}>
+      <button class="row" onclick={() => (S.modal = { kind: "linkDevice", from: "settings" })}>
         <span class="chip"><Icon name="devices" size={17} /></span>
         <span class="row-text">
           <span class="row-title">Link a device</span>
@@ -257,7 +257,7 @@
         </span>
         <span class="chev">›</span>
       </button>
-      <button class="row" onclick={() => (S.modal = { kind: "stats" })}>
+      <button class="row" onclick={() => (S.modal = { kind: "stats", from: "settings" })}>
         <span class="chip"><Icon name="poll" size={17} /></span>
         <span class="row-text">
           <span class="row-title">Stats &amp; diagnostics</span>
