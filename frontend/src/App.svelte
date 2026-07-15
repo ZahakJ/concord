@@ -73,7 +73,9 @@
   import ModalWhen from "./modals/ModalWhen.svelte";
   import ModalScheduled from "./modals/ModalScheduled.svelte";
   import ModalPoll from "./modals/ModalPoll.svelte";
+  import ModalDisappear from "./modals/ModalDisappear.svelte";
   import { startScheduler } from "./lib/scheduled.svelte.js";
+  import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
 
   let composer = $state(null);
@@ -159,6 +161,7 @@
     requestPermission();
     installShortcuts();
     startScheduler();
+    startEphemeralSweep();
     wireMobileLifecycle();
     registerPushToken();
     applyStayConnected();
@@ -651,6 +654,8 @@
     <ModalScheduled onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "poll"}
     <ModalPoll onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "disappear"}
+    <ModalDisappear onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "newDM"}
     <ModalNewDM onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "renameGroup"}

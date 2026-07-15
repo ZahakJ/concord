@@ -12,6 +12,7 @@
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
+  import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
 
   let draft = $state("");
   let uploading = $state(0); // files being read into `pending` (brief)
@@ -44,6 +45,9 @@
   const mobile = $derived(S.isMobile);
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
   const canSend = $derived((!!draft.trim() || pending.length > 0) && !!ch);
+  // Disappearing-messages timer for this channel (0 = off). channelTTL reads the
+  // reactive per-channel store, so this updates the moment you change it.
+  const ephTTL = $derived(ch ? channelTTL(S.activeChannelId) : 0);
   // Mobile markdown lives behind a toggle rather than an always-on toolbar row.
   let showFmt = $state(false);
   const showFmtBar = $derived(!mobile || showFmt);
@@ -454,7 +458,7 @@
         if (a.isImage) await api.sendAttachment(chId, a.dataUrl, a.w, a.h, nextReply());
         else await api.sendFile(chId, a.dataUrl, a.name, nextReply());
       }
-      if (text) await sendMessage(text, nextReply());
+      if (text) await sendMessage(stampEphemeral(chId, text), nextReply());
     } catch (err) {
       // Don't lose what they staged/typed — put it back so they can retry.
       draft = prevDraft;
@@ -809,6 +813,13 @@
         e.target.value = "";
       }}
     />
+    {#if ephTTL > 0}
+      <button type="button" class="eph-banner" onclick={() => (S.modal = { kind: "disappear", channelId: S.activeChannelId })}>
+        <Icon name="clock" size={13} />
+        <span>Messages disappear after <strong>{ttlLabel(ephTTL)}</strong></span>
+        <span class="eph-change">change</span>
+      </button>
+    {/if}
     <div class="input-shell" class:active={!!ch}>
     {#if pending.length || uploading > 0}
       <div class="attach-tray">
@@ -970,6 +981,36 @@
 </div>
 
 <style>
+  .eph-banner {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    width: 100%;
+    padding: 6px 12px;
+    margin-bottom: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg-input));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: var(--radius-md);
+    text-align: left;
+  }
+  .eph-banner :global(svg) {
+    color: var(--accent);
+    flex-shrink: 0;
+  }
+  .eph-banner strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .eph-change {
+    margin-left: auto;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .eph-banner:hover .eph-change {
+    text-decoration: underline;
+  }
   .reply-banner {
     display: flex;
     justify-content: space-between;

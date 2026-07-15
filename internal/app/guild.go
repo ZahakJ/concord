@@ -928,6 +928,23 @@ func (s *Service) applyDelete(targetID string, bySender []byte, channelID string
 	s.emitMessage(deleted)
 }
 
+// ExpireMessage erases THIS device's copy of a disappearing message whose
+// embedded TTL has elapsed. It is purely local (no broadcast, no permission
+// check): the expiry was set by the message's own MLS-authenticated author and
+// travels in the synced content, so every device independently sweeps and
+// erases at the same wall-clock time — that's what makes it vanish on all sides
+// without any extra coordination. Idempotent; the content is wiped for real
+// (EraseContent), so an expired message leaves no recoverable trace here.
+func (s *Service) ExpireMessage(channelID, messageID string) error {
+	deleted, ok, err := s.store.MarkDeleted(messageID, s.PublicKey(), true)
+	if err != nil || !ok {
+		return err
+	}
+	_ = s.store.EraseContent(messageID)
+	s.emitMessage(deleted)
+	return nil
+}
+
 // RevealDeleted returns the original text of a soft-deleted GUILD message, for a
 // moderator. It is gated on MANAGE_MESSAGES here, but the real protection is
 // that the content only EXISTS to reveal in guilds — DM deletes erase it (see

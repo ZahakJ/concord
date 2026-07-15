@@ -145,6 +145,7 @@
       [
         { label: "Search", icon: "search", onClick: () => (searchOpen = true) },
         { label: "Pinned messages", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
+        { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
         !g.dmNotes &&
           (inCall
             ? { label: dm ? "End call" : "Leave voice", icon: "door", onClick: () => onLeaveVoice() }

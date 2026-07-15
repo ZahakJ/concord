@@ -10,6 +10,7 @@
   import VoiceMessage from "./VoiceMessage.svelte";
   import PollView from "./PollView.svelte";
   import { parsePoll } from "./lib/polls.js";
+  import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
   import { untrack } from "svelte";
@@ -159,7 +160,11 @@
   const poll = $derived(m.deleted ? null : parsePoll(m.content));
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const files = $derived(m.deleted ? [] : parseFileTokens(m.content));
-  const bodyText = $derived(atts.length || files.length ? stripAttachTokens(m.content) : m.content);
+  const bodyText = $derived(
+    stripEphemeral(atts.length || files.length ? stripAttachTokens(m.content) : m.content),
+  );
+  // Disappearing: expiry epoch (ms) if this message carries one, else 0.
+  const ephExp = $derived(m.deleted ? 0 : ephemeralExpiry(m.content));
   // One embed per message: the first YouTube link gets a player; otherwise
   // the first link gets a preview card.
   const embed = $derived.by(() => {
@@ -612,6 +617,11 @@
           <LinkPreview url={embed.url} />
         {/key}
       {/if}
+      {#if ephExp}
+        <span class="eph-hint" title="Disappears {new Date(ephExp).toLocaleString()}">
+          <Icon name="clock" size={10} /> disappearing
+        </span>
+      {/if}
     {/if}
 
     {#if !poll && m.reactions && Object.keys(m.reactions).length}
@@ -921,6 +931,18 @@
     user-select: none;
     vertical-align: baseline;
     animation: tag-in 0.3s ease;
+  }
+  .eph-hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: 2px;
+    font-size: 10px;
+    color: var(--text-faint);
+    user-select: none;
+  }
+  .eph-hint :global(svg) {
+    opacity: 0.8;
   }
   @keyframes tag-in {
     from {

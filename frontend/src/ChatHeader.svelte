@@ -17,11 +17,13 @@
   // Operator parsing (from:/in:/has:/before:/after:) + the backend call live
   // in lib/search.js, shared with the results panel's chip refinement.
   import { runSearch, closeSearch } from "./lib/search.js";
+  import { channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
 
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
 
   const g = $derived(activeGuild());
   const ch = $derived(activeChannel());
+  const ephTTL = $derived(ch ? channelTTL(S.activeChannelId) : 0);
   const pinnedCount = $derived(S.messages.filter((m) => m.pinned && !m.deleted).length);
 
   async function showInvite() {
@@ -177,6 +179,18 @@
         onclick={() => (S.showPins = !S.showPins)}
       >
         <Icon name="pin" />{#if pinnedCount}<span class="n">{pinnedCount}</span>{/if}
+      </button>
+    {/if}
+
+    {#if ch}
+      <button
+        class="ghost iconbtn"
+        class:pin-active={ephTTL > 0}
+        title={ephTTL > 0 ? `Disappearing after ${ttlLabel(ephTTL)}` : "Disappearing messages"}
+        aria-label="Disappearing messages"
+        onclick={() => (S.modal = { kind: "disappear", channelId: S.activeChannelId })}
+      >
+        <Icon name="clock" />
       </button>
     {/if}
 

@@ -514,6 +514,15 @@ func (b *Bridge) DeleteMessage(channelID, messageID string) error {
 	return svc.DeleteMessage(channelID, messageID)
 }
 
+// ExpireMessage erases this device's copy of an expired disappearing message.
+func (b *Bridge) ExpireMessage(channelID, messageID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.ExpireMessage(channelID, messageID)
+}
+
 // LeaveGuild removes a guild from this peer (local delete).
 func (b *Bridge) LeaveGuild(guildID string) error {
 	svc, err := b.service()
@@ -1773,6 +1782,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.LeaveGuild(argStr(args, 0))
 	case "DeleteMessage":
 		return nil, b.DeleteMessage(argStr(args, 0), argStr(args, 1))
+	case "ExpireMessage":
+		return nil, b.ExpireMessage(argStr(args, 0), argStr(args, 1))
 	case "EditMessage":
 		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "ToggleReaction":

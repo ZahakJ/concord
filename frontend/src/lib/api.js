@@ -107,6 +107,7 @@ export const api = {
   deleteMessage: (channelID, messageID) => call("DeleteMessage", channelID, messageID),
   editMessage: (channelID, messageID, content) =>
     call("EditMessage", channelID, messageID, content),
+  expireMessage: (channelID, messageID) => call("ExpireMessage", channelID, messageID),
   toggleReaction: (channelID, messageID, emoji) =>
     call("ToggleReaction", channelID, messageID, emoji),
   inviteCode: (guildID) => call("InviteCode", guildID),
