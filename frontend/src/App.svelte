@@ -74,6 +74,7 @@
   import ModalScheduled from "./modals/ModalScheduled.svelte";
   import ModalPoll from "./modals/ModalPoll.svelte";
   import ModalDisappear from "./modals/ModalDisappear.svelte";
+  import ModalStats from "./modals/ModalStats.svelte";
   import { startScheduler } from "./lib/scheduled.svelte.js";
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
@@ -656,6 +657,8 @@
     <ModalPoll onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "disappear"}
     <ModalDisappear onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "stats"}
+    <ModalStats onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "newDM"}
     <ModalNewDM onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "renameGroup"}

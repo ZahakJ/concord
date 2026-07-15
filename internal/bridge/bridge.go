@@ -523,6 +523,24 @@ func (b *Bridge) ExpireMessage(channelID, messageID string) error {
 	return svc.ExpireMessage(channelID, messageID)
 }
 
+// GuildStats returns storage + membership + sync stats for one guild/DM.
+func (b *Bridge) GuildStats(guildID string) (appsvc.GuildStatsView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.GuildStatsView{}, err
+	}
+	return svc.GuildStats(guildID)
+}
+
+// NetworkStats returns a whole-device network + storage snapshot.
+func (b *Bridge) NetworkStats() (appsvc.NetworkStatsView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.NetworkStatsView{}, err
+	}
+	return svc.NetworkStats(), nil
+}
+
 // LeaveGuild removes a guild from this peer (local delete).
 func (b *Bridge) LeaveGuild(guildID string) error {
 	svc, err := b.service()
@@ -1784,6 +1802,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.DeleteMessage(argStr(args, 0), argStr(args, 1))
 	case "ExpireMessage":
 		return nil, b.ExpireMessage(argStr(args, 0), argStr(args, 1))
+	case "GuildStats":
+		return b.GuildStats(argStr(args, 0))
+	case "NetworkStats":
+		return b.NetworkStats()
 	case "EditMessage":
 		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "ToggleReaction":

@@ -338,6 +338,7 @@ export function guildMenuItems(g) {
       icon: "check",
       onClick: () => g.channels.forEach((c) => markRead(c.id)),
     },
+    { label: "Stats & diagnostics", icon: "poll", onClick: () => (S.modal = { kind: "stats", guildId: g.id }) },
     { sep: true },
     { label: "Guild emoji", icon: "smile", onClick: () => (S.modal = { kind: "emoji" }) },
     g.isOwner && { label: "Rename guild", icon: "edit", onClick: () => (S.modal = { kind: "rename" }) },

@@ -1481,5 +1481,53 @@ func (s *Store) evictAttachments() {
 	}
 }
 
+// ---- storage stats (read-only aggregates for the Stats panel) ----
+
+// DBSizeBytes is the on-disk size of the SQLite database.
+func (s *Store) DBSizeBytes() (int64, error) {
+	var pageCount, pageSize int64
+	if err := s.db.QueryRow("PRAGMA page_count").Scan(&pageCount); err != nil {
+		return 0, err
+	}
+	if err := s.db.QueryRow("PRAGMA page_size").Scan(&pageSize); err != nil {
+		return 0, err
+	}
+	return pageCount * pageSize, nil
+}
+
+// GuildStorageStats aggregates the message footprint of a set of channels.
+// Bytes is the stored (encrypted) message payload — a close proxy for text size.
+type GuildStorageStats struct {
+	Messages int64
+	Bytes    int64
+	Oldest   int64 // unix seconds, 0 if none
+	Newest   int64
+}
+
+// GuildStorage sums message count/bytes/age across the given channel IDs.
+func (s *Store) GuildStorage(channelIDs []string) (GuildStorageStats, error) {
+	var st GuildStorageStats
+	if len(channelIDs) == 0 {
+		return st, nil
+	}
+	ph := make([]string, len(channelIDs))
+	args := make([]any, len(channelIDs))
+	for i, id := range channelIDs {
+		ph[i] = "?"
+		args[i] = id
+	}
+	q := "SELECT COUNT(*), COALESCE(SUM(LENGTH(content_enc)),0), COALESCE(MIN(sent),0), COALESCE(MAX(sent),0) " +
+		"FROM messages WHERE deleted = 0 AND channel_id IN (" + strings.Join(ph, ",") + ")"
+	err := s.db.QueryRow(q, args...).Scan(&st.Messages, &st.Bytes, &st.Oldest, &st.Newest)
+	return st, err
+}
+
+// AttachmentTotals is the global blob store footprint. Blobs are content-
+// addressed + deduped and not guild-tagged, so this is a whole-device total.
+func (s *Store) AttachmentTotals() (count int64, bytes int64, err error) {
+	err = s.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(LENGTH(ct)),0) FROM attachments").Scan(&count, &bytes)
+	return count, bytes, err
+}
+
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }

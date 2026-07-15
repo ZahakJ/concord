@@ -257,6 +257,14 @@
         </span>
         <span class="chev">›</span>
       </button>
+      <button class="row" onclick={() => (S.modal = { kind: "stats" })}>
+        <span class="chip"><Icon name="poll" size={17} /></span>
+        <span class="row-text">
+          <span class="row-title">Stats &amp; diagnostics</span>
+          <span class="row-sub">Storage, peers &amp; connection health</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
     </div>
   </section>
 

@@ -108,6 +108,8 @@ export const api = {
   editMessage: (channelID, messageID, content) =>
     call("EditMessage", channelID, messageID, content),
   expireMessage: (channelID, messageID) => call("ExpireMessage", channelID, messageID),
+  guildStats: (guildID) => call("GuildStats", guildID),
+  networkStats: () => call("NetworkStats"),
   toggleReaction: (channelID, messageID, emoji) =>
     call("ToggleReaction", channelID, messageID, emoji),
   inviteCode: (guildID) => call("InviteCode", guildID),
