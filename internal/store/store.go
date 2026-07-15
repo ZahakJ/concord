@@ -1516,7 +1516,9 @@ func (s *Store) GuildStorage(channelIDs []string) (GuildStorageStats, error) {
 		ph[i] = "?"
 		args[i] = id
 	}
-	q := "SELECT COUNT(*), COALESCE(SUM(LENGTH(content_enc)),0), COALESCE(MIN(sent),0), COALESCE(MAX(sent),0) " +
+	// `sent` is stored as UnixNano; divide to unix seconds for the view.
+	q := "SELECT COUNT(*), COALESCE(SUM(LENGTH(content_enc)),0), " +
+		"COALESCE(MIN(sent),0)/1000000000, COALESCE(MAX(sent),0)/1000000000 " +
 		"FROM messages WHERE deleted = 0 AND channel_id IN (" + strings.Join(ph, ",") + ")"
 	err := s.db.QueryRow(q, args...).Scan(&st.Messages, &st.Bytes, &st.Oldest, &st.Newest)
 	return st, err

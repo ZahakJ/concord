@@ -104,6 +104,7 @@ func (s *Service) GuildStats(guildID string) (GuildStatsView, error) {
 // PeerStatView describes one live connection.
 type PeerStatView struct {
 	ID        string `json:"id"`
+	Role      string `json:"role"` // "rendezvous" (infra) | "peer"
 	Transport string `json:"transport"` // quic | tcp | relay
 	Relayed   bool   `json:"relayed"`
 	Direction string `json:"direction"` // inbound | outbound
@@ -115,7 +116,8 @@ type NetworkStatsView struct {
 	DBSizeBytes      int64          `json:"dbSizeBytes"`
 	AttachmentCount  int64          `json:"attachmentCount"`
 	AttachmentBytes  int64          `json:"attachmentBytes"`
-	Peers            int            `json:"peers"`
+	Peers            int            `json:"peers"`       // all libp2p connections
+	MemberPeers      int            `json:"memberPeers"` // excluding rendezvous/relay infra
 	HasBootstrap     bool           `json:"hasBootstrap"`
 	BootstrapReached bool           `json:"bootstrapReached"`
 	OutOfSyncGuilds  int            `json:"outOfSyncGuilds"`
@@ -142,6 +144,15 @@ func (s *Service) NetworkStats() NetworkStatsView {
 	bw := s.host.Bandwidth()
 	v.RateIn, v.RateOut, v.TotalIn, v.TotalOut = bw.RateIn, bw.RateOut, bw.TotalIn, bw.TotalOut
 
+	// Most connections are infrastructure (the rendezvous/relay node, DHT peers),
+	// not friends — so mark the rendezvous nodes explicitly, or "3 peers" with
+	// nobody online is baffling.
+	infra := map[peer.ID]bool{}
+	for _, b := range s.bootstrap {
+		infra[b.ID] = true
+	}
+	memberPeers := 0
+
 	h := s.host.Libp2p()
 	for _, p := range s.host.Peers() {
 		conns := h.Network().ConnsToPeer(p)
@@ -150,7 +161,12 @@ func (s *Service) NetworkStats() NetworkStatsView {
 		}
 		c := conns[0]
 		addr := c.RemoteMultiaddr().String()
-		pv := PeerStatView{ID: p.String(), Direction: "outbound"}
+		pv := PeerStatView{ID: p.String(), Direction: "outbound", Role: "peer"}
+		if infra[p] {
+			pv.Role = "rendezvous"
+		} else {
+			memberPeers++
+		}
 		switch {
 		case strings.Contains(addr, "p2p-circuit"):
 			pv.Transport, pv.Relayed = "relay", true
@@ -167,5 +183,6 @@ func (s *Service) NetworkStats() NetworkStatsView {
 		pv.RTTms = s.cachedRTT(p)
 		v.PeerList = append(v.PeerList, pv)
 	}
+	v.MemberPeers = memberPeers
 	return v
 }

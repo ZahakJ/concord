@@ -75,7 +75,12 @@
       <div class="grid">
         <div class="stat"><span class="k">Database</span><span class="v">{fmtBytes(ns.dbSizeBytes)}</span></div>
         <div class="stat"><span class="k">Attachments</span><span class="v">{ns.attachmentCount} · {fmtBytes(ns.attachmentBytes)}</span></div>
-        <div class="stat"><span class="k">Peers</span><span class="v">{ns.peers}</span></div>
+        <div class="stat" title="People/devices you're connected to, excluding rendezvous & relay nodes">
+          <span class="k">Peers online</span><span class="v">{ns.memberPeers}</span>
+        </div>
+        <div class="stat" title="All libp2p connections, including rendezvous & relay infrastructure">
+          <span class="k">Connections</span><span class="v">{ns.peers}</span>
+        </div>
         <div class="stat">
           <span class="k">Rendezvous</span>
           <span class="v" class:warn={ns.hasBootstrap && !ns.bootstrapReached}>
@@ -95,8 +100,9 @@
         <div class="peers">
           {#each ns.peerList as p (p.id)}
             <div class="peer">
-              <span class="pdot" class:relay={p.relayed}></span>
+              <span class="pdot" class:relay={p.relayed} class:infra={p.role === "rendezvous"}></span>
               <code class="pid">{p.id.slice(0, 12)}…{p.id.slice(-6)}</code>
+              {#if p.role === "rendezvous"}<span class="prole">rendezvous</span>{/if}
               {#if p.rttMs > 0}<span class="prtt muted">{p.rttMs} ms</span>{/if}
               <span class="ptag">{transportLabel[p.transport] || p.transport}</span>
               <span class="pdir muted">{p.direction}</span>
@@ -184,6 +190,16 @@
   }
   .pdot.relay {
     background: #f0b232;
+  }
+  .pdot.infra {
+    background: var(--text-faint);
+  }
+  .prole {
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text-muted);
   }
   .pid {
     font-family: var(--mono, monospace);
