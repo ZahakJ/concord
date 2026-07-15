@@ -585,6 +585,83 @@
   // Kept for callers that expect the old name; now stages too.
   export const attachImage = stageImage;
 
+  // ---- voice messages ----
+  // Record a clip and ship it through the same encrypted-file path as any
+  // attachment (SendFile), tagged audio/* so the feed renders it as a player.
+  const canRecord =
+    typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
+  let recording = $state(false);
+  let recSecs = $state(0);
+  let mediaRec = null;
+  let recChunks = [];
+  let recTimer = null;
+  let recStream = null;
+
+  async function startRecording() {
+    if (!ch || recording || !canRecord) return;
+    try {
+      recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      flash("Microphone permission denied", "error");
+      return;
+    }
+    recChunks = [];
+    const pref = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find(
+      (t) => MediaRecorder.isTypeSupported?.(t),
+    );
+    mediaRec = new MediaRecorder(recStream, pref ? { mimeType: pref } : undefined);
+    mediaRec.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
+    mediaRec.start();
+    recording = true;
+    recSecs = 0;
+    recTimer = setInterval(() => {
+      if (++recSecs >= 300) stopRecording(true); // 5-minute cap
+    }, 1000);
+  }
+
+  function teardownRec() {
+    clearInterval(recTimer);
+    recTimer = null;
+    recStream?.getTracks().forEach((t) => t.stop());
+    recStream = null;
+    recording = false;
+  }
+
+  function stopRecording(send) {
+    const rec = mediaRec;
+    mediaRec = null;
+    if (!rec) {
+      teardownRec();
+      return;
+    }
+    rec.onstop = async () => {
+      teardownRec();
+      if (!send || !recChunks.length || !S.activeChannelId) return;
+      // Clean type (no ;codecs=…) so SendFile's data-URL regex matches.
+      const ogg = (rec.mimeType || "").includes("ogg");
+      const blob = new Blob(recChunks, { type: ogg ? "audio/ogg" : "audio/webm" });
+      if (blob.size > MAX_FILE_BYTES) {
+        flash("Voice message too large", "error");
+        return;
+      }
+      const chId = S.activeChannelId;
+      uploading++;
+      try {
+        const dataUrl = await readAsDataURL(blob);
+        await api.sendFile(chId, dataUrl, `Voice message.${ogg ? "ogg" : "webm"}`);
+      } catch (err) {
+        flash(err);
+      } finally {
+        uploading--;
+      }
+    };
+    rec.stop();
+  }
+
+  const recClock = $derived(
+    `${Math.floor(recSecs / 60)}:${(recSecs % 60).toString().padStart(2, "0")}`,
+  );
+
   function onPaste(e) {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (item) {
@@ -746,60 +823,98 @@
       {/each}
     </div>
     {/if}
-    <div class="input-box" class:focused={ch}>
-      <button
-        type="button"
-        class="iconbtn"
-        title="Attach a file or image (or paste / drop one)"
-        aria-label="Attach a file"
-        disabled={!ch || uploading > 0}
-        onclick={() => fileInput.click()}
-      >
-        <Icon name="attach" size={20} />
-      </button>
-      <textarea
-        bind:this={composerEl}
-        class="draft"
-        rows="1"
-        placeholder={composerPlaceholder}
-        bind:value={draft}
-        disabled={!ch}
-        oninput={onInput}
-        onkeydown={onKeydown}
-        onpaste={onPaste}
-        onblur={() => setTimeout(() => (suggest = null), 150)}
-      ></textarea>
-      {#if mobile}
-        <!-- Formatting lives behind a toggle on phones — no room for a
-             permanent toolbar row, and hover-reveal doesn't exist on touch. -->
+    <div class="input-box" class:focused={ch} class:recording>
+      {#if recording}
+        <!-- Recording a voice message: the whole row becomes the transport. -->
+        <span class="rec-dot" aria-hidden="true"></span>
+        <span class="rec-label">Recording… <span class="rec-clock">{recClock}</span></span>
         <button
           type="button"
-          class="iconbtn fmt-toggle"
-          class:on={showFmt}
-          title="Formatting"
-          aria-label="Toggle formatting toolbar"
-          disabled={!ch}
-          onclick={() => (showFmt = !showFmt)}
-        >Aa</button>
-      {/if}
-      <button
-        type="button"
-        class="iconbtn"
-        title="Emoji"
-        aria-label="Emoji picker"
-        disabled={!ch}
-        onclick={() => (S.pickerTarget = S.pickerTarget === "composer" ? null : "composer")}
-      >
-        <Icon name="smile" size={22} />
-      </button>
-      {#if coarse}
-        <!-- Touch only: on a phone Enter is a newline, so this is the only way
-             to send. On desktop (even a narrow window) Enter sends and this
-             button is just noise — keyed on pointer coarseness, not layout, so
-             it never shows there. -->
-        <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
+          class="iconbtn rec-cancel"
+          title="Discard"
+          aria-label="Discard recording"
+          onclick={() => stopRecording(false)}
+        >
+          <Icon name="trash" size={18} />
+        </button>
+        <button
+          type="button"
+          class="sendbtn"
+          title="Send voice message"
+          aria-label="Send voice message"
+          onclick={() => stopRecording(true)}
+        >
           <Icon name="send" size={17} />
         </button>
+      {:else}
+        <button
+          type="button"
+          class="iconbtn"
+          title="Attach a file or image (or paste / drop one)"
+          aria-label="Attach a file"
+          disabled={!ch || uploading > 0}
+          onclick={() => fileInput.click()}
+        >
+          <Icon name="attach" size={20} />
+        </button>
+        <textarea
+          bind:this={composerEl}
+          class="draft"
+          rows="1"
+          placeholder={composerPlaceholder}
+          bind:value={draft}
+          disabled={!ch}
+          oninput={onInput}
+          onkeydown={onKeydown}
+          onpaste={onPaste}
+          onblur={() => setTimeout(() => (suggest = null), 150)}
+        ></textarea>
+        {#if mobile}
+          <!-- Formatting lives behind a toggle on phones — no room for a
+               permanent toolbar row, and hover-reveal doesn't exist on touch. -->
+          <button
+            type="button"
+            class="iconbtn fmt-toggle"
+            class:on={showFmt}
+            title="Formatting"
+            aria-label="Toggle formatting toolbar"
+            disabled={!ch}
+            onclick={() => (showFmt = !showFmt)}
+          >Aa</button>
+        {/if}
+        {#if canRecord && !draft.trim() && pending.length === 0}
+          <!-- Mic replaces nothing; it appears when there's no text/attachment to
+               send, the way messengers surface record-vs-send. -->
+          <button
+            type="button"
+            class="iconbtn"
+            title="Record a voice message"
+            aria-label="Record a voice message"
+            disabled={!ch}
+            onclick={startRecording}
+          >
+            <Icon name="mic" size={20} />
+          </button>
+        {/if}
+        <button
+          type="button"
+          class="iconbtn"
+          title="Emoji"
+          aria-label="Emoji picker"
+          disabled={!ch}
+          onclick={() => (S.pickerTarget = S.pickerTarget === "composer" ? null : "composer")}
+        >
+          <Icon name="smile" size={22} />
+        </button>
+        {#if coarse}
+          <!-- Touch only: on a phone Enter is a newline, so this is the only way
+               to send. On desktop (even a narrow window) Enter sends and this
+               button is just noise — keyed on pointer coarseness, not layout, so
+               it never shows there. -->
+          <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
+            <Icon name="send" size={17} />
+          </button>
+        {/if}
       {/if}
     </div>
     </div>
@@ -1175,6 +1290,44 @@
     border: none;
     border-radius: 0;
     padding: 2px 6px;
+  }
+  .input-box.recording {
+    align-items: center;
+    padding: 8px 10px;
+  }
+  .rec-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #f04747;
+    flex-shrink: 0;
+    animation: rec-pulse 1.1s ease-in-out infinite;
+  }
+  .rec-label {
+    flex: 1;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .rec-clock {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .rec-cancel:hover :global(svg) {
+    color: #f04747;
+  }
+  @keyframes rec-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rec-dot {
+      animation: none;
+    }
   }
   /* (Focus ring moved up to .input-shell — the whole well glows as one.) */
   .draft {

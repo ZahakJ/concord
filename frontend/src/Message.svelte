@@ -7,6 +7,7 @@
   import Avatar from "./Avatar.svelte";
   import Attachment from "./Attachment.svelte";
   import FileAttachment from "./FileAttachment.svelte";
+  import VoiceMessage from "./VoiceMessage.svelte";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
   import { untrack } from "svelte";
@@ -578,7 +579,11 @@
         <Attachment channelId={m.channelId} {tok} />
       {/each}
       {#each files as tok (tok.blobId)}
-        <FileAttachment channelId={m.channelId} {tok} />
+        {#if tok.mime?.startsWith("audio/")}
+          <VoiceMessage channelId={m.channelId} {tok} />
+        {:else}
+          <FileAttachment channelId={m.channelId} {tok} />
+        {/if}
       {/each}
       {#if embed?.kind === "yt"}
         <YouTubeEmbed videoId={embed.id} />
