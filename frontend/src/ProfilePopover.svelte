@@ -159,6 +159,10 @@
   );
 
   async function toggleAdmin() {
+    // Capture the intent BEFORE refreshRightPanel() — that refresh updates
+    // mem.roleIds, which recomputes the isAdmin $derived to the NEW state, so
+    // reading isAdmin afterwards inverted the toast ("Admin removed" on grant).
+    const grant = !isAdmin;
     try {
       let role = adminRole;
       if (!role) {
@@ -167,9 +171,9 @@
         role = S.roles.find((r) => r.perms === PERM_ALL);
       }
       if (!role) throw new Error("couldn't create the Admin role");
-      await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, !isAdmin);
+      await api.assignRole(S.activeGuildId, mem.fingerprint, role.id, grant);
       await refreshRightPanel();
-      flash(isAdmin ? "Admin removed" : `${mem.name || "Member"} is now an admin 👑`, "success");
+      flash(grant ? `${mem.name || "Member"} is now an admin 👑` : "Admin removed", "success");
     } catch (err) {
       flash(err);
     }
