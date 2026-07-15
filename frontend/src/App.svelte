@@ -72,6 +72,7 @@
   import ModalAppearance from "./modals/ModalAppearance.svelte";
   import ModalWhen from "./modals/ModalWhen.svelte";
   import ModalScheduled from "./modals/ModalScheduled.svelte";
+  import ModalPoll from "./modals/ModalPoll.svelte";
   import { startScheduler } from "./lib/scheduled.svelte.js";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
 
@@ -648,6 +649,8 @@
     <ModalWhen onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "scheduled"}
     <ModalScheduled onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "poll"}
+    <ModalPoll onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "newDM"}
     <ModalNewDM onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "renameGroup"}

@@ -7,6 +7,7 @@
 // extract tokens from the PLAIN message content before rendering, so markdown
 // never sees them.
 import { api } from "./api.js";
+import { parsePoll } from "./polls.js";
 
 export const ATTACH_RE =
   /!\[image\]\(concord:\/\/attach\/v1\/([0-9a-f]{64})\/([A-Za-z0-9_-]{75})\/(png|jpeg|gif|webp)\/(\d{1,5})x(\d{1,5})\)/g;
@@ -63,6 +64,8 @@ export function hasAttachment(content) {
 
 // previewText: body with tokens replaced by a readable placeholder.
 export function previewText(content) {
+  const poll = parsePoll(content);
+  if (poll) return `📊 ${poll.q || "Poll"}`;
   const stripped = stripAttachTokens(content);
   if (!hasAttachment(content)) return content;
   // Reset lastIndex: these are global (/g) regexes, and .test() advances it —

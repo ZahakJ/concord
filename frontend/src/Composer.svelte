@@ -927,6 +927,16 @@
         <button
           type="button"
           class="iconbtn"
+          title="Create a poll"
+          aria-label="Create a poll"
+          disabled={!ch}
+          onclick={() => (S.modal = { kind: "poll" })}
+        >
+          <Icon name="poll" size={19} />
+        </button>
+        <button
+          type="button"
+          class="iconbtn"
           title={draft.trim() ? "Schedule this message" : "Scheduled messages & reminders"}
           aria-label="Schedule message"
           disabled={!ch}

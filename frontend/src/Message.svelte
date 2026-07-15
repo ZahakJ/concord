@@ -8,6 +8,8 @@
   import Attachment from "./Attachment.svelte";
   import FileAttachment from "./FileAttachment.svelte";
   import VoiceMessage from "./VoiceMessage.svelte";
+  import PollView from "./PollView.svelte";
+  import { parsePoll } from "./lib/polls.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
   import { untrack } from "svelte";
@@ -154,6 +156,7 @@
   function onBodyOut(e) {
     if (mentionMember(e.target)) scheduleCloseProfilePopover();
   }
+  const poll = $derived(m.deleted ? null : parsePoll(m.content));
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const files = $derived(m.deleted ? [] : parseFileTokens(m.content));
   const bodyText = $derived(atts.length || files.length ? stripAttachTokens(m.content) : m.content);
@@ -581,6 +584,8 @@
         {/if}
       </div>
       <div class="edit-hint muted">escape to cancel · enter to save</div>
+    {:else if poll}
+      <PollView {m} {poll} />
     {:else}
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -609,7 +614,7 @@
       {/if}
     {/if}
 
-    {#if m.reactions && Object.keys(m.reactions).length}
+    {#if !poll && m.reactions && Object.keys(m.reactions).length}
       <div class="reactions">
         {#each Object.entries(m.reactions) as [emoji, fprs] (emoji)}
           {@const cimg = /^:([a-z0-9_]{2,32}):$/.test(emoji) ? cemoji[emoji.slice(1, -1)] : null}
