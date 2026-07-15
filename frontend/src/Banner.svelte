@@ -8,6 +8,7 @@
   // a solid.
   import FxLayer from "./FxLayer.svelte";
   import { presetOf, isPreset } from "./lib/banners.js";
+  import { isSafeImageDataURI } from "./lib/images.js";
 
   let {
     banner = "",
@@ -27,11 +28,7 @@
   // base64 image data-URI (validImageDataURI), but this value lands inside a CSS
   // url("…"). Only ever emit a banner image if it still looks like that exact
   // shape — never interpolate an arbitrary string into CSS.
-  const safeImage = $derived(
-    banner && !isPreset(banner) && /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(banner)
-      ? banner
-      : "",
-  );
+  const safeImage = $derived(banner && !isPreset(banner) && isSafeImageDataURI(banner) ? banner : "");
 
   const bg = $derived.by(() => {
     if (preset) return preset.base;

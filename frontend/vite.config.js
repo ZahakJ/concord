@@ -9,5 +9,14 @@ export default defineConfig({
     // Emit assets Wails embeds; keep it self-contained.
     outDir: "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        // Split third-party deps into their own long-cached chunk so the app
+        // chunk stays lean and a code change doesn't re-download the vendor JS.
+        manualChunks(id) {
+          if (id.includes("node_modules")) return "vendor";
+        },
+      },
+    },
   },
 });

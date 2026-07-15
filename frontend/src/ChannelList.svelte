@@ -1189,16 +1189,6 @@
     font-weight: 600;
     border-radius: var(--radius-sm);
   }
-  .ghost-cta {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-  }
-  .ghost-cta:hover {
-    color: var(--text);
-    border-color: var(--accent);
-    background: transparent;
-  }
   .dm-item {
     display: flex;
     align-items: center;

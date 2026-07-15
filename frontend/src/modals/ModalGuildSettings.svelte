@@ -7,6 +7,7 @@
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { PERM, has } from "../lib/perms.js";
+  import { isSafeImageDataURI } from "../lib/images.js";
 
   let { onClose } = $props();
 
@@ -20,12 +21,9 @@
   const canEdit = has(g?.myPerms || 0, PERM.MANAGE_GUILD);
   const MAX = 500 * 1024;
 
-  // Defense in depth (mirrors Banner.svelte): the banner lands inside a CSS
-  // url("…"), so only ever emit it when it still looks like a base64 image
-  // data-URI — never interpolate an arbitrary string into the background.
-  const safeBanner = $derived(
-    /^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=]+$/.test(banner) ? banner : "",
-  );
+  // Defense in depth: the banner lands inside a CSS url("…"), so only ever emit
+  // it when it's a plain base64 image data-URI (shared guard, mirrors backend).
+  const safeBanner = $derived(isSafeImageDataURI(banner) ? banner : "");
 
   // Read an image file to a data URI. Kept raw (no canvas re-encode) so animated
   // GIF banners keep animating; rejected if too big for a gossip frame.
