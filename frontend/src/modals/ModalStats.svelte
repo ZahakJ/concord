@@ -82,6 +82,14 @@
             {ns.hasBootstrap ? (ns.bootstrapReached ? "connected" : "unreachable") : "not configured"}
           </span>
         </div>
+        <div class="stat">
+          <span class="k">Bandwidth</span>
+          <span class="v">↓ {fmtBytes(ns.rateIn)}/s&nbsp; ↑ {fmtBytes(ns.rateOut)}/s</span>
+        </div>
+        <div class="stat">
+          <span class="k">Transferred</span>
+          <span class="v">↓ {fmtBytes(ns.totalIn)}&nbsp; ↑ {fmtBytes(ns.totalOut)}</span>
+        </div>
       </div>
       {#if ns.peerList?.length}
         <div class="peers">
@@ -89,6 +97,7 @@
             <div class="peer">
               <span class="pdot" class:relay={p.relayed}></span>
               <code class="pid">{p.id.slice(0, 12)}…{p.id.slice(-6)}</code>
+              {#if p.rttMs > 0}<span class="prtt muted">{p.rttMs} ms</span>{/if}
               <span class="ptag">{transportLabel[p.transport] || p.transport}</span>
               <span class="pdir muted">{p.direction}</span>
             </div>
@@ -179,6 +188,10 @@
   .pid {
     font-family: var(--mono, monospace);
     color: var(--text-muted);
+  }
+  .prtt {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
   }
   .ptag {
     margin-left: auto;

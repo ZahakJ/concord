@@ -15,12 +15,15 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	p2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/metrics"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/multiformats/go-multiaddr"
 
@@ -71,6 +74,8 @@ type Config struct {
 type Host struct {
 	h          host.Host
 	serviceTag string
+	bwc        *metrics.BandwidthCounter // live in/out byte + rate meter
+	pinger     *ping.PingService         // on-demand RTT
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -104,12 +109,15 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		listen = defaultListenAddrs
 	}
 
+	bwc := metrics.NewBandwidthCounter()
 	opts := []libp2p.Option{
 		libp2p.Identity(priv),
 		libp2p.ListenAddrStrings(listen...),
 		// Encrypt every connection with the Noise protocol.
 		libp2p.Security(noise.ID, noise.New),
 		libp2p.EnableNATService(),
+		// Meter traffic so the Stats panel can show live bandwidth.
+		libp2p.BandwidthReporter(bwc),
 	}
 	// Internet-reach options: hole-punching to establish direct connections
 	// through NATs, and AutoRelay (using the bootstrap nodes as relays) as a
@@ -141,6 +149,8 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 	node := &Host{
 		h:          h,
 		serviceTag: cfg.ServiceTag,
+		bwc:        bwc,
+		pinger:     ping.NewPingService(h),
 		ctx:        hctx,
 		cancel:     cancel,
 	}
@@ -220,6 +230,28 @@ func (n *Host) Peers() []peer.ID { return n.h.Network().Peers() }
 // signaling) within package net. Kept unexported-in-spirit by returning the
 // interface; callers outside net should use the higher-level methods.
 func (n *Host) Libp2p() host.Host { return n.h }
+
+// Bandwidth returns cumulative + live-rate traffic totals across all peers.
+func (n *Host) Bandwidth() metrics.Stats {
+	if n.bwc == nil {
+		return metrics.Stats{}
+	}
+	return n.bwc.GetBandwidthTotals()
+}
+
+// PingRTT measures round-trip time to a connected peer (best-effort; the caller
+// should pass a short-timeout context since it sends real packets).
+func (n *Host) PingRTT(ctx context.Context, p peer.ID) (time.Duration, error) {
+	if n.pinger == nil {
+		return 0, fmt.Errorf("net: ping service unavailable")
+	}
+	select {
+	case res := <-n.pinger.Ping(ctx, p):
+		return res.RTT, res.Error
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
+}
 
 // OnPeerConnected registers a callback fired when a peer first connects.
 func (n *Host) OnPeerConnected(fn func(peer.ID)) {

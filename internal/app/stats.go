@@ -4,10 +4,52 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
+
+// RTT is measured lazily and cached: pinging every peer on every 2s poll would
+// be its own traffic, so we reuse a reading for up to rttTTL and refresh stale
+// ones in the background (never blocking the stats call).
+const rttTTL = 15 * time.Second
+
+var (
+	rttMu    sync.Mutex
+	rttCache = map[peer.ID]rttEntry{}
+)
+
+type rttEntry struct {
+	ms int64
+	at time.Time
+}
+
+// cachedRTT returns the last known RTT in ms (0 if none yet) and kicks off a
+// background refresh when the reading is stale.
+func (s *Service) cachedRTT(p peer.ID) int64 {
+	rttMu.Lock()
+	e, ok := rttCache[p]
+	fresh := ok && time.Since(e.at) < rttTTL
+	if !fresh {
+		rttCache[p] = rttEntry{ms: e.ms, at: time.Now()} // claim the refresh slot
+	}
+	rttMu.Unlock()
+	if fresh {
+		return e.ms
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(s.ctx, 2*time.Second)
+		defer cancel()
+		if d, err := s.host.PingRTT(ctx, p); err == nil {
+			rttMu.Lock()
+			rttCache[p] = rttEntry{ms: d.Milliseconds(), at: time.Now()}
+			rttMu.Unlock()
+		}
+	}()
+	return e.ms
+}
 
 // stats.go gathers read-only diagnostics for the Stats panel: per-guild storage
 // + sync health, and a whole-device network/storage view. Everything here is a
@@ -65,6 +107,7 @@ type PeerStatView struct {
 	Transport string `json:"transport"` // quic | tcp | relay
 	Relayed   bool   `json:"relayed"`
 	Direction string `json:"direction"` // inbound | outbound
+	RTTms     int64  `json:"rttMs"`     // 0 until first measured
 }
 
 // NetworkStatsView is a whole-device network + storage snapshot.
@@ -76,6 +119,10 @@ type NetworkStatsView struct {
 	HasBootstrap     bool           `json:"hasBootstrap"`
 	BootstrapReached bool           `json:"bootstrapReached"`
 	OutOfSyncGuilds  int            `json:"outOfSyncGuilds"`
+	RateIn           float64        `json:"rateIn"`  // bytes/sec, live
+	RateOut          float64        `json:"rateOut"` // bytes/sec, live
+	TotalIn          int64          `json:"totalIn"` // cumulative bytes
+	TotalOut         int64          `json:"totalOut"`
 	PeerList         []PeerStatView `json:"peerList"`
 }
 
@@ -91,6 +138,9 @@ func (s *Service) NetworkStats() NetworkStatsView {
 	ns := s.NetworkStatus()
 	v.Peers, v.HasBootstrap, v.BootstrapReached, v.OutOfSyncGuilds =
 		ns.Peers, ns.HasBootstrap, ns.BootstrapReached, ns.OutOfSyncGuilds
+
+	bw := s.host.Bandwidth()
+	v.RateIn, v.RateOut, v.TotalIn, v.TotalOut = bw.RateIn, bw.RateOut, bw.TotalIn, bw.TotalOut
 
 	h := s.host.Libp2p()
 	for _, p := range s.host.Peers() {
@@ -114,6 +164,7 @@ func (s *Service) NetworkStats() NetworkStatsView {
 		if c.Stat().Direction == network.DirInbound {
 			pv.Direction = "inbound"
 		}
+		pv.RTTms = s.cachedRTT(p)
 		v.PeerList = append(v.PeerList, pv)
 	}
 	return v
