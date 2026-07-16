@@ -164,6 +164,10 @@ CREATE TABLE IF NOT EXISTS read_state (
   channel_id TEXT PRIMARY KEY,
   at         INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS blocked (
+  fingerprint TEXT PRIMARY KEY,
+  created     INTEGER NOT NULL
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -1479,6 +1483,38 @@ func (s *Store) evictAttachments() {
 			return
 		}
 	}
+}
+
+// ---- blocked users ----
+
+// BlockFingerprint adds an account fingerprint to the block list (idempotent).
+func (s *Store) BlockFingerprint(fpr string) error {
+	_, err := s.db.Exec("INSERT OR IGNORE INTO blocked (fingerprint, created) VALUES (?, ?)", fpr, time.Now().UnixNano())
+	return err
+}
+
+// UnblockFingerprint removes an account fingerprint from the block list.
+func (s *Store) UnblockFingerprint(fpr string) error {
+	_, err := s.db.Exec("DELETE FROM blocked WHERE fingerprint = ?", fpr)
+	return err
+}
+
+// BlockedFingerprints lists every blocked account fingerprint.
+func (s *Store) BlockedFingerprints() ([]string, error) {
+	rows, err := s.db.Query("SELECT fingerprint FROM blocked")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var f string
+		if err := rows.Scan(&f); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }
 
 // ---- storage stats (read-only aggregates for the Stats panel) ----

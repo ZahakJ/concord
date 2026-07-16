@@ -17,6 +17,9 @@
     startDM,
     flash,
     roleColorFor,
+    isBlocked,
+    blockUser,
+    unblockUser,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, PERM_ALL, has } from "./lib/perms.js";
@@ -148,6 +151,14 @@
   // it. Owner or Manage Roles only.
   const adminRole = $derived(S.roles.find((r) => r.perms === PERM_ALL));
   const isAdmin = $derived(!!adminRole && !!mem?.roleIds?.includes(adminRole.id));
+
+  const blocked = $derived(isBlocked(mem?.fingerprint));
+  function toggleBlock() {
+    if (!mem) return;
+    if (blocked) unblockUser(mem.fingerprint, mem.name);
+    else blockUser(mem.fingerprint, mem.name);
+    closeProfilePopover();
+  }
   // Only offer "Make admin" to someone whose op would actually stick: the
   // guild's governance refuses a role granting MORE than the actor holds, so
   // a plain moderator clicking this would just watch it vanish. Owner, or a
@@ -573,6 +584,15 @@
               <Icon name="trash" size={13} /> Ban
             </button>
           {/if}
+        </div>
+      {/if}
+
+      {#if mem && !mem.isSelf}
+        <div class="divider"></div>
+        <div class="mod-actions">
+          <button class="mod-btn danger" onclick={toggleBlock}>
+            <Icon name="lock" size={13} /> {blocked ? "Unblock" : "Block"}
+          </button>
         </div>
       {/if}
     </div>

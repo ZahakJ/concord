@@ -127,6 +127,10 @@ type Service struct {
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
 	outOfSync map[string]bool
 
+	// blocked is the in-memory mirror of the block list (see block.go), guarded
+	// by mu. A blocked account's DM/guild invites are dropped on arrival.
+	blocked map[string]bool
+
 	// attachFlight collapses concurrent fetches of one attachment blob (e.g.
 	// the same image rendered several times) into a single network request.
 	attachFlight singleflight.Group
@@ -690,6 +694,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		govOps:           map[string][]govOp{},
 		govState:         map[string]GuildState{},
 		outOfSync:        map[string]bool{},
+		blocked:          map[string]bool{},
 		previews:         newPreviewCache(),
 		bootstrap:        bootstrap,
 	}
@@ -792,6 +797,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// invites) now that the guild set is known, pruning entries for guilds that
 	// no longer exist.
 	s.loadDMState()
+	s.loadBlocked()
 
 	// Instant meetings are disposable — clear any that outlived their TTL.
 	s.sweepExpiredMeetings()

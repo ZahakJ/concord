@@ -279,6 +279,14 @@
         </span>
         <span class="chev">›</span>
       </button>
+      <button class="row" onclick={() => (S.modal = { kind: "blocked", from: "settings" })}>
+        <span class="chip"><Icon name="lock" size={17} /></span>
+        <span class="row-text">
+          <span class="row-title">Blocked users</span>
+          <span class="row-sub">People who can't add you to DMs or servers</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
     </div>
   </section>
 

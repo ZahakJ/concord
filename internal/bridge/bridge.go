@@ -523,6 +523,33 @@ func (b *Bridge) ExpireMessage(channelID, messageID string) error {
 	return svc.ExpireMessage(channelID, messageID)
 }
 
+// BlockUser blocks an account fingerprint (drops its DM/guild invites).
+func (b *Bridge) BlockUser(fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.BlockUser(fingerprint)
+}
+
+// UnblockUser removes an account fingerprint from the block list.
+func (b *Bridge) UnblockUser(fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.UnblockUser(fingerprint)
+}
+
+// BlockedUsers lists blocked account fingerprints.
+func (b *Bridge) BlockedUsers() ([]string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.BlockedUsers(), nil
+}
+
 // GuildStats returns storage + membership + sync stats for one guild/DM.
 func (b *Bridge) GuildStats(guildID string) (appsvc.GuildStatsView, error) {
 	svc, err := b.service()
@@ -1802,6 +1829,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.DeleteMessage(argStr(args, 0), argStr(args, 1))
 	case "ExpireMessage":
 		return nil, b.ExpireMessage(argStr(args, 0), argStr(args, 1))
+	case "BlockUser":
+		return nil, b.BlockUser(argStr(args, 0))
+	case "UnblockUser":
+		return nil, b.UnblockUser(argStr(args, 0))
+	case "BlockedUsers":
+		return b.BlockedUsers()
 	case "GuildStats":
 		return b.GuildStats(argStr(args, 0))
 	case "NetworkStats":

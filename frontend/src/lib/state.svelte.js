@@ -18,6 +18,7 @@ export const S = $state({
   members: [],
   roles: [], // active guild's roles (highest position first)
   contacts: [],
+  blocked: [], // account fingerprints you've blocked
 
   replyingTo: null, // message being replied to
   editing: null, // message being edited (Message.svelte owns the draft)
@@ -756,6 +757,7 @@ export async function onLogin() {
   S.displayName = S.identity.displayName || "";
   applyAppearance(); // profile color, unless an accent preset overrides it
   await refreshGuilds();
+  await refreshBlocked();
   S.ready = true;
   initEvents();
   // Adopt reads that happened in other sessions/devices BEFORE counting, so
@@ -774,6 +776,48 @@ export async function refreshNetStatus() {
     S.netStatus = await api.networkStatus();
   } catch {
     /* locked or transport down — leave the last known status */
+  }
+}
+
+// ---- blocking ----
+export async function refreshBlocked() {
+  try {
+    S.blocked = (await api.blockedUsers()) || [];
+  } catch {
+    /* ignore */
+  }
+}
+export function isBlocked(fingerprint) {
+  return !!fingerprint && S.blocked.includes(fingerprint);
+}
+export async function blockUser(fingerprint, name = "") {
+  try {
+    await api.blockUser(fingerprint);
+    await refreshBlocked();
+    // Drop any 1:1 DM with them from view — they can't reopen it while blocked.
+    const dm = S.guilds.find(
+      (g) => g.kind === "dm" && g.dmPeer === fingerprint,
+    );
+    if (dm) {
+      try {
+        await api.leaveGuild(dm.id);
+      } catch {
+        /* best effort */
+      }
+      await refreshGuilds();
+    }
+    flash(`Blocked ${name || "user"} — they can't add you to DMs or servers`, "success");
+  } catch (err) {
+    flash(err);
+  }
+}
+export async function unblockUser(fingerprint, name = "") {
+  try {
+    await api.unblockUser(fingerprint);
+    await refreshBlocked();
+    flash(`Unblocked ${name || "user"}`, "success");
+  } catch (err) {
+    flash(err);
   }
 }
 

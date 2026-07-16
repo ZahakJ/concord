@@ -529,8 +529,9 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 			}
 			// Only someone we VERIFIED may even ring our doorbell about a server.
 			// A stranger's invite is dropped without a trace — no prompt to
-			// dismiss, no spam surface.
-			if senderFpr == "" || !s.VerifiedFingerprints()[senderFpr] {
+			// dismiss, no spam surface. A BLOCKED account is likewise dropped even
+			// if we'd previously verified them.
+			if senderFpr == "" || s.IsBlocked(senderFpr) || !s.VerifiedFingerprints()[senderFpr] {
 				return
 			}
 			s.emitGuildInvite(GuildInvite{
@@ -567,6 +568,11 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 		//     an attack. A stranger's server invite still lands nowhere.
 		// Anything else is undone immediately. (Hard delete: LeaveGuild would
 		// merely close a DM, which must not keep unsolicited membership around.)
+		// A blocked account can't add us to anything — DM or server — even a 1:1.
+		if s.IsBlocked(senderFpr) {
+			_ = s.deleteGuildLocal(g.ID)
+			return
+		}
 		legit := s.isLegitDMWith(g.ID, senderFpr)
 		if !legit && !s.isTrustedGroupDMInvite(g.ID, senderFpr) &&
 			!s.isVerifiedGuildInvite(g.ID, senderFpr) {
