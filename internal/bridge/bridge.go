@@ -198,6 +198,7 @@ type MessageView struct {
 	ReplyTo    string              `json:"replyTo"`    // ID of the replied-to message, or ""
 	Content    string              `json:"content"`
 	Deleted    bool                `json:"deleted"`
+	Expired    bool                `json:"expired"` // disappeared via a timer (not a manual delete)
 	Edited     bool                `json:"edited"`
 	Pinned     bool                `json:"pinned"`
 	Reactions  map[string][]string `json:"reactions"` // emoji -> fingerprints
@@ -523,6 +524,16 @@ func (b *Bridge) ExpireMessage(channelID, messageID string) error {
 		return err
 	}
 	return svc.ExpireMessage(channelID, messageID)
+}
+
+// EmptyTrash permanently erases retained bodies of deleted messages (guildID
+// scopes to that guild; "" is the whole device). Returns rows scrubbed.
+func (b *Bridge) EmptyTrash(guildID string) (int, error) {
+	svc, err := b.service()
+	if err != nil {
+		return 0, err
+	}
+	return svc.EmptyTrash(guildID)
 }
 
 // CancelPendingMember cancels a not-yet-joined member you added to a guild.
@@ -1675,6 +1686,7 @@ func messageView(m domain.Message) MessageView {
 		ReplyTo:    m.ReplyTo,
 		Content:    m.Content,
 		Deleted:    m.Deleted,
+		Expired:    m.Expired,
 		Edited:     m.Edited,
 		Pinned:     m.Pinned,
 		Reactions:  m.Reactions,
@@ -1879,6 +1891,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.ExpireMessage(argStr(args, 0), argStr(args, 1))
 	case "CancelPendingMember":
 		return nil, b.CancelPendingMember(argStr(args, 0), argStr(args, 1))
+	case "EmptyTrash":
+		return b.EmptyTrash(argStr(args, 0))
 	case "BlockUser":
 		return nil, b.BlockUser(argStr(args, 0))
 	case "UnblockUser":

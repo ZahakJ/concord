@@ -63,6 +63,7 @@
 
   // Touch device? Drives which gesture owns the context menu (see the .msg div).
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
 
   // Long-press a reaction pill: who reacted — the touch counterpart of the
   // hover card. Rows are informational; tapping one just closes the sheet.
@@ -326,21 +327,59 @@
   // reveal in guilds — DM deletes erase it — so this is guild-only and gated on
   // Manage Messages (re-checked on the backend). `revealed` holds the fetched
   // original once shown.
+  // An EXPIRED (disappeared) message was truly erased on every device — there's
+  // nothing to reveal, so it's never revealable regardless of mod powers.
   const canRevealDeleted = $derived(
-    m.deleted && activeGuild()?.kind !== "dm" && canDeleteOthers,
+    m.deleted && !m.expired && activeGuild()?.kind !== "dm" && canDeleteOthers,
   );
   let revealed = $state(null);
   let revealing = $state(false);
+  let revealDisplay = $state(""); // animated "de-crusting" text
   async function revealOriginal() {
-    if (revealing) return;
+    if (revealing || revealed !== null) return;
     revealing = true;
     try {
       revealed = (await api.revealDeleted(m.channelId, m.id)) || "(the original was empty)";
+      decrustInto(revealed);
     } catch (err) {
       flash(err);
     } finally {
       revealing = false;
     }
+  }
+  // Hover-to-reveal: fetch the original and let the deleted tombstone crust
+  // away into the real text. Click still works (touch / keyboard).
+  function hoverReveal() {
+    if (canRevealDeleted && revealed === null) revealOriginal();
+  }
+
+  // decrustInto animates target text out of glitchy "crust": each not-yet-settled
+  // character flickers through random glyphs, resolving left-to-right — the
+  // corruption breaking apart into the original message.
+  const CRUST = "▓▒░#@%&$*/\\|=+<>";
+  let decrustTimer = null;
+  function decrustInto(target) {
+    if (reduceMotion) {
+      revealDisplay = target;
+      return;
+    }
+    clearInterval(decrustTimer);
+    let frame = 0;
+    const settleFrames = 3; // frames each char stays scrambled before settling
+    decrustTimer = setInterval(() => {
+      frame++;
+      const settled = Math.floor(frame / settleFrames);
+      let out = "";
+      for (let i = 0; i < target.length; i++) {
+        if (i < settled || target[i] === " ") out += target[i];
+        else out += CRUST[(Math.random() * CRUST.length) | 0];
+      }
+      revealDisplay = out;
+      if (settled >= target.length) {
+        revealDisplay = target;
+        clearInterval(decrustTimer);
+      }
+    }, 28);
   }
   // A browser guest has no key: their message is relayed under the host's
   // signature. It is NOT the host talking, so it gets its own author row and
@@ -515,17 +554,24 @@
     {/if}
 
     {#if m.deleted}
-      <div class="body deleted">
+      <!-- svelte-ignore a11y_no_static_element_interactions, a11y_mouse_events_have_key_events -->
+      <div
+        class="body deleted"
+        class:revealable={canRevealDeleted && revealed === null}
+        onmouseenter={hoverReveal}
+      >
         {#if revealed !== null}
           <span class="revealed-tag" title="Deleted — shown to you as a moderator">
             <Icon name="lock" size={10} /> deleted · original
           </span>
-          <span class="revealed-text">{revealed}</span>
+          <span class="revealed-text">{revealDisplay || revealed}</span>
+        {:else if m.expired}
+          <em class="disappeared"><Icon name="clock" size={11} /> message disappeared</em>
         {:else}
           <em>deleted</em>
           {#if canRevealDeleted}
             <button class="reveal-btn" onclick={revealOriginal} disabled={revealing}>
-              {revealing ? "…" : "Show original"}
+              {revealing ? "…" : "hover or click to reveal"}
             </button>
           {/if}
         {/if}
@@ -923,6 +969,29 @@
   }
   .body.deleted {
     color: var(--text-muted);
+  }
+  /* A deleted message a moderator can un-crust: hint it's interactive. */
+  .body.deleted.revealable {
+    cursor: pointer;
+  }
+  .body.deleted.revealable em {
+    border-bottom: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+    transition: color 0.15s ease;
+  }
+  .body.deleted.revealable:hover em {
+    color: var(--accent);
+  }
+  /* Expired = gone by a timer, on purpose. A faint accent tint sets it apart
+     from a plain "deleted" tombstone. */
+  .disappeared {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-style: italic;
+    color: color-mix(in srgb, var(--accent) 55%, var(--text-faint));
+  }
+  .disappeared :global(svg) {
+    opacity: 0.8;
   }
   .edited-tag {
     margin-left: 5px;

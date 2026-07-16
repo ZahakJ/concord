@@ -943,8 +943,31 @@ func (s *Service) ExpireMessage(channelID, messageID string) error {
 		return err
 	}
 	_ = s.store.EraseContent(messageID)
+	_ = s.store.MarkExpired(messageID) // label it "disappeared", not "deleted"
+	deleted.Expired = true
 	s.emitMessage(deleted)
 	return nil
+}
+
+// EmptyTrash permanently erases the retained bodies of soft-deleted messages so
+// "Show original" has nothing left to reveal. With a guildID it scopes to that
+// guild's channels; empty scopes to the whole device. Returns rows scrubbed.
+func (s *Service) EmptyTrash(guildID string) (int, error) {
+	var channelIDs []string
+	if guildID != "" {
+		s.mu.RLock()
+		if g, ok := s.guilds[guildID]; ok {
+			for _, c := range g.Channels {
+				channelIDs = append(channelIDs, c.ID)
+			}
+		}
+		s.mu.RUnlock()
+	}
+	n, err := s.store.PurgeDeletedContent(channelIDs)
+	if err == nil && n > 0 {
+		s.emitGuildUpdate() // reloads messages; revealed content is now gone
+	}
+	return n, err
 }
 
 // RevealDeleted returns the original text of a soft-deleted GUILD message, for a

@@ -112,6 +112,7 @@ export const api = {
   networkStats: () => call("NetworkStats"),
   signalCall: (channelID, action, target = "") => call("SignalCall", channelID, action, target),
   cancelPendingMember: (guildID, fingerprint) => call("CancelPendingMember", guildID, fingerprint),
+  emptyTrash: (guildID = "") => call("EmptyTrash", guildID),
   blockUser: (fingerprint) => call("BlockUser", fingerprint),
   unblockUser: (fingerprint) => call("UnblockUser", fingerprint),
   blockedUsers: () => call("BlockedUsers"),

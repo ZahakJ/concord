@@ -188,6 +188,7 @@ CREATE TABLE IF NOT EXISTS pending_members (
 		`ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN updated INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE messages ADD COLUMN expired INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE channels ADD COLUMN type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
@@ -755,7 +756,7 @@ func (s *Store) MessagesSince(channelID string, sinceNano int64, limit int) ([]d
 // Messages returns up to limit most-recent messages for a channel, oldest
 // first, decrypting bodies. A limit <= 0 returns all messages.
 func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) {
-	q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
+	q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, expired, content_enc, nonce, sent
 	      FROM messages WHERE channel_id = ? ORDER BY sent DESC`
 	args := []any{channelID}
 	if limit > 0 {
@@ -773,12 +774,13 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		var m domain.Message
 		var enc, nonceB []byte
 		var sent int64
-		var deleted, edited, pinned int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
+		var deleted, edited, pinned, expired int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
 			return nil, err
 		}
 		m.Edited = edited != 0
 		m.Pinned = pinned != 0
+		m.Expired = expired != 0
 		if deleted != 0 {
 			m.Deleted = true // leave content blank
 		} else {
@@ -1062,6 +1064,43 @@ func (s *Store) MessageContent(id string) (string, error) {
 		return "", err
 	}
 	return s.open(enc, nonceB)
+}
+
+// MarkExpired flags a tombstoned message as having disappeared via a timer
+// (rather than a manual delete), so the UI can label it "disappeared".
+func (s *Store) MarkExpired(id string) error {
+	_, err := s.db.Exec(`UPDATE messages SET expired = 1 WHERE id = ?`, id)
+	return err
+}
+
+// PurgeDeletedContent permanently erases the retained body of every soft-deleted
+// message (guild deletes keep content for moderator reveal). Returns how many
+// rows were scrubbed. This is the "empty trash" action: after it, "Show
+// original" has nothing left to show. channelIDs scopes it to a guild's
+// channels; empty scopes it to the whole device.
+func (s *Store) PurgeDeletedContent(channelIDs []string) (int, error) {
+	var nonce [nonceSize]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return 0, err
+	}
+	sealed := secretbox.Seal(nil, []byte(""), &nonce, &s.key)
+
+	q := `UPDATE messages SET content_enc = ?, nonce = ? WHERE deleted = 1`
+	args := []any{sealed, nonce[:]}
+	if len(channelIDs) > 0 {
+		ph := make([]string, len(channelIDs))
+		for i, id := range channelIDs {
+			ph[i] = "?"
+			args = append(args, id)
+		}
+		q += ` AND channel_id IN (` + strings.Join(ph, ",") + `)`
+	}
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
 }
 
 // SetSetting stores a key/value app setting (e.g. the display name).

@@ -94,6 +94,7 @@ type Message struct {
 	ReplyTo   string    `json:"replyTo"` // ID of the message this replies to / acts on
 	Content   string    `json:"content"`
 	Deleted   bool      `json:"deleted"`
+	Expired   bool      `json:"expired"` // erased by a disappearing-message timer (not a normal delete)
 	Edited    bool      `json:"edited"`
 	Pinned    bool      `json:"pinned"`
 	Sent      time.Time `json:"sent"`
