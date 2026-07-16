@@ -4,7 +4,14 @@
   import Avatar from "../Avatar.svelte";
   import { onMount, onDestroy } from "svelte";
   import { api } from "../lib/api.js";
-  import { soundsEnabled, setSoundsEnabled } from "../lib/sounds.js";
+  import {
+    soundsEnabled,
+    setSoundsEnabled,
+    RINGTONE_OPTIONS,
+    getRingtone,
+    setRingtone,
+    previewRingtone,
+  } from "../lib/sounds.js";
   import { bioEnrolled } from "../lib/biometric.js";
   import { S, setPref, flash } from "../lib/state.svelte.js";
 
@@ -18,6 +25,13 @@
   function toggleSounds() {
     sounds = !sounds;
     setSoundsEnabled(sounds);
+  }
+
+  let ringtone = $state(getRingtone());
+  function pickRingtone(id) {
+    ringtone = id;
+    setRingtone(id);
+    previewRingtone(id); // audition the choice immediately
   }
 
   // "Stay connected" defaults on; toggling flips the pref and the Android
@@ -423,6 +437,22 @@
         </span>
         <span class="switch" class:on={sounds}><span class="knob"></span></span>
       </button>
+      <div class="row ringtone-row">
+        <span class="chip"><Icon name="phone" size={16} /></span>
+        <span class="row-text">
+          <span class="row-title">Call ringtone</span>
+          <span class="row-sub">Plays when a friend calls you — tap to preview</span>
+        </span>
+        <select
+          class="ringtone-select"
+          value={ringtone}
+          onchange={(e) => pickRingtone(e.target.value)}
+        >
+          {#each RINGTONE_OPTIONS as o (o.id)}
+            <option value={o.id}>{o.label}</option>
+          {/each}
+        </select>
+      </div>
       <button
         class="row"
         onclick={() => setPref("linkPreviews", !S.prefs.linkPreviews)}
@@ -696,6 +726,19 @@
   }
   .row:hover {
     background: var(--bg-3);
+  }
+  .ringtone-row:hover {
+    background: transparent;
+  }
+  .ringtone-select {
+    flex-shrink: 0;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    font-size: 13px;
+    cursor: pointer;
   }
   .row:active {
     background: var(--bg-3);

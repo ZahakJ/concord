@@ -276,6 +276,12 @@
     joining = true;
     voiceHadPeer = false;
     voiceWasAccept = incomingCall()?.channelId === channelId;
+    // Kill the incoming-call ring the instant we commit to joining — otherwise
+    // it keeps brringing through the mic prompt + mesh setup (seconds) until
+    // S.voice is finally set, which is the "we're both on the call but it's
+    // still ringing" cringe. incomingCall() skips S.joiningVoice. (Set AFTER
+    // voiceWasAccept, which itself calls incomingCall.)
+    S.joiningVoice = channelId;
 
     // IP privacy. Fetch ICE config (STUN + optional TURN relay) up front. We
     // force-relay — hiding our IP from the call's peers — when either:
@@ -329,6 +335,7 @@
     } catch {
       flash("Microphone access denied", "error");
       joining = false;
+      S.joiningVoice = "";
       return;
     }
     try {
@@ -339,9 +346,11 @@
       mesh.stop();
       flash(err);
       joining = false;
+      S.joiningVoice = "";
       return;
     }
     S.voice = { mesh, channelId };
+    S.joiningVoice = "";
     // Rejoining a call clears any prior "declined" suppression for this channel.
     if (S.dismissedCalls.includes(channelId))
       S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);

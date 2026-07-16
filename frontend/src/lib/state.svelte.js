@@ -77,6 +77,7 @@ export const S = $state({
   typingList: [], // [{ from, label, timer }]
 
   voice: null, // { mesh, channelId }
+  joiningVoice: "", // channelId we're mid-join on (before S.voice is set)
   voiceParticipants: [],
   voiceSpeaking: [],
   voicePeerFpr: {},
@@ -1320,6 +1321,7 @@ export function incomingCall() {
     const ch = g.channels?.[0];
     if (!ch) continue;
     if (S.voice?.channelId === ch.id) continue; // already in this call
+    if (S.joiningVoice === ch.id) continue; // mid-join — stop ringing immediately
     if (S.dismissedCalls.includes(ch.id)) continue;
     const roster = S.voiceRosters[ch.id];
     if (roster && Object.keys(roster).length > 0) {
