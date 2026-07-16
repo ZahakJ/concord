@@ -1,118 +1,122 @@
 <script>
-  // An inline video attachment (mp4/webm/…): a click-to-play card that fetches +
-  // decrypts the blob on demand (so a channel full of clips doesn't download
-  // them all on scroll), then swaps to a native <video> player. Rides the same
-  // encrypted-file path as any attachment — nothing new server-side.
-  import Icon from "./Icon.svelte";
+  // An inline video attachment (mp4/webm/…). It renders as a real embedded
+  // player — a proper video frame with the native centered play control — but
+  // only fetches + decrypts the (encrypted) blob once it scrolls into view, so
+  // a channel full of clips doesn't download them all at once. Rides the same
+  // encrypted-file path as any attachment; nothing new server-side.
+  import { onMount } from "svelte";
   import { api } from "./lib/api.js";
   import { flash } from "./lib/state.svelte.js";
 
   let { channelId, tok } = $props();
 
-  let src = $state(""); // decrypted object/data URL, once loaded
+  let wrap = $state(null);
+  let src = $state(""); // decrypted data URL, once loaded
   let loading = $state(false);
+  let failed = $state(false);
 
-  const sizeLabel = $derived(fmtSize(tok.size));
-  function fmtSize(n) {
-    if (!n) return "";
-    if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-    return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  // Keep the frame from collapsing before the video loads (16:9 default), then
+  // snap to the clip's real aspect once its metadata arrives so it isn't
+  // letterboxed.
+  let realRatio = $state("");
+  const ratio = $derived(realRatio || (tok.w && tok.h ? `${tok.w} / ${tok.h}` : "16 / 9"));
+  function onMeta(e) {
+    const v = e.currentTarget;
+    if (v.videoWidth && v.videoHeight) realRatio = `${v.videoWidth} / ${v.videoHeight}`;
   }
 
   async function load() {
-    if (loading || src) return;
+    if (loading || src || failed) return;
     loading = true;
     try {
       src = await api.fetchFile(channelId, tok.blobId, tok.keys, tok.mime);
     } catch (err) {
+      failed = true;
       flash(err);
     } finally {
       loading = false;
     }
   }
+
+  onMount(() => {
+    if (!("IntersectionObserver" in window)) {
+      load(); // no observer support → just load it
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          io.disconnect();
+          load();
+        }
+      },
+      { rootMargin: "200px" }, // start a touch before it's fully on screen
+    );
+    if (wrap) io.observe(wrap);
+    return () => io.disconnect();
+  });
 </script>
 
-{#if src}
-  <!-- svelte-ignore a11y_media_has_caption -->
-  <video class="vid" controls autoplay {src}></video>
-{:else}
-  <button class="vid-card" onclick={load} title="Play {tok.name}">
-    <span class="vid-play">
-      {#if loading}<span class="vid-spin"></span>{:else}<Icon name="play" size={22} />{/if}
-    </span>
-    <span class="vid-meta">
-      <span class="vid-name">{tok.name}</span>
-      <span class="vid-sub muted">{sizeLabel} · click to play</span>
-    </span>
-  </button>
-{/if}
+<div class="vid-embed" bind:this={wrap} style="aspect-ratio:{ratio}">
+  {#if src}
+    <!-- svelte-ignore a11y_media_has_caption -->
+    <video class="vid" controls preload="metadata" onloadedmetadata={onMeta} {src}></video>
+  {:else}
+    <div class="vid-ph" class:failed>
+      {#if loading}
+        <span class="vid-spin"></span>
+      {:else if failed}
+        <button class="vid-retry" onclick={() => ((failed = false), load())}>Couldn't load — retry</button>
+      {:else}
+        <span class="vid-idle"></span>
+      {/if}
+    </div>
+  {/if}
+</div>
 
 <style>
-  .vid {
-    display: block;
+  .vid-embed {
+    position: relative;
     margin-top: 4px;
-    max-width: min(440px, 100%);
+    width: min(420px, 100%);
     max-height: 360px;
     border-radius: var(--radius-md);
+    overflow: hidden;
     background: #000;
-    outline: 1px solid var(--border);
-  }
-  .vid-card {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-top: 4px;
-    width: min(340px, 100%);
-    padding: 14px 16px;
-    text-align: left;
-    color: var(--text);
-    /* A filmic dark tile so it reads as "video", distinct from a file card. */
-    background: linear-gradient(135deg, #1a1d24, #0e1014);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    transition:
-      border-color 0.13s ease,
-      transform 0.1s ease;
   }
-  .vid-card:hover {
-    border-color: var(--accent);
+  .vid {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-height: 360px;
+    object-fit: contain;
+    background: #000;
   }
-  .vid-card:active {
-    transform: scale(0.99);
-  }
-  .vid-play {
-    flex-shrink: 0;
-    width: 44px;
-    height: 44px;
+  .vid-ph {
+    position: absolute;
+    inset: 0;
     display: grid;
     place-items: center;
-    border-radius: 50%;
-    background: var(--accent);
-    color: #fff;
-  }
-  .vid-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-  .vid-name {
-    font-size: 13px;
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .vid-sub {
-    font-size: 11px;
+    background: linear-gradient(135deg, #1a1d24, #0e1014);
   }
   .vid-spin {
-    width: 20px;
-    height: 20px;
-    border: 2px solid rgba(255, 255, 255, 0.4);
+    width: 26px;
+    height: 26px;
+    border: 3px solid rgba(255, 255, 255, 0.35);
     border-top-color: #fff;
     border-radius: 50%;
     animation: vid-rot 0.8s linear infinite;
+  }
+  .vid-retry {
+    padding: 8px 14px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+  }
+  .vid-retry:hover {
+    background: rgba(255, 255, 255, 0.2);
   }
   @keyframes vid-rot {
     to {
@@ -120,8 +124,8 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .vid-card:active {
-      transform: none;
+    .vid-spin {
+      animation: none;
     }
   }
 </style>
