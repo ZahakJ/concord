@@ -162,7 +162,7 @@ func (s *Service) guestJoinCall(sess *guestSession) {
 	}
 	sess.inCall = true
 	sess.callMu.Unlock()
-	s.emitVoicePresence(guestPeerID(sess.id), guestFingerprint(sess.name), sess.channelID, "join")
+	s.emitVoicePresence(guestPeerID(sess.id), guestFingerprint(sess.name), sess.channelID, "join", "")
 	// Peers announce themselves on a heartbeat and the UI evicts anyone silent
 	// for ~9s (that's how a crashed peer disappears). A guest has no gossip, so
 	// beat on their behalf until they leave — otherwise they'd vanish from the
@@ -178,7 +178,7 @@ func (s *Service) guestJoinCall(sess *guestSession) {
 				if !sess.callActive() {
 					return
 				}
-				s.emitVoicePresence(guestPeerID(sess.id), guestFingerprint(sess.name), sess.channelID, "join")
+				s.emitVoicePresence(guestPeerID(sess.id), guestFingerprint(sess.name), sess.channelID, "join", "")
 			}
 		}
 	}()
@@ -192,7 +192,7 @@ func (s *Service) guestLeaveCall(sess *guestSession) {
 	}
 	sess.inCall = false
 	sess.callMu.Unlock()
-	s.emitVoicePresence(guestPeerID(sess.id), guestFingerprint(sess.name), sess.channelID, "leave")
+	s.emitVoicePresence(guestPeerID(sess.id), guestFingerprint(sess.name), sess.channelID, "leave", "")
 }
 
 // relayToGuest delivers a WebRTC signaling blob to a guest session. Called by

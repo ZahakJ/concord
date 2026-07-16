@@ -79,6 +79,12 @@ export const S = $state({
 
   voice: null, // { mesh, channelId }
   joiningVoice: "", // channelId we're mid-join on (before S.voice is set)
+  // Soft call lock (see voice.go): channelId -> true when a call is locked;
+  // channelId -> [fingerprints] of people knocking to be let in.
+  callLocks: {},
+  callKnocks: {},
+  knocking: "", // a locked channelId we're waiting to be admitted to
+  admittedJoin: "", // set when admitted → App.svelte joins for real
   voiceParticipants: [],
   voiceSpeaking: [],
   voicePeerFpr: {},
@@ -1270,6 +1276,33 @@ function initEvents() {
   // Voice presence is now guild-wide: every peer hears join/leave heartbeats for
   // every voice channel, so the sidebar can show who's in each call.
   on("voice-presence", (v) => {
+    // Soft-lock control actions ride the same presence topic (see voice.go).
+    if (v.action === "lock" || v.action === "unlock") {
+      const locks = { ...S.callLocks };
+      if (v.action === "lock") locks[v.channelId] = true;
+      else delete locks[v.channelId];
+      S.callLocks = locks;
+      return;
+    }
+    if (v.action === "knock") {
+      // Someone wants into a call — surface it to people IN that call.
+      if (S.voice?.channelId === v.channelId && v.fingerprint !== S.identity.fingerprint) {
+        const list = S.callKnocks[v.channelId] || [];
+        if (!list.includes(v.fingerprint)) {
+          S.callKnocks = { ...S.callKnocks, [v.channelId]: [...list, v.fingerprint] };
+        }
+      }
+      return;
+    }
+    if (v.action === "admit") {
+      // We were let in → join for real (App.svelte watches admittedJoin).
+      if (v.target === S.identity.fingerprint && S.knocking === v.channelId) {
+        S.knocking = "";
+        S.admittedJoin = v.channelId;
+      }
+      return;
+    }
+
     updateVoiceRoster(v.channelId, v.from, v.fingerprint, v.action);
 
     // A browser guest joined the call from their invite link. If we're not in
@@ -1357,6 +1390,54 @@ function updateVoiceRoster(channelId, peerId, fingerprint, action) {
     }
   }
   S.voiceRosters = rosters;
+}
+
+// ---- soft call lock (see voice.go PublishCallControl) ----
+export function isCallLocked(channelId) {
+  return !!S.callLocks[channelId];
+}
+let lockRebroadcast = null;
+export function toggleCallLock() {
+  const ch = S.voice?.channelId;
+  if (!ch) return;
+  const locking = !S.callLocks[ch];
+  api.signalCall(ch, locking ? "lock" : "unlock").catch(() => {});
+  const locks = { ...S.callLocks };
+  if (locking) locks[ch] = true;
+  else delete locks[ch];
+  S.callLocks = locks;
+  clearInterval(lockRebroadcast);
+  if (locking) {
+    // One-off gossip is missable, so re-announce the lock every few seconds
+    // while it's on, so late watchers (and knockers) learn the call is locked.
+    lockRebroadcast = setInterval(() => {
+      if (S.voice?.channelId === ch && S.callLocks[ch]) api.signalCall(ch, "lock").catch(() => {});
+      else clearInterval(lockRebroadcast);
+    }, 3000);
+  }
+}
+export function admitKnocker(channelId, fpr) {
+  api.signalCall(channelId, "admit", fpr).catch(() => {});
+  dropKnock(channelId, fpr);
+}
+export function denyKnocker(channelId, fpr) {
+  dropKnock(channelId, fpr); // silently ignore; their knock times out
+}
+function dropKnock(channelId, fpr) {
+  const list = (S.callKnocks[channelId] || []).filter((f) => f !== fpr);
+  const k = { ...S.callKnocks };
+  if (list.length) k[channelId] = list;
+  else delete k[channelId];
+  S.callKnocks = k;
+}
+// clearCallState wipes lock/knock bookkeeping for a channel we've left.
+export function clearCallState(channelId) {
+  clearInterval(lockRebroadcast);
+  if (S.callKnocks[channelId]) {
+    const k = { ...S.callKnocks };
+    delete k[channelId];
+    S.callKnocks = k;
+  }
 }
 
 // incomingCall reports a DM whose other member is in the voice channel while we

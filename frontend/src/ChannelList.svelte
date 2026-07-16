@@ -30,6 +30,7 @@
     isBlocked,
     blockUser,
     unblockUser,
+    isCallLocked,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
@@ -578,6 +579,9 @@
             >
               <Icon name={typeIcon(c.type)} size={13} />
               <span class="ch-name">{c.name}</span>
+              {#if c.type === "voice" && isCallLocked(c.id)}
+                <span class="ch-lock" title="Call locked — knock to join"><Icon name="lock" size={11} /></span>
+              {/if}
               {#if c.type !== "voice" && !active && u && !S.mutes[c.id]}
                 <span class="count" class:mention={u.mentions > 0}>
                   {u.mentions > 0 ? (u.mentions > 99 ? "99+" : u.mentions) : u.count > 99 ? "99+" : u.count}
@@ -927,6 +931,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .ch-lock {
+    display: inline-grid;
+    place-items: center;
+    color: var(--text-faint);
+    flex-shrink: 0;
   }
   .vc-live {
     display: inline-flex;

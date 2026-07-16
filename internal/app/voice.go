@@ -25,10 +25,14 @@ import (
 
 const voiceHeartbeat = 3 * time.Second
 
-// voiceAnnounce is the gossipsub presence message for a voice room.
+// voiceAnnounce is the gossipsub presence message for a voice room. It also
+// carries the "soft lock" control actions (lock/unlock/knock/admit) on the same
+// topic — everyone watching the channel already receives it, so no new plumbing
+// and, crucially, no changes to the WebRTC media path.
 type voiceAnnounce struct {
 	ChannelID string `json:"channelId"`
-	Action    string `json:"action"` // "join" | "leave"
+	Action    string `json:"action"`           // "join"|"leave"|"lock"|"unlock"|"knock"|"admit"
+	Target    string `json:"target,omitempty"` // for "admit": the fingerprint being let in
 }
 
 // watchVoice passively subscribes to a voice channel's presence topic so this
@@ -48,7 +52,7 @@ func (s *Service) watchVoice(groupID []byte, channelID string) {
 	_ = s.ps.Subscribe(s.ctx, topic, func(from peer.ID, data []byte) {
 		var a voiceAnnounce
 		if json.Unmarshal(data, &a) == nil && a.ChannelID == channelID {
-			s.emitVoicePresence(from.String(), presenceFor(from).Fingerprint, channelID, a.Action)
+			s.emitVoicePresence(from.String(), presenceFor(from).Fingerprint, channelID, a.Action, a.Target)
 		}
 	})
 }
@@ -132,6 +136,20 @@ func (s *Service) announceVoice(topic, channelID, action string) {
 	_ = s.ps.Publish(s.ctx, topic, payload)
 }
 
+// PublishCallControl broadcasts a soft-lock control action (lock/unlock/knock/
+// admit) on a channel's voice topic. It's advisory — a well-behaved client
+// honors a lock and knocks instead of barging in; media negotiation is
+// untouched. `target` is only used by "admit" (the admitted fingerprint).
+func (s *Service) PublishCallControl(channelID, action, target string) error {
+	groupID, err := s.groupForChannel(channelID)
+	if err != nil {
+		return err
+	}
+	s.watchVoice(groupID, channelID) // ensure we're subscribed so we can publish
+	payload, _ := json.Marshal(voiceAnnounce{ChannelID: channelID, Action: action, Target: target})
+	return s.ps.Publish(s.ctx, domain.VoiceTopicID(groupID, channelID), payload)
+}
+
 func (s *Service) groupForChannel(channelID string) ([]byte, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -146,7 +164,7 @@ func (s *Service) groupForChannel(channelID string) ([]byte, error) {
 
 // OnVoicePresence fires when a peer announces joining/leaving a voice room.
 // from is the peer ID (used for signaling); fingerprint identifies the account.
-func (s *Service) OnVoicePresence(fn func(from, fingerprint, channelID, action string)) {
+func (s *Service) OnVoicePresence(fn func(from, fingerprint, channelID, action, target string)) {
 	s.mu.Lock()
 	s.onVoicePresence = append(s.onVoicePresence, fn)
 	s.mu.Unlock()
@@ -159,12 +177,12 @@ func (s *Service) OnVoiceSignal(fn func(from string, data []byte)) {
 	s.mu.Unlock()
 }
 
-func (s *Service) emitVoicePresence(from, fingerprint, channelID, action string) {
+func (s *Service) emitVoicePresence(from, fingerprint, channelID, action, target string) {
 	s.mu.RLock()
-	cbs := append([]func(string, string, string, string){}, s.onVoicePresence...)
+	cbs := append([]func(string, string, string, string, string){}, s.onVoicePresence...)
 	s.mu.RUnlock()
 	for _, cb := range cbs {
-		cb(from, fingerprint, channelID, action)
+		cb(from, fingerprint, channelID, action, target)
 	}
 }
 

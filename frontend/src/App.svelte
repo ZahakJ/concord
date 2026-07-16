@@ -26,6 +26,8 @@
     setChannelTopic,
     nudge,
     closeTopOverlay,
+    isCallLocked,
+    clearCallState,
   } from "./lib/state.svelte.js";
 
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
@@ -124,6 +126,15 @@
     playRing();
     const id = setInterval(playRing, 2400);
     return () => clearInterval(id);
+  });
+
+  // Admitted into a locked call → join for real (admitted=true skips the knock).
+  $effect(() => {
+    const ch = S.admittedJoin;
+    if (!ch) return;
+    S.admittedJoin = "";
+    flash("You were let in", "success");
+    joinVoice(ch, true);
   });
 
   async function acceptCall(channelId) {
@@ -265,7 +276,7 @@
   // client is the source of truth for the "Missed call" line.
   let voiceHadPeer = false;
   let voiceWasAccept = false;
-  async function joinVoice(channelId = S.activeChannelId) {
+  async function joinVoice(channelId = S.activeChannelId, admitted = false) {
     if (!channelId || joining) return; // re-entrancy guard: no orphan meshes
     if (S.voice) {
       const inThisRoom = S.voice.channelId === channelId;
@@ -273,6 +284,15 @@
       // Re-clicking the room you're already in toggles you out (no need to hunt
       // for the disconnect button). Clicking a different one switches rooms.
       if (inThisRoom) return;
+    }
+    // Locked call: don't barge in — knock and wait to be admitted (unless we're
+    // arriving BECAUSE we were just admitted). Someone already in the call
+    // approves, which flips admittedJoin and re-calls us with admitted=true.
+    if (!admitted && isCallLocked(channelId)) {
+      S.knocking = channelId;
+      api.signalCall(channelId, "knock").catch(() => {});
+      flash("Call is locked — knocking to be let in…", "info");
+      return;
     }
     joining = true;
     voiceHadPeer = false;
@@ -363,6 +383,9 @@
   async function leaveVoice() {
     if (!S.voice) return;
     const ch = S.voice.channelId;
+    // If we locked the call, unlock it as we leave, and clear knock bookkeeping.
+    if (isCallLocked(ch)) api.signalCall(ch, "unlock").catch(() => {});
+    clearCallState(ch);
     S.voice.mesh.stop();
     S.voice = null;
     // Suppress the incoming-call ring for this channel: the others may still be
@@ -560,6 +583,15 @@
 
   <ProfilePopover />
   <ContextMenu />
+
+  <!-- Knocking on a locked call: waiting to be admitted. -->
+  {#if S.knocking}
+    <div class="knock-wait" role="status">
+      <span class="kw-dot"></span>
+      <span>Waiting to be let into the call…</span>
+      <button class="kw-cancel" onclick={() => (S.knocking = "")}>Cancel</button>
+    </div>
+  {/if}
 
   <!-- Ongoing call you've navigated away from: a draggable pinned window. -->
   {#if callElsewhere}
@@ -990,6 +1022,53 @@
     color: var(--text);
   }
   /* Incoming-call card. */
+  .knock-wait {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: var(--bg-elevated, var(--bg-1));
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+    border-radius: 22px;
+    box-shadow: var(--shadow-pop);
+    z-index: 215;
+    font-size: 13px;
+  }
+  .kw-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: kw-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes kw-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.3;
+    }
+  }
+  .kw-cancel {
+    padding: 4px 12px;
+    background: var(--bg-3);
+    color: var(--text);
+    border-radius: 12px;
+    font-size: 12px;
+  }
+  .kw-cancel:hover {
+    background: var(--bg-input);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .kw-dot {
+      animation: none;
+    }
+  }
   .ring-card {
     position: fixed;
     top: 20px;

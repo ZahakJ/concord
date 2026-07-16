@@ -62,7 +62,8 @@ type VoicePresence struct {
 	From        string `json:"from"` // peer ID (for signaling)
 	Fingerprint string `json:"fingerprint"`
 	ChannelID   string `json:"channelId"`
-	Action      string `json:"action"`
+	Action      string `json:"action"`           // join|leave|lock|unlock|knock|admit
+	Target      string `json:"target,omitempty"` // admit: the fingerprint being let in
 }
 
 // VoiceSignal carries an opaque WebRTC signaling blob from a peer.
@@ -435,9 +436,9 @@ func (b *Bridge) Login(passphrase string) error {
 	}
 	svc.OnPeerConnected(presence)
 	svc.OnPeerDisconnected(presence)
-	svc.OnVoicePresence(func(from, fingerprint, channelID, action string) {
+	svc.OnVoicePresence(func(from, fingerprint, channelID, action, target string) {
 		if b.OnVoicePresence != nil {
-			b.OnVoicePresence(VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action})
+			b.OnVoicePresence(VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action, Target: target})
 		}
 	})
 	svc.OnVoiceSignal(func(from string, data []byte) {
@@ -703,6 +704,15 @@ func (b *Bridge) LeaveVoice(channelID string) error {
 		return err
 	}
 	return svc.LeaveVoice(channelID)
+}
+
+// SignalCall broadcasts a soft-lock control action (lock/unlock/knock/admit).
+func (b *Bridge) SignalCall(channelID, action, target string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.PublishCallControl(channelID, action, target)
 }
 
 // RelaySignal forwards a WebRTC signaling blob to a peer.
@@ -1825,6 +1835,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.JoinVoice(argStr(args, 0))
 	case "LeaveVoice":
 		return nil, b.LeaveVoice(argStr(args, 0))
+	case "SignalCall":
+		return nil, b.SignalCall(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "RelaySignal":
 		return nil, b.RelaySignal(argStr(args, 0), argStr(args, 1))
 	case "SendTyping":

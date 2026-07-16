@@ -6,7 +6,17 @@
   import { scale } from "svelte/transition";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
-  import { S, memberByFpr, nameFor, getVideoStream, activeGuild } from "./lib/state.svelte.js";
+  import {
+    S,
+    memberByFpr,
+    nameFor,
+    getVideoStream,
+    activeGuild,
+    isCallLocked,
+    toggleCallLock,
+    admitKnocker,
+    denyKnocker,
+  } from "./lib/state.svelte.js";
 
   // Join/leave pop for tiles and strip bubbles; zero-duration under
   // prefers-reduced-motion (Svelte transitions don't read the media query).
@@ -18,6 +28,13 @@
 
   // Solo in a DM call = still ringing the other person.
   const solo = $derived(S.voiceParticipants.length === 0);
+
+  // Soft lock is only meaningful in guild voice (DMs are already private to
+  // their two members). The lock button + knock prompts show only there.
+  const chId = $derived(S.voice?.channelId || "");
+  const isGuildCall = $derived(activeGuild()?.kind !== "dm" && activeGuild()?.kind !== "meeting");
+  const locked = $derived(isCallLocked(chId));
+  const knockers = $derived(S.callKnocks[chId] || []);
   const isDM = $derived(activeGuild()?.kind === "dm");
 
   // Ring for ~30s while alone in a DM call, then quietly settle into "just you
@@ -281,10 +298,33 @@
     >
       <Icon name={S.sharing ? "screenOff" : "screen"} size={18} />
     </button>
+    {#if isGuildCall}
+      <button
+        class="ctl"
+        class:active={locked}
+        title={locked ? "Unlock call (anyone can join)" : "Lock call (people must knock)"}
+        aria-label={locked ? "Unlock call" : "Lock call"}
+        onclick={toggleCallLock}
+      >
+        <Icon name="lock" size={18} />
+      </button>
+    {/if}
     <button class="ctl hangup" title="Leave call" aria-label="Leave call" onclick={onLeaveVoice}>
       <Icon name="door" size={18} />
     </button>
   </div>
+
+  {#if knockers.length}
+    <div class="knocks">
+      {#each knockers as fpr (fpr)}
+        <div class="knock">
+          <span class="knock-who">{nameFor(fpr)} wants to join</span>
+          <button class="knock-admit" onclick={() => admitKnocker(chId, fpr)}>Admit</button>
+          <button class="knock-deny" onclick={() => denyKnocker(chId, fpr)} aria-label="Ignore">✕</button>
+        </div>
+      {/each}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -694,6 +734,51 @@
     padding: 8px 0 2px;
     background: linear-gradient(to top, var(--bg-0) 55%, transparent);
     z-index: 1;
+  }
+  .knocks {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 4px 8px 8px;
+  }
+  .knock {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-1));
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+  }
+  .knock-who {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .knock-admit {
+    flex-shrink: 0;
+    padding: 5px 12px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .knock-deny {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    color: var(--text-muted);
+  }
+  .knock-deny:hover {
+    background: var(--bg-3);
+    color: var(--text);
   }
   .ctl {
     width: 44px;
