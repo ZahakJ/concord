@@ -426,21 +426,23 @@ func (s *Service) AddMember(guildID, fingerprint string) error {
 	if s.guildHasMember(guildID, fingerprint) {
 		return fmt.Errorf("app: they're already in this server")
 	}
-	pid, ok := s.peerForFingerprint(fingerprint)
-	if !ok {
-		return fmt.Errorf("app: they're offline — try again when they're online, or send them an invite code")
+	// Record them as PENDING right away, so they show in the roster like a DM you
+	// opened — even if they're offline. The invite is pushed now if they're
+	// reachable, and retried each heal tick (reconcilePendingMembers) until they
+	// join; they drop out of pending the moment they actually appear as a member.
+	s.addPending(guildID, fingerprint)
+	if pid, ok := s.peerForFingerprint(fingerprint); ok {
+		s.mu.RLock()
+		name := ""
+		if g, ok := s.guilds[guildID]; ok {
+			name = g.Name
+		}
+		s.mu.RUnlock()
+		if code, err := s.InviteCode(guildID); err == nil {
+			s.pushGuildInvite(pid, code, name)
+		}
 	}
-	code, err := s.InviteCode(guildID)
-	if err != nil {
-		return err
-	}
-	s.mu.RLock()
-	name := ""
-	if g, ok := s.guilds[guildID]; ok {
-		name = g.Name
-	}
-	s.mu.RUnlock()
-	s.pushGuildInvite(pid, code, name)
+	s.emitGuildUpdate()
 	return nil
 }
 

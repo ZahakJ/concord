@@ -85,6 +85,16 @@
   // one stray click otherwise), matching the profile popover's flow.
   function kick(mem) {
     const name = mem.name || mem.fingerprint.slice(0, 9);
+    // A pending member isn't in the group yet — "removing" them just cancels the
+    // invite you sent, no confirm needed.
+    if (mem.pending) {
+      api
+        .cancelPendingMember(S.activeGuildId, mem.fingerprint)
+        .then(() => refreshRightPanel())
+        .then(() => flash("Invite canceled"))
+        .catch(flash);
+      return;
+    }
     S.modal = {
       kind: "confirm",
       title: `Remove ${name}?`,
@@ -114,6 +124,7 @@
       <button
         class="member"
         class:offline={!mem.online}
+        class:pending={mem.pending}
         onclick={(e) => openProfilePopover(mem.fingerprint, e.currentTarget)}
         oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => memberMenu(e, mem)}
         use:longpress={{ handler: (e) => memberMenu(e, mem) }}
@@ -143,8 +154,11 @@
                 style="background:color-mix(in srgb, {r.color || 'var(--text-faint)'} 22%, transparent); color:{r.color || 'var(--text-muted)'}"
                 title={r.name}>{r.name}</span>
             {/if}
-            {#if mem.verified && !mem.isSelf}
+            {#if mem.verified && !mem.isSelf && !mem.pending}
               <span class="v-badge" title="Identity verified"><Icon name="check" size={11} /></span>
+            {/if}
+            {#if mem.pending}
+              <span class="pending-badge" title="Added — they'll appear once they accept &amp; sync">pending</span>
             {/if}
             {#if mem.mutedUntil > Date.now() / 1000}
               <span class="muted-badge" title="Muted"><Icon name="micOff" size={11} /></span>
@@ -163,7 +177,7 @@
         </span>
       </button>
         {#if g?.canManage && !mem.isSelf && !mem.isOwner}
-          <button class="kick" title="Remove from guild" aria-label="Remove {mem.name || 'member'} from guild" onclick={() => kick(mem)}>
+          <button class="kick" title={mem.pending ? "Cancel invite" : "Remove from guild"} aria-label="{mem.pending ? 'Cancel invite for' : 'Remove'} {mem.name || 'member'}" onclick={() => kick(mem)}>
             <Icon name="close" size={12} />
           </button>
         {/if}
@@ -405,6 +419,22 @@
     border-radius: 7px;
     font-weight: 600;
     flex-shrink: 0;
+  }
+  /* Pending: added, not yet joined — dim the row and tag it, so it reads as
+     "on the way" rather than a normal offline member. */
+  .member.pending {
+    opacity: 0.6;
+  }
+  .pending-badge {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 1px 5px;
+    border-radius: 7px;
+    font-weight: 600;
+    flex-shrink: 0;
+    background: color-mix(in srgb, #f0b232 22%, transparent);
+    color: #f0b232;
   }
   .role-badge.owner {
     background: color-mix(in srgb, var(--accent) 22%, transparent);

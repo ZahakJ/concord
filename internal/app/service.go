@@ -131,6 +131,11 @@ type Service struct {
 	// by mu. A blocked account's DM/guild invites are dropped on arrival.
 	blocked map[string]bool
 
+	// pendingMembers[guildID][fingerprint] = people you've added to a guild who
+	// haven't joined yet — shown as "pending" in the roster (like a DM you've
+	// opened). Guarded by mu; persisted; cleared once they actually join.
+	pendingMembers map[string]map[string]bool
+
 	// attachFlight collapses concurrent fetches of one attachment blob (e.g.
 	// the same image rendered several times) into a single network request.
 	attachFlight singleflight.Group
@@ -695,6 +700,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		govState:         map[string]GuildState{},
 		outOfSync:        map[string]bool{},
 		blocked:          map[string]bool{},
+		pendingMembers:   map[string]map[string]bool{},
 		previews:         newPreviewCache(),
 		bootstrap:        bootstrap,
 	}
@@ -798,6 +804,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// no longer exist.
 	s.loadDMState()
 	s.loadBlocked()
+	s.loadPendingMembers()
 
 	// Instant meetings are disposable — clear any that outlived their TTL.
 	s.sweepExpiredMeetings()

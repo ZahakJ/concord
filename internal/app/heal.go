@@ -120,6 +120,7 @@ func (s *Service) runHealLoop() {
 		case <-t.C:
 			s.healStrandedGuilds()
 			s.retryPendingDMInvites()
+			s.reconcilePendingMembers()
 			s.reconcileGuilds()
 		}
 	}

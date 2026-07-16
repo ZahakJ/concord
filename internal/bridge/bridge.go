@@ -228,6 +228,7 @@ type MemberView struct {
 	CanManage   bool             `json:"canManage"`  // owner or manage-members holder
 	RoleIDs     []string         `json:"roleIds"`    // assigned role IDs (highest-first from Roles())
 	MutedUntil  int64            `json:"mutedUntil"` // unix seconds muted-until (0 = not muted)
+	Pending     bool             `json:"pending"`    // added but not yet joined (shown greyed)
 }
 
 type ContactView struct {
@@ -521,6 +522,15 @@ func (b *Bridge) ExpireMessage(channelID, messageID string) error {
 		return err
 	}
 	return svc.ExpireMessage(channelID, messageID)
+}
+
+// CancelPendingMember cancels a not-yet-joined member you added to a guild.
+func (b *Bridge) CancelPendingMember(guildID, fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.CancelPendingMember(guildID, fingerprint)
 }
 
 // BlockUser blocks an account fingerprint (drops its DM/guild invites).
@@ -1044,6 +1054,32 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 		}
 		return a.Fingerprint < b.Fingerprint
 	})
+	// Append people you've added who haven't joined yet (see pending.go) AFTER the
+	// sort, so they sit at the bottom as greyed "pending" rows — the roster shows
+	// them immediately, like an opened DM, instead of nothing until they sync.
+	for _, fpr := range svc.PendingMembersFor(guildID) {
+		if seenAccount[fpr] {
+			continue
+		}
+		seenAccount[fpr] = true
+		p := svc.ProfileOf(fpr)
+		name := p.Name
+		if nick := svc.NickOf(guildID, fpr); nick != "" {
+			name = nick
+		}
+		out = append(out, MemberView{
+			Fingerprint: fpr,
+			Name:        name,
+			Status:      p.Status,
+			Emoji:       p.Emoji,
+			Color:       p.Color,
+			Avatar:      p.Avatar,
+			Presence:    p.Presence,
+			Online:      online[fpr],
+			Verified:    true,
+			Pending:     true,
+		})
+	}
 	return out, nil
 }
 
@@ -1829,6 +1865,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.DeleteMessage(argStr(args, 0), argStr(args, 1))
 	case "ExpireMessage":
 		return nil, b.ExpireMessage(argStr(args, 0), argStr(args, 1))
+	case "CancelPendingMember":
+		return nil, b.CancelPendingMember(argStr(args, 0), argStr(args, 1))
 	case "BlockUser":
 		return nil, b.BlockUser(argStr(args, 0))
 	case "UnblockUser":

@@ -168,6 +168,12 @@ CREATE TABLE IF NOT EXISTS blocked (
   fingerprint TEXT PRIMARY KEY,
   created     INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS pending_members (
+  guild_id    TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  created     INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, fingerprint)
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -1483,6 +1489,37 @@ func (s *Store) evictAttachments() {
 			return
 		}
 	}
+}
+
+// ---- pending guild members (added, not yet joined) ----
+
+func (s *Store) AddPendingMember(guildID, fpr string) error {
+	_, err := s.db.Exec("INSERT OR IGNORE INTO pending_members (guild_id, fingerprint, created) VALUES (?, ?, ?)", guildID, fpr, time.Now().UnixNano())
+	return err
+}
+
+func (s *Store) RemovePendingMember(guildID, fpr string) error {
+	_, err := s.db.Exec("DELETE FROM pending_members WHERE guild_id = ? AND fingerprint = ?", guildID, fpr)
+	return err
+}
+
+// PendingMembers returns guildID -> [fingerprints] for every recorded pending
+// member (loaded into memory at startup).
+func (s *Store) PendingMembers() (map[string][]string, error) {
+	rows, err := s.db.Query("SELECT guild_id, fingerprint FROM pending_members")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var g, f string
+		if err := rows.Scan(&g, &f); err != nil {
+			return nil, err
+		}
+		out[g] = append(out[g], f)
+	}
+	return out, rows.Err()
 }
 
 // ---- blocked users ----
