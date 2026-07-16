@@ -55,6 +55,10 @@ export const S = $state({
   // localStorage last-read map (recomputed on load).
   unread: {},
   mutes: loadJSON("concord.mutes", {}), // channelId -> true
+  // Guild-rail layout: device-local ordering + Discord-style folders (see
+  // lib/rail.js). An array of { t:"g", id } / { t:"f", id, name, color, open,
+  // ids }. Reconciled against the live guild list on render.
+  rail: loadJSON("concord.rail", []),
   readAnchor: "", // ISO time we'd last read the active channel (for the "new" line)
 
   // Privacy + appearance prefs. linkPreviews defaults OFF: fetching a preview
@@ -386,6 +390,12 @@ export function confirmLeaveGuild(g) {
       flash(g.isOwner ? "Guild deleted" : "Left guild");
     },
   };
+}
+
+// commitRail persists the guild-rail layout (ordering + folders). Device-local.
+export function commitRail(items) {
+  S.rail = items;
+  saveJSON("concord.rail", items);
 }
 
 // setPref updates a persisted privacy preference.
