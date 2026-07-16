@@ -8,6 +8,7 @@
   import Attachment from "./Attachment.svelte";
   import FileAttachment from "./FileAttachment.svelte";
   import VoiceMessage from "./VoiceMessage.svelte";
+  import VideoAttachment from "./VideoAttachment.svelte";
   import PollView from "./PollView.svelte";
   import { parsePoll } from "./lib/polls.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
@@ -652,6 +653,8 @@
       {#each files as tok (tok.blobId)}
         {#if tok.mime?.startsWith("audio/")}
           <VoiceMessage channelId={m.channelId} {tok} />
+        {:else if tok.mime?.startsWith("video/")}
+          <VideoAttachment channelId={m.channelId} {tok} />
         {:else}
           <FileAttachment channelId={m.channelId} {tok} />
         {/if}

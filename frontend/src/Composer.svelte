@@ -580,7 +580,8 @@
     uploading++;
     try {
       const dataUrl = await readAsDataURL(file);
-      pending = [...pending, { id: uid(), dataUrl, name: file.name || "file", isImage: false }];
+      const isVideo = file.type.startsWith("video/");
+      pending = [...pending, { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo }];
     } catch (err) {
       flash(err);
     } finally {
@@ -828,7 +829,7 @@
             {#if p.isImage}
               <img src={p.dataUrl} alt="" />
             {:else}
-              <span class="att-file"><Icon name="attach" size={16} /><span class="att-name">{p.name}</span></span>
+              <span class="att-file"><Icon name={p.isVideo ? "play" : "attach"} size={16} /><span class="att-name">{p.name}</span></span>
             {/if}
             <button
               type="button"
