@@ -105,6 +105,11 @@
 </script>
 
 <aside class="panel">
+  {#if g?.canManage && g?.kind !== "dm"}
+    <button class="add-people" onclick={() => (S.modal = { kind: "addMembers" })}>
+      <Icon name="members" size={14} /> Add verified contacts
+    </button>
+  {/if}
   {#each memberGroups as grp (grp.id)}
     <div class="section-head">
       <span style={grp.color ? `color:${grp.color}` : ""}>{grp.name} — {grp.members.length}</span>
@@ -204,6 +209,30 @@
     /* Spinning avatar rings overflow their box by design — don't let that
        summon a horizontal scrollbar (see ChannelList .scroll). */
     overflow-x: clip;
+  }
+  .add-people {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px;
+    margin-bottom: 8px;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: var(--radius-md);
+    font-size: 13px;
+    font-weight: 600;
+    transition:
+      background 0.13s ease,
+      transform 0.1s ease;
+  }
+  .add-people:hover {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .add-people:active {
+    transform: scale(0.98);
   }
   .section-head {
     display: flex;
