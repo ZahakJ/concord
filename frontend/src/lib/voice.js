@@ -304,17 +304,23 @@ export class VoiceMesh {
         // lost or late (a browser guest sends it before we're even in the call),
         // and the UI only renders "camera"/"screen" tiles. Guessing camera shows
         // the person; dropping the track shows nothing.
-        const emit = () =>
+        const emit = () => {
+          peer.videoKeys.add(key);
+          this._pendingVideo.set(stream.id, emit);
           this.onVideo(key, stream, { peerId, kind: this.remoteKinds.get(stream.id) || "camera" });
+        };
         emit();
-        this._pendingVideo.set(stream.id, emit);
         const clear = () => {
           peer.videoKeys.delete(key);
           this._pendingVideo.delete(stream.id);
           this.onVideo(key, null);
         };
+        // A track NEGOTIATED before frames flow (joining an existing share)
+        // arrives "muted", which would clear the tile — but then "unmute" fires
+        // once frames arrive, so we must re-show it. Only "ended" is a real gone.
         track.addEventListener("ended", clear);
         track.addEventListener("mute", clear);
+        track.addEventListener("unmute", emit);
         return;
       }
       let el = peer.audioEl;
