@@ -611,7 +611,11 @@
                   />
                 </span>
                 <span class="vc-name">{nameFor(vm.fingerprint)}{vm.self ? " (you)" : ""}</span>
-                {#if vm.sharing}<span class="vc-share" title="Sharing video"><Icon name="screen" size={12} /></span>{/if}
+                {#if vm.sharing}
+                  <span class="vc-live" title={vm.self ? "You're sharing" : "Live — click to watch"}>
+                    <span class="live-dot"></span>LIVE
+                  </span>
+                {/if}
               </button>
             {/each}
           {/if}
@@ -901,10 +905,40 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .vc-share {
-    color: var(--ok);
-    display: inline-grid;
-    place-items: center;
+  .vc-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-left: auto;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: color-mix(in srgb, #f04747 20%, transparent);
+    color: #ff6b6b;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+  .live-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #f04747;
+    animation: live-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes live-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot {
+      animation: none;
+    }
   }
   .channel-row {
     position: relative;
