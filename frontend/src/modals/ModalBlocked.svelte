@@ -3,13 +3,9 @@
   // Unblock from here.
   import Modal from "./Modal.svelte";
   import Avatar from "../Avatar.svelte";
-  import { S, unblockUser } from "../lib/state.svelte.js";
+  import { S, unblockUser, nameFor } from "../lib/state.svelte.js";
 
   let { onClose } = $props();
-
-  // Resolve a friendly name from contacts where we have one.
-  const nameFor = (fpr) =>
-    S.contacts.find((c) => c.fingerprint === fpr)?.name || fpr.slice(0, 12) + "…";
 </script>
 
 <Modal title="Blocked users" {onClose}>

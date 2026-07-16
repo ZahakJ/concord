@@ -1,6 +1,9 @@
 <script>
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import Avatar from "../Avatar.svelte";
+  import { S, flash, refreshGuilds, nameFor } from "../lib/state.svelte.js";
+  import { api } from "../lib/api.js";
   let { code, onCopy, onClose } = $props();
 
   let copied = $state(false);
@@ -8,6 +11,28 @@
     onCopy(code);
     copied = true;
     setTimeout(() => (copied = false), 1600);
+  }
+
+  // Add verified contacts straight in — no code needed. Their client
+  // auto-accepts only because they verified US, so this is safe both ways.
+  const memberFprs = $derived(new Set(S.members.map((m) => m.fingerprint)));
+  const candidates = $derived(
+    S.contacts.filter((c) => c.verified && !memberFprs.has(c.fingerprint)),
+  );
+  let busy = $state("");
+  let added = $state(new Set());
+  async function add(c) {
+    busy = c.fingerprint;
+    try {
+      await api.addMember(S.activeGuildId, c.fingerprint);
+      added = new Set([...added, c.fingerprint]);
+      flash(`Added ${nameFor(c.fingerprint) || "them"} — they'll appear once they accept`, "success");
+      setTimeout(refreshGuilds, 2500);
+    } catch (err) {
+      flash(err);
+    } finally {
+      busy = "";
+    }
   }
 </script>
 
@@ -30,6 +55,30 @@
     you trust.
   </p>
 
+  {#if candidates.length}
+    <div class="divider"></div>
+    <strong class="add-head">Or add a verified contact directly</strong>
+    <p class="hint muted">No code needed — they drop straight in.</p>
+    <div class="add-list">
+      {#each candidates as c (c.fingerprint)}
+        <div class="add-row">
+          <Avatar name={nameFor(c.fingerprint)} size={30} />
+          <span class="who">
+            <strong>{nameFor(c.fingerprint)}</strong>
+            <span class="tiny muted mono">{c.fingerprint.slice(0, 9)}</span>
+          </span>
+          {#if added.has(c.fingerprint)}
+            <span class="done tiny"><Icon name="check" size={12} /> Added</span>
+          {:else}
+            <button class="add-btn" disabled={busy === c.fingerprint} onclick={() => add(c)}>
+              {busy === c.fingerprint ? "Adding…" : "Add"}
+            </button>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
+
   <div class="actions">
     <button class="ghost" onclick={onClose}>Done</button>
   </div>
@@ -40,6 +89,65 @@
     margin: 0;
     font-size: 13px;
     line-height: 1.55;
+  }
+  .divider {
+    border-top: 1px solid var(--border);
+    margin: 4px 0;
+  }
+  .add-head {
+    font-size: 13px;
+  }
+  .add-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 240px;
+    overflow-y: auto;
+  }
+  .add-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 9px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .who {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  .who strong {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mono {
+    font-family: ui-monospace, monospace;
+  }
+  .tiny {
+    font-size: 11px;
+  }
+  .add-btn {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+  }
+  .add-btn:disabled {
+    opacity: 0.6;
+  }
+  .done {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--ok);
   }
   .code-well {
     position: relative;

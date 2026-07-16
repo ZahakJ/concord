@@ -105,11 +105,6 @@
 </script>
 
 <aside class="panel">
-  {#if g?.canManage && g?.kind !== "dm"}
-    <button class="add-people" onclick={() => (S.modal = { kind: "addMembers" })}>
-      <Icon name="members" size={14} /> Add verified contacts
-    </button>
-  {/if}
   {#each memberGroups as grp (grp.id)}
     <div class="section-head">
       <span style={grp.color ? `color:${grp.color}` : ""}>{grp.name} — {grp.members.length}</span>

@@ -168,7 +168,15 @@ export function nameFor(fpr, frozenName = "") {
   // fingerprint slot ("guest:Alice"). One branch here labels them everywhere:
   // sidebar, call roster, video tiles.
   if (isGuestFpr(fpr)) return `${guestName(fpr)} (guest)`;
-  return memberByFpr(fpr)?.name || frozenName || (fpr ? fpr.slice(0, 9) : "?");
+  // Fall back beyond the active guild's roster to the contact's learned profile
+  // name, so people show their display name in contact/add/block lists (and any
+  // guild they're not a current member of) instead of a cryptic fingerprint.
+  return (
+    memberByFpr(fpr)?.name ||
+    (fpr && S.contacts.find((c) => c.fingerprint === fpr)?.name) ||
+    frozenName ||
+    (fpr ? fpr.slice(0, 9) : "?")
+  );
 }
 
 // customEmojiMap: {name -> imageDataURI} for the active guild's custom emoji.
@@ -326,13 +334,8 @@ export function guildMenuItems(g) {
   const canRoles = g.isOwner || has(g.myPerms, PERM.MANAGE_ROLES);
   return [
     g.canManage && {
-      label: "Add a verified contact",
+      label: "Invite / add people",
       icon: "members",
-      onClick: () => (S.modal = { kind: "addMembers" }),
-    },
-    g.canManage && {
-      label: "Invite with a code",
-      icon: "copy",
       onClick: async () => (S.modal = { kind: "invite", code: await api.inviteCode(g.id) }),
     },
     {
