@@ -11,6 +11,7 @@
     flash,
     refreshGuilds,
     selectGuild,
+    voiceMembersFor,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
@@ -24,6 +25,15 @@
   const g = $derived(activeGuild());
   const ch = $derived(activeChannel());
   const ephTTL = $derived(ch ? channelTTL(S.activeChannelId) : 0);
+  // In a DM (or meeting), is the other side already in the call while we're not?
+  // Drives a "🔴 Live · Join" affordance so a call in progress is obvious.
+  const peerInCall = $derived(
+    !!ch &&
+      (g?.kind === "dm" || g?.kind === "meeting") &&
+      S.voice?.channelId !== ch.id &&
+      (voiceMembersFor(ch.id) || []).some((m) => !m.self),
+  );
+  const peerSharing = $derived(peerInCall && (voiceMembersFor(ch.id) || []).some((m) => !m.self && m.sharing));
   const pinnedCount = $derived(S.messages.filter((m) => m.pinned && !m.deleted).length);
 
   async function showInvite() {
@@ -159,6 +169,12 @@
           <Icon name="door" size={13} />
         </button>
       </span>
+    {:else if ch && peerInCall}
+      <!-- The other side is already on a call — make it obvious and one-click. -->
+      <button class="ghost iconbtn live-join" title="Join the call" onclick={() => onJoinVoice()}>
+        <span class="live-dot"></span>
+        <span class="n">Live{peerSharing ? " · sharing" : ""} · Join</span>
+      </button>
     {:else if ch}
       <button
         class="ghost iconbtn"
@@ -457,6 +473,37 @@
   }
   .iconbtn.call:hover {
     background: var(--ok-soft);
+  }
+  /* Peer is already on the call — a live, inviting affordance. */
+  .iconbtn.live-join {
+    color: #ff6b6b;
+    border-color: color-mix(in srgb, #f04747 50%, transparent);
+    background: color-mix(in srgb, #f04747 12%, transparent);
+    font-weight: 600;
+  }
+  .iconbtn.live-join:hover {
+    background: color-mix(in srgb, #f04747 20%, transparent);
+  }
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #f04747;
+    animation: ch-live-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes ch-live-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .live-dot {
+      animation: none;
+    }
   }
   .iconbtn.endcall {
     color: var(--danger);

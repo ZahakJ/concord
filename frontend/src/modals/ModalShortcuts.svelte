@@ -51,22 +51,24 @@
   ];
 </script>
 
-<Modal title="Keyboard shortcuts & formatting" {onClose}>
+<Modal title="Keyboard shortcuts & formatting" wide {onClose}>
   <div class="sc-grid">
     {#each groups as grp (grp.name)}
-      <div class="sc-group">
+      <section class="sc-group">
         <h4>{grp.name}</h4>
-        {#each grp.keys as [keys, desc] (desc)}
-          <div class="sc-row">
-            <span class="sc-keys">
-              {#each keys as k, i (k)}
-                {#if i > 0}<span class="sc-plus">+</span>{/if}<kbd>{k}</kbd>
-              {/each}
-            </span>
-            <span class="sc-desc">{desc}</span>
-          </div>
-        {/each}
-      </div>
+        <div class="sc-rows">
+          {#each grp.keys as [keys, desc] (desc)}
+            <div class="sc-row">
+              <span class="sc-desc">{desc}</span>
+              <span class="sc-keys">
+                {#each keys as k, i (k)}
+                  {#if i > 0}<span class="sc-plus">+</span>{/if}<kbd>{k}</kbd>
+                {/each}
+              </span>
+            </div>
+          {/each}
+        </div>
+      </section>
     {/each}
   </div>
 </Modal>
@@ -75,46 +77,69 @@
   .sc-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 14px 24px;
+    gap: 12px;
+  }
+  .sc-group {
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 12px 14px;
   }
   .sc-group h4 {
-    margin: 0 0 6px;
-    font-size: 11px;
+    margin: 0 0 8px;
+    font-size: 10.5px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--text-muted);
+    letter-spacing: 0.08em;
+    color: var(--accent);
+  }
+  .sc-rows {
+    display: flex;
+    flex-direction: column;
   }
   .sc-row {
     display: flex;
-    align-items: baseline;
-    gap: 8px;
-    margin-bottom: 5px;
-    font-size: 12px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 5px 0;
+    font-size: 12.5px;
+    border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  }
+  .sc-row:first-child {
+    border-top: none;
+  }
+  .sc-desc {
+    color: var(--text);
+    min-width: 0;
   }
   .sc-keys {
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
-    gap: 3px;
-    min-width: 96px;
+    gap: 4px;
   }
   .sc-plus {
     color: var(--text-faint);
     font-size: 10px;
   }
+  /* Proper keycaps: raised, subtle top-highlight, pressed-looking bottom edge. */
   kbd {
     font-family: ui-monospace, monospace;
     font-size: 11px;
-    background: var(--bg-3);
+    font-weight: 600;
+    min-width: 20px;
+    text-align: center;
+    background: linear-gradient(var(--bg-3), var(--bg-2));
     border: 1px solid var(--border);
-    border-bottom-width: 2px;
-    border-radius: 4px;
-    padding: 1px 5px;
+    border-bottom: 2px solid color-mix(in srgb, var(--border) 70%, black);
+    border-radius: 5px;
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent),
+      0 1px 1px rgb(0 0 0 / 0.12);
+    padding: 2px 6px;
     color: var(--text);
     white-space: nowrap;
-  }
-  .sc-desc {
-    color: var(--text-muted);
   }
   @media (max-width: 640px) {
     .sc-grid {

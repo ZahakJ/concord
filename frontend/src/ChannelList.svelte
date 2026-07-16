@@ -27,6 +27,9 @@
     guildMenuItems,
     flash,
     refreshGuilds,
+    isBlocked,
+    blockUser,
+    unblockUser,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
@@ -188,6 +191,11 @@
         icon: S.mutes[c.id] ? "bell" : "bellOff",
         onClick: () => toggleMute(c.id),
       },
+      c.type !== "voice" && {
+        label: "Disappearing messages…",
+        icon: "clock",
+        onClick: () => (S.modal = { kind: "disappear", channelId: c.id }),
+      },
       canManageChannels && c.type !== "voice" && {
         label: "Edit Topic",
         icon: "edit",
@@ -336,6 +344,11 @@
         icon: "check",
         onClick: () => markRead(dm.channels?.[0]?.id),
       },
+      dm.channels?.[0] && {
+        label: "Disappearing messages…",
+        icon: "clock",
+        onClick: () => (S.modal = { kind: "disappear", channelId: dm.channels[0].id }),
+      },
       isGroup && {
         label: "Rename Group",
         icon: "edit",
@@ -347,6 +360,16 @@
           }),
       },
       { sep: true },
+      !isGroup &&
+        dm.dmPeer &&
+        (isBlocked(dm.dmPeer)
+          ? { label: "Unblock", icon: "lock", onClick: () => unblockUser(dm.dmPeer, dm.name) }
+          : {
+              label: "Block",
+              icon: "lock",
+              danger: true,
+              onClick: () => blockUser(dm.dmPeer, dm.name),
+            }),
       {
         label: (dm.dmMembers ?? 2) > 2 ? "Leave Group" : "Close DM",
         icon: "door",
