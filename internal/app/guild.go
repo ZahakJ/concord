@@ -454,6 +454,13 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("app: unknown guild %s", guildID)
 	}
+	// Only an authorized committer can actually admit a joiner: a code minted by a
+	// member without ManageMembers would advance that member onto a private epoch
+	// fork the moment it's redeemed (honest peers drop the unauthorized commit).
+	// Refuse to hand out a code we can't honor.
+	if !s.canManageMembers(guildID) {
+		return "", fmt.Errorf("app: you don't have permission to invite members to this server")
+	}
 
 	ai := s.host.AddrInfo()
 	addrs := make([]string, 0, len(ai.Addrs))
@@ -587,6 +594,12 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	s.mu.RUnlock()
 	if !ok {
 		return json.Marshal(inviteResponse{Error: "unknown guild"})
+	}
+	// Serving the join advances the epoch and returns a Welcome. If WE aren't an
+	// authorized committer, honest peers drop our commit and the joiner forks onto
+	// a private epoch chain — silently. Refuse rather than fork.
+	if !s.canManageMembers(req.GuildID) {
+		return json.Marshal(inviteResponse{Error: "inviter is not authorized to admit members"})
 	}
 
 	// Bind the claimed credential to the AUTHENTICATED caller. The libp2p PeerID
@@ -1325,6 +1338,22 @@ func (s *Service) DeleteChannel(guildID, channelID string) error {
 }
 
 // applyChannelRemoved drops a channel locally (from any source).
+// channelGuild returns the guild a channel is currently mapped to.
+func (s *Service) channelGuild(channelID string) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.channelToGuild[channelID]
+	return g, ok
+}
+
+// channelInGuild reports whether a channel is known to belong to guildID. Used
+// to scope inbound guild-meta store mutations so a member of one guild cannot
+// touch another guild's channel by naming its ID.
+func (s *Service) channelInGuild(channelID, guildID string) bool {
+	g, ok := s.channelGuild(channelID)
+	return ok && g == guildID
+}
+
 func (s *Service) applyChannelRemoved(guildID, channelID string) {
 	s.mu.Lock()
 	if g, ok := s.guilds[guildID]; ok {
@@ -1625,12 +1654,18 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	if json.Unmarshal(msg.Plaintext, &m) != nil {
 		return
 	}
+	// MLS proves msg.SenderID is *some* group member; the account fingerprint is
+	// the authenticated actor for every authorization decision below. Decryption
+	// alone is NOT authorization — admin metadata (channels, emoji, rename,
+	// profile) must re-check the sender's permission on the receive side, or a
+	// patched client could rewrite the guild on every honest peer.
+	actor := accountFingerprintOf(msg.SenderID)
 	switch m.Type {
 	case "read_marker":
 		// Read markers only ever travel the Notes self-group, and only OUR OWN
 		// account's devices may move our read cursor — a marker authored by
 		// anyone else is dropped (MLS authenticates the sender, so this holds).
-		if accountFingerprintOf(msg.SenderID) != s.id.Fingerprint() {
+		if actor != s.id.Fingerprint() {
 			return
 		}
 		if m.ChannelID != "" {
@@ -1643,10 +1678,21 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		return
 	case "channel_added":
+		if !s.memberHasPerm(guildID, actor, PermManageChannels) {
+			return
+		}
+		// Refuse to bind a channel ID that already belongs to another guild — a
+		// stray/hostile channel_added must not hijack an existing mapping.
+		if g, ok := s.channelGuild(m.Channel.ID); ok && g != guildID {
+			return
+		}
 		m.Channel.GuildID = guildID
 		s.addChannel(guildID, m.Channel)
 	case "channel_updated":
 		if m.Channel.ID == "" {
+			return
+		}
+		if !s.memberHasPerm(guildID, actor, PermManageChannels) || !s.channelInGuild(m.Channel.ID, guildID) {
 			return
 		}
 		_ = s.store.UpdateChannelMeta(m.Channel.ID, m.Channel.Type, m.Channel.Category, m.Channel.Position, m.Channel.Topic)
@@ -1673,27 +1719,45 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if m.Category.ID == "" {
 			return
 		}
+		if !s.memberHasPerm(guildID, actor, PermManageChannels) {
+			return
+		}
 		m.Category.GuildID = guildID
 		_ = s.store.SaveCategory(m.Category)
 		s.emitGuildUpdate()
 	case "channel_removed":
 		if m.Channel.ID != "" {
+			if !s.memberHasPerm(guildID, actor, PermManageChannels) || !s.channelInGuild(m.Channel.ID, guildID) {
+				return
+			}
 			s.applyChannelRemoved(guildID, m.Channel.ID)
 		}
 	case "category_removed":
 		if m.Category.ID != "" {
+			if !s.memberHasPerm(guildID, actor, PermManageChannels) {
+				return
+			}
 			s.applyCategoryRemoved(guildID, m.Category.ID)
 		}
 	case "emoji_added":
+		if !s.memberHasPerm(guildID, actor, PermManageGuild) {
+			return
+		}
 		s.applyCustomEmoji(guildID, m.CustomEmoji)
 		s.emitGuildUpdate()
 	case "emoji_removed":
 		if m.CustomEmoji.Name != "" {
+			if !s.memberHasPerm(guildID, actor, PermManageGuild) {
+				return
+			}
 			_ = s.store.DeleteCustomEmoji(guildID, m.CustomEmoji.Name)
 			s.emitGuildUpdate()
 		}
 	case "guild_renamed":
 		if strings.TrimSpace(m.Name) == "" {
+			return
+		}
+		if !s.memberHasPerm(guildID, actor, PermManageGuild) {
 			return
 		}
 		s.mu.Lock()
@@ -1707,6 +1771,9 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		s.emitGuildUpdate()
 	case "guild_profile":
+		if !s.memberHasPerm(guildID, actor, PermManageGuild) {
+			return
+		}
 		// Name/icon/banner/description update. Validate the images like a local set.
 		if (m.GuildIcon != "" && !strings.HasPrefix(m.GuildIcon, "data:image/")) ||
 			(m.GuildBanner != "" && !strings.HasPrefix(m.GuildBanner, "data:image/")) ||
@@ -1727,9 +1794,16 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		s.emitGuildUpdate()
 	case "profile":
+		// A profile only speaks for its own author. The self-reported Fingerprint
+		// must equal the MLS-authenticated sender, or a member could overwrite any
+		// other member's cached identity — and, via MailboxPub, silently redirect
+		// their offline mail. Bind it to the authenticated actor.
+		if m.Fingerprint != "" && m.Fingerprint != actor {
+			return
+		}
 		// First time we see this member: reply with our own profile so the
 		// newcomer learns us too (bounded — only on genuinely new members).
-		if s.learnProfile(m.Fingerprint, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games, Color2: m.Color2, Frame: m.Frame, Effect: m.Effect, Style: m.Style}) {
+		if s.learnProfile(actor, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games, Color2: m.Color2, Frame: m.Frame, Effect: m.Effect, Style: m.Style}) {
 			s.announceProfile(guildID)
 		}
 	case "nickname":
@@ -1742,7 +1816,6 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if m.Fingerprint == "" {
 			return
 		}
-		actor := accountFingerprintOf(msg.SenderID)
 		if !s.nickAllowed(guildID, actor, m.Fingerprint) {
 			return
 		}

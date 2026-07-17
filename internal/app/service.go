@@ -338,6 +338,14 @@ func validEffect(e string) bool {
 // sanitizeProfileExtras bounds the newer decorative fields, for our own edits
 // and peers' broadcasts alike.
 func sanitizeProfileExtras(p *Profile) {
+	// Both accent colors render into inline CSS (Avatar, ProfilePopover). An
+	// unvalidated primary Color like "red;background-image:url(https://evil/px)"
+	// is a stored-CSS injection that fires an external fetch — deanonymizing every
+	// viewer's IP — the moment the member list opens. Hold Color to the same #hex
+	// gate as Color2.
+	if !validColor(p.Color) {
+		p.Color = ""
+	}
 	if !validColor(p.Color2) {
 		p.Color2 = ""
 	}

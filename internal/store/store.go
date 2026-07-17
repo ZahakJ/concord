@@ -1337,7 +1337,14 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 // rows for fingerprints other than selfFingerprint are replaced by the remote
 // snapshot (own reactions are never touched, so un-synced local toggles
 // survive). Reports whether anything changed.
-func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string) (bool, error) {
+//
+// trusted gates the DESTRUCTIVE reconcile branches (tombstoning or overwriting a
+// message we already hold). Those mutate an existing, already-authenticated
+// message, so a malicious backfill peer could otherwise censor or rewrite any
+// message by ID. Inserts of genuinely new (gap-fill) messages are always
+// allowed so ordinary-member catch-up keeps working; only the caller-designated
+// trusted sources (guild owner / SyncHost) may mutate existing rows.
+func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, trusted bool) (bool, error) {
 	var curDeleted, curEdited, curPinned int
 	var curUpdated int64
 	err := s.db.QueryRow(
@@ -1350,6 +1357,7 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string) (b
 	}
 
 	changed := false
+	inserted := false
 	switch {
 	case err == sql.ErrNoRows:
 		var nonce [nonceSize]byte
@@ -1367,8 +1375,13 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string) (b
 			return false, fmt.Errorf("store: upsert synced message: %w", err)
 		}
 		changed = true
+		inserted = true
 	case err != nil:
 		return false, err
+	case !trusted:
+		// Row already exists and the serving peer isn't a trusted sync source:
+		// refuse to tombstone or overwrite it. Only reaction reconciliation (below,
+		// which never touches our own rows) is allowed from an untrusted backfill.
 	default:
 		if m.Deleted && curDeleted == 0 {
 			if _, err := s.db.Exec(
@@ -1393,8 +1406,11 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string) (b
 		}
 	}
 
-	// Reconcile reactions when the remote copy is at least as fresh as ours.
-	if remoteUpdated >= curUpdated {
+	// Reconcile reactions when the remote copy is at least as fresh as ours — but
+	// only from a trusted source, or for a message we just inserted (whose reaction
+	// set arrives with it). An untrusted backfill peer must not rewrite the
+	// reaction rows of a message we already hold.
+	if remoteUpdated >= curUpdated && (trusted || inserted) {
 		if rc, err := s.replaceReactionsExceptSelf(m.ID, m.Reactions, selfFingerprint); err == nil && rc {
 			changed = true
 		}

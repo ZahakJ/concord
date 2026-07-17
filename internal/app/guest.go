@@ -37,6 +37,8 @@ const (
 	// more once video codecs are in it). Frames are capped generously; the chat
 	// CONTENT limit above still applies to messages.
 	maxGuestFrameBytes = 32 << 10
+	// The hello frame (token + name) is small; cap it tight.
+	maxGuestHelloBytes = 8 << 10
 	// Signaling bypasses the chat rate limit (ICE trickles in bursts) but is
 	// bounded on its own: enough for several renegotiations, not enough to be a
 	// pipe into the app.
@@ -47,7 +49,46 @@ const (
 	// Rate limit: a small burst, then one message per second.
 	guestBurst      = 5
 	guestRefillEach = time.Second
+	// Deadlines on the untrusted, explicitly-relayed stream: a short budget to
+	// present a valid hello (pre-auth slowloris), then a generous idle timeout in
+	// the call loop (guests sit quietly between ICE trickles / messages).
+	guestHelloTimeout = 20 * time.Second
+	guestIdleTimeout  = 10 * time.Minute
 )
+
+// errGuestFrameOversize marks a frame that ran past its cap without a newline —
+// treated as hostile and drops the visit.
+var errGuestFrameOversize = fmt.Errorf("app: guest frame exceeds cap")
+
+// readGuestLine reads one newline-delimited frame, capping the accumulated bytes
+// at max. bufio.Reader.ReadBytes would buffer an entire unbounded, newline-less
+// stream before any size check — an OOM lever for any peer that can reach the
+// guest handler. Reading a byte at a time off the buffered reader stays cheap
+// while bounding the allocation hard.
+func readGuestLine(r *bufio.Reader, max int) ([]byte, error) {
+	buf := make([]byte, 0, 512)
+	for {
+		b, err := r.ReadByte()
+		if err != nil {
+			return buf, err
+		}
+		if b == '\n' {
+			return buf, nil
+		}
+		if len(buf) >= max {
+			return nil, errGuestFrameOversize
+		}
+		buf = append(buf, b)
+	}
+}
+
+// setGuestReadDeadline applies a read deadline when the underlying stream
+// supports one (libp2p streams do); a no-op otherwise.
+func setGuestReadDeadline(conn io.ReadWriteCloser, t time.Time) {
+	if d, ok := conn.(interface{ SetReadDeadline(time.Time) error }); ok {
+		_ = d.SetReadDeadline(t)
+	}
+}
 
 // guestToken is one issued guest link, valid for the meeting's lifetime.
 type guestToken struct {
@@ -301,9 +342,10 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	defer conn.Close()
 	r := bufio.NewReaderSize(conn, 64<<10)
 
-	// Hello: token + chosen display name, within a short deadline-ish budget.
-	line, err := r.ReadBytes('\n')
-	if err != nil || len(line) > 8<<10 {
+	// Hello: token + chosen display name, within a short deadline and a tight cap.
+	setGuestReadDeadline(conn, time.Now().Add(guestHelloTimeout))
+	line, err := readGuestLine(r, maxGuestHelloBytes)
+	if err != nil {
 		return
 	}
 	var hello guestFrame
@@ -407,12 +449,10 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	sigBudget := float64(guestSignalBurst)
 	sigLast := time.Now()
 	for {
-		line, err := r.ReadBytes('\n')
+		setGuestReadDeadline(conn, time.Now().Add(guestIdleTimeout))
+		line, err := readGuestLine(r, maxGuestFrameBytes)
 		if err != nil {
 			return
-		}
-		if len(line) > maxGuestFrameBytes {
-			continue
 		}
 		var f guestFrame
 		if json.Unmarshal(line, &f) != nil {

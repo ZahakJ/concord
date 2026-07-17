@@ -331,16 +331,30 @@ func (s *Service) isMuted(guildID, fpr string) bool {
 // MutedUntil is the exported accessor (0 = not muted).
 func (s *Service) MutedUntil(guildID, fpr string) int64 { return s.mutedUntil(guildID, fpr) }
 
-// removeMemberByFingerprint issues the MLS Remove for a present member.
+// removeMemberByFingerprint issues the MLS Remove for a present member. It
+// matches on the ACCOUNT fingerprint (accountFingerprintOf), not the raw leaf
+// hash, and removes EVERY matching leaf — a member with linked devices has one
+// leaf per device (each a device cert), and a ban that removed only the first
+// would leave the banned account still decrypting and posting from another
+// device. Mirrors the account-scoped removal in the bridge.
 func (s *Service) removeMemberByFingerprint(guildID, targetFpr string) error {
 	creds, err := s.GuildMembers(guildID)
 	if err != nil {
 		return err
 	}
+	var firstErr error
+	removed := 0
 	for _, cred := range creds {
-		if identity.FingerprintOf(cred) == targetFpr {
-			return s.RemoveMember(guildID, cred)
+		if accountFingerprintOf(cred) == targetFpr {
+			if err := s.RemoveMember(guildID, cred); err != nil && firstErr == nil {
+				firstErr = err
+			} else if err == nil {
+				removed++
+			}
 		}
+	}
+	if firstErr != nil && removed == 0 {
+		return firstErr
 	}
 	return nil
 }

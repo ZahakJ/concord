@@ -9,6 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/zahak/concord/internal/domain"
+	"github.com/zahak/concord/internal/identity"
 	"github.com/zahak/concord/internal/store"
 )
 
@@ -217,6 +218,32 @@ func (s *Service) syncGuildFromAnyPeer(guildID string) {
 	}
 }
 
+// trustedSyncSource reports whether a backfill served by this member may perform
+// DESTRUCTIVE reconciliation (tombstone/rewrite existing messages, refresh cached
+// profiles). The guild owner is always trusted; so is any member holding the
+// SyncHost permission — the designated always-on history hosts. An ordinary
+// member can still serve gap-fill inserts, just not mutate what we already hold.
+func (s *Service) trustedSyncSource(guildID, fpr string) bool {
+	if fpr == "" {
+		return false
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	s.mu.RUnlock()
+	if ok && identity.FingerprintOf(g.OwnerID) == fpr {
+		return true
+	}
+	return s.memberHasPerm(guildID, fpr, PermSyncHost)
+}
+
+// hasProfile reports whether we already hold a cached profile for a fingerprint.
+func (s *Service) hasProfile(fpr string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.profiles[fpr]
+	return ok
+}
+
 // guildHasMember reports whether the fingerprint belongs to a current member
 // of the guild's MLS group.
 func (s *Service) guildHasMember(guildID, fingerprint string) bool {
@@ -318,7 +345,7 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 		}
 		s.setOutOfSync(guildID, false)
 		if len(resp.Payload) > 0 {
-			s.applySyncPayload(guildID, guild.GroupID, resp.Payload)
+			s.applySyncPayload(guildID, guild.GroupID, resp.Payload, s.presence(p).Fingerprint)
 		}
 		if applied == 0 {
 			return nil // epoch didn't move; a second round would repeat the first
@@ -329,7 +356,7 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 
 // applySyncPayload decrypts a served payload and folds it into local state:
 // guild snapshot, profile roster, and message rows/state.
-func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
+func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, srcFpr string) {
 	dec, err := s.mls.Decrypt(s.ctx, groupID, ciphertext)
 	if err != nil {
 		return
@@ -338,6 +365,14 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
 	if json.Unmarshal(dec.Plaintext, &payload) != nil {
 		return
 	}
+	// A backfill is only as trustworthy as its server for anything that MUTATES
+	// state we already hold (tombstoning/rewriting messages, overwriting cached
+	// profiles). Gap-fill inserts stay open to any member so ordinary catch-up
+	// works; destructive reconcile is limited to the guild owner and designated
+	// SyncHost members. (Forging a brand-new message attributed to another member
+	// is the residual gap here — closing it fully needs per-message author
+	// signatures; tracked as a follow-up.)
+	trusted := s.trustedSyncSource(guildID, srcFpr)
 
 	// Channels created while we were away (addChannel is idempotent and
 	// subscribes topics); adopt a rename the same way receiveGuildMeta would.
@@ -389,6 +424,12 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
 	}
 
 	for fpr, p := range payload.Profiles {
+		// An untrusted backfill may fill in profiles we don't know yet, but must not
+		// overwrite a member's cached identity — in particular their MailboxPub,
+		// which routes offline mail. Trusted sources (owner/SyncHost) may refresh.
+		if !trusted && s.hasProfile(fpr) {
+			continue
+		}
 		s.learnProfile(fpr, p)
 	}
 	for _, c := range payload.Categories {
@@ -417,7 +458,7 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte) {
 			if m.ChannelID != chID || (m.Kind != "" && m.Kind != "system") {
 				continue
 			}
-			changed, err := s.store.UpsertSyncedMessage(m, self)
+			changed, err := s.store.UpsertSyncedMessage(m, self, trusted)
 			if err != nil || !changed {
 				continue
 			}

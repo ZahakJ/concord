@@ -67,8 +67,12 @@ func (s *Service) healOutOfSync(guildID string) {
 	if err != nil {
 		return
 	}
+	// Use this install's MLS leaf credential, not the bare account key: on a
+	// linked device the two differ (the leaf is a device cert), and the
+	// responder's credentialBoundToPeer check rejects the bare key, so every heal
+	// attempt fails and the guild stays stranded. Mirrors JoinViaInvite.
 	req, _ := json.Marshal(inviteRequest{
-		GuildID: guildID, KeyPackage: kp, Credential: s.PublicKey(), Profile: s.SelfProfile(),
+		GuildID: guildID, KeyPackage: kp, Credential: s.myCredential, Profile: s.SelfProfile(),
 	})
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
