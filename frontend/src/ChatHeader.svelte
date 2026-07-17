@@ -186,6 +186,22 @@
       </button>
     {/if}
 
+    {#if ch && S.assist?.enabled}
+      <button
+        class="ghost iconbtn"
+        title="Catch me up — your local model summarizes this conversation, entirely on this device"
+        aria-label="Catch me up"
+        onclick={() =>
+          (S.modal = {
+            kind: "catchup",
+            channelId: S.activeChannelId,
+            channelName: channelName(S.activeChannelId),
+          })}
+      >
+        <Icon name="spark" /> <span class="n">Catch me up</span>
+      </button>
+    {/if}
+
     {#if ch}
       <button
         class="ghost iconbtn"

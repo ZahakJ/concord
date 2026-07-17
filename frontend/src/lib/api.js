@@ -134,6 +134,14 @@ export const api = {
     call("FetchFile", channelID, blobID, keys, mime),
   linkPreview: (url) => call("LinkPreview", url),
   checkForUpdate: () => call("CheckForUpdate"),
+  // the local assistant (opt-in, loopback Ollama — see internal/assist)
+  assistStatus: () => call("AssistStatus"),
+  setAssistConfig: (enabled, endpoint, model) =>
+    call("SetAssistConfig", enabled, endpoint, model),
+  assistCatchUp: (channelID) => call("AssistCatchUp", channelID),
+  assistDraftReply: (channelID, instruction = "") =>
+    call("AssistDraftReply", channelID, instruction),
+  assistSearch: (query) => call("AssistSearch", query),
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
   setNickname: (guildID, nick) => call("SetNickname", guildID, nick),

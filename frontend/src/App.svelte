@@ -57,6 +57,7 @@
   import ModalRoles from "./modals/ModalRoles.svelte";
   import ModalGuildSettings from "./modals/ModalGuildSettings.svelte";
   import ModalChannelTopic from "./modals/ModalChannelTopic.svelte";
+  import ModalCatchUp from "./modals/ModalCatchUp.svelte";
   import ModalChannelLinks from "./modals/ModalChannelLinks.svelte";
   import ModalPublish from "./modals/ModalPublish.svelte";
   import ModalNewPost from "./modals/ModalNewPost.svelte";
@@ -718,6 +719,12 @@
         setChannelTopic(S.modal.channel, t.trim());
         S.modal = null;
       }}
+      onClose={() => (S.modal = null)}
+    />
+  {:else if S.modal?.kind === "catchup"}
+    <ModalCatchUp
+      channelId={S.modal.channelId}
+      channelName={S.modal.channelName}
       onClose={() => (S.modal = null)}
     />
   {:else if S.modal?.kind === "channelLinks"}

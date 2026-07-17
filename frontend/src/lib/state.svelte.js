@@ -110,7 +110,14 @@ export const S = $state({
   searchChips: [], // parsed operator chips [{key, raw, label}] shown above results
   searchTerms: [], // free-text terms, for match highlighting in results
   searchLoading: false, // a search round-trip is in flight
+  // assist-expanded search: related terms the LOCAL model suggested and that
+  // actually hit ([] = none / not used). Only ever set when the user asks.
+  searchAssistTerms: [],
   showPins: false,
+
+  // The local assistant (internal/assist): OFF by default, loopback Ollama
+  // only. Snapshot of AssistStatus, refreshed on login + from settings.
+  assist: null, // { enabled, endpoint, model, reachable, modelPresent, models, hint, ocr }
 
   // newBelow: messages arrived while the user was scrolled up reading history
   // (we deliberately do NOT yank the feed to the bottom in that case).
@@ -774,9 +781,21 @@ export async function onLogin() {
   await syncReadState();
   recomputeUnread();
   refreshNetStatus();
+  refreshAssist();
   // Slow poll backstops the presence-event refresh (covers bootstrap dials that
   // don't produce a peer-presence event, e.g. a relay reservation forming).
   setInterval(refreshNetStatus, 15000);
+}
+
+// refreshAssist pulls the local-assistant snapshot (enabled/reachable/model)
+// into S.assist. Never throws — an old backend without the method just leaves
+// the assistant UI hidden.
+export async function refreshAssist() {
+  try {
+    S.assist = await api.assistStatus();
+  } catch {
+    S.assist = null;
+  }
 }
 
 // refreshNetStatus pulls the current connectivity snapshot into S.netStatus.

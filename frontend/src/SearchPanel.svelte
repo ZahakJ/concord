@@ -12,8 +12,12 @@
     memberByFpr,
     flash,
   } from "./lib/state.svelte.js";
-  import { removeChip, closeSearch } from "./lib/search.js";
+  import { removeChip, closeSearch, expandSearch } from "./lib/search.js";
   import { previewText } from "./lib/attachments.js";
+
+  // The local assistant can widen a search with related terms — offered only
+  // when the user has switched it on (S.assist) and strictly on-device.
+  const assistOn = $derived(!!S.assist?.enabled);
 
   const open = $derived(S.searchResults !== null || S.searchLoading);
   const results = $derived(S.searchResults ?? []);
@@ -101,10 +105,27 @@
       <span class="sp-scope" title="Search covers every channel and DM, not just this one">
         all conversations
       </span>
+      {#if assistOn && !S.searchLoading}
+        <button
+          class="sp-assist"
+          title="Ask your local assistant for related terms and fold their matches in — runs entirely on this machine"
+          onclick={expandSearch}
+        >
+          <Icon name="spark" size={11} /> related terms
+        </button>
+      {/if}
       <button class="sp-close" aria-label="Close search" title="Close search" onclick={closeSearch}>
         <Icon name="close" size={11} />
       </button>
     </div>
+
+    {#if S.searchAssistTerms.length}
+      <div class="sp-assist-note" role="note">
+        <Icon name="spark" size={10} />
+        also searched (suggested by your local model):
+        {#each S.searchAssistTerms as t (t)}<span class="sp-aterm">{t}</span>{/each}
+      </div>
+    {/if}
 
     {#if S.searchChips.length}
       <div class="sp-chips" aria-label="Active search filters">
@@ -148,6 +169,14 @@
               <span class="sp-meta">
                 <strong>{m.senderName || m.sender.slice(0, 9)}</strong>
                 <span class="sp-where"><Icon name={where.icon} size={10} />{where.label}</span>
+                {#if m.ocrMatch}
+                  <span
+                    class="sp-ocr"
+                    title="Your search matched text found inside this message's image — read out locally on this device"
+                  >
+                    <Icon name="imagetext" size={10} /> matched text in image
+                  </span>
+                {/if}
                 <span class="sp-time">{fmtTime(m.sent)}</span>
               </span>
               <span class="sp-text">
@@ -199,6 +228,52 @@
     font-size: 10.5px;
     letter-spacing: 0.03em;
     text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .sp-assist {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    color: var(--accent-hover);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .sp-assist:hover {
+    background: color-mix(in srgb, var(--accent) 24%, transparent);
+  }
+  .sp-assist-note {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 5px;
+    padding: 0 16px 8px;
+    color: var(--text-muted);
+    font-size: 11.5px;
+  }
+  .sp-aterm {
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 11px;
+  }
+  .sp-ocr {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    color: var(--accent-hover);
+    font-size: 10.5px;
+    font-weight: 600;
     white-space: nowrap;
   }
   .sp-close {

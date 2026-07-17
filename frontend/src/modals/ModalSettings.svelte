@@ -13,7 +13,7 @@
     previewRingtone,
   } from "../lib/sounds.js";
   import { bioEnrolled } from "../lib/biometric.js";
-  import { S, setPref, flash } from "../lib/state.svelte.js";
+  import { S, setPref, flash, refreshAssist } from "../lib/state.svelte.js";
 
   let { onClose, onSaved } = $props();
   let bootstrap = $state("");
@@ -43,6 +43,33 @@
     const core = window.Capacitor?.Plugins?.ConcordCore;
     if (stayConnected) core?.startBackground?.().catch(() => {});
     else core?.stopBackground?.().catch(() => {});
+  }
+
+  // The local assistant (strictly on-device Ollama; see internal/assist).
+  // OFF by default; the toggle round-trips through the backend so the stored
+  // state is always the truth. Model changes save immediately.
+  let assistBusy = $state(false);
+  onMount(refreshAssist);
+  async function toggleAssist() {
+    if (assistBusy) return;
+    assistBusy = true;
+    try {
+      S.assist = await api.setAssistConfig(
+        !S.assist?.enabled,
+        S.assist?.endpoint || "",
+        S.assist?.model || "",
+      );
+    } catch (err) {
+      flash(err);
+    }
+    assistBusy = false;
+  }
+  async function pickAssistModel(model) {
+    try {
+      S.assist = await api.setAssistConfig(!!S.assist?.enabled, S.assist?.endpoint || "", model);
+    } catch (err) {
+      flash(err);
+    }
   }
 
   let richPresence = $state(false);
@@ -525,6 +552,82 @@
     </div>
   </section>
 
+  <!-- LOCAL ASSISTANT -->
+  <section class="grp">
+    <div class="sec-label">Local assistant</div>
+    <div class="card">
+      <button
+        class="row"
+        onclick={toggleAssist}
+        role="switch"
+        aria-checked={!!S.assist?.enabled}
+        disabled={assistBusy}
+      >
+        <span class="chip"><Icon name="spark" size={16} /></span>
+        <span class="row-text">
+          <span class="row-title">
+            Assistant <span class="local-tag">100% on this device</span>
+          </span>
+          <span class="row-sub">
+            Off by default. When on: "catch me up" channel summaries, drafted
+            replies, and smarter search — powered by a local Ollama model over
+            127.0.0.1. Your messages never leave this machine, and encryption
+            is untouched: the assistant only reads what your own screen already
+            shows.
+          </span>
+        </span>
+        <span class="switch" class:on={!!S.assist?.enabled}><span class="knob"></span></span>
+      </button>
+      {#if S.assist?.enabled}
+        <div class="row assist-detail">
+          <span class="chip"><Icon name="gear" size={16} /></span>
+          <span class="row-text">
+            <span class="row-title">Model</span>
+            <span class="row-sub">
+              {#if S.assist.reachable}
+                Ollama is running at {S.assist.endpoint}.
+                {#if !S.assist.modelPresent}{S.assist.hint}{/if}
+              {:else}
+                {S.assist.hint || "Ollama isn't reachable."}
+              {/if}
+            </span>
+          </span>
+          {#if S.assist.models?.length}
+            <select
+              class="ringtone-select"
+              value={S.assist.model}
+              onchange={(e) => pickAssistModel(e.target.value)}
+            >
+              {#if !S.assist.models.includes(S.assist.model)}
+                <option value={S.assist.model}>{S.assist.model}</option>
+              {/if}
+              {#each S.assist.models as m (m)}
+                <option value={m}>{m}</option>
+              {/each}
+            </select>
+          {/if}
+        </div>
+      {/if}
+      <div class="row assist-detail">
+        <span class="chip"><Icon name="imagetext" size={16} /></span>
+        <span class="row-text">
+          <span class="row-title">Search inside images (OCR)</span>
+          <span class="row-sub">
+            {#if S.assist?.ocr?.available}
+              Text in shared screenshots is read out locally ({S.assist.ocr.engine})
+              and joins search — {S.assist.ocr.counts?.ok || 0} image{(S.assist.ocr.counts?.ok || 0) === 1 ? "" : "s"} indexed
+              so far. Extracted text is sealed at rest like your messages.
+            {:else}
+              Install a local OCR engine to search text inside shared
+              screenshots: `pip install rapidocr-onnxruntime`, then put
+              scripts/concord-ocr on your PATH. Runs entirely on this machine.
+            {/if}
+          </span>
+        </span>
+      </div>
+    </div>
+  </section>
+
   <!-- SECURITY -->
   <section class="grp">
     <div class="sec-label">Security</div>
@@ -770,6 +873,23 @@
     font-size: 14px;
     font-weight: 600;
     line-height: 1.3;
+  }
+  /* the honest "nothing leaves this machine" tag on the assistant row */
+  .local-tag {
+    margin-left: 6px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    color: var(--accent-hover);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    vertical-align: 1px;
+  }
+  .row.assist-detail {
+    cursor: default;
   }
   .row-sub {
     font-size: 11.5px;

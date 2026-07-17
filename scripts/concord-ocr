@@ -1,0 +1,53 @@
+#!/usr/bin/env python3
+"""concord-ocr — the reference local OCR engine for Concord's image search.
+
+Contract (see internal/ocr): image bytes on stdin, extracted plain text on
+stdout, exit 0. Anything else (no text, not an image, engine missing) exits
+nonzero or prints nothing; Concord records the honest status either way.
+
+Fully local: RapidOCR (rapidocr-onnxruntime) runs ONNX models shipped with
+the pip package — no network at inference, nothing leaves the machine.
+
+Install:  pip install rapidocr-onnxruntime
+Then put this script on PATH as `concord-ocr` (or point $CONCORD_OCR_CMD at
+it, e.g. `CONCORD_OCR_CMD="/path/to/venv/bin/python /path/to/concord-ocr"`).
+"""
+
+import sys
+import tempfile
+
+MIN_CONFIDENCE = 0.5
+
+
+def main() -> int:
+    data = sys.stdin.buffer.read()
+    if not data:
+        return 1
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except ImportError:
+        print("concord-ocr: rapidocr-onnxruntime is not installed "
+              "(pip install rapidocr-onnxruntime)", file=sys.stderr)
+        return 2
+    with tempfile.NamedTemporaryFile(suffix=".img") as f:
+        f.write(data)
+        f.flush()
+        try:
+            result, _ = RapidOCR()(f.name)
+        except Exception as e:  # unreadable/corrupt image
+            print(f"concord-ocr: {type(e).__name__}", file=sys.stderr)
+            return 3
+    lines = []
+    for entry in result or []:
+        try:
+            text, conf = str(entry[1]).strip(), float(entry[2])
+        except (IndexError, TypeError, ValueError):
+            continue
+        if text and conf >= MIN_CONFIDENCE:
+            lines.append(text)
+    sys.stdout.write("\n".join(lines))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

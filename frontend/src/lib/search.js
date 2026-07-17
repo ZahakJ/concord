@@ -89,11 +89,37 @@ export async function runSearch(e) {
   // Free-text terms drive <mark> highlighting in the results panel.
   S.searchTerms = text.split(/\s+/).filter(Boolean);
   S.searchLoading = true;
+  S.searchAssistTerms = [];
   const my = ++seq;
   try {
     const res = (await api.searchMessages(text)) || [];
     if (my !== seq) return;
     S.searchResults = res.filter((m) => matchFilters(m, filters));
+  } catch (err) {
+    if (my === seq) flash(err);
+  } finally {
+    if (my === seq) S.searchLoading = false;
+  }
+}
+
+// expandSearch re-runs the current query through the LOCAL assistant
+// (api.assistSearch): the on-device model suggests related terms and their
+// hits fold in. Only ever invoked by an explicit click, only when the
+// assistant is enabled — and everything stays on this machine.
+export async function expandSearch() {
+  const raw = S.searchQuery.trim();
+  if (!raw) return;
+  const { text, filters } = parseQuery(raw);
+  S.searchLoading = true;
+  const my = ++seq;
+  try {
+    const res = await api.assistSearch(text);
+    if (my !== seq) return;
+    const terms = res?.terms || [];
+    S.searchResults = (res?.messages || []).filter((m) => matchFilters(m, filters));
+    S.searchAssistTerms = terms;
+    // related terms highlight too, so folded-in hits show why they matched
+    S.searchTerms = [...new Set([...S.searchTerms, ...terms])];
   } catch (err) {
     if (my === seq) flash(err);
   } finally {
@@ -116,5 +142,6 @@ export function closeSearch() {
   S.searchQuery = "";
   S.searchChips = [];
   S.searchTerms = [];
+  S.searchAssistTerms = [];
   S.searchLoading = false;
 }

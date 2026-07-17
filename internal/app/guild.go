@@ -167,6 +167,13 @@ func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error
 	return msgs, err
 }
 
+// MessagesSince returns stored history for a channel strictly newer than
+// sinceNano (oldest first, up to limit) — the cursor read the local app-bus
+// bridge polls with, so integrations never miss or re-read a message.
+func (s *Service) MessagesSince(channelID string, sinceNano int64, limit int) ([]domain.Message, error) {
+	return s.store.MessagesSince(channelID, sinceNano, limit)
+}
+
 // MemberCount returns how many members this peer currently sees in a guild's
 // MLS group. It reflects the local MLS epoch, so it doubles as a readiness
 // signal: once every peer reports the same count, they share an epoch and can

@@ -25,6 +25,25 @@
   let suggest = $state(null); // { kind:"emoji"|"mention", start, items, sel }
   let lastTypingSent = 0;
 
+  // Local-assistant draft reply: fills the composer, NEVER sends. The current
+  // draft text (if any) steers the model as an instruction ("politely
+  // decline" → a decline in the conversation's tone).
+  let drafting = $state(false);
+  async function draftReply() {
+    if (!ch || drafting) return;
+    drafting = true;
+    try {
+      const out = await api.assistDraftReply(S.activeChannelId, draft.trim());
+      if (out) {
+        draft = out;
+        composerEl?.focus();
+      }
+    } catch (err) {
+      flash(err);
+    }
+    drafting = false;
+  }
+
   // A composer placeholder that reads like the conversation you're in — never
   // the internal "#dm" channel name.
   const composerPlaceholder = $derived.by(() => {
@@ -935,6 +954,19 @@
             <Icon name="mic" size={20} />
           </button>
         {/if}
+        {#if S.assist?.enabled}
+          <button
+            type="button"
+            class="iconbtn"
+            class:assist-busy={drafting}
+            title="Draft a reply — your local model suggests a message from the conversation, entirely on this device. It only fills the box; you decide whether to send."
+            aria-label="Draft a reply with the local assistant"
+            disabled={!ch || drafting}
+            onclick={draftReply}
+          >
+            <Icon name="spark" size={19} />
+          </button>
+        {/if}
         <button
           type="button"
           class="iconbtn"
@@ -1509,6 +1541,15 @@
   }
   /* Finger-sized (≥44px) targets for the icon row and send button; glyphs
      stay grid-centered so only the tap area grows. */
+  /* the local assistant is thinking — a quiet pulse, no layout shift */
+  .iconbtn.assist-busy {
+    color: var(--accent);
+    animation: assist-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes assist-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
   .composer.mobile .iconbtn {
     min-width: 44px;
     min-height: 44px;

@@ -202,6 +202,9 @@ type MessageView struct {
 	Pinned     bool                `json:"pinned"`
 	Reactions  map[string][]string `json:"reactions"` // emoji -> fingerprints
 	Sent       string              `json:"sent"`
+	// OcrMatch marks a search hit that matched through text extracted locally
+	// from an image attachment ("matched text in image"). Search-only.
+	OcrMatch bool `json:"ocrMatch,omitempty"`
 }
 
 type MemberView struct {
@@ -1679,6 +1682,7 @@ func messageView(m domain.Message) MessageView {
 		Pinned:     m.Pinned,
 		Reactions:  m.Reactions,
 		Sent:       m.Sent.Format("2006-01-02T15:04:05Z07:00"),
+		OcrMatch:   m.OCRMatch,
 	}
 }
 
@@ -1688,6 +1692,74 @@ func messageView(m domain.Message) MessageView {
 // surface. Keeping the name→method mapping here — instead of in main_web.go —
 // means one place to add a method for every transport. Explicit, not
 // reflective, for clarity and safety.
+
+// ---- the local assistant (opt-in, loopback Ollama; see internal/assist) ----
+
+// AssistStatus reports the assistant + OCR pipeline state for settings.
+func (b *Bridge) AssistStatus() (appsvc.AssistStatusView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.AssistStatusView{}, err
+	}
+	return svc.AssistStatus(), nil
+}
+
+// SetAssistConfig flips/points the assistant. Endpoint must be loopback.
+func (b *Bridge) SetAssistConfig(enabled bool, endpoint, model string) (appsvc.AssistStatusView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.AssistStatusView{}, err
+	}
+	if _, err := svc.SetAssistConfig(enabled, endpoint, model); err != nil {
+		return appsvc.AssistStatusView{}, err
+	}
+	return svc.AssistStatus(), nil
+}
+
+// AssistCatchUp summarizes a channel's recent history ("catch me up").
+func (b *Bridge) AssistCatchUp(channelID string) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.AssistCatchUp(channelID)
+}
+
+// AssistDraftReply drafts a reply to the channel's conversation.
+func (b *Bridge) AssistDraftReply(channelID, instruction string) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.AssistDraftReply(channelID, instruction)
+}
+
+// AssistSearchView mirrors the service's assisted-search result with
+// MessageViews for the frontend.
+type AssistSearchView struct {
+	Terms    []string      `json:"terms"`
+	Messages []MessageView `json:"messages"`
+}
+
+// AssistSearch is search + model-suggested related terms, all local.
+func (b *Bridge) AssistSearch(query string) (AssistSearchView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return AssistSearchView{}, err
+	}
+	got, err := svc.AssistSearch(query)
+	if err != nil {
+		return AssistSearchView{}, err
+	}
+	out := AssistSearchView{Terms: got.Terms, Messages: make([]MessageView, 0, len(got.Messages))}
+	if out.Terms == nil {
+		out.Terms = []string{}
+	}
+	for _, m := range got.Messages {
+		out.Messages = append(out.Messages, messageView(m))
+	}
+	return out, nil
+}
 
 // Dispatch routes a method name + JSON-encoded positional args to a bridge
 // call. Used by the web shell's /rpc handler.
@@ -1893,6 +1965,16 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "ToggleReaction":
 		return nil, b.ToggleReaction(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "AssistStatus":
+		return b.AssistStatus()
+	case "SetAssistConfig":
+		return b.SetAssistConfig(argBool(args, 0), argStr(args, 1), argStr(args, 2))
+	case "AssistCatchUp":
+		return b.AssistCatchUp(argStr(args, 0))
+	case "AssistDraftReply":
+		return b.AssistDraftReply(argStr(args, 0), argStr(args, 1))
+	case "AssistSearch":
+		return b.AssistSearch(argStr(args, 0))
 	default:
 		return nil, fmt.Errorf("unknown method %q", method)
 	}
