@@ -121,6 +121,7 @@ export const api = {
   inviteCode: (guildID) => call("InviteCode", guildID),
   joinViaInvite: (code) => call("JoinViaInvite", code),
   messages: (channelID) => call("Messages", channelID),
+  messagesBefore: (channelID, beforeISO, limit) => call("MessagesBefore", channelID, beforeISO, limit),
   sendMessage: (channelID, content, replyTo = "") =>
     call("SendMessage", channelID, content, replyTo),
   sendCallNotice: (channelID, kind, content) =>

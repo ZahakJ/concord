@@ -812,6 +812,63 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 	return msgs, nil
 }
 
+// MessagesBefore returns up to limit messages in a channel strictly OLDER than
+// beforeNano, oldest-first — the page to prepend when the reader scrolls to the
+// top of the loaded window. This is what lets history past the initial 200-row
+// load actually be seen; the rows have been in the DB all along.
+func (s *Store) MessagesBefore(channelID string, beforeNano int64, limit int) ([]domain.Message, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.Query(
+		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, expired, content_enc, nonce, sent
+		 FROM messages WHERE channel_id = ? AND sent < ? ORDER BY sent DESC LIMIT ?`,
+		channelID, beforeNano, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []domain.Message
+	for rows.Next() {
+		var m domain.Message
+		var enc, nonceB []byte
+		var sent int64
+		var deleted, edited, pinned, expired int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
+			return nil, err
+		}
+		m.Edited = edited != 0
+		m.Pinned = pinned != 0
+		m.Expired = expired != 0
+		if deleted != 0 {
+			m.Deleted = true
+		} else {
+			content, err := s.open(enc, nonceB)
+			if err != nil {
+				return nil, err
+			}
+			m.Content = content
+		}
+		m.Sent = time.Unix(0, sent).UTC()
+		msgs = append(msgs, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	reacts, err := s.reactionsForChannel(channelID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range msgs {
+		msgs[i].Reactions = reacts[msgs[i].ID]
+	}
+	return msgs, nil
+}
+
 func (s *Store) open(enc, nonceB []byte) (string, error) {
 	if len(nonceB) != nonceSize {
 		return "", fmt.Errorf("store: bad nonce length %d", len(nonceB))

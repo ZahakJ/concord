@@ -18,10 +18,11 @@
     nameColorFor,
     flash,
     markRead,
+    loadOlder,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
-  import { untrack } from "svelte";
+  import { untrack, tick } from "svelte";
 
   let { onDropFiles } = $props();
 
@@ -303,11 +304,28 @@
   ondragleave={onDragLeave}
   ondragover={(e) => e.preventDefault()}
   ondrop={onDrop}
-  onscroll={() => {
+  onscroll={async () => {
     atBottom = feedNearBottom();
     if (S.newBelow && atBottom) S.newBelow = false;
+    // Near the top: page in older history and hold the reader's position — the
+    // prepended rows would otherwise jump the viewport. We restore scrollTop by
+    // the exact height the content grew, so the message under the cursor stays put.
+    if (feedEl && feedEl.scrollTop < 240 && !S.loadingOlder && !S.feedReachedStart) {
+      const prevH = feedEl.scrollHeight;
+      const prevTop = feedEl.scrollTop;
+      const added = await loadOlder();
+      if (added > 0) {
+        await tick();
+        feedEl.scrollTop = feedEl.scrollHeight - prevH + prevTop;
+      }
+    }
   }}
 >
+  {#if S.loadingOlder}
+    <div class="older-loading"><span class="ol-spin"></span> Loading older messages…</div>
+  {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading}
+    <div class="feed-start">This is the beginning of the channel.</div>
+  {/if}
   {#each rows as row (row.m.id)}
     {#if row.newDay}
       <div class="day-divider"><span>{fmtDay(row.day)}</span></div>
@@ -859,6 +877,38 @@
   }
   .new-below .arrow {
     font-size: 13px;
+  }
+  .older-loading,
+  .feed-start {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 12px 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .ol-spin {
+    width: 13px;
+    height: 13px;
+    border: 2px solid color-mix(in srgb, var(--border) 60%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: att-spin 0.7s linear infinite;
+  }
+  .feed-start {
+    font-style: italic;
+    opacity: 0.75;
+  }
+  @keyframes att-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ol-spin {
+      animation: none;
+    }
   }
   /* "You're scrolled up" indicator: a slim glassy bar above the composer —
      quiet context plus one accent action, not a floating blob. */

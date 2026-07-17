@@ -167,6 +167,21 @@ func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error
 	return msgs, err
 }
 
+// MessagesBefore returns up to limit messages older than beforeNano (oldest
+// first) — the older page fetched when the reader scrolls up past the initial
+// window.
+func (s *Service) MessagesBefore(channelID string, beforeNano int64, limit int) ([]domain.Message, error) {
+	msgs, err := s.store.MessagesBefore(channelID, beforeNano, limit)
+	if err == nil {
+		for _, m := range msgs {
+			if m.Name != "" {
+				s.learnNameHint(accountFingerprintOf(m.Sender), m.Name)
+			}
+		}
+	}
+	return msgs, err
+}
+
 // MemberCount returns how many members this peer currently sees in a guild's
 // MLS group. It reflects the local MLS epoch, so it doubles as a readiness
 // signal: once every peer reports the same count, they share an epoch and can

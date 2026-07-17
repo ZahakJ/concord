@@ -48,6 +48,10 @@ export const S = $state({
   // feedLoading: a channel switch is fetching history (drives the skeleton —
   // without it the OLD channel's rows linger under the new header).
   feedLoading: false,
+  // loadingOlder / feedReachedStart: scroll-up pagination state. The initial
+  // load is only the recent window; older rows are paged in on demand.
+  loadingOlder: false,
+  feedReachedStart: false,
   // restarting: a self-update restart is in flight; the app shows a full-bleed
   // "right back" curtain so the outgoing version is never visible mid-swap.
   restarting: false,
@@ -962,6 +966,8 @@ export async function selectChannel(id) {
   // the new channel's header while history loads.
   S.messages = [];
   S.feedLoading = true;
+  S.loadingOlder = false;
+  S.feedReachedStart = false;
   let msgs;
   try {
     msgs = (await api.messages(id)) || [];
@@ -977,6 +983,8 @@ export async function selectChannel(id) {
   if (S.activeChannelId !== id) return;
   S.messages = msgs;
   S.feedLoading = false;
+  // A short first page means there's nothing older to page back to.
+  S.feedReachedStart = msgs.length < 200;
   // Advance the read mark past the newest message actually loaded, so a peer's
   // clock-skewed (future-dated) message we've now seen can't keep the badge lit.
   let newest = "";
@@ -989,6 +997,40 @@ export async function selectChannel(id) {
     msgs.some((m) => m.kind === "" && m.sender !== S.identity.fingerprint && m.sent > S.readAnchor);
   if (hasUnread) scrollToNewDivider();
   else scrollSoon();
+}
+
+// loadOlder pages in the messages just before the oldest row currently loaded.
+// Returns the number of rows prepended (0 = nothing more / no-op), so the caller
+// can hold the reader's scroll position steady across the insert.
+export async function loadOlder() {
+  const id = S.activeChannelId;
+  if (!id || S.loadingOlder || S.feedReachedStart || S.messages.length === 0) return 0;
+  const cursor = S.messages[0].sent;
+  if (!cursor) return 0;
+  S.loadingOlder = true;
+  let older;
+  try {
+    older = (await api.messagesBefore(id, cursor, 200)) || [];
+  } catch {
+    S.loadingOlder = false;
+    return 0;
+  }
+  // Bail if the channel changed while the fetch was in flight.
+  if (S.activeChannelId !== id) {
+    S.loadingOlder = false;
+    return 0;
+  }
+  if (older.length === 0) {
+    S.feedReachedStart = true;
+    S.loadingOlder = false;
+    return 0;
+  }
+  const have = new Set(S.messages.map((m) => m.id));
+  const fresh = older.filter((m) => !have.has(m.id));
+  if (fresh.length) S.messages = [...fresh, ...S.messages];
+  if (older.length < 200) S.feedReachedStart = true;
+  S.loadingOlder = false;
+  return fresh.length;
 }
 
 // scrollToNewDivider places the unread divider comfortably in view (falling

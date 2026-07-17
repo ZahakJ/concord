@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	appsvc "github.com/zahak/concord/internal/app"
 	"github.com/zahak/concord/internal/domain"
@@ -904,6 +905,33 @@ func (b *Bridge) Messages(channelID string) ([]MessageView, error) {
 	return out, nil
 }
 
+// MessagesBefore returns the page of messages older than the RFC3339 cursor
+// (the sent time of the oldest row the client currently holds), oldest first.
+// An empty/unparseable cursor returns nothing. This is the scroll-up pagination
+// that surfaces history beyond the initial 200-row load.
+func (b *Bridge) MessagesBefore(channelID, beforeISO string, limit int) ([]MessageView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	t, err := time.Parse("2006-01-02T15:04:05Z07:00", beforeISO)
+	if err != nil {
+		return []MessageView{}, nil
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 200
+	}
+	msgs, err := svc.MessagesBefore(channelID, t.UnixNano(), limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MessageView, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, messageView(m))
+	}
+	return out, nil
+}
+
 func (b *Bridge) SendMessage(channelID, content, replyTo string) error {
 	svc, err := b.service()
 	if err != nil {
@@ -1783,6 +1811,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.JoinViaInvite(argStr(args, 0))
 	case "Messages":
 		return b.Messages(argStr(args, 0))
+	case "MessagesBefore":
+		return b.MessagesBefore(argStr(args, 0), argStr(args, 1), int(argInt64(args, 2)))
 	case "SendMessage":
 		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "SendCallNotice":
