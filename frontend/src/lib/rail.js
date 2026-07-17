@@ -10,7 +10,9 @@
 // Every function here is pure (returns a new array) so the logic is testable
 // in isolation and the reactive layer stays a thin wrapper.
 
-export const DEFAULT_FOLDER_COLOR = "#5865f2";
+// Default to the app accent, not Discord blurple — folders should read as
+// Concord, and follow whatever accent the user has themed.
+export const DEFAULT_FOLDER_COLOR = "var(--accent)";
 
 export function makeFolderId() {
   return "fld_" + Math.random().toString(36).slice(2, 9);

@@ -229,13 +229,15 @@
   }
 
   // ————————————————— folder management —————————————————
+  // Concord-native folder swatches — deliberately not Discord's blurple palette.
   const SWATCHES = [
-    ["Blurple", "#5865f2"],
-    ["Green", "#3ba55d"],
-    ["Gold", "#faa61a"],
-    ["Red", "#ed4245"],
-    ["Pink", "#eb459e"],
-    ["Slate", "#4f545c"],
+    ["Accent", "var(--accent)"],
+    ["Teal", "#2dd4bf"],
+    ["Violet", "#a78bfa"],
+    ["Amber", "#f5a524"],
+    ["Rose", "#f472b6"],
+    ["Sage", "#7bb87b"],
+    ["Slate", "#7c8798"],
   ];
   function folderMenu(e, folder) {
     openContextMenu(
@@ -243,8 +245,9 @@
       [
         { label: folder.open ? "Collapse folder" : "Expand folder", icon: "folder", onClick: () => commitRail(toggleFolder(S.rail, folder.id)) },
         ...SWATCHES.map(([name, color]) => ({
-          label: `Colour · ${name}`,
+          label: name,
           swatch: color,
+          active: (folder.color || "var(--accent)") === color,
           onClick: () => commitRail(setFolderColor(S.rail, folder.id, color)),
         })),
         { label: "Ungroup folder", icon: "trash", danger: true, onClick: () => commitRail(dissolveFolder(S.rail, folder.id)) },
@@ -737,24 +740,24 @@
     flex-shrink: 0;
   }
   .folder.open {
-    background: color-mix(in srgb, var(--fc, #5865f2) 16%, transparent);
+    background: color-mix(in srgb, var(--fc, var(--accent)) 16%, transparent);
     border-radius: 18px;
     padding: 6px 0 8px;
     width: 52px;
   }
   .folder-tile {
-    background: color-mix(in srgb, var(--fc, #5865f2) 26%, var(--bg-2));
+    background: color-mix(in srgb, var(--fc, var(--accent)) 26%, var(--bg-2));
     color: #fff;
     overflow: hidden;
   }
   .folder-tile:hover {
-    background: color-mix(in srgb, var(--fc, #5865f2) 40%, var(--bg-2));
+    background: color-mix(in srgb, var(--fc, var(--accent)) 40%, var(--bg-2));
   }
   .folder-tile.hasactive {
-    box-shadow: 0 0 0 2px var(--fc, #5865f2);
+    box-shadow: 0 0 0 2px var(--fc, var(--accent));
   }
   .folder-tile :global(svg) {
-    color: var(--fc, #5865f2);
+    color: var(--fc, var(--accent));
     filter: brightness(1.6);
   }
   .mini-grid {

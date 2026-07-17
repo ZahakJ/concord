@@ -451,20 +451,25 @@
       return r;
     };
     S.replyingTo = null;
+    let sent = 0; // attachments successfully sent so far
     try {
       // Attachments first, then the caption — so a pasted image sits above its
       // text in the feed, the way Discord shows an image with a caption below.
       for (const a of atts) {
         if (a.isImage) await api.sendAttachment(chId, a.dataUrl, a.w, a.h, nextReply());
         else await api.sendFile(chId, a.dataUrl, a.name, nextReply());
+        sent++;
       }
       if (text) await sendMessage(stampEphemeral(chId, text), nextReply());
     } catch (err) {
-      // Don't lose what they staged/typed — put it back so they can retry.
+      // Restore only what did NOT go out, so a retry can't double-post. The text
+      // is the last step, so on any failure it's unsent — put the draft back. The
+      // reply rides the first send; only restore it if nothing was sent yet
+      // (otherwise it was already consumed and would re-attach to a stray retry).
       draft = prevDraft;
-      pending = atts;
+      pending = atts.slice(sent);
       saveDraft(chId, prevDraft);
-      S.replyingTo = prevReply;
+      if (sent === 0) S.replyingTo = prevReply;
       queueAutosize();
       flash(err);
     }

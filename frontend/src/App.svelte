@@ -312,7 +312,13 @@
     //   • the user turned on "Hide my IP on calls" globally.
     // If no relay is available we fall back to a normal call (can't hide, but
     // still connects) rather than failing.
-    const kind = S.guilds.find((g) => g.id === S.activeGuildId)?.kind;
+    // Resolve the guild that OWNS this channel, not the one that happens to be
+    // active — admitting to a locked meeting (the knock→admit path) joins without
+    // navigating, so keying off S.activeGuildId could miss the "meeting" kind and
+    // skip the forced IP-hiding relay. IP privacy must follow the channel.
+    const kind =
+      S.guilds.find((g) => g.channels?.some((c) => c.id === channelId))?.kind ??
+      S.guilds.find((g) => g.id === S.activeGuildId)?.kind;
     let iceServers;
     let forceRelay = false;
     try {

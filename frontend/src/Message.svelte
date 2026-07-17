@@ -171,12 +171,16 @@
   // the first link gets a preview card.
   const embed = $derived.by(() => {
     if (m.deleted || m.kind !== "") return null;
+    // Prefer a YouTube player, but keep scanning past plain links to find one —
+    // returning the first link as a card immediately meant a YouTube link after
+    // any other link never got a player. Fall back to the first link's card.
+    let firstCard = null;
     for (const url of extractLinks(m.content)) {
       const yt = youtubeID(url);
       if (yt) return { kind: "yt", id: yt, url };
-      return { kind: "card", url };
+      if (!firstCard) firstCard = { kind: "card", url };
     }
-    return null;
+    return firstCard;
   });
   let editDraft = $state("");
   let editCancelled = false;
@@ -660,7 +664,7 @@
         {/if}
       {/each}
       {#if embed?.kind === "yt"}
-        <YouTubeEmbed videoId={embed.id} />
+        <YouTubeEmbed videoId={embed.id} autoload={S.prefs.linkPreviews !== false} />
       {:else if embed?.kind === "card"}
         {#key embed.url}
           <LinkPreview url={embed.url} />
