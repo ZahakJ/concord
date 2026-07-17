@@ -62,7 +62,7 @@ func TestDepositTriggersNotify(t *testing.T) {
 	ps.Register(box, DeviceToken{Platform: "fcm", Token: "tok"})
 
 	// Mirror the handler's deposit branch: store, then notify if tokens exist.
-	if _, ok := svc.store.Deposit(box, []byte("sealed"), 0); !ok {
+	if _, ok := svc.store.Deposit(box, "dep", []byte("sealed"), 0); !ok {
 		t.Fatal("deposit rejected")
 	}
 	if toks := svc.pushes.Tokens(box); len(toks) > 0 {
