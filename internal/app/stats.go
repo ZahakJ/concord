@@ -104,6 +104,7 @@ func (s *Service) GuildStats(guildID string) (GuildStatsView, error) {
 // PeerStatView describes one live connection.
 type PeerStatView struct {
 	ID        string `json:"id"`
+	Name      string `json:"name"` // resolved display name, "" if unknown/infra
 	Role      string `json:"role"` // "rendezvous" (infra) | "peer"
 	Transport string `json:"transport"` // quic | tcp | relay
 	Relayed   bool   `json:"relayed"`
@@ -166,6 +167,14 @@ func (s *Service) NetworkStats() NetworkStatsView {
 			pv.Role = "rendezvous"
 		} else {
 			memberPeers++
+			// Resolve the connection to a name you'd recognize, so the peer list
+			// reads "Alice / Bob", not two anonymous key hashes — and a stray test
+			// instance or stranger stands out immediately.
+			if fpr := s.presence(p).Fingerprint; fpr != "" {
+				if name := s.ProfileOf(fpr).Name; name != "" {
+					pv.Name = name
+				}
+			}
 		}
 		switch {
 		case strings.Contains(addr, "p2p-circuit"):
