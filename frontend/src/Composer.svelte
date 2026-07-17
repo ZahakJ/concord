@@ -944,7 +944,7 @@
           disabled={!ch}
           onclick={() => (S.modal = { kind: "poll" })}
         >
-          <Icon name="poll" size={19} />
+          <Icon name="poll" size={20} />
         </button>
         <button
           type="button"
@@ -954,7 +954,7 @@
           disabled={!ch}
           onclick={scheduleSend}
         >
-          <Icon name="clock" size={19} />
+          <Icon name="clock" size={20} />
         </button>
         <button
           type="button"
@@ -964,7 +964,7 @@
           disabled={!ch}
           onclick={() => (S.pickerTarget = S.pickerTarget === "composer" ? null : "composer")}
         >
-          <Icon name="smile" size={22} />
+          <Icon name="smile" size={20} />
         </button>
         {#if coarse}
           <!-- Touch only: on a phone Enter is a newline, so this is the only way
@@ -1375,11 +1375,11 @@
   .input-box {
     display: flex;
     align-items: flex-end;
-    gap: 2px;
+    gap: 3px;
     background: transparent;
     border: none;
     border-radius: 0;
-    padding: 2px 6px;
+    padding: 3px 8px;
   }
   .input-box.recording {
     align-items: center;
@@ -1389,7 +1389,7 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #f04747;
+    background: var(--danger);
     flex-shrink: 0;
     animation: rec-pulse 1.1s ease-in-out infinite;
   }
@@ -1403,7 +1403,7 @@
     font-variant-numeric: tabular-nums;
   }
   .rec-cancel:hover :global(svg) {
-    color: #f04747;
+    color: var(--danger);
   }
   @keyframes rec-pulse {
     0%,
@@ -1434,7 +1434,10 @@
     box-shadow: none !important;
     outline: none !important; /* the SHELL carries the focus ring */
     border-radius: 0;
-    padding: 9px 4px;
+    /* Vertical padding tuned so a single-line draft sits at the same height as
+       the 34px icon buttons beside it — no more text baseline floating above the
+       controls on an empty/one-line composer. */
+    padding: 7px 6px;
     font-family: inherit;
     line-height: 1.4;
     box-sizing: border-box;
@@ -1443,13 +1446,18 @@
   .draft:focus {
     border: none;
   }
-  /* Bare icon buttons: muted glyphs that brighten on hover, no box. */
+  /* Bare icon buttons: muted glyphs that brighten on hover, no box. Fixed square
+     so every tray control occupies the same footprint regardless of its glyph's
+     intrinsic size — the row reads as an even set, not a jumble of sizes. */
   .iconbtn {
     display: grid;
     place-items: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    flex-shrink: 0;
     background: transparent;
     color: var(--text-muted);
-    padding: 7px;
     border-radius: var(--radius-sm);
     align-self: flex-end;
     transition:
