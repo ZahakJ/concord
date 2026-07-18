@@ -42,6 +42,7 @@
     markUnread,
     activeGuild,
     activeChannel,
+    fmtClock,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
@@ -301,13 +302,7 @@
     }
   }
 
-  function fmtTime(iso) {
-    try {
-      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    } catch {
-      return "";
-    }
-  }
+  const fmtTime = fmtClock; // honors the 12/24h clock pref
 
   function jumpToReply() {
     if (m.replyTo && !scrollToMessage(m.replyTo)) flash("Original message not loaded");

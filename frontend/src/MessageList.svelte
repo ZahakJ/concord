@@ -19,6 +19,7 @@
     flash,
     markRead,
     loadOlder,
+    clockOpts,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
@@ -88,6 +89,7 @@
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        ...clockOpts(),
       });
     } catch {
       return "";
@@ -201,7 +203,7 @@
   // theirs from Message.svelte; system join notices don't need one).
   function fmtCallTime(iso) {
     try {
-      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clockOpts() });
     } catch {
       return "";
     }

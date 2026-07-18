@@ -592,7 +592,7 @@
       {/if}
     </main>
 
-    {#if !isDM && hasChannel}
+    {#if !isDM && hasChannel && S.prefs.memberPanel}
       <MemberPanel />
     {/if}
   </div>{/if}

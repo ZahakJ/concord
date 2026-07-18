@@ -80,6 +80,8 @@ export const S = $state({
     accent: "",
     themePack: "", // curated full-palette skin ("" = default palette)
     density: "cozy",
+    clock: "system", // "system" | "12" | "24" — timestamp hour format
+    memberPanel: true, // show the right-hand member panel (toggle with Ctrl+U)
     ...loadJSON("concord.prefs", {}),
   },
 
@@ -285,6 +287,30 @@ export function toggleMute(channelId) {
   else m[channelId] = true;
   S.mutes = m;
   saveJSON("concord.mutes", m);
+}
+
+// clockOpts turns the clock pref into Intl options ({} = follow the locale).
+// Reading S.prefs.clock makes any $derived/template that calls it reactive.
+export function clockOpts() {
+  const c = S.prefs.clock;
+  if (c === "12") return { hour12: true };
+  if (c === "24") return { hour12: false };
+  return {};
+}
+
+// fmtClock formats an ISO timestamp as HH:MM honoring the clock pref. Shared by
+// the feed, search, and scheduled views so the 12/24h choice is global.
+export function fmtClock(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clockOpts() });
+  } catch {
+    return "";
+  }
+}
+
+// toggleMemberPanel flips the right-hand member panel (Ctrl/Cmd+U).
+export function toggleMemberPanel() {
+  setPref("memberPanel", !S.prefs.memberPanel);
 }
 
 // setPeerVolume sets one call participant's LOCAL playback gain (0..1) — silence

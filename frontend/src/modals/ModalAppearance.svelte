@@ -28,6 +28,7 @@
   const theme = $derived(S.prefs.theme || "dark");
   const accent = $derived(S.prefs.accent || "");
   const density = $derived(S.prefs.density || "cozy");
+  const clock = $derived(S.prefs.clock || "system");
   const profileColor = $derived(S.identity.color || "#14a394");
   const themePack = $derived(S.prefs.themePack || "");
 
@@ -233,6 +234,23 @@
       </button>
     </div>
     <p class="muted tiny">Compact tightens the space between messages in the feed.</p>
+  </section>
+
+  <section>
+    <strong class="label">Clock</strong>
+    <div class="seg" role="radiogroup" aria-label="Timestamp format">
+      {#each [["system", "Automatic"], ["12", "12-hour"], ["24", "24-hour"]] as [id, label] (id)}
+        <button
+          class:sel={clock === id}
+          role="radio"
+          aria-checked={clock === id}
+          onclick={() => setAppearance("clock", id)}
+        >
+          {label}
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">How message timestamps show the time of day.</p>
   </section>
 
   <div class="actions">

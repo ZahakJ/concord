@@ -12,6 +12,7 @@
     refreshGuilds,
     selectGuild,
     voiceMembersFor,
+    toggleMemberPanel,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
@@ -207,6 +208,19 @@
         onclick={() => (S.modal = { kind: "disappear", channelId: S.activeChannelId })}
       >
         <Icon name="clock" />
+      </button>
+    {/if}
+
+    {#if ch && g?.kind !== "dm"}
+      <button
+        class="ghost iconbtn"
+        class:pin-active={S.prefs.memberPanel}
+        title="Toggle member list (Ctrl+U)"
+        aria-label="Toggle member list"
+        aria-pressed={S.prefs.memberPanel}
+        onclick={toggleMemberPanel}
+      >
+        <Icon name="members" />
       </button>
     {/if}
 
