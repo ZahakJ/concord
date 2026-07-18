@@ -229,11 +229,14 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase string) (LinkResu
 		DevicePub:   joiner.DevicePublicKey(),
 		DeviceName:  "New device",
 	})
-	dialCtx, cancel := context.WithTimeout(ctx, 40*time.Second)
+	// Generous overall budget: RequestLink retries the connect/hole-punch with
+	// backoff inside this window, so a first-attempt miss (common off-LAN) doesn't
+	// surface as a failure — it just tries again over a freshly-formed path.
+	dialCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
 	respBytes, err := host.RequestLink(dialCtx, issuerAI, reqBytes)
 	if err != nil {
-		return LinkResult{}, fmt.Errorf("app: reach linking device: %w", err)
+		return LinkResult{}, err
 	}
 	var resp linkResponse
 	if json.Unmarshal(respBytes, &resp) != nil {

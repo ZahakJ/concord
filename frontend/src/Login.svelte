@@ -46,7 +46,10 @@
       await api.login(pass);
       onLogin();
     } catch (err) {
-      error = String(err?.message || err).replace(/^.*: /, "");
+      // Strip only the Go package prefix (app:/net:/store:) — NOT everything up
+      // to the last colon, which would discard a helpful multi-clause message
+      // and leave just the innermost transport error.
+      error = String(err?.message || err).replace(/^(app|net|store|rpc \w+):\s*/, "");
     } finally {
       busy = false;
     }
@@ -123,7 +126,10 @@
       await api.redeemLinkCode(code, passphrase);
       onLogin();
     } catch (err) {
-      error = String(err?.message || err).replace(/^.*: /, "");
+      // Strip only the Go package prefix (app:/net:/store:) — NOT everything up
+      // to the last colon, which would discard a helpful multi-clause message
+      // and leave just the innermost transport error.
+      error = String(err?.message || err).replace(/^(app|net|store|rpc \w+):\s*/, "");
     } finally {
       busy = false;
     }
@@ -173,7 +179,10 @@
       await api.login(passphrase);
       onLogin();
     } catch (err) {
-      error = String(err?.message || err).replace(/^.*: /, "");
+      // Strip only the Go package prefix (app:/net:/store:) — NOT everything up
+      // to the last colon, which would discard a helpful multi-clause message
+      // and leave just the innermost transport error.
+      error = String(err?.message || err).replace(/^(app|net|store|rpc \w+):\s*/, "");
     } finally {
       busy = false;
     }
@@ -231,7 +240,10 @@
       }
       onLogin();
     } catch (err) {
-      error = String(err?.message || err).replace(/^.*: /, "");
+      // Strip only the Go package prefix (app:/net:/store:) — NOT everything up
+      // to the last colon, which would discard a helpful multi-clause message
+      // and leave just the innermost transport error.
+      error = String(err?.message || err).replace(/^(app|net|store|rpc \w+):\s*/, "");
     } finally {
       busy = false;
     }
@@ -340,6 +352,12 @@
       <input type="password" placeholder="Passphrase for this device" bind:value={passphrase} />
       <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
       {#if error}<div class="error">{error}</div>{/if}
+      {#if busy}
+        <div class="linking-status">
+          <span class="ls-spin"></span>
+          <span>Connecting to your other device… this can take up to a minute over the internet — keep both devices on the link screen.</span>
+        </div>
+      {/if}
       <button type="button" disabled={busy} onclick={doLink}>
         {busy ? "Linking…" : "Link this device"}
       </button>
@@ -448,6 +466,38 @@
 {/if}
 
 <style>
+  .linking-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    margin: 4px 0 2px;
+    font-size: 12.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    background: var(--accent-soft);
+    border-radius: var(--radius-md, 10px);
+    text-align: left;
+  }
+  .ls-spin {
+    flex-shrink: 0;
+    width: 15px;
+    height: 15px;
+    border: 2px solid rgba(151, 161, 178, 0.35);
+    border-top-color: var(--accent-hover);
+    border-radius: 50%;
+    animation: ls-spin 0.7s linear infinite;
+  }
+  @keyframes ls-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ls-spin {
+      animation: none;
+    }
+  }
   .login {
     /* The door is deliberately UNBRANDED: a neutral silver stands in for the
        accent here, because whatever color the user later picks (profile or
