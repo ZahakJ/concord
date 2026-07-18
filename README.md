@@ -33,7 +33,10 @@ plain-language version of what data exists and who can read it, see
 
 > *Every assistant answer is labeled with the engine that produced it, and the
 > one path where message content leaves the local model — the opt-in shared
-> brain — says exactly what it costs before you switch it on.*
+> brain — says exactly what it costs before you switch it on. Concord will tell
+> you by default that a shared brain exists on your machine; it will never send
+> it a message you haven't explicitly agreed to share. See
+> [PRIVACY.md](PRIVACY.md#exactly-what-is-on-by-default-and-what-still-asks).*
 
 ---
 

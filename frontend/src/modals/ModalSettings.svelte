@@ -632,6 +632,26 @@
         </span>
         <span class="switch" class:on={!!S.assist?.enabled}><span class="knob"></span></span>
       </button>
+      {#if !S.assist?.enabled && S.assist?.brain?.available && !S.assist?.brain?.pinned}
+        <!-- Discovery runs by default (it sends nothing), so we can tell the
+             user a brain exists here without their having touched anything.
+             This is deliberately a flat note and NOT a switch: it must read as
+             "this exists", never as "this is on". Nothing has been sent, and
+             two separate opt-ins still stand between here and a message. -->
+        <div class="row assist-detail">
+          <span class="chip"><Icon name="bolt" size={16} /></span>
+          <span class="row-text">
+            <span class="row-title">A shared brain is available on this machine</span>
+            <span class="row-sub">
+              Aether is running here, so drafted replies could optionally be
+              written by a Claude Code session on your own subscription instead
+              of the local model. It is off, and nothing has been sent to it.
+              Switch the assistant on and you'll get a separate opt-in that
+              explains the trade — Claude would read the conversation.
+            </span>
+          </span>
+        </div>
+      {/if}
       {#if S.assist?.enabled}
         <!-- The brain opt-in only exists while the assistant is on — it changes
              how one assistant feature is answered, so it is meaningless (and

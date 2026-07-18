@@ -167,7 +167,15 @@ func (s *Service) assistClient() (*assist.Client, error) {
 	return assist.NewClient(cfg.Endpoint, cfg.Model)
 }
 
-// -- the shared brain (opt-in; see internal/brain) -----------------------------
+// -- the shared brain (see internal/brain) -------------------------------------
+//
+// Two different defaults live in here, and the difference is the whole design:
+//
+//   - DISCOVERY (brainStatus) is on by default. It moves no user content, so
+//     there is nothing for a consent gate to protect.
+//   - ROUTING (brainUsable, and everything downstream of it) is off by default
+//     and double-opt-in, because every job Concord can build for the brain
+//     contains decrypted message text.
 
 // brain returns the brain client, building it lazily. Nil-safe throughout.
 func (s *Service) brain() *brain.Client {
@@ -177,9 +185,26 @@ func (s *Service) brain() *brain.Client {
 	return s.brainClient
 }
 
-// brainStatus snapshots the brain for the settings UI. It only probes when the
-// assistant's OWN consent gate is already satisfied: a user who has never
-// switched the assistant on never causes Concord to execute another binary.
+// brainStatus snapshots the brain for the settings UI.
+//
+// # Discovery is ON by default; routing is not
+//
+// This probe is the one brain surface that carries no user content whatsoever.
+// It runs `aether brain status` on this machine and reads back three derived
+// facts: whether a brain harness exists, whether a session is attached right
+// now, and how deep the queue is. A boolean, a boolean and an integer. No
+// message text, no channel names, no metadata drawn from the store, and no
+// network egress of any kind — Aether is another process on this same box.
+//
+// Gating that behind a consent toggle bought the user no privacy and cost them
+// the ability to find out the feature exists at all, so it now runs by default.
+// It is still short-circuited by CONCORD_BRAIN=off, which therefore remains a
+// complete kill switch: a pinned machine does not even look.
+//
+// What is emphatically NOT on by default is routing. Discovering a brain never
+// enqueues anything to it. Every path that would put decrypted message text in
+// front of Claude is still double-gated — see brainUsable — and finding a brain
+// here does not satisfy either gate.
 func (s *Service) brainStatus(cfg assist.Config) BrainStatusView {
 	out := BrainStatusView{OptedIn: cfg.BrainEnabled, Pinned: brain.Pinned()}
 	if out.Pinned {
@@ -187,12 +212,15 @@ func (s *Service) brainStatus(cfg assist.Config) BrainStatusView {
 			"everything runs on your local model."
 		return out
 	}
-	if !cfg.Enabled {
-		out.Note = "Switch the assistant on first."
-		return out
-	}
 	st := s.brain().Status(s.ctx)
 	out.Available, out.Connected, out.Queued, out.Note = st.Available, st.Connected, st.Queued, st.Note
+	if !cfg.Enabled && out.Available {
+		// Found one, but both consent gates are still shut. Say so plainly
+		// rather than letting "available" read as "in use".
+		out.Note = "A shared brain was found on this machine. Nothing is being " +
+			"sent to it: switch the assistant on, then opt in separately, to use " +
+			"it for drafted replies."
+	}
 	return out
 }
 
@@ -204,9 +232,16 @@ func (s *Service) brainStatus(cfg assist.Config) BrainStatusView {
 //   - CONCORD_BRAIN does not pin the machine local;
 //   - a Claude Code session is attached right now.
 //
-// The last one matters: enqueuing to an unattended queue would leave the user
-// staring at a spinner for a job nobody is going to answer. With no session we
-// go straight to the local model instead.
+// The last one matters twice over. Enqueuing to an unattended queue would
+// leave the user staring at a spinner for a job nobody is going to answer, and
+// an attached session that has since hit its usage limit shows up here as
+// Connected=false — so a brain that has run out of capacity degrades to the
+// local model rather than swallowing the job. With no session we go straight to
+// the local model instead.
+//
+// Note what is NOT in this list: whether a brain was DISCOVERED. Discovery is
+// on by default (see brainStatus); it is a fact about the machine, not a
+// permission, and it can never stand in for either consent gate.
 func (s *Service) brainUsable(cfg assist.Config) bool {
 	if !cfg.Enabled || !cfg.BrainEnabled || brain.Pinned() {
 		return false

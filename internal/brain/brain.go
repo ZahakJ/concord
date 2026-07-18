@@ -21,7 +21,7 @@
 // — is seen by Claude. That is a real and different exposure from the Ollama
 // path, where the bytes never leave the box.
 //
-// So brain routing in Concord is:
+// So brain ROUTING in Concord is:
 //
 //   - OFF by default, always. A fresh install never enqueues anything.
 //   - Gated by the assistant's EXISTING consent toggle (assist.enabled) AND a
@@ -29,6 +29,15 @@
 //   - Pinnable off machine-wide with CONCORD_BRAIN=off.
 //   - Labeled. Every answer says which engine produced it; a local answer
 //     never claims to have come from the brain.
+//
+// Brain DISCOVERY — the Status call below — is a different thing and is ON by
+// default. Status sends nothing: it asks the local Aether process whether a
+// brain exists here and gets back two booleans and a queue depth. No message
+// text, no store-derived metadata, no network. Knowing a brain is present is
+// not consent to use it, and Status never enqueues; the two gates above still
+// stand between a discovered brain and a single byte of conversation.
+// CONCORD_BRAIN=off short-circuits discovery too, so it remains a total kill
+// switch rather than a routing-only one.
 //
 // # The contract
 //
