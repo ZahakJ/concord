@@ -1551,7 +1551,7 @@
     margin: 2px 0 2px 2px;
     border-radius: 50%;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     transition: opacity 0.12s ease, transform 0.12s ease;
   }
   .sendbtn:active:not(:disabled) {

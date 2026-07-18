@@ -769,9 +769,52 @@ export function popoverJustOpened() {
 
 // ---- profile accent ----
 
+// relLuminance parses a #hex or rgb() color and returns its sRGB relative
+// luminance (0 dark … 1 light), or null if it can't be parsed.
+function relLuminance(color) {
+  if (!color) return null;
+  let r, g, b;
+  const hex = color.trim().replace(/^#/, "");
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    r = parseInt(hex[0] + hex[0], 16);
+    g = parseInt(hex[1] + hex[1], 16);
+    b = parseInt(hex[2] + hex[2], 16);
+  } else if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    r = parseInt(hex.slice(0, 2), 16);
+    g = parseInt(hex.slice(2, 4), 16);
+    b = parseInt(hex.slice(4, 6), 16);
+  } else {
+    const m = color.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+    if (!m) return null;
+    [r, g, b] = [+m[1], +m[2], +m[3]];
+  }
+  const lin = (v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+// accentForeground picks black or white text for a given accent fill so it stays
+// legible — white on the pale shipped accents (gruvbox gold, rose, nord) fails
+// contrast badly, which is exactly what the hardcoded #fff did before.
+export function accentForeground(color) {
+  const l = relLuminance(color);
+  return l != null && l > 0.55 ? "#141419" : "#ffffff";
+}
+
+// syncAccentFg resolves whatever --accent currently is (an explicit color OR a
+// theme pack's CSS value) and stamps a contrast-safe --accent-fg to match.
+export function syncAccentFg() {
+  const el = document.documentElement;
+  const accent = getComputedStyle(el).getPropertyValue("--accent").trim();
+  el.style.setProperty("--accent-fg", accentForeground(accent));
+}
+
 export function applyAccent(color) {
   if (!color) return;
   document.documentElement.style.setProperty("--accent", color);
+  document.documentElement.style.setProperty("--accent-fg", accentForeground(color));
 }
 
 // ---- appearance (theme / accent preset / density) ----
@@ -804,8 +847,12 @@ export function applyAppearance() {
   // profile color. An inline --accent would defeat the pack's palette, so
   // clear it when the pack should win.
   if (S.prefs.accent) applyAccent(S.prefs.accent);
-  else if (S.prefs.themePack) document.documentElement.style.removeProperty("--accent");
-  else applyAccent(S.identity.color);
+  else if (S.prefs.themePack) {
+    document.documentElement.style.removeProperty("--accent");
+    document.documentElement.style.removeProperty("--accent-fg");
+    // Let the pack's --accent apply, then derive a legible foreground from it.
+    syncAccentFg();
+  } else applyAccent(S.identity.color);
 }
 
 // setAppearance persists one appearance pref and applies it under a brief

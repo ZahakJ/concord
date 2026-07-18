@@ -410,15 +410,13 @@
   {/each}
 
   {#if S.newBelow}
-    <button
-      class="new-below"
-      role="status"
-      aria-live="polite"
-      aria-label="New messages below — jump to latest"
-      onclick={scrollSoon}
-    >
+    <!-- A plain button keeps its control semantics; the live announcement lives
+         in a separate visually-hidden region (below) so AT hears "new messages"
+         without the button being demoted to a passive status region. -->
+    <button class="new-below" aria-label="New messages below — jump to latest" onclick={scrollSoon}>
       New messages <span class="arrow">↓</span>
     </button>
+    <span class="sr-only" role="status" aria-live="polite">New messages below</span>
   {:else if !atBottom}
     <button class="older-bar" aria-label="Viewing older messages — jump to latest" onclick={scrollSoon}>
       <span class="ob-text">Viewing older messages</span>
@@ -716,7 +714,7 @@
   .new-divider span {
     padding: 1px 7px;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border-radius: 999px;
     /* one gentle pulse when the divider appears, then settle */
     animation: new-pulse 1.5s ease-out 0.35s 1;
@@ -863,7 +861,7 @@
     padding: 8px 16px;
     border-radius: 999px;
     background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    color: white;
+    color: var(--accent-fg);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.01em;

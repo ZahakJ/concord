@@ -500,7 +500,7 @@
   .pill.active {
     border-radius: 14px;
     background: var(--accent);
-    color: white;
+    color: var(--accent-fg);
     box-shadow: var(--accent-glow);
   }
   .pill.dm:hover,

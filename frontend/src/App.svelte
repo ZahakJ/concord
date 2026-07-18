@@ -1142,14 +1142,33 @@
     border-radius: var(--radius-md);
     font-weight: 600;
     font-size: 13px;
+    transition: background 0.12s ease, transform 0.08s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  /* The most time-critical buttons in the app were visually inert — no hover or
+     press feedback. Give them clear states so they feel like live controls. */
+  .ring-btn:active {
+    transform: scale(0.96);
   }
   .ring-btn.accept {
     background: var(--ok);
     color: #fff;
   }
+  .ring-btn.accept:hover {
+    background: color-mix(in srgb, var(--ok) 86%, #fff);
+  }
   .ring-btn.decline {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-muted);
+  }
+  .ring-btn.decline:hover {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ring-btn:active {
+      transform: none;
+    }
   }
 </style>

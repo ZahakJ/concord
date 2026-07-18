@@ -20,6 +20,11 @@
   --accent: #14a394;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  /* Contrast-safe text/icon color for anything painted on an --accent FILL.
+     JS (applyAccent/syncAccentFg) recomputes this from the live accent's
+     luminance; this default covers first paint and pale-accent themes where a
+     hardcoded white would be illegible. */
+  --accent-fg: #ffffff;
 
   --danger: #e0555b;
   --danger-soft: color-mix(in srgb, var(--danger) 14%, transparent);
@@ -671,6 +676,19 @@ strong {
   letter-spacing: 0.01em;
 }
 
+/* Screen-reader-only: present to assistive tech, invisible on screen. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 button {
   font: inherit;
   cursor: pointer;
@@ -678,7 +696,7 @@ button {
   border-radius: var(--radius-sm);
   padding: 8px 14px;
   background: var(--accent);
-  color: white;
+  color: var(--accent-fg);
   transition: background 0.15s ease;
 }
 button:hover {

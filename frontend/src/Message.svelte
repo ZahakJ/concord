@@ -1227,7 +1227,7 @@
     min-width: 120px;
     max-width: 220px;
     padding: 7px 10px;
-    display: none;
+    display: flex;
     flex-direction: column;
     gap: 2px;
     background: var(--bg-elevated, var(--bg-1));
@@ -1236,16 +1236,25 @@
     box-shadow: var(--shadow-pop);
     font-size: 12px;
     white-space: nowrap;
+    /* Hover-intent: opacity/visibility (not display) so it can fade IN after a
+       short delay and fade OUT smoothly. The delay stops the popover strobing as
+       the pointer sweeps across a row of reaction pills. */
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px);
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease,
+      visibility 0s linear 0.15s;
   }
   .react-wrap:hover .react-who {
-    display: flex;
-    animation: who-in 0.15s cubic-bezier(0.2, 0.9, 0.3, 1);
-  }
-  @keyframes who-in {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition:
+      opacity 0.18s ease 0.26s,
+      transform 0.18s ease 0.26s,
+      visibility 0s;
   }
   .react-who strong {
     font-size: 11px;
