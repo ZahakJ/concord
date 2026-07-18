@@ -6,7 +6,7 @@
   import Icon from "./Icon.svelte";
   import { S, memberByFpr } from "./lib/state.svelte.js";
 
-  let { label = "", onLeave, onToggleMute, onReturn } = $props();
+  let { label = "", onLeave, onToggleMute, onToggleDeafen, onReturn } = $props();
 
   // Position (top-right by default), clamped to the viewport, draggable. On
   // touch the margins are wider so the dock can't be parked under the top bar
@@ -95,8 +95,11 @@
   </div>
 
   <div class="ctl">
-    <button class="ico" title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} onclick={onToggleMute}>
+    <button class="ico" class:on={S.muted} title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} aria-pressed={S.muted} onclick={onToggleMute}>
       <Icon name={S.muted ? "micOff" : "mic"} size={15} />
+    </button>
+    <button class="ico" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
+      <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
     </button>
     <button class="ico hang" title="Leave call" aria-label="Leave call" onclick={onLeave}>
       <Icon name="door" size={15} />
@@ -219,6 +222,16 @@
   }
   .ico:hover {
     background: var(--bg-1);
+  }
+  /* Active mute/deafen: a filled danger state, so "I'm muted/deafened" reads at
+     a glance the way it does on Discord. */
+  .ico.on {
+    background: var(--danger);
+    color: #fff;
+    border-color: transparent;
+  }
+  .ico.on:hover {
+    background: color-mix(in srgb, var(--danger) 85%, #000);
   }
   .ico.expand {
     width: 24px;

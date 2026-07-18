@@ -402,6 +402,8 @@
     S.voiceSpeaking = [];
     S.voicePeerFpr = {};
     S.muted = false;
+    S.deafened = false;
+    S.peerVolumes = {};
     S.sharing = false;
     S.cameraOn = false;
     clearVideoStreams();
@@ -416,8 +418,20 @@
   }
 
   function toggleMicMute() {
+    // Talking again means you can hear again: unmuting lifts deafen too.
     S.muted = !S.muted;
+    if (!S.muted && S.deafened) {
+      S.deafened = false;
+      S.voice?.mesh.setDeafened(false);
+    }
     S.voice?.mesh.setMuted(S.muted);
+  }
+
+  function toggleDeafen() {
+    S.deafened = !S.deafened;
+    S.voice?.mesh.setDeafened(S.deafened);
+    // Deafen implies mic-muted; the mesh already muted, mirror it for the UI.
+    if (S.deafened) S.muted = true;
   }
 
   async function toggleScreenShare() {
@@ -562,6 +576,7 @@
           <VoicePanel
             onLeaveVoice={leaveVoice}
             onToggleMute={toggleMicMute}
+            onToggleDeafen={toggleDeafen}
             onToggleShare={toggleScreenShare}
             onToggleCamera={toggleCamera}
           />
@@ -605,6 +620,7 @@
       label={callLabel}
       onLeave={leaveVoice}
       onToggleMute={toggleMicMute}
+      onToggleDeafen={toggleDeafen}
       onReturn={() => jumpToChannel(S.voice.channelId)}
     />
   {/if}

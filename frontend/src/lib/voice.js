@@ -43,6 +43,11 @@ export class VoiceMesh {
     this.peers = new Map(); // peerId -> { pc, makingOffer, ignoreOffer, audioEl, videoKeys }
     this.localStream = null;
     this.muted = false;
+    // Deafen: silence ALL incoming audio (and imply self-mute). volumes holds a
+    // per-peer 0..1 gain so you can turn any one participant down/off locally,
+    // independent of deafen. Both are client-side only — nothing leaves this node.
+    this.deafened = false;
+    this.volumes = new Map(); // peerId -> 0..1 (absent = 1)
     this.audioCtx = null;
     this.analysers = new Map(); // key ("self"|peerId) -> { analyser, data }
     this._monitor = null;
@@ -121,6 +126,33 @@ export class VoiceMesh {
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
     }
+  }
+
+  // setDeafened silences every remote participant and, Discord-style, also mutes
+  // your own mic (you can't sensibly talk to a room you can't hear). Undeafening
+  // does NOT auto-unmute — that stays the user's explicit choice.
+  setDeafened(deafened) {
+    this.deafened = deafened;
+    if (deafened) this.setMuted(true);
+    for (const [peerId, peer] of this.peers) this._applyAudio(peerId, peer);
+  }
+
+  // setPeerVolume sets a single participant's local playback gain (0 = silence
+  // just them, 1 = full). Persisted on the peer and re-applied if they reconnect.
+  setPeerVolume(peerId, vol) {
+    const v = Math.max(0, Math.min(1, vol));
+    this.volumes.set(peerId, v);
+    const peer = this.peers.get(peerId);
+    if (peer) this._applyAudio(peerId, peer);
+  }
+
+  // _applyAudio reconciles a peer's <audio> element with the deafen flag and its
+  // per-peer volume. Deafen wins; otherwise volume 0 mutes just that peer.
+  _applyAudio(peerId, peer) {
+    if (!peer?.audioEl) return;
+    const vol = this.volumes.has(peerId) ? this.volumes.get(peerId) : 1;
+    peer.audioEl.muted = this.deafened || vol === 0;
+    peer.audioEl.volume = vol;
   }
 
   // toggleVideo(kind) starts/stops a local video source ("screen" or "camera").
@@ -330,6 +362,7 @@ export class VoiceMesh {
         peer.audioEl = el;
       }
       el.srcObject = streams[0];
+      this._applyAudio(peerId, peer); // honor deafen / per-peer volume on (re)connect
       this._addAnalyser(peerId, streams[0]);
     };
     pc.onconnectionstatechange = () => {

@@ -106,6 +106,8 @@ export const S = $state({
   // until that call ends and the roster clears.
   dismissedCalls: [],
   muted: false,
+  deafened: false, // we've silenced all incoming call audio (implies mic muted)
+  peerVolumes: {}, // peerId -> 0..1 local playback gain (absent = full)
   sharing: false, // we are screen-sharing
   cameraOn: false, // our camera is on
   // videoTiles: [{ key, peerId, kind, self }] — one per live video source
@@ -283,6 +285,23 @@ export function toggleMute(channelId) {
   else m[channelId] = true;
   S.mutes = m;
   saveJSON("concord.mutes", m);
+}
+
+// setPeerVolume sets one call participant's LOCAL playback gain (0..1) — silence
+// or quiet just them, for you only. Nothing is sent to anyone; it's your own
+// speakers. Volume 1 is the default, so it's dropped from the map.
+export function setPeerVolume(peerId, vol) {
+  const v = Math.max(0, Math.min(1, vol));
+  const pv = { ...S.peerVolumes };
+  if (v === 1) delete pv[peerId];
+  else pv[peerId] = v;
+  S.peerVolumes = pv;
+  S.voice?.mesh.setPeerVolume(peerId, v);
+}
+
+// togglePeerMute flips a participant between silenced (0) and full (1) for you.
+export function togglePeerMute(peerId) {
+  setPeerVolume(peerId, S.peerVolumes[peerId] === 0 ? 1 : 0);
 }
 
 // markUnread rewinds a channel's read cursor to just before a message, so it
