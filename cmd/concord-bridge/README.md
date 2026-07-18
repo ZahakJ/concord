@@ -97,8 +97,7 @@ miss or re-read a message. Cursors are opaque, strictly-ordered strings.
 
 ## App-to-app payload convention
 
-Machine payloads ride as ordinary text messages so the humans in the channel
-can watch their machines talk:
+Machine payloads keep the same shape:
 
 ```
 APPBUS:<app>:<schema-version>
@@ -106,8 +105,91 @@ APPBUS:<app>:<schema-version>
 ```
 
 e.g. first line `APPBUS:sentinel:1`, JSON after the newline. Apps ignore
-`APPBUS:` messages that aren't addressed to them; anything without the prefix
-is human chatter and is ignored by machines.
+`APPBUS:` messages that aren't addressed to them.
+
+### Two planes
+
+Payloads used to ride as ordinary chat messages, on the theory that the humans
+in the channel might like to watch their machines talk. In practice sentinel
+filled `#general` with lines nobody wanted to read. Machine data is not
+conversation, and rendering it as conversation degrades the conversation.
+
+So app traffic now rides a separate **data plane**, distinguished by a message
+`kind`:
+
+| kind | meaning | rendered in the channel? |
+|---|---|---|
+| `chat` (default) | a message a person typed | yes |
+| `app` | a machine payload | **no** — apps/integrations view only |
+
+Everything else about the two planes is identical: same bridge identity, same
+MLS group, same end-to-end encryption, same store, same cursor feed. Only the
+rendering contract differs. App-kind messages never mark a channel unread and
+never notify anyone.
+
+**Sending.** `POST /api/send` takes an optional `"kind"`:
+
+```json
+{"channel": "grey mane/general", "text": "APPBUS:sentinel:1\n{\"cpu\":91}", "kind": "app"}
+```
+
+The response echoes the plane it used: `{"ok": true, "message_id": "...", "kind": "app"}`.
+
+**Reading.** `GET /api/messages` reports `"kind"` on every message and accepts
+an optional `?kind=app` or `?kind=chat` filter. With no filter it returns both
+planes — byte-for-byte what it returned before the split, so existing pollers
+need no change. The cursor advances past filtered-out messages, so a
+`?kind=app` poller always makes forward progress.
+
+### Detecting support before you send
+
+Unknown fields degrade *silently* on this API. An older bridge handed
+`?kind=app` on a read, or `"kind":"app"` in a send body, ignores it and returns
+`200`. On a read that is harmless. **On a send it is not** — the payload lands
+in the human channel as ordinary chat, and the response looks exactly like
+success.
+
+So don't infer support from a send; detect it first. `GET /api/health`
+advertises it:
+
+```json
+{"ok": true, "identity": {...}, "guilds": [...],
+ "capabilities": ["data_plane"], "data_plane": true}
+```
+
+A producer should check for `data_plane` and **refuse to push machine payloads
+into a human channel** through a bridge that lacks it. An older bridge has
+neither field.
+
+### Back-compatibility
+
+You do not have to upgrade. A message whose text begins `APPBUS:` is treated as
+app-kind **even with no `kind` field at all** — on send (the bridge moves it to
+the data plane for you) and on read (it reports as `"kind": "app"`). App-bus
+producers live in other repos, on other machines, on their own release
+cadences; requiring a lockstep upgrade would mean either breaking them or
+leaving their traffic in the human channel until the last one shipped.
+
+This also applies retroactively: payloads already sitting in a channel from
+before the split stop rendering as chat, without any migration.
+
+Setting `"kind": "app"` explicitly is still preferred — it works for payloads
+that don't carry the prefix, and it states the intent rather than inferring it.
+
+### Rate limits
+
+The planes have independent per-channel budgets, so a chatty machine can never
+consume the budget a human message needs:
+
+| plane | rate | burst |
+|---|---|---|
+| `chat` | 1/s | 5 |
+| `app` | 20/s | 60 |
+
+The chat limit is about human attention — a message that renders in a
+conversation should never arrive faster than a person would send one. The app
+plane costs nobody's attention, so it gets a looser budget, still bounded so a
+wedged producer cannot fill the store or saturate the gossip topic.
 
 ## Security posture
 

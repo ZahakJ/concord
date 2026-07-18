@@ -733,6 +733,17 @@ func (s *Service) SendMessage(channelID, content, replyTo string) (domain.Messag
 	return s.send(channelID, content, "", replyTo)
 }
 
+// SendAppMessage publishes a machine-to-machine payload on the app plane.
+//
+// Same identity, same MLS group, same encryption, same store as a chat
+// message — the ONLY difference is domain.KindApp, which keeps it out of the
+// conversation view, out of unread counts, and out of notifications. This is
+// how one local app talks to another over Concord without spamming the humans
+// who share the channel.
+func (s *Service) SendAppMessage(channelID, content, replyTo string) (domain.Message, error) {
+	return s.send(channelID, content, domain.KindApp, replyTo)
+}
+
 // sendSystem posts a system notice (join/create) to a channel. Errors are
 // swallowed since these are best-effort UI sugar.
 func (s *Service) sendSystem(channelID, content string) {

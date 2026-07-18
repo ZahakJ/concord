@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -112,6 +113,69 @@ type Message struct {
 	// locally from an image attachment — "matched text in image". Transient:
 	// set by search, never persisted, never sent over the wire.
 	OCRMatch bool `json:"ocrMatch,omitempty"`
+}
+
+// Message kinds. The empty string is a normal human chat message; every other
+// kind is something a client renders differently or not at all.
+const (
+	// KindChat is an ordinary message typed by a person. Deliberately "" so
+	// that an absent field on the wire means chat and nothing existing changes
+	// meaning.
+	KindChat = ""
+	// KindApp is machine-to-machine payload traffic: one local app (sentinel,
+	// trove, …) talking to another over Concord's E2EE transport.
+	//
+	// This is the DATA PLANE, and it is separate from the chat plane on
+	// purpose. App payloads ride the same encrypted transport, are stored the
+	// same way, and are readable by the same members — but they are not
+	// conversation, so no client renders them in a channel, they never mark a
+	// channel unread, and they never ping anybody. They surface only in a
+	// dedicated apps/integrations view.
+	KindApp = "app"
+)
+
+// AppBusPrefix marks the legacy, pre-KindApp form of an app payload: an
+// ordinary chat message whose first line is "APPBUS:<app>:<schema-version>",
+// JSON body after.
+//
+// We still honor it, and must keep honoring it. App-bus producers live in
+// other repos on other release cadences (and on other machines), so requiring
+// a lockstep upgrade to KindApp would mean either breaking them or leaving
+// their traffic in the human channel until every one of them shipped. Treating
+// the prefix as app-kind means older producers keep working untouched, and it
+// retroactively hides payloads already sitting in people's channels.
+const AppBusPrefix = "APPBUS:"
+
+// IsApp reports whether this message is app-plane traffic rather than
+// conversation — by its Kind, or by the legacy content prefix.
+//
+// Every renderer, counter, notifier and search path should ask this rather
+// than comparing Kind directly, so the legacy form is handled in exactly one
+// place.
+func (m Message) IsApp() bool {
+	return m.Kind == KindApp || strings.HasPrefix(m.Content, AppBusPrefix)
+}
+
+// EffectiveKind is Kind with legacy app-bus payloads reported as KindApp, so
+// wire output and client filtering agree on what a message actually is.
+func (m Message) EffectiveKind() string {
+	if m.IsApp() {
+		return KindApp
+	}
+	return m.Kind
+}
+
+// AppBusApp returns the producing app name from an "APPBUS:<app>:<ver>"
+// payload, or "" when the message doesn't carry one.
+func (m Message) AppBusApp() string {
+	if !strings.HasPrefix(m.Content, AppBusPrefix) {
+		return ""
+	}
+	rest := m.Content[len(AppBusPrefix):]
+	if i := strings.IndexAny(rest, ":\n"); i >= 0 {
+		return rest[:i]
+	}
+	return rest
 }
 
 // A Contact is a peer this node has encountered, tracked for trust-on-first-use

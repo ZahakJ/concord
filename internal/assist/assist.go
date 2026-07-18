@@ -56,6 +56,12 @@ const (
 	KeyEnabled  = "assist.enabled"
 	KeyEndpoint = "assist.endpoint"
 	KeyModel    = "assist.model"
+	// KeyBrainEnabled is the SECOND, separate opt-in for routing hard jobs to
+	// the shared brain (a local Claude Code session — see internal/brain).
+	// Off by default and meaningless unless KeyEnabled is also on: the
+	// assistant's existing consent gate still governs every path, and this key
+	// only ever narrows what that gate already allows.
+	KeyBrainEnabled = "assist.brain.enabled"
 )
 
 // Config is the user's assistant configuration.
@@ -63,6 +69,9 @@ type Config struct {
 	Enabled  bool   `json:"enabled"`
 	Endpoint string `json:"endpoint"`
 	Model    string `json:"model"`
+	// BrainEnabled opts the hard-reasoning path in to the shared brain.
+	// Requires Enabled; off by default.
+	BrainEnabled bool `json:"brainEnabled"`
 }
 
 // Status is the honest snapshot the settings UI shows.
@@ -74,6 +83,8 @@ type Status struct {
 	ModelPresent bool     `json:"modelPresent"`
 	Models       []string `json:"models"`
 	Hint         string   `json:"hint,omitempty"`
+	// BrainEnabled mirrors the user's separate brain opt-in (off by default).
+	BrainEnabled bool `json:"brainEnabled"`
 }
 
 // ErrDisabled is returned when a feature is invoked while the toggle is off —
@@ -178,13 +189,36 @@ func (c *Client) resolveModel(ctx context.Context) string {
 	return c.model
 }
 
-// generate runs one non-streaming completion. format, when non-nil, is an
-// Ollama structured-output JSON schema.
-func (c *Client) generate(ctx context.Context, prompt string, format any, temperature float64) (string, error) {
+// pickModel resolves the model for one call, preferring a fine-tuned local
+// specialist when this machine has pulled it.
+//
+// The specialists (aether-brief and friends) are small models trained for one
+// job; where one exists it beats the user's configured general model at that
+// job for a fraction of the latency. Where it doesn't, we fall through to the
+// configured model and the feature is unchanged. Returns the tag actually
+// chosen so the caller can name it in the UI.
+func (c *Client) pickModel(ctx context.Context, specialist string) string {
+	if specialist == "" {
+		return c.resolveModel(ctx)
+	}
+	names, err := c.Models(ctx)
+	if err == nil && HasModel(specialist, names) {
+		for _, n := range names {
+			if n == specialist || strings.SplitN(n, ":", 2)[0] == specialist {
+				return n
+			}
+		}
+	}
+	return c.resolveModel(ctx)
+}
+
+// generate runs one non-streaming completion against an explicit model tag.
+// format, when non-nil, is an Ollama structured-output JSON schema.
+func (c *Client) generate(ctx context.Context, model, prompt string, format any, temperature float64) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, generateTimeout)
 	defer cancel()
 	payload := map[string]any{
-		"model":   c.resolveModel(ctx),
+		"model":   model,
 		"prompt":  prompt,
 		"stream":  false,
 		"options": map[string]any{"temperature": temperature},
@@ -233,12 +267,18 @@ func Transcript(msgs []domain.Message) string {
 		}
 		lines = append(lines, who+": "+stripTokens(m.Content))
 	}
-	text := strings.Join(lines, "\n")
-	if len(text) > maxTranscriptChars {
-		text = text[len(text)-maxTranscriptChars:]
-		if i := strings.IndexByte(text, '\n'); i >= 0 && i < 200 {
-			text = text[i+1:]
-		}
+	return capTail(strings.Join(lines, "\n"))
+}
+
+// capTail keeps the most recent stretch under the prompt cap, trimming to a
+// line boundary so the model never starts mid-sentence.
+func capTail(text string) string {
+	if len(text) <= maxTranscriptChars {
+		return text
+	}
+	text = text[len(text)-maxTranscriptChars:]
+	if i := strings.IndexByte(text, '\n'); i >= 0 && i < 200 {
+		text = text[i+1:]
 	}
 	return text
 }
@@ -262,41 +302,116 @@ func stripTokens(content string) string {
 	}
 }
 
+// Ledger renders messages as the "HH:MM event" lines the aether-brief
+// specialist is trained on (see ~/work/apex_llm/INTEGRATION.md). Same content
+// as Transcript, same cap — only the shape differs.
+func Ledger(msgs []domain.Message) string {
+	lines := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		if m.Kind != "" || m.Deleted {
+			continue
+		}
+		who := m.Name
+		if who == "" {
+			who = "someone"
+		}
+		lines = append(lines, m.Sent.Local().Format("15:04")+" "+who+": "+stripTokens(m.Content))
+	}
+	return capTail(strings.Join(lines, "\n"))
+}
+
 // CatchUp summarizes recent channel history for someone who just came back.
-func (c *Client) CatchUp(ctx context.Context, msgs []domain.Message) (string, error) {
+//
+// Classification: cheap/structured. This is exactly what the aether-brief
+// specialist was trained for, so it stays local — a summary of a transcript is
+// not the kind of cross-context reasoning worth handing to the brain, and
+// keeping it local keeps the strongest privacy story on the most-used feature.
+func (c *Client) CatchUp(ctx context.Context, msgs []domain.Message) (Result, error) {
+	model := c.pickModel(ctx, SpecialistBrief)
+	if strings.SplitN(model, ":", 2)[0] == SpecialistBrief {
+		l := Ledger(msgs)
+		if strings.TrimSpace(l) == "" {
+			return Result{}, fmt.Errorf("assist: nothing in this channel to catch up on")
+		}
+		// The specialist's system prompt is baked into its Modelfile; the user
+		// turn is the ledger in the shape it was trained on.
+		out, err := c.generate(ctx, model,
+			"Today's activity ledger:\n"+l+"\n\nWrite the pulse.", nil, 0.3)
+		if err != nil {
+			return Result{}, err
+		}
+		return LocalResult(out, SpecialistBrief), nil
+	}
 	t := Transcript(msgs)
 	if strings.TrimSpace(t) == "" {
-		return "", fmt.Errorf("assist: nothing in this channel to catch up on")
+		return Result{}, fmt.Errorf("assist: nothing in this channel to catch up on")
 	}
 	prompt := "You are a private, on-device assistant inside a chat app. " +
 		"Summarize the conversation below for someone catching up: 3-6 short " +
 		"bullet points covering what was discussed, decided, or asked. Use only " +
 		"what the transcript says — invent nothing. Attribute by name where it " +
 		"matters. Reply with just the bullets, no preamble.\n\nConversation:\n" + t
-	return c.generate(ctx, prompt, nil, 0.2)
+	out, err := c.generate(ctx, model, prompt, nil, 0.2)
+	if err != nil {
+		return Result{}, err
+	}
+	return LocalResult(out, model), nil
 }
 
-// DraftReply proposes a reply to the recent conversation, optionally steered
-// by the user's instruction ("politely decline", "ask for the logs").
-func (c *Client) DraftReply(ctx context.Context, msgs []domain.Message, instruction, selfName string) (string, error) {
+// draftPrompt builds the drafting instruction shared by both engines, so the
+// brain and the local model are asked for exactly the same thing and the only
+// difference in the output is quality.
+func draftPrompt(msgs []domain.Message, instruction, selfName string) (string, bool) {
 	t := Transcript(msgs)
 	if strings.TrimSpace(t) == "" {
-		return "", fmt.Errorf("assist: nothing here to reply to yet")
+		return "", false
 	}
-	who := selfName
+	who := strings.TrimSpace(selfName)
 	if who == "" {
 		who = "the user"
 	}
-	prompt := "You are a private, on-device assistant inside a chat app, " +
-		"drafting a reply that " + who + " could send next in the conversation " +
-		"below. Match the conversation's tone and language. Keep it short and " +
-		"natural (1-3 sentences unless the content demands more). Reply with " +
-		"ONLY the message text — no quotes, no preamble.\n"
-	if strings.TrimSpace(instruction) != "" {
-		prompt += "The user asked for the reply to: " + strings.TrimSpace(instruction) + "\n"
+	p := "Draft the reply that " + who + " could send next in the chat " +
+		"conversation below. Match the conversation's tone and language. Keep " +
+		"it short and natural (1-3 sentences unless the content demands more). " +
+		"Reply with ONLY the message text — no quotes, no preamble.\n"
+	if s := strings.TrimSpace(instruction); s != "" {
+		p += "The user asked for the reply to: " + s + "\n"
 	}
-	prompt += "\nConversation:\n" + t
-	return c.generate(ctx, prompt, nil, 0.6)
+	return p + "\nConversation:\n" + t, true
+}
+
+// DraftReply proposes a reply to the recent conversation, optionally steered
+// by the user's instruction ("politely decline", "ask for the logs"), using
+// the on-device model. This is the fallback whenever the brain is off,
+// unavailable, or declines the job.
+func (c *Client) DraftReply(ctx context.Context, msgs []domain.Message, instruction, selfName string) (Result, error) {
+	prompt, ok := draftPrompt(msgs, instruction, selfName)
+	if !ok {
+		return Result{}, fmt.Errorf("assist: nothing here to reply to yet")
+	}
+	model := c.pickModel(ctx, "")
+	out, err := c.generate(ctx, model,
+		"You are a private, on-device assistant inside a chat app. "+prompt, nil, 0.6)
+	if err != nil {
+		return Result{}, err
+	}
+	return LocalResult(out, model), nil
+}
+
+// BrainDraftTask builds the self-contained task string for the shared brain.
+//
+// The brain has no access to Concord's store — whatever it needs must be in
+// the task text. That is precisely why this path is double-opt-in: the
+// transcript below is decrypted message content, and a Claude session reads
+// it. The task says so in its first line, so the exposure is legible in
+// Aether's own audit ledger too, not just in Concord's UI.
+func BrainDraftTask(msgs []domain.Message, instruction, selfName string) (string, bool) {
+	prompt, ok := draftPrompt(msgs, instruction, selfName)
+	if !ok {
+		return "", false
+	}
+	return "[concord] The user has explicitly opted in to sharing this chat " +
+		"excerpt with you in order to get a better reply draft.\n\n" + prompt, true
 }
 
 // ExpandQuery turns a search query into up to five related terms (synonyms,
@@ -321,7 +436,7 @@ func (c *Client) ExpandQuery(ctx context.Context, query string) ([]string, error
 		"Suggest up to 5 alternative short search terms that could find the " +
 		"same thing — synonyms, related words, likely phrasings people use in " +
 		"chat. Single words or 2-word phrases only."
-	raw, err := c.generate(ctx, prompt, schema, 0.3)
+	raw, err := c.generate(ctx, c.pickModel(ctx, ""), prompt, schema, 0.3)
 	if err != nil {
 		return nil, err
 	}

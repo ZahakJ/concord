@@ -107,8 +107,12 @@ func TestCatchUpAndDraftReply(t *testing.T) {
 	}
 	msgs := []domain.Message{msg("Euclid", "hi, testing concord"), msg("Brahma", "it works!")}
 	out, err := c.CatchUp(context.Background(), msgs)
-	if err != nil || !strings.Contains(out, "sync worked") {
-		t.Fatalf("CatchUp: %q %v", out, err)
+	if err != nil || !strings.Contains(out.Text, "sync worked") {
+		t.Fatalf("CatchUp: %+v %v", out, err)
+	}
+	// The engine label must be present and honest: this came from Ollama.
+	if out.Engine != EngineLocal || out.Note == "" {
+		t.Fatalf("a local answer must be labeled local, got %+v", out)
 	}
 	if !strings.Contains((*prompts)[0], "Euclid: hi, testing concord") {
 		t.Fatal("the prompt must carry the transcript")

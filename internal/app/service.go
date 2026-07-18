@@ -20,6 +20,7 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/zahak/concord/internal/brain"
 	"github.com/zahak/concord/internal/crypto/mls"
 	"github.com/zahak/concord/internal/domain"
 	"github.com/zahak/concord/internal/identity"
@@ -94,6 +95,12 @@ type Service struct {
 	// ocrWorker reads text out of image attachments (internal/ocr) so local
 	// search finds messages by what a screenshot says. Nil until initOCR.
 	ocrWorker *ocr.Worker
+
+	// brainClient talks to Aether's shared-brain queue (internal/brain) for the
+	// one assistant job a 3B model is genuinely bad at: drafting a reply. Nil
+	// is a supported state and so is "Aether isn't installed" — every call
+	// degrades to the local model.
+	brainClient *brain.Client
 
 	onTyping      []func(from, channelID string)
 	onGuildUpdate []func()

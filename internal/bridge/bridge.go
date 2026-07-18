@@ -13,6 +13,7 @@ import (
 	"time"
 
 	appsvc "github.com/zahak/concord/internal/app"
+	"github.com/zahak/concord/internal/assist"
 	"github.com/zahak/concord/internal/domain"
 	"github.com/zahak/concord/internal/identity"
 	"github.com/zahak/concord/internal/version"
@@ -195,7 +196,7 @@ type MessageView struct {
 	ChannelID  string              `json:"channelId"`
 	Sender     string              `json:"sender"`     // authenticated fingerprint
 	SenderName string              `json:"senderName"` // self-asserted display name
-	Kind       string              `json:"kind"`       // "" normal, "system" join/create notice
+	Kind       string              `json:"kind"`       // "" normal chat, "system" join/create notice, "app" machine payload (never rendered as chat)
 	ReplyTo    string              `json:"replyTo"`    // ID of the replied-to message, or ""
 	Content    string              `json:"content"`
 	Deleted    bool                `json:"deleted"`
@@ -1735,16 +1736,21 @@ func messageView(m domain.Message) MessageView {
 		ChannelID:  m.ChannelID,
 		Sender:     identity.FingerprintOf(m.Sender),
 		SenderName: m.Name,
-		Kind:       m.Kind,
-		ReplyTo:    m.ReplyTo,
-		Content:    m.Content,
-		Deleted:    m.Deleted,
-		Expired:    m.Expired,
-		Edited:     m.Edited,
-		Pinned:     m.Pinned,
-		Reactions:  m.Reactions,
-		Sent:       m.Sent.Format("2006-01-02T15:04:05Z07:00"),
-		OcrMatch:   m.OCRMatch,
+		// EffectiveKind, not Kind: a legacy app payload stored before the data
+		// plane existed carries no kind field, and reporting it as "" would
+		// make every client re-derive "is this machine traffic?" from the
+		// content prefix. Deciding it once, here, keeps the clients honest and
+		// retroactively labels payloads already on disk.
+		Kind:      m.EffectiveKind(),
+		ReplyTo:   m.ReplyTo,
+		Content:   m.Content,
+		Deleted:   m.Deleted,
+		Expired:   m.Expired,
+		Edited:    m.Edited,
+		Pinned:    m.Pinned,
+		Reactions: m.Reactions,
+		Sent:      m.Sent.Format("2006-01-02T15:04:05Z07:00"),
+		OcrMatch:  m.OCRMatch,
 	}
 }
 
@@ -1778,22 +1784,48 @@ func (b *Bridge) SetAssistConfig(enabled bool, endpoint, model string) (appsvc.A
 	return svc.AssistStatus(), nil
 }
 
-// AssistCatchUp summarizes a channel's recent history ("catch me up").
-func (b *Bridge) AssistCatchUp(channelID string) (string, error) {
+// SetAssistBrain records the user's separate opt-in to the shared brain (a
+// local Claude Code session — see internal/brain). Off by default; kept apart
+// from SetAssistConfig so switching the assistant on can never switch this on.
+func (b *Bridge) SetAssistBrain(enabled bool) (appsvc.AssistStatusView, error) {
 	svc, err := b.service()
 	if err != nil {
-		return "", err
+		return appsvc.AssistStatusView{}, err
+	}
+	if _, err := svc.SetAssistBrain(enabled); err != nil {
+		return appsvc.AssistStatusView{}, err
+	}
+	return svc.AssistStatus(), nil
+}
+
+// AssistCatchUp summarizes a channel's recent history ("catch me up").
+// Always local; the result names the engine that wrote it.
+func (b *Bridge) AssistCatchUp(channelID string) (assist.Result, error) {
+	svc, err := b.service()
+	if err != nil {
+		return assist.Result{}, err
 	}
 	return svc.AssistCatchUp(channelID)
 }
 
-// AssistDraftReply drafts a reply to the channel's conversation.
-func (b *Bridge) AssistDraftReply(channelID, instruction string) (string, error) {
+// AssistDraftReply drafts a reply to the channel's conversation, routed
+// brain -> local model -> honest failure. The result names the engine.
+func (b *Bridge) AssistDraftReply(channelID, instruction string) (assist.Result, error) {
 	svc, err := b.service()
 	if err != nil {
-		return "", err
+		return assist.Result{}, err
 	}
 	return svc.AssistDraftReply(channelID, instruction)
+}
+
+// AssistBrainJob polls a brain job that was still queued when the request
+// returned. Pending is a normal state, not an error.
+func (b *Bridge) AssistBrainJob(jobID string) (assist.Result, error) {
+	svc, err := b.service()
+	if err != nil {
+		return assist.Result{}, err
+	}
+	return svc.AssistBrainJob(jobID)
 }
 
 // AssistSearchView mirrors the service's assisted-search result with
@@ -1801,6 +1833,8 @@ func (b *Bridge) AssistDraftReply(channelID, instruction string) (string, error)
 type AssistSearchView struct {
 	Terms    []string      `json:"terms"`
 	Messages []MessageView `json:"messages"`
+	Engine   assist.Engine `json:"engine"`
+	Note     string        `json:"note"`
 }
 
 // AssistSearch is search + model-suggested related terms, all local.
@@ -1813,7 +1847,12 @@ func (b *Bridge) AssistSearch(query string) (AssistSearchView, error) {
 	if err != nil {
 		return AssistSearchView{}, err
 	}
-	out := AssistSearchView{Terms: got.Terms, Messages: make([]MessageView, 0, len(got.Messages))}
+	out := AssistSearchView{
+		Terms:    got.Terms,
+		Engine:   got.Engine,
+		Note:     got.Note,
+		Messages: make([]MessageView, 0, len(got.Messages)),
+	}
 	if out.Terms == nil {
 		out.Terms = []string{}
 	}
@@ -2041,6 +2080,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.AssistStatus()
 	case "SetAssistConfig":
 		return b.SetAssistConfig(argBool(args, 0), argStr(args, 1), argStr(args, 2))
+	case "SetAssistBrain":
+		return b.SetAssistBrain(argBool(args, 0))
+	case "AssistBrainJob":
+		return b.AssistBrainJob(argStr(args, 0))
 	case "AssistCatchUp":
 		return b.AssistCatchUp(argStr(args, 0))
 	case "AssistDraftReply":

@@ -12,6 +12,7 @@ package app
 //     installed.
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"golang.org/x/crypto/nacl/secretbox"
 
 	"github.com/zahak/concord/internal/assist"
+	"github.com/zahak/concord/internal/brain"
 	"github.com/zahak/concord/internal/domain"
 	"github.com/zahak/concord/internal/ocr"
 )
@@ -32,13 +34,39 @@ func (s *Service) AssistConfig() assist.Config {
 	enabled, _ := s.store.GetSetting(assist.KeyEnabled)
 	endpoint, _ := s.store.GetSetting(assist.KeyEndpoint)
 	model, _ := s.store.GetSetting(assist.KeyModel)
+	brainOn, _ := s.store.GetSetting(assist.KeyBrainEnabled)
 	if endpoint == "" {
 		endpoint = assist.DefaultEndpoint
 	}
 	if model == "" {
 		model = assist.DefaultModel
 	}
-	return assist.Config{Enabled: enabled == "1", Endpoint: endpoint, Model: model}
+	return assist.Config{
+		Enabled:  enabled == "1",
+		Endpoint: endpoint,
+		Model:    model,
+		// The brain opt-in is meaningless on its own: the assistant's own
+		// consent gate governs first, and this only narrows it further.
+		BrainEnabled: enabled == "1" && brainOn == "1",
+	}
+}
+
+// SetAssistBrain records the user's separate opt-in to the shared brain.
+//
+// Kept as its own call — not a field on SetAssistConfig — so that turning the
+// assistant on can never turn brain routing on as a side effect. Enabling it
+// while the assistant itself is off is accepted and stored, but stays inert:
+// AssistConfig reports BrainEnabled false until the assistant's own consent
+// gate is satisfied too.
+func (s *Service) SetAssistBrain(enabled bool) (assist.Config, error) {
+	on := "0"
+	if enabled {
+		on = "1"
+	}
+	if err := s.store.SetSetting(assist.KeyBrainEnabled, on); err != nil {
+		return assist.Config{}, err
+	}
+	return s.AssistConfig(), nil
 }
 
 // SetAssistConfig validates and persists the assistant settings. The endpoint
@@ -72,7 +100,25 @@ func (s *Service) SetAssistConfig(enabled bool, endpoint, model string) (assist.
 // plus a live probe of the local model server, plus the OCR engine state.
 type AssistStatusView struct {
 	assist.Status
-	OCR OCRStatusView `json:"ocr"`
+	OCR   OCRStatusView   `json:"ocr"`
+	Brain BrainStatusView `json:"brain"`
+}
+
+// BrainStatusView reports the shared brain's availability for the settings UI.
+// Everything false is the normal state on a machine without Aether, and the
+// assistant works unchanged there.
+type BrainStatusView struct {
+	// OptedIn is the user's own toggle (off by default).
+	OptedIn bool `json:"optedIn"`
+	// Available means Aether answered; Connected means a Claude Code session
+	// is actually polling its queue right now.
+	Available bool `json:"available"`
+	Connected bool `json:"connected"`
+	// Pinned means CONCORD_BRAIN pins this machine local-only, overriding the
+	// toggle. Surfaced so the UI can explain why the switch looks inert.
+	Pinned bool   `json:"pinned"`
+	Queued int    `json:"queued"`
+	Note   string `json:"note"`
 }
 
 // OCRStatusView reports the attachment-OCR pipeline's state.
@@ -100,7 +146,9 @@ func (s *Service) AssistStatus() AssistStatusView {
 	} else {
 		st.Hint = err.Error()
 	}
+	st.BrainEnabled = cfg.BrainEnabled
 	out := AssistStatusView{Status: st, OCR: OCRStatusView{Counts: map[string]int{}}}
+	out.Brain = s.brainStatus(cfg)
 	if s.ocrWorker != nil {
 		out.OCR.Available = s.ocrWorker.Available()
 		out.OCR.Engine = s.ocrWorker.EngineName()
@@ -119,33 +167,190 @@ func (s *Service) assistClient() (*assist.Client, error) {
 	return assist.NewClient(cfg.Endpoint, cfg.Model)
 }
 
+// -- the shared brain (opt-in; see internal/brain) -----------------------------
+
+// brain returns the brain client, building it lazily. Nil-safe throughout.
+func (s *Service) brain() *brain.Client {
+	if s.brainClient == nil {
+		s.brainClient = brain.New()
+	}
+	return s.brainClient
+}
+
+// brainStatus snapshots the brain for the settings UI. It only probes when the
+// assistant's OWN consent gate is already satisfied: a user who has never
+// switched the assistant on never causes Concord to execute another binary.
+func (s *Service) brainStatus(cfg assist.Config) BrainStatusView {
+	out := BrainStatusView{OptedIn: cfg.BrainEnabled, Pinned: brain.Pinned()}
+	if out.Pinned {
+		out.Note = "Brain routing is pinned off on this machine by CONCORD_BRAIN — " +
+			"everything runs on your local model."
+		return out
+	}
+	if !cfg.Enabled {
+		out.Note = "Switch the assistant on first."
+		return out
+	}
+	st := s.brain().Status(s.ctx)
+	out.Available, out.Connected, out.Queued, out.Note = st.Available, st.Connected, st.Queued, st.Note
+	return out
+}
+
+// brainUsable reports whether a job may actually be routed to the brain right
+// now. Every one of these must hold:
+//
+//   - the assistant's existing consent gate is satisfied (cfg.Enabled);
+//   - the user separately opted this path in (cfg.BrainEnabled);
+//   - CONCORD_BRAIN does not pin the machine local;
+//   - a Claude Code session is attached right now.
+//
+// The last one matters: enqueuing to an unattended queue would leave the user
+// staring at a spinner for a job nobody is going to answer. With no session we
+// go straight to the local model instead.
+func (s *Service) brainUsable(cfg assist.Config) bool {
+	if !cfg.Enabled || !cfg.BrainEnabled || brain.Pinned() {
+		return false
+	}
+	st := s.brain().Status(s.ctx)
+	return st.Available && st.Connected && st.Enabled
+}
+
+// brainWait is how long a foreground request will wait on an accepted job
+// before handing the caller a pending result to poll. Short on purpose:
+// nothing in Concord blocks on the brain.
+const brainWait = 20 * time.Second
+
+// brainPollInterval is how often an in-flight job is re-checked while a
+// foreground request waits on it.
+const brainPollInterval = 1500 * time.Millisecond
+
+// brainQueue is the slice of the brain client this seam uses — an interface so
+// the routing logic can be tested against a fake without a daemon.
+type brainQueue interface {
+	Enqueue(ctx context.Context, task string) (brain.Job, bool)
+	Fetch(ctx context.Context, jobID string) (brain.Result, bool)
+}
+
+// askBrain enqueues one job and waits up to wait for the answer.
+//
+// Returns ok=false for anything the caller should handle by falling back to
+// the local model — refusal, failure, unreachable daemon. A job that is merely
+// still queued comes back as a pending Result with ok=true: that is an
+// answer-in-progress, not a failure, and the UI polls it.
+func askBrain(ctx context.Context, q brainQueue, task string, wait time.Duration) (assist.Result, bool) {
+	job, ok := q.Enqueue(ctx, task)
+	if !ok {
+		return assist.Result{}, false
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		res, ok := q.Fetch(ctx, job.ID)
+		switch {
+		case !ok:
+			// The job was accepted but we cannot read it — Aether stopped, or
+			// the queue is gone. Handing back a job id the UI can never poll
+			// would strand the user; a local draft right now is better.
+			return assist.Result{}, false
+		case res.Done():
+			return assist.BrainResult(res.Text, job.ID), true
+		case !res.Pending():
+			// failed / unknown state — fall back rather than show an error
+			return assist.Result{}, false
+		}
+		if !time.Now().Before(deadline) {
+			return assist.PendingResult(job.ID), true
+		}
+		select {
+		case <-ctx.Done():
+			return assist.Result{}, false
+		case <-time.After(brainPollInterval):
+		}
+	}
+}
+
+func (s *Service) brainAsk(task string) (assist.Result, bool) {
+	return askBrain(s.ctx, s.brain(), task, brainWait)
+}
+
+// AssistBrainJob polls a previously-returned pending job. The consent gate is
+// re-checked here too: a job id is not a capability, and a user who switched
+// the assistant off between enqueue and poll gets nothing back.
+func (s *Service) AssistBrainJob(jobID string) (assist.Result, error) {
+	cfg := s.AssistConfig()
+	if !cfg.Enabled {
+		return assist.Result{}, assist.ErrDisabled
+	}
+	if !cfg.BrainEnabled || brain.Pinned() {
+		return assist.Result{}, fmt.Errorf("assist: brain routing is switched off")
+	}
+	res, ok := s.brain().Fetch(s.ctx, jobID)
+	if !ok {
+		return assist.Result{}, fmt.Errorf("assist: that brain job can't be read — Aether may have stopped")
+	}
+	switch {
+	case res.Done():
+		return assist.BrainResult(res.Text, jobID), nil
+	case res.Pending():
+		return assist.PendingResult(jobID), nil
+	}
+	msg := res.Error
+	if msg == "" {
+		msg = "the brain didn't answer"
+	}
+	return assist.Result{}, fmt.Errorf("assist: %s — try again and it will use your local model", msg)
+}
+
 // -- assistant features -------------------------------------------------------
 
-// AssistCatchUp summarizes the channel's recent history with the local model.
-func (s *Service) AssistCatchUp(channelID string) (string, error) {
+// AssistCatchUp summarizes the channel's recent history.
+//
+// Routing: LOCAL, always. Summarizing a transcript is what the aether-brief
+// specialist is for, and the brief's rule is not to hand the brain work a
+// specialist already does well. Keeping the most-used feature fully on-device
+// is also the better privacy trade.
+func (s *Service) AssistCatchUp(channelID string) (assist.Result, error) {
 	c, err := s.assistClient()
 	if err != nil {
-		return "", err
+		return assist.Result{}, err
 	}
 	msgs, err := s.Messages(channelID, assist.CatchUpWindow())
 	if err != nil {
-		return "", err
+		return assist.Result{}, err
 	}
 	return c.CatchUp(s.ctx, msgs)
 }
 
 // AssistDraftReply drafts a reply to the channel's recent conversation,
 // optionally steered by instruction.
-func (s *Service) AssistDraftReply(channelID, instruction string) (string, error) {
+//
+// Routing: brain -> local model -> honest failure. This is the one assistant
+// job that is genuinely hard — writing in someone else's voice, following a
+// steering instruction, and reading a thread's subtext are exactly what a 3B
+// model does badly and a frontier model does well.
+//
+// It is also the one that would put decrypted message text in front of Claude,
+// so it is double-gated (assistant on AND brain opted in), never on by
+// default, and the result always names the engine that produced it.
+func (s *Service) AssistDraftReply(channelID, instruction string) (assist.Result, error) {
 	c, err := s.assistClient()
 	if err != nil {
-		return "", err
+		return assist.Result{}, err
 	}
 	msgs, err := s.Messages(channelID, assist.CatchUpWindow())
 	if err != nil {
-		return "", err
+		return assist.Result{}, err
 	}
 	self, _ := s.store.GetSetting("display_name")
+
+	if s.brainUsable(s.AssistConfig()) {
+		if task, ok := assist.BrainDraftTask(msgs, instruction, self); ok {
+			if res, ok := s.brainAsk(task); ok {
+				return res, nil
+			}
+			// Refused, failed, or unreachable — fall through to the local
+			// model. The user gets a draft either way, correctly labeled.
+		}
+	}
 	return c.DraftReply(s.ctx, msgs, instruction, self)
 }
 
@@ -154,6 +359,12 @@ func (s *Service) AssistDraftReply(channelID, instruction string) (string, error
 type AssistSearchView struct {
 	Terms    []string         `json:"terms"`
 	Messages []domain.Message `json:"messages"`
+	// Engine/Note name what expanded the query. Always local: five synonyms is
+	// cheap structured work a small model is good at, and routing every
+	// keystroke-driven search to the brain would be both slow and a needless
+	// disclosure.
+	Engine assist.Engine `json:"engine"`
+	Note   string        `json:"note"`
 }
 
 // AssistSearch runs the normal local search, asks the local model for related
@@ -164,7 +375,8 @@ func (s *Service) AssistSearch(query string) (AssistSearchView, error) {
 	if err != nil {
 		return AssistSearchView{}, err
 	}
-	out := AssistSearchView{Terms: []string{}}
+	cfg := s.AssistConfig()
+	out := AssistSearchView{Terms: []string{}, Engine: assist.EngineLocal, Note: assist.LocalNote(cfg.Model)}
 	seen := map[string]bool{}
 	add := func(msgs []domain.Message) {
 		for _, m := range msgs {

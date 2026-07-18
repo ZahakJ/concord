@@ -15,6 +15,8 @@
     refreshGuilds,
     selectGuild,
     flash,
+    clearFeed,
+    channelName,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { runSearch, closeSearch } from "./lib/search.js";
@@ -127,7 +129,7 @@
         await api.leaveGuild(g.id);
         S.activeGuildId = "";
         S.activeChannelId = "";
-        S.messages = [];
+        clearFeed();
         await refreshGuilds();
         if (S.guilds.length) selectGuild(S.guilds[0].id);
         flash(closeDM ? "Conversation closed" : g.isOwner ? "Guild deleted" : "Left guild");
@@ -145,6 +147,13 @@
       [
         { label: "Search", icon: "search", onClick: () => (searchOpen = true) },
         { label: "Pinned messages", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
+        // Same rule as the desktop header: only offered where an app has
+        // actually posted, so it doesn't sit in every channel's sheet.
+        S.appMessages.length > 0 && {
+          label: `App traffic (${S.appMessages.length})`,
+          icon: "code",
+          onClick: () => (S.modal = { kind: "apps", channelName: channelName(S.activeChannelId) }),
+        },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
         !g.dmNotes &&
           (inCall

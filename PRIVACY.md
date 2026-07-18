@@ -61,6 +61,49 @@ It is deliberately designed to learn as little as possible:
   encrypted end to end.
 - You can self-host the whole thing.
 
+## The optional AI assistant
+
+Concord ships an assistant that can summarize a channel ("catch me up"), draft
+a reply, and widen a search with related terms. It is **off by default** and
+does nothing until you switch it on.
+
+With it on, the default path is strictly on-device: it talks to an
+[Ollama](https://ollama.com) server on `127.0.0.1`, and that restriction is
+structural rather than a policy — a non-loopback endpoint is rejected both when
+you configure it and again on every call, so there is no configuration, and no
+hand-edit of the settings database, in which assistant traffic leaves your
+machine. The model reads exactly the messages your own screen already shows,
+decrypted with your own key. Machine-to-machine app traffic is excluded, and
+nothing about the assistant touches the MLS or transport layers.
+
+### The "shared brain" — a second, separate opt-in
+
+Drafting a reply is the one job a small local model is genuinely bad at, so it
+can optionally be routed to a **shared brain**: a Claude Code session running
+as a local process on this machine, on your own Claude subscription, reached
+through Aether's job queue. There is no API key and no metered spend, and the
+job does not go to any third-party service you are not already signed in to.
+
+**But Claude does see the message content in that request.** That is a real
+difference from the Ollama path, where the bytes never leave the box, and it is
+the one place where Concord's "nothing leaves this machine" promise is narrower
+than everywhere else. So:
+
+- It is **off by default**, and turning the assistant on does not turn it on.
+- It requires the assistant's own consent toggle *and* a separate opt-in.
+- It affects **only** the draft-reply feature. Catch-up summaries and search
+  expansion always stay on the local model.
+- Every assistant answer **names the engine that produced it** in the UI. A
+  local answer never claims to have come from the brain.
+- `CONCORD_BRAIN=off` in the environment pins the machine local-only and
+  overrides the in-app toggle.
+
+If Aether isn't installed, isn't running, or has no session attached, the
+feature degrades quietly to the local model — it never blocks and never fails.
+
+Implementation: `internal/assist/` (local models, loopback enforcement),
+`internal/brain/` (the queue client), `internal/app/assist.go` (routing).
+
 ## No telemetry
 
 Concord contains no analytics, no crash reporting, no telemetry, and no

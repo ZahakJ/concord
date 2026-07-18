@@ -3,6 +3,7 @@
 // api.js stays the only transport layer underneath.
 import { api, on } from "./api.js";
 import { notify } from "./notify.js";
+import { isAppMessage } from "./appbus.js";
 import { containsMention } from "./markdown.js";
 import { playVoiceJoin, playVoiceLeave, playMention, playDM } from "./sounds.js";
 import { PERM, has } from "./perms.js";
@@ -14,7 +15,14 @@ export const S = $state({
   guilds: [],
   activeGuildId: "",
   activeChannelId: "",
+  // messages: the active channel's CONVERSATION — app-bus payloads are split
+  // off before they ever land here (see splitAppTraffic), so every consumer of
+  // this array (feed, pins, export, ephemeral sweep, "new" divider) is machine-
+  // data-free by construction rather than by each remembering to filter.
   messages: [],
+  // appMessages: the same channel's app-bus traffic, oldest first, kept only so
+  // the Apps view can show what arrived. Nothing else reads it.
+  appMessages: [],
   members: [],
   roles: [], // active guild's roles (highest position first)
   contacts: [],
@@ -122,9 +130,14 @@ export const S = $state({
   searchChips: [], // parsed operator chips [{key, raw, label}] shown above results
   searchTerms: [], // free-text terms, for match highlighting in results
   searchLoading: false, // a search round-trip is in flight
-  // assist-expanded search: related terms the LOCAL model suggested and that
+  // assist-expanded search: related terms the assistant suggested and that
   // actually hit ([] = none / not used). Only ever set when the user asks.
   searchAssistTerms: [],
+  // Which engine produced those terms ("local" | "brain") and the backend's
+  // one-line provenance note. Kept beside the terms so the results panel can
+  // never label a brain-expanded search as a local one.
+  searchAssistEngine: "",
+  searchAssistNote: "",
   showPins: false,
 
   // The local assistant (internal/assist): OFF by default, loopback Ollama
@@ -449,7 +462,7 @@ export function confirmLeaveGuild(g) {
       await api.leaveGuild(g.id);
       S.activeGuildId = "";
       S.activeChannelId = "";
-      S.messages = [];
+      clearFeed();
       await refreshGuilds();
       if (S.guilds.length) selectGuild(S.guilds[0].id);
       flash(g.isOwner ? "Guild deleted" : "Left guild");
@@ -638,8 +651,36 @@ async function syncReadState() {
 
 // countsAsChat: a message a human said in the room — a normal message, or a
 // browser guest's relayed one. System notices, call notices, reactions etc. are
-// bookkeeping and never count.
-export const countsAsChat = (m) => m.kind === "" || m.kind === "guest";
+// bookkeeping and never count. Legacy app-bus payloads arrive with kind "" (the
+// prefix is all that marks them), so the isAppMessage check is load-bearing
+// here: without it a channel full of sentinel telemetry reads as unread chat.
+export const countsAsChat = (m) => !isAppMessage(m) && (m.kind === "" || m.kind === "guest");
+
+// splitAppTraffic separates a fetched page into conversation and app-bus rows.
+// Doing it once, here, is what lets the rest of the app treat S.messages as
+// "what a person would see" without every call site repeating the test.
+function splitAppTraffic(msgs) {
+  const chat = [];
+  const apps = [];
+  for (const m of msgs) (isAppMessage(m) ? apps : chat).push(m);
+  return { chat, apps };
+}
+
+// The oldest `sent` we have actually FETCHED for the active channel — which is
+// NOT the same as the oldest row on screen, because app rows were dropped on
+// the way in. Paging back from S.messages[0] would re-request (and re-drop)
+// the same app payloads forever whenever a page happened to be mostly machine
+// traffic, so pagination keeps its own cursor over the raw history.
+let feedOldest = "";
+
+// clearFeed empties everything scoped to "the channel currently on screen".
+// Both arrays and the paging cursor must go together — leaving S.appMessages
+// behind would make the Apps button offer the PREVIOUS channel's telemetry.
+export function clearFeed() {
+  S.messages = [];
+  S.appMessages = [];
+  feedOldest = "";
+}
 
 function isMentionOfSelf(m) {
   if (m.kind !== "" && m.kind !== "guest") return false;
@@ -1019,7 +1060,7 @@ export async function refreshGuilds() {
     if (g?.channels?.length) await selectChannel(g.channels[0].id);
     else {
       S.activeChannelId = "";
-      S.messages = [];
+      clearFeed();
     }
   }
 }
@@ -1033,7 +1074,7 @@ export async function selectGuild(id) {
     // guild's channel active — otherwise the old feed renders and, worse,
     // messages get sent to the previous guild's channel.
     S.activeChannelId = "";
-    S.messages = [];
+    clearFeed();
   }
   await refreshRightPanel();
 }
@@ -1112,7 +1153,7 @@ export async function selectChannel(id) {
   S.showPins = false;
   // Clear the outgoing channel's rows right away — they must not linger under
   // the new channel's header while history loads.
-  S.messages = [];
+  clearFeed();
   S.feedLoading = true;
   S.loadingOlder = false;
   S.feedReachedStart = false;
@@ -1129,9 +1170,15 @@ export async function selectChannel(id) {
   // Guard against a stale fetch: if the user switched channels while this was in
   // flight, don't overwrite the now-active channel's messages/read-cursor.
   if (S.activeChannelId !== id) return;
-  S.messages = msgs;
+  const first = splitAppTraffic(msgs);
+  S.messages = first.chat;
+  S.appMessages = first.apps;
+  // Cursor over the RAW page, so paging back doesn't stall on app rows.
+  feedOldest = msgs.length ? msgs[0].sent : "";
   S.feedLoading = false;
-  // A short first page means there's nothing older to page back to.
+  // A short first page means there's nothing older to page back to. Measured on
+  // the raw page: a full page that happened to be mostly app traffic still has
+  // history behind it, however few chat rows it contributed.
   S.feedReachedStart = msgs.length < 200;
   // Advance the read mark past the newest message actually loaded, so a peer's
   // clock-skewed (future-dated) message we've now seen can't keep the badge lit.
@@ -1142,43 +1189,61 @@ export async function selectChannel(id) {
   // instead of dumping the reader at the bottom past everything they missed.
   const hasUnread =
     S.readAnchor &&
-    msgs.some((m) => m.kind === "" && m.sender !== S.identity.fingerprint && m.sent > S.readAnchor);
+    S.messages.some(
+      (m) => m.kind === "" && m.sender !== S.identity.fingerprint && m.sent > S.readAnchor,
+    );
   if (hasUnread) scrollToNewDivider();
   else scrollSoon();
 }
 
 // loadOlder pages in the messages just before the oldest row currently loaded.
-// Returns the number of rows prepended (0 = nothing more / no-op), so the caller
-// can hold the reader's scroll position steady across the insert.
+// Returns the number of CHAT rows prepended (0 = nothing more / no-op), so the
+// caller can hold the reader's scroll position steady across the insert.
+//
+// It keeps fetching until a page actually yields conversation (or history runs
+// out), bounded so a pathological channel can't spin: a channel that takes a
+// burst of app-bus telemetry can easily produce a whole 200-row page with not
+// one human line in it, and returning 0 there would leave the reader stuck at
+// the top of the feed waiting for history that is really still coming.
+const OLDER_PAGE_TRIES = 5;
+
 export async function loadOlder() {
   const id = S.activeChannelId;
-  if (!id || S.loadingOlder || S.feedReachedStart || S.messages.length === 0) return 0;
-  const cursor = S.messages[0].sent;
-  if (!cursor) return 0;
+  if (!id || S.loadingOlder || S.feedReachedStart) return 0;
+  if (!feedOldest) return 0;
   S.loadingOlder = true;
-  let older;
-  try {
-    older = (await api.messagesBefore(id, cursor, 200)) || [];
-  } catch {
-    S.loadingOlder = false;
-    return 0;
+  let prepended = 0;
+  for (let attempt = 0; attempt < OLDER_PAGE_TRIES && !prepended; attempt++) {
+    let older;
+    try {
+      older = (await api.messagesBefore(id, feedOldest, 200)) || [];
+    } catch {
+      break;
+    }
+    // Bail if the channel changed while the fetch was in flight.
+    if (S.activeChannelId !== id) break;
+    if (older.length === 0) {
+      S.feedReachedStart = true;
+      break;
+    }
+    feedOldest = older[0].sent;
+    const { chat, apps } = splitAppTraffic(older);
+    const have = new Set(S.messages.map((m) => m.id));
+    const fresh = chat.filter((m) => !have.has(m.id));
+    if (fresh.length) S.messages = [...fresh, ...S.messages];
+    if (apps.length) {
+      const known = new Set(S.appMessages.map((m) => m.id));
+      const newApps = apps.filter((m) => !known.has(m.id));
+      if (newApps.length) S.appMessages = [...newApps, ...S.appMessages];
+    }
+    prepended = fresh.length;
+    if (older.length < 200) {
+      S.feedReachedStart = true;
+      break;
+    }
   }
-  // Bail if the channel changed while the fetch was in flight.
-  if (S.activeChannelId !== id) {
-    S.loadingOlder = false;
-    return 0;
-  }
-  if (older.length === 0) {
-    S.feedReachedStart = true;
-    S.loadingOlder = false;
-    return 0;
-  }
-  const have = new Set(S.messages.map((m) => m.id));
-  const fresh = older.filter((m) => !have.has(m.id));
-  if (fresh.length) S.messages = [...fresh, ...S.messages];
-  if (older.length < 200) S.feedReachedStart = true;
   S.loadingOlder = false;
-  return fresh.length;
+  return prepended;
 }
 
 // scrollToNewDivider places the unread divider comfortably in view (falling
@@ -1359,6 +1424,19 @@ function initEvents() {
   eventsWired = true;
 
   on("message", (m) => {
+    // App-bus traffic leaves the conversation pipeline immediately — before the
+    // dedupe bookkeeping, before unread, before chimes, before notify. It only
+    // ever reaches S.appMessages, and only for the channel that's open (the
+    // Apps view is per-channel and reloads on switch, so buffering other
+    // channels' telemetry would just grow forever unread).
+    if (isAppMessage(m)) {
+      if (m.channelId === S.activeChannelId) {
+        const i = S.appMessages.findIndex((x) => x.id === m.id);
+        if (i >= 0) S.appMessages = S.appMessages.map((x) => (x.id === m.id ? m : x));
+        else S.appMessages = [...S.appMessages, m];
+      }
+      return;
+    }
     // Is this the FIRST time we've seen this message id? The backend re-emits the
     // whole message on every edit/reaction/pin and on sync backfill, all reusing
     // the original id + `sent`. Deduping by id is what keeps those from inflating

@@ -58,6 +58,7 @@
   import ModalGuildSettings from "./modals/ModalGuildSettings.svelte";
   import ModalChannelTopic from "./modals/ModalChannelTopic.svelte";
   import ModalCatchUp from "./modals/ModalCatchUp.svelte";
+  import ModalApps from "./modals/ModalApps.svelte";
   import ModalChannelLinks from "./modals/ModalChannelLinks.svelte";
   import ModalPublish from "./modals/ModalPublish.svelte";
   import ModalNewPost from "./modals/ModalNewPost.svelte";
@@ -752,6 +753,8 @@
       channelName={S.modal.channelName}
       onClose={() => (S.modal = null)}
     />
+  {:else if S.modal?.kind === "apps"}
+    <ModalApps channelName={S.modal.channelName} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "channelLinks"}
     <ModalChannelLinks channel={S.modal.channel} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "publish"}

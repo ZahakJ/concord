@@ -763,8 +763,12 @@ func (s *Store) MessagesSince(channelID string, sinceNano int64, limit int) ([]d
 		limit = 200
 	}
 	rows, err := s.db.Query(
+		// Chat AND app-plane traffic: this cursor feed is what the app-bus
+		// bridge polls, so it must carry machine payloads too. Callers separate
+		// the two by kind (see domain.Message.IsApp); system/guest/call notices
+		// stay out of it as before.
 		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
-		 FROM messages WHERE channel_id = ? AND sent > ? AND deleted = 0 AND kind = ''
+		 FROM messages WHERE channel_id = ? AND sent > ? AND deleted = 0 AND kind IN ('', 'app')
 		 ORDER BY sent ASC LIMIT ?`, channelID, sinceNano, limit)
 	if err != nil {
 		return nil, err
@@ -1570,9 +1574,11 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 	if limit <= 0 {
 		limit = 200
 	}
+	// 'app' is included so app-plane payloads sync like any other message: a
+	// member who was offline still receives the machine traffic they missed.
 	rows, err := s.db.Query(
 		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent, updated
-		 FROM messages WHERE channel_id = ? AND (sent > ? OR updated > ?) AND kind IN ('', 'system')
+		 FROM messages WHERE channel_id = ? AND (sent > ? OR updated > ?) AND kind IN ('', 'system', 'app')
 		 ORDER BY sent ASC LIMIT ?`, channelID, sinceNano, sinceNano, limit)
 	if err != nil {
 		return nil, err

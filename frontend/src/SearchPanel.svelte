@@ -13,6 +13,7 @@
     flash,
   } from "./lib/state.svelte.js";
   import { removeChip, closeSearch, expandSearch } from "./lib/search.js";
+  import { engineLabel } from "./lib/assist.js";
   import { previewText } from "./lib/attachments.js";
 
   // The local assistant can widen a search with related terms — offered only
@@ -120,9 +121,15 @@
     </div>
 
     {#if S.searchAssistTerms.length}
+      <!-- The provenance line says which engine suggested these terms, from the
+           response — not "your local model", which was only ever true while
+           Ollama was the only engine that could answer. -->
       <div class="sp-assist-note" role="note">
         <Icon name="spark" size={10} />
-        also searched (suggested by your local model):
+        <span class="sp-engine" class:brain={S.searchAssistEngine === "brain"}>
+          {engineLabel(S.searchAssistEngine)}
+        </span>
+        {S.searchAssistNote || "also searched:"}
         {#each S.searchAssistTerms as t (t)}<span class="sp-aterm">{t}</span>{/each}
       </div>
     {/if}
@@ -254,6 +261,25 @@
     padding: 0 16px 8px;
     color: var(--text-muted);
     font-size: 11.5px;
+  }
+  /* Engine chip: distinct fills for "local" and "shared brain" so the two
+     never read as the same badge with different wording. */
+  .sp-engine {
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    color: var(--accent-hover);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .sp-engine.brain {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+    color: var(--warn);
   }
   .sp-aterm {
     padding: 1px 7px;

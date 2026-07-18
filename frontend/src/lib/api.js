@@ -137,13 +137,23 @@ export const api = {
     call("FetchFile", channelID, blobID, keys, mime),
   linkPreview: (url) => call("LinkPreview", url),
   checkForUpdate: () => call("CheckForUpdate"),
-  // the local assistant (opt-in, loopback Ollama — see internal/assist)
+  // The local assistant (opt-in, loopback Ollama — see internal/assist).
+  //
+  // The three answering calls all return the SAME shape —
+  // { text, engine, note, model, jobId, pending } — because more than one
+  // engine can answer now, and the UI is required to say which one did. Never
+  // assume: `engine` and `note` come from the backend and are displayed as-is.
   assistStatus: () => call("AssistStatus"),
   setAssistConfig: (enabled, endpoint, model) =>
     call("SetAssistConfig", enabled, endpoint, model),
+  // The "shared brain" opt-in (a Claude Code session running locally). Returns
+  // the same status object assistStatus() does.
+  setAssistBrain: (enabled) => call("SetAssistBrain", enabled),
   assistCatchUp: (channelID) => call("AssistCatchUp", channelID),
   assistDraftReply: (channelID, instruction = "") =>
     call("AssistDraftReply", channelID, instruction),
+  // Poll a queued brain job (pending:true came back with a jobId).
+  assistBrainJob: (jobId) => call("AssistBrainJob", jobId),
   assistSearch: (query) => call("AssistSearch", query),
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),

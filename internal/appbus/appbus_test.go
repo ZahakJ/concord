@@ -18,9 +18,10 @@ import (
 )
 
 type stubNode struct {
-	guilds []domain.Guild
-	msgs   map[string][]domain.Message // channelID -> chronological
-	sent   []string
+	guilds  []domain.Guild
+	msgs    map[string][]domain.Message // channelID -> chronological
+	sent    []string                    // chat-plane sends
+	sentApp []string                    // data-plane sends
 }
 
 func (n *stubNode) Fingerprint() string { return "AAAA BBBB" }
@@ -32,6 +33,14 @@ func (n *stubNode) SendMessage(chID, content, replyTo string) (domain.Message, e
 	n.sent = append(n.sent, chID+"|"+content)
 	return domain.Message{ID: fmt.Sprintf("m%d", len(n.sent)), ChannelID: chID,
 		Content: content, Sent: time.Now()}, nil
+}
+
+// SendAppMessage records the plane it was called on, so a test can prove that
+// kind:"app" took the data plane and not the chat one.
+func (n *stubNode) SendAppMessage(chID, content, replyTo string) (domain.Message, error) {
+	n.sentApp = append(n.sentApp, chID+"|"+content)
+	return domain.Message{ID: fmt.Sprintf("a%d", len(n.sentApp)), ChannelID: chID,
+		Content: content, Kind: domain.KindApp, Sent: time.Now()}, nil
 }
 func (n *stubNode) MessagesSince(chID string, sinceNano int64, limit int) ([]domain.Message, error) {
 	var out []domain.Message
@@ -119,6 +128,22 @@ func TestAuthRequired(t *testing.T) {
 	if strings.Contains(w.Body.String(), "hall") {
 		t.Fatal("voice channels must be filtered from the directory")
 	}
+	// Data-plane support must be advertised, because an older bridge ignores
+	// kind:"app" on a send and silently posts the payload as chat — a producer
+	// has to be able to detect support before it sends, not after.
+	caps, _ := out["capabilities"].([]any)
+	found := false
+	for _, c := range caps {
+		if c == CapDataPlane {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("health must advertise %q, got %v", CapDataPlane, out["capabilities"])
+	}
+	if out[CapDataPlane] != true {
+		t.Fatalf("health must also expose %q as a boolean, got %v", CapDataPlane, out[CapDataPlane])
+	}
 }
 
 func TestChannelResolution(t *testing.T) {
@@ -151,13 +176,37 @@ func TestSendAndRateLimit(t *testing.T) {
 	s.now = func() time.Time { return now }
 	h := s.Handler()
 
+	// A legacy producer sends an APPBUS: payload with no kind field at all.
+	// It must be recognized as data-plane traffic and taken off the chat
+	// plane — that is what stops an un-upgraded sentinel spamming #general.
 	w, out := doReq(t, h, "POST", "/api/send", "t",
 		`{"channel":"scores","text":"APPBUS:sentinel:1\n{}"}`)
-	if w.Code != 200 || out["ok"] != true || out["message_id"] != "m1" {
-		t.Fatalf("send: %d %v", w.Code, out)
+	if w.Code != 200 || out["ok"] != true || out["kind"] != "app" {
+		t.Fatalf("legacy APPBUS send must take the app plane: %d %v", w.Code, out)
 	}
-	if !strings.HasPrefix(stub.sent[0], "c3|APPBUS:sentinel:1") {
+	if len(stub.sent) != 0 {
+		t.Fatalf("machine payload must never reach the chat plane, got %v", stub.sent)
+	}
+	if !strings.HasPrefix(stub.sentApp[0], "c3|APPBUS:sentinel:1") {
+		t.Fatalf("sentApp: %v", stub.sentApp)
+	}
+	// An explicit kind:"app" does the same thing without relying on the prefix.
+	if w, out := doReq(t, h, "POST", "/api/send", "t",
+		`{"channel":"scores","text":"raw payload","kind":"app"}`); w.Code != 200 || out["kind"] != "app" {
+		t.Fatalf("explicit app kind: %d %v", w.Code, out)
+	}
+	// An ordinary chat message is completely unaffected.
+	if w, out := doReq(t, h, "POST", "/api/send", "t",
+		`{"channel":"scores","text":"hello"}`); w.Code != 200 || out["kind"] != "chat" {
+		t.Fatalf("plain send must stay on the chat plane: %d %v", w.Code, out)
+	}
+	if stub.sent[0] != "c3|hello" {
 		t.Fatalf("sent: %v", stub.sent)
+	}
+	// A nonsense kind is a client bug, not something to guess at.
+	if w, _ := doReq(t, h, "POST", "/api/send", "t",
+		`{"channel":"scores","text":"x","kind":"telemetry"}`); w.Code != 400 {
+		t.Fatalf("unknown kind must 400, got %d", w.Code)
 	}
 	if w, _ := doReq(t, h, "POST", "/api/send", "t", `{"channel":"scores","text":""}`); w.Code != 400 {
 		t.Fatalf("empty text must 400, got %d", w.Code)
@@ -179,6 +228,82 @@ func TestSendAndRateLimit(t *testing.T) {
 	now = now.Add(time.Second)
 	if w, _ := doReq(t, h, "POST", "/api/send", "t", `{"channel":"scores","text":"x"}`); w.Code != 200 {
 		t.Fatalf("refill after 1s must allow a send, got %d", w.Code)
+	}
+}
+
+// The planes are limited independently: a machine flooding the data plane must
+// never consume the budget a human message needs, and vice versa.
+func TestPlanesHaveSeparateRateBudgets(t *testing.T) {
+	stub := newStub()
+	s := New(stub, "t")
+	now := time.Date(2026, 7, 17, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	h := s.Handler()
+
+	// Exhaust the chat bucket (burst 5) in one instant.
+	for i := 0; i < rateBurst; i++ {
+		if w, _ := doReq(t, h, "POST", "/api/send", "t", `{"channel":"scores","text":"x"}`); w.Code != 200 {
+			t.Fatalf("chat burst %d: %d", i, w.Code)
+		}
+	}
+	if w, _ := doReq(t, h, "POST", "/api/send", "t", `{"channel":"scores","text":"x"}`); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("chat plane must now be limited, got %d", w.Code)
+	}
+	// The app plane still has its own, larger budget.
+	if w, _ := doReq(t, h, "POST", "/api/send", "t",
+		`{"channel":"scores","text":"p","kind":"app"}`); w.Code != 200 {
+		t.Fatalf("app plane must not share the chat bucket, got %d", w.Code)
+	}
+	// And it is still bounded — a wedged producer cannot send forever.
+	for i := 1; i < appRateBurst; i++ {
+		doReq(t, h, "POST", "/api/send", "t", `{"channel":"scores","text":"p","kind":"app"}`)
+	}
+	if w, _ := doReq(t, h, "POST", "/api/send", "t",
+		`{"channel":"scores","text":"p","kind":"app"}`); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("app plane must still be bounded, got %d", w.Code)
+	}
+}
+
+// Reads: the kind field is reported, the filter selects a plane, and an
+// unfiltered read returns exactly what it always did.
+func TestMessagesKindFilter(t *testing.T) {
+	h := New(newStub(), "t").Handler()
+
+	// No filter: both planes, as before the split.
+	_, out := doReq(t, h, "GET", "/api/messages?channel=scores", "t", "")
+	if msgs := out["messages"].([]any); len(msgs) != 2 {
+		t.Fatalf("unfiltered read must be unchanged, got %v", msgs)
+	}
+	// The legacy APPBUS: row reports as app even though it was stored with no
+	// kind field — that is the retroactive fix for payloads already on disk.
+	first := out["messages"].([]any)[0].(map[string]any)
+	if first["kind"] != "app" {
+		t.Fatalf("legacy APPBUS row must read as app, got %v", first)
+	}
+	second := out["messages"].([]any)[1].(map[string]any)
+	if second["kind"] != "chat" {
+		t.Fatalf("ordinary message must read as chat, got %v", second)
+	}
+
+	_, out = doReq(t, h, "GET", "/api/messages?channel=scores&kind=app", "t", "")
+	msgs := out["messages"].([]any)
+	if len(msgs) != 1 || msgs[0].(map[string]any)["id"] != "a" {
+		t.Fatalf("kind=app must return only the payload, got %v", msgs)
+	}
+	// The cursor advanced past the filtered-out chat row too, so a polling
+	// app-plane consumer makes forward progress instead of re-reading it.
+	if out["next_cursor"] == "0" {
+		t.Fatalf("filtered read must still advance the cursor, got %v", out["next_cursor"])
+	}
+
+	_, out = doReq(t, h, "GET", "/api/messages?channel=scores&kind=chat", "t", "")
+	msgs = out["messages"].([]any)
+	if len(msgs) != 1 || msgs[0].(map[string]any)["id"] != "b" {
+		t.Fatalf("kind=chat must exclude machine payloads, got %v", msgs)
+	}
+
+	if w, _ := doReq(t, h, "GET", "/api/messages?channel=scores&kind=nope", "t", ""); w.Code != 400 {
+		t.Fatalf("unknown kind filter must 400, got %d", w.Code)
 	}
 }
 
