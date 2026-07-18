@@ -30,6 +30,7 @@ const (
 type Envelope struct {
 	ID      string
 	Data    []byte
+	depositor string // opaque id of who deposited it (for fair eviction)
 	stored  time.Time
 	expires time.Time
 }
@@ -69,8 +70,10 @@ func (s *Store) IsRegistered(mailboxID string) bool {
 }
 
 // Deposit stores a sealed envelope for a mailbox. Rejects oversized envelopes
-// and deposits to unregistered mailboxes. Returns the assigned envelope ID.
-func (s *Store) Deposit(mailboxID string, data []byte, ttl time.Duration) (string, bool) {
+// and deposits to unregistered mailboxes. depositor is an opaque id for whoever
+// deposited (their PeerID) — used only to keep one flooder from evicting another
+// sender's genuine mail. Returns the assigned envelope ID.
+func (s *Store) Deposit(mailboxID, depositor string, data []byte, ttl time.Duration) (string, bool) {
 	if len(data) == 0 || len(data) > MaxEnvelope {
 		return "", false
 	}
@@ -87,13 +90,16 @@ func (s *Store) Deposit(mailboxID string, data []byte, ttl time.Duration) (strin
 	s.seq++
 	id := formatID(s.seq)
 	now := time.Now()
-	env := Envelope{ID: id, Data: append([]byte(nil), data...), stored: now, expires: now.Add(ttl)}
+	env := Envelope{ID: id, Data: append([]byte(nil), data...), depositor: depositor, stored: now, expires: now.Add(ttl)}
 
 	box := s.boxes[mailboxID]
-	// Cap per mailbox: drop the oldest to make room.
+	// Cap per mailbox. A single mailbox tag is derivable by any co-member, so
+	// strict oldest-first eviction lets one attacker flush a victim's genuine
+	// pending mail simply by depositing MaxPerMailbox junk. Instead evict from the
+	// HEAVIEST depositor in the box, so a flooder only ever displaces its own
+	// envelopes — an honest sender's one or two messages are never the victim.
 	for len(box) >= MaxPerMailbox {
-		s.total -= len(box[0].Data)
-		box = box[1:]
+		box = s.dropHeaviestDepositorLocked(box)
 	}
 	box = append(box, env)
 	s.boxes[mailboxID] = box
@@ -102,6 +108,36 @@ func (s *Store) Deposit(mailboxID string, data []byte, ttl time.Duration) (strin
 	// Global cap: evict oldest across all mailboxes.
 	s.evictLocked()
 	return id, true
+}
+
+// dropHeaviestDepositorLocked removes the oldest envelope belonging to whichever
+// depositor holds the most envelopes in the box (ties broken by oldest overall).
+// Caller holds s.mu.
+func (s *Store) dropHeaviestDepositorLocked(box []Envelope) []Envelope {
+	if len(box) == 0 {
+		return box
+	}
+	counts := make(map[string]int, len(box))
+	for _, e := range box {
+		counts[e.depositor]++
+	}
+	worst, worstN := "", -1
+	for dep, n := range counts {
+		if n > worstN {
+			worst, worstN = dep, n
+		}
+	}
+	// Drop the oldest envelope from the heaviest depositor (box is append-ordered,
+	// so the first match is the oldest).
+	for i, e := range box {
+		if e.depositor == worst {
+			s.total -= len(e.Data)
+			return append(box[:i:i], box[i+1:]...)
+		}
+	}
+	// Fallback (shouldn't happen): drop oldest.
+	s.total -= len(box[0].Data)
+	return box[1:]
 }
 
 // Drain returns (without deleting) the non-expired envelopes for a mailbox.

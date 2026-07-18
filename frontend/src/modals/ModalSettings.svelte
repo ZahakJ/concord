@@ -27,6 +27,30 @@
     setSoundsEnabled(sounds);
   }
 
+  // Empty trash: irreversibly scrub retained bodies of deleted messages so a
+  // moderator can no longer reveal any of them on this device.
+  let purging = $state(false);
+  function emptyTrash() {
+    S.modal = {
+      kind: "confirm",
+      title: "Empty deleted-message trash?",
+      body: "Every deleted message's retained text is permanently erased on this device. This can't be undone, and 'Show original' will have nothing left to reveal.",
+      confirmLabel: "Empty trash",
+      onConfirm: async () => {
+        S.modal = null;
+        purging = true;
+        try {
+          const n = await api.emptyTrash("");
+          flash(`Erased ${n} deleted message${n === 1 ? "" : "s"}`, "success");
+        } catch (err) {
+          flash(err);
+        } finally {
+          purging = false;
+        }
+      },
+    };
+  }
+
   let ringtone = $state(getRingtone());
   function pickRingtone(id) {
     ringtone = id;
@@ -519,6 +543,17 @@
           </span>
         </span>
         <span class="switch" class:on={S.prefs.showDeleted}><span class="knob"></span></span>
+      </button>
+      <button class="row" onclick={emptyTrash} disabled={purging}>
+        <span class="chip"><Icon name="trash" size={16} /></span>
+        <span class="row-text">
+          <span class="row-title">Empty deleted-message trash</span>
+          <span class="row-sub">
+            Permanently erase the retained text of every deleted message on this
+            device, so "Show original" has nothing left to reveal.
+          </span>
+        </span>
+        <span class="chev">{purging ? "…" : "›"}</span>
       </button>
       <button
         class="row"

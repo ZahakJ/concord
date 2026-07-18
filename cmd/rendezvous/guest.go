@@ -34,6 +34,26 @@ import (
 //go:embed guestpage/*
 var guestPage embed.FS
 
+// readCappedLine reads one newline-delimited frame from the host stream, bounding
+// the accumulated bytes at max. A plain ReadBytes('\n') would buffer an unbounded
+// newline-less stream from a misbehaving/compromised host and OOM the gateway.
+func readCappedLine(r *bufio.Reader, max int) ([]byte, error) {
+	buf := make([]byte, 0, 512)
+	for {
+		b, err := r.ReadByte()
+		if err != nil {
+			return buf, err
+		}
+		if b == '\n' {
+			return buf, nil
+		}
+		if len(buf) >= max {
+			return nil, fmt.Errorf("rendezvous: host frame exceeds cap")
+		}
+		buf = append(buf, b)
+	}
+}
+
 const (
 	guestIdleTimeout  = 10 * time.Minute
 	// Big enough for a WebRTC offer/answer (SDP with video runs to several KB),
@@ -163,7 +183,7 @@ func relayGuest(ctx context.Context, h host.Host, w http.ResponseWriter, r *http
 		defer shut()
 		r := bufio.NewReaderSize(stream, guestMaxFrameSize)
 		for {
-			line, err := r.ReadBytes('\n')
+			line, err := readCappedLine(r, guestMaxFrameSize)
 			if len(line) > 0 {
 				_ = ws.SetWriteDeadline(time.Now().Add(20 * time.Second))
 				if werr := ws.WriteMessage(websocket.TextMessage, line); werr != nil {

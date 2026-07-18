@@ -384,7 +384,7 @@ func TestUpsertSyncedMessage(t *testing.T) {
 	remote.Edited = true
 	remote.Updated = remote.Sent.Add(time.Minute)
 	remote.Reactions = map[string][]string{"👍": {"fpr-bob", self}}
-	changed, err := s.UpsertSyncedMessage(remote, self)
+	changed, err := s.UpsertSyncedMessage(remote, self, true)
 	if err != nil || !changed {
 		t.Fatalf("insert: changed=%v err=%v", changed, err)
 	}
@@ -409,7 +409,7 @@ func TestUpsertSyncedMessage(t *testing.T) {
 	snap := local
 	snap.Updated = time.Now().Add(time.Hour) // remote is fresher
 	snap.Reactions = map[string][]string{"👍": {"fpr-bob"}}
-	if _, err := s.UpsertSyncedMessage(snap, self); err != nil {
+	if _, err := s.UpsertSyncedMessage(snap, self, true); err != nil {
 		t.Fatalf("upsert reactions: %v", err)
 	}
 	got, _, _ = s.MessageByID(local.ID)
@@ -426,7 +426,7 @@ func TestUpsertSyncedMessage(t *testing.T) {
 	}
 	stale := local
 	stale.Content = "hello" // pre-edit copy, zero Updated
-	if _, err := s.UpsertSyncedMessage(stale, self); err != nil {
+	if _, err := s.UpsertSyncedMessage(stale, self, true); err != nil {
 		t.Fatalf("stale upsert: %v", err)
 	}
 	got, _, _ = s.MessageByID(local.ID)
@@ -437,12 +437,53 @@ func TestUpsertSyncedMessage(t *testing.T) {
 	// Tombstones always win, regardless of timestamps.
 	dead := local
 	dead.Deleted = true
-	if changed, err := s.UpsertSyncedMessage(dead, self); err != nil || !changed {
+	if changed, err := s.UpsertSyncedMessage(dead, self, true); err != nil || !changed {
 		t.Fatalf("tombstone upsert: changed=%v err=%v", changed, err)
 	}
 	got, _, _ = s.MessageByID(local.ID)
 	if !got.Deleted {
 		t.Fatal("tombstone not applied")
+	}
+}
+
+// TestUpsertSyncedMessageUntrusted pins the trust gate: a backfill from an
+// untrusted source may insert a genuinely new message, but must not tombstone or
+// overwrite a message we already hold.
+func TestUpsertSyncedMessageUntrusted(t *testing.T) {
+	s, _ := openTestStore(t)
+	const self = "fpr-self"
+
+	// New message from an untrusted peer: still inserted (gap-fill catch-up).
+	fresh, _ := domain.NewMessage("chan-1", []byte("alice"), "caught-up")
+	if changed, err := s.UpsertSyncedMessage(fresh, self, false); err != nil || !changed {
+		t.Fatalf("untrusted insert: changed=%v err=%v", changed, err)
+	}
+
+	// A message we already hold must not be tombstoned by an untrusted backfill.
+	local, _ := domain.NewMessage("chan-1", []byte("alice"), "keep me")
+	if _, err := s.SaveMessage(local); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+	dead := local
+	dead.Deleted = true
+	if _, err := s.UpsertSyncedMessage(dead, self, false); err != nil {
+		t.Fatalf("untrusted tombstone: %v", err)
+	}
+	got, _, _ := s.MessageByID(local.ID)
+	if got.Deleted {
+		t.Fatal("untrusted backfill tombstoned an existing message")
+	}
+
+	// Nor overwritten with fresher content.
+	rewrite := local
+	rewrite.Content = "spoofed"
+	rewrite.Updated = time.Now().Add(time.Hour)
+	if _, err := s.UpsertSyncedMessage(rewrite, self, false); err != nil {
+		t.Fatalf("untrusted rewrite: %v", err)
+	}
+	got, _, _ = s.MessageByID(local.ID)
+	if got.Content != "keep me" {
+		t.Fatalf("untrusted backfill rewrote content: %q", got.Content)
 	}
 }
 

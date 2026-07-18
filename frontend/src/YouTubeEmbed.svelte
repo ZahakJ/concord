@@ -1,11 +1,20 @@
 <script>
-  // Click-to-play YouTube embed. Nothing but the thumbnail loads until the
-  // user clicks; playback uses the privacy-enhanced youtube-nocookie domain.
-  // All URLs are rebuilt from the validated 11-char video ID.
+  // Click-to-play YouTube embed. Playback uses the privacy-enhanced
+  // youtube-nocookie domain. All URLs are rebuilt from the validated 11-char
+  // video ID.
+  //
+  // autoload gates the THUMBNAIL. The thumbnail is a direct <img> to Google's
+  // i.ytimg.com — a zero-click request that leaks the viewer's IP and online
+  // time the moment a message scrolls into view. When link previews are off we
+  // must not fire it: show a neutral placeholder and only reach out to Google
+  // once the user explicitly clicks.
   import { ytThumb, ytEmbed } from "./lib/embeds.js";
 
-  let { videoId } = $props();
+  let { videoId, autoload = true } = $props();
   let playing = $state(false);
+  // Reveal the (network-touching) thumbnail only when previews are allowed, or
+  // after the user opts in by clicking the placeholder.
+  let revealed = $state(autoload);
 </script>
 
 <div class="yt">
@@ -16,7 +25,7 @@
       allow="autoplay; fullscreen; picture-in-picture"
       allowfullscreen
     ></iframe>
-  {:else}
+  {:else if revealed}
     <button class="thumb" onclick={() => (playing = true)} aria-label="Play YouTube video">
       <img src={ytThumb(videoId)} alt="YouTube thumbnail" loading="lazy" />
       <span class="play">
@@ -25,6 +34,14 @@
           <path d="M18 9v14l13-7z" fill="#fff" />
         </svg>
       </span>
+    </button>
+  {:else}
+    <button class="placeholder" onclick={() => (revealed = true)} aria-label="Load YouTube preview">
+      <span class="pi" aria-hidden="true">
+        <svg width="40" height="28" viewBox="0 0 46 32"><rect width="46" height="32" rx="8" fill="#f00" /><path d="M18 9v14l13-7z" fill="#fff" /></svg>
+      </span>
+      <span class="pl">Load YouTube preview</span>
+      <span class="ph muted">Previews are off · this contacts Google</span>
     </button>
   {/if}
 </div>
@@ -44,6 +61,33 @@
     height: 100%;
     border: 0;
     display: block;
+  }
+  .placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 12px;
+    background: var(--bg-1);
+    text-align: center;
+    transition: background 0.12s ease;
+  }
+  .placeholder:hover {
+    background: var(--bg-2);
+  }
+  .pi {
+    opacity: 0.9;
+  }
+  .pl {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .ph {
+    font-size: 11px;
   }
   .thumb {
     position: relative;

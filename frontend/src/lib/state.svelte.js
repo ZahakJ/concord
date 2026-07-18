@@ -48,6 +48,10 @@ export const S = $state({
   // feedLoading: a channel switch is fetching history (drives the skeleton —
   // without it the OLD channel's rows linger under the new header).
   feedLoading: false,
+  // loadingOlder / feedReachedStart: scroll-up pagination state. The initial
+  // load is only the recent window; older rows are paged in on demand.
+  loadingOlder: false,
+  feedReachedStart: false,
   // restarting: a self-update restart is in flight; the app shows a full-bleed
   // "right back" curtain so the outgoing version is never visible mid-swap.
   restarting: false,
@@ -55,6 +59,10 @@ export const S = $state({
   // localStorage last-read map (recomputed on load).
   unread: {},
   mutes: loadJSON("concord.mutes", {}), // channelId -> true
+  // Guild-rail layout: device-local ordering + Discord-style folders (see
+  // lib/rail.js). An array of { t:"g", id } / { t:"f", id, name, color, open,
+  // ids }. Reconciled against the live guild list on render.
+  rail: loadJSON("concord.rail", []),
   readAnchor: "", // ISO time we'd last read the active channel (for the "new" line)
 
   // Privacy + appearance prefs. linkPreviews defaults OFF: fetching a preview
@@ -72,6 +80,8 @@ export const S = $state({
     accent: "",
     themePack: "", // curated full-palette skin ("" = default palette)
     density: "cozy",
+    clock: "system", // "system" | "12" | "24" — timestamp hour format
+    memberPanel: true, // show the right-hand member panel (toggle with Ctrl+U)
     ...loadJSON("concord.prefs", {}),
   },
 
@@ -98,6 +108,8 @@ export const S = $state({
   // until that call ends and the roster clears.
   dismissedCalls: [],
   muted: false,
+  deafened: false, // we've silenced all incoming call audio (implies mic muted)
+  peerVolumes: {}, // peerId -> 0..1 local playback gain (absent = full)
   sharing: false, // we are screen-sharing
   cameraOn: false, // our camera is on
   // videoTiles: [{ key, peerId, kind, self }] — one per live video source
@@ -284,14 +296,64 @@ export function toggleMute(channelId) {
   saveJSON("concord.mutes", m);
 }
 
+// clockOpts turns the clock pref into Intl options ({} = follow the locale).
+// Reading S.prefs.clock makes any $derived/template that calls it reactive.
+export function clockOpts() {
+  const c = S.prefs.clock;
+  if (c === "12") return { hour12: true };
+  if (c === "24") return { hour12: false };
+  return {};
+}
+
+// fmtClock formats an ISO timestamp as HH:MM honoring the clock pref. Shared by
+// the feed, search, and scheduled views so the 12/24h choice is global.
+export function fmtClock(iso) {
+  try {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clockOpts() });
+  } catch {
+    return "";
+  }
+}
+
+// toggleMemberPanel flips the right-hand member panel (Ctrl/Cmd+U).
+export function toggleMemberPanel() {
+  setPref("memberPanel", !S.prefs.memberPanel);
+}
+
+// setPeerVolume sets one call participant's LOCAL playback gain (0..1) — silence
+// or quiet just them, for you only. Nothing is sent to anyone; it's your own
+// speakers. Volume 1 is the default, so it's dropped from the map.
+export function setPeerVolume(peerId, vol) {
+  const v = Math.max(0, Math.min(1, vol));
+  const pv = { ...S.peerVolumes };
+  if (v === 1) delete pv[peerId];
+  else pv[peerId] = v;
+  S.peerVolumes = pv;
+  S.voice?.mesh.setPeerVolume(peerId, v);
+}
+
+// togglePeerMute flips a participant between silenced (0) and full (1) for you.
+export function togglePeerMute(peerId) {
+  setPeerVolume(peerId, S.peerVolumes[peerId] === 0 ? 1 : 0);
+}
+
 // markUnread rewinds a channel's read cursor to just before a message, so it
 // (and everything after) shows as unread again, with the NEW divider restored.
-export function markUnread(channelId, msg) {
+export async function markUnread(channelId, msg) {
   if (!channelId || !msg) return;
   const before = new Date(new Date(msg.sent).getTime() - 1).toISOString();
   lastRead[channelId] = before;
   saveJSON("concord.lastRead", lastRead);
-  recomputeUnread();
+  // Only THIS channel's cursor moved — recount just it, not every channel.
+  try {
+    const u = await countChannelUnread(channelId);
+    const next = { ...S.unread };
+    if (u) next[channelId] = u;
+    else delete next[channelId];
+    S.unread = next;
+  } catch {
+    /* leave the existing badge as-is if the channel isn't readable now */
+  }
   if (channelId === S.activeChannelId) S.readAnchor = before;
 }
 
@@ -393,6 +455,12 @@ export function confirmLeaveGuild(g) {
       flash(g.isOwner ? "Guild deleted" : "Left guild");
     },
   };
+}
+
+// commitRail persists the guild-rail layout (ordering + folders). Device-local.
+export function commitRail(items) {
+  S.rail = items;
+  saveJSON("concord.rail", items);
 }
 
 // setPref updates a persisted privacy preference.
@@ -503,10 +571,38 @@ async function countChannelUnread(channelId) {
 // called once after login so a refresh doesn't wipe the badges. Applied
 // per-channel as each count lands (never a wholesale S.unread swap at the
 // end): live bumps arriving during the awaits must not be clobbered.
+//
+// Fast path: a single backend call counts unread per channel in SQL with NO
+// decryption, so the common case (a read channel) costs nothing. Only channels
+// the cheap count flags as non-empty are decrypted — and only to get the exact
+// "from others" count and the mention tally, which need message content.
 async function recomputeUnread() {
+  const since = {};
   for (const g of S.guilds) {
     for (const c of g.channels) {
       if (c.id === S.activeChannelId) continue;
+      since[c.id] = lastRead[c.id] || "";
+    }
+  }
+  let counts = null;
+  try {
+    counts = await api.unreadCounts(since);
+  } catch {
+    /* fall through to the per-channel path below */
+  }
+  for (const g of S.guilds) {
+    for (const c of g.channels) {
+      if (c.id === S.activeChannelId) continue;
+      // With a working cheap count, skip channels that have nothing past the
+      // cursor without ever touching the DB's ciphertext.
+      if (counts && !counts[c.id]) {
+        if (S.unread[c.id]) {
+          const next = { ...S.unread };
+          delete next[c.id];
+          S.unread = next;
+        }
+        continue;
+      }
       try {
         const u = await countChannelUnread(c.id);
         const next = { ...S.unread };
@@ -706,9 +802,52 @@ export function popoverJustOpened() {
 
 // ---- profile accent ----
 
+// relLuminance parses a #hex or rgb() color and returns its sRGB relative
+// luminance (0 dark … 1 light), or null if it can't be parsed.
+function relLuminance(color) {
+  if (!color) return null;
+  let r, g, b;
+  const hex = color.trim().replace(/^#/, "");
+  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    r = parseInt(hex[0] + hex[0], 16);
+    g = parseInt(hex[1] + hex[1], 16);
+    b = parseInt(hex[2] + hex[2], 16);
+  } else if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+    r = parseInt(hex.slice(0, 2), 16);
+    g = parseInt(hex.slice(2, 4), 16);
+    b = parseInt(hex.slice(4, 6), 16);
+  } else {
+    const m = color.match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+    if (!m) return null;
+    [r, g, b] = [+m[1], +m[2], +m[3]];
+  }
+  const lin = (v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+// accentForeground picks black or white text for a given accent fill so it stays
+// legible — white on the pale shipped accents (gruvbox gold, rose, nord) fails
+// contrast badly, which is exactly what the hardcoded #fff did before.
+export function accentForeground(color) {
+  const l = relLuminance(color);
+  return l != null && l > 0.55 ? "#141419" : "#ffffff";
+}
+
+// syncAccentFg resolves whatever --accent currently is (an explicit color OR a
+// theme pack's CSS value) and stamps a contrast-safe --accent-fg to match.
+export function syncAccentFg() {
+  const el = document.documentElement;
+  const accent = getComputedStyle(el).getPropertyValue("--accent").trim();
+  el.style.setProperty("--accent-fg", accentForeground(accent));
+}
+
 export function applyAccent(color) {
   if (!color) return;
   document.documentElement.style.setProperty("--accent", color);
+  document.documentElement.style.setProperty("--accent-fg", accentForeground(color));
 }
 
 // ---- appearance (theme / accent preset / density) ----
@@ -741,8 +880,12 @@ export function applyAppearance() {
   // profile color. An inline --accent would defeat the pack's palette, so
   // clear it when the pack should win.
   if (S.prefs.accent) applyAccent(S.prefs.accent);
-  else if (S.prefs.themePack) document.documentElement.style.removeProperty("--accent");
-  else applyAccent(S.identity.color);
+  else if (S.prefs.themePack) {
+    document.documentElement.style.removeProperty("--accent");
+    document.documentElement.style.removeProperty("--accent-fg");
+    // Let the pack's --accent apply, then derive a legible foreground from it.
+    syncAccentFg();
+  } else applyAccent(S.identity.color);
 }
 
 // setAppearance persists one appearance pref and applies it under a brief
@@ -971,6 +1114,8 @@ export async function selectChannel(id) {
   // the new channel's header while history loads.
   S.messages = [];
   S.feedLoading = true;
+  S.loadingOlder = false;
+  S.feedReachedStart = false;
   let msgs;
   try {
     msgs = (await api.messages(id)) || [];
@@ -986,6 +1131,8 @@ export async function selectChannel(id) {
   if (S.activeChannelId !== id) return;
   S.messages = msgs;
   S.feedLoading = false;
+  // A short first page means there's nothing older to page back to.
+  S.feedReachedStart = msgs.length < 200;
   // Advance the read mark past the newest message actually loaded, so a peer's
   // clock-skewed (future-dated) message we've now seen can't keep the badge lit.
   let newest = "";
@@ -998,6 +1145,40 @@ export async function selectChannel(id) {
     msgs.some((m) => m.kind === "" && m.sender !== S.identity.fingerprint && m.sent > S.readAnchor);
   if (hasUnread) scrollToNewDivider();
   else scrollSoon();
+}
+
+// loadOlder pages in the messages just before the oldest row currently loaded.
+// Returns the number of rows prepended (0 = nothing more / no-op), so the caller
+// can hold the reader's scroll position steady across the insert.
+export async function loadOlder() {
+  const id = S.activeChannelId;
+  if (!id || S.loadingOlder || S.feedReachedStart || S.messages.length === 0) return 0;
+  const cursor = S.messages[0].sent;
+  if (!cursor) return 0;
+  S.loadingOlder = true;
+  let older;
+  try {
+    older = (await api.messagesBefore(id, cursor, 200)) || [];
+  } catch {
+    S.loadingOlder = false;
+    return 0;
+  }
+  // Bail if the channel changed while the fetch was in flight.
+  if (S.activeChannelId !== id) {
+    S.loadingOlder = false;
+    return 0;
+  }
+  if (older.length === 0) {
+    S.feedReachedStart = true;
+    S.loadingOlder = false;
+    return 0;
+  }
+  const have = new Set(S.messages.map((m) => m.id));
+  const fresh = older.filter((m) => !have.has(m.id));
+  if (fresh.length) S.messages = [...fresh, ...S.messages];
+  if (older.length < 200) S.feedReachedStart = true;
+  S.loadingOlder = false;
+  return fresh.length;
 }
 
 // scrollToNewDivider places the unread divider comfortably in view (falling

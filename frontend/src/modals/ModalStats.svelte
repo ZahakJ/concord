@@ -101,6 +101,11 @@
           {#each ns.peerList as p (p.id)}
             <div class="peer">
               <span class="pdot" class:relay={p.relayed} class:infra={p.role === "rendezvous"}></span>
+              {#if p.name}
+                <span class="pname">{p.name}</span>
+              {:else if p.role !== "rendezvous"}
+                <span class="pname unknown" title="Connected member peer with no profile you've learned — often a stray/test instance">unknown peer</span>
+              {/if}
               <code class="pid">{p.id.slice(0, 12)}…{p.id.slice(-6)}</code>
               {#if p.role === "rendezvous"}<span class="prole">rendezvous</span>{/if}
               {#if p.rttMs > 0}<span class="prtt muted">{p.rttMs} ms</span>{/if}
@@ -201,9 +206,19 @@
     background: var(--bg-3);
     color: var(--text-muted);
   }
+  .pname {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .pname.unknown {
+    font-weight: 500;
+    font-style: italic;
+    color: var(--warn, #f0b232);
+  }
   .pid {
     font-family: var(--mono, monospace);
     color: var(--text-muted);
+    font-size: 11px;
   }
   .prtt {
     font-size: 11px;

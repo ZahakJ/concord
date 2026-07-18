@@ -112,6 +112,7 @@ export const api = {
   networkStats: () => call("NetworkStats"),
   signalCall: (channelID, action, target = "") => call("SignalCall", channelID, action, target),
   cancelPendingMember: (guildID, fingerprint) => call("CancelPendingMember", guildID, fingerprint),
+  emptyTrash: (guildID = "") => call("EmptyTrash", guildID),
   blockUser: (fingerprint) => call("BlockUser", fingerprint),
   unblockUser: (fingerprint) => call("UnblockUser", fingerprint),
   blockedUsers: () => call("BlockedUsers"),
@@ -120,6 +121,8 @@ export const api = {
   inviteCode: (guildID) => call("InviteCode", guildID),
   joinViaInvite: (code) => call("JoinViaInvite", code),
   messages: (channelID) => call("Messages", channelID),
+  messagesBefore: (channelID, beforeISO, limit) => call("MessagesBefore", channelID, beforeISO, limit),
+  unreadCounts: (sinceISO) => call("UnreadCounts", sinceISO),
   sendMessage: (channelID, content, replyTo = "") =>
     call("SendMessage", channelID, content, replyTo),
   sendCallNotice: (channelID, kind, content) =>

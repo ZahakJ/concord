@@ -76,6 +76,7 @@
   import ModalWhen from "./modals/ModalWhen.svelte";
   import ModalScheduled from "./modals/ModalScheduled.svelte";
   import ModalPoll from "./modals/ModalPoll.svelte";
+  import ModalCompose from "./modals/ModalCompose.svelte";
   import ModalDisappear from "./modals/ModalDisappear.svelte";
   import ModalStats from "./modals/ModalStats.svelte";
   import ModalBlocked from "./modals/ModalBlocked.svelte";
@@ -313,7 +314,13 @@
     //   • the user turned on "Hide my IP on calls" globally.
     // If no relay is available we fall back to a normal call (can't hide, but
     // still connects) rather than failing.
-    const kind = S.guilds.find((g) => g.id === S.activeGuildId)?.kind;
+    // Resolve the guild that OWNS this channel, not the one that happens to be
+    // active — admitting to a locked meeting (the knock→admit path) joins without
+    // navigating, so keying off S.activeGuildId could miss the "meeting" kind and
+    // skip the forced IP-hiding relay. IP privacy must follow the channel.
+    const kind =
+      S.guilds.find((g) => g.channels?.some((c) => c.id === channelId))?.kind ??
+      S.guilds.find((g) => g.id === S.activeGuildId)?.kind;
     let iceServers;
     let forceRelay = false;
     try {
@@ -397,6 +404,8 @@
     S.voiceSpeaking = [];
     S.voicePeerFpr = {};
     S.muted = false;
+    S.deafened = false;
+    S.peerVolumes = {};
     S.sharing = false;
     S.cameraOn = false;
     clearVideoStreams();
@@ -411,8 +420,20 @@
   }
 
   function toggleMicMute() {
+    // Talking again means you can hear again: unmuting lifts deafen too.
     S.muted = !S.muted;
+    if (!S.muted && S.deafened) {
+      S.deafened = false;
+      S.voice?.mesh.setDeafened(false);
+    }
     S.voice?.mesh.setMuted(S.muted);
+  }
+
+  function toggleDeafen() {
+    S.deafened = !S.deafened;
+    S.voice?.mesh.setDeafened(S.deafened);
+    // Deafen implies mic-muted; the mesh already muted, mirror it for the UI.
+    if (S.deafened) S.muted = true;
   }
 
   async function toggleScreenShare() {
@@ -557,6 +578,7 @@
           <VoicePanel
             onLeaveVoice={leaveVoice}
             onToggleMute={toggleMicMute}
+            onToggleDeafen={toggleDeafen}
             onToggleShare={toggleScreenShare}
             onToggleCamera={toggleCamera}
           />
@@ -572,7 +594,7 @@
       {/if}
     </main>
 
-    {#if !isDM && hasChannel}
+    {#if !isDM && hasChannel && S.prefs.memberPanel}
       <MemberPanel />
     {/if}
   </div>{/if}
@@ -600,6 +622,7 @@
       label={callLabel}
       onLeave={leaveVoice}
       onToggleMute={toggleMicMute}
+      onToggleDeafen={toggleDeafen}
       onReturn={() => jumpToChannel(S.voice.channelId)}
     />
   {/if}
@@ -698,6 +721,8 @@
     <ModalScheduled onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "poll"}
     <ModalPoll onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "compose"}
+    <ModalCompose initial={S.modal.initial || ""} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "disappear"}
     <ModalDisappear onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "stats"}
@@ -1127,14 +1152,33 @@
     border-radius: var(--radius-md);
     font-weight: 600;
     font-size: 13px;
+    transition: background 0.12s ease, transform 0.08s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  /* The most time-critical buttons in the app were visually inert — no hover or
+     press feedback. Give them clear states so they feel like live controls. */
+  .ring-btn:active {
+    transform: scale(0.96);
   }
   .ring-btn.accept {
     background: var(--ok);
     color: #fff;
   }
+  .ring-btn.accept:hover {
+    background: color-mix(in srgb, var(--ok) 86%, #fff);
+  }
   .ring-btn.decline {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-muted);
+  }
+  .ring-btn.decline:hover {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ring-btn:active {
+      transform: none;
+    }
   }
 </style>

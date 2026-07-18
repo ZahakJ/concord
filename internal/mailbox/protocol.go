@@ -195,7 +195,7 @@ func (svc *Service) handle(s network.Stream) {
 		if req.Target != "" {
 			if !svc.allowDeposit(s.Conn().RemotePeer()) {
 				resp.Error = "rate limited"
-			} else if _, ok := svc.store.Deposit(req.Target, req.Envelope, time.Duration(req.TTLSeconds)*time.Second); ok {
+			} else if _, ok := svc.store.Deposit(req.Target, s.Conn().RemotePeer().String(), req.Envelope, time.Duration(req.TTLSeconds)*time.Second); ok {
 				resp.OK = true
 				// A deposit means the recipient is (probably) offline — wake their
 				// registered devices so they foreground and drain. Contentless and

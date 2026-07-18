@@ -7,11 +7,13 @@
 //   Alt+Shift+↑/↓     previous / next unread channel (across servers)
 //   Ctrl+Alt+↑/↓      previous / next server
 //   Ctrl+Shift+M      toggle mic mute (while in a call)
+//   Ctrl+Shift+D      toggle deafen (while in a call)
+//   Ctrl/Cmd+U        toggle the member panel
 //   Escape            close switcher / pins / search / reply — or, if nothing
 //                     is open, mark the current channel read
 //   Shift+Escape      mark ALL channels read
 //   ? or Ctrl+/       keyboard-shortcut cheat sheet
-import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead } from "./state.svelte.js";
+import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel } from "./state.svelte.js";
 import { closeSearch } from "./search.js";
 
 function channelsOfActive() {
@@ -87,6 +89,22 @@ export function installShortcuts() {
         S.muted = !S.muted;
         S.voice.mesh?.setMuted(S.muted);
       }
+      return;
+    }
+    // Ctrl+Shift+D — toggle deafen (only meaningful in a call).
+    if (mod && e.shiftKey && e.key.toLowerCase() === "d") {
+      if (S.voice) {
+        e.preventDefault();
+        S.deafened = !S.deafened;
+        S.voice.mesh?.setDeafened(S.deafened);
+        if (S.deafened) S.muted = true;
+      }
+      return;
+    }
+    // Ctrl/Cmd+U — toggle the member panel.
+    if (mod && !e.shiftKey && e.key.toLowerCase() === "u") {
+      e.preventDefault();
+      toggleMemberPanel();
       return;
     }
     // Ctrl+Alt+↑/↓ — previous / next server (distinct from plain Alt = channel).

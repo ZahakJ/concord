@@ -18,10 +18,12 @@
     nameColorFor,
     flash,
     markRead,
+    loadOlder,
+    clockOpts,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
-  import { untrack } from "svelte";
+  import { untrack, tick } from "svelte";
 
   let { onDropFiles } = $props();
 
@@ -87,6 +89,7 @@
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        ...clockOpts(),
       });
     } catch {
       return "";
@@ -200,7 +203,7 @@
   // theirs from Message.svelte; system join notices don't need one).
   function fmtCallTime(iso) {
     try {
-      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clockOpts() });
     } catch {
       return "";
     }
@@ -303,11 +306,28 @@
   ondragleave={onDragLeave}
   ondragover={(e) => e.preventDefault()}
   ondrop={onDrop}
-  onscroll={() => {
+  onscroll={async () => {
     atBottom = feedNearBottom();
     if (S.newBelow && atBottom) S.newBelow = false;
+    // Near the top: page in older history and hold the reader's position — the
+    // prepended rows would otherwise jump the viewport. We restore scrollTop by
+    // the exact height the content grew, so the message under the cursor stays put.
+    if (feedEl && feedEl.scrollTop < 240 && !S.loadingOlder && !S.feedReachedStart) {
+      const prevH = feedEl.scrollHeight;
+      const prevTop = feedEl.scrollTop;
+      const added = await loadOlder();
+      if (added > 0) {
+        await tick();
+        feedEl.scrollTop = feedEl.scrollHeight - prevH + prevTop;
+      }
+    }
   }}
 >
+  {#if S.loadingOlder}
+    <div class="older-loading"><span class="ol-spin"></span> Loading older messages…</div>
+  {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading}
+    <div class="feed-start">This is the beginning of the channel.</div>
+  {/if}
   {#each rows as row (row.m.id)}
     {#if row.newDay}
       <div class="day-divider"><span>{fmtDay(row.day)}</span></div>
@@ -392,15 +412,13 @@
   {/each}
 
   {#if S.newBelow}
-    <button
-      class="new-below"
-      role="status"
-      aria-live="polite"
-      aria-label="New messages below — jump to latest"
-      onclick={scrollSoon}
-    >
+    <!-- A plain button keeps its control semantics; the live announcement lives
+         in a separate visually-hidden region (below) so AT hears "new messages"
+         without the button being demoted to a passive status region. -->
+    <button class="new-below" aria-label="New messages below — jump to latest" onclick={scrollSoon}>
       New messages <span class="arrow">↓</span>
     </button>
+    <span class="sr-only" role="status" aria-live="polite">New messages below</span>
   {:else if !atBottom}
     <button class="older-bar" aria-label="Viewing older messages — jump to latest" onclick={scrollSoon}>
       <span class="ob-text">Viewing older messages</span>
@@ -698,7 +716,7 @@
   .new-divider span {
     padding: 1px 7px;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border-radius: 999px;
     /* one gentle pulse when the divider appears, then settle */
     animation: new-pulse 1.5s ease-out 0.35s 1;
@@ -845,7 +863,7 @@
     padding: 8px 16px;
     border-radius: 999px;
     background: linear-gradient(135deg, var(--accent), var(--accent-hover));
-    color: white;
+    color: var(--accent-fg);
     font-size: 12px;
     font-weight: 600;
     letter-spacing: 0.01em;
@@ -859,6 +877,38 @@
   }
   .new-below .arrow {
     font-size: 13px;
+  }
+  .older-loading,
+  .feed-start {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 12px 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .ol-spin {
+    width: 13px;
+    height: 13px;
+    border: 2px solid color-mix(in srgb, var(--border) 60%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: att-spin 0.7s linear infinite;
+  }
+  .feed-start {
+    font-style: italic;
+    opacity: 0.75;
+  }
+  @keyframes att-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ol-spin {
+      animation: none;
+    }
   }
   /* "You're scrolled up" indicator: a slim glassy bar above the composer —
      quiet context plus one accent action, not a floating blob. */

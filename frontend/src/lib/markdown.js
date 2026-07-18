@@ -7,6 +7,21 @@
 // - / 1. lists, bare + [masked](url) links, ![image](data:image/...) attachments,
 // @mentions.
 
+// Named colors for {name|text}, mapped to fixed hex values so nothing but a
+// vetted color string ever reaches an inline style. Chosen to read on both the
+// dark and light themes.
+export const COLOR_NAMES = {
+  red: "#e0555b",
+  orange: "#e8873c",
+  yellow: "#e0b341",
+  green: "#3ba55d",
+  teal: "#2dd4bf",
+  blue: "#4b8bf5",
+  purple: "#a06bff",
+  pink: "#eb6f9e",
+  gray: "#8a92a6",
+};
+
 export function escapeHtml(s) {
   return s.replace(
     /[&<>"']/g,
@@ -91,6 +106,15 @@ function renderInline(s, mentionNames, customEmoji) {
   s = s.replace(/__(.+?)__/g, "<u>$1</u>");
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  // Colored text: {#rrggbb|text} or {name|text}. The color that reaches the
+  // inline style is ONLY ever a strict #hex or a name mapped to a fixed hex —
+  // no user string touches the CSS, so this can't inject (same guarantee the
+  // rest of this file relies on). Runs after emphasis so **bold** inside a
+  // color still works. The text is already HTML-escaped.
+  s = s.replace(/\{(#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}|[a-z]{3,10})\|([^{}]+)\}/g, (whole, color, text) => {
+    const hex = COLOR_NAMES[color.toLowerCase()] || (/^#[0-9a-fA-F]{3,6}$/.test(color) ? color : null);
+    return hex ? `<span style="color:${hex}">${text}</span>` : whole;
+  });
   // Links are stashed as placeholders and only restored at the very end — so
   // neither the autolinker nor the @mention pass ever runs inside a generated
   // href (e.g. a member named "Foo" must not turn https://x.com/@Foo into a

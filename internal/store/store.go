@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS attachment_ocr (
 		`ALTER TABLE messages ADD COLUMN edited INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN updated INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE messages ADD COLUMN expired INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE channels ADD COLUMN type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
@@ -219,6 +220,13 @@ CREATE TABLE IF NOT EXISTS attachment_ocr (
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
 		}
+	}
+	// Index on (channel_id, updated) — added after the column exists. Without it,
+	// MAX(updated) per channel is a full-partition scan; LatestTimestamp runs per
+	// channel on every sync and presence refresh.
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_messages_channel_updated ON messages(channel_id, updated)`); err != nil {
+		return fmt.Errorf("store: migrate: %w", err)
 	}
 	return nil
 }
@@ -713,14 +721,39 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 // max over message send times and later state updates (edit/delete/pin/react) —
 // or 0. It is the cursor for history sync.
 func (s *Store) LatestTimestamp(channelID string) (int64, error) {
-	var t sql.NullInt64
-	err := s.db.QueryRow(
-		`SELECT MAX(COALESCE(MAX(sent),0), COALESCE(MAX(updated),0))
-		 FROM messages WHERE channel_id = ?`, channelID).Scan(&t)
-	if err != nil {
+	// Two single-column MAXes, each served by a covering index
+	// (idx_messages_channel on sent, idx_messages_channel_updated on updated),
+	// then the larger. The old nested MAX(MAX(sent),MAX(updated)) couldn't use
+	// either index and scanned the whole channel partition.
+	var maxSent, maxUpdated sql.NullInt64
+	if err := s.db.QueryRow(
+		`SELECT MAX(sent) FROM messages WHERE channel_id = ?`, channelID).Scan(&maxSent); err != nil {
 		return 0, err
 	}
-	return t.Int64, nil
+	if err := s.db.QueryRow(
+		`SELECT MAX(updated) FROM messages WHERE channel_id = ?`, channelID).Scan(&maxUpdated); err != nil {
+		return 0, err
+	}
+	return maxInt64(maxSent.Int64, maxUpdated.Int64), nil
+}
+
+// UnreadCounts returns, per channel, how many normal (non-system) messages are
+// strictly newer than that channel's cursor in sinceNano — WITHOUT decrypting a
+// single body. The prior approach fetched and secretbox-opened up to 200 rows
+// per channel just to count them, on every login and read-state event.
+func (s *Store) UnreadCounts(sinceNano map[string]int64) (map[string]int, error) {
+	out := make(map[string]int, len(sinceNano))
+	for channelID, since := range sinceNano {
+		var n int
+		if err := s.db.QueryRow(
+			`SELECT COUNT(*) FROM messages
+			 WHERE channel_id = ? AND sent > ? AND deleted = 0 AND kind IN ('', 'guest')`,
+			channelID, since).Scan(&n); err != nil {
+			return nil, err
+		}
+		out[channelID] = n
+	}
+	return out, nil
 }
 
 // MessagesSince returns up to limit messages in a channel strictly newer than
@@ -763,7 +796,7 @@ func (s *Store) MessagesSince(channelID string, sinceNano int64, limit int) ([]d
 // Messages returns up to limit most-recent messages for a channel, oldest
 // first, decrypting bodies. A limit <= 0 returns all messages.
 func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) {
-	q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
+	q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, expired, content_enc, nonce, sent
 	      FROM messages WHERE channel_id = ? ORDER BY sent DESC`
 	args := []any{channelID}
 	if limit > 0 {
@@ -781,12 +814,13 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		var m domain.Message
 		var enc, nonceB []byte
 		var sent int64
-		var deleted, edited, pinned int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
+		var deleted, edited, pinned, expired int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
 			return nil, err
 		}
 		m.Edited = edited != 0
 		m.Pinned = pinned != 0
+		m.Expired = expired != 0
 		if deleted != 0 {
 			m.Deleted = true // leave content blank
 		} else {
@@ -808,6 +842,63 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		msgs[i], msgs[j] = msgs[j], msgs[i]
 	}
 
+	reacts, err := s.reactionsForChannel(channelID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range msgs {
+		msgs[i].Reactions = reacts[msgs[i].ID]
+	}
+	return msgs, nil
+}
+
+// MessagesBefore returns up to limit messages in a channel strictly OLDER than
+// beforeNano, oldest-first — the page to prepend when the reader scrolls to the
+// top of the loaded window. This is what lets history past the initial 200-row
+// load actually be seen; the rows have been in the DB all along.
+func (s *Store) MessagesBefore(channelID string, beforeNano int64, limit int) ([]domain.Message, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	rows, err := s.db.Query(
+		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, expired, content_enc, nonce, sent
+		 FROM messages WHERE channel_id = ? AND sent < ? ORDER BY sent DESC LIMIT ?`,
+		channelID, beforeNano, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []domain.Message
+	for rows.Next() {
+		var m domain.Message
+		var enc, nonceB []byte
+		var sent int64
+		var deleted, edited, pinned, expired int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
+			return nil, err
+		}
+		m.Edited = edited != 0
+		m.Pinned = pinned != 0
+		m.Expired = expired != 0
+		if deleted != 0 {
+			m.Deleted = true
+		} else {
+			content, err := s.open(enc, nonceB)
+			if err != nil {
+				return nil, err
+			}
+			m.Content = content
+		}
+		m.Sent = time.Unix(0, sent).UTC()
+		msgs = append(msgs, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
 	reacts, err := s.reactionsForChannel(channelID)
 	if err != nil {
 		return nil, err
@@ -1264,6 +1355,43 @@ func (s *Store) MessageContent(id string) (string, error) {
 	return s.open(enc, nonceB)
 }
 
+// MarkExpired flags a tombstoned message as having disappeared via a timer
+// (rather than a manual delete), so the UI can label it "disappeared".
+func (s *Store) MarkExpired(id string) error {
+	_, err := s.db.Exec(`UPDATE messages SET expired = 1 WHERE id = ?`, id)
+	return err
+}
+
+// PurgeDeletedContent permanently erases the retained body of every soft-deleted
+// message (guild deletes keep content for moderator reveal). Returns how many
+// rows were scrubbed. This is the "empty trash" action: after it, "Show
+// original" has nothing left to show. channelIDs scopes it to a guild's
+// channels; empty scopes it to the whole device.
+func (s *Store) PurgeDeletedContent(channelIDs []string) (int, error) {
+	var nonce [nonceSize]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return 0, err
+	}
+	sealed := secretbox.Seal(nil, []byte(""), &nonce, &s.key)
+
+	q := `UPDATE messages SET content_enc = ?, nonce = ? WHERE deleted = 1`
+	args := []any{sealed, nonce[:]}
+	if len(channelIDs) > 0 {
+		ph := make([]string, len(channelIDs))
+		for i, id := range channelIDs {
+			ph[i] = "?"
+			args = append(args, id)
+		}
+		q += ` AND channel_id IN (` + strings.Join(ph, ",") + `)`
+	}
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
 // SetSetting stores a key/value app setting (e.g. the display name).
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(
@@ -1498,7 +1626,14 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 // rows for fingerprints other than selfFingerprint are replaced by the remote
 // snapshot (own reactions are never touched, so un-synced local toggles
 // survive). Reports whether anything changed.
-func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string) (bool, error) {
+//
+// trusted gates the DESTRUCTIVE reconcile branches (tombstoning or overwriting a
+// message we already hold). Those mutate an existing, already-authenticated
+// message, so a malicious backfill peer could otherwise censor or rewrite any
+// message by ID. Inserts of genuinely new (gap-fill) messages are always
+// allowed so ordinary-member catch-up keeps working; only the caller-designated
+// trusted sources (guild owner / SyncHost) may mutate existing rows.
+func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, trusted bool) (bool, error) {
 	var curDeleted, curEdited, curPinned int
 	var curUpdated int64
 	err := s.db.QueryRow(
@@ -1511,6 +1646,7 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string) (b
 	}
 
 	changed := false
+	inserted := false
 	switch {
 	case err == sql.ErrNoRows:
 		var nonce [nonceSize]byte
@@ -1528,8 +1664,13 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string) (b
 			return false, fmt.Errorf("store: upsert synced message: %w", err)
 		}
 		changed = true
+		inserted = true
 	case err != nil:
 		return false, err
+	case !trusted:
+		// Row already exists and the serving peer isn't a trusted sync source:
+		// refuse to tombstone or overwrite it. Only reaction reconciliation (below,
+		// which never touches our own rows) is allowed from an untrusted backfill.
 	default:
 		if m.Deleted && curDeleted == 0 {
 			if _, err := s.db.Exec(
@@ -1554,8 +1695,11 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string) (b
 		}
 	}
 
-	// Reconcile reactions when the remote copy is at least as fresh as ours.
-	if remoteUpdated >= curUpdated {
+	// Reconcile reactions when the remote copy is at least as fresh as ours — but
+	// only from a trusted source, or for a message we just inserted (whose reaction
+	// set arrives with it). An untrusted backfill peer must not rewrite the
+	// reaction rows of a message we already hold.
+	if remoteUpdated >= curUpdated && (trusted || inserted) {
 		if rc, err := s.replaceReactionsExceptSelf(m.ID, m.Reactions, selfFingerprint); err == nil && rc {
 			changed = true
 		}

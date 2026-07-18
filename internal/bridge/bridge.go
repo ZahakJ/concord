@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	appsvc "github.com/zahak/concord/internal/app"
 	"github.com/zahak/concord/internal/domain"
@@ -198,6 +199,7 @@ type MessageView struct {
 	ReplyTo    string              `json:"replyTo"`    // ID of the replied-to message, or ""
 	Content    string              `json:"content"`
 	Deleted    bool                `json:"deleted"`
+	Expired    bool                `json:"expired"` // disappeared via a timer (not a manual delete)
 	Edited     bool                `json:"edited"`
 	Pinned     bool                `json:"pinned"`
 	Reactions  map[string][]string `json:"reactions"` // emoji -> fingerprints
@@ -526,6 +528,16 @@ func (b *Bridge) ExpireMessage(channelID, messageID string) error {
 		return err
 	}
 	return svc.ExpireMessage(channelID, messageID)
+}
+
+// EmptyTrash permanently erases retained bodies of deleted messages (guildID
+// scopes to that guild; "" is the whole device). Returns rows scrubbed.
+func (b *Bridge) EmptyTrash(guildID string) (int, error) {
+	svc, err := b.service()
+	if err != nil {
+		return 0, err
+	}
+	return svc.EmptyTrash(guildID)
 }
 
 // CancelPendingMember cancels a not-yet-joined member you added to a guild.
@@ -894,6 +906,55 @@ func (b *Bridge) Messages(channelID string) ([]MessageView, error) {
 		out = append(out, messageView(m))
 	}
 	return out, nil
+}
+
+// MessagesBefore returns the page of messages older than the RFC3339 cursor
+// (the sent time of the oldest row the client currently holds), oldest first.
+// An empty/unparseable cursor returns nothing. This is the scroll-up pagination
+// that surfaces history beyond the initial 200-row load.
+func (b *Bridge) MessagesBefore(channelID, beforeISO string, limit int) ([]MessageView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	t, err := time.Parse("2006-01-02T15:04:05Z07:00", beforeISO)
+	if err != nil {
+		return []MessageView{}, nil
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 200
+	}
+	msgs, err := svc.MessagesBefore(channelID, t.UnixNano(), limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MessageView, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, messageView(m))
+	}
+	return out, nil
+}
+
+// UnreadCounts returns the per-channel unread message count. sinceISO maps a
+// channel ID to the RFC3339 read cursor ("" = from the beginning). Counting
+// happens in SQL with no decryption — this replaces a full-history decrypt of
+// every channel on login and on cross-device read-state events.
+func (b *Bridge) UnreadCounts(sinceISO map[string]string) (map[string]int, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	sinceNano := make(map[string]int64, len(sinceISO))
+	for ch, iso := range sinceISO {
+		if iso == "" {
+			sinceNano[ch] = 0
+			continue
+		}
+		if t, err := time.Parse("2006-01-02T15:04:05Z07:00", iso); err == nil {
+			sinceNano[ch] = t.UnixNano()
+		}
+	}
+	return svc.UnreadCounts(sinceNano)
 }
 
 func (b *Bridge) SendMessage(channelID, content, replyTo string) error {
@@ -1678,6 +1739,7 @@ func messageView(m domain.Message) MessageView {
 		ReplyTo:    m.ReplyTo,
 		Content:    m.Content,
 		Deleted:    m.Deleted,
+		Expired:    m.Expired,
 		Edited:     m.Edited,
 		Pinned:     m.Pinned,
 		Reactions:  m.Reactions,
@@ -1843,6 +1905,14 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.JoinViaInvite(argStr(args, 0))
 	case "Messages":
 		return b.Messages(argStr(args, 0))
+	case "MessagesBefore":
+		return b.MessagesBefore(argStr(args, 0), argStr(args, 1), int(argInt64(args, 2)))
+	case "UnreadCounts":
+		var since map[string]string
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &since)
+		}
+		return b.UnreadCounts(since)
 	case "SendMessage":
 		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "SendCallNotice":
@@ -1951,6 +2021,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.ExpireMessage(argStr(args, 0), argStr(args, 1))
 	case "CancelPendingMember":
 		return nil, b.CancelPendingMember(argStr(args, 0), argStr(args, 1))
+	case "EmptyTrash":
+		return b.EmptyTrash(argStr(args, 0))
 	case "BlockUser":
 		return nil, b.BlockUser(argStr(args, 0))
 	case "UnblockUser":

@@ -87,43 +87,61 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    margin-bottom: 6px;
   }
   .opt-row input {
     flex: 1;
     min-width: 0;
   }
   .opt-num {
+    display: grid;
+    place-items: center;
     font-size: 15px;
-    width: 20px;
-    text-align: center;
+    width: 30px;
+    height: 30px;
     flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
   }
   .opt-x {
     flex-shrink: 0;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     display: grid;
     place-items: center;
     border-radius: 50%;
     color: var(--text-muted);
+    transition: background 0.12s ease, color 0.12s ease;
   }
   .opt-x:hover {
-    background: var(--bg-3);
-    color: var(--text);
+    background: color-mix(in srgb, var(--danger) 16%, transparent);
+    color: var(--danger);
   }
+  /* Readable at rest: a dashed accent frame with neutral label text (not
+     accent-on-transparent, which vanishes on pale theme accents) and an accent
+     plus-glyph that fills in on hover. */
   .add-opt {
-    align-self: flex-start;
+    width: 100%;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    padding: 6px 10px;
+    padding: 9px 10px;
     margin-top: 2px;
     font-size: 13px;
-    color: var(--accent);
+    font-weight: 600;
+    color: var(--text);
+    border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
     border-radius: var(--radius-sm);
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .add-opt :global(svg) {
+    color: var(--accent);
   }
   .add-opt:hover {
     background: var(--accent-soft);
+    border-color: var(--accent);
   }
   .multi {
     display: flex;

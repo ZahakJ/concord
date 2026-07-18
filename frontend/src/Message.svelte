@@ -8,8 +8,11 @@
   import Attachment from "./Attachment.svelte";
   import FileAttachment from "./FileAttachment.svelte";
   import VoiceMessage from "./VoiceMessage.svelte";
+  import VideoAttachment from "./VideoAttachment.svelte";
   import PollView from "./PollView.svelte";
   import { parsePoll } from "./lib/polls.js";
+  import EmbedView from "./EmbedView.svelte";
+  import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
@@ -41,6 +44,7 @@
     markUnread,
     activeGuild,
     activeChannel,
+    fmtClock,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
@@ -63,6 +67,7 @@
 
   // Touch device? Drives which gesture owns the context menu (see the .msg div).
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
 
   // Long-press a reaction pill: who reacted — the touch counterpart of the
   // hover card. Rows are informational; tapping one just closes the sheet.
@@ -158,23 +163,30 @@
     if (mentionMember(e.target)) scheduleCloseProfilePopover();
   }
   const poll = $derived(m.deleted ? null : parsePoll(m.content));
+  const richEmbed = $derived(m.deleted ? null : parseEmbed(m.content));
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const files = $derived(m.deleted ? [] : parseFileTokens(m.content));
-  const bodyText = $derived(
-    stripEphemeral(atts.length || files.length ? stripAttachTokens(m.content) : m.content),
-  );
+  const bodyText = $derived.by(() => {
+    let c = atts.length || files.length ? stripAttachTokens(m.content) : m.content;
+    if (richEmbed) c = stripEmbedToken(c);
+    return stripEphemeral(c);
+  });
   // Disappearing: expiry epoch (ms) if this message carries one, else 0.
   const ephExp = $derived(m.deleted ? 0 : ephemeralExpiry(m.content));
   // One embed per message: the first YouTube link gets a player; otherwise
   // the first link gets a preview card.
   const embed = $derived.by(() => {
     if (m.deleted || m.kind !== "") return null;
+    // Prefer a YouTube player, but keep scanning past plain links to find one —
+    // returning the first link as a card immediately meant a YouTube link after
+    // any other link never got a player. Fall back to the first link's card.
+    let firstCard = null;
     for (const url of extractLinks(m.content)) {
       const yt = youtubeID(url);
       if (yt) return { kind: "yt", id: yt, url };
-      return { kind: "card", url };
+      if (!firstCard) firstCard = { kind: "card", url };
     }
-    return null;
+    return firstCard;
   });
   let editDraft = $state("");
   let editCancelled = false;
@@ -295,13 +307,7 @@
     }
   }
 
-  function fmtTime(iso) {
-    try {
-      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    } catch {
-      return "";
-    }
-  }
+  const fmtTime = fmtClock; // honors the 12/24h clock pref
 
   function jumpToReply() {
     if (m.replyTo && !scrollToMessage(m.replyTo)) flash("Original message not loaded");
@@ -326,21 +332,59 @@
   // reveal in guilds — DM deletes erase it — so this is guild-only and gated on
   // Manage Messages (re-checked on the backend). `revealed` holds the fetched
   // original once shown.
+  // An EXPIRED (disappeared) message was truly erased on every device — there's
+  // nothing to reveal, so it's never revealable regardless of mod powers.
   const canRevealDeleted = $derived(
-    m.deleted && activeGuild()?.kind !== "dm" && canDeleteOthers,
+    m.deleted && !m.expired && activeGuild()?.kind !== "dm" && canDeleteOthers,
   );
   let revealed = $state(null);
   let revealing = $state(false);
+  let revealDisplay = $state(""); // animated "de-crusting" text
   async function revealOriginal() {
-    if (revealing) return;
+    if (revealing || revealed !== null) return;
     revealing = true;
     try {
       revealed = (await api.revealDeleted(m.channelId, m.id)) || "(the original was empty)";
+      decrustInto(revealed);
     } catch (err) {
       flash(err);
     } finally {
       revealing = false;
     }
+  }
+  // Hover-to-reveal: fetch the original and let the deleted tombstone crust
+  // away into the real text. Click still works (touch / keyboard).
+  function hoverReveal() {
+    if (canRevealDeleted && revealed === null) revealOriginal();
+  }
+
+  // decrustInto animates target text out of glitchy "crust": each not-yet-settled
+  // character flickers through random glyphs, resolving left-to-right — the
+  // corruption breaking apart into the original message.
+  const CRUST = "▓▒░#@%&$*/\\|=+<>";
+  let decrustTimer = null;
+  function decrustInto(target) {
+    if (reduceMotion) {
+      revealDisplay = target;
+      return;
+    }
+    clearInterval(decrustTimer);
+    let frame = 0;
+    const settleFrames = 3; // frames each char stays scrambled before settling
+    decrustTimer = setInterval(() => {
+      frame++;
+      const settled = Math.floor(frame / settleFrames);
+      let out = "";
+      for (let i = 0; i < target.length; i++) {
+        if (i < settled || target[i] === " ") out += target[i];
+        else out += CRUST[(Math.random() * CRUST.length) | 0];
+      }
+      revealDisplay = out;
+      if (settled >= target.length) {
+        revealDisplay = target;
+        clearInterval(decrustTimer);
+      }
+    }, 28);
   }
   // A browser guest has no key: their message is relayed under the host's
   // signature. It is NOT the host talking, so it gets its own author row and
@@ -515,17 +559,24 @@
     {/if}
 
     {#if m.deleted}
-      <div class="body deleted">
+      <!-- svelte-ignore a11y_no_static_element_interactions, a11y_mouse_events_have_key_events -->
+      <div
+        class="body deleted"
+        class:revealable={canRevealDeleted && revealed === null}
+        onmouseenter={hoverReveal}
+      >
         {#if revealed !== null}
           <span class="revealed-tag" title="Deleted — shown to you as a moderator">
             <Icon name="lock" size={10} /> deleted · original
           </span>
-          <span class="revealed-text">{revealed}</span>
+          <span class="revealed-text">{revealDisplay || revealed}</span>
+        {:else if m.expired}
+          <em class="disappeared"><Icon name="clock" size={11} /> message disappeared</em>
         {:else}
           <em>deleted</em>
           {#if canRevealDeleted}
             <button class="reveal-btn" onclick={revealOriginal} disabled={revealing}>
-              {revealing ? "…" : "Show original"}
+              {revealing ? "…" : "hover or click to reveal"}
             </button>
           {/if}
         {/if}
@@ -606,12 +657,17 @@
       {#each files as tok (tok.blobId)}
         {#if tok.mime?.startsWith("audio/")}
           <VoiceMessage channelId={m.channelId} {tok} />
+        {:else if tok.mime?.startsWith("video/")}
+          <VideoAttachment channelId={m.channelId} {tok} />
         {:else}
           <FileAttachment channelId={m.channelId} {tok} />
         {/if}
       {/each}
+      {#if richEmbed}
+        <EmbedView embed={richEmbed} {mentionNames} customEmoji={cemoji} />
+      {/if}
       {#if embed?.kind === "yt"}
-        <YouTubeEmbed videoId={embed.id} />
+        <YouTubeEmbed videoId={embed.id} autoload={S.prefs.linkPreviews !== false} />
       {:else if embed?.kind === "card"}
         {#key embed.url}
           <LinkPreview url={embed.url} />
@@ -924,6 +980,29 @@
   .body.deleted {
     color: var(--text-muted);
   }
+  /* A deleted message a moderator can un-crust: hint it's interactive. */
+  .body.deleted.revealable {
+    cursor: pointer;
+  }
+  .body.deleted.revealable em {
+    border-bottom: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
+    transition: color 0.15s ease;
+  }
+  .body.deleted.revealable:hover em {
+    color: var(--accent);
+  }
+  /* Expired = gone by a timer, on purpose. A faint accent tint sets it apart
+     from a plain "deleted" tombstone. */
+  .disappeared {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-style: italic;
+    color: color-mix(in srgb, var(--accent) 55%, var(--text-faint));
+  }
+  .disappeared :global(svg) {
+    opacity: 0.8;
+  }
   .edited-tag {
     margin-left: 5px;
     font-size: 10px;
@@ -1151,7 +1230,7 @@
     min-width: 120px;
     max-width: 220px;
     padding: 7px 10px;
-    display: none;
+    display: flex;
     flex-direction: column;
     gap: 2px;
     background: var(--bg-elevated, var(--bg-1));
@@ -1160,16 +1239,25 @@
     box-shadow: var(--shadow-pop);
     font-size: 12px;
     white-space: nowrap;
+    /* Hover-intent: opacity/visibility (not display) so it can fade IN after a
+       short delay and fade OUT smoothly. The delay stops the popover strobing as
+       the pointer sweeps across a row of reaction pills. */
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(4px);
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease,
+      visibility 0s linear 0.15s;
   }
   .react-wrap:hover .react-who {
-    display: flex;
-    animation: who-in 0.15s cubic-bezier(0.2, 0.9, 0.3, 1);
-  }
-  @keyframes who-in {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+    transition:
+      opacity 0.18s ease 0.26s,
+      transform 0.18s ease 0.26s,
+      visibility 0s;
   }
   .react-who strong {
     font-size: 11px;

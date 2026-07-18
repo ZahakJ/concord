@@ -21,6 +21,10 @@ function unsafe(html) {
     if (!ALLOWED.test(tag)) return `unexpected tag ${tag}`;
     if (/on[a-z]+\s*=/i.test(tag)) return `event handler in ${tag}`;
     if (/(href|src)\s*=\s*"(?!https?:|data:image\/)/i.test(tag)) return `bad uri in ${tag}`;
+    // The only style we ever emit is a validated text colour; anything else in a
+    // style attribute (url(), expression, extra declarations) is an injection.
+    const st = /style\s*=\s*"([^"]*)"/i.exec(tag);
+    if (st && !/^color:#[0-9a-fA-F]{3,6}$/.test(st[1])) return `bad style in ${tag}`;
   }
   return null;
 }
@@ -37,6 +41,11 @@ const hostile = [
   "**<a href=x>**",
   "```\n</code></pre><script>x</script>\n```",
   '@euclid" onmouseover="alert(1)',
+  // Colour syntax must never let a payload reach the inline style.
+  "{red;background:url(//evil)|x}",
+  "{#fff;position:fixed|x}",
+  '{red|"><img src=x onerror=alert(1)>}',
+  "{expression(alert(1))|x}",
 ];
 for (const h of hostile) {
   const bad = unsafe(renderMarkdown(h, ["euclid"]));
@@ -49,6 +58,14 @@ assert(out.includes("<strong>b</strong>"), `bold: ${out}`);
 assert(out.includes("<em>i</em>"), `italic: ${out}`);
 assert(out.includes("<code>c</code>"), `code: ${out}`);
 assert(out.includes('<a href="https://x.dev"'), `link: ${out}`);
+
+// Colored text: named colors map to a fixed hex; #hex passes through; a bad
+// name is left as literal text.
+out = renderMarkdown("{red|hot} {#00ff00|lime} {bogus|plain}");
+assert(out.includes('<span style="color:#e0555b">hot</span>'), `named color: ${out}`);
+assert(out.includes('<span style="color:#00ff00">lime</span>'), `hex color: ${out}`);
+assert(out.includes("{bogus|plain}"), `unknown color name stays literal: ${out}`);
+assert(renderMarkdown("{red|**bold**}").includes("<strong>bold</strong>"), "nested md inside color");
 
 out = renderMarkdown("```go\nx < y\n```");
 // Code fences carry a language label (data-lang) when one is given.

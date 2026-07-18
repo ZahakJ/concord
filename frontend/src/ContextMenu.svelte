@@ -63,11 +63,14 @@
             <button
               class="as-item"
               class:danger={item.danger}
+              class:active={item.active}
               role="menuitem"
               onclick={() => run(item)}
             >
-              {#if item.icon}<span class="as-icon"><Icon name={item.icon} size={18} /></span>{/if}
+              {#if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
+              {:else if item.icon}<span class="as-icon"><Icon name={item.icon} size={18} /></span>{/if}
               <span>{item.label}</span>
+              {#if item.active}<span class="cm-tick" aria-hidden="true">✓</span>{/if}
             </button>
           {/if}
         {/each}
@@ -81,9 +84,11 @@
         {#if item.sep}
           <div class="cm-sep"></div>
         {:else}
-          <button class="cm-item" class:danger={item.danger} role="menuitem" onclick={() => run(item)}>
-            {#if item.icon}<Icon name={item.icon} size={14} />{/if}
+          <button class="cm-item" class:danger={item.danger} class:active={item.active} role="menuitem" onclick={() => run(item)}>
+            {#if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
+            {:else if item.icon}<Icon name={item.icon} size={14} />{/if}
             <span>{item.label}</span>
+            {#if item.active}<span class="cm-tick" aria-hidden="true">✓</span>{/if}
           </button>
         {/if}
       {/each}
@@ -221,5 +226,22 @@
     height: 1px;
     background: var(--border);
     margin: 4px 2px;
+  }
+  /* Colour swatch dot, sized to sit where an icon would. */
+  .cm-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+  .cm-tick {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 800;
+    color: var(--accent);
+  }
+  .cm-item:hover .cm-tick {
+    color: currentColor;
   }
 </style>

@@ -10,7 +10,7 @@
     "build": "npm run prep-twemoji && vite build",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{js,mjs,svelte}\"",
-    "test": "node src/lib/markdown.test.mjs"
+    "test": "node src/lib/markdown.test.mjs && node src/lib/rail.test.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",

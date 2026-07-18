@@ -16,6 +16,7 @@
     toggleCallLock,
     admitKnocker,
     denyKnocker,
+    togglePeerMute,
   } from "./lib/state.svelte.js";
 
   // Join/leave pop for tiles and strip bubbles; zero-duration under
@@ -24,7 +25,7 @@
     typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   const pop = { duration: noMotion ? 0 : 190, start: 0.82 };
 
-  let { onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
+  let { onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } = $props();
 
   // Solo in a DM call = still ringing the other person.
   const solo = $derived(S.voiceParticipants.length === 0);
@@ -122,7 +123,13 @@
       };
     }
     const p = participant(pid);
-    return { ...p, speaking: S.voiceSpeaking.includes(pid), muted: false, self: false };
+    return {
+      ...p,
+      speaking: S.voiceSpeaking.includes(pid),
+      muted: false,
+      self: false,
+      localMuted: S.peerVolumes[pid] === 0,
+    };
   }
 
   function screenLabel(tile) {
@@ -249,6 +256,23 @@
           {#if t.muted}
             <span class="mute-badge" title="Muted" aria-label="Muted"><Icon name="micOff" size={11} /></span>
           {/if}
+          {#if !t.self}
+            <!-- Silence this participant for YOU only (local). Stops the tile-focus
+                 click from also firing. -->
+            <button
+              class="local-mute"
+              class:on={t.localMuted}
+              title={t.localMuted ? `Unmute ${t.name} (for you)` : `Mute ${t.name} (for you)`}
+              aria-label={t.localMuted ? `Unmute ${t.name} for yourself` : `Mute ${t.name} for yourself`}
+              aria-pressed={t.localMuted}
+              onclick={(e) => {
+                e.stopPropagation();
+                togglePeerMute(pid);
+              }}
+            >
+              <Icon name={t.localMuted ? "deafened" : "speaker"} size={12} />
+            </button>
+          {/if}
           <span class="name">{t.self ? `${t.name} (you)` : t.name}</span>
         </div>
       {/each}
@@ -276,9 +300,20 @@
       class:danger={S.muted}
       title={S.muted ? "Unmute" : "Mute"}
       aria-label={S.muted ? "Unmute" : "Mute"}
+      aria-pressed={S.muted}
       onclick={onToggleMute}
     >
       <Icon name={S.muted ? "micOff" : "mic"} size={18} />
+    </button>
+    <button
+      class="ctl"
+      class:danger={S.deafened}
+      title={S.deafened ? "Undeafen" : "Deafen"}
+      aria-label={S.deafened ? "Undeafen" : "Deafen"}
+      aria-pressed={S.deafened}
+      onclick={onToggleDeafen}
+    >
+      <Icon name={S.deafened ? "deafened" : "speaker"} size={18} />
     </button>
     <button
       class="ctl"
@@ -483,6 +518,38 @@
     background: color-mix(in srgb, var(--danger) 82%, #000);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
     pointer-events: none;
+  }
+  /* Per-participant LOCAL mute: a small control top-right, revealed on tile
+     hover (always shown once engaged so you can undo it). */
+  .local-mute {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    transition: opacity 0.12s ease, background 0.12s ease;
+  }
+  .tile:hover .local-mute,
+  .local-mute:focus-visible {
+    opacity: 1;
+  }
+  .local-mute:hover {
+    background: rgba(0, 0, 0, 0.72);
+  }
+  .local-mute.on {
+    opacity: 1;
+    background: color-mix(in srgb, var(--danger) 82%, #000);
+  }
+  @media (pointer: coarse) {
+    .local-mute {
+      opacity: 1;
+    }
   }
   .name {
     position: absolute;

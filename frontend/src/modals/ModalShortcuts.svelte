@@ -52,72 +52,66 @@
 </script>
 
 <Modal title="Keyboard shortcuts & formatting" wide {onClose}>
-  <div class="sc-grid">
+  <div class="sc">
     {#each groups as grp (grp.name)}
       <section class="sc-group">
         <h4>{grp.name}</h4>
-        <div class="sc-rows">
-          {#each grp.keys as [keys, desc] (desc)}
-            <div class="sc-row">
-              <span class="sc-desc">{desc}</span>
-              <span class="sc-keys">
-                {#each keys as k, i (k)}
-                  {#if i > 0}<span class="sc-plus">+</span>{/if}<kbd>{k}</kbd>
-                {/each}
-              </span>
-            </div>
-          {/each}
-        </div>
+        {#each grp.keys as [keys, desc] (desc)}
+          <div class="sc-row">
+            <span class="sc-desc">{desc}</span>
+            <span class="sc-keys">
+              {#each keys as k, i (k)}
+                {#if i > 0}<span class="sc-plus">+</span>{/if}<kbd>{k}</kbd>
+              {/each}
+            </span>
+          </div>
+        {/each}
       </section>
     {/each}
   </div>
 </Modal>
 
 <style>
-  .sc-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-  }
-  .sc-group {
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    padding: 12px 14px;
+  /* Single column: descriptions are full sentences, so two narrow columns
+     forced nowrap keycaps to overflow the modal (horizontal scroll). One wide
+     column reads cleanly and can never scroll sideways. */
+  .sc {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    max-width: 100%;
   }
   .sc-group h4 {
-    margin: 0 0 8px;
+    margin: 0 0 4px;
     font-size: 10.5px;
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
     color: var(--accent);
   }
-  .sc-rows {
-    display: flex;
-    flex-direction: column;
-  }
   .sc-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    padding: 5px 0;
-    font-size: 12.5px;
+    gap: 16px;
+    padding: 7px 0;
+    font-size: 13px;
     border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   }
-  .sc-row:first-child {
+  .sc-group h4 + .sc-row {
     border-top: none;
   }
   .sc-desc {
     color: var(--text);
-    min-width: 0;
+    min-width: 0; /* allow long descriptions to wrap instead of pushing wide */
   }
   .sc-keys {
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     gap: 4px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
   .sc-plus {
     color: var(--text-faint);
@@ -126,9 +120,9 @@
   /* Proper keycaps: raised, subtle top-highlight, pressed-looking bottom edge. */
   kbd {
     font-family: ui-monospace, monospace;
-    font-size: 11px;
+    font-size: 11.5px;
     font-weight: 600;
-    min-width: 20px;
+    min-width: 22px;
     text-align: center;
     background: linear-gradient(var(--bg-3), var(--bg-2));
     border: 1px solid var(--border);
@@ -137,13 +131,8 @@
     box-shadow:
       inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent),
       0 1px 1px rgb(0 0 0 / 0.12);
-    padding: 2px 6px;
+    padding: 2px 7px;
     color: var(--text);
     white-space: nowrap;
-  }
-  @media (max-width: 640px) {
-    .sc-grid {
-      grid-template-columns: 1fr;
-    }
   }
 </style>

@@ -11,16 +11,16 @@ func TestStoreRegisterDepositDrainAck(t *testing.T) {
 	const mid = "abc123"
 
 	// Deposit to an unregistered mailbox is rejected.
-	if _, ok := s.Deposit(mid, []byte("hi"), time.Hour); ok {
+	if _, ok := s.Deposit(mid, "dep", []byte("hi"), time.Hour); ok {
 		t.Fatal("deposit to unregistered mailbox should be rejected")
 	}
 
 	s.Register(mid)
-	id1, ok := s.Deposit(mid, []byte("one"), time.Hour)
+	id1, ok := s.Deposit(mid, "dep", []byte("one"), time.Hour)
 	if !ok {
 		t.Fatal("deposit after register should succeed")
 	}
-	id2, _ := s.Deposit(mid, []byte("two"), time.Hour)
+	id2, _ := s.Deposit(mid, "dep", []byte("two"), time.Hour)
 
 	got := s.Drain(mid)
 	if len(got) != 2 {
@@ -46,7 +46,7 @@ func TestStoreTTLExpiry(t *testing.T) {
 	s := New()
 	const mid = "ttl"
 	s.Register(mid)
-	s.Deposit(mid, []byte("fleeting"), 20*time.Millisecond)
+	s.Deposit(mid, "dep", []byte("fleeting"), 20*time.Millisecond)
 	if len(s.Drain(mid)) != 1 {
 		t.Fatal("expected 1 before expiry")
 	}
@@ -60,10 +60,10 @@ func TestStoreOversizeRejected(t *testing.T) {
 	s := New()
 	const mid = "big"
 	s.Register(mid)
-	if _, ok := s.Deposit(mid, make([]byte, MaxEnvelope+1), time.Hour); ok {
+	if _, ok := s.Deposit(mid, "dep", make([]byte, MaxEnvelope+1), time.Hour); ok {
 		t.Fatal("oversize envelope should be rejected")
 	}
-	if _, ok := s.Deposit(mid, nil, time.Hour); ok {
+	if _, ok := s.Deposit(mid, "dep", nil, time.Hour); ok {
 		t.Fatal("empty envelope should be rejected")
 	}
 }
@@ -73,10 +73,44 @@ func TestStorePerMailboxCap(t *testing.T) {
 	const mid = "cap"
 	s.Register(mid)
 	for i := 0; i < MaxPerMailbox+50; i++ {
-		s.Deposit(mid, []byte{byte(i)}, time.Hour)
+		s.Deposit(mid, "dep", []byte{byte(i)}, time.Hour)
 	}
 	if n := len(s.Drain(mid)); n > MaxPerMailbox {
 		t.Fatalf("per-mailbox cap exceeded: %d", n)
+	}
+}
+
+// TestStoreFloodFairness pins the anti-flood property: an attacker filling a
+// victim's mailbox must not evict the victim's own genuine pending mail.
+func TestStoreFloodFairness(t *testing.T) {
+	s := New()
+	const mid = "victimbox"
+	s.Register(mid)
+
+	// A legitimate sender leaves a couple of real messages.
+	realA, _ := s.Deposit(mid, "honest-sender", []byte("real-1"), time.Hour)
+	realB, _ := s.Deposit(mid, "honest-sender", []byte("real-2"), time.Hour)
+
+	// An attacker floods the same tag well past the per-mailbox cap.
+	for i := 0; i < MaxPerMailbox*2; i++ {
+		s.Deposit(mid, "flooder", []byte{byte(i)}, time.Hour)
+	}
+
+	got := s.Drain(mid)
+	if len(got) > MaxPerMailbox {
+		t.Fatalf("per-mailbox cap exceeded: %d", len(got))
+	}
+	haveA, haveB := false, false
+	for _, e := range got {
+		if e.ID == realA {
+			haveA = true
+		}
+		if e.ID == realB {
+			haveB = true
+		}
+	}
+	if !haveA || !haveB {
+		t.Fatalf("flooder evicted the victim's genuine mail (realA=%v realB=%v)", haveA, haveB)
 	}
 }
 

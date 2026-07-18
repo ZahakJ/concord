@@ -470,20 +470,25 @@
       return r;
     };
     S.replyingTo = null;
+    let sent = 0; // attachments successfully sent so far
     try {
       // Attachments first, then the caption — so a pasted image sits above its
       // text in the feed, the way Discord shows an image with a caption below.
       for (const a of atts) {
         if (a.isImage) await api.sendAttachment(chId, a.dataUrl, a.w, a.h, nextReply());
         else await api.sendFile(chId, a.dataUrl, a.name, nextReply());
+        sent++;
       }
       if (text) await sendMessage(stampEphemeral(chId, text), nextReply());
     } catch (err) {
-      // Don't lose what they staged/typed — put it back so they can retry.
+      // Restore only what did NOT go out, so a retry can't double-post. The text
+      // is the last step, so on any failure it's unsent — put the draft back. The
+      // reply rides the first send; only restore it if nothing was sent yet
+      // (otherwise it was already consumed and would re-attach to a stray retry).
       draft = prevDraft;
-      pending = atts;
+      pending = atts.slice(sent);
       saveDraft(chId, prevDraft);
-      S.replyingTo = prevReply;
+      if (sent === 0) S.replyingTo = prevReply;
       queueAutosize();
       flash(err);
     }
@@ -599,7 +604,8 @@
     uploading++;
     try {
       const dataUrl = await readAsDataURL(file);
-      pending = [...pending, { id: uid(), dataUrl, name: file.name || "file", isImage: false }];
+      const isVideo = file.type.startsWith("video/");
+      pending = [...pending, { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo }];
     } catch (err) {
       flash(err);
     } finally {
@@ -847,7 +853,7 @@
             {#if p.isImage}
               <img src={p.dataUrl} alt="" />
             {:else}
-              <span class="att-file"><Icon name="attach" size={16} /><span class="att-name">{p.name}</span></span>
+              <span class="att-file"><Icon name={p.isVideo ? "play" : "attach"} size={16} /><span class="att-name">{p.name}</span></span>
             {/if}
             <button
               type="button"
@@ -975,7 +981,17 @@
           disabled={!ch}
           onclick={() => (S.modal = { kind: "poll" })}
         >
-          <Icon name="poll" size={19} />
+          <Icon name="poll" size={20} />
+        </button>
+        <button
+          type="button"
+          class="iconbtn"
+          title="Advanced composer (colors, rich embeds, preview)"
+          aria-label="Advanced composer"
+          disabled={!ch}
+          onclick={() => (S.modal = { kind: "compose", initial: draft })}
+        >
+          <Icon name="heading" size={19} />
         </button>
         <button
           type="button"
@@ -985,7 +1001,7 @@
           disabled={!ch}
           onclick={scheduleSend}
         >
-          <Icon name="clock" size={19} />
+          <Icon name="clock" size={20} />
         </button>
         <button
           type="button"
@@ -995,7 +1011,7 @@
           disabled={!ch}
           onclick={() => (S.pickerTarget = S.pickerTarget === "composer" ? null : "composer")}
         >
-          <Icon name="smile" size={22} />
+          <Icon name="smile" size={20} />
         </button>
         {#if coarse}
           <!-- Touch only: on a phone Enter is a newline, so this is the only way
@@ -1406,11 +1422,11 @@
   .input-box {
     display: flex;
     align-items: flex-end;
-    gap: 2px;
+    gap: 3px;
     background: transparent;
     border: none;
     border-radius: 0;
-    padding: 2px 6px;
+    padding: 3px 8px;
   }
   .input-box.recording {
     align-items: center;
@@ -1420,7 +1436,7 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #f04747;
+    background: var(--danger);
     flex-shrink: 0;
     animation: rec-pulse 1.1s ease-in-out infinite;
   }
@@ -1434,7 +1450,7 @@
     font-variant-numeric: tabular-nums;
   }
   .rec-cancel:hover :global(svg) {
-    color: #f04747;
+    color: var(--danger);
   }
   @keyframes rec-pulse {
     0%,
@@ -1465,7 +1481,10 @@
     box-shadow: none !important;
     outline: none !important; /* the SHELL carries the focus ring */
     border-radius: 0;
-    padding: 9px 4px;
+    /* Vertical padding tuned so a single-line draft sits at the same height as
+       the 34px icon buttons beside it — no more text baseline floating above the
+       controls on an empty/one-line composer. */
+    padding: 7px 6px;
     font-family: inherit;
     line-height: 1.4;
     box-sizing: border-box;
@@ -1474,13 +1493,18 @@
   .draft:focus {
     border: none;
   }
-  /* Bare icon buttons: muted glyphs that brighten on hover, no box. */
+  /* Bare icon buttons: muted glyphs that brighten on hover, no box. Fixed square
+     so every tray control occupies the same footprint regardless of its glyph's
+     intrinsic size — the row reads as an even set, not a jumble of sizes. */
   .iconbtn {
     display: grid;
     place-items: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    flex-shrink: 0;
     background: transparent;
     color: var(--text-muted);
-    padding: 7px;
     border-radius: var(--radius-sm);
     align-self: flex-end;
     transition:
@@ -1578,7 +1602,7 @@
     margin: 2px 0 2px 2px;
     border-radius: 50%;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     transition: opacity 0.12s ease, transform 0.12s ease;
   }
   .sendbtn:active:not(:disabled) {
