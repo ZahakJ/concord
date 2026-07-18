@@ -55,7 +55,7 @@ func readCappedLine(r *bufio.Reader, max int) ([]byte, error) {
 }
 
 const (
-	guestIdleTimeout  = 10 * time.Minute
+	guestIdleTimeout = 10 * time.Minute
 	// Big enough for a WebRTC offer/answer (SDP with video runs to several KB),
 	// not big enough to be a pipe: the gateway is a dumb relay of bytes it
 	// cannot read.

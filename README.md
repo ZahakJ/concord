@@ -20,6 +20,21 @@ design is more private than a centralized platform can ever be. For the short,
 plain-language version of what data exists and who can read it, see
 **[PRIVACY.md](PRIVACY.md)**.
 
+### A quick look (v0.33.0)
+
+| | |
+|---|---|
+| ![Colored text and a rich embed rendered in the feed](docs/media/chat-embed.png) | ![The advanced composer: formatting toolbar, colour swatches, embed builder, live preview](docs/media/advanced-composer.png) |
+| *Colored text and an author-built rich embed in the feed* | *The advanced composer — live preview, colours, embeds* |
+| ![Catch me up: the local assistant summarizes the channel, labeled with the engine that wrote it](docs/media/catch-me-up.png) | ![The App traffic view: machine payloads kept out of the conversation](docs/media/app-traffic.png) |
+| *"Catch me up" — summarized on-device, and it says so* | *App-bus payloads ride the data plane, never the feed* |
+
+![The assistant consent switches: the local assistant, and the separate shared-brain opt-in that plainly says Claude reads the messages](docs/media/assistant-consent.png)
+
+> *Every assistant answer is labeled with the engine that produced it, and the
+> one path where message content leaves the local model — the opt-in shared
+> brain — says exactly what it costs before you switch it on.*
+
 ---
 
 ## Table of contents
