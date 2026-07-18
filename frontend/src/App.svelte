@@ -75,6 +75,7 @@
   import ModalWhen from "./modals/ModalWhen.svelte";
   import ModalScheduled from "./modals/ModalScheduled.svelte";
   import ModalPoll from "./modals/ModalPoll.svelte";
+  import ModalCompose from "./modals/ModalCompose.svelte";
   import ModalDisappear from "./modals/ModalDisappear.svelte";
   import ModalStats from "./modals/ModalStats.svelte";
   import ModalBlocked from "./modals/ModalBlocked.svelte";
@@ -719,6 +720,8 @@
     <ModalScheduled onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "poll"}
     <ModalPoll onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "compose"}
+    <ModalCompose initial={S.modal.initial || ""} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "disappear"}
     <ModalDisappear onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "stats"}

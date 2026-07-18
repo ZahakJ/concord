@@ -954,6 +954,16 @@
         <button
           type="button"
           class="iconbtn"
+          title="Advanced composer (colors, rich embeds, preview)"
+          aria-label="Advanced composer"
+          disabled={!ch}
+          onclick={() => (S.modal = { kind: "compose", initial: draft })}
+        >
+          <Icon name="heading" size={19} />
+        </button>
+        <button
+          type="button"
+          class="iconbtn"
           title={draft.trim() ? "Schedule this message" : "Scheduled messages & reminders"}
           aria-label="Schedule message"
           disabled={!ch}

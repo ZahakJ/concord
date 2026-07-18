@@ -11,6 +11,8 @@
   import VideoAttachment from "./VideoAttachment.svelte";
   import PollView from "./PollView.svelte";
   import { parsePoll } from "./lib/polls.js";
+  import EmbedView from "./EmbedView.svelte";
+  import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
@@ -161,11 +163,14 @@
     if (mentionMember(e.target)) scheduleCloseProfilePopover();
   }
   const poll = $derived(m.deleted ? null : parsePoll(m.content));
+  const richEmbed = $derived(m.deleted ? null : parseEmbed(m.content));
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const files = $derived(m.deleted ? [] : parseFileTokens(m.content));
-  const bodyText = $derived(
-    stripEphemeral(atts.length || files.length ? stripAttachTokens(m.content) : m.content),
-  );
+  const bodyText = $derived.by(() => {
+    let c = atts.length || files.length ? stripAttachTokens(m.content) : m.content;
+    if (richEmbed) c = stripEmbedToken(c);
+    return stripEphemeral(c);
+  });
   // Disappearing: expiry epoch (ms) if this message carries one, else 0.
   const ephExp = $derived(m.deleted ? 0 : ephemeralExpiry(m.content));
   // One embed per message: the first YouTube link gets a player; otherwise
@@ -658,6 +663,9 @@
           <FileAttachment channelId={m.channelId} {tok} />
         {/if}
       {/each}
+      {#if richEmbed}
+        <EmbedView embed={richEmbed} {mentionNames} customEmoji={cemoji} />
+      {/if}
       {#if embed?.kind === "yt"}
         <YouTubeEmbed videoId={embed.id} autoload={S.prefs.linkPreviews !== false} />
       {:else if embed?.kind === "card"}
