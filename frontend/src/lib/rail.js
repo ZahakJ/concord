@@ -97,20 +97,36 @@ function extractGuild(items, id) {
  * Move a guild to a destination:
  *   { kind: "top", index }                 — top level at index
  *   { kind: "folder", folderId, index? }   — into a folder (append if no index)
- * Index is interpreted against the layout AFTER removal.
+ *
+ * Index is interpreted against the layout the CALLER sees — i.e. BEFORE the
+ * dragged guild is removed. The drop hints in GuildRail are computed from the
+ * rendered (pre-drag) rail, so compensating for the removal here rather than
+ * at every call site is what keeps a downward drag from landing one slot too
+ * far (the classic reorder off-by-one).
  */
 export function moveGuild(items, id, dest) {
   const without = extractGuild(items, id);
   if (dest.kind === "folder") {
+    // Where the guild sat inside the TARGET folder before removal, if it did —
+    // a downward reorder within the same folder must account for its own gap.
+    const orig = items.find((e) => isFolder(e) && e.id === dest.folderId);
+    const from = orig ? orig.ids.indexOf(id) : -1;
     return without.map((e) => {
       if (!isFolder(e) || e.id !== dest.folderId) return e;
       const ids = e.ids.slice();
-      const at = dest.index == null ? ids.length : Math.max(0, Math.min(ids.length, dest.index));
+      let at = dest.index == null ? ids.length : dest.index;
+      if (from !== -1 && from < at) at -= 1;
+      at = Math.max(0, Math.min(ids.length, at));
       ids.splice(at, 0, id);
       return { ...e, ids };
     });
   }
-  const at = Math.max(0, Math.min(without.length, dest.index ?? without.length));
+  // Same compensation at top level: dragging a top-level guild downward means
+  // every slot past its old position shifted up by one when it was removed.
+  let at = dest.index ?? without.length;
+  const from = items.findIndex((e) => isGuild(e) && e.id === id);
+  if (from !== -1 && from < at) at -= 1;
+  at = Math.max(0, Math.min(without.length, at));
   const out = without.slice();
   out.splice(at, 0, { t: "g", id });
   return out;
@@ -139,13 +155,19 @@ export function combineGuilds(items, dragId, targetId, color = DEFAULT_FOLDER_CO
   return out;
 }
 
-/** Move a top-level folder to a new top-level index. */
+/**
+ * Move a top-level folder to a new top-level index. As with moveGuild, the
+ * index is against the pre-removal layout the caller computed it from, so a
+ * downward move compensates for the folder's own vacated slot.
+ */
 export function moveFolder(items, folderId, index) {
   const cur = items.findIndex((e) => isFolder(e) && e.id === folderId);
   if (cur === -1) return items;
   const folder = items[cur];
   const without = items.filter((_, i) => i !== cur);
-  const at = Math.max(0, Math.min(without.length, index));
+  let at = index;
+  if (cur < at) at -= 1;
+  at = Math.max(0, Math.min(without.length, at));
   const out = without.slice();
   out.splice(at, 0, folder);
   return out;

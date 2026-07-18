@@ -723,7 +723,11 @@
   {:else if S.modal?.kind === "poll"}
     <ModalPoll onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "compose"}
-    <ModalCompose initial={S.modal.initial || ""} onClose={() => (S.modal = null)} />
+    <ModalCompose
+      initial={S.modal.initial || ""}
+      onSent={S.modal.onSent}
+      onClose={() => (S.modal = null)}
+    />
   {:else if S.modal?.kind === "disappear"}
     <ModalDisappear onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "stats"}

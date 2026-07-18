@@ -76,6 +76,38 @@ eq(
   "moveGuild reorders to the front",
 );
 
+// moveGuild: downward reorders — the drop index is computed against the rail
+// as rendered (dragged guild still in place), so "drop a after c" is index 3
+// in [a,b,c,d] and must land a at slot 2 of the result, not at the end.
+eq(
+  guildIdsInLayout(moveGuild([G("a"), G("b"), G("c"), G("d")], "a", { kind: "top", index: 3 })),
+  ["b", "c", "a", "d"],
+  "moveGuild downward lands after the target, not one slot too far",
+);
+eq(
+  guildIdsInLayout(moveGuild([G("a"), G("b"), G("c")], "a", { kind: "top", index: 3 })),
+  ["b", "c", "a"],
+  "moveGuild to the very end still works",
+);
+// Same rule inside a folder: pre-removal member indices.
+eq(
+  moveGuild([F("f1", ["a", "b", "c"])], "a", { kind: "folder", folderId: "f1", index: 3 })[0].ids,
+  ["b", "c", "a"],
+  "moveGuild downward within a folder compensates for its own gap",
+);
+eq(
+  moveGuild([F("f1", ["a", "b", "c"])], "c", { kind: "folder", folderId: "f1", index: 0 })[0].ids,
+  ["c", "a", "b"],
+  "moveGuild upward within a folder is unchanged",
+);
+
+// moveFolder: downward move with pre-removal index.
+eq(
+  moveFolder([F("f1", ["a", "b"]), G("c"), G("d")], "f1", 2).map((e) => e.id ?? e.t),
+  ["c", "f1", "d"],
+  "moveFolder downward lands before the slot it was aimed at, not past it",
+);
+
 // moveFolder + folder edits
 {
   const base = [G("a"), F("f1", ["b", "c"])];

@@ -1749,8 +1749,16 @@ func messageView(m domain.Message) MessageView {
 		Edited:    m.Edited,
 		Pinned:    m.Pinned,
 		Reactions: m.Reactions,
-		Sent:      m.Sent.Format("2006-01-02T15:04:05Z07:00"),
-		OcrMatch:  m.OCRMatch,
+		// Full nanosecond precision, fixed width. This string is ALSO the
+		// scroll-up pagination cursor (MessagesBefore parses it back to
+		// UnixNano and the store compares `sent < cursor` exactly): truncating
+		// it to whole seconds silently dropped every message that was older
+		// than the page boundary but inside its same wall-clock second — a
+		// permanent hole at every 200-row page edge. Fixed width (not
+		// .999999999) so the strings stay lexicographically ordered, which
+		// the frontend's sent/readAnchor comparisons rely on.
+		Sent:     m.Sent.Format("2006-01-02T15:04:05.000000000Z07:00"),
+		OcrMatch: m.OCRMatch,
 	}
 }
 

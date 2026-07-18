@@ -1052,7 +1052,19 @@
           title="Advanced composer (colors, rich embeds, preview)"
           aria-label="Advanced composer"
           disabled={!ch}
-          onclick={() => (S.modal = { kind: "compose", initial: draft })}
+          onclick={() =>
+            (S.modal = {
+              kind: "compose",
+              initial: draft,
+              // The modal seeds from the inline draft; once IT sends, the seed
+              // must go too — otherwise the same text sits in the one-line box
+              // waiting for a stray Enter to post it twice.
+              onSent: () => {
+                draft = "";
+                saveDraft(S.activeChannelId, "");
+                queueAutosize();
+              },
+            })}
         >
           <Icon name="heading" size={19} />
         </button>

@@ -45,7 +45,7 @@ const (
 	guestSignalBurst  = 240
 	guestSignalRefill = 12 // frames per second, replenished
 
-	guestHistoryCount   = 30
+	guestHistoryCount = 30
 	// Rate limit: a small burst, then one message per second.
 	guestBurst      = 5
 	guestRefillEach = time.Second

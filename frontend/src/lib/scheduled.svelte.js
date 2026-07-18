@@ -5,7 +5,7 @@
 // Nothing here touches the backend — a scheduled send is just a normal
 // SendMessage issued later.
 import { api } from "./api.js";
-import { S, flash, jumpToChannel } from "./state.svelte.js";
+import { S, flash, jumpToChannel, clockOpts } from "./state.svelte.js";
 
 const SKEY = "concord.scheduled";
 const RKEY = "concord.reminders";
@@ -140,7 +140,8 @@ export function whenLabel(at) {
   if (mins < 1) return "now";
   if (mins < 60) return `in ${mins}m`;
   const sameDay = d.toDateString() === new Date().toDateString();
-  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  // 12/24h follows the user's clock preference, like every other timestamp.
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...clockOpts() });
   if (sameDay) return `today ${time}`;
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);

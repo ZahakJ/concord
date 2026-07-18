@@ -104,8 +104,8 @@ func (s *Service) GuildStats(guildID string) (GuildStatsView, error) {
 // PeerStatView describes one live connection.
 type PeerStatView struct {
 	ID        string `json:"id"`
-	Name      string `json:"name"` // resolved display name, "" if unknown/infra
-	Role      string `json:"role"` // "rendezvous" (infra) | "peer"
+	Name      string `json:"name"`      // resolved display name, "" if unknown/infra
+	Role      string `json:"role"`      // "rendezvous" (infra) | "peer"
 	Transport string `json:"transport"` // quic | tcp | relay
 	Relayed   bool   `json:"relayed"`
 	Direction string `json:"direction"` // inbound | outbound

@@ -69,7 +69,7 @@
       .map((m) =>
         m.kind === "system"
           ? `> ✨ ${m.senderName || m.sender} ${m.content}`
-          : `**${m.senderName || m.sender}** (${m.sent}):\n${m.content}\n`,
+          : `**${m.senderName || m.sender}** (${new Date(m.sent).toISOString()}):\n${m.content}\n`,
       );
     const blob = new Blob([`# ${channelName(S.activeChannelId)}\n\n` + lines.join("\n")], {
       type: "text/markdown",

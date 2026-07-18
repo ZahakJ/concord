@@ -19,20 +19,20 @@ import (
 
 // Limits (deliberately small — this is a friend-group safety net).
 const (
-	MaxEnvelope   = 64 << 10  // 64 KiB per envelope (wake tokens / small msgs)
-	MaxPerMailbox = 200       // envelopes held per recipient
-	MaxTotalBytes = 64 << 20  // 64 MiB across all mailboxes, oldest-evicted
+	MaxEnvelope   = 64 << 10 // 64 KiB per envelope (wake tokens / small msgs)
+	MaxPerMailbox = 200      // envelopes held per recipient
+	MaxTotalBytes = 64 << 20 // 64 MiB across all mailboxes, oldest-evicted
 	DefaultTTL    = 14 * 24 * time.Hour
 	registerTTL   = 30 * 24 * time.Hour // forget mailboxes not seen in a month
 )
 
 // Envelope is one sealed message waiting for a recipient.
 type Envelope struct {
-	ID      string
-	Data    []byte
+	ID        string
+	Data      []byte
 	depositor string // opaque id of who deposited it (for fair eviction)
-	stored  time.Time
-	expires time.Time
+	stored    time.Time
+	expires   time.Time
 }
 
 // Store holds pending envelopes per mailbox tag. Safe for concurrent use.

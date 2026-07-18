@@ -185,7 +185,15 @@ func (w *Worker) loop() {
 
 func (w *Worker) process(j job) {
 	status, text := w.Extract(j.plain)
-	_ = w.sink.SaveAttachmentOCR(j.blobID, text, status)
+	if err := w.sink.SaveAttachmentOCR(j.blobID, text, status); err != nil {
+		// The save failed, so there is no DB row: clear the in-memory mark so
+		// the periodic sweep (or the next view of this attachment) can re-offer
+		// it. Leaving it marked pending would wedge this blob until restart —
+		// Enqueue drops anything already in the map.
+		w.mu.Lock()
+		delete(w.pending, j.blobID)
+		w.mu.Unlock()
+	}
 }
 
 // Extract runs the engine on one image, synchronously. Exposed for tests and

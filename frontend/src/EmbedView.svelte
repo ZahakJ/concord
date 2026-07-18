@@ -25,7 +25,12 @@
     {/if}
     {#if embed.fields?.length}
       <div class="fields">
-        {#each embed.fields as f (f.name + f.value)}
+        <!-- Keyed by index: fields are free text, so any content-derived key
+             can collide (two identical fields, or "a"+"bc" vs "ab"+"c"),
+             which Svelte rejects at render time — a crash an author can cause
+             from the compose form. Order is stable and rows are never
+             reordered, so the index is the honest identity here. -->
+        {#each embed.fields as f, i (i)}
           <div class="field">
             {#if f.name}<div class="f-name">{@html renderMarkdown(f.name, mentionNames, customEmoji)}</div>{/if}
             {#if f.value}<div class="f-val md">{@html renderMarkdown(f.value, mentionNames, customEmoji)}</div>{/if}

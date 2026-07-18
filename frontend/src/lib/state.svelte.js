@@ -608,14 +608,14 @@ async function recomputeUnread() {
       if (c.id === S.activeChannelId) continue;
       // With a working cheap count, skip channels that have nothing past the
       // cursor without ever touching the DB's ciphertext.
-      if (counts && !counts[c.id]) {
-        if (S.unread[c.id]) {
-          const next = { ...S.unread };
-          delete next[c.id];
-          S.unread = next;
-        }
-        continue;
-      }
+      //
+      // But `counts` is a snapshot taken before this loop, and every await in
+      // it yields to the live message path: a badge bumpUnread lit AFTER the
+      // snapshot must not be deleted on the snapshot's stale say-so. A channel
+      // that currently shows a badge falls through to the fresh per-channel
+      // count instead — authoritative either way, and the fast path still
+      // covers the common case (read channel, no badge).
+      if (counts && !counts[c.id] && !S.unread[c.id]) continue;
       try {
         const u = await countChannelUnread(c.id);
         const next = { ...S.unread };

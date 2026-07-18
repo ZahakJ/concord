@@ -3,6 +3,7 @@
   // colour picker, a rich-embed builder, and a live preview — for the times the
   // one-line composer isn't enough. Everything it produces is ordinary message
   // content (markdown + an optional embed token), so it sends like any message.
+  import { tick } from "svelte";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import EmbedView from "../EmbedView.svelte";
@@ -10,8 +11,9 @@
   import { api } from "../lib/api.js";
   import { renderMarkdown, COLOR_NAMES } from "../lib/markdown.js";
   import { encodeEmbed } from "../lib/richembed.js";
+  import { stampEphemeral } from "../lib/ephemeral.svelte.js";
 
-  let { onClose, initial = "" } = $props();
+  let { onClose, onSent, initial = "" } = $props();
 
   let body = $state(initial);
   let ta = $state(null);
@@ -39,7 +41,10 @@
       e = el.selectionEnd;
     const sel = body.slice(s, e) || "text";
     body = body.slice(0, s) + before + sel + after + body.slice(e);
-    queueMicrotask(() => {
+    // tick(), not queueMicrotask: the selection must be set against the
+    // textarea AFTER Svelte flushes the new value, and microtask ordering
+    // relative to that flush isn't guaranteed.
+    tick().then(() => {
       el.focus();
       el.selectionStart = s + before.length;
       el.selectionEnd = s + before.length + sel.length;
@@ -51,7 +56,7 @@
     const s = el.selectionStart;
     const lineStart = body.lastIndexOf("\n", s - 1) + 1;
     body = body.slice(0, lineStart) + prefix + body.slice(lineStart);
-    queueMicrotask(() => {
+    tick().then(() => {
       el.focus();
       el.selectionStart = el.selectionEnd = s + prefix.length;
     });
@@ -89,7 +94,12 @@
         const token = encodeEmbed(previewEmbed);
         content = content ? `${content}\n${token}` : token;
       }
-      await api.sendMessage(S.activeChannelId, content, "");
+      // Same stamping as the one-line composer: in a disappearing-messages
+      // channel this message must expire like any other. Skipping the stamp
+      // here would silently exempt "advanced" messages from a privacy setting
+      // the user believes is on.
+      await api.sendMessage(S.activeChannelId, stampEphemeral(S.activeChannelId, content), "");
+      onSent?.();
       onClose();
     } catch (err) {
       flash(err);

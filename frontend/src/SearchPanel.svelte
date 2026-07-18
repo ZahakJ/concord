@@ -11,6 +11,7 @@
     scrollToMessage,
     memberByFpr,
     flash,
+    clockOpts,
   } from "./lib/state.svelte.js";
   import { removeChip, closeSearch, expandSearch } from "./lib/search.js";
   import { engineLabel } from "./lib/assist.js";
@@ -30,6 +31,9 @@
         day: "numeric",
         hour: "2-digit",
         minute: "2-digit",
+        // Honor the 12/24h preference here too — the pref promises "the feed,
+        // pins and search", and search was the one place not keeping it.
+        ...clockOpts(),
       });
     } catch {
       return "";
