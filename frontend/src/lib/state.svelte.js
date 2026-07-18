@@ -306,12 +306,21 @@ export function togglePeerMute(peerId) {
 
 // markUnread rewinds a channel's read cursor to just before a message, so it
 // (and everything after) shows as unread again, with the NEW divider restored.
-export function markUnread(channelId, msg) {
+export async function markUnread(channelId, msg) {
   if (!channelId || !msg) return;
   const before = new Date(new Date(msg.sent).getTime() - 1).toISOString();
   lastRead[channelId] = before;
   saveJSON("concord.lastRead", lastRead);
-  recomputeUnread();
+  // Only THIS channel's cursor moved — recount just it, not every channel.
+  try {
+    const u = await countChannelUnread(channelId);
+    const next = { ...S.unread };
+    if (u) next[channelId] = u;
+    else delete next[channelId];
+    S.unread = next;
+  } catch {
+    /* leave the existing badge as-is if the channel isn't readable now */
+  }
   if (channelId === S.activeChannelId) S.readAnchor = before;
 }
 
@@ -529,10 +538,38 @@ async function countChannelUnread(channelId) {
 // called once after login so a refresh doesn't wipe the badges. Applied
 // per-channel as each count lands (never a wholesale S.unread swap at the
 // end): live bumps arriving during the awaits must not be clobbered.
+//
+// Fast path: a single backend call counts unread per channel in SQL with NO
+// decryption, so the common case (a read channel) costs nothing. Only channels
+// the cheap count flags as non-empty are decrypted — and only to get the exact
+// "from others" count and the mention tally, which need message content.
 async function recomputeUnread() {
+  const since = {};
   for (const g of S.guilds) {
     for (const c of g.channels) {
       if (c.id === S.activeChannelId) continue;
+      since[c.id] = lastRead[c.id] || "";
+    }
+  }
+  let counts = null;
+  try {
+    counts = await api.unreadCounts(since);
+  } catch {
+    /* fall through to the per-channel path below */
+  }
+  for (const g of S.guilds) {
+    for (const c of g.channels) {
+      if (c.id === S.activeChannelId) continue;
+      // With a working cheap count, skip channels that have nothing past the
+      // cursor without ever touching the DB's ciphertext.
+      if (counts && !counts[c.id]) {
+        if (S.unread[c.id]) {
+          const next = { ...S.unread };
+          delete next[c.id];
+          S.unread = next;
+        }
+        continue;
+      }
       try {
         const u = await countChannelUnread(c.id);
         const next = { ...S.unread };

@@ -213,6 +213,13 @@ CREATE TABLE IF NOT EXISTS pending_members (
 			return fmt.Errorf("store: migrate: %w", err)
 		}
 	}
+	// Index on (channel_id, updated) — added after the column exists. Without it,
+	// MAX(updated) per channel is a full-partition scan; LatestTimestamp runs per
+	// channel on every sync and presence refresh.
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_messages_channel_updated ON messages(channel_id, updated)`); err != nil {
+		return fmt.Errorf("store: migrate: %w", err)
+	}
 	return nil
 }
 
@@ -706,14 +713,39 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 // max over message send times and later state updates (edit/delete/pin/react) —
 // or 0. It is the cursor for history sync.
 func (s *Store) LatestTimestamp(channelID string) (int64, error) {
-	var t sql.NullInt64
-	err := s.db.QueryRow(
-		`SELECT MAX(COALESCE(MAX(sent),0), COALESCE(MAX(updated),0))
-		 FROM messages WHERE channel_id = ?`, channelID).Scan(&t)
-	if err != nil {
+	// Two single-column MAXes, each served by a covering index
+	// (idx_messages_channel on sent, idx_messages_channel_updated on updated),
+	// then the larger. The old nested MAX(MAX(sent),MAX(updated)) couldn't use
+	// either index and scanned the whole channel partition.
+	var maxSent, maxUpdated sql.NullInt64
+	if err := s.db.QueryRow(
+		`SELECT MAX(sent) FROM messages WHERE channel_id = ?`, channelID).Scan(&maxSent); err != nil {
 		return 0, err
 	}
-	return t.Int64, nil
+	if err := s.db.QueryRow(
+		`SELECT MAX(updated) FROM messages WHERE channel_id = ?`, channelID).Scan(&maxUpdated); err != nil {
+		return 0, err
+	}
+	return maxInt64(maxSent.Int64, maxUpdated.Int64), nil
+}
+
+// UnreadCounts returns, per channel, how many normal (non-system) messages are
+// strictly newer than that channel's cursor in sinceNano — WITHOUT decrypting a
+// single body. The prior approach fetched and secretbox-opened up to 200 rows
+// per channel just to count them, on every login and read-state event.
+func (s *Store) UnreadCounts(sinceNano map[string]int64) (map[string]int, error) {
+	out := make(map[string]int, len(sinceNano))
+	for channelID, since := range sinceNano {
+		var n int
+		if err := s.db.QueryRow(
+			`SELECT COUNT(*) FROM messages
+			 WHERE channel_id = ? AND sent > ? AND deleted = 0 AND kind IN ('', 'guest')`,
+			channelID, since).Scan(&n); err != nil {
+			return nil, err
+		}
+		out[channelID] = n
+	}
+	return out, nil
 }
 
 // MessagesSince returns up to limit messages in a channel strictly newer than

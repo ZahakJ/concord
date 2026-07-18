@@ -932,6 +932,28 @@ func (b *Bridge) MessagesBefore(channelID, beforeISO string, limit int) ([]Messa
 	return out, nil
 }
 
+// UnreadCounts returns the per-channel unread message count. sinceISO maps a
+// channel ID to the RFC3339 read cursor ("" = from the beginning). Counting
+// happens in SQL with no decryption — this replaces a full-history decrypt of
+// every channel on login and on cross-device read-state events.
+func (b *Bridge) UnreadCounts(sinceISO map[string]string) (map[string]int, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	sinceNano := make(map[string]int64, len(sinceISO))
+	for ch, iso := range sinceISO {
+		if iso == "" {
+			sinceNano[ch] = 0
+			continue
+		}
+		if t, err := time.Parse("2006-01-02T15:04:05Z07:00", iso); err == nil {
+			sinceNano[ch] = t.UnixNano()
+		}
+	}
+	return svc.UnreadCounts(sinceNano)
+}
+
 func (b *Bridge) SendMessage(channelID, content, replyTo string) error {
 	svc, err := b.service()
 	if err != nil {
@@ -1813,6 +1835,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.Messages(argStr(args, 0))
 	case "MessagesBefore":
 		return b.MessagesBefore(argStr(args, 0), argStr(args, 1), int(argInt64(args, 2)))
+	case "UnreadCounts":
+		var since map[string]string
+		if len(args) > 0 {
+			_ = json.Unmarshal(args[0], &since)
+		}
+		return b.UnreadCounts(since)
 	case "SendMessage":
 		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "SendCallNotice":

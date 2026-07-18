@@ -122,6 +122,7 @@ export const api = {
   joinViaInvite: (code) => call("JoinViaInvite", code),
   messages: (channelID) => call("Messages", channelID),
   messagesBefore: (channelID, beforeISO, limit) => call("MessagesBefore", channelID, beforeISO, limit),
+  unreadCounts: (sinceISO) => call("UnreadCounts", sinceISO),
   sendMessage: (channelID, content, replyTo = "") =>
     call("SendMessage", channelID, content, replyTo),
   sendCallNotice: (channelID, kind, content) =>

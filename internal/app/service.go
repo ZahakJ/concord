@@ -122,6 +122,9 @@ type Service struct {
 	// gate and invite gate consult. Both are guarded by mu.
 	govOps   map[string][]govOp
 	govState map[string]GuildState
+	// govHashes indexes each guild's ingested op hashes for O(1) dedup, instead
+	// of re-hashing the whole op log on every ingest (sync replays the full log).
+	govHashes map[string]map[string]bool
 
 	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
@@ -706,6 +709,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		nicks:            map[string]map[string]string{},
 		govOps:           map[string][]govOp{},
 		govState:         map[string]GuildState{},
+		govHashes:        map[string]map[string]bool{},
 		outOfSync:        map[string]bool{},
 		blocked:          map[string]bool{},
 		pendingMembers:   map[string]map[string]bool{},
@@ -735,6 +739,10 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 				var o govOp
 				if json.Unmarshal(b, &o) == nil {
 					s.govOps[gid] = append(s.govOps[gid], o)
+					if s.govHashes[gid] == nil {
+						s.govHashes[gid] = map[string]bool{}
+					}
+					s.govHashes[gid][o.hash()] = true
 				}
 			}
 		}

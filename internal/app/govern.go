@@ -74,12 +74,14 @@ func (s *Service) ingestGovOp(guildID string, o govOp) bool {
 	}
 	hash := o.hash()
 	s.mu.Lock()
-	for _, existing := range s.govOps[guildID] {
-		if existing.hash() == hash {
-			s.mu.Unlock()
-			return false
-		}
+	if s.govHashes[guildID] == nil {
+		s.govHashes[guildID] = map[string]bool{}
 	}
+	if s.govHashes[guildID][hash] { // O(1) dedup instead of re-hashing the whole log
+		s.mu.Unlock()
+		return false
+	}
+	s.govHashes[guildID][hash] = true
 	s.govOps[guildID] = append(s.govOps[guildID], o)
 	s.rebuildGovStateLocked(guildID)
 	s.mu.Unlock()

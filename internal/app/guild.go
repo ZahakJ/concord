@@ -167,6 +167,12 @@ func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error
 	return msgs, err
 }
 
+// UnreadCounts returns the per-channel count of normal messages newer than each
+// channel's cursor, without decrypting any bodies.
+func (s *Service) UnreadCounts(sinceNano map[string]int64) (map[string]int, error) {
+	return s.store.UnreadCounts(sinceNano)
+}
+
 // MessagesBefore returns up to limit messages older than beforeNano (oldest
 // first) — the older page fetched when the reader scrolls up past the initial
 // window.
