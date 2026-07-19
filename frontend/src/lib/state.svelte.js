@@ -1143,14 +1143,11 @@ export async function selectChannel(id) {
 }
 
 // loadOlder pages in the messages just before the oldest row currently loaded.
-// Returns the number of CHAT rows prepended (0 = nothing more / no-op), so the
-// caller can hold the reader's scroll position steady across the insert.
+// Returns the number of rows prepended (0 = nothing more / no-op), so the caller
+// can hold the reader's scroll position steady across the insert.
 //
-// It keeps fetching until a page actually yields conversation (or history runs
-// out), bounded so a pathological channel can't spin: a channel that takes a
-// burst of app-bus telemetry can easily produce a whole 200-row page with not
-// one human line in it, and returning 0 there would leave the reader stuck at
-// the top of the feed waiting for history that is really still coming.
+// It keeps fetching until a page yields rows we don't already have (or history
+// runs out), bounded so overlapping pages can't spin it forever.
 const OLDER_PAGE_TRIES = 5;
 
 export async function loadOlder() {
