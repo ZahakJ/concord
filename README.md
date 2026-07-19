@@ -20,6 +20,17 @@ design is more private than a centralized platform can ever be. For the short,
 plain-language version of what data exists and who can read it, see
 **[PRIVACY.md](PRIVACY.md)**.
 
+### A quick look
+
+| | |
+|---|---|
+| ![Colored text and an author-built rich embed rendered in a channel feed](docs/media/chat-embed.png) | ![The advanced composer: formatting toolbar, colour swatches, a rich-embed builder, and a live preview](docs/media/advanced-composer.png) |
+| *Colored text and an author-built rich embed, in the feed* | *The advanced composer — colours, a rich-embed builder, and a live preview* |
+
+Every pixel above is the app doing its one job: encrypted chat, styled the way
+you like it, on your machine. No assistant, no cloud, nothing to plug in.
+
+---
 
 ## Table of contents
 
