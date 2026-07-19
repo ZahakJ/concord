@@ -13,7 +13,6 @@ import (
 	"time"
 
 	appsvc "github.com/zahak/concord/internal/app"
-	"github.com/zahak/concord/internal/assist"
 	"github.com/zahak/concord/internal/domain"
 	"github.com/zahak/concord/internal/identity"
 	"github.com/zahak/concord/internal/version"
@@ -205,9 +204,6 @@ type MessageView struct {
 	Pinned     bool                `json:"pinned"`
 	Reactions  map[string][]string `json:"reactions"` // emoji -> fingerprints
 	Sent       string              `json:"sent"`
-	// OcrMatch marks a search hit that matched through text extracted locally
-	// from an image attachment ("matched text in image"). Search-only.
-	OcrMatch bool `json:"ocrMatch,omitempty"`
 }
 
 type MemberView struct {
@@ -1736,14 +1732,9 @@ func messageView(m domain.Message) MessageView {
 		ChannelID:  m.ChannelID,
 		Sender:     identity.FingerprintOf(m.Sender),
 		SenderName: m.Name,
-		// EffectiveKind, not Kind: a legacy app payload stored before the data
-		// plane existed carries no kind field, and reporting it as "" would
-		// make every client re-derive "is this machine traffic?" from the
-		// content prefix. Deciding it once, here, keeps the clients honest and
-		// retroactively labels payloads already on disk.
-		Kind:      m.EffectiveKind(),
-		ReplyTo:   m.ReplyTo,
-		Content:   m.Content,
+		Kind:       m.Kind,
+		ReplyTo:    m.ReplyTo,
+		Content:    m.Content,
 		Deleted:   m.Deleted,
 		Expired:   m.Expired,
 		Edited:    m.Edited,
@@ -1757,8 +1748,7 @@ func messageView(m domain.Message) MessageView {
 		// permanent hole at every 200-row page edge. Fixed width (not
 		// .999999999) so the strings stay lexicographically ordered, which
 		// the frontend's sent/readAnchor comparisons rely on.
-		Sent:     m.Sent.Format("2006-01-02T15:04:05.000000000Z07:00"),
-		OcrMatch: m.OCRMatch,
+		Sent: m.Sent.Format("2006-01-02T15:04:05.000000000Z07:00"),
 	}
 }
 
@@ -1768,107 +1758,6 @@ func messageView(m domain.Message) MessageView {
 // surface. Keeping the name→method mapping here — instead of in main_web.go —
 // means one place to add a method for every transport. Explicit, not
 // reflective, for clarity and safety.
-
-// ---- the local assistant (opt-in, loopback Ollama; see internal/assist) ----
-
-// AssistStatus reports the assistant + OCR pipeline state for settings.
-func (b *Bridge) AssistStatus() (appsvc.AssistStatusView, error) {
-	svc, err := b.service()
-	if err != nil {
-		return appsvc.AssistStatusView{}, err
-	}
-	return svc.AssistStatus(), nil
-}
-
-// SetAssistConfig flips/points the assistant. Endpoint must be loopback.
-func (b *Bridge) SetAssistConfig(enabled bool, endpoint, model string) (appsvc.AssistStatusView, error) {
-	svc, err := b.service()
-	if err != nil {
-		return appsvc.AssistStatusView{}, err
-	}
-	if _, err := svc.SetAssistConfig(enabled, endpoint, model); err != nil {
-		return appsvc.AssistStatusView{}, err
-	}
-	return svc.AssistStatus(), nil
-}
-
-// SetAssistBrain records the user's separate opt-in to the shared brain (a
-// local Claude Code session — see internal/brain). Off by default; kept apart
-// from SetAssistConfig so switching the assistant on can never switch this on.
-func (b *Bridge) SetAssistBrain(enabled bool) (appsvc.AssistStatusView, error) {
-	svc, err := b.service()
-	if err != nil {
-		return appsvc.AssistStatusView{}, err
-	}
-	if _, err := svc.SetAssistBrain(enabled); err != nil {
-		return appsvc.AssistStatusView{}, err
-	}
-	return svc.AssistStatus(), nil
-}
-
-// AssistCatchUp summarizes a channel's recent history ("catch me up").
-// Always local; the result names the engine that wrote it.
-func (b *Bridge) AssistCatchUp(channelID string) (assist.Result, error) {
-	svc, err := b.service()
-	if err != nil {
-		return assist.Result{}, err
-	}
-	return svc.AssistCatchUp(channelID)
-}
-
-// AssistDraftReply drafts a reply to the channel's conversation, routed
-// brain -> local model -> honest failure. The result names the engine.
-func (b *Bridge) AssistDraftReply(channelID, instruction string) (assist.Result, error) {
-	svc, err := b.service()
-	if err != nil {
-		return assist.Result{}, err
-	}
-	return svc.AssistDraftReply(channelID, instruction)
-}
-
-// AssistBrainJob polls a brain job that was still queued when the request
-// returned. Pending is a normal state, not an error.
-func (b *Bridge) AssistBrainJob(jobID string) (assist.Result, error) {
-	svc, err := b.service()
-	if err != nil {
-		return assist.Result{}, err
-	}
-	return svc.AssistBrainJob(jobID)
-}
-
-// AssistSearchView mirrors the service's assisted-search result with
-// MessageViews for the frontend.
-type AssistSearchView struct {
-	Terms    []string      `json:"terms"`
-	Messages []MessageView `json:"messages"`
-	Engine   assist.Engine `json:"engine"`
-	Note     string        `json:"note"`
-}
-
-// AssistSearch is search + model-suggested related terms, all local.
-func (b *Bridge) AssistSearch(query string) (AssistSearchView, error) {
-	svc, err := b.service()
-	if err != nil {
-		return AssistSearchView{}, err
-	}
-	got, err := svc.AssistSearch(query)
-	if err != nil {
-		return AssistSearchView{}, err
-	}
-	out := AssistSearchView{
-		Terms:    got.Terms,
-		Engine:   got.Engine,
-		Note:     got.Note,
-		Messages: make([]MessageView, 0, len(got.Messages)),
-	}
-	if out.Terms == nil {
-		out.Terms = []string{}
-	}
-	for _, m := range got.Messages {
-		out.Messages = append(out.Messages, messageView(m))
-	}
-	return out, nil
-}
 
 // Dispatch routes a method name + JSON-encoded positional args to a bridge
 // call. Used by the web shell's /rpc handler.
@@ -2084,20 +1973,6 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "ToggleReaction":
 		return nil, b.ToggleReaction(argStr(args, 0), argStr(args, 1), argStr(args, 2))
-	case "AssistStatus":
-		return b.AssistStatus()
-	case "SetAssistConfig":
-		return b.SetAssistConfig(argBool(args, 0), argStr(args, 1), argStr(args, 2))
-	case "SetAssistBrain":
-		return b.SetAssistBrain(argBool(args, 0))
-	case "AssistBrainJob":
-		return b.AssistBrainJob(argStr(args, 0))
-	case "AssistCatchUp":
-		return b.AssistCatchUp(argStr(args, 0))
-	case "AssistDraftReply":
-		return b.AssistDraftReply(argStr(args, 0), argStr(args, 1))
-	case "AssistSearch":
-		return b.AssistSearch(argStr(args, 0))
 	default:
 		return nil, fmt.Errorf("unknown method %q", method)
 	}

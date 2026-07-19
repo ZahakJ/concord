@@ -8,7 +8,6 @@
 //   from:name  in:#channel  has:link|image|file  before:YYYY-MM-DD  after:…
 import { S, flash } from "./state.svelte.js";
 import { api } from "./api.js";
-import { isAppMessage } from "./appbus.js";
 
 // parseQuery splits a raw query into free text, structured filters, and the
 // chip list (one per recognised operator, keeping the raw token so removing
@@ -58,11 +57,6 @@ function channelNameFor(chId) {
 }
 
 export function matchFilters(m, f) {
-  // App-bus payloads are searchable data on the backend (that's how the Apps
-  // view and other tools find them) but they are not conversation, so they
-  // never appear as a chat search hit — a hit you can't jump to, because the
-  // feed doesn't render it. Dropping them here covers both search paths.
-  if (isAppMessage(m)) return false;
   if (f.from && !(m.senderName || m.name || "").toLowerCase().includes(f.from)) return false;
   if (f.in) {
     const cn = channelNameFor(m.channelId).toLowerCase();
@@ -95,45 +89,11 @@ export async function runSearch(e) {
   // Free-text terms drive <mark> highlighting in the results panel.
   S.searchTerms = text.split(/\s+/).filter(Boolean);
   S.searchLoading = true;
-  S.searchAssistTerms = [];
-  S.searchAssistEngine = "";
-  S.searchAssistNote = "";
   const my = ++seq;
   try {
     const res = (await api.searchMessages(text)) || [];
     if (my !== seq) return;
     S.searchResults = res.filter((m) => matchFilters(m, filters));
-  } catch (err) {
-    if (my === seq) flash(err);
-  } finally {
-    if (my === seq) S.searchLoading = false;
-  }
-}
-
-// expandSearch re-runs the current query through the assistant
-// (api.assistSearch): the model suggests related terms and their hits fold in.
-// Only ever invoked by an explicit click, and only when the assistant is on.
-//
-// Which engine suggested the terms comes back with them and is stashed for the
-// results panel to show. We don't assume "local" here even though that is the
-// usual answer — the panel's job is to report what happened, not what we
-// expected to happen.
-export async function expandSearch() {
-  const raw = S.searchQuery.trim();
-  if (!raw) return;
-  const { text, filters } = parseQuery(raw);
-  S.searchLoading = true;
-  const my = ++seq;
-  try {
-    const res = await api.assistSearch(text);
-    if (my !== seq) return;
-    const terms = res?.terms || [];
-    S.searchResults = (res?.messages || []).filter((m) => matchFilters(m, filters));
-    S.searchAssistTerms = terms;
-    S.searchAssistEngine = res?.engine || "";
-    S.searchAssistNote = res?.note || "";
-    // related terms highlight too, so folded-in hits show why they matched
-    S.searchTerms = [...new Set([...S.searchTerms, ...terms])];
   } catch (err) {
     if (my === seq) flash(err);
   } finally {
@@ -156,8 +116,5 @@ export function closeSearch() {
   S.searchQuery = "";
   S.searchChips = [];
   S.searchTerms = [];
-  S.searchAssistTerms = [];
-  S.searchAssistEngine = "";
-  S.searchAssistNote = "";
   S.searchLoading = false;
 }

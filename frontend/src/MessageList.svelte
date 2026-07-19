@@ -23,7 +23,6 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
-  import { isAppMessage } from "./lib/appbus.js";
   import { untrack, tick } from "svelte";
 
   let { onDropFiles } = $props();
@@ -160,11 +159,6 @@
     const out = [];
     let prev = null;
     for (const m of S.messages) {
-      // App-bus payloads are already split out of S.messages upstream, so this
-      // never fires in practice — it stays because "machine data must not
-      // render in a human's feed" is the kind of rule you want enforced at the
-      // place that actually draws rows, not only at the place that loads them.
-      if (isAppMessage(m)) continue;
       // A deleted message is gone unless you opt in via Settings → "Show deleted
       // messages" — and that toggle is absolute: OFF hides them for EVERYONE,
       // moderators included. (A guild mod who turns it ON also gets a "Show

@@ -16,7 +16,6 @@
     selectGuild,
     flash,
     clearFeed,
-    channelName,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { runSearch, closeSearch } from "./lib/search.js";
@@ -147,13 +146,6 @@
       [
         { label: "Search", icon: "search", onClick: () => (searchOpen = true) },
         { label: "Pinned messages", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
-        // Same rule as the desktop header: only offered where an app has
-        // actually posted, so it doesn't sit in every channel's sheet.
-        S.appMessages.length > 0 && {
-          label: `App traffic (${S.appMessages.length})`,
-          icon: "code",
-          onClick: () => (S.modal = { kind: "apps", channelName: channelName(S.activeChannelId) }),
-        },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
         !g.dmNotes &&
           (inCall

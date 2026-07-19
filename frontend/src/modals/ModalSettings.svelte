@@ -13,7 +13,7 @@
     previewRingtone,
   } from "../lib/sounds.js";
   import { bioEnrolled } from "../lib/biometric.js";
-  import { S, setPref, flash, refreshAssist } from "../lib/state.svelte.js";
+  import { S, setPref, flash } from "../lib/state.svelte.js";
 
   let { onClose, onSaved } = $props();
   let bootstrap = $state("");
@@ -67,52 +67,6 @@
     const core = window.Capacitor?.Plugins?.ConcordCore;
     if (stayConnected) core?.startBackground?.().catch(() => {});
     else core?.stopBackground?.().catch(() => {});
-  }
-
-  // The local assistant (strictly on-device Ollama; see internal/assist).
-  // OFF by default; the toggle round-trips through the backend so the stored
-  // state is always the truth. Model changes save immediately.
-  let assistBusy = $state(false);
-  onMount(refreshAssist);
-  async function toggleAssist() {
-    if (assistBusy) return;
-    assistBusy = true;
-    try {
-      S.assist = await api.setAssistConfig(
-        !S.assist?.enabled,
-        S.assist?.endpoint || "",
-        S.assist?.model || "",
-      );
-    } catch (err) {
-      flash(err);
-    }
-    assistBusy = false;
-  }
-  // The "shared brain" opt-in. Separate from the assistant toggle above it
-  // because it is a separate decision with a real consequence: it is the one
-  // path in this app where message content is read by something other than a
-  // process on this machine. Round-trips through the backend like the
-  // assistant toggle does, so the stored state is always the truth — including
-  // when CONCORD_BRAIN=off pins the machine local-only and the answer comes
-  // back OFF no matter what was clicked.
-  let brainBusy = $state(false);
-  async function toggleBrain() {
-    if (brainBusy) return;
-    brainBusy = true;
-    try {
-      S.assist = await api.setAssistBrain(!S.assist?.brainEnabled);
-    } catch (err) {
-      flash(err);
-    }
-    brainBusy = false;
-  }
-
-  async function pickAssistModel(model) {
-    try {
-      S.assist = await api.setAssistConfig(!!S.assist?.enabled, S.assist?.endpoint || "", model);
-    } catch (err) {
-      flash(err);
-    }
   }
 
   let richPresence = $state(false);
@@ -606,167 +560,6 @@
     </div>
   </section>
 
-  <!-- LOCAL ASSISTANT -->
-  <section class="grp">
-    <div class="sec-label">Local assistant</div>
-    <div class="card">
-      <button
-        class="row"
-        onclick={toggleAssist}
-        role="switch"
-        aria-checked={!!S.assist?.enabled}
-        disabled={assistBusy}
-      >
-        <span class="chip"><Icon name="spark" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">
-            Assistant <span class="local-tag">100% on this device</span>
-          </span>
-          <span class="row-sub">
-            Off by default. When on: "catch me up" channel summaries, drafted
-            replies, and smarter search — powered by a local Ollama model over
-            127.0.0.1. Your messages never leave this machine, and encryption
-            is untouched: the assistant only reads what your own screen already
-            shows.
-          </span>
-        </span>
-        <span class="switch" class:on={!!S.assist?.enabled}><span class="knob"></span></span>
-      </button>
-      {#if !S.assist?.enabled && S.assist?.brain?.available && !S.assist?.brain?.pinned}
-        <!-- Discovery runs by default (it sends nothing), so we can tell the
-             user a brain exists here without their having touched anything.
-             This is deliberately a flat note and NOT a switch: it must read as
-             "this exists", never as "this is on". Nothing has been sent, and
-             two separate opt-ins still stand between here and a message. -->
-        <div class="row assist-detail">
-          <span class="chip"><Icon name="bolt" size={16} /></span>
-          <span class="row-text">
-            <span class="row-title">A shared brain is available on this machine</span>
-            <span class="row-sub">
-              Aether is running here, so drafted replies could optionally be
-              written by a Claude Code session on your own subscription instead
-              of the local model. It is off, and nothing has been sent to it.
-              Switch the assistant on and you'll get a separate opt-in that
-              explains the trade — Claude would read the conversation.
-            </span>
-          </span>
-        </div>
-      {/if}
-      {#if S.assist?.enabled}
-        <!-- The brain opt-in only exists while the assistant is on — it changes
-             how one assistant feature is answered, so it is meaningless (and
-             would be alarming) sitting under a switched-off assistant. -->
-        <button
-          class="row"
-          onclick={toggleBrain}
-          role="switch"
-          aria-checked={!!S.assist?.brainEnabled}
-          disabled={brainBusy || !!S.assist?.brain?.pinned}
-        >
-          <span class="chip"><Icon name="bolt" size={16} /></span>
-          <span class="row-text">
-            <span class="row-title">
-              Shared brain for drafted replies
-              <span class="warn-tag">Claude reads the messages</span>
-            </span>
-            <span class="row-sub">
-              Off by default, and it changes only one thing: who writes a
-              "draft a reply" suggestion. Catch-me-up, search and everything
-              else stay on the local model either way.
-            </span>
-            <span class="row-sub">
-              The shared brain is a Claude Code session running as an ordinary
-              local process on this machine, signed in with your own Claude
-              subscription — there's no API key, nothing is metered or billed
-              per use, and your messages aren't handed to a third-party service
-              you haven't already signed into yourself.
-            </span>
-            <span class="row-sub strong-sub">
-              What is genuinely different: to write the draft, Claude is sent
-              the conversation, and Claude reads it. Everywhere else in this app
-              your messages stay on this device — with this on, for that one
-              feature, they don't. Leave it off if that isn't a trade you want.
-            </span>
-          </span>
-          <span class="switch" class:on={!!S.assist?.brainEnabled}><span class="knob"></span></span>
-        </button>
-        <!-- Live state, so "on" never has to be taken on faith: whether the
-             harness exists, whether a session is actually there right now, and
-             whether the environment has overruled the switch entirely. -->
-        <div class="row assist-detail">
-          <span class="chip"><Icon name="info" size={16} /></span>
-          <span class="row-text">
-            <span class="row-title">Brain status</span>
-            <span class="row-sub">
-              {#if S.assist?.brain?.pinned}
-                CONCORD_BRAIN=off is set in this machine's environment: it is
-                pinned local-only and the switch above can't turn the brain on.
-                Drafts come from the local model. Unset it and restart Concord
-                to make the choice yours again.
-              {:else if !S.assist?.brain?.available}
-                Aether isn't available on this machine, so there's nothing to
-                run a Claude Code session — drafts come from the local model.
-              {:else if S.assist?.brain?.connected}
-                A session is connected and answering now.{#if S.assist.brain.queued}
-                  {" "}{S.assist.brain.queued} job{S.assist.brain.queued === 1 ? "" : "s"} queued.
-                {/if}
-              {:else}
-                Aether is available but no session is connected right now.
-                Requests wait in the queue until one picks them up.
-              {/if}
-              {#if S.assist?.brain?.note}{" "}{S.assist.brain.note}{/if}
-            </span>
-          </span>
-        </div>
-        <div class="row assist-detail">
-          <span class="chip"><Icon name="gear" size={16} /></span>
-          <span class="row-text">
-            <span class="row-title">Model</span>
-            <span class="row-sub">
-              {#if S.assist.reachable}
-                Ollama is running at {S.assist.endpoint}.
-                {#if !S.assist.modelPresent}{S.assist.hint}{/if}
-              {:else}
-                {S.assist.hint || "Ollama isn't reachable."}
-              {/if}
-            </span>
-          </span>
-          {#if S.assist.models?.length}
-            <select
-              class="ringtone-select"
-              value={S.assist.model}
-              onchange={(e) => pickAssistModel(e.target.value)}
-            >
-              {#if !S.assist.models.includes(S.assist.model)}
-                <option value={S.assist.model}>{S.assist.model}</option>
-              {/if}
-              {#each S.assist.models as m (m)}
-                <option value={m}>{m}</option>
-              {/each}
-            </select>
-          {/if}
-        </div>
-      {/if}
-      <div class="row assist-detail">
-        <span class="chip"><Icon name="imagetext" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Search inside images (OCR)</span>
-          <span class="row-sub">
-            {#if S.assist?.ocr?.available}
-              Text in shared screenshots is read out locally ({S.assist.ocr.engine})
-              and joins search — {S.assist.ocr.counts?.ok || 0} image{(S.assist.ocr.counts?.ok || 0) === 1 ? "" : "s"} indexed
-              so far. Extracted text is sealed at rest like your messages.
-            {:else}
-              Install a local OCR engine to search text inside shared
-              screenshots: `pip install rapidocr-onnxruntime`, then put
-              scripts/concord-ocr on your PATH. Runs entirely on this machine.
-            {/if}
-          </span>
-        </span>
-      </div>
-    </div>
-  </section>
-
   <!-- SECURITY -->
   <section class="grp">
     <div class="sec-label">Security</div>
@@ -1012,45 +805,6 @@
     font-size: 14px;
     font-weight: 600;
     line-height: 1.3;
-  }
-  /* the honest "nothing leaves this machine" tag on the assistant row */
-  .local-tag {
-    margin-left: 6px;
-    padding: 1px 8px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-    color: var(--accent-hover);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    vertical-align: 1px;
-  }
-  /* The counterpart to .local-tag: same chip, opposite claim. Where .local-tag
-     promises nothing leaves the machine, this one says something does — so it
-     borrows the warning color rather than the accent, and must never be
-     restyled into looking reassuring. */
-  .warn-tag {
-    margin-left: 6px;
-    padding: 1px 8px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--warn) 14%, transparent);
-    border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent);
-    color: var(--warn);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    vertical-align: 1px;
-    white-space: nowrap;
-  }
-  /* The one paragraph in this row the user must not skim past. */
-  .strong-sub {
-    color: var(--text);
-  }
-  .row.assist-detail {
-    cursor: default;
   }
   .row-sub {
     font-size: 11.5px;

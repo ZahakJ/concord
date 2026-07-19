@@ -187,41 +187,6 @@
       </button>
     {/if}
 
-    {#if ch && S.assist?.enabled}
-      <button
-        class="ghost iconbtn"
-        title="Catch me up — your local model summarizes this conversation, entirely on this device"
-        aria-label="Catch me up"
-        onclick={() =>
-          (S.modal = {
-            kind: "catchup",
-            channelId: S.activeChannelId,
-            channelName: channelName(S.activeChannelId),
-          })}
-      >
-        <Icon name="spark" /> <span class="n">Catch me up</span>
-      </button>
-    {/if}
-
-    <!-- Only offered when this channel has actually received app traffic. An
-         always-present button would be clutter in the 99% of channels no
-         connector ever posts to, and its absence is itself information: no
-         button means nothing was pushed here. -->
-    {#if ch && S.appMessages.length}
-      <button
-        class="ghost iconbtn"
-        title="App traffic — payloads other local apps pushed into this channel. Kept out of the conversation; shown raw here."
-        aria-label="App traffic"
-        onclick={() =>
-          (S.modal = {
-            kind: "apps",
-            channelName: channelName(S.activeChannelId),
-          })}
-      >
-        <Icon name="code" /> <span class="n">{S.appMessages.length}</span>
-      </button>
-    {/if}
-
     {#if ch}
       <button
         class="ghost iconbtn"

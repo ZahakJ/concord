@@ -20,12 +20,10 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/zahak/concord/internal/brain"
 	"github.com/zahak/concord/internal/crypto/mls"
 	"github.com/zahak/concord/internal/domain"
 	"github.com/zahak/concord/internal/identity"
 	cnet "github.com/zahak/concord/internal/net"
-	"github.com/zahak/concord/internal/ocr"
 	"github.com/zahak/concord/internal/store"
 )
 
@@ -91,16 +89,6 @@ type Service struct {
 	voiceWatched    map[string]bool
 	onVoicePresence []func(from, fingerprint, channelID, action, target string)
 	onVoiceSignal   []func(from string, data []byte)
-
-	// ocrWorker reads text out of image attachments (internal/ocr) so local
-	// search finds messages by what a screenshot says. Nil until initOCR.
-	ocrWorker *ocr.Worker
-
-	// brainClient talks to Aether's shared-brain queue (internal/brain) for the
-	// one assistant job a 3B model is genuinely bad at: drafting a reply. Nil
-	// is a supported state and so is "Aether isn't installed" — every call
-	// degrades to the local model.
-	brainClient *brain.Client
 
 	onTyping      []func(from, channelID string)
 	onGuildUpdate []func()
@@ -848,10 +836,6 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		s.startRichPresence()
 	}
 
-	// Local OCR of image attachments (search-by-what-the-screenshot-says):
-	// a background worker plus a periodic sweep over already-stored blobs.
-	s.initOCR()
-
 	return s, nil
 }
 
@@ -1343,9 +1327,6 @@ func (s *Service) VerifiedFingerprints() map[string]bool {
 
 // Close shuts everything down.
 func (s *Service) Close() error {
-	if s.ocrWorker != nil {
-		s.ocrWorker.Close()
-	}
 	if s.host != nil {
 		_ = s.host.Close()
 	}

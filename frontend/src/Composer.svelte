@@ -11,7 +11,6 @@
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
-  import { engineLabel, awaitBrainJob } from "./lib/assist.js";
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
 
@@ -25,66 +24,6 @@
   let fileInput = $state(null);
   let suggest = $state(null); // { kind:"emoji"|"mention", start, items, sel }
   let lastTypingSent = 0;
-
-  // Assistant draft reply: fills the composer, NEVER sends. The current draft
-  // text (if any) steers the model as an instruction ("politely decline" → a
-  // decline in the conversation's tone).
-  //
-  // Two engines can answer. The local model replies inline; the shared brain
-  // may instead queue a job (pending:true, no text) that we poll until a
-  // session picks it up. Either way the user is told WHICH engine wrote the
-  // words now sitting in their composer — that determines whether the
-  // conversation stayed on this machine, and silently dropping the label would
-  // be the one thing this feature must not do.
-  let drafting = $state(false);
-  let waitingOnBrain = $state(false); // polling a queued brain job
-  let draftCancelled = false;
-  // The engine that produced the text currently in the box, shown briefly
-  // beside the composer and cleared once it's served its purpose.
-  let draftEngine = $state("");
-  let draftNote = $state("");
-  let engineTagTimer = null;
-
-  function showEngineTag(out) {
-    draftEngine = out?.engine || "";
-    draftNote = out?.note || "";
-    clearTimeout(engineTagTimer);
-    // Long enough to read a one-line provenance note without becoming
-    // permanent furniture above the composer.
-    engineTagTimer = setTimeout(() => (draftEngine = draftNote = ""), 12000);
-  }
-
-  function cancelDraftWait() {
-    draftCancelled = true;
-    waitingOnBrain = false;
-    drafting = false;
-  }
-
-  async function draftReply() {
-    if (!ch || drafting) return;
-    drafting = true;
-    draftCancelled = false;
-    draftEngine = draftNote = "";
-    try {
-      let out = await api.assistDraftReply(S.activeChannelId, draft.trim());
-      if (out?.pending && out?.jobId) {
-        waitingOnBrain = true;
-        out = await awaitBrainJob(out.jobId, { cancelled: () => draftCancelled });
-        waitingOnBrain = false;
-      }
-      // Null = the user cancelled the wait; leave their composer alone.
-      if (out?.text && !draftCancelled) {
-        draft = out.text;
-        showEngineTag(out);
-        composerEl?.focus();
-        queueAutosize();
-      }
-    } catch (err) {
-      if (!draftCancelled) flash(err);
-    }
-    waitingOnBrain = false;
-    drafting = false;
-  }
 
   // A composer placeholder that reads like the conversation you're in — never
   // the internal "#dm" channel name.
@@ -817,27 +756,6 @@
     </button>
   </div>
 {/if}
-<!-- Draft-reply provenance, above the box the draft landed in: either the
-     honest "still waiting" state (with a way out) or which engine wrote what
-     you're now looking at. -->
-{#if waitingOnBrain}
-  <div class="assist-bar">
-    <span class="ab-dots" aria-hidden="true"><span></span><span></span><span></span></span>
-    <span class="ab-text">
-      Waiting on the shared brain — queued until a Claude Code session on this
-      machine picks it up.
-    </span>
-    <button class="ab-cancel" onclick={cancelDraftWait}>Cancel</button>
-  </div>
-{:else if draftEngine}
-  <div class="assist-bar" role="status">
-    <span class="ab-engine" class:brain={draftEngine === "brain"}>{engineLabel(draftEngine)}</span>
-    <span class="ab-text">{draftNote || "Drafted for you — nothing is sent until you send it."}</span>
-    <button class="ab-cancel" aria-label="Dismiss" onclick={() => (draftEngine = draftNote = "")}>
-      <Icon name="close" size={11} />
-    </button>
-  </div>
-{/if}
 <div class="typing-line muted">
   {#if uploading > 0}
     <span class="up-dot"></span> Adding {uploading > 1 ? `${uploading} attachments` : "attachment"}…
@@ -1023,19 +941,6 @@
             <Icon name="mic" size={20} />
           </button>
         {/if}
-        {#if S.assist?.enabled}
-          <button
-            type="button"
-            class="iconbtn"
-            class:assist-busy={drafting}
-            title="Draft a reply — your local model suggests a message from the conversation, entirely on this device. It only fills the box; you decide whether to send."
-            aria-label="Draft a reply with the local assistant"
-            disabled={!ch || drafting}
-            onclick={draftReply}
-          >
-            <Icon name="spark" size={19} />
-          </button>
-        {/if}
         <button
           type="button"
           class="iconbtn"
@@ -1171,77 +1076,6 @@
     flex-shrink: 0;
     color: var(--accent);
   }
-  /* Draft-reply provenance strip — same geometry as the reply banner so the
-     two read as one family of "context above the box" notices. */
-  .assist-bar {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 16px;
-    font-size: 12.5px;
-    color: var(--text-muted);
-    border-top: 1px solid var(--border);
-    background: color-mix(in srgb, var(--accent) 7%, transparent);
-    animation: rb-in 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
-  }
-  .ab-text {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* Which engine wrote the draft. "local" and "shared brain" carry different
-     privacy meanings, so they get visibly different chips — never the same
-     one with different words. */
-  .ab-engine {
-    flex-shrink: 0;
-    padding: 1px 8px;
-    border-radius: 999px;
-    background: var(--accent-soft);
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-    color: var(--accent-hover);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-  .ab-engine.brain {
-    background: color-mix(in srgb, var(--warn) 14%, transparent);
-    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
-    color: var(--warn);
-  }
-  .ab-cancel {
-    flex-shrink: 0;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-  .ab-cancel:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .ab-dots {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    flex-shrink: 0;
-  }
-  .ab-dots span {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: currentColor;
-    animation: t-bounce 1.2s ease-in-out infinite;
-  }
-  .ab-dots span:nth-child(2) {
-    animation-delay: 0.15s;
-  }
-  .ab-dots span:nth-child(3) {
-    animation-delay: 0.3s;
-  }
   .typing-line {
     height: 20px;
     font-size: 12px;
@@ -1292,7 +1126,6 @@
      would still churn, so stop the dots entirely and hold a steady frame. */
   @media (prefers-reduced-motion: reduce) {
     .t-dots span,
-    .ab-dots span,
     .up-dot {
       animation: none;
       opacity: 0.7;
@@ -1712,15 +1545,6 @@
   }
   /* Finger-sized (≥44px) targets for the icon row and send button; glyphs
      stay grid-centered so only the tap area grows. */
-  /* the local assistant is thinking — a quiet pulse, no layout shift */
-  .iconbtn.assist-busy {
-    color: var(--accent);
-    animation: assist-pulse 1.1s ease-in-out infinite;
-  }
-  @keyframes assist-pulse {
-    0%, 100% { opacity: 0.4; }
-    50% { opacity: 1; }
-  }
   .composer.mobile .iconbtn {
     min-width: 44px;
     min-height: 44px;

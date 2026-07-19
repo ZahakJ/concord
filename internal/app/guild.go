@@ -167,13 +167,6 @@ func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error
 	return msgs, err
 }
 
-// MessagesSince returns stored history for a channel strictly newer than
-// sinceNano (oldest first, up to limit) — the cursor read the local app-bus
-// bridge polls with, so integrations never miss or re-read a message.
-func (s *Service) MessagesSince(channelID string, sinceNano int64, limit int) ([]domain.Message, error) {
-	return s.store.MessagesSince(channelID, sinceNano, limit)
-}
-
 // UnreadCounts returns the per-channel count of normal messages newer than each
 // channel's cursor, without decrypting any bodies.
 func (s *Service) UnreadCounts(sinceNano map[string]int64) (map[string]int, error) {
@@ -731,17 +724,6 @@ func (s *Service) logCommit(groupID, commit []byte) {
 // replyTo is the ID of a message being replied to, or "".
 func (s *Service) SendMessage(channelID, content, replyTo string) (domain.Message, error) {
 	return s.send(channelID, content, "", replyTo)
-}
-
-// SendAppMessage publishes a machine-to-machine payload on the app plane.
-//
-// Same identity, same MLS group, same encryption, same store as a chat
-// message — the ONLY difference is domain.KindApp, which keeps it out of the
-// conversation view, out of unread counts, and out of notifications. This is
-// how one local app talks to another over Concord without spamming the humans
-// who share the channel.
-func (s *Service) SendAppMessage(channelID, content, replyTo string) (domain.Message, error) {
-	return s.send(channelID, content, domain.KindApp, replyTo)
 }
 
 // sendSystem posts a system notice (join/create) to a channel. Errors are

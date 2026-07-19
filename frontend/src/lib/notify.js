@@ -9,7 +9,6 @@
 // we stay silent — the unread badges still light up.
 
 import { previewText } from "./attachments.js";
-import { isAppMessage } from "./appbus.js";
 
 // The native notification bridge (Android/iOS), or null on web/desktop.
 function nativeNotifier() {
@@ -28,10 +27,6 @@ export function requestPermission() {
 }
 
 export function notify(m, { selfFpr, mention, muted, activeChannel, onClick }) {
-  // App-bus traffic is never a notification. `kind !== ""` already excludes the
-  // modern kind:"app" form, but the legacy prefixed form arrives with kind ""
-  // and would otherwise buzz someone's phone with a JSON blob.
-  if (isAppMessage(m)) return;
   if (m.kind !== "" || m.deleted || m.sender === selfFpr || muted) return;
 
   const hidden = document.hidden;
