@@ -2,8 +2,9 @@
   import { S } from "../lib/state.svelte.js";
   import Icon from "../Icon.svelte";
   // `wide` widens the desktop dialog for content that benefits from the room
-  // (sectioned settings); the mobile sheet presentation ignores it.
-  let { title, onClose, wide = false, children } = $props();
+  // (sectioned settings); `size="xl"` makes it a large workspace (the advanced
+  // composer). The mobile sheet presentation ignores both.
+  let { title, onClose, wide = false, size = "", children } = $props();
   let dialog = $state(null);
 
   // A modal opened with a `from` remembers where it came from, so it can show a
@@ -77,6 +78,7 @@
     bind:this={dialog}
     class="dialog"
     class:wide
+    class:xl={size === "xl"}
     class:dragging
     style={dragY ? `transform:translateY(${dragY}px)` : ""}
     onclick={(e) => e.stopPropagation()}
@@ -144,6 +146,13 @@
   .dialog.wide {
     width: 460px;
   }
+  /* A large workspace (the advanced composer): most of the viewport, and a
+     fixed tall height so its inner panes get real room instead of collapsing to
+     content height. */
+  .dialog.xl {
+    width: min(1080px, 94vw);
+    height: min(780px, 88vh);
+  }
   @keyframes fade {
     from {
       opacity: 0;
@@ -165,12 +174,15 @@
     .overlay {
       place-items: end stretch;
     }
-    /* Both selectors so `wide` (higher specificity) can't pin the sheet to a
-       fixed desktop width. */
+    /* All variants collapse to the bottom-sheet presentation; higher-specificity
+       selectors (`wide`, `xl`) must be listed so they can't pin a desktop size. */
     .dialog,
-    .dialog.wide {
+    .dialog.wide,
+    .dialog.xl {
       width: auto;
       max-width: none;
+      height: auto;
+      max-height: 92vh;
       border: none;
       border-radius: 18px 18px 0 0;
       padding-bottom: calc(20px + env(safe-area-inset-bottom));

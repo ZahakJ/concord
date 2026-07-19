@@ -93,4 +93,16 @@
   .md :global(a) {
     color: var(--embed-accent);
   }
+  .embed :global(img.emoji) {
+    width: 1.3em;
+    height: 1.3em;
+    vertical-align: -0.28em;
+    object-fit: contain;
+  }
+  .embed :global(img.cemoji) {
+    height: 1.3em;
+    width: auto;
+    vertical-align: -0.2em;
+    object-fit: contain;
+  }
 </style>

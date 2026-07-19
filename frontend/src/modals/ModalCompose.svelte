@@ -1,8 +1,9 @@
 <script>
-  // The advanced composer: a roomy editor with a full formatting toolbar, a text
-  // colour picker, a rich-embed builder, and a live preview — for the times the
-  // one-line composer isn't enough. Everything it produces is ordinary message
-  // content (markdown + an optional embed token), so it sends like any message.
+  // The advanced composer: a large editor workspace with a full formatting
+  // toolbar, a text-colour picker, a rich-embed builder, and a live preview —
+  // for the times the one-line composer isn't enough. Everything it produces is
+  // ordinary message content (markdown + an optional embed token), so it sends
+  // like any message.
   import { tick } from "svelte";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
@@ -30,8 +31,10 @@
       : null,
   );
   const canPost = $derived(!busy && (body.trim() || previewEmbed) && !!S.activeChannelId);
+  const meInitial = $derived((S.displayName || "You").trim()[0]?.toUpperCase() || "Y");
 
   const PALETTE = Object.entries(COLOR_NAMES); // [name, hex]
+  const noSelect = (e) => e.preventDefault(); // keep the textarea selection on tool click
 
   // --- formatting: wrap or line-prefix the current selection ---
   function surround(before, after = before) {
@@ -71,7 +74,9 @@
     { icon: "underline", title: "Underline", run: () => surround("__") },
     { icon: "strike", title: "Strikethrough", run: () => surround("~~") },
     { icon: "spoiler", title: "Spoiler", run: () => surround("||") },
-    { icon: "code", title: "Code", run: () => surround("`") },
+  ];
+  const TOOLS2 = [
+    { icon: "code", title: "Inline code", run: () => surround("`") },
     { icon: "codeblock", title: "Code block", run: () => surround("```\n", "\n```") },
     { icon: "quote", title: "Quote", run: () => linePrefix("> ") },
     { icon: "list", title: "List", run: () => linePrefix("- ") },
@@ -95,9 +100,7 @@
         content = content ? `${content}\n${token}` : token;
       }
       // Same stamping as the one-line composer: in a disappearing-messages
-      // channel this message must expire like any other. Skipping the stamp
-      // here would silently exempt "advanced" messages from a privacy setting
-      // the user believes is on.
+      // channel this message must expire like any other.
       await api.sendMessage(S.activeChannelId, stampEphemeral(S.activeChannelId, content), "");
       onSent?.();
       onClose();
@@ -108,42 +111,58 @@
   }
 </script>
 
-<Modal title="Advanced composer" wide {onClose}>
+<Modal title="Advanced composer" size="xl" {onClose}>
   <div class="ac">
-    <div class="editor">
+    <!-- LEFT: the editor -->
+    <section class="pane editor">
       <div class="toolbar" role="toolbar" aria-label="Formatting">
-        {#each TOOLS as t (t.icon)}
-          <button type="button" class="tb" title={t.title} aria-label={t.title} onmousedown={(e) => e.preventDefault()} onclick={t.run}>
-            <Icon name={t.icon} size={15} />
-          </button>
-        {/each}
-        <span class="tb-sep"></span>
+        <div class="tgroup">
+          {#each TOOLS as t (t.icon)}
+            <button type="button" class="tb" title={t.title} aria-label={t.title} onmousedown={noSelect} onclick={t.run}>
+              <Icon name={t.icon} size={16} />
+            </button>
+          {/each}
+        </div>
+        <span class="tsep"></span>
+        <div class="tgroup">
+          {#each TOOLS2 as t (t.icon)}
+            <button type="button" class="tb" title={t.title} aria-label={t.title} onmousedown={noSelect} onclick={t.run}>
+              <Icon name={t.icon} size={16} />
+            </button>
+          {/each}
+        </div>
+        <span class="tsep"></span>
         <div class="swatches" role="group" aria-label="Text colour">
           {#each PALETTE as [name, hex] (name)}
             <button
               type="button"
               class="sw"
-              style="background:{hex}"
+              style="--sw:{hex}"
               title={`Colour: ${name}`}
               aria-label={`Colour ${name}`}
-              onmousedown={(e) => e.preventDefault()}
+              onmousedown={noSelect}
               onclick={() => applyColor(name)}
             ></button>
           {/each}
         </div>
       </div>
-      <textarea
-        bind:this={ta}
-        bind:value={body}
-        class="draft"
-        rows="7"
-        placeholder="Write something — select text, then hit a tool or a colour swatch."
-      ></textarea>
 
-      <button type="button" class="embed-toggle" class:on={embedOn} onclick={() => (embedOn = !embedOn)}>
-        <Icon name={embedOn ? "close" : "plus"} size={14} />
-        {embedOn ? "Remove rich embed" : "Add a rich embed"}
-      </button>
+      <div class="surface">
+        <textarea
+          bind:this={ta}
+          bind:value={body}
+          class="draft"
+          placeholder="Write your message…&#10;&#10;Select text, then tap a tool or a colour. Markdown works too: **bold**, *italic*, > quotes, - lists, ## headings, `code`, ||spoilers||."
+        ></textarea>
+      </div>
+
+      <div class="belowbar">
+        <button type="button" class="embed-toggle" class:on={embedOn} onclick={() => (embedOn = !embedOn)}>
+          <Icon name={embedOn ? "close" : "plus"} size={14} />
+          {embedOn ? "Remove rich embed" : "Add a rich embed"}
+        </button>
+        <span class="hint">Markdown supported · {body.length} chars</span>
+      </div>
 
       {#if embedOn}
         <div class="embed-builder">
@@ -154,7 +173,7 @@
             </label>
             <input class="grow" maxlength="200" placeholder="Embed title" bind:value={embed.title} />
           </div>
-          <textarea class="edesc" rows="3" maxlength="2000" placeholder="Embed description (markdown supported)" bind:value={embed.desc}></textarea>
+          <textarea class="edesc" rows="2" maxlength="2000" placeholder="Embed description (markdown supported)" bind:value={embed.desc}></textarea>
           {#each embed.fields as f, i (i)}
             <div class="row field-row">
               <input class="fname" maxlength="100" placeholder="Field name" bind:value={f.name} />
@@ -171,96 +190,167 @@
           {/if}
         </div>
       {/if}
-    </div>
+    </section>
 
-    <div class="preview">
-      <div class="p-label">Preview</div>
+    <!-- RIGHT: the live preview -->
+    <aside class="pane preview">
+      <div class="p-label"><span class="dot"></span> Live preview</div>
       <div class="p-body">
-        {#if body.trim()}
-          <div class="md">{@html renderMarkdown(body, [], cemoji)}</div>
-        {:else if !previewEmbed}
-          <p class="muted tiny">Your message will appear here.</p>
-        {/if}
-        {#if previewEmbed}
-          <EmbedView embed={previewEmbed} customEmoji={cemoji} />
+        {#if body.trim() || previewEmbed}
+          <div class="pmsg">
+            <div class="pav">{meInitial}</div>
+            <div class="pbody">
+              <div class="phead"><span class="pname">{S.displayName || "You"}</span><span class="ptime">now</span></div>
+              {#if body.trim()}
+                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
+                <div class="md">{@html renderMarkdown(body, [], cemoji)}</div>
+              {/if}
+              {#if previewEmbed}
+                <EmbedView embed={previewEmbed} customEmoji={cemoji} />
+              {/if}
+            </div>
+          </div>
+        {:else}
+          <p class="empty">Your message will appear here, exactly as others will see it.</p>
         {/if}
       </div>
-    </div>
+    </aside>
   </div>
 
   <div class="actions">
-    <button class="ghost" onclick={onClose}>Cancel</button>
-    <button onclick={post} disabled={!canPost}>Send</button>
+    <button type="button" class="ghost" onclick={onClose}>Cancel</button>
+    <button type="button" onclick={post} disabled={!canPost}>Send message</button>
   </div>
 </Modal>
 
 <style>
   .ac {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    gap: 16px;
     text-align: left;
   }
-  @media (max-width: 720px) {
+  .pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+  }
+  .editor {
+    flex: 1.12;
+  }
+  .preview {
+    flex: 0.88;
+  }
+  @media (max-width: 760px) {
     .ac {
-      grid-template-columns: 1fr;
+      flex-direction: column;
+    }
+    .preview {
+      min-height: 180px;
     }
   }
+
+  /* ---- toolbar ---- */
   .toolbar {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
+    flex-wrap: wrap;
     gap: 3px;
     padding: 6px;
+    margin-bottom: 10px;
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: var(--radius-md) var(--radius-md) 0 0;
-    border-bottom: none;
+    border-radius: var(--radius-md);
+  }
+  .tgroup {
+    display: flex;
+    gap: 2px;
   }
   .tb {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     display: grid;
     place-items: center;
     padding: 0;
     background: transparent;
     color: var(--text-muted);
     border-radius: var(--radius-sm);
+    transition: background 0.12s ease, color 0.12s ease;
   }
   .tb:hover {
     background: var(--bg-3);
     color: var(--text);
   }
-  .tb-sep {
+  .tsep {
     width: 1px;
-    align-self: stretch;
-    margin: 2px 4px;
+    height: 20px;
     background: var(--border);
+    margin: 0 5px;
   }
   .swatches {
     display: flex;
-    gap: 3px;
+    gap: 4px;
   }
   .sw {
-    width: 18px;
-    height: 18px;
+    width: 19px;
+    height: 19px;
     padding: 0;
     border-radius: 50%;
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+    background: var(--sw);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
     transition: transform 0.1s ease;
   }
   .sw:hover {
-    transform: scale(1.18);
+    transform: scale(1.22);
+  }
+
+  /* ---- the writing surface (the star) ---- */
+  .surface {
+    flex: 1;
+    min-height: 180px;
+    display: flex;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  .surface:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
   }
   .draft {
+    flex: 1;
     width: 100%;
-    resize: vertical;
-    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    resize: none;
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    outline: none !important;
+    padding: 16px 18px;
     font-family: inherit;
-    line-height: 1.45;
+    font-size: 15px;
+    line-height: 1.75;
+    color: var(--text);
   }
-  .embed-toggle {
+
+  .belowbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
     margin-top: 10px;
+  }
+  .hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  /* Readable at rest: a dashed accent frame with neutral label + accent glyph. */
+  .embed-toggle {
     display: inline-flex;
     align-items: center;
     gap: 6px;
@@ -271,6 +361,7 @@
     background: transparent;
     border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
     border-radius: var(--radius-sm);
+    transition: background 0.12s ease, border-color 0.12s ease;
   }
   .embed-toggle :global(svg) {
     color: var(--accent);
@@ -279,8 +370,11 @@
     background: var(--accent-soft);
     border-color: var(--accent);
   }
+
   .embed-builder {
     margin-top: 10px;
+    max-height: 240px;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -354,27 +448,68 @@
   .add-field:hover {
     background: var(--accent-soft);
   }
-  .preview {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
+
+  /* ---- preview ---- */
   .p-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-muted);
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+  }
+  .p-label .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ok, #3ba55d);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
   }
   .p-body {
     flex: 1;
-    padding: 12px;
-    background: var(--bg-2);
+    min-height: 0;
+    overflow-y: auto;
+    padding: 14px;
+    background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    overflow-y: auto;
-    max-height: 380px;
+  }
+  .pmsg {
+    display: flex;
+    gap: 11px;
+  }
+  .pav {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .pbody {
+    min-width: 0;
+    flex: 1;
+  }
+  .phead {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    margin-bottom: 2px;
+  }
+  .pname {
+    font-weight: 600;
+    font-size: 14px;
+  }
+  .ptime {
+    font-size: 11px;
+    color: var(--text-muted);
   }
   .md {
     font-size: 14px;
@@ -382,10 +517,36 @@
     overflow-wrap: anywhere;
     white-space: pre-wrap;
   }
+  /* Size Twemoji/custom-emoji images to the text, exactly like the feed —
+     without this they render at their full SVG size. */
+  .md :global(img.emoji) {
+    width: 1.375em;
+    height: 1.375em;
+    vertical-align: -0.3em;
+    margin: 0 0.5px;
+    object-fit: contain;
+  }
+  .md :global(img.cemoji) {
+    height: 1.375em;
+    width: auto;
+    vertical-align: -0.2em;
+    margin: 0 1px;
+    object-fit: contain;
+  }
+  .empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    font-style: italic;
+    margin: 4px 0 0;
+  }
+
+  /* ---- actions ---- */
   .actions {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
-    margin-top: 16px;
+    padding-top: 14px;
+    margin-top: 2px;
+    border-top: 1px solid var(--border);
   }
 </style>
