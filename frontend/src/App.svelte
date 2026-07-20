@@ -723,6 +723,7 @@
   {:else if S.modal?.kind === "compose"}
     <ModalCompose
       initial={S.modal.initial || ""}
+      editId={S.modal.editId || ""}
       onSent={S.modal.onSent}
       onClose={() => (S.modal = null)}
     />

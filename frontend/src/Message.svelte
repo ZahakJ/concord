@@ -216,6 +216,13 @@
   });
 
   function startEdit() {
+    // A message with a rich embed can't be edited inline (the raw
+    // [embed](concord://…) token would show and could be mangled) — reopen it in
+    // the advanced composer, which decodes the embed back into its builder.
+    if (richEmbed) {
+      S.modal = { kind: "compose", initial: m.content, editId: m.id };
+      return;
+    }
     S.editing = m;
   }
   function cancelEdit() {

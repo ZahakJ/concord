@@ -11,18 +11,31 @@
   import { S, flash, customEmojiMap } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { renderMarkdown, COLOR_NAMES } from "../lib/markdown.js";
-  import { encodeEmbed } from "../lib/richembed.js";
-  import { stampEphemeral } from "../lib/ephemeral.svelte.js";
+  import { encodeEmbed, parseEmbed, stripEmbedToken } from "../lib/richembed.js";
+  import { stampEphemeral, stripEphemeral, EPH_RE } from "../lib/ephemeral.svelte.js";
 
-  let { onClose, onSent, initial = "" } = $props();
+  // editId set ⇒ we're editing an existing message rather than composing a new
+  // one: `initial` is that message's raw content, which we decode back into the
+  // editor (body + embed builder) and save with api.editMessage.
+  let { onClose, onSent, initial = "", editId = "" } = $props();
 
-  let body = $state(initial);
+  // Decode an embed already present in the seed/edited content, and keep the
+  // original disappearing-message token verbatim so an edit preserves the
+  // message's own expiry instead of resetting it to the channel default.
+  const seededEmbed = parseEmbed(initial);
+  const ephToken = initial.match(EPH_RE)?.[0] || "";
+
+  let body = $state(stripEphemeral(stripEmbedToken(initial)));
   let ta = $state(null);
   let busy = $state(false);
 
-  // Embed builder (off until the user adds one).
-  let embedOn = $state(false);
-  let embed = $state({ color: "#14a394", title: "", desc: "", fields: [] });
+  // Embed builder (open when the message already carries one).
+  let embedOn = $state(!!seededEmbed);
+  let embed = $state(
+    seededEmbed
+      ? { ...seededEmbed, color: seededEmbed.color || "#14a394" }
+      : { color: "#14a394", title: "", desc: "", fields: [] },
+  );
 
   const cemoji = $derived(customEmojiMap());
   const previewEmbed = $derived(
@@ -99,9 +112,15 @@
         const token = encodeEmbed(previewEmbed);
         content = content ? `${content}\n${token}` : token;
       }
-      // Same stamping as the one-line composer: in a disappearing-messages
-      // channel this message must expire like any other.
-      await api.sendMessage(S.activeChannelId, stampEphemeral(S.activeChannelId, content), "");
+      if (editId) {
+        // Preserve the original disappearing-message expiry (ephToken), never
+        // re-stamp — editing shouldn't reset or newly impose a TTL.
+        await api.editMessage(S.activeChannelId, editId, ephToken + content);
+      } else {
+        // Same stamping as the one-line composer: in a disappearing-messages
+        // channel this message must expire like any other.
+        await api.sendMessage(S.activeChannelId, stampEphemeral(S.activeChannelId, content), "");
+      }
       onSent?.();
       onClose();
     } catch (err) {
@@ -111,7 +130,7 @@
   }
 </script>
 
-<Modal title="Advanced composer" size="xl" {onClose}>
+<Modal title={editId ? "Edit message" : "Advanced composer"} size="xl" {onClose}>
   <div class="ac">
     <!-- LEFT: the editor -->
     <section class="pane editor">
@@ -219,7 +238,7 @@
 
   <div class="actions">
     <button type="button" class="ghost" onclick={onClose}>Cancel</button>
-    <button type="button" onclick={post} disabled={!canPost}>Send message</button>
+    <button type="button" onclick={post} disabled={!canPost}>{editId ? "Save changes" : "Send message"}</button>
   </div>
 </Modal>
 
