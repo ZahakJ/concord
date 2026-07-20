@@ -69,22 +69,25 @@ Concord inverts the model. The design goals, in order:
    *untrusted*: useful for routing, cryptographically incapable of reading.
 3. **Simple by discipline** — Concord holds to the Unix philosophy: do the chat
    job well, and stay small. A layered Go core (~15k lines of product code),
-   pure-Go dependencies (no C toolchain), one binary, and **no dependency on any
-   other product, service, daemon, or account.** It is *deeply customizable* —
-   themes, profiles, layout, message styling — but customizable is not the same
-   as bloated: every option serves the one job, and nothing bolts a second
-   product onto the first.
+   pure-Go dependencies (no C toolchain), **one binary that works fully on its
+   own** — it needs no other product, cloud, service, or account to function. It
+   is *deeply customizable* — themes, profiles, layout, message styling — but
+   customizable is not the same as bloated: every option serves the one job, and
+   nothing bolts a second product onto the first.
 4. **Actually pleasant** — Discord-grade UX: guilds, channels, replies,
    reactions, pins, profiles, voice with speaking indicators, search.
 
 **On bloat.** Simplicity is a pillar, not a nicety — it is what keeps the
 security model auditable and the whole app one reviewable thing. Bloat is easy
 to miss because it arrives *wearing the clothes of a feature*: an AI assistant,
-a "shared brain," a bus for other apps to plug into. The test is blunt and it is
-load-bearing: **if it wasn't asked for, it isn't needed.** Concord will not grow
-integrations with external tools, cloud services, or sibling products; anything
-that can't stand as a self-contained, offline, on-your-machine chat capability
-does not belong in the tree.
+a "shared brain," a bus for other apps to plug into. The line isn't "never touch
+anything outside the binary" — an *optional, local* capability that runs on your
+machine, stays **off until you opt in**, and that the app works **completely
+without** is fine (reading text out of your own screenshots so search can find
+them is one such: it uses a local OCR engine you install, or it simply isn't
+there). What's rejected is **coupling** — a feature that makes Concord *depend*
+on a cloud, an account, or a sibling product to do its job. If it can't be
+self-contained and offline, it doesn't belong in the tree.
 
 The deliberate trade-off: Concord targets **friend groups and communities**,
 not million-user servers. A full mesh of peers doesn't scale to stadiums — and

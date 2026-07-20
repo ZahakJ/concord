@@ -204,6 +204,9 @@ type MessageView struct {
 	Pinned     bool                `json:"pinned"`
 	Reactions  map[string][]string `json:"reactions"` // emoji -> fingerprints
 	Sent       string              `json:"sent"`
+	// OcrMatch marks a search hit that matched through text extracted locally
+	// from an image attachment ("matched text in image"). Search-only.
+	OcrMatch bool `json:"ocrMatch,omitempty"`
 }
 
 type MemberView struct {
@@ -952,6 +955,16 @@ func (b *Bridge) UnreadCounts(sinceISO map[string]string) (map[string]int, error
 		}
 	}
 	return svc.UnreadCounts(sinceNano)
+}
+
+// OcrStatus reports whether local image-text search is active (an OCR engine is
+// installed) and how many attachments have been indexed.
+func (b *Bridge) OcrStatus() (appsvc.OcrStatusView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.OcrStatusView{}, err
+	}
+	return svc.OcrStatus(), nil
 }
 
 func (b *Bridge) SendMessage(channelID, content, replyTo string) error {
@@ -1748,7 +1761,8 @@ func messageView(m domain.Message) MessageView {
 		// permanent hole at every 200-row page edge. Fixed width (not
 		// .999999999) so the strings stay lexicographically ordered, which
 		// the frontend's sent/readAnchor comparisons rely on.
-		Sent: m.Sent.Format("2006-01-02T15:04:05.000000000Z07:00"),
+		Sent:     m.Sent.Format("2006-01-02T15:04:05.000000000Z07:00"),
+		OcrMatch: m.OCRMatch,
 	}
 }
 
@@ -1843,6 +1857,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.Messages(argStr(args, 0))
 	case "MessagesBefore":
 		return b.MessagesBefore(argStr(args, 0), argStr(args, 1), int(argInt64(args, 2)))
+	case "OcrStatus":
+		return b.OcrStatus()
 	case "UnreadCounts":
 		var since map[string]string
 		if len(args) > 0 {

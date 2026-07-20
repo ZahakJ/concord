@@ -122,6 +122,8 @@ export const api = {
   joinViaInvite: (code) => call("JoinViaInvite", code),
   messages: (channelID) => call("Messages", channelID),
   messagesBefore: (channelID, beforeISO, limit) => call("MessagesBefore", channelID, beforeISO, limit),
+  // Local image-text (OCR) search status: engine availability + indexed counts.
+  ocrStatus: () => call("OcrStatus"),
   unreadCounts: (sinceISO) => call("UnreadCounts", sinceISO),
   sendMessage: (channelID, content, replyTo = "") =>
     call("SendMessage", channelID, content, replyTo),

@@ -152,6 +152,14 @@
               <span class="sp-meta">
                 <strong>{m.senderName || m.sender.slice(0, 9)}</strong>
                 <span class="sp-where"><Icon name={where.icon} size={10} />{where.label}</span>
+                {#if m.ocrMatch}
+                  <span
+                    class="sp-ocr"
+                    title="Your search matched text found inside this message's image — read out locally on this device"
+                  >
+                    <Icon name="imagetext" size={10} /> matched text in image
+                  </span>
+                {/if}
                 <span class="sp-time">{fmtTime(m.sent)}</span>
               </span>
               <span class="sp-text">
@@ -319,6 +327,19 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+  }
+  .sp-ocr {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    color: var(--accent-hover);
+    font-size: 10.5px;
+    font-weight: 600;
+    white-space: nowrap;
   }
   .sp-time {
     margin-left: auto;

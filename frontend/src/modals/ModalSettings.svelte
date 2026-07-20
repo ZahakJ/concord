@@ -13,7 +13,7 @@
     previewRingtone,
   } from "../lib/sounds.js";
   import { bioEnrolled } from "../lib/biometric.js";
-  import { S, setPref, flash } from "../lib/state.svelte.js";
+  import { S, setPref, flash, refreshOcr } from "../lib/state.svelte.js";
 
   let { onClose, onSaved } = $props();
   let bootstrap = $state("");
@@ -191,6 +191,7 @@
   }
 
   onMount(async () => {
+    refreshOcr(); // refresh the image-text search readout while settings is open
     try {
       bootstrap = ((await api.getBootstrap()) || []).join("\n");
     } catch {
@@ -557,6 +558,32 @@
         </span>
         <span class="switch" class:on={richPresence}><span class="knob"></span></span>
       </button>
+    </div>
+  </section>
+
+  <!-- SEARCH: local image-text (OCR) -->
+  <section class="grp">
+    <div class="sec-label">Search</div>
+    <div class="card">
+      <div class="row">
+        <span class="chip"><Icon name="imagetext" size={16} /></span>
+        <span class="row-text">
+          <span class="row-title">Search inside images</span>
+          <span class="row-sub">
+            {#if S.ocr?.available}
+              Text in shared screenshots is read out locally ({S.ocr.engine}) and
+              joins search — {S.ocr.counts?.ok || 0} image{(S.ocr.counts?.ok || 0) === 1 ? "" : "s"}
+              indexed so far. Extracted text is sealed at rest like your messages,
+              and never leaves this machine.
+            {:else}
+              Optional: install a local OCR engine and Concord will let you search
+              the text inside shared screenshots. <code>pip install rapidocr-onnxruntime</code>,
+              then put <code>scripts/concord-ocr</code> on your PATH. Runs entirely
+              on this machine — nothing is ever uploaded.
+            {/if}
+          </span>
+        </span>
+      </div>
     </div>
   </section>
 
