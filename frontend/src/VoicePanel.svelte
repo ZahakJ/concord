@@ -527,6 +527,7 @@
     right: 8px;
     width: 26px;
     height: 26px;
+    padding: 0; /* else the global button padding squishes the icon off-center */
     border-radius: 50%;
     display: grid;
     place-items: center;
@@ -838,6 +839,7 @@
     flex-shrink: 0;
     width: 26px;
     height: 26px;
+    padding: 0; /* else the global button padding pushes the ✕ off-center */
     display: grid;
     place-items: center;
     border-radius: 50%;
