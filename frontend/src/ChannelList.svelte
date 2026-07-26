@@ -244,13 +244,22 @@
   let drag = $state(null); // { channel } — the row being dragged
   let dropHint = $state(null); // { catId, rowId, edge: "before"|"after" } | { catId, head: true }
 
+  // Every channel reorders, voice included. Voice used to be excluded here,
+  // which nobody noticed until channels could change type — convert a text
+  // channel to voice and it silently stopped being draggable. Reordering is
+  // type-agnostic (it only renumbers positions), and the participant rows
+  // underneath a voice channel are siblings of the row rather than children, so
+  // they don't capture the row's own drag. Threads stay out: they belong to
+  // their forum, not to this list.
   function dragStart(e, c) {
     drag = { channel: c };
     e.dataTransfer.effectAllowed = "move";
     e.dataTransfer.setData("text/plain", c.id); // Firefox needs data for a drag to start
     // A compact "lifted" ghost chip instead of the browser's full-row snapshot.
     const ghost = document.createElement("div");
-    ghost.textContent = `# ${c.name}`;
+    // Carry the channel's own glyph, not always a hash.
+    const glyph = { voice: "🔊", forum: "🗂", announcement: "📣" }[c.type] || "#";
+    ghost.textContent = `${glyph} ${c.name}`;
     ghost.style.cssText =
       "position:fixed;top:-100px;left:-100px;max-width:220px;overflow:hidden;" +
       "white-space:nowrap;text-overflow:ellipsis;padding:6px 14px;font-size:13px;" +
@@ -661,7 +670,7 @@
             class:dragging={drag?.channel.id === c.id}
             class:drop-before={dropHint?.rowId === c.id && dropHint.edge === "before"}
             class:drop-after={dropHint?.rowId === c.id && dropHint.edge === "after"}
-            draggable={canManageChannels && c.type !== "voice"}
+            draggable={canManageChannels && !c.parent}
             ondragstart={(e) => dragStart(e, c)}
             ondragend={dragEnd}
             ondragover={(e) => rowDragOver(e, grp, c)}
