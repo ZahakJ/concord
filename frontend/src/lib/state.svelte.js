@@ -560,6 +560,12 @@ export function setPref(key, value) {
 }
 
 // moveChannelToCategory reassigns a channel's category (preserving type/order/topic).
+// The icon for a channel kind. Shared, because the sidebar and the chat header
+// each used to carry their own copy of this and the header's had no case for
+// voice — so opening a voice channel's chat showed it as a # channel.
+export const channelTypeIcon = (t) =>
+  t === "voice" ? "speaker" : t === "announcement" ? "megaphone" : t === "forum" ? "forum" : "hash";
+
 // The channel kinds a channel can be turned into. Threads aren't here: a thread
 // belongs to its forum and only makes sense inside it.
 export const CHANNEL_TYPES = [

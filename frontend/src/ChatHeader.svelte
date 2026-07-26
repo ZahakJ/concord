@@ -12,6 +12,7 @@
     refreshGuilds,
     selectGuild,
     voiceMembersFor,
+    channelTypeIcon,
     toggleMemberPanel,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
@@ -102,7 +103,7 @@
       </button>
       <strong>{ch.name}</strong>
     {:else if ch}
-      <Icon name={ch.type === "forum" ? "forum" : ch.type === "announcement" ? "megaphone" : "hash"} size={15} />
+      <Icon name={channelTypeIcon(ch.type)} size={15} />
       <strong>{ch.name}</strong>
       {#if ch.topic}
         <span class="topic-sep"></span>

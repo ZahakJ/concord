@@ -32,6 +32,7 @@
     unblockUser,
     isCallLocked,
     CHANNEL_TYPES,
+    channelTypeIcon,
     setChannelType,
     canModerateVoice,
     moveVoiceMember,
@@ -168,8 +169,7 @@
   // pill below is the DISCOVERABLE version of that: it says how many are
   // waiting and jumps mention-first on click.)
 
-  const typeIcon = (t) =>
-    t === "voice" ? "speaker" : t === "announcement" ? "megaphone" : t === "forum" ? "forum" : "hash";
+  const typeIcon = channelTypeIcon;
 
   function clickChannel(c) {
     if (c.type === "voice") {
