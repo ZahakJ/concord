@@ -1430,9 +1430,26 @@ func (s *Service) applyCategoryRemoved(guildID, categoryID string) {
 }
 
 // SetChannelMeta changes a channel's type/category/position/topic and announces it.
+// validChannelType reports whether a channel type is one we know how to render.
+// The type now travels on channel_updated whenever anyone converts a channel,
+// so it's worth saying explicitly what's allowed rather than storing whatever
+// string turns up: an unknown type renders as nothing in particular, and a peer
+// with ManageChannels shouldn't be able to put a channel into a state the UI
+// has no case for. "" is accepted and means text, as it always has.
+func validChannelType(t string) bool {
+	switch t {
+	case "", "text", "voice", "announcement", "forum", "thread":
+		return true
+	}
+	return false
+}
+
 func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, position int, topic string) error {
 	if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
+	}
+	if !validChannelType(ctype) {
+		return fmt.Errorf("app: unknown channel type %q", ctype)
 	}
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
@@ -1714,6 +1731,9 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			return
 		}
 		if !s.memberHasPerm(guildID, actor, PermManageChannels) || !s.channelInGuild(m.Channel.ID, guildID) {
+			return
+		}
+		if !validChannelType(m.Channel.Type) {
 			return
 		}
 		_ = s.store.UpdateChannelMeta(m.Channel.ID, m.Channel.Type, m.Channel.Category, m.Channel.Position, m.Channel.Topic)

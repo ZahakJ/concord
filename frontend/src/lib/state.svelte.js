@@ -560,6 +560,67 @@ export function setPref(key, value) {
 }
 
 // moveChannelToCategory reassigns a channel's category (preserving type/order/topic).
+// The channel kinds a channel can be turned into. Threads aren't here: a thread
+// belongs to its forum and only makes sense inside it.
+export const CHANNEL_TYPES = [
+  { id: "text", label: "Text", icon: "hash" },
+  { id: "voice", label: "Voice", icon: "speaker" },
+  { id: "announcement", label: "Announcement", icon: "megaphone" },
+  { id: "forum", label: "Forum", icon: "forum" },
+];
+
+// setChannelType converts a channel in place. Nothing is destroyed by this —
+// messages stay where they are and a voice channel's chat is still reachable —
+// so the two guards below are about not surprising anyone, and both are
+// reversible by converting back.
+export async function setChannelType(channel, type) {
+  const current = channel.type || "text";
+  if (type === current) return;
+
+  // Pulling the floor out from under a live call: everyone in it would be
+  // talking in a channel that no longer has a call.
+  const inCall = Object.keys(S.voiceRosters[channel.id] || {}).length > 0 || S.voice?.channelId === channel.id;
+  if (current === "voice" && inCall) {
+    flash("There's a call in this channel right now — end it first", "error");
+    return;
+  }
+
+  // A forum's threads are channels parented to it, and the sidebar only shows
+  // threads under a forum. Convert the forum away and they're still there but
+  // nowhere to be seen, which looks exactly like data loss unless we say so.
+  const threads = (activeGuild()?.channels || []).filter((c) => c.parent === channel.id).length;
+  const apply = async () => {
+    try {
+      await api.setChannelMeta(
+        S.activeGuildId,
+        channel.id,
+        type,
+        channel.category || "",
+        channel.position || 0,
+        channel.topic || "",
+      );
+      await refreshGuilds();
+      flash(`#${channel.name} is now a ${type} channel`, "success");
+    } catch (err) {
+      flash(err);
+    }
+  };
+  if (current === "forum" && threads) {
+    S.modal = {
+      kind: "confirm",
+      title: `Turn #${channel.name} into a ${type} channel?`,
+      body: `Its ${threads} post${threads === 1 ? "" : "s"} won't be deleted, but they'll be hidden until you turn it back into a forum.`,
+      confirmLabel: "Convert",
+      onConfirm: () => {
+        S.modal = null;
+        apply();
+      },
+    };
+    return;
+  }
+  await apply();
+}
+
 export async function moveChannelToCategory(channel, categoryId) {
   try {
     await api.setChannelMeta(

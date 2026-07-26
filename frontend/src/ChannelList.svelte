@@ -31,6 +31,8 @@
     blockUser,
     unblockUser,
     isCallLocked,
+    CHANNEL_TYPES,
+    setChannelType,
     canModerateVoice,
     moveVoiceMember,
     disconnectVoiceMember,
@@ -200,6 +202,20 @@
         icon: "clock",
         onClick: () => (S.modal = { kind: "disappear", channelId: c.id }),
       },
+      // Change type: managers only, and never on a thread (it belongs to its
+      // forum) — listed flat rather than nested because the menu has no
+      // submenus and four short items read faster than a fly-out anyway.
+      ...(canManageChannels && !c.parent
+        ? [
+            { sep: true },
+            { label: "Change type to…", header: true },
+            ...CHANNEL_TYPES.filter((t) => t.id !== (c.type || "text")).map((t) => ({
+              label: t.label,
+              icon: t.icon,
+              onClick: () => setChannelType(c, t.id),
+            })),
+          ]
+        : []),
       canManageChannels && c.type !== "voice" && {
         label: "Edit Topic",
         icon: "edit",
