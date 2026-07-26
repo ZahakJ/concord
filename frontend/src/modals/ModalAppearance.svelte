@@ -31,6 +31,27 @@
   const clock = $derived(S.prefs.clock || "system");
   const profileColor = $derived(S.identity.color || "#14a394");
   const themePack = $derived(S.prefs.themePack || "");
+  const shape = $derived(S.prefs.shape || "");
+  const font = $derived(S.prefs.font || "");
+
+  // Shape + typeface are theme axes of their own; "" defers to the pack, which
+  // now carries its own corner radius and UI face (see app.css).
+  const SHAPES = [
+    { id: "", label: "Theme", r: "10px" },
+    { id: "sharp", label: "Sharp", r: "2px" },
+    { id: "soft", label: "Soft", r: "8px" },
+    { id: "round", label: "Round", r: "16px" },
+  ];
+  // Four faces, each genuinely different everywhere. (A "grotesk" option was
+  // cut: on most Linux installs Helvetica/Arial resolve to the same substitute
+  // as system-ui, so it would have been a choice that changes nothing.)
+  const MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+  const FONTS = [
+    { id: "", label: "Theme", stack: "inherit" },
+    { id: "system", label: "System", stack: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+    { id: "serif", label: "Serif", stack: 'Georgia, "Iowan Old Style", "Times New Roman", serif' },
+    { id: "mono", label: "Mono", stack: MONO },
+  ];
 
   // Curated full-palette skins (see app.css [data-theme-pack=…]). The preview
   // colors mirror each pack's bg-1/bg-3/accent tokens.
@@ -66,7 +87,7 @@
   ];
 </script>
 
-<Modal title="Appearance" {onClose}>
+<Modal title="Appearance" {onClose} wide>
   <section>
     <strong class="label">Theme</strong>
     <div class="theme-row" role="radiogroup" aria-label="Theme">
@@ -117,7 +138,8 @@
     </div>
     <p class="muted tiny">
       A full palette for the whole app — each pack brings its own accent (an
-      accent preset below still overrides it).
+      accent preset below still overrides it), and several reshape it too:
+      Gruvbox and Dracula go monospaced and square, Sakura and Rosé round over.
     </p>
 
     <div class="live-head">
@@ -210,6 +232,49 @@
 
   <hr />
   <section>
+    <strong class="label">Corners</strong>
+    <div class="seg four" role="radiogroup" aria-label="Corner style">
+      {#each SHAPES as s (s.id)}
+        <button
+          class:sel={shape === s.id}
+          role="radio"
+          aria-checked={shape === s.id}
+          onclick={() => setAppearance("shape", s.id)}
+        >
+          <span class="shape-pv" style="--r:{s.r}" aria-hidden="true"></span>
+          {s.label}
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">
+      How rounded every panel, button and field is. <em>Theme</em> follows the
+      pack you picked above — Gruvbox squares off, Sakura rounds over.
+    </p>
+  </section>
+
+  <section>
+    <strong class="label">Typeface</strong>
+    <div class="seg four" role="radiogroup" aria-label="Typeface">
+      {#each FONTS as f (f.id)}
+        <button
+          class:sel={font === f.id}
+          role="radio"
+          aria-checked={font === f.id}
+          onclick={() => setAppearance("font", f.id)}
+        >
+          <span class="font-pv" style="font-family:{f.stack}" aria-hidden="true">Ag</span>
+          {f.label}
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">
+      Only faces already on this machine — Concord never downloads a font, which
+      would tell a font host every time you open the app.
+    </p>
+  </section>
+
+  <hr />
+  <section>
     <strong class="label">Message density</strong>
     <div class="seg" role="radiogroup" aria-label="Message density">
       <button
@@ -238,7 +303,7 @@
 
   <section>
     <strong class="label">Clock</strong>
-    <div class="seg" role="radiogroup" aria-label="Timestamp format">
+    <div class="seg three" role="radiogroup" aria-label="Timestamp format">
       {#each [["system", "Automatic"], ["12", "12-hour"], ["24", "24-hour"]] as [id, label] (id)}
         <button
           class:sel={clock === id}
@@ -447,6 +512,10 @@
   }
   .pk.live {
     position: relative;
+    /* Keep the mini window's internal layering to itself. Without this, the
+       z-index below is measured against the whole dialog and the preview cards
+       paint OVER the sticky "Appearance" header as you scroll. */
+    isolation: isolate;
   }
   /* A soft blob of the pack's own gradient drifting behind the mini window —
      the same idea as the real backdrop, in miniature. */
@@ -554,6 +623,40 @@
     border-color: var(--accent);
     background: var(--accent-soft);
     color: var(--text);
+  }
+  /* Exact column counts rather than auto-fit: a row of options that wraps to
+     leave one orphan on its own line reads as a mistake. Each group states how
+     many it has, so every row fills. */
+  .seg.three {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .seg.four {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  /* The option rows are tight at four across; center them and let the label
+     shrink before the preview does. */
+  .seg.four > button {
+    justify-content: center;
+    gap: 7px;
+    padding: 8px 6px;
+  }
+  /* Corner preview: a swatch drawn at the radius it's offering. */
+  .shape-pv {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    border: 1.5px solid currentColor;
+    border-radius: var(--r);
+    opacity: 0.7;
+  }
+  /* Type preview, set in the face itself — the only honest sample. */
+  .font-pv {
+    width: 22px;
+    flex: none;
+    font-size: 15px;
+    line-height: 1;
+    text-align: center;
+    opacity: 0.85;
   }
   .rows {
     display: flex;

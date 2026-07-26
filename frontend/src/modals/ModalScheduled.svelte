@@ -53,7 +53,9 @@
   <section>
     <strong class="label">Reminders</strong>
     {#if reminders.length === 0}
-      <p class="muted empty">No reminders. Right-click a message → “Remind me”.</p>
+      <p class="muted empty">
+        No reminders. {S.isMobile ? "Long-press" : "Right-click"} a message → “Remind me”.
+      </p>
     {:else}
       {#each reminders as r (r.id)}
         <div class="row">

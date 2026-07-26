@@ -288,6 +288,14 @@
         </span>
         <span class="chev">›</span>
       </button>
+      <button class="row" onclick={() => (S.modal = { kind: "devices", from: "settings" })}>
+        <span class="chip"><Icon name="mic" size={17} /></span>
+        <span class="row-text">
+          <span class="row-title">Voice &amp; Video</span>
+          <span class="row-sub">Microphone, speaker, camera &amp; call audio</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
       <button class="row" onclick={() => (S.modal = { kind: "linkDevice", from: "settings" })}>
         <span class="chip"><Icon name="devices" size={17} /></span>
         <span class="row-text">

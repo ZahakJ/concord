@@ -32,9 +32,17 @@
   --ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
   --warn: #d9a13c;
 
+  /* Shape and type are theme tokens too, not just color. A pack may retune
+     them (Gruvbox squares its corners, Sakura rounds them), and the Appearance
+     dialog can override either independently — see the [data-shape] /
+     [data-font] blocks near the end of this file. */
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
+  /* Only fonts already on the machine: Concord never fetches a webfont, which
+     would leak an IP to a font host on every launch. */
+  --ui-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono-font: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   /* Two-layer depth: a tight contact shadow plus a wide ambient one, so
      popovers/sheets sit visibly ABOVE the page instead of smudging it. */
   --shadow-pop:
@@ -63,7 +71,7 @@
   --verified: var(--ok);
   --radius: var(--radius-md);
 
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--ui-font);
   color-scheme: dark;
 }
 
@@ -627,6 +635,74 @@
     radial-gradient(55% 45% at 88% 22%, rgba(96, 165, 250, 0.14), transparent 60%),
     radial-gradient(72% 62% at 68% 96%, rgba(236, 72, 153, 0.14), transparent 62%),
     radial-gradient(120% 100% at 50% 0%, #180f24 0%, #0d0916 70%);
+}
+
+/* ── Pack personality: shape + type ───────────────────────────────────────
+   The part that makes a pack a *skin* rather than a recolor. Kept together
+   here (instead of inside each palette block) so the whole set can be read at
+   a glance, and so the user overrides below can simply come after it. */
+
+/* Terminal-descended palettes get terminal geometry: tight corners, and for
+   the two that are literally editor themes, a monospaced UI. */
+:root[data-theme-pack="gruvbox"] {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --ui-font: var(--mono-font);
+}
+:root[data-theme-pack="dracula"] {
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --ui-font: var(--mono-font);
+}
+:root[data-theme-pack="nord"] {
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 7px;
+}
+/* Retro-futurist: hard edges, a wide neutral face. */
+:root[data-theme-pack="synthwave"] {
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --ui-font: "Helvetica Neue", Arial, "Segoe UI", Roboto, sans-serif;
+}
+/* Soft palettes round off to match. */
+:root[data-theme-pack="sakura"],
+:root[data-theme-pack="rose"],
+:root[data-theme-pack="frost"] {
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+
+/* ── User overrides (Appearance → Corners / Typeface) ──────────────────────
+   Stamped only when the user picks something explicit, so "Default" keeps
+   whatever the active pack asked for. Last in the cascade: these win. */
+:root[data-shape="sharp"] {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+}
+:root[data-shape="soft"] {
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+:root[data-shape="round"] {
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+}
+:root[data-font="system"] {
+  --ui-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+:root[data-font="serif"] {
+  --ui-font: Georgia, "Iowan Old Style", "Times New Roman", serif;
+}
+:root[data-font="mono"] {
+  --ui-font: var(--mono-font);
 }
 
 /* Compact density: tighter feed rhythm for information density. */

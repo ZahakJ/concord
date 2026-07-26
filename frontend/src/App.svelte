@@ -72,6 +72,7 @@
   import ModalSettings from "./modals/ModalSettings.svelte";
   import ModalLinkDevice from "./modals/ModalLinkDevice.svelte";
   import ModalAppearance from "./modals/ModalAppearance.svelte";
+  import ModalDevices from "./modals/ModalDevices.svelte";
   import ModalWhen from "./modals/ModalWhen.svelte";
   import ModalScheduled from "./modals/ModalScheduled.svelte";
   import ModalPoll from "./modals/ModalPoll.svelte";
@@ -339,6 +340,17 @@
       channelId,
       iceServers,
       forceRelay,
+      // This device's chosen hardware + audio knobs (Voice & Video settings).
+      devices: { mic: S.prefs.micId, speaker: S.prefs.speakerId, camera: S.prefs.cameraId },
+      audio: {
+        output: S.prefs.outputVolume,
+        gain: S.prefs.micGain,
+        gate: S.prefs.micGate,
+        bitrate: S.prefs.voiceBitrate,
+        echoCancel: S.prefs.echoCancel,
+        noiseSuppress: S.prefs.noiseSuppress,
+        autoGain: S.prefs.autoGain,
+      },
       relay: api.relaySignal,
       onRoster: (ids) => {
         S.voiceParticipants = ids;
@@ -774,6 +786,8 @@
     <ModalLinkDevice onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "appearance"}
     <ModalAppearance onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "devices"}
+    <ModalDevices onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "join"}
     <ModalJoin error={S.modal.error} onSubmit={joinGuild} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "guildInvite"}

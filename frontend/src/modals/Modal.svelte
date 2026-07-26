@@ -248,7 +248,10 @@
     margin: -20px -20px 0;
     padding: 20px 20px 8px;
     background: var(--bg-elevated);
-    z-index: 1;
+    /* Comfortably above anything a modal's body might layer internally — at
+       z-index 1 it tied with ordinary content and lost on DOM order, letting
+       scrolled content slide over the title. */
+    z-index: 3;
   }
   h3 {
     margin: 0;

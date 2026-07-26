@@ -498,10 +498,14 @@
           // Audio plays; only video earns a tile (otherwise an audio-only host
           // shows up as a blank rectangle).
           if (e.track.kind === "audio") {
-            let a = document.getElementById("hostAudio");
+            // One element per stream: the host's voice and the sound of what
+            // they're sharing arrive as different streams, and one <audio>
+            // plays one stream — sharing an element would drop the voice the
+            // moment a screen share with sound started.
+            let a = document.getElementById("a-" + stream.id);
             if (!a) {
               a = document.createElement("audio");
-              a.id = "hostAudio";
+              a.id = "a-" + stream.id;
               a.autoplay = true;
               document.body.appendChild(a);
             }
@@ -526,6 +530,9 @@
           const v = document.createElement("video");
           v.autoplay = true;
           v.playsInline = true;
+          // Sound comes out of the <audio> element above, so a shared screen's
+          // audio isn't played twice (once here, once there).
+          v.muted = true;
           v.srcObject = stream;
           const lbl = document.createElement("span");
           lbl.className = "lbl";

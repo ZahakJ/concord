@@ -79,9 +79,29 @@ export const S = $state({
     theme: "dark",
     accent: "",
     themePack: "", // curated full-palette skin ("" = default palette)
+    // Shape/typeface overrides. "" = follow the active theme pack, which now
+    // carries a corner radius and a UI face of its own, not just colors.
+    shape: "",
+    font: "",
     density: "cozy",
     clock: "system", // "system" | "12" | "24" — timestamp hour format
     memberPanel: true, // show the right-hand member panel (toggle with Ctrl+U)
+    // Chosen call hardware (see lib/devices.js). "" = whatever the OS picked,
+    // which is also what a stored id falls back to when that device is gone.
+    micId: "",
+    speakerId: "",
+    cameraId: "",
+    // Call audio knobs. The defaults are exactly "what the browser does on its
+    // own", so an untouched install sounds the same as it always has.
+    outputVolume: 1, // master playback level for a call, 0..1
+    micGain: 1, // mic boost/trim, 0.25..4
+    micGate: 0, // noise gate threshold, 0 = off
+    // Opus target, bits/s. 64k is a real step up from the browser's ~32k
+    // default and still modest on a mesh where you send one copy per peer.
+    voiceBitrate: 64000,
+    echoCancel: true,
+    noiseSuppress: true,
+    autoGain: true,
     ...loadJSON("concord.prefs", {}),
   },
 
@@ -884,6 +904,13 @@ export function applyAppearance() {
   // Textured packs use the same translucent-surface trick over a STATIC mesh.
   if (TEXTURED_PACKS.has(S.prefs.themePack)) el.dataset.textured = "1";
   else delete el.dataset.textured;
+  // Shape and typeface: stamped ONLY when explicitly chosen, so the empty
+  // value means "whatever this pack asked for" rather than "override it with
+  // the base look" (app.css puts these last so they win when present).
+  if (S.prefs.shape) el.dataset.shape = S.prefs.shape;
+  else delete el.dataset.shape;
+  if (S.prefs.font) el.dataset.font = S.prefs.font;
+  else delete el.dataset.font;
   // Accent precedence: explicit preset > theme pack's own accent (CSS) >
   // profile color. An inline --accent would defeat the pack's palette, so
   // clear it when the pack should win.

@@ -9,6 +9,9 @@
 // negotiation" pattern, with the politeness role decided deterministically by
 // comparing peer IDs so the two sides always disagree.
 
+import { micStream, cameraStream, applySink } from "./devices.js";
+import { tuneOpus } from "./sdp.js";
+
 const DEFAULT_ICE = [{ urls: "stun:stun.l.google.com:19302" }];
 
 export class VoiceMesh {
@@ -24,6 +27,8 @@ export class VoiceMesh {
     onVideoState,
     iceServers,
     forceRelay = false,
+    devices = {},
+    audio = {},
   }) {
     this.selfPeerId = selfPeerId;
     this.channelId = channelId;
@@ -53,22 +58,316 @@ export class VoiceMesh {
     this._monitor = null;
     this._lastSpeaking = "";
     // Local video sources: independent "screen" and "camera", each a stream +
-    // per-peer sender so either can be added/removed without touching the other.
-    this.videoSources = { screen: null, camera: null }; // kind -> { stream, senders: Map }
+    // per-peer senders so either can be added/removed without touching the
+    // other. A screen share can carry system audio, so it's senders per peer
+    // (plural): the video track and, when the OS/browser allows it, its sound.
+    this.videoSources = { screen: null, camera: null }; // kind -> { stream, senders: Map<peerId, sender[]> }
     // Remote stream-id -> kind ("screen"|"camera"), learned from a signaling note.
     this.remoteKinds = new Map();
     this._pendingVideo = new Map(); // streamId -> re-emit fn (kind arrived late)
+    // Chosen hardware ({ mic, speaker, camera } deviceIds; "" = OS default).
+    // Held here rather than read from app state so this file stays a plain
+    // WebRTC module; the app hands them in and calls the setters below when
+    // the user picks something else mid-call.
+    this.devices = { mic: devices.mic || "", speaker: devices.speaker || "", camera: devices.camera || "" };
+    // Audio knobs. The three processing flags are capture-time getUserMedia
+    // constraints (changing one reopens the mic); gain/gate are ours, done in a
+    // small WebAudio chain; output is master playback level.
+    this.audio = {
+      echoCancel: audio.echoCancel !== false,
+      noiseSuppress: audio.noiseSuppress !== false,
+      autoGain: audio.autoGain !== false,
+      gain: audio.gain ?? 1, // mic boost/trim; 1 = the capture as it comes
+      gate: audio.gate ?? 0, // 0 = off, else the RMS level that opens the mic
+      output: audio.output ?? 1,
+      bitrate: audio.bitrate ?? 64000, // what we ask peers for AND send, bits/s
+    };
+    this.sendStream = null; // processed mic, when a chain is in play
+    this._chain = null; // { src, gain, gate }
+    this._gateOpenUntil = 0;
   }
 
   async start() {
-    this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    this.localStream = await micStream(this.devices.mic, this.audio);
+    this._buildChain();
+    this._hintTracks();
+    // Metered on the RAW capture, not the processed send: the gate below reads
+    // this level to decide when to open, and a meter behind a closed gate could
+    // never reopen it.
     this._addAnalyser("self", this.localStream);
     this._startMonitor();
+  }
+
+  // ---- microphone: device, processing, boost, gate ----
+
+  // _buildChain routes the raw capture through boost + gate before it goes out.
+  // It's only built when a knob is off-default: at 100% with the gate off,
+  // peers get the capture track itself, exactly as they did before any of this
+  // existed. Best effort — a webview without MediaStreamAudioDestinationNode
+  // simply keeps sending the raw track.
+  _buildChain() {
+    this._teardownChain();
+    if (!this.localStream) return;
+    if (this.audio.gain === 1 && !this.audio.gate) return;
+    try {
+      const ctx = this._ac();
+      const src = ctx.createMediaStreamSource(this.localStream);
+      const gain = ctx.createGain();
+      gain.gain.value = this.audio.gain;
+      const gate = ctx.createGain();
+      gate.gain.value = this.audio.gate ? 0 : 1; // a gate starts closed
+      const dest = ctx.createMediaStreamDestination();
+      src.connect(gain).connect(gate).connect(dest);
+      this._chain = { src, gain, gate };
+      this.sendStream = dest.stream;
+    } catch (err) {
+      console.warn("audio chain unavailable", err);
+      this._chain = null;
+      this.sendStream = null;
+    }
+  }
+
+  _teardownChain() {
+    if (this._chain) {
+      try {
+        this._chain.src.disconnect();
+      } catch {}
+      this._chain = null;
+    }
+    this.sendStream?.getTracks().forEach((t) => t.stop());
+    this.sendStream = null;
+  }
+
+  // _micTrack: what peers actually receive — the processed track when a chain
+  // is up, otherwise the raw capture.
+  _micTrack() {
+    return this.sendStream?.getAudioTracks()[0] || this.localStream?.getAudioTracks()[0] || null;
+  }
+
+  // _sendMicTrack hands the current outgoing track to every peer. replaceTrack
+  // keeps the existing m-line, so nothing renegotiates and nobody hears a gap.
+  async _sendMicTrack() {
+    const track = this._micTrack();
+    if (!track) return;
+    track.enabled = !this.muted; // a fresh track is live; honor the mute state
+    this._hintTracks();
+    for (const [, peer] of this.peers) {
+      const sender = peer.pc.getSenders().find((s) => s.track?.kind === "audio");
+      try {
+        await sender?.replaceTrack(track);
+      } catch (err) {
+        console.warn("mic swap", err);
+      }
+      // replaceTrack keeps the m-line but resets encoder parameters.
+      await this._applySenderParams(peer.pc);
+    }
+  }
+
+  // setInputDevice swaps the microphone without dropping the call.
+  async setInputDevice(deviceId) {
+    this.devices.mic = deviceId || "";
+    await this._reopenMic();
+  }
+
+  // setProcessing toggles one of the browser's capture-time filters (echo
+  // cancellation, noise suppression, automatic gain). They can only be chosen
+  // when the mic is opened, so this recaptures.
+  async setProcessing(name, on) {
+    this.audio[name] = !!on;
+    await this._reopenMic();
+  }
+
+  // _reopenMic recaptures with the current device + processing. The new stream
+  // is opened FIRST so a failure leaves the current mic running rather than
+  // knocking us silent mid-sentence.
+  async _reopenMic() {
+    if (!this.localStream) return; // not in a call: applies at the next join
+    const next = await micStream(this.devices.mic, this.audio);
+    if (!next.getAudioTracks().length) {
+      next.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    const old = this.localStream;
+    this._teardownChain();
+    this.localStream = next;
+    this._buildChain();
+    await this._sendMicTrack();
+    old.getTracks().forEach((t) => t.stop());
+    this.analysers.delete("self"); // re-meter from the new source
+    this._addAnalyser("self", next);
+  }
+
+  // setMicGain boosts (or trims) the mic before it's sent: 1 = untouched. When
+  // this is the knob that creates or retires the chain, the outgoing track
+  // changes with it, so peers get the new one.
+  async setMicGain(gain) {
+    this.audio.gain = Math.max(0.25, Math.min(4, gain || 1));
+    if (this._chain && (this.audio.gain !== 1 || this.audio.gate)) {
+      // Ramp rather than jump — a step in gain is an audible click.
+      this._chain.gain.gain.setTargetAtTime(this.audio.gain, this._ac().currentTime, 0.02);
+      return;
+    }
+    await this._rechain();
+  }
+
+  // setGate sets the level your voice has to clear for the mic to open, so a
+  // noisy room isn't in everyone's ears between sentences. 0 turns it off.
+  async setGate(threshold) {
+    this.audio.gate = Math.max(0, Math.min(0.25, threshold || 0));
+    if (this._chain && (this.audio.gain !== 1 || this.audio.gate)) {
+      // The chain stays up and the monitor picks up the new threshold on its
+      // next tick — no track churn while a slider is being dragged. Turning the
+      // gate off, though, has to leave it open for good.
+      if (!this.audio.gate) this._chain.gate.gain.setTargetAtTime(1, this._ac().currentTime, 0.02);
+      return;
+    }
+    await this._rechain();
+  }
+
+  async _rechain() {
+    const had = !!this._chain;
+    this._buildChain();
+    if (had || this._chain) await this._sendMicTrack();
+  }
+
+  // _applyGate opens the outgoing gate while you're actually talking and closes
+  // it in between. It reads the PRE-gate level (scaled by the boost, so the
+  // threshold means what peers would hear) — fast to open, slow to close, with
+  // a hold so word tails and short pauses don't get chopped.
+  _applyGate(level) {
+    if (!this._chain || !this.audio.gate) return;
+    if (level * this.audio.gain >= this.audio.gate) this._gateOpenUntil = Date.now() + 500;
+    const open = Date.now() < this._gateOpenUntil;
+    this._chain.gate.gain.setTargetAtTime(open ? 1 : 0, this._ac().currentTime, open ? 0.01 : 0.15);
+  }
+
+  // ---- audio quality ----
+  //
+  // Two halves that have to agree: the SDP says what we'll ACCEPT from a peer,
+  // and the sender parameters say what our own encoder will SPEND. Setting only
+  // one leaves the call at the browser's timid default in that direction.
+
+  // _shareAudio: the audio track riding our screen share, if the platform gave
+  // us one. It's music/game audio, not a voice, and is treated accordingly.
+  _shareAudio() {
+    return this.videoSources.screen?.stream.getAudioTracks()[0] || null;
+  }
+
+  // _tune rewrites an offer/answer's Opus settings. Shared audio gets marked in
+  // BOTH directions, and that matters: an fmtp line says what the sender of the
+  // SDP is willing to receive, so the side listening to a screen share is the
+  // one that has to ask for stereo.
+  _tune(peer, sdp) {
+    try {
+      const share = this._shareAudio();
+      const hifiIndexes = [];
+      peer.pc.getTransceivers().forEach((t, i) => {
+        const sending = share && t.sender?.track === share;
+        const receiving = t.receiver?.track && peer.hifiTracks.has(t.receiver.track);
+        if (sending || receiving) hifiIndexes.push(i);
+      });
+      return tuneOpus(sdp, { bitrate: this.audio.bitrate, hifiIndexes });
+    } catch (err) {
+      console.warn("sdp tune skipped", err);
+      return sdp; // a call at default quality beats a call that won't connect
+    }
+  }
+
+  // _applySenderParams raises our own encoder ceiling and marks voice as
+  // high-priority traffic, so it's the last thing starved when a screen share
+  // and a call compete for the same uplink.
+  async _applySenderParams(pc) {
+    const share = this._shareAudio();
+    for (const s of pc.getSenders()) {
+      if (s.track?.kind !== "audio") continue;
+      try {
+        const p = s.getParameters();
+        if (!p.encodings?.length) p.encodings = [{}];
+        p.encodings[0].maxBitrate = s.track === share ? Math.max(this.audio.bitrate, 160000) : this.audio.bitrate;
+        p.encodings[0].networkPriority = "high";
+        p.encodings[0].priority = "high";
+        await s.setParameters(p);
+      } catch {
+        /* older webviews reject encodings edits; the SDP half still applies */
+      }
+    }
+  }
+
+  // setBitrate changes the quality target for a call in progress. The encoder
+  // side takes effect immediately; the "send us this much" half needs a fresh
+  // offer, so nudge one.
+  async setBitrate(bps) {
+    this.audio.bitrate = Math.max(8000, Math.min(320000, bps || 64000));
+    for (const [peerId, peer] of this.peers) {
+      await this._applySenderParams(peer.pc);
+      try {
+        const offer = await peer.pc.createOffer();
+        offer.sdp = this._tune(peer, offer.sdp);
+        await peer.pc.setLocalDescription(offer);
+        this.send(peerId, { description: peer.pc.localDescription });
+      } catch (err) {
+        console.warn("bitrate renegotiation", err);
+      }
+    }
+  }
+
+  // _hintTracks tells the encoder what it's carrying. "speech" lets it lean on
+  // speech coding; "music" keeps it faithful — which is what you want when the
+  // filters are off, or when the audio is a screen share's soundtrack.
+  _hintTracks() {
+    const voice = this.audio.noiseSuppress || this.audio.autoGain ? "speech" : "music";
+    for (const t of this.localStream?.getAudioTracks() || []) t.contentHint = voice;
+    for (const t of this.sendStream?.getAudioTracks() || []) t.contentHint = voice;
+    const share = this._shareAudio();
+    if (share) share.contentHint = "music";
+  }
+
+  // setOutputVolume is the master playback level for the whole call; the
+  // per-peer volumes multiply into it.
+  setOutputVolume(v) {
+    this.audio.output = Math.max(0, Math.min(1, v ?? 1));
+    for (const [peerId, peer] of this.peers) this._applyAudio(peerId, peer);
+  }
+
+  // setOutputDevice re-points every participant's playback at another speaker.
+  // No-op on webviews without setSinkId (see devices.canPickOutput).
+  async setOutputDevice(deviceId) {
+    this.devices.speaker = deviceId || "";
+    for (const [, peer] of this.peers) {
+      for (const el of [peer.audioEl, ...peer.auxEls.values()]) {
+        await applySink(el, this.devices.speaker);
+      }
+    }
+  }
+
+  // setCameraDevice switches which camera is sent. Unlike the mic this restarts
+  // the source (the local preview tile is keyed on the stream, so the app needs
+  // the new one back) — returns the new preview stream, or null if the camera
+  // is currently off, in which case the choice just applies next time.
+  async setCameraDevice(deviceId) {
+    this.devices.camera = deviceId || "";
+    if (!this.videoSources.camera) return null;
+    this.stopVideo("camera");
+    return this.startVideo("camera");
+  }
+
+  // _ac: the one AudioContext this call uses, for both metering and the input
+  // chain. Created on first need; closed in stop().
+  _ac() {
+    if (!this.audioCtx) {
+      this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    // A suspended context doesn't just stop metering — when the input chain is
+    // in play it IS the outgoing audio, so leaving it suspended would send
+    // silence. Autoplay policy suspends contexts created without a gesture.
+    if (this.audioCtx.state === "suspended") this.audioCtx.resume().catch(() => {});
+    return this.audioCtx;
   }
 
   stop() {
     this.stopVideo("screen");
     this.stopVideo("camera");
+    this._teardownChain();
     for (const id of [...this.peers.keys()]) this.removePeer(id);
     if (this._monitor) clearInterval(this._monitor);
     this._monitor = null;
@@ -87,10 +386,7 @@ export class VoiceMesh {
   // peer ID, so we can detect who is currently speaking.
   _addAnalyser(key, stream) {
     try {
-      if (!this.audioCtx) {
-        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      const src = this.audioCtx.createMediaStreamSource(stream);
+      const src = this._ac().createMediaStreamSource(stream);
       const analyser = this.audioCtx.createAnalyser();
       analyser.fftSize = 512;
       src.connect(analyser);
@@ -104,6 +400,7 @@ export class VoiceMesh {
     if (this._monitor) return;
     this._monitor = setInterval(() => {
       const speaking = new Set();
+      let selfLevel = 0;
       for (const [key, { analyser, data }] of this.analysers) {
         analyser.getByteTimeDomainData(data);
         let sum = 0;
@@ -111,8 +408,14 @@ export class VoiceMesh {
           const v = (data[i] - 128) / 128;
           sum += v * v;
         }
-        if (Math.sqrt(sum / data.length) > 0.04) speaking.add(key);
+        const rms = Math.sqrt(sum / data.length);
+        if (key === "self") selfLevel = rms;
+        if (rms > 0.04) speaking.add(key);
       }
+      this._applyGate(selfLevel);
+      // With a gate on, "speaking" should mean what peers can actually hear —
+      // otherwise the ring lights up on room noise the gate is holding back.
+      if (this.audio.gate && selfLevel * this.audio.gain < this.audio.gate) speaking.delete("self");
       const sig = [...speaking].sort().join(",");
       if (sig !== this._lastSpeaking) {
         this._lastSpeaking = sig;
@@ -123,9 +426,10 @@ export class VoiceMesh {
 
   setMuted(muted) {
     this.muted = muted;
-    if (this.localStream) {
-      this.localStream.getAudioTracks().forEach((t) => (t.enabled = !muted));
-    }
+    // Both ends of the chain: killing the capture silences what's downstream,
+    // and disabling the sent track is what peers actually see stop.
+    this.localStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
+    this.sendStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
   }
 
   // setDeafened silences every remote participant and, Discord-style, also mutes
@@ -146,13 +450,18 @@ export class VoiceMesh {
     if (peer) this._applyAudio(peerId, peer);
   }
 
-  // _applyAudio reconciles a peer's <audio> element with the deafen flag and its
-  // per-peer volume. Deafen wins; otherwise volume 0 mutes just that peer.
+  // _applyAudio reconciles everything we play from a peer — their voice and any
+  // audio riding along with their screen share — against the deafen flag and
+  // their per-peer volume. Deafen wins; otherwise volume 0 mutes just them.
   _applyAudio(peerId, peer) {
-    if (!peer?.audioEl) return;
-    const vol = this.volumes.has(peerId) ? this.volumes.get(peerId) : 1;
-    peer.audioEl.muted = this.deafened || vol === 0;
-    peer.audioEl.volume = vol;
+    if (!peer) return;
+    const own = this.volumes.has(peerId) ? this.volumes.get(peerId) : 1;
+    const vol = own * this.audio.output; // per-peer trim under the master level
+    for (const el of [peer.audioEl, ...peer.auxEls.values()]) {
+      if (!el) continue;
+      el.muted = this.deafened || vol === 0;
+      el.volume = vol;
+    }
   }
 
   // toggleVideo(kind) starts/stops a local video source ("screen" or "camera").
@@ -171,35 +480,51 @@ export class VoiceMesh {
     try {
       stream =
         kind === "screen"
-          ? await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false })
-          : await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+          ? // audio:true asks to share the sound of what's on screen too. Whether
+            // it's actually offered is the platform's call — Chromium hands over
+            // tab/window (and on Windows, system) audio if the user ticks the box
+            // in the picker; WebKit gives video only. Either way we just send
+            // whatever tracks come back.
+            await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true })
+          : await cameraStream(this.devices.camera);
     } catch {
       return null; // user dismissed the picker / denied the camera
     }
     const senders = new Map();
     this.videoSources[kind] = { stream, senders };
+    this._hintTracks(); // a share's sound is music, not speech
     const track = stream.getVideoTracks()[0];
     // Fires on the browser's "Stop sharing" chrome or a camera unplug.
     track.addEventListener("ended", () => this.stopVideo(kind));
     for (const [peerId, peer] of this.peers) {
-      try {
-        senders.set(peerId, peer.pc.addTrack(track, stream));
-      } catch (err) {
-        console.warn("video addTrack", err);
-      }
-      // Tell the peer which kind this new stream is, so it labels the tile.
+      senders.set(peerId, this._addSourceTracks(peer.pc, stream));
+      // Tell the peer which kind this new stream is, so it labels the tile —
+      // and, for audio, so it knows this isn't the mic.
       this.send(peerId, { videoMeta: { streamId: stream.id, kind } });
     }
     this.onVideoState(kind, true);
     return stream;
   }
 
+  // _addSourceTracks sends every track of a local video source (the picture,
+  // plus its sound when the platform shared any) and returns the senders.
+  _addSourceTracks(pc, stream) {
+    const senders = [];
+    for (const t of stream.getTracks()) {
+      try {
+        senders.push(pc.addTrack(t, stream));
+      } catch (err) {
+        console.warn("video addTrack", err);
+      }
+    }
+    return senders;
+  }
+
   stopVideo(kind) {
     const src = this.videoSources[kind];
     if (!src) return;
     for (const [peerId, peer] of this.peers) {
-      const sender = src.senders.get(peerId);
-      if (sender) {
+      for (const sender of src.senders.get(peerId) || []) {
         try {
           peer.pc.removeTrack(sender);
         } catch {}
@@ -252,9 +577,12 @@ export class VoiceMesh {
 
         await pc.setRemoteDescription(msg.description);
         if (msg.description.type === "offer") {
-          await pc.setLocalDescription();
+          const answer = await pc.createAnswer();
+          answer.sdp = this._tune(peer, answer.sdp);
+          await pc.setLocalDescription(answer);
           this.send(from, { description: pc.localDescription });
         }
+        this._applySenderParams(pc);
       } else if (msg.candidate) {
         try {
           await pc.addIceCandidate(msg.candidate);
@@ -278,16 +606,16 @@ export class VoiceMesh {
       ignoreOffer: false,
       // Deterministic, opposite roles on the two ends.
       polite: this.selfPeerId > peerId,
-      audioEl: null,
+      audioEl: null, // their voice
+      micStreamId: "", // which remote stream that voice came in on
+      auxEls: new Map(), // streamId -> <audio> for sound riding a screen share
+      hifiTracks: new Set(), // remote audio tracks that are shared media, not a voice
       videoKeys: new Set(), // remote video tile keys from this peer
     };
     this.peers.set(peerId, peer);
 
-    if (this.localStream) {
-      for (const track of this.localStream.getTracks()) {
-        pc.addTrack(track, this.localStream);
-      }
-    }
+    const mic = this._micTrack();
+    if (mic) pc.addTrack(mic, this.sendStream || this.localStream);
     // A browser guest answers our offer and never gets to add an m-line of its
     // own for a track we didn't ask for. So if we're not sending video (camera
     // off — the common case), the guest's camera would have nowhere to land and
@@ -301,19 +629,20 @@ export class VoiceMesh {
     // gets those sources too, with a note about each one's kind.
     for (const kind of ["screen", "camera"]) {
       const src = this.videoSources[kind];
-      const track = src?.stream.getVideoTracks()[0];
-      if (track) {
-        try {
-          src.senders.set(peerId, pc.addTrack(track, src.stream));
-        } catch {}
-        this.send(peerId, { videoMeta: { streamId: src.stream.id, kind } });
-      }
+      if (!src?.stream.getVideoTracks().length) continue;
+      src.senders.set(peerId, this._addSourceTracks(pc, src.stream));
+      this.send(peerId, { videoMeta: { streamId: src.stream.id, kind } });
     }
 
     pc.onnegotiationneeded = async () => {
       try {
         peer.makingOffer = true;
-        await pc.setLocalDescription();
+        // Created explicitly (rather than the implicit setLocalDescription())
+        // so the Opus parameters can be raised before the peer ever sees them.
+        const offer = await pc.createOffer();
+        offer.sdp = this._tune(peer, offer.sdp);
+        await pc.setLocalDescription(offer);
+        this._applySenderParams(pc);
         this.send(peerId, { description: pc.localDescription });
       } catch (err) {
         console.warn("negotiation error", err);
@@ -355,15 +684,44 @@ export class VoiceMesh {
         track.addEventListener("unmute", emit);
         return;
       }
+      // Audio. A peer sends their voice, and may also send the sound of what
+      // they're sharing — a second audio track, riding the screen stream. Both
+      // need their own element (one element plays one stream), but only the
+      // voice should drive the "speaking" ring, and a shared video's soundtrack
+      // must not be mistaken for someone talking.
+      const stream = streams[0] || new MediaStream([track]);
+      const shared = this.remoteKinds.has(stream.id) || (peer.micStreamId && peer.micStreamId !== stream.id);
+      if (shared) {
+        // Remember it's shared media: the next offer/answer we build asks for
+        // this m-line in stereo, and only the receiving side can ask.
+        peer.hifiTracks.add(track);
+        let aux = peer.auxEls.get(stream.id);
+        if (!aux) {
+          aux = new Audio();
+          aux.autoplay = true;
+          peer.auxEls.set(stream.id, aux);
+          applySink(aux, this.devices.speaker);
+        }
+        aux.srcObject = stream;
+        // When the share ends, stop holding onto its element.
+        track.addEventListener("ended", () => {
+          aux.srcObject = null;
+          peer.auxEls.delete(stream.id);
+        });
+        this._applyAudio(peerId, peer);
+        return;
+      }
       let el = peer.audioEl;
       if (!el) {
         el = new Audio();
         el.autoplay = true;
         peer.audioEl = el;
+        applySink(el, this.devices.speaker); // route to the chosen speaker
       }
-      el.srcObject = streams[0];
+      peer.micStreamId = stream.id;
+      el.srcObject = stream;
       this._applyAudio(peerId, peer); // honor deafen / per-peer volume on (re)connect
-      this._addAnalyser(peerId, streams[0]);
+      this._addAnalyser(peerId, stream);
     };
     pc.onconnectionstatechange = () => {
       if (["failed", "closed"].includes(pc.connectionState)) this.removePeer(peerId);
@@ -380,6 +738,8 @@ export class VoiceMesh {
       peer.pc.close();
     } catch {}
     if (peer.audioEl) peer.audioEl.srcObject = null;
+    for (const el of peer.auxEls.values()) el.srcObject = null;
+    peer.auxEls.clear();
     this.analysers.delete(peerId);
     // Drop any video tiles this peer was showing.
     for (const key of peer.videoKeys) this.onVideo(key, null);

@@ -466,9 +466,23 @@ different path: **the browser does the media, Go does the matchmaking.**
   small rooms — the honest bandwidth ceiling of pure P2P. A future optional
   **SFU** (forwarding *encrypted* SFrame frames) can scale rooms without becoming
   trusted.
+- **Quality is tuned, not left to the default.** Browsers negotiate Opus timidly
+  (~32 kbit/s, mono, tuned for a bad phone line). Concord rewrites the Opus
+  parameters in every offer/answer — fullband 48 kHz, in-band FEC on, DTX off,
+  a configurable bitrate (64 kbit/s by default) — and raises the encoder's own
+  ceiling on each sender, marking voice as high-priority traffic. A screen
+  share's sound rides its own m-line in **stereo** at a higher rate, because
+  music through a mono speech codec is what everyone notices.
+- **Settings → Voice & Video** picks the microphone, speaker and camera, with a
+  live level meter, a test tone and a camera preview; adds mic boost, a noise
+  gate, a master call volume, and switches for the browser's echo cancellation /
+  noise suppression / automatic gain. Everything applies to a call already in
+  progress — devices swap with `replaceTrack`, so nothing renegotiates and
+  nobody hears a gap.
 
 > **Code:** `internal/app/voice.go`, `internal/net/signal.go`,
-> `frontend/src/lib/voice.js`.
+> `frontend/src/lib/voice.js`, `frontend/src/lib/devices.js`,
+> `frontend/src/lib/sdp.js`.
 
 ---
 

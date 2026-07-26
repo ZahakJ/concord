@@ -136,6 +136,12 @@
     return tile.self ? "You" : participant(tile.peerId).name;
   }
 
+  // Every tile below is `muted`: a shared screen can carry its own sound, and
+  // all call audio plays through the mesh's own audio elements — the only path
+  // that honors deafen, per-person volume, the master level and the chosen
+  // speaker. Unmuted tiles would double it up (a stream can be on screen twice)
+  // and slip past all four.
+  //
   // Svelte action: bind a MediaStream to a <video>'s srcObject (not a plain attr).
   function srcObject(node, key) {
     const attach = (k) => {
@@ -167,14 +173,14 @@
     >
       {#if focusedScreen}
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video use:srcObject={focusedScreen.key} autoplay playsinline muted={focusedScreen.self}></video>
+        <video use:srcObject={focusedScreen.key} autoplay playsinline muted></video>
         <span class="screen-label"><Icon name="screen" size={12} /> {screenLabel(focusedScreen)}'s screen</span>
       {:else}
         {@const t = tileInfo(focusedPid)}
         {@const cam = camTile(focusedPid)}
         {#if cam}
           <!-- svelte-ignore a11y_media_has_caption -->
-          <video use:srcObject={cam.key} autoplay playsinline muted={t.self} class:mirror={t.self}></video>
+          <video use:srcObject={cam.key} autoplay playsinline muted class:mirror={t.self}></video>
         {:else}
           <div class="focus-face" style={t.color ? `--tint:${t.color}` : ""}>
             <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={96} />
@@ -202,7 +208,7 @@
         {#if tile.key !== focusedKey}
           <button class="thumb" title="{screenLabel(tile)}'s screen" onclick={() => toggleFocus(tile.key)}>
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video use:srcObject={tile.key} autoplay playsinline muted={tile.self}></video>
+            <video use:srcObject={tile.key} autoplay playsinline muted></video>
             <span class="thumb-badge"><Icon name="screen" size={10} /></span>
           </button>
         {/if}
@@ -241,7 +247,7 @@
               use:srcObject={cam.key}
               autoplay
               playsinline
-              muted={t.self}
+              muted
               class:mirror={t.self}
             ></video>
           {:else}
@@ -283,7 +289,7 @@
         {#each screens as tile (tile.key)}
           <button class="screen-tile" title="Click to zoom" onclick={() => toggleFocus(tile.key)}>
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video use:srcObject={tile.key} autoplay playsinline muted={tile.self}></video>
+            <video use:srcObject={tile.key} autoplay playsinline muted></video>
             <span class="screen-label">
               <Icon name="screen" size={12} />
               {screenLabel(tile)}'s screen · click to zoom
@@ -344,6 +350,14 @@
         <Icon name="lock" size={18} />
       </button>
     {/if}
+    <button
+      class="ctl"
+      title="Audio & video settings"
+      aria-label="Audio and video settings"
+      onclick={() => (S.modal = { kind: "devices" })}
+    >
+      <Icon name="gear" size={18} />
+    </button>
     <button class="ctl hangup" title="Leave call" aria-label="Leave call" onclick={onLeaveVoice}>
       <Icon name="door" size={18} />
     </button>
