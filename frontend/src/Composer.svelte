@@ -1526,11 +1526,25 @@
   .composer.mobile {
     padding: 0 10px calc(10px + env(safe-area-inset-bottom));
   }
-  /* 16px stops iOS WebKit from auto-zooming the page onto a focused input;
-     also simply more readable at arm's length. */
+  /* On a phone the tray and the text can't share one line. Eight finger-sized
+     buttons at 44px come to ~350px, which on a 390px-wide screen left the
+     textarea about 8px — the placeholder rendered one character per line, and
+     it looked like the styling had simply collapsed. So the text gets its own
+     full-width row and the tray sits underneath it. */
+  .composer.mobile .input-box {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
   .composer.mobile .draft {
+    /* Its own line, whatever else is in the row. */
+    flex: 1 0 100%;
+    order: -1;
     font-size: 16px;
-    padding: 10px 4px;
+    padding: 10px 6px 4px;
+  }
+  /* The send button anchors the right end of the tray. */
+  .composer.mobile .sendbtn {
+    margin-left: auto;
   }
   /* On touch the fmt bar can't hover-reveal — when toggled on, show it at
      full strength and give the buttons real finger targets. */

@@ -26,6 +26,7 @@ export class VoiceMesh {
     onSpeaking,
     onVideo,
     onVideoState,
+    onWatcher,
     iceServers,
     forceRelay = false,
     devices = {},
@@ -46,6 +47,8 @@ export class VoiceMesh {
     // onVideoState(kind, on): our own camera/screen toggled.
     this.onVideo = onVideo || (() => {});
     this.onVideoState = onVideoState || (() => {});
+    // onWatcher(peerId): someone began watching the screen we're sharing.
+    this.onWatcher = onWatcher || (() => {});
     this.peers = new Map(); // peerId -> { pc, makingOffer, ignoreOffer, audioEl, videoKeys }
     this.localStream = null;
     this.muted = false;
@@ -629,6 +632,11 @@ export class VoiceMesh {
     }
     if (msg.channelId !== this.channelId) return;
 
+    // Somebody started watching a screen we're sharing.
+    if (msg.watching) {
+      if (this.videoSources.screen?.stream.id === msg.watching) this.onWatcher(from);
+      return;
+    }
     // A note about which kind a remote video stream is (camera vs screen).
     if (msg.videoMeta) {
       this.remoteKinds.set(msg.videoMeta.streamId, msg.videoMeta.kind);
@@ -697,6 +705,7 @@ export class VoiceMesh {
       // Deterministic, opposite roles on the two ends.
       polite: this.selfPeerId > peerId,
       session: "", // their mesh instance's nonce; a change means they restarted
+      watching: new Set(), // their stream ids we've already acknowledged watching
       audioEl: null, // their voice
       micStreamId: "", // which remote stream that voice came in on
       auxEls: new Map(), // streamId -> <audio> for sound riding a screen share
@@ -759,7 +768,14 @@ export class VoiceMesh {
         const emit = () => {
           peer.videoKeys.add(key);
           this._pendingVideo.set(stream.id, emit);
-          this.onVideo(key, stream, { peerId, kind: this.remoteKinds.get(stream.id) || "camera" });
+          const kind = this.remoteKinds.get(stream.id) || "camera";
+          this.onVideo(key, stream, { peerId, kind });
+          // Sharing into silence is unnerving — you can't tell whether anyone
+          // is looking. Tell the sharer once per stream that we're watching.
+          if (kind === "screen" && !peer.watching.has(stream.id)) {
+            peer.watching.add(stream.id);
+            this.send(peerId, { watching: stream.id });
+          }
         };
         emit();
         const clear = () => {

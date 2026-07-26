@@ -2007,10 +2007,10 @@ export function incomingCall() {
 // self, speaking, sharing} per participant, including ourselves when we're in it.
 export function voiceMembersFor(channelId) {
   const out = [];
-  const seen = new Set();
   // Ourselves, if we're in this room (we don't hear our own gossip heartbeat).
   if (S.voice && S.voice.channelId === channelId) {
     out.push({
+      peerId: S.identity.peerId,
       fingerprint: S.identity.fingerprint,
       self: true,
       speaking: S.voiceSpeaking.includes("self"),
@@ -2018,14 +2018,21 @@ export function voiceMembersFor(channelId) {
       muted: S.muted,
       deafened: S.deafened,
     });
-    seen.add(S.identity.fingerprint);
   }
+  // Keyed by PEER, not by account. Linked devices share one fingerprint, so
+  // deduping on that quietly hid your own phone from your desktop (and vice
+  // versa) whenever you joined the same call from both — the audio was flowing
+  // the whole time, the roster just refused to admit the second device existed.
+  // Only our own peer id is skipped, because we added it above.
   for (const [pid, info] of Object.entries(S.voiceRosters[channelId] || {})) {
-    if (seen.has(info.fingerprint)) continue;
-    seen.add(info.fingerprint);
+    if (pid === S.identity.peerId) continue;
     out.push({
+      peerId: pid,
       fingerprint: info.fingerprint,
       self: false,
+      // Same account, different device — worth labelling, since otherwise it
+      // looks like you're in the call twice for no reason.
+      otherDevice: info.fingerprint === S.identity.fingerprint,
       muted: !!S.voiceStates[info.fingerprint]?.muted,
       deafened: !!S.voiceStates[info.fingerprint]?.deafened,
       // Speaking is only known for the room we're in (from the local mesh).

@@ -128,6 +128,9 @@
     const st = (fpr && S.voiceStates[fpr]) || {};
     return {
       ...p,
+      // Your own account on a second device: a real participant, but naming it
+      // twice with no explanation reads as a glitch.
+      name: fpr && fpr === S.identity.fingerprint ? `${p.name} (other device)` : p.name,
       speaking: S.voiceSpeaking.includes(pid),
       // Their own mute/deafen, as announced by their client — deafened implies
       // muted, so show the stronger of the two rather than both badges.

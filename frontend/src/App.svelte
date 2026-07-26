@@ -27,6 +27,7 @@
     nudge,
     closeTopOverlay,
     isCallLocked,
+    nameFor,
     forgetLock,
     clearCallState,
     publishVoiceState,
@@ -397,6 +398,10 @@
       },
       onSpeaking: (keys) => (S.voiceSpeaking = keys),
       onVideo: (key, stream, meta) => setVideoStream(key, stream, meta),
+      onWatcher: (peerId) => {
+        const fpr = S.voicePeerFpr[peerId];
+        flash(`${fpr ? nameFor(fpr) : "Someone"} is watching your screen`, "info");
+      },
       onVideoState: (kind, on, info) => {
         // If a source stopped via the browser's own chrome (not our button),
         // update the flag and drop our local preview tile too.

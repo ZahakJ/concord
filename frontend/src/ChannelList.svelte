@@ -722,7 +722,7 @@
             {/if}
           </div>
           {#if c.type === "voice"}
-            {#each voiceMembersFor(c.id) as vm (vm.fingerprint)}
+            {#each voiceMembersFor(c.id) as vm (vm.peerId)}
               {@const vmem = memberByFpr(vm.fingerprint)}
               <button
                 class="vc-member"
@@ -747,7 +747,13 @@
                     size={20}
                   />
                 </span>
-                <span class="vc-name">{nameFor(vm.fingerprint)}{vm.self ? " (you)" : ""}</span>
+                <span class="vc-name">
+                  {nameFor(vm.fingerprint)}{vm.self
+                    ? " (you)"
+                    : vm.otherDevice
+                      ? " (your other device)"
+                      : ""}
+                </span>
                 {#if vm.deafened}
                   <span class="vc-mark" title="Deafened"><Icon name="deafened" size={11} /></span>
                 {:else if vm.muted}
