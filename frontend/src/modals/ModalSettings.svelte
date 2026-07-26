@@ -353,6 +353,12 @@
       animation: none;
     }
   }
+  /* A card whose body is content rather than a list of rows: rows supply their
+     own padding, so a card of content needs its own. */
+  .card.pad {
+    padding: 12px 14px;
+    gap: 10px;
+  }
   /* ---- software update card ---- */
   .upd-card {
     gap: 10px;

@@ -24,6 +24,7 @@
     cameraStream,
     onDeviceChange,
     testTone,
+    recordSelfTest,
   } from "../lib/devices.js";
 
   let { onClose } = $props();
@@ -83,6 +84,7 @@
     stopWatching();
     stopMicTest();
     stopCamTest();
+    selfCtl?.cancel();
   });
 
   // ---- applying a choice ----
@@ -203,6 +205,44 @@
     testStream = null;
   }
 
+  // ---- hear yourself ----
+  //
+  // The question every one of these knobs is really answering. Records a few
+  // seconds through the same boost/gate a call would apply, then plays it back
+  // out of the chosen speaker.
+  let selfTest = $state(""); // "" | "recording" | "playing"
+  let selfCtl = null;
+
+  async function hearMyself() {
+    if (selfTest) {
+      // Mid-record: stop early and go straight to playback. Mid-playback: quit.
+      if (selfTest === "recording") selfCtl?.stop();
+      else selfCtl?.cancel();
+      return;
+    }
+    stopMicTest(); // one mic at a time
+    selfTest = "recording";
+    try {
+      selfCtl = recordSelfTest({
+        deviceId: chosen("mic"),
+        processing: processing(),
+        gain: S.prefs.micGain ?? 1,
+        gate: S.prefs.micGate ?? 0,
+        sinkId: chosen("speaker"),
+      });
+      selfCtl.onLevel((v) => (level = v));
+      const playing = selfCtl.done;
+      // Flip the label the moment recording ends; `done` covers both phases.
+      setTimeout(() => selfTest === "recording" && (selfTest = "playing"), 5000);
+      await playing;
+    } catch {
+      flash("Couldn't record from that microphone", "error");
+    }
+    selfTest = "";
+    selfCtl = null;
+    level = 0;
+  }
+
   // ---- camera test: a small local preview ----
 
   let camTesting = $state(false);
@@ -260,7 +300,21 @@
     <div class="dev-head">
       <span class="chip"><Icon name="mic" size={16} /></span>
       <span class="dev-title">Microphone</span>
-      <button class="test" class:on={micTesting} onclick={() => (micTesting ? stopMicTest() : startMicTest())}>
+      <button
+        class="test"
+        class:on={!!selfTest}
+        disabled={micTesting}
+        onclick={hearMyself}
+        title="Record a few seconds and play it straight back"
+      >
+        {selfTest === "recording" ? "Recording…" : selfTest === "playing" ? "Playing…" : "Hear myself"}
+      </button>
+      <button
+        class="test"
+        class:on={micTesting}
+        disabled={!!selfTest}
+        onclick={() => (micTesting ? stopMicTest() : startMicTest())}
+      >
         {micTesting ? "Stop" : "Test"}
       </button>
     </div>
@@ -275,7 +329,7 @@
         <option value={o.id}>{o.label}</option>
       {/each}
     </select>
-    {#if micTesting}
+    {#if micTesting || selfTest}
       <div transition:slide={{ duration: 180 }}>
         <div class="meter" role="presentation">
           <div class="fill" style="width:{Math.round(level * 100)}%"></div>
@@ -283,7 +337,16 @@
             <div class="gate-mark" style="left:{Math.min(100, S.prefs.micGate * 400)}%"></div>
           {/if}
         </div>
-        <span class="hint">Say something — the bar should move.</span>
+        <span class="hint">
+          {#if selfTest === "recording"}
+            Say something — you'll hear it back in a moment, exactly as the call
+            would send it. Click again to play it now.
+          {:else if selfTest === "playing"}
+            That's how you sound to everyone else.
+          {:else}
+            Say something — the bar should move.
+          {/if}
+        </span>
       </div>
     {/if}
   </section>
@@ -510,9 +573,12 @@
       color 0.12s ease,
       border-color 0.12s ease;
   }
-  .test:hover {
+  .test:hover:not(:disabled) {
     color: var(--text);
     border-color: var(--accent);
+  }
+  .test:disabled {
+    opacity: 0.45;
   }
   .test.on {
     color: var(--accent);

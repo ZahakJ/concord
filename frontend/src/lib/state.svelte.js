@@ -302,6 +302,31 @@ function saveJSON(key, value) {
 }
 
 const lastRead = loadJSON("concord.lastRead", {}); // channelId -> ISO time
+
+// Where you were: the guild open when the app last closed, and the channel you
+// were reading in each guild. Device-local — this is a view preference, not
+// account state, and the phone shouldn't jump because the desktop moved.
+const lastPlace = loadJSON("concord.lastPlace", { guildId: "", channels: {} });
+if (!lastPlace.channels) lastPlace.channels = {}; // tolerate an older/partial value
+
+function rememberPlace(guildId, channelId) {
+  if (!guildId || !channelId) return;
+  if (lastPlace.guildId === guildId && lastPlace.channels[guildId] === channelId) return;
+  lastPlace.guildId = guildId;
+  lastPlace.channels[guildId] = channelId;
+  saveJSON("concord.lastPlace", lastPlace);
+}
+
+// channelToResume: the channel to open when entering a guild — the one you were
+// last reading there, falling back to its first channel. Voice channels are
+// skipped: reopening one would look like an invitation to rejoin a call you
+// aren't in, and its chat is reachable without that ambiguity.
+function channelToResume(guild) {
+  const saved = lastPlace.channels[guild.id];
+  const ch = guild.channels.find((c) => c.id === saved);
+  if (ch && ch.type !== "voice") return ch.id;
+  return (guild.channels.find((c) => c.type !== "voice") || guild.channels[0]).id;
+}
 // Message ids already accounted for (unread bump + chime/notify), so the
 // backend re-emitting a message (edit/reaction/pin/sync) doesn't double-count.
 const countedMsgIds = new Set();
@@ -1076,9 +1101,13 @@ export async function nudge() {
 export async function refreshGuilds() {
   S.guilds = (await api.guilds()) || [];
   if (!S.activeGuildId && S.guilds.length) {
-    // Land on the top server in the rail, not Notes/DMs (those sort first in
-    // the raw list because they're usually the oldest guilds).
-    const first = S.guilds.find((g) => g.kind !== "dm") || S.guilds[0];
+    // Pick up where you left off — the guild you had open when you closed the
+    // app, and inside it the channel you were reading. Only when that place
+    // still exists; a guild you've since left falls through to the default.
+    const resume = S.guilds.find((g) => g.id === lastPlace.guildId);
+    // No memory yet: land on the top SERVER in the rail rather than Notes/DMs,
+    // which sort first in the raw list because they're usually the oldest.
+    const first = resume || S.guilds.find((g) => g.kind !== "dm") || S.guilds[0];
     await selectGuild(first.id);
     return;
   }
@@ -1097,7 +1126,7 @@ export async function refreshGuilds() {
 export async function selectGuild(id) {
   S.activeGuildId = id;
   const g = S.guilds.find((x) => x.id === id);
-  if (g && g.channels.length) await selectChannel(g.channels[0].id);
+  if (g && g.channels.length) await selectChannel(channelToResume(g));
   else {
     // A guild with no channels (or an unknown id) must not keep the previous
     // guild's channel active — otherwise the old feed renders and, worse,
@@ -1171,6 +1200,7 @@ export async function createGroupDM(fingerprints) {
 
 export async function selectChannel(id) {
   S.activeChannelId = id;
+  rememberPlace(S.activeGuildId, id);
   // Snapshot where we left off BEFORE marking read, to place the "new messages"
   // divider for this viewing session.
   S.readAnchor = lastRead[id] || "";

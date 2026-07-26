@@ -176,6 +176,100 @@ function toneWav() {
   return toneUrl;
 }
 
+// ---- hear yourself ----
+//
+// Record a few seconds of your own mic and play it straight back, through the
+// same boost and gate the call would apply and out of the speaker you picked.
+// Recorded-then-played rather than monitored live on purpose: live monitoring
+// through speakers is a feedback loop, and even on headphones the delay makes
+// people talk strangely. What you want to know is "what do I sound like to
+// them", and that question is answered by a playback.
+//
+// Returns a controller: stop() ends the recording early, and the promise
+// resolves when playback finishes (or is cancelled).
+export function recordSelfTest({ deviceId = "", processing = {}, gain = 1, gate = 0, sinkId = "", seconds = 5 } = {}) {
+  let onLevel = () => {};
+  let cancelled = false;
+  let stopRec = () => {};
+
+  const done = (async () => {
+    const raw = await micStream(deviceId, processing);
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+    const src = ctx.createMediaStreamSource(raw);
+    const gainNode = ctx.createGain();
+    gainNode.gain.value = gain;
+    const gateNode = ctx.createGain();
+    gateNode.gain.value = gate ? 0 : 1;
+    const dest = ctx.createMediaStreamDestination();
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    src.connect(analyser);
+    src.connect(gainNode).connect(gateNode).connect(dest);
+
+    // Same gate behaviour as a live call: measured pre-gate and scaled by the
+    // boost, fast to open, slow to close, so the playback is honest about what
+    // the gate is doing to your first syllable.
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    let openUntil = 0;
+    const meter = setInterval(() => {
+      analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) {
+        const v = (data[i] - 128) / 128;
+        sum += v * v;
+      }
+      const rms = Math.sqrt(sum / data.length);
+      onLevel(Math.min(1, rms * gain * 4));
+      if (!gate) return;
+      if (rms * gain >= gate) openUntil = Date.now() + 500;
+      const open = Date.now() < openUntil;
+      gateNode.gain.setTargetAtTime(open ? 1 : 0, ctx.currentTime, open ? 0.01 : 0.15);
+    }, 60);
+
+    const chunks = [];
+    const rec = new MediaRecorder(dest.stream);
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
+    const recorded = new Promise((r) => (rec.onstop = r));
+    rec.start();
+    stopRec = () => rec.state !== "inactive" && rec.stop();
+    const timer = setTimeout(stopRec, seconds * 1000);
+
+    await recorded;
+    clearTimeout(timer);
+    clearInterval(meter);
+    onLevel(0);
+    raw.getTracks().forEach((t) => t.stop());
+    ctx.close().catch(() => {});
+    if (cancelled || !chunks.length) return false;
+
+    const el = new Audio(URL.createObjectURL(new Blob(chunks, { type: chunks[0].type || "audio/webm" })));
+    await applySink(el, sinkId);
+    const played = new Promise((r) => {
+      el.onended = r;
+      el.onerror = r;
+    });
+    try {
+      await el.play();
+    } catch {
+      return false;
+    }
+    await played;
+    URL.revokeObjectURL(el.src);
+    return !cancelled;
+  })();
+
+  return {
+    done,
+    stop: () => stopRec(),
+    cancel: () => {
+      cancelled = true;
+      stopRec();
+    },
+    onLevel: (fn) => (onLevel = fn || (() => {})),
+  };
+}
+
 // testTone plays the chime through one specific output device.
 export async function testTone(deviceId = "") {
   const el = new Audio(toneWav());

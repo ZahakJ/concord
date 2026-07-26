@@ -5,6 +5,7 @@
   import { linkCodeFrom } from "./lib/deeplink.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import Icon from "./Icon.svelte";
+  import PassphraseField from "./PassphraseField.svelte";
   import QRScanner from "./QRScanner.svelte";
 
   let { onLogin } = $props();
@@ -99,7 +100,7 @@
       scanned = true;
       error = "";
       // Auto-advance: the code is captured, so send focus to the passphrase.
-      requestAnimationFrame(() => document.querySelector('.login input[type="password"]')?.focus());
+      requestAnimationFrame(() => document.querySelector('.login input[type="password"], .login input[type="text"]')?.focus());
     } else {
       error = "That QR code isn't a Concord link code — make sure it's the one under Settings → Link a device.";
     }
@@ -349,8 +350,8 @@
           bind:value={linkCode}
         ></textarea>
       {/if}
-      <input type="password" placeholder="Passphrase for this device" bind:value={passphrase} />
-      <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
+      <PassphraseField placeholder="Passphrase for this device" autocomplete="new-password" bind:value={passphrase} />
+      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} />
       {#if error}<div class="error">{error}</div>{/if}
       {#if busy}
         <div class="linking-status">
@@ -375,8 +376,8 @@
         placeholder="word1 word2 word3 …"
         bind:value={restorePhrase}
       ></textarea>
-      <input type="password" placeholder="New passphrase" bind:value={passphrase} />
-      <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
+      <PassphraseField placeholder="New passphrase" autocomplete="new-password" bind:value={passphrase} />
+      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} />
       {#if error}<div class="error">{error}</div>{/if}
       <button type="button" disabled={busy} onclick={doRestore}>
         {busy ? "Restoring…" : "Restore account"}
@@ -405,7 +406,7 @@
       <button type="button" class="link" onclick={() => (forgot = false)}>Back</button>
     {:else if hasIdentity}
       <p class="muted">Welcome back — enter your passphrase to unlock.</p>
-      <input type="password" placeholder="Passphrase" bind:value={passphrase} autofocus />
+      <PassphraseField placeholder="Passphrase" bind:value={passphrase} autofocus />
       {#if error}<div class="error">{error}</div>{/if}
       <button type="submit" disabled={!passphrase || busy}>
         {busy ? "Unlocking…" : "Unlock"}
@@ -438,8 +439,8 @@
         bind:value={displayName}
         autofocus
       />
-      <input type="password" placeholder="Choose a passphrase" bind:value={passphrase} />
-      <input type="password" placeholder="Confirm passphrase" bind:value={confirmPass} />
+      <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" bind:value={passphrase} />
+      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} />
       {#if error}<div class="error">{error}</div>{/if}
       <button type="submit" disabled={!displayName.trim() || !passphrase || !confirmPass || busy}>
         {busy ? "Creating…" : "Create identity"}
