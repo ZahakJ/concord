@@ -49,6 +49,22 @@ async function call(name, ...args) {
   return body.result;
 }
 
+// leaveVoiceOnUnload tells the backend we're gone while the page is being torn
+// down. An ordinary fetch is cancelled mid-flight at that point; sendBeacon is
+// the one request the browser promises to finish. Without it the Go node keeps
+// announcing our presence every few seconds after the tab has closed, so
+// everyone else holds a connection to a client that isn't there.
+//
+// Beacons can't carry headers, so this is skipped when a bearer token is in
+// play (the mobile shell) — that shell doesn't reload pages anyway.
+export function leaveVoiceOnUnload(channelID) {
+  if (!channelID || apiToken || isWails() || typeof navigator === "undefined") return false;
+  const body = new Blob([JSON.stringify({ method: "LeaveVoice", args: [channelID] })], {
+    type: "application/json",
+  });
+  return navigator.sendBeacon?.(`${apiBase}/rpc`, body) ?? false;
+}
+
 export const api = {
   getBootstrap: () => call("GetBootstrap"),
   setBootstrap: (addrs) => call("SetBootstrap", addrs),

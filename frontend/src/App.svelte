@@ -3,7 +3,7 @@
   // lifecycle, global shortcuts, and modal routing. All shared state and the
   // backend event wiring live in lib/state.svelte.js.
   import { onMount } from "svelte";
-  import { api } from "./lib/api.js";
+  import { api, leaveVoiceOnUnload } from "./lib/api.js";
   import { VoiceMesh } from "./lib/voice.js";
   import { requestPermission } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
@@ -177,6 +177,10 @@
     // Skip the self-update check on mobile — the app stores own updates there.
     if (!window.Capacitor) checkForUpdate(); // fire-and-forget; works on the login screen too
     initDeepLinks(); // concord:// links (QR scanned with the OS camera)
+    // Closing or reloading the tab while in a call: tell the node to leave, so
+    // it stops announcing us to a room we're no longer in. "pagehide" is the
+    // one that also fires when a mobile browser backgrounds the page.
+    addEventListener("pagehide", () => leaveVoiceOnUnload(S.voice?.channelId || ""));
     try {
       if (await api.session()) await start();
     } catch {

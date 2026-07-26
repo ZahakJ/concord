@@ -91,6 +91,11 @@ export class VoiceMesh {
       output: audio.output ?? 1,
       bitrate: audio.bitrate ?? 64000, // what we ask peers for AND send, bits/s
     };
+    // A nonce for THIS mesh instance. It rides every signaling message so the
+    // far side can tell "the same peer, still talking" from "the same peer,
+    // restarted" — a page refresh or relaunch keeps the libp2p peer id, so
+    // without it a reconnection is indistinguishable from a heartbeat.
+    this.sessionId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
     this.sendStream = null; // processed mic, when a chain is in play
     this._chain = null; // { src, gain, gate }
     this._gateOpenUntil = 0;
@@ -631,7 +636,25 @@ export class VoiceMesh {
       return;
     }
 
-    const peer = this.peers.get(from) || this.addPeer(from);
+    // A peer we already hold, but from a different session, means their client
+    // restarted — refreshed the page, relaunched, crashed and came back. The
+    // connection we're holding is to something that no longer exists and will
+    // never speak again, so replace it instead of trying to negotiate on it.
+    //
+    // Connection state can't be used for this. A direct connection dies fast
+    // enough that "failed" cleans it up, but a relayed one (which is what
+    // "Hide my IP on calls" makes every connection) stays alive against a TURN
+    // allocation that outlives the browser tab — so the corpse reports itself
+    // connected for minutes, the roster still lists them, and the rejoining
+    // peer's offers land on a socket nobody is home at. That is the bug this
+    // exists to close: with IP hiding on, refreshing killed the call both ways.
+    let peer = this.peers.get(from);
+    if (peer && msg.s && peer.session && peer.session !== msg.s) {
+      this.removePeer(from);
+      peer = null;
+    }
+    if (!peer) peer = this.addPeer(from);
+    if (msg.s) peer.session = msg.s;
     const { pc } = peer;
 
     try {
@@ -673,6 +696,7 @@ export class VoiceMesh {
       ignoreOffer: false,
       // Deterministic, opposite roles on the two ends.
       polite: this.selfPeerId > peerId,
+      session: "", // their mesh instance's nonce; a change means they restarted
       audioEl: null, // their voice
       micStreamId: "", // which remote stream that voice came in on
       auxEls: new Map(), // streamId -> <audio> for sound riding a screen share
@@ -817,7 +841,7 @@ export class VoiceMesh {
   }
 
   send(toPeerId, payload) {
-    this.relay(toPeerId, JSON.stringify({ channelId: this.channelId, ...payload }));
+    this.relay(toPeerId, JSON.stringify({ channelId: this.channelId, s: this.sessionId, ...payload }));
   }
 
   emitRoster() {
