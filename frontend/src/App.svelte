@@ -27,6 +27,7 @@
     nudge,
     closeTopOverlay,
     isCallLocked,
+    forgetLock,
     clearCallState,
   } from "./lib/state.svelte.js";
 
@@ -73,6 +74,9 @@
   import ModalLinkDevice from "./modals/ModalLinkDevice.svelte";
   import ModalAppearance from "./modals/ModalAppearance.svelte";
   import ModalDevices from "./modals/ModalDevices.svelte";
+  import ModalNotifications from "./modals/ModalNotifications.svelte";
+  import ModalPrivacy from "./modals/ModalPrivacy.svelte";
+  import ModalConnection from "./modals/ModalConnection.svelte";
   import ModalWhen from "./modals/ModalWhen.svelte";
   import ModalScheduled from "./modals/ModalScheduled.svelte";
   import ModalPoll from "./modals/ModalPoll.svelte";
@@ -137,6 +141,25 @@
     S.admittedJoin = "";
     flash("You were let in", "success");
     joinVoice(ch, true);
+  });
+
+  // A moderator moved or disconnected us. The authority check already happened
+  // in state.svelte.js against our own copy of the guild's governance — by the
+  // time it lands here it's a decision to carry out, and to say out loud: being
+  // moved with no explanation is the kind of thing that feels like a bug.
+  $effect(() => {
+    const m = S.moderatedVoice;
+    if (!m) return;
+    S.moderatedVoice = null;
+    if (m.action === "disconnect") {
+      flash(`${m.by} disconnected you from the call`, "info");
+      leaveVoice();
+    } else {
+      flash(`${m.by} moved you to ${m.name}`, "info");
+      // admitted=true: being moved BY a moderator shouldn't make us knock at
+      // the destination, even if it happens to be locked.
+      joinVoice(m.channelId, true);
+    }
   });
 
   async function acceptCall(channelId) {
@@ -287,6 +310,11 @@
       // for the disconnect button). Clicking a different one switches rooms.
       if (inThisRoom) return;
     }
+    // A lock on an EMPTY call can only be stale — the one person who could
+    // admit us would have to be inside. Rather than knock at a door with nobody
+    // behind it, drop the lock and walk in. (forgetLock also covers the roster
+    // going empty; this is the last-line check at the moment it matters.)
+    if (!Object.keys(S.voiceRosters[channelId] || {}).length) forgetLock(channelId);
     // Locked call: don't barge in — knock and wait to be admitted (unless we're
     // arriving BECAUSE we were just admitted). Someone already in the call
     // approves, which flips admittedJoin and re-calls us with admitted=true.
@@ -781,7 +809,16 @@
   {:else if S.modal?.kind === "profile"}
     <ModalProfile identity={S.identity} onSubmit={saveProfile} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "settings"}
-    <ModalSettings onClose={() => (S.modal = null)} onSaved={() => flash("Rendezvous saved", "success")} />
+    <ModalSettings onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "notifications"}
+    <ModalNotifications onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "privacy"}
+    <ModalPrivacy onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "connection"}
+    <ModalConnection
+      onClose={() => (S.modal = null)}
+      onSaved={() => flash("Rendezvous saved", "success")}
+    />
   {:else if S.modal?.kind === "linkDevice"}
     <ModalLinkDevice onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "appearance"}

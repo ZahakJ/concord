@@ -78,7 +78,7 @@ export const PROCESSING = {
   autoGain: {
     key: "autoGainControl",
     title: "Automatic gain",
-    sub: "Levels you out as you move around. Off gives steadier, more natural dynamics — pair it with the boost below.",
+    sub: "Levels you out as you move around. Off gives steadier, more natural dynamics — pair it with the boost above.",
   },
 };
 

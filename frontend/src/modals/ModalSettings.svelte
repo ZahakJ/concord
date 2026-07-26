@@ -4,83 +4,12 @@
   import Avatar from "../Avatar.svelte";
   import { onMount, onDestroy } from "svelte";
   import { api } from "../lib/api.js";
-  import {
-    soundsEnabled,
-    setSoundsEnabled,
-    RINGTONE_OPTIONS,
-    getRingtone,
-    setRingtone,
-    previewRingtone,
-  } from "../lib/sounds.js";
-  import { bioEnrolled } from "../lib/biometric.js";
-  import { S, setPref, flash, refreshOcr } from "../lib/state.svelte.js";
+  import { S, flash, openPanel } from "../lib/state.svelte.js";
 
-  let { onClose, onSaved } = $props();
-  let bootstrap = $state("");
-  let sounds = $state(soundsEnabled());
+  let { onClose } = $props();
   let phrase = $state("");
   let copiedPhrase = $state(false);
   let phraseOpen = $state(false);
-
-  function toggleSounds() {
-    sounds = !sounds;
-    setSoundsEnabled(sounds);
-  }
-
-  // Empty trash: irreversibly scrub retained bodies of deleted messages so a
-  // moderator can no longer reveal any of them on this device.
-  let purging = $state(false);
-  function emptyTrash() {
-    S.modal = {
-      kind: "confirm",
-      title: "Empty deleted-message trash?",
-      body: "Every deleted message's retained text is permanently erased on this device. This can't be undone, and 'Show original' will have nothing left to reveal.",
-      confirmLabel: "Empty trash",
-      onConfirm: async () => {
-        S.modal = null;
-        purging = true;
-        try {
-          const n = await api.emptyTrash("");
-          flash(`Erased ${n} deleted message${n === 1 ? "" : "s"}`, "success");
-        } catch (err) {
-          flash(err);
-        } finally {
-          purging = false;
-        }
-      },
-    };
-  }
-
-  let ringtone = $state(getRingtone());
-  function pickRingtone(id) {
-    ringtone = id;
-    setRingtone(id);
-    previewRingtone(id); // audition the choice immediately
-  }
-
-  // "Stay connected" defaults on; toggling flips the pref and the Android
-  // foreground service that keeps the P2P node alive in the background.
-  let stayConnected = $state(S.prefs.stayConnected !== false);
-  function toggleStayConnected() {
-    stayConnected = !stayConnected;
-    setPref("stayConnected", stayConnected);
-    const core = window.Capacitor?.Plugins?.ConcordCore;
-    if (stayConnected) core?.startBackground?.().catch(() => {});
-    else core?.stopBackground?.().catch(() => {});
-  }
-
-  let richPresence = $state(false);
-  // Linux (and the Linux web build) can read MPRIS now-playing today.
-  const richPresenceSupported = /linux|x11/i.test(navigator.userAgent);
-  async function toggleRichPresence() {
-    richPresence = !richPresence;
-    try {
-      await api.setRichPresence(richPresence);
-    } catch (err) {
-      richPresence = !richPresence; // revert on failure
-      flash(err);
-    }
-  }
 
   // Recovery phrase disclosure: first open fetches the words, later opens just
   // collapse/expand what's already revealed.
@@ -191,17 +120,6 @@
   }
 
   onMount(async () => {
-    refreshOcr(); // refresh the image-text search readout while settings is open
-    try {
-      bootstrap = ((await api.getBootstrap()) || []).join("\n");
-    } catch {
-      /* ignore */
-    }
-    try {
-      richPresence = await api.richPresenceEnabled();
-    } catch {
-      /* ignore */
-    }
     try {
       appVersion = (await api.appVersion()) || "";
     } catch {
@@ -226,39 +144,6 @@
 
   onDestroy(() => clearInterval(pollTimer));
 
-  // Rendezvous is display-first: the address shows as a copyable chip; editing
-  // (a once-ever action for self-hosters) hides behind the pencil.
-  let editingBootstrap = $state(false);
-  let bootstrapDraft = $state("");
-  let copiedAddr = $state(false);
-
-  function startEditBootstrap() {
-    bootstrapDraft = bootstrap;
-    editingBootstrap = true;
-  }
-  function copyAddr() {
-    navigator.clipboard?.writeText(bootstrap);
-    copiedAddr = true;
-    setTimeout(() => (copiedAddr = false), 1600);
-  }
-  async function saveBootstrap() {
-    try {
-      await api.setBootstrapLive(bootstrapDraft);
-      bootstrap = bootstrapDraft;
-      editingBootstrap = false;
-      onSaved?.(); // parent toasts the confirmation
-    } catch (err) {
-      flash(err);
-    }
-  }
-
-  // Live shape-check while editing: every non-blank line should be a
-  // /…/p2p/<PeerID> multiaddr.
-  const draftLines = $derived(bootstrapDraft.split("\n").filter((l) => l.trim()));
-  const draftOk = $derived(
-    draftLines.length > 0 && draftLines.every((l) => l.trim().startsWith("/") && l.includes("/p2p/")),
-  );
-  const draftBad = $derived(draftLines.length > 0 && !draftOk);
 </script>
 
 <Modal title="Settings" wide {onClose}>
@@ -284,39 +169,47 @@
         <span class="appearance-chip" aria-hidden="true"></span>
         <span class="row-text">
           <span class="row-title">Appearance</span>
-          <span class="row-sub">Theme, accent color &amp; message density</span>
+          <span class="row-sub">Theme, colour, shape &amp; type</span>
         </span>
         <span class="chev">›</span>
       </button>
-      <button class="row" onclick={() => (S.modal = { kind: "devices", from: "settings" })}>
+      <button class="row" onclick={() => openPanel("devices", "settings")}>
         <span class="chip"><Icon name="mic" size={17} /></span>
         <span class="row-text">
           <span class="row-title">Voice &amp; Video</span>
-          <span class="row-sub">Microphone, speaker, camera &amp; call audio</span>
+          <span class="row-sub">Microphone, speaker &amp; camera</span>
         </span>
         <span class="chev">›</span>
       </button>
-      <button class="row" onclick={() => (S.modal = { kind: "linkDevice", from: "settings" })}>
+      <button class="row" onclick={() => openPanel("notifications", "settings")}>
+        <span class="chip"><Icon name="bell" size={17} /></span>
+        <span class="row-text">
+          <span class="row-title">Notifications &amp; sounds</span>
+          <span class="row-sub">Chimes, pings &amp; your ringtone</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
+      <button class="row" onclick={() => openPanel("privacy", "settings")}>
+        <span class="chip"><Icon name="lock" size={17} /></span>
+        <span class="row-text">
+          <span class="row-title">Privacy &amp; safety</span>
+          <span class="row-sub">What leaves this device, and who can reach you</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
+      <button class="row" onclick={() => openPanel("connection", "settings")}>
+        <span class="chip"><Icon name="link" size={17} /></span>
+        <span class="row-text">
+          <span class="row-title">Connection</span>
+          <span class="row-sub">Rendezvous server &amp; diagnostics</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
+      <button class="row" onclick={() => openPanel("linkDevice", "settings")}>
         <span class="chip"><Icon name="devices" size={17} /></span>
         <span class="row-text">
           <span class="row-title">Link a device</span>
           <span class="row-sub">Add your phone or another computer</span>
-        </span>
-        <span class="chev">›</span>
-      </button>
-      <button class="row" onclick={() => (S.modal = { kind: "stats", from: "settings" })}>
-        <span class="chip"><Icon name="poll" size={17} /></span>
-        <span class="row-text">
-          <span class="row-title">Stats &amp; diagnostics</span>
-          <span class="row-sub">Storage, peers &amp; connection health</span>
-        </span>
-        <span class="chev">›</span>
-      </button>
-      <button class="row" onclick={() => (S.modal = { kind: "blocked", from: "settings" })}>
-        <span class="chip"><Icon name="lock" size={17} /></span>
-        <span class="row-text">
-          <span class="row-title">Blocked users</span>
-          <span class="row-sub">People who can't add you to DMs or servers</span>
         </span>
         <span class="chev">›</span>
       </button>
@@ -378,222 +271,6 @@
       </div>
     </section>
   {/if}
-
-  <!-- CONNECTION -->
-  <section class="grp">
-    <div class="sec-label">Connection</div>
-    <div class="card pad">
-      <div class="conn-head">
-        <span class="chip"><Icon name="link" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Rendezvous server</span>
-          <span class="row-sub">
-            The tiny relay that lets friends on other networks find you. Only
-            needed if <em>you</em> host it — friends get it from your invite code.
-          </span>
-        </span>
-      </div>
-      {#if editingBootstrap}
-        <div class="code-wrap" class:ok={draftOk} class:bad={draftBad}>
-          <textarea
-            class="code-box"
-            rows="3"
-            placeholder="/dns/your-app.fly.dev/tcp/4001/p2p/12D3Koo…"
-            bind:value={bootstrapDraft}
-          ></textarea>
-          {#if draftOk}
-            <span class="code-state"><Icon name="check" size={13} /> address looks good</span>
-          {:else if draftBad}
-            <span class="code-state">should start with /dns or /ip4 and contain /p2p/…</span>
-          {/if}
-        </div>
-        <div class="conn-foot">
-          <span class="row-sub">Blank = same-Wi-Fi only. Applies live to new connections.</span>
-          <button class="ghost cancel-btn" onclick={() => (editingBootstrap = false)}>Cancel</button>
-          <button class="save-btn" disabled={draftBad} onclick={saveBootstrap}>Save</button>
-        </div>
-      {:else if bootstrap.trim()}
-        <div class="addr-row">
-          <code class="addr" title={bootstrap}>{bootstrap.trim()}</code>
-          <button class="addr-act" onclick={copyAddr} aria-label="Copy address">
-            {#if copiedAddr}<Icon name="check" size={15} />{:else}<Icon name="copy" size={15} />{/if}
-          </button>
-          <button class="addr-act" onclick={startEditBootstrap} aria-label="Edit address">
-            <Icon name="edit" size={15} />
-          </button>
-        </div>
-        <span class="row-sub">Friends get this automatically from your invite codes.</span>
-      {:else}
-        <div class="addr-row empty">
-          <span class="row-sub">Not set — you can only reach friends on the same Wi-Fi.</span>
-          <button class="save-btn" onclick={startEditBootstrap}>Set address</button>
-        </div>
-      {/if}
-    </div>
-  </section>
-
-  <!-- PREFERENCES -->
-  <section class="grp">
-    <div class="sec-label">Preferences</div>
-    <div class="card">
-      {#if S.isMobile}
-        <button class="row" onclick={toggleStayConnected} role="switch" aria-checked={stayConnected}>
-          <span class="chip"><Icon name="bell" size={16} /></span>
-          <span class="row-text">
-            <span class="row-title">Stay connected</span>
-            <span class="row-sub">Receive messages in the background (quiet notification)</span>
-          </span>
-          <span class="switch" class:on={stayConnected}><span class="knob"></span></span>
-        </button>
-      {/if}
-      {#if S.isMobile}
-        <!-- Always visible on mobile so the feature is discoverable; disabled
-             (with a hint) until biometric unlock is enrolled. -->
-        <button
-          class="row"
-          onclick={() => bioEnrolled() && setPref("appLock", !(S.prefs.appLock === true))}
-          role="switch"
-          aria-checked={bioEnrolled() && S.prefs.appLock === true}
-          disabled={!bioEnrolled()}
-        >
-          <span class="chip"><Icon name="lock" size={16} /></span>
-          <span class="row-text">
-            <span class="row-title">App lock</span>
-            <span class="row-sub">
-              {bioEnrolled()
-                ? "Require fingerprint when opening the app"
-                : "Enable biometric unlock first"}
-            </span>
-          </span>
-          <span class="switch" class:on={bioEnrolled() && S.prefs.appLock === true}
-            ><span class="knob"></span></span
-          >
-        </button>
-      {/if}
-      <button class="row" onclick={toggleSounds} role="switch" aria-checked={sounds}>
-        <span class="chip"><Icon name="speaker" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Sounds</span>
-          <span class="row-sub">Voice join/leave chimes and @mention pings</span>
-        </span>
-        <span class="switch" class:on={sounds}><span class="knob"></span></span>
-      </button>
-      <div class="row ringtone-row">
-        <span class="chip"><Icon name="phone" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Call ringtone</span>
-          <span class="row-sub">Plays when a friend calls you — tap to preview</span>
-        </span>
-        <select
-          class="ringtone-select"
-          value={ringtone}
-          onchange={(e) => pickRingtone(e.target.value)}
-        >
-          {#each RINGTONE_OPTIONS as o (o.id)}
-            <option value={o.id}>{o.label}</option>
-          {/each}
-        </select>
-      </div>
-      <button
-        class="row"
-        onclick={() => setPref("linkPreviews", !S.prefs.linkPreviews)}
-        role="switch"
-        aria-checked={S.prefs.linkPreviews}
-      >
-        <span class="chip"><Icon name="screen" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Link previews</span>
-          <span class="row-sub">
-            Off by default: loading a preview reveals your IP to the link's
-            host. Turn on only among people you trust.
-          </span>
-        </span>
-        <span class="switch" class:on={S.prefs.linkPreviews}><span class="knob"></span></span>
-      </button>
-      <button
-        class="row"
-        onclick={() => setPref("showDeleted", !S.prefs.showDeleted)}
-        role="switch"
-        aria-checked={S.prefs.showDeleted}
-      >
-        <span class="chip"><Icon name="trash" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Show deleted messages</span>
-          <span class="row-sub">
-            Off by default: deleted messages simply disappear. Turn on to leave a
-            faint "deleted" marker where one used to be.
-          </span>
-        </span>
-        <span class="switch" class:on={S.prefs.showDeleted}><span class="knob"></span></span>
-      </button>
-      <button class="row" onclick={emptyTrash} disabled={purging}>
-        <span class="chip"><Icon name="trash" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Empty deleted-message trash</span>
-          <span class="row-sub">
-            Permanently erase the retained text of every deleted message on this
-            device, so "Show original" has nothing left to reveal.
-          </span>
-        </span>
-        <span class="chev">{purging ? "…" : "›"}</span>
-      </button>
-      <button
-        class="row"
-        onclick={() => setPref("hideCallIp", !S.prefs.hideCallIp)}
-        role="switch"
-        aria-checked={S.prefs.hideCallIp}
-      >
-        <span class="chip"><Icon name="lock" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Hide my IP on calls</span>
-          <span class="row-sub">
-            Relays call media through the rendezvous instead of connecting
-            directly, so the people you call can't see your IP address. Meetings
-            with browser guests always relay. Slightly higher latency.
-          </span>
-        </span>
-        <span class="switch" class:on={S.prefs.hideCallIp}><span class="knob"></span></span>
-      </button>
-      <button class="row" onclick={toggleRichPresence} role="switch" aria-checked={richPresence}>
-        <span class="chip"><Icon name="spark" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Rich presence</span>
-          <span class="row-sub">
-            Show what you're listening to as your status ("🎵 Artist — Title"),
-            read on-device from your media player.
-            {richPresenceSupported ? "" : "(Not supported on this platform yet.)"}
-          </span>
-        </span>
-        <span class="switch" class:on={richPresence}><span class="knob"></span></span>
-      </button>
-    </div>
-  </section>
-
-  <!-- SEARCH: local image-text (OCR) -->
-  <section class="grp">
-    <div class="sec-label">Search</div>
-    <div class="card">
-      <div class="row">
-        <span class="chip"><Icon name="imagetext" size={16} /></span>
-        <span class="row-text">
-          <span class="row-title">Search inside images</span>
-          <span class="row-sub">
-            {#if S.ocr?.available}
-              Text in shared screenshots is read out locally ({S.ocr.engine}) and
-              joins search — {S.ocr.counts?.ok || 0} image{(S.ocr.counts?.ok || 0) === 1 ? "" : "s"}
-              indexed so far. Extracted text is sealed at rest like your messages,
-              and never leaves this machine.
-            {:else}
-              Optional: install a local OCR engine and Concord will let you search
-              the text inside shared screenshots. <code>pip install rapidocr-onnxruntime</code>,
-              then put <code>scripts/concord-ocr</code> on your PATH. Runs entirely
-              on this machine — nothing is ever uploaded.
-            {/if}
-          </span>
-        </span>
-      </div>
-    </div>
-  </section>
 
   <!-- SECURITY -->
   <section class="grp">
@@ -805,19 +482,6 @@
   .row:hover {
     background: var(--bg-3);
   }
-  .ringtone-row:hover {
-    background: transparent;
-  }
-  .ringtone-select {
-    flex-shrink: 0;
-    background: var(--bg-input);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 6px 8px;
-    font-size: 13px;
-    cursor: pointer;
-  }
   .row:active {
     background: var(--bg-3);
   }
@@ -891,168 +555,11 @@
   }
 
   /* Connection card: header row + editable body (not a nav row). */
-  .card.pad {
-    padding: 12px 14px;
-    gap: 10px;
-  }
-  .conn-head {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-  }
-  .conn-head .chip {
-    margin-top: 2px;
-  }
   /* Display state: the address as a copyable chip with quiet icon actions. */
-  .addr-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .addr {
-    flex: 1;
-    min-width: 0;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 12px;
-    line-height: 1.4;
-    padding: 10px 12px;
-    border-radius: 10px;
-    background: color-mix(in srgb, var(--bg-0) 42%, var(--bg-3));
-    border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .addr-act {
-    flex-shrink: 0;
-    width: 36px;
-    height: 36px;
-    padding: 0;
-    display: grid;
-    place-items: center;
-    border-radius: 10px;
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
-  }
-  .addr-act:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .addr-row.empty {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-  .cancel-btn {
-    padding: 7px 14px;
-    font-size: 13px;
-  }
-  .code-wrap {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .code-box {
-    width: 100%;
-    box-sizing: border-box;
-    min-height: 84px;
-    font-family: ui-monospace, "SF Mono", Menlo, monospace;
-    font-size: 12.5px;
-    line-height: 1.65;
-    letter-spacing: 0.01em;
-    white-space: pre-wrap;
-    word-break: break-all;
-    resize: none; /* it's an address, not an essay */
-    border-radius: 12px;
-    padding: 12px 14px;
-  }
   /* The field answers back while you type: accent ring when the address
      parses, warm hint when it doesn't. */
-  .code-wrap.ok .code-box {
-    border-color: color-mix(in srgb, var(--ok) 55%, transparent);
-  }
-  .code-wrap.ok .code-box:focus {
-    border-color: var(--ok);
-    box-shadow:
-      inset 0 1px 2px rgb(0 0 0 / 0.08),
-      0 0 0 3px color-mix(in srgb, var(--ok) 18%, transparent);
-  }
-  .code-wrap.bad .code-box {
-    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-  }
-  .code-state {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: 11.5px;
-    color: var(--text-muted);
-    animation: state-in 0.18s ease both;
-  }
-  .code-wrap.ok .code-state {
-    color: var(--ok);
-  }
-  .code-wrap.bad .code-state {
-    color: color-mix(in srgb, var(--danger) 80%, var(--text));
-  }
-  @keyframes state-in {
-    from {
-      opacity: 0;
-      transform: translateY(-2px);
-    }
-  }
-  .conn-foot {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-  }
-  .conn-foot .row-sub {
-    flex: 1;
-    min-width: 0;
-  }
-  .save-btn {
-    flex-shrink: 0;
-    padding: 7px 18px;
-    font-size: 13px;
-    font-weight: 600;
-  }
 
   /* Switches: same mechanism, smoother travel + a soft accent glow when on. */
-  .switch {
-    flex-shrink: 0;
-    width: 40px;
-    height: 24px;
-    border-radius: 12px;
-    background: var(--bg-3);
-    border: 1px solid var(--border);
-    display: block;
-    position: relative;
-    transition:
-      background 0.18s ease,
-      border-color 0.18s ease,
-      box-shadow 0.18s ease;
-  }
-  .switch.on {
-    background: var(--accent);
-    border-color: var(--accent);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 40%, transparent);
-  }
-  .knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: white;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-    transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1);
-  }
-  .switch.on .knob {
-    transform: translateX(16px);
-  }
 
   /* Recovery phrase: warning-tinted card + disclosure. */
   .card.warn {
@@ -1141,22 +648,12 @@
     .word {
       font-size: 13px;
     }
-    .conn-foot {
-      flex-direction: column;
-      align-items: stretch;
-    }
-    .save-btn {
-      width: 100%;
-      min-height: 44px;
-    }
     .signout {
       width: 100%;
       min-height: 48px;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .switch,
-    .knob,
     .disclose,
     .chev:not(.disclose) {
       transition: none;

@@ -31,6 +31,9 @@
     blockUser,
     unblockUser,
     isCallLocked,
+    canModerateVoice,
+    moveVoiceMember,
+    disconnectVoiceMember,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
@@ -265,6 +268,7 @@
     return idx;
   }
   function rowDragOver(e, grp, c) {
+    if (vdrag) return personDragOver(e, c); // a person is in flight, not a channel
     if (!drag) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
@@ -272,6 +276,7 @@
       dropIndex(e, grp, c) === -1 ? null : { catId: grp.id, rowId: c.id, edge: rowEdge(e) };
   }
   function rowDrop(e, grp, c) {
+    if (vdrag) return personDrop(e, c);
     if (!drag) return;
     e.preventDefault();
     const idx = dropIndex(e, grp, c);
@@ -296,6 +301,80 @@
   // Clear the indicator when the drag leaves the channel column entirely.
   function listDragLeave(e) {
     if (drag && !e.currentTarget.contains(e.relatedTarget)) dropHint = null;
+  }
+
+  // --- Drag a person between voice channels (Discord-style) ----------------
+  // Separate from the channel-reorder drag above: this one lifts a PERSON, and
+  // the drop targets are voice-channel rows rather than gaps between them.
+  // Dragging yourself is just a fast way to switch rooms and needs no
+  // permission; dragging someone else is a moderator action.
+  const canModerate = $derived(canModerateVoice(S.identity.fingerprint, g));
+  let vdrag = $state(null); // { fingerprint, name, from } — the person being carried
+  let vDropId = $state(""); // voice channel currently under the pointer
+
+  const voiceChannels = $derived((g?.channels || []).filter((c) => c.type === "voice"));
+  const canDragPerson = (vm) => vm.self || canModerate;
+
+  function personDragStart(e, vm, fromId) {
+    if (!canDragPerson(vm)) return;
+    vdrag = { fingerprint: vm.fingerprint, name: nameFor(vm.fingerprint), from: fromId, self: vm.self };
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", vm.fingerprint);
+    // Carry a name chip rather than the browser's row snapshot, so it's obvious
+    // a PERSON is in flight and not a channel.
+    const ghost = document.createElement("div");
+    ghost.textContent = vdrag.name;
+    ghost.style.cssText =
+      "position:fixed;top:-100px;left:-100px;max-width:200px;overflow:hidden;" +
+      "white-space:nowrap;text-overflow:ellipsis;padding:5px 12px;font-size:12.5px;" +
+      "font-weight:600;color:var(--accent-fg);background:var(--accent);" +
+      "border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none;";
+    document.body.appendChild(ghost);
+    e.dataTransfer.setDragImage(ghost, 20, 14);
+    requestAnimationFrame(() => ghost.remove());
+  }
+  function personDragEnd() {
+    vdrag = null;
+    vDropId = "";
+  }
+  function personDragOver(e, c) {
+    if (!vdrag || c.type !== "voice" || c.id === vdrag.from) return;
+    e.preventDefault();
+    e.stopPropagation(); // don't let the channel-reorder handler claim it
+    e.dataTransfer.dropEffect = "move";
+    vDropId = c.id;
+  }
+  function personDrop(e, c) {
+    if (!vdrag || c.type !== "voice" || c.id === vdrag.from) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const p = vdrag;
+    personDragEnd();
+    // Dragging yourself is just joining the other room.
+    if (p.self) onJoinVoice?.(c.id);
+    else moveVoiceMember(p.fingerprint, p.from, c.id);
+  }
+
+  // Right-click / long-press a person in a voice channel.
+  function personMenu(e, vm, fromId) {
+    if (vm.self || !canModerate) return;
+    const others = voiceChannels.filter((c) => c.id !== fromId);
+    openContextMenu(e, [
+      { label: nameFor(vm.fingerprint), header: true },
+      ...(others.length ? [{ label: "Move to…", header: true }] : []),
+      ...others.map((c) => ({
+        label: c.name,
+        icon: "speaker",
+        onClick: () => moveVoiceMember(vm.fingerprint, fromId, c.id),
+      })),
+      { sep: true },
+      {
+        label: "Disconnect",
+        icon: "door",
+        danger: true,
+        onClick: () => disconnectVoiceMember(vm.fingerprint, fromId),
+      },
+    ]);
   }
 
   // Presence + custom-status popover, anchored to the self-row avatar. Stores
@@ -561,6 +640,8 @@
             class:unread={!!u && !active && !S.mutes[c.id]}
             class:mentioned={!!u?.mentions && !active && !S.mutes[c.id]}
             class:voice-active={inVoice}
+            class:vdrop={vDropId === c.id}
+            ondragleave={() => (vDropId === c.id ? (vDropId = "") : null)}
             class:dragging={drag?.channel.id === c.id}
             class:drop-before={dropHint?.rowId === c.id && dropHint.edge === "before"}
             class:drop-after={dropHint?.rowId === c.id && dropHint.edge === "after"}
@@ -627,7 +708,20 @@
           {#if c.type === "voice"}
             {#each voiceMembersFor(c.id) as vm (vm.fingerprint)}
               {@const vmem = memberByFpr(vm.fingerprint)}
-              <button class="vc-member" onclick={() => clickChannel(c)} title={nameFor(vm.fingerprint)}>
+              <button
+                class="vc-member"
+                class:draggable={canDragPerson(vm)}
+                class:lifted={vdrag?.fingerprint === vm.fingerprint}
+                draggable={canDragPerson(vm)}
+                ondragstart={(e) => personDragStart(e, vm, c.id)}
+                ondragend={personDragEnd}
+                oncontextmenu={(e) => personMenu(e, vm, c.id)}
+                use:longpress={{ handler: (e) => personMenu(e, vm, c.id) }}
+                onclick={() => clickChannel(c)}
+                title={canDragPerson(vm)
+                  ? `${nameFor(vm.fingerprint)} — drag to another voice channel`
+                  : nameFor(vm.fingerprint)}
+              >
                 <span class="vc-av" class:speaking={vm.speaking}>
                   <Avatar
                     name={nameFor(vm.fingerprint)}
@@ -883,6 +977,26 @@
   }
   .voice-active {
     background: var(--accent-soft) !important;
+  }
+  /* A voice row lit up as a landing spot while someone is being carried. */
+  .channel-row.vdrop {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1.5px var(--accent);
+    border-radius: var(--radius-sm);
+  }
+  .channel-row.vdrop .channel {
+    color: var(--text);
+  }
+  /* The person in flight fades in place, so it's clear which one you picked
+     up and that they haven't moved yet. */
+  .vc-member.lifted {
+    opacity: 0.4;
+  }
+  .vc-member.draggable {
+    cursor: grab;
+  }
+  .vc-member.draggable:active {
+    cursor: grabbing;
   }
   .vc-member {
     display: flex;

@@ -31,8 +31,12 @@ const voiceHeartbeat = 3 * time.Second
 // and, crucially, no changes to the WebRTC media path.
 type voiceAnnounce struct {
 	ChannelID string `json:"channelId"`
-	Action    string `json:"action"`           // "join"|"leave"|"lock"|"unlock"|"knock"|"admit"
-	Target    string `json:"target,omitempty"` // for "admit": the fingerprint being let in
+	// "join"|"leave"|"lock"|"unlock"|"knock"|"admit"|"move"|"disconnect"
+	Action string `json:"action"`
+	// The fingerprint being acted on: admitted, moved, or disconnected.
+	Target string `json:"target,omitempty"`
+	// "move": the voice channel to send them to.
+	Dest string `json:"dest,omitempty"`
 }
 
 // watchVoice passively subscribes to a voice channel's presence topic so this
@@ -52,7 +56,7 @@ func (s *Service) watchVoice(groupID []byte, channelID string) {
 	_ = s.ps.Subscribe(s.ctx, topic, func(from peer.ID, data []byte) {
 		var a voiceAnnounce
 		if json.Unmarshal(data, &a) == nil && a.ChannelID == channelID {
-			s.emitVoicePresence(from.String(), presenceFor(from).Fingerprint, channelID, a.Action, a.Target)
+			s.emitVoicePresence(from.String(), presenceFor(from).Fingerprint, channelID, a.Action, a.Target, a.Dest)
 		}
 	})
 }
@@ -136,17 +140,24 @@ func (s *Service) announceVoice(topic, channelID, action string) {
 	_ = s.ps.Publish(s.ctx, topic, payload)
 }
 
-// PublishCallControl broadcasts a soft-lock control action (lock/unlock/knock/
-// admit) on a channel's voice topic. It's advisory — a well-behaved client
-// honors a lock and knocks instead of barging in; media negotiation is
-// untouched. `target` is only used by "admit" (the admitted fingerprint).
-func (s *Service) PublishCallControl(channelID, action, target string) error {
+// PublishCallControl broadcasts a call control action (lock/unlock/knock/admit,
+// or a moderator's move/disconnect) on a channel's voice topic. It's advisory —
+// a well-behaved client honors a lock and knocks instead of barging in, and
+// obeys a move only from someone it can verify holds the authority. Media
+// negotiation is untouched.
+//
+// `target` is the fingerprint being acted on (admitted, moved, disconnected);
+// `dest` is the channel a "move" sends them to. Authority is deliberately NOT
+// checked here: the sender's own claim would prove nothing. Every receiver
+// checks the sender's permissions against its own copy of the guild's
+// governance state before obeying (see the voice-presence handler).
+func (s *Service) PublishCallControl(channelID, action, target, dest string) error {
 	groupID, err := s.groupForChannel(channelID)
 	if err != nil {
 		return err
 	}
 	s.watchVoice(groupID, channelID) // ensure we're subscribed so we can publish
-	payload, _ := json.Marshal(voiceAnnounce{ChannelID: channelID, Action: action, Target: target})
+	payload, _ := json.Marshal(voiceAnnounce{ChannelID: channelID, Action: action, Target: target, Dest: dest})
 	return s.ps.Publish(s.ctx, domain.VoiceTopicID(groupID, channelID), payload)
 }
 
@@ -164,7 +175,7 @@ func (s *Service) groupForChannel(channelID string) ([]byte, error) {
 
 // OnVoicePresence fires when a peer announces joining/leaving a voice room.
 // from is the peer ID (used for signaling); fingerprint identifies the account.
-func (s *Service) OnVoicePresence(fn func(from, fingerprint, channelID, action, target string)) {
+func (s *Service) OnVoicePresence(fn func(from, fingerprint, channelID, action, target, dest string)) {
 	s.mu.Lock()
 	s.onVoicePresence = append(s.onVoicePresence, fn)
 	s.mu.Unlock()
@@ -177,12 +188,12 @@ func (s *Service) OnVoiceSignal(fn func(from string, data []byte)) {
 	s.mu.Unlock()
 }
 
-func (s *Service) emitVoicePresence(from, fingerprint, channelID, action, target string) {
+func (s *Service) emitVoicePresence(from, fingerprint, channelID, action, target, dest string) {
 	s.mu.RLock()
-	cbs := append([]func(string, string, string, string, string){}, s.onVoicePresence...)
+	cbs := append([]func(string, string, string, string, string, string){}, s.onVoicePresence...)
 	s.mu.RUnlock()
 	for _, cb := range cbs {
-		cb(from, fingerprint, channelID, action, target)
+		cb(from, fingerprint, channelID, action, target, dest)
 	}
 }
 

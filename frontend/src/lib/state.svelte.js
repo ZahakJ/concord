@@ -26,7 +26,10 @@ export const S = $state({
   // Floating profile card: { fingerprint, rect } where rect is the anchor's
   // viewport box. Opened by hovering/clicking a mention or a member row.
   profilePopover: null,
-  modal: null, // { kind, ... }
+  modal: null,
+  // Panels we drilled through to reach S.modal, so Back can walk out the way
+  // it came in (see openPanel/backPanel).
+  modalStack: [], // { kind, ... }
   toasts: [], // [{ id, kind, text }] — kind: "info" | "success" | "error"
   quickSwitcher: false,
   // Raised by the command palette's "Set status" action; ChannelList consumes
@@ -114,6 +117,9 @@ export const S = $state({
   callLocks: {},
   callKnocks: {},
   knocking: "", // a locked channelId we're waiting to be admitted to
+  // A moderator moved or disconnected us; App.svelte acts on it and clears it.
+  // { action: "move"|"disconnect", by, channelId?, name? }
+  moderatedVoice: null,
   admittedJoin: "", // set when admitted → App.svelte joins for real
   voiceParticipants: [],
   voiceSpeaking: [],
@@ -246,6 +252,36 @@ if (typeof window !== "undefined") {
   };
   window.addEventListener("resize", sync);
   window.matchMedia?.("(orientation: portrait)")?.addEventListener?.("change", sync);
+}
+
+// modalNav carries the direction of the last modal navigation to the panel
+// that's about to mount: 1 = opened a sub-panel, -1 = went back to its parent,
+// 0 = a fresh dialog. A plain object rather than reactive state because
+// Modal.svelte reads it exactly once, at mount, to pick an entrance animation.
+export const modalNav = { dir: 0 };
+
+// openPanel navigates INTO a sub-panel of the modal that's open now, so the
+// back arrow returns there and the entrance slides the right way. The panel we
+// were on is pushed onto S.modalStack: without a stack, a three-deep path
+// (Settings → Privacy → Blocked) forgets its middle step and the second Back
+// has nowhere to go.
+export function openPanel(kind, from) {
+  modalNav.dir = 1;
+  if (S.modal) S.modalStack = [...S.modalStack, S.modal];
+  S.modal = { kind, from };
+}
+
+// backPanel walks one step out, the way you came in.
+export function backPanel() {
+  modalNav.dir = -1;
+  if (S.modalStack.length) {
+    S.modal = S.modalStack[S.modalStack.length - 1];
+    S.modalStack = S.modalStack.slice(0, -1);
+  } else {
+    // Opened with a plain `from` and no stack behind it (a panel reached
+    // directly): fall back to that parent.
+    S.modal = S.modal?.from ? { kind: S.modal.from } : null;
+  }
 }
 
 // ---- persistence helpers (device-local UI state) ----
@@ -1546,6 +1582,10 @@ function initEvents() {
       }
       return;
     }
+    if (v.action === "move" || v.action === "disconnect") {
+      handleVoiceModeration(v);
+      return;
+    }
 
     updateVoiceRoster(v.channelId, v.from, v.fingerprint, v.action);
 
@@ -1632,8 +1672,108 @@ function updateVoiceRoster(channelId, peerId, fingerprint, action) {
     if (S.dismissedCalls.includes(channelId)) {
       S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
     }
+    forgetLock(channelId);
   }
   S.voiceRosters = rosters;
+}
+
+// forgetLock drops a soft lock once its call is empty.
+//
+// A lock only means "ask the people inside to let you in". With nobody inside
+// there is no one to ask, so a lock that outlives its call is a door that can
+// never open — including for whoever set it. That happens easily: "unlock" is
+// sent once and gossip is missable (which is why "lock" is re-announced every
+// few seconds), and a client that quits or crashes never sends one at all.
+// Tying the lock's lifetime to the roster makes every one of those self-heal.
+export function forgetLock(channelId) {
+  if (S.callLocks[channelId]) {
+    const locks = { ...S.callLocks };
+    delete locks[channelId];
+    S.callLocks = locks;
+  }
+  if (S.callKnocks[channelId]) {
+    const k = { ...S.callKnocks };
+    delete k[channelId];
+    S.callKnocks = k;
+  }
+  if (S.knocking === channelId) S.knocking = "";
+}
+
+// ---- voice moderation (move / disconnect) ----
+//
+// There is no server to enforce anything here, so the enforcement lives where
+// it can't be forged: on the RECEIVING side. A move or disconnect is a request
+// carried on the voice topic, and each client obeys it only after checking, in
+// its own copy of the guild's governance state, that the sender really holds
+// the authority. The sender's claim about itself is never consulted — the
+// fingerprint comes from the authenticated libp2p sender (voice.go), not the
+// message body.
+
+// canModerateVoice: does this fingerprint have the standing to move or kick
+// people in this guild? Owner, or a role granting member management or mutes —
+// the same authority that can already remove someone from the guild entirely.
+//
+// `members` must be THAT guild's roster. S.members only holds the guild
+// currently on screen, and permissions don't travel between guilds: an admin of
+// the server you happen to be looking at has no authority over a call in a
+// different one. Callers acting on a remote guild pass its roster explicitly
+// (see modAuthority).
+export function canModerateVoice(fingerprint, guild = activeGuild(), members = null) {
+  if (!fingerprint || !guild) return false;
+  if (guild.ownerFingerprint === fingerprint) return true;
+  const list = members ?? (guild.id === S.activeGuildId ? S.members : null);
+  if (!list) return false; // unknown roster: refuse rather than guess
+  const mem = list.find((m) => m.fingerprint === fingerprint);
+  if (!mem) return false;
+  return mem.isOwner || has(mem.perms || 0, PERM.MANAGE_MEMBERS) || has(mem.perms || 0, PERM.MUTE_MEMBERS);
+}
+
+// modAuthority resolves the sender's standing in the guild that owns the call,
+// fetching that guild's roster when it isn't the one on screen.
+async function modAuthority(fingerprint, guild) {
+  if (!guild) return false;
+  if (guild.ownerFingerprint === fingerprint) return true;
+  if (guild.id === S.activeGuildId) return canModerateVoice(fingerprint, guild);
+  try {
+    const members = await api.members(guild.id);
+    return canModerateVoice(fingerprint, guild, members || []);
+  } catch {
+    return false; // can't verify → don't obey
+  }
+}
+
+async function handleVoiceModeration(v) {
+  if (v.target !== S.identity.fingerprint) return; // not about us
+  if (!S.voice || S.voice.channelId !== v.channelId) return; // we're not there
+  if (v.fingerprint === S.identity.fingerprint) return; // our own echo
+  // The guild that owns the call, not whichever one happens to be on screen.
+  const guild = S.guilds.find((g) => g.channels?.some((c) => c.id === v.channelId));
+  if (!(await modAuthority(v.fingerprint, guild))) return;
+  // Re-check after the await: we may have left the call in the meantime.
+  if (!S.voice || S.voice.channelId !== v.channelId) return;
+  const by = nameFor(v.fingerprint);
+  if (v.action === "disconnect") {
+    S.moderatedVoice = { action: "disconnect", by };
+    return;
+  }
+  const dest = guild?.channels?.find((c) => c.id === v.dest && c.type === "voice");
+  if (!dest) return;
+  S.moderatedVoice = { action: "move", by, channelId: v.dest, name: dest.name };
+}
+
+// moveVoiceMember / disconnectVoiceMember are the moderator side. Both are
+// requests: a client that ignores them simply stays put, which is the honest
+// limit of moderation without a server in the middle.
+export function moveVoiceMember(fingerprint, fromChannelId, toChannelId) {
+  if (!fingerprint || !toChannelId || fromChannelId === toChannelId) return;
+  api.signalCall(fromChannelId, "move", fingerprint, toChannelId).catch(() => {});
+  const name = activeGuild()?.channels?.find((c) => c.id === toChannelId)?.name || "the other channel";
+  flash(`Moving ${nameFor(fingerprint)} to ${name}…`, "info");
+}
+export function disconnectVoiceMember(fingerprint, channelId) {
+  if (!fingerprint || !channelId) return;
+  api.signalCall(channelId, "disconnect", fingerprint).catch(() => {});
+  flash(`Disconnecting ${nameFor(fingerprint)}…`, "info");
 }
 
 // ---- soft call lock (see voice.go PublishCallControl) ----
@@ -1677,11 +1817,10 @@ function dropKnock(channelId, fpr) {
 // clearCallState wipes lock/knock bookkeeping for a channel we've left.
 export function clearCallState(channelId) {
   clearInterval(lockRebroadcast);
-  if (S.callKnocks[channelId]) {
-    const k = { ...S.callKnocks };
-    delete k[channelId];
-    S.callKnocks = k;
-  }
+  // Leaving ends our view of the call, lock included. Keeping it would lock US
+  // out: isCallLocked() would still be true next time we clicked the channel,
+  // so we'd knock at a room we just left — with nobody left inside to admit us.
+  forgetLock(channelId);
 }
 
 // incomingCall reports a DM whose other member is in the voice channel while we

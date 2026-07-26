@@ -2,8 +2,14 @@
   // Pick the microphone, speaker and camera calls use — and hear/see the
   // choice before trusting it to a real call. Device-local, like the theme.
   //
+  // Layering: the three pickers and the call volume are what anyone might touch,
+  // so they're what you see. Boost, the noise gate, the capture filters and the
+  // bitrate are for when something's actually wrong — they live behind
+  // "Advanced", one click away, not stacked in front of everyone.
+  //
   // A change applies to the call in progress (the mesh swaps tracks live), and
   // is remembered for the next one.
+  import { slide } from "svelte/transition";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { onMount, onDestroy } from "svelte";
@@ -22,6 +28,13 @@
 
   let { onClose } = $props();
 
+  let devices = $state({ mic: [], speaker: [], camera: [], labelled: true });
+  let loading = $state(true);
+  let advanced = $state(false);
+
+  const chosen = (which) => S.prefs[PREF[which]] || "";
+  const pct = (v) => `${Math.round(v * 100)}%`;
+
   // The mic knobs the test meter has to honor, so what you see while dragging
   // is what the call is doing.
   const processing = () => ({
@@ -29,39 +42,20 @@
     noiseSuppress: S.prefs.noiseSuppress !== false,
     autoGain: S.prefs.autoGain !== false,
   });
-  const pct = (v) => `${Math.round(v * 100)}%`;
 
   // Opus targets. 32k is roughly what a browser negotiates on its own; the
   // ceiling is where extra bits stop being audible on a voice.
   const BITRATES = [
-    { bps: 24000, label: "Low — 24 kbit/s (weak connection)" },
-    { bps: 32000, label: "Standard — 32 kbit/s (browser default)" },
-    { bps: 64000, label: "High — 64 kbit/s (recommended)" },
+    { bps: 24000, label: "Low — 24 kbit/s" },
+    { bps: 32000, label: "Standard — 32 kbit/s" },
+    { bps: 64000, label: "High — 64 kbit/s" },
     { bps: 96000, label: "Very high — 96 kbit/s" },
     { bps: 128000, label: "Studio — 128 kbit/s" },
   ];
 
-  // Sliders write through on every input event — you're listening while you drag.
-  function slide(pref, v, apply) {
-    setPref(pref, v);
-    Promise.resolve(apply?.(v)).catch((err) => flash(err));
-  }
-
-  async function toggleProcessing(name) {
-    const on = S.prefs[name] === false; // flipping a tri-state default of "on"
-    setPref(name, on);
-    try {
-      await S.voice?.mesh.setProcessing(name, on);
-    } catch (err) {
-      flash(err);
-    }
-    if (micTesting) startMicTest(); // the test mic reopens with the new filter
-  }
-
-  let devices = $state({ mic: [], speaker: [], camera: [], labelled: true });
-  let loading = $state(true);
-
-  const chosen = (which) => S.prefs[PREF[which]] || "";
+  // The gate's threshold, as a share of the meter's full width. Kept out of the
+  // raw 0–0.25 RMS units the mesh wants, which mean nothing to anyone.
+  const GATE_DEFAULT = 0.04;
 
   async function refresh() {
     devices = await listDevices();
@@ -115,15 +109,54 @@
     }
   }
 
+  // Sliders write through on every input event — you're listening while you drag.
+  function knob(pref, v, apply) {
+    setPref(pref, v);
+    Promise.resolve(apply?.(v)).catch((err) => flash(err));
+  }
+
+  async function toggleProcessing(name) {
+    const on = S.prefs[name] === false; // flipping a tri-state default of "on"
+    setPref(name, on);
+    try {
+      await S.voice?.mesh.setProcessing(name, on);
+    } catch (err) {
+      flash(err);
+    }
+    if (micTesting) startMicTest(); // the test mic reopens with the new filter
+  }
+
+  // ---- noise gate ----
+  //
+  // On/off is a switch and the threshold is a slider, because they're two
+  // different questions. (They used to be one slider where zero meant "off",
+  // which reads as a bar that's somehow also a checkbox.) Turning it on starts
+  // the meter, since a threshold you can't see against your own room noise is
+  // a number you can only guess at.
+
+  const gateOn = $derived((S.prefs.micGate ?? 0) > 0);
+  async function toggleGate() {
+    const next = gateOn ? 0 : GATE_DEFAULT;
+    setPref("micGate", next);
+    try {
+      await S.voice?.mesh.setGate(next);
+    } catch (err) {
+      flash(err);
+    }
+    if (next && !micTesting) startMicTest(true);
+    else if (!next && autoTest) stopMicTest();
+  }
+
   // ---- mic test: a live level meter off the selected input ----
 
   let micTesting = $state(false);
+  let autoTest = false; // started by the gate rather than by the Test button
   let level = $state(0); // 0..1 RMS, smoothed
   let testStream = null;
   let testCtx = null;
   let testTimer = null;
 
-  async function startMicTest() {
+  async function startMicTest(auto = false) {
     stopMicTest();
     try {
       testStream = await micStream(chosen("mic"), processing());
@@ -132,6 +165,7 @@
       return;
     }
     micTesting = true;
+    autoTest = auto;
     try {
       testCtx = new (window.AudioContext || window.webkitAudioContext)();
       const analyser = testCtx.createAnalyser();
@@ -147,7 +181,7 @@
         }
         const rms = Math.sqrt(sum / data.length);
         // Scaled by the boost, so the bar shows what peers would hear and the
-        // gate marker below sits at a level that means something.
+        // gate marker sits at a level that means something.
         // Fast attack, slow release — reads like a real meter instead of strobing.
         const next = Math.min(1, rms * (S.prefs.micGain ?? 1) * 4);
         level = next > level ? next : level * 0.8 + next * 0.2;
@@ -159,6 +193,7 @@
 
   function stopMicTest() {
     micTesting = false;
+    autoTest = false;
     level = 0;
     if (testTimer) clearInterval(testTimer);
     testTimer = null;
@@ -199,27 +234,19 @@
   // A saved device that isn't present right now (headset unplugged, pref from
   // another machine): still show it, marked, so the select doesn't quietly
   // read as some other device that we're not actually using.
+  const LABELS = { mic: "Microphone", speaker: "Speaker", camera: "Camera" };
   function options(which) {
     const list = devices[which];
     const id = chosen(which);
-    const opts = list.map((d, i) => ({
-      id: d.id,
-      label: d.label || `${LABELS[which]} ${i + 1}`,
-    }));
+    const opts = list.map((d, i) => ({ id: d.id, label: d.label || `${LABELS[which]} ${i + 1}` }));
     if (id && !list.some((d) => d.id === id)) {
       opts.push({ id, label: "Saved device (not connected)" });
     }
     return opts;
   }
-  const LABELS = { mic: "Microphone", speaker: "Speaker", camera: "Camera" };
 </script>
 
 <Modal title="Voice &amp; Video" {onClose} wide>
-  <p class="intro">
-    Which hardware calls use on this device. Applies to a call already in
-    progress, and is remembered for the next one.
-  </p>
-
   {#if !loading && !devices.labelled}
     <button class="reveal" onclick={reveal} disabled={asking}>
       <Icon name="lock" size={15} />
@@ -234,7 +261,7 @@
       <span class="chip"><Icon name="mic" size={16} /></span>
       <span class="dev-title">Microphone</span>
       <button class="test" class:on={micTesting} onclick={() => (micTesting ? stopMicTest() : startMicTest())}>
-        {micTesting ? "Stop test" : "Test"}
+        {micTesting ? "Stop" : "Test"}
       </button>
     </div>
     <select
@@ -249,56 +276,16 @@
       {/each}
     </select>
     {#if micTesting}
-      <div class="meter" role="presentation">
-        <div class="fill" style="width:{Math.round(level * 100)}%"></div>
-        {#if S.prefs.micGate > 0}
-          <!-- Where the gate opens: anything left of this line isn't sent. -->
-          <div class="gate-mark" style="left:{Math.min(100, S.prefs.micGate * 400)}%"></div>
-        {/if}
+      <div transition:slide={{ duration: 180 }}>
+        <div class="meter" role="presentation">
+          <div class="fill" style="width:{Math.round(level * 100)}%"></div>
+          {#if gateOn}
+            <div class="gate-mark" style="left:{Math.min(100, S.prefs.micGate * 400)}%"></div>
+          {/if}
+        </div>
+        <span class="hint">Say something — the bar should move.</span>
       </div>
-      <span class="hint">
-        Say something — the bar should move.
-        {S.prefs.micGate > 0 ? "Your voice needs to clear the line to be sent." : ""}
-      </span>
     {/if}
-
-    <div class="knob">
-      <span class="knob-label">Boost</span>
-      <input
-        type="range"
-        min="0.25"
-        max="4"
-        step="0.05"
-        value={S.prefs.micGain ?? 1}
-        oninput={(e) => slide("micGain", +e.target.value, (v) => S.voice?.mesh.setMicGain(v))}
-        aria-label="Microphone boost"
-      />
-      <span class="knob-val">{pct(S.prefs.micGain ?? 1)}</span>
-    </div>
-    <span class="hint">
-      Turn a quiet mic up (or a hot one down) before it's sent. Above ~200% you
-      amplify the room along with your voice — the gate below is what keeps that
-      out.
-    </span>
-
-    <div class="knob">
-      <span class="knob-label">Gate</span>
-      <input
-        type="range"
-        min="0"
-        max="0.25"
-        step="0.005"
-        value={S.prefs.micGate ?? 0}
-        oninput={(e) => slide("micGate", +e.target.value, (v) => S.voice?.mesh.setGate(v))}
-        aria-label="Noise gate threshold"
-      />
-      <span class="knob-val">{S.prefs.micGate > 0 ? pct(S.prefs.micGate * 4) : "Off"}</span>
-    </div>
-    <span class="hint">
-      Holds the mic closed until you actually speak, so a fan or a keyboard
-      isn't in everyone's ears between sentences. Too high and it clips the
-      start of quiet words — set it just above where the bar rests in silence.
-    </span>
   </section>
 
   <!-- SPEAKER -->
@@ -325,11 +312,9 @@
     {:else}
       <span class="hint">
         This app's window can't route audio itself, so calls play through
-        whatever your system has set as the output. Change it in your OS sound
-        settings.
+        whatever your system has set as the output.
       </span>
     {/if}
-
     <div class="knob">
       <span class="knob-label">Volume</span>
       <input
@@ -338,62 +323,11 @@
         max="1"
         step="0.02"
         value={S.prefs.outputVolume ?? 1}
-        oninput={(e) => slide("outputVolume", +e.target.value, (v) => S.voice?.mesh.setOutputVolume(v))}
+        oninput={(e) => knob("outputVolume", +e.target.value, (v) => S.voice?.mesh.setOutputVolume(v))}
         aria-label="Call volume"
       />
       <span class="knob-val">{pct(S.prefs.outputVolume ?? 1)}</span>
     </div>
-    <span class="hint">
-      Master level for everyone in a call. To turn one person up or down,
-      {S.isMobile ? "long-press" : "right-click"} them in the call and use their
-      own volume slider.
-    </span>
-  </section>
-
-  <!-- QUALITY -->
-  <section class="dev">
-    <div class="dev-head">
-      <span class="chip"><Icon name="poll" size={16} /></span>
-      <span class="dev-title">Audio quality</span>
-    </div>
-    <select
-      value={S.prefs.voiceBitrate ?? 64000}
-      onchange={(e) => slide("voiceBitrate", +e.target.value, (v) => S.voice?.mesh.setBitrate(v))}
-      aria-label="Audio quality"
-    >
-      {#each BITRATES as b (b.bps)}
-        <option value={b.bps}>{b.label}</option>
-      {/each}
-    </select>
-    <span class="hint">
-      Browsers negotiate voice at about 32 kbit/s by default — fine for a phone
-      call, thin for a conversation. Higher is clearer and costs upload: on a
-      call you send one copy per person, so 64 kbit/s with four friends is
-      ~256 kbit/s up. A screen share's own sound always goes stereo at a higher
-      rate than this.
-    </span>
-  </section>
-
-  <!-- PROCESSING: the browser's capture-time filters -->
-  <section class="dev">
-    <div class="dev-head">
-      <span class="chip"><Icon name="spark" size={16} /></span>
-      <span class="dev-title">Voice processing</span>
-    </div>
-    {#each Object.entries(PROCESSING) as [name, p] (name)}
-      <button
-        class="toggle"
-        role="switch"
-        aria-checked={S.prefs[name] !== false}
-        onclick={() => toggleProcessing(name)}
-      >
-        <span class="toggle-text">
-          <span class="toggle-title">{p.title}</span>
-          <span class="hint">{p.sub}</span>
-        </span>
-        <span class="switch" class:on={S.prefs[name] !== false}><span class="sw-knob"></span></span>
-      </button>
-    {/each}
   </section>
 
   <!-- CAMERA -->
@@ -402,7 +336,7 @@
       <span class="chip"><Icon name="camera" size={16} /></span>
       <span class="dev-title">Camera</span>
       <button class="test" class:on={camTesting} onclick={() => (camTesting ? stopCamTest() : startCamTest())}>
-        {camTesting ? "Stop test" : "Test"}
+        {camTesting ? "Stop" : "Test"}
       </button>
     </div>
     <select
@@ -418,18 +352,124 @@
     </select>
     {#if camTesting && camStream}
       <!-- svelte-ignore a11y_media_has_caption -->
-      <video class="preview" bind:this={camEl} autoplay playsinline muted></video>
+      <video class="preview" bind:this={camEl} autoplay playsinline muted transition:slide={{ duration: 180 }}
+      ></video>
     {/if}
   </section>
+
+  <!-- ADVANCED: everything you only reach for when something's wrong. -->
+  <button class="disclose" onclick={() => (advanced = !advanced)} aria-expanded={advanced}>
+    <span class="disclose-chev" class:open={advanced}>›</span>
+    Advanced audio
+    <span class="disclose-sub">Boost, noise gate, filters &amp; quality</span>
+  </button>
+
+  {#if advanced}
+    <div class="adv" transition:slide={{ duration: 220 }}>
+      <section class="dev">
+        <div class="dev-head">
+          <span class="chip"><Icon name="mic" size={16} /></span>
+          <span class="dev-title">Input</span>
+        </div>
+        <div class="knob">
+          <span class="knob-label">Boost</span>
+          <input
+            type="range"
+            min="0.25"
+            max="4"
+            step="0.05"
+            value={S.prefs.micGain ?? 1}
+            oninput={(e) => knob("micGain", +e.target.value, (v) => S.voice?.mesh.setMicGain(v))}
+            aria-label="Microphone boost"
+          />
+          <span class="knob-val">{pct(S.prefs.micGain ?? 1)}</span>
+        </div>
+        <span class="hint">
+          Turn a quiet mic up, or a hot one down, before it's sent.
+        </span>
+
+        <div class="gate-row">
+          <span class="gate-text">
+            <span class="gate-title">Noise gate</span>
+            <span class="hint">Stay silent between sentences, not just quiet</span>
+          </span>
+          <button class="switch" class:on={gateOn} role="switch" aria-checked={gateOn} aria-label="Noise gate" onclick={toggleGate}>
+            <span class="sw-knob"></span>
+          </button>
+        </div>
+        {#if gateOn}
+          <div class="gate-body" transition:slide={{ duration: 180 }}>
+            <div class="meter tall" role="presentation">
+              <div class="fill" style="width:{Math.round(level * 100)}%"></div>
+              <div class="gate-mark" style="left:{Math.min(100, S.prefs.micGate * 400)}%"></div>
+            </div>
+            <div class="knob">
+              <span class="knob-label">Opens at</span>
+              <input
+                type="range"
+                min="0.005"
+                max="0.25"
+                step="0.005"
+                value={S.prefs.micGate}
+                oninput={(e) => knob("micGate", +e.target.value, (v) => S.voice?.mesh.setGate(v))}
+                aria-label="Noise gate threshold"
+              />
+              <span class="knob-val">{pct(S.prefs.micGate * 4)}</span>
+            </div>
+            <span class="hint">
+              Set the line just above where the bar rests when you're not
+              talking. Too high clips the start of quiet words.
+            </span>
+          </div>
+        {/if}
+      </section>
+
+      <section class="dev">
+        <div class="dev-head">
+          <span class="chip"><Icon name="spark" size={16} /></span>
+          <span class="dev-title">Voice processing</span>
+        </div>
+        {#each Object.entries(PROCESSING) as [name, p] (name)}
+          <button
+            class="toggle"
+            role="switch"
+            aria-checked={S.prefs[name] !== false}
+            onclick={() => toggleProcessing(name)}
+          >
+            <span class="toggle-text">
+              <span class="toggle-title">{p.title}</span>
+              <span class="hint">{p.sub}</span>
+            </span>
+            <span class="switch" class:on={S.prefs[name] !== false}><span class="sw-knob"></span></span>
+          </button>
+        {/each}
+      </section>
+
+      <section class="dev">
+        <div class="dev-head">
+          <span class="chip"><Icon name="poll" size={16} /></span>
+          <span class="dev-title">Quality</span>
+        </div>
+        <select
+          value={S.prefs.voiceBitrate ?? 64000}
+          onchange={(e) => knob("voiceBitrate", +e.target.value, (v) => S.voice?.mesh.setBitrate(v))}
+          aria-label="Audio quality"
+        >
+          {#each BITRATES as b (b.bps)}
+            <option value={b.bps}>{b.label}</option>
+          {/each}
+        </select>
+        <span class="hint">
+          Browsers negotiate about 32 kbit/s by default. Higher is clearer and
+          costs upload — on a call you send one copy per person. A screen
+          share's own sound always goes stereo at a higher rate.
+        </span>
+      </section>
+    </div>
+  {/if}
 </Modal>
 
 <style>
-  .intro {
-    font-size: 13px;
-    line-height: 1.5;
-    margin: 0;
-    color: var(--text-muted);
-  }
   .dev {
     display: flex;
     flex-direction: column;
@@ -465,7 +505,7 @@
     border-radius: 999px;
     color: var(--text-muted);
     font-size: 12px;
-    padding: 4px 12px;
+    padding: 4px 14px;
     transition:
       color 0.12s ease,
       border-color 0.12s ease;
@@ -491,6 +531,7 @@
     opacity: 0.6;
   }
   .hint {
+    display: block;
     font-size: 12px;
     line-height: 1.5;
     color: var(--text-muted);
@@ -499,9 +540,20 @@
   .meter {
     position: relative;
     height: 8px;
+    margin-bottom: 6px;
     border-radius: 999px;
     background: var(--bg-3);
     overflow: hidden;
+  }
+  .meter.tall {
+    height: 12px;
+    margin-bottom: 2px;
+  }
+  .fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 70%, #e5a34a 100%);
+    transition: width 0.06s linear;
   }
   /* The gate threshold, drawn on the meter so it can be set by eye. */
   .gate-mark {
@@ -510,13 +562,7 @@
     bottom: -2px;
     width: 2px;
     background: var(--text);
-    opacity: 0.65;
-  }
-  .fill {
-    height: 100%;
-    border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 70%, #e5a34a 100%);
-    transition: width 0.06s linear;
+    opacity: 0.7;
   }
   .preview {
     width: 100%;
@@ -537,7 +583,7 @@
   .knob-label {
     font-size: 12.5px;
     color: var(--text-muted);
-    min-width: 48px;
+    min-width: 58px;
   }
   .knob input[type="range"] {
     flex: 1;
@@ -550,6 +596,29 @@
     color: var(--text);
     min-width: 42px;
     text-align: right;
+  }
+  /* The gate: a switch for whether, a slider for where. */
+  .gate-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-top: 4px;
+    border-top: 1px solid var(--border);
+  }
+  .gate-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-right: auto;
+  }
+  .gate-title {
+    font-size: 13.5px;
+    font-weight: 600;
+  }
+  .gate-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
   }
   .toggle {
     display: flex;
@@ -577,6 +646,7 @@
     margin-left: auto;
     width: 40px;
     height: 24px;
+    padding: 0;
     border-radius: 12px;
     background: var(--bg-3);
     border: 1px solid var(--border);
@@ -604,12 +674,47 @@
   .switch.on .sw-knob {
     transform: translateX(16px);
   }
-  @media (prefers-reduced-motion: reduce) {
-    .switch,
-    .sw-knob,
-    .fill {
-      transition: none;
-    }
+  /* Advanced disclosure: quiet until you want it. */
+  .disclose {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    font-size: 13.5px;
+    font-weight: 600;
+    text-align: left;
+    transition:
+      border-color 0.14s ease,
+      background 0.14s ease;
+  }
+  .disclose:hover {
+    background: var(--bg-1);
+    border-color: var(--accent);
+  }
+  .disclose-chev {
+    color: var(--text-faint);
+    font-size: 17px;
+    line-height: 1;
+    transition: transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1);
+  }
+  .disclose-chev.open {
+    transform: rotate(90deg);
+  }
+  .disclose-sub {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+  .adv {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
   }
   .reveal {
     display: flex;
@@ -631,5 +736,13 @@
     flex-basis: 100%;
     font-size: 12px;
     color: var(--text-muted);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .switch,
+    .sw-knob,
+    .fill,
+    .disclose-chev {
+      transition: none;
+    }
   }
 </style>

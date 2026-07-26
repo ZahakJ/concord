@@ -63,8 +63,9 @@ type VoicePresence struct {
 	From        string `json:"from"` // peer ID (for signaling)
 	Fingerprint string `json:"fingerprint"`
 	ChannelID   string `json:"channelId"`
-	Action      string `json:"action"`           // join|leave|lock|unlock|knock|admit
-	Target      string `json:"target,omitempty"` // admit: the fingerprint being let in
+	Action      string `json:"action"`           // join|leave|lock|unlock|knock|admit|move|disconnect
+	Target      string `json:"target,omitempty"` // the fingerprint being admitted/moved/disconnected
+	Dest        string `json:"dest,omitempty"`   // move: the voice channel to send them to
 }
 
 // VoiceSignal carries an opaque WebRTC signaling blob from a peer.
@@ -441,9 +442,9 @@ func (b *Bridge) Login(passphrase string) error {
 	}
 	svc.OnPeerConnected(presence)
 	svc.OnPeerDisconnected(presence)
-	svc.OnVoicePresence(func(from, fingerprint, channelID, action, target string) {
+	svc.OnVoicePresence(func(from, fingerprint, channelID, action, target, dest string) {
 		if b.OnVoicePresence != nil {
-			b.OnVoicePresence(VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action, Target: target})
+			b.OnVoicePresence(VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action, Target: target, Dest: dest})
 		}
 	})
 	svc.OnVoiceSignal(func(from string, data []byte) {
@@ -722,12 +723,12 @@ func (b *Bridge) LeaveVoice(channelID string) error {
 }
 
 // SignalCall broadcasts a soft-lock control action (lock/unlock/knock/admit).
-func (b *Bridge) SignalCall(channelID, action, target string) error {
+func (b *Bridge) SignalCall(channelID, action, target, dest string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.PublishCallControl(channelID, action, target)
+	return svc.PublishCallControl(channelID, action, target, dest)
 }
 
 // RelaySignal forwards a WebRTC signaling blob to a peer.
@@ -1930,7 +1931,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "LeaveVoice":
 		return nil, b.LeaveVoice(argStr(args, 0))
 	case "SignalCall":
-		return nil, b.SignalCall(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+		return nil, b.SignalCall(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "RelaySignal":
 		return nil, b.RelaySignal(argStr(args, 0), argStr(args, 1))
 	case "SendTyping":

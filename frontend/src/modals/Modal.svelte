@@ -1,5 +1,6 @@
 <script>
-  import { S } from "../lib/state.svelte.js";
+  import { onDestroy } from "svelte";
+  import { S, modalNav, backPanel } from "../lib/state.svelte.js";
   import Icon from "../Icon.svelte";
   // `wide` widens the desktop dialog for content that benefits from the room
   // (sectioned settings); `size="xl"` makes it a large workspace (the advanced
@@ -7,13 +8,24 @@
   let { title, onClose, wide = false, size = "", children } = $props();
   let dialog = $state(null);
 
-  // A modal opened with a `from` remembers where it came from, so it can show a
-  // back arrow that returns there instead of closing outright — e.g. Settings →
-  // Appearance → back to Settings.
-  const from = $derived(S.modal?.from || "");
-  function goBack() {
-    if (from) S.modal = { kind: from };
-  }
+  // Back is offered whenever there's somewhere to go back TO — either a panel
+  // on the stack we drilled through, or a plain `from` on a panel opened
+  // directly.
+  const canBack = $derived(S.modalStack.length > 0 || !!S.modal?.from);
+
+  // Settings and its sub-panels read as one stack you move through, not a pile
+  // of unrelated dialogs: a panel opened from another slides in from the right,
+  // and going back slides in from the left. Read once at mount (a CSS animation
+  // only runs then) and consumed, so the next open starts from a clean slate.
+  const enterDir = modalNav.dir || (S.modal?.from ? 1 : 0);
+  modalNav.dir = 0;
+
+  // Closing for real drops the whole trail; navigating to another panel keeps
+  // it. Which happened is simply whether a modal is still open by the time this
+  // one is torn down.
+  onDestroy(() => {
+    if (!S.modal) S.modalStack = [];
+  });
 
   // Mobile: the sheet can be flicked/dragged DOWN to dismiss — the native
   // gesture people expect, so they don't have to reach the tiny ✕ in the top
@@ -79,6 +91,8 @@
     class="dialog"
     class:wide
     class:xl={size === "xl"}
+    class:deeper={enterDir === 1}
+    class:shallower={enterDir === -1}
     class:dragging
     style={dragY ? `transform:translateY(${dragY}px)` : ""}
     onclick={(e) => e.stopPropagation()}
@@ -101,8 +115,8 @@
       onpointercancel={onRelease}
       role="presentation"
     >
-      {#if from}
-        <button class="back" onclick={goBack} aria-label="Back" title="Back">
+      {#if canBack}
+        <button class="back" onclick={backPanel} aria-label="Back" title="Back">
           <Icon name="chevron" size={16} />
         </button>
       {/if}
@@ -232,9 +246,33 @@
       transform: translateY(100%);
     }
   }
+  /* Navigating the settings stack: a panel opened from another slides in from
+     the right, going back slides in from the left, so depth reads as movement
+     between places instead of one dialog blinking into another. Declared after
+     both the desktop and mobile entrances so it wins over either — on a phone a
+     stack should push sideways too, which is what the sheet is already doing
+     underneath. */
+  .dialog.deeper,
+  .dialog.shallower {
+    animation: panel-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .dialog.deeper {
+    --panel-from: 42px;
+  }
+  .dialog.shallower {
+    --panel-from: -42px;
+  }
+  @keyframes panel-in {
+    from {
+      opacity: 0;
+      transform: translateX(var(--panel-from)) scale(0.99);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .overlay,
-    .dialog {
+    .dialog,
+    .dialog.deeper,
+    .dialog.shallower {
       animation: none;
     }
   }

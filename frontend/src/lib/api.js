@@ -110,7 +110,8 @@ export const api = {
   expireMessage: (channelID, messageID) => call("ExpireMessage", channelID, messageID),
   guildStats: (guildID) => call("GuildStats", guildID),
   networkStats: () => call("NetworkStats"),
-  signalCall: (channelID, action, target = "") => call("SignalCall", channelID, action, target),
+  signalCall: (channelID, action, target = "", dest = "") =>
+    call("SignalCall", channelID, action, target, dest),
   cancelPendingMember: (guildID, fingerprint) => call("CancelPendingMember", guildID, fingerprint),
   emptyTrash: (guildID = "") => call("EmptyTrash", guildID),
   blockUser: (fingerprint) => call("BlockUser", fingerprint),

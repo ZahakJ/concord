@@ -88,7 +88,7 @@ type Service struct {
 	// to (for every voice channel in every guild), so the sidebar can show who's
 	// in a call without us having to join it — Discord-style guild-wide presence.
 	voiceWatched    map[string]bool
-	onVoicePresence []func(from, fingerprint, channelID, action, target string)
+	onVoicePresence []func(from, fingerprint, channelID, action, target, dest string)
 	onVoiceSignal   []func(from string, data []byte)
 
 	// ocrWorker reads text out of image attachments (internal/ocr) so local

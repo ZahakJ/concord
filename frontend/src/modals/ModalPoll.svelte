@@ -2,8 +2,14 @@
   // Compose a poll: a question and 2–10 options. Posts as a single poll-token
   // message (see lib/polls); people vote by reacting, which this app renders as
   // bars. No backend involvement — it's an ordinary message.
+  //
+  // The preview is the point: a poll is a thing other people will look at, so
+  // you get to look at it first, in exactly the form they'll see.
+  import { flip } from "svelte/animate";
+  import { fade } from "svelte/transition";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import PollView from "../PollView.svelte";
   import { S, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { encodePoll, POLL_EMOJI } from "../lib/polls.js";
@@ -11,18 +17,45 @@
   let { onClose } = $props();
 
   let q = $state("");
-  let opts = $state(["", ""]);
+  // Keyed rows: Svelte needs a stable identity per option to animate a removal
+  // from the middle without the fields below it appearing to shuffle.
+  let seq = 2;
+  let opts = $state([
+    { id: 0, text: "" },
+    { id: 1, text: "" },
+  ]);
   let multi = $state(false);
   let busy = $state(false);
+  let inputs = {}; // id -> element, so a new row can take focus
 
-  const filled = $derived(opts.map((o) => o.trim()).filter(Boolean));
+  const filled = $derived(opts.map((o) => o.text.trim()).filter(Boolean));
   const canPost = $derived(!!q.trim() && filled.length >= 2 && !busy);
+  const full = $derived(opts.length >= POLL_EMOJI.length);
+
+  // What the poll will look like once posted, with nobody having voted yet.
+  const previewPoll = $derived({
+    q: q.trim() || "Your question",
+    opts: filled.length ? filled : ["First option", "Second option"],
+    multi,
+  });
 
   function addOpt() {
-    if (opts.length < POLL_EMOJI.length) opts = [...opts, ""];
+    if (full) return;
+    const id = seq++;
+    opts = [...opts, { id, text: "" }];
+    // Focus the row we just made — typing should continue, not require a click.
+    queueMicrotask(() => inputs[id]?.focus());
   }
-  function removeOpt(i) {
-    if (opts.length > 2) opts = opts.filter((_, j) => j !== i);
+  function removeOpt(id) {
+    if (opts.length > 2) opts = opts.filter((o) => o.id !== id);
+  }
+  // Enter moves to the next option, adding one if you're at the end — the
+  // rhythm of writing a list, without reaching for the mouse each time.
+  function onKey(e, i) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (i === opts.length - 1) addOpt();
+    else inputs[opts[i + 1].id]?.focus();
   }
 
   async function post() {
@@ -38,29 +71,38 @@
   }
 </script>
 
-<Modal title="Create a poll" {onClose}>
+<Modal title="Create a poll" {onClose} wide>
   <label class="field">
-    <span class="muted">Question</span>
-    <input bind:value={q} maxlength="300" placeholder="What should we play tonight?" />
+    <span class="lbl">Question</span>
+    <!-- svelte-ignore a11y_autofocus -->
+    <input bind:value={q} maxlength="300" placeholder="What should we play tonight?" autofocus />
   </label>
 
   <div class="field">
-    <span class="muted">Options</span>
-    {#each opts as _, i (i)}
-      <div class="opt-row">
+    <span class="lbl">Options</span>
+    {#each opts as o, i (o.id)}
+      <div class="opt-row" animate:flip={{ duration: 180 }}>
         <span class="opt-num">{POLL_EMOJI[i]}</span>
-        <input bind:value={opts[i]} maxlength="100" placeholder={`Option ${i + 1}`} />
+        <input
+          bind:this={inputs[o.id]}
+          bind:value={o.text}
+          maxlength="100"
+          placeholder={`Option ${i + 1}`}
+          onkeydown={(e) => onKey(e, i)}
+        />
         {#if opts.length > 2}
-          <button type="button" class="opt-x" aria-label="Remove option" onclick={() => removeOpt(i)}>
+          <button type="button" class="opt-x" aria-label="Remove option" onclick={() => removeOpt(o.id)}>
             <Icon name="close" size={13} />
           </button>
         {/if}
       </div>
     {/each}
-    {#if opts.length < POLL_EMOJI.length}
+    {#if !full}
       <button type="button" class="add-opt" onclick={addOpt}>
         <Icon name="plus" size={14} /> Add option
       </button>
+    {:else}
+      <span class="cap">That's all {POLL_EMOJI.length} options.</span>
     {/if}
   </div>
 
@@ -68,6 +110,13 @@
     <span class="switch" class:on={multi}><span class="knob"></span></span>
     <span>Allow selecting multiple options</span>
   </button>
+
+  <div class="preview-wrap">
+    <span class="lbl">Preview</span>
+    <div class="preview" transition:fade={{ duration: 120 }}>
+      <PollView m={{ reactions: {} }} poll={previewPoll} preview />
+    </div>
+  </div>
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
@@ -82,6 +131,13 @@
     gap: 6px;
     margin-bottom: 12px;
     text-align: left;
+  }
+  .lbl {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
   }
   .opt-row {
     display: flex;
@@ -112,7 +168,9 @@
     place-items: center;
     border-radius: 50%;
     color: var(--text-muted);
-    transition: background 0.12s ease, color 0.12s ease;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
   }
   .opt-x:hover {
     background: color-mix(in srgb, var(--danger) 16%, transparent);
@@ -132,9 +190,14 @@
     font-size: 13px;
     font-weight: 600;
     color: var(--text);
+    /* The global button style fills with the accent; this one is an affordance,
+       not the action — the dashed frame IS the whole look. */
+    background: transparent;
     border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
     border-radius: var(--radius-sm);
-    transition: background 0.12s ease, border-color 0.12s ease;
+    transition:
+      background 0.12s ease,
+      border-color 0.12s ease;
   }
   .add-opt :global(svg) {
     color: var(--accent);
@@ -143,13 +206,20 @@
     background: var(--accent-soft);
     border-color: var(--accent);
   }
+  .cap {
+    font-size: 11.5px;
+    color: var(--text-faint);
+  }
+  /* A switch row, not a button — the switch is the control, so the row itself
+     has to drop the global accent fill. */
   .multi {
     display: flex;
     align-items: center;
     gap: 10px;
+    padding: 6px 2px;
     font-size: 13px;
     color: var(--text);
-    margin-bottom: 4px;
+    background: transparent;
   }
   .switch {
     width: 34px;
@@ -176,6 +246,24 @@
   .switch.on .knob {
     transform: translateX(14px);
   }
+  .preview-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+    text-align: left;
+  }
+  /* The preview is a sample, not a control: dimmed until you hover it, so it
+     never competes with the fields you're actually filling in. */
+  .preview {
+    opacity: 0.82;
+    transition: opacity 0.16s ease;
+  }
+  .preview:hover {
+    opacity: 1;
+  }
   .actions {
     display: flex;
     justify-content: flex-end;
@@ -184,7 +272,8 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .knob,
-    .switch {
+    .switch,
+    .preview {
       transition: none;
     }
   }

@@ -3,10 +3,16 @@
   // density. Everything is device-local (S.prefs) and applies live — no save
   // step. setAppearance persists the pref and stamps <html> (data-theme /
   // data-density / --accent) with a short cross-fade; see state.svelte.js.
+  import { slide } from "svelte/transition";
   import Modal from "./Modal.svelte";
   import { S, setAppearance } from "../lib/state.svelte.js";
 
   let { onClose } = $props();
+
+  // Theme and the pack gallery are the whole point of this dialog, so they're
+  // what it opens as. Accent, corners, typeface, density and clock are the
+  // adjustments you make once and forget — folded away until asked for.
+  let custom = $state(false);
 
   const THEMES = [
     { id: "dark", label: "Dark" },
@@ -138,7 +144,7 @@
     </div>
     <p class="muted tiny">
       A full palette for the whole app — each pack brings its own accent (an
-      accent preset below still overrides it), and several reshape it too:
+      accent preset under Customize still overrides it), and several reshape it too:
       Gruvbox and Dracula go monospaced and square, Sakura and Rosé round over.
     </p>
 
@@ -198,125 +204,137 @@
   </section>
 
   <hr />
-  <section>
-    <strong class="label">Accent</strong>
-    <div class="swatches" role="radiogroup" aria-label="Accent color">
-      {#each ACCENTS as a (a.color)}
+  <button class="disclose" onclick={() => (custom = !custom)} aria-expanded={custom}>
+    <span class="disclose-chev" class:open={custom}>›</span>
+    Customize
+    <span class="disclose-sub">Accent, corners, typeface, density &amp; clock</span>
+  </button>
+
+  {#if custom}
+    <div class="custom" transition:slide={{ duration: 240 }}>
+
+    <section>
+      <strong class="label">Accent</strong>
+      <div class="swatches" role="radiogroup" aria-label="Accent color">
+        {#each ACCENTS as a (a.color)}
+          <button
+            class="swatch"
+            class:sel={accent === a.color}
+            role="radio"
+            aria-checked={accent === a.color}
+            title={a.name}
+            aria-label={a.name}
+            style="--sw:{a.color}"
+            onclick={() => setAppearance("accent", a.color)}
+          ></button>
+        {/each}
         <button
-          class="swatch"
-          class:sel={accent === a.color}
+          class="swatch profile"
+          class:sel={accent === ""}
           role="radio"
-          aria-checked={accent === a.color}
-          title={a.name}
-          aria-label={a.name}
-          style="--sw:{a.color}"
-          onclick={() => setAppearance("accent", a.color)}
+          aria-checked={accent === ""}
+          title="Your profile color"
+          aria-label="Your profile color"
+          style="--sw:{profileColor}"
+          onclick={() => setAppearance("accent", "")}
         ></button>
-      {/each}
-      <button
-        class="swatch profile"
-        class:sel={accent === ""}
-        role="radio"
-        aria-checked={accent === ""}
-        title="Your profile color"
-        aria-label="Your profile color"
-        style="--sw:{profileColor}"
-        onclick={() => setAppearance("accent", "")}
-      ></button>
-    </div>
-    <p class="muted tiny">
-      The hollow swatch follows your profile's custom color (Edit profile) —
-      pick a preset to override it on this device only.
-    </p>
-  </section>
+      </div>
+      <p class="muted tiny">
+        The hollow swatch follows your profile's custom color (Edit profile) —
+        pick a preset to override it on this device only.
+      </p>
+    </section>
 
-  <hr />
-  <section>
-    <strong class="label">Corners</strong>
-    <div class="seg four" role="radiogroup" aria-label="Corner style">
-      {#each SHAPES as s (s.id)}
+    <hr />
+    <section>
+      <strong class="label">Corners</strong>
+      <div class="seg four" role="radiogroup" aria-label="Corner style">
+        {#each SHAPES as s (s.id)}
+          <button
+            class:sel={shape === s.id}
+            role="radio"
+            aria-checked={shape === s.id}
+            onclick={() => setAppearance("shape", s.id)}
+          >
+            <span class="shape-pv" style="--r:{s.r}" aria-hidden="true"></span>
+            {s.label}
+          </button>
+        {/each}
+      </div>
+      <p class="muted tiny">
+        How rounded every panel, button and field is. <em>Theme</em> follows the
+        pack you picked above — Gruvbox squares off, Sakura rounds over.
+      </p>
+    </section>
+
+    <section>
+      <strong class="label">Typeface</strong>
+      <div class="seg four" role="radiogroup" aria-label="Typeface">
+        {#each FONTS as f (f.id)}
+          <button
+            class:sel={font === f.id}
+            role="radio"
+            aria-checked={font === f.id}
+            onclick={() => setAppearance("font", f.id)}
+          >
+            <span class="font-pv" style="font-family:{f.stack}" aria-hidden="true">Ag</span>
+            {f.label}
+          </button>
+        {/each}
+      </div>
+      <p class="muted tiny">
+        Only faces already on this machine — Concord never downloads a font, which
+        would tell a font host every time you open the app.
+      </p>
+    </section>
+
+    <hr />
+    <section>
+      <strong class="label">Message density</strong>
+      <div class="seg" role="radiogroup" aria-label="Message density">
         <button
-          class:sel={shape === s.id}
+          class:sel={density === "cozy"}
           role="radio"
-          aria-checked={shape === s.id}
-          onclick={() => setAppearance("shape", s.id)}
+          aria-checked={density === "cozy"}
+          onclick={() => setAppearance("density", "cozy")}
         >
-          <span class="shape-pv" style="--r:{s.r}" aria-hidden="true"></span>
-          {s.label}
+          <span class="rows cozy" aria-hidden="true"><span></span><span></span><span></span></span>
+          Cozy
         </button>
-      {/each}
-    </div>
-    <p class="muted tiny">
-      How rounded every panel, button and field is. <em>Theme</em> follows the
-      pack you picked above — Gruvbox squares off, Sakura rounds over.
-    </p>
-  </section>
-
-  <section>
-    <strong class="label">Typeface</strong>
-    <div class="seg four" role="radiogroup" aria-label="Typeface">
-      {#each FONTS as f (f.id)}
         <button
-          class:sel={font === f.id}
+          class:sel={density === "compact"}
           role="radio"
-          aria-checked={font === f.id}
-          onclick={() => setAppearance("font", f.id)}
+          aria-checked={density === "compact"}
+          onclick={() => setAppearance("density", "compact")}
         >
-          <span class="font-pv" style="font-family:{f.stack}" aria-hidden="true">Ag</span>
-          {f.label}
+          <span class="rows compact" aria-hidden="true"
+            ><span></span><span></span><span></span><span></span></span
+          >
+          Compact
         </button>
-      {/each}
-    </div>
-    <p class="muted tiny">
-      Only faces already on this machine — Concord never downloads a font, which
-      would tell a font host every time you open the app.
-    </p>
-  </section>
+      </div>
+      <p class="muted tiny">Compact tightens the space between messages in the feed.</p>
+    </section>
 
-  <hr />
-  <section>
-    <strong class="label">Message density</strong>
-    <div class="seg" role="radiogroup" aria-label="Message density">
-      <button
-        class:sel={density === "cozy"}
-        role="radio"
-        aria-checked={density === "cozy"}
-        onclick={() => setAppearance("density", "cozy")}
-      >
-        <span class="rows cozy" aria-hidden="true"><span></span><span></span><span></span></span>
-        Cozy
-      </button>
-      <button
-        class:sel={density === "compact"}
-        role="radio"
-        aria-checked={density === "compact"}
-        onclick={() => setAppearance("density", "compact")}
-      >
-        <span class="rows compact" aria-hidden="true"
-          ><span></span><span></span><span></span><span></span></span
-        >
-        Compact
-      </button>
-    </div>
-    <p class="muted tiny">Compact tightens the space between messages in the feed.</p>
-  </section>
+    <section>
+      <strong class="label">Clock</strong>
+      <div class="seg three" role="radiogroup" aria-label="Timestamp format">
+        {#each [["system", "Automatic"], ["12", "12-hour"], ["24", "24-hour"]] as [id, label] (id)}
+          <button
+            class:sel={clock === id}
+            role="radio"
+            aria-checked={clock === id}
+            onclick={() => setAppearance("clock", id)}
+          >
+            {label}
+          </button>
+        {/each}
+      </div>
+      <p class="muted tiny">How message timestamps show the time of day.</p>
+    </section>
 
-  <section>
-    <strong class="label">Clock</strong>
-    <div class="seg three" role="radiogroup" aria-label="Timestamp format">
-      {#each [["system", "Automatic"], ["12", "12-hour"], ["24", "24-hour"]] as [id, label] (id)}
-        <button
-          class:sel={clock === id}
-          role="radio"
-          aria-checked={clock === id}
-          onclick={() => setAppearance("clock", id)}
-        >
-          {label}
-        </button>
-      {/each}
     </div>
-    <p class="muted tiny">How message timestamps show the time of day.</p>
-  </section>
+  {/if}
 
   <div class="actions">
     <button onclick={onClose}>Done</button>
@@ -324,6 +342,54 @@
 </Modal>
 
 <style>
+  /* Disclosure: the second layer of this dialog. Quiet at rest so the theme
+     gallery above it stays the thing you look at. */
+  .disclose {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    color: var(--text);
+    font-size: 13.5px;
+    font-weight: 600;
+    text-align: left;
+    transition:
+      border-color 0.14s ease,
+      background 0.14s ease;
+  }
+  .disclose:hover {
+    background: var(--bg-1);
+    border-color: var(--accent);
+  }
+  .disclose-chev {
+    color: var(--text-faint);
+    font-size: 17px;
+    line-height: 1;
+    transition: transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1);
+  }
+  .disclose-chev.open {
+    transform: rotate(90deg);
+  }
+  .disclose-sub {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-muted);
+  }
+  .custom {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .disclose-chev {
+      transition: none;
+    }
+  }
   section {
     display: flex;
     flex-direction: column;
