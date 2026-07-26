@@ -7,6 +7,8 @@
 // over from another machine) degrades to the default instead of failing to
 // open the mic at all.
 
+import { loadDenoiser, makeDenoiseNode, nrValue } from "./denoise.js";
+
 // Pref keys for the three choices, so nothing has to spell them twice.
 export const PREF = { mic: "micId", speaker: "speakerId", camera: "cameraId" };
 
@@ -187,7 +189,15 @@ function toneWav() {
 //
 // Returns a controller: stop() ends the recording early, and the promise
 // resolves when playback finishes (or is cancelled).
-export function recordSelfTest({ deviceId = "", processing = {}, gain = 1, gate = 0, sinkId = "", seconds = 5 } = {}) {
+export function recordSelfTest({
+  deviceId = "",
+  processing = {},
+  gain = 1,
+  gate = 0,
+  nr = "",
+  sinkId = "",
+  seconds = 5,
+} = {}) {
   let onLevel = () => {};
   let cancelled = false;
   let stopRec = () => {};
@@ -196,7 +206,15 @@ export function recordSelfTest({ deviceId = "", processing = {}, gain = 1, gate 
     const raw = await micStream(deviceId, processing);
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (ctx.state === "suspended") await ctx.resume().catch(() => {});
+    if (nr) await loadDenoiser(ctx);
     const src = ctx.createMediaStreamSource(raw);
+    // The same chain a call would use, in the same order — the playback is only
+    // worth anything if it's processed exactly like the real thing.
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 85;
+    hp.Q.value = 0.7;
+    const denoise = nr ? makeDenoiseNode(ctx, nrValue(nr)) : null;
     const gainNode = ctx.createGain();
     gainNode.gain.value = gain;
     const gateNode = ctx.createGain();
@@ -205,7 +223,9 @@ export function recordSelfTest({ deviceId = "", processing = {}, gain = 1, gate 
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 512;
     src.connect(analyser);
-    src.connect(gainNode).connect(gateNode).connect(dest);
+    let node = src.connect(hp);
+    if (denoise) node = node.connect(denoise);
+    node.connect(gainNode).connect(gateNode).connect(dest);
 
     // Same gate behaviour as a live call: measured pre-gate and scaled by the
     // boost, fast to open, slow to close, so the playback is honest about what

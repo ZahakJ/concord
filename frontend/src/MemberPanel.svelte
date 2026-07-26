@@ -12,6 +12,7 @@
     openProfilePopover,
     openContextMenu,
     roleColorFor,
+    inviteToCall,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { longpress } from "./lib/touch.js";
@@ -25,9 +26,22 @@
 
   const g = $derived(activeGuild());
 
+  // Someone already in the call we're in doesn't need inviting.
+  const inThisCall = (fpr) =>
+    Object.values(S.voiceRosters[S.voice?.channelId] || {}).some((p) => p.fingerprint === fpr);
+
   function memberMenu(e, mem) {
     openContextMenu(e, [
       { label: "View Profile", icon: "spark", onClick: () => openProfilePopover(mem.fingerprint, e.target) },
+      // Only while you're actually in a call, and only for someone who isn't
+      // already in it — otherwise it's an option that can't mean anything.
+      !!S.voice &&
+        !mem.isSelf &&
+        !inThisCall(mem.fingerprint) && {
+          label: "Invite to call",
+          icon: "phone",
+          onClick: () => inviteToCall(mem.fingerprint),
+        },
       {
         label: "Copy User ID",
         icon: "check",

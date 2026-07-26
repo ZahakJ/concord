@@ -119,14 +119,20 @@
         image: S.identity.avatar,
         speaking: S.voiceSpeaking.includes("self"),
         muted: S.muted,
+        deafened: S.deafened,
         self: true,
       };
     }
     const p = participant(pid);
+    const fpr = S.voicePeerFpr[pid];
+    const st = (fpr && S.voiceStates[fpr]) || {};
     return {
       ...p,
       speaking: S.voiceSpeaking.includes(pid),
-      muted: false,
+      // Their own mute/deafen, as announced by their client — deafened implies
+      // muted, so show the stronger of the two rather than both badges.
+      muted: !!st.muted,
+      deafened: !!st.deafened,
       self: false,
       localMuted: S.peerVolumes[pid] === 0,
     };
@@ -190,7 +196,11 @@
         {#if t.speaking}
           <span class="eq" aria-hidden="true"><span></span><span></span><span></span></span>
         {/if}
-        {#if t.muted}
+        {#if t.deafened}
+          <span class="mute-badge" title="Deafened — can't hear the call" aria-label="Deafened">
+            <Icon name="deafened" size={11} />
+          </span>
+        {:else if t.muted}
           <span class="mute-badge" title="Muted" aria-label="Muted"><Icon name="micOff" size={11} /></span>
         {/if}
       {/if}
@@ -259,7 +269,11 @@
           {#if t.speaking}
             <span class="eq" aria-hidden="true"><span></span><span></span><span></span></span>
           {/if}
-          {#if t.muted}
+          {#if t.deafened}
+            <span class="mute-badge" title="Deafened — can't hear the call" aria-label="Deafened">
+              <Icon name="deafened" size={11} />
+            </span>
+          {:else if t.muted}
             <span class="mute-badge" title="Muted" aria-label="Muted"><Icon name="micOff" size={11} /></span>
           {/if}
           {#if !t.self}

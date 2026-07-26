@@ -11,6 +11,7 @@
 
 import { micStream, cameraStream, applySink } from "./devices.js";
 import { tuneOpus } from "./sdp.js";
+import { loadDenoiser, makeDenoiseNode, nrValue } from "./denoise.js";
 
 const DEFAULT_ICE = [{ urls: "stun:stun.l.google.com:19302" }];
 
@@ -69,7 +70,14 @@ export class VoiceMesh {
     // Held here rather than read from app state so this file stays a plain
     // WebRTC module; the app hands them in and calls the setters below when
     // the user picks something else mid-call.
-    this.devices = { mic: devices.mic || "", speaker: devices.speaker || "", camera: devices.camera || "" };
+    this.devices = {
+      mic: devices.mic || "",
+      speaker: devices.speaker || "",
+      camera: devices.camera || "",
+      // Optional audio input used as a screen share's sound when the platform
+      // won't give us one (see startVideo).
+      shareAudio: devices.shareAudio || "",
+    };
     // Audio knobs. The three processing flags are capture-time getUserMedia
     // constraints (changing one reopens the mic); gain/gate are ours, done in a
     // small WebAudio chain; output is master playback level.
@@ -79,6 +87,7 @@ export class VoiceMesh {
       autoGain: audio.autoGain !== false,
       gain: audio.gain ?? 1, // mic boost/trim; 1 = the capture as it comes
       gate: audio.gate ?? 0, // 0 = off, else the RMS level that opens the mic
+      nr: audio.nr || "", // spectral noise reduction level id ("" = off)
       output: audio.output ?? 1,
       bitrate: audio.bitrate ?? 64000, // what we ask peers for AND send, bits/s
     };
@@ -89,6 +98,7 @@ export class VoiceMesh {
 
   async start() {
     this.localStream = await micStream(this.devices.mic, this.audio);
+    if (this.audio.nr) await loadDenoiser(this._ac());
     this._buildChain();
     this._hintTracks();
     // Metered on the RAW capture, not the processed send: the gate below reads
@@ -105,20 +115,34 @@ export class VoiceMesh {
   // peers get the capture track itself, exactly as they did before any of this
   // existed. Best effort — a webview without MediaStreamAudioDestinationNode
   // simply keeps sending the raw track.
+  _needsChain() {
+    return this.audio.gain !== 1 || !!this.audio.gate || !!this.audio.nr;
+  }
+
   _buildChain() {
     this._teardownChain();
-    if (!this.localStream) return;
-    if (this.audio.gain === 1 && !this.audio.gate) return;
+    if (!this.localStream || !this._needsChain()) return;
     try {
       const ctx = this._ac();
       const src = ctx.createMediaStreamSource(this.localStream);
+      // Order matters. The high-pass goes first so rumble never reaches the
+      // noise estimator (it would otherwise dominate the low bins), denoise
+      // next so the gate is deciding about a signal that's already clean, and
+      // boost last so it lifts your voice rather than the noise under it.
+      const hp = ctx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = 85; // below the lowest speech fundamental
+      hp.Q.value = 0.7;
+      const nr = this.audio.nr ? makeDenoiseNode(ctx, nrValue(this.audio.nr)) : null;
       const gain = ctx.createGain();
       gain.gain.value = this.audio.gain;
       const gate = ctx.createGain();
       gate.gain.value = this.audio.gate ? 0 : 1; // a gate starts closed
       const dest = ctx.createMediaStreamDestination();
-      src.connect(gain).connect(gate).connect(dest);
-      this._chain = { src, gain, gate };
+      let node = src.connect(hp);
+      if (nr) node = node.connect(nr);
+      node.connect(gain).connect(gate).connect(dest);
+      this._chain = { src, hp, nr, gain, gate };
       this.sendStream = dest.stream;
     } catch (err) {
       console.warn("audio chain unavailable", err);
@@ -127,10 +151,26 @@ export class VoiceMesh {
     }
   }
 
+  // setNoiseReduction changes the spectral denoiser's strength. Going from off
+  // to on (or back) changes the graph, so it rebuilds; anything else is a live
+  // parameter tweak with no track churn.
+  async setNoiseReduction(id) {
+    const had = !!this.audio.nr;
+    this.audio.nr = id || "";
+    if (had && this.audio.nr && this._chain?.nr) {
+      this._chain.nr.parameters.get("strength").value = nrValue(this.audio.nr);
+      return;
+    }
+    if (this.audio.nr) await loadDenoiser(this._ac());
+    await this._rechain();
+  }
+
   _teardownChain() {
     if (this._chain) {
       try {
         this._chain.src.disconnect();
+        this._chain.hp?.disconnect();
+        this._chain.nr?.disconnect();
       } catch {}
       this._chain = null;
     }
@@ -202,7 +242,7 @@ export class VoiceMesh {
   // changes with it, so peers get the new one.
   async setMicGain(gain) {
     this.audio.gain = Math.max(0.25, Math.min(4, gain || 1));
-    if (this._chain && (this.audio.gain !== 1 || this.audio.gate)) {
+    if (this._chain && this._needsChain()) {
       // Ramp rather than jump — a step in gain is an audible click.
       this._chain.gain.gain.setTargetAtTime(this.audio.gain, this._ac().currentTime, 0.02);
       return;
@@ -214,7 +254,7 @@ export class VoiceMesh {
   // noisy room isn't in everyone's ears between sentences. 0 turns it off.
   async setGate(threshold) {
     this.audio.gate = Math.max(0, Math.min(0.25, threshold || 0));
-    if (this._chain && (this.audio.gain !== 1 || this.audio.gate)) {
+    if (this._chain && this._needsChain()) {
       // The chain stays up and the monitor picks up the new threshold on its
       // next tick — no track churn while a slider is being dragged. Turning the
       // gate off, though, has to leave it open for good.
@@ -344,6 +384,12 @@ export class VoiceMesh {
   // the source (the local preview tile is keyed on the stream, so the app needs
   // the new one back) — returns the new preview stream, or null if the camera
   // is currently off, in which case the choice just applies next time.
+  // setShareAudioDevice picks where a screen share's sound comes from when the
+  // platform won't supply it. Applies to the next share.
+  setShareAudioDevice(deviceId) {
+    this.devices.shareAudio = deviceId || "";
+  }
+
   async setCameraDevice(deviceId) {
     this.devices.camera = deviceId || "";
     if (!this.videoSources.camera) return null;
@@ -490,6 +536,27 @@ export class VoiceMesh {
     } catch {
       return null; // user dismissed the picker / denied the camera
     }
+    // Did the platform actually hand over the sound? Chromium gives tab/window
+    // (and on Windows, system) audio when the user ticks the box in its picker;
+    // WebKit and most Linux setups give video only, silently. When it didn't,
+    // fall back to capturing an audio INPUT the user nominated — on Linux the
+    // "Monitor of <your output>" device is exactly "what my speakers are
+    // playing", which is the thing people mean by sharing sound.
+    if (kind === "screen" && !stream.getAudioTracks().length && this.devices.shareAudio) {
+      try {
+        const extra = await micStream(this.devices.shareAudio, {
+          // It's a program's output, not a voice in a room: every one of these
+          // would fight it.
+          echoCancel: false,
+          noiseSuppress: false,
+          autoGain: false,
+        });
+        const t = extra.getAudioTracks()[0];
+        if (t) stream.addTrack(t);
+      } catch (err) {
+        console.warn("share audio source", err);
+      }
+    }
     const senders = new Map();
     this.videoSources[kind] = { stream, senders };
     this._hintTracks(); // a share's sound is music, not speech
@@ -502,7 +569,7 @@ export class VoiceMesh {
       // and, for audio, so it knows this isn't the mic.
       this.send(peerId, { videoMeta: { streamId: stream.id, kind } });
     }
-    this.onVideoState(kind, true);
+    this.onVideoState(kind, true, { audio: stream.getAudioTracks().length > 0 });
     return stream;
   }
 

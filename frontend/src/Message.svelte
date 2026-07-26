@@ -10,7 +10,9 @@
   import VoiceMessage from "./VoiceMessage.svelte";
   import VideoAttachment from "./VideoAttachment.svelte";
   import PollView from "./PollView.svelte";
+  import AnnouncementView from "./AnnouncementView.svelte";
   import { parsePoll } from "./lib/polls.js";
+  import { parseAnnounce } from "./lib/announce.js";
   import EmbedView from "./EmbedView.svelte";
   import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
@@ -163,6 +165,7 @@
     if (mentionMember(e.target)) scheduleCloseProfilePopover();
   }
   const poll = $derived(m.deleted ? null : parsePoll(m.content));
+  const announce = $derived(m.deleted ? null : parseAnnounce(m.content));
   const richEmbed = $derived(m.deleted ? null : parseEmbed(m.content));
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const files = $derived(m.deleted ? [] : parseFileTokens(m.content));
@@ -647,6 +650,8 @@
         {/if}
       </div>
       <div class="edit-hint muted">escape to cancel · enter to save</div>
+    {:else if announce}
+      <AnnouncementView {announce} />
     {:else if poll}
       <PollView {m} {poll} />
     {:else}

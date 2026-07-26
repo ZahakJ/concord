@@ -6,6 +6,7 @@
   import Icon from "../Icon.svelte";
   import { S, activeGuild, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { encodeAnnounce } from "../lib/announce.js";
   import { previewText } from "../lib/attachments.js";
 
   let { message, channel, onClose } = $props();
@@ -20,10 +21,15 @@
   async function publish() {
     if (!targets.length) return;
     busy = true;
-    const body =
-      (comment.trim() ? comment.trim() + "\n" : "") +
-      `>>> ↪ *published from* **#${channel.name}**\n` +
-      message.content;
+    // A token, not a blockquote: the renderer gives it its own shape, and the
+    // original author's name rides along instead of being replaced by whoever
+    // pressed Publish.
+    const body = encodeAnnounce({
+      from: channel.name,
+      author: message.sender || "", // MessageView.sender is the authenticated fingerprint
+      body: message.content,
+      note: comment.trim(),
+    });
     let sent = 0;
     for (const t of targets) {
       try {

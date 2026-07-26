@@ -29,6 +29,7 @@
     isCallLocked,
     forgetLock,
     clearCallState,
+    publishVoiceState,
   } from "./lib/state.svelte.js";
 
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
@@ -369,11 +370,17 @@
       iceServers,
       forceRelay,
       // This device's chosen hardware + audio knobs (Voice & Video settings).
-      devices: { mic: S.prefs.micId, speaker: S.prefs.speakerId, camera: S.prefs.cameraId },
+      devices: {
+        mic: S.prefs.micId,
+        speaker: S.prefs.speakerId,
+        camera: S.prefs.cameraId,
+        shareAudio: S.prefs.shareAudioId,
+      },
       audio: {
         output: S.prefs.outputVolume,
         gain: S.prefs.micGain,
         gate: S.prefs.micGate,
+        nr: S.prefs.micNr,
         bitrate: S.prefs.voiceBitrate,
         echoCancel: S.prefs.echoCancel,
         noiseSuppress: S.prefs.noiseSuppress,
@@ -386,11 +393,21 @@
       },
       onSpeaking: (keys) => (S.voiceSpeaking = keys),
       onVideo: (key, stream, meta) => setVideoStream(key, stream, meta),
-      onVideoState: (kind, on) => {
+      onVideoState: (kind, on, info) => {
         // If a source stopped via the browser's own chrome (not our button),
         // update the flag and drop our local preview tile too.
         if (kind === "screen") {
           S.sharing = on;
+          // Silence on the other end is the kind of thing you only find out
+          // about ten minutes in, so say which way it went.
+          if (on && info) {
+            flash(
+              info.audio
+                ? "Sharing your screen, with sound"
+                : "Sharing your screen — no sound: your system didn't offer it. Settings → Voice & Video can capture it from an input instead.",
+              info.audio ? "success" : "info",
+            );
+          }
           if (!on) setVideoStream("self:screen", null);
         } else {
           S.cameraOn = on;
@@ -423,6 +440,7 @@
     if (S.dismissedCalls.includes(channelId))
       S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
     playVoiceJoin();
+    publishVoiceState();
     flash("Joined voice", "success");
     joining = false;
   }
@@ -440,6 +458,7 @@
     // call you just left. (Auto-cleared when the room's roster empties.)
     if (ch && !S.dismissedCalls.includes(ch)) S.dismissedCalls = [...S.dismissedCalls, ch];
     S.voiceParticipants = [];
+    S.voiceStates = {};
     S.voiceSpeaking = [];
     S.voicePeerFpr = {};
     S.muted = false;
@@ -466,13 +485,25 @@
       S.voice?.mesh.setDeafened(false);
     }
     S.voice?.mesh.setMuted(S.muted);
+    publishVoiceState();
   }
 
+  // Deafening also mutes you — you can't sensibly talk to a room you can't
+  // hear, which is what every other client does too. Undeafening then puts your
+  // mic back the way it was: if you were talking before you stepped away, you
+  // are talking again, rather than silently wondering why nobody replies.
+  let mutedBeforeDeafen = false;
   function toggleDeafen() {
+    if (!S.deafened) mutedBeforeDeafen = S.muted;
     S.deafened = !S.deafened;
     S.voice?.mesh.setDeafened(S.deafened);
-    // Deafen implies mic-muted; the mesh already muted, mirror it for the UI.
-    if (S.deafened) S.muted = true;
+    if (S.deafened) {
+      S.muted = true; // the mesh already muted; mirror it for the UI
+    } else {
+      S.muted = mutedBeforeDeafen;
+      S.voice?.mesh.setMuted(S.muted);
+    }
+    publishVoiceState();
   }
 
   async function toggleScreenShare() {
@@ -677,6 +708,31 @@
       <div class="ring-actions">
         <button class="ring-btn decline" onclick={() => declineCall(call.channelId)}>Decline</button>
         <button class="ring-btn accept" onclick={() => acceptCall(call.channelId)}>Join</button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Someone in a call asked you to come. Reuses the ring card's shape but is
+       a quieter thing: an invitation, not a phone ringing. -->
+  {#if S.callInvite && !S.voice}
+    <div class="ring-card invite">
+      <span class="ring-pulse"></span>
+      <div class="ring-info">
+        <strong>{S.callInvite.from}</strong>
+        <span class="muted">wants you in {S.callInvite.where}</span>
+      </div>
+      <div class="ring-actions">
+        <button class="ring-btn decline" onclick={() => (S.callInvite = null)}>Not now</button>
+        <button
+          class="ring-btn accept"
+          onclick={() => {
+            const ch = S.callInvite.channelId;
+            S.callInvite = null;
+            acceptCall(ch);
+          }}
+        >
+          Join
+        </button>
       </div>
     </div>
   {/if}

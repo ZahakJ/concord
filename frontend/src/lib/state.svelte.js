@@ -94,11 +94,17 @@ export const S = $state({
     micId: "",
     speakerId: "",
     cameraId: "",
+    // Where a screen share's sound comes from when the platform won't supply
+    // it (on Linux, a PulseAudio/PipeWire "Monitor of …" input).
+    shareAudioId: "",
     // Call audio knobs. The defaults are exactly "what the browser does on its
     // own", so an untouched install sounds the same as it always has.
     outputVolume: 1, // master playback level for a call, 0..1
     micGain: 1, // mic boost/trim, 0.25..4
     micGate: 0, // noise gate threshold, 0 = off
+    // Spectral noise reduction level id ("" = off; see lib/denoise.js). Off by
+    // default: it reprocesses your voice, which should be a choice you make.
+    micNr: "",
     // Opus target, bits/s. 64k is a real step up from the browser's ~32k
     // default and still modest on a mesh where you send one copy per peer.
     voiceBitrate: 64000,
@@ -120,7 +126,13 @@ export const S = $state({
   // A moderator moved or disconnected us; App.svelte acts on it and clears it.
   // { action: "move"|"disconnect", by, channelId?, name? }
   moderatedVoice: null,
+  // Someone asked us to join their call: { channelId, from, where }.
+  callInvite: null,
   admittedJoin: "", // set when admitted → App.svelte joins for real
+  // fingerprint -> { muted, deafened } for people in calls. Mute is local to
+  // each client (a disabled track), so the only way anyone else can know is if
+  // we say so — see publishVoiceState.
+  voiceStates: {},
   voiceParticipants: [],
   voiceSpeaking: [],
   voicePeerFpr: {},
@@ -1616,7 +1628,45 @@ function initEvents() {
       handleVoiceModeration(v);
       return;
     }
+    if (v.action === "invite") {
+      // Someone in a call is asking us to come. Only for us, only from someone
+      // we share this guild with (they're on its voice topic, which is proof
+      // enough for an invitation — it opens a prompt, it doesn't move anyone).
+      if (v.target === S.identity.fingerprint && !S.voice && v.fingerprint !== S.identity.fingerprint) {
+        const guild = S.guilds.find((g) => g.channels?.some((c) => c.id === v.channelId));
+        const ch = guild?.channels?.find((c) => c.id === v.channelId);
+        if (ch) {
+          playDM();
+          S.callInvite = {
+            channelId: v.channelId,
+            from: nameFor(v.fingerprint),
+            where: guild.kind === "dm" ? guild.name : `${guild.name} · ${ch.name}`,
+          };
+        }
+      }
+      return;
+    }
+    if (v.action === "state") {
+      // "<muted><deafened>" as two flags, e.g. "10". Compact because it rides
+      // the presence topic and gets re-sent whenever anyone new arrives.
+      if (v.fingerprint && v.fingerprint !== S.identity.fingerprint) {
+        S.voiceStates = {
+          ...S.voiceStates,
+          [v.fingerprint]: { muted: v.target?.[0] === "1", deafened: v.target?.[1] === "1" },
+        };
+      }
+      return;
+    }
 
+    // Someone new in our call hasn't heard our mute state yet — say it again.
+    if (v.action === "join" && S.voice?.channelId === v.channelId && v.fingerprint !== S.identity.fingerprint) {
+      publishVoiceState();
+    }
+    if (v.action === "leave" && S.voiceStates[v.fingerprint]) {
+      const next = { ...S.voiceStates };
+      delete next[v.fingerprint];
+      S.voiceStates = next;
+    }
     updateVoiceRoster(v.channelId, v.from, v.fingerprint, v.action);
 
     // A browser guest joined the call from their invite link. If we're not in
@@ -1806,6 +1856,26 @@ export function disconnectVoiceMember(fingerprint, channelId) {
   flash(`Disconnecting ${nameFor(fingerprint)}…`, "info");
 }
 
+// inviteToCall pings someone to come and join the call you're in. It's a
+// request that opens a prompt on their side — never anything that moves them,
+// which is what separates "come hang out" from the moderator's move.
+export function inviteToCall(fingerprint) {
+  const ch = S.voice?.channelId;
+  if (!ch || !fingerprint || fingerprint === S.identity.fingerprint) return;
+  api.signalCall(ch, "invite", fingerprint).catch(() => {});
+  flash(`Asked ${nameFor(fingerprint)} to join`, "success");
+}
+
+// publishVoiceState tells the room whether we're muted or deafened. Nobody can
+// observe it otherwise — muting disables a track locally, which looks exactly
+// like not speaking — so a badge on someone's tile only means anything if the
+// client behind it volunteers the fact.
+export function publishVoiceState() {
+  const ch = S.voice?.channelId;
+  if (!ch) return;
+  api.signalCall(ch, "state", `${S.muted ? 1 : 0}${S.deafened ? 1 : 0}`).catch(() => {});
+}
+
 // ---- soft call lock (see voice.go PublishCallControl) ----
 export function isCallLocked(channelId) {
   return !!S.callLocks[channelId];
@@ -1884,6 +1954,8 @@ export function voiceMembersFor(channelId) {
       self: true,
       speaking: S.voiceSpeaking.includes("self"),
       sharing: S.sharing,
+      muted: S.muted,
+      deafened: S.deafened,
     });
     seen.add(S.identity.fingerprint);
   }
@@ -1893,6 +1965,8 @@ export function voiceMembersFor(channelId) {
     out.push({
       fingerprint: info.fingerprint,
       self: false,
+      muted: !!S.voiceStates[info.fingerprint]?.muted,
+      deafened: !!S.voiceStates[info.fingerprint]?.deafened,
       // Speaking is only known for the room we're in (from the local mesh).
       speaking: S.voiceSpeaking.includes(pid),
       sharing: !!S.voiceSharing[pid],

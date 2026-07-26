@@ -26,6 +26,7 @@
     testTone,
     recordSelfTest,
   } from "../lib/devices.js";
+  import { NR_LEVELS, canDenoise } from "../lib/denoise.js";
 
   let { onClose } = $props();
 
@@ -228,6 +229,7 @@
         processing: processing(),
         gain: S.prefs.micGain ?? 1,
         gate: S.prefs.micGate ?? 0,
+        nr: S.prefs.micNr || "",
         sinkId: chosen("speaker"),
       });
       selfCtl.onLevel((v) => (level = v));
@@ -451,6 +453,30 @@
           Turn a quiet mic up, or a hot one down, before it's sent.
         </span>
 
+        {#if canDenoise()}
+          <div class="nr-block">
+            <span class="gate-title">Noise reduction</span>
+            <span class="hint">
+              Learns the steady noise in your room — a fan, a hum, mic hiss — and
+              pulls it out from under your voice, not just between sentences.
+              Stronger settings can thin your voice, so use the least that works.
+            </span>
+            <div class="seg" role="radiogroup" aria-label="Noise reduction">
+              {#each NR_LEVELS as l (l.id)}
+                <button
+                  class:sel={(S.prefs.micNr || "") === l.id}
+                  role="radio"
+                  aria-checked={(S.prefs.micNr || "") === l.id}
+                  title={l.hint}
+                  onclick={() => knob("micNr", l.id, (v) => S.voice?.mesh.setNoiseReduction(v))}
+                >
+                  {l.label}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
+
         <div class="gate-row">
           <span class="gate-text">
             <span class="gate-title">Noise gate</span>
@@ -506,6 +532,33 @@
             <span class="switch" class:on={S.prefs[name] !== false}><span class="sw-knob"></span></span>
           </button>
         {/each}
+      </section>
+
+      <section class="dev">
+        <div class="dev-head">
+          <span class="chip"><Icon name="screen" size={16} /></span>
+          <span class="dev-title">Screen-share sound</span>
+        </div>
+        <select
+          value={S.prefs.shareAudioId || ""}
+          disabled={loading}
+          onchange={(e) => knob("shareAudioId", e.target.value, (v) => S.voice?.mesh.setShareAudioDevice(v))}
+          aria-label="Screen-share sound source"
+        >
+          <option value="">Whatever the system shares (nothing extra)</option>
+          {#each options("mic") as o (o.id)}
+            <option value={o.id}>{o.label}</option>
+          {/each}
+        </select>
+        <span class="hint">
+          Chromium can share a tab's or window's sound if you tick the box in
+          its picker. When your system won't — the Linux desktop app, or sharing
+          a whole screen — pick an input here and Concord sends that alongside
+          the picture. On Linux the one you want is called
+          <strong>Monitor of</strong> your speakers: that device is literally
+          "what's coming out right now". Only used when the share itself
+          arrives silent.
+        </span>
       </section>
 
       <section class="dev">
@@ -662,6 +715,36 @@
     color: var(--text);
     min-width: 42px;
     text-align: right;
+  }
+  .nr-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .seg {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 6px;
+    margin-top: 2px;
+  }
+  .seg > button {
+    padding: 6px 4px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: 12.5px;
+  }
+  .seg > button:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .seg > button.sel {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text);
   }
   /* The gate: a switch for whether, a slider for where. */
   .gate-row {

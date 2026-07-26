@@ -732,6 +732,11 @@
                   />
                 </span>
                 <span class="vc-name">{nameFor(vm.fingerprint)}{vm.self ? " (you)" : ""}</span>
+                {#if vm.deafened}
+                  <span class="vc-mark" title="Deafened"><Icon name="deafened" size={11} /></span>
+                {:else if vm.muted}
+                  <span class="vc-mark" title="Muted"><Icon name="micOff" size={11} /></span>
+                {/if}
                 {#if vm.sharing}
                   <span class="vc-live" title={vm.self ? "You're sharing" : "Live — click to watch"}>
                     <span class="live-dot"></span>LIVE
@@ -991,6 +996,14 @@
      up and that they haven't moved yet. */
   .vc-member.lifted {
     opacity: 0.4;
+  }
+  /* Muted/deafened marks sit with the name, quiet enough not to compete with
+     the speaking ring. */
+  .vc-mark {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    color: var(--text-faint);
   }
   .vc-member.draggable {
     cursor: grab;
