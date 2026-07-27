@@ -111,10 +111,10 @@
     { name: "shrug", usage: "/shrug [message]", desc: "Appends ¯\\_(ツ)_/¯", args: true, expand: kaomoji("¯\\_(ツ)_/¯") },
     { name: "tableflip", usage: "/tableflip [message]", desc: "Appends (╯°□°)╯︵ ┻━┻", args: true, expand: kaomoji("(╯°□°)╯︵ ┻━┻") },
     { name: "unflip", usage: "/unflip [message]", desc: "Appends ┬─┬ ノ( ゜-゜ノ)", args: true, expand: kaomoji("┬─┬ ノ( ゜-゜ノ)") },
-    // House joke. Same shape as /tableflip, but says the thing out loud —
-    // half the point is reading "fa me" in the message.
-    { name: "fa", usage: "/fa [message]", desc: "fa me (╯°□°)╯︵ ┻━┻", args: true, expand: kaomoji("fa me (╯°□°)╯︵ ┻━┻") },
-    { name: "unfa", usage: "/unfa [message]", desc: "fa me back ┬─┬ ノ( ゜-゜ノ)", args: true, expand: kaomoji("fa me back ┬─┬ ノ( ゜-゜ノ)") },
+    // House joke. Mirror-symmetric on purpose: the right half is the standard
+    // flip, the left half is that same flip reflected, and "fa me" sits exactly
+    // between them — two people flipping tables away from the phrase.
+    { name: "fa", usage: "/fa [message]", desc: "┻━┻ ︵╰(°□°╰) fa me (╯°□°)╯︵ ┻━┻", args: true, expand: kaomoji("┻━┻ ︵╰(°□°╰) fa me (╯°□°)╯︵ ┻━┻") },
     { name: "me", usage: "/me <action>", desc: "Italicized action text", args: true, expand: (rest, text) => (rest ? `*${rest}*` : text) },
     { name: "spoiler", usage: "/spoiler <text>", desc: "Hides text until clicked", args: true, expand: (rest, text) => (rest ? `||${rest}||` : text) },
     // An ACTION, not a text expansion: it runs instead of sending (see runAction).
