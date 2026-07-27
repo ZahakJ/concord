@@ -1494,6 +1494,38 @@ func (s *Service) learnDeviceCert(cred []byte) {
 	s.deviceMu.Unlock()
 }
 
+// relearnDevices rebuilds the device→account map from a guild's MLS roster.
+//
+// The map is otherwise only written when we serve someone's join or decrypt a
+// message they sent, and it lives in memory. So it emptied on every restart,
+// and a linked device that had been quiet since then resolved to the
+// fingerprint of its own device key — which matches no member. Everything that
+// asks "are you in this guild?" then said no: history sync answered its
+// catch-up requests with zero bytes, and because that reply is indistinguishable
+// from "nothing to send", the device retried every twenty seconds forever
+// without one error to show for it. A phone that missed a commit while asleep
+// could never come back.
+//
+// The roster is the authority we already trust for membership, and every leaf
+// carries the device cert that states the mapping, so reading it back is enough.
+func (s *Service) relearnDevices(groupID []byte) {
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil {
+		return
+	}
+	for _, c := range creds {
+		s.learnDeviceCert(c)
+	}
+}
+
+// lookupDevice returns the account fingerprint learned for a device key, or ""
+// when we have never seen a cert for it.
+func (s *Service) lookupDevice(devicePub []byte) string {
+	s.deviceMu.RLock()
+	defer s.deviceMu.RUnlock()
+	return s.deviceAccounts[hex.EncodeToString(devicePub)]
+}
+
 // presence is the account-aware presenceFor: it resolves a linked device's
 // PeerID (its device key) to the account fingerprint via the learned map,
 // falling back to the raw key's fingerprint for a legacy account-key PeerID.

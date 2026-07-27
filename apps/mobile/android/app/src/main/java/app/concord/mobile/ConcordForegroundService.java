@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
 
@@ -22,12 +23,45 @@ public class ConcordForegroundService extends Service {
     private static final String CHANNEL_ID = "concord_connection";
     private static final int NOTIF_ID = 1;
 
+    // Android filters inbound multicast at the Wi-Fi driver unless something
+    // holds this lock, which makes libp2p's mDNS deaf: a phone on the same
+    // network as the desktop never discovers it and has to go out through the
+    // rendezvous instead. Held for as long as we keep the node alive.
+    private WifiManager.MulticastLock multicastLock;
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(NOTIF_ID, buildNotification());
+        acquireMulticastLock();
         // STICKY: if the OS reclaims us under heavy memory pressure, restart when
         // it can — the node re-establishes and drains the mailbox on restart.
         return START_STICKY;
+    }
+
+    private void acquireMulticastLock() {
+        if (multicastLock != null && multicastLock.isHeld()) return;
+        try {
+            WifiManager wm = (WifiManager)
+                getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+            if (wm == null) return;
+            multicastLock = wm.createMulticastLock("concord-mdns");
+            multicastLock.setReferenceCounted(false);
+            multicastLock.acquire();
+        } catch (Exception e) {
+            // Best effort: without it we simply fall back to the rendezvous,
+            // which is how this behaved before. Not worth failing the service.
+        }
+    }
+
+    @Override
+    public void onDestroy() {
+        if (multicastLock != null && multicastLock.isHeld()) {
+            try {
+                multicastLock.release();
+            } catch (Exception ignored) {
+            }
+        }
+        super.onDestroy();
     }
 
     private Notification buildNotification() {

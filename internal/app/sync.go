@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -12,6 +14,11 @@ import (
 	"github.com/zahak/concord/internal/identity"
 	"github.com/zahak/concord/internal/store"
 )
+
+// errSyncDeclined marks a peer that answered our catch-up with an empty body:
+// it does not believe we belong to the guild. Distinct from a transport error
+// because it means "ask someone else", not "retry this one".
+var errSyncDeclined = errors.New("app: peer declined to sync")
 
 // History sync (v2): when a peer (re)connects, we ask it — per guild — for
 // everything we missed while offline:
@@ -211,10 +218,22 @@ func (s *Service) syncGuildFromAnyPeer(guildID string) {
 			others = append(others, p)
 		}
 	}
+	declined := 0
 	for _, p := range append(hosts, others...) {
-		if err := s.syncGuildFromPeer(guildID, p); err == nil {
+		err := s.syncGuildFromPeer(guildID, p)
+		if err == nil {
 			return
 		}
+		if errors.Is(err, errSyncDeclined) {
+			declined++
+		}
+	}
+	// Everyone we could reach says we are not a member. That is either true —
+	// we were removed — or their rosters are stale in a way we cannot fix by
+	// asking again, and either way it is worth one line rather than a silent
+	// retry loop that outlives the problem.
+	if declined > 0 && declined == len(hosts)+len(others) {
+		log.Printf("concord/app: guild %s: every peer declined to sync with us (%d asked)", guildID, declined)
 	}
 }
 
@@ -332,7 +351,14 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 			return err
 		}
 		if len(respBytes) == 0 {
-			return nil // peer isn't in this guild
+			// An empty body means the peer declined — it does not think we are a
+			// member (see handleSyncRequest). Reporting that as success made a
+			// single peer with a stale view of the roster stand in for every
+			// other member: syncGuildFromAnyPeer stops at the first nil, so we
+			// asked one node, were refused, called it done, and repeated that
+			// every twenty seconds with nothing in the logs. Say it failed, so
+			// the caller moves on to somebody who might answer.
+			return errSyncDeclined
 		}
 		var resp syncResponse
 		if json.Unmarshal(respBytes, &resp) != nil {

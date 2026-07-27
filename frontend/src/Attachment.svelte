@@ -59,8 +59,21 @@
     }
   }
 
+  // Refetch only when this is genuinely a different blob.
+  //
+  // `tok` is parsed fresh out of the message content, so every re-render hands
+  // us a new object with the same contents — and a new message arriving in the
+  // channel re-renders the whole feed. Keying the effect on the object rather
+  // than the id meant an unrelated message made every visible image drop back
+  // to `state = "loading"`, which tears down the <img> and, with it, the
+  // lightbox mounted beside it: open a picture, someone says hello, the picture
+  // blinks or closes. The bytes were cached the whole time; only the state flag
+  // moved.
+  let loadedBlob = "";
   $effect(() => {
-    tok.blobId;
+    const id = tok.blobId;
+    if (id === loadedBlob) return;
+    loadedBlob = id;
     fetchNow();
   });
 

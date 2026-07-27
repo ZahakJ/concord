@@ -1038,6 +1038,10 @@ func (s *Service) trackGuild(g *domain.Guild) {
 	s.rebuildGovStateLocked(g.ID)
 	s.mu.Unlock()
 
+	// Recover which leaves are linked devices before anyone can ask us about
+	// them; without this a restart makes every quiet second device a stranger.
+	s.relearnDevices(g.GroupID)
+
 	groupID := g.GroupID
 	guildID := g.ID
 
@@ -1470,6 +1474,9 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 		}
 	}
 	s.mu.Unlock()
+	if ctype == "voice" {
+		s.watchVoice(groupID, channelID) // idempotent; see receiveGuildMeta
+	}
 	s.emitGuildUpdate()
 	s.publishMeta(groupID, guildMeta{Type: "channel_updated",
 		Channel: domain.Channel{ID: channelID, GuildID: guildID, Type: ctype, Category: category, Position: position, Topic: topic}})
@@ -1751,6 +1758,15 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		s.mu.Unlock()
 		if gc.ID != "" {
 			_ = s.store.SaveGuild(gc) // persists links/parent too
+		}
+		// A channel that just became voice needs its presence topic watched, the
+		// same as one created as voice (addChannel does this). Without it a
+		// converted channel showed an empty roster until the next launch, when
+		// trackGuild subscribes from the stored type — and channel conversion is
+		// an ordinary action now, not a curiosity. watchVoice is idempotent, so
+		// the other conversions cost nothing.
+		if m.Channel.Type == "voice" && gc.ID != "" {
+			s.watchVoice(gc.GroupID, m.Channel.ID)
 		}
 		s.emitGuildUpdate()
 	case "category_added":

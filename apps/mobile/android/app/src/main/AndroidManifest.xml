@@ -52,6 +52,11 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Android's Wi-Fi driver drops inbound multicast unless an app holds a
+         multicast lock, so without this libp2p's mDNS never sees a peer on the
+         same network — the phone can be sitting next to the desktop and still
+         have to reach it the long way round, via the rendezvous. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- Foreground service to keep the P2P node connected in the background. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />

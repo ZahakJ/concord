@@ -96,15 +96,26 @@ func (s *Service) depositForOffline(groupID []byte, ct []byte) {
 	if err != nil {
 		return
 	}
-	online := map[string]bool{s.id.Fingerprint(): true}
+	// Keyed by DEVICE, not account. A mailbox is per-device (mailboxKeyOf), so
+	// asking "is this account online?" skipped exactly the leaves that needed
+	// the deposit: our own phone, because self was seeded as online and shares
+	// our fingerprint, and anyone else's phone whenever their desktop happened
+	// to be connected. One account, two devices, and only one of them ever got
+	// the mail — which for a phone, asleep most of the day, is the delivery path
+	// that mattered most.
+	online := map[string]bool{string(mailboxKeyOf(s.myCredential)): true}
 	for _, p := range s.host.Peers() {
-		online[s.presence(p).Fingerprint] = true
+		if pub, err := p.ExtractPublicKey(); err == nil {
+			if raw, err := pub.Raw(); err == nil {
+				online[string(raw)] = true
+			}
+		}
 	}
 
 	payload, _ := json.Marshal(mbxPayload{GroupID: groupID, CT: ct})
 	for _, cred := range creds {
 		fpr := accountFingerprintOf(cred)
-		if online[fpr] {
+		if online[string(mailboxKeyOf(cred))] {
 			continue
 		}
 		pub, ok := s.mailboxPubFor(fpr)
