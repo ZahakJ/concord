@@ -8,3 +8,4 @@
 #
 # While this is empty, builds keep the old checksum-only trust: they verify the
 # download against SHA256SUMS but can't prove who made it.
+281de3e64cf9345c769da58d03ff7a247bd425357ca074ec7e09a0ef78ed035b
