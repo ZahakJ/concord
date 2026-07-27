@@ -131,7 +131,8 @@ func (b *Bridge) runUpdate() {
 		return
 	}
 
-	// Verify against the release's SHA256SUMS — fail closed.
+	// Verify the release's SIGNED SHA256SUMS, then the file against it — fail
+	// closed at both steps.
 	setUpd(UpdateProgress{Phase: "verifying", Percent: 100, Version: cv.Latest})
 	want, err := fetchExpectedSum(cv.Asset)
 	if err != nil {
@@ -219,8 +220,22 @@ func downloadWithProgress(url, path, version string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// fetchExpectedSum pulls SHA256SUMS from the latest release and returns the
-// hash recorded for asset.
+// fetchSmall downloads a small release asset (the checksum manifest or its
+// signature), capped so a hostile or broken server can't stream forever.
+func fetchSmall(url string) ([]byte, error) {
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	req.Header.Set("User-Agent", "concord-updater")
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	return io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+}
+
+// fetchExpectedSum pulls the SIGNED SHA256SUMS from the latest release,
+// verifies it, and returns the hash recorded for asset.
 func fetchExpectedSum(asset string) (string, error) {
 	req, err := http.NewRequest(http.MethodGet,
 		"https://api.github.com/repos/"+updateRepo+"/releases/latest", nil)
@@ -243,28 +258,39 @@ func fetchExpectedSum(asset string) (string, error) {
 	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
 		return "", err
 	}
-	sumsURL := ""
+	sumsURL, sigURL := "", ""
 	for _, a := range rel.Assets {
-		if a.Name == "SHA256SUMS" {
+		switch a.Name {
+		case "SHA256SUMS":
 			sumsURL = a.URL
-			break
+		case "SHA256SUMS.sig":
+			sigURL = a.URL
 		}
 	}
 	if sumsURL == "" {
 		return "", fmt.Errorf("release has no SHA256SUMS")
 	}
-	sreq, _ := http.NewRequest(http.MethodGet, sumsURL, nil)
-	sreq.Header.Set("User-Agent", "concord-updater")
-	client := &http.Client{Timeout: 30 * time.Second}
-	sresp, err := client.Do(sreq)
+	body, err := fetchSmall(sumsURL)
 	if err != nil {
 		return "", err
 	}
-	defer sresp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(sresp.Body, 64<<10))
-	if err != nil {
-		return "", err
+
+	// Authenticity before integrity. A signed build refuses a release it can't
+	// verify, including one that simply has no signature attached — otherwise
+	// stripping the signature would be all it takes to defeat this.
+	if releaseSigned() {
+		if sigURL == "" {
+			return "", errUnsignedRelease
+		}
+		sig, err := fetchSmall(sigURL)
+		if err != nil {
+			return "", fmt.Errorf("fetch signature: %w", err)
+		}
+		if err := verifyReleaseSums(body, sig); err != nil {
+			return "", err
+		}
 	}
+
 	for _, line := range strings.Split(string(body), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 2 && strings.TrimPrefix(fields[1], "*") == asset {

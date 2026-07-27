@@ -11,7 +11,7 @@ N ?= 2
 # CI passes the git tag (e.g. VERSION=v0.4.9); local builds stay "dev" (no nag).
 VERSION ?= dev
 
-.PHONY: gui gui-dev web cli rendezvous frontend test race fmt clean \
+.PHONY: gui gui-dev web cli rendezvous frontend test race fmt clean release-keygen \
         peers rendezvous-run dev-clean help release icons native \
         android-core ios-core android-app ios-app
 
@@ -24,6 +24,12 @@ IOS_VERSION    := 15.0
 
 frontend:
 	cd frontend && npm install && npm run build
+
+# Create the release signing keypair. Run ONCE, on the machine that publishes
+# releases; the private half stays there (back it up offline), the public half
+# gets committed to internal/bridge/release-pubkey.txt so every build carries it.
+release-keygen:
+	go run ./cmd/releasekey gen
 
 # Regenerate app-icon assets from build/appicon.svg (needs ImageMagick).
 # Produces the PNG (Wails/Linux), the multi-size Windows .ico, and macOS .icns.

@@ -1,0 +1,10 @@
+# Concord release signing key (ed25519 public half, hex).
+#
+# Generate with:  make release-keygen
+# That writes the PRIVATE half to ~/.config/concord/release.key (keep it
+# offline, back it up — losing it means you can never sign an update again,
+# and leaking it means someone else can) and prints the public half to put
+# here. Everything below the comments is the key.
+#
+# While this is empty, builds keep the old checksum-only trust: they verify the
+# download against SHA256SUMS but can't prove who made it.

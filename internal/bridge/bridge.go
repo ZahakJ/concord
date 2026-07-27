@@ -1749,11 +1749,11 @@ func messageView(m domain.Message) MessageView {
 		Kind:       m.Kind,
 		ReplyTo:    m.ReplyTo,
 		Content:    m.Content,
-		Deleted:   m.Deleted,
-		Expired:   m.Expired,
-		Edited:    m.Edited,
-		Pinned:    m.Pinned,
-		Reactions: m.Reactions,
+		Deleted:    m.Deleted,
+		Expired:    m.Expired,
+		Edited:     m.Edited,
+		Pinned:     m.Pinned,
+		Reactions:  m.Reactions,
 		// Full nanosecond precision, fixed width. This string is ALSO the
 		// scroll-up pagination cursor (MessagesBefore parses it back to
 		// UnixNano and the store compares `sent < cursor` exactly): truncating

@@ -95,6 +95,19 @@ fi
 
 cp WINDOWS.md dist-release/
 (cd dist-release && sha256sum $(ls | grep -v '^SHA256SUMS$') > SHA256SUMS)
+
+# Sign the manifest. SHA256SUMS covers every asset, so one signature
+# authenticates the whole release — and clients verify the signature BEFORE
+# trusting any hash in it. A release published without this is one that
+# signature-enforcing builds will refuse, so fail loudly rather than shipping
+# something nobody can install.
+if go run ./cmd/releasekey sign dist-release/SHA256SUMS; then
+  echo "==> manifest signed"
+else
+  echo "!!! could not sign SHA256SUMS — run 'make release-keygen' first." >&2
+  echo "!!! publishing unsigned would leave signed builds unable to update." >&2
+  exit 1
+fi
 echo && ls -lh dist-release/ && echo
 
 echo "==> publishing $VERSION to $DIST_REPO"
