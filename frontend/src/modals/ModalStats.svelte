@@ -43,6 +43,37 @@
     return sec ? new Date(sec * 1000).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—";
   }
   const transportLabel = { quic: "QUIC", tcp: "TCP", relay: "Relay", p2p: "P2P" };
+
+  // One row per ACCOUNT, not per connection. Linked devices share a fingerprint,
+  // so the same person on a laptop and a phone was showing up as two strangers
+  // with two different key hashes and no hint they were the same someone.
+  // Peers with no fingerprint (unknown, or the rendezvous) can't be grouped —
+  // there's nothing to group them BY — so each stays its own row.
+  function peerGroups(list) {
+    const byAccount = new Map();
+    const out = [];
+    for (const p of list) {
+      const g = p.fingerprint && byAccount.get(p.fingerprint);
+      if (g) {
+        g.conns.push(p);
+        if (!g.transports.includes(p.transport)) g.transports.push(p.transport);
+        // Show the best latency we have across their devices.
+        if (p.rttMs > 0 && (g.rtt === 0 || p.rttMs < g.rtt)) g.rtt = p.rttMs;
+        continue;
+      }
+      const entry = {
+        key: p.fingerprint || p.id,
+        name: p.name,
+        role: p.role,
+        rtt: p.rttMs > 0 ? p.rttMs : 0,
+        transports: [p.transport],
+        conns: [p],
+      };
+      if (p.fingerprint) byAccount.set(p.fingerprint, entry);
+      out.push(entry);
+    }
+    return out;
+  }
 </script>
 
 <Modal title="Stats & diagnostics" {onClose} wide>
@@ -98,19 +129,35 @@
       </div>
       {#if ns.peerList?.length}
         <div class="peers">
-          {#each ns.peerList as p (p.id)}
-            <div class="peer">
-              <span class="pdot" class:relay={p.relayed} class:infra={p.role === "rendezvous"}></span>
-              {#if p.name}
-                <span class="pname">{p.name}</span>
-              {:else if p.role !== "rendezvous"}
-                <span class="pname unknown" title="Connected member peer with no profile you've learned — often a stray/test instance">unknown peer</span>
+          {#each peerGroups(ns.peerList) as grp (grp.key)}
+            <div class="peer" class:multi={grp.conns.length > 1}>
+              <span
+                class="pdot"
+                class:relay={grp.conns.every((c) => c.relayed)}
+                class:infra={grp.role === "rendezvous"}
+              ></span>
+              {#if grp.name}
+                <span class="pname">{grp.name}</span>
+              {:else if grp.role !== "rendezvous"}
+                <span
+                  class="pname unknown"
+                  title="Connected peer whose profile you've never learned — someone else using your rendezvous, or a stray test instance"
+                >unknown peer</span>
               {/if}
-              <code class="pid">{p.id.slice(0, 12)}…{p.id.slice(-6)}</code>
-              {#if p.role === "rendezvous"}<span class="prole">rendezvous</span>{/if}
-              {#if p.rttMs > 0}<span class="prtt muted">{p.rttMs} ms</span>{/if}
-              <span class="ptag">{transportLabel[p.transport] || p.transport}</span>
-              <span class="pdir muted">{p.direction}</span>
+              {#if grp.conns.length > 1}
+                <span class="pdev" title="One account, connected from more than one device">
+                  {grp.conns.length} devices
+                </span>
+              {/if}
+              <code class="pid" title={grp.conns.map((c) => c.id).join("\n")}>
+                {grp.conns[0].id.slice(0, 12)}…{grp.conns[0].id.slice(-6)}
+              </code>
+              {#if grp.role === "rendezvous"}<span class="prole">rendezvous</span>{/if}
+              {#if grp.rtt > 0}<span class="prtt muted">{grp.rtt} ms</span>{/if}
+              {#each grp.transports as t (t)}
+                <span class="ptag">{transportLabel[t] || t}</span>
+              {/each}
+              <span class="pdir muted">{grp.conns[0].direction}</span>
             </div>
           {/each}
         </div>
@@ -209,6 +256,15 @@
   .pname {
     font-weight: 600;
     color: var(--text);
+  }
+  /* "2 devices" — quiet, next to the name it belongs to. */
+  .pdev {
+    flex: none;
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text-muted);
   }
   .pname.unknown {
     font-weight: 500;

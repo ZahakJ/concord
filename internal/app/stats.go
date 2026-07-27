@@ -103,13 +103,16 @@ func (s *Service) GuildStats(guildID string) (GuildStatsView, error) {
 
 // PeerStatView describes one live connection.
 type PeerStatView struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`      // resolved display name, "" if unknown/infra
-	Role      string `json:"role"`      // "rendezvous" (infra) | "peer"
-	Transport string `json:"transport"` // quic | tcp | relay
-	Relayed   bool   `json:"relayed"`
-	Direction string `json:"direction"` // inbound | outbound
-	RTTms     int64  `json:"rttMs"`     // 0 until first measured
+	ID   string `json:"id"`
+	Name string `json:"name"` // resolved display name, "" if unknown/infra
+	// The ACCOUNT behind the connection. Two peers sharing one fingerprint are
+	// one person on two devices, which the list has no other way to tell.
+	Fingerprint string `json:"fingerprint"`
+	Role        string `json:"role"`      // "rendezvous" (infra) | "peer"
+	Transport   string `json:"transport"` // quic | tcp | relay
+	Relayed     bool   `json:"relayed"`
+	Direction   string `json:"direction"` // inbound | outbound
+	RTTms       int64  `json:"rttMs"`     // 0 until first measured
 }
 
 // NetworkStatsView is a whole-device network + storage snapshot.
@@ -171,6 +174,7 @@ func (s *Service) NetworkStats() NetworkStatsView {
 			// reads "Alice / Bob", not two anonymous key hashes — and a stray test
 			// instance or stranger stands out immediately.
 			if fpr := s.presence(p).Fingerprint; fpr != "" {
+				pv.Fingerprint = fpr
 				if name := s.ProfileOf(fpr).Name; name != "" {
 					pv.Name = name
 				}
