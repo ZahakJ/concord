@@ -166,6 +166,9 @@
   }
   const poll = $derived(m.deleted ? null : parsePoll(m.content));
   const announce = $derived(m.deleted ? null : parseAnnounce(m.content));
+  // The announcement speaks for the guild it was published in, which is the one
+  // this channel belongs to — not a remote server, so the local guild is it.
+  const announceGuild = $derived(announce ? activeGuild() : null);
   const richEmbed = $derived(m.deleted ? null : parseEmbed(m.content));
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const files = $derived(m.deleted ? [] : parseFileTokens(m.content));
@@ -502,6 +505,16 @@
       <span class="av-btn guest-av" title="A guest in this meeting">
         <Avatar name={guestName} emoji="👤" color="#5b6270" size={38} />
       </span>
+    {:else if announce}
+      <!-- A published announcement is the server talking, so it wears the
+           server's face rather than the face of whoever pressed Publish. -->
+      <span class="av-btn" title={announceGuild?.name || "Announcement"}>
+        <Avatar
+          name={announceGuild?.name || "Server"}
+          image={announceGuild?.icon || ""}
+          size={38}
+        />
+      </span>
     {:else}
       <button
         class="av-btn"
@@ -546,6 +559,11 @@
           <span class="guest-badge" title="Joined from a meeting link — no account, unverified"
             >guest</span
           >
+        {:else if announce}
+          <span class="sender server-name">{announceGuild?.name || "Server"}</span>
+          <span class="ann-badge" title={announce.from ? `Published from #${announce.from}` : "Announcement"}>
+            <Icon name="megaphone" size={10} /> announcement
+          </span>
         {:else}
           <button
             class="sender"
@@ -899,6 +917,26 @@
   .sender:hover {
     background: transparent;
     text-decoration: underline;
+  }
+  /* Marks the row as the server speaking rather than a person — quiet, since
+     the guild's name and icon already carry the point. */
+  .server-name {
+    font-weight: 700;
+    color: var(--text);
+    cursor: default;
+  }
+  .ann-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
   }
   .verify-check {
     display: inline-flex;
