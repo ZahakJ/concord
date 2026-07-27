@@ -107,11 +107,6 @@ type Message struct {
 	// Reactions aggregates emoji -> fingerprints who reacted. Populated on load;
 	// never sent over the wire (reactions travel as their own "reaction" action).
 	Reactions map[string][]string `json:"reactions,omitempty"`
-
-	// OCRMatch marks a search hit that matched (only) through text extracted
-	// locally from an image attachment — "matched text in image". Transient:
-	// set by search, never persisted, never sent over the wire.
-	OCRMatch bool `json:"ocrMatch,omitempty"`
 }
 
 // A Contact is a peer this node has encountered, tracked for trust-on-first-use

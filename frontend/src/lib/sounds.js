@@ -173,3 +173,73 @@ export function previewRingtone(id) {
   const r = RINGTONES[id] || RINGTONES.classic;
   play(r.notes, r.wave, true);
 }
+
+// A one-shot burst of white noise. Oscillators can't make air; anything that
+// should read as wind, thrust or a crack has to start from noise.
+function noiseSource(ac, dur) {
+  const buf = ac.createBuffer(1, Math.ceil(ac.sampleRate * dur), ac.sampleRate);
+  const d = buf.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  const src = ac.createBufferSource();
+  src.buffer = buf;
+  return src;
+}
+
+// Easter egg: the home button's logo is a Concorde, so hammering it flies one
+// past you. Synthesized like everything else here — there are no audio files in
+// this app and there must not be.
+//
+// This ignores the mute setting on purpose. Mute exists to stop the app making
+// noise AT you (mentions, DMs, an incoming call); this fires only after you've
+// deliberately hit the same button eight times in a row, which is a request for
+// sound, and staying silent there is indistinguishable from a broken egg.
+export function playFlyby() {
+  const ac = audio();
+  if (!ac) return;
+  const t0 = ac.currentTime;
+  const dur = 2.4;
+  const near = t0 + 1.0; // closest approach: loudest point, and where the boom lands
+
+  // Panning it across the stereo field is most of what sells "passing overhead";
+  // createStereoPanner is ubiquitous but the fallback costs one line.
+  const out = ac.createStereoPanner?.() ?? null;
+  if (out) {
+    out.pan.setValueAtTime(-0.9, t0);
+    out.pan.linearRampToValueAtTime(0.9, t0 + dur);
+    out.connect(ac.destination);
+  }
+  const sink = out || ac.destination;
+
+  // Engine: broadband noise through a bandpass swept up on approach and back
+  // down as it recedes. The sweep IS the Doppler shift — a fixed filter just
+  // sounds like wind.
+  const eng = noiseSource(ac, dur);
+  const bp = ac.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.Q.value = 1.4;
+  bp.frequency.setValueAtTime(320, t0);
+  bp.frequency.exponentialRampToValueAtTime(2800, near);
+  bp.frequency.exponentialRampToValueAtTime(220, t0 + dur);
+  const eg = ac.createGain();
+  eg.gain.setValueAtTime(0.0001, t0);
+  eg.gain.exponentialRampToValueAtTime(0.2, near);
+  eg.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  eng.connect(bp).connect(eg).connect(sink);
+  eng.start(t0);
+  eng.stop(t0 + dur);
+
+  // Sonic boom: a lowpassed crack at the moment it passes, with the cutoff
+  // falling so the tail rolls off into a rumble instead of a click.
+  const bang = noiseSource(ac, 0.5);
+  const lp = ac.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.setValueAtTime(420, near);
+  lp.frequency.exponentialRampToValueAtTime(90, near + 0.45);
+  const bg = ac.createGain();
+  bg.gain.setValueAtTime(0.0001, near);
+  bg.gain.linearRampToValueAtTime(0.28, near + 0.012);
+  bg.gain.exponentialRampToValueAtTime(0.0001, near + 0.5);
+  bang.connect(lp).connect(bg).connect(sink);
+  bang.start(near);
+  bang.stop(near + 0.5);
+}

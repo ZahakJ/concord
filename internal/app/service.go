@@ -24,7 +24,6 @@ import (
 	"github.com/zahak/concord/internal/domain"
 	"github.com/zahak/concord/internal/identity"
 	cnet "github.com/zahak/concord/internal/net"
-	"github.com/zahak/concord/internal/ocr"
 	"github.com/zahak/concord/internal/store"
 )
 
@@ -41,6 +40,9 @@ type Service struct {
 	ps    *cnet.PubSub
 	mls   mls.Engine
 	store *store.Store
+	// peers remembers where we reached other peers, so the next launch can dial
+	// them directly instead of depending on the rendezvous being alive.
+	peers *PeerCache
 
 	mu             sync.RWMutex
 	guilds         map[string]*domain.Guild // by guild ID
@@ -90,11 +92,6 @@ type Service struct {
 	voiceWatched    map[string]bool
 	onVoicePresence []func(from, fingerprint, channelID, action, target, dest string)
 	onVoiceSignal   []func(from string, data []byte)
-
-	// ocrWorker reads text out of image attachments (internal/ocr) so local
-	// search finds messages by what a screenshot says. Nil until initOCR, and
-	// nil forever when no OCR engine is installed — everything degrades cleanly.
-	ocrWorker *ocr.Worker
 
 	onTyping      []func(from, channelID string)
 	onGuildUpdate []func()
@@ -640,15 +637,21 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 	// Bootstrap sources, in precedence order: explicit config (env) first, then
 	// the saved connection settings (set in-app on the login screen).
+	netCfg := LoadNetConfig(cfg.DataDir)
 	bootstrapAddrs := cfg.BootstrapPeers
 	if len(bootstrapAddrs) == 0 {
-		bootstrapAddrs = LoadNetConfig(cfg.DataDir).Bootstrap
+		bootstrapAddrs = netCfg.Bootstrap
 	}
 	bootstrap, err := parseBootstrapPeers(bootstrapAddrs)
 	if err != nil {
 		_ = st.Close()
 		return nil, err
 	}
+	// Peers we have met before are discovery we own outright: they need no
+	// rendezvous, no DHT and no server, and they are why an existing group of
+	// friends keeps working after the rendezvous dies.
+	peerCache := LoadPeerCache(cfg.DataDir)
+	remembered := peerCache.AddrInfos()
 	// Linked-device mode: if a device marker is present and verifies, this
 	// install uses its own device key for the libp2p PeerID and its device cert
 	// as the MLS credential. Absent → default single-device behavior (account-key
@@ -659,11 +662,13 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		hostKey = id.DeviceKey()
 	}
 	host, err := cnet.New(ctx, cnet.Config{
-		Identity:       id,
-		HostKey:        hostKey,
-		EnableMDNS:     !cfg.DisableMDNS,
-		EnableDHT:      len(bootstrap) > 0,
-		BootstrapPeers: bootstrap,
+		Identity:        id,
+		HostKey:         hostKey,
+		EnableMDNS:      !cfg.DisableMDNS,
+		EnableDHT:       wantDHT(bootstrap, netCfg.PublicDHT, remembered),
+		BootstrapPeers:  bootstrap,
+		PublicBootstrap: netCfg.PublicDHT,
+		RememberedPeers: remembered,
 	})
 	if err != nil {
 		_ = st.Close()
@@ -704,6 +709,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		mls:              engine,
 		myCredential:     mlsCred,
 		store:            st,
+		peers:            peerCache,
 		guilds:           map[string]*domain.Guild{},
 		channelToGuild:   map[string]string{},
 		pendingDMInvites: map[string]map[string]bool{},
@@ -766,6 +772,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// Serve attachment blobs to peers rendering images we hold.
 	host.HandleAttachments(s.handleAttachRequest)
 
+	// Hand our own release binary to peers running an older one.
+	host.HandleRelease(s.handleReleaseRequest)
+
 	// Auto-redeem direct-message invitations pushed by a peer.
 	host.HandleDMInvites(s.handleDMInvite)
 
@@ -783,6 +792,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	host.OnPeerConnected(func(p peer.ID) {
 		pp := s.presence(p)
 		_ = st.RecordContact(pp.PeerID, pp.Fingerprint)
+		go s.rememberPeer(p, pp.Fingerprint)
 		// When a rendezvous node connects, register our mailbox with it and
 		// drain anything deposited while we were offline.
 		if s.isMailboxNode(p) {
@@ -807,6 +817,14 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 			// newly-reachable committer is exactly who can re-add us.
 			s.healStrandedGuilds()
 		}()
+	})
+
+	// A remembered address that no longer answers is worse than useless: it
+	// costs a dial on every launch forever. Let the cache count the misses and
+	// forget the peer once it's clearly gone.
+	host.OnRedialFailed(func(p peer.ID) {
+		s.peers.DialFailed(p.String())
+		_ = s.peers.Flush(s.dataDir)
 	})
 
 	// Restore guilds we already belong to and re-subscribe to their topics.
@@ -841,11 +859,6 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	if s.RichPresenceEnabled() {
 		s.startRichPresence()
 	}
-
-	// Local OCR of image attachments (search-by-what-the-screenshot-says): a
-	// background worker plus a periodic sweep over already-stored blobs. No-op
-	// when no OCR engine is present.
-	s.initOCR()
 
 	return s, nil
 }
@@ -963,10 +976,13 @@ func (s *Service) emitMessage(m domain.Message) {
 // immediately (best-effort), so an in-app change helps the current session too.
 // Full DHT re-init still happens on next launch.
 func (s *Service) SetBootstrapLive(addrs []string) error {
-	if err := SaveNetConfig(s.dataDir, NetConfig{Bootstrap: addrs}); err != nil {
+	if err := SaveBootstrap(s.dataDir, addrs); err != nil {
 		return err
 	}
 	if infos, err := parseBootstrapPeers(addrs); err == nil {
+		// Relay candidates too, or AutoRelay keeps offering the rendezvous the
+		// user just replaced until the process restarts.
+		s.host.SetBootstrapPeers(infos)
 		for _, pi := range infos {
 			pi := pi
 			go func() { _ = s.host.Connect(s.ctx, pi) }()
@@ -1338,8 +1354,10 @@ func (s *Service) VerifiedFingerprints() map[string]bool {
 
 // Close shuts everything down.
 func (s *Service) Close() error {
-	if s.ocrWorker != nil {
-		s.ocrWorker.Close()
+	if s.peers != nil {
+		// Flush past the write throttle: everything learned in the last few
+		// seconds of a session is exactly what the next launch wants.
+		_ = s.peers.Save(s.dataDir)
 	}
 	if s.host != nil {
 		_ = s.host.Close()

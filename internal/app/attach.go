@@ -101,8 +101,6 @@ func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo st
 	if err != nil {
 		return domain.Message{}, err
 	}
-	// Local OCR (async, cached): text in the image becomes searchable.
-	s.enqueueOCR(blobID, plain)
 	if w < 0 || w > 99999 {
 		w = 0
 	}
@@ -191,7 +189,6 @@ func (s *Service) FetchAttachment(channelID, blobID, keys, subtype string) (stri
 		return "", err
 	}
 	// A viewed image is a decrypted image — queue its text for local search.
-	s.enqueueOCR(blobID, plain)
 	return "data:image/" + subtype + ";base64," + base64.StdEncoding.EncodeToString(plain), nil
 }
 

@@ -569,6 +569,9 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	}
 	// Keep the owner connection alive so presence and gossipsub keep flowing.
 	s.host.Protect(owner.ID)
+	// We are members now, which is what makes these peers worth caching — the
+	// connection callback ran before that was true. See rememberMembers.
+	s.rememberMembers()
 	// Pull channel history from the owner right away (the peer-connect sync
 	// trigger fired before we joined, so it skipped this guild).
 	go s.syncGuildFromPeer(g.ID, owner.ID)
@@ -683,6 +686,9 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	}
 	// Keep this member reachable (esp. over a relay) and refresh the roster.
 	s.host.Protect(from)
+	// The commit above is what made the joiner a member, so this is the first
+	// moment they are worth caching. See rememberMembers.
+	s.rememberMembers()
 	if len(req.Credential) > 0 {
 		s.clearPendingDMInvite(req.GuildID, accountFingerprintOf(req.Credential))
 	}
@@ -1969,7 +1975,7 @@ func (s *Service) adoptBootstrap(addrs []string) {
 			seen[a] = true
 		}
 	}
-	_ = SaveNetConfig(s.dataDir, NetConfig{Bootstrap: merged})
+	_ = SaveBootstrap(s.dataDir, merged)
 
 	infos, err := parseBootstrapPeers(addrs)
 	if err != nil {

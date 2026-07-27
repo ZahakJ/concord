@@ -80,14 +80,20 @@ Concord inverts the model. The design goals, in order:
 **On bloat.** Simplicity is a pillar, not a nicety — it is what keeps the
 security model auditable and the whole app one reviewable thing. Bloat is easy
 to miss because it arrives *wearing the clothes of a feature*: an AI assistant,
-a "shared brain," a bus for other apps to plug into. The line isn't "never touch
-anything outside the binary" — an *optional, local* capability that runs on your
-machine, stays **off until you opt in**, and that the app works **completely
-without** is fine (reading text out of your own screenshots so search can find
-them is one such: it uses a local OCR engine you install, or it simply isn't
-there). What's rejected is **coupling** — a feature that makes Concord *depend*
-on a cloud, an account, or a sibling product to do its job. If it can't be
-self-contained and offline, it doesn't belong in the tree.
+a "shared brain," a bus for other apps to plug into.
+
+The line used to be drawn at *coupling* — depend on no cloud, no account, no
+sibling product — which left room for "optional, local, off by default" helpers
+that shell out to something you install yourself. Searching the text inside your
+own screenshots was the example, backed by a local OCR engine. It was written,
+removed, written again, and removed again, which is the useful part of the story:
+the line was in the wrong place. "Optional" and "local" did not stop it being a
+thing a user has to install, a second program to keep working, and a paragraph in
+the docs explaining why the feature is missing on their machine. A dependency
+you can decline is still a dependency.
+
+So the line is now simply: **if it isn't in the binary, it isn't in Concord.**
+Whatever ships must work on a fresh machine with nothing else installed.
 
 The deliberate trade-off: Concord targets **friend groups and communities**,
 not million-user servers. A full mesh of peers doesn't scale to stadiums — and

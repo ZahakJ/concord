@@ -162,9 +162,6 @@ export const S = $state({
   searchLoading: false, // a search round-trip is in flight
   showPins: false,
 
-  // Local image-text (OCR) search status: { available, engine, counts }. Null
-  // until first fetched; drives the settings readout. No engine ⇒ available:false.
-  ocr: null,
 
   // newBelow: messages arrived while the user was scrolled up reading history
   // (we deliberately do NOT yank the feed to the bottom in that case).
@@ -1099,21 +1096,11 @@ export async function onLogin() {
   await syncReadState();
   recomputeUnread();
   refreshNetStatus();
-  refreshOcr();
   // Slow poll backstops the presence-event refresh (covers bootstrap dials that
   // don't produce a peer-presence event, e.g. a relay reservation forming).
   setInterval(refreshNetStatus, 15000);
 }
 
-// refreshOcr pulls the local image-text search status into S.ocr. Never throws
-// — a backend without the method (or no engine) just leaves the readout hidden.
-export async function refreshOcr() {
-  try {
-    S.ocr = await api.ocrStatus();
-  } catch {
-    S.ocr = null;
-  }
-}
 
 // refreshNetStatus pulls the current connectivity snapshot into S.netStatus.
 export async function refreshNetStatus() {

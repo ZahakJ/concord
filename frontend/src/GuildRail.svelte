@@ -28,6 +28,7 @@
     dissolveFolder,
     DEFAULT_FOLDER_COLOR,
   } from "./lib/rail.js";
+  import { playFlyby } from "./lib/sounds.js";
 
   function guildMenu(e, sv) {
     openContextMenu(e, guildMenuItems(sv), { title: sv.name });
@@ -45,9 +46,32 @@
     );
   }
 
+  // Hammering the jet flies a Concorde past you. Tuned so ordinary use can't
+  // reach it: eight clicks with no more than FLYBY_GAP between any two, i.e. a
+  // deliberate burst of under three seconds. A pause resets the run — no timer
+  // needed, since the count is only ever read on the next click.
+  const FLYBY_CLICKS = 8;
+  const FLYBY_GAP = 400;
+  let clicks = 0;
+  let lastClick = 0;
+
   let rolling = $state(false);
   function homeClick() {
-    openDMs();
+    // Already in the DM area: openDMs() would re-select the FIRST dm in raw
+    // order, which is rarely the one you're reading — so a click that should be
+    // a no-op re-fetches the right panel and can bump you into another
+    // conversation. The barrel roll still plays; it's local feedback, not
+    // navigation, and the egg below needs the button to feel alive.
+    if (!inDMs) openDMs();
+
+    const now = performance.now();
+    clicks = now - lastClick < FLYBY_GAP ? clicks + 1 : 1;
+    lastClick = now;
+    if (clicks >= FLYBY_CLICKS) {
+      clicks = 0;
+      playFlyby();
+    }
+
     rolling = false;
     requestAnimationFrame(() => (rolling = true));
   }

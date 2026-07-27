@@ -205,9 +205,6 @@ type MessageView struct {
 	Pinned     bool                `json:"pinned"`
 	Reactions  map[string][]string `json:"reactions"` // emoji -> fingerprints
 	Sent       string              `json:"sent"`
-	// OcrMatch marks a search hit that matched through text extracted locally
-	// from an image attachment ("matched text in image"). Search-only.
-	OcrMatch bool `json:"ocrMatch,omitempty"`
 }
 
 type MemberView struct {
@@ -397,7 +394,26 @@ func (b *Bridge) SetBootstrap(addrs string) error {
 			list = append(list, a)
 		}
 	}
-	return appsvc.SaveNetConfig(dir, appsvc.NetConfig{Bootstrap: list})
+	return appsvc.SaveBootstrap(dir, list)
+}
+
+// GetPublicDHT reports whether the public-IPFS-DHT fallback is enabled.
+func (b *Bridge) GetPublicDHT() (bool, error) {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return false, err
+	}
+	return appsvc.LoadNetConfig(dir).PublicDHT, nil
+}
+
+// SetPublicDHT turns the public-DHT fallback on or off. Takes effect on the
+// next launch, since the DHT's bootstrap set is fixed when the host starts.
+func (b *Bridge) SetPublicDHT(on bool) error {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return err
+	}
+	return appsvc.SavePublicDHT(dir, on)
 }
 
 // ---- API methods ----
@@ -473,6 +489,10 @@ func (b *Bridge) Login(passphrase string) error {
 		}
 	})
 	b.svc = svc
+	// Learn (once per version) that our own binary is a published release, so
+	// peers running an older one can pull it from us. Off the critical path:
+	// it hashes the executable and may touch the network.
+	go adoptOwnRelease()
 	return nil
 }
 
@@ -956,16 +976,6 @@ func (b *Bridge) UnreadCounts(sinceISO map[string]string) (map[string]int, error
 		}
 	}
 	return svc.UnreadCounts(sinceNano)
-}
-
-// OcrStatus reports whether local image-text search is active (an OCR engine is
-// installed) and how many attachments have been indexed.
-func (b *Bridge) OcrStatus() (appsvc.OcrStatusView, error) {
-	svc, err := b.service()
-	if err != nil {
-		return appsvc.OcrStatusView{}, err
-	}
-	return svc.OcrStatus(), nil
 }
 
 func (b *Bridge) SendMessage(channelID, content, replyTo string) error {
@@ -1762,8 +1772,7 @@ func messageView(m domain.Message) MessageView {
 		// permanent hole at every 200-row page edge. Fixed width (not
 		// .999999999) so the strings stay lexicographically ordered, which
 		// the frontend's sent/readAnchor comparisons rely on.
-		Sent:     m.Sent.Format("2006-01-02T15:04:05.000000000Z07:00"),
-		OcrMatch: m.OCRMatch,
+		Sent: m.Sent.Format("2006-01-02T15:04:05.000000000Z07:00"),
 	}
 }
 
@@ -1784,6 +1793,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SetBootstrap(argStr(args, 0))
 	case "SetBootstrapLive":
 		return nil, b.SetBootstrapLive(argStr(args, 0))
+	case "GetPublicDHT":
+		return b.GetPublicDHT()
+	case "SetPublicDHT":
+		return nil, b.SetPublicDHT(argBool(args, 0))
 	case "Session":
 		return b.Session(), nil
 	case "AppVersion":
@@ -1858,8 +1871,6 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.Messages(argStr(args, 0))
 	case "MessagesBefore":
 		return b.MessagesBefore(argStr(args, 0), argStr(args, 1), int(argInt64(args, 2)))
-	case "OcrStatus":
-		return b.OcrStatus()
 	case "UnreadCounts":
 		var since map[string]string
 		if len(args) > 0 {
@@ -1890,6 +1901,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.RestartApp()
 	case "CheckForUpdate":
 		return b.CheckForUpdate()
+	case "CheckPeerUpdate":
+		return b.CheckPeerUpdate()
+	case "ApplyPeerUpdate":
+		return nil, b.ApplyPeerUpdate()
 	case "Members":
 		return b.Members(argStr(args, 0))
 	case "RemoveMember":

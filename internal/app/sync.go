@@ -272,6 +272,26 @@ func (s *Service) guildHasMember(guildID, fingerprint string) bool {
 	return false
 }
 
+// sharesGuild reports whether the fingerprint is a member of any guild we are
+// in — "is this peer a friend", for decisions that aren't about one guild.
+func (s *Service) sharesGuild(fingerprint string) bool {
+	if fingerprint == "" {
+		return false
+	}
+	s.mu.RLock()
+	ids := make([]string, 0, len(s.guilds))
+	for id := range s.guilds {
+		ids = append(ids, id)
+	}
+	s.mu.RUnlock()
+	for _, id := range ids {
+		if s.guildHasMember(id, fingerprint) {
+			return true
+		}
+	}
+	return false
+}
+
 // syncGuildFromPeer runs one guild's catch-up against one peer: request, apply
 // commits, apply payload; when commits moved our epoch, one more round picks up
 // history that was encrypted beyond our old reach. The returned error reflects

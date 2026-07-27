@@ -69,6 +69,8 @@ export const api = {
   getBootstrap: () => call("GetBootstrap"),
   setBootstrap: (addrs) => call("SetBootstrap", addrs),
   setBootstrapLive: (addrs) => call("SetBootstrapLive", addrs),
+  getPublicDht: () => call("GetPublicDHT"),
+  setPublicDht: (on) => call("SetPublicDHT", on),
   session: () => call("Session"),
   networkStatus: () => call("NetworkStatus"),
   nudge: () => call("Nudge"),
@@ -139,8 +141,6 @@ export const api = {
   joinViaInvite: (code) => call("JoinViaInvite", code),
   messages: (channelID) => call("Messages", channelID),
   messagesBefore: (channelID, beforeISO, limit) => call("MessagesBefore", channelID, beforeISO, limit),
-  // Local image-text (OCR) search status: engine availability + indexed counts.
-  ocrStatus: () => call("OcrStatus"),
   unreadCounts: (sinceISO) => call("UnreadCounts", sinceISO),
   sendMessage: (channelID, content, replyTo = "") =>
     call("SendMessage", channelID, content, replyTo),
@@ -156,6 +156,8 @@ export const api = {
     call("FetchFile", channelID, blobID, keys, mime),
   linkPreview: (url) => call("LinkPreview", url),
   checkForUpdate: () => call("CheckForUpdate"),
+  checkPeerUpdate: () => call("CheckPeerUpdate"),
+  applyPeerUpdate: () => call("ApplyPeerUpdate"),
   members: (guildID) => call("Members", guildID),
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
   setNickname: (guildID, nick) => call("SetNickname", guildID, nick),

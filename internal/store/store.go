@@ -175,13 +175,6 @@ CREATE TABLE IF NOT EXISTS pending_members (
   created     INTEGER NOT NULL,
   PRIMARY KEY (guild_id, fingerprint)
 );
-CREATE TABLE IF NOT EXISTS attachment_ocr (
-  blob_id  TEXT PRIMARY KEY,
-  text_enc BLOB NOT NULL,
-  nonce    BLOB NOT NULL,
-  status   TEXT NOT NULL,
-  created  INTEGER NOT NULL
-);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -999,19 +992,12 @@ var attachTokenBlobRe = regexp.MustCompile(`\(concord://(?:attach|file)/v1/([0-9
 // SearchMessages scans all stored messages for a case-insensitive substring
 // match, newest first, up to limit. Search runs entirely locally over the
 // user's own (at-rest-encrypted) history — no server ever sees the query.
-// Text extracted from image attachments (see internal/ocr) joins the search:
-// a message whose screenshot contains the words matches too, flagged with
-// OCRMatch so the UI can say "matched text in image".
 func (s *Store) SearchMessages(query string, limit int) ([]domain.Message, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
 	if limit <= 0 {
 		limit = 50
-	}
-	ocrText, err := s.attachmentOCRTexts()
-	if err != nil {
-		ocrText = nil // search still works without the image index
 	}
 	rows, err := s.db.Query(
 		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
@@ -1037,10 +1023,6 @@ func (s *Store) SearchMessages(query string, limit int) ([]domain.Message, error
 		}
 		if !strings.Contains(strings.ToLower(content), needle) {
 			// second chance: text inside the message's image attachments
-			if !ocrMatches(content, needle, ocrText) {
-				continue
-			}
-			m.OCRMatch = true
 		}
 		m.Content = content
 		m.Edited = edited != 0
@@ -1049,183 +1031,6 @@ func (s *Store) SearchMessages(query string, limit int) ([]domain.Message, error
 		out = append(out, m)
 	}
 	return out, rows.Err()
-}
-
-// ocrMatches reports whether any attachment referenced by content has OCR text
-// containing needle.
-func ocrMatches(content, needle string, ocrText map[string]string) bool {
-	if len(ocrText) == 0 || !strings.Contains(content, "concord://") {
-		return false
-	}
-	for _, m := range attachTokenBlobRe.FindAllStringSubmatch(content, -1) {
-		if t, ok := ocrText[m[1]]; ok && strings.Contains(t, needle) {
-			return true
-		}
-	}
-	return false
-}
-
-// -- attachment OCR (text found inside images, sealed at rest) ---------------
-// Extracted text IS message content, so it gets exactly the message treatment:
-// sealed with the store key, decrypted only on this device.
-
-// SaveAttachmentOCR upserts the OCR result for one blob. Text is sealed at rest
-// like message bodies.
-func (s *Store) SaveAttachmentOCR(blobID, text, status string) error {
-	var nonce [nonceSize]byte
-	if _, err := rand.Read(nonce[:]); err != nil {
-		return err
-	}
-	sealed := secretbox.Seal(nil, []byte(text), &nonce, &s.key)
-	_, err := s.db.Exec(
-		`INSERT INTO attachment_ocr (blob_id, text_enc, nonce, status, created)
-		 VALUES (?, ?, ?, ?, ?)
-		 ON CONFLICT(blob_id) DO UPDATE SET
-		   text_enc = excluded.text_enc, nonce = excluded.nonce,
-		   status = excluded.status, created = excluded.created`,
-		blobID, sealed, nonce[:], status, time.Now().UnixNano())
-	if err != nil {
-		return fmt.Errorf("store: save attachment ocr: %w", err)
-	}
-	return nil
-}
-
-// HasAttachmentOCR reports whether a result row exists for the blob (any
-// status — processed once is processed).
-func (s *Store) HasAttachmentOCR(blobID string) (bool, error) {
-	var one int
-	err := s.db.QueryRow(`SELECT 1 FROM attachment_ocr WHERE blob_id = ?`, blobID).Scan(&one)
-	if err == sql.ErrNoRows {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
-// AttachmentOCR returns one blob's extracted text and status ("" status when no
-// row exists).
-func (s *Store) AttachmentOCR(blobID string) (text, status string, err error) {
-	var enc, nonceB []byte
-	err = s.db.QueryRow(
-		`SELECT text_enc, nonce, status FROM attachment_ocr WHERE blob_id = ?`,
-		blobID).Scan(&enc, &nonceB, &status)
-	if err == sql.ErrNoRows {
-		return "", "", nil
-	}
-	if err != nil {
-		return "", "", err
-	}
-	text, err = s.open(enc, nonceB)
-	if err != nil {
-		return "", status, nil // undecryptable → treat as absent text
-	}
-	return text, status, nil
-}
-
-// attachmentOCRTexts returns {blobID: lowercased text} for every usable OCR row
-// — the in-memory index one search pass matches against.
-func (s *Store) attachmentOCRTexts() (map[string]string, error) {
-	rows, err := s.db.Query(
-		`SELECT blob_id, text_enc, nonce FROM attachment_ocr WHERE status = 'ok'`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]string{}
-	for rows.Next() {
-		var id string
-		var enc, nonceB []byte
-		if err := rows.Scan(&id, &enc, &nonceB); err != nil {
-			return nil, err
-		}
-		text, err := s.open(enc, nonceB)
-		if err != nil || text == "" {
-			continue
-		}
-		out[id] = strings.ToLower(text)
-	}
-	return out, rows.Err()
-}
-
-// AttachmentOCRCounts reports rows per status — the honest settings readout.
-func (s *Store) AttachmentOCRCounts() (map[string]int, error) {
-	rows, err := s.db.Query(
-		`SELECT status, COUNT(*) FROM attachment_ocr GROUP BY status`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	out := map[string]int{}
-	for rows.Next() {
-		var st string
-		var n int
-		if err := rows.Scan(&st, &n); err != nil {
-			return nil, err
-		}
-		out[st] = n
-	}
-	return out, rows.Err()
-}
-
-// AttachmentsMissingOCR walks stored messages for attachment tokens whose blobs
-// are locally cached but have no OCR row yet, returning up to limit (blobID,
-// keys) pairs — the sweep's worklist. keys is the token's key||nonce string the
-// caller needs to decrypt the blob.
-func (s *Store) AttachmentsMissingOCR(limit int) (blobIDs, keys []string, err error) {
-	if limit <= 0 {
-		limit = 50
-	}
-	// Phase 1: collect candidate (blobID, keys) pairs from message tokens. The
-	// store runs on a single SQL connection (MaxOpenConns(1)), so no other query
-	// may run while these rows are open — filtering happens after.
-	rows, err := s.db.Query(
-		`SELECT content_enc, nonce FROM messages WHERE deleted = 0 AND kind = ''`)
-	if err != nil {
-		return nil, nil, err
-	}
-	tokenRe := regexp.MustCompile(`\(concord://attach/v1/([0-9a-f]{64})/([A-Za-z0-9_-]+)/`)
-	candidates := map[string]string{} // blobID -> keys
-	var order []string
-	for rows.Next() {
-		var enc, nonceB []byte
-		if err := rows.Scan(&enc, &nonceB); err != nil {
-			rows.Close()
-			return nil, nil, err
-		}
-		content, err := s.open(enc, nonceB)
-		if err != nil || !strings.Contains(content, "concord://attach/") {
-			continue
-		}
-		for _, m := range tokenRe.FindAllStringSubmatch(content, -1) {
-			if _, ok := candidates[m[1]]; !ok {
-				candidates[m[1]] = m[2]
-				order = append(order, m[1])
-			}
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, nil, err
-	}
-	rows.Close()
-
-	// Phase 2: keep only locally-cached blobs with no OCR row yet.
-	for _, id := range order {
-		if len(blobIDs) == limit {
-			break
-		}
-		if done, err := s.HasAttachmentOCR(id); err != nil || done {
-			continue
-		}
-		if _, ok, err := s.GetAttachment(id); err != nil || !ok {
-			continue // blob not cached locally — nothing to read
-		}
-		blobIDs = append(blobIDs, id)
-		keys = append(keys, candidates[id])
-	}
-	return blobIDs, keys, nil
 }
 
 // UpdateContent replaces a message's (encrypted) content, but only if bySender

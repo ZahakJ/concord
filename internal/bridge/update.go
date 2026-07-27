@@ -2,12 +2,14 @@ package bridge
 
 import (
 	"encoding/json"
-	"github.com/zahak/concord/internal/version"
 	"net/http"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/zahak/concord/internal/version"
 )
 
 // updateRepo is the PUBLIC distribution repo — it holds only release binaries,
@@ -112,24 +114,9 @@ type assetRef struct{ Name, URL string }
 // are further narrowed by architecture. Matches on keywords, not exact names,
 // so version-stamped filenames still resolve. Returns ("","") if nothing fits.
 func matchAsset(goos string, assets []assetRef) (url, name string) {
-	// os keyword -> the token our release assets carry (see .github/workflows).
-	// Android matches the sideload APK (concord-X.Y.Z-android.apk): the app
-	// can't swap itself there, but the update card deep-links the download and
-	// Android's installer upgrades in place (same signing key).
-	osKey := map[string]string{
-		"windows": "windows",
-		"linux":   "linux",
-		"darwin":  "macos",
-		"android": "android",
-	}[goos]
+	osKey, archKey := platformKeys(goos, runtime.GOARCH)
 	if osKey == "" {
 		return "", ""
-	}
-	// Web assets carry an arch token (linux-amd64, macos-intel/arm64); Windows
-	// ships amd64 only, so anything matching the OS is fine there.
-	archKey := runtime.GOARCH // "amd64" | "arm64"
-	if goos == "darwin" && archKey == "amd64" {
-		archKey = "intel"
 	}
 	var deskURL, deskName, archURL, archName, anyURL, anyName string
 	for _, a := range assets {
@@ -158,6 +145,95 @@ func matchAsset(goos string, assets []assetRef) (url, name string) {
 	}
 	return anyURL, anyName
 }
+
+// platformKeys maps a GOOS/GOARCH pair to the tokens our release filenames
+// carry (see the Makefile `release` target and scripts/publish-release.sh).
+// Android resolves to the sideload APK (concord-X.Y.Z-android.apk): the app
+// can't swap itself there, but the update card deep-links the download and
+// Android's installer upgrades in place (same signing key). An empty osKey
+// means "no build for this OS".
+func platformKeys(goos, goarch string) (osKey, archKey string) {
+	osKey = map[string]string{
+		"windows": "windows",
+		"linux":   "linux",
+		"darwin":  "macos",
+		"android": "android",
+	}[goos]
+	// Web assets carry an arch token (linux-amd64, macos-intel/arm64); Windows
+	// ships amd64 only, so anything matching the OS is fine there.
+	archKey = goarch // "amd64" | "arm64"
+	if goos == "darwin" && goarch == "amd64" {
+		archKey = "intel"
+	}
+	return osKey, archKey
+}
+
+// assetForThisMachine reports whether one release filename is the right build
+// for THIS binary: same OS, same architecture, same track (native desktop vs
+// zero-dep web), and a bare swappable executable.
+//
+// matchAsset picks a best-of from a whole release and deliberately falls back
+// to an OS-only match when nothing carries an arch token. Here there is no
+// "best of" to fall back to — a peer offers one asset, take it or leave it —
+// so the test is strict on purpose: handing an arm64 machine an amd64 build
+// because it was the only thing on offer would brick the install.
+func assetForThisMachine(goos, goarch, name string) bool {
+	osKey, archKey := platformKeys(goos, goarch)
+	if osKey == "" {
+		return false
+	}
+	n := strings.ToLower(name)
+	if !strings.Contains(n, osKey) {
+		return false
+	}
+	// Only a bare, swappable executable qualifies: the macOS .app zip, the
+	// Android APK and the docs all ship in the same release and must never be
+	// mistaken for the binary. Tested as explicit suffixes rather than "the
+	// file extension" because the version tag puts dots in every name
+	// (concord-linux-amd64-v0.9.0 "ends in .0").
+	if goos == "windows" {
+		if !strings.HasSuffix(n, ".exe") {
+			return false
+		}
+	} else if strings.HasSuffix(n, ".zip") || strings.HasSuffix(n, ".apk") || strings.HasSuffix(n, ".md") {
+		return false
+	}
+	if strings.Contains(n, "desktop") != NativeBuild {
+		return false
+	}
+	// Web assets always carry an arch token. Desktop builds and the Windows
+	// build carry none, so the filename cannot be asked what it is for — and
+	// both are produced for amd64 only (the desktop apps are built on the
+	// publisher's own machine, Windows ships one arch: see the Makefile
+	// `release` target and scripts/publish-release.sh). A name that declines to
+	// say therefore says amd64, and an arm64 machine must refuse it rather than
+	// swap in an executable it cannot run. Publishing an arm64 build of either
+	// means putting the token in the filename, which lands in the first branch.
+	if a := namedArch(n); a != "" {
+		return a == archKey
+	}
+	return (NativeBuild || goos == "windows") && goarch == "amd64"
+}
+
+// namedArch returns the architecture an asset filename declares, or "" if it
+// declares none. The vocabulary is closed on purpose — these are the tokens
+// platformKeys produces, and a name carrying something else is not one of ours.
+func namedArch(name string) string {
+	for _, a := range []string{"amd64", "arm64", "intel"} {
+		if strings.Contains(name, a) {
+			return a
+		}
+	}
+	return ""
+}
+
+// assetVersionRe pulls the release tag out of an asset filename. Every
+// swappable asset is version-stamped (concord-linux-amd64-v0.9.0), which is
+// what lets a downloaded file be bound to the version it claims to be.
+var assetVersionRe = regexp.MustCompile(`v[0-9]+\.[0-9]+\.[0-9]+`)
+
+// assetVersion returns the vX.Y.Z tag embedded in an asset filename, or "".
+func assetVersion(name string) string { return assetVersionRe.FindString(name) }
 
 // --- tiny semver, strictly vMAJOR.MINOR.PATCH -----------------------------
 // A dedicated dep (golang.org/x/mod/semver) is an option but overkill: our tags

@@ -7,19 +7,33 @@
   import SettingRow from "./SettingRow.svelte";
   import { onMount } from "svelte";
   import { api } from "../lib/api.js";
-  import { S, flash, refreshOcr } from "../lib/state.svelte.js";
+  import { flash } from "../lib/state.svelte.js";
 
   let { onClose, onSaved } = $props();
 
   let bootstrap = $state("");
+  let publicDht = $state(false);
   onMount(async () => {
-    refreshOcr(); // refresh the image-text search readout while this is open
     try {
       bootstrap = ((await api.getBootstrap()) || []).join("\n");
+      publicDht = !!(await api.getPublicDht());
     } catch {
       /* ignore */
     }
   });
+
+  // The switch flips optimistically and rolls back if the write fails, so the
+  // row never shows a state the disk doesn't agree with.
+  async function togglePublicDht() {
+    const next = !publicDht;
+    publicDht = next;
+    try {
+      await api.setPublicDht(next);
+    } catch (err) {
+      publicDht = !next;
+      flash(err);
+    }
+  }
 
   // Display-first: the address shows as a copyable chip; editing (a once-ever
   // action for self-hosters) hides behind the pencil.
@@ -100,6 +114,26 @@
     </div>
   </SettingGroup>
 
+  <SettingGroup
+    label="Fallback discovery"
+    note="Concord already remembers everyone you've connected to and re-dials
+          them on its own, so friends keep working even if the rendezvous is
+          gone. This is for the other case: reaching someone you have never met
+          when there's no server left. It works by joining the public IPFS
+          network, which means your peer ID and IP address become visible to
+          strangers there, and anyone watching can tell this address runs
+          Concord. Your messages stay encrypted either way. Applies after a
+          restart."
+  >
+    <SettingRow
+      icon="search"
+      title="Use public DHT nodes"
+      sub="Find new peers without any Concord server — at the cost of being visible"
+      checked={publicDht}
+      onclick={togglePublicDht}
+    />
+  </SettingGroup>
+
   <SettingGroup label="Diagnostics">
     <SettingRow
       icon="poll"
@@ -110,20 +144,6 @@
     />
   </SettingGroup>
 
-  <SettingGroup
-    label="Local search"
-    note={S.ocr?.available
-      ? `Text in shared screenshots is read out on this machine (${S.ocr.engine}) and joins search. Extracted text is sealed at rest like your messages, and never leaves this device.`
-      : "Optional: install a local OCR engine and Concord will search the text inside shared screenshots. Run `pip install rapidocr-onnxruntime`, then put scripts/concord-ocr on your PATH. It runs entirely on this machine — nothing is ever uploaded."}
-  >
-    <SettingRow
-      icon="imagetext"
-      title="Search inside images"
-      sub={S.ocr?.available
-        ? `${S.ocr.counts?.ok || 0} image${(S.ocr.counts?.ok || 0) === 1 ? "" : "s"} indexed`
-        : "Not installed on this machine"}
-    />
-  </SettingGroup>
 </Modal>
 
 <style>

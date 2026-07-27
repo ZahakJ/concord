@@ -23,6 +23,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/metrics"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/multiformats/go-multiaddr"
@@ -68,6 +69,20 @@ type Config struct {
 	EnableDHT      bool
 	BootstrapPeers []peer.AddrInfo
 	Rendezvous     string
+
+	// RememberedPeers are peers this node has connected to before, loaded from
+	// disk by the app layer. They are the fallback that needs no server at all:
+	// if the rendezvous disappears, yesterday's friends are still dialable at
+	// yesterday's addresses. They seed the DHT routing table, the startup dial,
+	// and the relay candidate list.
+	RememberedPeers []peer.AddrInfo
+
+	// PublicBootstrap adds the public IPFS DHT bootstrappers alongside (or
+	// instead of) the configured rendezvous, so two peers who have never met can
+	// still find each other with no Concord-specific server alive. It costs
+	// metadata: this node's peer ID and addresses become visible to a public
+	// network. Opt-in only — see NetConfig.PublicDHT.
+	PublicBootstrap bool
 }
 
 // Host is Concord's networking node.
@@ -80,12 +95,22 @@ type Host struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	mdns interface{ Close() error }
-	kdht interface{ Close() error }
+	mdns   interface{ Close() error }
+	kdht   interface{ Close() error }
+	relays *relaySource
 
-	mu             sync.RWMutex
+	mu sync.RWMutex
+	// relaySvc is the circuit relay we run for guild members while publicly
+	// reachable; nil otherwise. Guarded by mu, which serveRelay also holds.
+	relaySvc       interface{ Close() error }
 	onConnected    []func(peer.ID)
 	onDisconnected []func(peer.ID)
+	onRedialFailed func(peer.ID)
+	// redialReported holds the remembered peers we have already reported as
+	// unreachable during the current outage, so the retry loop's backoff cannot
+	// turn one absent friend into a stream of failures. Cleared per peer the
+	// moment we reach it again.
+	redialReported map[peer.ID]bool
 }
 
 // New brings up a libp2p host bound to cfg.Identity. The caller owns shutdown
@@ -109,6 +134,13 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		listen = defaultListenAddrs
 	}
 
+	// The relay candidate source is built before the host because AutoRelay may
+	// call it during libp2p.New; it learns the host afterwards.
+	relays := &relaySource{
+		boot:  append([]peer.AddrInfo{}, cfg.BootstrapPeers...),
+		known: append([]peer.AddrInfo{}, cfg.RememberedPeers...),
+	}
+
 	bwc := metrics.NewBandwidthCounter()
 	opts := []libp2p.Option{
 		libp2p.Identity(priv),
@@ -120,13 +152,25 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		libp2p.BandwidthReporter(bwc),
 	}
 	// Internet-reach options: hole-punching to establish direct connections
-	// through NATs, and AutoRelay (using the bootstrap nodes as relays) as a
-	// fallback when a direct path can't be found.
+	// through NATs, and AutoRelay — over the rendezvous nodes and, failing
+	// those, over friends — as a fallback when no direct path can be found.
 	if cfg.EnableDHT {
 		opts = append(opts, libp2p.EnableHolePunching())
-		if len(cfg.BootstrapPeers) > 0 {
+		if len(cfg.BootstrapPeers) > 0 || len(cfg.RememberedPeers) > 0 {
 			opts = append(opts,
-				libp2p.EnableAutoRelayWithStaticRelays(cfg.BootstrapPeers),
+				// A peer source rather than WithStaticRelays: static relays pin
+				// us to the rendezvous for the life of the process, so when it
+				// dies a NAT'd peer has no way to be reached at all. The source
+				// keeps offering the rendezvous first, then falls back to
+				// friends who happen to have a public address.
+				libp2p.EnableAutoRelayWithPeerSource(relays.candidates,
+					// WithStaticRelays set this implicitly. Without it AutoRelay
+					// sits out a 3-minute boot delay collecting four candidates
+					// before reserving anything, which would leave the
+					// /p2p-circuit addr in a freshly-generated invite code dead
+					// for those three minutes.
+					autorelay.WithMinCandidates(1),
+				),
 				// AutoRelay only reserves a relay slot once AutoNAT concludes we
 				// are NAT'd, which with a single bootstrap node as the only
 				// AutoNAT server can take minutes or never conclude — leaving the
@@ -145,12 +189,15 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		return nil, fmt.Errorf("net: start libp2p host: %w", err)
 	}
 
+	relays.setHost(h)
+
 	hctx, cancel := context.WithCancel(ctx)
 	node := &Host{
 		h:          h,
 		serviceTag: cfg.ServiceTag,
 		bwc:        bwc,
 		pinger:     ping.NewPingService(h),
+		relays:     relays,
 		ctx:        hctx,
 		cancel:     cancel,
 	}
@@ -175,6 +222,8 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 			cancel()
 			return nil, err
 		}
+		node.serveRelay()
+		node.syncRelayService()
 	}
 	return node, nil
 }
@@ -209,7 +258,7 @@ func (n *Host) Connect(ctx context.Context, pi peer.AddrInfo) error {
 // Protect marks a peer connection as important so the connection manager won't
 // prune it — used to keep guild members (esp. over a relay) reachable.
 func (n *Host) Protect(p peer.ID) {
-	n.h.ConnManager().Protect(p, "concord-member")
+	n.h.ConnManager().Protect(p, relayTag)
 }
 
 // PeerID returns this node's libp2p peer ID.
@@ -267,6 +316,15 @@ func (n *Host) OnPeerDisconnected(fn func(peer.ID)) {
 	n.mu.Unlock()
 }
 
+// OnRedialFailed registers a callback fired when a remembered peer could not be
+// re-dialled, so the app layer can retire addresses that have gone stale
+// instead of paying for them on every launch.
+func (n *Host) OnRedialFailed(fn func(peer.ID)) {
+	n.mu.Lock()
+	n.onRedialFailed = fn
+	n.mu.Unlock()
+}
+
 func (n *Host) connectedCallbacks() []func(peer.ID) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
@@ -285,6 +343,47 @@ func (n *Host) fire(cbs []func(peer.ID), p peer.ID) {
 	}
 }
 
+// redialFailed reports a remembered peer that would not answer — at most once
+// per contiguous outage, not once per attempt.
+//
+// keepBootstrapped re-dials on a 2s/4s/8s/16s backoff, and the app layer retires
+// a peer after a handful of failures. Reporting every attempt spends that whole
+// budget in about half a minute, so the friend who happens to be asleep on the
+// night the rendezvous dies is deleted from the cache — deleting, with no
+// in-app way back, the only route to them that did not need a server. The
+// budget is meant to count launches (or outages), which is what this makes it
+// count.
+func (n *Host) redialFailed(p peer.ID) {
+	n.mu.Lock()
+	fn := n.onRedialFailed
+	if fn == nil {
+		// The app registers its callback a moment after the host starts, so the
+		// first attempt can land here with nobody listening. Don't spend the
+		// peer's one report on a call that goes nowhere, or an address that
+		// really is dead would never be retired.
+		n.mu.Unlock()
+		return
+	}
+	if n.redialReported == nil {
+		n.redialReported = map[peer.ID]bool{}
+	}
+	reported := n.redialReported[p]
+	n.redialReported[p] = true
+	n.mu.Unlock()
+	if reported {
+		return
+	}
+	fn(p)
+}
+
+// redialReached re-arms the failure report for a peer we have got back to, so a
+// genuinely separate outage later in the same session counts once more.
+func (n *Host) redialReached(p peer.ID) {
+	n.mu.Lock()
+	delete(n.redialReported, p)
+	n.mu.Unlock()
+}
+
 // Close shuts down discovery and the libp2p host.
 func (n *Host) Close() error {
 	n.cancel()
@@ -294,5 +393,11 @@ func (n *Host) Close() error {
 	if n.kdht != nil {
 		_ = n.kdht.Close()
 	}
+	n.mu.Lock()
+	if n.relaySvc != nil {
+		_ = n.relaySvc.Close()
+		n.relaySvc = nil
+	}
+	n.mu.Unlock()
 	return n.h.Close()
 }

@@ -260,7 +260,7 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase string) (LinkResu
 		return LinkResult{}, err
 	}
 	if len(resp.Bootstrap) > 0 {
-		_ = SaveNetConfig(dataDir, NetConfig{Bootstrap: resp.Bootstrap})
+		_ = SaveBootstrap(dataDir, resp.Bootstrap)
 	}
 	return LinkResult{GuildInvites: resp.GuildInvites, Profile: resp.Profile, Verified: resp.Verified}, nil
 }

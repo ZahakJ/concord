@@ -45,6 +45,7 @@
   // place (same signing key). iOS is store-only, so the card hides there.
   const isMobileApp = window.Capacitor?.getPlatform?.() === "ios";
   let updInfo = $state(null); // CheckForUpdate view, once the user checks
+  let peerInfo = $state(null); // CheckPeerUpdate view, when GitHub had nothing
   let checking = $state(false);
   let canSelf = $state(false); // this install can swap its own binary
   let upd = $state({ phase: "idle", percent: 0 }); // backend UpdateProgress
@@ -53,17 +54,37 @@
 
   async function checkNow() {
     checking = true;
+    peerInfo = null;
     try {
       updInfo = await api.checkForUpdate();
     } catch (err) {
       flash(err);
-    } finally {
-      checking = false;
     }
+    // GitHub is the canonical source, but it can be unreachable, rate-limited
+    // or blocked on the day a fix ships. A peer we're already connected to may
+    // hold the very same signed build; the signature is verified either way, so
+    // where the bytes came from doesn't change what gets installed. Silent on
+    // failure — this is a bonus source, never the reason a check "fails".
+    if (!updInfo?.available) {
+      try {
+        peerInfo = await api.checkPeerUpdate();
+      } catch {
+        /* locked, or a backend without peer updates */
+      }
+    }
+    checking = false;
   }
   async function updateNow() {
     try {
       await api.applyUpdate();
+      poll();
+    } catch (err) {
+      flash(err);
+    }
+  }
+  async function updateFromPeer() {
+    try {
+      await api.applyPeerUpdate();
       poll();
     } catch (err) {
       flash(err);
@@ -240,6 +261,9 @@
                 {upd.error}
               {:else if updInfo?.available}
                 {updInfo.latest} is available.
+              {:else if peerInfo?.available}
+                {peerInfo.latest} is available from
+                {peerInfo.peers === 1 ? "a peer" : `${peerInfo.peers} peers`} on your network.
               {:else if updInfo}
                 You're on the latest version. ✨
               {:else}
@@ -259,6 +283,8 @@
             <a class="upd-btn link" href={updInfo.download || updInfo.url} target="_blank" rel="noreferrer">
               Download {updInfo.latest}
             </a>
+          {:else if peerInfo?.available && canSelf}
+            <button class="upd-btn" onclick={updateFromPeer}>Update from peer</button>
           {:else}
             <button class="upd-btn ghosted" onclick={checkNow} disabled={checking}>
               {checking ? "Checking…" : "Check for updates"}
