@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -28,8 +29,11 @@ const (
 )
 
 func encodeInviteCode(ic inviteCode) string {
-	addrs := compactcode.DedupeCap(
-		compactcode.ElideCircuits(ic.OwnerAddr, ic.Bootstrap), compactcode.MaxAddrs)
+	// Elide against the bootstrap list as encoded, not as given: an entry the
+	// cap drops can't be an index the decoder resolves.
+	boot := compactcode.DedupeCap(ic.Bootstrap, compactcode.MaxAddrs)
+	kept, circuits := compactcode.ElideCircuits(ic.OwnerAddr, boot)
+	addrs := compactcode.DedupeCap(compactcode.RankAddrs(kept), compactcode.MaxAddrs)
 	b := make([]byte, 0, 256)
 	if raw, err := hex.DecodeString(ic.GuildID); err == nil && ic.GuildID == hex.EncodeToString(raw) {
 		b = append(b, gidHex)
@@ -41,7 +45,8 @@ func encodeInviteCode(ic inviteCode) string {
 	b = compactcode.AppendString(b, ic.GuildName)
 	b = compactcode.AppendPeerID(b, ic.OwnerID)
 	b = compactcode.AppendAddrs(b, addrs)
-	b = compactcode.AppendAddrs(b, compactcode.DedupeCap(ic.Bootstrap, compactcode.MaxAddrs))
+	b = compactcode.AppendAddrs(b, boot)
+	b = binary.AppendUvarint(b, circuits)
 	return invitePrefix + base64.RawURLEncoding.EncodeToString(b)
 }
 
@@ -79,9 +84,15 @@ func decodeInviteV1(s string) (inviteCode, error) {
 	ic.OwnerID = r.PeerID()
 	ic.OwnerAddr = r.Addrs()
 	ic.Bootstrap = r.Addrs()
+	// The circuit mask was appended after the first CI1 codes shipped; those
+	// end here and meant "a circuit for every rendezvous".
+	circuits := compactcode.AllCircuits
+	if r.More() {
+		circuits = r.Uvarint()
+	}
 	if r.Err() != nil || ic.GuildID == "" || ic.OwnerID == "" {
 		return inviteCode{}, errors.New("app: bad invite code")
 	}
-	ic.OwnerAddr = compactcode.RestoreCircuits(ic.OwnerAddr, ic.Bootstrap)
+	ic.OwnerAddr = compactcode.RestoreCircuits(ic.OwnerAddr, ic.Bootstrap, circuits)
 	return ic, nil
 }

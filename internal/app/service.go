@@ -665,6 +665,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		Identity:        id,
 		HostKey:         hostKey,
 		EnableMDNS:      !cfg.DisableMDNS,
+		ListenPort:      netCfg.ListenPort,
 		EnableDHT:       wantDHT(bootstrap, netCfg.PublicDHT, remembered),
 		BootstrapPeers:  bootstrap,
 		PublicBootstrap: netCfg.PublicDHT,
@@ -892,6 +893,11 @@ type NetStatus struct {
 	BootstrapReached bool `json:"bootstrapReached"` // at least one rendezvous node connected
 	HasBootstrap     bool `json:"hasBootstrap"`     // any rendezvous node is configured
 	OutOfSyncGuilds  int  `json:"outOfSyncGuilds"`  // guilds currently stranded (healing)
+	// PinnedPortTaken: the fixed listen port was unavailable at startup and the
+	// node fell back to an ephemeral one, so the user's router forward is dead
+	// this session. Riding along here because it is the one status the settings
+	// screen cannot work out for itself.
+	PinnedPortTaken bool `json:"pinnedPortTaken"`
 }
 
 // NetworkStatus reports current connectivity for the UI banner: how many peers
@@ -899,8 +905,9 @@ type NetStatus struct {
 // guilds are mid-heal. Mobile surfaces this as a connecting/online/offline pill.
 func (s *Service) NetworkStatus() NetStatus {
 	ns := NetStatus{
-		Peers:        len(s.host.Peers()),
-		HasBootstrap: len(s.bootstrap) > 0,
+		Peers:           len(s.host.Peers()),
+		HasBootstrap:    len(s.bootstrap) > 0,
+		PinnedPortTaken: s.host.PinnedPortTaken(),
 	}
 	ns.BootstrapReached = len(s.mailboxNodes()) > 0
 	s.mu.RLock()

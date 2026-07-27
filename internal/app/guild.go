@@ -484,20 +484,11 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 	}
 
 	ai := s.host.AddrInfo()
-	addrs := make([]string, 0, len(ai.Addrs))
-	for _, a := range ai.Addrs {
-		addrs = append(addrs, a.String())
-	}
-	// Add relay "circuit" addresses derived from our rendezvous nodes, so a
-	// joiner behind a different NAT can reach us THROUGH the relay even when our
-	// own (private/LAN) addresses are undialable. Format:
-	//   /dns/host/tcp/4001/p2p/<relayID>/p2p-circuit
+	// Relay "circuit" addresses let a joiner behind a different NAT reach us
+	// THROUGH the relay when our own addresses are undialable; codeAddrs adds
+	// one per reservation we actually hold.
 	bootstrap := LoadNetConfig(s.dataDir).Bootstrap
-	for _, b := range bootstrap {
-		if b = strings.TrimSpace(b); b != "" {
-			addrs = append(addrs, b+"/p2p-circuit")
-		}
-	}
+	addrs := codeAddrs(ai.Addrs, bootstrap)
 	return encodeInviteCode(inviteCode{
 		GuildID:   g.ID,
 		GuildName: g.Name,

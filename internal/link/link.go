@@ -68,14 +68,18 @@ const codePrefix = "CL1"
 // addresses elided (re-derived from the carried bootstrap list on decode).
 // Roughly a third the size of the old JSON encoding.
 func (o *Offer) Encode() string {
-	addrs := compactcode.DedupeCap(
-		compactcode.ElideCircuits(o.Addrs, o.Bootstrap), compactcode.MaxAddrs)
+	// Elide against the bootstrap list as encoded, not as given: an entry the
+	// cap drops can't be an index the decoder resolves.
+	boot := compactcode.DedupeCap(o.Bootstrap, compactcode.MaxAddrs)
+	kept, circuits := compactcode.ElideCircuits(o.Addrs, boot)
+	addrs := compactcode.DedupeCap(compactcode.RankAddrs(kept), compactcode.MaxAddrs)
 	b := make([]byte, 0, 256)
 	b = append(b, o.Secret...)
 	b = compactcode.AppendPeerID(b, o.PeerID)
 	b = binary.AppendUvarint(b, uint64(o.CreatedAt))
 	b = compactcode.AppendAddrs(b, addrs)
-	b = compactcode.AppendAddrs(b, compactcode.DedupeCap(o.Bootstrap, compactcode.MaxAddrs))
+	b = compactcode.AppendAddrs(b, boot)
+	b = binary.AppendUvarint(b, circuits)
 	return codePrefix + base64.RawURLEncoding.EncodeToString(b)
 }
 
@@ -111,10 +115,16 @@ func decodeOfferV1(s string) (*Offer, error) {
 	o.CreatedAt = int64(r.Uvarint())
 	o.Addrs = r.Addrs()
 	o.Bootstrap = r.Addrs()
+	// The circuit mask was appended after the first CL1 codes shipped; those
+	// end here and meant "a circuit for every rendezvous".
+	circuits := compactcode.AllCircuits
+	if r.More() {
+		circuits = r.Uvarint()
+	}
 	if r.Err() != nil {
 		return nil, errors.New("link: bad code")
 	}
-	o.Addrs = compactcode.RestoreCircuits(o.Addrs, o.Bootstrap)
+	o.Addrs = compactcode.RestoreCircuits(o.Addrs, o.Bootstrap, circuits)
 	return validateOffer(o)
 }
 

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -68,22 +67,10 @@ type LinkResult struct {
 // is active at a time (a new call supersedes the previous).
 func (s *Service) LinkOffer() (string, error) {
 	ai := s.host.AddrInfo()
-	addrs := make([]string, 0, len(ai.Addrs))
-	for _, a := range ai.Addrs {
-		// Keep the QR small and scannable: drop loopback and link-local addrs a
-		// second device can't reach anyway; keep routable LAN/public addrs.
-		if as := a.String(); !strings.Contains(as, "127.0.0.1") &&
-			!strings.Contains(as, "/ip6/::1") && !strings.Contains(as, "fe80:") {
-			addrs = append(addrs, as)
-		}
-	}
-	// Carry our rendezvous nodes as circuit addresses too, so a joiner on a
-	// different network can still reach us through the relay (mirrors InviteCode).
-	for _, b := range LoadNetConfig(s.dataDir).Bootstrap {
-		if b = strings.TrimSpace(b); b != "" {
-			addrs = append(addrs, b+"/p2p-circuit")
-		}
-	}
+	// Same address set as an invite code, including relay paths for the
+	// reservations we hold — the QR stays small because Encode ranks and caps,
+	// and drops loopback/link-local a second device can't reach anyway.
+	addrs := codeAddrs(ai.Addrs, LoadNetConfig(s.dataDir).Bootstrap)
 	off, err := link.NewOffer(ai.ID.String(), addrs)
 	if err != nil {
 		return "", err

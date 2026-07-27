@@ -16,7 +16,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -213,6 +212,13 @@ CREATE TABLE IF NOT EXISTS pending_members (
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
 		}
+	}
+	// Image-text search is gone (it needed an OCR engine installed outside the
+	// binary). Drop the table it filled: the rows are sealed, but they are text
+	// read out of people's screenshots, and a feature described as removed should
+	// not leave its data sitting in the database forever.
+	if _, err := s.db.Exec(`DROP TABLE IF EXISTS attachment_ocr`); err != nil {
+		return fmt.Errorf("store: migrate: %w", err)
 	}
 	// Index on (channel_id, updated) — added after the column exists. Without it,
 	// MAX(updated) per channel is a full-partition scan; LatestTimestamp runs per
@@ -985,10 +991,6 @@ func (s *Store) TogglePinned(id string) (bool, error) {
 	return newVal == 1, nil
 }
 
-// attachTokenBlobRe pulls the blob IDs out of attachment/file reference
-// tokens embedded in message content (see internal/app/attach.go).
-var attachTokenBlobRe = regexp.MustCompile(`\(concord://(?:attach|file)/v1/([0-9a-f]{64})/`)
-
 // SearchMessages scans all stored messages for a case-insensitive substring
 // match, newest first, up to limit. Search runs entirely locally over the
 // user's own (at-rest-encrypted) history — no server ever sees the query.
@@ -1022,8 +1024,9 @@ func (s *Store) SearchMessages(query string, limit int) ([]domain.Message, error
 			continue // skip undecryptable rows rather than abort the search
 		}
 		if !strings.Contains(strings.ToLower(content), needle) {
-			// second chance: text inside the message's image attachments
+			continue
 		}
+
 		m.Content = content
 		m.Edited = edited != 0
 		m.Pinned = pinned != 0

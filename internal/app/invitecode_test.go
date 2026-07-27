@@ -77,6 +77,58 @@ func TestInviteCodeCompactFormat(t *testing.T) {
 	t.Logf("invite code: legacy %d chars → compact %d chars", len(legacy), len(code))
 }
 
+// End of the ranking story: an owner with more interfaces than the code has
+// slots must still hand the joiner the forwarded port first and the relay
+// second, with the LAN clutter taking whatever is left.
+func TestInviteCodeRanksAddressesBeforeCapping(t *testing.T) {
+	ic := realisticInvite()
+	boot := ic.Bootstrap[0]
+	ic.OwnerAddr = []string{
+		"/ip4/127.0.0.1/tcp/4001",
+		"/ip4/192.168.1.23/tcp/4001",
+		"/ip4/192.168.1.23/udp/4001/quic-v1",
+		"/ip4/172.17.0.1/tcp/4001",
+		"/ip4/172.17.0.1/udp/4001/quic-v1",
+		"/ip4/172.18.0.1/tcp/4001",
+		"/ip4/172.18.0.1/udp/4001/quic-v1",
+		"/ip4/10.8.0.6/tcp/4001",
+		"/ip4/10.8.0.6/udp/4001/quic-v1",
+		boot + "/p2p-circuit",
+		"/ip4/93.184.216.34/tcp/4001",
+	}
+
+	got, err := decodeInviteCode(encodeInviteCode(ic))
+	if err != nil {
+		t.Fatalf("decodeInviteCode: %v", err)
+	}
+	if len(got.OwnerAddr) == 0 || got.OwnerAddr[0] != "/ip4/93.184.216.34/tcp/4001" {
+		t.Fatalf("forwarded port must be dialled first, got %v", got.OwnerAddr)
+	}
+	if got.OwnerAddr[1] != boot+"/p2p-circuit" {
+		t.Fatalf("relay circuit must follow it, got %v", got.OwnerAddr)
+	}
+}
+
+// A rendezvous we hold no reservation with must not come back on the other
+// side as a dialable address.
+func TestInviteCodeDoesNotInventCircuits(t *testing.T) {
+	ic := realisticInvite()
+	ic.OwnerAddr = []string{"/ip4/192.168.1.23/tcp/4001"}
+
+	got, err := decodeInviteCode(encodeInviteCode(ic))
+	if err != nil {
+		t.Fatalf("decodeInviteCode: %v", err)
+	}
+	for _, a := range got.OwnerAddr {
+		if strings.HasSuffix(a, "/p2p-circuit") {
+			t.Fatalf("code invented a relay path: %v", got.OwnerAddr)
+		}
+	}
+	if len(got.Bootstrap) != 1 {
+		t.Fatalf("the rendezvous itself is still worth adopting: %v", got.Bootstrap)
+	}
+}
+
 // A non-hex guild ID (or uppercase hex, which wouldn't survive re-encoding)
 // must fall back to the raw-string representation losslessly.
 func TestInviteCodeNonHexGuildID(t *testing.T) {

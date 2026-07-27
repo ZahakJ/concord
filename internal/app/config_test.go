@@ -1,6 +1,9 @@
 package app
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 // SaveNetConfig writes the whole struct, so the field-at-a-time helpers are the
 // only safe way to touch one setting. This is the regression that would
@@ -20,6 +23,13 @@ func TestNetConfigWritersPreserveSiblings(t *testing.T) {
 		t.Fatalf("public-DHT write dropped the rendezvous: %+v", c)
 	}
 
+	if err := SaveListenPort(dir, 4001); err != nil {
+		t.Fatalf("SaveListenPort: %v", err)
+	}
+	if c := LoadNetConfig(dir); c.ListenPort != 4001 || !c.PublicDHT || len(c.Bootstrap) != 1 {
+		t.Fatalf("listen-port write dropped a sibling: %+v", c)
+	}
+
 	if err := SaveBootstrap(dir, []string{addr, "  "}); err != nil {
 		t.Fatalf("SaveBootstrap: %v", err)
 	}
@@ -27,8 +37,44 @@ func TestNetConfigWritersPreserveSiblings(t *testing.T) {
 	if !c.PublicDHT {
 		t.Fatal("rendezvous write cleared the public-DHT opt-in")
 	}
+	if c.ListenPort != 4001 {
+		t.Fatal("rendezvous write cleared the pinned listen port")
+	}
 	if len(c.Bootstrap) != 1 {
 		t.Fatalf("want blank addresses dropped, got %+v", c.Bootstrap)
+	}
+}
+
+// A port the host cannot bind would leave the app unable to start, with the
+// setting that broke it only reachable from inside the app. Refuse it here.
+func TestSaveListenPortRejectsUnbindable(t *testing.T) {
+	dir := t.TempDir()
+	for _, p := range []int{80, 1023, -1, 65536} {
+		if err := SaveListenPort(dir, p); err == nil {
+			t.Fatalf("port %d should be refused", p)
+		}
+	}
+	if err := SaveListenPort(dir, 0); err != nil {
+		t.Fatalf("0 means automatic and must be accepted: %v", err)
+	}
+	if c := LoadNetConfig(dir); c.ListenPort != 0 {
+		t.Fatalf("a refused port must not be written: %+v", c)
+	}
+}
+
+// The file is plaintext and hand-editable, so the writers' validation is not
+// the last line of defence. A negative port builds an unparseable multiaddr and
+// the host never starts — leaving the only screen that could fix the setting
+// behind a login that cannot happen.
+func TestLoadNetConfigRepairsAnUnusablePort(t *testing.T) {
+	for _, raw := range []string{`{"listenPort":-1}`, `{"listenPort":70000}`, `{"listenPort":80}`} {
+		dir := t.TempDir()
+		if err := os.WriteFile(netConfigPath(dir), []byte(raw), 0o600); err != nil {
+			t.Fatalf("write config: %v", err)
+		}
+		if got := LoadNetConfig(dir).ListenPort; got != 0 {
+			t.Fatalf("%s: want the port ignored, got %d", raw, got)
+		}
 	}
 }
 
@@ -39,5 +85,8 @@ func TestLoadNetConfigDefaultsToOff(t *testing.T) {
 	}
 	if len(c.Bootstrap) != 0 {
 		t.Fatalf("want no rendezvous by default, got %+v", c.Bootstrap)
+	}
+	if c.ListenPort != 0 {
+		t.Fatalf("want an automatic port by default, got %d", c.ListenPort)
 	}
 }

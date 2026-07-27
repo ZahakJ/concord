@@ -74,6 +74,12 @@ func ResetIdentity(dataDir string) error {
 		dbPathIn(dataDir),
 		dbPathIn(dataDir) + "-wal",
 		dbPathIn(dataDir) + "-shm",
+		// The remembered-peer cache is plaintext and outlives the keystore, so
+		// leaving it would hand the new identity the old one's contact list —
+		// and the first launch dials it, from the same address, announcing to
+		// every one of those peers that the two identities are the same person.
+		// That is the one thing starting over is for.
+		peerCachePath(dataDir),
 	} {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return err

@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,7 +24,18 @@ type NetConfig struct {
 	// it is the only one with a privacy cost: this node's peer ID and addresses
 	// become visible on a public network. Off unless the user asks for it.
 	PublicDHT bool `json:"publicDHT"`
+
+	// ListenPort pins the port the node listens on so it can be forwarded on
+	// the user's router — the one setting that buys a direct connection with no
+	// relay and no rendezvous in the path. 0 (the default) takes a fresh
+	// ephemeral port every launch, which no forwarding rule can follow.
+	ListenPort int `json:"listenPort,omitempty"`
 }
+
+// validListenPort reports whether p is a port a user can pin. 0 means "off".
+// Ports below 1024 need privileges the app doesn't have on Linux or macOS, so
+// they are refused up front rather than at the bind that fails on next launch.
+func validListenPort(p int) bool { return p == 0 || (p >= 1024 && p <= 65535) }
 
 func netConfigPath(dataDir string) string {
 	return filepath.Join(dataDir, "netconfig.json")
@@ -34,6 +46,15 @@ func LoadNetConfig(dataDir string) NetConfig {
 	var c NetConfig
 	if b, err := os.ReadFile(netConfigPath(dataDir)); err == nil {
 		_ = json.Unmarshal(b, &c)
+	}
+	// SaveListenPort refuses a bad port, but this file is plaintext and meant to
+	// be hand-editable, so one can still arrive from an editor, a sync conflict
+	// or a truncated write — and it does not merely get ignored downstream: a
+	// negative port builds a multiaddr that will not parse, the host never
+	// starts, and the only screen that could change the setting back is behind
+	// that host. Nothing written here may be able to brick startup.
+	if !validListenPort(c.ListenPort) {
+		c.ListenPort = 0
 	}
 	return c
 }
@@ -70,5 +91,17 @@ func SaveBootstrap(dataDir string, addrs []string) error {
 func SavePublicDHT(dataDir string, on bool) error {
 	c := LoadNetConfig(dataDir)
 	c.PublicDHT = on
+	return SaveNetConfig(dataDir, c)
+}
+
+// SaveListenPort pins (or, with 0, unpins) the listen port, preserving the rest
+// of the file. It takes effect on the next launch: the sockets are bound when
+// the host starts.
+func SaveListenPort(dataDir string, port int) error {
+	if !validListenPort(port) {
+		return fmt.Errorf("app: listen port must be 0 (automatic) or between 1024 and 65535")
+	}
+	c := LoadNetConfig(dataDir)
+	c.ListenPort = port
 	return SaveNetConfig(dataDir, c)
 }

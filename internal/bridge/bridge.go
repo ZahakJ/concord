@@ -416,6 +416,27 @@ func (b *Bridge) SetPublicDHT(on bool) error {
 	return appsvc.SavePublicDHT(dir, on)
 }
 
+// GetListenPort returns the pinned listen port, 0 when the node takes an
+// ephemeral one.
+func (b *Bridge) GetListenPort() (int, error) {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return 0, err
+	}
+	return appsvc.LoadNetConfig(dir).ListenPort, nil
+}
+
+// SetListenPort pins the listen port so it can be forwarded on the router (0 =
+// automatic). Takes effect on the next launch, since the sockets are bound when
+// the host starts.
+func (b *Bridge) SetListenPort(port int) error {
+	dir, err := appsvc.DataDir()
+	if err != nil {
+		return err
+	}
+	return appsvc.SaveListenPort(dir, port)
+}
+
 // ---- API methods ----
 
 // Login unlocks (or creates) the identity and starts the Service, wiring live
@@ -1797,6 +1818,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.GetPublicDHT()
 	case "SetPublicDHT":
 		return nil, b.SetPublicDHT(argBool(args, 0))
+	case "GetListenPort":
+		return b.GetListenPort()
+	case "SetListenPort":
+		return nil, b.SetListenPort(argInt(args, 0))
 	case "Session":
 		return b.Session(), nil
 	case "AppVersion":

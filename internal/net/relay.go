@@ -1,6 +1,8 @@
 package net
 
 import (
+	"time"
+
 	"context"
 	"log"
 	"sync"
@@ -106,12 +108,44 @@ func (s *relaySource) candidates(_ context.Context, num int) <-chan peer.AddrInf
 	}
 	// Peers we are talking to right now — including ones we learned about after
 	// startup, which is the case the seed lists can never cover.
+	//
+	// Only ones we have vouched for. Whoever relays for us sees every friend who
+	// dials us through the circuit — their peer IDs, their addresses, when they
+	// connect — and the circuit address lands in our invite codes and our DHT
+	// record, so it is handed to people who never chose it. Offering any
+	// connected stranger would let someone who simply advertises the rendezvous
+	// key volunteer as our relay and collect the lot. memberACL is already this
+	// careful about whom we relay FOR; this is the same care in the other
+	// direction.
 	for _, p := range h.Network().Peers() {
+		if !h.ConnManager().IsProtected(p, relayTag) {
+			continue
+		}
 		if !offer(p, h.Peerstore().Addrs(p)) {
 			return out
 		}
 	}
 	return out
+}
+
+// peerRelayResources sizes the relay we run for friends.
+//
+// The library defaults cap a circuit at 128 KiB and two minutes, which is fine
+// for a hole-punch handshake and useless for the job this relay exists to do:
+// when the rendezvous is gone, a friend's whole session rides this circuit, and
+// one image attachment is already past the byte cap. The rendezvous node solved
+// the same problem with the same numbers (cmd/rendezvous/main.go) — but it is a
+// server, and this is somebody's laptop, so the per-circuit allowance matches
+// while the totals are far smaller. Unlimited is not on offer: a relay with no
+// ceiling is a machine strangers can spend.
+func peerRelayResources() relayv2.Resources {
+	r := relayv2.DefaultResources()
+	r.Limit = &relayv2.RelayLimit{Duration: time.Hour, Data: 512 << 20}
+	r.MaxReservations = 32
+	r.MaxCircuits = 8
+	r.MaxReservationsPerPeer = 4
+	r.MaxReservationsPerIP = 4
+	return r
 }
 
 // serveRelay runs a circuit-v2 relay on this node whenever it looks publicly
@@ -164,7 +198,8 @@ func (n *Host) syncRelayService() {
 	defer n.mu.Unlock()
 	switch {
 	case public && n.relaySvc == nil:
-		svc, err := relayv2.New(n.h, relayv2.WithACL(memberACL{h: n.h}))
+		svc, err := relayv2.New(n.h, relayv2.WithACL(memberACL{h: n.h}),
+			relayv2.WithResources(peerRelayResources()))
 		if err != nil {
 			log.Printf("concord/net: could not start relay service: %v", err)
 			return

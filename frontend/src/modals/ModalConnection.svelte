@@ -7,20 +7,37 @@
   import SettingRow from "./SettingRow.svelte";
   import { onMount } from "svelte";
   import { api } from "../lib/api.js";
-  import { flash } from "../lib/state.svelte.js";
+  import { flash, S } from "../lib/state.svelte.js";
 
   let { onClose, onSaved } = $props();
 
   let bootstrap = $state("");
   let publicDht = $state(false);
+  // A number input binds to a number, or to null when it is empty or holds
+  // something that isn't one — which is exactly the "pick one for me" case.
+  let port = $state(null);
   onMount(async () => {
     try {
       bootstrap = ((await api.getBootstrap()) || []).join("\n");
       publicDht = !!(await api.getPublicDht());
+      port = (await api.getListenPort()) || null;
     } catch {
       /* ignore */
     }
   });
+
+  let savedPort = $state("");
+  const portOk = $derived(port === null || (Number.isInteger(port) && port >= 1024 && port <= 65535));
+  async function savePort() {
+    if (!portOk) return;
+    try {
+      await api.setListenPort(port ?? 0);
+      savedPort = port ? String(port) : "off";
+      setTimeout(() => (savedPort = ""), 2400);
+    } catch (err) {
+      flash(err);
+    }
+  }
 
   // The switch flips optimistically and rolls back if the write fails, so the
   // row never shows a state the disk doesn't agree with.
@@ -115,6 +132,57 @@
   </SettingGroup>
 
   <SettingGroup
+    label="Direct connection"
+    note="Normally Concord picks a new network port every time it starts, which
+          works but sends your traffic the long way round. Pin one here and
+          forward it to this computer in your router's settings, and friends
+          connect straight to you — no relay, no rendezvous, less delay.
+          Pinning a port also means Concord starts publishing this computer's
+          public IP address: to peers it connects to, and inside the invite
+          codes you hand out, which get pasted into chats and screenshotted.
+          That happens whether or not the router rule works, so only turn this
+          on if you're content for the people you invite to learn your address.
+          Applies after a restart."
+  >
+    <SettingRow icon="bolt" title="Fixed port" sub="Leave blank to keep picking one automatically">
+      <div class="port">
+        <input
+          class="port-box"
+          class:bad={!portOk}
+          type="number"
+          inputmode="numeric"
+          min="1024"
+          max="65535"
+          placeholder="e.g. 4001"
+          bind:value={port}
+          onblur={savePort}
+        />
+        <button class="save" disabled={!portOk} onclick={savePort}>Save</button>
+      </div>
+    </SettingRow>
+    <!-- The fallback keeps the app running, so nothing else would ever hint
+         that the forwarded port is dead this session. -->
+    {#if S.netStatus?.pinnedPortTaken}
+      <p class="note-line warn">
+        The fixed port wasn't free when Concord started — something else on this computer already
+        had it, possibly a second copy of Concord — so this session is on an automatic port and your
+        router rule leads nowhere. Pick another port, or close the other program, and restart.
+      </p>
+    {/if}
+    {#if !portOk}
+      <p class="note-line">Pick a number between 1024 and 65535, or leave it blank.</p>
+    {:else if savedPort}
+      <p class="note-line">
+        {#if savedPort === "off"}
+          Back to an automatic port on the next restart.
+        {:else}
+          Saved. Forward TCP <b>and</b> UDP port {savedPort} to this computer, then restart Concord.
+        {/if}
+      </p>
+    {/if}
+  </SettingGroup>
+
+  <SettingGroup
     label="Fallback discovery"
     note="Concord already remembers everyone you've connected to and re-dials
           them on its own, so friends keep working even if the rendezvous is
@@ -194,6 +262,38 @@
   .addr-act:hover {
     background: var(--bg-3);
     color: var(--text);
+  }
+  .port {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .port-box {
+    width: 92px;
+    font-family: var(--mono-font);
+    font-size: 12.5px;
+    padding: 7px 10px;
+    border-radius: var(--radius-md);
+    text-align: right;
+  }
+  /* Also when focused — you are typing the bad value, which is when the field
+     most needs to say so; the global accent halo would otherwise win. */
+  .port-box.bad,
+  .port-box.bad:focus {
+    border-color: color-mix(in srgb, var(--danger) 55%, transparent);
+    box-shadow:
+      inset 0 1px 2px rgb(0 0 0 / 0.08),
+      0 0 0 3px color-mix(in srgb, var(--danger) 22%, transparent);
+  }
+  .note-line {
+    margin: 0;
+    padding: 0 14px 12px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+  .note-line.warn {
+    color: var(--danger);
   }
   .addr-row.empty {
     flex-direction: column;

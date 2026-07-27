@@ -14,6 +14,8 @@ import (
 	"crypto/ed25519"
 	"fmt"
 	"log"
+	stdnet "net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -35,12 +37,148 @@ import (
 // other Concord peers on the LAN, not unrelated libp2p apps.
 const DefaultServiceTag = "concord._mdns._v1"
 
-// defaultListenAddrs binds TCP and QUIC on all interfaces, ephemeral ports.
-var defaultListenAddrs = []string{
-	"/ip4/0.0.0.0/tcp/0",
-	"/ip4/0.0.0.0/udp/0/quic-v1",
-	"/ip6/::/tcp/0",
-	"/ip6/::/udp/0/quic-v1",
+// listenAddrs binds TCP and QUIC on all interfaces. Port 0 takes an ephemeral
+// port, which is fine for a node reached over a relay but useless to forward:
+// a router rule points at one number, and the number changes every launch.
+func listenAddrs(port int) []string {
+	return []string{
+		fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port),
+		fmt.Sprintf("/ip4/0.0.0.0/udp/%d/quic-v1", port),
+		fmt.Sprintf("/ip6/::/tcp/%d", port),
+		fmt.Sprintf("/ip6/::/udp/%d/quic-v1", port),
+	}
+}
+
+// portFree reports whether the pinned port can still be taken exclusively.
+//
+// It exists because libp2p will not tell us. go-libp2p's TCP transport sets
+// SO_REUSEPORT, so a second Concord binds a port the first one already holds
+// and gets no error at all; and Swarm.Listen fails only when *every* listen
+// addr fails, so the QUIC bind that did lose the race is swallowed with it.
+// Measured with two processes on one pinned port: both hold LISTEN on it, the
+// second with no UDP listener whatsoever. Both then advertise
+// /ip4/<public>/tcp/<port> under *different* peer IDs, the kernel hands each
+// inbound connection to whichever it likes, and a friend dialling the
+// forwarded address gets the wrong identity about half the time — the Noise
+// peer-ID check then fails with nothing logged and nothing to see.
+//
+// A plain bind carries no SO_REUSEPORT, so it fails whenever anything holds
+// the port, which is exactly the question being asked. IPv4 only: a machine
+// with no IPv6 must not be pushed off its pinned port by a probe that could
+// never have succeeded there anyway.
+func portFree(port int) error {
+	l, err := stdnet.Listen("tcp4", fmt.Sprintf("0.0.0.0:%d", port))
+	if err != nil {
+		return err
+	}
+	_ = l.Close()
+	p, err := stdnet.ListenPacket("udp4", fmt.Sprintf("0.0.0.0:%d", port))
+	if err != nil {
+		return err
+	}
+	_ = p.Close()
+	return nil
+}
+
+// listeningOn reports whether the host really came up on port for both
+// transports. The probe above closes its sockets before libp2p binds, so
+// something can still slip into the gap; and since Swarm.Listen tolerates
+// partial failure, TCP-only counts as success there. It does not count as
+// success here: a forward the user opened for TCP and UDP that only half
+// exists is worse than no pinned port, because nothing says so.
+func listeningOn(h host.Host, port int) bool {
+	var tcp, udp bool
+	for _, a := range h.Network().ListenAddresses() {
+		if addrPort(a) != port {
+			continue
+		}
+		if _, err := a.ValueForProtocol(multiaddr.P_TCP); err == nil {
+			tcp = true
+		} else {
+			udp = true
+		}
+	}
+	return tcp && udp
+}
+
+// directAddrs puts this node's public address back into the set it advertises.
+//
+// It exists because ForceReachabilityPrivate (see New) costs more than the
+// comment there admits: go-libp2p's address manager, on autonat v1 and with a
+// relay reservation in hand, deletes *every* public direct address from
+// Addrs() — measured, and provenance-blind, so a port the router forwards, a
+// UPnP mapping and the address identify observed for us all go the same way.
+// The node then advertises LAN addresses and a circuit, i.e. everything except
+// the one address a friend could actually reach. An AddrsFactory is applied
+// after that deletion, so it is where an address can be put back.
+//
+// The port is what keeps this honest. Only a public address seen on exactly
+// the port the user pinned is re-advertised: on a symmetric NAT the outside
+// world observes us on a fresh random port per connection, and re-advertising
+// those would put a guaranteed-dead address at the front of every joiner's
+// dial order. Matching the pinned port means the NAT kept our port — necessary
+// for the forward to work, and the strongest evidence available here.
+type directAddrs struct {
+	mu   sync.RWMutex
+	port int
+	// all reads the unfiltered address set, before the deletion above.
+	// BasicHost provides it; anything else leaves this feature inert.
+	all interface{ AllAddrs() []multiaddr.Multiaddr }
+}
+
+// attach arms the factory once the host exists (and once the real port is
+// known, which a fallback bind can change). Until then it is a no-op, so the
+// address set libp2p computes during startup carries no public address — the
+// first update after it, reservation included, recomputes with the factory on.
+func (d *directAddrs) attach(h host.Host, port int) {
+	all, ok := h.(interface{ AllAddrs() []multiaddr.Multiaddr })
+	if !ok {
+		if port > 0 {
+			log.Printf("concord/net: libp2p host does not expose AllAddrs, cannot advertise port %d", port)
+		}
+		return
+	}
+	d.mu.Lock()
+	d.all, d.port = all, port
+	d.mu.Unlock()
+}
+
+// addrs re-adds the pinned public address, if there is one.
+//
+// AllAddrs is one update cycle stale on the path that matters: BasicHost's
+// background loop computes fresh local addrs, applies this factory, and only
+// *then* stores them, so the set we read here is still the previous cycle's.
+// (h.Addrs() applies the factory after the store and does see the current one.)
+// A newly observed public address therefore waits one more tick — the loop runs
+// every 5s and on every address change — before it is advertised. Left alone
+// because it self-heals and the state it lags is unexported: reading it fresh
+// would mean reimplementing getLocalAddrs from the outside.
+func (d *directAddrs) addrs(addrs []multiaddr.Multiaddr) []multiaddr.Multiaddr {
+	d.mu.RLock()
+	all, port := d.all, d.port
+	d.mu.RUnlock()
+	if all == nil || port == 0 {
+		return addrs
+	}
+	out := append([]multiaddr.Multiaddr(nil), addrs...)
+	for _, a := range publicAddrs(all.AllAddrs()) {
+		if addrPort(a) == port {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// addrPort is the transport port an address carries, or 0.
+func addrPort(a multiaddr.Multiaddr) int {
+	for _, proto := range []int{multiaddr.P_TCP, multiaddr.P_UDP} {
+		if v, err := a.ValueForProtocol(proto); err == nil {
+			if p, err := strconv.Atoi(v); err == nil {
+				return p
+			}
+		}
+	}
+	return 0
 }
 
 // Config configures a Host.
@@ -56,6 +194,11 @@ type Config struct {
 	HostKey ed25519.PrivateKey
 	// ListenAddrs overrides the default listen multiaddrs when non-empty.
 	ListenAddrs []string
+	// ListenPort pins the TCP and QUIC port instead of taking an ephemeral one,
+	// so a router port-forward stays valid across restarts and other people can
+	// reach this node directly. 0 = ephemeral, the default. Ignored when
+	// ListenAddrs is set, which spells the ports out itself.
+	ListenPort int
 	// ServiceTag overrides the mDNS discovery namespace when non-empty.
 	ServiceTag string
 	// EnableMDNS turns on LAN peer discovery. Tests that wire peers manually
@@ -95,6 +238,11 @@ type Host struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// portTaken records that the user pinned a listen port and did not get it,
+	// so the UI can say so. A log line cannot: the fallback keeps the app
+	// working, which is precisely why nobody would go looking for one.
+	portTaken bool
+
 	mdns   interface{ Close() error }
 	kdht   interface{ Close() error }
 	relays *relaySource
@@ -106,6 +254,10 @@ type Host struct {
 	onConnected    []func(peer.ID)
 	onDisconnected []func(peer.ID)
 	onRedialFailed func(peer.ID)
+	// connected is the set of peers upper layers have been told about, so a
+	// connect fires exactly once per peer no matter how many transports carry
+	// it, and the matching disconnect fires only if the connect did.
+	connected map[peer.ID]bool
 	// redialReported holds the remembered peers we have already reported as
 	// unreachable during the current outage, so the retry loop's backoff cannot
 	// turn one absent friend into a stream of failures. Cleared per peer the
@@ -129,9 +281,25 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		return nil, fmt.Errorf("net: convert identity to libp2p key: %w", err)
 	}
 
+	// An explicit ListenAddrs spells its own ports out, so ListenPort has
+	// nothing left to pin — and nothing to re-advertise either.
+	fixedPort := cfg.ListenPort
 	listen := cfg.ListenAddrs
 	if len(listen) == 0 {
-		listen = defaultListenAddrs
+		listen = listenAddrs(fixedPort)
+	} else {
+		fixedPort = 0
+	}
+
+	// Ask the kernel before libp2p does, because libp2p's answer is unreliable
+	// in the one case that matters — see portFree.
+	portTaken := false
+	if fixedPort > 0 {
+		if err := portFree(fixedPort); err != nil {
+			log.Printf("concord/net: port %d is already in use (%v), listening on an ephemeral port instead", fixedPort, err)
+			portTaken, fixedPort = true, 0
+			listen = listenAddrs(0)
+		}
 	}
 
 	// The relay candidate source is built before the host because AutoRelay may
@@ -144,12 +312,18 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 	bwc := metrics.NewBandwidthCounter()
 	opts := []libp2p.Option{
 		libp2p.Identity(priv),
-		libp2p.ListenAddrStrings(listen...),
 		// Encrypt every connection with the Noise protocol.
 		libp2p.Security(noise.ID, noise.New),
 		libp2p.EnableNATService(),
 		// Meter traffic so the Stats panel can show live bandwidth.
 		libp2p.BandwidthReporter(bwc),
+	}
+	// The address factory is the only path by which a public address survives
+	// ForceReachabilityPrivate (see below and directAddrs); it stays out of the
+	// option list entirely unless the user pinned a port.
+	direct := &directAddrs{}
+	if fixedPort > 0 {
+		opts = append(opts, libp2p.AddrsFactory(direct.addrs))
 	}
 	// Internet-reach options: hole-punching to establish direct connections
 	// through NATs, and AutoRelay — over the rendezvous nodes and, failing
@@ -179,16 +353,37 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 				// home NATs essentially always, so skip detection and reserve
 				// immediately; hole punching still upgrades relayed connections
 				// to direct ones.
+				//
+				// The price: once the reservation lands, libp2p stops
+				// advertising every public direct address we have. directAddrs
+				// buys back the one the user pinned a port for.
 				libp2p.ForceReachabilityPrivate(),
 			)
 		}
 	}
 
-	h, err := libp2p.New(opts...)
+	h, err := libp2p.New(append(opts, libp2p.ListenAddrStrings(listen...))...)
+	if fixedPort > 0 {
+		if err == nil && !listeningOn(h, fixedPort) {
+			err = fmt.Errorf("only part of port %d came up: %v", fixedPort, h.Network().ListenAddresses())
+			_ = h.Close()
+		}
+		if err != nil {
+			// The pinned port is a setting applied at startup, so anything else
+			// holding it — a second Concord, an unrelated program — would leave
+			// the app unable to start, and the setting that caused it is only
+			// reachable from inside the app. Come up on an ephemeral port
+			// instead; the user loses direct reachability, not their client.
+			log.Printf("concord/net: could not listen on port %d (%v), retrying with an ephemeral port", fixedPort, err)
+			portTaken, fixedPort = true, 0
+			h, err = libp2p.New(append(opts, libp2p.ListenAddrStrings(listenAddrs(0)...))...)
+		}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("net: start libp2p host: %w", err)
 	}
 
+	direct.attach(h, fixedPort)
 	relays.setHost(h)
 
 	hctx, cancel := context.WithCancel(ctx)
@@ -198,8 +393,10 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		bwc:        bwc,
 		pinger:     ping.NewPingService(h),
 		relays:     relays,
+		portTaken:  portTaken,
 		ctx:        hctx,
 		cancel:     cancel,
+		connected:  map[peer.ID]bool{},
 	}
 	if node.serviceTag == "" {
 		node.serviceTag = DefaultServiceTag
@@ -236,17 +433,45 @@ func (n *Host) registerConnEvents() {
 	n.h.Network().Notify(&network.NotifyBundle{
 		ConnectedF: func(_ network.Network, c network.Conn) {
 			p := c.RemotePeer()
-			if len(n.h.Network().ConnsToPeer(p)) == 1 {
+			// Deliberately not "is this the only connection to p": two
+			// transports to the same peer can come up close enough together
+			// that both notifications see a count of two, and then the peer
+			// connects with nobody upstream ever hearing about it — the app
+			// layer records its contact here, so that peer becomes invisible.
+			// Our own seen-set has no such window.
+			if n.markConnected(p) {
 				n.fire(n.connectedCallbacks(), p)
 			}
 		},
 		DisconnectedF: func(net network.Network, c network.Conn) {
 			p := c.RemotePeer()
-			if len(net.ConnsToPeer(p)) == 0 {
+			if len(net.ConnsToPeer(p)) == 0 && n.markDisconnected(p) {
 				n.fire(n.disconnectedCallbacks(), p)
 			}
 		},
 	})
+}
+
+// markConnected records p as connected, reporting whether this is the first
+// notification for it — i.e. whether upper layers should be told.
+func (n *Host) markConnected(p peer.ID) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.connected[p] {
+		return false
+	}
+	n.connected[p] = true
+	return true
+}
+
+// markDisconnected forgets p, reporting whether it had been announced — a
+// disconnect for a peer nobody heard connect must stay silent.
+func (n *Host) markDisconnected(p peer.ID) bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	was := n.connected[p]
+	delete(n.connected, p)
+	return was
 }
 
 // Connect dials a peer by its address info. Used by discovery and by
@@ -271,6 +496,11 @@ func (n *Host) Addrs() []multiaddr.Multiaddr { return n.h.Addrs() }
 func (n *Host) AddrInfo() peer.AddrInfo {
 	return peer.AddrInfo{ID: n.h.ID(), Addrs: n.h.Addrs()}
 }
+
+// PinnedPortTaken reports that the user asked for a fixed listen port and this
+// node could not have it, so the router forward they set up leads nowhere until
+// the conflict is resolved.
+func (n *Host) PinnedPortTaken() bool { return n.portTaken }
 
 // Peers returns the peer IDs this node is currently connected to.
 func (n *Host) Peers() []peer.ID { return n.h.Network().Peers() }

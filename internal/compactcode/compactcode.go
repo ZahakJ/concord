@@ -15,10 +15,13 @@ package compactcode
 import (
 	"encoding/binary"
 	"errors"
+	"net"
+	"sort"
 	"strings"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	manet "github.com/multiformats/go-multiaddr/net"
 )
 
 // Per-entry flag: packed binary representation vs raw UTF-8 fallback.
@@ -86,6 +89,11 @@ func (r *Reader) fail() {
 
 // Err reports the first decode error, if any.
 func (r *Reader) Err() error { return r.err }
+
+// More reports whether unread bytes remain. It is how a decoder tells a field
+// appended in a later revision of a format from a code minted before that
+// field existed — reading it unconditionally would reject every older code.
+func (r *Reader) More() bool { return r.err == nil && len(r.b) > 0 }
 
 // Uvarint reads one varint.
 func (r *Reader) Uvarint() uint64 {
@@ -192,16 +200,30 @@ func (r *Reader) Addrs() []string {
 // pure derivation — eliding them at encode time and re-deriving at decode
 // saves the largest entries in the code without losing a dialable path.
 
-// ElideCircuits drops addresses that are exactly a carried bootstrap entry
-// plus the /p2p-circuit suffix (RestoreCircuits reconstructs them).
-func ElideCircuits(addrs, bootstrap []string) []string {
+// AllCircuits is the mask a code written before the circuit mask existed
+// decodes with: every carried bootstrap entry doubles as a circuit path, which
+// is what the encoders of the day unconditionally assumed.
+const AllCircuits = ^uint64(0)
+
+// ElideCircuits drops the addresses that are exactly a carried bootstrap entry
+// plus the /p2p-circuit suffix, and returns a bitmask of which entries were
+// dropped. The mask is what makes the round-trip honest: the issuer only lists
+// circuits it holds a live reservation for, so restoring one per bootstrap
+// entry would put back the dead relays it deliberately left out. Returned
+// together from one pass because a mask indexed against a different bootstrap
+// slice than the one encoded restores the wrong addresses.
+func ElideCircuits(addrs, bootstrap []string) ([]string, uint64) {
 	out := make([]string, 0, len(addrs))
+	var mask uint64
 	for _, a := range addrs {
 		base, isCircuit := strings.CutSuffix(a, "/p2p-circuit")
 		if isCircuit {
 			derivable := false
-			for _, b := range bootstrap {
-				if strings.TrimSpace(b) == base {
+			for i, b := range bootstrap {
+				// A code carrying more than 64 rendezvous nodes cannot index
+				// them all; the extras keep their circuit addr verbatim.
+				if i < 64 && strings.TrimSpace(b) == base {
+					mask |= 1 << uint(i)
 					derivable = true
 					break
 				}
@@ -212,18 +234,92 @@ func ElideCircuits(addrs, bootstrap []string) []string {
 		}
 		out = append(out, a)
 	}
-	return out
+	return out, mask
 }
 
-// RestoreCircuits re-derives the circuit addresses ElideCircuits dropped.
-func RestoreCircuits(addrs, bootstrap []string) []string {
+// RestoreCircuits re-derives the circuit addresses ElideCircuits dropped, mask
+// selecting which bootstrap entries had one.
+func RestoreCircuits(addrs, bootstrap []string, mask uint64) []string {
 	out := append([]string(nil), addrs...)
-	for _, b := range bootstrap {
+	for i, b := range bootstrap {
+		if i >= 64 || mask&(1<<uint(i)) == 0 {
+			continue
+		}
 		if b = strings.TrimSpace(b); b != "" {
 			out = append(out, b+"/p2p-circuit")
 		}
 	}
-	return DedupeCap(out, len(out))
+	return DedupeCap(RankAddrs(out), len(out))
+}
+
+// RankAddrs orders addresses by how likely they are to carry a connection, and
+// drops the ones that can never carry one from another machine. It runs before
+// the MaxAddrs cap because the cap is otherwise decided by whatever order the
+// host happened to enumerate its interfaces in: a laptop with Wi-Fi, ethernet,
+// a Docker bridge, a VPN adapter and IPv6 privacy addresses easily fills all
+// eight slots with LAN addresses and truncates away the forwarded public port
+// that is the only one a friend can reach. The order also survives into the
+// code, and the joiner dials in the order it reads.
+//
+// Unparseable entries (hand-typed addresses, test fixtures) rank last rather
+// than being dropped — this must not silently eat an address it can't judge.
+func RankAddrs(addrs []string) []string {
+	type ranked struct {
+		addr string
+		tier int
+	}
+	out := make([]ranked, 0, len(addrs))
+	for _, a := range addrs {
+		if t := addrTier(a); t != tierDrop {
+			out = append(out, ranked{a, t})
+		}
+	}
+	// A host with nothing but loopback — an offline machine, a container — is
+	// still reachable from the one place that matters there: itself. Dropping
+	// its last address would turn "works locally" into "works nowhere".
+	if len(out) == 0 {
+		return addrs
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].tier < out[j].tier })
+	flat := make([]string, len(out))
+	for i, r := range out {
+		flat[i] = r.addr
+	}
+	return flat
+}
+
+const (
+	tierPublic = iota // a forwarded port or a real public IP: one hop, no third party
+	tierCircuit       // works from anywhere, but costs a relay and its uptime
+	tierLAN           // only from the same network — still the fastest path when it applies
+	tierUnknown       // not a multiaddr we can judge; keep, but try last
+	tierDrop          // loopback, link-local, unspecified: unreachable from any other machine
+)
+
+func addrTier(a string) int {
+	ma, err := multiaddr.NewMultiaddr(a)
+	if err != nil {
+		return tierUnknown
+	}
+	if _, err := ma.ValueForProtocol(multiaddr.P_CIRCUIT); err == nil {
+		return tierCircuit
+	}
+	for _, proto := range []int{multiaddr.P_IP4, multiaddr.P_IP6} {
+		v, err := ma.ValueForProtocol(proto)
+		if err != nil {
+			continue
+		}
+		// manet counts link-local as "private", i.e. indistinguishable from a
+		// LAN address it would keep — so ask net.IP directly.
+		if ip := net.ParseIP(v); ip != nil &&
+			(ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsUnspecified()) {
+			return tierDrop
+		}
+	}
+	if manet.IsPublicAddr(ma) {
+		return tierPublic
+	}
+	return tierLAN
 }
 
 // DedupeCap removes duplicates (keeping first-seen order) and caps the list.

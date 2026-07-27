@@ -2,6 +2,8 @@ package net
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,4 +120,37 @@ func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatal("condition not met before timeout")
+}
+
+// Two transports to the same peer come up concurrently often enough that both
+// notifications used to see a connection count of two and neither reported the
+// peer — which silently cost the app layer its contact record.
+func TestConcurrentConnectionsAnnouncePeerOnce(t *testing.T) {
+	id, _ := identity.Generate()
+	h := newTestHost(t, id)
+	other, _ := identity.Generate()
+	p := newTestHost(t, other).PeerID()
+
+	var announced atomic.Int32
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if h.markConnected(p) {
+				announced.Add(1)
+			}
+		}()
+	}
+	wg.Wait()
+	if got := announced.Load(); got != 1 {
+		t.Fatalf("peer announced %d times, want exactly 1", got)
+	}
+
+	if !h.markDisconnected(p) {
+		t.Fatal("an announced peer must produce a disconnect")
+	}
+	if h.markDisconnected(p) {
+		t.Fatal("a peer nobody heard connect must not produce a disconnect")
+	}
 }
