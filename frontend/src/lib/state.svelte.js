@@ -1216,10 +1216,34 @@ export async function selectNotes() {
 
 // openDMs enters the direct-messages area — selects the most recent DM, or
 // creates/opens Notes if there are none yet.
+// dmList is the direct-message column, in the order it is shown: Notes pinned
+// on top, then conversations by most recent activity. Exported because the DM
+// button used to pick S.guilds.find(kind === "dm") — the first DM in raw guild
+// order, which is creation order and so effectively arbitrary. Two definitions
+// of "your DMs" that disagree is how a button lands somewhere the list never
+// suggested.
+export function dmList() {
+  // Hide empty pending DMs — a freshly-created invite nobody has joined yet
+  // (just you) is noise until a peer redeems it and it gets a name/avatar.
+  const list = S.guilds.filter((x) => x.kind === "dm" && (x.dmNotes || (x.dmMembers ?? 2) >= 2));
+  list.sort(
+    (a, b) => (a.dmNotes ? -1 : b.dmNotes ? 1 : 0) || (b.lastActivity || 0) - (a.lastActivity || 0),
+  );
+  return list;
+}
+
+// openDMs lands where you actually were: the DM you last had open, else the one
+// with the newest message, else Notes. Anything else means the button takes you
+// to a conversation you did not ask for and were not looking at.
 export async function openDMs() {
-  const dm = S.guilds.find((g) => g.kind === "dm");
-  if (dm) await selectGuild(dm.id);
-  else await selectNotes();
+  const list = dmList();
+  const resume = list.find((d) => d.id === lastPlace.guildId);
+  const target = resume || list.find((d) => !d.dmNotes) || list[0];
+  if (!target || target.id === "__notes__") {
+    await selectNotes();
+    return;
+  }
+  await selectGuild(target.id);
 }
 
 // startDM opens (creating if needed) a DM with a member, optionally sending a

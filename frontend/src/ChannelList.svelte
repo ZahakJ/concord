@@ -30,6 +30,7 @@
     isBlocked,
     blockUser,
     unblockUser,
+    dmList,
     isCallLocked,
     CHANNEL_TYPES,
     channelTypeIcon,
@@ -81,16 +82,9 @@
   // In the DMs area, the channel column becomes a conversation list (Notes
   // first, then peer DMs).
   const dms = $derived.by(() => {
-    // Hide empty pending DMs — a freshly-created invite nobody has joined yet
-    // (just you) is noise until a peer redeems it and it gets a name/avatar.
-    const list = S.guilds.filter(
-      (x) => x.kind === "dm" && (x.dmNotes || (x.dmMembers ?? 2) >= 2),
-    );
-    // Notes pinned on top, then conversations by recency — the DM you just
-    // got a message in is always first.
-    list.sort(
-      (a, b) => (a.dmNotes ? -1 : b.dmNotes ? 1 : 0) || (b.lastActivity || 0) - (a.lastActivity || 0),
-    );
+    // Shared with openDMs so the button and the list can never disagree about
+    // what "your DMs" means or which one is first.
+    const list = dmList();
     // Notes always appears first, even before it's been created (a placeholder
     // that materializes the self-DM on first click).
     if (!list.some((x) => x.dmNotes)) {

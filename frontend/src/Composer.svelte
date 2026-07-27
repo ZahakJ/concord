@@ -1539,16 +1539,37 @@
     flex-wrap: wrap;
     row-gap: 2px;
   }
+  /* Send sits WITH the text, not in the tray. Two reasons. The tray was eight
+     44px targets in 390px of phone — 38px of slack, so a narrower handset or
+     Android's font scaling wrapped the send button onto a third row of its own,
+     which reads as a layout that broke. And it belongs here anyway: every
+     messaging app puts send beside what you just typed, where your thumb
+     already is. Taking it out of the tray also gives the remaining icons room
+     to breathe. */
   .composer.mobile .draft {
-    /* Its own line, whatever else is in the row. */
-    flex: 1 0 100%;
-    order: -1;
+    flex: 1 1 auto;
+    order: -2;
     font-size: 16px;
-    padding: 10px 6px 4px;
+    padding: 10px 6px;
   }
-  /* The send button anchors the right end of the tray. */
   .composer.mobile .sendbtn {
-    margin-left: auto;
+    order: -1;
+    flex: none;
+    align-self: flex-end;
+    margin-bottom: 2px;
+  }
+  /* Everything else wraps to the tray row beneath. */
+  .composer.mobile .iconbtn,
+  .composer.mobile .fmt-toggle {
+    order: 0;
+  }
+  .composer.mobile .input-box::after {
+    /* Forces the tray onto its own line without depending on the icons being
+       wide enough to wrap on their own — which is exactly the fragile bit that
+       put send on a third row. */
+    content: "";
+    flex-basis: 100%;
+    order: -1;
   }
   /* On touch the fmt bar can't hover-reveal — when toggled on, show it at
      full strength and give the buttons real finger targets. */
