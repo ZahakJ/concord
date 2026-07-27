@@ -795,6 +795,25 @@ and in-app **self-update**.
 voice rooms; onion-routed metadata privacy; and iOS distribution
 (TestFlight/App Store) to match Android's turnkey install.
 
+**Known gaps.** An adversarial audit of the rendezvous-independence work turned
+up three that are real, unfixed, and worth stating rather than discovering:
+
+- **`peers.json` is a plaintext contact list.** Remembering peers so friendships
+  survive the rendezvous means writing peer IDs, IP addresses and last-seen
+  times beside the encrypted store, readable without the passphrase. Each entry
+  converts directly into the safety-number fingerprint the app shows for
+  verification, so a stolen laptop or a `~/.config` swept into a cloud backup
+  yields the social graph — who, where, and when — while every message stays
+  sealed. Individually these addresses were exchanged over the wire anyway; the
+  *set* is the thing the encrypted store is otherwise careful never to write in
+  the clear. It wants sealing with the same key as everything else, which means
+  loading it after unlock rather than before, which is why it is not done yet.
+- **Relay privileges are granted but never revoked.** Removing or banning
+  someone drops them from the guild, but nothing calls `Unprotect`, so until the
+  process restarts they keep relay access and keep being re-dialled.
+- **The `contacts` table grows one row per peer ID ever seen** and is never
+  pruned — and this work is what lets strangers reach you in the first place.
+
 The single deliberate trade — peer count per room — buys privacy by
 construction, data ownership, and independence from any operator.
 
