@@ -79,7 +79,8 @@ func (n *Host) dialLinkStream(ctx context.Context, issuer peer.AddrInfo) (networ
 		// Each attempt gets a bounded slice of the overall budget, so one wedged
 		// dial can't consume the entire deadline before we retry over a fresh path.
 		attemptCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		if n.h.Network().Connectedness(issuer.ID) != network.Connected {
+		reused := n.h.Network().Connectedness(issuer.ID) == network.Connected
+		if !reused {
 			lastErr = n.h.Connect(attemptCtx, issuer)
 		} else {
 			lastErr = nil
@@ -89,6 +90,17 @@ func (n *Host) dialLinkStream(ctx context.Context, issuer peer.AddrInfo) (networ
 			cancel()
 			if serr == nil {
 				return s, nil
+			}
+			// A connection libp2p still calls Connected is not necessarily one
+			// that works: a relay circuit whose relay is gone, or a socket the
+			// other end forgot across a restart, stays "up" here and only fails
+			// when you try to use it. Retrying against it is what turns a link
+			// attempt into a minute of "context deadline exceeded" — every pass
+			// skips the dial, hangs on the same corpse, and never tries the
+			// addresses the QR actually carries. So retire it and make the next
+			// attempt a real dial.
+			if reused {
+				_ = n.h.Network().ClosePeer(issuer.ID)
 			}
 			lastErr = fmt.Errorf("open link stream: %w", serr)
 		} else {
