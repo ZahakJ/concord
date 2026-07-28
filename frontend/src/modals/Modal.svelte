@@ -230,13 +230,24 @@
     .dialog :global(select) {
       font-size: 16px;
     }
-    .dialog :global(button) {
+    /* The floor applied to buttons only, so the pickers and text fields a
+       settings row hosts stayed 33-38px tall. */
+    .dialog :global(button),
+    .dialog :global(input:not([type="checkbox"]):not([type="radio"])),
+    .dialog :global(select) {
       min-height: 44px;
     }
+    /* Dismiss and go-back are the two controls every sheet has; they were the
+       only ones that floor didn't reach (the close button opted out of
+       min-height, and .back is sized by its padding). */
     .head .x {
-      min-height: 0;
-      width: 40px;
-      height: 40px;
+      min-height: 44px;
+      width: 44px;
+      display: grid;
+      place-items: center;
+    }
+    .head .back {
+      min-width: 44px;
       display: grid;
       place-items: center;
     }

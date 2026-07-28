@@ -543,11 +543,11 @@
   .pill.home {
     border-radius: 15px;
     background: var(--bg-3);
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .pill.home:hover {
     border-radius: 15px;
-    color: white;
+    color: var(--accent-fg);
     background: var(--accent);
   }
   .pill.home :global(svg) {
@@ -577,7 +577,7 @@
   .pill.home.active {
     border-radius: 15px;
     background: var(--accent);
-    color: white;
+    color: var(--accent-fg);
   }
   .pill .icon {
     width: 100%;
@@ -594,7 +594,7 @@
   }
   .pill.meet:hover {
     background: color-mix(in srgb, var(--warn) 24%, var(--bg-3));
-    color: #fff;
+    color: var(--text);
   }
   .divider {
     width: 28px;
@@ -678,7 +678,7 @@
     padding: 0 5px;
     border-radius: 9px;
     background: var(--danger);
-    color: #fff;
+    color: var(--danger-fg);
     font-size: 11px;
     font-weight: 700;
     line-height: 1;
@@ -771,7 +771,7 @@
   }
   .folder-tile {
     background: color-mix(in srgb, var(--fc, var(--accent)) 26%, var(--bg-2));
-    color: #fff;
+    color: var(--text);
     overflow: hidden;
   }
   .folder-tile:hover {

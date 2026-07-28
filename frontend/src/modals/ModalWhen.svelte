@@ -74,7 +74,7 @@
     transform: translateY(-1px);
   }
   .preset :global(svg) {
-    color: var(--accent);
+    color: var(--accent-hover);
     flex-shrink: 0;
   }
   .custom {
@@ -95,7 +95,7 @@
     flex-shrink: 0;
     padding: 8px 16px;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border-radius: var(--radius-md);
   }
   .go:disabled {

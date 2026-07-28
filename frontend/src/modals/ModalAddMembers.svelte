@@ -117,7 +117,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .empty {
     display: flex;

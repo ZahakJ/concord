@@ -85,7 +85,7 @@
     opacity: 0.5;
   }
   .row.danger .title {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .chip {
     display: grid;
@@ -99,7 +99,7 @@
   }
   .row.danger .chip {
     background: color-mix(in srgb, var(--danger) 15%, transparent);
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .text {
     display: flex;
@@ -162,6 +162,29 @@
   }
   .switch.on .knob {
     transform: translateX(16px);
+  }
+  /* A row hosting its own control (a select, a port field) can't share one line
+     on a phone: the control took 40% and the description was left breaking
+     three ways in ~110px. Give the control its own line, aligned under the
+     text rather than under the icon chip. Switches and chevrons are narrow and
+     stay put. */
+  @media (max-width: 480px) {
+    .row:has(.slot) {
+      flex-wrap: wrap;
+      row-gap: 8px;
+    }
+    .row:has(.slot) .slot {
+      flex: 1 0 100%;
+      max-width: none;
+    }
+    /* Indent with PADDING, not margin. A margin on a full-width flex item is
+       added outside the box, so the row overhangs by exactly that much and the
+       Save button on the fixed-port row was pushed past the card edge and
+       rendered as "Sav". Padding is inside the box under the global
+       border-box, so the same visual indent costs no width. */
+    .chip ~ .slot {
+      padding-left: 42px; /* 30px chip + the row's 12px gap */
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     .switch,

@@ -420,7 +420,7 @@
     // Right-clicking an INLINE image (markdown data-URI) gets the image menu —
     // "Copy Text" on a picture just copies the word "image", which helps nobody.
     // (Encrypted attachments render via Attachment.svelte, which has its own.)
-    const img = e.target.closest?.("img.attachment");
+    const img = e.target?.closest?.("img.attachment");
     if (img) {
       openContextMenu(e, [
         {
@@ -932,7 +932,7 @@
     padding: 1px 7px;
     border-radius: 999px;
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-hover);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.05em;
@@ -941,7 +941,7 @@
   .verify-check {
     display: inline-flex;
     align-items: center;
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .time {
     font-size: 11px;
@@ -1039,7 +1039,7 @@
     transition: color 0.15s ease;
   }
   .body.deleted.revealable:hover em {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   /* Expired = gone by a timer, on purpose. A faint accent tint sets it apart
      from a plain "deleted" tombstone. */
@@ -1406,7 +1406,7 @@
   }
   .msg-actions button.danger:hover {
     background: var(--danger-soft);
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .body :global(code) {
     background: var(--bg-3);

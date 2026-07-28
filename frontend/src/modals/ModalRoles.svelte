@@ -170,7 +170,7 @@
   }
   .del {
     background: transparent;
-    color: var(--danger);
+    color: var(--danger-text);
     padding: 6px 8px;
     opacity: 0;
   }
@@ -232,7 +232,7 @@
   }
   .check {
     width: 16px;
-    color: var(--accent);
+    color: var(--accent-hover);
     font-weight: 700;
   }
   .perm-text {

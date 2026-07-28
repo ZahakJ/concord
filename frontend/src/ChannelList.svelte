@@ -722,6 +722,11 @@
               >
                 <Icon name={S.mutes[c.id] ? "bellOff" : "bell"} size={13} />
               </button>
+            {:else}
+              <!-- Nothing to mute in a voice channel, but without the bell's
+                   footprint the row's chevron slides 33px right of every other
+                   row's — a ragged edge in an otherwise even column. -->
+              <span class="mute-slot" aria-hidden="true"></span>
             {/if}
           </div>
           {#if c.type === "voice"}
@@ -973,7 +978,9 @@
     letter-spacing: 0.06em;
     color: var(--text-faint);
     font-weight: 700;
-    margin: 10px 8px 2px;
+    /* Same 6px inset as .section-head — the two headings stack in one column
+       and a 2px difference reads as a wobble. */
+    margin: 10px 6px 2px;
   }
   .cat-actions {
     display: inline-flex;
@@ -1097,8 +1104,8 @@
     margin-left: auto;
     padding: 1px 5px;
     border-radius: 4px;
-    background: color-mix(in srgb, #f04747 20%, transparent);
-    color: #ff6b6b;
+    background: color-mix(in srgb, var(--danger) 20%, transparent);
+    color: var(--danger-text);
     font-size: 9px;
     font-weight: 800;
     letter-spacing: 0.04em;
@@ -1186,7 +1193,7 @@
   }
   /* Hovering a drag over a category header: "drop here to file it under…". */
   .cat-head.drop-into {
-    color: var(--accent);
+    color: var(--accent-hover);
     box-shadow: inset 0 -2px 0 var(--accent);
   }
   .channel {
@@ -1228,10 +1235,10 @@
     gap: 1.5px;
     height: 12px;
     flex-shrink: 0;
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .eq.you {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .eq i {
     width: 2.5px;
@@ -1322,8 +1329,8 @@
     padding: 0 5px;
     height: 16px;
     border-radius: 8px;
-    background: var(--text-faint);
-    color: white;
+    background: var(--text-muted);
+    color: var(--bg-1);
     font-size: 10px;
     font-weight: 700;
     display: grid;
@@ -1341,6 +1348,7 @@
   }
   .count.mention {
     background: var(--danger);
+    color: var(--danger-fg);
   }
   .ch-menu {
     display: inline-flex;
@@ -1361,6 +1369,10 @@
     color: var(--text-faint);
     padding: 4px 6px;
     opacity: 0;
+  }
+  .mute-slot {
+    flex: none;
+    width: 25px; /* 13px glyph + .mute-btn's 6px sides */
   }
   .channel-row:hover .mute-btn,
   .mute-btn:focus-visible {
@@ -1463,7 +1475,7 @@
     margin: 0 8px;
     border-radius: var(--radius-md);
     background: var(--ok-soft);
-    color: var(--ok);
+    color: var(--ok-text);
     border: 1px solid color-mix(in srgb, var(--ok) 28%, transparent);
     box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 10%, transparent);
   }
@@ -1474,7 +1486,7 @@
     min-width: 0;
     flex: 1;
     background: transparent;
-    color: var(--ok);
+    color: var(--ok-text);
     text-align: left;
     padding: 2px 4px;
     border-radius: var(--radius-sm);
@@ -1521,7 +1533,7 @@
   }
   .vb-btn {
     background: transparent;
-    color: var(--ok);
+    color: var(--ok-text);
     padding: 5px;
     display: grid;
     place-items: center;
@@ -1532,10 +1544,10 @@
   }
   .vb-btn.on {
     background: var(--ok);
-    color: #fff;
+    color: var(--ok-fg);
   }
   .vb-btn.leave {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .vb-btn.leave:hover {
     background: var(--danger-soft);
@@ -1579,7 +1591,7 @@
     height: 9px;
     margin-right: 4px;
     vertical-align: baseline;
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   /* The dot's cutout ring should match this row's background, not the column's. */
   .me-status-trigger :global(.dot) {
@@ -1638,10 +1650,15 @@
     .dm-name {
       font-size: 15px;
     }
+    /* No hover on a phone, so this dimming is the FINAL state, not a resting
+       one — at 0.55 the glyphs sat under 2:1. --text-faint already says
+       "quiet"; the opacity was saying "invisible" on top of it. (.always keeps
+       its own 0.7 on desktop, and that has to go the same way here.) */
     .cat-add,
+    .cat-add.always,
     .ch-menu,
     .mute-btn {
-      opacity: 0.55;
+      opacity: 1;
     }
     .mute-btn {
       padding: 8px 10px;
@@ -1651,10 +1668,54 @@
     .mute-btn::after {
       content: "";
       position: absolute;
-      inset: -3px -6px;
+      /* Right-biased: the channel-options chevron is immediately to the left,
+         and a symmetric overlay ate 5px of the only tap area it has. */
+      inset: -3px -6px -3px 0;
+    }
+    .mute-slot {
+      width: 33px; /* tracks .mute-btn's touch padding above */
+    }
+    /* The category +/trash render at 16px. Spread them apart first — they sit
+       side by side and the right one deletes the category, so overlapping tap
+       areas would let a miss on "add channel" destroy the whole category. */
+    .cat-actions {
+      /* 28px box + 16px gap = 44px between centres, so the two 44px tap areas
+         abut instead of overlapping. */
+      gap: 16px;
+    }
+    .cat-add {
+      padding: 8px;
+      position: relative;
+    }
+    .cat-add::after {
+      content: "";
+      position: absolute;
+      inset: -8px;
+    }
+    /* Room for that overlay inside the header. Without it the bottom 4px fell
+       under the next channel row, and the row would win the tap — a miss on
+       "add channel" is a hair from "delete category". */
+    .cat-head {
+      min-height: 44px;
     }
     .vc-member {
       min-height: 38px;
+    }
+    /* Four 44px targets plus the label never fit the drawer's ~252px on one
+       line — the label was squeezed to 123px and "Voice connected" wrapped.
+       Give the controls their own row. */
+    .voice-bar {
+      flex-wrap: wrap;
+      row-gap: 4px;
+    }
+    .vb-actions {
+      flex: 1 0 100%;
+      justify-content: space-between;
+      gap: 4px;
+    }
+    .vb-btn {
+      min-width: 44px;
+      min-height: 44px;
     }
     .me {
       min-height: 44px;
@@ -1768,10 +1829,10 @@
     flex: none;
     font-size: 11px;
     font-weight: 700;
-    color: var(--accent);
+    color: var(--accent-hover);
     letter-spacing: 0.02em;
   }
   .unread-jump.mention .uj-cta {
-    color: var(--danger);
+    color: var(--danger-text);
   }
 </style>

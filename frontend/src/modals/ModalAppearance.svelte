@@ -574,7 +574,7 @@
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .pk.live {
     position: relative;

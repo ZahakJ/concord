@@ -15,10 +15,11 @@ export function haptic(style = "medium") {
 }
 
 // longpress is a Svelte action: it calls the handler after the finger is held
-// still for `duration` ms, passing a synthetic {clientX, clientY} so existing
-// context-menu code (which positions at the pointer) works unchanged. A small
-// move cancels it (so it doesn't fire mid-scroll). Only arms for touch input —
-// mouse right-click keeps using the native contextmenu event.
+// still for `duration` ms, passing a synthetic {clientX, clientY, target} so
+// existing context-menu code (which positions at the pointer and inspects
+// `target` to specialise the menu) works unchanged. A small move cancels it (so
+// it doesn't fire mid-scroll). Only arms for touch input — mouse right-click
+// keeps using the native contextmenu event.
 export function longpress(node, { handler, duration = 450, moveTolerance = 10 } = {}) {
   let timer = null;
   let startX = 0;
@@ -60,7 +61,16 @@ export function longpress(node, { handler, duration = 450, moveTolerance = 10 } 
       };
       window.addEventListener("click", eat, { capture: true, once: true });
       setTimeout(() => window.removeEventListener("click", eat, { capture: true }), 600);
-      handler?.({ clientX: startX, clientY: startY, preventDefault() {}, stopPropagation() {} });
+      // Handlers written for `contextmenu` read e.target to decide what was hit
+      // (an inline image gets an image menu, not the message menu). Resolve it
+      // from the touch point — `node` would be the whole row and lose that.
+      handler?.({
+        clientX: startX,
+        clientY: startY,
+        target: document.elementFromPoint(startX, startY) || node,
+        preventDefault() {},
+        stopPropagation() {},
+      });
     }, duration);
   }
 

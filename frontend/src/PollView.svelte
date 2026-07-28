@@ -130,7 +130,7 @@
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: var(--text-faint);
+    color: var(--text-muted);
   }
   .poll-opts {
     display: flex;
@@ -145,6 +145,10 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-2);
+    /* An option is a button with its own surface, so it needs its own ink: the
+       global button rule hands out --accent-fg, which is sized for an accent
+       FILL and disappears on --bg-2. */
+    color: var(--text);
     overflow: hidden;
     text-align: left;
     transition:
@@ -268,7 +272,7 @@
     color: var(--text);
   }
   .opt-pct.dim {
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-weight: 500;
   }
   .poll-foot {
@@ -284,7 +288,7 @@
     font-variant-numeric: tabular-nums;
   }
   .state.done {
-    color: var(--accent);
+    color: var(--accent-hover);
     font-weight: 600;
   }
   @media (prefers-reduced-motion: reduce) {

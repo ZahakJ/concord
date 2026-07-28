@@ -76,7 +76,7 @@
     gap: 5px;
     align-self: flex-start;
     font-size: 12px;
-    color: var(--ok);
+    color: var(--ok-text);
     animation: chip-in 0.18s ease both;
   }
   @keyframes chip-in {

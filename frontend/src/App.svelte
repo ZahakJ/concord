@@ -630,6 +630,7 @@
     onJoinVoice={joinVoice}
     onLeaveVoice={leaveVoice}
     onToggleMute={toggleMicMute}
+    onToggleDeafen={toggleDeafen}
     onToggleShare={toggleScreenShare}
     onToggleCamera={toggleCamera}
   />
@@ -1003,7 +1004,7 @@
     font-size: 13px;
   }
   .rc-jet {
-    color: var(--accent);
+    color: var(--accent-hover);
     animation: rc-bob 1.6s ease-in-out infinite;
   }
   @keyframes rc-bob {
@@ -1045,7 +1046,7 @@
     height: 64px;
     border-radius: 50%;
     background: color-mix(in srgb, var(--accent) 16%, transparent);
-    color: var(--accent);
+    color: var(--accent-hover);
     margin-bottom: 4px;
   }
   .lock-gate h2 {
@@ -1136,7 +1137,7 @@
     flex-shrink: 0;
     padding: 5px 14px;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border-radius: 14px;
     font-weight: 600;
     text-decoration: none;
@@ -1256,16 +1257,22 @@
     display: flex;
     flex-direction: column;
     line-height: 1.3;
+    /* Or the buttons win the space fight and the text column collapses to
+       min-content — one word per line. */
+    flex: 1;
+    min-width: 0;
   }
   .ring-actions {
     display: flex;
     gap: 8px;
+    flex-shrink: 0;
   }
   .ring-btn {
     padding: 7px 16px;
     border-radius: var(--radius-md);
     font-weight: 600;
     font-size: 13px;
+    white-space: nowrap;
     transition: background 0.12s ease, transform 0.08s ease, border-color 0.12s ease, color 0.12s ease;
   }
   /* The most time-critical buttons in the app were visually inert — no hover or
@@ -1275,7 +1282,7 @@
   }
   .ring-btn.accept {
     background: var(--ok);
-    color: #fff;
+    color: var(--ok-fg);
   }
   .ring-btn.accept:hover {
     background: color-mix(in srgb, var(--ok) 86%, #fff);
@@ -1288,11 +1295,35 @@
   .ring-btn.decline:hover {
     background: var(--danger-soft);
     border-color: var(--danger);
-    color: var(--danger);
+    color: var(--danger-text);
   }
   @media (prefers-reduced-motion: reduce) {
     .ring-btn:active {
       transform: none;
+    }
+  }
+  /* Touch: a full-width banner rather than a centred card that has to squeeze
+     name, status line and both buttons into whatever the text doesn't claim. */
+  @media (pointer: coarse), (max-width: 700px) {
+    .ring-card {
+      top: calc(10px + env(safe-area-inset-top));
+      left: 12px;
+      right: 12px;
+      transform: none;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 12px 14px;
+    }
+    /* Answering is what the card is for: the buttons get their own row, full
+       width, rather than squeezing the caller's name into one word per line. */
+    .ring-actions {
+      flex: 1 0 100%;
+    }
+    /* The most time-critical taps in the app — they were 34px tall, and "Not
+       now" wrapped inside its own button. */
+    .ring-btn {
+      flex: 1;
+      min-height: 44px;
     }
   }
 </style>

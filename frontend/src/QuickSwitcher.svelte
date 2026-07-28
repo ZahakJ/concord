@@ -309,7 +309,7 @@
     box-shadow: inset 2px 0 0 var(--accent);
   }
   .hit.sel .hit-icon {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .hit-icon {
     color: var(--text-muted);
@@ -319,7 +319,7 @@
   }
   /* ↵ affordance surfaces only on the selected row. */
   .hit-enter {
-    color: var(--accent);
+    color: var(--accent-hover);
     font-size: 12px;
     opacity: 0;
     transform: translateX(-3px);
@@ -349,7 +349,7 @@
     white-space: nowrap;
   }
   .hl {
-    color: var(--accent);
+    color: var(--accent-hover);
     font-weight: 600;
   }
   .hit-sub {

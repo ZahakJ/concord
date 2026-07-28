@@ -507,6 +507,7 @@
        from ITS --accent; a scoped override alone wouldn't reach them. */
     --accent: #97a1b2;
     --accent-hover: #b9c1cd;
+    --accent-fg: #141419;
     --accent-soft: rgba(151, 161, 178, 0.16);
     --accent-glow: 0 0 24px rgba(151, 161, 178, 0.3);
     height: 100%;
@@ -533,6 +534,9 @@
     /* Hero badge: a soft conic accent ring around the jet, breathing a slow
        ambient glow (the app's one continuously-running animation). */
     position: relative;
+    /* text-align:center on the card centres the copy but not a fixed-size flex
+       item — the badge was sitting flush against the card's left edge. */
+    align-self: center;
     color: var(--text);
     display: grid;
     place-items: center;
@@ -580,7 +584,7 @@
   }
   /* Primary CTAs: gradient fill + a soft lift on hover. (Quiet buttons — the
      .link/.ghost-sm/.danger-btn variants — keep their own styling.) */
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn) {
+  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan) {
     background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 72%, var(--accent-hover)));
     font-weight: 600;
     box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 28%, transparent);
@@ -589,12 +593,12 @@
       box-shadow 0.15s ease,
       filter 0.15s ease;
   }
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn):hover:not(:disabled) {
+  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan):hover:not(:disabled) {
     transform: translateY(-1px);
     filter: brightness(1.07);
     box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 38%, transparent);
   }
-  .card button:not(.link):not(.ghost-sm):not(.danger-btn):active:not(:disabled) {
+  .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan):active:not(:disabled) {
     transform: none;
     filter: brightness(0.97);
   }
@@ -627,7 +631,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -659,7 +663,7 @@
     flex: none;
     border-radius: 50%;
     background: var(--ok);
-    color: #fff;
+    color: var(--ok-fg);
   }
   .scanned-ok .rescan {
     margin-left: auto;
@@ -694,8 +698,9 @@
     white-space: nowrap;
     transition: filter 0.15s ease;
   }
+  /* Which word this is, not decoration — you read it to check word 17. */
   .wn {
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-size: 10px;
     min-width: 14px;
     text-align: right;
@@ -724,8 +729,7 @@
     opacity: 0.45;
   }
   .warn {
-    color: var(--danger);
-    opacity: 0.85;
+    color: var(--danger-text);
   }
   .link {
     background: transparent;
@@ -738,14 +742,13 @@
     text-decoration: underline;
   }
   .warn-link:hover {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .danger-btn {
     background: var(--danger);
   }
   .tiny {
     font-size: 11px;
-    opacity: 0.7;
     margin-top: 4px;
   }
 

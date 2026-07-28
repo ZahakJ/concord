@@ -88,6 +88,6 @@
     font-size: 12px;
   }
   .warn {
-    color: var(--danger, #d9534f);
+    color: var(--danger-text);
   }
 </style>

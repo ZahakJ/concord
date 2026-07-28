@@ -63,7 +63,7 @@
     isolation: isolate; /* the ring sits behind the avatar, not the page */
     border-radius: 50%;
     background: var(--accent);
-    color: white;
+    color: var(--accent-fg);
     display: grid;
     place-items: center;
     font-weight: 600;

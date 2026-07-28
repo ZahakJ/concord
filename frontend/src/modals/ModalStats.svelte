@@ -215,7 +215,7 @@
     font-variant-numeric: tabular-nums;
   }
   .v.warn {
-    color: #f0b232;
+    color: var(--warn-text);
   }
   .peers {
     display: flex;
@@ -241,7 +241,7 @@
     flex-shrink: 0;
   }
   .pdot.relay {
-    background: #f0b232;
+    background: var(--warn);
   }
   .pdot.infra {
     background: var(--text-faint);

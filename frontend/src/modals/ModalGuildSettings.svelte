@@ -80,6 +80,7 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="banner-box"
+    class:empty={!safeBanner}
     style={safeBanner ? `background-image:url("${safeBanner}")` : ""}
     onmouseenter={() => (pasteTarget = "banner")}
   >
@@ -154,6 +155,12 @@
     padding: 8px;
     transition: box-shadow 0.15s ease;
   }
+  /* With no image, --bg-3 on the sheet is all but invisible and the "Add
+     banner" chip floated in what read as dead space. The dashed outline is the
+     same empty-state cue the channel list uses. */
+  .banner-box.empty {
+    border: 1px dashed var(--border);
+  }
   .banner-box:hover {
     box-shadow: 0 0 0 3px var(--accent-soft);
   }
@@ -187,7 +194,7 @@
     height: 56px;
     border-radius: 14px;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     font-size: 22px;
     font-weight: 700;
     display: grid;
@@ -220,11 +227,17 @@
   .icon-btn:focus-visible .cam-overlay {
     opacity: 1;
   }
-  /* Touch has no hover — keep a faint persistent hint so it's discoverable. */
+  /* Touch has no hover, so the hint has to be permanent — but covering the tile
+     printed "CHANGE" through the guild initial and neither could be read. A
+     bottom strip says the same thing and leaves the tile legible. */
   @media (pointer: coarse) {
     .cam-overlay {
-      opacity: 0.55;
-      background: rgba(0, 0, 0, 0.35);
+      inset: auto 0 0 0;
+      align-content: center;
+      height: 18px;
+      font-size: 9px;
+      opacity: 1;
+      background: rgba(0, 0, 0, 0.62);
     }
   }
   .field {

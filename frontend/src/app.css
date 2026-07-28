@@ -10,7 +10,11 @@
   --border: #32363e;
   --text: #e8eaed;
   --text-muted: #969aa3;
-  --text-faint: #6b6f78;
+  /* The dimmest ink the app is allowed to use. It is for decoration —
+     separators, keycap plus signs, disclosure chevrons — never for a sentence:
+     even at this value it only reaches 3.3:1 on --bg-3, which clears the
+     non-text bar and nothing more. Real prose stops at --text-muted. */
+  --text-faint: #767b85;
 
   /* Concord teal — the brand accent. A member's profile color (or an accent
      preset from Appearance) overrides --accent at runtime (applyAccent), so
@@ -22,15 +26,31 @@
   --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
   /* Contrast-safe text/icon color for anything painted on an --accent FILL.
      JS (applyAccent/syncAccentFg) recomputes this from the live accent's
-     luminance; this default covers first paint and pale-accent themes where a
-     hardcoded white would be illegible. */
-  --accent-fg: #ffffff;
+     luminance; this default has to be right for the --accent directly above it,
+     because an identity with no profile colour and no preset never reaches the
+     JS path at all — white here was 3.14:1 on the brand teal. */
+  --accent-fg: #141419;
 
   --danger: #e0555b;
   --danger-soft: color-mix(in srgb, var(--danger) 14%, transparent);
   --ok: #3ba55d;
   --ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
   --warn: #d9a13c;
+  /* --accent-fg's contract, applied to the status fills: the ink that survives
+     ON the colour. These two never change at runtime (no pack retints them), so
+     the winning side is settled here instead of in JS — and on both dark-mode
+     fills that side is the dark one, where white was scraping 3.1:1. */
+  --danger-fg: #141419;
+  --ok-fg: #141419;
+  /* The same colours as INK, which is not the same colour as the fill: --danger
+     manages 3.75:1 as text on --bg-3, and an amber label on its own 22% tint is
+     worse. Blending toward --text drags each one to whichever end of the scale
+     the current theme's page ISN'T, so one declaration reads in dark, in light
+     and in all 18 packs — a fixed lighter (or darker) hex could only ever suit
+     half of them. The accent's ink equivalent is --accent-hover. */
+  --danger-text: color-mix(in srgb, var(--danger) 66%, var(--text));
+  --warn-text: color-mix(in srgb, var(--warn) 70%, var(--text));
+  --ok-text: color-mix(in srgb, var(--ok) 66%, var(--text));
 
   /* Shape and type are theme tokens too, not just color. A pack may retune
      them (Gruvbox squares its corners, Sakura rounds them), and the Appearance
@@ -88,13 +108,23 @@
   --border: #c6cad2;
   --text: #1c1e22;
   --text-muted: #59606c;
-  --text-faint: #868c98;
+  /* Dark's --text-faint, near enough: a mid grey is the only value that clears
+     3:1 against both ends of the depth scale, and light's scale reaches all the
+     way down to --bg-0 behind the settings rows. */
+  --text-faint: #767d8b;
 
   --accent-hover: color-mix(in srgb, var(--accent) 78%, black);
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --danger: #c93a41;
-  --ok: #2e8b4d;
+  /* A touch darker than it looks like it needs to be: white on the fill (the
+     Join button, the voice toggles) only made 4.27:1 at #2e8b4d. */
+  --ok: #2b8446;
   --warn: #a3701a;
+  /* Light's status fills are dark enough that white is the surviving ink — the
+     inverse of dark mode. (--danger-text/--warn-text need no override: they
+     blend toward --text, which flipped with the theme.) */
+  --danger-fg: #ffffff;
+  --ok-fg: #ffffff;
 
   --shadow-pop:
     0 2px 6px rgba(20, 24, 32, 0.08),
@@ -113,7 +143,10 @@
    Device-local (never broadcast). A pack supplies its own accent via CSS;
    applyAppearance() skips the inline accent override while a pack is active
    (unless the user ALSO picked an explicit accent preset, which wins). Placed
-   after the light block so a pack wins regardless of the dark/light setting. */
+   after the light block so a pack wins regardless of the dark/light setting.
+   Each --text-faint below is tuned to clear 3:1 against ITS OWN --bg-3 (the
+   lightest surface a pack ever paints it on, composited for the translucent
+   packs): faint is decoration, but decoration still has to be visible. */
 :root[data-theme-pack="midnight"] {
   --bg-0: #0b0e1a;
   --bg-1: #111527;
@@ -122,7 +155,7 @@
   --border: #2e3654;
   --text: #e6e9f5;
   --text-muted: #949cbd;
-  --text-faint: #666e8f;
+  --text-faint: #707897;
   --accent: #6f7cff;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -136,7 +169,7 @@
   --border: #3c2c5e;
   --text: #ece5f7;
   --text-muted: #a394c2;
-  --text-faint: #75689a;
+  --text-faint: #7d71a1;
   --accent: #a06bff;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -150,7 +183,7 @@
   --border: #533146;
   --text: #f5e8ef;
   --text-muted: #bd94aa;
-  --text-faint: #8c687b;
+  --text-faint: #957485;
   --accent: #f06ba8;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -164,7 +197,7 @@
   --border: #2e4437;
   --text: #e6f0ea;
   --text-muted: #92ac9d;
-  --text-faint: #64806f;
+  --text-faint: #6b8675;
   --accent: #3fb96e;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -178,7 +211,7 @@
   --border: #24262d;
   --text: #e8eaed;
   --text-muted: #8f939c;
-  --text-faint: #5e626b;
+  --text-faint: #666a73;
   --accent: #22d3ee;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -194,8 +227,8 @@
   --bg-3: #434c5e;
   --border: #4c566a;
   --text: #eceff4;
-  --text-muted: #a8b1c4;
-  --text-faint: #7b8698;
+  --text-muted: #b6bece;
+  --text-faint: #97a0af;
   --accent: #88c0d0;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: var(--bg-3);
@@ -209,7 +242,7 @@
   --border: #4d5066;
   --text: #f8f8f2;
   --text-muted: #bcc0d8;
-  --text-faint: #7f83a3;
+  --text-faint: #9296b0;
   --accent: #bd93f9;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: var(--bg-3);
@@ -223,7 +256,7 @@
   --border: #504945;
   --text: #ebdbb2;
   --text-muted: #bdae93;
-  --text-faint: #928374;
+  --text-faint: #958676;
   --accent: #fabd2f;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: var(--bg-3);
@@ -237,7 +270,7 @@
   --border: #403c58;
   --text: #e0def4;
   --text-muted: #a7a3c8;
-  --text-faint: #6e6a86;
+  --text-faint: #7e7a95;
   --accent: #ebbcba;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
   --bg-elevated: var(--bg-3);
@@ -250,8 +283,8 @@
   --bg-3: #294049;
   --border: #34505b;
   --text: #e0eaee;
-  --text-muted: #8faab6;
-  --text-faint: #5f7b86;
+  --text-muted: #92adb8;
+  --text-faint: #78909a;
   --accent: #5ec8cc;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: var(--bg-3);
@@ -290,7 +323,7 @@
   --border: #3a1a5c;
   --text: #f6e6ff;
   --text-muted: #b98fd6;
-  --text-faint: #7d5aa0;
+  --text-faint: #8462a6;
   --accent: #ff4fd8;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: rgba(26, 10, 44, 0.95);
@@ -304,7 +337,7 @@
   --border: #232746;
   --text: #e7eaf7;
   --text-muted: #9aa0c8;
-  --text-faint: #666c94;
+  --text-faint: #696f96;
   --accent: #7c8bff;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: rgba(14, 16, 34, 0.95);
@@ -318,7 +351,7 @@
   --border: #4a2a18;
   --text: #f7e9df;
   --text-muted: #c79f88;
-  --text-faint: #8f6a52;
+  --text-faint: #916d55;
   --accent: #ff7a2f;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
   --bg-elevated: rgba(30, 16, 10, 0.95);
@@ -581,7 +614,7 @@
   --border: #2a3f52;
   --text: #e6f0f7;
   --text-muted: #9db4c6;
-  --text-faint: #647d90;
+  --text-faint: #7d93a4;
   --accent: #7dd3fc;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgba(18, 30, 42, 0.95);
@@ -602,7 +635,7 @@
   --border: #513438;
   --text: #f6e7e6;
   --text-muted: #c7a2a2;
-  --text-faint: #906a6c;
+  --text-faint: #967273;
   --accent: #fb7185;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
   --bg-elevated: rgba(40, 26, 30, 0.95);
@@ -623,7 +656,7 @@
   --border: #3d2c54;
   --text: #efe6f7;
   --text-muted: #b6a2c9;
-  --text-faint: #7f6a94;
+  --text-faint: #836f98;
   --accent: #c084fc;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
   --bg-elevated: rgba(32, 23, 44, 0.95);

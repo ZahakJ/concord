@@ -120,7 +120,7 @@
   }
   .chip.guest {
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .way-text {
     display: flex;

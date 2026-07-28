@@ -163,9 +163,14 @@
               <span class="role-badge owner" title="Guild owner">owner</span>
             {:else if topRole(mem)}
               {@const r = topRole(mem)}
+              <!-- A role colour is picked to be seen, not to be read: painting
+                   it on a 22% tint of ITSELF leaves a pale role invisible. Same
+                   trick as --danger-text — blend the label toward --text, so
+                   whatever colour the guild chose still resolves as writing. -->
+              {@const rc = r.color || "var(--text-muted)"}
               <span
                 class="role-badge"
-                style="background:color-mix(in srgb, {r.color || 'var(--text-faint)'} 22%, transparent); color:{r.color || 'var(--text-muted)'}"
+                style="background:color-mix(in srgb, {rc} 22%, transparent); color:color-mix(in srgb, {rc} 66%, var(--text))"
                 title={r.name}>{r.name}</span>
             {/if}
             {#if mem.verified && !mem.isSelf && !mem.pending}
@@ -227,7 +232,9 @@
   .panel {
     background: var(--bg-1);
     border-left: 1px solid var(--border);
-    padding: 12px 8px;
+    /* index.html asks for viewport-fit=cover, so in the right-hand drawer the
+       last row would sit under the home indicator without the inset. */
+    padding: 12px 8px calc(12px + env(safe-area-inset-bottom));
     overflow-y: auto;
     /* Spinning avatar rings overflow their box by design — don't let that
        summon a horizontal scrollbar (see ChannelList .scroll). */
@@ -373,7 +380,7 @@
     gap: 1.5px;
     height: 9px;
     margin-right: 3px;
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .eq i {
     width: 2px;
@@ -404,7 +411,7 @@
     }
   }
   .v-badge {
-    color: var(--ok);
+    color: var(--ok-text);
     display: inline-grid;
     place-items: center;
     animation: v-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
@@ -421,7 +428,7 @@
     }
   }
   .muted-badge {
-    color: var(--danger);
+    color: var(--danger-text);
     display: inline-grid;
     place-items: center;
   }
@@ -447,20 +454,22 @@
     border-radius: 7px;
     font-weight: 600;
     flex-shrink: 0;
-    background: color-mix(in srgb, #f0b232 22%, transparent);
-    color: #f0b232;
+    background: color-mix(in srgb, var(--warn) 22%, transparent);
+    color: var(--warn-text);
   }
   .role-badge.owner {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
-    color: var(--accent);
-  }
-  .role-badge.mod {
-    background: color-mix(in srgb, var(--ok) 20%, transparent);
-    color: var(--ok);
+    /* Not --accent-hover. That is the accent's ink on a PLAIN surface; here the
+       surface is a 22% wash of the accent itself, so the two sit far too close —
+       3.3:1 in light mode and under 4.5 in eight of the packs. Blending toward
+       --text pushes it to whichever end of the scale the current theme's page
+       isn't, which is the same trick --danger-text uses and the only one that
+       holds across dark, light and every pack at once. */
+    color: color-mix(in srgb, var(--accent) 50%, var(--text));
   }
   .kick {
     background: transparent;
-    color: var(--danger);
+    color: var(--danger-text);
     padding: 4px 8px;
     opacity: 0;
   }
@@ -502,7 +511,7 @@
   }
   .badge.verified {
     background: var(--ok-soft);
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .small {
     font-size: 12px;
@@ -526,7 +535,7 @@
     .mini::after {
       content: "";
       position: absolute;
-      inset: -12px;
+      inset: -13px;
     }
   }
   .chev {

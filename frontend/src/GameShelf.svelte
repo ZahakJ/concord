@@ -262,7 +262,7 @@
     border-radius: 999px;
     border: none;
     background: color-mix(in srgb, var(--accent) 16%, transparent);
-    color: var(--accent);
+    color: var(--accent-hover);
     cursor: pointer;
   }
   .g-add:hover {
@@ -620,5 +620,17 @@
   }
   .g-empty {
     font-size: 11.5px;
+  }
+  /* Touch: "Add a game" is an 18px pill in a tight card header, so the tap area
+     is padded out to 44px rather than the chip itself. */
+  @media (pointer: coarse) {
+    .g-add {
+      position: relative;
+    }
+    .g-add::after {
+      content: "";
+      position: absolute;
+      inset: -13px -4px;
+    }
   }
 </style>

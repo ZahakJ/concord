@@ -147,7 +147,7 @@
   }
   .badge {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     font-size: 10.5px;
     font-weight: 700;
     border-radius: 999px;
@@ -176,7 +176,7 @@
     height: 64px;
     border-radius: 50%;
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-hover);
     margin-bottom: 4px;
   }
   .empty h3 {
@@ -185,5 +185,12 @@
   .empty p {
     margin: 0;
     font-size: 13px;
+  }
+  /* Starting a post is the whole point of a forum channel — it can't be a 38px
+     target on the surface where you'd use it most. */
+  @media (pointer: coarse) {
+    .new-post {
+      min-height: 44px;
+    }
   }
 </style>

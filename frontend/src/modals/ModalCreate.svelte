@@ -77,7 +77,7 @@
     place-items: center;
     font-size: 22px;
     font-weight: 700;
-    color: var(--accent);
+    color: var(--accent-hover);
     background: var(--accent-soft);
     border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
     animation: bubble-in 0.35s cubic-bezier(0.34, 1.5, 0.5, 1);
@@ -89,7 +89,7 @@
   }
   /* The moment it has a name, the placeholder solidifies into a real bubble. */
   .bubble.named {
-    color: #fff;
+    color: var(--accent-fg);
     background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, var(--accent-hover)));
     border: 1px solid transparent;
     box-shadow: var(--accent-glow);

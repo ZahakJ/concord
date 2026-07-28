@@ -300,7 +300,7 @@
   }
   /* The channel-type glyph carries the accent — a small "you are here" tint. */
   .title :global(svg) {
-    color: var(--accent);
+    color: var(--accent-hover);
     flex-shrink: 0;
   }
   .title strong {
@@ -412,7 +412,7 @@
     gap: 4px;
     font-size: 12px;
     font-weight: 600;
-    color: var(--ok);
+    color: var(--ok-text);
     padding: 3px 5px 3px 9px;
     background: var(--ok-soft);
     border-radius: 13px;
@@ -454,7 +454,7 @@
   }
   .pill-btn {
     background: transparent;
-    color: var(--ok);
+    color: var(--ok-text);
     padding: 3px;
     display: grid;
     place-items: center;
@@ -465,10 +465,10 @@
   }
   .pill-btn.on {
     background: var(--ok);
-    color: #fff;
+    color: var(--ok-fg);
   }
   .pill-btn.leave {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .pill-btn.leave:hover {
     background: var(--danger-soft);
@@ -483,7 +483,7 @@
     padding: 6px 12px;
   }
   .iconbtn.call {
-    color: var(--ok);
+    color: var(--ok-text);
     border-color: color-mix(in srgb, var(--ok) 45%, transparent);
   }
   .iconbtn.call:hover {
@@ -491,13 +491,13 @@
   }
   /* Peer is already on the call — a live, inviting affordance. */
   .iconbtn.live-join {
-    color: #ff6b6b;
-    border-color: color-mix(in srgb, #f04747 50%, transparent);
-    background: color-mix(in srgb, #f04747 12%, transparent);
+    color: var(--danger-text);
+    border-color: color-mix(in srgb, var(--danger) 50%, transparent);
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
     font-weight: 600;
   }
   .iconbtn.live-join:hover {
-    background: color-mix(in srgb, #f04747 20%, transparent);
+    background: color-mix(in srgb, var(--danger) 20%, transparent);
   }
   .live-dot {
     width: 7px;
@@ -521,7 +521,7 @@
     }
   }
   .iconbtn.endcall {
-    color: var(--danger);
+    color: var(--danger-text);
     border-color: color-mix(in srgb, var(--danger) 45%, transparent);
   }
   .iconbtn.endcall:hover {

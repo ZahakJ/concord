@@ -634,7 +634,7 @@
     opacity: 0.45;
   }
   .test.on {
-    color: var(--accent);
+    color: var(--accent-hover);
     border-color: var(--accent);
   }
   select {
@@ -671,7 +671,7 @@
   .fill {
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 70%, #e5a34a 100%);
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 70%, var(--warn) 100%);
     transition: width 0.06s linear;
   }
   /* The gate threshold, drawn on the meter so it can be set by eye. */

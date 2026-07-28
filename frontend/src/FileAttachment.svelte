@@ -99,7 +99,7 @@
     font-size: 8px;
     font-weight: 700;
     background: var(--accent);
-    color: white;
+    color: var(--accent-fg);
     padding: 1px 3px;
     border-radius: 3px;
     letter-spacing: 0.02em;

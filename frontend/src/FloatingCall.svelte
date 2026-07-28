@@ -29,6 +29,10 @@
     dragging = true;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
+    // A touch drag the browser decides is a scroll ends in pointercancel, never
+    // pointerup: without this the dock stayed "held" and every later touch
+    // anywhere on screen teleported it.
+    window.addEventListener("pointercancel", onUp);
   }
   function onMove(e) {
     if (drag) pos = clamp(e.clientX - drag.dx, e.clientY - drag.dy);
@@ -38,11 +42,17 @@
     dragging = false;
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
   }
   // Keep the dock on-screen when the window is resized smaller.
   function onResize() {
     pos = clamp(pos.x, pos.y);
   }
+
+  // The mobile drawers carry their own call bar and the dock would float over
+  // the channel rows they slide in, so it steps aside (hidden, not unmounted —
+  // remounting would throw away wherever the user parked it).
+  const shelved = $derived(S.isMobile && (S.drawerOpen || S.membersOpen));
 
   const roster = $derived(["self", ...S.voiceParticipants]);
   function part(pid) {
@@ -69,7 +79,7 @@
 
 <svelte:window onresize={onResize} />
 
-<div class="dock" class:dragging style="left:{pos.x}px; top:{pos.y}px">
+<div class="dock" class:dragging class:shelved style="left:{pos.x}px; top:{pos.y}px">
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="head" onpointerdown={onDown} ondblclick={onReturn} title="Drag to move · double-click to open">
     <span class="live"></span>
@@ -123,6 +133,9 @@
     animation: dock-breathe 4s ease-in-out infinite;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
+  .dock.shelved {
+    display: none;
+  }
   /* Lifted while dragged: bigger shadow + a slight grow under the pointer. */
   .dock.dragging {
     transform: scale(1.03);
@@ -149,6 +162,9 @@
     padding: 7px 8px 7px 10px;
     background: var(--ok-soft);
     cursor: move;
+    /* Ours, not the scroller's: with the default the browser claimed any
+       vertical touch drag and cancelled the pointer mid-move. */
+    touch-action: none;
   }
   .live {
     width: 8px;
@@ -168,7 +184,7 @@
     min-width: 0;
     font-size: 12px;
     font-weight: 600;
-    color: var(--ok);
+    color: var(--ok-text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -176,6 +192,7 @@
   .faces {
     display: flex;
     flex-wrap: wrap;
+    justify-content: center; /* same axis as the control row below it */
     gap: 6px;
     padding: 10px;
     max-height: 120px; /* ~3 rows; a big call scrolls instead of growing off-screen */
@@ -238,7 +255,7 @@
     height: 24px;
     background: transparent;
     border: none;
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .ico.hang {
     background: var(--danger);

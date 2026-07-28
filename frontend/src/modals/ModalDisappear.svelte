@@ -75,6 +75,6 @@
     background: var(--accent-soft);
   }
   .opt :global(svg) {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
 </style>

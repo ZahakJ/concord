@@ -266,6 +266,15 @@
     .ac {
       flex-direction: column;
     }
+    /* The 1.12/0.88 split carries a flex-basis of 0 into the column axis, so
+       both panes were sized off the sheet's height rather than their content:
+       the editor's toolbar + surface + footer overran the preview by 40px at
+       390px and by 378px with the keyboard up. Let them be their own height
+       and let the sheet scroll. */
+    .editor,
+    .preview {
+      flex: none;
+    }
     .preview {
       min-height: 180px;
     }
@@ -311,6 +320,12 @@
   .swatches {
     display: flex;
     gap: 4px;
+  }
+  /* Descendant selector on purpose: Modal's mobile sheet puts a 44px
+     min-height on `.dialog :global(button)`, which outranks a bare `.sw` — and
+     a colour swatch is a dot, so 19×44 renders as an ellipse. */
+  .swatches .sw {
+    min-height: 19px;
   }
   .sw {
     width: 19px;
@@ -383,7 +398,7 @@
     transition: background 0.12s ease, border-color 0.12s ease;
   }
   .embed-toggle :global(svg) {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .embed-toggle:hover {
     background: var(--accent-soft);
@@ -450,7 +465,7 @@
     background: transparent;
   }
   .fx:hover {
-    color: var(--danger);
+    color: var(--danger-text);
     background: color-mix(in srgb, var(--danger) 14%, transparent);
   }
   .add-field {
@@ -460,7 +475,7 @@
     gap: 5px;
     padding: 5px 9px;
     font-size: 12px;
-    color: var(--accent);
+    color: var(--accent-hover);
     background: transparent;
     border-radius: var(--radius-sm);
   }
@@ -509,7 +524,7 @@
     place-items: center;
     font-weight: 700;
     font-size: 14px;
-    color: var(--accent);
+    color: var(--accent-hover);
     background: var(--accent-soft);
   }
   .pbody {

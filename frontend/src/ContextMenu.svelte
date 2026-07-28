@@ -152,7 +152,7 @@
   }
   .as-item.danger,
   .as-item.danger .as-icon {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .as-sep {
     height: 1px;
@@ -213,14 +213,14 @@
   }
   .cm-item:hover {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
   }
   .cm-item.danger {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .cm-item.danger:hover {
     background: var(--danger);
-    color: #fff;
+    color: var(--danger-fg);
   }
   .cm-sep {
     height: 1px;
@@ -239,7 +239,7 @@
     margin-left: auto;
     font-size: 12px;
     font-weight: 800;
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .cm-item:hover .cm-tick {
     color: currentColor;

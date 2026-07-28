@@ -106,7 +106,7 @@
     white-space: nowrap;
   }
   .check {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .actions {
     display: flex;

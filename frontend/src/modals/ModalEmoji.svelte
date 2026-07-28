@@ -182,7 +182,7 @@
   }
   .rm {
     background: transparent;
-    color: var(--danger);
+    color: var(--danger-text);
     padding: 4px 6px;
     opacity: 0;
   }

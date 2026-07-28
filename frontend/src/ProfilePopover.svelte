@@ -258,7 +258,12 @@
     closeProfilePopover();
   }
 
-  const fprShort = $derived(mem ? mem.fingerprint.replace(/(.{4})/g, "$1 ").trim() : "");
+  // Fingerprints already arrive space-grouped; re-chunking the raw string
+  // counted those spaces as characters and produced "YXNO  YAD U MX G3" — and
+  // this is the string two people read aloud to each other to verify a key.
+  const fprShort = $derived(
+    mem ? mem.fingerprint.replace(/\s+/g, "").replace(/(.{4})/g, "$1 ").trim() : "",
+  );
 
   // Custom status split into emoji + text so each part can be styled.
   const statusParts = $derived(mem ? splitStatus(mem.status) : { emoji: "", text: "" });
@@ -370,6 +375,14 @@
       style={mem.style}
       class="banner"
     />
+    {#if S.isMobile}
+      <!-- Every other sheet in the app has a grip; without one this card read
+           as a stuck panel whose only exit was a blind tap outside it. Tapping
+           it closes, so the affordance is real and not just decoration. It
+           rides on the banner art, so it's over-image chrome (light pill, dark
+           shadow) rather than a themed surface. -->
+      <button class="grip" onclick={closeProfilePopover} aria-label="Close profile"></button>
+    {/if}
     <div class="head">
       <div class="av-wrap">
         {#if mem.color}
@@ -601,15 +614,15 @@
 
 <style>
   .mod-btn.admin {
-    border-color: color-mix(in srgb, #e0a63c 55%, var(--border));
-    color: #e0a63c;
+    border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
+    color: var(--warn-text);
   }
   .mod-btn.admin:hover {
-    background: color-mix(in srgb, #e0a63c 16%, transparent);
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
   }
   .mod-btn.admin.on {
-    background: color-mix(in srgb, #e0a63c 20%, transparent);
-    color: #f0c169;
+    background: color-mix(in srgb, var(--warn) 20%, transparent);
+    color: var(--warn-text);
   }
   .pop {
     position: fixed;
@@ -670,6 +683,30 @@
   .pop.sheet :global(.banner) {
     height: 130px;
   }
+  /* 44px of tap area around a 40×5 pill — same pill as Modal's sheets. */
+  .grip {
+    position: absolute;
+    top: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 64px;
+    height: 44px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    z-index: 1;
+  }
+  .grip::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    left: 12px;
+    width: 40px;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.55);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  }
   .pop.sheet .body {
     padding: 8px 18px 18px;
     gap: 6px;
@@ -689,8 +726,18 @@
   .pop.sheet .mod-btn,
   .pop.sheet .verify-btn,
   .pop.sheet .nick-edit {
-    min-height: 42px;
+    min-height: 44px;
     font-size: 14px;
+  }
+  /* The copy control sits inline with the safety number and can't grow without
+     pushing that block around, so pad the tap area instead. */
+  .pop.sheet .copy-btn {
+    position: relative;
+  }
+  .pop.sheet .copy-btn::after {
+    content: "";
+    position: absolute;
+    inset: -13px -4px;
   }
   .pop.sheet .dm-send {
     min-width: 48px;
@@ -749,7 +796,7 @@
     font-size: 11px;
     font-weight: 600;
     border-radius: 999px;
-    color: var(--ok);
+    color: var(--ok-text);
     background: color-mix(in srgb, var(--ok) 14%, transparent);
     border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
   }
@@ -812,7 +859,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--accent);
+    color: var(--accent-hover);
     margin-bottom: 7px;
   }
   .act-row {
@@ -913,11 +960,11 @@
   }
   .role-badge.owner {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .role-badge.mod {
     background: color-mix(in srgb, var(--ok) 20%, transparent);
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .role-toggles,
   .role-pills {
@@ -1044,7 +1091,7 @@
     color: var(--text);
   }
   .copy-btn.copied {
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .fpr {
     font-family: ui-monospace, monospace;

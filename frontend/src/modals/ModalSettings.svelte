@@ -421,7 +421,7 @@
     border-radius: 999px;
     border: none;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     cursor: pointer;
     text-decoration: none;
     box-shadow: var(--accent-glow);
@@ -436,7 +436,7 @@
   }
   .upd-btn.ghosted {
     background: color-mix(in srgb, var(--accent) 15%, transparent);
-    color: var(--accent);
+    color: var(--accent-hover);
     box-shadow: none;
   }
   .upd-btn.ghosted:hover {
@@ -468,13 +468,13 @@
     margin-top: -2px;
     font-size: 11px;
     letter-spacing: 0.03em;
-    color: var(--text-faint);
+    color: var(--text-muted);
     cursor: pointer;
     border-radius: 999px;
     transition: color 0.15s ease;
   }
   .about:hover {
-    color: var(--text-muted);
+    color: var(--text);
   }
   .sec-label {
     font-size: 11px;
@@ -575,7 +575,7 @@
     flex-shrink: 0;
     border-radius: 10px;
     background: color-mix(in srgb, var(--accent) 16%, transparent);
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .appearance-chip {
     width: 34px;
@@ -600,7 +600,7 @@
   }
   .warn-chip {
     background: color-mix(in srgb, var(--danger) 15%, transparent);
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .phrase-body {
     display: flex;
@@ -624,8 +624,9 @@
     font-family: ui-monospace, monospace;
     font-size: 12px;
   }
+  /* Which word this is, not decoration — you read it to check word 17. */
   .num {
-    color: var(--text-faint);
+    color: var(--text-muted);
     font-size: 10px;
     width: 16px;
     text-align: right;
@@ -642,7 +643,7 @@
     padding: 5px 14px;
   }
   .small-btn.done {
-    color: var(--ok);
+    color: var(--ok-text);
     border-color: var(--ok);
   }
 
@@ -658,7 +659,7 @@
     background: transparent;
     border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
     border-radius: var(--radius-md);
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .signout:hover {
     background: color-mix(in srgb, var(--danger) 12%, transparent);
@@ -683,6 +684,15 @@
     .signout {
       width: 100%;
       min-height: 48px;
+    }
+    /* Side by side, the button claimed 135px of a 320px row and the copy broke
+       three ways while every other row in the list gets the full width. */
+    .upd-head {
+      flex-wrap: wrap;
+    }
+    .upd-btn {
+      flex: 1 0 100%;
+      min-height: 44px;
     }
   }
   @media (prefers-reduced-motion: reduce) {

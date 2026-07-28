@@ -83,6 +83,6 @@
   }
   .unblock:hover {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
   }
 </style>

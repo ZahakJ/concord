@@ -293,7 +293,7 @@
     color: var(--text-muted);
   }
   .note-line.warn {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .addr-row.empty {
     flex-direction: column;
@@ -334,7 +334,7 @@
     color: var(--text-muted);
   }
   .code-wrap.ok .code-state {
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .code-wrap.bad .code-state {
     color: color-mix(in srgb, var(--danger) 80%, var(--text));
@@ -358,5 +358,16 @@
     padding: 7px 18px;
     font-size: 13px;
     font-weight: 600;
+  }
+  /* SettingRow drops the control onto its own line at this width — spend that
+     line, rather than clipping "e.g. 4001" to "e.g. 400" in a 92px box. */
+  @media (max-width: 480px) {
+    .port {
+      width: 100%;
+    }
+    .port-box {
+      flex: 1;
+      width: auto;
+    }
   }
 </style>

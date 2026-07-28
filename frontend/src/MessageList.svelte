@@ -535,7 +535,7 @@
   }
   .pin-item .unpin:hover {
     background: var(--danger-soft);
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .pin-text {
     min-width: 0;
@@ -700,7 +700,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    color: var(--accent);
+    color: var(--accent-hover);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.08em;
@@ -739,7 +739,7 @@
     gap: 3px;
     border: none;
     background: transparent;
-    color: var(--accent);
+    color: var(--accent-hover);
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.06em;
@@ -898,7 +898,6 @@
   }
   .feed-start {
     font-style: italic;
-    opacity: 0.75;
   }
   @keyframes att-spin {
     to {
@@ -933,7 +932,7 @@
     transition: border-color 0.15s ease, transform 0.15s ease;
   }
   .ob-cta {
-    color: var(--accent);
+    color: var(--accent-hover);
     font-weight: 600;
     white-space: nowrap;
   }
@@ -1054,6 +1053,13 @@
     .pin-item .unpin {
       opacity: 1;
       padding: 8px;
+    }
+    /* Close-pins was a 24×16 glyph. An invisible overlay would have spilled
+       outside the panel's rounded edge, so the button itself takes the 44px
+       and the header grows with it. */
+    .mini {
+      min-width: 44px;
+      min-height: 44px;
     }
   }
 </style>

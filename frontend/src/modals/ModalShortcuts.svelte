@@ -87,7 +87,7 @@
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .sc-row {
     display: flex;

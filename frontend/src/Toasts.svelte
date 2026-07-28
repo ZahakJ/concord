@@ -86,14 +86,14 @@
     background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 9%, var(--bg-1)), var(--bg-1) 55%);
   }
   .toast.error .t-icon {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .toast.success {
     border-left-color: var(--ok);
     background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 9%, var(--bg-1)), var(--bg-1) 55%);
   }
   .toast.success .t-icon {
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .toast.info {
     border-left-color: var(--accent);
@@ -117,13 +117,13 @@
     animation-fill-mode: forwards;
   }
   .toast.error .t-rail {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .toast.success .t-rail {
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .toast.info .t-rail {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   @keyframes t-drain {
     to {
@@ -172,9 +172,17 @@
     .toast {
       font-size: 14px;
     }
+    /* Toasts are short-lived and stacked, so the glyph stays 32px and an
+       invisible overlay carries the tap area to 44px. */
     .t-close {
       width: 32px;
       height: 32px;
+      position: relative;
+    }
+    .t-close::after {
+      content: "";
+      position: absolute;
+      inset: -6px;
     }
   }
 </style>

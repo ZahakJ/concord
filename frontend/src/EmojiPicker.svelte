@@ -443,8 +443,18 @@
     }
     .tab {
       font-size: 20px;
-      padding: 9px 8px 11px;
+      padding: 11px 8px 13px; /* 20px glyph + padding = the 44px floor */
       min-width: 44px;
+    }
+    /* The header's tone picker and close button keep their 36px glyph boxes;
+       an invisible overlay carries the tap area to 44px. */
+    .mini {
+      position: relative;
+    }
+    .mini::after {
+      content: "";
+      position: absolute;
+      inset: -4px;
     }
     .grid {
       height: 42vh;

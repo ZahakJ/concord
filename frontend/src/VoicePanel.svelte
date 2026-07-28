@@ -587,9 +587,9 @@
     position: absolute;
     left: 8px;
     bottom: 8px;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
+    /* Block, not inline-flex: text-overflow is ignored on a flex container, so
+       a long name was hard-clipped mid-glyph instead of ellipsised. */
+    display: block;
     max-width: calc(100% - 16px);
     padding: 2px 8px;
     font-size: 12px;
@@ -919,7 +919,7 @@
   /* Muted mic reads as a clear "off/alert" state (Discord-style red). */
   .ctl.danger {
     background: color-mix(in srgb, var(--danger) 20%, transparent);
-    color: var(--danger);
+    color: var(--danger-text);
     border-color: color-mix(in srgb, var(--danger) 45%, transparent);
   }
   .ctl.danger:hover {
@@ -969,13 +969,68 @@
 
   /* ---- touch adjustments: call controls you can't fat-finger. ---- */
   @media (pointer: coarse) {
+    /* On a phone the call IS the screen — 46vh is a desktop-derived slice that
+       left two rows of tiles scrolling under an empty chat placeholder. */
+    .voice-panel {
+      max-height: 56vh;
+      /* The sticky control band supplies the bottom padding instead, so it can
+         reach the panel's real bottom edge (sticky is caged by its containing
+         block, which stops at the padding edge). */
+      padding-bottom: 0;
+    }
+    /* The stage and the big view are the panel's reason to exist: in a squeezed
+       panel (landscape, where the composer leaves it ~180px) they'd otherwise
+       be flex-shrunk to a sliver rather than letting the panel scroll. */
+    .stage,
+    .focus-main {
+      flex-shrink: 0;
+    }
+    /* .local-mute is always opaque on touch and owns this corner, so the
+       speaking equalizer would sit permanently underneath it. */
+    .tile .eq {
+      right: auto;
+      left: 8px;
+    }
+    /* A knock is the entire point of locking a call, and as the panel's last
+       child it rendered below the sticky controls — off-screen, with nothing
+       to hint it was there. Float it to the top of the panel. */
+    .knocks {
+      order: -1;
+      padding: 0;
+    }
     .controls {
-      gap: 14px;
-      padding: 10px 0 4px;
+      gap: 8px;
+      /* 7 controls never fit one phone row at finger size (44px each + gaps
+         needs 362px against 358px of content box at 390). Wrapping is the only
+         thing that holds at 320 — without it flex shrinks the WIDTH only and
+         border-radius:50% on a 38x52 box draws an ellipse. At 48px the toggles
+         keep one row and Leave drops to its own, which is the arrangement we
+         actually want. */
+      flex-wrap: wrap;
+      /* Full-bleed and opaque. The gradient was transparent for its top 45%, so
+         tiles and name badges rendered between the buttons, and the band
+         stopped 16px short of the panel edges. */
+      margin: 0 -16px;
+      padding: 10px 16px calc(14px + env(safe-area-inset-bottom));
+      background: var(--bg-0);
+      border-top: 1px solid var(--border);
     }
     .ctl {
-      width: 52px;
-      height: 52px;
+      width: 48px;
+      height: 48px;
+      flex-shrink: 0;
+    }
+    /* Leave lands on the wrapped row of its own; the separating margin only
+       knocks that row off-centre. Its red fill sets it apart anyway. */
+    .ctl.hangup {
+      margin-left: 0;
+    }
+    /* A 16:9 share on a phone is height-limited by its width, and the only
+       width left to give it is our own 16px gutters. */
+    .focus-main {
+      width: auto;
+      margin-inline: -16px;
+      border-radius: 0;
     }
     .fbtn {
       width: 40px;
@@ -987,6 +1042,45 @@
     }
     .strip {
       gap: 10px;
+    }
+  }
+
+  /* Phone-width stage. auto-fit counts repetitions off the 200px MAX, not the
+     130px min, so every portrait phone resolved to ONE column: two people
+     stacked, a third below the fold. Two explicit columns fit 173px tiles at
+     390 and still 138px ones at 320. Landscape keeps the auto-fit rule — two
+     columns of 400px there would be worse than what we started with. */
+  @media (pointer: coarse) and (max-width: 560px) {
+    .stage {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .stage.solo {
+      grid-template-columns: minmax(0, 260px);
+    }
+    /* An odd tile out centres across both columns instead of hugging the left
+       edge with a hole beside it. */
+    .stage:not(.solo) > :last-child:nth-child(odd) {
+      grid-column: 1 / -1;
+      justify-self: center;
+      width: calc(50% - 6px);
+    }
+  }
+
+  /* Landscape phone: header + composer leave the panel ~175px, so 4:3 tiles
+     only fit by scrolling — and the sticky controls then sit across their name
+     badges. Compact, wide tiles instead: everyone at once beats a stage you
+     have to drag. */
+  @media (pointer: coarse) and (max-height: 480px) {
+    .stage,
+    .stage.solo {
+      grid-template-columns: repeat(auto-fit, minmax(96px, 132px));
+    }
+    .tile {
+      aspect-ratio: 16 / 9;
+    }
+    .ctl {
+      width: 44px;
+      height: 44px;
     }
   }
 </style>

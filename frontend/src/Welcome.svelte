@@ -118,7 +118,7 @@
     display: grid;
     place-items: center;
     background: linear-gradient(120deg, var(--accent), var(--accent-hover));
-    color: white;
+    color: var(--accent-fg);
     box-shadow:
       var(--shadow-pop),
       0 0 44px color-mix(in srgb, var(--accent) 30%, transparent);

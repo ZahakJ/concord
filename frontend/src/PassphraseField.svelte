@@ -85,13 +85,13 @@
     color: var(--text);
   }
   .peek[aria-pressed="true"] {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   /* The field owns the focus ring; the button inside it shouldn't draw a
      second one on top. */
   .peek:focus-visible {
     outline: none;
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   @media (prefers-reduced-motion: reduce) {
     .peek {

@@ -265,7 +265,7 @@
     white-space: nowrap;
   }
   .p-check {
-    color: var(--accent);
+    color: var(--accent-hover);
     display: inline-grid;
     place-items: center;
     flex-shrink: 0;
@@ -359,7 +359,7 @@
     border-radius: var(--radius-sm);
   }
   .clear:hover {
-    color: var(--danger);
+    color: var(--danger-text);
     background: var(--danger-soft);
   }
   .sp-scrim {

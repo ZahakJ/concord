@@ -35,6 +35,7 @@
     onJoinVoice,
     onLeaveVoice,
     onToggleMute,
+    onToggleDeafen,
     onToggleShare,
     onToggleCamera,
   } = $props();
@@ -382,6 +383,7 @@
         <VoicePanel
           {onLeaveVoice}
           {onToggleMute}
+          {onToggleDeafen}
           {onToggleShare}
           {onToggleCamera}
         />
@@ -501,6 +503,7 @@
     color: var(--text);
     text-align: left;
     padding: 10px 4px;
+    min-height: 44px;
     border-radius: var(--radius-sm);
   }
   .mtitle:active:not(:disabled) {
@@ -661,6 +664,13 @@
     flex-shrink: 0;
     width: 64px;
     border-right: 1px solid var(--border);
+    /* GuildRail is only as tall as its guild buttons, so below them the
+       drawer's --bg-1 showed through where --bg-0 should be — a 582px seam
+       down the strip at 844px tall. Make the rail fill its column. */
+    display: flex;
+  }
+  .drawer-rail > :global(.rail) {
+    flex: 1;
   }
   .drawer-channels {
     flex: 1;

@@ -993,12 +993,23 @@ function relLuminance(color) {
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
 
-// accentForeground picks black or white text for a given accent fill so it stays
-// legible — white on the pale shipped accents (gruvbox gold, rose, nord) fails
-// contrast badly, which is exactly what the hardcoded #fff did before.
+// The two candidate inks. Near-black rather than pure black, so a dark label on
+// an accent pill belongs to the same palette as the app's deepest surface.
+const FG_DARK = "#141419";
+const FG_LIGHT = "#ffffff";
+const FG_DARK_L = relLuminance(FG_DARK);
+
+// accentForeground picks black or white text for a given accent fill — whichever
+// actually measures better, rather than a guessed luminance cutoff. The cutoff
+// used to be 0.55, which is nowhere near the real crossover for this pair
+// (0.196): everything from the default teal to nord and dracula was getting
+// white at 1.8–3.5:1 when black would have cleared 5:1.
 export function accentForeground(color) {
   const l = relLuminance(color);
-  return l != null && l > 0.55 ? "#141419" : "#ffffff";
+  if (l == null) return FG_LIGHT;
+  const onDark = (l + 0.05) / (FG_DARK_L + 0.05);
+  const onLight = 1.05 / (l + 0.05);
+  return onDark >= onLight ? FG_DARK : FG_LIGHT;
 }
 
 // syncAccentFg resolves whatever --accent currently is (an explicit color OR a
@@ -1010,7 +1021,10 @@ export function syncAccentFg() {
 }
 
 export function applyAccent(color) {
-  if (!color) return;
+  // No profile colour and no preset is the commonest case of all, and it used to
+  // leave --accent-fg wherever it happened to be — including whatever the last
+  // accent needed. Fall through to the CSS accent and derive from that.
+  if (!color) return syncAccentFg();
   document.documentElement.style.setProperty("--accent", color);
   document.documentElement.style.setProperty("--accent-fg", accentForeground(color));
 }

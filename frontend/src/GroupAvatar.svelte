@@ -76,7 +76,7 @@
     display: grid;
     place-items: center;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     font-weight: 600;
     text-transform: uppercase;
     overflow: hidden;

@@ -121,7 +121,7 @@
   }
   .chip {
     background: var(--accent-soft);
-    color: var(--accent);
+    color: var(--accent-hover);
     border-radius: 999px;
     padding: 1px 8px;
     font-size: 11.5px;

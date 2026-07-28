@@ -121,7 +121,7 @@
     background: var(--bg-3);
   }
   .menu :global(.menu-item.danger) {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   .menu :global(.menu-item.danger:hover) {
     background: var(--danger-soft);

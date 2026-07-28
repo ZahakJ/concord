@@ -163,7 +163,7 @@
     white-space: nowrap;
   }
   .vbadge {
-    color: var(--ok);
+    color: var(--ok-text);
     display: grid;
     place-items: center;
   }

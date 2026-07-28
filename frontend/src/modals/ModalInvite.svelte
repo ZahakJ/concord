@@ -135,7 +135,7 @@
     flex-shrink: 0;
     padding: 6px 14px;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border-radius: var(--radius-sm);
     font-size: 13px;
   }
@@ -147,7 +147,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    color: var(--ok);
+    color: var(--ok-text);
   }
   .code-well {
     position: relative;

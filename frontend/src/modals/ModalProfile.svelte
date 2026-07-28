@@ -516,7 +516,7 @@
       color 0.15s ease;
   }
   .ring-entry:hover .chev {
-    color: var(--accent);
+    color: var(--accent-hover);
     transform: translateX(3px);
   }
   @media (prefers-reduced-motion: reduce) {
@@ -567,7 +567,7 @@
     place-items: center;
     border-radius: 50%;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     border: 2px solid var(--bg-1);
     opacity: 0.9;
     transition:
@@ -633,6 +633,14 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+  }
+  /* Four chips of unequal width wrap 3+1, orphaning "Invisible" on a line of
+     its own. A 2×2 grid holds all four and reads as one control. */
+  @media (max-width: 480px) {
+    .presence-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
   }
   .presence {
     display: inline-flex;

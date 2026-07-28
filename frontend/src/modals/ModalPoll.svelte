@@ -174,7 +174,7 @@
   }
   .opt-x:hover {
     background: color-mix(in srgb, var(--danger) 16%, transparent);
-    color: var(--danger);
+    color: var(--danger-text);
   }
   /* Readable at rest: a dashed accent frame with neutral label text (not
      accent-on-transparent, which vanishes on pale theme accents) and an accent
@@ -200,7 +200,7 @@
       border-color 0.12s ease;
   }
   .add-opt :global(svg) {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .add-opt:hover {
     background: var(--accent-soft);
@@ -255,14 +255,10 @@
     border-top: 1px solid var(--border);
     text-align: left;
   }
-  /* The preview is a sample, not a control: dimmed until you hover it, so it
-     never competes with the fields you're actually filling in. */
+  /* Not dimmed: the "Preview" label above already says this is a sample, and
+     an opacity here paints the poll people will actually read at 3.7:1. */
   .preview {
-    opacity: 0.82;
-    transition: opacity 0.16s ease;
-  }
-  .preview:hover {
-    opacity: 1;
+    text-align: left;
   }
   .actions {
     display: flex;

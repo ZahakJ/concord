@@ -1028,7 +1028,7 @@
     text-align: left;
   }
   .eph-banner :global(svg) {
-    color: var(--accent);
+    color: var(--accent-hover);
     flex-shrink: 0;
   }
   .eph-banner strong {
@@ -1037,7 +1037,7 @@
   }
   .eph-change {
     margin-left: auto;
-    color: var(--accent);
+    color: var(--accent-hover);
     font-weight: 600;
   }
   .eph-banner:hover .eph-change {
@@ -1078,7 +1078,7 @@
   .rb-icon {
     display: inline-flex;
     flex-shrink: 0;
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .typing-line {
     height: 20px;
@@ -1208,7 +1208,7 @@
     padding-left: 12px;
     font-family: inherit;
     font-size: 11px;
-    color: var(--accent);
+    color: var(--accent-hover);
     opacity: 0;
     transition: opacity 0.12s ease;
   }
@@ -1221,7 +1221,7 @@
   }
   .s-slash {
     display: inline-flex;
-    color: var(--accent);
+    color: var(--accent-hover);
     margin-right: 7px;
     opacity: 0.9;
   }
@@ -1364,7 +1364,9 @@
     align-items: center;
     gap: 1px;
     padding: 5px 8px 4px;
-    opacity: 0.45;
+    /* Quiet until the composer is hovered or focused, but not invisible: at
+       0.45 these icons sat at 1.9:1 against the input they float over. */
+    opacity: 0.8;
     transition: opacity 0.15s ease;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   }
@@ -1434,7 +1436,7 @@
     font-variant-numeric: tabular-nums;
   }
   .rec-cancel:hover :global(svg) {
-    color: var(--danger);
+    color: var(--danger-text);
   }
   @keyframes rec-pulse {
     0%,
@@ -1538,6 +1540,11 @@
   .composer.mobile .input-box {
     flex-wrap: wrap;
     row-gap: 2px;
+    /* Seven 44px targets are 308px; a 360px handset leaves the tray 322px, and
+       the 3px gaps pushed it to 326 — the emoji button orphaned onto a third
+       row. Butt the targets together instead; the glyphs inside stay 24px
+       apart, which is what the eye actually reads. */
+    column-gap: 0;
   }
   /* Send sits WITH the text, not in the tray. Two reasons. The tray was eight
      44px targets in 390px of phone — 38px of slack, so a narrower handset or
@@ -1578,9 +1585,12 @@
     padding-bottom: 6px;
     gap: 4px;
   }
+  /* Eight buttons at a full 44px wide don't fit 360px of phone, so they share
+     the row evenly and take the 44px on the axis that's free: height. */
   .composer.mobile .fmtbtn {
-    width: 38px;
-    height: 32px;
+    flex: 1 1 0;
+    width: auto;
+    height: 44px;
   }
   /* Finger-sized (≥44px) targets for the icon row and send button; glyphs
      stay grid-centered so only the tap area grows. */
@@ -1599,7 +1609,7 @@
     line-height: 1;
   }
   .fmt-toggle.on {
-    color: var(--accent);
+    color: var(--accent-hover);
   }
   .sendbtn {
     display: grid;
