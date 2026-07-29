@@ -118,7 +118,8 @@
     { name: "fa", usage: "/fa [message]", desc: "┻━┻ ︵╰(°□°╰) fa me (╯°□°)╯︵ ┻━┻", args: true, expand: kaomoji("┻━┻ ︵╰(°□°╰) fa me (╯°□°)╯︵ ┻━┻") },
     { name: "me", usage: "/me <action>", desc: "Italicized action text", args: true, expand: (rest, text) => (rest ? `*${rest}*` : text) },
     { name: "spoiler", usage: "/spoiler <text>", desc: "Hides text until clicked", args: true, expand: (rest, text) => (rest ? `||${rest}||` : text) },
-    // An ACTION, not a text expansion: it runs instead of sending (see runAction).
+    // ACTIONS, not text expansions: these run instead of sending (see runAction).
+    { name: "meme", usage: "/meme", desc: "Open the meme editor", expand: (_, text) => text },
     { name: "clear", usage: "/clear <n>", desc: "Delete the last n messages (moderators)", args: true, mod: true, expand: (_, text) => text },
   ];
 
@@ -128,6 +129,10 @@
   // Action commands do something instead of sending text. Returns true if the
   // draft was consumed.
   async function runAction(text) {
+    if (/^\/meme\s*$/i.test(text)) {
+      S.modal = { kind: "meme" };
+      return true;
+    }
     const m = text.match(/^\/clear(?:\s+(\d+))?\s*$/i);
     if (!m) return false;
     if (!canModerate) {

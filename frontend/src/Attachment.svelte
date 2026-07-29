@@ -6,7 +6,7 @@
   // Esc / backdrop / ✕ close.
   import Icon from "./Icon.svelte";
   import { loadAttachment, copyImageToClipboard, saveImageSrc } from "./lib/attachments.js";
-  import { openContextMenu, flash } from "./lib/state.svelte.js";
+  import { openContextMenu, flash, S } from "./lib/state.svelte.js";
 
   let { channelId, tok } = $props();
 
@@ -32,6 +32,10 @@
         icon: "download",
         onClick: () => saveImageSrc(src, `concord-${(tok.blobId || "image").slice(0, 8)}.png`),
       },
+      { sep: true },
+      // `src` is the already-decrypted data URL, so the editor gets the picture
+      // itself and never has to know it came from an encrypted attachment.
+      { label: "Make a Meme", icon: "spark", onClick: () => (S.modal = { kind: "meme", src }) },
     ]);
   }
 

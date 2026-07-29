@@ -449,6 +449,15 @@
           },
         },
         { label: "Save Image", icon: "download", onClick: () => saveImageSrc(img.src) },
+        { sep: true },
+        // Straight from "that picture is funny" to the editor with it already
+        // loaded — the shortest path there is, and the reason the editor takes
+        // a src rather than only offering its own templates.
+        {
+          label: "Make a Meme",
+          icon: "spark",
+          onClick: () => (S.modal = { kind: "meme", src: img.src }),
+        },
       ]);
       return;
     }
