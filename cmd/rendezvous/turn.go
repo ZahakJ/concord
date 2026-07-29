@@ -62,11 +62,35 @@ func serveTURN(ctx context.Context) *turnServer {
 	ts := &turnServer{secret: secret, public: public, port: port}
 
 	// The relay hands out ephemeral relayed transport addresses. We bind the
-	// listener on all interfaces but ADVERTISE the public host, so a client
-	// behind NAT is told an address it can actually reach.
+	// listener on all interfaces but ADVERTISE a routable address, so a client
+	// behind NAT is told somewhere it can actually send media.
+	//
+	// Getting this wrong fails in the worst possible way, and it did in
+	// production: with no relay IP the old default advertised 0.0.0.0, Allocate
+	// SUCCEEDED, and clients were handed 0.0.0.0:port as the relayed transport
+	// address — a place nobody can send anything. Because the allocation
+	// succeeded, /turn still reported a relay as available, so the app forced
+	// iceTransportPolicy:"relay" for guest meetings and for "hide my IP". Those
+	// calls then had exactly one candidate and it was useless: chat kept working
+	// (it is libp2p, not WebRTC), while audio never arrived and shared screens
+	// stayed black.
+	//
+	// So: resolve the public hostname when no IP is given, and if we cannot
+	// produce a routable address, refuse to run the relay at all. No relay means
+	// /turn advertises plain STUN, relayAvailable is false, and calls connect
+	// directly — without IP privacy, which is a real loss, but a working call
+	// beats a private one that cannot carry sound.
 	relayIP := os.Getenv("CONCORD_TURN_RELAY_IP") // the machine's own routable IP
 	if relayIP == "" {
-		relayIP = "0.0.0.0"
+		relayIP = resolveRelayIP(public)
+	}
+	if ip := net.ParseIP(relayIP); ip == nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsPrivate() {
+		fmt.Fprintf(os.Stderr,
+			"turn: refusing to start — no routable relay address (got %q). "+
+				"Set CONCORD_TURN_RELAY_IP to this host's public IP, or leave the relay off. "+
+				"Advertising an unroutable relay is worse than none: calls that force relaying "+
+				"would connect their signalling and carry no media.\n", relayIP)
+		return nil
 	}
 
 	tcpListener, err := net.Listen("tcp", "0.0.0.0:"+port)
@@ -129,6 +153,32 @@ type turnServer struct {
 // CONCORD_TURN_ALLOW_PRIVATE=1 disables the filter for LOCAL development only,
 // where peers are 127.0.0.1. Never set it in production.
 var allowPrivatePeers = os.Getenv("CONCORD_TURN_ALLOW_PRIVATE") == "1"
+
+// resolveRelayIP finds a routable address for the hostname clients dial. It is
+// the same machine, so its own DNS name is the best available answer when the
+// deployment has not been told its public IP explicitly — a container behind a
+// proxy usually cannot discover it from its interfaces, which is exactly how the
+// 0.0.0.0 default came to be used in production.
+func resolveRelayIP(host string) string {
+	if host == "" {
+		return ""
+	}
+	addrs, err := net.LookupIP(host)
+	if err != nil {
+		return ""
+	}
+	// IPv4 first: a relayed IPv6 address is useless to a peer without IPv6.
+	for _, want4 := range []bool{true, false} {
+		for _, ip := range addrs {
+			is4 := ip.To4() != nil
+			if is4 != want4 || !ip.IsGlobalUnicast() || ip.IsPrivate() {
+				continue
+			}
+			return ip.String()
+		}
+	}
+	return ""
+}
 
 func publicPeersOnly(_ net.Addr, peerIP net.IP) bool {
 	if allowPrivatePeers {

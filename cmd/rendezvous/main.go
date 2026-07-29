@@ -128,6 +128,13 @@ func run() error {
 	// reads the meeting itself; it also serves TURN credentials when TURN is on.
 	serveGuestGateway(ctx, h, ts)
 
+	// GIF search proxy: members search Tenor through this node so that Google
+	// never sees their IP or their search terms (see gifsearch.go). Always
+	// registered — with no CONCORD_TENOR_KEY it answers "unavailable", which is
+	// what lets the client explain the difference between an unconfigured node
+	// and a broken one.
+	serveGifSearch(ctx, h)
+
 	fmt.Println("Concord rendezvous node running (DHT + relay + mailbox + guest gateway).")
 	fmt.Println("PeerID:", h.ID())
 

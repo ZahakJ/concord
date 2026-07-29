@@ -45,9 +45,14 @@
 {/if}
 
 <style>
+  /* A group DM's collage is an avatar like any other, so it follows the theme's
+     silhouette. Pinned round, it stayed a circle in the squared-off themes while
+     every single-person avatar beside it went square — the odd one out in the
+     same list. The tiles inside stay hard-edged; the mask on the outside is what
+     gives the shape. */
   .collage {
     position: relative;
-    border-radius: 50%;
+    border-radius: var(--avatar-radius, 50%);
     overflow: hidden;
     display: grid;
     gap: 1.5px;
