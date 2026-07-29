@@ -32,6 +32,14 @@ import (
 // Token format, embedded in message content in place of inline base64:
 //
 //	![image](concord://attach/v1/<blobID>/<keys>/<subtype>/<w>x<h>)
+//	![image](concord://attach/v2/<blobID>/<keys>/<subtype>/<w>x<h>/<flags>/<nameB64>/<descB64>)
+//
+// v2 carries what the composer's per-image controls set: a flag bitmask (1 =
+// spoiler, so it arrives blurred) and an optional filename and description.
+// v1 is still emitted whenever none of those are used, which is the ordinary
+// case — a peer on an older build then keeps rendering every plain image
+// exactly as before, and only sees a raw token for one that uses the new
+// controls.
 //
 // blobID = hex sha256(ciphertext); keys = base64url (no padding) of
 // key(32) || nonce(24); subtype ∈ png|jpeg|gif|webp; w/h reserve layout space
@@ -81,9 +89,18 @@ func (s *Service) sealBlob(plain []byte) (blobID, keys string, err error) {
 	return blobID, b64url.EncodeToString(append(key[:], nonce[:]...)), nil
 }
 
+// attachSpoiler is bit 0 of a v2 token's flag field.
+const attachSpoiler = 1
+
+// maxAttachDescLen caps an image description. It rides in the message body, so
+// an unbounded one would be a cheap way to bloat every recipient's history.
+const maxAttachDescLen = 500
+
 // SendAttachment seals an image (a data URL from the UI) into a local blob
-// and sends the reference token as a normal chat message.
-func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo string) (domain.Message, error) {
+// and sends the reference token as a normal chat message. spoiler/name/desc
+// come from the per-image controls in the composer; when all three are unset
+// the token emitted is the original v1 form.
+func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc string) (domain.Message, error) {
 	m := dataURLRe.FindStringSubmatch(dataURL)
 	if m == nil {
 		return domain.Message{}, fmt.Errorf("app: attachment must be a png/jpeg/gif/webp image data URL")
@@ -107,7 +124,24 @@ func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo st
 	if h < 0 || h > 99999 {
 		h = 0
 	}
-	token := fmt.Sprintf("![image](concord://attach/v1/%s/%s/%s/%dx%d)", blobID, keys, subtype, w, h)
+	if len(name) > maxFilenameLen {
+		name = name[:maxFilenameLen]
+	}
+	if len(desc) > maxAttachDescLen {
+		desc = desc[:maxAttachDescLen]
+	}
+	var token string
+	if !spoiler && name == "" && desc == "" {
+		token = fmt.Sprintf("![image](concord://attach/v1/%s/%s/%s/%dx%d)", blobID, keys, subtype, w, h)
+	} else {
+		flags := 0
+		if spoiler {
+			flags |= attachSpoiler
+		}
+		token = fmt.Sprintf("![image](concord://attach/v2/%s/%s/%s/%dx%d/%d/%s/%s)",
+			blobID, keys, subtype, w, h, flags,
+			b64url.EncodeToString([]byte(name)), b64url.EncodeToString([]byte(desc)))
+	}
 	return s.send(channelID, token, "", replyTo)
 }
 

@@ -44,7 +44,7 @@ func TestAttachmentSendAndFetch(t *testing.T) {
 
 	rb := &recorder{}
 	b.OnMessage(rb.add)
-	msg, err := a.SendAttachment(channel, dataURL, 800, 600, "")
+	msg, err := a.SendAttachment(channel, dataURL, 800, 600, "", false, "", "")
 	if err != nil {
 		t.Fatalf("SendAttachment: %v", err)
 	}
@@ -150,5 +150,59 @@ func TestFileAttachment(t *testing.T) {
 	// A bad mime is rejected before any fetch.
 	if _, err := b.FetchFile(channel, blobID, keys, "not a mime"); err == nil {
 		t.Fatal("invalid mime accepted")
+	}
+}
+
+// The v1/v2 split IS the compatibility contract: a peer on an older build can
+// only render v1, so a plain image must never be sent as v2 just because the
+// newer code path exists. Only an image that actually uses one of the composer's
+// controls is allowed to change shape.
+func TestAttachmentTokenVersionFollowsOptions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked integration test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	guild, err := a.CreateGuild("G")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	channel := guild.Channels[0].ID
+	dataURL := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("not-really-a-png"))
+
+	cases := []struct {
+		name    string
+		spoiler bool
+		fname   string
+		desc    string
+		want    string
+	}{
+		{"plain stays v1", false, "", "", "concord://attach/v1/"},
+		{"spoiler forces v2", true, "", "", "concord://attach/v2/"},
+		{"a filename forces v2", false, "cat.png", "", "concord://attach/v2/"},
+		{"a description forces v2", false, "", "a cat", "concord://attach/v2/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg, err := a.SendAttachment(channel, dataURL, 10, 10, "", tc.spoiler, tc.fname, tc.desc)
+			if err != nil {
+				t.Fatalf("SendAttachment: %v", err)
+			}
+			if !strings.Contains(msg.Content, tc.want) {
+				t.Fatalf("token = %.160s, want it to contain %s", msg.Content, tc.want)
+			}
+		})
+	}
+
+	// The description rides in the message body, so it has to be bounded.
+	long := strings.Repeat("x", maxAttachDescLen+500)
+	msg, err := a.SendAttachment(channel, dataURL, 10, 10, "", false, "", long)
+	if err != nil {
+		t.Fatalf("SendAttachment: %v", err)
+	}
+	if len(msg.Content) > maxAttachDescLen*2 {
+		t.Fatalf("an over-long description was not truncated: token is %d bytes", len(msg.Content))
 	}
 }

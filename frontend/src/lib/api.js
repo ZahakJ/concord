@@ -154,8 +154,8 @@ export const api = {
     call("SendMessage", channelID, content, replyTo),
   sendCallNotice: (channelID, kind, content) =>
     call("SendCallNotice", channelID, kind, content),
-  sendAttachment: (channelID, dataURL, w, h, replyTo = "") =>
-    call("SendAttachment", channelID, dataURL, w, h, replyTo),
+  sendAttachment: (channelID, dataURL, w, h, replyTo = "", spoiler = false, name = "", desc = "") =>
+    call("SendAttachment", channelID, dataURL, w, h, replyTo, spoiler, name, desc),
   fetchAttachment: (channelID, blobID, keys, subtype) =>
     call("FetchAttachment", channelID, blobID, keys, subtype),
   sendFile: (channelID, dataURL, filename, replyTo = "") =>

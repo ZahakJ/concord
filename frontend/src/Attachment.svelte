@@ -40,6 +40,12 @@
   }
 
   let state = $state("loading"); // loading | done | error
+  // A spoiler stays covered until clicked. Tracked here rather than derived
+  // from the token so revealing one doesn't un-hide every other copy of the
+  // same image, and so it re-covers if the row is rebuilt.
+  let revealed = $state(false);
+  const hidden = $derived(!!tok.spoiler && !revealed);
+  const reveal = () => (revealed = true);
   let src = $state("");
   let errMsg = $state("");
 
@@ -223,9 +229,26 @@
 <svelte:window onkeydown={onKeydown} />
 
 {#if state === "done"}
-  <button class="frame done" onclick={openLightbox} oncontextmenu={imageMenu} title="Click to enlarge">
-    <img {src} alt="attachment" style="max-width:{MAXW}px;max-height:{MAXH}px" />
+  <button
+    class="frame done"
+    class:hidden={hidden}
+    onclick={hidden ? reveal : openLightbox}
+    oncontextmenu={hidden ? undefined : imageMenu}
+    title={hidden ? "Spoiler — click to reveal" : "Click to enlarge"}
+  >
+    <img
+      {src}
+      alt={tok.desc || "attachment"}
+      class:blur={hidden}
+      style="max-width:{MAXW}px;max-height:{MAXH}px"
+    />
+    {#if hidden}<span class="spoiler-tag">SPOILER</span>{/if}
   </button>
+  {#if tok.desc && !hidden}
+    <!-- The sender's description, shown as a caption as well as being the alt
+         text: it's useful to everyone, not only to a screen reader. -->
+    <span class="att-desc">{tok.desc}</span>
+  {/if}
   {#if lightbox}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
@@ -273,6 +296,7 @@
 
 <style>
   .frame {
+    position: relative; /* anchors the SPOILER label over the blurred image */
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -281,6 +305,32 @@
     margin-top: 4px;
     border-radius: var(--radius-sm);
     overflow: hidden;
+  }
+  .frame.done img.blur {
+    filter: blur(22px);
+  }
+  .frame.hidden {
+    cursor: pointer;
+  }
+  .spoiler-tag {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    color: #fff;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+    pointer-events: none;
+  }
+  .att-desc {
+    display: block;
+    margin-top: 3px;
+    font-size: 11.5px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    max-width: 420px;
   }
   .frame.done {
     background: transparent;

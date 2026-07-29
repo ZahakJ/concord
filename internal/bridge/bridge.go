@@ -1094,12 +1094,12 @@ func (b *Bridge) LinkPreview(url string) (PreviewView, error) {
 
 // SendAttachment seals an image into a local encrypted blob and posts the
 // reference token as a chat message (see internal/app/attach.go).
-func (b *Bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string) error {
+func (b *Bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendAttachment(channelID, dataURL, w, h, replyTo)
+	_, err = svc.SendAttachment(channelID, dataURL, w, h, replyTo, spoiler, name, desc)
 	return err
 }
 
@@ -1958,7 +1958,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SendCallNotice":
 		return nil, b.SendCallNotice(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "SendAttachment":
-		return nil, b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4))
+		return nil, b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4),
+			argBool(args, 5), argStr(args, 6), argStr(args, 7))
 	case "FetchAttachment":
 		return b.FetchAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "SendFile":

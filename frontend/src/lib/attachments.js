@@ -9,8 +9,14 @@
 import { api } from "./api.js";
 import { parsePoll } from "./polls.js";
 
+// v1 and v2 in one pattern. v2 appends the composer's per-image options —
+// a flag bitmask (1 = spoiler), a filename and a description — and is only
+// emitted when one of them is actually set, so ordinary images stay v1 and
+// keep rendering on peers running an older build.
 export const ATTACH_RE =
-  /!\[image\]\(concord:\/\/attach\/v1\/([0-9a-f]{64})\/([A-Za-z0-9_-]{75})\/(png|jpeg|gif|webp)\/(\d{1,5})x(\d{1,5})\)/g;
+  /!\[image\]\(concord:\/\/attach\/v1\/([0-9a-f]{64})\/([A-Za-z0-9_-]{75})\/(png|jpeg|gif|webp)\/(\d{1,5})x(\d{1,5})\)|!\[image\]\(concord:\/\/attach\/v2\/([0-9a-f]{64})\/([A-Za-z0-9_-]{75})\/(png|jpeg|gif|webp)\/(\d{1,5})x(\d{1,5})\/(\d{1,3})\/([A-Za-z0-9_-]*)\/([A-Za-z0-9_-]*)\)/g;
+
+export const ATTACH_SPOILER = 1;
 
 // File tokens: [file](concord://file/v1/<blobID>/<keys>/<size>/<mimeB64url>/<nameB64url>)
 export const FILE_RE =
@@ -27,11 +33,28 @@ function b64urlDecode(s) {
   }
 }
 
-// parseAttachTokens returns inline IMAGE tokens [{blobId, keys, subtype, w, h}].
+// parseAttachTokens returns inline IMAGE tokens
+// [{blobId, keys, subtype, w, h, spoiler, name, desc}]. v1 tokens fill the
+// group 1-5 slots and v2 the 6-13 ones, so which alternative matched is simply
+// which half is defined.
 export function parseAttachTokens(content) {
   const out = [];
   for (const m of content.matchAll(ATTACH_RE)) {
-    out.push({ blobId: m[1], keys: m[2], subtype: m[3], w: +m[4], h: +m[5] });
+    if (m[1]) {
+      out.push({ blobId: m[1], keys: m[2], subtype: m[3], w: +m[4], h: +m[5], spoiler: false, name: "", desc: "" });
+    } else {
+      const flags = +m[11] || 0;
+      out.push({
+        blobId: m[6],
+        keys: m[7],
+        subtype: m[8],
+        w: +m[9],
+        h: +m[10],
+        spoiler: (flags & ATTACH_SPOILER) !== 0,
+        name: b64urlDecode(m[12]),
+        desc: b64urlDecode(m[13]),
+      });
+    }
   }
   return out;
 }

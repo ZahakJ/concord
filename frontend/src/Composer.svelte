@@ -516,7 +516,8 @@
       // Attachments first, then the caption — so a pasted image sits above its
       // text in the feed, the way Discord shows an image with a caption below.
       for (const a of atts) {
-        if (a.isImage) await api.sendAttachment(chId, a.dataUrl, a.w, a.h, nextReply());
+        if (a.isImage)
+          await api.sendAttachment(chId, a.dataUrl, a.w, a.h, nextReply(), !!a.spoiler, a.name || "", a.desc || "");
         else await api.sendFile(chId, a.dataUrl, a.name, nextReply());
         sent++;
       }
@@ -598,8 +599,20 @@
 
   const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
+  // Per-attachment controls, Discord-style: mark as spoiler, edit the name and
+  // description, or drop it. Only one editor is open at a time — `editingAtt`
+  // holds its id.
+  let editingAtt = $state("");
+  function setAtt(id, key, value) {
+    pending = pending.map((p) => (p.id === id ? { ...p, [key]: value } : p));
+  }
+  function toggleSpoiler(id) {
+    pending = pending.map((p) => (p.id === id ? { ...p, spoiler: !p.spoiler } : p));
+  }
+
   function removePending(id) {
     pending = pending.filter((p) => p.id !== id);
+    if (editingAtt === id) editingAtt = "";
   }
   const uid = () =>
     (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random());
@@ -616,7 +629,10 @@
       } else {
         ({ dataUrl, w, h } = await normalizeToJpeg(file));
       }
-      pending = [...pending, { id: uid(), dataUrl, w, h, isImage: true }];
+      pending = [
+        ...pending,
+        { id: uid(), dataUrl, w, h, isImage: true, spoiler: false, name: file.name || "", desc: "" },
+      ];
     } catch (err) {
       const msg = String(err?.message || err);
       flash(
@@ -893,23 +909,73 @@
     {#if pending.length || uploading > 0}
       <div class="attach-tray">
         {#each pending as p (p.id)}
-          <div class="att-chip" class:file={!p.isImage}>
+          <div class="att-chip" class:file={!p.isImage} class:spoilered={p.spoiler}>
             {#if p.isImage}
-              <img src={p.dataUrl} alt="" />
+              <img src={p.dataUrl} alt="" class:blur={p.spoiler} />
+              {#if p.spoiler}<span class="att-tag">SPOILER</span>{/if}
             {:else}
               <span class="att-file"><Icon name={p.isVideo ? "play" : "attach"} size={16} /><span class="att-name">{p.name}</span></span>
             {/if}
-            <button
-              type="button"
-              class="att-x"
-              aria-label="Remove attachment"
-              title="Remove"
-              onclick={() => removePending(p.id)}
-            >✕</button>
+            <div class="att-tools">
+              {#if p.isImage}
+                <button
+                  type="button"
+                  class="att-tool"
+                  class:on={p.spoiler}
+                  aria-label={p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
+                  aria-pressed={!!p.spoiler}
+                  title={p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
+                  onclick={() => toggleSpoiler(p.id)}
+                >
+                  <Icon name="spoiler" size={13} />
+                </button>
+              {/if}
+              <button
+                type="button"
+                class="att-tool"
+                class:on={editingAtt === p.id}
+                aria-label="Edit name and description"
+                title="Edit"
+                onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}
+              >
+                <Icon name="edit" size={13} />
+              </button>
+              <button
+                type="button"
+                class="att-tool danger"
+                aria-label="Remove attachment"
+                title="Remove"
+                onclick={() => removePending(p.id)}
+              >
+                <Icon name="trash" size={13} />
+              </button>
+            </div>
           </div>
         {/each}
         {#if uploading > 0}<div class="att-chip loading"><span class="att-spin"></span></div>{/if}
       </div>
+      {#if editingAtt && pending.some((p) => p.id === editingAtt)}
+        {@const p = pending.find((x) => x.id === editingAtt)}
+        <!-- Inline rather than a dialog: you're mid-message, and a modal over
+             the composer to rename a file is a heavier interruption than the
+             edit is worth. -->
+        <div class="att-edit">
+          <label>
+            <span>File name</span>
+            <input value={p.name || ""} oninput={(e) => setAtt(p.id, "name", e.currentTarget.value)} placeholder="image.png" />
+          </label>
+          <label>
+            <span>Description</span>
+            <input
+              value={p.desc || ""}
+              oninput={(e) => setAtt(p.id, "desc", e.currentTarget.value)}
+              maxlength="500"
+              placeholder="Describe it for people who can't see it"
+            />
+          </label>
+          <button type="button" class="att-done" onclick={() => (editingAtt = "")}>Done</button>
+        </div>
+      {/if}
     {/if}
     {#if showFmtBar}
     <div class="fmt-bar" role="toolbar" aria-label="Text formatting">
@@ -1351,6 +1417,107 @@
     width: 64px;
     height: 64px;
     object-fit: cover;
+    transition: filter 0.18s ease;
+  }
+  /* The staged preview blurs too, so "spoiler" is a state you can see before
+     you send rather than a promise about what the other side will get. */
+  .att-chip img.blur {
+    filter: blur(8px);
+  }
+  .att-tag {
+    position: absolute;
+    left: 3px;
+    bottom: 3px;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.72);
+    color: #fff;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    pointer-events: none;
+  }
+  /* The three controls, revealed on hover like Discord — but always visible on
+     a touchscreen, where there is no hover to reveal them with. */
+  .att-tools {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    display: flex;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity 0.14s ease;
+  }
+  .att-chip:hover .att-tools,
+  .att-chip:focus-within .att-tools {
+    opacity: 1;
+  }
+  @media (pointer: coarse) {
+    .att-tools {
+      opacity: 1;
+    }
+  }
+  .att-tool {
+    width: 19px;
+    height: 19px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.68);
+    color: #fff;
+  }
+  .att-tool:hover {
+    background: rgba(0, 0, 0, 0.86);
+  }
+  .att-tool.on {
+    background: var(--accent);
+  }
+  .att-tool.danger:hover {
+    background: var(--danger, #d9534f);
+  }
+  .att-edit {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin: 6px 0 2px;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--bg-3);
+  }
+  .att-edit label {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 130px;
+  }
+  .att-edit span {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .att-edit input {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font: inherit;
+    font-size: 12.5px;
+    padding: 5px 7px;
+    min-width: 0;
+  }
+  .att-done {
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--accent);
+    color: #fff;
+    font-size: 12.5px;
+    font-weight: 600;
   }
   .att-chip.file {
     display: flex;
