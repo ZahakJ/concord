@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 
+	"github.com/zahak/concord/internal/domain"
 	"github.com/zahak/concord/internal/identity"
 	"github.com/zahak/concord/internal/link"
 	cnet "github.com/zahak/concord/internal/net"
@@ -47,6 +49,10 @@ type linkResponse struct {
 	Profile      Profile              `json:"profile"`
 	Bootstrap    []string             `json:"bootstrap"`
 	GuildInvites []string             `json:"guildInvites"`
+	// MissingGuilds names the guilds we could NOT hand over (see
+	// linkGuildInvites). Reported rather than dropped: a device that looks
+	// linked but is silently missing servers is the worst possible outcome.
+	MissingGuilds []string `json:"missingGuilds,omitempty"`
 	// Fingerprints this account has human-verified. Verification is the
 	// account holder's knowledge ("I compared safety numbers with them"), so
 	// it travels with the account to every linked device.
@@ -60,6 +66,10 @@ type LinkResult struct {
 	GuildInvites []string // one invite per shared guild, redeem after login
 	Profile      Profile  // the account's profile (name/avatar/…)
 	Verified     []string // fingerprints the account has verified
+	// MissingGuilds names guilds the issuer holds but could not hand over — the
+	// owner was unreachable and unknown to us. The caller should tell the user
+	// which servers to re-join by code instead of leaving them to notice.
+	MissingGuilds []string
 }
 
 // LinkOffer starts an issuer-side linking session: it mints a single-use offer,
@@ -113,14 +123,8 @@ func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byt
 	cert := s.id.IssueDeviceCertFor(req.DevicePub, req.DeviceName, time.Now().Unix())
 
 	// One invite code per guild so the new device can join every existing group
-	// after it restarts in linked mode. Issuer-owned guilds join immediately;
-	// guilds where we're only a member point at the real owner.
-	var invites []string
-	for _, g := range s.Guilds() {
-		if code, err := s.InviteCode(g.ID); err == nil {
-			invites = append(invites, code)
-		}
-	}
+	// after it restarts in linked mode.
+	invites, missing := s.linkGuildInvites()
 
 	// Verified fingerprints travel with the account (sorted for determinism).
 	var verified []string
@@ -130,20 +134,139 @@ func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byt
 	sort.Strings(verified)
 
 	resp := linkResponse{
-		IssuerNonce:  issuerNonce,
-		IssuerProof:  link.Proof(secret, link.RoleIssuer, issuerNonce),
-		AccountSeed:  s.id.Seed(),
-		Cert:         cert,
-		Profile:      s.SelfProfile(),
-		Bootstrap:    LoadNetConfig(s.dataDir).Bootstrap,
-		GuildInvites: invites,
-		Verified:     verified,
+		IssuerNonce:   issuerNonce,
+		IssuerProof:   link.Proof(secret, link.RoleIssuer, issuerNonce),
+		AccountSeed:   s.id.Seed(),
+		Cert:          cert,
+		Profile:       s.SelfProfile(),
+		Bootstrap:     LoadNetConfig(s.dataDir).Bootstrap,
+		GuildInvites:  invites,
+		MissingGuilds: missing,
+		Verified:      verified,
 	}
 	// Single-use: burn the secret so the offer can't be redeemed twice.
 	s.linkMu.Lock()
 	s.linkSecret = nil
 	s.linkMu.Unlock()
 	return json.Marshal(resp)
+}
+
+// linkGuildInvites builds the invite codes handed to a newly linked device: one
+// per guild the account belongs to, so the new device ends up in everything the
+// account is already in. The second return names the guilds we could not hand
+// over at all.
+//
+// A guild we administer mints a code pointing at us, and we admit the new device
+// ourselves. A guild we are merely a MEMBER of cannot work that way: InviteCode
+// refuses, because a code naming us as the owner advances the joiner onto a
+// private epoch fork the moment it is redeemed. That refusal used to be a
+// dropped error, so every server the user had merely joined was silently absent
+// from the new device — an account that looked linked and was missing most of
+// its groups, with nothing anywhere to say so. Address the code at the REAL
+// owner instead: the new device then joins the way anybody joins, through a peer
+// that is actually authorized to commit.
+//
+// This is not a way around the permission gate. Any member already knows the
+// guild ID and the owner's addresses and could assemble these same bytes by
+// hand; the gate exists to stop an honest client minting a code it cannot
+// honour, and a code naming the owner is not one of those. The recipient is
+// another device of an account the group already contains.
+func (s *Service) linkGuildInvites() (codes, missing []string) {
+	for _, g := range s.Guilds() {
+		if code, err := s.InviteCode(g.ID); err == nil {
+			codes = append(codes, code)
+			continue
+		}
+		if code, ok := s.ownerInviteCode(g); ok {
+			codes = append(codes, code)
+			continue
+		}
+		missing = append(missing, g.Name)
+	}
+	return codes, missing
+}
+
+// ownerInviteCode mints an invite for a guild we belong to but do not
+// administer, addressed to the guild's real owner. False when we have no idea
+// how to reach that owner, which is the only case in which a guild is genuinely
+// unhandable.
+func (s *Service) ownerInviteCode(g domain.Guild) (string, bool) {
+	ownerFpr := identity.FingerprintOf(g.OwnerID)
+	if ownerFpr == "" || ownerFpr == s.id.Fingerprint() {
+		return "", false // our own guild — InviteCode already had its say
+	}
+	pid, addrs, ok := s.ownerAddrs(ownerFpr)
+	if !ok {
+		return "", false
+	}
+	bootstrap := LoadNetConfig(s.dataDir).Bootstrap
+	// Relay paths as well as direct addresses. The owner is behind the same NAT
+	// story as everyone else, and a circuit through a rendezvous we both use is
+	// often the only way a device that has never been on this LAN can reach them.
+	// codeAddrs is no help here: the circuits it appends are for OUR reservations.
+	for _, b := range bootstrap {
+		if b = strings.TrimSpace(b); b != "" && relayID(b) != "" {
+			addrs = append(addrs, b+"/p2p-circuit")
+		}
+	}
+	if len(addrs) == 0 {
+		return "", false // a peer ID with nowhere to dial it is not an invite
+	}
+	return encodeInviteCode(inviteCode{
+		GuildID:   g.ID,
+		GuildName: g.Name,
+		OwnerID:   pid.String(),
+		OwnerAddr: addrs,
+		Bootstrap: bootstrap,
+	}), true
+}
+
+// ownerAddrs resolves an account fingerprint to the peer ID an invite code
+// should name, plus the direct addresses we know for it. A live connection is
+// the best source. Failing that, the contacts table remembers the peer ID an
+// account was last seen under and the peer cache its addresses — which is what
+// lets a device be linked on an evening when the server's owner is asleep.
+func (s *Service) ownerAddrs(fingerprint string) (peer.ID, []string, bool) {
+	if pid, ok := s.peerForFingerprint(fingerprint); ok {
+		var addrs []string
+		for _, a := range s.host.DialableAddrs(pid) {
+			addrs = append(addrs, a.String())
+		}
+		return pid, addrs, true
+	}
+	if s.store == nil {
+		return "", nil, false
+	}
+	contacts, err := s.store.Contacts()
+	if err != nil {
+		return "", nil, false
+	}
+	cached := map[string][]string{}
+	if s.peers != nil {
+		for _, pi := range s.peers.AddrInfos() {
+			for _, a := range pi.Addrs {
+				cached[pi.ID.String()] = append(cached[pi.ID.String()], a.String())
+			}
+		}
+	}
+	var fallback peer.ID
+	var found bool
+	for _, c := range contacts {
+		if c.Fingerprint != fingerprint {
+			continue
+		}
+		pid, err := peer.Decode(c.PeerID)
+		if err != nil {
+			continue // the "fpr:" placeholder rows, and anything else undialable
+		}
+		if addrs := cached[c.PeerID]; len(addrs) > 0 {
+			return pid, addrs, true // addresses beat a bare ID
+		}
+		fallback, found = pid, true
+	}
+	// No cached address, but the relay paths the caller appends can still make a
+	// bare peer ID redeemable.
+	return fallback, nil, found
 }
 
 // RedeemLink performs the joiner side of device linking: it dials the issuer
@@ -249,7 +372,12 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase string) (LinkResu
 	if len(resp.Bootstrap) > 0 {
 		_ = SaveBootstrap(dataDir, resp.Bootstrap)
 	}
-	return LinkResult{GuildInvites: resp.GuildInvites, Profile: resp.Profile, Verified: resp.Verified}, nil
+	return LinkResult{
+		GuildInvites:  resp.GuildInvites,
+		Profile:       resp.Profile,
+		Verified:      resp.Verified,
+		MissingGuilds: resp.MissingGuilds,
+	}, nil
 }
 
 // verifyLinkResponse checks an issuer's response on the joiner side: the issuer

@@ -237,6 +237,21 @@
     .dialog :global(select) {
       min-height: 44px;
     }
+    /* …with one exception: the ⓘ beside a setting is a 14px glyph sitting IN a
+       line of text, not a control on its own row. The floor stretched it into a
+       14×44 ellipse straddling the lines above and below — every info dot in
+       every settings panel looked broken on a phone. It still needs a thumb-
+       sized target, so give it the area without the height: a transparent pad
+       that reaches 44px in both directions and disturbs no layout. */
+    .dialog :global(button.dot) {
+      min-height: 0;
+      position: relative; /* the pad below measures from the dot, not its wrapper */
+    }
+    .dialog :global(button.dot)::after {
+      content: "";
+      position: absolute;
+      inset: -15px; /* 14px + 2×15 = 44 */
+    }
     /* Dismiss and go-back are the two controls every sheet has; they were the
        only ones that floor didn't reach (the close button opted out of
        min-height, and .back is sized by its padding). */

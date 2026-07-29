@@ -125,11 +125,16 @@
     <p class="muted tiny">Only members with Manage Guild can edit this.</p>
   {/if}
 
+  <!-- Cut to the two facts, and still printed rather than moved behind an info
+       dot: that "deleted" means something different here than in a DM is
+       something you have to know BEFORE you delete, not after you go looking.
+       (A dot is also the wrong control this low in a short dialog — InfoDot
+       flips its popover against the VIEWPORT, so here it opens downward and the
+       dialog's own edge cuts it in half.) -->
   <p class="muted tiny privacy-note">
-    <Icon name="info" size={12} /> Deleting a message hides it from members, but
-    moderators (Manage Messages) can still view the original — this keeps
-    moderation honest in a shared space. Direct messages are different: there,
-    deleting erases the content for both people.
+    <Icon name="info" size={12} /> Deleting a message here hides it from members, but
+    moderators can still read the original. In a DM, deleting erases it for both
+    people.
   </p>
 </Modal>
 

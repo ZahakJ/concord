@@ -215,7 +215,7 @@ func (s *Service) drainMailbox(node peer.ID) {
 // isMailboxNode reports whether a peer is one of our configured rendezvous
 // nodes (which host the mailbox).
 func (s *Service) isMailboxNode(p peer.ID) bool {
-	for _, pi := range s.bootstrap {
+	for _, pi := range s.bootstrapPeers() {
 		if pi.ID == p {
 			return true
 		}
@@ -231,7 +231,7 @@ func (s *Service) mailboxNodes() []peer.ID {
 	for _, p := range s.host.Peers() {
 		connected[p] = true
 	}
-	for _, pi := range s.bootstrap {
+	for _, pi := range s.bootstrapPeers() {
 		if connected[pi.ID] {
 			out = append(out, pi.ID)
 		}

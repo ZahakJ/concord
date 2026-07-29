@@ -7,11 +7,18 @@
   // bitrate are for when something's actually wrong — they live behind
   // "Advanced", one click away, not stacked in front of everyone.
   //
+  // The same rule applies to the words. Why a knob exists and when to reach for
+  // it goes behind the ⓘ on its label; what stays printed is the one line you
+  // need to use it, plus anything you'd regret not having read (a key that also
+  // types, a share that will arrive silent). A column of paragraphs under every
+  // slider is how this panel became the thing people scroll past.
+  //
   // A change applies to the call in progress (the mesh swaps tracks live), and
   // is remembered for the next one.
   import { slide } from "svelte/transition";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import InfoDot from "./InfoDot.svelte";
   import { onMount, onDestroy } from "svelte";
   import { S, setPref, setVideoStream, flash } from "../lib/state.svelte.js";
   import {
@@ -37,6 +44,16 @@
 
   const chosen = (which) => S.prefs[PREF[which]] || "";
   const pct = (v) => `${Math.round(v * 100)}%`;
+
+  // Each capture filter's description is two sentences: what it does, then when
+  // you'd want it off. Print the first and keep the whole thing behind the dot —
+  // three switches each trailing a paragraph of advice is the wall. Split here
+  // rather than in devices.js so the copy stays one readable sentence pair for
+  // anyone editing it.
+  function lead(sub) {
+    const i = sub.indexOf(". ");
+    return i < 0 ? { line: sub, info: "" } : { line: sub.slice(0, i + 1), info: sub };
+  }
 
   // The mic knobs the test meter has to honor, so what you see while dragging
   // is what the call is doing.
@@ -456,15 +473,19 @@
       {#if ptt}
         <div class="ptt" transition:slide={{ duration: 180 }}>
           <div class="knob">
-            <span class="knob-label">Hold</span>
+            <span class="knob-label">
+              Hold
+              <InfoDot
+                text="Concord doesn't reach outside its own process, so it can't claim a key from the whole desktop. Alt-tab away and the key goes back to whatever you switched to."
+                label="Why? Push-to-talk key"
+              />
+            </span>
             <button class="rec" class:rec-on={recording} onclick={() => (recording = !recording)}>
               {recording ? recLabel : pttLabel || "Set a key"}
             </button>
           </div>
           <span class="hint">
-            Your mic stays shut until you hold this. It works while Concord's
-            window has focus — Concord doesn't reach outside its own process, so
-            it can't claim a key from the whole desktop.
+            Your mic stays shut until you hold this, while Concord's window has focus.
           </span>
           {#if S.prefs.pttBind && typesCharacter(S.prefs.pttBind)}
             <span class="hint warn">
@@ -562,7 +583,13 @@
           <span class="dev-title">Input</span>
         </div>
         <div class="knob">
-          <span class="knob-label">Boost</span>
+          <span class="knob-label">
+            Boost
+            <InfoDot
+              text="Turns a quiet mic up, or a hot one down, before it's sent. Watch the meter with Test on: if the bar reaches the warm tip when you talk normally, it's too high."
+              label="Why? Boost"
+            />
+          </span>
           <input
             type="range"
             min="0.25"
@@ -574,17 +601,15 @@
           />
           <span class="knob-val">{pct(S.prefs.micGain ?? 1)}</span>
         </div>
-        <span class="hint">
-          Turn a quiet mic up, or a hot one down, before it's sent.
-        </span>
 
         {#if canDenoise()}
           <div class="nr-block">
-            <span class="gate-title">Noise reduction</span>
-            <span class="hint">
-              Learns the steady noise in your room — a fan, a hum, mic hiss — and
-              pulls it out from under your voice, not just between sentences.
-              Stronger settings can thin your voice, so use the least that works.
+            <span class="gate-title">
+              Noise reduction
+              <InfoDot
+                text="Learns the steady noise in your room — a fan, a hum, mic hiss — and pulls it out from under your voice, not just between sentences. Stronger settings can thin your voice, so use the least that works."
+                label="Why? Noise reduction"
+              />
             </span>
             <div class="seg" role="radiogroup" aria-label="Noise reduction">
               {#each NR_LEVELS as l (l.id)}
@@ -624,7 +649,13 @@
               <div class="gate-mark" style="left:{Math.min(100, S.prefs.micGate * 400)}%"></div>
             </div>
             <div class="knob">
-              <span class="knob-label">Opens at</span>
+              <span class="knob-label">
+                Opens at
+                <InfoDot
+                  text="Set the line just above where the bar rests when you're not talking. Too high and it clips the start of quiet words."
+                  label="Why? Gate threshold"
+                />
+              </span>
               <input
                 type="range"
                 min="0.005"
@@ -636,10 +667,6 @@
               />
               <span class="knob-val">{pct(S.prefs.micGate * 4)}</span>
             </div>
-            <span class="hint">
-              Set the line just above where the bar rests when you're not
-              talking. Too high clips the start of quiet words.
-            </span>
           </div>
         {/if}
       </section>
@@ -657,8 +684,11 @@
             onclick={() => toggleProcessing(name)}
           >
             <span class="toggle-text">
-              <span class="toggle-title">{p.title}</span>
-              <span class="hint">{p.sub}</span>
+              <span class="toggle-title">
+                {p.title}
+                {#if lead(p.sub).info}<InfoDot text={lead(p.sub).info} label="Why? {p.title}" />{/if}
+              </span>
+              <span class="hint">{lead(p.sub).line}</span>
             </span>
             <span class="switch" class:on={S.prefs[name] !== false}><span class="sw-knob"></span></span>
           </button>
@@ -668,7 +698,13 @@
       <section class="dev">
         <div class="dev-head">
           <span class="chip"><Icon name="screen" size={16} /></span>
-          <span class="dev-title">Screen-share sound</span>
+          <span class="dev-title">
+            Screen-share sound
+            <InfoDot
+              text="Chromium can share a tab's or window's sound if you tick the box in its picker. When your system won't — the Linux desktop app, or sharing a whole screen — pick an input here and Concord sends that alongside the picture. On Linux the one you want is called “Monitor of” your speakers: that device is literally what's coming out right now."
+              label="About screen-share sound"
+            />
+          </span>
         </div>
         <select
           value={S.prefs.shareAudioId || ""}
@@ -681,21 +717,21 @@
             <option value={o.id}>{o.label}</option>
           {/each}
         </select>
-        <span class="hint">
-          Chromium can share a tab's or window's sound if you tick the box in
-          its picker. When your system won't — the Linux desktop app, or sharing
-          a whole screen — pick an input here and Concord sends that alongside
-          the picture. On Linux the one you want is called
-          <strong>Monitor of</strong> your speakers: that device is literally
-          "what's coming out right now". Only used when the share itself
-          arrives silent.
-        </span>
+        <!-- Kept in print: someone who shares a screen and is told nothing will
+             believe the sound is broken rather than not asked for. -->
+        <span class="hint">Only used when the share itself arrives silent.</span>
       </section>
 
       <section class="dev">
         <div class="dev-head">
           <span class="chip"><Icon name="poll" size={16} /></span>
-          <span class="dev-title">Quality</span>
+          <span class="dev-title">
+            Quality
+            <InfoDot
+              text="Browsers negotiate about 32 kbit/s on their own. Higher is clearer and costs upload — on a call you send one copy per person, so a five-person room sends it five times. A screen share's own sound always goes stereo at a higher rate."
+              label="About audio quality"
+            />
+          </span>
         </div>
         <select
           value={S.prefs.voiceBitrate ?? 64000}
@@ -706,11 +742,6 @@
             <option value={b.bps}>{b.label}</option>
           {/each}
         </select>
-        <span class="hint">
-          Browsers negotiate about 32 kbit/s by default. Higher is clearer and
-          costs upload — on a call you send one copy per person. A screen
-          share's own sound always goes stereo at a higher rate.
-        </span>
       </section>
     </div>
   {/if}
@@ -830,10 +861,14 @@
     align-items: center;
     gap: 10px;
   }
+  /* The label is a fixed column so the sliders line up; the ⓘ has to sit on the
+     same line as the word rather than pushing the track around. */
   .knob-label {
     font-size: 12.5px;
     color: var(--text-muted);
-    min-width: 58px;
+    min-width: 76px;
+    flex: none;
+    white-space: nowrap;
   }
   .knob input[type="range"] {
     flex: 1;

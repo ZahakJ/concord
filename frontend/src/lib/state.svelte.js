@@ -1223,7 +1223,7 @@ export function applyAccent(color) {
 const sysDark = window.matchMedia?.("(prefers-color-scheme: dark)");
 
 // Packs whose backdrop animates (see app.css .theme-bg + [data-anim-bg]).
-export const ANIMATED_PACKS = new Set(["aurora", "synthwave", "cosmos", "molten"]);
+export const ANIMATED_PACKS = new Set(["aurora", "synthwave", "cosmos", "molten", "prism", "monsoon"]);
 // Packs with a STATIC coloured mesh behind translucent surfaces ([data-textured]).
 export const TEXTURED_PACKS = new Set(["frost", "dusk", "grape"]);
 

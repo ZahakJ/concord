@@ -1513,28 +1513,32 @@ func (b *Bridge) CancelLinkOffer() error {
 // dials the issuer, adopts the account, then logs in (now in linked mode) and
 // joins every guild the issuer shared. The passphrase protects the new local
 // keystore.
-func (b *Bridge) RedeemLinkCode(code, passphrase string) error {
+// The returned string is a non-fatal warning to show the user ("" = none).
+// It is NOT an error: by the time it can be produced the device is linked and
+// logged in, and reporting that as a failure would be a lie that also leaves
+// the UI on the login screen in front of a working session.
+func (b *Bridge) RedeemLinkCode(code, passphrase string) (string, error) {
 	dataDir, err := appsvc.DataDir()
 	if err != nil {
-		return err
+		return "", err
 	}
 	b.mu.Lock()
 	hasSvc := b.svc != nil
 	b.mu.Unlock()
 	if hasSvc {
-		return errors.New("log out before linking this device to an account")
+		return "", errors.New("log out before linking this device to an account")
 	}
 	res, err := appsvc.RedeemLink(b.ctx, dataDir, code, passphrase)
 	if err != nil {
-		return err
+		return "", err
 	}
 	// Start the service in linked mode (the marker written by RedeemLink flips it).
 	if err := b.Login(passphrase); err != nil {
-		return err
+		return "", err
 	}
 	svc, err := b.service()
 	if err != nil {
-		return err
+		return "", err
 	}
 	// Adopt the account's profile (name/avatar/…) so the linked device presents as
 	// the same person, not a blank fingerprint. Only if the issuer had one set.
@@ -1550,7 +1554,17 @@ func (b *Bridge) RedeemLinkCode(code, passphrase string) error {
 	for _, ic := range res.GuildInvites {
 		_, _ = svc.JoinViaInvite(ic)
 	}
-	return nil
+	// Guilds the issuer belongs to but does not administer can't be handed over
+	// from here — it has no authority to invite anyone to them. Saying so is the
+	// whole point of tracking them: a device that looks linked and is quietly
+	// missing servers is the failure this replaces, and the fix is for a human
+	// to accept the new device from a machine that can.
+	if len(res.MissingGuilds) > 0 {
+		return fmt.Sprintf("Linked — but %d server(s) couldn't be handed over from that device (%s). "+
+			"Ask an admin of each to invite you, or link again from a device that administers them.",
+			len(res.MissingGuilds), strings.Join(res.MissingGuilds, ", ")), nil
+	}
+	return "", nil
 }
 
 // ---- mapping helpers ----
@@ -1896,7 +1910,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "CancelLinkOffer":
 		return nil, b.CancelLinkOffer()
 	case "RedeemLinkCode":
-		return nil, b.RedeemLinkCode(argStr(args, 0), argStr(args, 1))
+		return b.RedeemLinkCode(argStr(args, 0), argStr(args, 1))
 	case "Logout":
 		return nil, b.Logout()
 	case "HasIdentity":

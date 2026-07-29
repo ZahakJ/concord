@@ -60,7 +60,13 @@ for (const font of FONTS) {
     const weight = b.match(/font-weight:\s*([^;]+);/);
     const range = b.match(/unicode-range:\s*([^;]+);/);
     if (!src) continue;
-    const file = `${font.id}-${subset}.woff2`;
+    // Weight belongs in the filename. Families served as separate static
+    // weights (rather than one variable file) yield several blocks per subset,
+    // and naming them by subset alone made weight 700 overwrite weight 400 —
+    // leaving two @font-face rules pointing at whichever file landed last, so
+    // bold and regular rendered identically.
+    const w = (weight?.[1] || "400").trim().replace(/\s+/g, "");
+    const file = `${font.id}-${subset}-${w}.woff2`;
     const bytes = Buffer.from(await (await fetch(src[1], { headers: { "User-Agent": UA } })).arrayBuffer());
     writeFileSync(join(OUT, file), bytes);
     faces.push(

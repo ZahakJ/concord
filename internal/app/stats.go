@@ -152,7 +152,7 @@ func (s *Service) NetworkStats() NetworkStatsView {
 	// not friends — so mark the rendezvous nodes explicitly, or "3 peers" with
 	// nobody online is baffling.
 	infra := map[peer.ID]bool{}
-	for _, b := range s.bootstrap {
+	for _, b := range s.bootstrapPeers() {
 		infra[b.ID] = true
 	}
 	memberPeers := 0

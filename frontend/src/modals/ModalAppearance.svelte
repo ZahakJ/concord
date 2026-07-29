@@ -48,48 +48,76 @@
     { id: "soft", label: "Soft", r: "8px" },
     { id: "round", label: "Round", r: "16px" },
   ];
-  // Four faces, each genuinely different everywhere. (A "grotesk" option was
-  // cut: on most Linux installs Helvetica/Arial resolve to the same substitute
-  // as system-ui, so it would have been a choice that changes nothing.)
-  const MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
+  // Six faces, each unmistakable from the others at a glance. Five are bundled
+  // with the app (public/fonts) so picking one costs no network request — see
+  // scripts/prep-fonts.mjs — and `stack` is the SAME stack app.css applies, so
+  // the "Ag" sample is an honest preview and not an approximation.
+  //
+  // Atkinson Hyperlegible, Chakra Petch and Comic Neue are in the bundle too
+  // but are not offered: prep-fonts.mjs drops the weight from its filenames, so
+  // for those three the 700 file overwrote the 400 and bold is indistinguishable
+  // from body text (measured: identical rendered ink at both weights). They go
+  // back in the list the moment the bundle is regenerated.
   const FONTS = [
     { id: "", label: "Theme", stack: "inherit" },
     { id: "system", label: "System", stack: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
-    { id: "serif", label: "Serif", stack: 'Georgia, "Iowan Old Style", "Times New Roman", serif' },
-    { id: "mono", label: "Mono", stack: MONO },
+    { id: "inter", label: "Inter", stack: '"Inter", system-ui, sans-serif' },
+    { id: "grotesk", label: "Grotesk", stack: '"Space Grotesk", system-ui, sans-serif' },
+    { id: "serif", label: "Serif", stack: '"Source Serif 4", Georgia, "Iowan Old Style", serif' },
+    { id: "rounded", label: "Rounded", stack: '"Nunito", system-ui, sans-serif' },
+    { id: "mono", label: "Mono", stack: '"JetBrains Mono", ui-monospace, Menlo, monospace' },
+    { id: "hyper", label: "Legible", stack: '"Atkinson Hyperlegible", system-ui, sans-serif' },
+    { id: "cyber", label: "Cyber", stack: '"Chakra Petch", system-ui, sans-serif' },
+    { id: "comic", label: "Comic", stack: '"Comic Neue", "Comic Sans MS", system-ui, sans-serif' },
   ];
 
-  // Curated full-palette skins (see app.css [data-theme-pack=…]). The preview
-  // colors mirror each pack's bg-1/bg-3/accent tokens.
+  // The pack gallery. Each row mirrors what app.css actually gives that pack,
+  // because the whole point of these cards is that a theme is no longer a
+  // recolour: `font` and `r` are the pack's real UI face and corner radius,
+  // `av` its avatar shape, `note` the one-word reason it exists.
+  //   bg/hi/ac — its --bg-1 / --bg-3 / --accent
+  //   rule     — draws the hairline separator packs that use --msg-rule show
+  //   card     — draws the message rows as filled cards, like --msg-surface
+  const SYS = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  const INTER = '"Inter", system-ui, sans-serif';
+  const GROTESK = '"Space Grotesk", system-ui, sans-serif';
+  const SERIF = '"Source Serif 4", Georgia, serif';
+  const NUNITO = '"Nunito", system-ui, sans-serif';
+  const MONO = '"JetBrains Mono", ui-monospace, Menlo, monospace';
+
   const PACKS = [
-    { id: "", label: "Default", bg: "#16181c", hi: "#282c33", ac: "#14a394" },
-    { id: "midnight", label: "Midnight", bg: "#111527", hi: "#222946", ac: "#6f7cff" },
-    { id: "nebula", label: "Nebula", bg: "#191129", hi: "#2e2149", ac: "#a06bff" },
-    { id: "sakura", label: "Sakura", bg: "#24141e", hi: "#402637", ac: "#f06ba8" },
-    { id: "forest", label: "Forest", bg: "#111c16", hi: "#22342a", ac: "#3fb96e" },
-    { id: "abyss", label: "Abyss", bg: "#070709", hi: "#17181d", ac: "#22d3ee" },
-    { id: "nord", label: "Nord", bg: "#2e3440", hi: "#434c5e", ac: "#88c0d0" },
-    { id: "dracula", label: "Dracula", bg: "#282a36", hi: "#424456", ac: "#bd93f9" },
-    { id: "gruvbox", label: "Gruvbox", bg: "#282828", hi: "#3c3836", ac: "#fabd2f" },
-    { id: "rose", label: "Rosé", bg: "#1f1d2e", hi: "#2f2b45", ac: "#ebbcba" },
-    { id: "oceanic", label: "Oceanic", bg: "#16232b", hi: "#294049", ac: "#5ec8cc" },
+    { id: "", label: "Default", bg: "#16181c", hi: "#282c33", ac: "#14a394", font: SYS, r: 6, av: "50%", note: "System face" },
+    { id: "midnight", label: "Midnight", bg: "#111527", hi: "#222946", ac: "#6f7cff", font: INTER, r: 8, av: "50%", note: "Inter, deep shadow" },
+    { id: "nebula", label: "Nebula", bg: "#191129", hi: "#2e2149", ac: "#a06bff", font: GROTESK, r: 10, av: "50%", note: "Grotesk, big glow" },
+    { id: "sakura", label: "Sakura", bg: "#24141e", hi: "#402637", ac: "#f06ba8", font: NUNITO, r: 12, av: "50%", card: true, note: "Rounded, message cards" },
+    { id: "forest", label: "Forest", bg: "#111c16", hi: "#22342a", ac: "#3fb96e", font: SERIF, r: 4, av: "6px", rule: true, note: "Serif, ruled" },
+    { id: "abyss", label: "Abyss", bg: "#060608", hi: "#14151a", ac: "#22d3ee", font: INTER, r: 1, av: "3px", rule: true, note: "True black, wireframe" },
+    { id: "nord", label: "Nord", bg: "#373e4b", hi: "#434c5e", ac: "#88c0d0", font: INTER, r: 3, av: "7px", rule: true, note: "Outlined, no fills" },
+    { id: "dracula", label: "Dracula", bg: "#282a36", hi: "#424456", ac: "#bd93f9", font: MONO, r: 3, av: "5px", note: "Monospaced" },
+    { id: "gruvbox", label: "Gruvbox", bg: "#282828", hi: "#3c3836", ac: "#fabd2f", font: MONO, r: 0, av: "2px", note: "Terminal, packed tight" },
+    { id: "rose", label: "Rosé", bg: "#1f1d2e", hi: "#2f2b45", ac: "#ebbcba", font: SERIF, r: 10, av: "50%", card: true, note: "Serif, airy cards" },
+    { id: "oceanic", label: "Oceanic", bg: "#16232b", hi: "#294049", ac: "#5ec8cc", font: INTER, r: 7, av: "40%", note: "Inter, squircles" },
   ];
 
   // Textured packs: a static coloured mesh glows through translucent surfaces —
   // richer than a flat palette, but zero animation cost. `grad` drives the card.
   const TEXTURE_PACKS = [
-    { id: "frost", label: "Frost", bg: "#111b26", hi: "#1c2a3a", ac: "#7dd3fc", grad: "radial-gradient(circle at 20% 20%,#38bdf8,transparent 55%),radial-gradient(circle at 85% 70%,#2dd4bf,#0d1a26)" },
-    { id: "dusk", label: "Dusk", bg: "#26181c", hi: "#382428", ac: "#fb7185", grad: "radial-gradient(circle at 18% 18%,#fb923c,transparent 55%),radial-gradient(circle at 82% 75%,#a855f7,#241318)" },
-    { id: "grape", label: "Grape", bg: "#1e162a", hi: "#2c203c", ac: "#c084fc", grad: "radial-gradient(circle at 20% 20%,#c084fc,transparent 55%),radial-gradient(circle at 85% 72%,#ec4899,#180f24)" },
+    { id: "frost", label: "Frost", bg: "#0f1924", hi: "#1a2838", ac: "#7dd3fc", font: INTER, r: 10, av: "50%", grad: "radial-gradient(circle at 20% 20%,#38bdf8,transparent 55%),radial-gradient(circle at 85% 70%,#2dd4bf,#16303f)", note: "Inter, glass" },
+    { id: "dusk", label: "Dusk", bg: "#24161a", hi: "#362226", ac: "#fb7185", font: NUNITO, r: 12, av: "50%", card: true, grad: "radial-gradient(circle at 18% 18%,#fb923c,transparent 55%),radial-gradient(circle at 82% 75%,#a855f7,#3a1f26)", note: "Rounded, cards" },
+    { id: "grape", label: "Grape", bg: "#1c1428", hi: "#2a1e3a", ac: "#c084fc", font: GROTESK, r: 8, av: "50%", grad: "radial-gradient(circle at 20% 20%,#c084fc,transparent 55%),radial-gradient(circle at 85% 72%,#ec4899,#291b3a)", note: "Grotesk, glass" },
   ];
 
   // Animated packs: a live backdrop moves behind translucent surfaces. The mini
-  // preview animates too (see .pk.live styles) so the card sells the effect.
+  // preview runs the SAME motion the real backdrop does (see .pk.live styles) —
+  // `motion` picks which one, so the card sells the effect instead of describing
+  // it. Keep in sync with ANIMATED_PACKS in state.svelte.js.
   const LIVE_PACKS = [
-    { id: "aurora", label: "Aurora", bg: "#06202a", hi: "#123d43", ac: "#39d9b0", grad: "linear-gradient(135deg,#31e0a0,#22d3ee 55%,#7b6cff)" },
-    { id: "synthwave", label: "Synthwave", bg: "#180a28", hi: "#360c4e", ac: "#ff4fd8", grad: "linear-gradient(180deg,#ffd873,#ff7ec9 55%,#2de2e6)" },
-    { id: "cosmos", label: "Cosmos", bg: "#070818", hi: "#161a32", ac: "#7c8bff", grad: "radial-gradient(circle at 40% 40%,#7c8bff,#be6eff 60%,#0a0b16)" },
-    { id: "molten", label: "Molten", bg: "#180c06", hi: "#301a10", ac: "#ff7a2f", grad: "linear-gradient(0deg,#ff5722,#ff7a2f 55%,#ffb35a)" },
+    { id: "aurora", label: "Aurora", bg: "#061b21", hi: "#112e34", ac: "#39d9b0", font: GROTESK, r: 10, av: "40%", motion: "sweep", grad: "linear-gradient(103deg,transparent 34%,#29d69e 42%,#7af6d6 48%,#46e2ff 54%,transparent 64%)", base: "linear-gradient(180deg,#16505a,#04161d)", note: "Sweeping curtain" },
+    { id: "synthwave", label: "Synthwave", bg: "#16072a", hi: "#260f3e", ac: "#ff4fd8", font: GROTESK, r: 0, av: "2px", motion: "sun", grad: "linear-gradient(180deg,#ffd873,#ff7ec9 55%,#b3379b)", base: "linear-gradient(180deg,#300a50 0%,#4a1069 54%,#12021f 58%)", note: "Sun + rushing grid" },
+    { id: "cosmos", label: "Cosmos", bg: "#0a0c1b", hi: "#151930", ac: "#7c8bff", font: INTER, r: 13, av: "50%", motion: "star", grad: "linear-gradient(120deg,transparent 44%,#d6ecff 49.4%,transparent 55%)", base: "radial-gradient(120% 110% at 50% 20%,#1b2059,#04040c)", note: "Shooting stars" },
+    { id: "molten", label: "Molten", bg: "#1c0e08", hi: "#2e180e", ac: "#ff7a2f", font: SERIF, r: 4, av: "8px", motion: "heat", grad: "linear-gradient(0deg,transparent 30%,#ff7a2f 42%,#ffc46e 50%,transparent 66%)", base: "radial-gradient(120% 100% at 50% 110%,#7a2708,#0e0704)", note: "Rising heat, serif" },
+    { id: "prism", label: "Prism", bg: "#12141a", hi: "#20232c", ac: "#8de0ff", font: GROTESK, r: 14, av: "50%", motion: "sweep", grad: "linear-gradient(100deg,transparent 36%,#ff5c9e 41%,#ffc454 45%,#60f0aa 49%,#60c8ff 53%,#9682ff 57%,transparent 63%)", base: "linear-gradient(180deg,#23262f,#0a0b0e)", note: "Iridescent sweep" },
+    { id: "monsoon", label: "Monsoon", bg: "#0b1722", hi: "#162838", ac: "#56b7e8", font: INTER, r: 5, av: "8px", motion: "rain", grad: "repeating-linear-gradient(14deg,rgba(186,226,255,0.55) 0 1.5px,rgba(186,226,255,0.14) 1.5px 3px,transparent 3px 13px)", base: "linear-gradient(178deg,#17384f,#06141f)", note: "Falling rain" },
   ];
 </script>
 
@@ -118,61 +146,57 @@
     <p class="muted tiny">System follows your OS setting, live.</p>
   </section>
 
+  <!-- One card shape for all three galleries. The mini window is drawn from the
+       pack's OWN tokens — its face in the "Ag", its radius on the panel and its
+       avatar shape on the chip — so what you see in the card is what the app
+       turns into. `still` freezes the motion for the textured row. -->
+  {#snippet packCard(p, still = false)}
+    <button
+      class="pack-card"
+      class:sel={themePack === p.id}
+      role="radio"
+      aria-checked={themePack === p.id}
+      onclick={() => setAppearance("themePack", p.id)}
+    >
+      <span
+        class="pk"
+        class:still
+        data-motion={p.motion || null}
+        style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac};--pk-r:{p.r}px;--pk-av:{p.av};--pk-font:{p.font};{p.grad
+          ? `--pk-grad:${p.grad};`
+          : ''}{p.base ? `--pk-base:${p.base};` : ''}"
+        aria-hidden="true"
+      >
+        {#if p.grad}<span class="pk-glow"></span>{/if}
+        <span class="pk-rail"><i></i><i></i></span>
+        <span class="pk-body" class:card={p.card} class:rule={p.rule}>
+          <span class="pk-msg"><span class="pk-av"></span><span class="pk-ag">Ag</span></span>
+          <span class="pk-msg alt"><span class="pk-av"></span><span class="pk-line"></span></span>
+        </span>
+      </span>
+      <span class="pk-name">{p.label}</span>
+      <span class="pk-note">{p.note}</span>
+    </button>
+  {/snippet}
+
   <hr />
   <section>
     <strong class="label">Theme pack</strong>
     <div class="pack-row" role="radiogroup" aria-label="Theme pack">
-      {#each PACKS as p (p.id)}
-        <button
-          class="pack-card"
-          class:sel={themePack === p.id}
-          role="radio"
-          aria-checked={themePack === p.id}
-          onclick={() => setAppearance("themePack", p.id)}
-        >
-          <span class="pk" style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac}" aria-hidden="true">
-            <span class="pk-rail"></span>
-            <span class="pk-body">
-              <span class="pk-ac"></span>
-              <span class="pk-line"></span>
-              <span class="pk-line short"></span>
-            </span>
-          </span>
-          {p.label}
-        </button>
-      {/each}
+      {#each PACKS as p (p.id)}{@render packCard(p)}{/each}
     </div>
     <p class="muted tiny">
-      A full palette for the whole app — each pack brings its own accent (an
-      accent preset under Customize still overrides it), and several reshape it too:
-      Gruvbox and Dracula go monospaced and square, Sakura and Rosé round over.
+      A pack is a whole look, not a hue: its own typeface, corner radius, avatar
+      shape, shadow depth and feed rhythm come with it. (An accent preset or a
+      Corners/Typeface choice under Customize still overrides the pack.)
     </p>
 
     <div class="live-head">
       <span class="live-tag">✨ Animated</span>
-      <span class="muted tiny">A living backdrop drifts behind the app.</span>
+      <span class="muted tiny">A living backdrop moves behind the app.</span>
     </div>
     <div class="pack-row" role="radiogroup" aria-label="Animated theme pack">
-      {#each LIVE_PACKS as p (p.id)}
-        <button
-          class="pack-card"
-          class:sel={themePack === p.id}
-          role="radio"
-          aria-checked={themePack === p.id}
-          onclick={() => setAppearance("themePack", p.id)}
-        >
-          <span class="pk live" style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac};--pk-grad:{p.grad}" aria-hidden="true">
-            <span class="pk-glow"></span>
-            <span class="pk-rail"></span>
-            <span class="pk-body">
-              <span class="pk-ac"></span>
-              <span class="pk-line"></span>
-              <span class="pk-line short"></span>
-            </span>
-          </span>
-          {p.label}
-        </button>
-      {/each}
+      {#each LIVE_PACKS as p (p.id)}{@render packCard(p)}{/each}
     </div>
 
     <div class="live-head">
@@ -180,26 +204,7 @@
       <span class="muted tiny">A soft colour mesh, no animation.</span>
     </div>
     <div class="pack-row" role="radiogroup" aria-label="Textured theme pack">
-      {#each TEXTURE_PACKS as p (p.id)}
-        <button
-          class="pack-card"
-          class:sel={themePack === p.id}
-          role="radio"
-          aria-checked={themePack === p.id}
-          onclick={() => setAppearance("themePack", p.id)}
-        >
-          <span class="pk live textured" style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac};--pk-grad:{p.grad}" aria-hidden="true">
-            <span class="pk-glow"></span>
-            <span class="pk-rail"></span>
-            <span class="pk-body">
-              <span class="pk-ac"></span>
-              <span class="pk-line"></span>
-              <span class="pk-line short"></span>
-            </span>
-          </span>
-          {p.label}
-        </button>
-      {/each}
+      {#each TEXTURE_PACKS as p (p.id)}{@render packCard(p, true)}{/each}
     </div>
   </section>
 
@@ -269,7 +274,7 @@
 
     <section>
       <strong class="label">Typeface</strong>
-      <div class="seg four" role="radiogroup" aria-label="Typeface">
+      <div class="seg faces" role="radiogroup" aria-label="Typeface">
         {#each FONTS as f (f.id)}
           <button
             class:sel={font === f.id}
@@ -283,8 +288,9 @@
         {/each}
       </div>
       <p class="muted tiny">
-        Only faces already on this machine — Concord never downloads a font, which
-        would tell a font host every time you open the app.
+        <em>Theme</em> follows the pack you picked above. The rest ship inside the
+        app — Concord never downloads a font at runtime, which would tell a font
+        host every time you open it.
       </p>
     </section>
 
@@ -497,7 +503,11 @@
     width: 55%;
   }
 
-  /* Theme-pack cards: a mini app-window painted in the pack's own palette. */
+  /* Theme-pack cards: a mini app-window built out of the pack's own tokens.
+     Three colour swatches were the reason the gallery undersold itself — you
+     could not tell a monospaced, square, packed-tight pack from a rounded,
+     serif, airy one. Now the card shows the face, the radius, the avatar
+     shape, the row treatment and the motion. */
   .pack-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -506,14 +516,15 @@
   .pack-card {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 4px;
     padding: 6px;
     background: transparent;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text-muted);
     font-size: 12px;
-    align-items: center;
+    align-items: stretch;
+    text-align: center;
   }
   .pack-card:hover {
     background: var(--bg-3);
@@ -524,44 +535,113 @@
     color: var(--text);
     background: var(--accent-soft);
   }
+  .pk-name {
+    font-weight: 600;
+  }
+  .pk-note {
+    font-size: 10px;
+    line-height: 1.25;
+    color: var(--text-faint);
+    /* Two lines max; the note is a hint, not a paragraph. */
+    min-height: 12px;
+  }
+  .pack-card.sel .pk-note {
+    color: var(--text-muted);
+  }
   .pk {
+    position: relative;
     width: 100%;
-    height: 40px;
+    height: 58px;
     border-radius: 7px;
     border: 1px solid rgba(255, 255, 255, 0.07);
-    background: var(--pk-bg);
+    background: var(--pk-base, var(--pk-bg));
     display: flex;
     overflow: hidden;
+    /* Keep the mini window's internal layering to itself. Without this, the
+       z-index below is measured against the whole dialog and the preview cards
+       paint OVER the sticky "Appearance" header as you scroll. */
+    isolation: isolate;
   }
   .pk-rail {
-    width: 12px;
-    background: color-mix(in srgb, var(--pk-bg) 55%, black);
+    position: relative;
+    z-index: 1;
+    width: 13px;
     flex: none;
-  }
-  .pk-body {
-    flex: 1;
-    padding: 7px 8px;
+    padding: 4px 0;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 3px;
+    background: color-mix(in srgb, var(--pk-bg) 62%, black);
   }
-  .pk-ac {
-    width: 16px;
-    height: 5px;
-    border-radius: 3px;
+  /* The guild dots pick up the pack's avatar shape — a square-avatar pack is
+     recognisable from the rail alone. */
+  .pk-rail i {
+    width: 7px;
+    height: 7px;
+    flex: none;
+    border-radius: var(--pk-av);
+    background: color-mix(in srgb, var(--pk-hi) 85%, white 8%);
+  }
+  .pk-rail i:first-child {
     background: var(--pk-ac);
+  }
+  .pk-body {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-width: 0;
+    margin: 4px 4px 4px 3px;
+    padding: 3px 4px;
+    border-radius: min(var(--pk-r), 12px);
+    background: color-mix(in srgb, var(--pk-bg) 88%, white 4%);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    overflow: hidden;
+  }
+  .pk-msg {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    padding: 1px 2px;
+    border-radius: min(var(--pk-r), 9px);
+  }
+  /* Card packs paint every message row; ruled packs draw a hairline instead. */
+  .pk-body.card .pk-msg {
+    background: color-mix(in srgb, var(--pk-hi) 55%, transparent);
+  }
+  .pk-body.rule .pk-msg + .pk-msg {
+    border-top: 1px solid color-mix(in srgb, var(--pk-hi) 90%, white 25%);
+    padding-top: 3px;
+  }
+  .pk-av {
+    width: 13px;
+    height: 13px;
+    flex: none;
+    border-radius: var(--pk-av);
+    background: var(--pk-ac);
+  }
+  /* The face, actually set in the face. */
+  .pk-ag {
+    font-family: var(--pk-font);
+    font-size: 15px;
+    line-height: 1;
+    letter-spacing: 0;
+    color: color-mix(in srgb, var(--pk-ac) 45%, white);
   }
   .pk-line {
     height: 4px;
+    flex: 1;
     border-radius: 2px;
-    width: 85%;
-    background: var(--pk-hi);
+    background: color-mix(in srgb, var(--pk-hi) 90%, white 12%);
   }
-  .pk-line.short {
-    width: 55%;
+  .pk-msg.alt .pk-line {
+    max-width: 60%;
   }
 
-  /* Animated-pack subsection heading + the live preview shimmer. */
+  /* Animated-pack subsection heading. */
   .live-head {
     display: flex;
     align-items: baseline;
@@ -576,53 +656,109 @@
     text-transform: uppercase;
     color: var(--accent-hover);
   }
-  .pk.live {
-    position: relative;
-    /* Keep the mini window's internal layering to itself. Without this, the
-       z-index below is measured against the whole dialog and the preview cards
-       paint OVER the sticky "Appearance" header as you scroll. */
-    isolation: isolate;
-  }
-  /* A soft blob of the pack's own gradient drifting behind the mini window —
-     the same idea as the real backdrop, in miniature. */
+
+  /* The live backdrop, in miniature. Each [data-motion] runs the same kind of
+     motion the real pack runs (app.css), so the card is a sample rather than a
+     description — and, like the real thing, it is transform/opacity only. */
   .pk-glow {
     position: absolute;
-    inset: -30%;
+    inset: -40%;
     background: var(--pk-grad);
-    opacity: 0.55;
-    filter: blur(6px);
-    animation: pk-drift 6s ease-in-out infinite alternate;
+    opacity: 0.85;
   }
-  .pk.live .pk-rail,
-  .pk.live .pk-body {
-    position: relative;
-    z-index: 1;
+  .pk[data-motion="sweep"] .pk-glow {
+    animation: pk-sweep 3.6s linear infinite;
   }
-  /* Let the glow read through the mini surfaces, like the real translucent UI. */
-  .pk.live .pk-rail {
-    background: color-mix(in srgb, var(--pk-bg) 78%, transparent);
+  .pk[data-motion="star"] .pk-glow {
+    animation: pk-star 3.4s linear infinite;
   }
-  .pk.live .pk-line {
-    background: color-mix(in srgb, var(--pk-hi) 85%, transparent);
+  .pk[data-motion="heat"] .pk-glow {
+    animation: pk-heat 2.6s linear infinite;
   }
-  @keyframes pk-drift {
+  .pk[data-motion="rain"] .pk-glow {
+    inset: -60%;
+    opacity: 0.9;
+    animation: pk-rain 0.7s linear infinite;
+  }
+  /* Synthwave's is a sun, not a band: a disc low on the left, breathing. */
+  .pk[data-motion="sun"] .pk-glow {
+    inset: auto;
+    left: -8%;
+    top: 26%;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    animation: pk-pulse 2.4s ease-in-out infinite alternate;
+  }
+  @keyframes pk-sweep {
     0% {
-      transform: translate(-8%, -6%) scale(1.05);
+      transform: translate3d(-58%, -20%, 0);
     }
     100% {
-      transform: translate(8%, 6%) scale(1.25);
+      transform: translate3d(58%, 20%, 0);
     }
   }
-  /* Textured previews: the same mesh, but held still (matches the real theme). */
-  .pk.textured .pk-glow {
+  @keyframes pk-star {
+    0% {
+      transform: translate3d(-50%, -34%, 0);
+      opacity: 0;
+    }
+    10% {
+      opacity: 0.95;
+    }
+    36% {
+      opacity: 0.95;
+    }
+    46% {
+      transform: translate3d(50%, 34%, 0);
+      opacity: 0;
+    }
+    100% {
+      transform: translate3d(50%, 34%, 0);
+      opacity: 0;
+    }
+  }
+  @keyframes pk-heat {
+    0% {
+      transform: translate3d(0, 52%, 0);
+    }
+    100% {
+      transform: translate3d(0, -52%, 0);
+    }
+  }
+  @keyframes pk-rain {
+    to {
+      transform: translate3d(-3.2px, 13px, 0);
+    }
+  }
+  @keyframes pk-pulse {
+    0% {
+      transform: scale(1);
+      opacity: 0.8;
+    }
+    100% {
+      transform: scale(1.12);
+      opacity: 1;
+    }
+  }
+  /* Textured previews: the same mesh, held still — which is what the real
+     textured packs do. */
+  .pk.still .pk-glow {
     inset: 0;
-    opacity: 0.7;
-    filter: blur(3px);
+    opacity: 0.6;
     animation: none;
+  }
+  /* Translucent mini-surfaces, so the backdrop reads through them exactly the
+     way it does in the app. */
+  .pk-glow ~ .pk-rail {
+    background: color-mix(in srgb, var(--pk-bg) 70%, transparent);
+  }
+  .pk-glow ~ .pk-body {
+    background: color-mix(in srgb, var(--pk-bg) 60%, transparent);
   }
   @media (prefers-reduced-motion: reduce) {
     .pk-glow {
-      animation: none;
+      animation: none !important;
     }
   }
 
@@ -699,9 +835,19 @@
   .seg.four {
     grid-template-columns: repeat(4, 1fr);
   }
-  /* The option rows are tight at four across; center them and let the label
-     shrink before the preview does. */
-  .seg.four > button {
+  /* Seven options divide into no tidy grid, so "Theme" — the default, and the
+     only one that isn't a named face — takes a full-width row of its own and
+     the six real faces fall into 3x2 beneath it. */
+  .seg.faces {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .seg.faces > button:first-child {
+    grid-column: 1 / -1;
+  }
+  /* The option rows are tight at three or four across; center them and let the
+     label shrink before the preview does. */
+  .seg.four > button,
+  .seg.faces > button {
     justify-content: center;
     gap: 7px;
     padding: 8px 6px;

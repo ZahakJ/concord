@@ -168,9 +168,13 @@ type Service struct {
 
 	// Mailbox: X25519 keypair for sealing offline envelopes, and the parsed
 	// rendezvous nodes that host our mailbox (see mailbox.go).
-	mbxPriv   [32]byte
-	mbxPub    [32]byte
-	bootstrap []peer.AddrInfo
+	mbxPriv [32]byte
+	mbxPub  [32]byte
+	// bootstrap is read from several goroutines and can be REPLACED at runtime
+	// by SetBootstrapLive, so it is only ever touched through bootstrapPeers()
+	// and setBootstrapPeers() under this lock.
+	bootstrapMu sync.RWMutex
+	bootstrap   []peer.AddrInfo
 
 	// Device linking (issuer side): the secret of the currently-displayed link
 	// offer, consumed once a joiner proves it. nil = no active offer. See link.go.
@@ -938,7 +942,7 @@ type NetStatus struct {
 func (s *Service) NetworkStatus() NetStatus {
 	ns := NetStatus{
 		Peers:           len(s.host.Peers()),
-		HasBootstrap:    len(s.bootstrap) > 0,
+		HasBootstrap:    len(s.bootstrapPeers()) > 0,
 		PinnedPortTaken: s.host.PinnedPortTaken(),
 	}
 	ns.BootstrapReached = len(s.mailboxNodes()) > 0
@@ -964,7 +968,7 @@ func (s *Service) Nudge() {
 		for _, p := range s.host.Peers() {
 			connected[p] = true
 		}
-		for _, pi := range s.bootstrap {
+		for _, pi := range s.bootstrapPeers() {
 			if !connected[pi.ID] {
 				ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
 				_ = s.host.Connect(ctx, pi)
@@ -1019,6 +1023,14 @@ func (s *Service) SetBootstrapLive(addrs []string) error {
 		return err
 	}
 	if infos, err := parseBootstrapPeers(addrs); err == nil {
+		// Adopt them for THIS session as well, not just on disk. Without this the
+		// address is saved and dialled but s.bootstrap still holds the old set,
+		// so for the rest of the session the mailbox never registers with the new
+		// rendezvous, Nudge() won't re-dial it, and the diagnostics panel reports
+		// "not configured" while an open connection to that very node is sitting
+		// in the peer list — which reads, correctly, as "the rendezvous is
+		// broken".
+		s.setBootstrapPeers(infos)
 		// Relay candidates too, or AutoRelay keeps offering the rendezvous the
 		// user just replaced until the process restarts.
 		s.host.SetBootstrapPeers(infos)
@@ -1028,6 +1040,26 @@ func (s *Service) SetBootstrapLive(addrs []string) error {
 		}
 	}
 	return nil
+}
+
+// bootstrapPeers returns the current rendezvous set. The slice is copied: the
+// caller iterates it without the lock, and SetBootstrapLive can replace the
+// field underneath them at any moment.
+func (s *Service) bootstrapPeers() []peer.AddrInfo {
+	s.bootstrapMu.RLock()
+	defer s.bootstrapMu.RUnlock()
+	if len(s.bootstrap) == 0 {
+		return nil
+	}
+	out := make([]peer.AddrInfo, len(s.bootstrap))
+	copy(out, s.bootstrap)
+	return out
+}
+
+func (s *Service) setBootstrapPeers(infos []peer.AddrInfo) {
+	s.bootstrapMu.Lock()
+	s.bootstrap = infos
+	s.bootstrapMu.Unlock()
 }
 
 // DisplayName returns this peer's chosen display name, defaulting to the first
@@ -1369,8 +1401,22 @@ func (s *Service) VerifyContact(peerID string) error {
 
 // VerifyFingerprint marks a fingerprint (a member's stable identity) as
 // human-verified after an out-of-band comparison.
+//
+// Verifying must never depend on a contact row already existing. The underlying
+// call is an UPDATE, so it failed — with a raw store string shown straight to the
+// user — for anyone whose row we had not recorded or had since pruned: a guild
+// member you have never had a direct connection to, or a contact the launch-time
+// prune took. Fall back to the same placeholder-row insert device linking uses;
+// the user comparing safety numbers is the whole of the evidence here, and it
+// does not become less true because we have no row.
 func (s *Service) VerifyFingerprint(fingerprint string) error {
-	return s.store.SetVerifiedByFingerprint(fingerprint)
+	if fingerprint == "" {
+		return fmt.Errorf("app: no fingerprint given")
+	}
+	if err := s.store.SetVerifiedByFingerprint(fingerprint); err == nil {
+		return nil
+	}
+	return s.store.ImportVerifiedFingerprint(fingerprint)
 }
 
 // ImportVerifiedFingerprints seeds verifications carried over from another

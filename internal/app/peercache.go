@@ -45,6 +45,13 @@ const (
 	// peerSaveInterval throttles rewrites. A flapping connection would otherwise
 	// rewrite the file in a tight loop.
 	peerSaveInterval = 30 * time.Second
+	// rememberSettleTries × rememberSettleStep is how long rememberPeer keeps
+	// watching a peer it could not place for its account to resolve. Same shape
+	// and same budget as the DM handler's settle-wait: long enough to cover the
+	// startup ordering, short enough that a genuine stranger is forgotten while
+	// the connection is still young.
+	rememberSettleTries = 20
+	rememberSettleStep  = 500 * time.Millisecond
 )
 
 // RememberedPeer is one peer we have successfully connected to.
@@ -275,7 +282,45 @@ func (c *PeerCache) prune(now time.Time) {
 // the one thing it is for (getting back to your people with no server alive) is
 // the first thing it loses. A stranger costs us nothing to forget: we have no
 // reason to dial them next launch anyway.
+//
+// It runs on its own goroutine (see the OnPeerConnected registration) because it
+// waits: the fingerprint a connection resolves to at connect time may not be the
+// account's yet.
 func (s *Service) rememberPeer(p peer.ID, fingerprint string) {
+	if s.recordPeer(p, fingerprint) {
+		return
+	}
+	// Judged a stranger — which may be the truth, or may be that this is a
+	// friend's LINKED DEVICE whose certificate we have not learned yet. Until
+	// learnDeviceCert has seen it, presence() answers with the DEVICE's own
+	// fingerprint, which matches no member and no contact. The window is real:
+	// the host starts dialling remembered peers before the guilds are tracked,
+	// and it is trackGuild → relearnDevices that teaches us the mapping. Nothing
+	// re-runs this judgement on its own, so losing that race used to mean a
+	// friend's phone stayed a stranger for the whole session.
+	//
+	// Waiting on a CHANGE of fingerprint rather than re-testing the predicate
+	// keeps this free for the genuine strangers it also runs for: a DHT routing
+	// peer costs a map lookup per tick, not a database query. (The DM handler
+	// takes the same settle-wait for the same reason — see dm.go.)
+	for i := 0; i < rememberSettleTries; i++ {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-time.After(rememberSettleStep):
+		}
+		if fpr := s.presence(p).Fingerprint; fpr != fingerprint {
+			s.recordPeer(p, fpr)
+			return
+		}
+	}
+}
+
+// recordPeer is one judgement of a live peer, with no waiting. It reports
+// whether the peer was placed — recorded as a contact or protected as a member —
+// so the caller can tell "not one of ours" from "we could not tell yet".
+func (s *Service) recordPeer(p peer.ID, fingerprint string) bool {
+	placed := false
 	// Trust-on-first-use, but only for someone we actually have a relationship
 	// with. presence() derives a perfectly valid-looking fingerprint from ANY
 	// peer's key, so recording unconditionally fills the table with strangers.
@@ -285,11 +330,12 @@ func (s *Service) rememberPeer(p peer.ID, fingerprint string) {
 	// recording them and let the prune below forget them.
 	if st := s.store; st != nil && s.knownContact(fingerprint) {
 		_ = st.RecordContact(p.String(), fingerprint)
+		placed = true
 	}
 	// Address caching and relay protection stay guild-scoped on purpose — see
 	// the security note on peer relays.
 	if !s.sharesGuild(fingerprint) {
-		return
+		return placed
 	}
 	s.host.Protect(p)
 
@@ -300,10 +346,11 @@ func (s *Service) rememberPeer(p peer.ID, fingerprint string) {
 	}
 	s.peers.Remember(p.String(), strs)
 	_ = s.peers.Flush(s.dataDir)
+	return true
 }
 
-// rememberMembers re-runs rememberPeer over every live connection because guild
-// membership just changed.
+// rememberMembers re-judges every live connection because guild membership just
+// changed.
 //
 // OnPeerConnected is not enough on its own. It fires while the invite handshake
 // is still in flight — before the joiner is in the group — so sharesGuild is
@@ -315,8 +362,11 @@ func (s *Service) rememberPeer(p peer.ID, fingerprint string) {
 // connected, not just the peer that dialed: joining a guild can turn a whole
 // set of peers we already had connections to into members at once.
 func (s *Service) rememberMembers() {
+	// recordPeer, not rememberPeer: this runs synchronously on the join path (a
+	// caller may read peers.json the moment it returns) and the settle-wait would
+	// stall it for ten seconds per stranger still connected.
 	for _, p := range s.host.Peers() {
-		s.rememberPeer(p, s.presence(p).Fingerprint)
+		s.recordPeer(p, s.presence(p).Fingerprint)
 	}
 }
 
@@ -325,9 +375,10 @@ func (s *Service) rememberMembers() {
 // enabled the public DHT accumulated hundreds of unrelated IPFS nodes, each
 // with a real-looking fingerprint and no relationship behind it.
 //
-// The keep set is everyone who shares a group with us. Verified contacts
-// survive regardless — PruneContacts won't touch them — so a friend whose guild
-// you've since left doesn't quietly lose the verification you did by hand.
+// The keep set is everyone we have a relationship with, everyone we are
+// connected to, and everyone worth re-dialling. Verified contacts survive
+// regardless — PruneContacts won't touch them — so a friend whose guild you've
+// since left doesn't quietly lose the verification you did by hand.
 func (s *Service) pruneContacts() int {
 	if s.store == nil {
 		return 0
@@ -341,11 +392,33 @@ func (s *Service) pruneContacts() int {
 	// first. Anyone it accepts is a relationship, so anyone it rejects is one of
 	// the strangers this exists to clear.
 	keep := map[string]bool{s.id.Fingerprint(): true}
+	// Whoever we are connected to RIGHT NOW is not a stale stranger row, whatever
+	// the predicate thinks.
+	for _, p := range s.host.Peers() {
+		if fpr := s.presence(p).Fingerprint; fpr != "" {
+			keep[fpr] = true
+		}
+	}
+	// …and neither is anyone in the peer cache. That file is not a log of who
+	// dialled us: an entry is only written for a peer we shared a guild with when
+	// we met, and it expires in a month. Somebody in it who no longer passes
+	// knownContact — you left their server, they removed you from theirs — is
+	// precisely a person you have met, not a stranger, and we are still re-dialling
+	// them on every launch. Deleting their row anyway made them disappear from the
+	// contacts list with the connection still up, and verifying them then failed
+	// with a raw store error, because verification is an UPDATE of the row that had
+	// just been deleted.
+	cached := map[string]bool{}
+	if s.peers != nil {
+		for _, pi := range s.peers.AddrInfos() {
+			cached[pi.ID.String()] = true
+		}
+	}
 	for _, c := range known {
 		if keep[c.Fingerprint] {
 			continue
 		}
-		if s.knownContact(c.Fingerprint) {
+		if cached[c.PeerID] || s.knownContact(c.Fingerprint) {
 			keep[c.Fingerprint] = true
 		}
 	}

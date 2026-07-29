@@ -1,7 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { api } from "./lib/api.js";
-  import { S } from "./lib/state.svelte.js";
+  import { S, flash } from "./lib/state.svelte.js";
   import { linkCodeFrom } from "./lib/deeplink.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import Icon from "./Icon.svelte";
@@ -124,7 +124,12 @@
     try {
       // Dials the other device, adopts the account, logs in linked, and joins
       // your existing servers — then we're in.
-      await api.redeemLinkCode(code, passphrase);
+      // A non-empty return is a WARNING, not a failure: the device is linked
+      // and logged in either way. The usual case is servers the other device
+      // belongs to but doesn't administer, which it has no authority to hand
+      // over — better said out loud than discovered as missing servers later.
+      const warning = await api.redeemLinkCode(code, passphrase);
+      if (warning) flash(warning);
       onLogin();
     } catch (err) {
       // Strip only the Go package prefix (app:/net:/store:) — NOT everything up
