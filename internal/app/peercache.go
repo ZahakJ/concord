@@ -276,16 +276,20 @@ func (c *PeerCache) prune(now time.Time) {
 // the first thing it loses. A stranger costs us nothing to forget: we have no
 // reason to dial them next launch anyway.
 func (s *Service) rememberPeer(p peer.ID, fingerprint string) {
+	// Trust-on-first-use, but only for someone we actually have a relationship
+	// with. presence() derives a perfectly valid-looking fingerprint from ANY
+	// peer's key, so recording unconditionally fills the table with strangers.
+	//
+	// The predicate is knownContact, NOT sharesGuild: a friend you only ever DM
+	// shares no guild with you, and gating on guild membership would both stop
+	// recording them and let the prune below forget them.
+	if st := s.store; st != nil && s.knownContact(fingerprint) {
+		_ = st.RecordContact(p.String(), fingerprint)
+	}
+	// Address caching and relay protection stay guild-scoped on purpose — see
+	// the security note on peer relays.
 	if !s.sharesGuild(fingerprint) {
 		return
-	}
-	// Trust-on-first-use, gated by the same rule. A contact is someone you have
-	// a relationship with, not every machine the transport happened to dial:
-	// presence() derives a perfectly valid-looking fingerprint from ANY peer's
-	// key, so recording unconditionally fills the table with strangers — and
-	// with the public DHT enabled that is every IPFS node in reach.
-	if st := s.store; st != nil {
-		_ = st.RecordContact(p.String(), fingerprint)
 	}
 	s.host.Protect(p)
 
@@ -328,19 +332,23 @@ func (s *Service) pruneContacts() int {
 	if s.store == nil {
 		return 0
 	}
-	keep := map[string]bool{}
-	s.mu.RLock()
-	ids := make([]string, 0, len(s.guilds))
-	for id := range s.guilds {
-		ids = append(ids, id)
+	known, err := s.store.Contacts()
+	if err != nil {
+		return 0
 	}
-	s.mu.RUnlock()
-	for _, id := range ids {
-		for _, fpr := range s.guildMemberFingerprints(id) {
-			keep[fpr] = true
+	// knownContact is the same predicate that decides whether a DM from someone
+	// needs your approval: verified, or shares a guild, or you wrote to them
+	// first. Anyone it accepts is a relationship, so anyone it rejects is one of
+	// the strangers this exists to clear.
+	keep := map[string]bool{s.id.Fingerprint(): true}
+	for _, c := range known {
+		if keep[c.Fingerprint] {
+			continue
+		}
+		if s.knownContact(c.Fingerprint) {
+			keep[c.Fingerprint] = true
 		}
 	}
-	keep[s.id.Fingerprint()] = true // our own devices
 	n, err := s.store.PruneContacts(keep)
 	if err != nil {
 		return 0
