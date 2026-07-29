@@ -414,11 +414,37 @@ func (s *Service) pruneContacts() int {
 			cached[pi.ID.String()] = true
 		}
 	}
+	// Everything knownContact() consults, gathered ONCE.
+	//
+	// Calling the predicate per contact is what it looks like it should do, and
+	// it is a trap: each call runs a VerifiedFingerprints query AND decodes the
+	// MLS roster of every guild. On an install with a few hundred rows and a
+	// handful of servers that is thousands of roster decodes, run synchronously
+	// in Start() before the UI appears — the login that "takes ages or gets
+	// stuck". Hoisted, the same answer costs one query and one decode per guild,
+	// and the loop below is map lookups.
+	verified, _ := s.store.VerifiedFingerprints()
+	members := map[string]bool{}
+	s.mu.RLock()
+	guildIDs := make([]string, 0, len(s.guilds))
+	for id := range s.guilds {
+		guildIDs = append(guildIDs, id)
+	}
+	reached := make(map[string]bool, len(s.dmPeers))
+	for _, f := range s.dmPeers {
+		reached[f] = true
+	}
+	s.mu.RUnlock()
+	for _, id := range guildIDs {
+		for _, fpr := range s.guildMemberFingerprints(id) {
+			members[fpr] = true
+		}
+	}
 	for _, c := range known {
 		if keep[c.Fingerprint] {
 			continue
 		}
-		if cached[c.PeerID] || s.knownContact(c.Fingerprint) {
+		if cached[c.PeerID] || verified[c.Fingerprint] || reached[c.Fingerprint] || members[c.Fingerprint] {
 			keep[c.Fingerprint] = true
 		}
 	}

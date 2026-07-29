@@ -533,9 +533,16 @@
     color: var(--accent-fg);
     box-shadow: var(--accent-glow);
   }
+  /* A DM bubble IS its avatar, so its container has to take the avatar's shape
+     from the theme. Left at a hard 50% it stayed a circle while the picture
+     inside squared off, and the corners spilled past the outline — a square
+     drawn over a circle, which reads as broken CSS rather than as a style.
+     Guild pills keep the 50% -> 14px squircle morph above: those are tiles, not
+     faces, and Discord's rounding cue on them is deliberate. */
+  .pill.dm,
   .pill.dm:hover,
   .pill.dm.active {
-    border-radius: 50%;
+    border-radius: var(--avatar-radius);
   }
   .pill.dm.active {
     background: var(--bg-2);
