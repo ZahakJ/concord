@@ -291,6 +291,33 @@ func (s *Service) guildHasMember(guildID, fingerprint string) bool {
 	return false
 }
 
+// guildMemberFingerprints lists the account fingerprints in a guild's MLS group.
+// guildHasMember answers the same question for one person; this is for callers
+// that need the whole set and would otherwise walk the roster once per name.
+func (s *Service) guildMemberFingerprints(guildID string) []string {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(creds))
+	for _, c := range creds {
+		if fpr := accountFingerprintOf(c); fpr != "" {
+			out = append(out, fpr)
+		}
+	}
+	return out
+}
+
 // sharesGuild reports whether the fingerprint is a member of any guild we are
 // in — "is this peer a friend", for decisions that aren't about one guild.
 func (s *Service) sharesGuild(fingerprint string) bool {

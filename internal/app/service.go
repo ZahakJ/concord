@@ -811,7 +811,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// reply, so both peers end up with each other's names).
 	host.OnPeerConnected(func(p peer.ID) {
 		pp := s.presence(p)
-		_ = st.RecordContact(pp.PeerID, pp.Fingerprint)
+		// rememberPeer records the contact too, behind the shares-a-guild gate
+		// (see peercache.go) — and rememberMembers re-runs it when membership
+		// moves, which is what covers the peer whose invite is still in flight.
 		go s.rememberPeer(p, pp.Fingerprint)
 		// When a rendezvous node connects, register our mailbox with it and
 		// drain anything deposited while we were offline.
@@ -877,6 +879,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 	// Browser guests: token validation + the relayed-session handler.
 	s.initGuests()
+
+	// Drop contacts an older build recorded for every peer it happened to dial.
+	// Once per launch is enough: recording is gated now, so the table can only
+	// grow with people you actually share a group with.
+	s.pruneContacts()
 
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()

@@ -308,6 +308,43 @@ func (s *Store) VerifiedFingerprints() (map[string]bool, error) {
 	return out, rows.Err()
 }
 
+// PruneContacts deletes unverified contacts whose fingerprint isn't in keep,
+// and reports how many went. It exists because contacts used to be recorded for
+// every peer the transport dialed: with the public DHT enabled that meant every
+// IPFS node in reach, which buried the handful of people you actually know
+// under hundreds of strangers. Recording is now gated (see rememberPeer), and
+// this clears what the old behaviour left behind.
+//
+// Verified contacts are never touched, whatever else is true of them —
+// verification is a human act and only a human should undo it.
+func (s *Store) PruneContacts(keep map[string]bool) (int, error) {
+	rows, err := s.db.Query(`SELECT peer_id, fingerprint FROM contacts WHERE verified = 0`)
+	if err != nil {
+		return 0, fmt.Errorf("store: prune contacts: %w", err)
+	}
+	var doomed []string
+	for rows.Next() {
+		var peerID, fpr string
+		if err := rows.Scan(&peerID, &fpr); err != nil {
+			rows.Close()
+			return 0, fmt.Errorf("store: prune contacts: %w", err)
+		}
+		if !keep[fpr] {
+			doomed = append(doomed, peerID)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, fmt.Errorf("store: prune contacts: %w", err)
+	}
+	for _, peerID := range doomed {
+		if _, err := s.db.Exec(`DELETE FROM contacts WHERE peer_id = ?`, peerID); err != nil {
+			return 0, fmt.Errorf("store: prune contacts: %w", err)
+		}
+	}
+	return len(doomed), nil
+}
+
 // Contacts returns all known contacts, first-seen order.
 func (s *Store) Contacts() ([]domain.Contact, error) {
 	rows, err := s.db.Query(`SELECT peer_id, fingerprint, verified, first_seen FROM contacts ORDER BY first_seen`)

@@ -279,6 +279,14 @@ func (s *Service) rememberPeer(p peer.ID, fingerprint string) {
 	if !s.sharesGuild(fingerprint) {
 		return
 	}
+	// Trust-on-first-use, gated by the same rule. A contact is someone you have
+	// a relationship with, not every machine the transport happened to dial:
+	// presence() derives a perfectly valid-looking fingerprint from ANY peer's
+	// key, so recording unconditionally fills the table with strangers — and
+	// with the public DHT enabled that is every IPFS node in reach.
+	if st := s.store; st != nil {
+		_ = st.RecordContact(p.String(), fingerprint)
+	}
 	s.host.Protect(p)
 
 	addrs := s.host.DialableAddrs(p)
@@ -306,6 +314,38 @@ func (s *Service) rememberMembers() {
 	for _, p := range s.host.Peers() {
 		s.rememberPeer(p, s.presence(p).Fingerprint)
 	}
+}
+
+// pruneContacts drops the strangers an older build recorded. Contacts were once
+// written for every peer the transport connected to, so an install that ever
+// enabled the public DHT accumulated hundreds of unrelated IPFS nodes, each
+// with a real-looking fingerprint and no relationship behind it.
+//
+// The keep set is everyone who shares a group with us. Verified contacts
+// survive regardless — PruneContacts won't touch them — so a friend whose guild
+// you've since left doesn't quietly lose the verification you did by hand.
+func (s *Service) pruneContacts() int {
+	if s.store == nil {
+		return 0
+	}
+	keep := map[string]bool{}
+	s.mu.RLock()
+	ids := make([]string, 0, len(s.guilds))
+	for id := range s.guilds {
+		ids = append(ids, id)
+	}
+	s.mu.RUnlock()
+	for _, id := range ids {
+		for _, fpr := range s.guildMemberFingerprints(id) {
+			keep[fpr] = true
+		}
+	}
+	keep[s.id.Fingerprint()] = true // our own devices
+	n, err := s.store.PruneContacts(keep)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // wantDHT reports whether this install has a route to anything past its own

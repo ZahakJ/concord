@@ -541,3 +541,57 @@ func TestReadStateAdvance(t *testing.T) {
 		t.Fatalf("ReadState = %v, want ch1:2000 ch2:500", got)
 	}
 }
+
+// PruneContacts deletes rows from a live user's database, so the rule that
+// matters is what it must NOT take: a verified contact, whatever else is true
+// of it, and anyone still sharing a group with us.
+func TestPruneContactsKeepsVerifiedAndRelated(t *testing.T) {
+	s, _ := openTestStore(t)
+
+	// friend: unverified but still in a shared guild — kept by the keep set.
+	// stranger: neither — the case this exists to clear.
+	// verified: not in any guild, but verified by hand.
+	if err := s.RecordContact("peer-friend", "FRIEND"); err != nil {
+		t.Fatalf("RecordContact: %v", err)
+	}
+	if err := s.RecordContact("peer-stranger", "STRANGER"); err != nil {
+		t.Fatalf("RecordContact: %v", err)
+	}
+	if err := s.RecordContact("peer-verified", "VERIFIED"); err != nil {
+		t.Fatalf("RecordContact: %v", err)
+	}
+	if err := s.SetVerified("peer-verified"); err != nil {
+		t.Fatalf("SetVerified: %v", err)
+	}
+
+	n, err := s.PruneContacts(map[string]bool{"FRIEND": true})
+	if err != nil {
+		t.Fatalf("PruneContacts: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("pruned %d contacts, want 1 (the stranger)", n)
+	}
+
+	got, err := s.Contacts()
+	if err != nil {
+		t.Fatalf("Contacts: %v", err)
+	}
+	left := map[string]bool{}
+	for _, c := range got {
+		left[c.Fingerprint] = true
+	}
+	if !left["FRIEND"] {
+		t.Error("pruned a contact we still share a guild with")
+	}
+	if !left["VERIFIED"] {
+		t.Error("pruned a hand-verified contact — verification is a human act")
+	}
+	if left["STRANGER"] {
+		t.Error("kept an unrelated stranger")
+	}
+
+	// Idempotent: a second pass with nothing new to do must delete nothing.
+	if n, err := s.PruneContacts(map[string]bool{"FRIEND": true}); err != nil || n != 0 {
+		t.Fatalf("second prune = (%d, %v), want (0, nil)", n, err)
+	}
+}
