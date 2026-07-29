@@ -1532,23 +1532,37 @@
     color: var(--accent-hover);
   }
   /* Spoiler: blacked-out until clicked. */
+  /* Blurred rather than blacked out: you can see there are words, roughly how
+     many, and that they're waiting for you — which is the fun of a spoiler. A
+     solid bar just reads as redaction. The radius is in em so it scales with
+     the text and stays unreadable at any size; at 0.35em not even the letter
+     shapes survive. */
   .body :global(.spoiler) {
-    background: var(--text);
-    color: transparent;
+    filter: blur(0.35em);
+    background: color-mix(in srgb, var(--text-muted) 16%, transparent);
     border-radius: 4px;
     padding: 0 3px;
     cursor: pointer;
     user-select: none;
-    transition: background 0.15s ease;
+    transition:
+      filter 0.22s ease,
+      background 0.22s ease;
   }
   .body :global(.spoiler:hover) {
-    background: color-mix(in srgb, var(--text) 82%, var(--bg-2));
+    background: color-mix(in srgb, var(--text-muted) 26%, transparent);
   }
   .body :global(.spoiler.revealed) {
+    filter: none;
     background: color-mix(in srgb, var(--text-muted) 22%, transparent);
     color: inherit;
     cursor: text;
     user-select: text;
+  }
+  /* Reduced motion still gets the reveal, just without the dissolve. */
+  @media (prefers-reduced-motion: reduce) {
+    .body :global(.spoiler) {
+      transition: none;
+    }
   }
   /* Inline headers (chat-sized). */
   .body :global(.md-h) {

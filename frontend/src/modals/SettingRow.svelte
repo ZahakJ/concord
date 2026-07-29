@@ -9,6 +9,7 @@
   // the panel this row opens, not stacked on the row — a list where every
   // entry carries a paragraph is the wall of text we're trying not to build.
   import Icon from "../Icon.svelte";
+  import InfoDot from "./InfoDot.svelte";
   import { openPanel } from "../lib/state.svelte.js";
 
   let {
@@ -20,6 +21,9 @@
     from = "",
     disabled = false,
     danger = false,
+    // `info` is the long version: the reasoning, one click away, instead of a
+    // paragraph printed under every group.
+    info = "",
     onclick = undefined,
     children = undefined,
   } = $props();
@@ -50,7 +54,7 @@
     <span class="chip"><Icon name={icon} size={16} /></span>
   {/if}
   <span class="text">
-    <span class="title">{title}</span>
+    <span class="title">{title}{#if info}<InfoDot text={info} label="Why? {title}" />{/if}</span>
     {#if sub}<span class="sub">{sub}</span>{/if}
   </span>
   {#if isSwitch}

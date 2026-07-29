@@ -57,13 +57,12 @@
 <Modal title="Notifications &amp; sounds" {onClose} wide>
   <SettingGroup
     label="How loud"
-    note="Every server and channel has its own level — all messages, only
-          @mentions, or nothing — on its right-click menu. Do Not Disturb
-          silences the lot without hiding your unread badges."
+    info="Every server and channel has its own level — all messages, only @mentions, or nothing — on its right-click menu."
   >
     <SettingRow
       icon="bell"
       title="Do Not Disturb"
+      info="Silences every ping and chime, mentions included, without hiding your unread badges and without going offline."
       sub={dnd ? "On — nothing will ping you" : "Silence every ping without going offline"}
       checked={dnd}
       onclick={toggleDnd}
@@ -88,15 +87,12 @@
   </SettingGroup>
 
   {#if S.isMobile}
-    <SettingGroup
-      label="Background"
-      note="Without this, messages only arrive while Concord is open — there's no
-            server holding them for you, so the app has to be running to receive."
-    >
+    <SettingGroup label="Background">
       <SettingRow
         icon="bell"
         title="Stay connected"
         sub="Receive messages in the background"
+        info="Without this, messages only arrive while Concord is open — there's no server holding them for you, so the app has to be running to receive."
         checked={stayConnected}
         onclick={toggleStayConnected}
       />

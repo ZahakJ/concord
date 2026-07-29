@@ -1,12 +1,20 @@
 <script>
-  // A titled card of SettingRows. `note` is the place for the paragraph a row
-  // shouldn't carry: one explanation for the group, under it, where it can be
-  // read once and ignored after.
-  let { label = "", note = "", children } = $props();
+  // A titled card of SettingRows.
+  //
+  // `info` is the preferred way to explain a group: a dot beside the heading
+  // that opens the paragraph on demand. `note` still prints one underneath and
+  // is for the rare case where the text must be read rather than sought out —
+  // a page of permanent paragraphs is what made these panels a wall.
+  import InfoDot from "./InfoDot.svelte";
+  let { label = "", note = "", info = "", children } = $props();
 </script>
 
 <section class="grp">
-  {#if label}<div class="sec-label">{label}</div>{/if}
+  {#if label}
+    <div class="sec-label">
+      {label}{#if info}<InfoDot text={info} label="About {label}" />{/if}
+    </div>
+  {/if}
   <div class="card">{@render children()}</div>
   {#if note}<p class="note">{note}</p>{/if}
 </section>

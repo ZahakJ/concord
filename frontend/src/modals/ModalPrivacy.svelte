@@ -79,19 +79,13 @@
 <Modal title="Privacy &amp; safety" {onClose} wide>
   <SettingGroup
     label="What leaves this device"
-    note="Link previews are off by default because loading one reveals your IP and
-          the moment you were online to whoever hosts the link — a message with a
-          link to an attacker's server would otherwise deanonymize you with no
-          click at all. Relaying calls costs a little latency and hides your IP
-          from the people you're talking to; meetings with browser guests always
-          relay. Typing indicators go both ways — switch them off and you stop
-          sending them and stop seeing them. (Read receipts need no switch: your
-          read state only ever travels to your own devices.)"
+    info="Read receipts need no switch here: your read state only ever travels to your own devices, so nobody else was ever told."
   >
     <SettingRow
       icon="screen"
       title="Link previews"
       sub="Fetch a preview for links in messages"
+      info="Off by default. Loading a preview reveals your IP and the moment you were online to whoever hosts the link, so a message containing a link to an attacker's server would deanonymize you with no click at all."
       checked={S.prefs.linkPreviews}
       onclick={() => setPref("linkPreviews", !S.prefs.linkPreviews)}
     />
@@ -99,6 +93,7 @@
       icon="lock"
       title="Hide my IP on calls"
       sub="Relay call media instead of connecting directly"
+      info="Costs a little latency and hides your IP from the people you're talking to. Meetings with browser guests always relay, whatever this says."
       checked={S.prefs.hideCallIp}
       onclick={() => setPref("hideCallIp", !S.prefs.hideCallIp)}
     />
@@ -106,12 +101,14 @@
       icon="edit"
       title="Typing indicators"
       sub="Show others you're typing — and see when they are"
+      info="They go both ways. Switch them off and you stop sending them and stop seeing them — there's no server to enforce a one-way deal, and a client that took without giving would just be lying to its friends."
       checked={typing}
       onclick={toggleTyping}
     />
     <SettingRow
       icon="spark"
       title="Rich presence"
+      info="Reads what your music player is playing (over MPRIS) and shows it as your status to people who can already see you. Nothing is sent anywhere else."
       sub={richPresenceSupported
         ? "Show what you're listening to as your status"
         : "Not supported on this platform yet"}
@@ -121,16 +118,12 @@
     />
   </SettingGroup>
 
-  <SettingGroup
-    label="Deleted messages"
-    note="Deleted messages simply disappear unless you ask for a marker. Emptying
-          the trash erases the retained text for good, so 'Show original' has
-          nothing left to reveal on this device."
-  >
+  <SettingGroup label="Deleted messages">
     <SettingRow
       icon="trash"
       title="Show deleted messages"
       sub="Leave a faint marker where one used to be"
+      info="Off, a deleted message simply disappears. On, a faint marker stays where it was, and a moderator can reveal the original text."
       checked={S.prefs.showDeleted}
       onclick={() => setPref("showDeleted", !S.prefs.showDeleted)}
     />
@@ -138,22 +131,18 @@
       icon="trash"
       title={purging ? "Emptying…" : "Empty trash"}
       sub="Erase every deleted message's retained text"
+      info="Erases the retained text for good, so 'Show original' has nothing left to reveal on this device. This can't be undone."
       danger
       disabled={purging}
       onclick={emptyTrash}
     />
   </SettingGroup>
 
-  <SettingGroup
-    label="People"
-    note="A DM from someone you don't share a server with, haven't verified, and
-          never messaged first waits as a request. Concord holds their invitation
-          without opening it, so until you accept they can't see your profile,
-          your presence, or that you're even there."
-  >
+  <SettingGroup label="People">
     <SettingRow
       icon="members"
       title="Message requests"
+      info="A DM from someone you don't share a server with, haven't verified and never messaged first waits here. Concord holds their invitation without opening it, so until you accept they can't see your profile, your presence, or that you're even there."
       sub={S.requests.length
         ? `${S.requests.length} waiting`
         : "DMs from people you don't know yet"}

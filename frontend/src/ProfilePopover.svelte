@@ -554,6 +554,15 @@
 
       {#if mem.isSelf}
         <p class="hint muted">Others confirm it's really you by comparing this out-of-band.</p>
+        <!-- Your own card is now what the footer opens, so the way to change
+             what's on it has to live here. -->
+        <button
+          class="verify-btn"
+          onclick={() => {
+            closeProfilePopover();
+            S.modal = { kind: "profile" };
+          }}>Edit profile</button
+        >
       {:else if mem.verified}
         <p class="hint muted">You've verified this fingerprint — no one can impersonate them.</p>
       {:else}

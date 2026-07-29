@@ -9,6 +9,7 @@
   import { splitStatus, presenceLabel } from "./lib/presence.js";
   import {
     S,
+    openProfilePopover,
     activeGuild,
     selectGuild,
     selectNotes,
@@ -437,6 +438,10 @@
       statusPop = { x: r.x, y: r.y, w: r.width, h: r.height };
     }
   });
+  // Clicking your own name opens the same profile card everyone else gets —
+  // banner, bio, games and the now-playing card — rather than jumping straight
+  // into the edit form. "Edit profile" is a button on the card.
+  let meTrigger = $state(null);
   const myStatus = $derived(splitStatus(S.identity.status));
   // Footer one-liner mirrors the member list: live activity wins over status.
   const myActivityLine = $derived.by(() => {
@@ -889,7 +894,12 @@
         frame={S.identity.frame || ""}
       />
     </button>
-    <button class="me" onclick={() => (S.modal = { kind: "profile" })} title="Edit profile">
+    <button
+      bind:this={meTrigger}
+      class="me"
+      onclick={() => openProfilePopover(S.identity.fingerprint, meTrigger)}
+      title="Your profile"
+    >
       <span class="me-text">
         <strong>{S.displayName || "Set your name"}</strong>
         <span class="muted small-status">

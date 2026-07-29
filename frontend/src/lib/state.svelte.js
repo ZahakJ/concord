@@ -206,7 +206,39 @@ export const S = $state({
 export const activeGuild = () => S.guilds.find((g) => g.id === S.activeGuildId) || null;
 export const activeChannel = () =>
   activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null;
-export const memberByFpr = (fpr) => S.members.find((m) => m.fingerprint === fpr);
+// Your own member row, synthesized from the identity when the roster doesn't
+// have it. S.members only exists inside a guild, so without this your own
+// profile card comes up empty in a DM or in Notes — and yours is the one card
+// that's reachable from anywhere, via the footer.
+export function selfMember() {
+  const i = S.identity || {};
+  return {
+    fingerprint: i.fingerprint,
+    name: S.displayName || i.name || "",
+    username: "",
+    status: i.status || "",
+    emoji: i.emoji || "",
+    color: i.color || "",
+    color2: i.color2 || "",
+    avatar: i.avatar || "",
+    banner: i.banner || "",
+    presence: i.presence || "",
+    bio: i.bio || "",
+    frame: i.frame || "",
+    effect: i.effect || "",
+    style: i.style || "",
+    activity: i.activity || null,
+    games: i.games || [],
+    isSelf: true,
+    online: true,
+    verified: true,
+    roleIds: [],
+    perms: 0,
+  };
+}
+export const memberByFpr = (fpr) =>
+  S.members.find((m) => m.fingerprint === fpr) ||
+  (fpr && fpr === S.identity?.fingerprint ? selfMember() : undefined);
 
 // ---- voice video streams (camera + screenshare) ----
 // MediaStreams are held outside the reactive store (a $state proxy corrupts

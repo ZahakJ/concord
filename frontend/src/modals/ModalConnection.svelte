@@ -88,9 +88,7 @@
 <Modal title="Connection" {onClose} wide>
   <SettingGroup
     label="Rendezvous server"
-    note="The tiny relay that lets friends on other networks find you. You only
-          need to set this if you host it yourself — friends get it automatically
-          from your invite code. Blank means same-Wi-Fi only."
+    info="The tiny relay that lets friends on other networks find you. You only need to set this if you host it yourself — friends get it automatically from your invite code. Blank means same-Wi-Fi only."
   >
     <div class="conn">
       {#if editing}
@@ -133,18 +131,14 @@
 
   <SettingGroup
     label="Direct connection"
-    note="Normally Concord picks a new network port every time it starts, which
-          works but sends your traffic the long way round. Pin one here and
-          forward it to this computer in your router's settings, and friends
-          connect straight to you — no relay, no rendezvous, less delay.
-          Pinning a port also means Concord starts publishing this computer's
-          public IP address: to peers it connects to, and inside the invite
-          codes you hand out, which get pasted into chats and screenshotted.
-          That happens whether or not the router rule works, so only turn this
-          on if you're content for the people you invite to learn your address.
-          Applies after a restart."
+    note="Pinning a port publishes this computer's public IP address — to peers, and inside the invite codes you hand out. Applies after a restart."
   >
-    <SettingRow icon="bolt" title="Fixed port" sub="Leave blank to keep picking one automatically">
+    <SettingRow
+      icon="bolt"
+      title="Fixed port"
+      sub="Leave blank to keep picking one automatically"
+      info="Normally Concord picks a new port every start, which works but sends your traffic the long way round. Pin one, forward it to this computer in your router, and friends connect straight to you — no relay, no rendezvous, less delay. The address is published whether or not the router rule actually works, so only turn this on if you're content for the people you invite to learn it."
+    >
       <div class="port">
         <input
           class="port-box"
@@ -184,19 +178,13 @@
 
   <SettingGroup
     label="Fallback discovery"
-    note="Concord already remembers everyone you've connected to and re-dials
-          them on its own, so friends keep working even if the rendezvous is
-          gone. This is for the other case: reaching someone you have never met
-          when there's no server left. It works by joining the public IPFS
-          network, which means your peer ID and IP address become visible to
-          strangers there, and anyone watching can tell this address runs
-          Concord. Your messages stay encrypted either way. Applies after a
-          restart."
+    note="Joining the public network makes your peer ID and IP visible to strangers there. Your messages stay encrypted either way. Applies after a restart."
   >
     <SettingRow
       icon="search"
       title="Use public DHT nodes"
       sub="Find new peers without any Concord server — at the cost of being visible"
+      info="You don't need this to keep existing friends working: Concord already remembers everyone you've connected to and re-dials them itself, even with the rendezvous gone. This is for the other case — reaching someone you have never met when there's no server left. It works by joining the public IPFS network, where anyone watching can tell this address runs Concord."
       checked={publicDht}
       onclick={togglePublicDht}
     />

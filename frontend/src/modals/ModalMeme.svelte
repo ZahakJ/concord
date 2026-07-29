@@ -114,11 +114,9 @@
   // The selection marquee is drawn on the same canvas rather than as a DOM
   // overlay, so it can never drift out of alignment with the text it marks.
   function outline(ctx, cap) {
-    const style = STYLES[cap.style] || STYLES.impact;
-    const m = measurerFor(ctx, style);
     // Re-derived rather than cached from the draw: cheap, and always in step
     // with what was actually painted.
-    const b = captionBox(m, cap, dims.W, dims.H);
+    const b = captionBox(measurerFor(ctx), cap, dims.W, dims.H);
     const pad = b.size * 0.28;
     ctx.save();
     ctx.strokeStyle = "rgba(88,166,255,0.95)";
@@ -143,17 +141,10 @@
     if (!img) return;
     const p = toImage(e);
     const ctx = canvas.getContext("2d");
-    const hit = captionAt(
-      (t, size) => {
-        ctx.font = `${STYLES.impact.weight} ${Math.round(size)}px ${STYLES.impact.family}`;
-        return ctx.measureText(t).width;
-      },
-      captions,
-      p.x,
-      p.y,
-      dims.W,
-      dims.H,
-    );
+    // measurerFor, not a hand-rolled one pinned to a single face: captions can
+    // each use a different style, and measuring them all in one font puts the
+    // grab area in the wrong place for every caption that isn't using it.
+    const hit = captionAt(measurerFor(ctx), captions, p.x, p.y, dims.W, dims.H);
     if (!hit) return;
     selId = hit.id;
     drag = { id: hit.id, dx: hit.x * dims.W - p.x, dy: hit.y * dims.H - p.y };
@@ -341,13 +332,14 @@
             </div>
           </div>
 
-          <label class="row check">
+          <!-- Label left, control right, like the rows above it. -->
+          <label class="row">
+            <span>White bar on top</span>
             <input
               type="checkbox"
               checked={topBar > 0}
               onchange={(e) => (topBar = e.currentTarget.checked ? 0.18 : 0)}
             />
-            <span>White caption bar on top</span>
           </label>
         {/if}
       {/if}
@@ -359,7 +351,9 @@
             <Icon name="plus" size={16} />
           </button>
           {#each templates as t (t.file)}
-            <button class="tpl" onclick={() => load(`/memes/${t.file}`, t.captions)} title={t.label}>
+            <!-- the whole manifest entry, not just its captions: load() also
+                 reads topBar off it -->
+            <button class="tpl" onclick={() => load(`/memes/${t.file}`, t)} title={t.label}>
               <img src={`/memes/${t.file}`} alt={t.label} loading="lazy" />
             </button>
           {/each}
@@ -524,11 +518,6 @@
     flex: 1;
     max-width: 150px;
   }
-  .row.check {
-    justify-content: flex-start;
-    gap: 6px;
-    cursor: pointer;
-  }
   .swatches {
     display: flex;
     gap: 4px;
@@ -551,16 +540,20 @@
     gap: 6px;
     min-height: 0;
   }
+  /* Explicit row height, not aspect-ratio on the tile: inside a scrolling grid
+     an aspect-ratio item leaves its row track indeterminate, and the rows
+     collapse to about half the tile height so every row overlaps the one above. */
   .grid {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
+    grid-auto-rows: 58px;
     gap: 5px;
-    max-height: 168px;
+    max-height: 190px;
     overflow-y: auto;
     padding-right: 2px;
   }
   .tpl {
-    aspect-ratio: 1;
+    height: 100%;
     padding: 0;
     border-radius: var(--radius-sm);
     overflow: hidden;
@@ -604,6 +597,7 @@
     }
     .tpl {
       width: 56px;
+      height: 56px;
       flex: 0 0 56px;
     }
   }
