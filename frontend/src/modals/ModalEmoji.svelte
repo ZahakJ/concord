@@ -3,6 +3,7 @@
   import Icon from "../Icon.svelte";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { isAnimated } from "../lib/animated.js";
 
   let { onClose } = $props();
 
@@ -12,13 +13,36 @@
   let fileInput;
   let busy = $state(false);
 
-  // Downscale to a 64px PNG (keeps transparency) — small enough to distribute.
+  // The backend's whitelist already accepts GIF and WebP (internal/app/emoji.go),
+  // but a canvas only ever holds ONE frame — drawing an animated GIF through it
+  // and calling toDataURL("image/png") silently throws the animation away. So an
+  // animated source is passed through byte-for-byte instead, and only static
+  // images take the downscale path. Re-encoding an animation in the browser
+  // would mean shipping a GIF encoder, which is exactly the kind of dependency
+  // this app doesn't take.
+  const MAX_BYTES = 256 << 10; // must match maxEmojiBytes in internal/app/emoji.go
+
   async function pick(file) {
     if (!file || !file.type.startsWith("image/")) {
       flash("Pick an image", "error");
       return;
     }
     try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (isAnimated(bytes)) {
+        const uri = await asDataURI(file);
+        if (uri.length > MAX_BYTES) {
+          // We can't shrink it for them, so say what would fix it.
+          flash(
+            `That animation is ${Math.round(uri.length / 1024)} KB — the limit is ${MAX_BYTES / 1024} KB. Try fewer frames or a smaller size.`,
+            "error",
+          );
+          return;
+        }
+        pending = { dataURI: uri, animated: true };
+        nameFrom(file);
+        return;
+      }
       const bmp = await createImageBitmap(file);
       const size = 64;
       const canvas = document.createElement("canvas");
@@ -28,12 +52,26 @@
       const w = bmp.width * scale;
       const h = bmp.height * scale;
       ctx.drawImage(bmp, (size - w) / 2, (size - h) / 2, w, h);
-      pending = { dataURI: canvas.toDataURL("image/png") };
-      if (!name) name = (file.name || "").replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 32);
+      pending = { dataURI: canvas.toDataURL("image/png"), animated: false };
+      nameFrom(file);
     } catch {
       flash("Couldn't read that image", "error");
     }
   }
+
+  function nameFrom(file) {
+    if (!name)
+      name = (file.name || "").replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 32);
+  }
+
+  const asDataURI = (file) =>
+    new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result));
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+
 
   async function add() {
     if (busy || !pending) return;
@@ -63,7 +101,8 @@
 <Modal title="Guild emoji — {g?.name ?? ''}" {onClose}>
   <p class="muted lead">
     Upload emoji anyone in this guild can use by typing <code>:name:</code>. Keep them small and
-    square.
+    square. Animated GIF and WebP keep moving — they're passed through as-is, so they have to
+    arrive under 256&nbsp;KB rather than being shrunk for you.
   </p>
 
   <div class="add-row">
@@ -80,6 +119,9 @@
     <button class="preview" onclick={() => fileInput.click()} title="Choose image">
       {#if pending}
         <img src={pending.dataURI} alt="new emoji" />
+        {#if pending.animated}
+          <span class="gif" title="Animation preserved">GIF</span>
+        {/if}
       {:else}
         <Icon name="plus" size={18} />
       {/if}
@@ -126,7 +168,23 @@
     align-items: center;
     gap: 6px;
   }
+  /* Corner badge on the preview, so it's obvious the animation survived the
+     upload rather than being silently flattened as it used to be. */
+  .gif {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    padding: 0 3px;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    line-height: 12px;
+    color: #fff;
+    background: var(--accent);
+    border-top-left-radius: 4px;
+  }
   .preview {
+    position: relative;
     width: 40px;
     height: 40px;
     flex-shrink: 0;

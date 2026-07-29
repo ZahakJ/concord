@@ -59,20 +59,148 @@ function play(notes, wave = "sine", force = false) {
   for (const [freq, start, dur, peak] of notes) tone(ac, freq, start, dur, peak, wave);
 }
 
-// Rising two-note: someone joined the voice room.
-export function playVoiceJoin() {
-  play([
-    [523.25, 0, 0.18],
-    [783.99, 0.09, 0.22],
-  ]);
+// ---- the voice room's join/leave sounds ----
+//
+// These two get a synthesizer of their own rather than using tone() above,
+// because a bare oscillator pair reads as a beep from a microwave. Three things
+// separate "chime" from something with weight, and all three are cheap:
+//
+//   • a room. Reverb is most of what "ambient" means — the tail is the sound
+//     continuing to exist after the note stops. Built here, not loaded: a
+//     ConvolverNode fed a procedurally generated impulse response.
+//   • a body. One sine at one frequency is a test tone. Two detuned a few cents
+//     apart beat against each other (warmth), and an octave below adds the
+//     weight you feel rather than hear.
+//   • a landing. A short pitch-dropping thump under the first note, so the
+//     sound arrives instead of merely beginning.
+
+// Impulse responses are expensive to generate (a few hundred thousand randoms)
+// and identical every time, so they're built once per shape and reused.
+const irCache = new Map();
+function impulse(ac, seconds, decay) {
+  const key = `${seconds}:${decay}:${ac.sampleRate}`;
+  const hit = irCache.get(key);
+  if (hit) return hit;
+  const len = Math.ceil(ac.sampleRate * seconds);
+  const buf = ac.createBuffer(2, len, ac.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    // Each channel gets its own noise. Decorrelating them is what makes the
+    // tail sound wide rather than like a mono echo pinned between your ears.
+    for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  irCache.set(key, buf);
+  return buf;
 }
 
-// Falling two-note: someone left.
+// A dry/wet bus into a limiter. The limiter isn't for loudness — layering a
+// sub, two detuned oscillators and a transient can sum past 1.0 on the loudest
+// note, and clipping in WebAudio is an ugly digital crunch rather than warmth.
+function roomBus(ac, { seconds, decay, wet, damp, level = 1 }) {
+  const inp = ac.createGain();
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -16;
+  comp.knee.value = 14;
+  comp.ratio.value = 6;
+  comp.attack.value = 0.004;
+  comp.release.value = 0.2;
+  // One master trim after the limiter, so the mix of the parts below can be
+  // tuned by ear-shape (how much thump vs note) without also changing how loud
+  // the whole thing is. These sit at roughly twice the old chime's level: they
+  // should feel more present, but a voice channel you join often must not
+  // startle you, and much of the added weight is sub-bass a laptop speaker
+  // won't reproduce anyway.
+  const out = ac.createGain();
+  out.gain.value = level;
+  comp.connect(out).connect(ac.destination);
+  inp.connect(comp); // dry
+  const send = ac.createGain();
+  send.gain.value = wet;
+  const conv = ac.createConvolver();
+  conv.buffer = impulse(ac, seconds, decay);
+  // Roll the top off the tail. An undamped reverb on a short chime reads as a
+  // cheap spring plate; darkening it reads as a room.
+  const lp = ac.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = damp;
+  inp.connect(send).connect(conv).connect(lp).connect(comp);
+  return inp;
+}
+
+// One note, but thick — see "a body" above.
+function note(ac, sink, freq, start, dur, peak) {
+  const t0 = ac.currentTime + start;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0, t0);
+  // 25ms rather than 15: enough to read as a swell instead of a click, still
+  // far too fast to feel slow.
+  g.gain.linearRampToValueAtTime(peak, t0 + 0.025);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  g.connect(sink);
+  // [frequency multiplier, detune cents, level, waveform]
+  for (const [mult, cents, level, wave] of [
+    [1, -7, 0.55, "sine"],
+    [1, 7, 0.55, "sine"],
+    [0.5, 0, 0.45, "sine"], // sub-octave: the weight
+    [2, 0, 0.09, "triangle"], // one upper harmonic, so it still cuts through
+  ]) {
+    const osc = ac.createOscillator();
+    osc.type = wave;
+    osc.frequency.value = freq * mult;
+    osc.detune.value = cents;
+    const lg = ac.createGain();
+    lg.gain.value = level;
+    osc.connect(lg).connect(g);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.05);
+  }
+}
+
+// The landing: a fast downward pitch sweep, lowpassed so it thumps rather than
+// clicks. This is the single biggest contributor to "heavy".
+function thump(ac, sink, start, from, to, peak) {
+  const t0 = ac.currentTime + start;
+  const osc = ac.createOscillator();
+  osc.frequency.setValueAtTime(from, t0);
+  osc.frequency.exponentialRampToValueAtTime(to, t0 + 0.18);
+  const lp = ac.createBiquadFilter();
+  lp.type = "lowpass";
+  lp.frequency.value = 320;
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(peak, t0 + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.34);
+  osc.connect(lp).connect(g).connect(sink);
+  osc.start(t0);
+  osc.stop(t0 + 0.36);
+}
+
+// Someone joined: a rising fifth, C4 up to G4. The old pair sat an octave
+// higher, which is exactly why it sounded thin — up there a sine has nothing
+// underneath it.
+export function playVoiceJoin() {
+  if (!enabled) return;
+  const ac = audio();
+  if (!ac) return;
+  const bus = roomBus(ac, { seconds: 1.7, decay: 2.4, wet: 0.32, damp: 2800, level: 0.62 });
+  // The thump sits UNDER the notes, not over them. At the level this started
+  // out (3x the notes) it read as a boom with a chime somewhere behind it —
+  // measurably, two thirds of the sound's energy was below 200 Hz.
+  thump(ac, bus, 0, 150, 52, 0.19);
+  note(ac, bus, 261.63, 0.0, 0.75, 0.15);
+  note(ac, bus, 392.0, 0.085, 1.0, 0.17);
+}
+
+// Someone left: the same interval falling, darker and with a longer, quieter
+// room — a door closing down the hall rather than one slammed next to you.
 export function playVoiceLeave() {
-  play([
-    [659.25, 0, 0.18],
-    [440.0, 0.09, 0.22],
-  ]);
+  if (!enabled) return;
+  const ac = audio();
+  if (!ac) return;
+  const bus = roomBus(ac, { seconds: 2.0, decay: 2.9, wet: 0.34, damp: 1900, level: 0.6 });
+  thump(ac, bus, 0, 120, 44, 0.13);
+  note(ac, bus, 392.0, 0.0, 0.7, 0.15);
+  note(ac, bus, 261.63, 0.09, 1.15, 0.16);
 }
 
 // Soft single ping for an @mention / notification.
