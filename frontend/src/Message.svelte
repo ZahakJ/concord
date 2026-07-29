@@ -715,7 +715,35 @@
           />
         {/if}
       </div>
-      <div class="edit-hint muted">escape to cancel · enter to save</div>
+      <!-- Buttons as well as the shortcuts. The keyboard path is faster once you
+           know it, but a hint line only TELLS you it exists; something you can
+           click is what makes it discoverable — and on a touchscreen there is no
+           Escape key at all. onmousedown/preventDefault matters: the textarea's
+           blur handler commits, so a plain click on Cancel would save the edit
+           on the way down and then cancel nothing. -->
+      <div class="edit-actions">
+        <button
+          type="button"
+          class="edit-btn"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={cancelEdit}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="edit-btn save"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={() => {
+            editCancelled = false;
+            commitEdit();
+            S.editing = null;
+          }}
+        >
+          Save
+        </button>
+        <span class="edit-hint muted">escape to cancel · enter to save</span>
+      </div>
     {:else if announce}
       <AnnouncementView {announce} />
     {:else if poll}
@@ -1195,9 +1223,48 @@
     color: var(--text);
     background: var(--bg-3);
   }
+  .edit-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 5px;
+  }
+  .edit-btn {
+    padding: 3px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3);
+    color: var(--text-muted);
+    border: 1px solid transparent;
+    transition:
+      background 0.12s,
+      color 0.12s;
+  }
+  .edit-btn:hover {
+    background: color-mix(in srgb, var(--text) 14%, var(--bg-3));
+    color: var(--text);
+  }
+  .edit-btn.save {
+    background: var(--accent);
+    color: var(--accent-fg, #fff);
+  }
+  .edit-btn.save:hover {
+    background: var(--accent-hover);
+  }
+  .edit-btn:focus-visible {
+    border-color: var(--accent);
+  }
   .edit-hint {
     font-size: 11px;
-    margin-top: 3px;
+    margin-top: 0;
+  }
+  /* The shortcut hint is the redundant half once there are buttons — keep it
+     where there is room, drop it on a phone where the row would wrap. */
+  @media (max-width: 600px) {
+    .edit-hint {
+      display: none;
+    }
   }
   /* :shortcode autocomplete inside the edit box (composer parity). */
   .edit-suggest {
