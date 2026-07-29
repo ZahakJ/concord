@@ -102,12 +102,19 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
   // tag we add later. An emoji newer than the bundled set falls back to the
   // raw glyph via onerror.
   s = s.replace(EMOJI_RE, (m) => {
-    // In a jumbo (emoji-only) message, prefer the animated version when one is
-    // bundled. The onerror fallback still applies, so a missing file degrades
-    // to the raw glyph rather than a broken image.
-    const anim = opts?.animate ? animatedEmojiSrc(m) : "";
-    const src = anim || `/twemoji/${twemojiCode(m)}.svg`;
-    return `<img class="emoji" draggable="false" src="${src}" alt="${m}" onerror="this.replaceWith(this.alt)" />`;
+    // The src is ALWAYS the static Twemoji. Where an animated version exists its
+    // URL rides along in data-anim, and lib/anemoji.js swaps it in on the
+    // elements that earn it — on screen, or under the cursor.
+    //
+    // Emitting the animated file as `src` here was a mistake twice over: it
+    // animated everything forever, and it made this string depend on whether the
+    // manifest had loaded yet. That flag flips just after mount, so the string
+    // changed, so Svelte replaced the whole body — throwing away and re-fetching
+    // every image in the message, which is why even plain emoji got slow to
+    // appear. This markup never changes.
+    const anim = animatedEmojiSrc(m);
+    const data = anim ? ` data-anim="${anim}"` : "";
+    return `<img class="emoji" draggable="false" src="/twemoji/${twemojiCode(m)}.svg" alt="${m}"${data} onerror="this.replaceWith(this.alt)" />`;
   });
 
   // Custom guild emoji: :name: -> <img>. The image is a backend-validated

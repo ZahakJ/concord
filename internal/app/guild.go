@@ -1070,6 +1070,20 @@ func (s *Service) trackGuild(g *domain.Guild) {
 		}
 		if err := s.mls.ApplyCommit(s.ctx, groupID, data); err == nil {
 			s.logCommit(groupID, data)
+			// A commit is how a leaf appears, and a linked device's leaf carries
+			// the certificate that says which account it belongs to. Reading it
+			// only at startup (see trackGuild above) meant a device that joined
+			// while we were running stayed unplaced for the whole session: its
+			// PeerID resolved to its own device key, so it read as a stranger in
+			// the peer list, was refused the member-only paths in recordPeer, and
+			// only became itself after a restart. The roster is already in hand
+			// here; re-reading it is cheap and commits are rare.
+			s.relearnDevices(groupID)
+			// Membership just moved, which is rememberMembers' whole trigger: the
+			// peer we could not place a moment ago may be a member now. Off the
+			// gossip callback's goroutine — it writes contacts and flushes the
+			// peer cache, and nothing here should hold up commit delivery.
+			go s.rememberMembers()
 			s.emitGuildUpdate()
 		} else {
 			go s.syncGuildFromAnyPeer(guildID)

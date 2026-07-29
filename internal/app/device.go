@@ -70,6 +70,70 @@ func saveDeviceMarker(dataDir string, cert *identity.DeviceCert) error {
 	return os.Rename(tmp, deviceMarkerPath(dataDir))
 }
 
+// ownDevicesKey persists the certificates this account has issued to its own
+// devices.
+//
+// We sign a cert when we link a phone and then forget it: the only record left
+// is the leaf the phone plants in each shared group, so the mapping is only
+// recoverable while that leaf exists and we can read that roster. A device that
+// linked but joined nothing (every guild handover failed), or whose leaf was
+// removed, was therefore unplaceable FOREVER — its PeerID resolved to its own
+// device key, so your own phone read as a stranger and no amount of relearning
+// could fix it, because there was nothing left to relearn from.
+//
+// The account key signed these certs; we are the authority on them. Keeping
+// them means our own devices are recognised from the moment they connect,
+// independent of group membership.
+const ownDevicesKey = "account.devices"
+
+// rememberOwnDevice records a cert we just issued for one of our devices, in
+// memory and on disk. Idempotent: re-linking a device we already certified
+// (RedeemLink reuses the device seed) replaces nothing and adds nothing.
+func (s *Service) rememberOwnDevice(cert *identity.DeviceCert) {
+	if cert == nil {
+		return
+	}
+	s.learnDeviceCert(cert.Marshal())
+	certs := s.ownDeviceCerts()
+	for _, c := range certs {
+		if ed25519Equal(c.DevicePub, cert.DevicePub) {
+			return
+		}
+	}
+	if raw, err := json.Marshal(append(certs, cert)); err == nil {
+		_ = s.store.SetSetting(ownDevicesKey, string(raw))
+	}
+}
+
+// ownDeviceCerts reads back the stored certs, keeping only those that still
+// verify against THIS account — a restored/replaced account key must not drag
+// another account's devices along with it.
+func (s *Service) ownDeviceCerts() []*identity.DeviceCert {
+	raw, err := s.store.GetSetting(ownDevicesKey)
+	if err != nil || raw == "" {
+		return nil
+	}
+	var certs []*identity.DeviceCert
+	if json.Unmarshal([]byte(raw), &certs) != nil {
+		return nil
+	}
+	out := make([]*identity.DeviceCert, 0, len(certs))
+	for _, c := range certs {
+		if c != nil && c.Verify() && ed25519Equal(c.AccountPub, s.id.PublicKey()) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// loadOwnDevices seeds the device→account map with our own devices at startup,
+// before any of them can connect and be mistaken for a stranger.
+func (s *Service) loadOwnDevices() {
+	for _, c := range s.ownDeviceCerts() {
+		s.learnDeviceCert(c.Marshal())
+	}
+}
+
 // mailboxKeyOf returns the key a member's mailbox tag is derived from — the key
 // their libp2p PeerID is built on, since the rendezvous node computes the tag
 // from the connected peer's PeerID. For a device-cert credential that's the

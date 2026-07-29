@@ -408,6 +408,11 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 			applied++
 		}
 		if applied > 0 {
+			// Catch-up commits change the roster exactly like live ones do, so
+			// re-read which leaves are linked devices — otherwise a device that
+			// joined while we were away stays a stranger until the next restart.
+			// See the same call on the control topic.
+			s.relearnDevices(guild.GroupID)
 			s.emitGuildUpdate()
 		}
 		if resp.EpochGap {

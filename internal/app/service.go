@@ -877,6 +877,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// a restart doesn't report every device we already knew about as new.
 	s.loadDeviceRoster()
 	s.noteDeviceLeaves()
+	// …and the devices of OUR OWN account, which no roster has to be readable
+	// for us to know about (see ownDevicesKey).
+	s.loadOwnDevices()
 
 	// Instant meetings are disposable — clear any that outlived their TTL.
 	s.sweepExpiredMeetings()

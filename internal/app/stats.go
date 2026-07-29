@@ -108,11 +108,15 @@ type PeerStatView struct {
 	// The ACCOUNT behind the connection. Two peers sharing one fingerprint are
 	// one person on two devices, which the list has no other way to tell.
 	Fingerprint string `json:"fingerprint"`
-	Role        string `json:"role"`      // "rendezvous" (infra) | "peer"
-	Transport   string `json:"transport"` // quic | tcp | relay
-	Relayed     bool   `json:"relayed"`
-	Direction   string `json:"direction"` // inbound | outbound
-	RTTms       int64  `json:"rttMs"`     // 0 until first measured
+	// Self marks another device of THIS account (a linked phone), so the UI can
+	// say "your other device" instead of leaving it to look like a stranger who
+	// happens to share your name.
+	Self      bool   `json:"self,omitempty"`
+	Role      string `json:"role"`      // "rendezvous" (infra) | "peer"
+	Transport string `json:"transport"` // quic | tcp | relay
+	Relayed   bool   `json:"relayed"`
+	Direction string `json:"direction"` // inbound | outbound
+	RTTms     int64  `json:"rttMs"`     // 0 until first measured
 }
 
 // NetworkStatsView is a whole-device network + storage snapshot.
@@ -175,7 +179,21 @@ func (s *Service) NetworkStats() NetworkStatsView {
 			// instance or stranger stands out immediately.
 			if fpr := s.presence(p).Fingerprint; fpr != "" {
 				pv.Fingerprint = fpr
-				if name := s.ProfileOf(fpr).Name; name != "" {
+				name := s.ProfileOf(fpr).Name
+				// …including YOUR OWN name for your own linked device. A phone
+				// paired to this desktop resolves to this account's fingerprint,
+				// and s.profiles deliberately never holds a row for ourselves —
+				// learnProfile refuses one so a peer echoing a stale copy can't
+				// rename us. ProfileOf therefore came back empty and the panel
+				// labelled the one connection it should have been surest about
+				// "unknown peer", which reads as "your desktop doesn't know that
+				// phone is you". The roster does this already (see Bridge.Members'
+				// isSelf branch); the peer list was the odd one out.
+				if fpr == s.id.Fingerprint() {
+					pv.Self = true
+					name = s.SelfProfile().Name
+				}
+				if name != "" {
 					pv.Name = name
 				}
 			}

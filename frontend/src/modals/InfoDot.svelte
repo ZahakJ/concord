@@ -11,33 +11,47 @@
   let open = $state(false);
   let dot = $state(null);
   let bubble = $state(null);
-  let flip = $state(false); // open upward when there's no room below
-  let shiftX = $state(0); // nudge back inside the panel when near an edge
+  // Fixed viewport coordinates, because the bubble is moved OUT of the modal to
+  // be positioned (see portal below).
+  let pos = $state({ left: 0, top: 0 });
   let hoverTimer;
 
   // Touch devices get tap-to-toggle; a hover popover there either never opens
   // or opens and won't go away.
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 
+  // Position against the VIEWPORT, then keep it there.
+  //
+  // The first version placed the bubble absolutely inside the row and only
+  // clamped against the window. That is the wrong box: the settings dialog
+  // clips its own content, so a dot on the last row opened a bubble that was
+  // inside the viewport and still half-cut by the panel. Being fixed and
+  // portalled to <body> means the only edges that can clip it are the screen's,
+  // which is what the clamping below actually measures.
+  const M = 8; // margin from the screen edge
+  function place() {
+    if (!bubble || !dot) return;
+    const d = dot.getBoundingClientRect();
+    const b = bubble.getBoundingClientRect();
+    // Below by default; above when that would run off the bottom and there is
+    // genuinely room up there.
+    const below = d.bottom + 7;
+    const above = d.top - b.height - 7;
+    const top = below + b.height > window.innerHeight - M && above >= M ? above : below;
+    // Centred on the dot, then pulled back inside whichever edge it crosses.
+    let left = d.left + d.width / 2 - b.width / 2;
+    left = Math.max(M, Math.min(left, window.innerWidth - b.width - M));
+    pos = { left, top: Math.max(M, top) };
+  }
+
   function show() {
     open = true;
     // Measure after paint: the bubble has no box until it exists.
-    requestAnimationFrame(() => {
-      if (!bubble || !dot) return;
-      const b = bubble.getBoundingClientRect();
-      const d = dot.getBoundingClientRect();
-      flip = b.bottom > window.innerHeight - 8 && d.top > b.height + 16;
-      // Re-measure horizontally against the viewport and pull it back in.
-      const over = b.right - (window.innerWidth - 8);
-      const under = 8 - b.left;
-      shiftX = over > 0 ? -over : under > 0 ? under : 0;
-    });
+    requestAnimationFrame(place);
   }
 
   function hide() {
     open = false;
-    flip = false;
-    shiftX = 0;
   }
 
   function onEnter() {
@@ -50,6 +64,14 @@
     clearTimeout(hoverTimer);
     hide();
   }
+  // Move the bubble to <body>. position:fixed alone is not enough: any ancestor
+  // with a transform or filter becomes the containing block for fixed children,
+  // and the modal animates with one. Out here nothing can clip or re-anchor it.
+  function portal(node) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
+  }
+
   function toggle(e) {
     // The dot lives inside setting rows that are themselves buttons; without
     // this, asking what a switch does would also flip it.
@@ -62,6 +84,7 @@
 <svelte:window
   onkeydown={(e) => open && e.key === "Escape" && hide()}
   onpointerdown={(e) => open && coarse && !dot?.contains(e.target) && hide()}
+  onresize={() => open && place()}
 />
 
 <span class="wrap" bind:this={dot} onmouseenter={onEnter} onmouseleave={onLeave} role="presentation">
@@ -79,9 +102,9 @@
   {#if open}
     <span
       class="bubble"
-      class:up={flip}
-      style="--shift:{shiftX}px"
+      style="left:{pos.left}px; top:{pos.top}px"
       bind:this={bubble}
+      use:portal
       role="tooltip"
     >
       {text}
@@ -125,12 +148,12 @@
     color: var(--accent);
     border-color: var(--accent);
   }
+  /* Fixed and living on <body>: `left`/`top` are set from JS in viewport
+     coordinates, so nothing here may re-anchor it. The z-index clears the modal
+     it escaped from. */
   .bubble {
-    position: absolute;
-    top: calc(100% + 7px);
-    left: 50%;
-    transform: translateX(calc(-50% + var(--shift, 0px)));
-    z-index: 40;
+    position: fixed;
+    z-index: 200;
     width: max-content;
     max-width: min(280px, 78vw);
     padding: 8px 10px;
@@ -151,14 +174,10 @@
     letter-spacing: normal;
     animation: pop 0.13s ease both;
   }
-  .bubble.up {
-    top: auto;
-    bottom: calc(100% + 7px);
-  }
   @keyframes pop {
     from {
       opacity: 0;
-      transform: translateX(calc(-50% + var(--shift, 0px))) translateY(-3px);
+      transform: translateY(-3px);
     }
   }
   @media (prefers-reduced-motion: reduce) {

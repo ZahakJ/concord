@@ -19,12 +19,8 @@
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
   import { untrack } from "svelte";
-  import {
-    renderMarkdown,
-    emojiOnly,
-    loadAnimatedEmoji,
-    animatedEmojiSrc,
-  } from "./lib/markdown.js";
+  import { renderMarkdown, emojiOnly, animatedEmojiSrc, twemojiCode } from "./lib/markdown.js";
+  import { animateInView, animateOnHover } from "./lib/anemoji.js";
   import {
     parseAttachTokens,
     parseFileTokens,
@@ -125,16 +121,13 @@
   const mem = $derived(memberByFpr(m.sender));
   const cemoji = $derived(customEmojiMap());
 
-  // Animated emoji are used only where they're big: an emoji-only message and
-  // reaction pills. The manifest arrives asynchronously, so `animReady` flips
-  // once and re-renders — until then everything is the static set, which is
-  // also exactly what a build without the pack sees forever.
-  let animReady = $state(false);
-  loadAnimatedEmoji().then(() => (animReady = true));
   const jumbo = $derived(!!bodyText && emojiOnly(bodyText));
   // "" when there's no animation for this emoji, which is the signal to fall
-  // back to the plain character the pill has always shown.
-  const animFor = (e) => (animReady ? animatedEmojiSrc(e) : "");
+  // back to the plain character the pill has always shown. The manifest is
+  // loaded once at boot (main.js), so this is a plain lookup — deliberately NOT
+  // reactive: anything that flips after mount re-renders the body and re-fetches
+  // every image in it.
+  const animFor = (e) => animatedEmojiSrc(e);
   // Highlight every member's @name; the viewer's own name gets the self style.
   const mentionNames = $derived([
     // @everyone / @here highlight for everyone (self:true so they stand out).
@@ -713,8 +706,8 @@
     {:else}
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="body" class:jumbo={jumbo} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
-          {@html renderMarkdown(bodyText, mentionNames, cemoji, refs, { animate: jumbo && animReady })}{#if m.edited}<span
+        <div class="body" class:jumbo={jumbo} use:animateInView={jumbo} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
+          {@html renderMarkdown(bodyText, mentionNames, cemoji, refs)}{#if m.edited}<span
               class="edited-tag">(edited)</span
             >{/if}
         </div>
@@ -749,7 +742,7 @@
     {/if}
 
     {#if !poll && m.reactions && Object.keys(m.reactions).length}
-      <div class="reactions">
+      <div class="reactions" use:animateOnHover>
         {#each Object.entries(m.reactions) as [emoji, fprs] (emoji)}
           {@const cimg = /^:([a-z0-9_]{2,32}):$/.test(emoji) ? cemoji[emoji.slice(1, -1)] : null}
           <span class="react-wrap">
@@ -762,7 +755,12 @@
             >
               <span class="remoji" class:bounce={bounced === emoji}>
                 {#if cimg}<img class="cemoji" src={cimg} alt={emoji} />
-                {:else if animFor(emoji)}<img class="remoji-img" src={animFor(emoji)} alt={emoji} />
+                {:else if animFor(emoji)}<img
+                    class="remoji-img"
+                    src="/twemoji/{twemojiCode(emoji)}.svg"
+                    data-anim={animFor(emoji)}
+                    alt={emoji}
+                  />
                 {:else}{emoji}{/if}
               </span>
               <!-- keyed so the count re-mounts (and animates) when it changes -->

@@ -121,6 +121,11 @@ func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byt
 		return nil, err
 	}
 	cert := s.id.IssueDeviceCertFor(req.DevicePub, req.DeviceName, time.Now().Unix())
+	// Keep a copy: we are the only peer that can state this mapping from
+	// authority rather than hearsay, and without it the new device is only
+	// recognisable through the group rosters it manages to join. See
+	// ownDevicesKey.
+	s.rememberOwnDevice(cert)
 
 	// One invite code per guild so the new device can join every existing group
 	// after it restarts in linked mode.
