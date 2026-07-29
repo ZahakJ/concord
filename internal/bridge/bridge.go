@@ -1728,6 +1728,77 @@ func (b *Bridge) RemoveCustomEmoji(guildID, name string) error {
 	return svc.RemoveCustomEmoji(guildID, name)
 }
 
+// GifView is one entry of a guild's GIF pack. It carries the attachment
+// reference (blob id + key + subtype), not the image — the picker resolves the
+// bytes through the same FetchAttachment path a message image uses, so a GIF is
+// downloaded once and cached, however many people post it.
+type GifView struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Tags    []string `json:"tags,omitempty"`
+	Keys    string   `json:"keys"`
+	Subtype string   `json:"subtype"`
+	Width   int      `json:"w,omitempty"`
+	Height  int      `json:"h,omitempty"`
+}
+
+// GuildGifs lists a guild's GIF pack (newest first). Searching it is a local
+// filter over name and tags in the client — no query ever leaves the device,
+// which is the entire reason this exists instead of a Tenor/Giphy picker.
+func (b *Bridge) GuildGifs(guildID string) ([]GifView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	gifs, err := svc.GuildGifs(guildID)
+	if err != nil {
+		return nil, err
+	}
+	out := []GifView{}
+	for _, g := range gifs {
+		out = append(out, GifView{
+			ID: g.ID, Name: g.Name, Tags: g.Tags, Keys: g.Keys,
+			Subtype: g.Subtype, Width: g.Width, Height: g.Height,
+		})
+	}
+	return out, nil
+}
+
+// AddGuildGif adds an image to the guild's pack (a guild-management action).
+func (b *Bridge) AddGuildGif(guildID, name string, tags []string, dataURL string, w, h int) (GifView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return GifView{}, err
+	}
+	g, err := svc.AddGuildGif(guildID, name, tags, dataURL, w, h)
+	if err != nil {
+		return GifView{}, err
+	}
+	return GifView{
+		ID: g.ID, Name: g.Name, Tags: g.Tags, Keys: g.Keys,
+		Subtype: g.Subtype, Width: g.Width, Height: g.Height,
+	}, nil
+}
+
+// RemoveGuildGif deletes an entry from the guild's pack.
+func (b *Bridge) RemoveGuildGif(guildID, id string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.RemoveGuildGif(guildID, id)
+}
+
+// SendGuildGif posts a pack GIF as an ordinary image attachment message.
+func (b *Bridge) SendGuildGif(channelID, gifID, replyTo string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.SendGuildGif(channelID, gifID, replyTo)
+	return err
+}
+
 // MeetingView is what StartMeeting hands the UI: the room plus its invite.
 type MeetingView struct {
 	Guild GuildView `json:"guild"`
@@ -2068,6 +2139,14 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.AddCustomEmoji(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "RemoveCustomEmoji":
 		return nil, b.RemoveCustomEmoji(argStr(args, 0), argStr(args, 1))
+	case "GuildGifs":
+		return b.GuildGifs(argStr(args, 0))
+	case "AddGuildGif":
+		return b.AddGuildGif(argStr(args, 0), argStr(args, 1), argStrs(args, 2), argStr(args, 3), argInt(args, 4), argInt(args, 5))
+	case "RemoveGuildGif":
+		return nil, b.RemoveGuildGif(argStr(args, 0), argStr(args, 1))
+	case "SendGuildGif":
+		return nil, b.SendGuildGif(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "SetChannelMeta":
 		return nil, b.SetChannelMeta(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt(args, 4), argStr(args, 5))
 	case "RenameGuild":

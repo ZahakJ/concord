@@ -76,6 +76,7 @@ type syncPayload struct {
 	Profiles   map[string]Profile          `json:"profiles,omitempty"`
 	Categories []domain.Category           `json:"categories,omitempty"`
 	Emoji      []domain.CustomEmoji        `json:"emoji,omitempty"`
+	Gifs       []GuildGif                  `json:"gifs,omitempty"`     // GIF-pack records (references, not bytes)
 	GovOps     []json.RawMessage           `json:"govOps,omitempty"`   // signed governance log (roles/bans)
 	Messages   map[string][]domain.Message `json:"messages,omitempty"` // channelID -> changed rows
 }
@@ -136,6 +137,9 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	}
 	if emoji, err := s.CustomEmoji(guild.ID); err == nil {
 		payload.Emoji = emoji
+	}
+	if gifs, err := s.GuildGifs(guild.ID); err == nil {
+		payload.Gifs = gifs
 	}
 	payload.GovOps = s.govOpsFor(guild.ID)
 	budget := maxSyncPayload
@@ -518,6 +522,24 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 	}
 	for _, e := range payload.Emoji {
 		s.applyCustomEmoji(guildID, e)
+	}
+	// GIF-pack records are metadata only (the blobs are fetched on demand), so a
+	// member who joins after a GIF was added still learns the pack here — the
+	// gossiped announcement they missed is not replayed.
+	//
+	// Note the trust boundary, which is the same one custom emoji sit behind
+	// just above: the GOSSIP path checks that the announcing member holds
+	// PermManageGuild, but this one cannot. Catch-up is served by whichever
+	// member answered, not by the admin who created the record, so requiring the
+	// server to be an admin would stop an ordinary member handing over a pack
+	// that is legitimately theirs to relay. The consequence is real and worth
+	// naming: a member without Manage Guild can inject a pack record by serving
+	// a doctored snapshot. Closing it needs the record to carry the creating
+	// admin's signature, the way governance ops already do (ingestGovOpsRaw
+	// below) — a bigger change than moving this line, and one that would want to
+	// cover emoji at the same time.
+	for _, g := range payload.Gifs {
+		s.applyGuildGif(guildID, g)
 	}
 	s.ingestGovOpsRaw(guildID, payload.GovOps)
 

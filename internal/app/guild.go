@@ -1139,7 +1139,11 @@ type guildMeta struct {
 	Effect      string             `json:"effect,omitempty"`   // profile: card effect enum id
 	Style       *Style             `json:"style,omitempty"`    // profile: fine-grained style dials
 	CustomEmoji domain.CustomEmoji `json:"customEmoji,omitempty"`
-	GovOp       json.RawMessage    `json:"govOp,omitempty"` // a signed governance op (roles/bans)
+	// Gif carries a guild GIF-pack record (gifs.go). Only the reference travels
+	// here — the image itself is an encrypted attachment blob, fetched out of
+	// band, because a GIF would not fit in a gossip frame.
+	Gif   *GuildGif       `json:"gif,omitempty"`
+	GovOp json.RawMessage `json:"govOp,omitempty"` // a signed governance op (roles/bans)
 	// guild_profile: icon/banner/description (Name reused from above).
 	GuildIcon        string `json:"gIcon,omitempty"`
 	GuildBanner      string `json:"gBanner,omitempty"`
@@ -1830,6 +1834,10 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			_ = s.store.DeleteCustomEmoji(guildID, m.CustomEmoji.Name)
 			s.emitGuildUpdate()
 		}
+	case "gif_added", "gif_removed":
+		// Permission gating and strict field validation live in gifs.go, so the
+		// receive path and the local add path share one implementation.
+		s.applyGifMeta(guildID, actor, m.Type, m.Gif)
 	case "guild_renamed":
 		if strings.TrimSpace(m.Name) == "" {
 			return

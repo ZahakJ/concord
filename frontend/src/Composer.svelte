@@ -120,6 +120,7 @@
     { name: "spoiler", usage: "/spoiler <text>", desc: "Hides text until clicked", args: true, expand: (rest, text) => (rest ? `||${rest}||` : text) },
     // ACTIONS, not text expansions: these run instead of sending (see runAction).
     { name: "meme", usage: "/meme", desc: "Open the meme editor", expand: (_, text) => text },
+    { name: "gif", usage: "/gif", desc: "This guild's GIF pack", expand: (_, text) => text },
     { name: "clear", usage: "/clear <n>", desc: "Delete the last n messages (moderators)", args: true, mod: true, expand: (_, text) => text },
   ];
 
@@ -131,6 +132,10 @@
   async function runAction(text) {
     if (/^\/meme\s*$/i.test(text)) {
       S.modal = { kind: "meme" };
+      return true;
+    }
+    if (/^\/gif\s*$/i.test(text)) {
+      S.modal = { kind: "gifs" };
       return true;
     }
     const m = text.match(/^\/clear(?:\s+(\d+))?\s*$/i);
@@ -1070,6 +1075,17 @@
             <Icon name="mic" size={20} />
           </button>
         {/if}
+        <!-- The guild's own GIF pack. A word, not a glyph: there is no icon for
+             "GIF" that anyone reads correctly, and this is the label every
+             other client uses. -->
+        <button
+          type="button"
+          class="iconbtn gifbtn"
+          title="GIFs from this guild's pack"
+          aria-label="Open the GIF picker"
+          disabled={!ch}
+          onclick={() => (S.modal = { kind: "gifs" })}
+        >GIF</button>
         <button
           type="button"
           class="iconbtn"
@@ -1836,6 +1852,15 @@
   }
   .fmt-toggle.on {
     color: var(--accent-hover);
+  }
+  /* Text where its neighbours are icons: sized down so "GIF" occupies the same
+     optical weight as a 20px glyph instead of shouting. */
+  .gifbtn {
+    font-size: 11px;
+    font-weight: 800;
+    font-family: inherit;
+    letter-spacing: 0.02em;
+    line-height: 1;
   }
   .sendbtn {
     display: grid;

@@ -56,6 +56,7 @@
   import ModalCreateChannel from "./modals/ModalCreateChannel.svelte";
   import ModalEmoji from "./modals/ModalEmoji.svelte";
   import ModalMeme from "./modals/ModalMeme.svelte";
+  import ModalGifs from "./modals/ModalGifs.svelte";
   import ModalForward from "./modals/ModalForward.svelte";
   import ModalBans from "./modals/ModalBans.svelte";
   import ModalRoles from "./modals/ModalRoles.svelte";
@@ -814,6 +815,8 @@
     />
   {:else if S.modal?.kind === "emoji"}
     <ModalEmoji onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "gifs"}
+    <ModalGifs onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "meme"}
     <ModalMeme src={S.modal.src || ""} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "forward"}

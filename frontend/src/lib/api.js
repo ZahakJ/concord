@@ -111,6 +111,14 @@ export const api = {
   richPresenceEnabled: () => call("RichPresenceEnabled"),
   addCustomEmoji: (guildID, name, dataURI) => call("AddCustomEmoji", guildID, name, dataURI),
   removeCustomEmoji: (guildID, name) => call("RemoveCustomEmoji", guildID, name),
+  // Guild GIF packs. The list is metadata only — each entry points at an
+  // encrypted attachment blob, resolved through fetchAttachment like any image.
+  // Searching it is a local filter in the picker: no query ever leaves the box.
+  guildGifs: (guildID) => call("GuildGifs", guildID),
+  addGuildGif: (guildID, name, tags, dataURL, w, h) =>
+    call("AddGuildGif", guildID, name, tags, dataURL, w, h),
+  removeGuildGif: (guildID, id) => call("RemoveGuildGif", guildID, id),
+  sendGuildGif: (channelID, gifID, replyTo = "") => call("SendGuildGif", channelID, gifID, replyTo),
   setChannelMeta: (guildID, channelID, type, category, position, topic = "") =>
     call("SetChannelMeta", guildID, channelID, type, category, position, topic),
   renameGuild: (guildID, name) => call("RenameGuild", guildID, name),

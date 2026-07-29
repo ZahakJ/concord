@@ -92,6 +92,18 @@ CREATE TABLE IF NOT EXISTS custom_emoji (
   created  INTEGER NOT NULL,
   PRIMARY KEY (guild_id, name)
 );
+CREATE TABLE IF NOT EXISTS guild_gifs (
+  guild_id TEXT NOT NULL,
+  id       TEXT NOT NULL,
+  name     TEXT NOT NULL,
+  tags     TEXT NOT NULL DEFAULT '',
+  att_keys TEXT NOT NULL,
+  subtype  TEXT NOT NULL,
+  width    INTEGER NOT NULL DEFAULT 0,
+  height   INTEGER NOT NULL DEFAULT 0,
+  created  INTEGER NOT NULL,
+  PRIMARY KEY (guild_id, id)
+);
 CREATE TABLE IF NOT EXISTS messages (
   id          TEXT PRIMARY KEY,
   channel_id  TEXT NOT NULL,
@@ -590,6 +602,72 @@ func (s *Store) CustomEmoji(guildID string) ([]CustomEmojiRow, error) {
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// GuildGifRow is one entry in a guild's GIF pack: the searchable text plus a
+// reference to the encrypted attachment blob that holds the image. The bytes
+// live in the attachments table like any other image — this row is metadata.
+type GuildGifRow struct {
+	GuildID, ID, Name, Tags, Keys, Subtype string
+	Width, Height                          int
+}
+
+// SaveGuildGif upserts one guild GIF (id = the attachment blob id).
+func (s *Store) SaveGuildGif(g GuildGifRow) error {
+	_, err := s.db.Exec(
+		`INSERT INTO guild_gifs (guild_id, id, name, tags, att_keys, subtype, width, height, created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(guild_id, id) DO UPDATE SET
+		   name=excluded.name, tags=excluded.tags, att_keys=excluded.att_keys,
+		   subtype=excluded.subtype, width=excluded.width, height=excluded.height`,
+		g.GuildID, g.ID, g.Name, g.Tags, g.Keys, g.Subtype, g.Width, g.Height, time.Now().UnixNano())
+	if err != nil {
+		return fmt.Errorf("store: save guild gif: %w", err)
+	}
+	return nil
+}
+
+// DeleteGuildGif removes one guild GIF. The blob stays: messages already sent
+// from it still point at that attachment.
+func (s *Store) DeleteGuildGif(guildID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM guild_gifs WHERE guild_id=? AND id=?`, guildID, id)
+	return err
+}
+
+// GuildGifs returns a guild's pack, newest first (how a picker wants it).
+func (s *Store) GuildGifs(guildID string) ([]GuildGifRow, error) {
+	rows, err := s.db.Query(
+		`SELECT guild_id, id, name, tags, att_keys, subtype, width, height
+		 FROM guild_gifs WHERE guild_id=? ORDER BY created DESC`, guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GuildGifRow
+	for rows.Next() {
+		var g GuildGifRow
+		if err := rows.Scan(&g.GuildID, &g.ID, &g.Name, &g.Tags, &g.Keys, &g.Subtype, &g.Width, &g.Height); err != nil {
+			return nil, err
+		}
+		out = append(out, g)
+	}
+	return out, rows.Err()
+}
+
+// GuildGif returns one entry of a guild's pack.
+func (s *Store) GuildGif(guildID, id string) (GuildGifRow, bool, error) {
+	var g GuildGifRow
+	err := s.db.QueryRow(
+		`SELECT guild_id, id, name, tags, att_keys, subtype, width, height
+		 FROM guild_gifs WHERE guild_id=? AND id=?`, guildID, id).
+		Scan(&g.GuildID, &g.ID, &g.Name, &g.Tags, &g.Keys, &g.Subtype, &g.Width, &g.Height)
+	if err == sql.ErrNoRows {
+		return GuildGifRow{}, false, nil
+	}
+	if err != nil {
+		return GuildGifRow{}, false, err
+	}
+	return g, true, nil
 }
 
 // SaveNickname upserts a per-guild nickname for a member (an empty nick clears

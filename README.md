@@ -774,7 +774,12 @@ discovery, relay, hole-punching; MLS-encrypted guilds/channels; replies, edits,
 deletes, reactions, pins; markdown (code blocks, lists, quotes) with clickable
 @mentions — **plus `@role` and `#channel`**, so a group too small to need
 permissions still gets "@movie-night, 9pm?"; **encrypted 5 MB image
-attachments** (fetched out-of-band, cached);
+attachments** (fetched out-of-band, cached); **per-guild GIF packs** — a server
+curates its own collection, shared peer-to-peer with its members and searched
+locally, because a Tenor/Giphy picker would ship every keystroke and your IP to
+a third party (the records gossip on the guild-meta topic; the images ride the
+same encrypted-attachment path as any picture, and post as ordinary image
+messages);
 **native link previews + click-to-play YouTube embeds**; quick switcher (Ctrl+K)
 and keyboard navigation; unread counts and **per-server / per-channel
 notification levels** (all messages, only @mentions, nothing) with a Do Not
