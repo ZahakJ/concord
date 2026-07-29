@@ -49,8 +49,8 @@ const MaxGifSearchResponse = 8 << 20 // 8 MiB
 // this a node that accepts the stream and then says nothing parks the caller
 // forever — the "spinner that spins forever" this feature is not allowed to
 // have. It is generous because the node has to make its own HTTPS call inside
-// this budget. A var so tests need not wait it out.
-var gifSearchStreamTimeout = 30 * time.Second
+// this budget.
+const gifSearchStreamTimeout = 30 * time.Second
 
 // GifSearchResponder answers one inbound GIF-search request. Only the
 // rendezvous node registers one; clients are pure callers.

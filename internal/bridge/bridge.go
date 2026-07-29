@@ -1818,6 +1818,102 @@ func (b *Bridge) SendGuildGif(channelID, gifID, replyTo string) error {
 	return err
 }
 
+// GifHitView is one search result. It carries opaque handles, never a URL:
+// the frontend has nothing it could fetch directly even if it wanted to, which
+// is what stops a member's browser ever connecting to Google. Both the preview
+// and the full image are pulled with GifSearchMedia, through the rendezvous.
+type GifHitView struct {
+	ID      string `json:"id"`
+	Title   string `json:"title,omitempty"`
+	Preview string `json:"preview"`
+	Full    string `json:"full"`
+	Width   int    `json:"w,omitempty"`
+	Height  int    `json:"h,omitempty"`
+}
+
+// GifSearchView is a page of search results or, far more interestingly, an
+// explained absence of them. Status is one of ok | unavailable | rate_limited |
+// expired | upstream | bad_request (the node's answers) or no_rendezvous |
+// unreachable (what the client concluded on its own). Detail is a sentence the
+// picker shows verbatim — the whole point being that the tab never presents an
+// empty grid without saying why.
+type GifSearchView struct {
+	Status  string       `json:"status"`
+	Detail  string       `json:"detail,omitempty"`
+	Source  string       `json:"source,omitempty"`
+	Via     string       `json:"via,omitempty"`
+	Results []GifHitView `json:"results"`
+	Next    string       `json:"next,omitempty"`
+}
+
+func gifSearchView(r appsvc.GifSearchResult) GifSearchView {
+	out := GifSearchView{
+		Status: r.Status, Detail: r.Detail, Source: r.Source,
+		Via: r.Via, Next: r.Next, Results: []GifHitView{},
+	}
+	for _, h := range r.Results {
+		out.Results = append(out.Results, GifHitView{
+			ID: h.ID, Title: h.Title, Preview: h.Preview, Full: h.Full,
+			Width: h.Width, Height: h.Height,
+		})
+	}
+	return out
+}
+
+// GifSearchStatus reports whether the Search tab can work, without running a
+// search. The picker calls it on open so an unusable tab explains itself before
+// the user types, instead of after.
+func (b *Bridge) GifSearchStatus() (GifSearchView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return GifSearchView{}, err
+	}
+	return gifSearchView(svc.GifSearchAvailable(b.ctx)), nil
+}
+
+// SearchGifs runs one search through the user's own rendezvous. It returns no
+// error for a failed search: every failure mode is a status the UI has to put
+// into words, so they all ride in the view.
+func (b *Bridge) SearchGifs(query, pos string) (GifSearchView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return GifSearchView{}, err
+	}
+	return gifSearchView(svc.SearchGifs(b.ctx, query, pos)), nil
+}
+
+// GifSearchMedia resolves a result handle to an inline data URL, fetched by the
+// rendezvous. The frontend puts the returned string straight into an <img src>,
+// so it issues no request of its own.
+func (b *Bridge) GifSearchMedia(ref string, full bool) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.GifSearchMedia(b.ctx, ref, full)
+}
+
+// SendSearchedGif posts a searched GIF as an ordinary encrypted attachment.
+func (b *Bridge) SendSearchedGif(channelID, ref, replyTo string, w, h int) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.SendSearchedGif(b.ctx, channelID, ref, replyTo, w, h)
+	return err
+}
+
+// SaveSearchedGif adds a searched GIF to the guild's own pack, so it stops
+// needing the proxy at all.
+func (b *Bridge) SaveSearchedGif(guildID, name string, tags []string, ref string, w, h int) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	_, err = svc.SaveSearchedGif(b.ctx, guildID, name, tags, ref, w, h)
+	return err
+}
+
 // MeetingView is what StartMeeting hands the UI: the room plus its invite.
 type MeetingView struct {
 	Guild GuildView `json:"guild"`
@@ -2168,6 +2264,16 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.RemoveGuildGif(argStr(args, 0), argStr(args, 1))
 	case "SendGuildGif":
 		return nil, b.SendGuildGif(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "GifSearchStatus":
+		return b.GifSearchStatus()
+	case "SearchGifs":
+		return b.SearchGifs(argStr(args, 0), argStr(args, 1))
+	case "GifSearchMedia":
+		return b.GifSearchMedia(argStr(args, 0), argBool(args, 1))
+	case "SendSearchedGif":
+		return nil, b.SendSearchedGif(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt(args, 3), argInt(args, 4))
+	case "SaveSearchedGif":
+		return nil, b.SaveSearchedGif(argStr(args, 0), argStr(args, 1), argStrs(args, 2), argStr(args, 3), argInt(args, 4), argInt(args, 5))
 	case "SetChannelMeta":
 		return nil, b.SetChannelMeta(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt(args, 4), argStr(args, 5))
 	case "RenameGuild":

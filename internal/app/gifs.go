@@ -13,9 +13,14 @@ import (
 )
 
 // Per-guild GIF packs: a guild curates its own collection, members search it
-// locally and post from it. There is no Tenor/Giphy call anywhere — a hosted
-// GIF search would send every keystroke and the user's IP to a third party,
-// which is the one thing this app exists not to do.
+// locally and post from it. Nothing in THIS file talks to any third party — a
+// pack search is a substring match over records already on disk, so no query
+// and no IP leaves the machine.
+//
+// Searching Tenor is a separate, opt-in path that lives in gifsearch.go and
+// goes through the user's own rendezvous rather than direct from each client.
+// Read that file's header for what it does and does not protect; the two meet
+// only at SaveSearchedGif, which drops a searched result into the pack here.
 //
 // The record is modelled on custom emoji (guild-scoped, gossiped on the
 // guild-meta topic, learned by peers, validated on receive exactly as on local

@@ -1081,7 +1081,7 @@
         <button
           type="button"
           class="iconbtn gifbtn"
-          title="GIFs from this guild's pack"
+          title="GIFs — this server's pack, or Tenor via your rendezvous"
           aria-label="Open the GIF picker"
           disabled={!ch}
           onclick={() => (S.modal = { kind: "gifs" })}

@@ -317,7 +317,9 @@ func (p *gifProxy) handle(ctx context.Context, from peer.ID, request []byte) ([]
 			Detail: "this rendezvous has no GIF API key configured",
 		})
 	}
-	if !p.allow(from, req.Op == "media") {
+	// Only a real search spends API quota, so only a real search draws on the
+	// tight bucket; media fetches and status probes share the loose one.
+	if !p.allow(from, req.Op != "search") {
 		return gifReply(cnet.GifResponse{
 			Status: cnet.GifStatusRateLimited,
 			Detail: "too many GIF requests — wait a moment",
@@ -325,6 +327,11 @@ func (p *gifProxy) handle(ctx context.Context, from peer.ID, request []byte) ([]
 	}
 
 	switch req.Op {
+	case "status":
+		// Reached only when a key IS configured (the check above returns
+		// unavailable otherwise), so this is the client's way to find out
+		// whether the Search tab is usable before the user types anything.
+		return gifReply(cnet.GifResponse{Status: cnet.GifStatusOK, Source: "Tenor"})
 	case "search":
 		return gifReply(p.search(ctx, req))
 	case "media":
@@ -468,6 +475,10 @@ func (p *gifProxy) media(ctx context.Context, req cnet.GifRequest) cnet.GifRespo
 		// secret is generated per process on purpose (nothing to persist, and
 		// nothing to leak), so old handles stop verifying. The client's cure is
 		// to search again, which is what this status tells it.
+		//
+		// A forged handle and an off-allowlist URL land here too, deliberately
+		// sharing the innocent answer: whoever is probing learns only "no",
+		// never which of the checks they tripped.
 		return cnet.GifResponse{Status: cnet.GifStatusExpired, Detail: "that result is stale — search again"}
 	}
 	body, ctype, err := p.fetch(ctx, u, cnet.MaxGifMediaBytes)

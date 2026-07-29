@@ -545,6 +545,54 @@ sees ciphertext.
 
 > **Code:** `cmd/rendezvous/main.go`, `infra/rendezvous/` (Dockerfile + fly.toml).
 
+### GIF search — the one place the node is *not* blind
+
+Everything else the rendezvous carries is ciphertext. The optional GIF-search
+proxy is the exception, and it is opt-in for exactly that reason.
+
+A direct Tenor/Giphy picker sends every member's IP — and every search term — to
+Google. Discord avoids that by proxying through Discord, who then see the
+searches instead. Concord proxies through **the rendezvous you already run**: the
+same trade, with someone you already trust and already connect to.
+
+The property that makes it worth having is that the node carries **the bytes, not
+just the results**. A search reply carries no address your browser could load — only signed handles,
+HMAC'd by the node over addresses Tenor itself returned — and both the preview
+thumbnail and the full GIF are fetched with a second round trip through the same
+libp2p stream, arriving in the UI as inline `data:` URLs. No member's browser
+ever opens a connection to Google. If it did, the feature would be a privacy
+claim with nothing behind it.
+
+Sending a searched GIF seals it into an ordinary encrypted attachment, so
+recipients need no new code and do not fetch it from Tenor either. "Save to this
+server's GIFs" moves a good result into the guild pack, after which it needs no
+proxy at all.
+
+```bash
+# On the rendezvous. With no key set, the node answers "unavailable" and the
+# picker says so — it is a supported state, not a failure.
+CONCORD_TENOR_KEY=...                 # a Tenor v2 API key; omit to leave search off
+CONCORD_TENOR_CONTENTFILTER=high      # off|low|medium|high (default high)
+CONCORD_TENOR_BASE=https://tenor.googleapis.com   # for a self-hosted mirror
+```
+
+The node fetches arbitrary remote media on peers' behalf, so it is written
+defensively: peers can never supply a URL (only a signed handle), every fetch is
+re-checked against a `*.tenor.com` allowlist including on redirects, bodies are
+size-capped with a `LimitReader`, requests are token-bucketed per peer, and the
+outbound request carries headers the node chose — one constant User-Agent, no
+cookies, no `Referer` — so Tenor sees one IP for the whole guild and nothing to
+tell members apart.
+
+**Who learns what:** the rendezvous operator sees your search terms and which
+results you fetched. Google sees the rendezvous's IP and the search terms, with
+no way to attribute either to a person. Other guild members see an ordinary
+encrypted image. A network observer sees Noise-encrypted libp2p traffic to a node
+you already talk to constantly.
+
+> **Code:** `cmd/rendezvous/gifsearch.go` (proxy), `internal/net/gifsearch.go`
+> (protocol), `internal/app/gifsearch.go` (client).
+
 ---
 
 ## 13. Threat model — what Concord defends against
@@ -776,10 +824,11 @@ deletes, reactions, pins; markdown (code blocks, lists, quotes) with clickable
 permissions still gets "@movie-night, 9pm?"; **encrypted 5 MB image
 attachments** (fetched out-of-band, cached); **per-guild GIF packs** — a server
 curates its own collection, shared peer-to-peer with its members and searched
-locally, because a Tenor/Giphy picker would ship every keystroke and your IP to
-a third party (the records gossip on the guild-meta topic; the images ride the
-same encrypted-attachment path as any picture, and post as ordinary image
-messages);
+locally, so nothing leaves the machine (the records gossip on the guild-meta
+topic; the images ride the same encrypted-attachment path as any picture, and
+post as ordinary image messages) — plus **Tenor search proxied through your own
+rendezvous**, where the node fetches the pictures too, so Google never sees a
+member's IP and no browser ever connects to it (§12);
 **native link previews + click-to-play YouTube embeds**; quick switcher (Ctrl+K)
 and keyboard navigation; unread counts and **per-server / per-channel
 notification levels** (all messages, only @mentions, nothing) with a Do Not

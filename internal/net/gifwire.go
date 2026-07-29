@@ -32,9 +32,12 @@ type GifRequest struct {
 	Pos   string `json:"pos,omitempty"`   // search: pagination cursor from a previous reply
 	Limit int    `json:"limit,omitempty"` // search: results wanted (clamped by the node)
 	Ref   string `json:"ref,omitempty"`   // media: a handle from a search reply
-	// Full selects the full-size image rather than the thumbnail for a media
-	// fetch. Both go through this same proxy — see the file comment in
-	// gifsearch.go for why that is not optional.
+	// Full is vestigial and the proxy ignores it: WHICH image you get is decided
+	// entirely by which handle you send, because a handle is minted per address.
+	// Kept only so an older client that still sets it stays decodable.
+	// Deliberately not removed and not honoured — reading it would give a peer a
+	// say in what the node fetches, which is the one thing the handle scheme
+	// exists to prevent.
 	Full bool `json:"full,omitempty"`
 }
 

@@ -119,6 +119,19 @@ export const api = {
     call("AddGuildGif", guildID, name, tags, dataURL, w, h),
   removeGuildGif: (guildID, id) => call("RemoveGuildGif", guildID, id),
   sendGuildGif: (channelID, gifID, replyTo = "") => call("SendGuildGif", channelID, gifID, replyTo),
+  // Tenor search, proxied through the user's own rendezvous. Note what is NOT
+  // here: any way to get a URL. A result carries opaque handles, and both the
+  // thumbnail and the full image come back from gifSearchMedia as inline data
+  // URLs — so the browser never opens a connection to Google, which is the only
+  // reason this feature is worth having. Do not "optimize" a handle into an
+  // <img src>; that would silently undo the whole thing.
+  gifSearchStatus: () => call("GifSearchStatus"),
+  searchGifs: (query, pos = "") => call("SearchGifs", query, pos),
+  gifSearchMedia: (ref, full = false) => call("GifSearchMedia", ref, full),
+  sendSearchedGif: (channelID, ref, replyTo = "", w = 0, h = 0) =>
+    call("SendSearchedGif", channelID, ref, replyTo, w, h),
+  saveSearchedGif: (guildID, name, tags, ref, w = 0, h = 0) =>
+    call("SaveSearchedGif", guildID, name, tags, ref, w, h),
   setChannelMeta: (guildID, channelID, type, category, position, topic = "") =>
     call("SetChannelMeta", guildID, channelID, type, category, position, topic),
   renameGuild: (guildID, name) => call("RenameGuild", guildID, name),
