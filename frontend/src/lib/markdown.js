@@ -58,9 +58,37 @@ export function twemojiCode(seq) {
   return out.join("-");
 }
 
+// ---- animated emoji ----
+//
+// A curated subset of emoji has an animated version bundled (see
+// scripts/prep-anemoji.mjs). They're used only where the emoji is big enough
+// for the motion to read as charm rather than noise: an emoji-only "jumbo"
+// message, and reaction pills. At 18px inline, a page of animations is a
+// distraction, so inline emoji stay as the static Twemoji they always were.
+//
+// The manifest is fetched once and cached. Until it lands, everything renders
+// static and simply upgrades on the next paint — no waiting, and no failure
+// mode worse than "not animated yet".
+let animated = null; // Set of twemoji codes, once loaded
+export function loadAnimatedEmoji() {
+  if (animated) return Promise.resolve(animated);
+  return fetch("/anemoji/manifest.json")
+    .then((r) => (r.ok ? r.json() : []))
+    .catch(() => [])
+    .then((list) => (animated = new Set(list)));
+}
+
+// animatedEmojiSrc: the animated file for one emoji sequence, or "" if there
+// isn't one. Callers fall back to whatever they rendered before.
+export function animatedEmojiSrc(seq) {
+  if (!animated) return "";
+  const code = twemojiCode(seq);
+  return animated.has(code) ? `/anemoji/${code}.webp` : "";
+}
+
 // Inline rules applied to already-escaped text (code spans are cut out first
 // so *bold* inside backticks stays literal).
-function renderInline(s, mentionNames, customEmoji, refs) {
+function renderInline(s, mentionNames, customEmoji, refs, opts) {
   const codeSpans = [];
   s = s.replace(/`([^`]+)`/g, (_, code) => {
     codeSpans.push(code);
@@ -73,11 +101,14 @@ function renderInline(s, mentionNames, customEmoji, refs) {
   // our tags are inserted, so the swap can never land inside an attribute or
   // tag we add later. An emoji newer than the bundled set falls back to the
   // raw glyph via onerror.
-  s = s.replace(
-    EMOJI_RE,
-    (m) =>
-      `<img class="emoji" draggable="false" src="/twemoji/${twemojiCode(m)}.svg" alt="${m}" onerror="this.replaceWith(this.alt)" />`,
-  );
+  s = s.replace(EMOJI_RE, (m) => {
+    // In a jumbo (emoji-only) message, prefer the animated version when one is
+    // bundled. The onerror fallback still applies, so a missing file degrades
+    // to the raw glyph rather than a broken image.
+    const anim = opts?.animate ? animatedEmojiSrc(m) : "";
+    const src = anim || `/twemoji/${twemojiCode(m)}.svg`;
+    return `<img class="emoji" draggable="false" src="${src}" alt="${m}" onerror="this.replaceWith(this.alt)" />`;
+  });
 
   // Custom guild emoji: :name: -> <img>. The image is a backend-validated
   // base64 data:image URI, but we still escape it here (defense in depth) so a
@@ -192,7 +223,7 @@ function byLongest(list) {
 
 // renderMarkdown converts a message body to safe HTML. mentionNames (optional)
 // highlights @mentions; customEmoji (optional, {name: dataURI}) renders :name:.
-export function renderMarkdown(text, mentionNames = [], customEmoji = null, refs = null) {
+export function renderMarkdown(text, mentionNames = [], customEmoji = null, refs = null, opts = null) {
   const parts = text.split("```");
   let out = "";
   for (let i = 0; i < parts.length; i++) {
@@ -203,14 +234,14 @@ export function renderMarkdown(text, mentionNames = [], customEmoji = null, refs
       const body = parts[i].replace(/^[a-zA-Z0-9+-]*\n/, "");
       out += `<pre${lang ? ` data-lang="${escapeHtml(lang)}"` : ""}><code>${escapeHtml(body.replace(/\n$/, ""))}</code></pre>`;
     } else {
-      out += renderBlocks(escapeHtml(parts[i]), mentionNames, customEmoji, refs);
+      out += renderBlocks(escapeHtml(parts[i]), mentionNames, customEmoji, refs, opts);
     }
   }
   return out;
 }
 
 // Block rules (quotes, lists) over escaped text, line by line.
-function renderBlocks(s, mentionNames, customEmoji, refs) {
+function renderBlocks(s, mentionNames, customEmoji, refs, opts) {
   const lines = s.split("\n");
   let out = "";
   let list = null; // "ul" | "ol" | null
@@ -225,7 +256,7 @@ function renderBlocks(s, mentionNames, customEmoji, refs) {
     if (bq3) {
       closeList();
       const rest = [bq3[1], ...lines.slice(i + 1)].join("\n");
-      out += `<blockquote>${renderBlocks(rest, mentionNames, customEmoji, refs)}</blockquote>`;
+      out += `<blockquote>${renderBlocks(rest, mentionNames, customEmoji, refs, opts)}</blockquote>`;
       return out;
     }
     // Headers # / ## / ### (mapped to h3–h5 so they stay chat-sized).
@@ -236,7 +267,7 @@ function renderBlocks(s, mentionNames, customEmoji, refs) {
     if (hdr) {
       closeList();
       const tag = ["h3", "h4", "h5"][hdr[1].length - 1];
-      out += `<${tag} class="md-h">${renderInline(hdr[2], mentionNames, customEmoji, refs)}</${tag}>`;
+      out += `<${tag} class="md-h">${renderInline(hdr[2], mentionNames, customEmoji, refs, opts)}</${tag}>`;
     } else if (ul || ol) {
       const kind = ul ? "ul" : "ol";
       if (list !== kind) {
@@ -244,13 +275,13 @@ function renderBlocks(s, mentionNames, customEmoji, refs) {
         out += `<${kind}>`;
         list = kind;
       }
-      out += `<li>${renderInline((ul || ol)[1], mentionNames, customEmoji, refs)}</li>`;
+      out += `<li>${renderInline((ul || ol)[1], mentionNames, customEmoji, refs, opts)}</li>`;
     } else if (quote) {
       closeList();
-      out += `<blockquote>${renderInline(quote[1], mentionNames, customEmoji, refs)}</blockquote>`;
+      out += `<blockquote>${renderInline(quote[1], mentionNames, customEmoji, refs, opts)}</blockquote>`;
     } else {
       closeList();
-      out += renderInline(line, mentionNames, customEmoji, refs);
+      out += renderInline(line, mentionNames, customEmoji, refs, opts);
       if (i < lines.length - 1) out += "\n";
     }
   }
