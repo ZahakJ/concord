@@ -18,6 +18,21 @@ import {
   fitWidthAt,
   renderSize,
   searchTemplates,
+  newLayer,
+  layerBox,
+  layerAt,
+  aabbHalf,
+  clampLayer,
+  moveLayer,
+  slotBox,
+  slotFilled,
+  nextSlot,
+  fitToSlot,
+  drawMeme,
+  newSession,
+  usedAssets,
+  LAYER_SCALE,
+  LAYER_KEEP,
   STYLES,
   FONTS,
   MAX_RENDER,
@@ -267,6 +282,263 @@ eq(wrapLines(measure(10), "  one   two  ", 100), ["one two"], "runs of spaces co
     "every term must match, not just one",
   );
   eq(searchTemplates(list, "yes fire").length, 0, "terms from different templates match nothing");
+}
+
+// ---- image layers: geometry ----
+{
+  // A 200x100 picture at w=0.5 on a 1000x800 canvas is 500px wide, and its
+  // height must come from the picture's own aspect — 250px — not from anything
+  // the caller passed. That is what "aspect preserved" means here.
+  const lay = newLayer("a1", 200, 100, { x: 0.5, y: 0.5, w: 0.5 });
+  const b = layerBox(lay, 1000, 800);
+  near(b.w, 500, 1e-9, "layer width is a fraction of the CANVAS width");
+  near(b.h, 250, 1e-9, "and its height falls out of the picture's own aspect");
+  near(b.cx, 500, 1e-9, "centre is in pixels (x)");
+  near(b.cy, 400, 1e-9, "centre is in pixels (y)");
+  // Scaling is one number, so the ratio cannot drift however far it is dragged.
+  for (const w of [0.04, 0.37, 1.5, LAYER_SCALE.max]) {
+    const s = layerBox({ ...lay, w }, 1000, 800);
+    near(s.w / s.h, 2, 1e-9, `aspect survives scaling to w=${w}`);
+  }
+  // A degenerate picture (a decode that reported nothing) must not produce NaN
+  // geometry that silently poisons every later hit test.
+  const zero = layerBox(newLayer("a2", 0, 0, { w: 0.5 }), 1000, 800);
+  assert(Number.isFinite(zero.w) && Number.isFinite(zero.h) && zero.h > 0, "a zero-sized picture still boxes finitely");
+}
+
+// ---- image layers: hit testing ----
+{
+  const lay = newLayer("a1", 100, 100, { x: 0.5, y: 0.5, w: 0.2 }); // 200x200 on 1000x1000
+  assert(layerAt([lay], 500, 500, 1000, 1000)?.id === lay.id, "the centre of a layer hits it");
+  assert(layerAt([lay], 590, 590, 1000, 1000)?.id === lay.id, "and so does a point just inside a corner");
+  assert(layerAt([lay], 620, 500, 1000, 1000) === null, "a point outside misses");
+  assert(layerAt([], 500, 500, 1000, 1000) === null, "no layers means no hit");
+}
+{
+  // The rotation case, which is the one a second hand-rolled hit test always
+  // gets wrong. A 400x100 layer turned a quarter turn is tall, not wide: 150px
+  // above the centre is now inside it and 150px to the side is now outside.
+  const flat = newLayer("a1", 400, 100, { x: 0.5, y: 0.5, w: 0.4 }); // 400x100 px
+  const turned = { ...flat, rot: 90 };
+  assert(layerAt([flat], 650, 500, 1000, 1000)?.id === flat.id, "unrotated: 150px sideways is inside");
+  assert(layerAt([flat], 500, 650, 1000, 1000) === null, "unrotated: 150px up/down is outside");
+  assert(layerAt([turned], 500, 650, 1000, 1000)?.id === turned.id, "rotated 90°: 150px down is now inside");
+  assert(layerAt([turned], 650, 500, 1000, 1000) === null, "rotated 90°: 150px sideways is now outside");
+  // 45° is where an axis-aligned test is most obviously wrong: the corner of
+  // the unrotated box is well outside the turned one.
+  const tilt = { ...flat, rot: 45 };
+  assert(layerAt([tilt], 690, 540, 1000, 1000) === null, "rotated 45°: the old corner is no longer inside");
+  assert(layerAt([tilt], 570, 570, 1000, 1000)?.id === tilt.id, "rotated 45°: the new diagonal is");
+}
+{
+  // Topmost wins, and it must be the LAST in the array, because that is the one
+  // drawLayers paints over the others.
+  const under = newLayer("a1", 100, 100, { x: 0.5, y: 0.5, w: 0.5 });
+  const over = newLayer("a2", 100, 100, { x: 0.5, y: 0.5, w: 0.5 });
+  assert(layerAt([under, over], 500, 500, 1000, 1000)?.id === over.id, "the topmost layer wins a hit test");
+  assert(layerAt([over, under], 500, 500, 1000, 1000)?.id === under.id, "and swapping them swaps the winner");
+}
+
+// ---- image layers: z-order ----
+{
+  const a = newLayer("a", 1, 1);
+  const b = newLayer("b", 1, 1);
+  const c = newLayer("c", 1, 1);
+  const ids = (l) => l.map((x) => x.asset).join("");
+  eq(ids(moveLayer([a, b, c], b.id, 1)), "acb", "forward swaps with the one above");
+  eq(ids(moveLayer([a, b, c], b.id, -1)), "bac", "back swaps with the one below");
+  eq(ids(moveLayer([a, b, c], c.id, 5)), "abc", "past the top is a no-op, not a wrap");
+  eq(ids(moveLayer([a, b, c], a.id, -5)), "abc", "and past the bottom likewise");
+  eq(ids(moveLayer([a, b, c], "nope", 1)), "abc", "an unknown id changes nothing");
+}
+{
+  // The identity above is the bit that matters for reactivity: an edit that
+  // moved nothing must not look like an edit.
+  const list = [newLayer("a", 1, 1), newLayer("b", 1, 1)];
+  assert(moveLayer(list, list[1].id, 1) === list, "moving the top layer up returns the very same array");
+  assert(moveLayer(list, list[0].id, 1) !== list, "a real move returns a new one");
+}
+
+// ---- image layers: clamping ----
+{
+  near(aabbHalf(100, 100, 0).x, 50, 1e-9, "an unrotated square's footprint is itself");
+  near(aabbHalf(100, 100, 45).x, (100 * Math.SQRT2) / 2 / 1, 1e-6, "turned 45° a square's footprint grows by √2");
+  near(aabbHalf(400, 100, 90).x, 50, 1e-9, "a quarter turn swaps the footprint's axes (x)");
+  near(aabbHalf(400, 100, 90).y, 200, 1e-9, "a quarter turn swaps the footprint's axes (y)");
+}
+{
+  // Flung far off the canvas, a layer must come back with a grabbable sliver
+  // still on it — otherwise it cannot be selected, moved or deleted again.
+  const lay = newLayer("a1", 100, 100, { w: 0.2 }); // 200x200 on 1000x1000
+  const far = clampLayer({ ...lay, x: 99, y: -99 }, 1000, 1000);
+  const b = layerBox({ ...lay, ...far }, 1000, 1000);
+  const half = aabbHalf(b.w, b.h, 0);
+  const onX = Math.min(1000, b.cx + half.x) - Math.max(0, b.cx - half.x);
+  const onY = Math.min(1000, b.cy + half.y) - Math.max(0, b.cy - half.y);
+  near(onX, 1000 * LAYER_KEEP, 1e-6, "a layer dragged off the right keeps a sliver on the canvas");
+  near(onY, 1000 * LAYER_KEEP, 1e-6, "and one dragged off the top keeps one too");
+  // A layer that is already comfortably inside is not moved at all: clamping
+  // that nudges things it shouldn't feels like the drag fighting back.
+  const inside = clampLayer({ ...lay, x: 0.42, y: 0.66 }, 1000, 1000);
+  eq([inside.x, inside.y], [0.42, 0.66], "a layer inside the canvas is left exactly where it is");
+}
+{
+  // A layer bigger than the canvas is the case the naive "pin the centre to
+  // 0..1" rule gets wrong in the other direction: it forbids sliding a big
+  // picture across to show its far side.
+  const big = newLayer("a1", 100, 100, { w: 2, x: 0.5, y: 0.5 }); // 2000px on a 1000px canvas
+  const pushed = clampLayer({ ...big, x: 1.6 }, 1000, 1000);
+  assert(pushed.x > 1, `a layer larger than the canvas may sit past the edge (got ${pushed.x})`);
+  const way = clampLayer({ ...big, x: 50 }, 1000, 1000);
+  const bb = layerBox({ ...big, ...way }, 1000, 1000);
+  near(1000 - (bb.cx - aabbHalf(bb.w, bb.h, 0).x), 1000 * LAYER_KEEP, 1e-6, "but never past the last sliver");
+  // And a sticker smaller than the margin isn't pinned to the middle.
+  const tiny = newLayer("a1", 100, 100, { w: 0.02 });
+  const edge = clampLayer({ ...tiny, x: 0.999, y: 0.5 }, 1000, 1000);
+  near(edge.x, 0.999, 1e-9, "a layer smaller than the keep-margin can still sit on the edge");
+}
+
+// ---- template slots ----
+{
+  const slot = { x: 0.25, y: 0.2, w: 0.4, h: 0.3 };
+  const b = slotBox(slot, 1000, 1000);
+  eq([b.cx, b.cy, b.w, b.h, b.rot], [250, 200, 400, 300, 0], "a slot boxes into pixels");
+  const lay = newLayer("a1", 100, 100, { x: 0.25, y: 0.2, w: 0.1 });
+  assert(slotFilled(slot, [lay], 1000, 1000), "a layer centred in the slot fills it");
+  assert(!slotFilled(slot, [{ ...lay, x: 0.9 }], 1000, 1000), "and dragging it out empties the slot again");
+  assert(!slotFilled(slot, [], 1000, 1000), "no layers means no slot is filled");
+  // Rotated slots use the same unrotate the captions do, so a point that is
+  // inside the tilted panel counts even though it is outside the flat one.
+  const tilted = { ...slot, rot: 90 };
+  assert(slotFilled(tilted, [{ ...lay, x: 0.25, y: 0.36 }], 1000, 1000), "a rotated slot tests in its own frame");
+  assert(!slotFilled(slot, [{ ...lay, x: 0.25, y: 0.36 }], 1000, 1000), "where the unrotated one would miss");
+}
+{
+  // Paste twice, land in both panels: the behaviour the whole feature exists
+  // for. The first paste takes slot one, and because it now fills it, the
+  // second is offered slot two rather than stacking on top of the first.
+  const slots = [
+    { x: 0.25, y: 0.2, w: 0.4, h: 0.3 },
+    { x: 0.75, y: 0.2, w: 0.4, h: 0.3 },
+  ];
+  const first = nextSlot(slots, [], 1000, 1000);
+  eq(first.x, 0.25, "an empty template offers its first slot");
+  const l1 = newLayer("a1", 100, 100, { ...fitToSlot(first, 100, 100, 1000, 1000) });
+  const second = nextSlot(slots, [l1], 1000, 1000);
+  eq(second.x, 0.75, "with the first taken, the next paste is offered the second");
+  const l2 = newLayer("a2", 100, 100, { ...fitToSlot(second, 100, 100, 1000, 1000) });
+  eq(nextSlot(slots, [l1, l2], 1000, 1000), null, "with both taken there is nothing left to offer");
+  eq(nextSlot([], [], 1000, 1000), null, "a template with no slots offers none");
+  eq(nextSlot(undefined, [], 1000, 1000), null, "and neither does one with no slots field at all");
+}
+{
+  // Contain, not cover. A square picture into a wide panel is limited by the
+  // panel's HEIGHT, and must not spill past its sides.
+  const wide = { x: 0.5, y: 0.5, w: 0.6, h: 0.2 }; // 600x200 px
+  const p = fitToSlot(wide, 100, 100, 1000, 1000);
+  near(p.w * 1000, 200, 1e-9, "a square into a wide panel is limited by the panel's height");
+  const b = layerBox(newLayer("a", 100, 100, p), 1000, 1000);
+  assert(b.w <= 600 + 1e-9 && b.h <= 200 + 1e-9, "and the result is inside the panel on both axes");
+  near(b.w / b.h, 1, 1e-9, "with the picture's aspect intact");
+  // The other way round: a wide picture into a tall panel is limited by width.
+  const tall = { x: 0.5, y: 0.5, w: 0.2, h: 0.6 };
+  const q = fitToSlot(tall, 400, 100, 1000, 1000);
+  near(q.w * 1000, 200, 1e-9, "a wide picture into a tall panel is limited by the panel's width");
+  // A slot's tilt is inherited, so a picture dropped on a tilted sheet of paper
+  // arrives already lying on it.
+  eq(fitToSlot({ ...wide, rot: 7 }, 100, 100, 1000, 1000).rot, 7, "a layer inherits its slot's angle");
+  eq([p.x, p.y], [0.5, 0.5], "and its centre");
+}
+
+// ---- compositing order ----
+{
+  // The single most important property, and the one the old paste path broke:
+  // the base goes down first, the layers over it, the captions over those. A
+  // recording context proves the order rather than a screenshot proving it once.
+  const calls = [];
+  const ctx = {
+    save: () => {},
+    restore: () => {},
+    translate: () => {},
+    rotate: () => {},
+    fillRect: () => {},
+    strokeRect: () => {},
+    setLineDash: () => {},
+    beginPath: () => {},
+    arc: () => {},
+    fill: () => {},
+    stroke: () => {},
+    measureText: (t) => ({ width: t.length * 6 }),
+    drawImage: (el) => calls.push(`img:${el.tag}`),
+    strokeText: (t) => calls.push(`stroke:${t}`),
+    fillText: (t) => calls.push(`text:${t}`),
+  };
+  const base = { tag: "base" };
+  const over = { tag: "over" };
+  const layers = [newLayer("a1", 100, 100, { w: 0.3 })];
+  drawMeme(ctx, base, [newCaption("HI")], 800, 800, { layers, imageFor: () => over });
+  eq(calls, ["img:base", "img:over", "stroke:HI", "text:HI"], "base, then layers, then captions");
+}
+{
+  // Editor furniture must never reach the picture. The send path passes no
+  // placeholder and no slots; both guards are checked, since forgetting either
+  // one is how a dashed "paste a picture" box ends up in someone's meme.
+  const painted = [];
+  const ctx = {
+    save: () => {},
+    restore: () => {},
+    translate: () => {},
+    rotate: () => {},
+    fillRect: () => painted.push("slotfill"),
+    strokeRect: () => painted.push("slotbox"),
+    setLineDash: () => {},
+    measureText: (t) => ({ width: t.length * 6 }),
+    drawImage: () => {},
+    strokeText: () => {},
+    fillText: (t) => painted.push(`text:${t}`),
+  };
+  const slots = [{ x: 0.5, y: 0.5, w: 0.4, h: 0.4 }];
+  drawMeme(ctx, { tag: "b" }, [], 800, 800, { slots, layers: [] });
+  eq(painted, [], "the send path paints no slot placeholder even if slots are passed");
+  painted.length = 0;
+  drawMeme(ctx, { tag: "b" }, [], 800, 800, { slots, layers: [], placeholder: "Your text" });
+  assert(painted.includes("slotbox"), `the editor does paint the empty slot (got ${JSON.stringify(painted)})`);
+  painted.length = 0;
+  const filling = newLayer("a1", 100, 100, { x: 0.5, y: 0.5, w: 0.3 });
+  drawMeme(ctx, { tag: "b" }, [], 800, 800, { slots, layers: [filling], placeholder: "Your text" });
+  eq(painted, [], "and stops the moment a picture lands in it");
+}
+{
+  // A layer whose picture hasn't decoded yet is skipped, not drawn as a blank
+  // rectangle and not thrown over.
+  let drew = 0;
+  const ctx = {
+    save: () => {},
+    restore: () => {},
+    translate: () => {},
+    rotate: () => {},
+    fillRect: () => {},
+    drawImage: () => drew++,
+    measureText: (t) => ({ width: t.length * 6 }),
+    strokeText: () => {},
+    fillText: () => {},
+  };
+  drawMeme(ctx, { tag: "b" }, [], 800, 800, { layers: [newLayer("a1", 10, 10)], imageFor: () => null });
+  eq(drew, 1, "a layer still decoding is skipped, leaving only the base drawn");
+}
+
+// ---- sessions ----
+{
+  const s = newSession({ template: "2za3u1.webp", captions: [newCaption("hi")] });
+  eq(s.v, 1, "a session is versioned");
+  eq(s.layers, [], "and starts with no layers");
+  assert(JSON.parse(JSON.stringify(s)).template === "2za3u1.webp", "a session survives a JSON round trip");
+  // Layers hold a key, not a data URL — that is what keeps sixty undo snapshots
+  // from carrying sixty copies of the same megabyte.
+  const lay = newLayer("a1", 10, 10);
+  assert(!("src" in lay) && lay.asset === "a1", "a layer carries an asset key, never the image data");
+  eq(usedAssets([lay], { a1: "data:x", a2: "data:y" }), { a1: "data:x" }, "saving a session drops orphaned assets");
+  eq(usedAssets([], { a1: "data:x" }), {}, "and all of them when there are no layers left");
 }
 
 if (failures) {

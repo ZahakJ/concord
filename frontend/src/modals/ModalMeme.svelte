@@ -33,32 +33,75 @@
     fitWidthAt,
     searchTemplates,
     resolve,
+    newLayer,
+    layerBox,
+    layerAt,
+    clampLayer,
+    moveLayer,
+    nextSlot,
+    fitToSlot,
+    LAYER_SCALE,
     STYLES,
     FONTS,
     SEL_PAD,
     renderSize,
+    newSession,
+    usedAssets,
   } from "../lib/meme.js";
+  import { saveRecipe, loadRecipe, dropRecipe } from "../lib/memerecipe.js";
 
-  let { onClose, src = "" } = $props();
+  // `edit` turns this from "compose a meme" into "reopen the one already in the
+  // channel": { channelId, messageId, blobId }. Saving then re-renders and
+  // EDITS that message rather than posting a second one, which is the whole
+  // point — a meme you fixed a typo in should be one meme, not two.
+  let { onClose, src = "", edit = null } = $props();
 
   let img = $state(null); // HTMLImageElement, once decoded
   let captions = $state([]);
+  // Pictures stuck on top of the base: the two photos in "They're the same
+  // picture", a pasted face in a Drake panel. Drawn between the base and the
+  // captions, and — unlike the base — added without destroying anything.
+  let layers = $state([]);
+  let slots = $state([]); // the current template's declared picture panels
   let selId = $state("");
   let topBar = $state(0); // white caption strip above the picture, 0..1 of image height
   let sending = $state(false);
   let canvas = $state(null);
+  // Two inputs, because the two answers differ: the gallery card means "make
+  // this the background", the editor's Add means "put this on top".
   let fileInput;
+  let layerInput;
   let textBox = $state(null);
   let tplName = $state("");
+  // The two things a recipe needs to rebuild the BASE picture, kept as load()
+  // sets them. `tplFile` is the manifest key and `baseSrc` the url it was
+  // decoded from — a "/memes/..." path for a bundled template (a few dozen
+  // bytes to store) or a data URL for a bring-your-own image (megabytes, and
+  // the reason the recipe store has a budget at all).
+  let tplFile = $state("");
+  let baseSrc = $state("");
   let query = $state("");
   let dropping = $state(false);
   // Which screen: the gallery until something is loaded, and again whenever
-  // "Change" is pressed.
-  let browsing = $state(!src);
+  // "Change" is pressed. Reopening a sent meme goes straight to the editor.
+  let browsing = $state(!src && !edit);
 
+  // One selected id, asked of both lists. Ids come from the same random pool,
+  // so at most one of these is ever non-null, and every control below stays
+  // gated on the plain `sel`/`selLay` it already used.
   const sel = $derived(captions.find((c) => c.id === selId) || null);
+  const selLay = $derived(layers.find((l) => l.id === selId) || null);
   const dims = $derived(img ? renderSize(img.naturalWidth, img.naturalHeight, topBar) : null);
   const TOP_BAR_H = 0.22; // bar height as a fraction of the image, when on
+
+  // Decoded pictures for the layers, keyed by the short asset key a layer
+  // carries. Kept out of the layer objects on purpose: the undo stack
+  // JSON-stringifies the model on every edit, and a data URL in there would be
+  // copied sixty times over. Never pruned while the editor is open, because
+  // undo can bring a deleted layer back and it must still have its picture.
+  const assets = new Map(); // key -> { src, el }
+  let assetN = 0;
+  const imageFor = (lay) => assets.get(lay.asset)?.el || null;
 
   // ---- undo -----------------------------------------------------------
   // A plain snapshot stack. Deep-cloned through JSON because captions are flat
@@ -84,7 +127,10 @@
     }
     lastTag = tag;
     lastAt = now;
-    past.push(JSON.stringify({ captions, topBar }));
+    // Layers ride along, so adding, moving, scaling or deleting a pasted
+    // picture is as undoable as anything else. This is cheap only because a
+    // layer carries an asset KEY and not the data URL behind it.
+    past.push(JSON.stringify({ captions, topBar, layers }));
     if (past.length > 60) past.shift();
     canUndo = true;
   }
@@ -96,13 +142,22 @@
     sel[key] = value;
   }
 
+  function setLay(tag, key, value) {
+    if (!selLay) return;
+    snap(tag);
+    selLay[key] = value;
+  }
+
   function undo() {
     const prev = past.pop();
     if (!prev) return;
     const s = JSON.parse(prev);
     captions = s.captions;
     topBar = s.topBar;
-    if (!captions.some((c) => c.id === selId)) selId = captions.at(-1)?.id || "";
+    layers = s.layers || [];
+    if (!captions.some((c) => c.id === selId) && !layers.some((l) => l.id === selId)) {
+      selId = captions.at(-1)?.id || "";
+    }
     lastTag = "";
     canUndo = past.length > 0;
   }
@@ -125,26 +180,48 @@
 
   const shown = $derived(searchTemplates(templates, query));
 
-  // tpl is a manifest entry ({ file, label, topBar?, captions? }) or null for a
-  // bring-your-own image.
+  // Decode a URL into an element, or throw. Shared by the base image and by
+  // every pasted layer, which needs the natural size before it can be placed.
+  function decode(url) {
+    const el = new Image();
+    el.crossOrigin = "anonymous";
+    return new Promise((res, rej) => {
+      el.onload = () => res(el);
+      el.onerror = () => rej(new Error("decode"));
+      el.src = url;
+    });
+  }
+
+  // tpl is a manifest entry ({ file, label, topBar?, captions?, slots? }) or
+  // null for a bring-your-own image.
+  //
+  // This is the one path that legitimately throws the document away — you asked
+  // for a different picture. Pasting must NOT come through here: it used to,
+  // which is how a stray Ctrl+V replaced the template and every caption on it
+  // with no way back. See addImage.
   async function load(url, tpl = null) {
     try {
-      const el = new Image();
-      el.crossOrigin = "anonymous";
-      await new Promise((res, rej) => {
-        el.onload = res;
-        el.onerror = () => rej(new Error("decode"));
-        el.src = url;
-      });
+      const el = await decode(url);
       img = el;
       // A template can ship its own caption boxes — picking "Drake" should put
       // two correctly-placed captions on screen, not make you position them.
-      captions = tpl?.captions?.length
+      // A template can ship its own caption boxes. `captions: []` is a real
+      // answer, not a missing one: a template whose panels want PICTURES (see
+      // slots below) should open with slot ghosts alone, not with two
+      // full-width "Your text" ghosts sprawled across them as well.
+      captions = tpl?.captions
         ? tpl.captions.map((p) => newCaption("", p))
         : [newCaption("", { y: 0.11 }), newCaption("", { y: 0.89 })];
-      selId = captions[0].id;
+      selId = captions[0]?.id || "";
       topBar = tpl?.topBar || 0;
+      // A template may also declare picture SLOTS: blank panels that want a
+      // photo rather than words. They ghost onto the preview while empty and
+      // catch the next paste at the right size and angle.
+      slots = tpl?.slots || [];
+      layers = [];
       tplName = tpl?.label || "Your image";
+      tplFile = tpl?.file || "";
+      baseSrc = url;
       browsing = false;
       past = [];
       canUndo = false;
@@ -157,22 +234,134 @@
     }
   }
 
-  if (src) load(src);
-
-  function pickFile(file) {
-    if (!file || !file.type.startsWith("image/")) return;
-    const r = new FileReader();
-    r.onload = () => load(String(r.result));
-    r.readAsDataURL(file);
+  // ---- reopening a sent meme -------------------------------------------
+  //
+  // The picture that went out is a flattened JPEG — the captions are IN the
+  // pixels. So editing works off the recipe saved beside it at send time, and
+  // rebuilding the editor from one is exactly: load the base as a template,
+  // then put the captions, the layer pictures and their geometry back.
+  async function restore(rec) {
+    await load(rec.base, {
+      file: rec.template,
+      label: rec.label,
+      topBar: rec.topBar,
+      captions: rec.captions,
+      slots: rec.slots,
+    });
+    if (!img) return; // load() already complained and dropped us in the gallery
+    // Assigned outright rather than left to load()'s fallback: that fallback
+    // invents two empty captions when a template declares none, and a meme
+    // whose words are all in its pasted pictures would come back with two
+    // "Your text" ghosts it never had.
+    captions = (rec.captions || []).map((c) => ({ ...c }));
+    // Decode every layer picture into the asset map BEFORE the layers land, so
+    // the first redraw already has something to draw. Layers reference assets
+    // by key, so nothing in them needs rewriting.
+    let highest = 0;
+    for (const [key, url] of Object.entries(rec.assets || {})) {
+      const n = /^a(\d+)$/.exec(key);
+      if (n) highest = Math.max(highest, +n[1]);
+      try {
+        assets.set(key, { src: url, el: await decode(url) });
+      } catch {
+        // One unreadable layer shouldn't cost you the rest of the meme; it
+        // simply doesn't draw, and imageFor() already treats that as normal.
+      }
+    }
+    // New pastes mint `a{n}` keys from this counter. Without this a paste
+    // would reuse a restored key and silently swap that layer's picture.
+    assetN = Math.max(assetN, highest);
+    layers = (rec.layers || []).map((l) => ({ ...l }));
+    selId = captions[0]?.id || layers.at(-1)?.id || "";
+    // Restoring is not an edit, so there is nothing behind it to undo.
+    past = [];
+    canUndo = false;
   }
 
-  // Paste an image straight in — the fastest path from "saw a picture" to
-  // "sent a meme", and the one people try first.
+  async function reopen() {
+    const rec = await loadRecipe(edit.blobId);
+    if (!rec) {
+      // The menu only offers "Edit meme" when a recipe is on this device, so
+      // arriving here means it aged out between the click and now. Say so —
+      // opening a blank editor that then posts a SECOND meme is the dishonest
+      // version of this.
+      flash("That meme's recipe is no longer on this device", "error");
+      browsing = true;
+      return;
+    }
+    await restore(rec);
+  }
+
+  if (edit) reopen();
+  else if (src) load(src);
+
+  function readFile(file) {
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result));
+      r.onerror = () => rej(new Error("read"));
+      r.readAsDataURL(file);
+    });
+  }
+
+  // The gallery's "Your own image" card: this one really does mean "make this
+  // the background", so it goes through load().
+  async function pickBase(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      await load(await readFile(file));
+    } catch {
+      flash("Couldn't open that image", "error");
+    }
+  }
+
+  // Paste or drop a picture. With no picture open yet the paste IS the meme, so
+  // it becomes the base; with a template already loaded it goes ON TOP as a
+  // layer, because a template whose panels are meant to hold pictures is
+  // exactly the case the old "replace everything" behaviour made impossible.
+  async function addImage(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    let src2;
+    try {
+      src2 = await readFile(file);
+    } catch {
+      flash("Couldn't read that image", "error");
+      return;
+    }
+    if (!img) {
+      load(src2);
+      return;
+    }
+    let el;
+    try {
+      el = await decode(src2);
+    } catch {
+      flash("Couldn't open that image", "error");
+      return;
+    }
+    // snap(), not `past = []`. This is the whole bug: adding a picture is an
+    // edit like any other and must be undoable, not a reset.
+    snap("layer");
+    const key = `a${++assetN}`;
+    assets.set(key, { src: src2, el });
+    const iw = el.naturalWidth;
+    const ih = el.naturalHeight;
+    // Land in the template's next free panel if it declared any. Otherwise sit
+    // in the middle at a size that reads as "a picture on top", not as a
+    // replacement for the picture underneath.
+    const slot = nextSlot(slots, layers, dims.W, dims.H);
+    const place = fitToSlot(slot || { x: 0.5, y: 0.5, w: 0.55, h: 0.55 }, iw, ih, dims.W, dims.H);
+    const lay = newLayer(key, iw, ih, place);
+    layers = [...layers, lay];
+    selId = lay.id;
+    browsing = false; // a paste from the gallery screen should show its result
+  }
+
   function onPaste(e) {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (!item) return;
     e.preventDefault();
-    pickFile(item.getAsFile());
+    addImage(item.getAsFile());
   }
 
   // ---- drawing ---------------------------------------------------------
@@ -189,6 +378,10 @@
     if (!canvas || !img || !dims) return;
     // Touch the reactive state this depends on so Svelte re-runs the effect.
     void JSON.stringify(captions);
+    // Layers by fingerprint rather than JSON.stringify: they are small, but
+    // stringifying them on every pointer-move is pointless work and the shape
+    // that would quietly become expensive if a data URL ever moved in.
+    void layers.map((l) => `${l.id}:${l.x}:${l.y}:${l.w}:${l.rot}`).join("|");
     void selId;
     void guides.x;
     void guides.y;
@@ -200,17 +393,25 @@
     // The ghost is editor-only. A template's boxes are its whole value and an
     // empty caption draws nothing at all, so without this a freshly-picked
     // Drake looks identical to a blank one.
-    drawMeme(ctx, img, captions, dims.W, dims.H, { topBar: dims.topBar, placeholder: "Your text" });
+    drawMeme(ctx, img, captions, dims.W, dims.H, {
+      topBar: dims.topBar,
+      placeholder: "Your text",
+      layers,
+      imageFor,
+      slots,
+    });
     if (guides.x !== null || guides.y !== null) drawGuides(ctx);
-    if (sel) outline(ctx, sel);
+    // Whichever is selected — a caption or a layer — gets the same marquee and
+    // the same grip, because they are the same interaction.
+    if (sel) outline(ctx, boxOf(sel));
+    else if (selLay) outline(ctx, layerBox(selLay, dims.W, dims.H));
   });
 
   // The selection marquee is drawn on the same canvas rather than as a DOM
-  // overlay, so it can never drift out of alignment with the text it marks.
-  function outline(ctx, cap) {
-    // Re-derived rather than cached from the draw: cheap, and always in step
-    // with what was actually painted.
-    const b = captionBox(measurerFor(ctx), cap.text ? cap : { ...cap, text: "Your text" }, dims.W, dims.H);
+  // overlay, so it can never drift out of alignment with the thing it marks.
+  // Takes a box, not a caption: a layer's box comes from layerBox and is
+  // deliberately the same shape.
+  function outline(ctx, b) {
     const pad = b.size * SEL_PAD;
     const unit = Math.max(2, dims.W * 0.004);
     ctx.save();
@@ -281,14 +482,28 @@
   function onDown(e) {
     if (!img) return;
     const p = toImage(e);
-    // The grip belongs to the selected caption and sits outside its box, so it
-    // has to be tested before the captions or a caption behind it would win.
-    if (sel) {
-      const b = boxOf(sel);
+    // The grip belongs to whatever is selected and sits OUTSIDE its box, so it
+    // has to be tested before anything else or the thing behind it wins.
+    const active = sel || selLay;
+    if (active) {
+      const isLay = !sel;
+      const b = isLay ? layerBox(selLay, dims.W, dims.H) : boxOf(sel);
       const h = handlePos(b);
       if (Math.hypot(p.x - h.x, p.y - h.y) <= Math.max(18, dims.W * 0.035)) {
         snap("scale");
-        drag = { kind: "scale", id: sel.id, cx: b.cx, cy: b.cy, vx: h.x - b.cx, vy: h.y - b.cy, size: sel.size, rot: sel.rot || 0 };
+        drag = {
+          kind: "scale",
+          id: active.id,
+          layer: isLay,
+          cx: b.cx,
+          cy: b.cy,
+          vx: h.x - b.cx,
+          vy: h.y - b.cy,
+          // A caption scales its font size; a layer scales its width. Same
+          // grip, same maths — see scaleRotate's `limits`.
+          size: isLay ? active.w : active.size,
+          rot: active.rot || 0,
+        };
         canvas.setPointerCapture(e.pointerId);
         return;
       }
@@ -297,13 +512,17 @@
     const ghosted = captions.map((c) => (c.text ? c : { ...c, text: "Your text" }));
     const hitGhost = captionAt(measurerFor(ctx), ghosted, p.x, p.y, dims.W, dims.H);
     const hit = hitGhost && captions.find((c) => c.id === hitGhost.id);
-    if (!hit) {
+    // Captions before layers, because captions are painted OVER the layers.
+    // Testing layers first would make any text sitting on a pasted picture
+    // impossible to grab, which is most text on a picture meme.
+    const target = hit || layerAt(layers, p.x, p.y, dims.W, dims.H);
+    if (!target) {
       selId = "";
       return;
     }
-    selId = hit.id;
+    selId = target.id;
     snap("move");
-    drag = { kind: "move", id: hit.id, dx: hit.x * dims.W - p.x, dy: hit.y * dims.H - p.y };
+    drag = { kind: "move", id: target.id, layer: !hit, dx: target.x * dims.W - p.x, dy: target.y * dims.H - p.y };
     canvas.setPointerCapture(e.pointerId);
   }
 
@@ -311,24 +530,35 @@
     if (!drag) return;
     e.preventDefault();
     const p = toImage(e);
-    const c = captions.find((x) => x.id === drag.id);
+    const c = (drag.layer ? layers : captions).find((x) => x.id === drag.id);
     if (!c) return;
     if (drag.kind === "scale") {
-      const r = scaleRotate(drag, p.x, p.y, drag.cx, drag.cy);
-      c.size = r.size;
+      const r = scaleRotate(drag, p.x, p.y, drag.cx, drag.cy, drag.layer ? LAYER_SCALE : undefined);
+      // A layer's height is never written: it comes back out of the picture's
+      // own natural size, which is what keeps the aspect ratio exact however
+      // far the grip is flung.
+      if (drag.layer) c.w = r.size;
+      else c.size = r.size;
       // Held straight, snap the angle back to level: nobody wants 0.4°.
       c.rot = Math.abs(r.rot) < 3 ? 0 : Math.round(r.rot);
       return;
     }
-    // Clamped so a caption can't be dragged off the image and lost, and pulled
-    // onto the centre/third lines when it comes close — with a guide drawn, so
-    // the jump reads as help rather than as the drag misbehaving.
-    const rawX = Math.min(1, Math.max(0, (p.x + drag.dx) / dims.W));
-    const rawY = Math.min(1, Math.max(0, (p.y + drag.dy) / dims.H));
-    const sx = snapTo(rawX, SNAP_X, 0.012);
-    const sy = snapTo(rawY, SNAP_Y, 0.012);
-    c.x = sx.v;
-    c.y = sy.v;
+    // Pulled onto the centre/third lines when it comes close — with a guide
+    // drawn, so the jump reads as help rather than as the drag misbehaving.
+    const sx = snapTo((p.x + drag.dx) / dims.W, SNAP_X, 0.012);
+    const sy = snapTo((p.y + drag.dy) / dims.H, SNAP_Y, 0.012);
+    if (drag.layer) {
+      // A layer has extent, so it clamps against its own footprint rather than
+      // its centre: a face may hang off the edge, but never so far that nothing
+      // is left to grab. See clampLayer.
+      const cl = clampLayer({ ...c, x: sx.v, y: sy.v }, dims.W, dims.H);
+      c.x = cl.x;
+      c.y = cl.y;
+    } else {
+      // A caption is a point: its centre simply may not leave the picture.
+      c.x = Math.min(1, Math.max(0, sx.v));
+      c.y = Math.min(1, Math.max(0, sy.v));
+    }
     guides = { x: sx.hit, y: sy.hit };
   }
 
@@ -364,6 +594,23 @@
     selId = captions.at(-1)?.id || "";
   }
 
+  function removeLayer() {
+    if (!selLay) return;
+    snap("unlayer");
+    layers = layers.filter((l) => l.id !== selId);
+    selId = layers.at(-1)?.id || captions.at(-1)?.id || "";
+    // The asset stays in the map: undo can bring this layer straight back, and
+    // it would have nothing to draw if the picture had been thrown away.
+  }
+
+  function reorder(delta) {
+    if (!selLay) return;
+    const next = moveLayer(layers, selId, delta);
+    if (next === layers) return; // already at the end — not an edit
+    snap("order");
+    layers = next;
+  }
+
   // Picking a look is meant to be visible, so it clears the per-caption
   // overrides it would otherwise be fighting: choose "Classic" after hand-
   // picking a pink Comic Sans and you get the classic look, not silence.
@@ -379,8 +626,9 @@
     const next = on ? TOP_BAR_H : 0;
     // Every caption's y is a fraction of a canvas that just changed height, so
     // without rebasing they all slide down the picture the moment the bar
-    // appears.
+    // appears. Layers are positioned the same way and slide the same way.
     for (const c of captions) c.y = rebaseTopBar(c.y, topBar, next);
+    for (const l of layers) l.y = rebaseTopBar(l.y, topBar, next);
     if (on) {
       const c = newCaption("", { y: topBarCentre(next), size: 0.05, w: 0.9, style: "caption" });
       captions = [...captions, c];
@@ -399,37 +647,88 @@
       undo();
       return;
     }
-    if (!sel || typing) return;
+    const active = sel || selLay;
+    if (!active || typing) return;
     const step = e.shiftKey ? 0.05 : 0.005;
     const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
     const m = moves[e.key];
     if (m) {
       e.preventDefault();
       snap("nudge");
-      sel.x = Math.min(1, Math.max(0, sel.x + m[0]));
-      sel.y = Math.min(1, Math.max(0, sel.y + m[1]));
+      if (selLay) {
+        const cl = clampLayer({ ...selLay, x: selLay.x + m[0], y: selLay.y + m[1] }, dims.W, dims.H);
+        selLay.x = cl.x;
+        selLay.y = cl.y;
+      } else {
+        sel.x = Math.min(1, Math.max(0, sel.x + m[0]));
+        sel.y = Math.min(1, Math.max(0, sel.y + m[1]));
+      }
     } else if (e.key === "Delete" || e.key === "Backspace") {
       e.preventDefault();
-      removeCaption();
+      if (selLay) removeLayer();
+      else removeCaption();
     }
   }
 
   // ---- send ------------------------------------------------------------
+
+  // The editor's whole document, flat and JSON-safe. Deep-cloned through JSON
+  // for the same reason the undo stack is: these are Svelte proxies, and what
+  // goes into IndexedDB has to be plain data with no live references back into
+  // a component that is about to be destroyed.
+  const plain = (v) => JSON.parse(JSON.stringify(v));
+
+  function session() {
+    // usedAssets drops the pictures of layers that were deleted before sending.
+    // Safe HERE and nowhere else: the editor is closing, so no undo can bring
+    // one of those layers back and find its picture missing.
+    const srcs = {};
+    for (const [k, v] of assets) srcs[k] = v.src;
+    return newSession({
+      template: tplFile,
+      label: tplName,
+      base: baseSrc,
+      topBar,
+      captions: plain(captions),
+      layers: plain(layers),
+      slots: plain(slots),
+      assets: usedAssets(layers, srcs),
+    });
+  }
+
   async function send() {
     if (!img || sending) return;
     sending = true;
     try {
-      // Redraw without the marquee, the guides and the placeholder ghosts, all
-      // of which are editor furniture that must never end up in the picture.
+      // Redraw without the marquee, the guides, the empty-slot boxes and the
+      // placeholder ghosts, all of which are editor furniture that must never
+      // end up in the picture. The LAYERS do go in — they are the picture.
       const out = document.createElement("canvas");
       out.width = dims.W;
       out.height = dims.H;
       const ctx = out.getContext("2d");
-      drawMeme(ctx, img, captions, dims.W, dims.H, { topBar: dims.topBar });
+      drawMeme(ctx, img, captions, dims.W, dims.H, { topBar: dims.topBar, layers, imageFor });
       // JPEG: a photo with text over it, where PNG would be several times the
       // size for no visible gain and could breach the 5 MiB attachment cap.
       const dataUrl = out.toDataURL("image/jpeg", 0.9);
-      await api.sendAttachment(S.activeChannelId, dataUrl, out.width, out.height, "");
+      // Editing goes back to the message's OWN channel, which need not be the
+      // one on screen — a menu can be opened, the channel switched, and the
+      // save arrive somewhere else entirely.
+      const channelId = edit ? edit.channelId : S.activeChannelId;
+      // Both calls resolve to the blob id of the picture that actually went
+      // out. That id is minted inside the seal, so it is the only thing the
+      // recipe can honestly be keyed by.
+      const blobId = edit
+        ? await api.editAttachment(channelId, edit.messageId, dataUrl, out.width, out.height)
+        : await api.sendAttachment(channelId, dataUrl, out.width, out.height, "");
+      // Saved AFTER the picture is in the channel and never allowed to fail the
+      // send: losing the recipe costs the ability to edit again, losing the
+      // meme costs the meme.
+      await saveRecipe(blobId, session());
+      // A re-render is a different picture and therefore a different blob, so
+      // the old key is now unreachable — forget it instead of holding
+      // megabytes for a blob no message points at.
+      if (edit && edit.blobId !== blobId) await dropRecipe(edit.blobId);
       onClose();
     } catch (err) {
       flash(err);
@@ -450,7 +749,7 @@
 
 <svelte:window onpaste={onPaste} onkeydown={onKey} />
 
-<Modal title="Meme" {onClose} size="xl">
+<Modal title={edit ? "Edit meme" : "Meme"} {onClose} size="xl">
   <div
     class="wrap"
     class:dropping
@@ -462,7 +761,7 @@
     ondrop={(e) => {
       e.preventDefault();
       dropping = false;
-      pickFile(e.dataTransfer?.files?.[0]);
+      addImage(e.dataTransfer?.files?.[0]);
     }}
     role="application"
     aria-label="Meme editor"
@@ -572,7 +871,76 @@
             {/each}
           </div>
 
-          {#if sel}
+          <div class="caphead">
+            <span class="lbl">Pictures</span>
+            <div class="capbtns">
+              <button class="mini" onclick={() => layerInput.click()} title="Put a picture on top of this one">
+                <Icon name="imagetext" size={13} /> Add
+              </button>
+              <button class="mini danger" onclick={removeLayer} disabled={!selLay} title="Remove the selected picture">
+                <Icon name="trash" size={13} />
+              </button>
+            </div>
+          </div>
+
+          {#if layers.length}
+            <!-- Last in the list is drawn on top, so the chips are shown top
+                 first: the order you see is the order you're looking at. -->
+            <div class="chips">
+              {#each [...layers].reverse() as l (l.id)}
+                <button class="chip" class:on={l.id === selId} onclick={() => (selId = l.id)}>
+                  <img class="lthumb" src={assets.get(l.asset)?.src} alt="" />
+                  {Math.round(l.w * 100)}%
+                </button>
+              {/each}
+            </div>
+          {:else}
+            <p class="pick">
+              {slots.length
+                ? `This template has ${slots.length} picture panel${slots.length > 1 ? "s" : ""} — paste (Ctrl+V) or drop a picture and it lands in the next one.`
+                : "Paste (Ctrl+V) or drop a picture and it goes on top of this one."}
+            </p>
+          {/if}
+
+          {#if selLay}
+            <label class="row">
+              <span>Size</span>
+              <input
+                type="range"
+                min={LAYER_SCALE.min}
+                max="1.2"
+                step="0.01"
+                value={selLay.w}
+                oninput={(e) => setLay("lsize", "w", +e.currentTarget.value)}
+              />
+              <em>{pct(selLay.w)}</em>
+            </label>
+
+            <!-- Not a <label>: the straighten button lives in this row, and a
+                 click inside a label is forwarded to its input. -->
+            <div class="row">
+              <span>Rotate</span>
+              <input
+                type="range"
+                min="-180"
+                max="180"
+                step="1"
+                value={selLay.rot || 0}
+                aria-label="Rotate picture"
+                oninput={(e) => setLay("lrot", "rot", +e.currentTarget.value)}
+              />
+              <button class="em-btn" onclick={() => setLay("lrot0", "rot", 0)} title="Straighten">{selLay.rot || 0}°</button>
+            </div>
+
+            <div class="row">
+              <span>Order</span>
+              <div class="seg tight">
+                <button onclick={() => reorder(1)} title="Bring the picture forward">Forward</button>
+                <button onclick={() => reorder(-1)} title="Send the picture back">Back</button>
+              </div>
+            </div>
+            <p class="pick">Pictures sit over the template and under the words. Drag it, or use the corner grip.</p>
+          {:else if sel}
             <textarea
               bind:this={textBox}
               value={sel.text}
@@ -715,7 +1083,11 @@
           {/if}
 
           <button class="send" onclick={send} disabled={!img || sending}>
-            {sending ? "Sending…" : "Send it"}
+            {#if sending}
+              {edit ? "Saving…" : "Sending…"}
+            {:else}
+              {edit ? "Save changes" : "Send it"}
+            {/if}
           </button>
         </div>
       </div>
@@ -729,7 +1101,17 @@
   bind:this={fileInput}
   style="display:none"
   onchange={(e) => {
-    pickFile(e.target.files?.[0]);
+    pickBase(e.target.files?.[0]);
+    e.target.value = "";
+  }}
+/>
+<input
+  type="file"
+  accept="image/*"
+  bind:this={layerInput}
+  style="display:none"
+  onchange={(e) => {
+    addImage(e.target.files?.[0]);
     e.target.value = "";
   }}
 />
@@ -1027,6 +1409,16 @@
   .chip.on {
     background: var(--accent);
     color: #fff;
+  }
+  /* A layer chip is identified by the picture in it — a row of "42%" labels
+     tells you nothing about which pasted photo is which. */
+  .lthumb {
+    width: 18px;
+    height: 18px;
+    object-fit: cover;
+    border-radius: 3px;
+    align-self: center;
+    background: var(--bg-1);
   }
   textarea {
     width: 100%;

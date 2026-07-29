@@ -56,7 +56,12 @@ const maxFilenameLen = 200
 const attachKeysLen = 32 + 24 // secretbox key + nonce
 
 var (
-	blobIDRe    = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	blobIDRe = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	// The blob id inside a token, for callers that hold a message body and want
+	// to know which blob it points at. Both token versions put the id in the
+	// same position, so one pattern covers v1 and v2.
+	attachIDRe  = regexp.MustCompile(`concord://attach/v[12]/([0-9a-f]{64})/`)
+
 	dataURLRe   = regexp.MustCompile(`^data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/=]+)$`)
 	fileURLRe   = regexp.MustCompile(`^data:([a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+);base64,([A-Za-z0-9+/=]+)$`)
 	mimeRe      = regexp.MustCompile(`^[a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+$`)
@@ -66,6 +71,18 @@ var (
 
 type attachRequest struct {
 	BlobID string `json:"blobId"`
+}
+
+// AttachBlobID returns the blob id of the first image attachment token in a
+// message body, or "" when there is none. The UI needs it to key per-image
+// local state (the meme editor's render recipe) to the picture that went out,
+// and the id is only ever minted here, inside sealBlob.
+func AttachBlobID(content string) string {
+	m := attachIDRe.FindStringSubmatch(content)
+	if m == nil {
+		return ""
+	}
+	return m[1]
 }
 
 // sealBlob seals plaintext under a fresh random key, stores the content-
@@ -96,27 +113,30 @@ const attachSpoiler = 1
 // an unbounded one would be a cheap way to bloat every recipient's history.
 const maxAttachDescLen = 500
 
-// SendAttachment seals an image (a data URL from the UI) into a local blob
-// and sends the reference token as a normal chat message. spoiler/name/desc
-// come from the per-image controls in the composer; when all three are unset
-// the token emitted is the original v1 form.
-func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc string) (domain.Message, error) {
+// sealAttachment decodes an image data URL, seals it into a local blob, and
+// returns the blob id and the reference token a message body carries.
+//
+// Split out of SendAttachment because posting is not the only thing that needs
+// a token: EditAttachment re-points an EXISTING message at a freshly sealed
+// blob, and doing that by sending and then deleting would leave a tombstone
+// where the original picture used to be.
+func (s *Service) sealAttachment(dataURL string, w, h int, spoiler bool, name, desc string) (blobID, token string, err error) {
 	m := dataURLRe.FindStringSubmatch(dataURL)
 	if m == nil {
-		return domain.Message{}, fmt.Errorf("app: attachment must be a png/jpeg/gif/webp image data URL")
+		return "", "", fmt.Errorf("app: attachment must be a png/jpeg/gif/webp image data URL")
 	}
 	subtype := m[1]
 	plain, err := base64.StdEncoding.DecodeString(m[2])
 	if err != nil {
-		return domain.Message{}, fmt.Errorf("app: bad attachment encoding: %w", err)
+		return "", "", fmt.Errorf("app: bad attachment encoding: %w", err)
 	}
 	if len(plain) == 0 || len(plain) > maxAttachmentPlain {
-		return domain.Message{}, fmt.Errorf("app: attachment must be 1 byte – %d MB", maxAttachmentPlain>>20)
+		return "", "", fmt.Errorf("app: attachment must be 1 byte – %d MB", maxAttachmentPlain>>20)
 	}
 
 	blobID, keys, err := s.sealBlob(plain)
 	if err != nil {
-		return domain.Message{}, err
+		return "", "", err
 	}
 	if w < 0 || w > 99999 {
 		w = 0
@@ -130,19 +150,57 @@ func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo st
 	if len(desc) > maxAttachDescLen {
 		desc = desc[:maxAttachDescLen]
 	}
-	var token string
 	if !spoiler && name == "" && desc == "" {
-		token = fmt.Sprintf("![image](concord://attach/v1/%s/%s/%s/%dx%d)", blobID, keys, subtype, w, h)
-	} else {
-		flags := 0
-		if spoiler {
-			flags |= attachSpoiler
-		}
-		token = fmt.Sprintf("![image](concord://attach/v2/%s/%s/%s/%dx%d/%d/%s/%s)",
-			blobID, keys, subtype, w, h, flags,
-			b64url.EncodeToString([]byte(name)), b64url.EncodeToString([]byte(desc)))
+		return blobID, fmt.Sprintf("![image](concord://attach/v1/%s/%s/%s/%dx%d)", blobID, keys, subtype, w, h), nil
+	}
+	flags := 0
+	if spoiler {
+		flags |= attachSpoiler
+	}
+	return blobID, fmt.Sprintf("![image](concord://attach/v2/%s/%s/%s/%dx%d/%d/%s/%s)",
+		blobID, keys, subtype, w, h, flags,
+		b64url.EncodeToString([]byte(name)), b64url.EncodeToString([]byte(desc))), nil
+}
+
+// SendAttachment seals an image (a data URL from the UI) into a local blob
+// and sends the reference token as a normal chat message. spoiler/name/desc
+// come from the per-image controls in the composer; when all three are unset
+// the token emitted is the original v1 form.
+func (s *Service) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc string) (domain.Message, error) {
+	_, token, err := s.sealAttachment(dataURL, w, h, spoiler, name, desc)
+	if err != nil {
+		return domain.Message{}, err
 	}
 	return s.send(channelID, token, "", replyTo)
+}
+
+// EditAttachment replaces the picture in one of this peer's own image messages,
+// in place. The new image becomes its own blob and the ORIGINAL message is
+// edited to reference it, so re-rendering an image (the meme editor's "edit a
+// sent meme") leaves exactly one message in the channel rather than a second
+// one plus a "deleted" tombstone.
+//
+// The returned blob id is what the UI keys its local render recipe by, and it
+// changes on every edit: the blob is content-addressed, so a re-render is by
+// definition a different blob.
+//
+// applyEdit only accepts an edit signed by the message's own author, and it
+// does not care that the new content is a token rather than prose — the body
+// is opaque to it. The old blob is deliberately left in the local store: peers
+// that never fetched the edit still reference it, and the store is swept by the
+// same trash pass as everything else.
+func (s *Service) EditAttachment(channelID, targetID, dataURL string, w, h int) (string, error) {
+	if targetID == "" {
+		return "", fmt.Errorf("app: which message?")
+	}
+	blobID, token, err := s.sealAttachment(dataURL, w, h, false, "", "")
+	if err != nil {
+		return "", err
+	}
+	if err := s.EditMessage(channelID, targetID, token); err != nil {
+		return "", err
+	}
+	return blobID, nil
 }
 
 // SendFile seals an arbitrary file (data URL of any mime) into a local blob and

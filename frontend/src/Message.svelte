@@ -29,6 +29,7 @@
     copyImageToClipboard,
     saveImageSrc,
   } from "./lib/attachments.js";
+  import { knownRecipe } from "./lib/memerecipe.js";
   import { extractLinks, youtubeID } from "./lib/embeds.js";
   import {
     S,
@@ -470,9 +471,25 @@
       ]);
       return;
     }
+    // Reopen a meme you made, in the editor that made it, and save back over
+    // the same message. Only your own, only an image, and only while the
+    // recipe that describes how it was built is still on THIS device — the
+    // recipe is never sent, so on any other machine the entry is simply absent
+    // and "Make a Meme" (a new meme from the flattened picture) is what's left.
+    // Checked at click time: the recipe index is plain module state.
+    const memeTok = isOwn ? atts.find((t) => knownRecipe(t.blobId)) : null;
     openContextMenu(e, [
       { label: "Reply", icon: "reply", onClick: () => (S.replyingTo = m) },
       isOwn && { label: "Edit", icon: "edit", onClick: startEdit },
+      memeTok && {
+        label: "Edit meme",
+        icon: "spark",
+        onClick: () =>
+          (S.modal = {
+            kind: "meme",
+            edit: { channelId: m.channelId, messageId: m.id, blobId: memeTok.blobId },
+          }),
+      },
       { label: "Add Reaction", icon: "smile", onClick: () => (S.pickerTarget = m) },
       { sep: true },
       { label: "Copy Text", icon: "edit", onClick: () => copy(stripAttachTokens(m.content).trim() || previewText(m.content), "Copied text") },
@@ -713,7 +730,7 @@
         </div>
       {/if}
       {#each atts as tok (tok.blobId)}
-        <Attachment channelId={m.channelId} {tok} />
+        <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} />
       {/each}
       {#each files as tok (tok.blobId)}
         {#if tok.mime?.startsWith("audio/")}
@@ -724,6 +741,13 @@
           <FileAttachment channelId={m.channelId} {tok} />
         {/if}
       {/each}
+      {#if m.edited && !bodyText && (atts.length || files.length)}
+        <!-- The "(edited)" tag normally rides at the end of the body text, so a
+             message whose whole content is an attachment token had nowhere to
+             show it — and editing a meme in place changes the PICTURE, which is
+             exactly the case where a reader deserves to be told. -->
+        <span class="edited-tag att-edited">(edited)</span>
+      {/if}
       {#if richEmbed}
         <EmbedView embed={richEmbed} {mentionNames} customEmoji={cemoji} {refs} />
       {/if}
@@ -1090,6 +1114,13 @@
   }
   .disappeared :global(svg) {
     opacity: 0.8;
+  }
+  /* Standing on its own under a picture rather than trailing a line of text,
+     so it needs to be a block or it sits beside the image's baseline. */
+  .att-edited {
+    display: block;
+    margin-left: 0;
+    margin-top: 2px;
   }
   .edited-tag {
     margin-left: 5px;

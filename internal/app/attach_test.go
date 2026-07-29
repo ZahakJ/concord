@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/zahak/concord/internal/domain"
 )
 
 // TestAttachmentSendAndFetch is the attachments acceptance test: A sends an
@@ -204,5 +206,73 @@ func TestAttachmentTokenVersionFollowsOptions(t *testing.T) {
 	}
 	if len(msg.Content) > maxAttachDescLen*2 {
 		t.Fatalf("an over-long description was not truncated: token is %d bytes", len(msg.Content))
+	}
+}
+
+// TestEditAttachmentReplacesInPlace is the "edit a sent meme" acceptance test:
+// re-rendering a picture must leave the channel with exactly ONE message —
+// pointing at the NEW blob — and not a second post plus a tombstone.
+func TestEditAttachmentReplacesInPlace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked integration test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	guild, err := a.CreateGuild("G")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	channel := guild.Channels[0].ID
+
+	first := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("before"))
+	second := "data:image/png;base64," + base64.StdEncoding.EncodeToString([]byte("after"))
+
+	msg, err := a.SendAttachment(channel, first, 10, 10, "", false, "", "")
+	if err != nil {
+		t.Fatalf("SendAttachment: %v", err)
+	}
+	oldBlob := AttachBlobID(msg.Content)
+	if oldBlob == "" {
+		t.Fatalf("AttachBlobID found no blob in %.120s", msg.Content)
+	}
+
+	before, err := a.Messages(channel, 100)
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+
+	newBlob, err := a.EditAttachment(channel, msg.ID, second, 10, 10)
+	if err != nil {
+		t.Fatalf("EditAttachment: %v", err)
+	}
+	if newBlob == oldBlob {
+		t.Fatal("the edit reused the old blob id; the picture changed, so the content address must too")
+	}
+
+	after, err := a.Messages(channel, 100)
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+	// The edit is delivered as its own signed message on the wire but is folded
+	// into the target locally, so the visible history must not have grown.
+	if len(after) != len(before) {
+		t.Fatalf("message count went %d -> %d; an in-place edit must not add a row", len(before), len(after))
+	}
+	var edited *domain.Message
+	for i := range after {
+		if after[i].ID == msg.ID {
+			edited = &after[i]
+		}
+	}
+	if edited == nil {
+		t.Fatal("the original message is gone")
+	}
+	if got := AttachBlobID(edited.Content); got != newBlob {
+		t.Fatalf("message still points at %q, want the new blob %q", got, newBlob)
+	}
+	if !edited.Edited {
+		t.Fatal("the message is not flagged as edited")
 	}
 }

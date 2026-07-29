@@ -162,8 +162,15 @@ export const api = {
     call("SendMessage", channelID, content, replyTo),
   sendCallNotice: (channelID, kind, content) =>
     call("SendCallNotice", channelID, kind, content),
+  // Resolves to the new blob's id — the meme editor keys its local render
+  // recipe by it. Everything else ignores the return.
   sendAttachment: (channelID, dataURL, w, h, replyTo = "", spoiler = false, name = "", desc = "") =>
     call("SendAttachment", channelID, dataURL, w, h, replyTo, spoiler, name, desc),
+  // Re-point one of your own image messages at a freshly sealed picture, in
+  // place. Also resolves to the new blob id. NOT sendAttachment + delete: that
+  // leaves a tombstone where the original was.
+  editAttachment: (channelID, messageID, dataURL, w, h) =>
+    call("EditAttachment", channelID, messageID, dataURL, w, h),
   fetchAttachment: (channelID, blobID, keys, subtype) =>
     call("FetchAttachment", channelID, blobID, keys, subtype),
   sendFile: (channelID, dataURL, filename, replyTo = "") =>

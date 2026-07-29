@@ -1094,13 +1094,32 @@ func (b *Bridge) LinkPreview(url string) (PreviewView, error) {
 
 // SendAttachment seals an image into a local encrypted blob and posts the
 // reference token as a chat message (see internal/app/attach.go).
-func (b *Bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc string) error {
+//
+// It returns the new blob's id. Callers that only post an image ignore it; the
+// meme editor keys the recipe it saves for "edit this meme again" by exactly
+// this id, and the id is minted inside the seal — there is nothing the frontend
+// could compute it from.
+func (b *Bridge) SendAttachment(channelID, dataURL string, w, h int, replyTo string, spoiler bool, name, desc string) (string, error) {
 	svc, err := b.service()
 	if err != nil {
-		return err
+		return "", err
 	}
-	_, err = svc.SendAttachment(channelID, dataURL, w, h, replyTo, spoiler, name, desc)
-	return err
+	msg, err := svc.SendAttachment(channelID, dataURL, w, h, replyTo, spoiler, name, desc)
+	if err != nil {
+		return "", err
+	}
+	return appsvc.AttachBlobID(msg.Content), nil
+}
+
+// EditAttachment re-points one of this peer's own image messages at a newly
+// sealed picture, and returns the new blob's id. One message in, one message
+// out — see app.EditAttachment for why this isn't "send then delete".
+func (b *Bridge) EditAttachment(channelID, messageID, dataURL string, w, h int) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.EditAttachment(channelID, messageID, dataURL, w, h)
 }
 
 // FetchAttachment resolves an attachment token to a plaintext image data URL,
@@ -2043,8 +2062,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SendCallNotice":
 		return nil, b.SendCallNotice(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "SendAttachment":
-		return nil, b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4),
+		return b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4),
 			argBool(args, 5), argStr(args, 6), argStr(args, 7))
+	case "EditAttachment":
+		return b.EditAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt(args, 3), argInt(args, 4))
 	case "FetchAttachment":
 		return b.FetchAttachment(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "SendFile":

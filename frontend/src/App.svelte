@@ -818,7 +818,9 @@
   {:else if S.modal?.kind === "gifs"}
     <ModalGifs onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "meme"}
-    <ModalMeme src={S.modal.src || ""} onClose={() => (S.modal = null)} />
+    <!-- `edit` reopens a meme already in the channel; `src` starts a new one
+         from a picture. They are mutually exclusive — see ModalMeme. -->
+    <ModalMeme src={S.modal.src || ""} edit={S.modal.edit || null} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "forward"}
     <ModalForward message={S.modal.message} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "bans"}

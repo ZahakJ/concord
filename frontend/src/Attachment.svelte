@@ -6,13 +6,26 @@
   // Esc / backdrop / ✕ close.
   import Icon from "./Icon.svelte";
   import { loadAttachment, copyImageToClipboard, saveImageSrc } from "./lib/attachments.js";
+  import { knownRecipe } from "./lib/memerecipe.js";
   import { openContextMenu, flash, S } from "./lib/state.svelte.js";
 
-  let { channelId, tok } = $props();
+  // `messageId`/`own` exist only for "Edit meme": editing a picture in place
+  // means editing the message that carries it, and only its author may.
+  let { channelId, tok, messageId = "", own = false } = $props();
 
   // Right-click on the image (thumbnail or lightbox): copy to the system
   // clipboard as a real image (paste it anywhere — in Concord or outside),
   // or save it to disk. Like Discord.
+  // Can this picture be reopened in the editor it came out of? Three things
+  // have to hold, and the check is done at click time rather than in a
+  // $derived because the recipe index is plain module state, not reactive:
+  // it must be YOUR message (an edit is a message edit), it must be an image
+  // we can address, and the recipe — which never leaves the device that made
+  // the meme — must still be here. Fail any of them and only the ordinary
+  // "Make a Meme" is offered, which starts a NEW meme from the flattened
+  // picture and says so.
+  const editable = () => own && !!messageId && knownRecipe(tok.blobId);
+
   function imageMenu(e) {
     openContextMenu(e, [
       {
@@ -33,8 +46,16 @@
         onClick: () => saveImageSrc(src, `concord-${(tok.blobId || "image").slice(0, 8)}.png`),
       },
       { sep: true },
+      editable() && {
+        label: "Edit meme",
+        icon: "edit",
+        onClick: () =>
+          (S.modal = { kind: "meme", edit: { channelId, messageId, blobId: tok.blobId } }),
+      },
       // `src` is the already-decrypted data URL, so the editor gets the picture
       // itself and never has to know it came from an encrypted attachment.
+      // Still offered next to "Edit meme": one fixes this meme, the other
+      // starts a fresh one on top of the flattened result.
       { label: "Make a Meme", icon: "spark", onClick: () => (S.modal = { kind: "meme", src }) },
     ]);
   }
