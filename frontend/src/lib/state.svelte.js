@@ -1619,10 +1619,21 @@ function scrollToNewDivider() {
 }
 
 export async function refreshRightPanel() {
-  if (S.activeGuildId) {
-    S.members = (await api.members(S.activeGuildId)) || [];
+  // Which guild this pass is FOR, captured before the first await. Two of these
+  // overlap routinely — selectGuild runs one while an event-driven
+  // scheduleRefresh runs another — and without the guard the slower fetch wins
+  // by finishing last, painting the guild you just left into the member panel of
+  // the one you just opened. It corrects itself on the next refresh, which is
+  // exactly what makes it read as the panel repainting on its own.
+  const forGuild = S.activeGuildId;
+  if (forGuild) {
+    const members = (await api.members(forGuild)) || [];
+    if (S.activeGuildId !== forGuild) return; // moved on: this answer is stale
+    S.members = members;
     const g = activeGuild();
-    S.roles = g && g.kind !== "dm" ? (await api.roles(S.activeGuildId)) || [] : [];
+    const roles = g && g.kind !== "dm" ? (await api.roles(forGuild)) || [] : [];
+    if (S.activeGuildId !== forGuild) return;
+    S.roles = roles;
   }
   S.contacts = (await api.contacts()) || [];
 }

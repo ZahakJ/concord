@@ -992,13 +992,52 @@ func (s *Service) Nudge() {
 }
 
 // OnPeerConnected registers a presence-up callback.
+//
+// These two are the UI's presence feed, and they are gated on the peer being
+// somebody the user actually has: the transport's connect/disconnect events are
+// NOT. The host fires for every connection it makes — the rendezvous, the DHT
+// routing peers it walks to find anyone, the relay candidates AutoRelay dials
+// and drops, and with the public-DHT opt-in on, arbitrary IPFS nodes. Discovery
+// re-runs on a 15s beat and dials everyone advertised under the rendezvous key,
+// so on a rendezvous-configured install those arrive in bursts: measured, eight
+// connect/disconnect transitions inside one second, none of them a person.
+//
+// That mattered because one presence event is not cheap upstairs. The UI treats
+// it as "somebody's dot may have moved" and refetches the guild list, the member
+// list, roles, contacts and its own profile, then re-renders the rail, the
+// channel list and the member panel — which is why a burst read as the app
+// refreshing over and over on its own, most visibly while switching between a DM
+// and a server, when a re-render lands on top of a feed that is still loading.
+//
+// knownContact is the same predicate recordPeer uses to decide whether a
+// connection is worth remembering (see peercache.go): verified, or we opened a
+// conversation with them, or we share a guild. Anyone it rejects has no dot in
+// this UI to move, so their connection is not presence. It costs a roster read
+// per guild, which is what the callback's own recordPeer already spends, and it
+// runs on the notifier's goroutine, not the network thread.
+//
+// A friend's linked device whose certificate we haven't learned yet resolves to
+// its own key and so reads as a stranger here for the moment before the roster
+// places it. It doesn't stay stale: learning the device (relearnDevices, on the
+// commit that carries the leaf) ends in emitGuildUpdate, which refreshes the
+// same panels this event would have.
 func (s *Service) OnPeerConnected(fn func(PeerPresence)) {
-	s.host.OnPeerConnected(func(p peer.ID) { fn(s.presence(p)) })
+	s.host.OnPeerConnected(func(p peer.ID) {
+		if pp := s.presence(p); s.knownContact(pp.Fingerprint) {
+			fn(pp)
+		}
+	})
 }
 
-// OnPeerDisconnected registers a presence-down callback.
+// OnPeerDisconnected registers a presence-down callback. Gated exactly as
+// OnPeerConnected is — a stranger going away is no more a presence change than
+// a stranger arriving.
 func (s *Service) OnPeerDisconnected(fn func(PeerPresence)) {
-	s.host.OnPeerDisconnected(func(p peer.ID) { fn(s.presence(p)) })
+	s.host.OnPeerDisconnected(func(p peer.ID) {
+		if pp := s.presence(p); s.knownContact(pp.Fingerprint) {
+			fn(pp)
+		}
+	})
 }
 
 // OnMessage registers a callback fired for every message — sent or received —
