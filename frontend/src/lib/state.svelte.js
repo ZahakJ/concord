@@ -6,6 +6,16 @@ import { notify } from "./notify.js";
 import { containsMention } from "./markdown.js";
 import { playVoiceJoin, playVoiceLeave, playMention, playDM } from "./sounds.js";
 import { PERM, has } from "./perms.js";
+import {
+  LEVELS as NOTIF_LEVELS,
+  normalize as normalizeNotifs,
+  migrateMutes,
+  resolve as resolveNotif,
+  setChannel as setChannelNotif,
+  setGuild as setGuildNotif,
+  wantsAlert,
+  showsBadge,
+} from "./notifs.js";
 
 export const S = $state({
   ready: false,
@@ -19,6 +29,10 @@ export const S = $state({
   roles: [], // active guild's roles (highest position first)
   contacts: [],
   blocked: [], // account fingerprints you've blocked
+  // Message requests: DM invites from strangers the backend deliberately has
+  // NOT redeemed ([{ from, fromName, code, at }]). Until one is accepted the
+  // sender has learned nothing about us — see internal/app/request.go.
+  requests: [],
 
   replyingTo: null, // message being replied to
   editing: null, // message being edited (Message.svelte owns the draft)
@@ -61,7 +75,11 @@ export const S = $state({
   // unread[channelId] = { count, mentions } — counts survive refresh via the
   // localStorage last-read map (recomputed on load).
   unread: {},
-  mutes: loadJSON("concord.mutes", {}), // channelId -> true
+  // How loud each channel and server is allowed to be (see lib/notifs.js).
+  // Seeded from the old per-channel mute list so an upgrade is silent about
+  // itself — a channel you'd muted comes back as "Nothing", which is the same
+  // thing under a name that leaves room for "only @mentions".
+  notifs: migrateMutes(normalizeNotifs(loadJSON("concord.notifs", null)), loadJSON("concord.mutes", {})),
   // Guild-rail layout: device-local ordering + Discord-style folders (see
   // lib/rail.js). An array of { t:"g", id } / { t:"f", id, name, color, open,
   // ids }. Reconciled against the live guild list on render.
@@ -105,6 +123,11 @@ export const S = $state({
     // Spectral noise reduction level id ("" = off; see lib/denoise.js). Off by
     // default: it reprocesses your voice, which should be a choice you make.
     micNr: "",
+    // Push-to-talk: the mic opens only while pttBind is held (see lib/keybind.js
+    // for the binding shape, and lib/shortcuts.js for the hold). Off by default
+    // — open mic is what people expect until they say otherwise.
+    pushToTalk: false,
+    pttBind: null,
     // Opus target, bits/s. 64k is a real step up from the browser's ~32k
     // default and still modest on a mesh where you send one copy per peer.
     voiceBitrate: 64000,
@@ -135,6 +158,7 @@ export const S = $state({
   voiceStates: {},
   voiceParticipants: [],
   voiceSpeaking: [],
+  talking: false, // push-to-talk key is down right now (drives the mic button)
   voicePeerFpr: {},
   // voiceRosters: guild-wide "who is in each voice channel", built from gossip
   // presence heartbeats so the sidebar shows call participants without joining.
@@ -375,12 +399,54 @@ export function markAllRead() {
   S.unread = {};
 }
 
+// ---- notification levels ----
+//
+// The pure model lives in lib/notifs.js; this is the reactive skin over it.
+
+// guildIdOf: which server (or DM pseudo-guild) a channel belongs to, so a
+// channel with no setting of its own can fall through to its server's.
+export function guildIdOf(channelId) {
+  return S.guilds.find((g) => g.channels.some((c) => c.id === channelId))?.id || "";
+}
+
+// guildId is optional and purely an optimisation: the sidebar resolves a level
+// for every channel on every render, and callers that already know the guild
+// shouldn't pay for guildIdOf's scan to rediscover it.
+export function notifLevel(channelId, guildId) {
+  return resolveNotif(S.notifs, channelId, guildId ?? guildIdOf(channelId));
+}
+
+export function guildNotifLevel(guildId) {
+  return S.notifs.guilds[guildId] || "all";
+}
+
+// isMuted keeps the old vocabulary for the places that only ever asked the
+// yes/no question: greying a row, hiding a badge, skipping a chime.
+export function isMuted(channelId, guildId) {
+  return !showsBadge(notifLevel(channelId, guildId));
+}
+
+function saveNotifs(next) {
+  S.notifs = next;
+  saveJSON("concord.notifs", next);
+}
+
+// level = null puts the channel back to following its server.
+export function setChannelNotifs(channelId, level) {
+  saveNotifs(setChannelNotif(S.notifs, channelId, level));
+}
+
+export function setGuildNotifs(guildId, level) {
+  const ids = (S.guilds.find((g) => g.id === guildId)?.channels || []).map((c) => c.id);
+  saveNotifs(setGuildNotif(S.notifs, guildId, level, ids));
+}
+
+// The one-click version, still on the bell icon in the channel list: silence,
+// or hand the channel back to whatever its server says. It clears rather than
+// pinning "all", so unmuting a channel in a server you'd set to @mentions-only
+// returns it to @mentions-only rather than quietly making it the loud one.
 export function toggleMute(channelId) {
-  const m = { ...S.mutes };
-  if (m[channelId]) delete m[channelId];
-  else m[channelId] = true;
-  S.mutes = m;
-  saveJSON("concord.mutes", m);
+  setChannelNotifs(channelId, isMuted(channelId) ? null : "none");
 }
 
 // clockOpts turns the clock pref into Intl options ({} = follow the locale).
@@ -451,7 +517,25 @@ export async function markUnread(channelId, msg) {
 export function openContextMenu(e, items, opts = {}) {
   e.preventDefault();
   e.stopPropagation();
-  S.contextMenu = { x: e.clientX, y: e.clientY, items: items.filter(Boolean), ...opts };
+  S.contextMenu = { x: e.clientX, y: e.clientY, items: tidySeps(items.filter(Boolean)), ...opts };
+}
+
+// Callers build menus as flat lists with permission-gated entries dropped by
+// `&&`, so a separator can easily end up leading, trailing, or doubled once
+// everything around it has been filtered out — a stray rule with nothing on one
+// side of it. Collapse those here, once, rather than in every menu.
+function tidySeps(items) {
+  const out = [];
+  for (const it of items) {
+    if (!it.sep) {
+      out.push(it);
+      continue;
+    }
+    if (out.length && !out[out.length - 1].sep) out.push(it);
+  }
+  // A header with nothing under it is the same kind of orphan.
+  while (out.length && (out[out.length - 1].sep || out[out.length - 1].header)) out.pop();
+  return out;
 }
 export function closeContextMenu() {
   S.contextMenu = null;
@@ -487,6 +571,30 @@ export function closeTopOverlay() {
   return false;
 }
 
+// patchProfile writes one or two profile fields and carries every other one
+// through untouched. SetProfile is all-or-nothing — it takes the whole profile
+// — so anything a caller forgets to pass is not "left alone", it's erased.
+// Everywhere that changes a single field goes through here for that reason.
+export async function patchProfile(patch) {
+  const id = S.identity;
+  const f = (k) => patch[k] ?? id[k] ?? "";
+  await api.setProfile(
+    f("displayName"),
+    f("status"),
+    f("emoji"),
+    f("color"),
+    f("avatar"),
+    f("banner"),
+    f("presence"),
+    f("bio"),
+    f("color2"),
+    f("frame"),
+    f("effect"),
+    id.style ? JSON.stringify(id.style) : "",
+  );
+  S.identity = await api.identity();
+}
+
 // guildMenuItems: everything you can do to a guild, in one list — so the rail's
 // right-click, the header's "More" menu and the mobile sheet can never drift
 // apart. Each entry is permission-gated the same way the backend gates the op:
@@ -506,6 +614,16 @@ export function guildMenuItems(g) {
       onClick: () => g.channels.forEach((c) => markRead(c.id)),
     },
     { label: "Stats & diagnostics", icon: "poll", onClick: () => (S.modal = { kind: "stats", guildId: g.id }) },
+    { sep: true },
+    // The server-wide default every channel falls back to. Flat, with a tick on
+    // the one in force — this menu has no submenus.
+    { label: "Notifications", header: true },
+    ...NOTIF_LEVELS.map((l) => ({
+      label: l.label,
+      icon: l.id === "none" ? "bellOff" : "bell",
+      active: guildNotifLevel(g.id) === l.id,
+      onClick: () => setGuildNotifs(g.id, l.id),
+    })),
     { sep: true },
     { label: "Guild emoji", icon: "smile", onClick: () => (S.modal = { kind: "emoji" }) },
     g.isOwner && { label: "Rename guild", icon: "edit", onClick: () => (S.modal = { kind: "rename" }) },
@@ -818,16 +936,52 @@ function isMentionOfSelf(m) {
   )
     return true;
   // A direct @mention of you still notifies (a guest greeting you by name is
-  // fine — it's one ping to one person, not a broadcast).
-  return containsMention(m.content, [S.displayName]);
+  // fine — it's one ping to one person, not a broadcast). A role you hold
+  // counts too — that's what a role is for — but only from a real member, for
+  // the same reason @everyone is guarded: a guest must not be able to reach a
+  // whole role by naming it.
+  const names = [S.displayName];
+  if (m.kind === "" && m.sender !== S.identity.fingerprint) names.push(...myRoleNames());
+  return containsMention(m.content, names);
 }
+
+// myRoleNames: the roles this account holds in the active guild. Roles are
+// per-guild and S.roles only ever holds the guild you're looking at, so a
+// mention of a role you hold elsewhere isn't seen here — the badge lands when
+// you next open that guild, which is the same place its members list comes from.
+function myRoleNames() {
+  const mine = S.members.find((mm) => mm.isSelf)?.roleIds || [];
+  return S.roles.filter((r) => mine.includes(r.id) && r.name).map((r) => r.name);
+}
+
+// mentionRefs: the role and #channel tables the renderer needs, for the guild
+// currently on screen. Built here rather than in each component so the feed,
+// embeds and announcements all resolve the same names to the same things —
+// and derived ONCE for the whole app, because every message row asks for it and
+// rebuilding two arrays per row per keystroke adds up on a long feed.
+const refTables = $derived.by(() => {
+  const g = activeGuild();
+  const mine = S.members.find((mm) => mm.isSelf)?.roleIds || [];
+  return {
+    roles: S.roles
+      .filter((r) => r.name)
+      .map((r) => ({ name: r.name, color: r.color, self: mine.includes(r.id) })),
+    // Voice channels are left out on purpose: clicking one would either do
+    // nothing or drop you into a live call, and neither is what "#name" in a
+    // sentence promises. They render as ordinary text.
+    channels: (g?.channels || [])
+      .filter((c) => c.name && c.type !== "voice")
+      .map((c) => ({ id: c.id, name: c.name })),
+  };
+});
+export const mentionRefs = () => refTables;
 
 export function guildUnread(g) {
   let count = 0;
   let mentions = 0;
   for (const c of g.channels) {
     const u = S.unread[c.id];
-    if (!u || S.mutes[c.id]) continue;
+    if (!u || isMuted(c.id, g.id)) continue;
     count += u.count;
     mentions += u.mentions;
   }
@@ -1103,6 +1257,7 @@ export async function onLogin() {
   applyAppearance(); // profile color, unless an accent preset overrides it
   await refreshGuilds();
   await refreshBlocked();
+  await refreshRequests();
   S.ready = true;
   initEvents();
   // Adopt reads that happened in other sessions/devices BEFORE counting, so
@@ -1165,6 +1320,30 @@ export async function unblockUser(fingerprint, name = "") {
   } catch (err) {
     flash(err);
   }
+}
+
+// ---- message requests ----
+// A stranger's DM waits here until you say yes. Nothing in this list has been
+// joined: the invite code is held, not redeemed, so declining costs the sender
+// nothing they can observe (no read receipt for harassment).
+export async function refreshRequests() {
+  try {
+    S.requests = (await api.messageRequests()) || [];
+  } catch {
+    /* older backend or locked — the tray just stays empty */
+  }
+}
+export async function acceptRequest(fingerprint) {
+  const dm = await api.acceptMessageRequest(fingerprint);
+  await refreshRequests();
+  await refreshGuilds();
+  if (dm?.id) await selectGuild(dm.id);
+  return dm;
+}
+export async function declineRequest(fingerprint, block = false) {
+  await api.declineMessageRequest(fingerprint, block);
+  await refreshRequests();
+  if (block) await refreshBlocked();
 }
 
 // nudge asks the core to reconnect + resync now (called on app resume / by the
@@ -1452,7 +1631,13 @@ export function scheduleRefresh({ guilds = false, panel = false } = {}) {
     const p = _pendingPanel;
     _pendingGuilds = false;
     _pendingPanel = false;
-    if (g) await refreshGuilds();
+    if (g) {
+      await refreshGuilds();
+      // The tray rides the guild refresh rather than an event of its own: a
+      // request arriving IS a guild-list change as far as the sidebar is
+      // concerned, and it inherits the same coalescing.
+      await refreshRequests();
+    }
     if (p) await refreshRightPanel();
     // Own profile can change server-side without user input (rich-presence
     // overlay) — keep S.identity live so your own card/status match reality.
@@ -1621,7 +1806,17 @@ function initEvents() {
     // someone else (not edits/reactions/pins, not a sync backfill of old msgs).
     const isMention = isMentionOfSelf(m);
     const genuinelyNew = firstSeen && isLive && m.sender !== S.identity.fingerprint && !m.deleted && m.kind === "";
-    if (genuinelyNew && !S.mutes[m.channelId]) {
+    // One decision, both outputs: the chime and the OS notification agree by
+    // construction rather than by two similar-looking conditions drifting apart.
+    // A DM counts as a mention here — someone talking only to you is the case
+    // "only @mentions" is meant to still let through.
+    const alert =
+      genuinelyNew &&
+      wantsAlert(notifLevel(m.channelId), {
+        mention: isMention || isDMChannel(m.channelId),
+        dnd: S.identity.presence === "dnd",
+      });
+    if (alert) {
       // A direct message gets its own chime (unless you're already looking at
       // it); an @mention elsewhere gets the mention ping.
       if (isDMChannel(m.channelId) && (m.channelId !== S.activeChannelId || !document.hasFocus())) {
@@ -1629,13 +1824,9 @@ function initEvents() {
       } else if (isMention) {
         playMention();
       }
-    }
-    if (genuinelyNew) {
       notify(m, {
         selfFpr: S.identity.fingerprint,
         mention: isMention,
-        muted: !!S.mutes[m.channelId],
-        activeChannel: S.activeChannelId,
         onClick: () => jumpToChannel(m.channelId),
       });
     }

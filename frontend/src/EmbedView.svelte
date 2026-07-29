@@ -5,11 +5,11 @@
   // and nothing user-authored can inject.
   import { renderMarkdown } from "./lib/markdown.js";
 
-  let { embed, mentionNames = [], customEmoji = null } = $props();
+  let { embed, mentionNames = [], customEmoji = null, refs = null } = $props();
 
   const accent = $derived(embed.color || "var(--accent)");
-  const titleHtml = $derived(embed.title ? renderMarkdown(embed.title, mentionNames, customEmoji) : "");
-  const descHtml = $derived(embed.desc ? renderMarkdown(embed.desc, mentionNames, customEmoji) : "");
+  const titleHtml = $derived(embed.title ? renderMarkdown(embed.title, mentionNames, customEmoji, refs) : "");
+  const descHtml = $derived(embed.desc ? renderMarkdown(embed.desc, mentionNames, customEmoji, refs) : "");
 </script>
 
 <div class="embed" style="--embed-accent:{accent}">
@@ -32,8 +32,8 @@
              reordered, so the index is the honest identity here. -->
         {#each embed.fields as f, i (i)}
           <div class="field">
-            {#if f.name}<div class="f-name">{@html renderMarkdown(f.name, mentionNames, customEmoji)}</div>{/if}
-            {#if f.value}<div class="f-val md">{@html renderMarkdown(f.value, mentionNames, customEmoji)}</div>{/if}
+            {#if f.name}<div class="f-name">{@html renderMarkdown(f.name, mentionNames, customEmoji, refs)}</div>{/if}
+            {#if f.value}<div class="f-val md">{@html renderMarkdown(f.value, mentionNames, customEmoji, refs)}</div>{/if}
           </div>
         {/each}
       </div>

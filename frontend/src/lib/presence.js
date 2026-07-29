@@ -3,7 +3,10 @@
 export const PRESENCE_OPTIONS = [
   { id: "online", label: "Online", desc: "Around and up for a chat", color: "var(--ok)" },
   { id: "idle", label: "Idle", desc: "Away from the keyboard for a bit", color: "#f0b232" },
-  { id: "dnd", label: "Do Not Disturb", desc: "Here, but heads-down", color: "#f04747" },
+  // DND is the one presence that changes this client's own behaviour: it
+  // silences every ping, mentions included (see lib/notifs.js). Unread badges
+  // still light — it's about noise, not about losing your place.
+  { id: "dnd", label: "Do Not Disturb", desc: "Heads-down — nothing pings", color: "#f04747" },
   { id: "invisible", label: "Invisible", desc: "Appear offline to everyone else", color: "var(--text-faint)" },
 ];
 

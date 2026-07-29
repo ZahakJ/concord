@@ -15,6 +15,9 @@ import { loadDenoiser, makeDenoiseNode, nrValue } from "./denoise.js";
 
 const DEFAULT_ICE = [{ urls: "stun:stun.l.google.com:19302" }];
 
+// How long the mic stays open after a push-to-talk key comes up.
+const TALK_TAIL_MS = 150;
+
 export class VoiceMesh {
   // selfPeerId: our libp2p peer id; channelId: the voice room; relay(to, json)
   // sends a signaling blob; onRoster(peerIds[]) reports participant changes.
@@ -102,12 +105,20 @@ export class VoiceMesh {
     this.sendStream = null; // processed mic, when a chain is in play
     this._chain = null; // { src, gain, gate }
     this._gateOpenUntil = 0;
+    // Push-to-talk: the mic is shut unless `talking` is held. It supersedes the
+    // noise gate rather than stacking with it — see setPushToTalk.
+    this.pushToTalk = !!audio.pushToTalk;
+    this.talking = false;
+    this._talkTail = null;
   }
 
   async start() {
     this.localStream = await micStream(this.devices.mic, this.audio);
     if (this.audio.nr) await loadDenoiser(this._ac());
     this._buildChain();
+    // Join shut, not open, when the mic is on a key — and let the same call
+    // park the gate, so there's one place that knows how those two interact.
+    if (this.pushToTalk) this.setPushToTalk(true);
     this._hintTracks();
     // Metered on the RAW capture, not the processed send: the gate below reads
     // this level to decide when to open, and a meter behind a closed gate could
@@ -197,7 +208,7 @@ export class VoiceMesh {
   async _sendMicTrack() {
     const track = this._micTrack();
     if (!track) return;
-    track.enabled = !this.muted; // a fresh track is live; honor the mute state
+    track.enabled = this._micLive(); // a fresh track is live; honor mute / push-to-talk
     this._hintTracks();
     for (const [, peer] of this.peers) {
       const sender = peer.pc.getSenders().find((s) => s.track?.kind === "audio");
@@ -283,10 +294,59 @@ export class VoiceMesh {
   // threshold means what peers would hear) — fast to open, slow to close, with
   // a hold so word tails and short pauses don't get chopped.
   _applyGate(level) {
-    if (!this._chain || !this.audio.gate) return;
+    if (!this._chain || !this.audio.gate || this.pushToTalk) return;
     if (level * this.audio.gain >= this.audio.gate) this._gateOpenUntil = Date.now() + 500;
     const open = Date.now() < this._gateOpenUntil;
     this._chain.gate.gain.setTargetAtTime(open ? 1 : 0, this._ac().currentTime, open ? 0.01 : 0.15);
+  }
+
+  // ---- push-to-talk ----
+  //
+  // The alternative to voice activity, not a layer on top of it: while it's on,
+  // the noise gate is parked open and stops deciding anything. It has to be —
+  // the gate opens on measured level, but the level it measures comes from a
+  // mic we've just switched off, so it would read silence and clip the first
+  // syllable of every push.
+
+  setPushToTalk(on) {
+    this.pushToTalk = !!on;
+    this.talking = false;
+    clearTimeout(this._talkTail);
+    if (this.pushToTalk && this._chain) {
+      this._chain.gate.gain.setTargetAtTime(1, this._ac().currentTime, 0.02);
+    }
+    this._applyMicLive();
+  }
+
+  // setTalking is the key going down and coming back up. Down opens instantly;
+  // up waits out a short tail, because people release on the last word and
+  // cutting at the keystroke eats its final consonant.
+  setTalking(on) {
+    clearTimeout(this._talkTail);
+    if (on) {
+      this.talking = true;
+      this._applyMicLive();
+      return;
+    }
+    this._talkTail = setTimeout(() => {
+      this.talking = false;
+      this._applyMicLive();
+    }, TALK_TAIL_MS);
+  }
+
+  // _micLive is the single answer to "should peers be hearing us right now".
+  // Mute outranks push-to-talk: a muted mic stays muted however hard you hold
+  // the key, and deafen reaches this through mute.
+  _micLive() {
+    return !this.muted && (!this.pushToTalk || this.talking);
+  }
+
+  // Both ends of the chain: killing the capture silences what's downstream, and
+  // disabling the sent track is what peers actually see stop.
+  _applyMicLive() {
+    const live = this._micLive();
+    this.localStream?.getAudioTracks().forEach((t) => (t.enabled = live));
+    this.sendStream?.getAudioTracks().forEach((t) => (t.enabled = live));
   }
 
   // ---- audio quality ----
@@ -425,6 +485,7 @@ export class VoiceMesh {
     for (const id of [...this.peers.keys()]) this.removePeer(id);
     if (this._monitor) clearInterval(this._monitor);
     this._monitor = null;
+    clearTimeout(this._talkTail);
     this.analysers.clear();
     if (this.audioCtx) {
       this.audioCtx.close().catch(() => {});
@@ -480,10 +541,7 @@ export class VoiceMesh {
 
   setMuted(muted) {
     this.muted = muted;
-    // Both ends of the chain: killing the capture silences what's downstream,
-    // and disabling the sent track is what peers actually see stop.
-    this.localStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
-    this.sendStream?.getAudioTracks().forEach((t) => (t.enabled = !muted));
+    this._applyMicLive();
   }
 
   // setDeafened silences every remote participant and, Discord-style, also mutes

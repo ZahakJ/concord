@@ -10,7 +10,7 @@
   //
   // The publisher's optional note goes above it, because that part genuinely is
   // someone's aside about the announcement rather than the announcement itself.
-  import { customEmojiMap, S } from "./lib/state.svelte.js";
+  import { customEmojiMap, mentionRefs, S } from "./lib/state.svelte.js";
   import { renderMarkdown } from "./lib/markdown.js";
 
   let { announce } = $props();
@@ -19,9 +19,9 @@
 </script>
 
 {#if announce.note}
-  <div class="note">{@html renderMarkdown(announce.note, names, customEmojiMap())}</div>
+  <div class="note">{@html renderMarkdown(announce.note, names, customEmojiMap(), mentionRefs())}</div>
 {/if}
-<div class="body">{@html renderMarkdown(announce.body, names, customEmojiMap())}</div>
+<div class="body">{@html renderMarkdown(announce.body, names, customEmojiMap(), mentionRefs())}</div>
 
 <style>
   .body {

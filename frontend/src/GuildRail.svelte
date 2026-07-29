@@ -301,6 +301,12 @@
     <span class="jet" class:roll={rolling} onanimationend={() => (rolling = false)}>
       <Icon name="concorde" size={24} />
     </span>
+    {#if S.requests.length && !inDMs}
+      <!-- Message requests get a dot, never the red count badge: a stranger who
+           has not been accepted must not be able to make the app look like a
+           friend is waiting. -->
+      <span class="req-dot" title="Message requests waiting"></span>
+    {/if}
   </button>
   <div class="divider"></div>
 
@@ -555,6 +561,17 @@
   }
   .pill.home:hover :global(svg) {
     transform: rotate(-10deg) translateY(-1px);
+  }
+  .req-dot {
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    border: 2px solid var(--bg-0);
+    pointer-events: none;
   }
   .jet {
     display: inline-flex;

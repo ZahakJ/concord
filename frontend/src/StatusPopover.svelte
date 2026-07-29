@@ -5,7 +5,7 @@
   // applies via api.setProfile while preserving the rest of the profile.
   import Icon from "./Icon.svelte";
   import GameShelf from "./GameShelf.svelte";
-  import { S, flash, refreshRightPanel } from "./lib/state.svelte.js";
+  import { S, flash, refreshRightPanel, patchProfile } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PRESENCE_OPTIONS, splitStatus, joinStatus } from "./lib/presence.js";
 
@@ -27,28 +27,14 @@
   const myPresence = $derived(S.identity.presence || "online");
   const dirty = $derived(joinStatus(statusEmoji, statusText.trim()) !== (S.identity.status || "").trim());
 
-  // One writer: patch presence and/or status, keeping every other profile
-  // field exactly as S.identity holds it.
+  // Presence and/or status, with the popover's busy state around it. The
+  // carry-everything-else part lives in patchProfile, shared with the other
+  // places that change one field.
   async function save(patch) {
     if (busy) return;
     busy = true;
     try {
-      const id = S.identity;
-      await api.setProfile(
-        id.displayName || "",
-        patch.status ?? id.status ?? "",
-        id.emoji || "",
-        id.color || "",
-        id.avatar || "",
-        id.banner || "",
-        patch.presence ?? id.presence ?? "",
-        id.bio || "",
-        id.color2 || "",
-        id.frame || "",
-        id.effect || "",
-        id.style ? JSON.stringify(id.style) : "",
-      );
-      S.identity = await api.identity();
+      await patchProfile(patch);
       await refreshRightPanel(); // your own dot in the member list
     } catch (err) {
       flash(err);

@@ -1661,8 +1661,14 @@ func (s *Service) emitGuildUpdate() {
 	}
 }
 
-// SendTyping broadcasts an ephemeral "is typing" hint for a channel.
+// SendTyping broadcasts an ephemeral "is typing" hint for a channel. With the
+// indicator switched off (see typing.go) nothing is published at all — the
+// setting is enforced by not sending, which is the only enforcement a
+// serverless design can offer and the only one worth trusting.
 func (s *Service) SendTyping(channelID string) error {
+	if !s.TypingEnabled() {
+		return nil
+	}
 	groupID, err := s.groupForChannel(channelID)
 	if err != nil {
 		return err
@@ -1678,6 +1684,9 @@ func (s *Service) OnTyping(fn func(from, channelID string)) {
 }
 
 func (s *Service) emitTyping(from, channelID string) {
+	if !s.TypingEnabled() {
+		return // reciprocal: not sending means not seeing
+	}
 	s.mu.RLock()
 	cbs := append([]func(string, string){}, s.onTyping...)
 	s.mu.RUnlock()

@@ -125,6 +125,7 @@ func (s *Service) runHealLoop() {
 			s.healStrandedGuilds()
 			s.retryPendingDMInvites()
 			s.reconcilePendingMembers()
+			s.noteDeviceLeaves()
 			s.reconcileGuilds()
 		}
 	}

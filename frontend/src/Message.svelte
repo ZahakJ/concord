@@ -47,6 +47,8 @@
     activeGuild,
     activeChannel,
     fmtClock,
+    jumpToChannel,
+    mentionRefs,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
@@ -124,6 +126,8 @@
     { name: "here", self: true },
     ...S.members.filter((mm) => mm.name).map((mm) => ({ name: mm.name, self: mm.isSelf })),
   ]);
+  // @role and #channel, resolved against the guild on screen.
+  const refs = $derived(mentionRefs());
 
   // @mentions open a floating profile card — on hover (with intent delay) and
   // immediately on click.
@@ -149,6 +153,15 @@
     if (spoiler && !spoiler.classList.contains("revealed")) {
       e.preventDefault();
       spoiler.classList.add("revealed");
+      return;
+    }
+    // A #channel goes where it points. It carries the id, not the name, so a
+    // renamed channel still resolves; one that's since been deleted just does
+    // nothing rather than throwing you somewhere arbitrary.
+    const ch = e.target.closest?.(".mention-channel")?.dataset.channel;
+    if (ch) {
+      e.preventDefault();
+      jumpToChannel(ch);
       return;
     }
     const hit = mentionMember(e.target);
@@ -676,7 +689,7 @@
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div class="body" class:jumbo={emojiOnly(bodyText)} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
-          {@html renderMarkdown(bodyText, mentionNames, cemoji)}{#if m.edited}<span
+          {@html renderMarkdown(bodyText, mentionNames, cemoji, refs)}{#if m.edited}<span
               class="edited-tag">(edited)</span
             >{/if}
         </div>
@@ -694,7 +707,7 @@
         {/if}
       {/each}
       {#if richEmbed}
-        <EmbedView embed={richEmbed} {mentionNames} customEmoji={cemoji} />
+        <EmbedView embed={richEmbed} {mentionNames} customEmoji={cemoji} {refs} />
       {/if}
       {#if embed?.kind === "yt"}
         <YouTubeEmbed videoId={embed.id} autoload={S.prefs.linkPreviews !== false} />
@@ -1464,6 +1477,24 @@
   }
   .body :global(.mention-self:hover) {
     background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  /* A role mention wears its role's colour. The tint is mixed from currentColor,
+     which the renderer's inline style has already set to the role's hex — so
+     one rule covers coloured and uncoloured roles alike, and no colour value
+     needs to reach the stylesheet. Placed after .mention-self so the tint wins
+     the background; the ring below is what says it pings you. */
+  .body :global(.mention-role) {
+    background: color-mix(in srgb, currentColor 16%, transparent);
+  }
+  .body :global(.mention-role:hover) {
+    background: color-mix(in srgb, currentColor 28%, transparent);
+  }
+  .body :global(.mention-role.mention-self) {
+    box-shadow: 0 0 0 1px color-mix(in srgb, currentColor 55%, transparent);
+  }
+  /* #channel is a destination, so it reads like the links next to it. */
+  .body :global(.mention-channel) {
+    color: var(--accent-hover);
   }
   /* Spoiler: blacked-out until clicked. */
   .body :global(.spoiler) {

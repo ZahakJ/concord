@@ -9,6 +9,7 @@
     selectGuild,
     markAllRead,
     toggleMute,
+    isMuted,
     channelShort,
     isDMChannel,
   } from "./lib/state.svelte.js";
@@ -66,7 +67,7 @@
     ];
     if (S.activeChannelId) {
       const id = S.activeChannelId;
-      const muted = !!S.mutes[id];
+      const muted = !!isMuted(id);
       const name = isDMChannel(id) ? channelShort(id) : `#${channelShort(id)}`;
       list.push({
         id: "mute",

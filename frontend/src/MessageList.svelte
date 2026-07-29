@@ -377,6 +377,17 @@
           <span class="call-time">{fmtCallTime(row.m.sent)}</span>
         </span>
       </div>
+    {:else if row.m.kind === "device"}
+      <!-- Written locally when a contact links a device (internal/app/
+           devicewatch.go). It never travelled: the sync ingest drops every kind
+           but ""/"system", so our observation stays on this machine. -->
+      <div class="system-msg device-note" class:enter={row.m.id === animateId}>
+        <span>
+          <span class="dev-ic"><Icon name="devices" size={11} /></span>
+          <strong>{row.m.senderName || row.m.sender.slice(0, 9)}</strong>
+          {row.m.content}
+        </span>
+      </div>
     {:else}
       <Message
         m={row.m}
@@ -850,6 +861,24 @@
     color: var(--text-faint);
     font-size: 11px;
     margin-left: 2px;
+  }
+  /* A contact's new device: worth noticing, not worth alarming. The warn tint
+     says "read this" without claiming their identity changed — it didn't. */
+  .device-note .dev-ic {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+    color: var(--warn-text);
+  }
+  .device-note span {
+    max-width: 60ch;
+    text-align: center;
+    display: inline-flex;
+    flex-wrap: wrap;
+    justify-content: center;
   }
   /* The return-to-latest cluster: both buttons share the accent-gradient
      "floating" look — a soft colored glow instead of the old flat chip. */

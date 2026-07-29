@@ -1,5 +1,6 @@
 <script>
-  // The message composer: draft, :emoji: / @mention / slash-command
+  // The message composer: draft, :emoji: / @mention / @role / #channel /
+  // slash-command
   // autocomplete, emoji picker, image attach (button/paste/drop via parent),
   // typing signals, reply banner, and ArrowUp-in-empty-composer to edit your
   // last message.
@@ -7,7 +8,7 @@
   import EmojiPicker from "./EmojiPicker.svelte";
   import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
-  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor, mentionRefs } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -22,7 +23,7 @@
   let pending = $state([]);
   let composerEl = $state(null);
   let fileInput = $state(null);
-  let suggest = $state(null); // { kind:"emoji"|"mention", start, items, sel }
+  let suggest = $state(null); // { kind:"emoji"|"mention"|"channel"|"slash", start, items, sel }
   let lastTypingSent = 0;
 
   // A composer placeholder that reads like the conversation you're in — never
@@ -172,6 +173,36 @@
     return { start: at, query };
   }
 
+  // The role and #channel tables, shared with the renderer so what you pick
+  // here is exactly what the sent message will resolve to.
+  const refs = $derived(mentionRefs());
+
+  const SUGGEST_HEADS = {
+    slash: "Commands",
+    emoji: "Emoji",
+    mention: "Members & roles",
+    channel: "Channels",
+  };
+
+  // Roles carry a colour; the same strict hex check the renderer uses, so the
+  // list can't be the one place a bad value reaches a style attribute.
+  const roleTint = (item) =>
+    item.kind === "role" && /^#[0-9a-fA-F]{3,6}$/.test(item.color || "")
+      ? `color:${item.color}`
+      : "";
+
+  // #channel. Same shape as a mention, with one extra job: a markdown header
+  // also starts with "#", so any whitespace in the query closes the list — by
+  // the time you've typed "# " you're writing a heading, not naming a channel.
+  function activeChannelRef(text, caret) {
+    const upto = text.slice(0, caret);
+    const at = upto.lastIndexOf("#");
+    if (at < 0 || (at > 0 && /[\w#]/.test(upto[at - 1]))) return null;
+    const query = upto.slice(at + 1);
+    if (/\s/.test(query) || query.length > 32) return null;
+    return { start: at, query };
+  }
+
   function updateSuggest() {
     const caret = composerEl?.selectionStart ?? draft.length;
     const slash = activeSlash(draft, caret);
@@ -191,10 +222,28 @@
     const mention = activeMention(draft, caret);
     if (mention) {
       const q = mention.query.toLowerCase();
-      const items = S.members
-        .filter((m) => !m.isSelf && m.name && m.name.toLowerCase().includes(q))
-        .slice(0, 6);
+      const hit = (name) => name && name.toLowerCase().includes(q);
+      // People first, then roles. Same order the renderer resolves them in, so
+      // what the list offers is what the message will actually mean.
+      const items = [
+        ...S.members
+          .filter((m) => !m.isSelf && hit(m.name))
+          .map((m) => ({ key: `m:${m.fingerprint}`, name: m.name, kind: "member" })),
+        ...refs.roles
+          .filter((r) => hit(r.name))
+          .map((r) => ({ key: `r:${r.name}`, name: r.name, kind: "role", color: r.color })),
+      ].slice(0, 6);
       suggest = items.length ? { kind: "mention", start: mention.start, items, sel: 0 } : null;
+      return;
+    }
+    const chref = activeChannelRef(draft, caret);
+    if (chref) {
+      const q = chref.query.toLowerCase();
+      const items = refs.channels
+        .filter((c) => c.name.toLowerCase().includes(q))
+        .map((c) => ({ key: `c:${c.id}`, name: c.name }))
+        .slice(0, 6);
+      suggest = items.length ? { kind: "channel", start: chref.start, items, sel: 0 } : null;
       return;
     }
     suggest = null;
@@ -209,7 +258,9 @@
         ? item[1] + " "
         : suggest.kind === "mention"
           ? `@${item.name} `
-          : `/${item.name}` + (item.args ? " " : "");
+          : suggest.kind === "channel"
+            ? `#${item.name} `
+            : `/${item.name}` + (item.args ? " " : "");
     const pos = suggest.start + insert.length;
     draft = draft.slice(0, suggest.start) + insert + draft.slice(caret);
     suggest = null;
@@ -791,9 +842,9 @@
   {#if suggest}
     <div class="suggest-pop">
       <div class="suggest-head">
-        {suggest.kind === "slash" ? "Commands" : suggest.kind === "emoji" ? "Emoji" : "Members"}
+        {SUGGEST_HEADS[suggest.kind]}
       </div>
-      {#each suggest.items as item, i (suggest.kind === "emoji" ? item[0] : suggest.kind === "slash" ? item.name : item.fingerprint)}
+      {#each suggest.items as item, i (suggest.kind === "emoji" ? item[0] : suggest.kind === "slash" ? item.name : item.key)}
         <button class="suggest-item" class:sel={i === suggest.sel} onclick={() => accept(i)}>
           {#if suggest.kind === "emoji"}
             <span class="s-emoji">{item[1]}</span> :{item[0]}:
@@ -801,8 +852,11 @@
             <span class="s-slash" aria-hidden="true"><Icon name="code" size={13} /></span>
             <span class="s-cmd">{item.usage}</span>
             <span class="s-desc">{item.desc}</span>
+          {:else if suggest.kind === "channel"}
+            <span class="s-emoji">#</span>{item.name}
           {:else}
-            <span class="s-emoji">@</span>{item.name}
+            <span class="s-emoji">@</span><span style={roleTint(item)}>{item.name}</span>
+            {#if item.kind === "role"}<span class="s-desc">role</span>{/if}
           {/if}
           <kbd class="s-enter" aria-hidden="true">↵</kbd>
         </button>

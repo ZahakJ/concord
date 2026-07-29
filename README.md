@@ -772,12 +772,18 @@ Map of the code:
 **Done** — identity + encrypted keystore; libp2p transport with mDNS **and** DHT
 discovery, relay, hole-punching; MLS-encrypted guilds/channels; replies, edits,
 deletes, reactions, pins; markdown (code blocks, lists, quotes) with clickable
-@mentions; **encrypted 5 MB image attachments** (fetched out-of-band, cached);
+@mentions — **plus `@role` and `#channel`**, so a group too small to need
+permissions still gets "@movie-night, 9pm?"; **encrypted 5 MB image
+attachments** (fetched out-of-band, cached);
 **native link previews + click-to-play YouTube embeds**; quick switcher (Ctrl+K)
-and keyboard navigation; unread counts + per-channel mute; synthesized
+and keyboard navigation; unread counts and **per-server / per-channel
+notification levels** (all messages, only @mentions, nothing) with a Do Not
+Disturb that genuinely silences rather than decorating; synthesized
 voice/mention sounds; system join/create notices; live presence, typing, and
 full profiles (avatar emoji, accent color, custom status, drag/paste + crop
-avatar editor); voice mesh with a speaking-ring participant panel — plus
+avatar editor); voice mesh with a speaking-ring participant panel, a noise gate
+and **push-to-talk** (bind any key; in-window only, because claiming a key from
+the whole desktop means reaching outside the binary) — plus
 **camera video and screen sharing** with Discord-style focus/theater tiles;
 guild rename; local full-history search; desktop notifications; Markdown
 export; offline history sync; encrypted-at-rest storage; browser **and**
@@ -785,11 +791,17 @@ native desktop front ends; a self-hostable rendezvous/relay node; a **friends
 list and end-to-end-encrypted 1:1 direct messages**, with an encrypted
 **offline mailbox** on the rendezvous node (ciphertext-only deposits, optional
 contentless push wakes) so DMs land even when the recipient is offline;
-**channel categories and roles & permissions** (signed, replayable governance
-log); **multi-device linking** (QR pair a phone/second desktop; device
-certificates keep MLS identity intact); **native mobile apps** (Capacitor
-Android + iOS shells over a gomobile core — Android APKs ship with releases);
-and in-app **self-update**.
+**message requests** — a DM from someone you don't share a server with, haven't
+verified and never messaged first is held as an *un-redeemed invitation*, so a
+stranger learns nothing (not your profile, not your mailbox key, not even that
+you're online) until you accept; **reciprocal typing indicators** you can switch
+off (read receipts need no switch — read state only ever travels to your own
+devices); **"they linked a new device" notices** in the DM, the half of safety
+numbers that catches an account growing a reader; **channel categories and
+roles & permissions** (signed, replayable governance log); **multi-device
+linking** (QR pair a phone/second desktop; device certificates keep MLS identity
+intact); **native mobile apps** (Capacitor Android + iOS shells over a gomobile
+core — Android APKs ship with releases); and in-app **self-update**.
 
 **Next** — an optional **SFU** (forwarding still-encrypted frames) for larger
 voice rooms; onion-routed metadata privacy; and iOS distribution

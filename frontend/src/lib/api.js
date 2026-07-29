@@ -137,6 +137,12 @@ export const api = {
   blockUser: (fingerprint) => call("BlockUser", fingerprint),
   unblockUser: (fingerprint) => call("UnblockUser", fingerprint),
   blockedUsers: () => call("BlockedUsers"),
+  messageRequests: () => call("MessageRequests"),
+  acceptMessageRequest: (fingerprint) => call("AcceptMessageRequest", fingerprint),
+  declineMessageRequest: (fingerprint, block = false) =>
+    call("DeclineMessageRequest", fingerprint, block),
+  typingEnabled: () => call("TypingEnabled"),
+  setTypingEnabled: (on) => call("SetTypingEnabled", on),
   toggleReaction: (channelID, messageID, emoji) =>
     call("ToggleReaction", channelID, messageID, emoji),
   inviteCode: (guildID) => call("InviteCode", guildID),

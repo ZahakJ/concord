@@ -18,6 +18,12 @@
     denyKnocker,
     togglePeerMute,
   } from "./lib/state.svelte.js";
+  import { bindLabel } from "./lib/keybind.js";
+
+  // In push-to-talk the mic button stops being a toggle you watch and becomes a
+  // readout of a key you're holding, so it says which key and lights up live.
+  const pttOn = $derived(!!S.prefs.pushToTalk && !!S.prefs.pttBind);
+  const pttKey = $derived(bindLabel(S.prefs.pttBind));
 
   // Join/leave pop for tiles and strip bubbles; zero-duration under
   // prefers-reduced-motion (Svelte transitions don't read the media query).
@@ -321,7 +327,9 @@
     <button
       class="ctl"
       class:danger={S.muted}
-      title={S.muted ? "Unmute" : "Mute"}
+      class:keyed={pttOn && !S.muted}
+      class:talking={S.talking && !S.muted}
+      title={S.muted ? "Unmute" : pttOn ? `Hold ${pttKey || "your push-to-talk key"} to talk` : "Mute"}
       aria-label={S.muted ? "Unmute" : "Mute"}
       aria-pressed={S.muted}
       onclick={onToggleMute}
@@ -915,6 +923,17 @@
      back to the neutral hover grey — so an on/muted control still reads on/off. */
   .ctl.active:hover {
     background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  /* Push-to-talk: dimmed while the key is up (that IS the state — the mic is
+     shut), accent-lit the moment it goes down. */
+  .ctl.keyed {
+    opacity: 0.65;
+  }
+  .ctl.keyed.talking {
+    opacity: 1;
+    background: var(--accent-soft);
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
   /* Muted mic reads as a clear "off/alert" state (Discord-style red). */
   .ctl.danger {

@@ -47,11 +47,31 @@
       flash(err);
     }
   }
+  // Typing indicators are reciprocal by design (see internal/app/typing.go):
+  // off means you neither send nor see them. There is no server to enforce a
+  // one-way deal, and a client that took without giving would just be lying to
+  // its friends.
+  let typing = $state(true);
+  async function toggleTyping() {
+    typing = !typing;
+    try {
+      await api.setTypingEnabled(typing);
+    } catch (err) {
+      typing = !typing; // revert on failure
+      flash(err);
+    }
+  }
+
   (async () => {
     try {
       richPresence = await api.richPresenceEnabled();
     } catch {
       /* older backend: the switch just starts off */
+    }
+    try {
+      typing = await api.typingEnabled();
+    } catch {
+      /* older backend: indicators are on, as they always were */
     }
   })();
 </script>
@@ -64,7 +84,9 @@
           link to an attacker's server would otherwise deanonymize you with no
           click at all. Relaying calls costs a little latency and hides your IP
           from the people you're talking to; meetings with browser guests always
-          relay."
+          relay. Typing indicators go both ways — switch them off and you stop
+          sending them and stop seeing them. (Read receipts need no switch: your
+          read state only ever travels to your own devices.)"
   >
     <SettingRow
       icon="screen"
@@ -79,6 +101,13 @@
       sub="Relay call media instead of connecting directly"
       checked={S.prefs.hideCallIp}
       onclick={() => setPref("hideCallIp", !S.prefs.hideCallIp)}
+    />
+    <SettingRow
+      icon="edit"
+      title="Typing indicators"
+      sub="Show others you're typing — and see when they are"
+      checked={typing}
+      onclick={toggleTyping}
     />
     <SettingRow
       icon="spark"
@@ -115,7 +144,22 @@
     />
   </SettingGroup>
 
-  <SettingGroup label="People">
+  <SettingGroup
+    label="People"
+    note="A DM from someone you don't share a server with, haven't verified, and
+          never messaged first waits as a request. Concord holds their invitation
+          without opening it, so until you accept they can't see your profile,
+          your presence, or that you're even there."
+  >
+    <SettingRow
+      icon="members"
+      title="Message requests"
+      sub={S.requests.length
+        ? `${S.requests.length} waiting`
+        : "DMs from people you don't know yet"}
+      to="requests"
+      from="privacy"
+    />
     <SettingRow
       icon="lock"
       title="Blocked users"

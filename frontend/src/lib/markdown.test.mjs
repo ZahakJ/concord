@@ -114,6 +114,55 @@ assert(out.includes("&quot;"), "emoji src quote is entity-escaped");
 assert(containsMention("yo @euclid", ["euclid"]), "containsMention positive");
 assert(!containsMention("yo @euclidian", ["euclid"]), "containsMention word boundary");
 
+// ---- @mentions, @roles and #channels ----
+
+// A shorter name must not match INSIDE the span a longer one just produced.
+// Before mentions were stashed, "@Ann Lee" came back with a nested "@Ann"
+// mention whose click target was the wrong person.
+out = renderMarkdown("hi @Ann Lee and @Ann", [{ name: "Ann Lee" }, { name: "Ann" }]);
+assert(
+  out === 'hi <span class="mention" data-mention="Ann Lee">@Ann Lee</span> and <span class="mention" data-mention="Ann">@Ann</span>',
+  `longest name wins and never nests: ${out}`,
+);
+// The same guarantee for a URL that happens to contain an @name.
+out = renderMarkdown("see https://x.com/@Ann", [{ name: "Ann" }]);
+assert(!out.includes("mention"), `a mention must not be made inside an href: ${out}`);
+
+const refs = {
+  roles: [{ name: "movie-night", color: "#ff8800", self: true }, { name: "plain" }],
+  channels: [{ id: "ch_1", name: "general" }],
+};
+out = renderMarkdown("@movie-night in #general", [], null, refs);
+assert(out.includes('data-role="movie-night"'), `role mention rendered: ${out}`);
+assert(out.includes('style="color:#ff8800"'), "a role's colour tints its pill");
+assert(out.includes("mention-self"), "a role you hold is marked self");
+// The channel id, not its name — so a rename doesn't break the link.
+assert(out.includes('data-channel="ch_1"'), `channel ref carries the id: ${out}`);
+assert(out.includes(">#general<"), "channel ref shows the name");
+
+// A person beats a role of the same name: a ping aimed at one person must
+// never quietly widen into a broadcast.
+out = renderMarkdown("@dave", [{ name: "dave" }], null, { roles: [{ name: "dave" }] });
+assert(out.includes('data-mention="dave"') && !out.includes("data-role"), `people win ties: ${out}`);
+
+// A role colour is the one user-supplied string near a style attribute, so it
+// goes through the same strict hex gate the rest of the file relies on.
+out = renderMarkdown("@bad", [], null, { roles: [{ name: "bad", color: 'red;background:url(x)"' }] });
+assert(!out.includes("style="), `a non-hex role colour is dropped, not emitted: ${out}`);
+
+// A role name with regex metacharacters must be matched literally, not compiled.
+out = renderMarkdown("@a.b", [], null, { roles: [{ name: "a.b" }] });
+assert(out.includes('data-role="a.b"'), `role names are regex-escaped: ${out}`);
+assert(!renderMarkdown("@axb", [], null, { roles: [{ name: "a.b" }] }).includes("data-role"), "the dot is literal");
+
+// Unknown names stay plain text — nothing invents a reference.
+out = renderMarkdown("@nobody #nowhere", [], null, refs);
+assert(!out.includes("mention"), `unknown @ and # stay text: ${out}`);
+
+// A markdown header must not be eaten by the #channel pass.
+out = renderMarkdown("# general", [], null, refs);
+assert(out.includes("md-h") && !out.includes("mention-channel"), `headers still render: ${out}`);
+
 // Skin-tone helpers (picker): modifier appended, VS16 dropped on toned forms,
 // and the reverse name lookup survives both directions.
 const { applyTone, emojiName, TONABLE, EMOJI } = await import("./emoji.js");

@@ -8,13 +8,15 @@
 //   Ctrl+Alt+↑/↓      previous / next server
 //   Ctrl+Shift+M      toggle mic mute (while in a call)
 //   Ctrl+Shift+D      toggle deafen (while in a call)
+//   (your choice)     hold to talk, when push-to-talk is on — see below
 //   Ctrl/Cmd+U        toggle the member panel
 //   Escape            close switcher / pins / search / reply — or, if nothing
 //                     is open, mark the current channel read
 //   Shift+Escape      mark ALL channels read
 //   ? or Ctrl+/       keyboard-shortcut cheat sheet
-import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel } from "./state.svelte.js";
+import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted } from "./state.svelte.js";
 import { closeSearch } from "./search.js";
+import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
 
 function channelsOfActive() {
   return activeGuild()?.channels ?? [];
@@ -52,7 +54,7 @@ function stepUnread(dir) {
   if (!flat.length) return;
   const unreadIdx = flat
     .map((c, i) => ({ c, i }))
-    .filter(({ c }) => S.unread[c.id] && !S.mutes[c.id]);
+    .filter(({ c }) => S.unread[c.id] && !isMuted(c.id));
   if (!unreadIdx.length) return;
   const cur = flat.findIndex((c) => c.id === S.activeChannelId);
   const target =
@@ -60,6 +62,52 @@ function stepUnread(dir) {
       ? unreadIdx.find(({ i }) => i > cur) || unreadIdx[0]
       : [...unreadIdx].reverse().find(({ i }) => i < cur) || unreadIdx[unreadIdx.length - 1];
   jumpToChannel(target.c.id);
+}
+
+// ---- push-to-talk ----
+//
+// Its own pair of listeners, because it's the only binding that cares about the
+// key coming back UP. Two things it has to get right or the mic sticks open:
+//
+//   • Alt-tab away mid-push and the keyup lands in the other window, never
+//     here. So blur and a hidden tab both count as a release.
+//   • Holding a key autorepeats keydown; we only act on the transition.
+//
+// Scope: this is in-window only. A hotkey that works while Concord is behind
+// another window needs the OS, and Concord doesn't reach outside its own
+// process for anything — so the settings copy says so rather than pretending.
+
+// The binding that STARTED the current hold, kept so the release is matched
+// against it — rebinding or leaving the call mid-push must still let go.
+let heldBind = null;
+
+function pttBind() {
+  if (!S.voice || !S.prefs.pushToTalk) return null;
+  return S.prefs.pttBind?.code ? S.prefs.pttBind : null;
+}
+
+function release() {
+  if (!heldBind) return;
+  heldBind = null;
+  S.talking = false;
+  S.voice?.mesh?.setTalking(false);
+}
+
+function pttDown(e) {
+  const bind = pttBind();
+  if (!bind || e.repeat || heldBind || !pressesBind(e, bind)) return;
+  // A binding with no modifier also types: while the composer has focus that
+  // key belongs to the message, not to the mic.
+  if (typesCharacter(bind) && inputFocused()) return;
+  e.preventDefault();
+  heldBind = bind;
+  S.talking = true;
+  S.voice.mesh?.setTalking(true);
+}
+
+function pttUp(e) {
+  // Matched on the key alone — releasing a modifier first must not strand it.
+  if (heldBind && releasesBind(e, heldBind)) release();
 }
 
 export function installShortcuts() {
@@ -141,7 +189,21 @@ export function installShortcuts() {
     }
   };
   window.addEventListener("keydown", handler);
-  return () => window.removeEventListener("keydown", handler);
+  // Push-to-talk rides its own listeners: keydown first (so the mic opens on
+  // the same event the keymap sees) plus the two ways a hold can end without a
+  // keyup ever arriving.
+  window.addEventListener("keydown", pttDown);
+  window.addEventListener("keyup", pttUp);
+  window.addEventListener("blur", release);
+  document.addEventListener("visibilitychange", release);
+  return () => {
+    window.removeEventListener("keydown", handler);
+    window.removeEventListener("keydown", pttDown);
+    window.removeEventListener("keyup", pttUp);
+    window.removeEventListener("blur", release);
+    document.removeEventListener("visibilitychange", release);
+    release();
+  };
 }
 
 function inputFocused() {

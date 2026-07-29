@@ -4,7 +4,7 @@
   import Modal from "./Modal.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
-  import { S, setPref } from "../lib/state.svelte.js";
+  import { S, setPref, flash, patchProfile } from "../lib/state.svelte.js";
   import {
     soundsEnabled,
     setSoundsEnabled,
@@ -20,6 +20,19 @@
   function toggleSounds() {
     sounds = !sounds;
     setSoundsEnabled(sounds);
+  }
+
+  // Do Not Disturb is a presence, set from the status popover — but it's also
+  // the master mute, so it belongs on this page too rather than only next to
+  // your name. Turning it off returns you to Online, which is the only sensible
+  // opposite (the popover is where you'd pick Idle or Invisible instead).
+  const dnd = $derived(S.identity.presence === "dnd");
+  async function toggleDnd() {
+    try {
+      await patchProfile({ presence: dnd ? "online" : "dnd" });
+    } catch (err) {
+      flash(err);
+    }
   }
 
   let ringtone = $state(getRingtone());
@@ -42,6 +55,21 @@
 </script>
 
 <Modal title="Notifications &amp; sounds" {onClose} wide>
+  <SettingGroup
+    label="How loud"
+    note="Every server and channel has its own level — all messages, only
+          @mentions, or nothing — on its right-click menu. Do Not Disturb
+          silences the lot without hiding your unread badges."
+  >
+    <SettingRow
+      icon="bell"
+      title="Do Not Disturb"
+      sub={dnd ? "On — nothing will ping you" : "Silence every ping without going offline"}
+      checked={dnd}
+      onclick={toggleDnd}
+    />
+  </SettingGroup>
+
   <SettingGroup>
     <SettingRow
       icon="speaker"

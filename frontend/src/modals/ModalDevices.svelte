@@ -27,6 +27,7 @@
     recordSelfTest,
   } from "../lib/devices.js";
   import { NR_LEVELS, canDenoise } from "../lib/denoise.js";
+  import { bindLabel, makeRecorder, typesCharacter } from "../lib/keybind.js";
 
   let { onClose } = $props();
 
@@ -149,6 +150,96 @@
     if (next && !micTesting) startMicTest(true);
     else if (!next && autoTest) stopMicTest();
   }
+
+  // ---- push-to-talk ----
+  //
+  // The other answer to "when is my mic open". Picking it retires the noise
+  // gate rather than stacking with it (the mesh parks the gate open), so the
+  // gate block below hides itself here instead of offering a knob that does
+  // nothing.
+
+  const ptt = $derived(!!S.prefs.pushToTalk);
+  const pttLabel = $derived(bindLabel(S.prefs.pttBind));
+
+  function setActivation(on) {
+    setPref("pushToTalk", on);
+    S.voice?.mesh.setPushToTalk(on);
+    S.talking = false; // the mesh just dropped the hold; keep the button honest
+    if (on && !S.prefs.pttBind) recording = true; // no key yet: ask straight away
+    else recording = false;
+  }
+
+  // Recording listens in the CAPTURE phase and stops the event dead, so the
+  // key being bound doesn't also fire the global keymap on its way past (or,
+  // worse, trigger push-to-talk itself). Escape cancels — the one key that
+  // stays yours, which is also why keybind.js refuses to bind it.
+  //
+  // The decision of what a keypress means lives in keybind.js (makeRecorder) —
+  // a modifier arms, a real key or a release settles it — so that logic is unit
+  // tested rather than trapped in a component. Here we only route events to it.
+  let recording = $state(false);
+  let held = $state(null); // mirrors recorder.armed(), for the live preview
+  let recorder = null;
+  $effect(() => {
+    if (!recording) {
+      held = null;
+      recorder = null;
+      return;
+    }
+    recorder = makeRecorder();
+    window.addEventListener("keydown", recordKey, true);
+    window.addEventListener("keyup", recordRelease, true);
+    // Losing focus mid-record (alt-tab is itself a modifier hold) would
+    // otherwise leave the recorder armed against a key that's no longer down.
+    window.addEventListener("blur", cancelRecording);
+    return () => {
+      window.removeEventListener("keydown", recordKey, true);
+      window.removeEventListener("keyup", recordRelease, true);
+      window.removeEventListener("blur", cancelRecording);
+    };
+  });
+
+  const cancelRecording = () => (recording = false);
+
+  function commit(bind) {
+    setPref("pttBind", bind);
+    recording = false;
+  }
+
+  function recordKey(e) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (e.code === "Escape") {
+      recording = false;
+      return;
+    }
+    const bind = recorder?.down(e);
+    held = recorder?.armed() ?? null;
+    if (bind) commit(bind);
+  }
+
+  function recordRelease(e) {
+    if (!recorder?.armed()) return;
+    const bind = recorder.up(e);
+    if (!bind) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    held = null;
+    commit(bind); // let go with nothing else pressed: bind the modifier itself
+  }
+
+  // What the button says while armed: the modifiers currently down, with a
+  // trailing "…" standing in for the key that would complete them.
+  const recLabel = $derived.by(() => {
+    if (!held) return "Press any key…";
+    const mods = [
+      held.ctrl && "Ctrl",
+      held.shift && "Shift",
+      held.alt && "Alt",
+      held.meta && "Meta",
+    ].filter(Boolean);
+    return `${mods.join(" + ")} + …`;
+  });
 
   // ---- mic test: a live level meter off the selected input ----
 
@@ -335,7 +426,7 @@
       <div transition:slide={{ duration: 180 }}>
         <div class="meter" role="presentation">
           <div class="fill" style="width:{Math.round(level * 100)}%"></div>
-          {#if gateOn}
+          {#if gateOn && !ptt}
             <div class="gate-mark" style="left:{Math.min(100, S.prefs.micGate * 400)}%"></div>
           {/if}
         </div>
@@ -351,6 +442,40 @@
         </span>
       </div>
     {/if}
+
+    <div class="act">
+      <span class="gate-title">Mic activation</span>
+      <div class="seg two" role="radiogroup" aria-label="Mic activation">
+        <button class:sel={!ptt} role="radio" aria-checked={!ptt} onclick={() => setActivation(false)}>
+          Voice activity
+        </button>
+        <button class:sel={ptt} role="radio" aria-checked={ptt} onclick={() => setActivation(true)}>
+          Push to talk
+        </button>
+      </div>
+      {#if ptt}
+        <div class="ptt" transition:slide={{ duration: 180 }}>
+          <div class="knob">
+            <span class="knob-label">Hold</span>
+            <button class="rec" class:rec-on={recording} onclick={() => (recording = !recording)}>
+              {recording ? recLabel : pttLabel || "Set a key"}
+            </button>
+          </div>
+          <span class="hint">
+            Your mic stays shut until you hold this. It works while Concord's
+            window has focus — Concord doesn't reach outside its own process, so
+            it can't claim a key from the whole desktop.
+          </span>
+          {#if S.prefs.pttBind && typesCharacter(S.prefs.pttBind)}
+            <span class="hint warn">
+              {pttLabel} also types. It won't open your mic while you're writing
+              a message — hold it with Ctrl or Alt, or pick a function key, to
+              have it work everywhere.
+            </span>
+          {/if}
+        </div>
+      {/if}
+    </div>
   </section>
 
   <!-- SPEAKER -->
@@ -477,16 +602,22 @@
           </div>
         {/if}
 
+        <!-- Push-to-talk already answers "when is my mic open", so the gate is
+             absent rather than present-and-ignored. -->
         <div class="gate-row">
           <span class="gate-text">
             <span class="gate-title">Noise gate</span>
-            <span class="hint">Stay silent between sentences, not just quiet</span>
+            <span class="hint">
+              {ptt ? "Not used — push to talk decides this instead" : "Stay silent between sentences, not just quiet"}
+            </span>
           </span>
-          <button class="switch" class:on={gateOn} role="switch" aria-checked={gateOn} aria-label="Noise gate" onclick={toggleGate}>
-            <span class="sw-knob"></span>
-          </button>
+          {#if !ptt}
+            <button class="switch" class:on={gateOn} role="switch" aria-checked={gateOn} aria-label="Noise gate" onclick={toggleGate}>
+              <span class="sw-knob"></span>
+            </button>
+          {/if}
         </div>
-        {#if gateOn}
+        {#if gateOn && !ptt}
           <div class="gate-body" transition:slide={{ duration: 180 }}>
             <div class="meter tall" role="presentation">
               <div class="fill" style="width:{Math.round(level * 100)}%"></div>
@@ -745,6 +876,43 @@
     border-color: var(--accent);
     background: var(--accent-soft);
     color: var(--text);
+  }
+  /* Two choices, not four — the NR strip's grid would leave half of it empty. */
+  .seg.two {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  /* Mic activation: the mode picker plus, in push-to-talk, its key. */
+  .act {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .ptt {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .rec {
+    flex: 1;
+    padding: 6px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .rec:hover {
+    border-color: var(--accent);
+  }
+  .rec-on {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .hint.warn {
+    color: var(--warn-text);
   }
   /* The gate: a switch for whether, a slider for where. */
   .gate-row {

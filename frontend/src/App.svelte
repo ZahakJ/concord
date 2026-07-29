@@ -86,6 +86,7 @@
   import ModalDisappear from "./modals/ModalDisappear.svelte";
   import ModalStats from "./modals/ModalStats.svelte";
   import ModalBlocked from "./modals/ModalBlocked.svelte";
+  import ModalRequests from "./modals/ModalRequests.svelte";
   import { startScheduler } from "./lib/scheduled.svelte.js";
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
@@ -386,6 +387,7 @@
         gain: S.prefs.micGain,
         gate: S.prefs.micGate,
         nr: S.prefs.micNr,
+        pushToTalk: S.prefs.pushToTalk,
         bitrate: S.prefs.voiceBitrate,
         echoCancel: S.prefs.echoCancel,
         noiseSuppress: S.prefs.noiseSuppress,
@@ -472,6 +474,7 @@
     S.voicePeerFpr = {};
     S.muted = false;
     S.deafened = false;
+    S.talking = false;
     S.peerVolumes = {};
     S.sharing = false;
     S.cameraOn = false;
@@ -839,6 +842,8 @@
     <ModalStats onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "blocked"}
     <ModalBlocked onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "requests"}
+    <ModalRequests onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "newDM"}
     <ModalNewDM onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "renameGroup"}

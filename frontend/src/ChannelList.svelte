@@ -14,6 +14,10 @@
     selectNotes,
     selectChannel,
     toggleMute,
+    isMuted,
+    setChannelNotifs,
+    setGuildNotifs,
+    guildNotifLevel,
     channelShort,
     voiceMembersFor,
     nameFor,
@@ -41,6 +45,7 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
+  import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { longpress } from "./lib/touch.js";
 
   // Touch: long-press opens row menus (iOS never synthesizes contextmenu for
@@ -115,7 +120,7 @@
     let count = own?.count || 0;
     let mentions = own?.mentions || 0;
     for (const t of g?.channels || []) {
-      if (t.parent !== c.id || S.mutes[t.id]) continue;
+      if (t.parent !== c.id || isMuted(t.id, g?.id)) continue;
       const u = S.unread[t.id];
       if (!u) continue;
       count += u.count;
@@ -134,7 +139,7 @@
         (c) =>
           c.type !== "voice" &&
           c.id !== S.activeChannelId &&
-          !S.mutes[c.id] &&
+          !isMuted(c.id, g?.id) &&
           !!channelUnread(c),
       ),
   );
@@ -186,11 +191,25 @@
       },
       c.type === "voice" && { sep: true },
       { label: "Mark As Read", icon: "check", onClick: () => markRead(c.id) },
+      // Notification level, listed flat with a tick on the one in force — the
+      // same shape "Change type to…" uses below, since this menu has no
+      // submenus. "Use server default" is a fourth, distinct answer: it's not a
+      // level, it's declining to pin one.
+      { sep: true },
+      { label: "Notifications", header: true },
       {
-        label: S.mutes[c.id] ? "Unmute Channel" : "Mute Channel",
-        icon: S.mutes[c.id] ? "bell" : "bellOff",
-        onClick: () => toggleMute(c.id),
+        label: `Use server default (${levelLabel(guildNotifLevel(g?.id))})`,
+        icon: "bell",
+        active: !S.notifs.channels[c.id],
+        onClick: () => setChannelNotifs(c.id, null),
       },
+      ...LEVELS.map((l) => ({
+        label: l.label,
+        icon: l.id === "none" ? "bellOff" : "bell",
+        active: S.notifs.channels[c.id] === l.id,
+        onClick: () => setChannelNotifs(c.id, l.id),
+      })),
+      { sep: true },
       c.type !== "voice" && {
         label: "Disappearing messages…",
         icon: "clock",
@@ -528,6 +547,16 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="scroll" ondragleave={listDragLeave}>
     {#if g?.kind === "dm"}
+      {#if S.requests.length}
+        <!-- Strangers wait here. Deliberately a quiet row, not a badge on the
+             rail: a request has cost the sender nothing and must not be able to
+             ring your app. -->
+        <button class="dm-item requests" onclick={() => (S.modal = { kind: "requests" })}>
+          <span class="dm-notes-icon"><Icon name="members" size={15} /></span>
+          <span class="dm-name">Message requests</span>
+          <span class="count">{S.requests.length > 99 ? "99+" : S.requests.length}</span>
+        </button>
+      {/if}
       {#each dms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}
         {@const unread = dm.dmNotes ? { count: 0 } : guildUnread(dm)}
@@ -656,8 +685,8 @@
           <div
             class="channel-row"
             class:active
-            class:unread={!!u && !active && !S.mutes[c.id]}
-            class:mentioned={!!u?.mentions && !active && !S.mutes[c.id]}
+            class:unread={!!u && !active && !isMuted(c.id, g?.id)}
+            class:mentioned={!!u?.mentions && !active && !isMuted(c.id, g?.id)}
             class:voice-active={inVoice}
             class:vdrop={vDropId === c.id}
             ondragleave={() => (vDropId === c.id ? (vDropId = "") : null)}
@@ -672,7 +701,7 @@
           >
             <button
               class="channel"
-              class:muted-ch={S.mutes[c.id]}
+              class:muted-ch={isMuted(c.id, g?.id)}
               onclick={() => clickChannel(c)}
               oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => channelMenu(e, c)}
               use:longpress={{ handler: (e) => channelMenu(e, c) }}
@@ -682,7 +711,7 @@
               {#if c.type === "voice" && isCallLocked(c.id)}
                 <span class="ch-lock" title="Call locked — knock to join"><Icon name="lock" size={11} /></span>
               {/if}
-              {#if c.type !== "voice" && !active && u && !S.mutes[c.id]}
+              {#if c.type !== "voice" && !active && u && !isMuted(c.id, g?.id)}
                 <span class="count" class:mention={u.mentions > 0}>
                   {u.mentions > 0 ? (u.mentions > 99 ? "99+" : u.mentions) : u.count > 99 ? "99+" : u.count}
                 </span>
@@ -716,11 +745,11 @@
             {#if c.type !== "voice"}
               <button
                 class="mute-btn"
-                title={S.mutes[c.id] ? "Unmute channel" : "Mute channel"}
-                aria-label={S.mutes[c.id] ? "Unmute channel" : "Mute channel"}
+                title={isMuted(c.id, g?.id) ? "Unmute channel" : "Mute channel"}
+                aria-label={isMuted(c.id, g?.id) ? "Unmute channel" : "Mute channel"}
                 onclick={() => toggleMute(c.id)}
               >
-                <Icon name={S.mutes[c.id] ? "bellOff" : "bell"} size={13} />
+                <Icon name={isMuted(c.id, g?.id) ? "bellOff" : "bell"} size={13} />
               </button>
             {:else}
               <!-- Nothing to mute in a voice channel, but without the bell's
@@ -1465,6 +1494,16 @@
     background: var(--accent-soft);
     color: var(--accent-hover);
     flex-shrink: 0;
+  }
+  /* Requests are neutral, not accented: a stranger knocking should read as
+     something to deal with, never as something new and exciting. */
+  .dm-item.requests .dm-notes-icon {
+    background: var(--bg-3);
+    color: var(--text-muted);
+  }
+  .dm-item.requests .count {
+    background: var(--bg-3);
+    color: var(--text-muted);
   }
   .voice-bar {
     display: flex;

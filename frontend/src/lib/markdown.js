@@ -60,7 +60,7 @@ export function twemojiCode(seq) {
 
 // Inline rules applied to already-escaped text (code spans are cut out first
 // so *bold* inside backticks stays literal).
-function renderInline(s, mentionNames, customEmoji) {
+function renderInline(s, mentionNames, customEmoji, refs) {
   const codeSpans = [];
   s = s.replace(/`([^`]+)`/g, (_, code) => {
     codeSpans.push(code);
@@ -115,50 +115,84 @@ function renderInline(s, mentionNames, customEmoji) {
     const hex = COLOR_NAMES[color.toLowerCase()] || (/^#[0-9a-fA-F]{3,6}$/.test(color) ? color : null);
     return hex ? `<span style="color:${hex}">${text}</span>` : whole;
   });
-  // Links are stashed as placeholders and only restored at the very end — so
-  // neither the autolinker nor the @mention pass ever runs inside a generated
-  // href (e.g. a member named "Foo" must not turn https://x.com/@Foo into a
-  // mention span, which would corrupt the attribute). Masked links first, then
-  // bare URLs.
-  const links = [];
+  // Every span generated below is stashed as a placeholder and only restored at
+  // the very end, so no later pass can ever run INSIDE an earlier one's output.
+  // Two bugs this prevents, both of which are easy to reintroduce by moving a
+  // pass out of it:
+  //   • a member named "Foo" turning https://x.com/@Foo into a mention span,
+  //     which corrupts the href attribute;
+  //   • "@Ann Lee" being matched, and then the shorter name "Ann" matching
+  //     again inside the span just made — leaving a nested mention whose click
+  //     target is the wrong person.
+  const held = [];
   const stash = (html) => {
-    links.push(html);
-    return `\x01${links.length - 1}\x01`;
+    held.push(html);
+    return `\x01${held.length - 1}\x01`;
   };
+  // Masked links first, then bare URLs.
   s = s.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, text, url) =>
     stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${text}</a>`),
   );
   s = s.replace(/(https?:\/\/[^\s<]+)/g, (url) =>
     stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`),
   );
-  if (mentionNames?.length) {
-    // Longest name first so "@Ann Lee" wins over "@Ann". Names arrive escaped
-    // with the same escapeHtml, so they match the escaped text. `self` (the
-    // viewer's own name) gets an extra class so their mentions stand out.
-    const names = (Array.isArray(mentionNames) ? mentionNames : [mentionNames])
-      .map((n) => (typeof n === "string" ? { name: n, self: false } : n))
-      .filter((n) => n.name);
-    const escaped = names
-      .map((n) => ({ ...n, esc: escapeHtml(n.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") }))
-      .sort((a, b) => b.esc.length - a.esc.length);
-    for (const n of escaped) {
-      // data-mention carries the raw name so the click handler can resolve
-      // the member; it's escaped, so it's inert as an attribute value.
-      s = s.replace(
-        new RegExp(`@(${n.esc})(?![\\w])`, "g"),
-        `<span class="mention${n.self ? " mention-self" : ""}" data-mention="$1">@$1</span>`,
-      );
-    }
+
+  // People. Longest name first so "@Ann Lee" wins over "@Ann". Names arrive
+  // escaped with the same escapeHtml, so they match the escaped text. `self`
+  // (the viewer's own name) gets an extra class so their mentions stand out.
+  for (const n of byLongest(mentionNames)) {
+    // data-mention carries the raw name so the click handler can resolve the
+    // member; it's escaped, so it's inert as an attribute value.
+    s = s.replace(new RegExp(`@(${n.esc})(?![\\w])`, "g"), (_, name) =>
+      stash(`<span class="mention${n.self ? " mention-self" : ""}" data-mention="${name}">@${name}</span>`),
+    );
   }
 
-  // Restore links (after mentions) and code spans.
-  s = s.replace(/\x01(\d+)\x01/g, (_, i) => links[+i]);
+  // Roles. Same shape as a person — "@movie-night, 9pm?" is the whole point of
+  // having roles in a group too small to need permissions. People are matched
+  // first, so a role that shares a member's name loses, which is the safer way
+  // round: a ping aimed at one person must never quietly become a broadcast.
+  for (const r of byLongest(refs?.roles)) {
+    // The role's own colour tints the pill — but ONLY through the strict hex
+    // check, because this is the one place a user-supplied string would reach
+    // a style attribute. Anything else renders uncoloured rather than raw.
+    const hex = /^#[0-9a-fA-F]{3,6}$/.test(r.color || "") ? r.color : "";
+    s = s.replace(new RegExp(`@(${r.esc})(?![\\w])`, "g"), (_, name) =>
+      stash(
+        `<span class="mention mention-role${r.self ? " mention-self" : ""}"` +
+          `${hex ? ` style="color:${hex}"` : ""} data-role="${name}">@${name}</span>`,
+      ),
+    );
+  }
+
+  // #channel. Carries the channel id, not the name, so clicking one still lands
+  // in the right place after somebody renames it.
+  for (const c of byLongest(refs?.channels)) {
+    s = s.replace(new RegExp(`#(${c.esc})(?![\\w])`, "g"), (_, name) =>
+      stash(`<span class="mention mention-channel" data-channel="${escapeHtml(c.id)}">#${name}</span>`),
+    );
+  }
+
+  // Restore the stashed spans (after every pass) and code spans.
+  s = s.replace(/\x01(\d+)\x01/g, (_, i) => held[+i]);
   return s.replace(/\x00(\d+)\x00/g, (_, i) => `<code>${codeSpans[+i]}</code>`);
+}
+
+// byLongest normalises a mention table — plain strings or {name,…} objects —
+// into entries carrying a regex-safe, HTML-escaped name, longest first so the
+// most specific match gets there before a prefix of it does.
+function byLongest(list) {
+  if (!list) return [];
+  return (Array.isArray(list) ? list : [list])
+    .map((n) => (typeof n === "string" ? { name: n } : n))
+    .filter((n) => n?.name)
+    .map((n) => ({ ...n, esc: escapeHtml(n.name).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") }))
+    .sort((a, b) => b.esc.length - a.esc.length);
 }
 
 // renderMarkdown converts a message body to safe HTML. mentionNames (optional)
 // highlights @mentions; customEmoji (optional, {name: dataURI}) renders :name:.
-export function renderMarkdown(text, mentionNames = [], customEmoji = null) {
+export function renderMarkdown(text, mentionNames = [], customEmoji = null, refs = null) {
   const parts = text.split("```");
   let out = "";
   for (let i = 0; i < parts.length; i++) {
@@ -169,14 +203,14 @@ export function renderMarkdown(text, mentionNames = [], customEmoji = null) {
       const body = parts[i].replace(/^[a-zA-Z0-9+-]*\n/, "");
       out += `<pre${lang ? ` data-lang="${escapeHtml(lang)}"` : ""}><code>${escapeHtml(body.replace(/\n$/, ""))}</code></pre>`;
     } else {
-      out += renderBlocks(escapeHtml(parts[i]), mentionNames, customEmoji);
+      out += renderBlocks(escapeHtml(parts[i]), mentionNames, customEmoji, refs);
     }
   }
   return out;
 }
 
 // Block rules (quotes, lists) over escaped text, line by line.
-function renderBlocks(s, mentionNames, customEmoji) {
+function renderBlocks(s, mentionNames, customEmoji, refs) {
   const lines = s.split("\n");
   let out = "";
   let list = null; // "ul" | "ol" | null
@@ -191,7 +225,7 @@ function renderBlocks(s, mentionNames, customEmoji) {
     if (bq3) {
       closeList();
       const rest = [bq3[1], ...lines.slice(i + 1)].join("\n");
-      out += `<blockquote>${renderBlocks(rest, mentionNames, customEmoji)}</blockquote>`;
+      out += `<blockquote>${renderBlocks(rest, mentionNames, customEmoji, refs)}</blockquote>`;
       return out;
     }
     // Headers # / ## / ### (mapped to h3–h5 so they stay chat-sized).
@@ -202,7 +236,7 @@ function renderBlocks(s, mentionNames, customEmoji) {
     if (hdr) {
       closeList();
       const tag = ["h3", "h4", "h5"][hdr[1].length - 1];
-      out += `<${tag} class="md-h">${renderInline(hdr[2], mentionNames, customEmoji)}</${tag}>`;
+      out += `<${tag} class="md-h">${renderInline(hdr[2], mentionNames, customEmoji, refs)}</${tag}>`;
     } else if (ul || ol) {
       const kind = ul ? "ul" : "ol";
       if (list !== kind) {
@@ -210,13 +244,13 @@ function renderBlocks(s, mentionNames, customEmoji) {
         out += `<${kind}>`;
         list = kind;
       }
-      out += `<li>${renderInline((ul || ol)[1], mentionNames, customEmoji)}</li>`;
+      out += `<li>${renderInline((ul || ol)[1], mentionNames, customEmoji, refs)}</li>`;
     } else if (quote) {
       closeList();
-      out += `<blockquote>${renderInline(quote[1], mentionNames, customEmoji)}</blockquote>`;
+      out += `<blockquote>${renderInline(quote[1], mentionNames, customEmoji, refs)}</blockquote>`;
     } else {
       closeList();
-      out += renderInline(line, mentionNames, customEmoji);
+      out += renderInline(line, mentionNames, customEmoji, refs);
       if (i < lines.length - 1) out += "\n";
     }
   }

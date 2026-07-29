@@ -1,7 +1,9 @@
-// notify.js — the single gate for OS notifications. One place decides whether a
-// message deserves attention; everything else just forwards events.
+// notify.js — the last gate before an OS notification: is the user actually
+// looking? WHETHER this message deserves attention at all is decided upstream
+// by the channel's notification level (lib/notifs.js); by the time it gets here
+// that question is settled and only "would they see it anyway" is left.
 //
-// Rules: never notify for your own/system/deleted messages or muted channels;
+// Rules: never notify for your own/system/deleted messages;
 // notify when the window is hidden, or (for @mentions) merely unfocused. On
 // desktop/browser we use the web Notification API; on mobile (Capacitor) the
 // Android WebView doesn't surface that to the tray, so we hand off to our native
@@ -26,8 +28,8 @@ export function requestPermission() {
   }
 }
 
-export function notify(m, { selfFpr, mention, muted, activeChannel, onClick }) {
-  if (m.kind !== "" || m.deleted || m.sender === selfFpr || muted) return;
+export function notify(m, { selfFpr, mention, onClick }) {
+  if (m.kind !== "" || m.deleted || m.sender === selfFpr) return;
 
   const hidden = document.hidden;
   const unfocused = !document.hasFocus();

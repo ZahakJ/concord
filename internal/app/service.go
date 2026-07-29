@@ -64,6 +64,13 @@ type Service struct {
 	dmInviteMu       sync.Mutex
 	pendingDMInvites map[string]map[string]bool
 
+	// requests holds message requests from strangers (fingerprint -> the invite
+	// we are deliberately NOT redeeming yet; see request.go). Its own mutex: the
+	// tray is written from the invite handler, which already calls helpers that
+	// take mu. Persisted in the settings table.
+	reqMu    sync.Mutex
+	requests map[string]MessageRequest
+
 	// hiddenDMs marks DM conversations the user has closed. Discord-style: the
 	// conversation stays fully alive (MLS membership, subscriptions, history)
 	// but the UI hides it until the user reopens it or a new message arrives.
@@ -136,6 +143,16 @@ type Service struct {
 	// blocked is the in-memory mirror of the block list (see block.go), guarded
 	// by mu. A blocked account's DM/guild invites are dropped on arrival.
 	blocked map[string]bool
+
+	// typingOn mirrors the typing-indicator preference (see typing.go), guarded
+	// by mu — it is read on every keystroke's publish and on every inbound hint.
+	typingOn bool
+
+	// devices records which device keys we have seen behind each contact's
+	// account (fingerprint -> set of hex device keys; see devicewatch.go),
+	// guarded by mu. A key appearing that isn't in the set is a device that was
+	// linked into their account since we last looked.
+	devices map[string]map[string]bool
 
 	// pendingMembers[guildID][fingerprint] = people you've added to a guild who
 	// haven't joined yet — shown as "pending" in the roster (like a DM you've
@@ -716,6 +733,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		pendingDMInvites: map[string]map[string]bool{},
 		hiddenDMs:        map[string]bool{},
 		dmPeers:          map[string]string{},
+		requests:         map[string]MessageRequest{},
+		devices:          map[string]map[string]bool{},
 		voiceRooms:       map[string]context.CancelFunc{},
 		voiceWatched:     map[string]bool{},
 		profiles:         map[string]Profile{},
@@ -846,6 +865,12 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	s.loadDMState()
 	s.loadBlocked()
 	s.loadPendingMembers()
+	s.loadMessageRequests()
+	s.loadTypingPref()
+	// Seed the per-contact device roster before anything can raise an alert, so
+	// a restart doesn't report every device we already knew about as new.
+	s.loadDeviceRoster()
+	s.noteDeviceLeaves()
 
 	// Instant meetings are disposable — clear any that outlived their TTL.
 	s.sweepExpiredMeetings()

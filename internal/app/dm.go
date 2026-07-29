@@ -544,16 +544,29 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 		return []byte("ok"), nil
 	}
 	go func() {
-		g, err := s.JoinViaInvite(req.Code)
-		if err != nil {
-			return
-		}
 		// Resolving a PeerID to an account can lag a fresh connection (device
 		// certs still settling). Wait briefly rather than misjudging — and
-		// silently dropping — a legitimate first DM.
+		// silently dropping — a legitimate first DM. This has to settle BEFORE we
+		// redeem anything: who is asking decides whether we redeem at all.
 		for i := 0; senderFpr == "" && i < 20; i++ {
 			time.Sleep(500 * time.Millisecond)
 			senderFpr = s.presence(from).Fingerprint
+		}
+		// An unresolvable sender is one we could never authorize below; a blocked
+		// one is refused outright. Neither gets so much as a tray row.
+		if senderFpr == "" || s.IsBlocked(senderFpr) {
+			return
+		}
+		// A stranger's DM waits in the requests tray (see request.go). Redeeming
+		// the code is the disclosure, so declining to redeem it — yet — is the
+		// entire gate: they learn nothing until the user says yes.
+		if !s.knownContact(senderFpr) {
+			s.recordMessageRequest(senderFpr, req.Code)
+			return
+		}
+		g, err := s.JoinViaInvite(req.Code)
+		if err != nil {
+			return
 		}
 		// Auto-accept guards against a peer pushing an arbitrary invite code to
 		// force us into unsolicited membership (which would disclose our profile +
@@ -568,7 +581,8 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 		//     an attack. A stranger's server invite still lands nowhere.
 		// Anything else is undone immediately. (Hard delete: LeaveGuild would
 		// merely close a DM, which must not keep unsolicited membership around.)
-		// A blocked account can't add us to anything — DM or server — even a 1:1.
+		// Blocking is re-checked here, not just above: redeeming dials the sender
+		// and can take seconds, and a block landing in that window must still win.
 		if s.IsBlocked(senderFpr) {
 			_ = s.deleteGuildLocal(g.ID)
 			return

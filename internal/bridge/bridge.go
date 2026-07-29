@@ -934,6 +934,57 @@ func (b *Bridge) JoinViaInvite(code string) (GuildView, error) {
 	return guildView(svc, g), nil
 }
 
+// MessageRequests lists DM invites from strangers that are waiting for a yes.
+// Nothing in the list has been redeemed — see internal/app/request.go.
+func (b *Bridge) MessageRequests() ([]appsvc.MessageRequest, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.MessageRequests(), nil
+}
+
+// AcceptMessageRequest redeems a held invite and opens the conversation.
+func (b *Bridge) AcceptMessageRequest(fingerprint string) (GuildView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return GuildView{}, err
+	}
+	g, err := svc.AcceptMessageRequest(fingerprint)
+	if err != nil {
+		return GuildView{}, err
+	}
+	return guildView(svc, g), nil
+}
+
+// DeclineMessageRequest drops a request, optionally blocking the sender. The
+// sender is never told.
+func (b *Bridge) DeclineMessageRequest(fingerprint string, block bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.DeclineMessageRequest(fingerprint, block)
+}
+
+// TypingEnabled reports whether typing indicators are exchanged (reciprocal).
+func (b *Bridge) TypingEnabled() (bool, error) {
+	svc, err := b.service()
+	if err != nil {
+		return true, nil
+	}
+	return svc.TypingEnabled(), nil
+}
+
+// SetTypingEnabled turns typing indicators on or off, in both directions.
+func (b *Bridge) SetTypingEnabled(on bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetTypingEnabled(on)
+}
+
 func (b *Bridge) Messages(channelID string) ([]MessageView, error) {
 	svc, err := b.service()
 	if err != nil {
@@ -2022,6 +2073,16 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.UnblockUser(argStr(args, 0))
 	case "BlockedUsers":
 		return b.BlockedUsers()
+	case "MessageRequests":
+		return b.MessageRequests()
+	case "AcceptMessageRequest":
+		return b.AcceptMessageRequest(argStr(args, 0))
+	case "DeclineMessageRequest":
+		return nil, b.DeclineMessageRequest(argStr(args, 0), argBool(args, 1))
+	case "TypingEnabled":
+		return b.TypingEnabled()
+	case "SetTypingEnabled":
+		return nil, b.SetTypingEnabled(argBool(args, 0))
 	case "GuildStats":
 		return b.GuildStats(argStr(args, 0))
 	case "NetworkStats":

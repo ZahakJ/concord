@@ -1,7 +1,10 @@
 <script>
   // The shared context menu. Driven by S.contextMenu = {x,y,items}. Items are
-  // {label, icon?, danger?, onClick} or null (skipped). A `sep:true` item
-  // renders a divider.
+  // {label, icon?, danger?, active?, onClick} or null (skipped). A `sep:true`
+  // item renders a divider, a `header:true` one an inert label over the group
+  // below it — which is how a set of mutually exclusive choices (a channel's
+  // notification level, a channel's type) says what it's choosing, given this
+  // menu deliberately has no submenus. `active` ticks the one in force.
   //
   // Two presentations, one call-site contract: desktop gets the classic
   // anchored popover at the cursor; mobile gets a bottom action sheet (there
@@ -59,6 +62,8 @@
         {#each S.contextMenu.items as item (item)}
           {#if item.sep}
             <div class="as-sep"></div>
+          {:else if item.header}
+            <div class="cm-header">{item.label}</div>
           {:else}
             <button
               class="as-item"
@@ -83,6 +88,8 @@
       {#each S.contextMenu.items as item (item)}
         {#if item.sep}
           <div class="cm-sep"></div>
+        {:else if item.header}
+          <div class="cm-header">{item.label}</div>
         {:else}
           <button class="cm-item" class:danger={item.danger} class:active={item.active} role="menuitem" onclick={() => run(item)}>
             {#if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
@@ -226,6 +233,16 @@
     height: 1px;
     background: var(--border);
     margin: 4px 2px;
+  }
+  /* Group label. Shared by both presentations — the sheet's rows are bigger,
+     but a heading that reads as a heading is the same job either way. */
+  .cm-header {
+    padding: 4px 8px 2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
   }
   /* Colour swatch dot, sized to sit where an icon would. */
   .cm-swatch {
