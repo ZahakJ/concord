@@ -142,6 +142,14 @@
      pad or use a ::before overlay to reach the target without redrawing. */
   --tap-min: 32px;
 
+  /* Height of the phone shell's top chrome, measured from the top of the
+     viewport. Anything that pins itself under the bar (toasts today) reads this
+     instead of hardcoding a number, so a taller bar can't silently start
+     painting over it. MobileShell owns the value and should grow it while the
+     connection pill or the search row are showing; the default is the bare
+     top bar. Zero-cost on desktop, where nothing consumes it. */
+  --mchrome: calc(52px + env(safe-area-inset-top));
+
   /* Legacy aliases (pre-token components reference these). */
   --bg: var(--bg-2);
   --bg-elevated: var(--bg-3);
@@ -1434,21 +1442,52 @@ button {
   color: var(--accent-fg);
   transition: background 0.15s ease;
 }
-button:hover {
-  background: var(--accent-hover);
-}
 button.ghost {
   background: transparent;
   color: var(--text-muted);
   border: 1px solid var(--border);
 }
-button.ghost:hover {
-  background: var(--bg-3);
-  color: var(--text);
+/* Hover is a MOUSE state. A touch tap synthesises :hover in Android WebView and
+   leaves it stuck on the element until you tap elsewhere — so the send button
+   stays lit after you send and every row you brushed past keeps a highlight
+   that reads as a selection. Gate the decoration on the capability, and give
+   every pointer a real press state instead (below). */
+@media (pointer: fine) {
+  button:hover {
+    background: var(--accent-hover);
+  }
+  button.ghost:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  input:hover:not(:focus):not(:disabled),
+  textarea:hover:not(:focus):not(:disabled) {
+    border-color: var(--border);
+  }
 }
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Opt-in hit-box expander for controls that must stay visually small — a 22px
+   glyph button, a close X, a colour swatch. Deliberately NOT a blanket
+   min-height on `button`: the app is full of controls whose shape is the point,
+   and a global floor turns them into ellipses (Modal.svelte's blanket 44px
+   already forced RichEditor to fight it back). Only the hit box grows.
+   Phone-only, because on desktop an invisible 44px overlay around a 22px
+   control starts eating its neighbours' clicks. */
+.tap-hit {
+  position: relative;
+}
+@media (pointer: coarse), (max-width: 768px) {
+  .tap-hit::after {
+    content: "";
+    position: absolute;
+    /* Percentages resolve per-axis, so one value squares the box off at
+       --tap-min in both directions whatever the control's own size. */
+    inset: calc((var(--tap-min) - 100%) / -2);
+  }
 }
 
 :focus-visible {
@@ -1467,7 +1506,11 @@ textarea {
   background: color-mix(in srgb, var(--bg-0) 42%, var(--bg-3));
   color: var(--text);
   border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-  border-radius: 10px;
+  /* The token, not a literal: a theme pack that squares its corners (Gruvbox)
+     or rounds them right over (Sakura) has to reach the fields too, or the
+     phone layout — which is mostly stacked full-width inputs — repeats the
+     mismatched corner down the whole screen. */
+  border-radius: var(--radius-md);
   padding: 11px 14px;
   outline: none;
   width: 100%;
@@ -1480,10 +1523,6 @@ textarea {
 input::placeholder,
 textarea::placeholder {
   color: var(--text-faint);
-}
-input:hover:not(:focus):not(:disabled),
-textarea:hover:not(:focus):not(:disabled) {
-  border-color: var(--border);
 }
 input:focus,
 textarea:focus {
@@ -1500,26 +1539,33 @@ textarea:focus {
 }
 .mono {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 12px;
+  /* Safety numbers, invite codes and device IDs wear this class — the strings
+     the app least wants misread. A monospace face exists to keep 0/O and 1/l/I
+     apart, which it cannot do at a size you have to squint at. The extra
+     tracking groups hex into readable runs. */
+  font-size: var(--fs-ui);
+  letter-spacing: 0.02em;
 }
 .row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--sp-2);
 }
 .error {
   color: var(--danger);
-  font-size: 13px;
+  /* An error is the one string a user MUST read to get out of a failure; it
+     was set smaller than the copy it interrupts. */
+  font-size: var(--fs-ui);
 }
 .actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
 }
 /* Phones: modal footers become stacked full-width buttons, primary on top —
    the side-by-side desktop row is cramped and back-to-front under a thumb. */
-@media (pointer: coarse) {
+@media (pointer: coarse), (max-width: 768px) {
   .actions {
     flex-direction: column-reverse;
     gap: 10px;
@@ -1530,40 +1576,55 @@ textarea:focus {
   }
 }
 /* Slim, quiet scrollbars: a rounded thumb floating on a transparent track
-   (the 2px transparent border + padding-box clip gives it breathing room). */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border: 3px solid transparent;
-  background-clip: padding-box;
-  border-radius: 999px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-faint);
-  background-clip: padding-box;
-  border: 3px solid transparent;
-}
-* {
-  scrollbar-width: thin; /* Firefox */
-  scrollbar-color: var(--border) transparent;
+   (the 2px transparent border + padding-box clip gives it breathing room).
+   Mouse-only on purpose. In Chromium — which IS Android's WebView — the moment
+   any ::-webkit-scrollbar rule matches a scroller, the engine drops overlay
+   scrollbars for it and switches to a classic one that CONSUMES layout width.
+   Styling them here cost every one of the app's scroll containers 10px of
+   inner width on a phone and painted a permanent grey bar no native app has. */
+@media (pointer: fine) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--text-faint);
+    background-clip: padding-box;
+    border: 3px solid transparent;
+  }
+  * {
+    scrollbar-width: thin; /* Firefox */
+    scrollbar-color: var(--border) transparent;
+  }
 }
 
-/* Touch devices: kill the grey tap flash (components style :active states
-   themselves) and stop scroll chaining/pull-to-refresh from hijacking inner
-   scrollers. Desktop styles are untouched. */
-@media (pointer: coarse) {
+/* Touch devices: kill the grey tap flash and stop scroll chaining/pull-to-
+   refresh from hijacking inner scrollers. Desktop styles are untouched. */
+@media (pointer: coarse), (max-width: 768px) {
   * {
     -webkit-tap-highlight-color: transparent;
   }
   html,
   body {
     overscroll-behavior: none;
+  }
+  /* Suppressing the platform flash is only safe where SOMETHING answers the
+     touch. Most components style their own :active; this is the floor for the
+     ones that don't, so no control is ever silent between finger-down and the
+     UI reacting. `filter` composites — it can't cost a layout pass. */
+  button:active:not(:disabled),
+  [role="button"]:active,
+  a:active {
+    filter: brightness(1.18);
   }
 }
 

@@ -317,7 +317,7 @@
     flex-shrink: 0;
   }
   .chan-topic {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -336,7 +336,7 @@
     width: clamp(84px, 20vw, 190px);
     min-width: 0;
     padding: 5px 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     transition: width 0.25s cubic-bezier(0.2, 0.9, 0.3, 1), border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
   }
   .search-box:focus {
@@ -399,7 +399,7 @@
     transform: none;
   }
   .n {
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .pin-active {
     color: var(--accent-hover);
@@ -410,7 +410,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     color: var(--ok-text);
     padding: 3px 5px 3px 9px;
@@ -536,7 +536,7 @@
     border: none;
     border-radius: var(--radius-sm);
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     cursor: pointer;
   }
   .thread-back:hover {

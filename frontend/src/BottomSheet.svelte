@@ -5,7 +5,13 @@
   // independently; only the handle/header region drives the drag, so a
   // scrollable list inside never fights the gesture. Desktop never mounts
   // this — it's the touch counterpart of popovers and context menus.
-  let { title = "", onClose, maxHeight = "72vh", children } = $props();
+  import { haptic } from "./lib/touch.js";
+
+  // dvh, not vh: Android's WebView does not shrink 100vh when the software
+  // keyboard opens, so a sheet holding an input measured itself against the
+  // whole screen and put its own field underneath the keyboard. The .bs-sheet
+  // rule carries a vh value as the fallback for engines that drop the unit.
+  let { title = "", onClose, maxHeight = "72dvh", children } = $props();
 
   let sheetEl = $state(null);
   let dragY = $state(0); // translateY while dragging (px, downward only)
@@ -43,8 +49,12 @@
     dragging = false;
     const h = sheetEl?.offsetHeight || 300;
     // Fling down or drag past 40% of the sheet → dismiss; else spring back.
-    if (dragY > h * 0.4 || velocity > 0.55) onClose?.();
-    else dragY = 0;
+    if (dragY > h * 0.4 || velocity > 0.55) {
+      // The gesture committed — say so in the hand, the way the platform's own
+      // sheets do. Silent on web/desktop.
+      haptic("light");
+      onClose?.();
+    } else dragY = 0;
   }
 </script>
 
@@ -105,6 +115,9 @@
     flex-direction: column;
     background: var(--bg-elevated, var(--bg-1));
     border-radius: 16px 16px 0 0;
+    /* Fallback for engines without dvh: the inline max-height above carries the
+       dvh value and is simply dropped there, leaving this one standing. */
+    max-height: 72vh;
     box-shadow: var(--shadow-pop);
     animation: bs-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
     transition: transform 0.18s ease;
@@ -114,7 +127,9 @@
   }
   .bs-grab {
     flex-shrink: 0;
-    padding: 8px 16px 4px;
+    /* The pill itself is 4px tall; a thumb aims at the strip, not the pill, so
+       the strip has to be worth aiming at. */
+    padding: 12px 16px 8px;
     cursor: grab;
     /* The grab zone owns its touches — without this the browser treats the
        drag as a scroll/refresh gesture and the sheet stutters. */
@@ -128,13 +143,15 @@
     border-radius: 2px;
     background: var(--border);
   }
+  /* This is the title of every sheet in the app, and it names a real thing —
+     a guild, a person, a channel. It was set as a micro-label: 13px, uppercase
+     and tracked out, the least legible combination in the vocabulary. Let a
+     title read as a title. */
   .bs-title {
-    padding: 10px 2px 6px;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-muted);
+    padding: 8px 4px 6px;
+    font-size: var(--fs-body);
+    font-weight: 600;
+    color: var(--text);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -144,6 +161,10 @@
     min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    /* Momentum that reaches the end of the sheet stops there. Without this the
+       remainder is handed to the message feed behind the scrim, which is the
+       classic "the wrong thing moved" feeling. */
+    overscroll-behavior: contain;
     padding: 0 10px calc(12px + env(safe-area-inset-bottom));
   }
   @keyframes bs-fade {

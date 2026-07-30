@@ -81,8 +81,25 @@
     color: var(--text-faint);
     transition: color 0.14s ease;
   }
-  .peek:hover {
+  @media (pointer: fine) {
+    .peek:hover {
+      color: var(--text);
+    }
+  }
+  .peek:active {
     color: var(--text);
+  }
+  /* A passphrase you can't re-read is a passphrase you can't recover from a
+     typo in, so this toggle carries real weight on the one screen a phone user
+     may never get past. It stretches to the field's height already; the width
+     was 38px, just under the target. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .peek {
+      width: 46px;
+    }
+    .wrap input {
+      padding-right: 48px;
+    }
   }
   .peek[aria-pressed="true"] {
     color: var(--accent-hover);

@@ -75,7 +75,7 @@
     border: 1px solid var(--border);
     border-left-width: 3px;
     border-radius: var(--radius-md);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.4;
     box-shadow: var(--shadow-pop);
   }
@@ -154,23 +154,35 @@
     color: var(--text-muted);
     cursor: pointer;
   }
-  .t-close:hover {
+  @media (pointer: fine) {
+    .t-close:hover {
+      color: var(--text);
+      background: var(--bg-3);
+    }
+  }
+  .t-close:active {
     color: var(--text);
     background: var(--bg-3);
   }
 
   /* ---- touch adjustments: top-center, below the mobile top bar, so toasts
      never cover the composer or hide behind the keyboard. ---- */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .toasts {
       bottom: auto;
-      top: calc(62px + env(safe-area-inset-top));
+      /* Anchored to the shell's chrome, not to a number. The hardcoded 62px was
+         measured against the bare top bar, so the moment the connection pill
+         appeared — "Catching up…", "Offline — reconnecting…", the two most
+         common phone states — a toast was drawn straight over it, and over the
+         search row underneath that. --mchrome is declared in app.css and owned
+         by MobileShell, which knows how tall its own chrome currently is. */
+      top: calc(var(--mchrome) + 10px);
       right: 50%;
       transform: translateX(50%);
       width: min(420px, calc(100vw - 24px));
     }
     .toast {
-      font-size: 14px;
+      font-size: var(--fs-ui);
     }
     /* Toasts are short-lived and stacked, so the glyph stays 32px and an
        invisible overlay carries the tap area to 44px. */

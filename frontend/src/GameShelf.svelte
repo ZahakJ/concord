@@ -163,7 +163,7 @@
           {#if editable && !adding}
             <button class="g-add" onclick={() => (adding = true)}><Icon name="plus" size={12} /> Add</button>
           {/if}
-          <button class="gs-close" onclick={closeLibrary} aria-label="Close">
+          <button class="gs-close tap-hit" onclick={closeLibrary} aria-label="Close">
             <Icon name="close" size={14} />
           </button>
         </span>
@@ -178,7 +178,7 @@
             maxlength="64"
             disabled={busy}
           />
-          <button type="button" class="g-cancel" onclick={resetAdd} aria-label="Cancel">
+          <button type="button" class="g-cancel tap-hit" onclick={resetAdd} aria-label="Cancel">
             <Icon name="close" size={13} />
           </button>
         </form>
@@ -249,7 +249,7 @@
     gap: 8px;
   }
   .sec-label {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
@@ -257,7 +257,7 @@
     display: inline-flex;
     align-items: center;
     gap: 3px;
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     padding: 2px 8px;
     border-radius: 999px;
     border: none;
@@ -281,7 +281,12 @@
     cursor: pointer;
     transition: background 0.13s ease;
   }
-  .g-strip:hover {
+  @media (pointer: fine) {
+    .g-strip:hover {
+      background: var(--bg-3);
+    }
+  }
+  .g-strip:active {
     background: var(--bg-3);
   }
   .g-mini {
@@ -311,7 +316,7 @@
   .g-more {
     background: var(--bg-2);
     color: var(--text-muted);
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
   }
   .g-chev {
@@ -357,6 +362,7 @@
   }
   .gs-body {
     overflow-y: auto;
+    overscroll-behavior: contain;
     margin: 0 -6px;
     padding: 2px 6px 6px;
     scrollbar-width: thin;
@@ -383,7 +389,7 @@
     gap: 8px;
   }
   .gs-head strong {
-    font-size: 14px;
+    font-size: var(--fs-body);
   }
   .gs-actions {
     display: inline-flex;
@@ -415,7 +421,7 @@
   .g-form input {
     flex: 1;
     min-width: 0;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     padding: 7px 10px;
   }
   .g-cancel {
@@ -442,6 +448,7 @@
     overflow: hidden;
     max-height: 190px;
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .g-result {
     display: flex;
@@ -452,14 +459,19 @@
     background: var(--bg-0);
     border: none;
     color: var(--text);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     text-align: left;
     cursor: pointer;
   }
   .g-result + .g-result {
     border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   }
-  .g-result:hover:not(:disabled) {
+  @media (pointer: fine) {
+    .g-result:hover:not(:disabled) {
+      background: var(--bg-3);
+    }
+  }
+  .g-result:active:not(:disabled) {
     background: var(--bg-3);
   }
   .g-result:disabled {
@@ -484,7 +496,7 @@
     white-space: nowrap;
   }
   .g-rhave {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     color: var(--text-faint);
   }
   .g-free {
@@ -525,11 +537,16 @@
       transform 0.16s ease,
       box-shadow 0.16s ease;
   }
-  .g-tile:hover .g-art {
-    transform: translateY(-2px) scale(1.03);
-    box-shadow:
-      inset 0 0 0 1px rgba(255, 255, 255, 0.14),
-      0 6px 14px rgba(0, 0, 0, 0.35);
+  @media (pointer: fine) {
+    .g-tile:hover .g-art {
+      transform: translateY(-2px) scale(1.03);
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.14),
+        0 6px 14px rgba(0, 0, 0, 0.35);
+    }
+    .g-tile:hover .g-sheen {
+      transform: translateX(120%);
+    }
   }
   .g-img {
     position: absolute;
@@ -574,11 +591,8 @@
     transition: transform 0.5s ease;
     pointer-events: none;
   }
-  .g-tile:hover .g-sheen {
-    transform: translateX(120%);
-  }
   .g-name {
-    font-size: 11px;
+    font-size: var(--fs-small);
     line-height: 1.25;
     color: var(--text-muted);
     text-align: center;
@@ -610,20 +624,28 @@
       opacity 0.12s ease,
       background 0.12s ease;
   }
-  .g-tile:hover .g-x,
+  @media (pointer: fine) {
+    .g-tile:hover .g-x {
+      opacity: 1;
+    }
+    .g-x:hover {
+      background: rgba(190, 40, 45, 0.85);
+      color: #fff;
+    }
+  }
   .g-x:focus-visible {
     opacity: 1;
   }
-  .g-x:hover {
+  .g-x:active {
     background: rgba(190, 40, 45, 0.85);
     color: #fff;
   }
   .g-empty {
-    font-size: 11.5px;
+    font-size: var(--fs-small);
   }
   /* Touch: "Add a game" is an 18px pill in a tight card header, so the tap area
      is padded out to 44px rather than the chip itself. */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .g-add {
       position: relative;
     }
@@ -631,6 +653,43 @@
       content: "";
       position: absolute;
       inset: -13px -4px;
+    }
+    /* A centred dialog is a desktop shape. On a phone the library arrives from
+       the bottom edge like every other sheet in the app. */
+    .gs-overlay {
+      align-items: end;
+      padding: 0;
+    }
+    .gs-card {
+      width: 100%;
+      max-width: none;
+      max-height: 88dvh;
+      border: none;
+      border-radius: 16px 16px 0 0;
+      padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
+    }
+    /* The remove button was revealed only on :hover — on touch that is an
+       invisible control that still takes taps, which is worse than no control
+       at all. It shows, on its own scrim, and gets a real hit box. */
+    .g-x {
+      opacity: 1;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+    }
+    .g-x::after {
+      content: "";
+      position: absolute;
+      inset: -7px;
+    }
+    /* Four columns of box art on a 360px screen is a 72px tile; three is a
+       cover you can actually recognise. */
+    .g-shelf {
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .g-result {
+      min-height: var(--tap-min);
     }
   }
 </style>

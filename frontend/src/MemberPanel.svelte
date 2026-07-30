@@ -240,6 +240,9 @@
        last row would sit under the home indicator without the inset. */
     padding: 12px 8px calc(12px + env(safe-area-inset-bottom));
     overflow-y: auto;
+    /* A fling that runs out of member list stops there instead of dragging the
+       message feed visible past the open drawer's edge. */
+    overscroll-behavior: contain;
     /* Spinning avatar rings overflow their box by design — don't let that
        summon a horizontal scrollbar (see ChannelList .scroll). */
     overflow-x: clip;
@@ -256,14 +259,16 @@
     color: var(--accent-hover);
     border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
     border-radius: var(--radius-md);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     transition:
       background 0.13s ease,
       transform 0.1s ease;
   }
-  .add-people:hover {
-    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  @media (pointer: fine) {
+    .add-people:hover {
+      background: color-mix(in srgb, var(--accent) 22%, transparent);
+    }
   }
   .add-people:active {
     transform: scale(0.98);
@@ -273,7 +278,7 @@
     justify-content: space-between;
     align-items: center;
     text-transform: uppercase;
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     letter-spacing: 0.07em;
     font-weight: 700;
     color: var(--text-muted);
@@ -287,13 +292,16 @@
       background 0.15s ease,
       transform 0.15s ease;
   }
-  .member-row:hover {
-    background: var(--bg-3);
-  }
+  /* Hover is a mouse state; on touch a tap leaves it stuck on the row behind
+     you, which reads as a selection you cannot clear. */
   @media (pointer: fine) {
     .member-row:hover {
+      background: var(--bg-3);
       transform: translateX(2px);
     }
+  }
+  .member-row:active {
+    background: var(--bg-3);
   }
   @media (prefers-reduced-motion: reduce) {
     .member-row:hover {
@@ -311,7 +319,8 @@
     padding: 6px 8px;
     min-width: 0;
   }
-  .member:hover {
+  .member:hover,
+  .member:active {
     background: transparent;
   }
   /* Offline members recede (Discord-style) so the online roster reads first;
@@ -334,7 +343,7 @@
     .member {
       min-height: 46px;
       padding: 8px 10px;
-      font-size: 15px;
+      font-size: var(--fs-body);
     }
     /* Touch never hovers/focuses, so the recede-then-restore can't kick in —
        keep offline members readable (a gentler dim than the desktop 0.62). */
@@ -346,7 +355,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .member-name {
     overflow: hidden;
@@ -368,7 +377,7 @@
     flex-shrink: 0;
   }
   .member-status {
-    font-size: 11px;
+    font-size: var(--fs-small);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -436,8 +445,12 @@
     display: inline-grid;
     place-items: center;
   }
+  /* 9px uppercase with positive tracking has a cap-height of about 6.5px: on
+     --text-muted over --bg-1 it reads as a coloured smudge rather than a word,
+     and this panel IS the phone's right drawer. The token holds the desktop
+     size and grows it on touch; the tracking comes off there entirely. */
   .role-badge {
-    font-size: 9px;
+    font-size: var(--fs-micro);
     text-transform: uppercase;
     letter-spacing: 0.03em;
     padding: 1px 5px;
@@ -451,7 +464,7 @@
     opacity: 0.6;
   }
   .pending-badge {
-    font-size: 9px;
+    font-size: var(--fs-micro);
     text-transform: uppercase;
     letter-spacing: 0.03em;
     padding: 1px 5px;
@@ -486,10 +499,24 @@
   }
   /* Hover doesn't exist on touch — keep the control visible but quiet (same
      treatment as ChannelList's always-visible affordances). */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .kick {
       opacity: 0.55;
       padding: 8px 10px;
+      position: relative;
+    }
+    /* Removing someone is destructive and the glyph is 12px — the hit box has
+       to be worth aiming at, and it grows rightward into the panel padding so
+       it never eats into the row it sits beside. */
+    .kick::after {
+      content: "";
+      position: absolute;
+      inset: -6px -6px -6px 0;
+    }
+    .role-badge,
+    .pending-badge {
+      letter-spacing: 0;
+      padding: 2px 6px;
     }
   }
   .peers-info {
@@ -506,10 +533,10 @@
     word-break: break-all;
   }
   .peer-fpr {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   .badge {
-    font-size: 11px;
+    font-size: var(--fs-small);
     padding: 2px 8px;
     border-radius: 10px;
   }
@@ -518,7 +545,7 @@
     color: var(--ok-text);
   }
   .small {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     padding: 6px 8px;
   }
   .mini {
@@ -526,13 +553,14 @@
     background: transparent;
     color: var(--text-muted);
   }
-  .mini:hover {
+  .mini:hover,
+  .mini:active {
     background: var(--bg-3);
     color: var(--text);
   }
   /* Touch: invisible overlay pads the small expand/collapse toggle's tap
      area out to ~44px without growing the glyph. */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .mini {
       position: relative;
     }

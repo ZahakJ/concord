@@ -49,7 +49,13 @@
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
   import { LEVELS, levelLabel } from "./lib/notifs.js";
-  import { longpress } from "./lib/touch.js";
+  import { longpress, haptic } from "./lib/touch.js";
+
+  // getDisplayMedia is absent in Android/iOS WebViews, so the share button is a
+  // control that can only ever fail. It goes away entirely rather than sitting
+  // in the voice bar taking a quarter of the width from the ones that work.
+  const canShareScreen =
+    typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 
   // Touch: long-press opens row menus (iOS never synthesizes contextmenu for
   // plain elements, and Android's synthesized one would double-fire alongside
@@ -649,7 +655,7 @@
         {#if !canManageChannels}
           <!-- No silent nothing: members without Manage Channels see WHY. -->
           <button
-            class="add-locked"
+            class="add-locked tap-hit"
             title="You need the Manage Channels permission to add channels"
             aria-label="Adding channels requires the Manage Channels permission"
             onclick={() => flash("You need the Manage Channels permission to add channels here — ask an admin for a role that grants it.")}
@@ -771,7 +777,10 @@
                 class="mute-btn"
                 title={isMuted(c.id, g?.id) ? "Unmute channel" : "Mute channel"}
                 aria-label={isMuted(c.id, g?.id) ? "Unmute channel" : "Mute channel"}
-                onclick={() => toggleMute(c.id)}
+                onclick={() => {
+                  toggleMute(c.id);
+                  haptic("light"); // a bell that silently flips needs an answer in the hand
+                }}
               >
                 <Icon name={isMuted(c.id, g?.id) ? "bellOff" : "bell"} size={13} />
               </button>
@@ -876,15 +885,17 @@
         >
           <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={14} />
         </button>
-        <button
-          class="vb-btn"
-          class:on={S.sharing}
-          title={S.sharing ? "Stop sharing" : "Share screen"}
-          aria-label={S.sharing ? "Stop sharing" : "Share screen"}
-          onclick={onToggleShare}
-        >
-          <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
-        </button>
+        {#if canShareScreen}
+          <button
+            class="vb-btn"
+            class:on={S.sharing}
+            title={S.sharing ? "Stop sharing" : "Share screen"}
+            aria-label={S.sharing ? "Stop sharing" : "Share screen"}
+            onclick={onToggleShare}
+          >
+            <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
+          </button>
+        {/if}
         <button class="vb-btn leave" title="Disconnect" aria-label="Disconnect" onclick={onLeaveVoice}>
           <Icon name="door" size={14} />
         </button>
@@ -957,7 +968,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-size: 15px;
+    font-size: var(--fs-body);
   }
   /* DM column title carries the "New message" + on the right (no separate
      "Direct messages" section header below — that was a duplicate label). */
@@ -978,7 +989,12 @@
     text-align: left;
     border-radius: 0;
   }
-  .guild-header:hover {
+  @media (pointer: fine) {
+    .guild-header:hover {
+      background: var(--bg-3);
+    }
+  }
+  .guild-header:active {
     background: var(--bg-3);
   }
   .guild-header.has-banner {
@@ -1016,7 +1032,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 15px;
+    font-size: var(--fs-body);
   }
   .g-icon {
     width: 26px;
@@ -1028,6 +1044,9 @@
   .scroll {
     flex: 1;
     overflow-y: auto;
+    /* A fling that runs out of channel list must not continue into the message
+       feed showing through the open drawer. */
+    overscroll-behavior: contain;
     /* Decorative avatar rings (which spin OUTSIDE the avatar box) must not
        make this column think it needs a horizontal scrollbar — that's what
        made the divider "pulsate". clip keeps them visible; hidden would too,
@@ -1043,7 +1062,7 @@
     justify-content: space-between;
     align-items: center;
     text-transform: uppercase;
-    font-size: 11px;
+    font-size: var(--fs-small);
     letter-spacing: 0.06em;
     font-weight: 700;
     color: var(--text-muted);
@@ -1054,7 +1073,7 @@
     align-items: center;
     justify-content: space-between;
     text-transform: uppercase;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     letter-spacing: 0.06em;
     color: var(--text-faint);
     font-weight: 700;
@@ -1133,10 +1152,16 @@
     background: transparent;
     color: var(--text-muted);
     border-radius: var(--radius-sm);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     text-align: left;
   }
-  .vc-member:hover {
+  @media (pointer: fine) {
+    .vc-member:hover {
+      background: var(--bg-3);
+      color: var(--text);
+    }
+  }
+  .vc-member:active {
     background: var(--bg-3);
     color: var(--text);
   }
@@ -1186,7 +1211,7 @@
     border-radius: 4px;
     background: color-mix(in srgb, var(--danger) 20%, transparent);
     color: var(--danger-text);
-    font-size: 9px;
+    font-size: var(--fs-micro);
     font-weight: 800;
     letter-spacing: 0.04em;
     flex-shrink: 0;
@@ -1237,7 +1262,14 @@
       transform: translateY(-50%) scaleY(0.2);
     }
   }
-  .channel-row:hover {
+  /* Hover is a mouse state: a tap synthesises it and it STICKS, so every row a
+     finger passed over keeps a highlight that reads as a stuck selection. */
+  @media (pointer: fine) {
+    .channel-row:hover {
+      background: var(--bg-3);
+    }
+  }
+  .channel-row:active {
     background: var(--bg-3);
   }
   /* Active reads as "accent-charged", distinct from a passing hover. */
@@ -1284,12 +1316,13 @@
     background: transparent;
     color: var(--text-muted);
     padding: 7px 8px;
-    font-size: 14px;
+    font-size: var(--fs-ui);
     text-align: left;
     min-width: 0;
     border-radius: var(--radius-sm);
   }
-  .channel:hover {
+  .channel:hover,
+  .channel:active {
     background: transparent;
     color: var(--text);
   }
@@ -1411,7 +1444,7 @@
     border-radius: 8px;
     background: var(--text-muted);
     color: var(--bg-1);
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     display: grid;
     place-items: center;
@@ -1438,7 +1471,7 @@
     opacity: 1;
   }
   .menu-head {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-faint);
@@ -1477,7 +1510,7 @@
   }
   .empty-block p {
     margin: 0;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     line-height: 1.5;
   }
   .empty-ic {
@@ -1496,7 +1529,7 @@
     width: 100%;
     justify-content: center;
     padding: 7px 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     border-radius: var(--radius-sm);
   }
@@ -1514,7 +1547,13 @@
       background 0.15s ease,
       color 0.15s ease;
   }
-  .dm-item:hover {
+  @media (pointer: fine) {
+    .dm-item:hover {
+      background: var(--bg-3);
+      color: var(--text);
+    }
+  }
+  .dm-item:active {
     background: var(--bg-3);
     color: var(--text);
   }
@@ -1528,7 +1567,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 14px;
+    font-size: var(--fs-ui);
   }
   .dm-item.unread {
     color: var(--text);
@@ -1608,10 +1647,10 @@
     min-width: 0;
   }
   .vb-text strong {
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .vb-ch {
-    font-size: 11px;
+    font-size: var(--fs-small);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1629,7 +1668,12 @@
     place-items: center;
     border-radius: var(--radius-sm);
   }
-  .vb-btn:hover {
+  @media (pointer: fine) {
+    .vb-btn:hover {
+      background: color-mix(in srgb, var(--ok) 22%, transparent);
+    }
+  }
+  .vb-btn:active {
     background: color-mix(in srgb, var(--ok) 22%, transparent);
   }
   .vb-btn.on {
@@ -1702,14 +1746,19 @@
     border-radius: var(--radius-sm);
     min-width: 0;
   }
-  .me:hover {
+  @media (pointer: fine) {
+    .me:hover {
+      background: var(--bg-3);
+    }
+  }
+  .me:active {
     background: var(--bg-3);
   }
   .me-text {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .me-text strong {
     overflow: hidden;
@@ -1717,7 +1766,7 @@
     white-space: nowrap;
   }
   .small-status {
-    font-size: 11px;
+    font-size: var(--fs-small);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1729,16 +1778,32 @@
   /* Touch: taller rows (44px+ targets), slightly larger type, and the
      hover-revealed affordances (category +/trash, channel menu, mute bell)
      always visible at reduced opacity — hover doesn't exist on a phone. */
-  @media (pointer: coarse), (max-width: 700px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .channel {
-      min-height: 44px;
-      font-size: 15px;
+      min-height: var(--tap-min);
+      font-size: var(--fs-body);
     }
     .dm-item {
       min-height: 48px;
     }
     .dm-name {
-      font-size: 15px;
+      font-size: var(--fs-body);
+    }
+    /* The one-tap way to walk unreads — the control this column exists to offer
+       on a phone — was the only affordance the touch block never grew. */
+    .unread-jump {
+      min-height: var(--tap-min);
+      font-size: var(--fs-ui);
+    }
+    .count {
+      height: 18px;
+      min-width: 20px;
+    }
+    /* A badge is already the smallest ink on the screen; tracking it out on top
+       is what turns it from small into unreadable. */
+    .vc-live {
+      letter-spacing: 0;
+      padding: 2px 6px;
     }
     /* No hover on a phone, so this dimming is the FINAL state, not a resting
        one — at 0.55 the glyphs sat under 2:1. --text-faint already says
@@ -1751,19 +1816,20 @@
       opacity: 1;
     }
     .mute-btn {
-      padding: 8px 10px;
+      padding: 10px 12px;
       /* Invisible overlay pads the tap area out to ~44px. */
       position: relative;
     }
     .mute-btn::after {
       content: "";
       position: absolute;
-      /* Right-biased: the channel-options chevron is immediately to the left,
-         and a symmetric overlay ate 5px of the only tap area it has. */
-      inset: -3px -6px -3px 0;
+      /* Right-biased: the channel-options chevron is immediately to the left
+         and carries its own overlay, so growing leftward would put two hit
+         boxes on top of each other. Vertically it fills the row instead. */
+      inset: -6px -6px -6px 0;
     }
     .mute-slot {
-      width: 33px; /* tracks .mute-btn's touch padding above */
+      width: 37px; /* tracks .mute-btn's touch padding above */
     }
     /* The category +/trash render at 16px. Spread them apart first — they sit
        side by side and the right one deletes the category, so overlapping tap
@@ -1788,8 +1854,16 @@
     .cat-head {
       min-height: 44px;
     }
+    /* Participant rows abut the channel row above them with no gap, and each
+       one is BOTH a tap target (joins the call) and a long-press target
+       (moderation). A slightly low tap on "#general" landing on the first
+       participant joined the call, so they get the full target plus a hairline
+       of separation from the row that owns them. */
     .vc-member {
-      min-height: 38px;
+      min-height: var(--tap-min);
+    }
+    .channel-row + .vc-member {
+      margin-top: 4px;
     }
     /* Four 44px targets plus the label never fit the drawer's ~252px on one
        line — the label was squeezed to 123px and "Voice connected" wrapped.
@@ -1853,7 +1927,7 @@
     border-radius: 999px;
     background: color-mix(in srgb, var(--accent) 12%, transparent);
     color: var(--text);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     cursor: pointer;
     animation: uj-in 0.25s ease;
     transition:
@@ -1871,7 +1945,13 @@
       animation: none;
     }
   }
-  .unread-jump:hover {
+  @media (pointer: fine) {
+    .unread-jump:hover {
+      background: color-mix(in srgb, var(--accent) 22%, transparent);
+      border-color: var(--accent);
+    }
+  }
+  .unread-jump:active {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
     border-color: var(--accent);
   }
@@ -1917,7 +1997,7 @@
   }
   .uj-cta {
     flex: none;
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     color: var(--accent-hover);
     letter-spacing: 0.02em;
