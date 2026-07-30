@@ -14,6 +14,7 @@
   import { api } from "./lib/api.js";
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
+  import { stagedImage } from "./lib/attachopts.js";
 
   let draft = $state("");
   let uploading = $state(0); // files being read into `pending` (brief)
@@ -634,9 +635,12 @@
       } else {
         ({ dataUrl, w, h } = await normalizeToJpeg(file));
       }
+      // Defaults come from stagedImage (lib/attachopts.js), which keeps `name`
+      // empty so an unedited image still goes out as the v1 token older peers
+      // can render. See that file for why prefilling it here is a trap.
       pending = [
         ...pending,
-        { id: uid(), dataUrl, w, h, isImage: true, spoiler: false, name: file.name || "", desc: "" },
+        stagedImage({ id: uid(), dataUrl, w, h, fileName: file.name || "" }),
       ];
     } catch (err) {
       const msg = String(err?.message || err);
@@ -967,7 +971,13 @@
         <div class="att-edit">
           <label>
             <span>File name</span>
-            <input value={p.name || ""} oninput={(e) => setAtt(p.id, "name", e.currentTarget.value)} placeholder="image.png" />
+            <!-- Placeholder, not value: an unedited field must stay empty so the
+                 send path can still use the v1 token older clients understand. -->
+            <input
+              value={p.name || ""}
+              oninput={(e) => setAtt(p.id, "name", e.currentTarget.value)}
+              placeholder={p.origName || "image.png"}
+            />
           </label>
           <label>
             <span>Description</span>
