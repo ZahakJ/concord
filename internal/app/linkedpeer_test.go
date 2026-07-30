@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 // A linked device must never read as a stranger — not to the account it belongs
@@ -18,19 +20,35 @@ import (
 //   - a device that joined no group at all left nothing anywhere for us to
 //     learn from, so it was a stranger forever.
 
-// peerStat returns the peer-list row for a given PeerID.
-func peerStat(t *testing.T, s *Service, id string) PeerStatView {
+// deviceStat returns the OWN-DEVICE row for a given PeerID. Your own devices
+// live in their own list now, not among the peers the rendezvous introduced you
+// to — see LinkedDeviceView.
+func deviceStat(t *testing.T, s *Service, id string) LinkedDeviceView {
 	t.Helper()
-	for _, p := range s.NetworkStats().PeerList {
-		if p.ID == id {
-			return p
+	for _, d := range s.LinkedDevices() {
+		if d.PeerID == id {
+			return d
 		}
 	}
-	t.Fatalf("no peer-list row for %s", id)
-	return PeerStatView{}
+	t.Fatalf("no device row for %s", id)
+	return LinkedDeviceView{}
 }
 
-// waitPeer blocks until s holds a live connection to id.
+// waitDevice blocks until s lists id as one of its own devices, online.
+func waitDevice(t *testing.T, s *Service, id string) {
+	t.Helper()
+	waitUntil(t, 15*time.Second, func() bool {
+		for _, d := range s.LinkedDevices() {
+			if d.PeerID == id && d.Online {
+				return true
+			}
+		}
+		return false
+	}, "device "+id+" never showed up as an online device of this account")
+}
+
+// waitPeer blocks until s holds a live connection to id in the peer list. Used
+// for OTHER people's devices, which do belong in that list.
 func waitPeer(t *testing.T, s *Service, id string) {
 	t.Helper()
 	waitUntil(t, 15*time.Second, func() bool {
@@ -41,6 +59,23 @@ func waitPeer(t *testing.T, s *Service, id string) {
 		}
 		return false
 	}, "peer "+id+" never showed up in the peer list")
+}
+
+// peerIDOf is another Service's libp2p peer id, typed.
+func (s *Service) peerIDOf(t *testing.T, other *Service) peer.ID {
+	t.Helper()
+	return other.host.PeerID()
+}
+
+// noStrangerRow asserts that a peer is NOT in the generic peer list — a device
+// of yours filed among strangers is what used to render as "unknown peer".
+func noStrangerRow(t *testing.T, s *Service, id string) {
+	t.Helper()
+	for _, p := range s.NetworkStats().PeerList {
+		if p.ID == id {
+			t.Errorf("own device %s is in the stranger peer list (name=%q)", id, p.Name)
+		}
+	}
 }
 
 // TestOwnLinkedDeviceNamedInPeerList: the desktop's diagnostics must show a
@@ -91,17 +126,21 @@ func TestOwnLinkedDeviceNamedInPeerList(t *testing.T) {
 	if err := joiner.host.Connect(ctx, issuer.host.AddrInfo()); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	waitPeer(t, issuer, joiner.PeerID())
+	waitDevice(t, issuer, joiner.PeerID())
+	noStrangerRow(t, issuer, joiner.PeerID())
 
-	pv := peerStat(t, issuer, joiner.PeerID())
-	if pv.Fingerprint != issuer.Fingerprint() {
-		t.Fatalf("linked device resolved to %q, want this account %q", pv.Fingerprint, issuer.Fingerprint())
+	if fpr := issuer.presence(issuer.peerIDOf(t, joiner)).Fingerprint; fpr != issuer.Fingerprint() {
+		t.Fatalf("linked device resolved to %q, want this account %q", fpr, issuer.Fingerprint())
 	}
-	if !pv.Self {
-		t.Error("linked device not marked as another device of this account")
+	dv := deviceStat(t, issuer, joiner.PeerID())
+	if !dv.Online {
+		t.Error("linked device not shown as online")
 	}
-	if pv.Name != "Avicenna" {
-		t.Errorf("linked device shown as %q, want the account's own name (empty renders as \"unknown peer\")", pv.Name)
+	if dv.LastSeen == 0 {
+		t.Error("linked device has no last-seen stamp")
+	}
+	if dv.Transport == "" {
+		t.Error("linked device row does not say how it is reached")
 	}
 }
 
@@ -137,12 +176,11 @@ func TestOwnLinkedDeviceResolvesWithoutSharedGroup(t *testing.T) {
 	if err := joiner.host.Connect(ctx, issuer.host.AddrInfo()); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-	waitPeer(t, issuer, joiner.PeerID())
-
-	pv := peerStat(t, issuer, joiner.PeerID())
-	if pv.Fingerprint != issuer.Fingerprint() {
+	waitDevice(t, issuer, joiner.PeerID())
+	noStrangerRow(t, issuer, joiner.PeerID())
+	if fpr := issuer.presence(issuer.peerIDOf(t, joiner)).Fingerprint; fpr != issuer.Fingerprint() {
 		t.Fatalf("groupless linked device resolved to %q, want this account %q",
-			pv.Fingerprint, issuer.Fingerprint())
+			fpr, issuer.Fingerprint())
 	}
 }
 

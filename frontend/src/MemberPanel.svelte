@@ -217,7 +217,11 @@
       encrypted); this is just a network log. To verify a <em>friend</em>, click them in the
       Members list above.
     </p>
-    {#each S.contacts as c (c.peerId)}
+    <!-- Your own devices are not "nodes your device has connected to" in the
+         sense this log means, and they now get a proper section of their own in
+         Stats & diagnostics. Left in, your phone appeared here as your own
+         fingerprint, which reads as a stranger who has somehow got your key. -->
+    {#each S.contacts.filter((c) => c.fingerprint !== S.identity.fingerprint) as c (c.peerId)}
       <div class="contact">
         <span class="mono peer-fpr" title={c.peerId}>{c.fingerprint.slice(0, 19)}…</span>
         {#if c.verified}<span class="badge verified">✓</span>{/if}

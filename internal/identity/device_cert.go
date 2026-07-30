@@ -117,3 +117,64 @@ func ParseDeviceCert(b []byte) (*DeviceCert, bool) {
 	}
 	return &c, true
 }
+
+// DeviceRevocation is an account withdrawing one of its own devices: the same
+// account key that signed a DeviceCert signs, later, "this device is no longer
+// mine". It is the counterpart to IssueDeviceCertFor and carries exactly the
+// same authority — nobody but the account can produce one, and anybody holding
+// the account key can check one.
+//
+// What it is NOT is a capability revocation. The bytes here are an assertion,
+// and an assertion only binds a client that chooses to honor it. The real,
+// cryptographic half of unlinking is removing that device's leaf from the MLS
+// groups, which is what actually stops it decrypting anything sent afterwards.
+// This record is what makes an HONEST client on the revoked device notice and
+// erase itself, and what stops every other client from continuing to render that
+// device as its owner. See the threat model in app/unlink.go.
+type DeviceRevocation struct {
+	AccountPub []byte `json:"account"` // Ed25519 account (root) pubkey
+	DevicePub  []byte `json:"device"`  // the device being withdrawn
+	RevokedAt  int64  `json:"revoked"` // unix seconds
+	Sig        []byte `json:"sig"`     // account-key signature over signingBytes()
+}
+
+// revokeDomain namespaces the signature. Distinct from certDomain so a
+// certificate signature can never be replayed as a revocation, or the reverse —
+// which, given that one of the two erases a device, is not a subtle difference.
+var revokeDomain = []byte("concord-device-revoke-v1")
+
+func (r *DeviceRevocation) signingBytes() []byte {
+	var b []byte
+	put := func(p []byte) {
+		var n [4]byte
+		binary.BigEndian.PutUint32(n[:], uint32(len(p)))
+		b = append(b, n[:]...)
+		b = append(b, p...)
+	}
+	put(revokeDomain)
+	put(r.AccountPub)
+	put(r.DevicePub)
+	var ts [8]byte
+	binary.BigEndian.PutUint64(ts[:], uint64(r.RevokedAt))
+	b = append(b, ts[:]...)
+	return b
+}
+
+// RevokeDevice signs a revocation for one of this account's device keys.
+func (id *Identity) RevokeDevice(devicePub ed25519.PublicKey, revokedAt int64) *DeviceRevocation {
+	r := &DeviceRevocation{
+		AccountPub: id.PublicKey(),
+		DevicePub:  append([]byte(nil), devicePub...),
+		RevokedAt:  revokedAt,
+	}
+	r.Sig = ed25519.Sign(id.priv, r.signingBytes())
+	return r
+}
+
+// Verify checks the account-key signature over the revocation.
+func (r *DeviceRevocation) Verify() bool {
+	if r == nil || len(r.AccountPub) != ed25519.PublicKeySize || len(r.DevicePub) != ed25519.PublicKeySize {
+		return false
+	}
+	return ed25519.Verify(r.AccountPub, r.signingBytes(), r.Sig)
+}

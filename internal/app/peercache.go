@@ -367,6 +367,10 @@ func (s *Service) rememberMembers() {
 	// stall it for ten seconds per stranger still connected.
 	for _, p := range s.host.Peers() {
 		s.recordPeer(p, s.presence(p).Fingerprint)
+		// Membership moving can also turn a peer we could NOT introduce
+		// ourselves to into one we can — greet is a no-op for the rest, and
+		// remembers who it has already met (see hello.go).
+		go s.greet(p)
 	}
 }
 

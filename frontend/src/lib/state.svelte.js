@@ -281,6 +281,13 @@ export function nameFor(fpr, frozenName = "") {
   // fingerprint slot ("guest:Alice"). One branch here labels them everywhere:
   // sidebar, call roster, video tiles.
   if (isGuestFpr(fpr)) return `${guestName(fpr)} (guest)`;
+  // YOU. Your own linked devices resolve to your own account fingerprint, and
+  // every other source here is about OTHER people: the member roster only has a
+  // row for you inside a guild you're currently viewing, and the contact list
+  // and profile cache never hold one at all (learnProfile refuses a self row so
+  // a peer echoing a stale copy can't rename you). So your phone in a voice room
+  // fell all the way through to a fingerprint stub. Answer it first instead.
+  if (fpr && fpr === S.identity.fingerprint) return S.displayName || memberByFpr(fpr)?.name || "You";
   // Fall back beyond the active guild's roster to the contact's learned profile
   // name, so people show their display name in contact/add/block lists (and any
   // guild they're not a current member of) instead of a cryptic fingerprint.

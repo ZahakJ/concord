@@ -212,6 +212,33 @@ func (s *Service) drainMailbox(node peer.ID) {
 	_, _ = mailbox.RequestOn(ackCtx, s.host.Libp2p(), node, mailbox.Request{Op: "ack", AckIDs: acked})
 }
 
+// mailboxSweep is how often we drain even though nothing has reconnected.
+//
+// The mailbox used to be drained on exactly two events: connecting to a
+// rendezvous node, and an explicit Nudge. Both are about coming back, and the
+// case that actually loses messages is the opposite one — staying put. A sender
+// deposits for anyone it is not connected to, so two devices that are both
+// online, both attached to the rendezvous, and simply not connected TO EACH
+// OTHER will deposit for each other and neither will ever look. The mail sat
+// there until somebody restarted, which is precisely the "I only see it much
+// later" the whole of this work is about, and the one case where no amount of
+// finding each other faster helps: if the two ends cannot form a connection at
+// all, the mailbox is the only path there is.
+const mailboxSweep = 3
+
+// sweepMailbox drains our mailbox on a slow beat, independent of reconnects.
+// Every third heal tick (~60s), so it costs one request per rendezvous node per
+// minute rather than one every twenty seconds.
+func (s *Service) sweepMailbox() {
+	s.mbxTick++
+	if s.mbxTick%mailboxSweep != 0 {
+		return
+	}
+	for _, node := range s.mailboxNodes() {
+		s.drainMailbox(node)
+	}
+}
+
 // isMailboxNode reports whether a peer is one of our configured rendezvous
 // nodes (which host the mailbox).
 func (s *Service) isMailboxNode(p peer.ID) bool {

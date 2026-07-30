@@ -181,6 +181,9 @@ type Service struct {
 	// rendezvous nodes that host our mailbox (see mailbox.go).
 	mbxPriv [32]byte
 	mbxPub  [32]byte
+	// mbxTick counts heal ticks so the mailbox sweep can run on a slower beat
+	// than the loop it rides (see sweepMailbox). Only touched from that loop.
+	mbxTick int
 	// bootstrap is read from several goroutines and can be REPLACED at runtime
 	// by SetBootstrapLive, so it is only ever touched through bootstrapPeers()
 	// and setBootstrapPeers() under this lock.
@@ -204,6 +207,43 @@ type Service struct {
 	// raw pubkey embedded in the PeerID.
 	deviceMu       sync.RWMutex
 	deviceAccounts map[string]string
+	// revokedDevices are our own device keys we have unlinked (hex), guarded by
+	// deviceMu. Kept in memory because learnDeviceCert consults it on every
+	// inbound message; see unlink.go.
+	revokedDevices map[string]bool
+
+	// regMu guards the persisted own-device registry (devices.go). Separate from
+	// deviceMu on purpose: the registry writes to the store, and the in-memory
+	// device→account map is read on the network thread.
+	regMu sync.Mutex
+
+	// greeted tracks who we have introduced ourselves to on their current
+	// connection (hello.go), so a reconnect greets again and a burst of notifier
+	// events doesn't.
+	greeted greetSet
+	// answered is the responder-side counterpart: one composed reply per peer
+	// per connection, so reopening the stream can't be used to make us decode
+	// every guild's roster over and over.
+	answered greetSet
+
+	// reaching holds the own-account devices we currently have a dial in flight
+	// for (devices.go), so an unreachable phone costs one attempt at a time
+	// rather than one per beat.
+	reaching greetSet
+
+	// onPeerUp/onPeerDown are the UI's presence feed. They are held here, rather
+	// than handed straight to the host, because a peer can be placed LATE — a
+	// linked device whose certificate arrives a moment after its connection — and
+	// the event has to be able to fire then. presenceShown keeps that honest: one
+	// up per connection, and a down only if an up was sent. Guarded by mu.
+	onPeerUp      []func(PeerPresence)
+	onPeerDown    []func(PeerPresence)
+	presenceShown map[peer.ID]bool
+
+	// onUnlinked fires once this device has been told it is unlinked and has
+	// erased itself, so the shell can drop the session instead of leaving the UI
+	// talking to a closed store. Guarded by mu.
+	onUnlinked []func()
 }
 
 // Profile is a member's self-asserted presentation: display name, a short
@@ -766,6 +806,16 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	}
 	s.mbxPriv, s.mbxPub = deriveMailboxKeys(id)
 
+	// Before ANYTHING else reads the account: has this device been unlinked?
+	// A previous session was told and did not finish erasing, or the record
+	// survived a crash. Checked here rather than at the end of Start so a revoked
+	// install never serves a roster, answers a sync, or joins a topic.
+	s.loadRevoked()
+	if s.selfRevoked() {
+		s.wipeSelf()
+		return nil, ErrDeviceUnlinked
+	}
+
 	// Restore learned member profiles so names survive restarts (they are also
 	// repaired by invite handshakes and history sync, but this avoids a window
 	// of fingerprint-only names right after unlock).
@@ -802,6 +852,10 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// Issuer side of the device-linking handshake.
 	host.HandleLink(s.handleLinkRequest)
 
+	// "Here is which account I belong to." The one thing a linked device's PeerID
+	// cannot say for itself — see hello.go.
+	host.HandleHello(s.handleHello)
+
 	// Serve history catch-up requests from reconnecting peers.
 	host.HandleSync(s.handleSyncRequest)
 
@@ -827,6 +881,16 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// reply, so both peers end up with each other's names).
 	host.OnPeerConnected(func(p peer.ID) {
 		pp := s.presence(p)
+		// The presence feed, gated on the peer being somebody we have (see
+		// OnPeerConnected). A peer we cannot place yet is silent here and is
+		// announced by peerResolved instead, the instant its hello lands.
+		if s.knownContact(pp.Fingerprint) {
+			s.emitPeerUp(pp)
+		}
+		// Introduce ourselves, so a device whose PeerID says nothing about its
+		// account stops being a stranger within one round trip instead of
+		// whenever unrelated traffic next happens to carry its certificate.
+		go s.greet(p)
 		// rememberPeer records the contact too, behind the shares-a-guild gate
 		// (see peercache.go) — and rememberMembers re-runs it when membership
 		// moves, which is what covers the peer whose invite is still in flight.
@@ -862,6 +926,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 			known := s.knownContact(s.presence(p).Fingerprint)
 			if known {
 				s.announceProfileAll()
+				// If we're in a call, say so now rather than on the next
+				// heartbeat — see reannounceVoice.
+				s.reannounceVoice()
 			}
 			// Pull any history we missed while apart from this peer; one retry
 			// covers a stream that failed while the connection settled.
@@ -879,6 +946,13 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 			// newly-reachable committer is exactly who can re-add us.
 			s.healStrandedGuilds()
 		}()
+	})
+
+	host.OnPeerDisconnected(func(p peer.ID) {
+		// A fresh connection deserves a fresh introduction, in both directions.
+		s.greeted.release(p)
+		s.answered.release(p)
+		s.emitPeerDown(p, s.presence(p))
 	})
 
 	// A remembered address that no longer answers is worse than useless: it
@@ -914,7 +988,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	s.loadDeviceRoster()
 	s.noteDeviceLeaves()
 	// …and the devices of OUR OWN account, which no roster has to be readable
-	// for us to know about (see ownDevicesKey).
+	// for us to know about (see devices.go). Revocations were loaded before any
+	// of this, so nothing here can re-adopt a device we unlinked.
 	s.loadOwnDevices()
 
 	// Instant meetings are disposable — clear any that outlived their chosen
@@ -935,6 +1010,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()
+
+	// Keep this account's own devices reachable. Rendezvous discovery would get
+	// there eventually; our own devices are the one set of peers we can look up
+	// by name instead of searching for (see devices.go).
+	go s.keepDevicesClose()
 
 	// Resume rich presence if the user had it on.
 	if s.RichPresenceEnabled() {
@@ -1024,8 +1104,12 @@ func (s *Service) Nudge() {
 			s.registerMailbox(node)
 			s.drainMailbox(node)
 		}
+		// Our own devices, by name rather than by search — the OS just told us
+		// we were asleep, which is exactly when one of them has moved.
+		s.reachOwnDevices()
 		// Catch up history from every connected peer, then heal stragglers.
 		for _, p := range s.host.Peers() {
+			s.greet(p)
 			s.syncFromPeer(p)
 		}
 		s.healStrandedGuilds()
@@ -1057,28 +1141,64 @@ func (s *Service) Nudge() {
 // per guild, which is what the callback's own recordPeer already spends, and it
 // runs on the notifier's goroutine, not the network thread.
 //
-// A friend's linked device whose certificate we haven't learned yet resolves to
-// its own key and so reads as a stranger here for the moment before the roster
-// places it. It doesn't stay stale: learning the device (relearnDevices, on the
-// commit that carries the leaf) ends in emitGuildUpdate, which refreshes the
-// same panels this event would have.
+// A linked device whose certificate we haven't learned yet resolves to its own
+// key and so reads as a stranger here. It used to STAY that way for the session
+// unless unrelated traffic happened to carry the certificate past us. Now the
+// device introduces itself over /concord/hello the moment it connects, and
+// peerResolved fires this event after the fact (see hello.go) — which is why the
+// callbacks live on the Service instead of being closed over inside the host
+// hook, and why presenceShown exists to keep it to one up per connection.
 func (s *Service) OnPeerConnected(fn func(PeerPresence)) {
-	s.host.OnPeerConnected(func(p peer.ID) {
-		if pp := s.presence(p); s.knownContact(pp.Fingerprint) {
-			fn(pp)
-		}
-	})
+	s.mu.Lock()
+	s.onPeerUp = append(s.onPeerUp, fn)
+	s.mu.Unlock()
 }
 
 // OnPeerDisconnected registers a presence-down callback. Gated exactly as
 // OnPeerConnected is — a stranger going away is no more a presence change than
 // a stranger arriving.
 func (s *Service) OnPeerDisconnected(fn func(PeerPresence)) {
-	s.host.OnPeerDisconnected(func(p peer.ID) {
-		if pp := s.presence(p); s.knownContact(pp.Fingerprint) {
-			fn(pp)
-		}
-	})
+	s.mu.Lock()
+	s.onPeerDown = append(s.onPeerDown, fn)
+	s.mu.Unlock()
+}
+
+// emitPeerUp announces a peer's presence exactly once per connection.
+func (s *Service) emitPeerUp(pp PeerPresence) {
+	id, err := peer.Decode(pp.PeerID)
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	if s.presenceShown == nil {
+		s.presenceShown = map[peer.ID]bool{}
+	}
+	if s.presenceShown[id] {
+		s.mu.Unlock()
+		return
+	}
+	s.presenceShown[id] = true
+	cbs := append([]func(PeerPresence){}, s.onPeerUp...)
+	s.mu.Unlock()
+	for _, cb := range cbs {
+		cb(pp)
+	}
+}
+
+// emitPeerDown announces a departure, but only for a peer whose arrival we
+// announced — a down with no matching up is a phantom in the UI's feed.
+func (s *Service) emitPeerDown(p peer.ID, pp PeerPresence) {
+	s.mu.Lock()
+	shown := s.presenceShown[p]
+	delete(s.presenceShown, p)
+	cbs := append([]func(PeerPresence){}, s.onPeerDown...)
+	s.mu.Unlock()
+	if !shown {
+		return
+	}
+	for _, cb := range cbs {
+		cb(pp)
+	}
 }
 
 // OnMessage registers a callback fired for every message — sent or received —
@@ -1643,6 +1763,13 @@ func presenceFor(p peer.ID) PeerPresence {
 func (s *Service) learnDeviceCert(cred []byte) {
 	cert, ok := identity.ParseDeviceCert(cred)
 	if !ok || !cert.Verify() {
+		return
+	}
+	// A device of ours that we unlinked must not be re-adopted, whatever carries
+	// its certificate back to us — a leaf we could not remove from some guild, a
+	// message that was already in flight, its own hello. This is the single place
+	// every one of those paths goes through.
+	if s.deviceIsRevoked(cert.DevicePub) {
 		return
 	}
 	key := hex.EncodeToString(cert.DevicePub)

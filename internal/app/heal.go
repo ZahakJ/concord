@@ -127,6 +127,7 @@ func (s *Service) runHealLoop() {
 			s.reconcilePendingMembers()
 			s.noteDeviceLeaves()
 			s.reconcileGuilds()
+			s.sweepMailbox()
 		}
 	}
 }

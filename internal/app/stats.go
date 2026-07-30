@@ -108,9 +108,9 @@ type PeerStatView struct {
 	// The ACCOUNT behind the connection. Two peers sharing one fingerprint are
 	// one person on two devices, which the list has no other way to tell.
 	Fingerprint string `json:"fingerprint"`
-	// Self marks another device of THIS account (a linked phone), so the UI can
-	// say "your other device" instead of leaving it to look like a stranger who
-	// happens to share your name.
+	// Self marked another device of THIS account. Kept for compatibility with an
+	// older front end; it is now always false, because a device of yours is not
+	// in this list at all — see DeviceList.
 	Self      bool   `json:"self,omitempty"`
 	Role      string `json:"role"`      // "rendezvous" (infra) | "peer"
 	Transport string `json:"transport"` // quic | tcp | relay
@@ -134,6 +134,9 @@ type NetworkStatsView struct {
 	TotalIn          int64          `json:"totalIn"` // cumulative bytes
 	TotalOut         int64          `json:"totalOut"`
 	PeerList         []PeerStatView `json:"peerList"`
+	// DeviceList is THIS account's own devices — a separate list, not rows in
+	// PeerList. See LinkedDeviceView.
+	DeviceList []LinkedDeviceView `json:"deviceList"`
 }
 
 // NetworkStats reports DB/blob size and per-peer connection details.
@@ -173,47 +176,58 @@ func (s *Service) NetworkStats() NetworkStatsView {
 		if infra[p] {
 			pv.Role = "rendezvous"
 		} else {
+			// Your own devices have their own section (DeviceList / LinkedDevices)
+			// and are not "peers" here. Listing them among the connections your
+			// rendezvous introduced you to is what produced the "unknown peer" row
+			// people reported: your phone, filed under strangers, and then
+			// unnameable because s.profiles deliberately holds no row for you.
+			// They are not strangers, and the questions you have about them — is
+			// it online, when was it last here — are not the questions this list
+			// answers. So: out of it entirely.
+			if fpr := s.presence(p).Fingerprint; fpr == s.id.Fingerprint() {
+				continue
+			}
 			memberPeers++
 			// Resolve the connection to a name you'd recognize, so the peer list
 			// reads "Alice / Bob", not two anonymous key hashes — and a stray test
 			// instance or stranger stands out immediately.
 			if fpr := s.presence(p).Fingerprint; fpr != "" {
 				pv.Fingerprint = fpr
-				name := s.ProfileOf(fpr).Name
-				// …including YOUR OWN name for your own linked device. A phone
-				// paired to this desktop resolves to this account's fingerprint,
-				// and s.profiles deliberately never holds a row for ourselves —
-				// learnProfile refuses one so a peer echoing a stale copy can't
-				// rename us. ProfileOf therefore came back empty and the panel
-				// labelled the one connection it should have been surest about
-				// "unknown peer", which reads as "your desktop doesn't know that
-				// phone is you". The roster does this already (see Bridge.Members'
-				// isSelf branch); the peer list was the odd one out.
-				if fpr == s.id.Fingerprint() {
-					pv.Self = true
-					name = s.SelfProfile().Name
-				}
-				if name != "" {
+				if name := s.ProfileOf(fpr).Name; name != "" {
 					pv.Name = name
 				}
 			}
 		}
-		switch {
-		case strings.Contains(addr, "p2p-circuit"):
-			pv.Transport, pv.Relayed = "relay", true
-		case strings.Contains(addr, "quic"):
-			pv.Transport = "quic"
-		case strings.Contains(addr, "tcp"):
-			pv.Transport = "tcp"
-		default:
-			pv.Transport = "p2p"
-		}
-		if c.Stat().Direction == network.DirInbound {
-			pv.Direction = "inbound"
-		}
+		pv.Transport, pv.Relayed = transportOf(addr), isRelayed(addr)
+		pv.Direction = directionOf(c)
 		pv.RTTms = s.cachedRTT(p)
 		v.PeerList = append(v.PeerList, pv)
 	}
 	v.MemberPeers = memberPeers
+	v.DeviceList = s.LinkedDevices()
 	return v
+}
+
+// transportOf / isRelayed / directionOf describe one connection, shared by the
+// peer list and the device list so both read the same way.
+func transportOf(addr string) string {
+	switch {
+	case strings.Contains(addr, "p2p-circuit"):
+		return "relay"
+	case strings.Contains(addr, "quic"):
+		return "quic"
+	case strings.Contains(addr, "tcp"):
+		return "tcp"
+	default:
+		return "p2p"
+	}
+}
+
+func isRelayed(addr string) bool { return strings.Contains(addr, "p2p-circuit") }
+
+func directionOf(c network.Conn) string {
+	if c.Stat().Direction == network.DirInbound {
+		return "inbound"
+	}
+	return "outbound"
 }

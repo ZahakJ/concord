@@ -1,0 +1,239 @@
+package app
+
+import (
+	"context"
+	"encoding/json"
+	"sync"
+	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
+
+	"github.com/zahak/concord/internal/identity"
+)
+
+// The app half of /concord/hello (see net/hello.go for the wire and for why the
+// protocol exists at all).
+//
+// Two rules decide everything here, and they are worth stating plainly because
+// the naive version of each is wrong.
+//
+// WHO WE INTRODUCE OURSELVES TO. Only peers we can already place: our own
+// account, a guild member, a contact. Not "everyone we connect to" — a linked
+// device's account is not otherwise derivable from its PeerID, so volunteering
+// the certificate to every DHT routing peer and every stranger answering the
+// rendezvous key would publish "this anonymous-looking node belongs to account
+// X" to exactly the audience the device key was protecting us from. Introducing
+// ourselves only to peers we have identified leaks nothing they did not already
+// know.
+//
+// That rule is also sufficient, which is the part that isn't obvious. The device
+// that needs recognising is the one with the un-placeable PeerID — a linked
+// phone — and the peer it needs recognising by is one it can place itself (the
+// desktop's PeerID is the account key; a guild member is in the roster it holds).
+// So the introduction always flows from the side that has the problem, and the
+// far end answers with its own credential in the same round trip. Neither side
+// ever has to ask a stranger who they are.
+//
+// WHAT WE DO WHEN ONE LANDS. Verify the certificate against the key the libp2p
+// connection is already authenticated to (credentialBoundToPeer), then treat the
+// peer as newly resolved: fire the presence event the gate had been swallowing,
+// record and protect the connection, and run the catch-up the connect tail gave
+// up on. Learning the mapping and leaving it at that is the bug this replaces —
+// nothing re-ran the work that had been skipped, so the device stayed silent
+// until something unrelated happened to shake the tree.
+
+// helloFrame is one side of the exchange.
+type helloFrame struct {
+	// Credential is our MLS leaf credential: a device certificate (linked) or the
+	// bare account key (original device). Empty means "I can't place you, so I'm
+	// not telling you who I am" — a valid, deliberate answer.
+	Credential []byte `json:"cred,omitempty"`
+	// Name is a device label, shown only in the owning account's own device
+	// diagnostics. Cosmetic; never trusted for anything.
+	Name string `json:"name,omitempty"`
+	// Revoked, when present, tells the peer that the device it just introduced
+	// has been unlinked from this account. Only ever sent to a device of OUR
+	// account, and only carrying a revocation OUR account key signed — see
+	// unlink.go for exactly how much that does and does not promise.
+	Revoked *identity.DeviceRevocation `json:"revoked,omitempty"`
+}
+
+// helloTimeout bounds one exchange. A hello is an optimization, not a step in
+// any user-visible flow, so it fails fast and silently.
+const helloTimeout = 15 * time.Second
+
+// greeted records the peers we have already introduced ourselves to on their
+// current connection, so a reconnect greets again and a chatty notifier doesn't.
+type greetSet struct {
+	mu sync.Mutex
+	m  map[peer.ID]bool
+}
+
+func (g *greetSet) claim(p peer.ID) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.m == nil {
+		g.m = map[peer.ID]bool{}
+	}
+	if g.m[p] {
+		return false
+	}
+	g.m[p] = true
+	return true
+}
+
+func (g *greetSet) release(p peer.ID) {
+	g.mu.Lock()
+	delete(g.m, p)
+	g.mu.Unlock()
+}
+
+// canPlace reports whether we can already say which account a peer belongs to.
+// It is the gate on introducing ourselves, and the gate on answering.
+func (s *Service) canPlace(p peer.ID) bool {
+	pp := s.presence(p)
+	if pp.Fingerprint == "" {
+		return false
+	}
+	// Our own account counts even though knownContact is about other people:
+	// this is precisely the case of your own phone and your own desktop.
+	return pp.Fingerprint == s.id.Fingerprint() || s.knownContact(pp.Fingerprint)
+}
+
+// greet introduces us to a peer we can place, and folds in whatever it says
+// back. Safe to call for anyone: it costs one map lookup for a peer we can't
+// place, and one small stream for a peer we can.
+func (s *Service) greet(p peer.ID) {
+	if p == s.host.PeerID() || s.isMailboxNode(p) {
+		return // ourselves, and infrastructure that has no account to trade
+	}
+	// Claim BEFORE asking whether we can place them: canPlace runs knownContact,
+	// which decodes every guild's roster, and this is called for every connection
+	// the host makes — the rendezvous, DHT routing peers, relay candidates. One
+	// evaluation per peer per connection is the budget; the claim is what holds
+	// it to that. Released again on a "no" so a later membership change gets a
+	// fresh look (rememberMembers re-greets for exactly that reason).
+	if !s.greeted.claim(p) {
+		return
+	}
+	if !s.canPlace(p) {
+		s.greeted.release(p)
+		return
+	}
+	req, err := json.Marshal(helloFrame{Credential: s.myCredential, Name: s.deviceLabel()})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, helloTimeout)
+	defer cancel()
+	resp, err := s.host.SayHello(ctx, p, req)
+	if err != nil {
+		// Let a later connect try again — an old peer with no handler, or a
+		// connection that died mid-stream, are both worth one more attempt.
+		s.greeted.release(p)
+		return
+	}
+	s.ingestHello(p, resp)
+}
+
+// handleHello is the responder: someone introduced themselves to us.
+func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]byte, error) {
+	// One answer per connection. Composing an answer costs a knownContact, which
+	// decodes the MLS roster of every guild — cheap once per peer, and not
+	// something to let an anonymous peer trigger in a loop by reopening a stream.
+	// The request itself is still ingested every time: it is signature-checked
+	// and idempotent, and refusing to read it would be the wrong thing to
+	// harden.
+	s.ingestHello(from, req)
+	if !s.answered.claim(from) {
+		return json.Marshal(helloFrame{})
+	}
+
+	// Answer only someone we can place — which, thanks to the request we just
+	// ingested, now includes the linked device that could not be placed a
+	// microsecond ago. A peer we still can't place gets an empty frame: a clear
+	// "nothing for you" rather than a dropped stream they'd retry against.
+	var out helloFrame
+	// The revocation goes out regardless of whether we would otherwise talk to
+	// this peer: telling a device we unlinked that it has been unlinked is the
+	// one message it is still owed, and it is signed, so it proves itself.
+	out.Revoked = s.revocationFor(from)
+	if out.Revoked == nil && s.canPlace(from) {
+		out.Credential, out.Name = s.myCredential, s.deviceLabel()
+	}
+	return json.Marshal(out)
+}
+
+// ingestHello verifies and applies one side of the exchange.
+func (s *Service) ingestHello(from peer.ID, raw []byte) {
+	var f helloFrame
+	if json.Unmarshal(raw, &f) != nil {
+		return
+	}
+	// A revocation naming THIS device is the one thing we act on before anything
+	// else, since acting on it means we stop existing.
+	if f.Revoked != nil {
+		s.applyRevocation(f.Revoked)
+	}
+	if len(f.Credential) == 0 {
+		return
+	}
+	// The proof. The connection is Noise-authenticated to `from`'s key, so
+	// requiring the certificate to name that key means a peer can only ever claim
+	// its own account-signed cert. Without this check a hello would be a way to
+	// impersonate any account by replaying its public certificate.
+	if !credentialBoundToPeer(f.Credential, from) {
+		return
+	}
+	cert, isDevice := identity.ParseDeviceCert(f.Credential)
+	// A device we unlinked stays recognisable to US — we still hold its record,
+	// which is how the revocation reaches it — but it must not be re-adopted as
+	// this account by the very hello that brings it back. Without this, unlinking
+	// undid itself the moment the device reconnected.
+	if isDevice && s.deviceIsRevoked(cert.DevicePub) {
+		return
+	}
+	before := s.presence(from).Fingerprint
+	s.learnDeviceCert(f.Credential)
+	if isDevice {
+		// If it's one of OURS, write it down — so this recognition survives
+		// restarts even when the device's leaf is in no roster we can read.
+		// noteOwnDevice ignores anything signed by another account.
+		s.noteOwnDevice(cert, f.Name, true)
+	}
+	if after := s.presence(from).Fingerprint; after != before {
+		s.peerResolved(from)
+	}
+}
+
+// deviceLabel is the human name this install goes by in its own account's device
+// list. It comes off our own certificate; an install that was never linked has
+// none, and LinkedDevices names that row itself ("Original device").
+func (s *Service) deviceLabel() string {
+	if cert, ok := identity.ParseDeviceCert(s.myCredential); ok && cert.DeviceName != "" {
+		return cert.DeviceName
+	}
+	return ""
+}
+
+// peerResolved runs everything that was skipped while a peer was unplaceable.
+//
+// This is the half that the certificate exchange alone would not fix. The
+// connect path makes three judgements at connect time — is this presence worth
+// showing, is this peer worth remembering, is this peer worth syncing from — and
+// all three answer "no" for a device we cannot place. Nothing re-ran them, so a
+// mapping learned thirty seconds later changed nothing until the next connect.
+func (s *Service) peerResolved(p peer.ID) {
+	pp := s.presence(p)
+	if !s.knownContact(pp.Fingerprint) {
+		return
+	}
+	go func() {
+		s.emitPeerUp(pp)                // the presence event the gate swallowed
+		s.recordPeer(p, pp.Fingerprint) // protect + remember: they're one of ours
+		s.announceProfileAll()
+		s.reannounceVoice()
+		s.syncFromPeer(p) // the catch-up the connect tail declined to attempt
+		s.healStrandedGuilds()
+	}()
+}

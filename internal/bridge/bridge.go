@@ -490,6 +490,20 @@ func (b *Bridge) Login(passphrase string) error {
 	}
 	svc.OnPeerConnected(presence)
 	svc.OnPeerDisconnected(presence)
+	// This device was unlinked from its account and has just erased itself. Drop
+	// the session rather than leaving the UI talking to a closed store, and poke
+	// the presence feed so the shell notices it needs to go back to the lock
+	// screen — where HasIdentity is now false, which is the truth.
+	svc.OnUnlinked(func() {
+		b.mu.Lock()
+		if b.svc == svc {
+			b.svc = nil
+		}
+		b.mu.Unlock()
+		if b.OnPresence != nil {
+			b.OnPresence()
+		}
+	})
 	svc.OnVoicePresence(func(from, fingerprint, channelID, action, target, dest string) {
 		if b.OnVoicePresence != nil {
 			b.OnVoicePresence(VoicePresence{From: from, Fingerprint: fingerprint, ChannelID: channelID, Action: action, Target: target, Dest: dest})
@@ -645,6 +659,29 @@ func (b *Bridge) NetworkStats() (appsvc.NetworkStatsView, error) {
 		return appsvc.NetworkStatsView{}, err
 	}
 	return svc.NetworkStats(), nil
+}
+
+// LinkedDevices lists the devices signed in to THIS account (see
+// app.LinkedDeviceView). Separate from NetworkStats' peer list on purpose: your
+// own phone is not one of the strangers your rendezvous introduced you to.
+func (b *Bridge) LinkedDevices() ([]appsvc.LinkedDeviceView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.LinkedDevices(), nil
+}
+
+// UnlinkDevice revokes one of this account's devices. Read the threat model in
+// app/unlink.go before describing this to anyone: the leaf removal is real, the
+// self-erase is advisory, and a device in hostile hands still holds the account
+// seed.
+func (b *Bridge) UnlinkDevice(deviceKey string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.UnlinkDevice(deviceKey)
 }
 
 // LeaveGuild removes a guild from this peer (local delete).
@@ -2425,6 +2462,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.GuildStats(argStr(args, 0))
 	case "NetworkStats":
 		return b.NetworkStats()
+	case "LinkedDevices":
+		return b.LinkedDevices()
+	case "UnlinkDevice":
+		return nil, b.UnlinkDevice(argStr(args, 0))
 	case "EditMessage":
 		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "ToggleReaction":

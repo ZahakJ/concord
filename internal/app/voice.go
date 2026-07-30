@@ -62,7 +62,15 @@ func (s *Service) watchVoice(groupID []byte, channelID string) {
 	_ = s.ps.Subscribe(s.ctx, topic, func(from peer.ID, data []byte) {
 		var a voiceAnnounce
 		if json.Unmarshal(data, &a) == nil && a.ChannelID == channelID {
-			s.emitVoicePresence(from.String(), presenceFor(from).Fingerprint, channelID, a.Action, a.Target, a.Dest)
+			// s.presence, NOT presenceFor: the fingerprint here is what the UI
+			// names the participant by, checks permissions against, and compares
+			// with its own to decide "this is me on another device". presenceFor
+			// reads the key out of the PeerID, which for a LINKED device is that
+			// device's own key — an account nobody has ever heard of. So your own
+			// phone joined the call as a nameless stranger, on a client that had a
+			// perfectly good "(other device)" label ready for it, and a moderator's
+			// permissions were checked against an identity with no roles.
+			s.emitVoicePresence(from.String(), s.presence(from).Fingerprint, channelID, a.Action, a.Target, a.Dest)
 		}
 	})
 }
@@ -103,6 +111,28 @@ func (s *Service) JoinVoice(channelID string) error {
 		}
 	}()
 	return nil
+}
+
+// reannounceVoice re-publishes our presence in every room we are in.
+//
+// Called when a peer connects. Gossip is fire-and-forget and the heartbeat is
+// every three seconds, so a peer that arrives just after a beat waits out the
+// rest of it before it can know we are in a call — on top of however long it
+// took to arrive. One publish per room on connect costs nothing and removes that
+// whole window, which is the difference between "I joined the call and my
+// desktop knew" and "I joined the call and then waited".
+func (s *Service) reannounceVoice() {
+	s.voiceMu.Lock()
+	rooms := make([]string, 0, len(s.voiceRooms))
+	for ch := range s.voiceRooms {
+		rooms = append(rooms, ch)
+	}
+	s.voiceMu.Unlock()
+	for _, ch := range rooms {
+		if groupID, err := s.groupForChannel(ch); err == nil {
+			s.announceVoice(domain.VoiceTopicID(groupID, ch), ch, "join")
+		}
+	}
 }
 
 // LeaveVoice leaves a channel's voice room, announcing departure.

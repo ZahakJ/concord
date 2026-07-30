@@ -11,7 +11,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
-	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 )
 
 // DefaultRendezvous namespaces Concord peers in the shared DHT so they find each
@@ -41,10 +40,119 @@ func (n *Host) startDHT(cfg Config) error {
 	n.kdht = kdht
 
 	disc := drouting.NewRoutingDiscovery(kdht)
-	dutil.Advertise(n.ctx, disc, rendezvous)
+	n.disc = kdht
+	go n.advertiseLoop(kdht, disc, rendezvous)
 	go n.keepBootstrapped(kdht, boot, cfg.RememberedPeers)
 	go n.discoverLoop(disc, rendezvous)
 	return nil
+}
+
+// advertiseLoop publishes this peer under the rendezvous key, forever.
+//
+// It replaces discovery/util.Advertise, whose failure path costs two minutes of
+// invisibility every single launch. That helper retries a failed Advertise after
+// a FLAT two-minute sleep, and the first Advertise always fails: startDHT runs it
+// the instant the DHT is created, when the routing table is empty and the
+// bootstrap dial (keepBootstrapped, a goroutine started on the next line) has not
+// even been attempted — "failed to find any peer in table". So a client that had
+// just started, or had just come back from a dropped network, was absent from the
+// rendezvous key for 120s while believing it had announced itself.
+//
+// Measured against the symptom the user reported: a phone waking up and a desktop
+// that had been running took 120.06s to connect. Everything downstream inherits
+// that — voice presence, gossip, history catch-up — because none of it can happen
+// before the two peers have a connection. This is the single largest cause of the
+// "I join voice on my phone and my desktop sees it a minute later" delay.
+//
+// So: wait for a routing table before the first attempt, retry on a short
+// backoff, and re-announce immediately whenever we regain the network (the kick).
+func (n *Host) advertiseLoop(kdht *dht.IpfsDHT, disc *drouting.RoutingDiscovery, rendezvous string) {
+	const (
+		minRetry = 2 * time.Second
+		maxRetry = 30 * time.Second
+	)
+	backoff := minRetry
+	for {
+		// Advertising into an empty routing table cannot succeed, and every failed
+		// attempt is a wasted DHT query. Wait for a peer first — but not forever:
+		// the timeout falls through to an attempt anyway, so a routing table that
+		// is technically empty while a bootstrap connection exists still gets tried.
+		n.waitRoutingTable(kdht, 30*time.Second)
+		ttl, err := disc.Advertise(n.ctx, rendezvous)
+		wait := backoff
+		if err == nil {
+			backoff = minRetry
+			// 7/8 of the TTL, as the upstream helper does: re-announce before the
+			// record expires rather than after.
+			wait = 7 * ttl / 8
+			if wait <= 0 {
+				wait = maxRetry
+			}
+		} else if backoff < maxRetry {
+			backoff *= 2
+		}
+		select {
+		case <-n.ctx.Done():
+			return
+		case <-n.netKick():
+			// We just (re)gained a way into the network. Whatever we were waiting
+			// out is stale — announce again now, which is the difference between a
+			// returning phone appearing in seconds and appearing on the next TTL.
+		case <-time.After(wait):
+		}
+	}
+}
+
+// waitRoutingTable blocks until the DHT knows at least one peer, or the timeout
+// expires. Polling is fine here: it runs once per advertise attempt, not per tick.
+func (n *Host) waitRoutingTable(kdht *dht.IpfsDHT, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if kdht.RoutingTable().Size() > 0 {
+			return
+		}
+		select {
+		case <-n.ctx.Done():
+			return
+		case <-time.After(250 * time.Millisecond):
+		}
+	}
+}
+
+// netKick returns the channel closed-and-replaced whenever we regain a way into
+// the network, so the advertise and discovery loops can restart at once instead
+// of waiting out a timer that was scheduled while we were offline.
+func (n *Host) netKick() <-chan struct{} {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.kick == nil {
+		n.kick = make(chan struct{})
+	}
+	return n.kick
+}
+
+// kickNetwork wakes every loop parked on netKick.
+func (n *Host) kickNetwork() {
+	n.mu.Lock()
+	if n.kick != nil {
+		close(n.kick)
+	}
+	n.kick = make(chan struct{})
+	n.mu.Unlock()
+}
+
+// FindPeer asks the DHT where a specific peer is right now.
+//
+// This is a targeted Kademlia lookup, not a rendezvous-key provider query: it
+// answers "where is THIS peer id" without depending on that peer having
+// successfully re-advertised under the shared key. That distinction is what lets
+// an account reach its own linked devices promptly — we know their peer ids from
+// their certificates, so we never have to wait for their advertisement to land.
+func (n *Host) FindPeer(ctx context.Context, p peer.ID) (peer.AddrInfo, error) {
+	if n.disc == nil {
+		return peer.AddrInfo{}, fmt.Errorf("net: no DHT")
+	}
+	return n.disc.FindPeer(ctx, p)
 }
 
 // bootstrapSet is the list of nodes that can let us into a DHT: the user's own
@@ -117,6 +225,9 @@ func (n *Host) keepBootstrapped(kdht *dht.IpfsDHT, peers, remembered []peer.Addr
 			if kdht != nil {
 				_ = kdht.Bootstrap(n.ctx)
 			}
+			// …and tell the advertise/discover loops, which are otherwise parked on
+			// a timer that was scheduled while there was no network to use.
+			n.kickNetwork()
 			if failed {
 				log.Printf("concord/net: back on the network, discovery resumed")
 			}
@@ -212,6 +323,7 @@ func (n *Host) discoverLoop(disc *drouting.RoutingDiscovery, rendezvous string) 
 		select {
 		case <-n.ctx.Done():
 			return
+		case <-n.netKick(): // back on the network: look now, not in 15s
 		case <-t.C:
 		}
 	}

@@ -2,8 +2,9 @@
   // Read-only diagnostics: this conversation's local footprint + sync health,
   // and a whole-device network/storage view. Polls every 2s while open.
   import Modal from "./Modal.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
-  import { S, activeGuild } from "../lib/state.svelte.js";
+  import { S, activeGuild, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
 
   let { onClose } = $props();
@@ -42,7 +43,46 @@
   function fmtDate(sec) {
     return sec ? new Date(sec * 1000).toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }) : "—";
   }
+  // "just now" / "14m ago" / a date. A device list is read to answer "when was
+  // that thing last here", which an absolute timestamp makes you do arithmetic
+  // for whenever the answer is "a minute ago".
+  function fmtAgo(sec) {
+    if (!sec) return "never";
+    const s = Math.max(0, Math.floor(Date.now() / 1000) - sec);
+    if (s < 45) return "just now";
+    if (s < 3600) return `${Math.round(s / 60)}m ago`;
+    if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+    if (s < 86400 * 30) return `${Math.round(s / 86400)}d ago`;
+    return fmtDate(sec);
+  }
   const transportLabel = { quic: "QUIC", tcp: "TCP", relay: "Relay", p2p: "P2P" };
+
+  // ---- unlinking ----
+  //
+  // The confirm text is deliberately exact about what this can and cannot do
+  // (see internal/app/unlink.go). Removing the device's leaf from your servers
+  // is real and immediate; the self-erase only happens if that device comes back
+  // online running an honest client. Promising a remote wipe would be a promise
+  // no serverless design can keep, and the one place someone would rely on it is
+  // the one place it matters.
+  let unlinking = $state("");
+  let confirming = $state(null); // the device awaiting confirmation
+  async function unlink(dev) {
+    confirming = null;
+    const label = dev.name || "that device";
+    unlinking = dev.key;
+    try {
+      await api.unlinkDevice(dev.key);
+      flash(
+        `${label} unlinked — it loses access to your servers now, and erases itself the next time it comes online`,
+        "success",
+      );
+    } catch (err) {
+      flash(err);
+    }
+    unlinking = "";
+    refresh();
+  }
 
   // One row per ACCOUNT, not per connection. Linked devices share a fingerprint,
   // so the same person on a laptop and a phone was showing up as two strangers
@@ -93,6 +133,51 @@
           <span class="v" class:warn={gs.outOfSync}>{gs.outOfSync ? "healing…" : "in sync"}</span>
         </div>
       </div>
+    {:else}
+      <p class="muted tiny">Loading…</p>
+    {/if}
+  </section>
+
+  <hr />
+
+  <!-- YOUR DEVICES. Its own section, above the peer list, because a device of
+       yours is not one of the peers your rendezvous introduced you to — it used
+       to sit down there labelled "unknown peer", which is the worst possible
+       thing for your desktop to call your phone. -->
+  <section>
+    <strong class="label">Your devices</strong>
+    {#if ns?.deviceList?.length}
+      <div class="peers">
+        {#each ns.deviceList as d (d.key)}
+          <div class="peer dev" class:gone={!d.online} class:revoked={d.revokedAt}>
+            <span class="pdot" class:relay={d.relayed} class:off={!d.online} class:infra={d.revokedAt}></span>
+            <span class="pname">{d.name || "Linked device"}</span>
+            {#if d.thisOne}
+              <span class="pdev">this one</span>
+            {:else if d.revokedAt}
+              <span class="pdev" title="Unlinked — it loses new traffic now and erases itself when it next connects">
+                unlinked
+              </span>
+            {/if}
+            <code class="pid" title={d.peerId}>{d.peerId.slice(0, 12)}…{d.peerId.slice(-6)}</code>
+            <span class="prtt muted">
+              {d.online ? "online" : `last seen ${fmtAgo(d.lastSeen)}`}
+            </span>
+            {#if d.rttMs > 0}<span class="prtt muted">{d.rttMs} ms</span>{/if}
+            {#if d.transport}<span class="ptag">{transportLabel[d.transport] || d.transport}</span>{/if}
+            {#if d.direction}<span class="pdir muted">{d.direction}</span>{/if}
+            {#if !d.thisOne && !d.revokedAt}
+              <button class="unlink" disabled={unlinking === d.key} onclick={() => (confirming = d)}>
+                {unlinking === d.key ? "…" : "Unlink"}
+              </button>
+            {/if}
+          </div>
+        {/each}
+      </div>
+      <p class="muted tiny note">
+        Every device signed in to this account. Unlinking one removes it from your
+        servers immediately; it erases its own copy only if it comes back online.
+      </p>
     {:else}
       <p class="muted tiny">Loading…</p>
     {/if}
@@ -171,6 +256,16 @@
   </section>
 </Modal>
 
+{#if confirming}
+  <ConfirmDialog
+    title="Unlink {confirming.name || 'this device'}?"
+    body={"It stops receiving anything new from your servers straight away — that part is immediate and cannot be undone by whoever holds it.\n\nIt erases its own copy of your messages only when it next comes online with Concord running. A device that stays off keeps what it already downloaded, and this cannot reach it. If the device is in someone else's hands, treat everything on it as already read."}
+    confirmLabel="Unlink"
+    onConfirm={() => unlink(confirming)}
+    onClose={() => (confirming = null)}
+  />
+{/if}
+
 <style>
   section {
     display: flex;
@@ -245,6 +340,53 @@
   }
   .pdot.infra {
     background: var(--text-faint);
+  }
+  /* A device row carries more than a peer row does (name, id, when, latency,
+     transport, direction, the button), so it wraps onto a second line instead
+     of squeezing the name into two words per line. */
+  .peer.dev {
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+  .peer.dev .pname {
+    flex: none;
+    white-space: nowrap;
+  }
+  .peer.dev .pid {
+    white-space: nowrap;
+  }
+  /* The action goes to the far right, wherever the row happens to break. */
+  .peer.dev .ptag {
+    margin-left: 0;
+  }
+  .peer.dev .unlink {
+    margin-left: auto;
+  }
+  /* An offline device is a row you still want to read — dimmed, not hidden. */
+  .pdot.off {
+    background: var(--text-faint);
+  }
+  .peer.gone {
+    opacity: 0.72;
+  }
+  .peer.revoked .pname {
+    text-decoration: line-through;
+  }
+  .unlink {
+    flex: none;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .unlink:hover:not(:disabled) {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+  .unlink:disabled {
+    opacity: 0.5;
   }
   .prole {
     font-size: 10px;

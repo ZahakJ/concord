@@ -342,7 +342,7 @@ func RedeemLink(ctx context.Context, dataDir, code, passphrase string) (LinkResu
 		JoinerNonce: joinerNonce,
 		JoinerProof: link.Proof(off.Secret, link.RoleJoiner, joinerNonce),
 		DevicePub:   joiner.DevicePublicKey(),
-		DeviceName:  "New device",
+		DeviceName:  defaultDeviceName(),
 	})
 	// Generous overall budget: RequestLink retries the connect/hole-punch with
 	// backoff inside this window, so a first-attempt miss (common off-LAN) doesn't

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	p2pcrypto "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/metrics"
@@ -243,8 +244,10 @@ type Host struct {
 	// working, which is precisely why nobody would go looking for one.
 	portTaken bool
 
-	mdns   interface{ Close() error }
-	kdht   interface{ Close() error }
+	mdns interface{ Close() error }
+	kdht interface{ Close() error }
+	// disc is the same DHT, typed for lookups (FindPeer). nil without the DHT.
+	disc   *dht.IpfsDHT
 	relays *relaySource
 
 	mu sync.RWMutex
@@ -258,6 +261,10 @@ type Host struct {
 	// connect fires exactly once per peer no matter how many transports carry
 	// it, and the matching disconnect fires only if the connect did.
 	connected map[peer.ID]bool
+	// kick is closed-and-replaced when we regain a way into the network, so the
+	// advertise and discovery loops restart immediately instead of waiting out a
+	// timer scheduled while we were offline. See netKick/kickNetwork.
+	kick chan struct{}
 	// redialReported holds the remembered peers we have already reported as
 	// unreachable during the current outage, so the retry loop's backoff cannot
 	// turn one absent friend into a stream of failures. Cleared per peer the
