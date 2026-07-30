@@ -253,7 +253,7 @@
     overflow: clip; /* rings and their weather overflow by design */
   }
   .stage-name {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   .sat-pane {
@@ -329,7 +329,7 @@
   .seg button {
     flex: 1;
     padding: 5px 4px;
-    font-size: 11px;
+    font-size: var(--fs-small);
     border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     background: transparent;
@@ -352,7 +352,7 @@
     gap: 4px;
   }
   .gtitle {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-faint);
@@ -413,16 +413,65 @@
     border: 1px dashed var(--border);
   }
   .oname {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     line-height: 1.15;
     text-align: center;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   .rs-foot {
     display: flex;
     justify-content: flex-end;
     gap: 8px;
+  }
+
+  /* ---- phone: a bottom sheet with targets a thumb can hit ---- */
+  @media (pointer: coarse), (max-width: 768px) {
+    /* A centred dialog with 4vh of scrim above and below wastes the only axis
+       this picker has too little of — it is a long scrolling library. Dock it
+       to the bottom instead, the way every other sheet in the app arrives. */
+    .rs-scrim {
+      padding: 0;
+      align-items: end;
+    }
+    .rs {
+      width: 100%;
+      max-width: none;
+      max-height: 88vh;
+      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+      padding: var(--sp-3) var(--sp-3) calc(var(--sp-3) + env(safe-area-inset-bottom));
+    }
+    .x,
+    .sat-btn,
+    .pal-btn {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
+    .sats {
+      gap: var(--sp-2);
+    }
+    /* The emoji riders are a grid of glyphs — the tile grows, the glyph doesn't
+       need to. */
+    .sat-btn img {
+      width: 26px;
+      height: 26px;
+    }
+    .seg button {
+      min-height: var(--tap-min);
+    }
+    /* One dial per row: two 11px segmented controls side by side inside a 360px
+       sheet gave each of their three buttons about 50px, which is under a
+       fingertip once the label is in there too. */
+    .dials {
+      grid-template-columns: 1fr;
+    }
+    .grid {
+      grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+    }
+    .rs-foot button {
+      flex: 1;
+      min-height: var(--tap-min);
+    }
   }
 </style>

@@ -18,10 +18,21 @@
     denyKnocker,
     isGuestFpr,
     togglePeerMute,
+    setVideoStream,
+    openContextMenu,
     flash,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { bindLabel } from "./lib/keybind.js";
+  import { haptic, longpress } from "./lib/touch.js";
+  import {
+    canShareScreen,
+    listDevices,
+    canRouteAudio,
+    currentRoute,
+    setAudioRoute,
+    AUDIO_ROUTES,
+  } from "./lib/devices.js";
 
   // In push-to-talk the mic button stops being a toggle you watch and becomes a
   // readout of a key you're holding, so it says which key and lights up live.
@@ -114,11 +125,172 @@
     focusedKey = focusedKey === key ? null : key;
   }
 
-  // Fullscreen the focused view (the "zoom" affordance).
+  // Fullscreen the focused view. On a phone that alone is worth little: a 16:9
+  // share letterboxed into a portrait screen still only fills a third of the
+  // glass, so we ask for landscape at the same time — which is also the only
+  // moment Android permits the lock (it refuses outside fullscreen), and which
+  // iOS/WKWebView simply ignores.
   let stageEl = $state(null);
-  function toggleFullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen?.();
-    else stageEl?.requestFullscreen?.();
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen?.();
+        screen.orientation?.unlock?.();
+        return;
+      }
+      await stageEl?.requestFullscreen?.();
+      if (S.isMobile) await screen.orientation?.lock?.("landscape");
+    } catch {
+      /* denied, unsupported, or the lock refused — the fullscreen still stands */
+    }
+  }
+
+  // Pinch/pan on the focused view.
+  //
+  // Without this a shared 1920x1080 desktop arrives on a 393px phone at roughly
+  // 20% scale: `object-fit: contain` fits the WHOLE screen into a 16:9 box, so
+  // body text in an editor or a terminal is sub-pixel and there is nothing to
+  // scroll to — the picture is all there, just unreadable. Fullscreen buys ~1.9x
+  // against the ~5x this needs.
+  //
+  // Pointer events rather than touch events so a trackpad/mouse drag pans too,
+  // and `touch-action: none` because the shell sets `pan-y` on the pane around
+  // us and would otherwise claim every vertical finger movement.
+  const ZOOM_MAX = 6;
+  function zoomable(node, key) {
+    const pts = new Map();
+    let scale = 1;
+    let tx = 0;
+    let ty = 0;
+    let pinch = null; // { dist, mx, my, scale, tx, ty }
+    let pan = null; // { x, y, tx, ty }
+    let moved = false;
+
+    node.style.touchAction = "none";
+    node.style.transformOrigin = "0 0";
+
+    // The FRAME the video sits in, measured off the parent: node's own
+    // getBoundingClientRect reports the box after our transform, so using it
+    // would feed the scale back into the next clamp and run away.
+    const box = () => (node.parentElement || node).getBoundingClientRect();
+    function apply() {
+      // Clamp so the scaled picture always covers the box: at scale 1 that
+      // pins it back to the origin, which doubles as the reset.
+      const b = box();
+      tx = Math.min(0, Math.max(-(scale - 1) * b.width, tx));
+      ty = Math.min(0, Math.max(-(scale - 1) * b.height, ty));
+      node.style.transform = scale === 1 ? "" : `translate(${tx}px, ${ty}px) scale(${scale})`;
+      node.style.cursor = scale === 1 ? "" : "grab";
+    }
+    function reset() {
+      scale = 1;
+      tx = 0;
+      ty = 0;
+      apply();
+    }
+    const local = (e) => {
+      const b = box();
+      return { x: e.clientX - b.left, y: e.clientY - b.top };
+    };
+
+    function onDown(e) {
+      if (e.target.closest?.(".focus-actions")) return; // the buttons are not the canvas
+      node.setPointerCapture?.(e.pointerId);
+      pts.set(e.pointerId, local(e));
+      moved = false;
+      if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        pinch = {
+          dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+          mx: (a.x + b.x) / 2,
+          my: (a.y + b.y) / 2,
+          scale,
+          tx,
+          ty,
+        };
+        pan = null;
+      } else if (pts.size === 1 && scale > 1) {
+        const p = local(e);
+        pan = { x: p.x, y: p.y, tx, ty };
+      }
+    }
+    function onMove(e) {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, local(e));
+      if (pinch && pts.size >= 2) {
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+        const next = Math.min(ZOOM_MAX, Math.max(1, (pinch.scale * d) / pinch.dist));
+        // Hold the point under the pinch midpoint still while the scale changes.
+        const px = (pinch.mx - pinch.tx) / pinch.scale;
+        const py = (pinch.my - pinch.ty) / pinch.scale;
+        scale = next;
+        tx = pinch.mx - px * next;
+        ty = pinch.my - py * next;
+        moved = true;
+        apply();
+        return;
+      }
+      if (pan) {
+        const p = local(e);
+        if (Math.hypot(p.x - pan.x, p.y - pan.y) > 6) moved = true;
+        tx = pan.tx + (p.x - pan.x);
+        ty = pan.ty + (p.y - pan.y);
+        apply();
+      }
+    }
+    function onUp(e) {
+      pts.delete(e.pointerId);
+      node.releasePointerCapture?.(e.pointerId);
+      if (pts.size < 2) pinch = null;
+      if (pts.size === 0) pan = null;
+      // Lifting one finger out of a pinch leaves the other one panning. Re-seed
+      // from where it is now, or the picture jumps by the whole pinch offset.
+      if (pts.size === 1 && scale > 1) {
+        const [p] = [...pts.values()];
+        pan = { x: p.x, y: p.y, tx, ty };
+      }
+    }
+    // A clean tap on the picture leaves theater mode (the click handler on
+    // .focus-main). While zoomed in it must not: there it means "back to fit",
+    // and a gesture that merely ended over the video is not a tap at all.
+    function onClick(e) {
+      if (moved || scale > 1) {
+        e.stopPropagation();
+        e.preventDefault();
+        if (!moved && scale > 1) reset();
+      }
+      moved = false;
+    }
+
+    node.addEventListener("pointerdown", onDown);
+    node.addEventListener("pointermove", onMove);
+    node.addEventListener("pointerup", onUp);
+    node.addEventListener("pointercancel", onUp);
+    node.addEventListener("click", onClick, { capture: true });
+    return {
+      update(next) {
+        if (next !== key) {
+          key = next;
+          reset(); // a different share is a different picture
+        }
+      },
+      destroy() {
+        node.removeEventListener("pointerdown", onDown);
+        node.removeEventListener("pointermove", onMove);
+        node.removeEventListener("pointerup", onUp);
+        node.removeEventListener("pointercancel", onUp);
+        node.removeEventListener("click", onClick, { capture: true });
+      },
+    };
+  }
+
+  // Tapping the big view exits it — which the comment above has claimed since
+  // this was written, while no handler existed anywhere. The zoom action eats
+  // this click when it was a gesture or while zoomed in.
+  function leaveFocus(e) {
+    if (e.target.closest(".focus-actions")) return;
+    focusedKey = null;
   }
 
   function tileInfo(pid) {
@@ -173,9 +345,113 @@
     }
   }
 
+  // Everything a tile can do, as a long-press action sheet (right-click on a
+  // desktop). On a phone this is the ONLY way to reach these: the corner buttons
+  // are 22-26px controls inset into a tile whose whole body is itself a tap
+  // target, one of which removes a person from the meeting over the wire —
+  // hitting the intended one with a thumb was luck.
+  function tileMenu(e, pid, t) {
+    openContextMenu(e, [
+      { label: t.self ? `${t.name} (you)` : t.name, header: true },
+      {
+        label: focusedKey === pid ? "Exit full view" : "Full view",
+        icon: "screen",
+        onClick: () => toggleFocus(pid),
+      },
+      !t.self && {
+        label: t.localMuted ? `Unmute ${t.name} for me` : `Mute ${t.name} for me`,
+        icon: t.localMuted ? "speaker" : "deafened",
+        onClick: () => togglePeerMute(pid),
+      },
+      t.guest && { sep: true },
+      t.guest && {
+        label: "Remove from call",
+        icon: "door",
+        danger: true,
+        onClick: () => evictGuest(pid, t.name),
+      },
+    ]);
+  }
+
   function screenLabel(tile) {
     return tile.self ? "You" : participant(tile.peerId).name;
   }
+
+  // ---- phone-only call controls ----
+
+  // Screen sharing simply does not exist on Android's WebView (MediaProjection
+  // is never handed to the web layer) or WKWebView. The button used to render
+  // there regardless and swallow its own TypeError, so a prominent control did
+  // nothing at all, silently, however many times you pressed it.
+  const shareable = canShareScreen;
+
+  // Front/back camera. Showing someone what you are looking at is the main
+  // reason a phone camera goes on in a call, and until now the only route to it
+  // was a settings sheet listing "Camera 1 / Camera 2".
+  let cameras = $state(0);
+  let facing = $state("");
+  $effect(() => {
+    if (!S.cameraOn) return;
+    listDevices().then((d) => (cameras = d.camera.length));
+  });
+  async function flipCamera() {
+    const mesh = S.voice?.mesh;
+    if (!mesh?.flipCamera) return;
+    haptic("light");
+    const stream = await mesh.flipCamera();
+    facing = mesh.facing;
+    setVideoStream("self:camera", stream, { self: true, kind: "camera" });
+    if (!stream) flash("Couldn't switch camera", "error");
+  }
+
+  // Earpiece / speaker / Bluetooth. The web platform cannot move a call between
+  // them at all (see lib/devices.js), so this control appears only where the
+  // native half exists — not as a button that pretends.
+  const canRoute = canRouteAudio();
+  let route = $state("earpiece");
+  let routes = $state(["earpiece", "speaker"]);
+  $effect(() => {
+    if (!canRoute) return;
+    currentRoute().then((r) => {
+      if (!r) return;
+      route = r.route;
+      routes = r.available;
+    });
+  });
+  const routeInfo = $derived(AUDIO_ROUTES.find((r) => r.id === route) || AUDIO_ROUTES[0]);
+  async function cycleRoute() {
+    const order = AUDIO_ROUTES.filter((r) => routes.includes(r.id));
+    if (!order.length) return;
+    const at = order.findIndex((r) => r.id === route);
+    haptic("light");
+    // The OS gets the last word (a wired headset overrides everything), so show
+    // what actually happened rather than what was asked for.
+    const got = await setAudioRoute(order[(at + 1) % order.length].id);
+    if (got) route = got;
+  }
+
+  // Muting is the one control you need to know landed without looking at it,
+  // and the phone said nothing — the :active scale is under your fingertip at
+  // exactly the moment it plays.
+  const withHaptic =
+    (fn, style = "light") =>
+    () => {
+      haptic(style);
+      fn?.();
+    };
+
+  // Landscape tiles are 54-74px tall (see the landscape block below), and a
+  // fixed 64px avatar in one is sliced top and bottom with the name badge lying
+  // across what survives.
+  let compactTiles = $state(false);
+  $effect(() => {
+    if (typeof matchMedia !== "function") return;
+    const mq = matchMedia("(pointer: coarse) and (max-height: 480px)");
+    const sync = () => (compactTiles = mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  });
 
   // Every tile below is `muted`: a shared screen can carry its own sound, and
   // all call audio plays through the mesh's own audio elements — the only path
@@ -207,21 +483,23 @@
   {#if inTheater}
     <!-- Theater mode: one big view (a share or a participant), everyone else in
          a clickable strip. -->
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
       class="focus-main"
       class:speaking={focusedPid ? tileInfo(focusedPid).speaking : false}
       bind:this={stageEl}
+      onclick={leaveFocus}
     >
       {#if focusedScreen}
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video use:srcObject={focusedScreen.key} autoplay playsinline muted></video>
+        <video use:srcObject={focusedScreen.key} use:zoomable={focusedScreen.key} autoplay playsinline muted></video>
         <span class="screen-label"><Icon name="screen" size={12} /> {screenLabel(focusedScreen)}'s screen</span>
       {:else}
         {@const t = tileInfo(focusedPid)}
         {@const cam = camTile(focusedPid)}
         {#if cam}
           <!-- svelte-ignore a11y_media_has_caption -->
-          <video use:srcObject={cam.key} autoplay playsinline muted class:mirror={t.self}></video>
+          <video use:srcObject={cam.key} autoplay playsinline muted class:mirror={t.self && facing !== "environment"}></video>
         {:else}
           <div class="focus-face" style={t.color ? `--tint:${t.color}` : ""}>
             <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={96} />
@@ -284,6 +562,8 @@
           class:speaking={t.speaking}
           transition:scale={pop}
           onclick={() => toggleFocus(pid)}
+          oncontextmenu={(e) => tileMenu(e, pid, t)}
+          use:longpress={{ handler: (e) => tileMenu(e, pid, t) }}
           title="Click to focus {t.self ? 'yourself' : t.name}"
         >
           {#if cam}
@@ -293,11 +573,17 @@
               autoplay
               playsinline
               muted
-              class:mirror={t.self}
+              class:mirror={t.self && facing !== "environment"}
             ></video>
           {:else}
             <div class="face" style={t.color ? `--tint:${t.color}` : ""}>
-              <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={64} />
+              <Avatar
+                name={t.name}
+                emoji={t.emoji}
+                color={t.color}
+                image={t.image}
+                size={compactTiles ? 40 : 64}
+              />
             </div>
           {/if}
           <span class="ring" aria-hidden="true"></span>
@@ -351,12 +637,16 @@
     {#if screens.length}
       <div class="screens">
         {#each screens as tile (tile.key)}
-          <button class="screen-tile" title="Click to zoom" onclick={() => toggleFocus(tile.key)}>
+          <button
+            class="screen-tile"
+            title={S.isMobile ? "Tap to zoom" : "Click to zoom"}
+            onclick={() => toggleFocus(tile.key)}
+          >
             <!-- svelte-ignore a11y_media_has_caption -->
             <video use:srcObject={tile.key} autoplay playsinline muted></video>
             <span class="screen-label">
               <Icon name="screen" size={12} />
-              {screenLabel(tile)}'s screen · click to zoom
+              {screenLabel(tile)}'s screen · {S.isMobile ? "tap" : "click"} to zoom
             </span>
           </button>
         {/each}
@@ -373,7 +663,7 @@
       title={S.muted ? "Unmute" : pttOn ? `Hold ${pttKey || "your push-to-talk key"} to talk` : "Mute"}
       aria-label={S.muted ? "Unmute" : "Mute"}
       aria-pressed={S.muted}
-      onclick={onToggleMute}
+      onclick={withHaptic(onToggleMute)}
     >
       <Icon name={S.muted ? "micOff" : "mic"} size={18} />
     </button>
@@ -383,35 +673,58 @@
       title={S.deafened ? "Undeafen" : "Deafen"}
       aria-label={S.deafened ? "Undeafen" : "Deafen"}
       aria-pressed={S.deafened}
-      onclick={onToggleDeafen}
+      onclick={withHaptic(onToggleDeafen)}
     >
       <Icon name={S.deafened ? "deafened" : "speaker"} size={18} />
     </button>
+    {#if canRoute}
+      <button
+        class="ctl"
+        class:active={route !== "earpiece"}
+        title="Audio out: {routeInfo.label} — tap to change"
+        aria-label="Audio output: {routeInfo.label}"
+        onclick={cycleRoute}
+      >
+        <Icon name={routeInfo.icon} size={18} />
+      </button>
+    {/if}
     <button
       class="ctl"
       class:active={S.cameraOn}
       title={S.cameraOn ? "Turn off camera" : "Turn on camera"}
       aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
-      onclick={onToggleCamera}
+      onclick={withHaptic(onToggleCamera)}
     >
       <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={18} />
     </button>
-    <button
-      class="ctl"
-      class:active={S.sharing}
-      title={S.sharing ? "Stop sharing" : "Share screen"}
-      aria-label={S.sharing ? "Stop sharing" : "Share screen"}
-      onclick={onToggleShare}
-    >
-      <Icon name={S.sharing ? "screenOff" : "screen"} size={18} />
-    </button>
+    {#if S.cameraOn && cameras > 1}
+      <button
+        class="ctl"
+        title="Switch camera"
+        aria-label="Switch to the {facing === 'environment' ? 'front' : 'back'} camera"
+        onclick={flipCamera}
+      >
+        <Icon name="forward" size={18} />
+      </button>
+    {/if}
+    {#if shareable}
+      <button
+        class="ctl"
+        class:active={S.sharing}
+        title={S.sharing ? "Stop sharing" : "Share screen"}
+        aria-label={S.sharing ? "Stop sharing" : "Share screen"}
+        onclick={withHaptic(onToggleShare)}
+      >
+        <Icon name={S.sharing ? "screenOff" : "screen"} size={18} />
+      </button>
+    {/if}
     {#if canLock}
       <button
         class="ctl"
         class:active={locked}
         title={locked ? "Unlock call (anyone can join)" : "Lock call (people must knock)"}
         aria-label={locked ? "Unlock call" : "Lock call"}
-        onclick={toggleCallLock}
+        onclick={withHaptic(toggleCallLock)}
       >
         <Icon name="lock" size={18} />
       </button>
@@ -424,7 +737,12 @@
     >
       <Icon name="gear" size={18} />
     </button>
-    <button class="ctl hangup" title="Leave call" aria-label="Leave call" onclick={onLeaveVoice}>
+    <button
+      class="ctl hangup"
+      title="Leave call"
+      aria-label="Leave call"
+      onclick={withHaptic(onLeaveVoice, "heavy")}
+    >
       <Icon name="door" size={18} />
     </button>
   </div>
@@ -434,14 +752,21 @@
       {#each knockers as fpr (fpr)}
         <div class="knock">
           <span class="knock-who">{nameFor(fpr)} wants to join</span>
-          <button class="knock-admit" onclick={() => admitKnocker(chId, fpr)}>Admit</button>
-          <!-- A guest is told they were turned away (they're sitting on an open
-               socket); a member's knock is simply ignored. -->
-          <button
-            class="knock-deny"
-            onclick={() => denyKnocker(chId, fpr)}
-            aria-label={isGuestFpr(fpr) ? "Refuse" : "Ignore"}>✕</button
-          >
+          <!-- The two answers live in their own row on a phone: this is the
+               decision that lets a stranger holding a public link into the call,
+               and they used to be a 26px pair a finger-width apart. -->
+          <div class="knock-acts">
+            <button class="knock-admit" onclick={withHaptic(() => admitKnocker(chId, fpr), "medium")}>
+              Admit
+            </button>
+            <!-- A guest is told they were turned away (they're sitting on an open
+                 socket); a member's knock is simply ignored. -->
+            <button
+              class="knock-deny"
+              onclick={withHaptic(() => denyKnocker(chId, fpr), "medium")}
+              aria-label={isGuestFpr(fpr) ? "Refuse" : "Ignore"}>✕</button
+            >
+          </div>
         </div>
       {/each}
     </div>
@@ -458,6 +783,10 @@
     border-bottom: 1px solid var(--border);
     max-height: 46vh;
     overflow-y: auto;
+    /* Flicking past the end of the tile grid used to hand the leftover momentum
+       to the message feed underneath — the chat jumped while you were reaching
+       for a participant. */
+    overscroll-behavior: contain;
   }
   .stage {
     display: grid;
@@ -631,9 +960,14 @@
   .evict:hover {
     background: var(--danger, #d9534f);
   }
-  @media (pointer: coarse) {
+  /* No hover to reveal it with, and no room to grow it either: a 22px button
+     that disconnects someone, inset into a tile whose whole body focuses that
+     person, is a landmine under a thumb. It moves to the long-press sheet
+     (tileMenu), which is where every other destructive action on this app's
+     phone UI already lives. */
+  @media (pointer: coarse), (max-width: 768px) {
     .evict {
-      opacity: 1; /* there is no hover to reveal it with */
+      display: none;
     }
   }
   /* Per-participant LOCAL mute: a small control top-right, revealed on tile
@@ -664,8 +998,16 @@
     opacity: 1;
     background: color-mix(in srgb, var(--danger) 82%, #000);
   }
-  @media (pointer: coarse) {
+  /* Same story as .evict — except muting someone for yourself is worth SEEING,
+     so on touch the control stops being a button and becomes the badge for that
+     state: shown only while engaged, and not hit-testable, so it can't steal the
+     tap meant for the tile. Both directions live in the long-press sheet. */
+  @media (pointer: coarse), (max-width: 768px) {
     .local-mute {
+      opacity: 0;
+      pointer-events: none;
+    }
+    .local-mute.on {
       opacity: 1;
     }
   }
@@ -678,7 +1020,7 @@
     display: block;
     max-width: calc(100% - 16px);
     padding: 2px 8px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     color: #fff;
     background: rgba(0, 0, 0, 0.55);
@@ -850,7 +1192,7 @@
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: #fff;
     background: rgba(0, 0, 0, 0.55);
     border-radius: var(--radius-sm);
@@ -861,8 +1203,8 @@
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 16px;
-    font-size: 13px;
+    padding: 6px var(--sp-4);
+    font-size: var(--fs-ui);
     color: var(--text-muted);
     background: color-mix(in srgb, var(--bg-1) 80%, transparent);
     border: 1px solid var(--border);
@@ -934,7 +1276,7 @@
     background: color-mix(in srgb, var(--accent) 12%, var(--bg-1));
     border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
     border-radius: var(--radius-md);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .knock-who {
     flex: 1;
@@ -943,13 +1285,19 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .knock-acts {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
   .knock-admit {
     flex-shrink: 0;
     padding: 5px 12px;
     background: var(--accent);
     color: #fff;
     border-radius: var(--radius-sm);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 600;
   }
   .knock-deny {
@@ -1065,7 +1413,7 @@
   }
 
   /* ---- touch adjustments: call controls you can't fat-finger. ---- */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     /* On a phone the call IS the screen — 46vh is a desktop-derived slice that
        left two rows of tiles scrolling under an empty chat placeholder. */
     .voice-panel {
@@ -1082,11 +1430,20 @@
     .focus-main {
       flex-shrink: 0;
     }
-    /* .local-mute is always opaque on touch and owns this corner, so the
-       speaking equalizer would sit permanently underneath it. */
+    /* The local-mute badge owns this corner whenever it's engaged, so the
+       speaking equalizer would sit underneath it. */
     .tile .eq {
       right: auto;
       left: 8px;
+    }
+    /* A long press is how tile actions are reached here (tileMenu). Without
+       this Android answers it with a text-selection handle over the name badge
+       instead, and the sheet opens behind a selection the user then has to
+       dismiss. */
+    .tile {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
     }
     /* A knock is the entire point of locking a call, and as the panel's last
        child it rendered below the sticky controls — off-screen, with nothing
@@ -1117,10 +1474,12 @@
       height: 48px;
       flex-shrink: 0;
     }
-    /* Leave lands on the wrapped row of its own; the separating margin only
-       knocks that row off-centre. Its red fill sets it apart anyway. */
+    /* Leave usually lands on a wrapped row of its own, where the separating
+       margin costs 6px of centring — worth paying: on the rows where it DOESN'T
+       land alone (a flip-camera or route button wraps down with it) it is the
+       only thing between a thumb and hanging up on everyone. */
     .ctl.hangup {
-      margin-left: 0;
+      margin-left: 12px;
     }
     /* A 16:9 share on a phone is height-limited by its width, and the only
        width left to give it is our own 16px gutters. */
@@ -1129,9 +1488,26 @@
       margin-inline: -16px;
       border-radius: 0;
     }
+    /* Exit-full-view and Fullscreen sit 6px apart in the same corner over a
+       video, and one of them throws away the share you were reading. Both to
+       the 44px floor, and pulled apart. */
     .fbtn {
-      width: 40px;
-      height: 40px;
+      width: 44px;
+      height: 44px;
+    }
+    .focus-actions {
+      gap: 12px;
+    }
+    /* Width is the scarce resource for a shared desktop, and .screens was
+       spending 40px of it on gutters either side of a 320px-capped tile — the
+       same mistake .focus-main above was already fixed for. */
+    .screens {
+      grid-template-columns: 1fr;
+      margin-inline: -16px;
+      gap: 8px;
+    }
+    .screen-tile {
+      border-radius: 0;
     }
     .strip .thumb {
       width: 96px;
@@ -1140,16 +1516,40 @@
     .strip {
       gap: 10px;
     }
+    /* Admit/Deny get their own full-width row at finger size. This is the
+       moment that decides whether a stranger holding a public meeting link is
+       in your call, and it was two sub-30px targets 8px apart at the very top
+       of the panel, where a thumb has least control. */
+    .knock {
+      flex-wrap: wrap;
+    }
+    .knock-acts {
+      flex: 1 0 100%;
+      gap: 12px;
+    }
+    .knock-admit {
+      flex: 1;
+      min-height: var(--tap-min);
+      font-size: var(--fs-ui);
+    }
+    .knock-deny {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
   }
 
-  /* Phone-width stage. auto-fit counts repetitions off the 200px MAX, not the
-     130px min, so every portrait phone resolved to ONE column: two people
-     stacked, a third below the fold. Two explicit columns fit 173px tiles at
-     390 and still 138px ones at 320. Landscape keeps the auto-fit rule — two
-     columns of 400px there would be worse than what we started with. */
-  @media (pointer: coarse) and (max-width: 560px) {
+  /* Phone stage. auto-fit counts repetitions off the 200px MAX, not the 130px
+     min, so every portrait phone resolved to ONE column: two people stacked, a
+     third below the fold. Two explicit columns fit 173px tiles at 390 and still
+     138px ones at 320. The 560px cap keeps the wide edge of this tier (a 768px
+     window, or a tablet) from drawing two enormous tiles instead of a grid;
+     landscape overrides the whole thing below. */
+  @media (pointer: coarse), (max-width: 768px) {
     .stage {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+      max-width: 560px;
+      width: 100%;
+      margin-inline: auto;
     }
     .stage.solo {
       grid-template-columns: minmax(0, 260px);
@@ -1171,9 +1571,19 @@
     .stage,
     .stage.solo {
       grid-template-columns: repeat(auto-fit, minmax(96px, 132px));
+      max-width: none;
     }
     .tile {
       aspect-ratio: 16 / 9;
+    }
+    /* A 13px badge across a 54px tile is most of the face. (The avatar shrinks
+       with it — see compactTiles in the script; CSS can't reach the size prop
+       Avatar renders its emoji and initials at.) */
+    .name {
+      font-size: var(--fs-tiny);
+      padding: 1px 6px;
+      left: 6px;
+      bottom: 6px;
     }
     .ctl {
       width: 44px;

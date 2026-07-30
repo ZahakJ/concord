@@ -84,6 +84,10 @@ export class VoiceMesh {
       // won't give us one (see startVideo).
       shareAudio: devices.shareAudio || "",
     };
+    // Which way the camera points, on hardware that has a choice ("" = whatever
+    // the OS hands us, which is the front one). Held here rather than in devices
+    // because flipping is a mid-call action, not a stored preference.
+    this.facing = "";
     // Audio knobs. The three processing flags are capture-time getUserMedia
     // constraints (changing one reopens the mic); gain/gate are ours, done in a
     // small WebAudio chain; output is master playback level.
@@ -110,6 +114,7 @@ export class VoiceMesh {
     this.pushToTalk = !!audio.pushToTalk;
     this.talking = false;
     this._talkTail = null;
+    this._onVisibility = null; // see _watchBackground
   }
 
   async start() {
@@ -125,6 +130,34 @@ export class VoiceMesh {
     // never reopen it.
     this._addAnalyser("self", this.localStream);
     this._startMonitor();
+    this._watchBackground();
+  }
+
+  // _watchBackground keeps the mic alive across a trip to the home screen.
+  //
+  // Two separate ways a backgrounded call goes silently one-way: the gate
+  // monitor is a timer, and background timers are throttled to roughly once a
+  // minute — so _applyGate, the only thing that ever REOPENS the gate, stops
+  // running; and the AudioContext carrying the processed send gets suspended on
+  // audio-focus loss. Both fail closed, both look identical to the user (peers
+  // hear nothing, the mic button says unmuted), and neither recovers on its own.
+  _watchBackground() {
+    if (typeof document === "undefined" || this._onVisibility) return;
+    this._onVisibility = () => {
+      if (document.hidden) {
+        // Park the gate open for the duration. Room noise while you check a map
+        // is a far smaller failure than being cut off mid-call — and you are
+        // almost always NOT talking at the moment you background the app, which
+        // is exactly when the gate would latch shut.
+        this._gateOpenUntil = 0;
+        if (this._chain && this.audio.gate) {
+          this._chain.gate.gain.setTargetAtTime(1, this._ac().currentTime, 0.05);
+        }
+        return;
+      }
+      this._ac(); // resumes a context the OS suspended while we were away
+    };
+    document.addEventListener("visibilitychange", this._onVisibility);
   }
 
   // ---- microphone: device, processing, boost, gate ----
@@ -295,6 +328,10 @@ export class VoiceMesh {
   // a hold so word tails and short pauses don't get chopped.
   _applyGate(level) {
     if (!this._chain || !this.audio.gate || this.pushToTalk) return;
+    // Backgrounded: the gate is parked open by _watchBackground, and the one
+    // throttled tick a minute we still get would measure the silence between
+    // words and slam it shut for the next sixty seconds.
+    if (typeof document !== "undefined" && document.hidden) return;
     if (level * this.audio.gain >= this.audio.gate) this._gateOpenUntil = Date.now() + 500;
     const open = Date.now() < this._gateOpenUntil;
     this._chain.gate.gain.setTargetAtTime(open ? 1 : 0, this._ac().currentTime, open ? 0.01 : 0.15);
@@ -465,11 +502,33 @@ export class VoiceMesh {
     return this.startVideo("camera");
   }
 
+  // flipCamera swaps front/back on a phone. The whole reason to switch a phone
+  // camera on mid-call is usually to show what you're looking at, and the only
+  // other way there is a settings sheet listing "Camera 1 / Camera 2".
+  // Deliberately clears the pinned device id: an exact deviceId and "the other
+  // camera" are contradictory requests, and the id wins in getUserMedia.
+  // Returns the new preview stream (null if the camera is off — the choice then
+  // just applies when it next comes on).
+  async flipCamera() {
+    this.facing = this.facing === "environment" ? "user" : "environment";
+    if (!this.videoSources.camera) return null;
+    this.devices.camera = "";
+    this.stopVideo("camera");
+    return this.startVideo("camera");
+  }
+
   // _ac: the one AudioContext this call uses, for both metering and the input
   // chain. Created on first need; closed in stop().
   _ac() {
     if (!this.audioCtx) {
       this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // Nothing polls this context. Android suspends it when the app loses audio
+      // focus (a phone call, the app switcher), and with a chain up it IS our
+      // outgoing audio — so we'd come back from the background transmitting
+      // digital silence with the mic button still showing unmuted.
+      this.audioCtx.addEventListener?.("statechange", () => {
+        if (this.audioCtx?.state === "suspended") this.audioCtx.resume().catch(() => {});
+      });
     }
     // A suspended context doesn't just stop metering — when the input chain is
     // in play it IS the outgoing audio, so leaving it suspended would send
@@ -485,6 +544,10 @@ export class VoiceMesh {
     for (const id of [...this.peers.keys()]) this.removePeer(id);
     if (this._monitor) clearInterval(this._monitor);
     this._monitor = null;
+    if (this._onVisibility) {
+      document.removeEventListener("visibilitychange", this._onVisibility);
+      this._onVisibility = null;
+    }
     clearTimeout(this._talkTail);
     this.analysers.clear();
     if (this.audioCtx) {
@@ -598,9 +661,17 @@ export class VoiceMesh {
             // in the picker; WebKit gives video only. Either way we just send
             // whatever tracks come back.
             await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true })
-          : await cameraStream(this.devices.camera);
-    } catch {
-      return null; // user dismissed the picker / denied the camera
+          : await cameraStream(this.devices.camera, this.facing);
+    } catch (err) {
+      // Dismissing the picker or refusing the permission is a decision, not a
+      // fault — say nothing. Anything else (no such device, hardware busy, or
+      // getDisplayMedia missing entirely on a webview that has no display
+      // capture) used to vanish into a bare `catch {}`, so the button appeared
+      // to do nothing at all with no trace anywhere to explain it.
+      if (!["NotAllowedError", "AbortError"].includes(err?.name)) {
+        console.warn(`${kind} capture failed`, err);
+      }
+      return null;
     }
     // Did the platform actually hand over the sound? Chromium gives tab/window
     // (and on Windows, system) audio when the user ticks the box in its picker;

@@ -23,6 +23,18 @@ export const canPickOutput =
 
 const hasMedia = () => typeof navigator !== "undefined" && !!navigator.mediaDevices;
 
+// canShareScreen: is there any display capture on this platform at all? Android
+// never exposes MediaProjection to the web layer and WKWebView has no display
+// capture, so getDisplayMedia is simply absent there — calling it throws a
+// TypeError that looks exactly like a cancelled picker. Callers gate the
+// share-screen button on this instead of rendering a control that can only ever
+// do nothing.
+export const canShareScreen =
+  typeof navigator !== "undefined" &&
+  typeof navigator.mediaDevices?.getDisplayMedia === "function";
+
+const coarse = () => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+
 const BUCKET = { audioinput: "mic", audiooutput: "speaker", videoinput: "camera" };
 
 // listDevices returns the current hardware grouped as { mic, speaker, camera },
@@ -94,18 +106,31 @@ export function audioConstraints(opts = {}) {
   return c;
 }
 
-// Baseline constraints per kind, before a device or processing is pinned.
-const BASE = { audio: {}, video: { width: 1280, height: 720 } };
+// Baseline constraints per kind, before a device or processing is pinned. The
+// camera is asked for far less on a phone: voice.js is a full mesh, so the
+// handset encodes and uploads ONE COPY PER PARTICIPANT, and it is doing that to
+// fill a ~170px tile on the other end. 720p x3 on a cellular uplink starves the
+// voice it was meant to accompany, and cooks the battery doing it.
+const baseFor = (kind) =>
+  kind === "audio"
+    ? {}
+    : coarse()
+      ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { max: 24 } }
+      : { width: 1280, height: 720 };
 
 // micStream / cameraStream open the chosen device, falling back to the system
 // default when that exact one is gone. Any other failure (denied, in use, no
 // hardware) is real and propagates to the caller.
 export const micStream = (deviceId = "", processing = {}) =>
   openStream("audio", deviceId, audioConstraints(processing));
-export const cameraStream = (deviceId = "") => openStream("video", deviceId);
+// facingMode ("user" | "environment") is the phone's front/back switch. It is
+// deliberately `ideal`, not `exact`: a laptop has one camera and no facing at
+// all, and an exact match there fails the whole request.
+export const cameraStream = (deviceId = "", facingMode = "") =>
+  openStream("video", deviceId, facingMode ? { facingMode: { ideal: facingMode } } : {});
 
 async function openStream(kind, deviceId, extra = {}) {
-  const base = { ...BASE[kind], ...extra };
+  const base = { ...baseFor(kind), ...extra };
   const want = { ...base };
   if (deviceId) want.deviceId = { exact: deviceId };
   try {
@@ -127,6 +152,67 @@ export async function applySink(el, deviceId) {
     return true;
   } catch {
     return false;
+  }
+}
+
+// ---- call audio routing (phones) ----
+//
+// On a handset the useful question is never "which of these five output devices"
+// — it is earpiece / loudspeaker / the headset that just connected, the switch
+// every native calling app puts one tap away. The web platform cannot answer it:
+// setSinkId is absent in Android's WebView and WKWebView (canPickOutput is false
+// there), enumerateDevices reports no audiooutput at all, and the route is owned
+// by Android's AudioManager and iOS's AVAudioSession. There is no polyfill, only
+// a native call.
+//
+// So this is the web half of that native call, reached through the runtime
+// global exactly like lib/touch.js reaches Haptics — the web and desktop bundles
+// carry no Capacitor dependency, and every function here no-ops when the plugin
+// is absent. The plugin contract is small on purpose:
+//
+//   CallAudio.setRoute({ route: "earpiece"|"speaker"|"bluetooth" }) -> {route}
+//   CallAudio.getRoute() -> { route, available: string[] }
+//
+// backed by setMode(MODE_IN_COMMUNICATION) + setSpeakerphoneOn / setCommunication-
+// Device on Android and overrideOutputAudioPort / setCategory(.playAndRecord,
+// .allowBluetooth) on iOS. Until that plugin ships, canRouteAudio() is false
+// everywhere and the UI hides the control rather than offering a switch that
+// silently does nothing — which is the state this replaces.
+export const AUDIO_ROUTES = [
+  { id: "earpiece", label: "Phone", icon: "phone" },
+  { id: "speaker", label: "Speaker", icon: "speaker" },
+  { id: "bluetooth", label: "Bluetooth", icon: "devices" },
+];
+
+const routePlugin = () => (typeof window !== "undefined" ? window.Capacitor?.Plugins?.CallAudio : null);
+
+export const canRouteAudio = () => !!routePlugin();
+
+// currentRoute reports the live route and which ones exist right now (there is
+// no Bluetooth entry when nothing is paired). Returns null when unsupported, so
+// callers can tell "not available" from "on the earpiece".
+export async function currentRoute() {
+  const p = routePlugin();
+  if (!p?.getRoute) return null;
+  try {
+    const r = await p.getRoute();
+    return { route: r?.route || "earpiece", available: r?.available?.length ? r.available : ["earpiece", "speaker"] };
+  } catch {
+    return null;
+  }
+}
+
+// setAudioRoute moves the call. Returns the route actually in force — the OS can
+// refuse (a wired headset overrides everything), and the UI should show what
+// happened rather than what was asked for.
+export async function setAudioRoute(route) {
+  const p = routePlugin();
+  if (!p?.setRoute) return null;
+  try {
+    const r = await p.setRoute({ route });
+    return r?.route || route;
+  } catch {
+    return null;
   }
 }
 
