@@ -97,10 +97,20 @@
   });
 
   // ---- auto-growing textarea ----
+  // Keep in step with .draft's max-height in the CSS below.
+  const DRAFT_MAX_H = 200;
+
   function autosize() {
     if (!composerEl) return;
     composerEl.style.height = "auto";
-    composerEl.style.height = Math.min(composerEl.scrollHeight, 200) + "px";
+    const full = composerEl.scrollHeight;
+    composerEl.style.height = Math.min(full, DRAFT_MAX_H) + "px";
+    // The scrollbar appears only once the draft genuinely outgrows the cap.
+    // Left on `overflow-y: auto`, the height we just assigned can land a
+    // fraction of a pixel under the scrollHeight it came from — enough for the
+    // browser to render a permanent, tiny scrollbar in a composer with nothing
+    // typed in it at all.
+    composerEl.style.overflowY = full > DRAFT_MAX_H ? "auto" : "hidden";
   }
   const queueAutosize = () => requestAnimationFrame(autosize);
 
@@ -1709,7 +1719,9 @@
     flex: 1;
     min-width: 0;
     resize: none;
-    overflow-y: auto;
+    /* hidden, not auto: autosize() switches this on only when the draft really
+       exceeds max-height. See the note there. */
+    overflow-y: hidden;
     max-height: 200px;
     height: auto;
     /* Naked inside the shell: the global textarea "recessed well" styling
