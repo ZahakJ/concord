@@ -653,7 +653,7 @@
     <ul class="posts {prefs.layout}">
       {#each visible as p, i (p.id)}
         {@const pv = postPreview(p.excerpt)}
-        {@const tok = firstImage(p.excerpt)}
+        {@const tok = firstImage(p)}
         {@const tile = tileFor(p.id, p.title)}
         {@const tags = resolveTags(p.tags, palette)}
         {@const unread = S.unread[p.id]}

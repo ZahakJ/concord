@@ -60,7 +60,7 @@ var (
 	// The blob id inside a token, for callers that hold a message body and want
 	// to know which blob it points at. Both token versions put the id in the
 	// same position, so one pattern covers v1 and v2.
-	attachIDRe  = regexp.MustCompile(`concord://attach/v[12]/([0-9a-f]{64})/`)
+	attachIDRe = regexp.MustCompile(`concord://attach/v[12]/([0-9a-f]{64})/`)
 
 	dataURLRe   = regexp.MustCompile(`^data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/=]+)$`)
 	fileURLRe   = regexp.MustCompile(`^data:([a-zA-Z0-9!#$&^_.+-]+/[a-zA-Z0-9!#$&^_.+-]+);base64,([A-Za-z0-9+/=]+)$`)

@@ -242,18 +242,27 @@ export function postPreview(excerpt) {
   return { text, kind, images: images.length };
 }
 
-// firstImage returns the token for a post's first inline image, or null. That
-// token is all a card needs to render media — the bytes are fetched lazily and
-// cached by attachments.js, keyed on the blob ID, so the board shares one
-// decrypt with the thread you open afterwards.
+// firstImage returns the token for a post's picture, or null. That token is all
+// a card needs — the bytes are fetched lazily and cached by attachments.js,
+// keyed on the blob ID, so the board shares one decrypt with the thread you open
+// afterwards.
 //
-// It can only find a token the excerpt still CONTAINS: a post whose picture
-// comes after 240 characters of prose shows no media, by design. The alternative
-// is a message fetch per card, which is fifty round trips for a board.
-export function firstImage(excerpt) {
-  const toks = parseAttachTokens(String(excerpt || ""));
-  // A spoilered image is hidden on purpose. Putting it on a card as the
-  // headline picture would un-hide it for the whole board.
+// It reads post.media, which the BACKEND derives from the post's own messages.
+// This used to scan the excerpt instead, and that failed in the one case that
+// matters: the composer sends staged attachments as their own messages, so the
+// token was never in the opening body, and every card for a real post was a
+// letter tile. Even inline it was a race with the 240-character excerpt cut —
+// prose length silently deciding whether your picture appears.
+//
+// The excerpt is still scanned as a fallback, for a post whose stats came from a
+// peer that predates the media field.
+export function firstImage(post) {
+  const media = typeof post === "string" ? "" : String(post?.media || "");
+  const source = media || (typeof post === "string" ? post : post?.excerpt || "");
+  const toks = parseAttachTokens(String(source));
+  // A spoilered image is hidden on purpose. Putting it on a card as the headline
+  // picture would un-hide it for the whole board — which is why this stays on the
+  // client, where the token's flags are already parsed.
   return toks.find((t) => !t.spoiler) || null;
 }
 

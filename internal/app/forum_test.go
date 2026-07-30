@@ -667,3 +667,51 @@ func TestOrdinaryMemberPostReachesPeers(t *testing.T) {
 		t.Fatal("an ordinary member's forum post never reached the owner")
 	}
 }
+
+// The sanitize funnel had no test at all: commenting out the call in addChannel
+// left the entire suite green. That is the call site the whole design rests on —
+// history sync adopts a peer-supplied Channel wholesale, so a validator wired
+// only into the gossip path leaves the sync path open.
+func TestAddChannelSanitizesAPeerSuppliedChannel(t *testing.T) {
+	svc, gid, _ := forumFixture(t)
+
+	hostile := domain.Channel{
+		ID: domain.NewID(), GuildID: gid, Name: "gift", Type: "forum",
+		Banner: `data:image/png;base64,AA);background:url(http://tracker.example/x)`,
+	}
+	// Far past the per-forum cap, each with a colour that would reach a CSS rule.
+	for i := 0; i < 500; i++ {
+		hostile.ForumTags = append(hostile.ForumTags, domain.ForumTag{
+			ID: domain.NewID(), Name: "x", Color: "#fff;background:url(http://evil)",
+		})
+	}
+	svc.addChannel(gid, hostile)
+
+	var got domain.Channel
+	for _, g := range mustGuilds(t, svc) {
+		for _, c := range g.Channels {
+			if c.ID == hostile.ID {
+				got = c
+			}
+		}
+	}
+	if got.ID == "" {
+		t.Fatal("channel was not added at all")
+	}
+	if got.Banner != "" {
+		t.Errorf("a CSS-breakout banner survived addChannel: %q", got.Banner)
+	}
+	if n := len(got.ForumTags); n > maxForumTags {
+		t.Errorf("palette kept %d tags, cap is %d", n, maxForumTags)
+	}
+	for _, tg := range got.ForumTags {
+		if !validHexColor(tg.Color) {
+			t.Errorf("a tag colour that is not a hex value survived: %q", tg.Color)
+		}
+	}
+}
+
+func mustGuilds(t *testing.T, svc *Service) []domain.Guild {
+	t.Helper()
+	return svc.Guilds()
+}

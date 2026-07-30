@@ -704,8 +704,21 @@ type ForumPost struct {
 	// Excerpt is the opening message as one line of plain text, whitespace
 	// collapsed and cut at 240 characters. Not markdown: it is a card preview.
 	Excerpt string `json:"excerpt"`
-	// Replies counts real messages after the opening one — tombstones and system
-	// notices excluded, so the number matches what a reader will actually find.
+	// Media is the post's picture: the first image attachment token in the post
+	// itself, meaning the opening message or the attachment-only messages the
+	// composer sends with it. Empty when the post has no picture — which is a
+	// normal post, not a broken one, and the board designs for it.
+	//
+	// Derived here rather than pulled out of Excerpt by the client. Excerpt is
+	// cut at 240 characters, so scraping it made a picture appear or vanish
+	// depending on how much prose preceded it, and never appear at all for a post
+	// made through the composer, which sends attachments as their own messages.
+	Media string `json:"media,omitempty"`
+	// Locked means the post takes no more messages.
+	Locked bool `json:"locked,omitempty"`
+	// Replies counts real messages after the opening one — tombstones, system
+	// notices AND the post's own attachment messages excluded, so the number
+	// matches what a reader will actually find.
 	Replies int `json:"replies"`
 	// Created is the opening message's time, 0 if unsynced. LastActivity is when
 	// the post last moved at all (including edits), so a card can say "3h ago".
@@ -772,6 +785,7 @@ func (s *Service) ForumBoard(guildID, forumID string) (ForumBoard, error) {
 			ID: p.ID, Title: p.Name, Tags: p.Tags, Pinned: p.Pinned, Solved: p.Solved,
 			AuthorName: st.AuthorName, Excerpt: postExcerpt(st.Opening),
 			Replies: st.Replies, Created: st.Created, LastActivity: st.LastAt,
+			Media: st.Media, Locked: p.Locked,
 		}
 		if len(st.AuthorKey) > 0 {
 			fp.AuthorFingerprint = accountFingerprintOf(st.AuthorKey)

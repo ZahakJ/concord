@@ -12,10 +12,12 @@
 package store
 
 import (
+	"bytes"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -1911,6 +1913,17 @@ type PostStats struct {
 	Created    int64  // opening message time, UnixNano; 0 if unsynced
 	Replies    int    // real messages after the opening one; never negative
 	LastAt     int64  // newest sent/updated time in the post, UnixNano
+	// Media is the first image attachment token belonging to the POST ITSELF —
+	// the opening message, or one of the attachment-only messages the composer
+	// posts immediately after it under the same author.
+	//
+	// Derived here rather than scraped out of Opening by the client, which is
+	// what the board did first and why no real post ever showed a picture: the
+	// composer sends attachments as their own messages, so the token was never
+	// in the opening body at all, and even inline it lost a race with the
+	// 240-character excerpt cut. Prose length silently deciding whether your
+	// picture appears is not a bug you find by reading the code.
+	Media string
 }
 
 // postStatsBatch is how many channel ids go into one IN (…) clause. SQLite has a
@@ -1918,6 +1931,35 @@ type PostStats struct {
 // would start failing outright rather than getting slower — the kind of bug that
 // only appears on the busiest board in the guild, years in.
 const postStatsBatch = 400
+
+// openingBatchScan bounds how many of a post's earliest messages are examined to
+// find where the post ends and the conversation begins. Six covers a composer
+// that staged five attachments; beyond that the extra messages are replies by
+// any reasonable reading, and the cap is what keeps a busy post costing the same
+// as a quiet one.
+const openingBatchScan = 6
+
+// attachmentOnly reports whether a message body is nothing but attachment
+// tokens — what the composer posts after an opening message when pictures were
+// staged with it. Anything with words in it is somebody talking.
+func attachmentOnly(body string) bool {
+	return strings.TrimSpace(attachTokenRe.ReplaceAllString(body, "")) == ""
+}
+
+// firstImageToken returns the first inline IMAGE attachment token in a body, or
+// "" if there is none. File tokens are deliberately not media: a card shows a
+// picture, not a spreadsheet.
+func firstImageToken(body string) string {
+	return imageTokenRe.FindString(body)
+}
+
+// Mirrors the token grammar in internal/app/attach.go and lib/attachments.js.
+// v1 and v2 both, since an image sent with a spoiler or a description is still
+// the picture this post is about.
+var (
+	imageTokenRe  = regexp.MustCompile(`!\[image\]\(concord://attach/v[12]/[^)\s]+\)`)
+	attachTokenRe = regexp.MustCompile(`!?\[(?:image|file)\]\(concord://(?:attach|file)/v[12]/[^)\s]+\)`)
+)
 
 // PostStatsFor derives PostStats for a set of post channels in three queries per
 // batch, not three per post. A forum with two hundred posts refreshes on every
@@ -1984,6 +2026,60 @@ func (s *Store) postStatsInto(channelIDs []string, out map[string]PostStats) err
 		return err
 	}
 
+	// The post's OPENING BATCH: the opening message plus the attachment-only
+	// messages the composer sends straight after it, by the same author, before
+	// anyone else has spoken. Those are part of the post, not replies to it —
+	// counting them made every post with a picture claim a reply it never had,
+	// and quietly excluded it from "unanswered", which is the board's headline
+	// filter.
+	//
+	// Bounded by openingBatchScan rows per post: a window function does the
+	// limiting in SQLite so this stays one query, and the bound means a post
+	// with a thousand messages costs the same as one with ten.
+	lead, err := s.db.Query(
+		`SELECT channel_id, sender, content_enc, nonce FROM (
+		   SELECT channel_id, sender, content_enc, nonce, sent,
+		          ROW_NUMBER() OVER (PARTITION BY channel_id ORDER BY sent ASC) rn
+		   FROM messages WHERE channel_id IN `+in+realMsg+`
+		 ) WHERE rn <= ? ORDER BY channel_id, sent ASC`,
+		append(append([]any{}, args...), openingBatchScan)...)
+	if err != nil {
+		return fmt.Errorf("store: post opening batch: %w", err)
+	}
+	defer lead.Close()
+	batch := map[string]int{} // channel -> messages that are part of the post
+	for lead.Next() {
+		var chID string
+		var sender, enc, nonceB []byte
+		if err := lead.Scan(&chID, &sender, &enc, &nonceB); err != nil {
+			return err
+		}
+		st := out[chID]
+		// Stop at the first message that is not the author still attaching: a
+		// word from them, or anyone else's message, ends the post and begins the
+		// conversation.
+		body, err := s.open(enc, nonceB)
+		if err != nil {
+			continue
+		}
+		first := batch[chID] == 0
+		sameAuthor := len(st.AuthorKey) > 0 && bytes.Equal(sender, st.AuthorKey)
+		if !first && (!sameAuthor || !attachmentOnly(body) || batch[chID] < 0) {
+			batch[chID] = -batch[chID] // negative marks "closed", keeping the count
+			continue
+		}
+		if st.Media == "" {
+			if tok := firstImageToken(body); tok != "" {
+				st.Media = tok
+				out[chID] = st
+			}
+		}
+		batch[chID]++
+	}
+	if err := lead.Err(); err != nil {
+		return err
+	}
+
 	counts, err := s.groupedCount(`SELECT channel_id, COUNT(*) FROM messages
 		 WHERE channel_id IN `+in+realMsg+` GROUP BY channel_id`, args)
 	if err != nil {
@@ -1991,8 +2087,15 @@ func (s *Store) postStatsInto(channelIDs []string, out map[string]PostStats) err
 	}
 	for chID, n := range counts {
 		st := out[chID]
-		if n > 1 { // the opening message is not a reply to itself
-			st.Replies = int(n) - 1
+		lead := batch[chID]
+		if lead < 0 {
+			lead = -lead
+		}
+		if lead < 1 {
+			lead = 1 // the opening message always belongs to the post
+		}
+		if int(n) > lead {
+			st.Replies = int(n) - lead
 		}
 		out[chID] = st
 	}
