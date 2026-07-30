@@ -1,31 +1,47 @@
 <script>
-  // A compact, draggable call window that pins your ongoing call while you
-  // browse other channels/DMs. Drag it by the header so it never traps your
-  // composer; click the header (or expand) to jump back to the full call view.
+  // The "your call is still running over there" indicator, in two shapes.
+  //
+  // On a desktop it is a compact draggable window pinned over the chat, because
+  // there is spare screen to park it on and a mouse to park it with.
+  //
+  // On a phone it is a full-width bar docked under the top bar — the strip every
+  // native OS shows during a call, where the whole thing is "tap to go back".
+  // The draggable window was actively hostile there: the app is one pane at a
+  // time, so this IS the call UI most of the time, yet its return gesture was a
+  // double-click (a gesture phones don't have, on a header that starts a drag on
+  // every touch), and it could be parked over the top bar's buttons or dragged
+  // until its own Mute/Leave row was below the bottom of the screen.
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
   import { S, memberByFpr } from "./lib/state.svelte.js";
+  import { haptic } from "./lib/touch.js";
 
   let { label = "", onLeave, onToggleMute, onToggleDeafen, onReturn } = $props();
 
-  // Position (top-right by default), clamped to the viewport, draggable. On
-  // touch the margins are wider so the dock can't be parked under the top bar
-  // (status bar + title) or over the composer/home-indicator strip.
-  const coarse =
-    typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-  const MARGIN = coarse ? { top: 64, bottom: 130 } : { top: 8, bottom: 90 };
+  // Same test the CSS phone query makes, so the two never disagree about which
+  // shape is on screen.
+  const phone = $derived(S.isMobile);
+
+  // Desktop dock position, clamped to the viewport, draggable.
   let pos = $state({ x: Math.max(12, window.innerWidth - 250), y: 70 });
+  let dockEl = $state(null);
   let drag = null;
   let dragging = $state(false); // lifts the dock visually while it moves
 
+  // Clamp against the dock's REAL height, not a guessed margin: the old
+  // constant let the bottom of the widget — the row holding Mute and Leave —
+  // hang below the viewport, and the only recovery was dragging it back by a
+  // header you could no longer see the point of.
   function clamp(x, y) {
+    const w = dockEl?.offsetWidth || 214;
+    const h = dockEl?.offsetHeight || 160;
     return {
-      x: Math.max(8, Math.min(window.innerWidth - 230, x)),
-      y: Math.max(MARGIN.top, Math.min(window.innerHeight - MARGIN.bottom, y)),
+      x: Math.max(8, Math.min(window.innerWidth - w - 8, x)),
+      y: Math.max(8, Math.min(window.innerHeight - h - 12, y)),
     };
   }
   function onDown(e) {
-    drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, x: e.clientX, y: e.clientY };
     dragging = true;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -37,20 +53,26 @@
   function onMove(e) {
     if (drag) pos = clamp(e.clientX - drag.dx, e.clientY - drag.dy);
   }
-  function onUp() {
+  function onUp(e) {
+    // A press that didn't move is a click on the header, and a click on the
+    // header means "take me back to the call" — the old double-click was both
+    // undiscoverable and, on a trackpad, easy to miss.
+    if (drag && e?.type === "pointerup" && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) {
+      onReturn?.();
+    }
     drag = null;
     dragging = false;
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onUp);
   }
-  // Keep the dock on-screen when the window is resized smaller.
+  // Keep the dock on-screen when the window is resized smaller (or rotated).
   function onResize() {
     pos = clamp(pos.x, pos.y);
   }
 
-  // The mobile drawers carry their own call bar and the dock would float over
-  // the channel rows they slide in, so it steps aside (hidden, not unmounted —
+  // The mobile drawers carry their own call bar and this would float over the
+  // channel rows they slide in, so it steps aside (hidden, not unmounted —
   // remounting would throw away wherever the user parked it).
   const shelved = $derived(S.isMobile && (S.drawerOpen || S.membersOpen));
 
@@ -75,53 +97,170 @@
       speaking: S.voiceSpeaking.includes(pid),
     };
   }
+
+  // Where the phone bar sits: directly under the mobile top bar, measured rather
+  // than assumed. The bar is 52px plus env(safe-area-inset-top), and that inset
+  // is 24-48px on an edge-to-edge Android and 47-59px on iOS — the old constant
+  // 70px default parked this widget squarely on top of it, covering the Members
+  // and ⋯ buttons.
+  let topOffset = $state(0);
+  function measureTop() {
+    const bar = document.querySelector(".mtopbar");
+    topOffset = bar ? Math.round(bar.getBoundingClientRect().bottom) : 52;
+  }
+  $effect(() => {
+    if (!phone) return;
+    measureTop();
+    // The drawer closing, a keyboard opening and an orientation change all move
+    // it; re-measuring is cheap next to getting it wrong.
+    const t = setTimeout(measureTop, 250);
+    return () => clearTimeout(t);
+  });
+
+  const tap =
+    (fn, style = "light") =>
+    (e) => {
+      e?.stopPropagation();
+      haptic(style);
+      fn?.();
+    };
 </script>
 
-<svelte:window onresize={onResize} />
+<svelte:window onresize={phone ? measureTop : onResize} />
 
-<div class="dock" class:dragging class:shelved style="left:{pos.x}px; top:{pos.y}px">
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="head" onpointerdown={onDown} ondblclick={onReturn} title="Drag to move · double-click to open">
-    <span class="live"></span>
-    <span class="lbl">{label || "In call"}</span>
+{#if phone}
+  <div class="callbar" class:shelved style="top:{topOffset}px">
+    <button class="cb-open" onclick={onReturn} aria-label="Return to the call">
+      <span class="live"></span>
+      <span class="cb-text">
+        <span class="cb-lbl">{label || "In call"}</span>
+        <span class="cb-hint">Tap to return</span>
+      </span>
+    </button>
     <button
-      class="ico expand"
-      title="Return to call"
-      aria-label="Return to call"
-      onpointerdown={(e) => e.stopPropagation()}
-      onclick={onReturn}
+      class="ico"
+      class:on={S.muted}
+      title={S.muted ? "Unmute" : "Mute"}
+      aria-label={S.muted ? "Unmute" : "Mute"}
+      aria-pressed={S.muted}
+      onclick={tap(onToggleMute)}
     >
-      <Icon name="speaker" size={14} />
+      <Icon name={S.muted ? "micOff" : "mic"} size={17} />
+    </button>
+    <button
+      class="ico"
+      class:on={S.deafened}
+      title={S.deafened ? "Undeafen" : "Deafen"}
+      aria-label={S.deafened ? "Undeafen" : "Deafen"}
+      aria-pressed={S.deafened}
+      onclick={tap(onToggleDeafen)}
+    >
+      <Icon name={S.deafened ? "deafened" : "speaker"} size={17} />
+    </button>
+    <button class="ico hang" title="Leave call" aria-label="Leave call" onclick={tap(onLeave, "heavy")}>
+      <Icon name="door" size={17} />
     </button>
   </div>
+{:else}
+  <div
+    class="dock"
+    class:dragging
+    class:shelved
+    bind:this={dockEl}
+    style="left:{pos.x}px; top:{pos.y}px"
+  >
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="head" onpointerdown={onDown} title="Drag to move · click to open">
+      <span class="live"></span>
+      <span class="lbl">{label || "In call"}</span>
+      <button
+        class="ico expand"
+        title="Return to call"
+        aria-label="Return to call"
+        onpointerdown={(e) => e.stopPropagation()}
+        onclick={onReturn}
+      >
+        <Icon name="chevron" size={14} />
+      </button>
+    </div>
 
-  <div class="faces">
-    {#each roster as pid (pid)}
-      {@const p = part(pid)}
-      <div class="face" class:speaking={p.speaking} title={p.name}>
-        <Avatar name={p.name} emoji={p.emoji} color={p.color} image={p.image} size={30} />
-      </div>
-    {/each}
-  </div>
+    <div class="faces">
+      {#each roster as pid (pid)}
+        {@const p = part(pid)}
+        <div class="face" class:speaking={p.speaking} title={p.name}>
+          <Avatar name={p.name} emoji={p.emoji} color={p.color} image={p.image} size={30} />
+        </div>
+      {/each}
+    </div>
 
-  <div class="ctl">
-    <button class="ico" class:on={S.muted} title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} aria-pressed={S.muted} onclick={onToggleMute}>
-      <Icon name={S.muted ? "micOff" : "mic"} size={15} />
-    </button>
-    <button class="ico" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
-      <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
-    </button>
-    <button class="ico hang" title="Leave call" aria-label="Leave call" onclick={onLeave}>
-      <Icon name="door" size={15} />
-    </button>
+    <div class="ctl">
+      <button class="ico" class:on={S.muted} title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} aria-pressed={S.muted} onclick={onToggleMute}>
+        <Icon name={S.muted ? "micOff" : "mic"} size={15} />
+      </button>
+      <button class="ico" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
+        <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
+      </button>
+      <button class="ico hang" title="Leave call" aria-label="Leave call" onclick={onLeave}>
+        <Icon name="door" size={15} />
+      </button>
+    </div>
   </div>
-</div>
+{/if}
 
 <style>
+  /* ---- phone: a docked call strip ---- */
+  .callbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 90; /* above chat, but BELOW modals (100) so dialogs aren't covered */
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px var(--sp-2);
+    background: var(--ok-soft);
+    border-bottom: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+    box-shadow: 0 6px 16px rgb(0 0 0 / 0.28);
+    user-select: none;
+  }
+  .cb-open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    /* The whole strip is the way back, so it has to be the target: the old
+       widget's return button was the SMALLEST thing in it. */
+    min-height: var(--tap-min);
+    padding: 0 var(--sp-1);
+    background: transparent;
+    border: none;
+    text-align: left;
+  }
+  .cb-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.25;
+  }
+  .cb-lbl {
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    color: var(--ok-text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .cb-hint {
+    font-size: var(--fs-tiny);
+    color: color-mix(in srgb, var(--ok-text) 75%, transparent);
+  }
+
+  /* ---- desktop: the draggable dock ---- */
   .dock {
     position: fixed;
     width: 214px;
-    z-index: 90; /* above chat, but BELOW modals (100) so dialogs aren't covered */
+    z-index: 90;
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -133,7 +272,8 @@
     animation: dock-breathe 4s ease-in-out infinite;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
-  .dock.shelved {
+  .dock.shelved,
+  .callbar.shelved {
     display: none;
   }
   /* Lifted while dragged: bigger shadow + a slight grow under the pointer. */
@@ -182,7 +322,7 @@
   .lbl {
     flex: 1;
     min-width: 0;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     color: var(--ok-text);
     overflow: hidden;
@@ -197,6 +337,7 @@
     padding: 10px;
     max-height: 120px; /* ~3 rows; a big call scrolls instead of growing off-screen */
     overflow-y: auto;
+    overscroll-behavior: contain; /* don't hand the leftover flick to the feed */
   }
   .face :global(.avatar) {
     border: 2px solid transparent;
@@ -236,6 +377,7 @@
     background: var(--bg-3);
     color: var(--text);
     border: 1px solid var(--border);
+    flex-shrink: 0;
   }
   .ico:hover {
     background: var(--bg-1);
@@ -256,6 +398,7 @@
     background: transparent;
     border: none;
     color: var(--ok-text);
+    transform: rotate(180deg); /* chevron points back at the call, not away */
   }
   .ico.hang {
     background: var(--danger);
@@ -279,21 +422,10 @@
     }
   }
 
-  /* ---- touch adjustments: draggable dock with tappable controls. ---- */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .ico {
-      width: 44px;
-      height: 44px;
-    }
-    .ico.expand {
-      width: 32px;
-      height: 32px;
-    }
-    .head {
-      padding: 10px 10px 10px 12px;
-    }
-    .ctl {
-      gap: 14px;
+      width: var(--tap-min);
+      height: var(--tap-min);
     }
   }
 </style>
