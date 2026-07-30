@@ -858,7 +858,7 @@
                     emoji={mem?.emoji || ""}
                     color={mem?.color || ""}
                     image={mem?.avatar || ""}
-                    size={18}
+                    size={S.isMobile ? 22 : 18}
                   />
                   <span class="wname">{nameFor(p.authorFingerprint, p.authorName)}</span>
                 </span>
@@ -2068,9 +2068,13 @@
       height: 40px;
     }
     .cta,
-    .pill,
-    .find {
+    .pill {
       min-height: var(--tap-min);
+    }
+    /* +2 for the pill's own border, so the INPUT inside it clears the touch
+       floor rather than the wrapper doing so at the field's expense. */
+    .find {
+      min-height: calc(var(--tap-min) + 2px);
     }
     /* 32px was the old compromise for a row that had to fit two lines of chips
        inside a sticky bar. The row is one flickable line now, so the targets can
@@ -2096,6 +2100,18 @@
        spelled out. Same trick MobileShell applies to its own search. */
     .find input {
       font-size: 16px;
+      /* The pill is 44px on touch, but the INPUT inside it was 21px and the
+         rest of the pill is an inert div — so four fifths of what looks like a
+         search box did nothing when tapped. Stretch the field to fill it. */
+      align-self: stretch;
+    }
+    /* Both measured under the touch floor (41x41 and 39x39 of effective hit
+       area). The ⋯ sits on the corner of every card and the glass buttons ride
+       the banner, so a miss lands on the card behind them. */
+    .glass,
+    .more {
+      width: var(--tap-min);
+      height: var(--tap-min);
     }
     /* The toolbar is sticky, so its height is a permanent tax on the board. A
        wrapping chip row cost two lines (~70px) of a ~770px pane before the

@@ -77,17 +77,19 @@
       color: var(--text);
     }
   }
-  /* Touch: the compact glyph stays small, but its tap area doesn't — an
-     invisible overlay pads the hit box out to ~44px. (The dropdown anchors
-     to .menu-root, so relative positioning here is inert.) */
+  /* Touch: the compact glyph stays small, but its tap area doesn't.
+     This used to be an ::after at inset:-14px -11px, which measured 43x30 of
+     real hit area rather than the intended 44x44 — the overlay is unpositioned
+     in the stacking order, so the row BELOW (a later sibling) painted over its
+     lower half. It was also aiming the extra 14px straight into the first
+     channel row, i.e. the expansion would have stolen taps from a neighbour
+     rather than won them. The rows these triggers sit in are already
+     min-height:44px on touch, so the button just fills its own row instead. */
   @media (pointer: coarse), (max-width: 768px) {
     .trigger.compact {
       position: relative;
-    }
-    .trigger.compact::after {
-      content: "";
-      position: absolute;
-      inset: -14px -11px;
+      min-width: var(--tap-min);
+      min-height: var(--tap-min);
     }
   }
   .menu {

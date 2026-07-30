@@ -37,7 +37,7 @@
   class="avatar"
   class:ringed={!!frame}
   class:pictured={!!image}
-  style="width:{size}px;height:{size}px;font-size:{Math.round(size * 0.38)}px;{color && !image
+  style="width:{size}px;height:{size}px;font-size:{Math.max(10, Math.round(size * 0.38))}px;{color && !image
     ? `background:${color};`
     : ''}"
 >
