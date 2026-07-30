@@ -1,32 +1,25 @@
 # The rendezvous image builds ONLY the Go relay node (see infra/rendezvous/
-# Dockerfile: `go build ./cmd/rendezvous`). Everything below is irrelevant to
-# that build and was bloating the build context to ~960MB (slow, timeout-prone
-# deploys). Excluding it keeps the context to just the source.
+# Dockerfile: `go build ./cmd/rendezvous`), so the build context is a
+# WHITELIST: everything is excluded, then the few trees the build actually
+# reads are let back in.
+#
+# It used to be a blocklist, and a blocklist here loses by default: every new
+# artifact directory (dist-release/ at 404MB, the Android build at 1.4GB) was
+# silently included until someone noticed a 700MB upload and went looking.
+# With a whitelist, new bloat costs nothing unless it lands inside one of the
+# four entries below — and nothing but source belongs in those.
 
-# Local dev binaries + peer data (hundreds of MB).
-.dev/
+*
 
-# Node deps + built frontend — the rendezvous is pure Go, none of this is needed.
-node_modules/
-frontend/node_modules/
-frontend/dist/
-apps/mobile/node_modules/
-apps/mobile/android/app/build/
-apps/mobile/android/.gradle/
-apps/mobile/ios/
+# Module definition, including the replace directive that makes the vendored
+# MLS fork below resolve.
+!go.mod
+!go.sum
 
-# Built desktop/mobile artifacts.
-build/bin/
-*.apk
-*.aar
-*.exe
+# The relay itself (its embedded guest page lives in cmd/rendezvous/guestpage,
+# so it rides along here).
+!cmd
 
-# VCS, editor, CI, and tooling metadata.
-.git/
-.github/
-.claude/
-.vscode/
-.idea/
-
-# Docs/tests aren't part of the relay binary.
-*.md
+# Packages the relay imports.
+!internal
+!third_party
