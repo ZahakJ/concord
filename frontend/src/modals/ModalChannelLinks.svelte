@@ -64,7 +64,7 @@
 
 <style>
   .intro {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     margin: 0 0 8px;
     line-height: 1.5;
   }
@@ -78,6 +78,13 @@
     border-radius: var(--radius-md);
     padding: 4px;
   }
+  /* One scroller per sheet — see Modal.svelte. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .list {
+      max-height: none;
+      overflow-y: visible;
+    }
+  }
   .row {
     display: flex;
     align-items: center;
@@ -87,11 +94,12 @@
     border: none;
     border-radius: var(--radius-sm);
     color: var(--text-muted);
-    font-size: 13.5px;
+    font-size: var(--fs-ui);
     text-align: left;
     cursor: pointer;
   }
-  .row:hover {
+  .row:hover,
+  .row:active {
     background: var(--bg-3);
     color: var(--text);
   }

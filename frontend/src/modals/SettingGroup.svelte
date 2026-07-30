@@ -50,7 +50,7 @@
     }
   }
   .sec-label {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -66,7 +66,7 @@
   .note {
     margin: 0;
     padding: 0 2px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.5;
     color: var(--text-muted);
   }

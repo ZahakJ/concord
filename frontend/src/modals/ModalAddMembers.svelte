@@ -89,7 +89,15 @@
     flex-direction: column;
     gap: 4px;
     max-height: 46vh;
+    max-height: 46dvh; /* the vh line above is the fallback; dvh shrinks with the keyboard */
     overflow-y: auto;
+  }
+  /* One scroller per sheet — see Modal.svelte. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .list {
+      max-height: none;
+      overflow-y: visible;
+    }
   }
   .row {
     display: flex;
@@ -101,6 +109,9 @@
   .row:hover {
     background: var(--bg-3);
   }
+  .row button {
+    flex: none;
+  }
   .who {
     display: flex;
     flex-direction: column;
@@ -108,7 +119,7 @@
     min-width: 0;
   }
   .who strong {
-    font-size: 14px;
+    font-size: var(--fs-ui);
   }
   .mono {
     font-family: var(--mono, monospace);

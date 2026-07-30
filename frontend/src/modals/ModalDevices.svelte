@@ -186,6 +186,15 @@
     else recording = false;
   }
 
+  // Push-to-talk needs a physical key, so on a phone the pref is unsatisfiable:
+  // the mic stays shut for the whole call and VoicePanel relabels its mic
+  // button "Hold <key> to talk" over a key that does not exist. If the pref
+  // arrives here anyway (set on a desktop, or carried in), turn it off — the
+  // segmented control that would let you fix it is hidden below.
+  $effect(() => {
+    if (S.isMobile && S.prefs.pushToTalk) setActivation(false);
+  });
+
   // Recording listens in the CAPTURE phase and stops the event dead, so the
   // key being bound doesn't also fire the global keymap on its way past (or,
   // worse, trigger push-to-talk itself). Escape cancels — the one key that
@@ -460,6 +469,9 @@
       </div>
     {/if}
 
+    <!-- Touch only: the alternative is a keyboard chord, so offering the choice
+         on a phone is offering a "Set a key" recorder that can never complete. -->
+    {#if !S.isMobile}
     <div class="act">
       <span class="gate-title">Mic activation</span>
       <div class="seg two" role="radiogroup" aria-label="Mic activation">
@@ -497,6 +509,7 @@
         </div>
       {/if}
     </div>
+    {/if}
   </section>
 
   <!-- SPEAKER -->
@@ -773,7 +786,7 @@
     color: var(--text-muted);
   }
   .dev-title {
-    font-size: 14px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     margin-right: auto;
   }
@@ -782,7 +795,7 @@
     border: 1px solid var(--border);
     border-radius: 999px;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     padding: 4px 14px;
     transition:
       color 0.12s ease,
@@ -805,7 +818,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 8px 10px;
   }
   select:disabled {
@@ -813,7 +826,7 @@
   }
   .hint {
     display: block;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.5;
     color: var(--text-muted);
   }
@@ -864,23 +877,47 @@
   /* The label is a fixed column so the sliders line up; the ⓘ has to sit on the
      same line as the word rather than pushing the track around. */
   .knob-label {
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     min-width: 76px;
     flex: none;
     white-space: nowrap;
   }
+  /* app.css styles every `input` as a text field — border, inset shadow, 14px
+     of side padding — and a range input was quietly inheriting all of it, so
+     the chrome ate 28px of a track that has nowhere to spare. */
   .knob input[type="range"] {
     flex: 1;
     accent-color: var(--accent);
     min-width: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    box-shadow: none;
   }
   .knob-val {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-variant-numeric: tabular-nums;
     color: var(--text);
     min-width: 42px;
     text-align: right;
+  }
+  /* At 360px the label (76) and value (42) columns leave the noise-gate track
+     ~140px for a 50-stop range — under 3px per step against a ~20px thumb.
+     Give the track the full width and let the label and value share a line. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .knob {
+      flex-wrap: wrap;
+      row-gap: 2px;
+    }
+    .knob-label {
+      min-width: 0;
+      margin-right: auto;
+    }
+    .knob input[type="range"] {
+      flex: 1 0 100%;
+      order: 1;
+    }
   }
   .nr-block {
     display: flex;
@@ -901,7 +938,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text-muted);
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
   }
   .seg > button:hover {
     background: var(--bg-3);
@@ -936,7 +973,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text);
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     font-weight: 600;
   }
   .rec:hover {
@@ -964,7 +1001,7 @@
     margin-right: auto;
   }
   .gate-title {
-    font-size: 13.5px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   .gate-body {
@@ -990,7 +1027,7 @@
     gap: 3px;
   }
   .toggle-title {
-    font-size: 13.5px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   .switch {
@@ -1037,7 +1074,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text);
-    font-size: 13.5px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     text-align: left;
     transition:
@@ -1059,7 +1096,7 @@
   }
   .disclose-sub {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 400;
     color: var(--text-muted);
   }
@@ -1078,7 +1115,7 @@
     border: 1px dashed var(--border);
     border-radius: var(--radius-md);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     text-align: left;
   }
   .reveal:hover {
@@ -1086,7 +1123,7 @@
   }
   .reveal-sub {
     flex-basis: 100%;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   @media (prefers-reduced-motion: reduce) {

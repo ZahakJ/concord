@@ -1,5 +1,6 @@
 <script>
   import Modal from "./Modal.svelte";
+  import { S } from "../lib/state.svelte.js";
   let { channel, onSubmit, onClose } = $props();
   let topic = $state(channel?.topic || "");
 </script>
@@ -14,7 +15,7 @@
     rows="3"
     maxlength="300"
     placeholder="What's this channel about?"
-    autofocus
+    autofocus={!S.isMobile}
   ></textarea>
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>

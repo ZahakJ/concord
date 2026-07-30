@@ -3,6 +3,7 @@
   // reason it's set that way. These used to sit in the main Settings list with
   // their paragraphs attached, which is what made that list a wall.
   import Modal from "./Modal.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
   import { api } from "../lib/api.js";
@@ -14,25 +15,23 @@
   // Empty trash: irreversibly scrub retained bodies of deleted messages so a
   // moderator can no longer reveal any of them on this device.
   let purging = $state(false);
-  function emptyTrash() {
-    S.modal = {
-      kind: "confirm",
-      title: "Empty deleted-message trash?",
-      body: "Every deleted message's retained text is permanently erased on this device. This can't be undone, and 'Show original' will have nothing left to reveal.",
-      confirmLabel: "Empty trash",
-      onConfirm: async () => {
-        S.modal = null;
-        purging = true;
-        try {
-          const n = await api.emptyTrash("");
-          flash(`Erased ${n} deleted message${n === 1 ? "" : "s"}`, "success");
-        } catch (err) {
-          flash(err);
-        } finally {
-          purging = false;
-        }
-      },
-    };
+  // Rendered locally, NOT pushed through S.modal. App.svelte renders one modal
+  // from a single {#if} chain, so setting S.modal here REPLACES this panel —
+  // and ConfirmDialog's own onClose then clears S.modalStack, so cancelling a
+  // confirmation reached via Settings → Privacy dropped you all the way back to
+  // the chat pane. Layering the component keeps the panel and its trail intact.
+  let confirmPurge = $state(false);
+  async function emptyTrash() {
+    confirmPurge = false;
+    purging = true;
+    try {
+      const n = await api.emptyTrash("");
+      flash(`Erased ${n} deleted message${n === 1 ? "" : "s"}`, "success");
+    } catch (err) {
+      flash(err);
+    } finally {
+      purging = false;
+    }
   }
 
   let richPresence = $state(false);
@@ -134,7 +133,7 @@
       info="Erases the retained text for good, so 'Show original' has nothing left to reveal on this device. This can't be undone."
       danger
       disabled={purging}
-      onclick={emptyTrash}
+      onclick={() => (confirmPurge = true)}
     />
   </SettingGroup>
 
@@ -173,3 +172,13 @@
     </SettingGroup>
   {/if}
 </Modal>
+
+{#if confirmPurge}
+  <ConfirmDialog
+    title="Empty deleted-message trash?"
+    body="Every deleted message's retained text is permanently erased on this device. This can't be undone, and 'Show original' will have nothing left to reveal."
+    confirmLabel="Empty trash"
+    onConfirm={emptyTrash}
+    onClose={() => (confirmPurge = false)}
+  />
+{/if}

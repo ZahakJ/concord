@@ -57,7 +57,9 @@
 <Modal title="Notifications &amp; sounds" {onClose} wide>
   <SettingGroup
     label="How loud"
-    info="Every server and channel has its own level — all messages, only @mentions, or nothing — on its right-click menu."
+    info="Every server and channel has its own level — all messages, only @mentions, or nothing — on its {S.isMobile
+      ? 'long-press'
+      : 'right-click'} menu."
   >
     <SettingRow
       icon="bell"
@@ -106,7 +108,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text);
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     padding: 6px 8px;
     max-width: 100%;
   }

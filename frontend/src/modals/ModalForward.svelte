@@ -69,7 +69,7 @@
 
 <style>
   .snippet {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     background: var(--bg-0);
     border-left: 3px solid var(--border);
@@ -79,7 +79,7 @@
     overflow: hidden;
   }
   .search {
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .list {
     display: flex;
@@ -87,6 +87,13 @@
     gap: 2px;
     max-height: 280px;
     overflow-y: auto;
+  }
+  /* One scroller per sheet — see Modal.svelte. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .list {
+      max-height: none;
+      overflow-y: visible;
+    }
   }
   .dest {
     display: flex;
@@ -98,7 +105,8 @@
     padding: 7px 8px;
     border-radius: var(--radius-sm);
   }
-  .dest:hover {
+  .dest:hover,
+  .dest:active {
     background: var(--bg-3);
   }
   .hashicon {
@@ -114,11 +122,11 @@
     white-space: nowrap;
   }
   .dest-sub {
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .none {
     padding: 12px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     text-align: center;
   }
 </style>

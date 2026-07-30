@@ -360,7 +360,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text);
-    font-size: 13.5px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     text-align: left;
     transition:
@@ -382,7 +382,7 @@
   }
   .disclose-sub {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 400;
     color: var(--text-muted);
   }
@@ -404,7 +404,7 @@
   }
   /* Match the sectioned settings look: small uppercase group labels. */
   .label {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -412,11 +412,11 @@
   }
   p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.5;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   hr {
     border: none;
@@ -439,7 +439,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     align-items: center;
   }
   .theme-card:hover {
@@ -522,11 +522,19 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     align-items: stretch;
     text-align: center;
+    /* Every live pack card runs an infinite CSS animation (one of them repeats
+       at 0.7s) and nine of them exist. Without this they all keep compositing
+       while scrolled far off-screen, for the whole time this panel is open —
+       a measurable battery cost on a phone. Off-screen cards now render, and
+       therefore animate, not at all. */
+    content-visibility: auto;
+    contain-intrinsic-size: 112px 92px;
   }
-  .pack-card:hover {
+  .pack-card:hover,
+  .pack-card:active {
     background: var(--bg-3);
     color: var(--text);
   }
@@ -539,7 +547,7 @@
     font-weight: 600;
   }
   .pk-note {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     line-height: 1.25;
     color: var(--text-faint);
     /* Two lines max; the note is a hint, not a paragraph. */
@@ -650,7 +658,7 @@
     flex-wrap: wrap;
   }
   .live-tag {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -815,7 +823,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .seg > button:hover {
     background: var(--bg-3);
@@ -893,17 +901,38 @@
     width: 70%;
   }
   /* Finger-sized pickers on touch. */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
+    /* A colour swatch has neighbours on both axes, so 36px left their centres
+       under the fingertip minimum in a row you're expected to scan and tap
+       precisely. */
     .swatch {
-      width: 36px;
-      height: 36px;
+      width: var(--tap-min);
+      height: var(--tap-min);
     }
     .theme-card {
       padding: 10px 8px;
-      font-size: 13px;
+      font-size: var(--fs-ui);
     }
     .seg > button {
       min-height: 48px;
+    }
+    /* The note is what says what a pack actually IS; on a phone the type scale
+       already grows it, so all it needs is room to be two lines. */
+    .pk-note {
+      min-height: 0;
+    }
+  }
+  /* The narrow floor. Four cells across 320px of content box leaves ~33px for
+     "Round" beside a fixed 22px preview, so the labels wrapped mid-word; three
+     packs across the same width does the same to their names. */
+  @media (max-width: 400px) {
+    .seg.four,
+    .seg.faces,
+    .pack-row {
+      grid-template-columns: 1fr 1fr;
+    }
+    .seg.faces > button:first-child {
+      grid-column: 1 / -1;
     }
   }
 </style>

@@ -1,12 +1,16 @@
 <script>
   import { onDestroy } from "svelte";
   import { S, modalNav, backPanel } from "../lib/state.svelte.js";
+  import { haptic } from "../lib/touch.js";
   import Icon from "../Icon.svelte";
   // `wide` widens the desktop dialog for content that benefits from the room
   // (sectioned settings); `size="xl"` makes it a large workspace (the advanced
   // composer). The mobile sheet presentation ignores both.
   let { title, onClose, wide = false, size = "", children } = $props();
   let dialog = $state(null);
+  // TalkBack/VoiceOver announce a dialog by its label; without an id to point
+  // aria-labelledby at, every sheet in the app opened as an unnamed group.
+  const titleId = "modal-title-" + Math.random().toString(36).slice(2, 9);
 
   // Back is offered whenever there's somewhere to go back TO — either a panel
   // on the stack we drilled through, or a plain `from` on a panel opened
@@ -29,14 +33,18 @@
 
   // Mobile: the sheet can be flicked/dragged DOWN to dismiss — the native
   // gesture people expect, so they don't have to reach the tiny ✕ in the top
-  // corner one-handed. Grab starts on the grip/header; if the body has scrolled,
-  // a downward drag scrolls it first (we only start dismissing at scrollTop 0).
+  // corner one-handed. The grab area is the pinned top strip (grip + title).
   let dragY = $state(0);
-  let dragging = false;
+  let dragging = $state(false);
   let startY = 0;
   let startT = 0;
   function onGrab(e) {
-    if (!S.isMobile) return;
+    if (!S.isMobile || closing) return;
+    // Refuse the gesture outright when the body is scrolled, so `touch-action:
+    // pan-y` on the strip hands the move to the scroller instead. Deciding this
+    // per-move (the old behaviour) made a pinned header a dead zone on any tall
+    // sheet: it neither scrolled nor dismissed.
+    if ((dialog?.scrollTop ?? 0) > 0) return;
     dragging = true;
     startY = e.clientY;
     startT = Date.now();
@@ -45,16 +53,31 @@
   function onDrag(e) {
     if (!dragging) return;
     const dy = e.clientY - startY;
-    // Only pull down (never up), and only when the content is scrolled to top.
-    if (dy > 0 && (dialog?.scrollTop ?? 0) <= 0) dragY = dy;
+    // Only pull down, never up.
+    if (dy > 0) dragY = dy;
   }
-  function onRelease(e) {
+  function onRelease() {
     if (!dragging) return;
     dragging = false;
-    const dist = dragY;
     const speed = dragY / Math.max(1, Date.now() - startT); // px/ms
-    if (dist > 120 || speed > 0.6) onClose();
+    if (dragY > 120 || speed > 0.6) dismiss();
     else dragY = 0; // snap back
+  }
+
+  // Every consumer's onClose sets S.modal = null, which unmounts this component
+  // in one frame — so the sheet that slid up over 0.28s used to vanish
+  // mid-swipe, with the finger still moving. Play the exit first, then unmount.
+  // Desktop keeps the immediate close: there is no gesture to finish there.
+  let closing = $state(false);
+  function dismiss() {
+    if (!S.isMobile) return onClose();
+    if (closing) return;
+    haptic("light"); // the OS acknowledges a committed dismissal
+    // Reduced motion suppresses the slide, so waiting for it would just be
+    // 190ms of nothing happening.
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return onClose();
+    closing = true;
+    setTimeout(onClose, 190);
   }
 
   // Escape closes reliably regardless of focus (the overlay keydown only fired
@@ -64,7 +87,7 @@
   function onKeydown(e) {
     if (e.key === "Escape") {
       e.preventDefault();
-      onClose();
+      dismiss();
     } else if (e.key === "Tab" && dialog) {
       const f = dialog.querySelectorAll(
         'a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex="-1"])',
@@ -85,7 +108,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="overlay" onclick={onClose} role="presentation">
+<div class="overlay" class:closing onclick={dismiss} role="presentation">
   <div
     bind:this={dialog}
     class="dialog"
@@ -94,34 +117,34 @@
     class:deeper={enterDir === 1}
     class:shallower={enterDir === -1}
     class:dragging
-    style={dragY ? `transform:translateY(${dragY}px)` : ""}
+    class:closing
+    style={dragY && !closing ? `transform:translateY(${dragY}px)` : ""}
     onclick={(e) => e.stopPropagation()}
-    role="presentation"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby={titleId}
   >
-    <!-- Mobile drag-to-dismiss grip (hidden on desktop via CSS). -->
+    <!-- Grip and title travel together as one pinned strip: the grip used to
+         scroll away with the content, leaving the sheet's own drag handle out
+         of reach on exactly the tall panels that need it most. -->
     <div
-      class="grip"
-      onpointerdown={onGrab}
-      onpointermove={onDrag}
-      onpointerup={onRelease}
-      onpointercancel={onRelease}
-      role="presentation"
-    ></div>
-    <div
-      class="head"
+      class="sheet-top"
       onpointerdown={onGrab}
       onpointermove={onDrag}
       onpointerup={onRelease}
       onpointercancel={onRelease}
       role="presentation"
     >
-      {#if canBack}
-        <button class="back" onclick={backPanel} aria-label="Back" title="Back">
-          <Icon name="chevron" size={16} />
-        </button>
-      {/if}
-      <h3>{title}</h3>
-      <button class="x" onclick={onClose} aria-label="Close">✕</button>
+      <div class="grip"></div>
+      <div class="head">
+        {#if canBack}
+          <button class="back" onclick={backPanel} aria-label="Back" title="Back">
+            <Icon name="chevron" size={16} />
+          </button>
+        {/if}
+        <h3 id={titleId}>{title}</h3>
+        <button class="x" onclick={dismiss} aria-label="Close">✕</button>
+      </div>
     </div>
     {@render children()}
   </div>
@@ -139,13 +162,27 @@
     z-index: 100;
     animation: fade 0.16s ease;
   }
+  .overlay.closing {
+    opacity: 0;
+    transition: opacity 0.19s ease;
+  }
   .dialog {
     width: 380px;
     max-width: 90vw;
     /* Never taller than the viewport; scroll inside on short screens (laptops)
-       so long content like the 24-word recovery phrase stays reachable. */
+       so long content like the 24-word recovery phrase stays reachable. dvh
+       tracks the viewport the soft keyboard actually leaves behind; the plain
+       vh line before it is the fallback for WebViews that don't know dvh. */
     max-height: 90vh;
+    max-height: 90dvh;
     overflow-y: auto;
+    /* No modal may pan the sheet sideways. A single wide child (ModalStats'
+       peer rows) otherwise turns the whole surface, sticky header included,
+       into a horizontal scroller that jitters under a thumb. */
+    overflow-x: hidden;
+    /* Hitting either end of this scroller must not start scrolling the app
+       behind it (or trigger the WebView's pull-to-refresh). */
+    overscroll-behavior: contain;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -166,6 +203,7 @@
   .dialog.xl {
     width: min(1080px, 94vw);
     height: min(780px, 88vh);
+    height: min(780px, 88dvh);
   }
   @keyframes fade {
     from {
@@ -184,7 +222,7 @@
   /* Mobile: dialogs present as full-width bottom sheets instead of floating
      cards — thumb-reachable, roomy, and keyboard-friendly. Desktop (fine
      pointer + wide viewport) is untouched. */
-  @media (pointer: coarse), (max-width: 700px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .overlay {
       place-items: end stretch;
     }
@@ -196,7 +234,12 @@
       width: auto;
       max-width: none;
       height: auto;
+      /* vh resolves against the LARGE viewport in Android WebView and does not
+         shrink when the keyboard opens — a sheet with a text field would keep
+         claiming 92% of the full screen and push its own confirm button behind
+         the keyboard. dvh is the height actually available right now. */
       max-height: 92vh;
+      max-height: 92dvh;
       border: none;
       border-radius: 18px 18px 0 0;
       padding-bottom: calc(20px + env(safe-area-inset-bottom));
@@ -207,21 +250,35 @@
     .dialog:not(.dragging) {
       transition: transform 0.24s cubic-bezier(0.22, 1.1, 0.36, 1);
     }
+    /* Slide out under the screen edge rather than blinking away — and beat the
+       inline drag transform, which is why this is !important. */
+    .dialog.closing {
+      animation: none;
+      transform: translateY(100%) !important;
+      transition: transform 0.19s cubic-bezier(0.4, 0, 1, 1);
+    }
+    .sheet-top {
+      /* Drag when the body is at the top (onGrab decides), otherwise pan-y
+         lets the browser scroll the sheet from the header like any other area.
+         `touch-action: none` here used to forbid both. */
+      touch-action: pan-y;
+      /* A slow grab-and-pull — the exact gesture the grip invites — otherwise
+         starts WebView text selection on the title and pops the Android
+         selection toolbar over the sheet, abandoning the drag. */
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
     /* The pill grip — the universal "grab me and pull down" affordance. */
     .grip {
       display: block;
-      align-self: center;
       width: 40px;
       height: 5px;
-      margin: -8px 0 6px;
+      margin: -8px auto 6px;
       border-radius: 999px;
       background: var(--border);
       flex: none;
       cursor: grab;
-      touch-action: none;
-    }
-    .head {
-      touch-action: none;
     }
     /* ≥16px inputs stop iOS auto-zoom on focus; ≥44px buttons are the
        touch-target floor. Reaches into each modal's own markup. */
@@ -235,7 +292,33 @@
     .dialog :global(button),
     .dialog :global(input:not([type="checkbox"]):not([type="radio"])),
     .dialog :global(select) {
-      min-height: 44px;
+      min-height: var(--tap-min);
+    }
+    /* …except a range slider, which app.css's text-input chrome had been
+       giving a border, an inset shadow and 14px of side padding — the floor
+       then stretched that box while the track inside stayed short. */
+    .dialog :global(input[type="range"]) {
+      min-height: var(--tap-min);
+      padding: 0;
+      border: none;
+      background: transparent;
+      box-shadow: none;
+    }
+    /* A commit button must never be stranded below a screen of content. Every
+       modal's footer row shares this class — the profile sheet alone runs well
+       past 1200px with Save at the very bottom — so pinning it here fixes all
+       of them at once. The negative margins let the bar bleed to the sheet's
+       edges and sit flush on the safe-area inset; they assume the row is the
+       modal's own footer rather than something inside a padded card, which is
+       what every use of this class in the app is. */
+    .dialog :global(.actions) {
+      position: sticky;
+      bottom: calc(-20px - env(safe-area-inset-bottom));
+      z-index: 2;
+      margin: 8px -20px calc(-20px - env(safe-area-inset-bottom));
+      padding: 10px 20px calc(10px + env(safe-area-inset-bottom));
+      background: var(--bg-elevated);
+      border-top: 1px solid var(--border);
     }
     /* …with one exception: the ⓘ beside a setting is a 14px glyph sitting IN a
        line of text, not a control on its own row. The floor stretched it into a
@@ -250,19 +333,24 @@
     .dialog :global(button.dot)::after {
       content: "";
       position: absolute;
-      inset: -15px; /* 14px + 2×15 = 44 */
+      /* Horizontally it can reach the full 44px (14 + 2×15) — there is nothing
+         beside it but its own label. Vertically it must NOT: a settings card
+         separates rows by a 1px hairline, so a symmetric pad hung 15px into the
+         rows above and below and stole taps meant for those switches. 12px
+         keeps the pad inside a 44px row. */
+      inset: -12px -15px;
     }
     /* Dismiss and go-back are the two controls every sheet has; they were the
        only ones that floor didn't reach (the close button opted out of
        min-height, and .back is sized by its padding). */
     .head .x {
-      min-height: 44px;
-      width: 44px;
+      min-height: var(--tap-min);
+      width: var(--tap-min);
       display: grid;
       place-items: center;
     }
     .head .back {
-      min-width: 44px;
+      min-width: var(--tap-min);
       display: grid;
       place-items: center;
     }
@@ -302,11 +390,8 @@
       animation: none;
     }
   }
-  .head {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    /* Keep the title + close button visible while the body scrolls. */
+  /* Keep the grip, title and close button visible while the body scrolls. */
+  .sheet-top {
     position: sticky;
     top: -20px;
     margin: -20px -20px 0;
@@ -316,10 +401,16 @@
        z-index 1 it tied with ordinary content and lost on DOM order, letting
        scrolled content slide over the title. */
     z-index: 3;
+    flex: none;
+  }
+  .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
   h3 {
     margin: 0;
-    font-size: 16.5px;
+    font-size: var(--fs-title);
     font-weight: 700;
     letter-spacing: 0.01em;
   }

@@ -8,6 +8,7 @@
   import GameShelf from "../GameShelf.svelte";
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
   import { api } from "../lib/api.js";
+  import { haptic } from "../lib/touch.js";
   let { identity, onSubmit, onClose } = $props();
   let name = $state(identity.displayName || "");
   let status = $state(identity.status || "");
@@ -20,6 +21,23 @@
   let frame = $state(identity.frame || "");
   let effect = $state(identity.effect || "");
   let games = $state(identity.games || []);
+
+  // This is the string another person reads aloud, or compares against a second
+  // screen, to establish that you are you. Grouped in fours so an eye can hold
+  // a place in it, and tappable, because selecting a run of monospace inside a
+  // scrolling sheet with a fingertip is close to impossible.
+  const fprGroups = $derived((identity.fingerprint || "").match(/.{1,4}/g)?.join(" ") || "");
+  let fprCopied = $state(false);
+  async function copyFingerprint() {
+    try {
+      await navigator.clipboard?.writeText(identity.fingerprint);
+      haptic("light");
+      fprCopied = true;
+      setTimeout(() => (fprCopied = false), 1400);
+    } catch {
+      /* clipboard denied — the text is still on screen to read out */
+    }
+  }
 
   // Games save immediately (like in the profile card) — independent of the
   // Save button, which commits the rest of the profile.
@@ -365,7 +383,10 @@
 
   <div class="field verify-info">
     <span class="muted">Your identity fingerprint (others verify you with this):</span>
-    <code class="mono">{identity.fingerprint}</code>
+    <button class="fpr mono" onclick={copyFingerprint} title="Copy fingerprint">
+      {fprGroups}
+      <span class="fpr-hint">{fprCopied ? "Copied" : "Tap to copy"}</span>
+    </button>
   </div>
 
   <div class="actions">
@@ -535,7 +556,7 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     color: #fff;
     background: rgba(0, 0, 0, 0.42);
@@ -546,6 +567,21 @@
   .pv-card :global(.pv-banner:hover .banner-edit),
   .pv-card :global(.pv-banner:focus-visible .banner-edit) {
     opacity: 1;
+  }
+  /* Off a mouse the banner carried NO affordance at all — it is tappable, but
+     the only sign of that was a hover scrim. The avatar beside it wears a
+     permanent badge, so the banner read as decoration next to something
+     obviously editable. Shrink the scrim to a corner pill that is always
+     visible, matching the avatar's badge without veiling the artwork. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .banner-edit {
+      inset: auto 8px 8px auto;
+      opacity: 1;
+      padding: 6px 10px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: none;
+    }
   }
   .pv-av {
     width: fit-content;
@@ -581,7 +617,7 @@
   }
   .pv-name {
     font-weight: 700;
-    font-size: 16px;
+    font-size: var(--fs-body);
   }
   .pv-status {
     margin-top: 1px;
@@ -606,6 +642,20 @@
     border-radius: 6px;
     color: var(--text);
     transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  /* The sheet's touch floor made these 44 tall but left them ~32 wide, so
+     thirteen targets sat with their centres 36px apart on the one axis that
+     has neighbours — picking 🦊 and getting 🐸. The row already wraps, so the
+     width costs a line, not a layout. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .emoji-row {
+      gap: 8px;
+    }
+    .emoji {
+      min-width: var(--tap-min);
+      display: grid;
+      place-items: center;
+    }
   }
   .emoji:hover {
     transform: scale(1.12);
@@ -636,7 +686,7 @@
   }
   /* Four chips of unequal width wrap 3+1, orphaning "Invisible" on a line of
      its own. A 2×2 grid holds all four and reads as one control. */
-  @media (max-width: 480px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .presence-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -737,12 +787,35 @@
   .paste-hint {
     align-self: flex-start;
   }
-  .verify-info code {
-    font-size: 11px;
-    word-break: break-all;
-    background: var(--bg-input);
-    padding: 6px 8px;
-    border-radius: 6px;
+  /* 11px monospace, broken at arbitrary points by word-break, was the worst
+     possible treatment for the one string in the app that is read character by
+     character. Grouping is done in the markup; this keeps the groups intact
+     (break BETWEEN them, never inside) and gives the glyphs room to breathe. */
+  .fpr {
     display: block;
+    width: 100%;
+    text-align: left;
+    font-size: var(--fs-ui);
+    line-height: 1.6;
+    letter-spacing: 0.04em;
+    word-break: normal;
+    overflow-wrap: break-word;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    border-radius: 6px;
+  }
+  .fpr:hover,
+  .fpr:active {
+    border-color: var(--accent);
+  }
+  .fpr-hint {
+    display: block;
+    margin-top: 4px;
+    font-family: var(--ui-font);
+    font-size: var(--fs-small);
+    letter-spacing: normal;
+    color: var(--text-faint);
   }
 </style>

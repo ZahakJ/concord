@@ -11,6 +11,7 @@
   import Icon from "../Icon.svelte";
   import InfoDot from "./InfoDot.svelte";
   import { openPanel } from "../lib/state.svelte.js";
+  import { haptic } from "../lib/touch.js";
 
   let {
     icon = "",
@@ -35,6 +36,9 @@
 
   function activate() {
     if (disabled) return;
+    // A switch commits a change in place with nothing else to confirm it — the
+    // 0.18s knob slide is the only feedback, and a thumb usually covers it.
+    if (isSwitch) haptic("light");
     if (isLink) openPanel(to, from);
     else onclick?.();
   }
@@ -85,6 +89,13 @@
   button.row:hover:not(:disabled) {
     background: var(--bg-3);
   }
+  /* app.css kills the WebView's grey tap flash on coarse pointers on the
+     understanding that components draw their own pressed state. This one never
+     did, so every row in Settings, Privacy and Notifications was inert to the
+     touch until the panel it opens actually appeared. */
+  button.row:active:not(:disabled) {
+    background: var(--bg-3);
+  }
   button.row:disabled {
     opacity: 0.5;
   }
@@ -113,11 +124,11 @@
     margin-right: auto;
   }
   .title {
-    font-size: 13.5px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   .sub {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.45;
     color: var(--text-muted);
   }
@@ -172,7 +183,7 @@
      three ways in ~110px. Give the control its own line, aligned under the
      text rather than under the icon chip. Switches and chevrons are narrow and
      stay put. */
-  @media (max-width: 480px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .row:has(.slot) {
       flex-wrap: wrap;
       row-gap: 8px;

@@ -5,6 +5,7 @@
   import { onMount, onDestroy } from "svelte";
   import { api } from "../lib/api.js";
   import { S, flash, openPanel } from "../lib/state.svelte.js";
+  import { haptic } from "../lib/touch.js";
 
   let { onClose } = $props();
   let phrase = $state("");
@@ -26,6 +27,7 @@
   }
   function copyPhrase() {
     navigator.clipboard?.writeText(phrase);
+    haptic("light"); // the clipboard is invisible; the buzz is the receipt
     copiedPhrase = true;
     setTimeout(() => (copiedPhrase = false), 1600);
   }
@@ -35,6 +37,7 @@
   let copiedVersion = $state(false);
   function copyVersion() {
     navigator.clipboard?.writeText(`Concord ${appVersion}`);
+    haptic("light");
     copiedVersion = true;
     setTimeout(() => (copiedVersion = false), 1400);
   }
@@ -416,7 +419,7 @@
   }
   .upd-btn {
     flex: none;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     padding: 7px 14px;
     border-radius: 999px;
     border: none;
@@ -466,7 +469,7 @@
     border: none;
     padding: 2px 8px;
     margin-top: -2px;
-    font-size: 11px;
+    font-size: var(--fs-small);
     letter-spacing: 0.03em;
     color: var(--text-muted);
     cursor: pointer;
@@ -477,7 +480,7 @@
     color: var(--text);
   }
   .sec-label {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -533,12 +536,12 @@
     gap: 2px;
   }
   .row-title {
-    font-size: 14px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     line-height: 1.3;
   }
   .row-sub {
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     line-height: 1.45;
     color: var(--text-muted);
   }
@@ -622,12 +625,12 @@
     align-items: baseline;
     gap: 5px;
     font-family: ui-monospace, monospace;
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   /* Which word this is, not decoration — you read it to check word 17. */
   .num {
     color: var(--text-muted);
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     width: 16px;
     text-align: right;
   }
@@ -639,7 +642,7 @@
   }
   .small-btn {
     flex-shrink: 0;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     padding: 5px 14px;
   }
   .small-btn.done {
@@ -654,7 +657,7 @@
     gap: 7px;
     margin-top: 2px;
     padding: 10px 14px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     background: transparent;
     border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
@@ -667,19 +670,15 @@
 
   /* Phone: rows get a touch more height; the word grid drops to two columns
      so long mnemonic words never collide; sign-out goes full-width. */
-  @media (pointer: coarse), (max-width: 700px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .row {
       min-height: 56px;
     }
-    .row-sub {
-      font-size: 12px;
-    }
+    /* The type tokens already grow on a phone, so the hand-tuned overrides that
+       used to sit here (.row-sub 12px, .word 13px) were only holding them back. */
     .phrase {
       grid-template-columns: repeat(2, 1fr);
       gap: 7px;
-    }
-    .word {
-      font-size: 13px;
     }
     .signout {
       width: 100%;

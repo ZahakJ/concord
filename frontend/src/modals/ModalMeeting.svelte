@@ -7,7 +7,8 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { api } from "../lib/api.js";
-  import { flash } from "../lib/state.svelte.js";
+  import { S, flash } from "../lib/state.svelte.js";
+  import { haptic } from "../lib/touch.js";
 
   let { code, guestLink = "", guildId = "", expires = 0, onClose } = $props();
 
@@ -82,8 +83,23 @@
   let copied = $state("");
   function copy(what, text) {
     navigator.clipboard?.writeText(text);
+    haptic("light");
     copied = what;
     setTimeout(() => (copied = ""), 1600);
+  }
+
+  // Getting the link to someone is the entire purpose of this screen, and on a
+  // phone the destination is another messaging app. Copy-then-switch-then-paste
+  // is the desktop route; the OS share sheet is the native one. Copy stays as
+  // the fallback for when the sheet is dismissed or missing.
+  const canShare = typeof navigator !== "undefined" && !!navigator.share && S.isMobile;
+  async function share(text) {
+    try {
+      await navigator.share({ text });
+      haptic("light");
+    } catch {
+      /* dismissed or refused — Copy is still right there */
+    }
   }
 </script>
 
@@ -99,7 +115,10 @@
       </div>
       <div class="link-row">
         <code class="link">{link}</code>
-        <button class:done={copied === "link"} onclick={() => copy("link", link)}>
+        {#if canShare}
+          <button onclick={() => share(link)}>Share…</button>
+        {/if}
+        <button class="ghost" class:done={copied === "link"} onclick={() => copy("link", link)}>
           {copied === "link" ? "Copied ✓" : "Copy link"}
         </button>
       </div>
@@ -125,8 +144,16 @@
           first, which is how you'd run office hours.
         </p>
       {/if}
-      <button class="ghost small" class:done={copied === "guest"} onclick={() => copy("guest", guestBlurb)}>
-        {copied === "guest" ? "Copied ✓" : "Copy link + a friendly note"}
+      <button
+        class="ghost small"
+        class:done={copied === "guest"}
+        onclick={() => (canShare ? share(guestBlurb) : copy("guest", guestBlurb))}
+      >
+        {#if canShare}
+          Share link + a friendly note
+        {:else}
+          {copied === "guest" ? "Copied ✓" : "Copy link + a friendly note"}
+        {/if}
       </button>
       <p class="muted tiny">
         Guests are chat-only and labelled in the room — their messages pass
@@ -147,9 +174,16 @@
       <button class="ghost" class:done={copied === "code"} onclick={() => copy("code", code)}>
         {copied === "code" ? "Copied ✓" : "Copy invite code"}
       </button>
-      <button class:done={copied === "app"} onclick={() => copy("app", appBlurb)}>
+      <button
+        class:done={copied === "app"}
+        onclick={() => (canShare ? share(appBlurb) : copy("app", appBlurb))}
+      >
         <Icon name="copy" size={14} />
-        {copied === "app" ? "Copied ✓" : "Copy invitation"}
+        {#if canShare}
+          Share invitation
+        {:else}
+          {copied === "app" ? "Copied ✓" : "Copy invitation"}
+        {/if}
       </button>
     </div>
   </section>
@@ -201,10 +235,10 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .way-text .muted {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.45;
   }
   .link-row {
@@ -219,7 +253,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     padding: 8px 10px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -251,7 +285,7 @@
     flex-wrap: wrap;
   }
   .chip-btn {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     padding: 5px 10px;
     background: var(--bg-0);
     border: 1px solid var(--border);
@@ -267,7 +301,7 @@
     cursor: default;
   }
   .small {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     padding: 6px 10px;
     align-self: flex-start;
   }
@@ -276,11 +310,28 @@
     color: #fff;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
     margin: 0;
     line-height: 1.5;
   }
   .nofoot {
     margin-top: 10px;
+  }
+  /* A 393px sheet cannot hold a truncated URL and two buttons on one line, and
+     the pair of copy buttons below it were huddling at the right edge. Both
+     become stacked full-width rows — the same treatment app.css gives .actions. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .link-row,
+    .btn-row {
+      flex-wrap: wrap;
+    }
+    .link {
+      flex: 1 0 100%;
+    }
+    .btn-row button,
+    .link-row button {
+      flex: 1;
+      justify-content: center;
+    }
   }
 </style>

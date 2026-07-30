@@ -42,7 +42,7 @@
 
 <style>
   .intro {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.5;
     margin: 0 0 12px;
   }
@@ -60,13 +60,14 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text);
-    font-size: 14px;
+    font-size: var(--fs-ui);
     text-align: left;
     transition:
       background 0.12s ease,
       border-color 0.12s ease;
   }
-  .opt:hover {
+  .opt:hover,
+  .opt:active {
     background: var(--bg-3);
     border-color: var(--accent);
   }

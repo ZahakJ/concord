@@ -1,7 +1,7 @@
 <script>
   import Modal from "./Modal.svelte";
   import { api } from "../lib/api.js";
-  import { refreshGuilds, flash } from "../lib/state.svelte.js";
+  import { S, refreshGuilds, flash } from "../lib/state.svelte.js";
 
   let { guildId, current = "", onClose } = $props();
   let name = $state(current);
@@ -26,7 +26,7 @@
   <input
     placeholder="Group name"
     bind:value={name}
-    autofocus
+    autofocus={!S.isMobile}
     onkeydown={(e) => e.key === "Enter" && save()}
   />
   <div class="actions">

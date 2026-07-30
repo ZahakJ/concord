@@ -48,7 +48,7 @@
       bind:value={name}
       maxlength="40"
       placeholder={type === "voice" ? "voice channel name" : "channel-name"}
-      autofocus
+      autofocus={!S.isMobile}
     />
     {#if categories.length}
       <label class="cat-label">

@@ -33,12 +33,12 @@
 
 <style>
   .empty {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.5;
     margin: 0;
   }
   .intro {
-    font-size: 11px;
+    font-size: var(--fs-small);
     margin: 0 0 10px;
   }
   .list {
@@ -62,7 +62,7 @@
     flex: 1;
   }
   .who strong {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -71,7 +71,7 @@
     font-family: var(--mono, monospace);
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   .unblock {
     flex-shrink: 0;
@@ -79,9 +79,10 @@
     background: var(--bg-3);
     color: var(--text);
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
-  .unblock:hover {
+  .unblock:hover,
+  .unblock:active {
     background: var(--accent);
     color: var(--accent-fg);
   }

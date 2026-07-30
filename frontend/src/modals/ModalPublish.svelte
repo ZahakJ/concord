@@ -89,7 +89,7 @@
     margin-bottom: 10px;
   }
   .orig .body {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.45;
     max-height: 90px;
     overflow: hidden;
@@ -97,7 +97,7 @@
     word-break: break-word;
   }
   .small {
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -124,7 +124,7 @@
     color: var(--accent-hover);
     border-radius: 999px;
     padding: 1px 8px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
   }
   .actions {
     display: flex;

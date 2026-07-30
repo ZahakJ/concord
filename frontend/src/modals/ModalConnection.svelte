@@ -210,7 +210,7 @@
     padding: 12px 14px;
   }
   .hint {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.5;
     color: var(--text-muted);
   }
@@ -224,7 +224,7 @@
     flex: 1;
     min-width: 0;
     font-family: var(--mono-font);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.4;
     padding: 10px 12px;
     border-radius: var(--radius-md);
@@ -247,7 +247,8 @@
     border: 1px solid var(--border);
     color: var(--text-muted);
   }
-  .addr-act:hover {
+  .addr-act:hover,
+  .addr-act:active {
     background: var(--bg-3);
     color: var(--text);
   }
@@ -259,7 +260,7 @@
   .port-box {
     width: 92px;
     font-family: var(--mono-font);
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     padding: 7px 10px;
     border-radius: var(--radius-md);
     text-align: right;
@@ -276,7 +277,7 @@
   .note-line {
     margin: 0;
     padding: 0 14px 12px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     line-height: 1.5;
     color: var(--text-muted);
   }
@@ -298,7 +299,7 @@
     box-sizing: border-box;
     min-height: 84px;
     font-family: var(--mono-font);
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     line-height: 1.65;
     white-space: pre-wrap;
     word-break: break-all;
@@ -318,7 +319,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
   }
   .code-wrap.ok .code-state {
@@ -339,23 +340,35 @@
   }
   .cancel {
     padding: 7px 14px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .save {
     flex-shrink: 0;
     padding: 7px 18px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   /* SettingRow drops the control onto its own line at this width — spend that
      line, rather than clipping "e.g. 4001" to "e.g. 400" in a 92px box. */
-  @media (max-width: 480px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .port {
       width: 100%;
     }
     .port-box {
       flex: 1;
       width: auto;
+    }
+    /* Copy and Edit sit side by side and do very different things (one is
+       silent, the other swaps the rendezvous address into an edit box). The
+       modal's touch floor made them 44 tall but left them 36 wide, so their
+       centres were 42px apart — under the fingertip minimum on the axis that
+       actually has a neighbour. */
+    .addr-act {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
+    .addr-row {
+      gap: 10px;
     }
   }
 </style>
