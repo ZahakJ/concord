@@ -20,11 +20,54 @@ function nativeNotifier() {
   return cap.Plugins?.ConcordCore || null;
 }
 
+// requestPermission asks for the OS notification grant. On Android this used to
+// happen in MainActivity.onCreate — a system dialog on top of the splash, before
+// the user had seen what Concord is. Android 13+ hard-denies after two
+// dismissals with no way back except system Settings, so that reflex "no" cost
+// people every future message alert, silently. It is called from start(), i.e.
+// once there is an account and a reason.
 export function requestPermission() {
-  // Native: MainActivity requests POST_NOTIFICATIONS at launch — nothing to do.
-  if (nativeNotifier()) return;
+  const native = nativeNotifier();
+  if (native?.requestNotifications) {
+    native.requestNotifications().catch(() => {});
+    return;
+  }
   if (typeof Notification !== "undefined" && Notification.permission === "default") {
     Notification.requestPermission().catch(() => {});
+  }
+}
+
+// notificationStatus reports what the OS currently allows, so settings can say
+// "blocked — open system settings" instead of showing a toggle that does
+// nothing. {enabled, canRequest}: canRequest false with enabled false means the
+// dialog will never appear again and Settings is the only route.
+export async function notificationStatus() {
+  const native = nativeNotifier();
+  if (native?.notificationStatus) {
+    try {
+      const r = await native.notificationStatus();
+      return { enabled: !!r?.enabled, canRequest: !!r?.canRequest };
+    } catch {
+      return { enabled: false, canRequest: false };
+    }
+  }
+  if (typeof Notification === "undefined") return { enabled: false, canRequest: false };
+  return {
+    enabled: Notification.permission === "granted",
+    canRequest: Notification.permission === "default",
+  };
+}
+
+// openSystemSettings takes the user to this app's OS settings page — the only
+// recovery from a hard deny. Resolves false where there's nowhere to go.
+export async function openSystemSettings() {
+  const native = nativeNotifier();
+  if (!native?.openAppSettings) return false;
+  try {
+    await native.openAppSettings();
+    return true;
+  } catch {
+    return false;
   }
 }
 

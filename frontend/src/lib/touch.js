@@ -2,8 +2,10 @@
 // runtime global (window.Capacitor.Plugins) rather than imported, so the web/
 // desktop bundle carries no Capacitor dependency and these no-op off-device.
 
-// haptic fires a short vibration for a confirmed touch gesture (long-press,
-// action-sheet open). Silently does nothing on web/desktop.
+// haptic fires a short vibration for a confirmed touch gesture — a long-press
+// firing, a drawer snapping, a message leaving. Silently does nothing on
+// web/desktop. Keep it for things the user CAUSED and would otherwise have to
+// look at the screen to confirm; a buzz on every tap is noise.
 export function haptic(style = "medium") {
   const H = window.Capacitor?.Plugins?.Haptics;
   if (!H) return;
@@ -14,13 +16,34 @@ export function haptic(style = "medium") {
   }
 }
 
+// hapticNotify is the OS's success/warning/error pattern — a different texture
+// from impact(), which is what makes "it sent" and "it failed" distinguishable
+// in a pocket. Falls back to a plain impact where notification() is missing.
+export function hapticNotify(type = "SUCCESS") {
+  const H = window.Capacitor?.Plugins?.Haptics;
+  if (!H) return;
+  try {
+    if (H.notification) H.notification({ type });
+    else haptic(type === "ERROR" ? "heavy" : "light");
+  } catch {
+    /* ignore */
+  }
+}
+
 // longpress is a Svelte action: it calls the handler after the finger is held
 // still for `duration` ms, passing a synthetic {clientX, clientY, target} so
 // existing context-menu code (which positions at the pointer and inspects
 // `target` to specialise the menu) works unchanged. A small move cancels it (so
 // it doesn't fire mid-scroll). Only arms for touch input — mouse right-click
 // keeps using the native contextmenu event.
-export function longpress(node, { handler, duration = 450, moveTolerance = 10 } = {}) {
+//
+// 400ms matches Android's own long-press timeout. It used to be 450, which is
+// long enough that a user lifts a beat early and gets nothing — and on messages,
+// channel rows and members the long-press is the ONLY way to the menu, so a
+// missed one reads as the feature not existing. The .lp-press class the node
+// wears while the timer runs is the other half of that: without it there is no
+// signal at all that the press registered.
+export function longpress(node, { handler, duration = 400, moveTolerance = 10 } = {}) {
   let timer = null;
   let startX = 0;
   let startY = 0;
@@ -30,6 +53,7 @@ export function longpress(node, { handler, duration = 450, moveTolerance = 10 } 
       clearTimeout(timer);
       timer = null;
     }
+    node.classList.remove("lp-press");
     node.removeEventListener("touchmove", onMove);
     node.removeEventListener("touchend", clear);
     node.removeEventListener("touchcancel", clear);
@@ -46,6 +70,7 @@ export function longpress(node, { handler, duration = 450, moveTolerance = 10 } 
     if (!t) return;
     startX = t.clientX;
     startY = t.clientY;
+    node.classList.add("lp-press");
     node.addEventListener("touchmove", onMove, { passive: true });
     node.addEventListener("touchend", clear);
     node.addEventListener("touchcancel", clear);

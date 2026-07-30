@@ -26,6 +26,7 @@
     setChannelTopic,
     nudge,
     closeTopOverlay,
+    selectChannel,
     isCallLocked,
     nameFor,
     forgetLock,
@@ -34,7 +35,9 @@
   } from "./lib/state.svelte.js";
 
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
-  import { initDeepLinks } from "./lib/deeplink.js";
+  import { initDeepLinks, consumePendingChannel } from "./lib/deeplink.js";
+  import { closeSearch } from "./lib/search.js";
+  import { haptic, hapticNotify } from "./lib/touch.js";
   import Icon from "./Icon.svelte";
   import Login from "./Login.svelte";
   import MobileShell from "./MobileShell.svelte";
@@ -180,9 +183,21 @@
   // Skip the login screen if the backend is already unlocked (e.g. after a
   // browser refresh — the Go process stays running and holds the session).
   onMount(async () => {
+    // The boot mark from index.html. Svelte's mount() appends to #app rather
+    // than clearing it, so this has to go by hand or it sits under the app.
+    document.getElementById("boot")?.remove();
     // Skip the self-update check on mobile — the app stores own updates there.
     if (!window.Capacitor) checkForUpdate(); // fire-and-forget; works on the login screen too
     initDeepLinks(); // concord:// links (QR scanned with the OS camera)
+    // Hardware back and the resume/pause hooks must exist from the FIRST frame:
+    // the login and device-linking screens are where a stray back press used to
+    // drop a half-set-up user on the launcher.
+    wireMobileLifecycle();
+    // Hand the launch splash over now that there is something to look at. Held
+    // by MainActivity across the WebView load AND the Go core boot, which is a
+    // blank window otherwise.
+    window.Capacitor?.Plugins?.ConcordCore?.appReady?.().catch(() => {});
+    watchSystemBars();
     // Closing or reloading the tab while in a call: tell the node to leave, so
     // it stops announcing us to a room we're no longer in. "pagehide" is the
     // one that also fires when a mobile browser backgrounds the page.
@@ -211,7 +226,6 @@
     installShortcuts();
     startScheduler();
     startEphemeralSweep();
-    wireMobileLifecycle();
     registerPushToken();
     applyStayConnected();
     // App lock: the Go core (and its unlocked session) stays alive in the
@@ -221,6 +235,35 @@
       appLocked = true;
       tryBioGate();
     }
+    // A notification tapped while the app was cold parked its channel here; the
+    // guild list only exists now, so this is the first moment it can be opened.
+    const pending = consumePendingChannel();
+    if (pending) jumpToChannel(pending).catch(() => {});
+  }
+
+  // ---- system bar / theme-color sync ----
+  // Concord picks light vs dark IN the app (Appearance → Theme, plus 18 packs),
+  // while Android decides status-bar icon colour from the SYSTEM setting. So a
+  // phone in light mode running Concord's dark theme drew dark icons on a
+  // near-black bar — invisible. Watch the attribute the appearance code stamps
+  // on <html> and tell the OS (and the PWA's theme-color) what we actually are.
+  function syncBars() {
+    const bg = getComputedStyle(document.documentElement).getPropertyValue("--bg-1").trim();
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (bg && meta) meta.setAttribute("content", bg);
+    // Relative luminance is overkill here: the question is only "are the bar
+    // icons going to be readable if they're dark".
+    const light = document.documentElement.getAttribute("data-theme") === "light";
+    window.Capacitor?.Plugins?.ConcordCore?.setSystemBarStyle?.({ light }).catch(() => {});
+  }
+  function watchSystemBars() {
+    syncBars();
+    const mo = new MutationObserver(syncBars);
+    mo.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme", "data-theme-pack"],
+    });
+    return () => mo.disconnect();
   }
 
   // ---- app lock (biometric re-entry gate) ----
@@ -230,6 +273,42 @@
     const pass = await unlockWithBiometric(); // retrieval is biometric-gated
     if (pass) appLocked = false;
   }
+  // FLAG_SECURE follows the App Lock pref. The gate itself is a WebView repaint,
+  // which lands AFTER the OS has already snapshotted the app for the recents
+  // carousel — so without this the last open conversation, decrypted, sat in the
+  // task switcher of an app whose whole premise is that it doesn't.
+  $effect(() => {
+    const on = S.prefs.appLock === true;
+    window.Capacitor?.Plugins?.ConcordCore?.setSecure?.({ secure: on }).catch(() => {});
+  });
+
+  // ---- keep the screen awake during a call ----
+  // Without this the display times out (typically 30s) with no touch input,
+  // which is precisely what a call is; once the WebView is hidden the voice
+  // monitor is throttled and the AudioContext can be suspended, so the call
+  // degrades exactly when the user stopped touching the phone.
+  $effect(() => {
+    if (!S.voice || !navigator.wakeLock) return;
+    let lock = null;
+    let dead = false;
+    const acquire = async () => {
+      if (dead || document.hidden) return;
+      try {
+        lock = await navigator.wakeLock.request("screen");
+      } catch {
+        /* denied, or no permission policy for it — the call still works */
+      }
+    };
+    // The OS drops a wake lock whenever the page hides; re-take it on return.
+    const onVis = () => !document.hidden && acquire();
+    document.addEventListener("visibilitychange", onVis);
+    acquire();
+    return () => {
+      dead = true;
+      document.removeEventListener("visibilitychange", onVis);
+      lock?.release?.().catch(() => {});
+    };
+  });
 
   // "Stay connected" (Android): run a foreground service so the P2P node keeps
   // receiving messages while the app is backgrounded. Default on; a settings
@@ -271,28 +350,124 @@
     }
   }
 
-  // On Capacitor, hook the OS: hardware back closes an open drawer/sheet before
-  // leaving the app, and resuming from the background triggers a fast reconnect
-  // + resync (the libp2p sockets die while suspended). No-op on web/desktop.
+  // ---- hardware back ----
+  // The Android back button is the app's primary navigation control, and it used
+  // to be: dismiss an overlay, close the drawers, close a modal, EXIT. The SPA
+  // pushes no history entries, so `canGoBack` is always false — which meant back
+  // from inside any conversation, or from inside a forum post, quit Concord.
+  // What follows is a real stack, unwound one press at a time:
+  //
+  //   overlay / sheet / popover   (closeTopOverlay)
+  //   modal
+  //   transient panel             (quick switcher, pins, picker, search results)
+  //   knock / call invite
+  //   open drawer
+  //   forum post  →  its board
+  //   open channel →  reveal the channel list
+  //   root        →  press again to exit
+  //
+  // Escape on desktop walks a near-identical ladder in lib/shortcuts.js.
+
+  // Back revealed the drawer, so the NEXT back is at the root and should leave.
+  // Without this the two rungs ping-pong: back opens the drawer, back closes it,
+  // back opens it again, and there is no way out of the app but the home button.
+  let backRevealedDrawer = false;
+  $effect(() => {
+    if (!S.drawerOpen) backRevealedDrawer = false;
+  });
+
+  let exitArmed = 0;
+  function confirmExit(App) {
+    // Double-tap to leave. A single press dropping the user on the launcher
+    // mid-conversation is the thing that made back feel dangerous.
+    if (Date.now() < exitArmed) {
+      App.exitApp();
+      return;
+    }
+    exitArmed = Date.now() + 2000;
+    flash("Press back again to exit");
+  }
+
+  function handleBack(App, canGoBack) {
+    if (closeTopOverlay()) return;
+    if (S.modal) {
+      S.modal = null;
+      return;
+    }
+    // Panels the old handler could not see — opening Pinned messages and
+    // pressing back exited the app with the panel still on screen.
+    if (S.quickSwitcher) {
+      S.quickSwitcher = false;
+      return;
+    }
+    if (S.pickerTarget) {
+      S.pickerTarget = null;
+      return;
+    }
+    if (S.showPins) {
+      S.showPins = false;
+      return;
+    }
+    if (S.searchResults !== null || S.searchLoading) {
+      closeSearch();
+      return;
+    }
+    if (S.replyingTo) {
+      S.replyingTo = null;
+      return;
+    }
+    if (S.callInvite) {
+      S.callInvite = null;
+      return;
+    }
+    if (S.knocking) {
+      S.knocking = "";
+      return;
+    }
+    if (S.membersOpen) {
+      S.membersOpen = false;
+      return;
+    }
+    if (S.drawerOpen) {
+      if (backRevealedDrawer) {
+        backRevealedDrawer = false;
+        confirmExit(App);
+      } else {
+        S.drawerOpen = false;
+      }
+      return;
+    }
+    // A forum post is a channel nested under its board; going "back" from one
+    // means the board, exactly as ChatHeader's breadcrumb does on desktop.
+    const parent = activeChannelObj?.parent;
+    if (parent) {
+      selectChannel(parent);
+      return;
+    }
+    // Back out of a conversation into the list it came from — the single most
+    // used back action in every messenger, and the one this app had no step for.
+    if (S.isMobile && S.activeChannelId) {
+      S.drawerOpen = true;
+      backRevealedDrawer = true;
+      return;
+    }
+    if (canGoBack) return; // let the WebView handle a real history entry
+    confirmExit(App);
+  }
+
+  // On Capacitor, hook the OS: hardware back walks the stack above, and resuming
+  // from the background triggers a fast reconnect + resync (the libp2p sockets
+  // die while suspended). No-op on web/desktop.
+  //
+  // Wired from onMount, NOT from start(): before this ran only after login, so
+  // during onboarding back fell through to Capacitor's default and quit the app
+  // — including with the full-screen QR scanner open, which registers an overlay
+  // closer that nothing was listening to.
   function wireMobileLifecycle() {
     const cap = typeof window !== "undefined" ? window.Capacitor : null;
     const App = cap?.Plugins?.App;
     if (!App) return;
-    App.addListener("backButton", ({ canGoBack }) => {
-      // Dismiss overlays innermost-first, one per press: a context sheet or a
-      // component overlay (QR scanner, Ring/Banner studio) or the profile card,
-      // THEN drawers, THEN a modal, and only then leave the app. Without this,
-      // back on a scanner/studio jumped straight to exiting.
-      if (closeTopOverlay()) return;
-      if (S.drawerOpen || S.membersOpen) {
-        S.drawerOpen = false;
-        S.membersOpen = false;
-      } else if (S.modal) {
-        S.modal = null;
-      } else if (!canGoBack) {
-        App.exitApp();
-      }
-    });
+    App.addListener("backButton", ({ canGoBack }) => handleBack(App, canGoBack));
     App.addListener("resume", () => {
       nudge();
       if (appLocked) tryBioGate();
@@ -433,6 +608,8 @@
     try {
       await mesh.start();
     } catch {
+      // A phone is often already at the ear by now; the error toast is behind it.
+      hapticNotify("ERROR");
       flash("Microphone access denied", "error");
       joining = false;
       S.joiningVoice = "";
@@ -444,6 +621,7 @@
       // Presence never broadcast — don't leave a phantom "in call" with a live
       // mesh (open mic, peer connections) that leaveVoice can't fully undo.
       mesh.stop();
+      hapticNotify("ERROR");
       flash(err);
       joining = false;
       S.joiningVoice = "";
@@ -456,6 +634,7 @@
       S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
     playVoiceJoin();
     publishVoiceState();
+    haptic("medium"); // the phone is usually at the ear by now — say it connected
     flash("Joined voice", "success");
     joining = false;
   }
@@ -484,6 +663,7 @@
     S.cameraOn = false;
     clearVideoStreams();
     playVoiceLeave();
+    haptic("medium");
     await api.leaveVoice(ch);
     // A DM ring we initiated where the other side never showed → leave a quiet
     // "Missed call" line in the conversation (both sides render it; it never
@@ -794,6 +974,9 @@
         <h2>Concord is locked</h2>
         <p class="muted">Unlock with your fingerprint or face.</p>
         <button class="lock-btn" onclick={tryBioGate}>Unlock</button>
+        <!-- Honest label: this path signs the device out and reloads. It used to
+             read "Use passphrase instead", which sounds like a second door into
+             the same room. -->
         <button
           class="lock-alt"
           onclick={async () => {
@@ -801,9 +984,19 @@
             location.reload();
           }}
         >
-          Use passphrase instead
+          Sign out and use my passphrase
         </button>
       </div>
+      <!-- The gate is opaque and above the call dock, so backgrounding the app
+           mid-call left no way to mute or hang up until biometrics succeeded.
+           These two controls reveal nothing the gate is protecting. -->
+      {#if S.voice}
+        <div class="lock-call">
+          <span class="lc-label">In a call{callLabel ? ` · ${callLabel}` : ""}</span>
+          <button class="lc-btn" onclick={toggleMicMute}>{S.muted ? "Unmute" : "Mute"}</button>
+          <button class="lc-btn danger" onclick={leaveVoice}>Leave</button>
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -1102,6 +1295,42 @@
     background: transparent;
     color: var(--text);
   }
+  .lock-call {
+    position: absolute;
+    left: var(--sp-3);
+    right: var(--sp-3);
+    bottom: calc(var(--sp-3) + max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)));
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-2);
+    border-radius: var(--radius-lg);
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+  }
+  .lc-label {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
+  .lc-btn {
+    flex-shrink: 0;
+    min-height: var(--tap-min);
+    padding: 0 var(--sp-3);
+    border-radius: var(--radius-md);
+    background: var(--bg-3);
+    color: var(--text);
+    font-size: var(--fs-ui);
+    font-weight: 600;
+  }
+  .lc-btn.danger {
+    background: var(--danger);
+    color: #fff;
+  }
   .app {
     display: grid;
     grid-template-columns: 64px 220px 1fr 260px;
@@ -1117,15 +1346,19 @@
   .app.no-panel {
     grid-template-columns: 64px 220px 1fr;
   }
+  /* Narrow desktop (a window parked beside something else). Not a phone tier —
+     below 768px S.isMobile is true and MobileShell renders instead of .app —
+     just a density step for the columns.
+     The member panel used to be display:none'd here while ChatHeader still
+     offered its toggle, so the control silently did nothing for a whole band of
+     window widths. It keeps its column, narrower; the toggle decides. */
   @media (max-width: 900px) {
-    /* Both selectors so .app.no-panel (higher specificity) doesn't keep the
-       wide 220px column in DM/Welcome view below 900px. */
-    .app,
+    .app {
+      grid-template-columns: 64px 190px 1fr 200px;
+    }
+    /* Higher specificity, or .app.no-panel keeps the wide 220px column. */
     .app.no-panel {
       grid-template-columns: 64px 190px 1fr;
-    }
-    .app > :global(.panel) {
-      display: none;
     }
   }
   .chat {
@@ -1141,7 +1374,7 @@
   /* Update-available banner: a floating top-center pill (doesn't cover the rail). */
   .update-banner {
     position: fixed;
-    top: 12px;
+    top: calc(12px + max(env(safe-area-inset-top), var(--sa-top, 0px)));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -1199,7 +1432,8 @@
   /* Incoming-call card. */
   .knock-wait {
     position: fixed;
-    top: 16px;
+    top: calc(16px + max(env(safe-area-inset-top), var(--sa-top, 0px)));
+    max-width: calc(100vw - 24px);
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -1332,7 +1566,53 @@
   }
   /* Touch: a full-width banner rather than a centred card that has to squeeze
      name, status line and both buttons into whatever the text doesn't claim. */
-  @media (pointer: coarse), (max-width: 700px) {
+  @media (pointer: coarse), (max-width: 768px) {
+    /* The update banner's × sat ~6px from "Update now", both about 22px tall —
+       so dismissing it regularly started a 200MB download instead. Give them
+       real targets and put a gap between them, and let the sentence wrap rather
+       than ellipsise to six words. */
+    .update-banner {
+      left: var(--sp-3);
+      right: var(--sp-3);
+      transform: none;
+      max-width: none;
+      flex-wrap: wrap;
+      gap: var(--sp-2) var(--sp-3);
+      padding: var(--sp-2) var(--sp-3);
+      font-size: var(--fs-ui);
+    }
+    .ub-text {
+      flex: 1 0 100%;
+      white-space: normal;
+    }
+    .ub-dl {
+      flex: 1;
+      min-height: var(--tap-min);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--fs-ui);
+    }
+    .ub-close {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: var(--tap-min);
+      min-height: var(--tap-min);
+      margin-left: var(--sp-2);
+    }
+    .knock-wait {
+      left: var(--sp-3);
+      right: var(--sp-3);
+      transform: none;
+      max-width: none;
+      font-size: var(--fs-ui);
+    }
+    .kw-cancel {
+      min-height: var(--tap-min);
+      padding: 0 var(--sp-4);
+      font-size: var(--fs-ui);
+    }
     .ring-card {
       top: calc(10px + env(safe-area-inset-top));
       left: 12px;

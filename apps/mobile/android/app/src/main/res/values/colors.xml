@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- --bg-1 from frontend/src/app.css. Used for the window background and the
+         launch splash so the frame before the WebView paints is Concord's own
+         colour rather than the platform white, which flashed on every cold start
+         and on every sign-out (which reloads the page). -->
+    <color name="concord_bg">#16181C</color>
+</resources>

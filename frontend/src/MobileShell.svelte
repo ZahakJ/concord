@@ -14,10 +14,13 @@
     openContextMenu,
     refreshGuilds,
     selectGuild,
+    selectChannel,
+    registerOverlay,
     flash,
     clearFeed,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { haptic } from "./lib/touch.js";
   import { runSearch, closeSearch } from "./lib/search.js";
   import { PERM, has } from "./lib/perms.js";
   import GuildRail from "./GuildRail.svelte";
@@ -49,6 +52,15 @@
   );
   const callHere = $derived(S.voice && S.voice.channelId === S.activeChannelId);
   const canRight = $derived(hasChannel && !isDM);
+  // A forum POST is a channel nested under its board. ChatHeader's breadcrumb
+  // says so on desktop, but ChatHeader never renders here — and ChannelList
+  // filters posts out of the drawer — so without this the top-left button is
+  // the only exit and it opens a list the post isn't in.
+  const parentChannel = $derived(
+    activeChannelObj?.parent
+      ? activeGuild()?.channels.find((c) => c.id === activeChannelObj.parent) || null
+      : null,
+  );
 
   // Title bar: the open channel's name (or guild name on the welcome screen).
   const title = $derived.by(() => {
@@ -110,6 +122,16 @@
   // management) is reachable here — ChatHeader itself never renders on phones.
   // openContextMenu presents these as a bottom action sheet on mobile.
   let searchOpen = $state(false);
+  // The search row is component-local, so the hardware-back ladder in App.svelte
+  // cannot see it. Registering it as an overlay is what makes back close the row
+  // instead of walking past it and exiting the app.
+  $effect(() => {
+    if (!searchOpen) return;
+    return registerOverlay(() => {
+      closeSearch();
+      searchOpen = false;
+    });
+  });
 
   function confirmLeave() {
     const g = activeGuild();
@@ -143,10 +165,16 @@
     if (!g) return;
     const dm = g.kind === "dm";
     const inCall = S.voice && S.voice.channelId === S.activeChannelId;
+    haptic("light"); // the sheet slides up from the far end of the screen; say it opened
     openContextMenu(
       e,
       [
-        { label: "Search", icon: "search", onClick: () => (searchOpen = true) },
+        // The fuzzy palette (every channel, DM and global action) was reachable
+        // only by Ctrl+K, i.e. never on a phone. It is the fastest way to move
+        // around once there are more than a handful of conversations, so it goes
+        // first — and this sheet opens at the bottom, under the thumb.
+        { label: "Jump to…", icon: "search", onClick: () => (S.quickSwitcher = true) },
+        { label: "Search messages", icon: "search", onClick: () => (searchOpen = true) },
         { label: "Pinned messages", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
         !g.dmNotes &&
@@ -193,11 +221,29 @@
   // the touched drawer (or the one a fresh swipe implies) follows the finger.
   let drag = null; // {startX, startY, claimed, target, startFrac, prevX, prevT, vel}
 
+  // Walk up from the touch target looking for something that scrolls sideways
+  // under its own steam — a wide code block, a table. touch-action can't express
+  // this (an ancestor's pan-y is intersected with every descendant), and the
+  // drawer gesture would otherwise eat the only way to read the rest of the line.
+  function inHScroller(el) {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      if (n.scrollWidth > n.clientWidth + 1) {
+        const ov = getComputedStyle(n).overflowX;
+        if (ov === "auto" || ov === "scroll") return true;
+      }
+    }
+    return false;
+  }
+
   function onTouchStart(e) {
     if (e.touches.length !== 1) return;
     // Don't hijack swipes that start in text inputs or overlays (sheets,
-    // profile card, emoji picker) — those own their gestures.
-    if (e.target.closest("textarea, input, .bs-sheet, .pop, .picker")) return;
+    // profile card, emoji picker) or on the floating call window, which runs its
+    // own pointer drag — touch-action:none stops the BROWSER panning, not an
+    // ancestor's touchmove listener, so without .dock here moving the call
+    // window sideways dragged the drawer in behind it.
+    if (e.target.closest("textarea, input, .bs-sheet, .pop, .picker, .dock")) return;
+    if (inHScroller(e.target)) return;
     const t = e.touches[0];
     drag = {
       startX: t.clientX,
@@ -278,6 +324,10 @@
       const vel = target === "left" ? drag.vel : -drag.vel;
       const open = Math.abs(vel) > 0.35 ? vel > 0 : frac > 0.5;
       dragging = false;
+      const was = target === "left" ? S.drawerOpen : S.membersOpen;
+      // The snap is the most physical moment in the app and it happens under the
+      // finger, often while the eye is still on the chat. Confirm it by feel.
+      if (open !== was) haptic("light");
       if (target === "left") {
         leftFrac = open ? 1 : 0;
         S.drawerOpen = open;
@@ -323,12 +373,27 @@
   onclickcapture={onClickCapture}
 >
   <header class="mtopbar">
-    <button class="icon-btn" aria-label="Menu" onclick={() => (S.drawerOpen = true)}>
-      <Icon name="menu" />
-    </button>
-    <!-- The title is tappable (Discord/Telegram muscle memory): same sheet as ⋯. -->
+    {#if parentChannel}
+      <!-- Inside a forum post the left slot is a way OUT of it, not into the
+           drawer: the post isn't in the channel list, so the hamburger was a
+           dead end. The drawer is still one edge-swipe away. -->
+      <button
+        class="icon-btn"
+        aria-label="Back to {parentChannel.name}"
+        onclick={() => selectChannel(parentChannel.id)}
+      >
+        <span class="chev-back"><Icon name="chevron" size={18} /></span>
+      </button>
+    {:else}
+      <button class="icon-btn" aria-label="Menu" onclick={() => (S.drawerOpen = true)}>
+        <Icon name="menu" />
+      </button>
+    {/if}
+    <!-- The title is tappable (Discord/Telegram muscle memory): same sheet as ⋯.
+         The chevron is the only thing that says so before you tap it. -->
     <button class="mtitle" onclick={hasChannel ? moreMenu : undefined} disabled={!hasChannel}>
-      {title}
+      <span class="mtitle-text">{title}</span>
+      {#if hasChannel}<span class="chev-down"><Icon name="chevron" size={12} /></span>{/if}
     </button>
     {#if canRight}
       <button class="icon-btn" aria-label="Members" onclick={() => (S.membersOpen = true)}>
@@ -340,7 +405,15 @@
         <Icon name="dots" size={18} />
       </button>
     {:else}
-      <span class="icon-btn-spacer"></span>
+      <!-- Welcome screen: this corner used to be an empty 44px spacer. Nothing
+           is open, so navigating is the only thing the user can want. -->
+      <button
+        class="icon-btn"
+        aria-label="Jump to a conversation"
+        onclick={() => (S.quickSwitcher = true)}
+      >
+        <Icon name="search" />
+      </button>
     {/if}
   </header>
 
@@ -351,7 +424,16 @@
     >
       <Icon name="search" size={14} />
       <!-- svelte-ignore a11y_autofocus -->
+      <!-- type/enterkeyhint/autocapitalize: without them Android opens a
+           capitalised keyboard with predictive text and an unlabelled return
+           key, so searching for a handle or a code fragment autocorrects into
+           something else and there is no visible way to run it. -->
       <input
+        type="search"
+        enterkeyhint="search"
+        autocapitalize="none"
+        autocorrect="off"
+        spellcheck="false"
         placeholder="Search all conversations"
         aria-label="Search messages"
         bind:value={S.searchQuery}
@@ -371,14 +453,17 @@
     </form>
   {/if}
 
-  {#if conn.show}
-    <button class="conn {conn.cls}" onclick={nudge} aria-label="Reconnect">
-      <span class="conn-dot"></span>
-      {conn.text}
-    </button>
-  {/if}
-
   <main class="mchat">
+    <!-- Floated over the feed rather than stacked above it: this pill appears
+         and disappears on its own (offline → online, "Catching up…" → done), and
+         in normal flow every one of those flips shifted the whole conversation
+         ~27px under the reader's eyes. -->
+    {#if conn.show}
+      <button class="conn {conn.cls}" onclick={nudge} aria-label="Reconnect">
+        <span class="conn-dot"></span>
+        {conn.text}
+      </button>
+    {/if}
     {#if hasChannel}
       {#if callHere}
         <VoicePanel
@@ -470,6 +555,29 @@
     /* Sit above the animated theme backdrop (App.svelte .theme-bg). */
     position: relative;
     z-index: 1;
+    /* --sa-* / --kb come from MainActivity's inset bridge; env() is the iOS
+       side of the same values. The Android WebView resolves env() to 0 for
+       system bars, so on the phone this app actually ships to, env() alone
+       meant the composer sat under the gesture pill and the whole feed sat
+       under the keyboard. max() takes whichever platform answered. */
+    padding-bottom: calc(max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)) + var(--kb, 0px));
+    padding-left: max(env(safe-area-inset-left), var(--sa-left, 0px));
+    padding-right: max(env(safe-area-inset-right), var(--sa-right, 0px));
+  }
+  /* Press feedback for lib/touch.js's longpress action: until the sheet opens
+     ~400ms later there is otherwise no sign the press registered, and on
+     messages/channels/members the long-press is the ONLY route to the menu.
+     Global because the nodes wearing it live in other components' scopes;
+     mounted only inside the phone shell, which is exactly its audience. */
+  :global(.lp-press) {
+    transition: transform 0.12s ease, filter 0.12s ease;
+    transform: scale(0.985);
+    filter: brightness(1.18);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global(.lp-press) {
+      transform: none;
+    }
   }
   /* Under an animated pack, let the backdrop show through: the outer shell goes
      transparent so only the inner panels (translucent bg-*) tint it — no
@@ -481,11 +589,11 @@
   .mtopbar {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     height: 52px;
     flex-shrink: 0;
     padding: 0 6px;
-    padding-top: env(safe-area-inset-top);
+    padding-top: max(env(safe-area-inset-top), var(--sa-top, 0px));
     box-sizing: content-box;
     background: var(--bg-1);
     border-bottom: 1px solid var(--border);
@@ -495,20 +603,36 @@
     z-index: 5;
   }
   .mtitle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
     flex: 1;
     min-width: 0;
     font-weight: 600;
-    font-size: 16px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: var(--fs-body);
     /* It's a button now (opens the channel sheet) — keep the plain-text look. */
     background: transparent;
     color: var(--text);
     text-align: left;
     padding: 10px 4px;
-    min-height: 44px;
+    min-height: var(--tap-min);
     border-radius: var(--radius-sm);
+  }
+  .mtitle-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chev-down {
+    display: flex;
+    flex-shrink: 0;
+    color: var(--text-faint);
+    transform: rotate(90deg);
+  }
+  .chev-back {
+    display: flex;
+    transform: rotate(180deg);
   }
   .mtitle:active:not(:disabled) {
     background: var(--bg-3);
@@ -521,8 +645,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 44px;
-    height: 44px;
+    width: max(44px, var(--tap-min));
+    height: max(44px, var(--tap-min));
     border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-muted);
@@ -530,10 +654,6 @@
   }
   .icon-btn:active {
     background: var(--bg-3);
-  }
-  .icon-btn-spacer {
-    width: 44px;
-    flex-shrink: 0;
   }
   /* Mobile search row (under the top bar): feeds the shared search pipeline;
      results render in the SearchPanel inside the feed. */
@@ -566,25 +686,38 @@
     flex-direction: column;
     min-height: 0;
     overflow: hidden;
-    /* Vertical panning stays native (message scroll); horizontal movement is
-       delivered to the drawer gesture handlers instead of being eaten by the
-       browser. */
-    touch-action: pan-y;
+    /* The connection pill anchors to this box. */
+    position: relative;
+    /* Was pan-y. touch-action intersects down the ancestor chain, so pan-y here
+       made every descendant unpannable sideways — including Message's
+       `pre { overflow-x: auto }`, whose scrollbar was physically impossible to
+       move, leaving the rest of every long code line unreadable. Both axes,
+       still no pinch-zoom; the drawer gesture does its own axis discrimination
+       in JS (onTouchMove) and now stands down inside a horizontal scroller. */
+    touch-action: pan-x pan-y;
   }
-  /* Connection pill: a slim status strip under the top bar; tap to reconnect. */
+  /* Connection pill: floats over the top of the feed, Telegram-style, and is
+     tappable to force a reconnect. */
   .conn {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 4;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 7px;
-    width: 100%;
-    flex-shrink: 0;
-    padding: 5px 12px;
-    font-size: 12px;
+    max-width: calc(100% - 24px);
+    min-height: var(--tap-min);
+    padding: 0 16px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text);
-    border: none;
-    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    box-shadow: var(--shadow-pop, 0 4px 16px rgba(0, 0, 0, 0.35));
   }
   .conn-dot {
     width: 7px;
@@ -594,7 +727,7 @@
   }
   .conn.connecting,
   .conn.syncing {
-    background: color-mix(in srgb, var(--accent) 18%, var(--bg-1));
+    background: color-mix(in srgb, var(--accent) 22%, var(--bg-1));
   }
   .conn.connecting .conn-dot,
   .conn.syncing .conn-dot {
@@ -602,7 +735,7 @@
     animation: conn-pulse 1.1s ease-in-out infinite;
   }
   .conn.offline {
-    background: color-mix(in srgb, var(--danger, #d9534f) 20%, var(--bg-1));
+    background: color-mix(in srgb, var(--danger, #d9534f) 24%, var(--bg-1));
   }
   .conn.offline .conn-dot {
     background: var(--danger, #d9534f);
@@ -653,15 +786,22 @@
   .scrim.drag {
     transition: none;
   }
+  /* The drawers are position:fixed, so the shell's own insets don't reach them:
+     they pad themselves. Without the bottom one the settings gear and profile
+     row at the foot of the channel list sit under the gesture nav bar. */
+  .drawer {
+    padding-top: max(env(safe-area-inset-top), var(--sa-top, 0px));
+    padding-bottom: calc(max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)) + var(--kb, 0px));
+  }
   /* A hairline edge highlight so the drawer's rim catches the light. */
   .drawer.left {
     left: 0;
-    padding-top: env(safe-area-inset-top);
+    padding-left: max(env(safe-area-inset-left), var(--sa-left, 0px));
     border-right: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   }
   .drawer.right {
     right: 0;
-    padding-top: env(safe-area-inset-top);
+    padding-right: max(env(safe-area-inset-right), var(--sa-right, 0px));
     border-left: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   }
   .drawer-rail {
@@ -694,5 +834,30 @@
     flex: 1;
     min-width: 0;
     border-left: none;
+  }
+  /* Landscape on a handset: ~393px of height, of which the top bar and the
+     composer's two-row tray already claim half. Trim the chrome rather than
+     leave two messages visible. (The app doesn't lock orientation — people
+     rotate to read a wide code block or watch a shared screen.) */
+  @media (pointer: coarse) and (max-height: 500px) {
+    .mtopbar {
+      height: 44px;
+    }
+    .conn {
+      top: 4px;
+      min-height: 32px; /* still a real target; the pill is not a primary action */
+      font-size: var(--fs-compact);
+    }
+    .drawer-rail {
+      width: 56px;
+    }
+  }
+  /* The narrow floor: at 360px a guild channel shows back/title/members/⋯, and
+     at an 8px gap the title ellipsises to about two words. */
+  @media (max-width: 400px) {
+    .mtopbar {
+      gap: var(--sp-1);
+      padding: 0 2px;
+    }
   }
 </style>

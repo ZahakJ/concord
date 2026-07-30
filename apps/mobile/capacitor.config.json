@@ -5,5 +5,13 @@
   "server": {
     "androidScheme": "http",
     "cleartext": true
+  },
+  "android": {
+    "backgroundColor": "#FF16181C"
+  },
+  "plugins": {
+    "Keyboard": {
+      "resizeOnFullScreen": false
+    }
   }
 }

@@ -88,7 +88,12 @@ public class ConcordForegroundService extends Service {
         return b
             .setContentTitle("Concord")
             .setContentText("Connected — you'll receive messages")
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth) // replaced by app icon in assets pass
+            // This one sits in the status bar permanently (the setting defaults
+            // on), so it has to be Concord's own mark: the platform Bluetooth
+            // glyph that used to be here read as the app doing something with
+            // the radio.
+            .setSmallIcon(R.drawable.ic_stat_concord)
+            .setColor(ConcordCorePlugin.BRAND_TEAL)
             .setContentIntent(pi)
             .setOngoing(true)
             .setPriority(Notification.PRIORITY_MIN)

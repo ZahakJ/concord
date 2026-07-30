@@ -1,18 +1,26 @@
 package app.concord.mobile;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
+
+import androidx.core.app.NotificationManagerCompat;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import java.io.File;
 
@@ -29,8 +37,15 @@ import concord.Node;
  * (allowBackup=false in the manifest): restoring MLS ratchet state onto
  * another install forks the group state irrecoverably.
  */
-@CapacitorPlugin(name = "ConcordCore")
+@CapacitorPlugin(
+    name = "ConcordCore",
+    permissions = {
+        @Permission(alias = ConcordCorePlugin.NOTIF_ALIAS, strings = { Manifest.permission.POST_NOTIFICATIONS })
+    }
+)
 public class ConcordCorePlugin extends Plugin {
+    static final String NOTIF_ALIAS = "notifications";
+
     private static Node node; // survives activity recreation; one core per process
 
     @PluginMethod
@@ -117,7 +132,15 @@ public class ConcordCorePlugin extends Plugin {
             nm.createNotificationChannel(ch);
         }
 
+        // ACTION_VIEW + concord://channel?id=<tag>: the tap has to land in the
+        // conversation it announced. A bare launch intent dropped the user
+        // wherever they last were, which on a phone — where the notification IS
+        // the way into the app — cost a hamburger tap and a scroll every time.
+        // Capacitor surfaces this to appUrlOpen (warm) and getLaunchUrl (cold);
+        // lib/deeplink.js routes it.
         Intent launch = new Intent(ctx, MainActivity.class);
+        launch.setAction(Intent.ACTION_VIEW);
+        launch.setData(Uri.parse("concord://channel?id=" + Uri.encode(tag)));
         launch.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         int piFlags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -132,7 +155,8 @@ public class ConcordCorePlugin extends Plugin {
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(new Notification.BigTextStyle().bigText(body))
-            .setSmallIcon(android.R.drawable.stat_notify_chat)
+            .setSmallIcon(R.drawable.ic_stat_concord)
+            .setColor(BRAND_TEAL)
             .setContentIntent(pi)
             .setAutoCancel(true)
             .setPriority(Notification.PRIORITY_HIGH)
@@ -144,6 +168,84 @@ public class ConcordCorePlugin extends Plugin {
             // POST_NOTIFICATIONS not granted (Android 13+): silently no-op — the
             // in-app badge/chime still fired.
         }
+        call.resolve();
+    }
+
+    /** Concord teal, for setColor on notifications. Mirrors --accent in app.css. */
+    static final int BRAND_TEAL = 0xFF14A394;
+
+    // ---- notification permission, asked at a moment that makes sense ----
+    // This used to fire from MainActivity.onCreate, i.e. on top of the splash,
+    // before the user had seen a single pixel. Android 13+ hard-denies after two
+    // dismissals and there is no way back except system Settings, so a reflex
+    // "no" there silently cost the user every message alert forever. The web
+    // layer now asks once the account exists (lib/notify.js).
+
+    @PluginMethod
+    public void notificationStatus(PluginCall call) {
+        JSObject r = new JSObject();
+        boolean enabled = NotificationManagerCompat.from(getContext()).areNotificationsEnabled();
+        r.put("enabled", enabled);
+        // canRequest false + enabled false means the system dialog will no longer
+        // appear — the only route left is Settings, which is what the UI must say.
+        boolean canRequest = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+            || getPermissionState(NOTIF_ALIAS) == PermissionState.PROMPT
+            || getPermissionState(NOTIF_ALIAS) == PermissionState.PROMPT_WITH_RATIONALE;
+        r.put("canRequest", !enabled && canRequest);
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void requestNotifications(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+            || getPermissionState(NOTIF_ALIAS) == PermissionState.GRANTED) {
+            notificationStatus(call);
+            return;
+        }
+        requestPermissionForAlias(NOTIF_ALIAS, call, "notifPermissionResult");
+    }
+
+    @PermissionCallback
+    private void notifPermissionResult(PluginCall call) {
+        notificationStatus(call);
+    }
+
+    /** Opens this app's system settings page — the only recovery from a hard deny. */
+    @PluginMethod
+    public void openAppSettings(PluginCall call) {
+        try {
+            Intent i = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", getContext().getPackageName(), null));
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(i);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("couldn't open settings", e);
+        }
+    }
+
+    // ---- window-level bits the web layer owns the policy for ----
+
+    /** App Lock on → FLAG_SECURE, so the recents thumbnail and screenshots blank. */
+    @PluginMethod
+    public void setSecure(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("secure", false));
+        if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).applySecureFlag(on);
+        call.resolve();
+    }
+
+    /** Match the system bar icons to Concord's own theme, not the phone's. */
+    @PluginMethod
+    public void setSystemBarStyle(PluginCall call) {
+        boolean light = Boolean.TRUE.equals(call.getBoolean("light", false));
+        if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).applySystemBarStyle(light);
+        call.resolve();
+    }
+
+    /** First paint: lets the launch splash hand over instead of flashing blank. */
+    @PluginMethod
+    public void appReady(PluginCall call) {
+        MainActivity.markWebReady();
         call.resolve();
     }
 }

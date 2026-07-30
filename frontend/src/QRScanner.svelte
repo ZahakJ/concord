@@ -7,6 +7,8 @@
   import Icon from "./Icon.svelte";
 
   import { registerOverlay } from "./lib/state.svelte.js";
+  import { openSystemSettings } from "./lib/notify.js";
+  import { haptic } from "./lib/touch.js";
   let { onScan, onClose } = $props();
   // Hardware-back / global overlay stack: closing this scanner is what back
   // should do, not exit the app.
@@ -14,6 +16,9 @@
 
   let video = $state(null);
   let error = $state("");
+  let denied = $state(false); // permission, not a transient camera failure
+  let torchOn = $state(false);
+  let hasTorch = $state(false);
   let stream = null;
   let raf = 0;
   let done = false;
@@ -34,6 +39,7 @@
       if (hit?.data) {
         done = true;
         stop();
+        haptic("medium"); // the code is off-screen the instant it reads; confirm by feel
         onScan?.(hit.data);
         return;
       }
@@ -45,9 +51,18 @@
     cancelAnimationFrame(raf);
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
+    torchOn = false;
+    hasTorch = false;
   }
 
-  onMount(async () => {
+  // Retryable: a denied permission the user has just granted in Settings, or
+  // another app that was holding the camera (NotReadableError), both used to
+  // need the whole overlay closed and reopened.
+  async function startCamera() {
+    error = "";
+    denied = false;
+    done = false;
+    stop();
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
@@ -55,14 +70,34 @@
       });
       video.srcObject = stream;
       await video.play();
+      // Linking off a dim laptop screen in the evening is the common case, and
+      // the rear camera needs the light. Torch is a non-standard constraint, so
+      // only offer the button where the track admits to having one.
+      const track = stream.getVideoTracks()[0];
+      hasTorch = !!track?.getCapabilities?.().torch;
       raf = requestAnimationFrame(tick);
     } catch (err) {
-      error =
-        err?.name === "NotAllowedError"
-          ? "Camera access was denied — allow it in system settings, or paste the code instead."
-          : "Couldn't open the camera — paste the code instead.";
+      denied = err?.name === "NotAllowedError";
+      error = denied
+        ? "Camera access was denied."
+        : err?.name === "NotReadableError"
+          ? "Another app is using the camera."
+          : "Couldn't open the camera.";
     }
-  });
+  }
+
+  async function toggleTorch() {
+    const track = stream?.getVideoTracks()[0];
+    if (!track) return;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: !torchOn }] });
+      torchOn = !torchOn;
+    } catch {
+      hasTorch = false; // it claimed the capability and then refused it
+    }
+  }
+
+  onMount(startCamera);
   onDestroy(stop);
 </script>
 
@@ -76,8 +111,32 @@
       <span class="sweep"></span>
     </div>
     <p class="hint">Point at the QR code on your other device</p>
+    {#if hasTorch}
+      <button
+        type="button"
+        class="torch"
+        class:on={torchOn}
+        aria-pressed={torchOn}
+        onclick={toggleTorch}
+      >
+        <Icon name="bolt" size={18} />
+        {torchOn ? "Light on" : "Light"}
+      </button>
+    {/if}
   {:else}
-    <p class="hint err">{error}</p>
+    <!-- Recovery, not just an apology: the old copy said "allow it in system
+         settings" and gave no way to get there, and no way to try again short
+         of closing the scanner. -->
+    <div class="fail">
+      <p class="hint err">{error}</p>
+      <div class="fail-actions">
+        <button type="button" class="fail-btn" onclick={startCamera}>Try again</button>
+        {#if denied}
+          <button type="button" class="fail-btn" onclick={openSystemSettings}>Open settings</button>
+        {/if}
+      </div>
+      <p class="hint sub">Or close this and paste the code instead.</p>
+    </div>
   {/if}
   <button type="button" class="close" aria-label="Close scanner" onclick={() => (stop(), onClose?.())}>
     <Icon name="close" size={20} />
@@ -138,24 +197,79 @@
   }
   .hint {
     position: absolute;
-    bottom: calc(48px + env(safe-area-inset-bottom));
+    /* --sa-* is the Android inset bridge (MainActivity); env() is iOS. */
+    bottom: calc(48px + max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)));
     left: 24px;
     right: 24px;
     text-align: center;
     color: #fff;
-    font-size: 14px;
+    font-size: var(--fs-body);
     text-shadow: 0 1px 4px rgb(0 0 0 / 0.7);
     margin: 0;
   }
   .hint.err {
     color: #ffb4b4;
   }
+  /* Torch: sits above the hint line, wide enough to hit while the other hand
+     holds the phone at the code. */
+  .torch {
+    position: absolute;
+    bottom: calc(100px + max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)));
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-height: max(44px, var(--tap-min));
+    padding: 0 var(--sp-4);
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.55);
+    color: #fff;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+  }
+  .torch.on {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  .fail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-3);
+    padding: var(--sp-5);
+    text-align: center;
+  }
+  .fail .hint {
+    position: static;
+    left: auto;
+    right: auto;
+  }
+  .fail .hint.sub {
+    font-size: var(--fs-compact);
+    color: #cfd3da;
+  }
+  .fail-actions {
+    display: flex;
+    gap: var(--sp-3);
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .fail-btn {
+    min-height: max(44px, var(--tap-min));
+    padding: 0 var(--sp-4);
+    border-radius: var(--radius-md);
+    background: rgb(255 255 255 / 0.14);
+    color: #fff;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+  }
   .close {
     position: absolute;
-    top: calc(14px + env(safe-area-inset-top));
+    top: calc(14px + max(env(safe-area-inset-top), var(--sa-top, 0px)));
     right: 14px;
-    width: 42px;
-    height: 42px;
+    width: max(44px, var(--tap-min));
+    height: max(44px, var(--tap-min));
     padding: 0;
     display: grid;
     place-items: center;
