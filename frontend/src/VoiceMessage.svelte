@@ -1,7 +1,7 @@
 <script>
   // A voice message: an audio attachment (recorded in the composer, sent through
   // the same encrypted-blob path as any file) rendered as a Discord-style player
-  // — play/pause, a click-to-seek waveform, and elapsed/total time. The blob is
+  // — play/pause, a drag-to-seek waveform, and elapsed/total time. The blob is
   // fetched + decrypted on first play, so it costs nothing until you listen.
   import Icon from "./Icon.svelte";
   import { api } from "./lib/api.js";
@@ -10,13 +10,19 @@
   let { channelId, tok } = $props();
 
   let audio; // HTMLAudioElement, created on first play
+  let audioP = null; // in-flight ensureAudio(), so a scrub + a tap can't build two
+  let waveEl = $state(null);
   let loading = $state(false);
   let playing = $state(false);
   let cur = $state(0);
   let dur = $state(0);
 
   // A stable pseudo-waveform from the blob id — looks like a waveform without
-  // the cost of decoding the audio, and is identical on every device.
+  // the cost of decoding the audio, and is identical on every device. Bar
+  // heights are in PIXELS off this basis rather than a percentage of the strip,
+  // so the strip can grow to a finger-sized target without the waveform
+  // inflating with it.
+  const WAVE_PX = 30;
   const bars = (() => {
     const out = [];
     for (let i = 0; i < 42; i++) {
@@ -36,27 +42,34 @@
     return `${Math.floor(t / 60)}:${s < 10 ? "0" : ""}${s}`;
   }
 
-  async function ensureAudio() {
-    if (audio) return audio;
+  function ensureAudio() {
+    if (audio) return Promise.resolve(audio);
+    // Memoised: pressing play while a scrub is already fetching used to decrypt
+    // the blob twice and leave two <audio> elements playing over each other.
+    if (audioP) return audioP;
     loading = true;
-    try {
-      const dataUrl = await api.fetchFile(channelId, tok.blobId, tok.keys, tok.mime);
-      audio = new Audio(dataUrl);
-      audio.addEventListener("timeupdate", () => (cur = audio.currentTime));
-      audio.addEventListener("loadedmetadata", () => (dur = audio.duration));
-      audio.addEventListener("ended", () => {
-        playing = false;
-        cur = 0;
-      });
-      audio.addEventListener("pause", () => (playing = false));
-      audio.addEventListener("play", () => (playing = true));
-      return audio;
-    } catch (err) {
-      flash(err);
-      return null;
-    } finally {
-      loading = false;
-    }
+    audioP = (async () => {
+      try {
+        const dataUrl = await api.fetchFile(channelId, tok.blobId, tok.keys, tok.mime);
+        audio = new Audio(dataUrl);
+        audio.addEventListener("timeupdate", () => (cur = audio.currentTime));
+        audio.addEventListener("loadedmetadata", () => (dur = audio.duration));
+        audio.addEventListener("ended", () => {
+          playing = false;
+          cur = 0;
+        });
+        audio.addEventListener("pause", () => (playing = false));
+        audio.addEventListener("play", () => (playing = true));
+        return audio;
+      } catch (err) {
+        flash(err);
+        audioP = null; // let a retry through
+        return null;
+      } finally {
+        loading = false;
+      }
+    })();
+    return audioP;
   }
 
   async function toggle() {
@@ -66,13 +79,35 @@
     else a.pause();
   }
 
-  async function seek(e) {
+  // Scrubbing is a DRAG, not a click. One bar is ~5px wide, so jabbing at the
+  // strip and hoping was the whole seeking story on a phone; with pointer
+  // capture the finger can slide along it and land where it means to. (The
+  // strip sets touch-action:none so the chat pane's pan-y doesn't eat the
+  // horizontal movement before we see it.)
+  let scrubbing = false;
+  function seekTo(clientX) {
+    if (!audio || !isFinite(audio.duration) || !waveEl) return;
+    const rect = waveEl.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    audio.currentTime = f * audio.duration;
+    cur = audio.currentTime;
+  }
+  async function onScrubDown(e) {
+    waveEl?.setPointerCapture?.(e.pointerId);
+    scrubbing = true;
     const a = await ensureAudio();
-    if (!a || !isFinite(a.duration)) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const f = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    a.currentTime = f * a.duration;
-    cur = a.currentTime;
+    if (!a) {
+      scrubbing = false;
+      return;
+    }
+    if (scrubbing) seekTo(e.clientX); // the finger may already have lifted
+  }
+  function onScrubMove(e) {
+    if (scrubbing) seekTo(e.clientX);
+  }
+  function onScrubUp(e) {
+    scrubbing = false;
+    waveEl?.releasePointerCapture?.(e.pointerId);
   }
 </script>
 
@@ -84,13 +119,21 @@
       <Icon name={playing ? "pause" : "play"} size={16} />
     {/if}
   </button>
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-  <div class="vm-wave" onclick={seek} title="Seek">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="vm-wave"
+    bind:this={waveEl}
+    onpointerdown={onScrubDown}
+    onpointermove={onScrubMove}
+    onpointerup={onScrubUp}
+    onpointercancel={onScrubUp}
+    title="Drag to seek"
+  >
     {#each bars as h, i (i)}
       <span
         class="vm-bar"
         class:on={i / bars.length <= frac}
-        style="height:{Math.round(h * 100)}%"
+        style="height:{Math.round(h * WAVE_PX)}px"
       ></span>
     {/each}
   </div>
@@ -122,9 +165,11 @@
       transform 0.12s ease,
       background 0.12s ease;
   }
-  .vm-play:hover {
-    background: var(--accent-hover);
-    transform: scale(1.06);
+  @media (pointer: fine) {
+    .vm-play:hover {
+      background: var(--accent-hover);
+      transform: scale(1.06);
+    }
   }
   .vm-play:active {
     transform: scale(0.94);
@@ -136,6 +181,10 @@
     gap: 2px;
     height: 30px;
     cursor: pointer;
+    /* The pointer handlers own this strip: without it the chat pane's
+       touch-action:pan-y swallows a horizontal drag and the scrub never
+       starts. */
+    touch-action: none;
   }
   .vm-bar {
     flex: 1;
@@ -149,7 +198,7 @@
   }
   .vm-time {
     flex-shrink: 0;
-    font-size: 11px;
+    font-size: var(--fs-tiny);
     font-variant-numeric: tabular-nums;
     color: var(--text-muted);
     min-width: 30px;
@@ -166,6 +215,18 @@
   @keyframes vm-rot {
     to {
       transform: rotate(360deg);
+    }
+  }
+  /* The primary control of the component was 34px, and the scrub strip 30px.
+     The bars keep their pixel heights (see WAVE_PX), so the strip grows into a
+     finger-sized target without the waveform growing with it. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .vm-play {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
+    .vm-wave {
+      height: var(--tap-min);
     }
   }
   @media (prefers-reduced-motion: reduce) {

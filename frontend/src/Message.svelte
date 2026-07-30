@@ -54,7 +54,7 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
-  import { longpress } from "./lib/touch.js";
+  import { longpress, haptic } from "./lib/touch.js";
   import { PERM, has } from "./lib/perms.js";
   import {
     recentEmoji,
@@ -73,6 +73,11 @@
 
   // Touch device? Drives which gesture owns the context menu (see the .msg div).
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+  // animateOnHover binds pointerover/pointerout, which under a finger means an
+  // animated reaction plays for exactly the length of the tap — and that same
+  // tap re-renders the pill, so it is never actually seen. On touch, drive the
+  // pills off the viewport instead: they animate once when scrolled to.
+  const reactionAnim = coarse ? animateInView : animateOnHover;
   const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
 
   // Long-press a reaction pill: who reacted — the touch counterpart of the
@@ -109,6 +114,10 @@
   let bounced = $state(null);
   let bounceTimer;
   function reactWithBounce(emoji) {
+    // Reacting is a broadcast: everyone in the channel sees it. Mid-scroll on a
+    // phone the 450ms bounce is easy to miss, and a reader who misses it taps
+    // again and silently un-reacts. A tick of vibration confirms it landed.
+    haptic("light");
     clearTimeout(bounceTimer);
     bounced = null; // restart the CSS animation on rapid re-clicks
     requestAnimationFrame(() => {
@@ -438,8 +447,33 @@
   );
   const guestName = $derived(m.senderName || "Guest");
 
+  // What the sheet calls this message. On a phone it is also the only way to
+  // read the send time of a GROUPED message: the compact row's gutter clock is
+  // hover-revealed, and hover does not exist here.
+  const menuTitle = $derived(
+    `${guest ? guestName : announce ? announceGuild?.name || "Server" : nameFor(m.sender, m.senderName)} · ${new Date(m.sent).toLocaleString()}`,
+  );
+
   function messageMenu(e) {
-    if (m.deleted) return;
+    if (m.deleted) {
+      // A tombstone used to open nothing at all, which left a moderator's only
+      // route to the original a 15px hover-labelled button.
+      if (canRevealDeleted && revealed === null) {
+        openContextMenu(e, [{ label: "Show original", icon: "lock", onClick: revealOriginal }], {
+          title: menuTitle,
+        });
+      }
+      return;
+    }
+    // A long-press on a LINK offers the link, above everything else: the row is
+    // user-select:none so the WebView's own "copy link address" never appears,
+    // and "Copy Text" copies the whole message — neither gets you one URL out of
+    // a paragraph. Same branch improves the desktop right-click.
+    const link = e.target?.closest?.("a[href]");
+    // Code fences scroll horizontally on desktop; on a phone the chat pane is
+    // touch-action:pan-y so they cannot be panned at all (they wrap instead, see
+    // the styles) — either way "copy the block" is what a reader actually wants.
+    const pre = e.target?.closest?.("pre");
     // Right-clicking an INLINE image (markdown data-URI) gets the image menu —
     // "Copy Text" on a picture just copies the word "image", which helps nobody.
     // (Encrypted attachments render via Attachment.svelte, which has its own.)
@@ -479,6 +513,18 @@
     // Checked at click time: the recipe index is plain module state.
     const memeTok = isOwn ? atts.find((t) => knownRecipe(t.blobId)) : null;
     openContextMenu(e, [
+      link && {
+        label: "Open Link",
+        icon: "forward",
+        onClick: () => window.open(link.href, "_blank", "noopener,noreferrer"),
+      },
+      link && { label: "Copy Link", icon: "copy", onClick: () => copy(link.href, "Copied link") },
+      pre && {
+        label: "Copy Code",
+        icon: "copy",
+        onClick: () => copy(pre.textContent || "", "Copied code"),
+      },
+      (link || pre) && { sep: true },
       { label: "Reply", icon: "reply", onClick: () => (S.replyingTo = m) },
       isOwn && { label: "Edit", icon: "edit", onClick: startEdit },
       memeTok && {
@@ -498,7 +544,14 @@
         icon: "forward",
         onClick: () => copy(`concord://msg/${m.channelId}/${m.id}`, "Copied message link"),
       },
-      { label: m.pinned ? "Unpin" : "Pin", icon: "pin", onClick: () => api.pinMessage(m.channelId, m.id) },
+      {
+        label: m.pinned ? "Unpin" : "Pin",
+        icon: "pin",
+        onClick: () => {
+          haptic("medium"); // pinning changes the channel for everyone; confirm it landed
+          api.pinMessage(m.channelId, m.id);
+        },
+      },
       activeChannel()?.type === "announcement" && (isOwn || canDeleteOthers) && {
         label: "Publish",
         icon: "megaphone",
@@ -528,8 +581,10 @@
         onClick: () => deleteMsg(m),
       },
     ], {
-      // Mobile action sheet only: tap-to-react row on top, recents first
-      // (desktop's anchored popover ignores these extras).
+      // Mobile action sheet only: tap-to-react row on top, recents first, and a
+      // title that doubles as the message's timestamp (desktop's anchored
+      // popover ignores these extras).
+      title: menuTitle,
       quick: { emojis: quickEmojis, onPick: reactWithBounce },
     });
   }
@@ -651,8 +706,10 @@
         {:else}
           <em>deleted</em>
           {#if canRevealDeleted}
+            <!-- The label has to match the device: "hover" is an instruction a
+                 touchscreen cannot follow. -->
             <button class="reveal-btn" onclick={revealOriginal} disabled={revealing}>
-              {revealing ? "…" : "hover or click to reveal"}
+              {revealing ? "…" : coarse ? "tap to reveal" : "hover or click to reveal"}
             </button>
           {/if}
         {/if}
@@ -794,7 +851,7 @@
     {/if}
 
     {#if !poll && m.reactions && Object.keys(m.reactions).length}
-      <div class="reactions" use:animateOnHover>
+      <div class="reactions" use:reactionAnim>
         {#each Object.entries(m.reactions) as [emoji, fprs] (emoji)}
           {@const cimg = /^:([a-z0-9_]{2,32}):$/.test(emoji) ? cemoji[emoji.slice(1, -1)] : null}
           <span class="react-wrap">
@@ -893,8 +950,13 @@
     padding: var(--msg-pad-y, 2px) 0;
     border-radius: var(--radius-sm);
   }
-  .msg:hover {
-    background: color-mix(in srgb, var(--bg-3) 40%, transparent);
+  /* Row highlight is a pointer affordance, and Chromium latches :hover onto the
+     last element a finger touched — unguarded, the message you last tapped
+     stayed lit forever and read as a selection the app doesn't have. */
+  @media (pointer: fine) {
+    .msg:hover {
+      background: color-mix(in srgb, var(--bg-3) 40%, transparent);
+    }
   }
   .msg.compact {
     margin-top: var(--msg-group-pull, -10px);
@@ -910,16 +972,21 @@
       transform: translateY(8px);
     }
   }
+  /* Also the spacer that keeps a grouped row's text aligned under the author's,
+     which is why it survives on touch even with nothing rendered in it — the
+     send time moves to the long-press sheet's title there. */
   .gutter-time {
     width: 38px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     text-align: right;
     opacity: 0;
     flex-shrink: 0;
     padding-top: 4px;
   }
-  .msg.compact:hover .gutter-time {
-    opacity: 1;
+  @media (pointer: fine) {
+    .msg.compact:hover .gutter-time {
+      opacity: 1;
+    }
   }
   .msg-main {
     min-width: 0;
@@ -929,7 +996,7 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
     border-left: 2px solid var(--border);
     padding: 1px 8px 1px 8px;
@@ -943,8 +1010,16 @@
       border-color 0.12s ease,
       color 0.12s ease;
   }
-  .reply-ref:hover {
-    background: color-mix(in srgb, var(--bg-3) 65%, transparent);
+  @media (pointer: fine) {
+    .reply-ref:hover {
+      background: color-mix(in srgb, var(--bg-3) 65%, transparent);
+      border-left-color: var(--accent);
+      color: var(--text);
+    }
+  }
+  /* Touch's only feedback that the jump registered. */
+  .reply-ref:active {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
     border-left-color: var(--accent);
     color: var(--text);
   }
@@ -967,8 +1042,10 @@
   .reply-snippet.faded {
     color: var(--text-faint);
   }
-  .reply-ref:hover .reply-snippet:not(.faded) {
-    color: var(--text);
+  @media (pointer: fine) {
+    .reply-ref:hover .reply-snippet:not(.faded) {
+      color: var(--text);
+    }
   }
   .msg-head {
     display: flex;
@@ -992,8 +1069,10 @@
       box-shadow 0.12s ease,
       transform 0.12s ease;
   }
-  .av-btn:hover :global(.avatar) {
-    box-shadow: 0 0 0 2px var(--accent);
+  @media (pointer: fine) {
+    .av-btn:hover :global(.avatar) {
+      box-shadow: 0 0 0 2px var(--accent);
+    }
   }
   .sender {
     background: transparent;
@@ -1004,9 +1083,16 @@
     color: var(--accent-hover);
     cursor: pointer;
   }
+  /* The transparent background is not decoration — it cancels the global button
+     hover fill, which Chromium would otherwise latch onto a tapped name. Only
+     the underline is pointer-only. */
   .sender:hover {
     background: transparent;
-    text-decoration: underline;
+  }
+  @media (pointer: fine) {
+    .sender:hover {
+      text-decoration: underline;
+    }
   }
   /* Marks the row as the server speaking rather than a person — quiet, since
      the guild's name and icon already carry the point. */
@@ -1023,7 +1109,7 @@
     border-radius: 999px;
     background: var(--accent-soft);
     color: var(--accent-hover);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     letter-spacing: 0.05em;
     text-transform: uppercase;
@@ -1034,7 +1120,7 @@
     color: var(--ok-text);
   }
   .time {
-    font-size: 11px;
+    font-size: var(--fs-tiny);
   }
   .pin-mark {
     color: var(--warn);
@@ -1059,7 +1145,7 @@
   }
   .guest-badge {
     padding: 0 6px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     font-weight: 600;
     line-height: 16px;
     border-radius: 4px;
@@ -1086,7 +1172,7 @@
   .reveal-btn {
     margin-left: 8px;
     padding: 1px 8px;
-    font-size: 11px;
+    font-size: var(--fs-small);
     border: 1px solid var(--border);
     border-radius: 999px;
     background: transparent;
@@ -1104,7 +1190,7 @@
     gap: 3px;
     margin-right: 7px;
     padding: 0 6px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     font-style: normal;
     border-radius: 4px;
     background: var(--accent-soft);
@@ -1152,7 +1238,7 @@
   }
   .edited-tag {
     margin-left: 5px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     color: var(--text-faint);
     user-select: none;
     vertical-align: baseline;
@@ -1163,7 +1249,7 @@
     align-items: center;
     gap: 3px;
     margin-top: 2px;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     color: var(--text-faint);
     user-select: none;
   }
@@ -1180,15 +1266,23 @@
   }
   /* The shared picker defaults to composer placement (bottom:54px); in the
      edit context anchor it just above the box — or just below when the
-     message sits too close to the top of the window to fit it above. */
-  .edit-wrap :global(.picker) {
-    bottom: calc(100% + 6px);
-    top: auto;
-    right: 0;
-  }
-  .edit-wrap.pick-below :global(.picker) {
-    top: calc(100% + 6px);
-    bottom: auto;
+     message sits too close to the top of the window to fit it above.
+     Mouse-only: the picker is position:absolute inside the feed, which is a
+     clipping scroll container, and the 460px flip threshold below is a desktop
+     window height. On a phone EmojiPicker has its own fixed bottom-panel
+     presentation — these rules matched it at equal specificity and whichever
+     came last in the bundle won, which is not a decision CSS order should be
+     making. Scoped out, the panel takes over. */
+  @media (pointer: fine) {
+    .edit-wrap :global(.picker) {
+      bottom: calc(100% + 6px);
+      top: auto;
+      right: 0;
+    }
+    .edit-wrap.pick-below :global(.picker) {
+      top: calc(100% + 6px);
+      bottom: auto;
+    }
   }
   .edit-input {
     margin-top: 2px;
@@ -1231,7 +1325,7 @@
   }
   .edit-btn {
     padding: 3px 10px;
-    font-size: 12px;
+    font-size: var(--fs-small);
     font-weight: 600;
     border-radius: var(--radius-sm);
     background: var(--bg-3);
@@ -1256,14 +1350,34 @@
     border-color: var(--accent);
   }
   .edit-hint {
-    font-size: 11px;
+    font-size: var(--fs-small);
     margin-top: 0;
   }
   /* The shortcut hint is the redundant half once there are buttons — keep it
-     where there is room, drop it on a phone where the row would wrap. */
-  @media (max-width: 600px) {
+     where there is room, drop it on a phone where the row would wrap. (There is
+     no Escape key there either, so the hint would be a lie as well as a wrap.)
+     With it gone the two buttons are the ONLY way out of an edit, which is why
+     they get the full tap minimum and a real gap: Cancel discards what you
+     typed and it used to sit 6px from Save. */
+  @media (pointer: coarse), (max-width: 768px) {
     .edit-hint {
       display: none;
+    }
+    .edit-actions {
+      gap: var(--sp-3);
+    }
+    .edit-btn {
+      min-height: var(--tap-min);
+      padding: 10px 20px;
+      font-size: var(--fs-ui);
+    }
+    .edit-emoji {
+      top: 5px;
+      width: 40px;
+      height: 40px;
+    }
+    .edit-input {
+      padding-right: 48px;
     }
   }
   /* :shortcode autocomplete inside the edit box (composer parity). */
@@ -1292,7 +1406,7 @@
     border: none;
     border-radius: var(--radius-sm);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     text-align: left;
     cursor: pointer;
   }
@@ -1327,7 +1441,7 @@
     border: 1px solid var(--border);
     color: var(--text);
     padding: 3px 9px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-radius: 9px;
     /* springy pop when a new pill appears (overshoot bezier) */
     animation: pill-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -1337,10 +1451,12 @@
       background 0.12s ease,
       box-shadow 0.12s ease;
   }
-  .reaction:hover {
-    transform: translateY(-1px);
-    border-color: var(--text-faint);
-    box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+  @media (pointer: fine) {
+    .reaction:hover {
+      transform: translateY(-1px);
+      border-color: var(--text-faint);
+      box-shadow: 0 2px 6px rgb(0 0 0 / 0.18);
+    }
   }
   .reaction:active {
     transform: scale(0.93);
@@ -1352,11 +1468,13 @@
       0 0 0 1px var(--accent),
       0 0 8px color-mix(in srgb, var(--accent) 26%, transparent); /* accent ring + faint charge: you reacted */
   }
-  .reaction.mine:hover {
-    border-color: var(--accent);
-    box-shadow:
-      0 0 0 1px var(--accent),
-      0 2px 6px rgb(0 0 0 / 0.18);
+  @media (pointer: fine) {
+    .reaction.mine:hover {
+      border-color: var(--accent);
+      box-shadow:
+        0 0 0 1px var(--accent),
+        0 2px 6px rgb(0 0 0 / 0.18);
+    }
   }
   .reaction.mine .rcount {
     color: var(--accent-hover);
@@ -1381,7 +1499,7 @@
     display: inline-block;
     min-width: 1ch;
     text-align: center;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     animation: count-in 0.18s ease; /* replays on {#key} re-mount */
@@ -1431,7 +1549,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-pop);
-    font-size: 12px;
+    font-size: var(--fs-small);
     white-space: nowrap;
     /* Hover-intent: opacity/visibility (not display) so it can fade IN after a
        short delay and fade OUT smoothly. The delay stops the popover strobing as
@@ -1444,23 +1562,25 @@
       transform 0.15s ease,
       visibility 0s linear 0.15s;
   }
-  .react-wrap:hover .react-who {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-    transition:
-      opacity 0.18s ease 0.26s,
-      transform 0.18s ease 0.26s,
-      visibility 0s;
+  @media (pointer: fine) {
+    .react-wrap:hover .react-who {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+      transition:
+        opacity 0.18s ease 0.26s,
+        transform 0.18s ease 0.26s,
+        visibility 0s;
+    }
   }
   .react-who strong {
-    font-size: 11px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
     margin-bottom: 2px;
   }
   .rw-more {
     color: var(--text-faint);
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   .msg-actions {
     position: absolute;
@@ -1486,18 +1606,74 @@
     opacity: 1;
     transform: none;
   }
-  /* Touch devices have no hover — a tap would emulate it and pop this bar up
-     right under the finger, causing accidental reacts/replies. Long-press
-     (action sheet) is the mobile entry point instead. */
-  @media (pointer: coarse) {
+  /* ---- phone ------------------------------------------------------------
+     Touch devices have no hover — a tap would emulate it and pop the action bar
+     up right under the finger, causing accidental reacts/replies. Long-press
+     (action sheet) is the mobile entry point instead, and it now carries
+     everything the bar does plus the link/code/timestamp cases hover never had. */
+  @media (pointer: coarse), (max-width: 768px) {
     .msg-actions {
       display: none;
     }
+    .msg {
+      /* The row's gap is 12px of a 360px screen next to a 38px avatar; trimming
+         it buys back characters per line where they are scarcest. */
+      gap: 10px;
+    }
+    /* A mis-tap here is a broadcast, not a navigation slip: it reacts for
+       everyone and you have to notice and undo it. 36px of pill plus an 8px gap
+       gives the 44px of slop that stops that, without inflating the pill's
+       visual weight the way a 44px box would. */
+    .reactions {
+      gap: var(--sp-2);
+      margin-top: 6px;
+    }
+    .reaction {
+      min-height: 36px;
+      padding: 6px 11px;
+    }
+    /* The only affordance for walking a reply chain, and it was ~17px tall
+       directly above the sender name — a miss opened a profile card. */
+    .reply-ref {
+      min-height: 34px;
+      padding: 5px 10px;
+    }
+    .reveal-btn {
+      min-height: 34px;
+      padding: 6px 12px;
+    }
+    /* A code fence cannot be scrolled here at all: the chat pane is
+       touch-action:pan-y (MobileShell), so no descendant gets a horizontal
+       finger pan, and the feed clips the overflow. Wrapping is the only way the
+       text is readable; "Copy Code" in the long-press sheet covers the rest. */
+    .body :global(pre) {
+      overflow-x: hidden;
+    }
+    .body :global(pre code) {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+  }
+
+  /* These two compensate for a touch INPUT MODEL, not a narrow screen, so they
+     stay on the bare coarse query rather than the shared phone breakpoint: a
+     desktop window under 768px renders the mobile shell but still has a mouse,
+     and applying them there would take away text selection and the who-reacted
+     card while offering nothing back (there is no long-press without touch). */
+  @media (pointer: coarse) {
     /* Long-press opens the action sheet — don't let the WebView start a text
-       selection under it ("Copy Text" in the sheet covers copying). */
+       selection under it, which would fight the gesture and leave selection
+       handles over the sheet. Copy Text / Copy Link / Copy Code cover copying. */
     .msg {
       -webkit-user-select: none;
       user-select: none;
+    }
+    /* Duplicate of the who-reacted sheet that long-press already opens, and a
+       harmful one: Chromium latches :hover after a tap, so toggling a reaction
+       also left this card hanging over the feed — clipped by the feed's
+       overflow-x:hidden for any pill in the right half of the row. */
+    .react-who {
+      display: none;
     }
   }
   .grp {
@@ -1557,7 +1733,7 @@
     padding: 1px 5px;
     border-radius: 4px;
     font-family: ui-monospace, monospace;
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .body :global(pre) {
     background: var(--bg-0);
@@ -1697,9 +1873,13 @@
     text-transform: uppercase;
     color: var(--text-faint);
   }
+  /* Inline (data-URI) images have no lightbox, so anything the column clips is
+     unreachable by any means — 380px inside a ~300px phone column lost a third
+     of the picture. min() keeps the desktop ceiling and adds the floor. */
   .body :global(img.attachment) {
-    max-width: 380px;
+    max-width: min(380px, 100%);
     max-height: 280px;
+    height: auto;
     border-radius: var(--radius-sm);
     display: block;
     margin-top: 4px;

@@ -73,10 +73,12 @@
       border-color 0.13s ease,
       box-shadow 0.13s ease;
   }
-  .file-card:hover {
-    background: var(--bg-3);
-    border-color: var(--accent);
-    box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
+  @media (pointer: fine) {
+    .file-card:hover {
+      background: var(--bg-3);
+      border-color: var(--accent);
+      box-shadow: 0 2px 8px rgb(0 0 0 / 0.14);
+    }
   }
   .file-card:active {
     background: var(--bg-2);
@@ -96,7 +98,7 @@
     position: absolute;
     bottom: -3px;
     right: -3px;
-    font-size: 8px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     background: var(--accent);
     color: var(--accent-fg);
@@ -112,14 +114,14 @@
     flex: 1;
   }
   .name {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .sub {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   .dl {
     color: var(--text-muted);
@@ -128,10 +130,12 @@
       color 0.13s ease,
       transform 0.13s ease;
   }
-  .file-card:hover .dl {
-    color: var(--accent-hover);
-    /* the arrow dips toward the "download" — a small directional cue */
-    transform: translateY(2px);
+  @media (pointer: fine) {
+    .file-card:hover .dl {
+      color: var(--accent-hover);
+      /* the arrow dips toward the "download" — a small directional cue */
+      transform: translateY(2px);
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     .file-card:hover .dl {

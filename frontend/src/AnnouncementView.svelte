@@ -24,8 +24,11 @@
 <div class="body">{@html renderMarkdown(announce.body, names, customEmojiMap(), mentionRefs())}</div>
 
 <style>
+  /* An announcement renders as the server talking, formatted like any other
+     message — so it takes the message-content step rather than a size of its
+     own, which had it reading SMALLER than the messages around it. */
   .body {
-    font-size: 14px;
+    font-size: var(--fs-body);
     line-height: 1.55;
     word-wrap: break-word;
   }
@@ -33,7 +36,7 @@
      introducing without being boxed off from it. */
   .note {
     margin-bottom: 4px;
-    font-size: 14px;
+    font-size: var(--fs-body);
     line-height: 1.55;
     color: var(--text-muted);
   }

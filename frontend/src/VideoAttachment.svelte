@@ -60,7 +60,19 @@
 <div class="vid-embed" bind:this={wrap} style="aspect-ratio:{ratio}">
   {#if src}
     <!-- svelte-ignore a11y_media_has_caption -->
-    <video class="vid" controls preload="metadata" onloadedmetadata={onMeta} {src}></video>
+    <!-- playsinline: without it iOS/WKWebView yanks the clip into the system
+         fullscreen player the instant it starts, throwing the reader out of the
+         conversation for a two-second video — and defeating the point of an
+         embedded frame. -->
+    <video
+      class="vid"
+      controls
+      playsinline
+      webkit-playsinline
+      preload="metadata"
+      onloadedmetadata={onMeta}
+      {src}
+    ></video>
   {:else}
     <div class="vid-ph" class:failed>
       {#if loading}
@@ -109,13 +121,15 @@
     animation: vid-rot 0.8s linear infinite;
   }
   .vid-retry {
+    min-height: var(--tap-min);
     padding: 8px 14px;
     background: rgba(255, 255, 255, 0.12);
     color: #fff;
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
-  .vid-retry:hover {
+  .vid-retry:hover,
+  .vid-retry:active {
     background: rgba(255, 255, 255, 0.2);
   }
   @keyframes vid-rot {

@@ -4,6 +4,8 @@
   import Icon from "./Icon.svelte";
   import Message from "./Message.svelte";
   import Avatar from "./Avatar.svelte";
+  import BottomSheet from "./BottomSheet.svelte";
+  import { haptic } from "./lib/touch.js";
   import {
     S,
     activeGuild,
@@ -19,6 +21,7 @@
     markRead,
     loadOlder,
     clockOpts,
+    registerOverlay,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
@@ -101,6 +104,21 @@
     if (scrollToMessage(m.id)) S.showPins = false;
     else flash("That message isn't loaded yet");
   }
+
+  // Unpinning is irreversible and changes the channel for everyone, and on a
+  // phone it sits under the thumb that was aiming for "jump" — the vibration is
+  // the only signal that the wrong one landed.
+  function unpin(m) {
+    haptic("medium");
+    api.pinMessage(m.channelId, m.id);
+  }
+
+  // Hardware back closes the pins sheet before it reaches drawers or the app
+  // itself — Escape already does the equivalent on desktop (lib/shortcuts.js).
+  $effect(() => {
+    if (!S.showPins || !S.isMobile) return;
+    return registerOverlay(() => (S.showPins = false));
+  });
 
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
@@ -238,60 +256,67 @@
   </div>
 {/if}
 
-{#if S.showPins}
-  <div class="pins-anchor">
-    <section class="pins-pop" aria-label="Pinned messages">
-      <header class="pins-head">
-        <span class="pins-title">
-          <Icon name="pin" size={13} />
-          Pinned messages
-          {#if pinned.length}<span class="pins-count">{pinned.length}</span>{/if}
-        </span>
-        <button class="mini" title="Close" aria-label="Close pinned messages" onclick={() => (S.showPins = false)}>
-          <Icon name="close" size={12} />
-        </button>
-      </header>
-      <div class="pins-list">
-        {#each pinned as m (m.id)}
-          {@const mem = memberByFpr(m.sender)}
-          <div class="pin-item">
-            <button class="pin-jump" title="Jump to message" onclick={() => jumpToPin(m)}>
-              <Avatar
-                name={nameFor(m.sender, m.senderName)}
-                emoji={mem?.emoji}
-                color={mem?.color}
-                image={mem?.avatar}
-                size={28}
-              />
-              <span class="pin-body">
-                <span class="pin-meta">
-                  <strong style={nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
-                    >{nameFor(m.sender, m.senderName)}</strong
-                  >
-                  <span class="muted tiny">{fmtTime(m.sent)}</span>
-                </span>
-                <span class="pin-text">{previewText(m.content).replace(/\s+/g, " ").trim().slice(0, 160) || "(empty message)"}</span>
-              </span>
-            </button>
-            <button
-              class="mini unpin"
-              title="Unpin"
-              aria-label="Unpin message"
-              onclick={() => api.pinMessage(m.channelId, m.id)}
+{#snippet pinRows()}
+  {#each pinned as m (m.id)}
+    {@const mem = memberByFpr(m.sender)}
+    <div class="pin-item">
+      <button class="pin-jump" title="Jump to message" onclick={() => jumpToPin(m)}>
+        <Avatar
+          name={nameFor(m.sender, m.senderName)}
+          emoji={mem?.emoji}
+          color={mem?.color}
+          image={mem?.avatar}
+          size={28}
+        />
+        <span class="pin-body">
+          <span class="pin-meta">
+            <strong style={nameColorFor(m.sender) ? `color:${nameColorFor(m.sender)}` : ""}
+              >{nameFor(m.sender, m.senderName)}</strong
             >
-              <Icon name="close" size={11} />
-            </button>
-          </div>
-        {:else}
-          <div class="pins-empty">
-            <span class="pins-empty-badge"><Icon name="pin" size={18} /></span>
-            <strong>No pinned messages yet</strong>
-            <span class="muted small">Hover a message and hit the pin — it'll show up here for everyone.</span>
-          </div>
-        {/each}
-      </div>
-    </section>
-  </div>
+            <span class="muted tiny">{fmtTime(m.sent)}</span>
+          </span>
+          <span class="pin-text">{previewText(m.content).replace(/\s+/g, " ").trim().slice(0, 160) || "(empty message)"}</span>
+        </span>
+      </button>
+      <button class="mini unpin" title="Unpin" aria-label="Unpin message" onclick={() => unpin(m)}>
+        <Icon name="close" size={11} />
+      </button>
+    </div>
+  {:else}
+    <div class="pins-empty">
+      <span class="pins-empty-badge"><Icon name="pin" size={18} /></span>
+      <strong>No pinned messages yet</strong>
+      <span class="muted small">{S.isMobile ? "Long-press a message and hit Pin" : "Hover a message and hit the pin"} — it'll show up here for everyone.</span>
+    </div>
+  {/each}
+{/snippet}
+
+{#if S.showPins}
+  {#if S.isMobile}
+    <!-- Same rows, native presentation. The popover below is anchored to the
+         top-right corner: on a phone that covers the newest messages you were
+         just reading and puts its only dismissal at the far corner. A sheet
+         comes up under the thumb and closes by backdrop tap or swipe-down. -->
+    <BottomSheet title="Pinned messages" onClose={() => (S.showPins = false)}>
+      <div class="pins-list sheet">{@render pinRows()}</div>
+    </BottomSheet>
+  {:else}
+    <div class="pins-anchor">
+      <section class="pins-pop" aria-label="Pinned messages">
+        <header class="pins-head">
+          <span class="pins-title">
+            <Icon name="pin" size={13} />
+            Pinned messages
+            {#if pinned.length}<span class="pins-count">{pinned.length}</span>{/if}
+          </span>
+          <button class="mini" title="Close" aria-label="Close pinned messages" onclick={() => (S.showPins = false)}>
+            <Icon name="close" size={12} />
+          </button>
+        </header>
+        <div class="pins-list">{@render pinRows()}</div>
+      </section>
+    </div>
+  {/if}
 {/if}
 
 <div
@@ -450,8 +475,9 @@
     border-bottom: 1px solid var(--border);
     background: var(--danger-soft);
     color: var(--text);
-    padding: 8px 16px;
-    font-size: 13px;
+    padding: var(--sp-2) var(--sp-edge);
+    font-size: var(--fs-ui);
+    line-height: 1.45;
   }
   .side-panel {
     border-bottom: 1px solid var(--border);
@@ -505,13 +531,13 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 700;
     letter-spacing: 0.02em;
     color: var(--text);
   }
   .pins-count {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     padding: 1px 6px;
     border-radius: 999px;
@@ -525,23 +551,40 @@
     flex-direction: column;
     gap: 2px;
   }
+  /* Inside a BottomSheet the sheet body is already the scroller — nesting a
+     second one strands the list halfway. */
+  .pins-list.sheet {
+    overflow: visible;
+    padding: 2px 0 4px;
+    gap: var(--sp-2);
+  }
   .pin-item {
     display: flex;
     align-items: flex-start;
     gap: 2px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-radius: var(--radius-sm);
   }
   .pin-item .unpin {
-    opacity: 0;
     margin-top: 6px;
     transition: opacity 0.1s ease;
   }
-  .pin-item:hover .unpin,
-  .pin-item:focus-within .unpin {
-    opacity: 1;
+  /* Hidden until the row is pointed at — a reveal only a mouse can perform, so
+     the phone block below keeps it visible instead. */
+  @media (pointer: fine) {
+    .pin-item .unpin {
+      opacity: 0;
+    }
+    .pin-item:hover .unpin,
+    .pin-item:focus-within .unpin {
+      opacity: 1;
+    }
+    .pin-item .unpin:hover {
+      background: var(--danger-soft);
+      color: var(--danger-text);
+    }
   }
-  .pin-item .unpin:hover {
+  .pin-item .unpin:active {
     background: var(--danger-soft);
     color: var(--danger-text);
   }
@@ -552,8 +595,10 @@
     white-space: nowrap;
     color: var(--text-muted);
   }
-  .pin-jump:hover .pin-text {
-    color: var(--text);
+  @media (pointer: fine) {
+    .pin-jump:hover .pin-text {
+      color: var(--text);
+    }
   }
   .pins-empty {
     display: flex;
@@ -574,7 +619,7 @@
     margin-bottom: 4px;
   }
   .pins-empty strong {
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .pins-empty .small {
     line-height: 1.45;
@@ -586,9 +631,11 @@
     display: grid;
     place-items: center;
   }
-  .mini:hover {
-    background: var(--bg-3);
-    color: var(--text);
+  @media (pointer: fine) {
+    .mini:hover {
+      background: var(--bg-3);
+      color: var(--text);
+    }
   }
   .feed {
     flex: 1;
@@ -673,7 +720,7 @@
   }
   .empty p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.55;
   }
   .day-divider {
@@ -681,7 +728,7 @@
     align-items: center;
     gap: 10px;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--fs-small);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     margin: 6px 0 -4px;
@@ -709,7 +756,7 @@
     align-items: center;
     gap: 8px;
     color: var(--accent-hover);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     letter-spacing: 0.08em;
     margin: 2px 0 -4px;
@@ -748,7 +795,7 @@
     border: none;
     background: transparent;
     color: var(--accent-hover);
-    font-size: 10px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -756,7 +803,8 @@
     border-radius: 4px;
     cursor: pointer;
   }
-  .new-divider .mark-read:hover {
+  .new-divider .mark-read:hover,
+  .new-divider .mark-read:active {
     background: color-mix(in srgb, var(--accent) 14%, transparent);
   }
   /* Loading shimmer while a channel switch fetches history. */
@@ -820,7 +868,7 @@
   }
   .system-msg {
     text-align: center;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     padding: 2px 0;
   }
@@ -856,7 +904,7 @@
   }
   .call-missed .call-time {
     color: var(--text-faint);
-    font-size: 11px;
+    font-size: var(--fs-tiny);
     margin-left: 2px;
   }
   /* A contact's new device: worth noticing, not worth alarming. The warn tint
@@ -890,7 +938,7 @@
     border-radius: 999px;
     background: linear-gradient(135deg, var(--accent), var(--accent-hover));
     color: var(--accent-fg);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     letter-spacing: 0.01em;
     box-shadow: var(--float-shadow);
@@ -898,8 +946,10 @@
     animation: float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
     transition: transform 0.15s ease;
   }
-  .new-below:hover {
-    transform: translateY(-2px);
+  @media (pointer: fine) {
+    .new-below:hover {
+      transform: translateY(-2px);
+    }
   }
   .new-below .arrow {
     font-size: 13px;
@@ -911,7 +961,7 @@
     justify-content: center;
     gap: 8px;
     padding: 14px 12px 6px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   .ol-spin {
@@ -951,7 +1001,7 @@
     -webkit-backdrop-filter: blur(10px);
     border: 1px solid var(--border);
     color: var(--text-muted);
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     box-shadow: var(--float-shadow);
     z-index: 15;
     animation: float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
@@ -962,10 +1012,12 @@
     font-weight: 600;
     white-space: nowrap;
   }
-  .older-bar:hover {
-    background: color-mix(in srgb, var(--bg-1) 92%, transparent);
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-    transform: translateY(-1px);
+  @media (pointer: fine) {
+    .older-bar:hover {
+      background: color-mix(in srgb, var(--bg-1) 92%, transparent);
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+      transform: translateY(-1px);
+    }
   }
   .older-bar:active {
     transform: none;
@@ -976,12 +1028,13 @@
       transform: translateY(10px) scale(0.85);
     }
   }
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .older-bar .ob-text {
       display: none; /* phones: just the action, no caption */
     }
     .older-bar {
       padding: 10px 18px;
+      min-height: var(--tap-min);
     }
   }
   .pin-jump {
@@ -996,7 +1049,12 @@
     padding: 4px 6px;
     border-radius: var(--radius-sm);
   }
-  .pin-jump:hover {
+  @media (pointer: fine) {
+    .pin-jump:hover {
+      background: var(--bg-3);
+    }
+  }
+  .pin-jump:active {
     background: var(--bg-3);
   }
   .pin-body {
@@ -1011,7 +1069,7 @@
     gap: 6px;
   }
   .tiny {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
   }
   .drop-overlay {
     position: fixed;
@@ -1032,10 +1090,10 @@
     background: var(--bg-1);
     color: var(--accent-hover);
     padding: 26px 42px;
-    font-size: 14px;
+    font-size: var(--fs-ui);
   }
   .small {
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   /* Shared jump-target flash (applied by scrollToMessage): a brief accent
      wash + hairline ring that fades, so the eye finds the row. Duration
@@ -1056,36 +1114,67 @@
     }
   }
 
-  /* ---- touch adjustments ---- */
-  @media (pointer: coarse) {
+  /* ---- phone ---- */
+  @media (pointer: coarse), (max-width: 768px) {
+    /* The return-to-now control is the most-tapped floating thing in any chat
+       app, and both of these landed ~8px under the minimum. They are already
+       pill-shaped, so the height costs nothing visually. */
     .new-below {
       padding: 10px 18px;
-      font-size: 13px;
+      font-size: var(--fs-ui);
       bottom: 10px;
+      min-height: var(--tap-min);
+      justify-content: center;
     }
-    /* A touch more air between message groups at arm's length. */
+    /* A touch more air between message groups at arm's length — but the SIDE
+       gutter caps at --sp-edge, because an airy theme pack's 22px on both sides
+       of a 360px screen is 12% of the viewport spent displaying nothing. The
+       vertical value still tracks the pack, so its rhythm survives. */
     .feed {
       gap: calc(var(--msg-gap, 12px) + 4px);
+      padding: var(--feed-pad, 16px) min(var(--feed-pad, 16px), var(--sp-edge));
+      /* Keep a flick inside the feed instead of handing it to the page (which
+         is where pull-to-refresh and rubber-banding come from). */
+      overscroll-behavior-y: contain;
+      -webkit-overflow-scrolling: touch;
     }
     .day-divider {
-      font-size: 12px;
       margin: 10px 0 -2px;
     }
     .day-divider span {
       padding: 3px 12px;
     }
-    /* Unpin is hover-revealed on desktop — hover doesn't exist here, so keep
-       it visible and give it a real target. */
+    /* Clearing unread is one of the highest-frequency actions there is, and it
+       was a 13px sliver of 10px uppercase wedged between two hairlines. */
+    .new-divider {
+      margin: 6px 0 0;
+    }
+    .new-divider .mark-read {
+      min-height: 36px;
+      padding: 8px 12px;
+      font-size: var(--fs-tiny);
+    }
+    /* Unpin is hover-revealed on desktop — hover doesn't exist here, so keep it
+       visible. It is the DESTRUCTIVE control sitting where a right-handed thumb
+       lands, so the benign jump row it shares a line with gets the taller target
+       and a real gap between them, rather than the two being 2px apart. */
+    .pin-item {
+      gap: var(--sp-3);
+    }
     .pin-item .unpin {
-      opacity: 1;
       padding: 8px;
+    }
+    .pin-jump {
+      min-height: 56px;
+      align-items: center;
+      padding: var(--sp-2);
     }
     /* Close-pins was a 24×16 glyph. An invisible overlay would have spilled
        outside the panel's rounded edge, so the button itself takes the 44px
        and the header grows with it. */
     .mini {
-      min-width: 44px;
-      min-height: 44px;
+      min-width: var(--tap-min);
+      min-height: var(--tap-min);
     }
   }
 </style>

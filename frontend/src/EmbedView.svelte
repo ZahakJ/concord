@@ -62,12 +62,12 @@
   }
   .title {
     font-weight: 700;
-    font-size: 14px;
+    font-size: var(--fs-ui);
     line-height: 1.3;
     margin-bottom: 4px;
   }
   .desc {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.45;
     color: var(--text);
     white-space: pre-wrap;
@@ -75,17 +75,19 @@
   }
   .fields {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    /* min() so a phone column narrower than 140px gets one field per row
+       instead of a grid track wider than the card. */
+    grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
     gap: 8px 16px;
     margin-top: 10px;
   }
   .f-name {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 700;
     margin-bottom: 2px;
   }
   .f-val {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
