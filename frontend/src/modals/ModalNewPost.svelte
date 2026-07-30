@@ -32,6 +32,20 @@
   let step = $state(""); // what the submit is doing right now
   let guard = $state("");
   let restored = $state("");
+  // "Start over" throws away a restored draft with no undo, and it sits inside a
+  // badge people tap at to dismiss. It asks first rather than relying on being
+  // hard to hit — which was the only thing protecting it, and is exactly the
+  // wrong protection to give a control on a touchscreen.
+  let confirmReset = $state(false);
+
+  function resetDraft() {
+    title = "";
+    body = "";
+    tags = [];
+    restored = "";
+    confirmReset = false;
+    if (scope) clearDraft(scope);
+  }
 
   const scope = $derived(forum?.id ? `post:${forum.id}` : "");
   // The palette comes off the guild snapshot (ChannelView.forumTags), which is
@@ -163,17 +177,15 @@
         <span class="badge off"><Icon name="alert" size={12} /> Offline — it'll reach others when you reconnect</span>
       {/if}
       {#if restored}
-        <span class="badge draft">
-          <Icon name="check" size={12} /> Draft from {restored}
-          <button
-            type="button"
-            onclick={() => {
-              title = "";
-              body = "";
-              tags = [];
-              restored = "";
-              if (scope) clearDraft(scope);
-            }}>Start over</button>
+        <span class="badge draft" class:asking={confirmReset}>
+          {#if confirmReset}
+            <Icon name="alert" size={12} /> Clear it?
+            <button type="button" class="danger" onclick={resetDraft}>Yes, clear</button>
+            <button type="button" onclick={() => (confirmReset = false)}>Keep</button>
+          {:else}
+            <Icon name="check" size={12} /> Draft from {restored}
+            <button type="button" onclick={() => (confirmReset = true)}>Start over</button>
+          {/if}
         </span>
       {/if}
     </div>
@@ -230,10 +242,12 @@
       minHeight={180}
       previewTitle={title.trim()}
       attachNote="Files post into the thread right after your opening message."
-      placeholder={"Start the discussion…\n\nThe toolbar and markdown both work: **bold**, > quote, - list, ## heading, ```code```, ||spoiler||. Paste or drop an image to attach it."}
+      placeholder={S.isMobile
+        ? "Start the discussion…\n\nThe toolbar and markdown both work: **bold**, > quote, - list, ## heading."
+        : "Start the discussion…\n\nThe toolbar and markdown both work: **bold**, > quote, - list, ## heading, ```code```, ||spoiler||. Paste or drop an image to attach it."}
       onSubmit={create}
       onInput={persist}
-      submitHint="⌘/Ctrl + ↵ to post" />
+      submitHint={S.isMobile ? "" : "⌘/Ctrl + ↵ to post"} />
 
     {#if guard === "close"}
       <div class="guard" role="group" aria-live="polite" aria-label="Unsaved work">
@@ -245,9 +259,9 @@
             This post isn't published yet.
           {/if}
         </p>
-        <button type="button" class="ghost" onclick={() => (guard = "")}>Keep writing</button>
-        <button type="button" class="ghost danger" onclick={discardAndClose}>Discard</button>
-        <button type="button" onclick={keepAndClose}>Save for later</button>
+        <button type="button" class="ghost g-keep" onclick={() => (guard = "")}>Keep writing</button>
+        <button type="button" class="ghost danger g-discard" onclick={discardAndClose}>Discard</button>
+        <button type="button" class="g-save" onclick={keepAndClose}>Save for later</button>
       </div>
     {:else}
       <div class="actions">
@@ -281,7 +295,7 @@
   /* See the note on RichEditor's .rx: on the phone the dialog is an auto-height
      sheet, and flex negotiation there either crushes these blocks into each
      other or balloons them. Natural heights + the sheet's own scroll. */
-  @media (max-width: 760px), (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .np {
       flex: none;
       min-height: auto;
@@ -292,7 +306,7 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   .dest {
@@ -313,7 +327,7 @@
     align-items: center;
     gap: 5px;
     padding: 3px 9px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     border-radius: 999px;
     background: var(--bg-3);
   }
@@ -325,15 +339,42 @@
     color: var(--ok-text);
     background: var(--ok-soft);
   }
+  .badge.draft.asking {
+    color: var(--warn-text);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+  }
   .badge button {
     padding: 0 0 0 6px;
     min-height: 0;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     font-weight: 600;
     color: inherit;
     background: none;
     text-decoration: underline;
     text-underline-offset: 2px;
+  }
+  .badge button.danger {
+    color: var(--danger-text);
+  }
+  /* The badge's links opt out of the sheet's 44px floor on purpose — they sit
+     INSIDE a line of text and the floor would stretch the badge into a lozenge.
+     They still need a thumb-sized target, so the area is added around them
+     instead of under them. Safe because the two are 8px apart and the badge is
+     the only thing on its row. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .badge {
+      padding: 6px 12px;
+      gap: 8px;
+    }
+    .badge button {
+      position: relative;
+      padding-left: 8px;
+    }
+    .badge button::after {
+      content: "";
+      position: absolute;
+      inset: -15px -4px; /* ~14px of text + 2×15 reaches the 44px floor */
+    }
   }
 
   /* ---- title ------------------------------------------------------------ */
@@ -385,7 +426,7 @@
     flex-shrink: 0;
   }
   .bnum {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-variant-numeric: tabular-nums;
     color: var(--text-faint);
     min-width: 2ch;
@@ -448,7 +489,7 @@
     gap: 5px;
     padding: 5px 11px;
     min-height: 30px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     color: var(--text-muted);
     background: var(--bg-3);
@@ -460,10 +501,12 @@
       border-color 0.14s ease,
       transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1);
   }
-  .tagrow .chip:hover {
-    color: var(--text);
-    background: color-mix(in srgb, var(--tc) var(--tint), var(--bg-3));
-    transform: translateY(-1px);
+  @media (pointer: fine) {
+    .tagrow .chip:hover {
+      color: var(--text);
+      background: color-mix(in srgb, var(--tc) var(--tint), var(--bg-3));
+      transform: translateY(-1px);
+    }
   }
   .tagrow .chip.on {
     color: var(--text);
@@ -474,11 +517,11 @@
     color: var(--text-muted);
   }
   .chip-em {
-    font-size: 11px;
+    font-size: var(--fs-small);
     line-height: 1;
   }
   .tagcount {
-    font-size: 11px;
+    font-size: var(--fs-small);
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
@@ -495,7 +538,7 @@
   }
   .need {
     margin-right: auto;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   .guard :global(svg) {
@@ -507,7 +550,7 @@
     align-items: center;
     gap: 7px;
     margin: 0 auto 0 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text);
   }
   .guard .danger {
@@ -536,7 +579,7 @@
      under that query, which a component rule cannot outrank — and the button's
      own "Sending…"/"Posting…" label is what carries the meaning anyway. */
 
-  @media (max-width: 760px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .titlefield {
       flex-wrap: wrap;
       padding: 4px 14px;
@@ -549,16 +592,62 @@
       justify-content: flex-end;
       padding-bottom: 6px;
     }
+    /* Post is the point of this sheet and it sat at the end of ~440px of
+       content — with the soft keyboard up the sheet is barely 480px, so
+       publishing meant blurring the editor and scrolling past the whole thing
+       to find the button. Pin it the way .head is pinned at the top. The
+       negative bottom cancels the sheet's own safe-area padding so the footer
+       sits flush on the edge rather than floating above it. */
+    .actions {
+      position: sticky;
+      bottom: calc(-20px - env(safe-area-inset-bottom));
+      z-index: 2;
+      margin: 0 -20px calc(-20px - env(safe-area-inset-bottom));
+      padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+      background: var(--bg-elevated);
+      border-top: 1px solid var(--border);
+    }
+    /* app.css stacks `.actions` into full-width 48px buttons on a phone; .guard
+       is a different class and missed it, so the ONE footer in the app that can
+       destroy work stayed a cramped row of ~112px buttons 8px apart. Same
+       treatment, with the primary on top and Discard pushed to the bottom where
+       a thumb reaching for "Save for later" cannot find it. */
     .guard {
-      flex-wrap: wrap;
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--sp-2);
+    }
+    .guard button {
+      width: 100%;
+      min-height: 48px;
+      flex: none;
+    }
+    .g-save {
+      order: 1;
+    }
+    .g-keep {
+      order: 2;
+    }
+    .g-discard {
+      order: 3;
+      margin-top: var(--sp-2);
     }
     .guard p,
     .need {
       width: 100%;
       margin: 0;
     }
-    .guard button {
-      flex: 1;
+    /* These stayed 30px on a phone by accident of specificity — `.tagrow .chip`
+       outranks the sheet's blanket button floor — so a forum with six tags gave
+       you two rows of 30px multi-select targets 6px apart. Mis-tagging a post
+       you are about to publish is not a free mistake. */
+    .tagrow {
+      gap: var(--sp-2);
+    }
+    .tagrow .chip {
+      min-height: 40px;
+      padding: 0 14px;
+      font-size: var(--fs-ui);
     }
   }
 </style>

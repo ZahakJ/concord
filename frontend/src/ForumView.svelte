@@ -26,7 +26,9 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import Banner from "./Banner.svelte";
+  import BottomSheet from "./BottomSheet.svelte";
   import { api, on } from "./lib/api.js";
+  import { longpress, haptic } from "./lib/touch.js";
   import {
     S,
     activeGuild,
@@ -59,6 +61,11 @@
   } from "./lib/forum.js";
 
   let { forum } = $props();
+
+  // Android's WebView fires BOTH contextmenu and our long-press on a held
+  // finger; letting both run opens the sheet twice. Same guard Message.svelte
+  // uses — mouse right-click keeps the native event, touch uses long-press.
+  const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 
   // Motion is read once: the CSS handles the rest through media queries, this is
   // only for the JS-driven FLIP duration (which has no CSS to opt out of).
@@ -177,11 +184,15 @@
     arrangePosts(posts, { query, tagIds: tagFilter, unansweredOnly, sort: prefs.sort }),
   );
   const filtering = $derived(!!query || tagFilter.length > 0 || unansweredOnly);
-  // How many tag chips the row shows before it folds: about one line's worth on
-  // each screen. The rest are one click away rather than a wrapped wall of
-  // colour — two wrapped rows of chips is 60px of a phone spent before the first
-  // post.
-  const CHIP_FOLD = $derived(S.isMobile ? 4 : 6);
+  // How many tag chips the row shows before it folds: about one line's worth of
+  // a mouse-sized screen. The rest are one click away rather than a wrapped wall
+  // of colour.
+  //
+  // The phone doesn't fold at all any more: the chip row there is a single-line
+  // horizontal scroller, so folding would hide tags behind a "+N more" tap when
+  // a flick already reaches them — and the fold was what made that row wrap to
+  // two lines and pin ~70px of chrome above the board.
+  const CHIP_FOLD = $derived(S.isMobile ? TAG_LIMITS.perForum : 6);
   const chips = $derived(tagsExpanded ? palette : palette.slice(0, CHIP_FOLD));
 
   function toggleTag(id) {
@@ -318,9 +329,12 @@
     );
   }
 
+  // Curation lands with a toast, which a thumb on a phone is usually covering.
+  // haptic() is the confirmation that reaches the hand; it no-ops off-device.
   async function setPinned(p, pinned) {
     try {
       await api.setPostPinned(guild.id, p.id, pinned);
+      haptic("medium");
       flash(pinned ? "Post pinned" : "Post unpinned", "success");
       refresh({ quiet: true });
     } catch (err) {
@@ -330,6 +344,7 @@
   async function setSolved(p, solved) {
     try {
       await api.setPostSolved(guild.id, p.id, solved);
+      haptic("medium");
       flash(solved ? "Marked answered" : "Reopened", "success");
       refresh({ quiet: true });
     } catch (err) {
@@ -340,6 +355,7 @@
   async function setLocked(p, locked) {
     try {
       await api.setPostLocked(guild.id, p.id, locked);
+      haptic("medium");
       flash(locked ? "Post closed" : "Post reopened", "success");
       refresh({ quiet: true });
     } catch (err) {
@@ -361,6 +377,7 @@
         S.modal = null;
         try {
           await api.deleteChannel(guild.id, p.id);
+          haptic("heavy");
           flash("Post deleted", "success");
           refresh({ quiet: true });
         } catch (err) {
@@ -477,7 +494,12 @@
   // preset (device-local) overrides it.
   const wash = $derived(washFor(forum.id));
 
-  const newPost = () => (S.modal = { kind: "newPost", forum });
+  // The FAB opens a modal ~200ms later; without the tap confirmation the press
+  // feels dropped.
+  const newPost = () => {
+    haptic("light");
+    S.modal = { kind: "newPost", forum };
+  };
 </script>
 
 <svelte:window onkeydown={onWindowKey} />
@@ -518,14 +540,23 @@
             <span class="stat"><b>{stats.total}</b> {stats.total === 1 ? "post" : "posts"}</span>
           {/if}
           {#if stats.unanswered}
-            <button
-              class="stat"
-              class:on={unansweredOnly}
-              aria-pressed={unansweredOnly}
-              onclick={() => (unansweredOnly = !unansweredOnly)}
-            >
-              <b>{stats.unanswered}</b> unanswered
-            </button>
+            <!-- Three pills, identical to the eye, and on a phone only one of
+                 them used to be tappable — a 24px target between two inert
+                 lookalikes, whose job the "Unanswered" chip in the toolbar
+                 already does. On touch this one is a statistic like its
+                 neighbours; the chip below is the filter. -->
+            {#if S.isMobile}
+              <span class="stat"><b>{stats.unanswered}</b> unanswered</span>
+            {:else}
+              <button
+                class="stat"
+                class:on={unansweredOnly}
+                aria-pressed={unansweredOnly}
+                onclick={() => (unansweredOnly = !unansweredOnly)}
+              >
+                <b>{stats.unanswered}</b> unanswered
+              </button>
+            {/if}
           {/if}
           {#if stats.pinned}
             <span class="stat"><Icon name="pin" size={11} /> <b>{stats.pinned}</b> pinned</span>
@@ -611,7 +642,16 @@
     </div>
 
     {#if palette.length || filtering || stats.unanswered}
-      <div class="bar-row chips">
+      <!-- MobileShell listens for touchstart on the whole shell and claims any
+           mostly-horizontal drag as a drawer swipe. On a phone this row IS a
+           horizontal scroller, so its touches have to stop here or every flick
+           through the tags would pull the channel drawer open instead. -->
+      <div
+        class="bar-row chips"
+        role="group"
+        aria-label="Filter posts"
+        ontouchstart={(e) => e.stopPropagation()}
+      >
         <button
           class="chip"
           class:on={unansweredOnly}
@@ -720,19 +760,25 @@
           class:has-shot={!!shot}
           style="--i:{Math.min(i, 10)};--tile-a:{tile.color};--tile-b:{tile.color2};--tile-ang:{tile.angle}deg"
           animate:flip={{ duration: flipMs, easing: cubicOut }}
+          use:longpress={{ handler: (e) => postMenu(e.target?.closest?.(".card") || root, p) }}
         >
           <!-- The whole card is clickable, but only ONE thing in it is a
                control: a full-bleed button under the content. That keeps the ⋯
                menu from being a button inside a button, gives the card a real
-               focus ring (:focus-within), and makes Enter work for free. -->
+               focus ring (:focus-within), and makes Enter work for free.
+               Right-click is the mouse's way in; the long-press on the <li>
+               above is the finger's, because iOS never fires contextmenu on a
+               held finger and Android fires it with no haptic. -->
           <button
             class="hit"
             aria-label={`Open post: ${p.title}`}
             onclick={() => selectChannel(p.id)}
-            oncontextmenu={(e) => {
-              e.preventDefault();
-              postMenu(e.currentTarget, p);
-            }}
+            oncontextmenu={coarse
+              ? (e) => e.preventDefault()
+              : (e) => {
+                  e.preventDefault();
+                  postMenu(e.currentTarget, p);
+                }}
           ></button>
 
           <div class="media" use:watchMedia={tok} data-post-id={p.id}>
@@ -846,38 +892,55 @@
   <button class="fab" aria-label="New post" onclick={newPost}><Icon name="plus" size={20} /></button>
 {/if}
 
+{#snippet pickBody()}
+  <p class="pick-sub muted">{tagPick.post.title}</p>
+  <div class="pick-list">
+    {#each palette as t (t.id)}
+      {@const on = tagPick.chosen.includes(t.id)}
+      <button
+        class="pick-row"
+        class:on
+        disabled={!on && tagPick.chosen.length >= TAG_LIMITS.perPost}
+        style="--tc:{t.color}"
+        onclick={() => togglePicked(t.id)}
+      >
+        <span class="swatch"></span>
+        <span class="pick-name">{t.emoji ? `${t.emoji} ` : ""}{t.name}</span>
+        {#if on}<Icon name="check" size={14} />{/if}
+      </button>
+    {/each}
+  </div>
+  <div class="pick-acts">
+    <button class="ghost" onclick={() => (tagPick = null)}>Cancel</button>
+    <button disabled={tagPick.busy} onclick={saveTags}>Save</button>
+  </div>
+{/snippet}
+
 {#if tagPick}
-  <!-- Tag picker. Centred sheet rather than an anchored popover: it has to work
-       identically at 390px, and a card can be anywhere in a scrolling list. -->
-  <div class="pick-wrap" role="presentation" onclick={() => (tagPick = null)}>
-    <div class="pick" role="presentation" onclick={(e) => e.stopPropagation()}>
-      <div class="pick-head">
-        <strong>Tags</strong>
-        <span class="muted">{tagPick.chosen.length}/{TAG_LIMITS.perPost}</span>
-      </div>
-      <p class="pick-sub muted">{tagPick.post.title}</p>
-      <div class="pick-list">
-        {#each palette as t (t.id)}
-          {@const on = tagPick.chosen.includes(t.id)}
-          <button
-            class="pick-row"
-            class:on
-            disabled={!on && tagPick.chosen.length >= TAG_LIMITS.perPost}
-            style="--tc:{t.color}"
-            onclick={() => togglePicked(t.id)}
-          >
-            <span class="swatch"></span>
-            <span class="pick-name">{t.emoji ? `${t.emoji} ` : ""}{t.name}</span>
-            {#if on}<Icon name="check" size={14} />{/if}
-          </button>
-        {/each}
-      </div>
-      <div class="pick-acts">
-        <button class="ghost" onclick={() => (tagPick = null)}>Cancel</button>
-        <button disabled={tagPick.busy} onclick={saveTags}>Save</button>
+  {#if S.isMobile}
+    <!-- The one picker in the app that was built by hand rather than routed
+         through BottomSheet, so on a phone it rendered as a 320px card floating
+         mid-screen with no grip, no fling-to-dismiss and no safe-area padding.
+         Same body, the app's own touch presentation. -->
+    <BottomSheet
+      title={`Tags · ${tagPick.chosen.length}/${TAG_LIMITS.perPost}`}
+      onClose={() => (tagPick = null)}
+    >
+      {@render pickBody()}
+    </BottomSheet>
+  {:else}
+    <!-- Centred dialog rather than an anchored popover: a card can be anywhere
+         in a scrolling list, so anchoring would put the picker off-screen. -->
+    <div class="pick-wrap" role="presentation" onclick={() => (tagPick = null)}>
+      <div class="pick" role="presentation" onclick={(e) => e.stopPropagation()}>
+        <div class="pick-head">
+          <strong>Tags</strong>
+          <span class="muted">{tagPick.chosen.length}/{TAG_LIMITS.perPost}</span>
+        </div>
+        {@render pickBody()}
       </div>
     </div>
-  </div>
+  {/if}
 {/if}
 
 <style>
@@ -888,9 +951,10 @@
     display: flex;
     flex-direction: column;
     /* One rhythm for the whole board: every gap and pad below is a multiple of
-       4, and the two horizontal insets are the same number. */
-    --gap: 12px;
-    --pad: 16px;
+       4, and the two horizontal insets are the same number. --sp-edge tightens
+       itself on a phone, so the board no longer needs a breakpoint to do it. */
+    --gap: var(--sp-3);
+    --pad: var(--sp-edge);
     /* Placeholder fill for skeletons and the pending card. NOT --bg-3: in the
        dark theme --bg-3 IS --bg-elevated, so a bar painted in it on a card was
        perfectly invisible. Derived from the ink instead, which is guaranteed to
@@ -970,7 +1034,7 @@
   }
   .hero h1 {
     margin: 0;
-    font-size: 23px;
+    font-size: var(--fs-display);
     line-height: 1.15;
     font-weight: 700;
     letter-spacing: -0.01em;
@@ -984,7 +1048,7 @@
   }
   .hero-topic {
     margin: 3px 0 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.45;
     /* 0.88 white over the proven floor still clears 4.5:1; it separates the
        description from the name without inventing a second colour. */
@@ -1018,7 +1082,7 @@
     gap: 5px;
     padding: 4px 9px;
     border-radius: 999px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: rgba(255, 255, 255, 0.9);
     background: rgba(0, 0, 0, 0.34);
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -1033,9 +1097,11 @@
       transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1),
       background 0.16s ease;
   }
-  button.stat:hover {
-    transform: translateY(-1px);
-    background: rgba(0, 0, 0, 0.5);
+  @media (pointer: fine) {
+    button.stat:hover {
+      transform: translateY(-1px);
+      background: rgba(0, 0, 0, 0.5);
+    }
   }
   button.stat.on {
     background: var(--accent);
@@ -1052,6 +1118,7 @@
     margin-left: auto;
   }
   .glass {
+    position: relative;
     display: grid;
     place-items: center;
     width: 32px;
@@ -1065,9 +1132,20 @@
       transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1),
       background 0.16s ease;
   }
-  .glass:hover {
-    background: rgba(0, 0, 0, 0.52);
-    transform: translateY(-1px);
+  /* On a phone this is the ONLY visible control in the hero (New Post is the
+     FAB), and it opens the whole settings sheet. A 32px glass square is right
+     for the art it sits on, so the paint stays 32 and the target grows around
+     it: 32 + 2×6 = 44, without moving anything in the hero. */
+  .glass::before {
+    content: "";
+    position: absolute;
+    inset: -6px;
+  }
+  @media (pointer: fine) {
+    .glass:hover {
+      background: rgba(0, 0, 0, 0.52);
+      transform: translateY(-1px);
+    }
   }
   .cta {
     display: inline-flex;
@@ -1080,8 +1158,10 @@
     box-shadow: var(--accent-glow);
     transition: transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1);
   }
-  .cta:hover {
-    transform: translateY(-1px);
+  @media (pointer: fine) {
+    .cta:hover {
+      transform: translateY(-1px);
+    }
   }
 
   /* ---- toolbar --------------------------------------------------------- */
@@ -1134,16 +1214,24 @@
     border: none;
     outline: none;
     color: var(--text);
-    font-size: 13.5px;
+    font-size: var(--fs-ui);
     padding: 0;
   }
   .clear {
+    position: relative;
     display: grid;
     place-items: center;
     padding: 3px;
     border-radius: 50%;
     background: var(--bg-2);
     color: var(--text-muted);
+  }
+  /* An 18px dot inside a pill — the paint has to stay small or it crowds the
+     query, so the target is grown around it instead. */
+  .clear::before {
+    content: "";
+    position: absolute;
+    inset: -13px;
   }
   .clear:hover {
     color: var(--text);
@@ -1164,7 +1252,7 @@
     border-radius: 999px;
     background: transparent;
     color: var(--text-muted);
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     transition:
       background 0.15s ease,
@@ -1190,7 +1278,7 @@
     border-radius: 999px;
     background: var(--bg-3);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
   }
   /* ---- chips ----------------------------------------------------------- */
@@ -1204,7 +1292,7 @@
     gap: 5px;
     padding: 4px 10px;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     background: var(--bg-3);
     color: var(--text-muted);
@@ -1214,18 +1302,25 @@
       background 0.15s ease,
       color 0.15s ease;
   }
-  button.chip:hover {
-    color: var(--text);
-    transform: translateY(-1px);
+  @media (pointer: fine) {
+    button.chip:hover {
+      color: var(--text);
+      transform: translateY(-1px);
+    }
   }
   .chip.tag {
     background: color-mix(in srgb, var(--tc) 16%, var(--bg-2));
     color: var(--text);
   }
-  button.chip.tag:hover,
   .chip.tag.on {
     background: color-mix(in srgb, var(--tc) 22%, var(--bg-2));
     border-color: color-mix(in srgb, var(--tc) 60%, transparent);
+  }
+  @media (pointer: fine) {
+    button.chip.tag:hover {
+      background: color-mix(in srgb, var(--tc) 22%, var(--bg-2));
+      border-color: color-mix(in srgb, var(--tc) 60%, transparent);
+    }
   }
   .chip.on {
     background: var(--accent-soft);
@@ -1238,11 +1333,11 @@
   }
   .chip.sm {
     padding: 2px 8px;
-    font-size: 11px;
+    font-size: var(--fs-small);
     background: color-mix(in srgb, var(--tc) 20%, var(--bg-elevated));
   }
   .chip-em {
-    font-size: 11px;
+    font-size: var(--fs-small);
     line-height: 1;
   }
 
@@ -1286,9 +1381,18 @@
       transform: translateY(8px) scale(0.995);
     }
   }
-  .card:hover {
-    transform: translateY(-2px);
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  /* Hover only where a hover can end. Android's WebView applies :hover on tap
+     and holds it until you tap somewhere else, so a bare rule left the post you
+     just came back from permanently lifted, outlined and zoomed — reading as
+     "this row is stuck selected". */
+  @media (pointer: fine) {
+    .card:hover {
+      transform: translateY(-2px);
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    }
+    .card:hover .media img {
+      transform: scale(1.05);
+    }
   }
   .card:focus-within {
     border-color: var(--accent);
@@ -1375,9 +1479,6 @@
       opacity: 0;
     }
   }
-  .card:hover .media img {
-    transform: scale(1.05);
-  }
   .tile {
     font-size: 26px;
     font-weight: 800;
@@ -1432,7 +1533,7 @@
     /* A URL or a 130-character word has to break somewhere, and the card's edge
        is not somewhere. */
     overflow-wrap: anywhere;
-    font-size: 15px;
+    font-size: var(--fs-body);
     font-weight: 650;
     line-height: 1.3;
     color: var(--text);
@@ -1454,7 +1555,7 @@
     gap: 3px;
     padding: 2px 7px;
     border-radius: 999px;
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     letter-spacing: 0.02em;
     white-space: nowrap;
@@ -1474,7 +1575,7 @@
   .excerpt {
     margin: 0;
     overflow-wrap: anywhere;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.5;
     color: var(--text-muted);
     display: -webkit-box;
@@ -1497,7 +1598,7 @@
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
   }
   .who {
@@ -1717,12 +1818,12 @@
   }
   .state h3 {
     margin: 4px 0 0;
-    font-size: 16px;
+    font-size: var(--fs-title);
   }
   .state p {
     margin: 0;
     max-width: 42ch;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.55;
   }
   .state button {
@@ -1826,11 +1927,11 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    font-size: 14px;
+    font-size: var(--fs-ui);
   }
   .pick-sub {
     margin: -4px 0 2px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1848,12 +1949,14 @@
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     text-align: left;
   }
-  .pick-row:hover:not(:disabled) {
-    background: var(--bg-3);
-    color: var(--text);
+  @media (pointer: fine) {
+    .pick-row:hover:not(:disabled) {
+      background: var(--bg-3);
+      color: var(--text);
+    }
   }
   .pick-row.on {
     background: color-mix(in srgb, var(--tc) 20%, var(--bg-elevated));
@@ -1901,34 +2004,36 @@
     transform: scale(0.94);
   }
 
-  @media (max-width: 620px) {
+  /* THE phone query — the same condition S.isMobile uses, so the FAB is never
+     drawn under a layout that hasn't made room for it. It previously rendered
+     from 768px down while its clearance lived at 620px, which left every
+     viewport in between (a phone in landscape, a 768px tablet) with an opaque
+     54px circle parked on the last card's ⋯ button. */
+  @media (pointer: coarse), (max-width: 768px) {
     .board {
-      --pad: 12px;
-      padding-bottom: 88px; /* clear of the FAB */
+      /* The FAB's own offset is 18px + the home indicator, and it is 54px tall,
+         so a flat 88px left it sitting ~18px over the last card on any
+         gesture-nav phone. Reserve what the FAB actually occupies. */
+      padding-bottom: calc(88px + env(safe-area-inset-bottom));
     }
     .hero {
       min-height: 148px;
     }
     .hero h1 {
-      font-size: 19px;
-    }
-    .hero-topic {
+      /* --fs-display would GROW the name on a phone; the hero is the screen
+         with the fewest lines to spare. Two clamped lines at title size beat
+         one ellipsised line — the name was truncating at ~17 characters with a
+         whole empty line underneath it. */
+      font-size: var(--fs-title);
+      white-space: normal;
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
       -webkit-line-clamp: 2;
       line-clamp: 2;
-      font-size: 12.5px;
     }
-    /* Narrow: the label goes, the button stays. A narrow DESKTOP window has no
-       FAB (that is mobile-only), so hiding this outright would leave no way to
-       start a post at all. */
-    .hero-acts .cta {
-      padding: 8px 11px;
-    }
-    .hero-acts .cta span {
-      display: none;
-    }
-    .posts.gallery,
-    .posts.cover {
-      grid-template-columns: 1fr;
+    .hero-topic {
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
     }
     .posts.list .card {
       grid-template-columns: 72px 1fr auto;
@@ -1940,27 +2045,93 @@
     .wname {
       max-width: 110px;
     }
-    /* Touch has no hover, so the ⋯ can't hide behind one. */
-    .more {
+    /* The card's metadata layer is the desktop scale in 63% of the width: at
+       393px the text column is ~247px, so author / replies / time wrapped onto
+       a second line of fine print. The tokens grow it; one line keeps the card
+       the height it was. */
+    .meta {
+      flex-wrap: nowrap;
+      overflow: hidden;
+    }
+    /* Touch has no hover, so the ⋯ can't hide behind one. The gallery/cover
+       rule is listed separately because it outranks a bare `.more` — the ⋯ on
+       those two layouts stayed at opacity 0 on a phone while remaining fully
+       hit-testable, which is worse than hidden: an invisible control sitting on
+       the corner of every card. */
+    .more,
+    .posts.gallery .more,
+    .posts.cover .more {
       opacity: 1;
     }
-  }
-  @media (pointer: coarse) {
     .more {
-      opacity: 1;
       width: 40px;
       height: 40px;
     }
     .cta,
     .pill,
     .find {
-      min-height: 44px;
+      min-height: var(--tap-min);
     }
+    /* 32px was the old compromise for a row that had to fit two lines of chips
+       inside a sticky bar. The row is one flickable line now, so the targets can
+       be the real size — and the bar's height stops growing as you add filters,
+       which is what actually cost the board space. */
     .chip {
-      min-height: 32px;
+      min-height: var(--tap-min);
     }
     .pick-row {
-      min-height: 44px;
+      min-height: var(--tap-min);
+    }
+    /* The sheet's Cancel/Save were the smallest targets in the picker — the
+       one row the coarse floor never reached. */
+    .pick-acts {
+      gap: var(--sp-3);
+    }
+    .pick-acts button {
+      flex: 1;
+      min-height: var(--tap-min);
+    }
+    /* iOS zooms the page when a focused field is under 16px and never zooms
+       back; --fs-ui is 14 here, so the board's search box needs the floor
+       spelled out. Same trick MobileShell applies to its own search. */
+    .find input {
+      font-size: 16px;
+    }
+    /* The toolbar is sticky, so its height is a permanent tax on the board. A
+       wrapping chip row cost two lines (~70px) of a ~770px pane before the
+       first card; one flickable line costs 34px and reaches every tag rather
+       than the first four. */
+    .bar-row.chips {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      /* Bleed to the screen edges so the row reads as "there is more this way"
+         instead of ending inside a margin. */
+      margin: 0 calc(var(--pad) * -1);
+      padding: 0 var(--pad);
+    }
+    .bar-row.chips::-webkit-scrollbar {
+      display: none;
+    }
+    .bar-row.chips .chip {
+      flex: none;
+      white-space: nowrap;
+    }
+    /* Touch feedback the hover rules can no longer provide. */
+    .card:active {
+      transform: scale(0.985);
+    }
+  }
+  /* The genuine narrow floor: at 360px a 72px thumbnail leaves ~200px for a
+     title, two lines of excerpt and a metadata row. */
+  @media (max-width: 400px) {
+    .posts.list .card {
+      grid-template-columns: 64px 1fr auto;
+    }
+    .posts.list .media {
+      width: 64px;
     }
   }
 

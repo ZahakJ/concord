@@ -8,6 +8,7 @@
   // queue wants a dense list on a laptop and a gallery on a tablet, and neither
   // choice is anyone else's business. Sections say which is which, out loud,
   // because a setting that silently affects other people is a trap.
+  import { tick } from "svelte";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import Banner from "../Banner.svelte";
@@ -151,12 +152,23 @@
 
   const NEW_COLORS = ["#14a394", "#4a7cf0", "#a06bff", "#e0555b", "#d9a13c", "#3ba55d"];
 
-  function addTag() {
+  let rowsEl = $state(null);
+
+  async function addTag() {
     if (draft.length >= TAG_LIMITS.perForum) return;
     // No id: the backend mints one and returns it. Colour cycles so a fresh
     // palette doesn't come out as six identical teal chips.
     draft = [...draft, { name: "", color: NEW_COLORS[draft.length % NEW_COLORS.length], emoji: "" }];
     err = "";
+    // Past the fourth tag the new row landed below the fold of an inner
+    // scroller nested inside a sheet that also scrolls, so "Add tag" looked
+    // like it did nothing — people tapped it repeatedly, ended up with four
+    // empty rows, and Save went dead with no visible cause. Bring the row into
+    // view and put the caret in it, so the next thing you do is name it.
+    await tick();
+    const last = rowsEl?.lastElementChild;
+    last?.scrollIntoView({ block: "nearest" });
+    last?.querySelector("input.nm")?.focus();
   }
   function dropTag(i) {
     draft = draft.filter((_, n) => n !== i);
@@ -346,7 +358,7 @@
       {/if}
     {:else}
       {#if draft.length}
-        <div class="rows">
+        <div class="rows" bind:this={rowsEl}>
           {#each draft as t, i (t.id || `new-${i}`)}
             <div class="row">
               <input
@@ -522,7 +534,7 @@
     flex-direction: column;
   }
   .pv-words strong {
-    font-size: 14.5px;
+    font-size: var(--fs-ui);
     color: #fff;
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
     overflow: hidden;
@@ -530,7 +542,7 @@
     white-space: nowrap;
   }
   .pv-words span {
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: rgba(255, 255, 255, 0.88);
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
     overflow: hidden;
@@ -553,7 +565,7 @@
   }
   h4 {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 700;
     letter-spacing: 0.02em;
     text-transform: uppercase;
@@ -561,7 +573,7 @@
   }
   .only,
   .shared {
-    font-size: 11px;
+    font-size: var(--fs-small);
     padding: 2px 7px;
     border-radius: 999px;
     background: var(--bg-3);
@@ -572,27 +584,27 @@
     color: var(--accent-hover);
   }
   .sub-head {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     color: var(--text-muted);
     margin-top: 2px;
   }
   .note {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.5;
     color: var(--text-muted);
   }
   .bad {
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--danger-text);
   }
   .muted {
     color: var(--text-muted);
   }
   .small {
-    font-size: 11.5px;
+    font-size: var(--fs-small);
   }
 
   /* ---- layout picker ---------------------------------------------------- */
@@ -616,8 +628,10 @@
       transform 0.16s cubic-bezier(0.34, 1.3, 0.5, 1),
       border-color 0.15s ease;
   }
-  .lay:hover {
-    transform: translateY(-1px);
+  @media (pointer: fine) {
+    .lay:hover {
+      transform: translateY(-1px);
+    }
   }
   .lay.on {
     border-color: var(--accent);
@@ -625,11 +639,11 @@
     color: var(--text);
   }
   .lay b {
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     color: var(--text);
   }
   .lay em {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-style: normal;
     line-height: 1.35;
   }
@@ -701,8 +715,10 @@
     background: var(--bg-3);
     transition: transform 0.16s cubic-bezier(0.34, 1.3, 0.5, 1);
   }
-  .art:hover {
-    transform: translateY(-2px);
+  @media (pointer: fine) {
+    .art:hover {
+      transform: translateY(-2px);
+    }
   }
   .art.on {
     border-color: var(--accent);
@@ -719,7 +735,7 @@
     right: 0;
     bottom: 0;
     padding: 8px 5px 3px;
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     font-weight: 600;
     color: #fff;
     /* Same guarantee as everywhere else: the label carries its own floor rather
@@ -750,7 +766,7 @@
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 7px 9px;
     min-width: 0;
   }
@@ -758,18 +774,23 @@
     outline: none;
     border-color: var(--accent);
   }
-  .col {
+  /* Four classes deep for the same reason RichEditor's swatch is: Modal's mobile
+     sheet puts `min-height: 44px` on `.dialog :global(input:not(…))`, whose
+     specificity (0,3,1) beats a plain `.col` — and a 34×44 colour chip is a
+     lozenge sitting a head taller than the two fields beside it. */
+  .rows .row input.col {
     /* A native colour input, on purpose: it is the one control that can only
        produce the strict #rrggbb the backend accepts. */
     padding: 2px !important;
-    height: 32px;
+    height: 34px;
+    min-height: 34px;
     cursor: pointer;
   }
   .em {
     text-align: center;
   }
   .count {
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
@@ -819,7 +840,7 @@
   .row-err {
     grid-column: 1 / -1;
     margin: -2px 0 2px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: var(--danger-text);
   }
   .tag-acts {
@@ -838,7 +859,7 @@
     gap: 4px;
     padding: 3px 9px;
     border-radius: 999px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     font-weight: 600;
     /* Colour identifies, theme ink reads — the same rule as the board's chips,
        measured in forum.test.mjs. */
@@ -856,7 +877,7 @@
     flex: 1;
   }
 
-  @media (max-width: 620px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .layouts {
       grid-template-columns: 1fr;
     }
@@ -869,8 +890,12 @@
       width: 44px;
       flex: none;
     }
+    /* 56px for the emoji, not 48: the sheet forces 16px type into this field and
+       it accepts up to TAG_LIMITS.emojiChars characters — at 48px minus 18px of
+       padding a single emoji filled it and a second one clipped. */
     .row {
-      grid-template-columns: 34px 48px 1fr auto;
+      grid-template-columns: 34px 56px 1fr auto;
+      gap: 10px;
     }
     /* The reorder arrows are the first thing to go on a phone: the palette's
        order is cosmetic, and 15px targets are not. */
@@ -879,6 +904,32 @@
     }
     .count {
       display: none;
+    }
+    /* A destructive control rendered 28 wide by 44 tall — the sheet's floor set
+       the height and nothing set the width — six pixels from the field the same
+       finger is typing in, and dropTag() has no confirm. Square it up and put
+       real space between it and the input. */
+    .mini.del {
+      width: 44px;
+      height: 44px;
+    }
+    /* Two nested scrollers inside a sheet that also scrolls: flicking past the
+       end of either chained straight into the sheet's own drag-to-dismiss, and
+       three-and-a-half visible rows hid the rest behind a scroll with no hint
+       that it existed. On a phone the sheet is the only scroller. */
+    .rows,
+    .arts {
+      max-height: none;
+      overflow-y: visible;
+    }
+    /* Four rows of 84px thumbnails at 393px is a lot of tiny art. Three columns
+       of taller tiles reads as a picker rather than a contact sheet. */
+    .arts {
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--sp-2);
+    }
+    .art {
+      height: 62px;
     }
   }
   @media (prefers-reduced-motion: reduce) {

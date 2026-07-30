@@ -31,6 +31,7 @@
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import EmojiPicker from "../EmojiPicker.svelte";
+  import BottomSheet from "../BottomSheet.svelte";
   import { renderMarkdown, COLOR_NAMES } from "../lib/markdown.js";
   import { activeShortcode, searchEmoji, replaceShortcodes } from "../lib/emoji.js";
   import { S, customEmojiMap, mentionRefs, selfMember, flash } from "../lib/state.svelte.js";
@@ -101,25 +102,27 @@
   // Split is only offered where two columns are honest. Below that the mode
   // BEHAVES as "write" without being rewritten, so widening the window brings
   // the split back rather than silently forgetting the choice.
-  let wideView = $state(true);
-  $effect(() => {
-    const mq = window.matchMedia("(min-width: 761px)");
-    const sync = () => (wideView = mq.matches);
-    sync();
-    mq.addEventListener("change", sync);
-    return () => mq.removeEventListener("change", sync);
-  });
+  //
+  // Read off S.isMobile rather than a matchMedia of its own: this used to test
+  // (min-width: 761px) while the stylesheet switched at 760 AND at any coarse
+  // pointer, so a tablet in landscape ran the phone CSS while the script still
+  // believed it was wide — a toolbar that had collapsed its rows out of the
+  // markup, styled as if they were there.
+  const wideView = $derived(!S.isMobile);
   const view = $derived(!wideView && mode === "split" ? "write" : mode);
   const showPreview = $derived(!zen && (view === "preview" || view === "split"));
   const showEditor = $derived(zen || view !== "preview");
 
-  // Narrow screens: the emphasis/structure rows live behind an "Aa" toggle, the
-  // same pattern Composer.svelte already uses on a phone. Four permanent rows of
-  // 44px thumb targets is most of a 390×844 sheet, and hover-reveal doesn't
-  // exist on touch — so the tools you reach for while writing (link, colour,
-  // emoji, attach) stay out, and the marks you reach for once are one tap away.
-  let fmtOpen = $state(false);
-  const showFmt = $derived(wideView || fmtOpen);
+  // Narrow screens: the emphasis/structure marks live behind the "Aa" button.
+  //
+  // They used to EXPAND the toolbar in place, which was the wrong half of the
+  // idea: every .grp wraps as a unit, so opening them turned a 2-row bar into a
+  // 4-row one — ~200px of a 393×852 sheet — and the marks were still icon-only
+  // 40px squares with a tooltip you cannot hover. "Aa" now opens one labelled
+  // sheet holding EVERY mark this editor can emit (including the five that were
+  // behind the ⋯, which was itself only reachable after expanding). The toolbar
+  // on a phone stays two rows and every mark is one tap and a readable label.
+  const showFmt = $derived(wideView);
 
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
   const MOD = isMac ? "⌘" : "Ctrl+";
@@ -201,6 +204,20 @@
   ];
   const PALETTE = Object.entries(COLOR_NAMES); // [name, hex]
   let customColor = $state("#14a394");
+
+  // On touch the four toolbar menus present as bottom sheets rather than as
+  // absolutely-positioned popovers, so they need names. Two reasons, and the
+  // second is a hard one: a 190px popover anchored to a split button mid-bar
+  // ran past the right edge of a 353px sheet, and Modal's `overflow-y: auto`
+  // computes overflow-x to auto as well — so instead of flipping, the menu was
+  // clipped and the whole sheet gained a sideways scroll.
+  const POP_TITLES = {
+    head: "Heading level",
+    lang: "Code block language",
+    color: "Colour the selection",
+    more: "More formatting",
+    fmt: "Formatting",
+  };
 
   // clearFormatting strips the markers this editor can produce from the
   // selection — the escape hatch for pasted-in soup. Conservative on purpose: it
@@ -560,6 +577,112 @@
 
 <svelte:window onkeydowncapture={onWindowKeyCapture} />
 
+<!-- Each menu's CONTENT lives in a snippet so the desktop popover and the touch
+     bottom sheet render the same rows from one definition — a formatting menu
+     that grew an item in only one of the two presentations is the bug this
+     avoids. Keyboard hints are dropped on touch: there is no ⌘ and no Ctrl. -->
+{#snippet headItems()}
+  {#each HEADINGS as h (h.level)}
+    <button
+      type="button"
+      class="mi"
+      role="menuitem"
+      onmousedown={noSteal}
+      onclick={() => apply((t, s, e) => heading(t, s, e, h.level))}>
+      <span class="mi-h" style="font-size:{18 - h.level * 2}px">{"#".repeat(h.level)}</span>
+      <span class="mi-l">{h.label}</span>
+      {#if !S.isMobile}<kbd>{MOD}Alt+{h.level}</kbd>{/if}
+    </button>
+  {/each}
+{/snippet}
+
+{#snippet langItems()}
+  {#each LANGS as l (l)}
+    <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply((t, s, e) => fence(t, s, e, l))}>
+      <span class="mi-l mono">{l || "plain"}</span>
+    </button>
+  {/each}
+{/snippet}
+
+{#snippet moreItems()}
+  {#each MORE as t (t.id)}
+    <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply(t.run)}>
+      <Icon name={t.icon} size={13} /><span class="mi-l">{t.label}</span>
+      {#if t.key && !S.isMobile}<kbd>{MOD}{t.key}</kbd>{/if}
+    </button>
+  {/each}
+{/snippet}
+
+{#snippet fmtItems()}
+  {#each EMPHASIS as t (t.id)}
+    <button type="button" class="mi" role="menuitem" onclick={() => apply(t.run)}>
+      <Icon name={t.icon} size={15} /><span class="mi-l">{t.label}</span>
+    </button>
+  {/each}
+  <button type="button" class="mi" role="menuitem" onclick={() => apply((t, s, e) => wrap(t, s, e, "__", "__", "underline"))}>
+    <Icon name="underline" size={15} /><span class="mi-l">Underline</span>
+  </button>
+  <button type="button" class="mi" role="menuitem" onclick={() => apply((t, s, e) => wrap(t, s, e, "`", "`", "code"))}>
+    <Icon name="code" size={15} /><span class="mi-l">Inline code</span>
+  </button>
+  <div class="mi-sep" role="separator"></div>
+  {@render headItems()}
+  <div class="mi-sep" role="separator"></div>
+  {#each STRUCTURE as t (t.id)}
+    <button type="button" class="mi" role="menuitem" onclick={() => apply(t.run)}>
+      <Icon name={t.icon} size={15} /><span class="mi-l">{t.label}</span>
+    </button>
+  {/each}
+  <button type="button" class="mi" role="menuitem" onclick={() => apply(orderedList)}>
+    <Icon name="list" size={15} /><span class="mi-l">Numbered list</span>
+  </button>
+  <button type="button" class="mi" role="menuitem" onclick={() => apply((t, s, e) => linePrefix(t, s, e, ">>> "))}>
+    <Icon name="quote" size={15} /><span class="mi-l">Block quote (rest of the message)</span>
+  </button>
+  <div class="mi-sep" role="separator"></div>
+  <button type="button" class="mi" role="menuitem" onclick={() => apply((t, s, e) => fence(t, s, e, ""))}>
+    <Icon name="codeblock" size={15} /><span class="mi-l">Code block</span>
+  </button>
+  <!-- Straight to the language list, because the ▾ that opens it on a desktop
+       toolbar is a 22px caret that does not exist on this bar. -->
+  <button type="button" class="mi" role="menuitem" onclick={() => (pop = "lang")}>
+    <Icon name="codeblock" size={15} /><span class="mi-l">Code block in a language…</span>
+    <Icon name="chevron" size={12} />
+  </button>
+  <div class="mi-sep" role="separator"></div>
+  <button type="button" class="mi" role="menuitem" onclick={() => apply(clearFormatting)}>
+    <Icon name="close" size={15} /><span class="mi-l">Clear formatting</span>
+  </button>
+{/snippet}
+
+{#snippet colorItems()}
+  {#if !S.isMobile}<div class="pop-head">Colour the selection</div>{/if}
+  <div class="swatches">
+    {#each PALETTE as [name, hex] (name)}
+      <button
+        type="button"
+        class="sw"
+        style="--sw:{hex}"
+        role="menuitem"
+        title={name}
+        aria-label={name}
+        onmousedown={noSteal}
+        onclick={() => apply((t, s, e) => colorize(t, s, e, name))}></button>
+    {/each}
+  </div>
+  <div class="pop-row">
+    <label class="custom">
+      <input type="color" bind:value={customColor} aria-label="Custom colour" />
+      <span>Custom</span>
+    </label>
+    <button type="button" class="linkish" onmousedown={noSteal} onclick={() => apply((t, s, e) => colorize(t, s, e, customColor))}>Apply</button>
+  </div>
+  <!-- The way back out. A colour picker with no "none" is a trap. -->
+  <button type="button" class="mi wide" role="menuitem" onmousedown={noSteal} onclick={() => apply((t, s, e) => colorize(t, s, e, ""))}>
+    <Icon name="close" size={12} /><span class="mi-l">Remove colour</span>
+  </button>
+{/snippet}
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="rx" class:zen style="--work-min:{minHeight}px" onpointerdown={onPointerDown}>
   <div class="bar" role="toolbar" aria-label="Formatting">
@@ -596,16 +719,8 @@
           title="Heading level"
           onmousedown={noSteal}
           onclick={() => (pop = pop === "head" ? "" : "head")}><Icon name="chevron" size={9} /></button>
-        {#if pop === "head"}
-          <div class="pop menu" role="menu">
-            {#each HEADINGS as h (h.level)}
-              <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply((t, s, e) => heading(t, s, e, h.level))}>
-                <span class="mi-h" style="font-size:{18 - h.level * 2}px">{"#".repeat(h.level)}</span>
-                <span class="mi-l">{h.label}</span>
-                <kbd>{MOD}Alt+{h.level}</kbd>
-              </button>
-            {/each}
-          </div>
+        {#if pop === "head" && !S.isMobile}
+          <div class="pop menu" role="menu">{@render headItems()}</div>
         {/if}
       </div>
       {#each STRUCTURE as t (t.id)}
@@ -634,14 +749,8 @@
           title="Language"
           onmousedown={noSteal}
           onclick={() => (pop = pop === "lang" ? "" : "lang")}><Icon name="chevron" size={9} /></button>
-        {#if pop === "lang"}
-          <div class="pop menu narrow" role="menu">
-            {#each LANGS as l (l)}
-              <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply((t, s, e) => fence(t, s, e, l))}>
-                <span class="mi-l mono">{l || "plain"}</span>
-              </button>
-            {/each}
-          </div>
+        {#if pop === "lang" && !S.isMobile}
+          <div class="pop menu narrow" role="menu">{@render langItems()}</div>
         {/if}
       </div>
     </div>
@@ -663,34 +772,8 @@
           onclick={() => (pop = pop === "color" ? "" : "color")}>
           <span class="swatch-ring" aria-hidden="true"></span>
         </button>
-        {#if pop === "color"}
-          <div class="pop colors" role="menu" aria-label="Text colour">
-            <div class="pop-head">Colour the selection</div>
-            <div class="swatches">
-              {#each PALETTE as [name, hex] (name)}
-                <button
-                  type="button"
-                  class="sw"
-                  style="--sw:{hex}"
-                  role="menuitem"
-                  title={name}
-                  aria-label={name}
-                  onmousedown={noSteal}
-                  onclick={() => apply((t, s, e) => colorize(t, s, e, name))}></button>
-              {/each}
-            </div>
-            <div class="pop-row">
-              <label class="custom">
-                <input type="color" bind:value={customColor} aria-label="Custom colour" />
-                <span>Custom</span>
-              </label>
-              <button type="button" class="linkish" onmousedown={noSteal} onclick={() => apply((t, s, e) => colorize(t, s, e, customColor))}>Apply</button>
-            </div>
-            <!-- The way back out. A colour picker with no "none" is a trap. -->
-            <button type="button" class="mi wide" role="menuitem" onmousedown={noSteal} onclick={() => apply((t, s, e) => colorize(t, s, e, ""))}>
-              <Icon name="close" size={12} /><span class="mi-l">Remove colour</span>
-            </button>
-          </div>
+        {#if pop === "color" && !S.isMobile}
+          <div class="pop colors" role="menu" aria-label="Text colour">{@render colorItems()}</div>
         {/if}
       </div>
       <div class="split">
@@ -738,28 +821,21 @@
             title="More formatting"
             onmousedown={noSteal}
             onclick={() => (pop = pop === "more" ? "" : "more")}><Icon name="dots" size={15} /></button>
-          {#if pop === "more"}
-            <div class="pop menu" role="menu">
-              {#each MORE as t (t.id)}
-                <button type="button" class="mi" role="menuitem" onmousedown={noSteal} onclick={() => apply(t.run)}>
-                  <Icon name={t.icon} size={13} /><span class="mi-l">{t.label}</span>
-                  {#if t.key}<kbd>{MOD}{t.key}</kbd>{/if}
-                </button>
-              {/each}
-            </div>
+          {#if pop === "more" && !S.isMobile}
+            <div class="pop menu" role="menu">{@render moreItems()}</div>
           {/if}
         </div>
       {/if}
       {#if !wideView}
         <button
           type="button"
-          class="tb aa"
-          class:on={fmtOpen}
-          aria-pressed={fmtOpen}
+          class="tb aa popbtn"
+          class:on={pop === "fmt"}
+          aria-expanded={pop === "fmt"}
           aria-label="Formatting marks"
           title="Bold, italic, headings, lists…"
           onmousedown={noSteal}
-          onclick={() => (fmtOpen = !fmtOpen)}>Aa</button>
+          onclick={() => (pop = pop === "fmt" ? "" : "fmt")}>Aa</button>
       {/if}
     </div>
 
@@ -961,6 +1037,21 @@
   </div>
 </div>
 
+<!-- Outside .rx on purpose: the editor's own pointerdown handler closes `pop`
+     for any press that isn't on a .pop or a .popbtn, and a sheet row removed on
+     pointerdown never gets its click. -->
+{#if S.isMobile && pop}
+  <BottomSheet title={POP_TITLES[pop]} onClose={() => (pop = "")}>
+    <div class="popsheet">
+      {#if pop === "fmt"}{@render fmtItems()}
+      {:else if pop === "head"}{@render headItems()}
+      {:else if pop === "lang"}{@render langItems()}
+      {:else if pop === "color"}{@render colorItems()}
+      {:else if pop === "more"}{@render moreItems()}{/if}
+    </div>
+  </BottomSheet>
+{/if}
+
 <style>
   /* Two layout regimes, because the dialog has two:
      · WIDE — the dialog is a fixed-height workspace, so this column negotiates
@@ -981,7 +1072,7 @@
     gap: 10px;
     text-align: left;
   }
-  @media (max-width: 760px), (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .rx {
       flex: none;
       min-height: auto;
@@ -1202,6 +1293,57 @@
     border-radius: 0 0 var(--radius-sm) var(--radius-sm);
     padding-top: 8px;
   }
+  /* ---- the touch presentation of the menus above ------------------------ */
+  /* Same rows, rendered inside BottomSheet instead of a popover. They need the
+     thumb floor spelled out here: BottomSheet renders outside .dialog, so
+     Modal's 44px button rule never reaches them. */
+  .popsheet {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-bottom: var(--sp-2);
+  }
+  .popsheet .mi {
+    min-height: var(--tap-min);
+    padding: 0 var(--sp-3);
+    font-size: var(--fs-body);
+  }
+  .popsheet .mi-h {
+    width: 26px;
+  }
+  .mi-sep {
+    height: 1px;
+    margin: var(--sp-1) var(--sp-3);
+    background: var(--border);
+  }
+  /* Nine 18px dots on a 22px pitch is a coin flip under a fingertip. The sheet
+     is full-width, so the grid can simply be six columns of real targets — no
+     hit-area trickery needed once the room exists. */
+  .popsheet .swatches {
+    grid-template-columns: repeat(6, 1fr);
+    gap: var(--sp-3);
+    padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  }
+  .popsheet .swatches .sw {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    margin: 0 auto;
+  }
+  .popsheet .pop-row {
+    padding: 0 var(--sp-3) var(--sp-2);
+    gap: var(--sp-3);
+  }
+  .popsheet .linkish {
+    min-height: var(--tap-min);
+    padding: 0 var(--sp-3);
+    font-size: var(--fs-ui);
+  }
+  .popsheet .pop-row .custom input[type="color"] {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+  }
   .colors {
     min-width: 216px;
   }
@@ -1285,7 +1427,7 @@
   }
   .attnote {
     margin: 0;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
   }
 
@@ -1369,12 +1511,6 @@
   .chip:focus-within .tools {
     opacity: 1;
   }
-  /* No hover on a touchscreen, so the controls are simply always there. */
-  @media (pointer: coarse) {
-    .tools {
-      opacity: 1;
-    }
-  }
   /* Descendant selector, same reason as the swatches: the sheet's 44px button
      floor would turn a 19px overlay control into a bar across the thumbnail. */
   .tools .tool {
@@ -1396,6 +1532,59 @@
   }
   .tools .tool.danger:hover {
     background: var(--danger);
+  }
+  /* No hover on a touchscreen, so the controls are simply always there — and
+     they come out of the overlay while they're at it. Three 19px buttons with
+     2px between them puts their centres 21px apart, half a fingertip, and one
+     of the three permanently removes a staged attachment. Under the chip they
+     get a full row each, and the chip grows to give them one. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .tray .chip {
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .tray .chip img {
+      width: 140px;
+      height: 104px;
+    }
+    .tray .chip.file {
+      min-height: 0;
+      max-width: 220px;
+      padding: var(--sp-2);
+    }
+    .tray .chip.loading {
+      width: 140px;
+      height: 104px;
+    }
+    /* The SPOILER flag lived bottom-left, which is now the tools row. */
+    .tray .tag {
+      top: 3px;
+      bottom: auto;
+    }
+    .tray .tools {
+      position: static;
+      opacity: 1;
+      gap: var(--sp-1);
+      padding: var(--sp-1);
+      background: var(--bg-3);
+    }
+    .tray .tools .tool {
+      flex: 1;
+      width: auto;
+      height: 40px;
+      min-height: 40px;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--text-muted);
+    }
+    .tray .tools .tool.on {
+      background: var(--accent);
+      color: var(--accent-fg);
+    }
+    .tray .tools .tool.danger {
+      color: var(--danger-text);
+    }
   }
   .chip.loading {
     width: 68px;
@@ -1509,7 +1698,9 @@
     outline: none !important;
     padding: 16px 18px;
     font-family: inherit;
-    font-size: 15px;
+    /* --fs-body is 16px on a phone, which is also the threshold under which
+       iOS zooms the page on focus and never zooms back. */
+    font-size: var(--fs-body);
     line-height: 1.7;
     color: var(--text);
   }
@@ -1824,7 +2015,7 @@
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
   }
   .counts strong {
@@ -1851,8 +2042,8 @@
     white-space: nowrap;
   }
 
-  /* ---- narrow ---------------------------------------------------------- */
-  @media (max-width: 760px) {
+  /* ---- phone ------------------------------------------------------------ */
+  @media (pointer: coarse), (max-width: 768px) {
     /* Two columns at 390px is a lie: the switcher drops to Write/Preview and
        the panes stack, sized by their content so the sheet scrolls instead of
        the panes fighting over a fixed height. */
@@ -1872,8 +2063,9 @@
     }
     /* Modal's sheet floor makes every button 44px tall on touch. That floor is
        right — these are thumb targets — so the toolbar does NOT fight it; it
-       widens to match instead, because a 30×44 tool is a sliver. Two wrapped
-       rows of proper targets beats one row of misses. */
+       widens to match instead, because a 30×44 tool is a sliver. With the marks
+       behind the "Aa" sheet this bar is now six tools and fits one line at
+       393px; at 360px it wraps to two, which is still half what it was. */
     .rx .bar .tb {
       width: 40px;
     }
@@ -1886,8 +2078,11 @@
     .sep {
       display: none;
     }
-    .draft {
-      font-size: 16px; /* ≥16px stops iOS zooming the sheet on focus */
+    /* The word counts are the only part of the status line worth a row here —
+       the "⌘/Ctrl + ↵" hint names keys this device does not have and the host
+       stops passing it (see ModalNewPost), so this just closes the gap. */
+    .status {
+      gap: var(--sp-2);
     }
   }
 </style>

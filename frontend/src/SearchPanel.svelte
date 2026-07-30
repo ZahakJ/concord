@@ -183,8 +183,8 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 16px 6px;
-    font-size: 12px;
+    padding: 8px var(--sp-edge) 6px;
+    font-size: var(--fs-compact);
   }
   .sp-title {
     display: inline-flex;
@@ -200,7 +200,7 @@
     border: 1px solid var(--border);
     background: var(--bg-2);
     color: var(--text-muted);
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     letter-spacing: 0.03em;
     text-transform: uppercase;
     white-space: nowrap;
@@ -221,7 +221,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    padding: 0 16px 8px;
+    padding: 0 var(--sp-edge) 8px;
   }
   .sp-chip {
     display: inline-flex;
@@ -232,11 +232,12 @@
     background: var(--accent-soft);
     border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
     color: var(--accent-hover);
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     font-weight: 600;
     line-height: 1.5;
   }
   .sp-chip-x {
+    position: relative;
     padding: 2px;
     display: grid;
     place-items: center;
@@ -244,11 +245,22 @@
     background: transparent;
     color: inherit;
   }
+  /* A 13px ✕ hanging off the end of a filter pill. A pad rather than a bigger
+     dot, so the pill keeps its height; kept modest on purpose — chips sit 6px
+     apart and an overlapping pad would put one chip's remove button on top of
+     its neighbour's. The phone block below grows the pill itself instead. */
+  .sp-chip-x::after {
+    content: "";
+    position: absolute;
+    inset: -9px -3px;
+  }
   .sp-chip-x:hover {
     background: color-mix(in srgb, var(--accent) 28%, transparent);
   }
   .sp-list {
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
     padding: 0 10px 8px;
     display: flex;
     flex-direction: column;
@@ -268,7 +280,7 @@
     color: var(--text);
     text-align: left;
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     transition:
       background 0.1s ease,
       transform 0.12s ease;
@@ -289,9 +301,17 @@
       transform: translateY(5px);
     }
   }
-  .sp-hit:hover {
+  /* Android's WebView holds :hover after a tap, so an ungated rule left the
+     result you just jumped from nudged 2px sideways and highlighted for the
+     rest of the session. :active covers the touch feedback instead. */
+  @media (pointer: fine) {
+    .sp-hit:hover {
+      background: var(--bg-3);
+      transform: translateX(2px);
+    }
+  }
+  .sp-hit:active {
     background: var(--bg-3);
-    transform: translateX(2px);
   }
   .sp-body {
     display: flex;
@@ -314,7 +334,7 @@
     align-items: center;
     gap: 3px;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--fs-small);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -323,7 +343,7 @@
   .sp-time {
     margin-left: auto;
     color: var(--text-faint);
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     flex-shrink: 0;
   }
   .sp-text {
@@ -350,11 +370,11 @@
     gap: 3px;
     padding: 18px 24px 14px;
     color: var(--text-muted);
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
   }
   .sp-empty strong {
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   /* Loading skeleton: three shimmering placeholder rows. */
   .sp-skel {
@@ -403,20 +423,38 @@
   }
   /* Touch: roomier hit rows and more of the (full-screen) column for results;
      drop the scope pill to keep the top bar to one clean line. */
-  @media (pointer: coarse), (max-width: 700px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .search-panel {
       max-height: 60vh;
     }
     .sp-hit {
       padding: 10px 8px;
-      font-size: 14px;
+      min-height: var(--tap-min);
     }
     .sp-close {
-      min-width: 40px;
-      min-height: 40px;
+      min-width: var(--tap-min);
+      min-height: var(--tap-min);
     }
     .sp-scope {
       display: none;
+    }
+    /* The pill grows rather than the ✕ growing a pad: the pads on chips 6px
+       apart would overlap and one chip's remove button would sit over its
+       neighbour's. */
+    .sp-chips {
+      gap: var(--sp-2);
+    }
+    .sp-chip {
+      min-height: 40px;
+      padding: 0 4px 0 12px;
+      font-size: var(--fs-ui);
+    }
+    .sp-chip-x {
+      width: 32px;
+      height: 32px;
+    }
+    .sp-chip-x::after {
+      inset: -6px;
     }
   }
 </style>
