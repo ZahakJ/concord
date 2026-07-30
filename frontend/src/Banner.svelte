@@ -1,13 +1,16 @@
 <script>
-  // A member's profile banner, wherever it appears: the picker's tiles, the
-  // editor's live preview, and everyone else's profile card. One component, so
-  // the thing you choose is exactly the thing they see.
+  // A banner, wherever it appears: a member's profile card, the picker tiles of
+  // both studios, and a guild's channel-list header. One component, so the thing
+  // you choose is exactly the thing everyone else sees.
   //
   // Four sources, in priority order: an animated preset ("preset:galaxy"), an
   // uploaded image (data URI), the member's two theme colors as a gradient, or
-  // a solid.
+  // a solid. A preset id is resolved against BOTH catalogues — profile
+  // (lib/banners.js) and guild (lib/guildbanners.js) — because "preset:<id>" is
+  // one wire format and this is the one component that has to paint it.
   import FxLayer from "./FxLayer.svelte";
   import { presetOf, isPreset } from "./lib/banners.js";
+  import { guildPresetOf } from "./lib/guildbanners.js";
   import { isSafeImageDataURI } from "./lib/images.js";
 
   let {
@@ -16,12 +19,13 @@
     color2 = "",
     style = null, // { angle, fill } — for the gradient/solid fallbacks
     scale = 1, // <1 shrinks the effect for small tiles
+    scrim = "", // "light"|"dark" — see below; only for banners that carry text
     class: klass = "", // MERGED with .bnr — never let a caller replace it, or
     children, // the box loses its clipping and the weather escapes
     ...rest
   } = $props();
 
-  const preset = $derived(presetOf(banner));
+  const preset = $derived(presetOf(banner) || guildPresetOf(banner));
   const angle = $derived(Number.isFinite(style?.angle) ? style.angle : 120);
 
   // Defense in depth: the backend already restricts a peer's banner to a strict
@@ -48,6 +52,9 @@
   {#if preset?.fx}
     <FxLayer fx={{ ...preset.fx, tumble: preset.tumble }} seed={preset.id} {scale} />
   {/if}
+  {#if scrim}
+    <span class="scrim" class:ink-dark={scrim === "dark"} aria-hidden="true"></span>
+  {/if}
   {@render children?.()}
 </div>
 
@@ -56,6 +63,28 @@
     position: relative;
     overflow: hidden;
     background: linear-gradient(120deg, var(--accent), var(--accent-hover));
+  }
+  /* A banner that CARRIES text (a guild header prints a name and a 26px icon
+     straight onto the art) needs a floor under that text, not a hope. The scrim
+     ships with the art path so every template — and every uploaded image —
+     inherits the same guarantee, over the fx layer so a bright particle can't
+     drift under the name either. Its strength where the text sits is
+     SCRIM_ALPHA in lib/guildbanners.js, which guildbanners.test.mjs composites
+     over every colour a template can put back there to prove 4.5:1. Change one
+     and change the other. */
+  .scrim {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.5) 62%, rgba(0, 0, 0, 0.62));
+  }
+  /* Pale templates print DARK text, so their scrim is white. */
+  .scrim.ink-dark {
+    background: linear-gradient(
+      rgba(255, 255, 255, 0.12),
+      rgba(255, 255, 255, 0.5) 62%,
+      rgba(255, 255, 255, 0.64)
+    );
   }
   /* Gradient presets breathe: a slow pan, no repaint cost. */
   .drift {

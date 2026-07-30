@@ -73,9 +73,116 @@ func (s *Service) CreateGuild(name string) (domain.Guild, error) {
 	return g, nil
 }
 
-// meetingTTL is how long an instant meeting outlives its creation before
-// every participant's client sweeps it away on startup.
+// meetingTTL is the DEFAULT lifetime of an instant meeting: how long it
+// outlives its creation before every participant's client sweeps it away on
+// startup. A meeting whose guest link was minted with an explicit lifetime
+// records an absolute expiry instead (meetingLife); this constant is what a
+// meeting created before that existed still gets, so nothing that already
+// works changes its behaviour.
 const meetingTTL = 24 * time.Hour
+
+// meetingLifetimeKey persists chosen meeting expiries. Not a column on the
+// guild: an expiry only exists for the handful of meeting rooms, and the
+// setting travels with the same encrypted store.
+const meetingLifetimeKey = "meetings.expiry"
+
+// meetingLifetimes are the lifetimes a guest link may be minted with, in
+// hours. Deliberately a short menu rather than a free-form number: the host
+// picks "office hours all week", not a duration puzzle, and a fixed set is
+// also what keeps a peer from talking us into keeping a room forever.
+var meetingLifetimes = []int{1, 24, 24 * 7, 24 * 30}
+
+// maxMeetingLifetime bounds any expiry we will accept — including one a peer
+// announces. Without it, one guild-meta frame could pin a room (and its
+// message history) on every participant's disk indefinitely.
+const maxMeetingLifetime = 31 * 24 * time.Hour
+
+// meetingLifetime resolves a requested lifetime to a duration, refusing anything
+// that is not on the menu.
+func meetingLifetime(h int) (time.Duration, bool) {
+	for _, allowed := range meetingLifetimes {
+		if h == allowed {
+			return time.Duration(h) * time.Hour, true
+		}
+	}
+	return 0, false
+}
+
+// meetingExpiry is when a meeting disappears: the lifetime chosen when its
+// guest link was minted, or the legacy fixed TTL after creation when none was
+// ever chosen. Zero for a guild that is not a meeting (or is gone).
+func (s *Service) meetingExpiry(guildID string) time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.meetingExpiryLocked(guildID)
+}
+
+func (s *Service) meetingExpiryLocked(guildID string) time.Time {
+	g, ok := s.guilds[guildID]
+	if !ok || g.Kind != "meeting" {
+		return time.Time{}
+	}
+	if at, ok := s.meetingLife[guildID]; ok && !at.IsZero() {
+		return at
+	}
+	return g.Created.Add(meetingTTL)
+}
+
+// setMeetingExpiry records a meeting's chosen expiry and tells the other
+// participants, so everyone's sweep agrees on when the room vanishes. Members
+// who don't understand the announcement simply keep the old 24h default — they
+// lose the room a day in while the host (and any guest link) keeps working,
+// which is a stale sidebar entry rather than a broken meeting.
+func (s *Service) setMeetingExpiry(guildID string, at time.Time) {
+	s.mu.Lock()
+	g, ok := s.guilds[guildID]
+	if !ok || g.Kind != "meeting" {
+		s.mu.Unlock()
+		return
+	}
+	groupID := g.GroupID
+	s.meetingLife[guildID] = at
+	s.mu.Unlock()
+	s.saveMeetingLife()
+	s.publishMeta(groupID, guildMeta{Type: "meeting_life", At: at.UnixMilli()})
+	s.emitGuildUpdate()
+}
+
+// loadMeetingLife restores chosen meeting expiries, dropping entries for
+// guilds that are gone (the startup sweep has already run).
+func (s *Service) loadMeetingLife() {
+	raw, err := s.store.GetSetting(meetingLifetimeKey)
+	if err != nil || raw == "" {
+		return
+	}
+	var saved map[string]int64
+	if json.Unmarshal([]byte(raw), &saved) != nil {
+		return
+	}
+	s.mu.Lock()
+	for id, ms := range saved {
+		if g, ok := s.guilds[id]; ok && g.Kind == "meeting" && ms > 0 {
+			s.meetingLife[id] = time.UnixMilli(ms)
+		}
+	}
+	s.mu.Unlock()
+}
+
+func (s *Service) saveMeetingLife() {
+	s.mu.RLock()
+	out := make(map[string]int64, len(s.meetingLife))
+	for id, at := range s.meetingLife {
+		if _, ok := s.guilds[id]; ok {
+			out[id] = at.UnixMilli()
+		}
+	}
+	s.mu.RUnlock()
+	blob, err := json.Marshal(out)
+	if err != nil {
+		return
+	}
+	_ = s.store.SetSetting(meetingLifetimeKey, string(blob))
+}
 
 // StartMeeting spins up a TEMPORARY room — the Zoom-link move: one click
 // makes a disposable guild with a single channel that doubles as the call
@@ -101,19 +208,29 @@ func (s *Service) StartMeeting() (domain.Guild, string, error) {
 	return g, code, nil
 }
 
-// sweepExpiredMeetings hard-deletes instant meetings past their TTL. Called
-// at startup on every participant, so nobody accumulates dead rooms.
+// sweepExpiredMeetings hard-deletes instant meetings past their expiry. Called
+// at startup on every participant, so nobody accumulates dead rooms. It honours
+// the lifetime chosen when the guest link was minted — deleting a room whose
+// link is still meant to work for another week is exactly the bug a fixed TTL
+// caused.
 func (s *Service) sweepExpiredMeetings() {
+	now := time.Now()
 	s.mu.RLock()
 	var expired []string
 	for id, g := range s.guilds {
-		if g.Kind == "meeting" && time.Since(g.Created) > meetingTTL {
+		if g.Kind != "meeting" {
+			continue
+		}
+		if now.After(s.meetingExpiryLocked(id)) {
 			expired = append(expired, id)
 		}
 	}
 	s.mu.RUnlock()
 	for _, id := range expired {
 		_ = s.deleteGuildLocal(id)
+	}
+	if len(expired) > 0 {
+		s.saveMeetingLife() // prunes the entries of the rooms just deleted
 	}
 }
 
@@ -247,13 +364,29 @@ func (s *Service) SetGuildProfile(guildID, name, icon, banner, description strin
 	if len(description) > 1000 {
 		description = description[:1000]
 	}
-	for _, img := range []struct{ v, what string }{{icon, "icon"}, {banner, "banner"}} {
-		if img.v != "" && !strings.HasPrefix(img.v, "data:image/") {
-			return fmt.Errorf("app: %s must be an image", img.what)
+	// A banner may also be a named preset from the shared library — the same
+	// "preset:<id>" form profile banners already travel as, which is a dozen
+	// bytes on the guild-meta topic instead of a quarter-megabyte image, and
+	// which animates because it is drawn rather than decoded. The id charset is
+	// deliberately narrow: this string reaches a CSS context in the client, so
+	// nothing that could carry a quote or a url() gets through. An id the client
+	// does not recognise simply renders as no banner.
+	if banner != "" && strings.HasPrefix(banner, presetPrefix) {
+		if !validPresetID(strings.TrimPrefix(banner, presetPrefix)) {
+			return fmt.Errorf("app: banner preset id must be 1–32 chars of a-z, 0-9 or -")
 		}
-		if len(img.v) > maxGuildImageBytes {
-			return fmt.Errorf("app: %s image too large", img.what)
-		}
+	} else if banner != "" && !validImageDataURI(banner, maxGuildImageBytes) {
+		// A PREFIX check is not enough, and this is not hypothetical: the client
+		// used to build an unquoted CSS url() out of this value, so a string
+		// beginning "data:image/" and continuing ");background:url(http://…"
+		// escaped the declaration and made every member who opened the guild
+		// fetch a remote asset — an IP disclosure to whoever set the banner.
+		// validImageDataURI demands the WHOLE string be a base64 raster URI, and
+		// the renderer now vets it again. Both, deliberately.
+		return fmt.Errorf("app: banner must be a png/jpeg/gif/webp data URI or a preset")
+	}
+	if icon != "" && !validImageDataURI(icon, maxGuildImageBytes) {
+		return fmt.Errorf("app: icon must be a png/jpeg/gif/webp data URI")
 	}
 	s.mu.Lock()
 	g, ok := s.guilds[guildID]
@@ -1151,9 +1284,24 @@ type guildMeta struct {
 	// read_marker (sent over the Notes self-group only — own devices): the user
 	// read these channels through the given times (UnixMilli) on some device.
 	// ChannelID/At is the single-marker form; Markers carries a coalesced batch.
+	// meeting_life reuses At as the instant the meeting room expires.
 	ChannelID string           `json:"channelId,omitempty"`
 	At        int64            `json:"at,omitempty"`
 	Markers   map[string]int64 `json:"markers,omitempty"`
+
+	// forum_tags: replace the tag palette of the forum named by ChannelID.
+	// Its own type rather than a field on channel_updated, because that message
+	// is built from a bare four-field Channel — folding the palette in would
+	// make every "move this channel" announcement wipe the forum's tags.
+	ForumTags []domain.ForumTag `json:"forumTags,omitempty"`
+	// post_meta: board state for the forum post named by ChannelID. POINTERS,
+	// so "field absent" is distinguishable from "field set to false" — a nil
+	// PostSolved means unchanged, not reopen. Each is authorized separately
+	// (see applyPostMeta): tagging and answering are the author's or a
+	// moderator's, pinning is a moderator's alone.
+	PostTags   *[]string `json:"ptags,omitempty"`
+	PostPinned *bool     `json:"ppin,omitempty"`
+	PostSolved *bool     `json:"psolved,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -1554,8 +1702,10 @@ func (s *Service) SetChannelLinks(guildID, channelID string, links []string) err
 
 // CreateThread opens a forum POST: a thread channel nested under a forum.
 // Unlike CreateChannel this needs no ManageChannels — posts are member
-// content, exactly like messages. The creator's first message rides along.
-func (s *Service) CreateThread(guildID, forumID, title, firstMessage string) (domain.Channel, error) {
+// content, exactly like messages. The creator's first message rides along, as do
+// the tags they picked (validated against the forum's own palette, which we
+// certainly hold on this path).
+func (s *Service) CreateThread(guildID, forumID, title, firstMessage string, tagIDs []string) (domain.Channel, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		return domain.Channel{}, fmt.Errorf("app: a post needs a title")
@@ -1566,12 +1716,14 @@ func (s *Service) CreateThread(guildID, forumID, title, firstMessage string) (do
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
+	var palette []domain.ForumTag
 	isForum := false
 	if ok {
 		groupID = g.GroupID
 		for _, c := range g.Channels {
 			if c.ID == forumID && c.Type == "forum" {
 				isForum = true
+				palette = c.ForumTags
 			}
 		}
 	}
@@ -1582,9 +1734,22 @@ func (s *Service) CreateThread(guildID, forumID, title, firstMessage string) (do
 	if !isForum {
 		return domain.Channel{}, fmt.Errorf("app: posts can only be created in a forum channel")
 	}
+	if len(tagIDs) > maxPostTags {
+		return domain.Channel{}, fmt.Errorf("app: a post can carry at most %d tags", maxPostTags)
+	}
+	known := make(map[string]bool, len(palette))
+	for _, t := range palette {
+		known[t.ID] = true
+	}
+	for _, id := range tagIDs {
+		if !known[id] {
+			return domain.Channel{}, fmt.Errorf("app: this forum has no tag %q", id)
+		}
+	}
 
 	ch := domain.Channel{
 		ID: domain.NewID(), GuildID: guildID, Name: title, Type: "thread", Parent: forumID,
+		Tags: sanitizePostTags(tagIDs),
 	}
 	s.addChannel(guildID, ch)
 	payload, _ := json.Marshal(guildMeta{Type: "channel_added", Channel: ch})
@@ -1630,6 +1795,13 @@ func (s *Service) publishMeta(groupID []byte, meta guildMeta) {
 // and notifies the UI. Safe to call for both locally-created and remotely-
 // announced channels (idempotent on channel ID).
 func (s *Service) addChannel(guildID string, ch domain.Channel) {
+	// Scrub the forum metadata HERE, at the one funnel every channel record from
+	// every source passes through: a peer's channel_added, a history-sync snapshot
+	// (which adopts a peer-supplied domain.Channel wholesale), and our own
+	// creation paths. Validating only the gossip path would leave sync free to
+	// hand us a ten-thousand-entry tag palette whose colour is
+	// "#fff;background:url(…)" — and sync is the call site that gets forgotten.
+	sanitizeForumMeta(&ch)
 	s.mu.Lock()
 	g, ok := s.guilds[guildID]
 	if !ok {
@@ -1747,7 +1919,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		return
 	case "channel_added":
-		if !s.memberHasPerm(guildID, actor, PermManageChannels) {
+		if !s.mayAddChannel(guildID, actor, m.Channel) {
 			return
 		}
 		// Refuse to bind a channel ID that already belongs to another guild — a
@@ -1756,6 +1928,13 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			return
 		}
 		m.Channel.GuildID = guildID
+		// A brand-new post arrives with the tags its author chose, but pinning is a
+		// moderator act with its own permission — a member cannot open a post
+		// pre-pinned to the top of the board. (Structural validation of the tags
+		// themselves happens in addChannel, which every source funnels through.)
+		if !s.memberHasPerm(guildID, actor, PermManageMessages) {
+			m.Channel.Pinned = false
+		}
 		s.addChannel(guildID, m.Channel)
 	case "channel_updated":
 		if m.Channel.ID == "" {
@@ -1834,6 +2013,14 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			_ = s.store.DeleteCustomEmoji(guildID, m.CustomEmoji.Name)
 			s.emitGuildUpdate()
 		}
+	case "forum_tags":
+		// Permission gating and the strict field validation (hex colour, bounded
+		// name, id charset) live in forum.go, so this path and the local one share
+		// one implementation — a peer's tag colour reaches a CSS context in the
+		// client and is no more trustworthy than one we typed ourselves.
+		s.applyForumTags(guildID, actor, m.ChannelID, m.ForumTags)
+	case "post_meta":
+		s.applyPostMeta(guildID, actor, m)
 	case "gif_added", "gif_removed":
 		// Permission gating and strict field validation live in gifs.go, so the
 		// receive path and the local add path share one implementation.
@@ -1855,14 +2042,41 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 			s.mu.Unlock()
 		}
 		s.emitGuildUpdate()
+	case "meeting_life":
+		// Whoever minted the meeting's guest link chose how long the room lives;
+		// this is how the other participants learn it, so their startup sweep
+		// doesn't delete a room whose link is still valid for days. Bounded by
+		// maxMeetingLifetime — a peer must not be able to make a room immortal on
+		// our disk — and only from someone with authority over the guild (in a
+		// meeting, its creator).
+		if m.At <= 0 || !s.memberHasPerm(guildID, actor, PermManageGuild) {
+			return
+		}
+		at := time.UnixMilli(m.At)
+		s.mu.Lock()
+		g, ok := s.guilds[guildID]
+		if !ok || g.Kind != "meeting" || at.After(g.Created.Add(maxMeetingLifetime)) {
+			s.mu.Unlock()
+			return
+		}
+		s.meetingLife[guildID] = at
+		s.mu.Unlock()
+		s.saveMeetingLife()
+		s.emitGuildUpdate()
 	case "guild_profile":
 		if !s.memberHasPerm(guildID, actor, PermManageGuild) {
 			return
 		}
-		// Name/icon/banner/description update. Validate the images like a local set.
-		if (m.GuildIcon != "" && !strings.HasPrefix(m.GuildIcon, "data:image/")) ||
-			(m.GuildBanner != "" && !strings.HasPrefix(m.GuildBanner, "data:image/")) ||
-			len(m.GuildIcon) > maxGuildImageBytes || len(m.GuildBanner) > maxGuildImageBytes {
+		// Name/icon/banner/description update, validated exactly as a local set
+		// is — a remote peer's string is no more trustworthy than our own, and
+		// the banner reaches a CSS context in the client. A preset id is allowed
+		// here for the same reason it is allowed locally, and bounded to the same
+		// charset, so a peer cannot smuggle a quote or a url() through it.
+		bannerOK := m.GuildBanner == "" ||
+			validImageDataURI(m.GuildBanner, maxGuildImageBytes) ||
+			(strings.HasPrefix(m.GuildBanner, presetPrefix) &&
+				validPresetID(strings.TrimPrefix(m.GuildBanner, presetPrefix)))
+		if (m.GuildIcon != "" && !validImageDataURI(m.GuildIcon, maxGuildImageBytes)) || !bannerOK {
 			return
 		}
 		s.mu.Lock()
@@ -2052,4 +2266,24 @@ func ownerAddrInfo(ic inviteCode) (peer.AddrInfo, error) {
 		addrs = append(addrs, ma)
 	}
 	return peer.AddrInfo{ID: pid, Addrs: addrs}, nil
+}
+
+// presetPrefix marks a banner that names an entry in the client's preset
+// library rather than carrying an image. See SetGuildProfile.
+const presetPrefix = "preset:"
+
+// validPresetID bounds a preset id to a charset that cannot escape the CSS
+// context the client renders it in. Validated on the way in AND wherever a
+// peer's guild metadata is learned, because a remote peer's string is no more
+// trustworthy than a local one.
+func validPresetID(id string) bool {
+	if id == "" || len(id) > 32 {
+		return false
+	}
+	for _, r := range id {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' {
+			return false
+		}
+	}
+	return true
 }

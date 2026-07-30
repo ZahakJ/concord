@@ -6,6 +6,8 @@
   import GroupAvatar from "./GroupAvatar.svelte";
   import Menu from "./Menu.svelte";
   import StatusPopover from "./StatusPopover.svelte";
+  import Banner from "./Banner.svelte";
+  import { guildBannerArt } from "./lib/guildbanners.js";
   import { splitStatus, presenceLabel } from "./lib/presence.js";
   import {
     S,
@@ -522,19 +524,36 @@
 
 <aside class="cols">
   {#if g && g.kind !== "dm"}
+    <!-- The banner used to be interpolated straight into this button's
+         background-image — an unquoted url(…) built from a string a PEER
+         sends. It now goes through Banner.svelte instead, which (a) draws
+         and animates the preset templates rather than decoding an image, and
+         (b) is the one place that vets an image value before it reaches a CSS
+         url(). guildBannerArt() decides what is safe to paint at all: an
+         unknown template id or a non-image string yields null, and the header
+         simply renders without a banner. -->
+    {@const art = guildBannerArt(g.banner)}
     <button
       class="guild-name guild-header"
-      class:has-banner={!!g.banner}
-      style={g.banner ? `background-image:linear-gradient(rgba(0,0,0,0.15),rgba(0,0,0,0.55)),url(${g.banner})` : ""}
+      class:has-banner={!!art}
+      class:ink-dark={art?.ink === "dark"}
       title={g.description || g.name}
       onclick={() => (S.modal = { kind: "guildSettings" })}
       oncontextmenu={(e) => openContextMenu(e, guildMenuItems(g), { title: g.name })}
     >
-      {#if g.icon}
-        <img class="g-icon" src={g.icon} alt="" />
+      {#if art}
+        <Banner banner={g.banner} scrim={art.ink} class="gh-art" />
       {/if}
-      <strong>{g.name}</strong>
-      <Icon name="chevron" size={13} />
+      <!-- One wrapper so the row can sit ABOVE the art layer: the art is
+           absolutely positioned, and positioned boxes paint over in-flow ones
+           whatever the DOM order. -->
+      <span class="gh-row">
+        {#if g.icon}
+          <img class="g-icon" src={g.icon} alt="" />
+        {/if}
+        <strong>{g.name}</strong>
+        <Icon name="chevron" size={13} />
+      </span>
     </button>
   {:else}
     <header class="guild-name" class:dm-head={g?.kind === "dm"}>
@@ -963,12 +982,34 @@
     background: var(--bg-3);
   }
   .guild-header.has-banner {
-    background-size: cover;
-    background-position: center;
+    position: relative;
     color: #fff;
     min-height: 56px;
     align-items: flex-end;
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+  /* The pale templates (Linen Press) ask for dark ink; Banner.svelte flips its
+     scrim to match, so the pair stays readable together. */
+  .guild-header.has-banner.ink-dark {
+    color: #12161a;
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
+  }
+  .guild-header :global(.gh-art) {
+    position: absolute;
+    inset: 0;
+  }
+  /* A banner header is a big button: it still has to answer the cursor, and it
+     can't do that with a background colour any more. */
+  .guild-header.has-banner:hover :global(.gh-art) {
+    filter: brightness(1.14);
+  }
+  .gh-row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 0;
   }
   .guild-header strong {
     flex: 1;
