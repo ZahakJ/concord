@@ -9,6 +9,7 @@
         [["Ctrl/⌘", "K"], "Command palette (jump anywhere, run actions)"],
         [["Ctrl/⌘", "F"], "Search messages"],
         [["Ctrl/⌘", ","], "User settings"],
+        [["Ctrl/⌘", "Shift", ","], "Network stats"],
         [["Alt", "↑/↓"], "Previous / next channel"],
         [["Alt", "Shift", "↑/↓"], "Previous / next unread channel"],
         [["Ctrl", "Alt", "↑/↓"], "Previous / next server"],

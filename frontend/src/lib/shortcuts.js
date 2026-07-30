@@ -3,6 +3,7 @@
 //   Ctrl/Cmd+K        quick switcher
 //   Ctrl/Cmd+F        focus message search
 //   Ctrl/Cmd+,        user settings
+//   Ctrl/Cmd+Shift+,  network stats
 //   Alt+↑ / Alt+↓     previous / next channel in the active guild
 //   Alt+Shift+↑/↓     previous / next unread channel (across servers)
 //   Ctrl+Alt+↑/↓      previous / next server
@@ -128,6 +129,14 @@ export function installShortcuts() {
     if (mod && e.key === ",") {
       e.preventDefault();
       S.modal = S.modal?.kind === "settings" ? null : { kind: "settings" };
+      return;
+    }
+    // Ctrl+Shift+, — network stats. Same base key as settings with Shift, so
+    // the two live next to each other in muscle memory: settings is the door,
+    // stats is the diagnostics behind it.
+    if (mod && e.shiftKey && (e.key === "," || e.key === "<")) {
+      e.preventDefault();
+      S.modal = S.modal?.kind === "stats" ? null : { kind: "stats" };
       return;
     }
     // Ctrl+Shift+M — toggle mic mute (only meaningful in a call).
