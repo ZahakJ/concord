@@ -61,14 +61,20 @@ primary_region = "iad"
     port = 443
     handlers = ["tls", "http"]
 
-# TURN relay for IP-private calls. Only TCP is exposed: both call ends
-# force-relay over TURN-over-TCP (?transport=tcp), so the relay bridges the two
-# TCP allocations internally and never needs inbound UDP on ephemeral ports
-# (which fly wouldn't forward anyway). Dormant unless CONCORD_TURN_SECRET is set.
-[[services]]
-  internal_port = 3478
-  protocol = "tcp"
-  auto_stop_machines = false
-  min_machines_running = 1
-  [[services.ports]]
-    port = 3478
+# TURN relay: DISABLED on this host, deliberately. The design assumed the
+# relay could bridge its two TCP allocations internally; measured against the
+# live deployment, packets sent between two allocations on this machine are
+# dropped — fly's edge does not hairpin UDP back to the advertised public IP,
+# so a relay here can authenticate, allocate, and then carry nothing. Calls
+# fall back to direct connection (no IP hiding) and actually work. If IP-
+# private calls matter, host the relay on a machine that owns its public IP
+# (any small VPS) and point CONCORD_TURN_* there; re-adding this block on fly
+# without re-testing turnprobe2 will just resurrect the silent failure.
+#
+# [[services]]
+#   internal_port = 3478
+#   protocol = "tcp"
+#   auto_stop_machines = false
+#   min_machines_running = 1
+#   [[services.ports]]
+#     port = 3478

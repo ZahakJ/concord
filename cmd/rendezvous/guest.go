@@ -160,8 +160,10 @@ func relayGuest(ctx context.Context, h host.Host, w http.ResponseWriter, r *http
 	defer cancel()
 	stream, err := h.NewStream(dialCtx, pid, cnet.GuestProtocol)
 	if err != nil {
+		// Newline-terminated like every other frame — the guest page only
+		// parses complete lines.
 		_ = ws.WriteMessage(websocket.TextMessage,
-			[]byte(`{"type":"end","reason":"The meeting host isn't reachable right now — ask them to keep Concord open."}`))
+			[]byte(`{"type":"end","reason":"The meeting host isn't reachable right now — ask them to keep Concord open."}`+"\n"))
 		return
 	}
 	defer stream.Close()
@@ -186,7 +188,12 @@ func relayGuest(ctx context.Context, h host.Host, w http.ResponseWriter, r *http
 			line, err := readCappedLine(r, guestMaxFrameSize)
 			if len(line) > 0 {
 				_ = ws.SetWriteDeadline(time.Now().Add(20 * time.Second))
-				if werr := ws.WriteMessage(websocket.TextMessage, line); werr != nil {
+				// The '\n' readCappedLine consumed goes back on: the guest page
+				// buffers WebSocket data and parses only complete, newline-
+				// terminated lines (frames can coalesce or split in transit).
+				// Forwarding the line bare means its parser waits forever for a
+				// delimiter that never comes — no welcome, no signaling, nothing.
+				if werr := ws.WriteMessage(websocket.TextMessage, append(line, '\n')); werr != nil {
 					return
 				}
 			}
