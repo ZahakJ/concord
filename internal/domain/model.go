@@ -55,6 +55,41 @@ type Channel struct {
 	// Links are the consumer channels an ANNOUNCEMENT channel publishes to
 	// (channel IDs in the same guild). Advisory metadata, like Category.
 	Links []string `json:"links,omitempty"`
+
+	// --- Forum metadata. Every field below is optional and ignorable: a peer
+	// that predates them still reads a forum as a forum and a post as an
+	// ordinary thread, because none of them changes what a channel IS. They sit
+	// at the same trust level as Category/Position — advisory layout a
+	// well-behaved client honours — and only ever appear on forum or thread
+	// channels, so no other channel pays a byte for them.
+
+	// ForumTags is the tag palette a FORUM channel offers its posts (Bug, Idea,
+	// Solved…). Set only on a channel of type "forum".
+	ForumTags []ForumTag `json:"forumTags,omitempty"`
+	// Tags are the ForumTag IDs a POST carries, referencing its forum's palette.
+	// An ID with no matching palette entry renders as nothing — that is what
+	// makes deleting a tag cheap (see SetForumTags: no post is rewritten).
+	Tags []string `json:"tags,omitempty"`
+	// Pinned floats a POST to the top of its forum board. Moderation, not
+	// authorship: gated on Manage Messages, the same bit that pins a message.
+	Pinned bool `json:"pinned,omitempty"`
+	// Solved marks a POST answered. Distinct from a tag on purpose — the post's
+	// own author may close their question without being handed a moderator
+	// permission, and a board can only offer "show unanswered" if the signal
+	// exists on every forum rather than only the ones that defined a tag for it.
+	Solved bool `json:"solved,omitempty"`
+}
+
+// A ForumTag is one entry in a forum's tag palette: a short label with a colour
+// the client renders a chip in. Colour is a strict "#rrggbb" — it is
+// interpolated into a CSS context, so the format is validated rather than
+// trusted, on the local path and on every path a peer's channel record arrives
+// by (see app.sanitizeForumMeta).
+type ForumTag struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Color string `json:"color"`           // "#rrggbb", lowercase
+	Emoji string `json:"emoji,omitempty"` // optional leading glyph for the chip
 }
 
 // ChannelType returns a channel's type, defaulting to "text".

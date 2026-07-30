@@ -220,6 +220,15 @@ CREATE TABLE IF NOT EXISTS pending_members (
 		`ALTER TABLE profiles ADD COLUMN style TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN parent TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN links TEXT NOT NULL DEFAULT ''`,
+		// Forum metadata. forum_tags is the palette on a forum channel (JSON),
+		// post_tags the tag IDs on a post (JSON); pinned/solved are the post's
+		// board state. All default to empty/0, so a database written before
+		// forums had tags reads back as a forum with no tags — which is exactly
+		// what it was.
+		`ALTER TABLE channels ADD COLUMN forum_tags TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE channels ADD COLUMN post_tags TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE channels ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE channels ADD COLUMN solved INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -399,11 +408,15 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 	}
 	for _, c := range g.Channels {
 		if _, err := tx.Exec(
-			`INSERT INTO channels (id, guild_id, name, type, category, position, topic, parent, links) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO channels (id, guild_id, name, type, category, position, topic, parent, links,
+			   forum_tags, post_tags, pinned, solved)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type,
 			   category=excluded.category, position=excluded.position, topic=excluded.topic,
-			   parent=excluded.parent, links=excluded.links`,
+			   parent=excluded.parent, links=excluded.links, forum_tags=excluded.forum_tags,
+			   post_tags=excluded.post_tags, pinned=excluded.pinned, solved=excluded.solved`,
 			c.ID, g.ID, c.Name, c.Type, c.Category, c.Position, c.Topic, c.Parent, encodeLinks(c.Links),
+			encodeForumTags(c.ForumTags), encodeLinks(c.Tags), boolToInt(c.Pinned), boolToInt(c.Solved),
 		); err != nil {
 			return fmt.Errorf("store: save channel: %w", err)
 		}
@@ -445,7 +458,8 @@ func (s *Store) Guilds() ([]domain.Guild, error) {
 
 func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	rows, err := s.db.Query(
-		`SELECT id, guild_id, name, type, category, position, topic, parent, links FROM channels
+		`SELECT id, guild_id, name, type, category, position, topic, parent, links,
+		        forum_tags, post_tags, pinned, solved FROM channels
 		 WHERE guild_id = ? ORDER BY position ASC, rowid ASC`, guildID)
 	if err != nil {
 		return nil, err
@@ -454,14 +468,45 @@ func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	var out []domain.Channel
 	for rows.Next() {
 		var c domain.Channel
-		var links string
-		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Type, &c.Category, &c.Position, &c.Topic, &c.Parent, &links); err != nil {
+		var links, forumTags, postTags string
+		var pinned, solved int
+		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Type, &c.Category, &c.Position, &c.Topic, &c.Parent,
+			&links, &forumTags, &postTags, &pinned, &solved); err != nil {
 			return nil, err
 		}
 		c.Links = decodeLinks(links)
+		c.ForumTags = decodeForumTags(forumTags)
+		c.Tags = decodeLinks(postTags)
+		c.Pinned, c.Solved = pinned != 0, solved != 0
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// encodeForumTags/decodeForumTags pack a forum's tag palette as JSON ("" = none).
+// A row that fails to decode yields no tags rather than an error: the palette is
+// decoration on a channel, and refusing to load the guild because one channel's
+// tag blob is corrupt would lose the messages too.
+func encodeForumTags(tags []domain.ForumTag) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(tags)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func decodeForumTags(raw string) []domain.ForumTag {
+	if raw == "" {
+		return nil
+	}
+	var out []domain.ForumTag
+	if json.Unmarshal([]byte(raw), &out) != nil {
+		return nil
+	}
+	return out
 }
 
 // encodeLinks/decodeLinks pack a channel's consumer links as JSON ("" = none).
@@ -517,6 +562,20 @@ func (s *Store) Categories(guildID string) ([]domain.Category, error) {
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// UpdateChannelForumMeta writes just one channel's forum state. SaveGuild would
+// also do it, but it upserts EVERY channel in the guild — so pinning one post in
+// a forum with five hundred of them would rewrite five hundred rows, on an action
+// a moderator repeats. Narrow by design.
+func (s *Store) UpdateChannelForumMeta(c domain.Channel) error {
+	_, err := s.db.Exec(
+		`UPDATE channels SET forum_tags=?, post_tags=?, pinned=?, solved=? WHERE id=?`,
+		encodeForumTags(c.ForumTags), encodeLinks(c.Tags), boolToInt(c.Pinned), boolToInt(c.Solved), c.ID)
+	if err != nil {
+		return fmt.Errorf("store: update channel forum meta: %w", err)
+	}
+	return nil
 }
 
 // UpdateChannelMeta sets a channel's type/category/position/topic (layout +
@@ -1827,6 +1886,151 @@ func (s *Store) GuildStorage(channelIDs []string) (GuildStorageStats, error) {
 		"FROM messages WHERE deleted = 0 AND channel_id IN (" + strings.Join(ph, ",") + ")"
 	err := s.db.QueryRow(q, args...).Scan(&st.Messages, &st.Bytes, &st.Oldest, &st.Newest)
 	return st, err
+}
+
+// PostStats is what a forum board needs to know about one post, DERIVED from
+// the post's own messages rather than carried on its channel record. Opening is
+// the post's first real message: its author is MLS-authenticated, which makes
+// deriving strictly more trustworthy than a self-asserted "author" field on a
+// channel announcement — and free, because the row is already here.
+//
+// Zero values are meaningful: a post whose history has not synced yet has no
+// author, no body and no timestamp. The board renders that as a pending card;
+// it must not render it as a post by nobody.
+type PostStats struct {
+	AuthorKey  []byte // opening message's sender (account key), nil if unsynced
+	AuthorName string // sender's self-asserted name at post time (decorative)
+	Opening    string // opening message body, full text — callers truncate
+	Created    int64  // opening message time, UnixNano; 0 if unsynced
+	Replies    int    // real messages after the opening one; never negative
+	LastAt     int64  // newest sent/updated time in the post, UnixNano
+}
+
+// postStatsBatch is how many channel ids go into one IN (…) clause. SQLite has a
+// hard ceiling on bound variables per statement, so a forum that grows past it
+// would start failing outright rather than getting slower — the kind of bug that
+// only appears on the busiest board in the guild, years in.
+const postStatsBatch = 400
+
+// PostStatsFor derives PostStats for a set of post channels in three queries per
+// batch, not three per post. A forum with two hundred posts refreshes on every
+// guild update; the per-post shape of this (a MessageCount here, a
+// LatestTimestamp there) is how a board becomes visibly slow on a laptop.
+//
+// "Real message" means a non-deleted normal or relayed-guest message: system
+// notices are the room's history of itself, and counting tombstones would make
+// the board advertise replies that are not there.
+func (s *Store) PostStatsFor(channelIDs []string) (map[string]PostStats, error) {
+	out := make(map[string]PostStats, len(channelIDs))
+	for start := 0; start < len(channelIDs); start += postStatsBatch {
+		end := min(start+postStatsBatch, len(channelIDs))
+		if err := s.postStatsInto(channelIDs[start:end], out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// postStatsInto accumulates one batch's worth of stats into out.
+func (s *Store) postStatsInto(channelIDs []string, out map[string]PostStats) error {
+	if len(channelIDs) == 0 {
+		return nil
+	}
+	ph := make([]string, len(channelIDs))
+	args := make([]any, len(channelIDs))
+	for i, id := range channelIDs {
+		ph[i] = "?"
+		args[i] = id
+	}
+	in := "(" + strings.Join(ph, ",") + ")"
+	const realMsg = ` AND deleted = 0 AND (kind = '' OR kind = 'guest')`
+
+	// Opening message per channel. The bare columns alongside MIN(sent) are
+	// SQLite's documented min/max special case: they come from the row that
+	// produced the minimum, so this is one grouped scan instead of a correlated
+	// subquery per post. (Only guaranteed with a single MIN/MAX aggregate, which
+	// is why the reply count below is its own query rather than another column.)
+	rows, err := s.db.Query(
+		`SELECT channel_id, sender, name, content_enc, nonce, MIN(sent) FROM messages
+		 WHERE channel_id IN `+in+realMsg+` GROUP BY channel_id`, args...)
+	if err != nil {
+		return fmt.Errorf("store: post openings: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var chID, name string
+		var sender, enc, nonceB []byte
+		var sent int64
+		if err := rows.Scan(&chID, &sender, &name, &enc, &nonceB, &sent); err != nil {
+			return err
+		}
+		st := out[chID]
+		st.AuthorKey, st.AuthorName, st.Created = sender, name, sent
+		// A body we cannot open is not a reason to drop the whole board: show the
+		// post with an empty excerpt, which is also what a deleted opening gives.
+		if body, err := s.open(enc, nonceB); err == nil {
+			st.Opening = body
+		}
+		out[chID] = st
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	counts, err := s.groupedCount(`SELECT channel_id, COUNT(*) FROM messages
+		 WHERE channel_id IN `+in+realMsg+` GROUP BY channel_id`, args)
+	if err != nil {
+		return fmt.Errorf("store: post reply counts: %w", err)
+	}
+	for chID, n := range counts {
+		st := out[chID]
+		if n > 1 { // the opening message is not a reply to itself
+			st.Replies = int(n) - 1
+		}
+		out[chID] = st
+	}
+
+	// Activity ordering counts everything, including edits and system notices:
+	// the board's "3h ago" is when the post last moved, not when it last gained
+	// a reply. Matches LatestTimestamp, which is what ChannelView.LastActivity
+	// already reports for the same channels.
+	act, err := s.db.Query(
+		`SELECT channel_id, MAX(sent), MAX(updated) FROM messages
+		 WHERE channel_id IN `+in+` GROUP BY channel_id`, args...)
+	if err != nil {
+		return fmt.Errorf("store: post activity: %w", err)
+	}
+	defer act.Close()
+	for act.Next() {
+		var chID string
+		var maxSent, maxUpdated sql.NullInt64
+		if err := act.Scan(&chID, &maxSent, &maxUpdated); err != nil {
+			return err
+		}
+		st := out[chID]
+		st.LastAt = maxInt64(maxSent.Int64, maxUpdated.Int64)
+		out[chID] = st
+	}
+	return act.Err()
+}
+
+// groupedCount runs a "SELECT key, COUNT(*) … GROUP BY key" and collects it.
+func (s *Store) groupedCount(query string, args []any) (map[string]int64, error) {
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var key string
+		var n int64
+		if err := rows.Scan(&key, &n); err != nil {
+			return nil, err
+		}
+		out[key] = n
+	}
+	return out, rows.Err()
 }
 
 // AttachmentTotals is the global blob store footprint. Blobs are content-

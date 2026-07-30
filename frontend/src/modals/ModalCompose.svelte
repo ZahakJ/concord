@@ -1,111 +1,193 @@
 <script>
-  // The advanced composer: a large editor workspace with a full formatting
-  // toolbar, a text-colour picker, a rich-embed builder, and a live preview —
-  // for the times the one-line composer isn't enough. Everything it produces is
-  // ordinary message content (markdown + an optional embed token), so it sends
-  // like any message.
+  // The advanced composer: a full writing workspace for the times the one-line
+  // box isn't enough. Everything it produces is an ordinary message — markdown,
+  // an optional rich-embed token, optional attachments — so it sends like any
+  // other message and needs no protocol support.
+  //
+  // The editor itself lives in RichEditor.svelte, shared with the forum-post
+  // composer. What is HERE is only what makes this a *message*:
+  //   · where it's going, and under what rules (channel, disappearing timer)
+  //   · the rich-embed builder
+  //   · send vs. save-an-edit
+  //   · a close that cannot silently eat a long draft
   import { tick } from "svelte";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import RichEditor from "./RichEditor.svelte";
   import EmbedView from "../EmbedView.svelte";
-  import { S, flash, customEmojiMap } from "../lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, customEmojiMap, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
-  import { renderMarkdown, COLOR_NAMES } from "../lib/markdown.js";
+  import { COLOR_NAMES } from "../lib/markdown.js";
   import { encodeEmbed, parseEmbed, stripEmbedToken } from "../lib/richembed.js";
-  import { stampEphemeral, stripEphemeral, EPH_RE } from "../lib/ephemeral.svelte.js";
+  import { stampEphemeral, stripEphemeral, channelTTL, ttlLabel, EPH_RE } from "../lib/ephemeral.svelte.js";
+  import { bodyStats, saveDraft, loadDraft, clearDraft, draftAge } from "../lib/postdraft.js";
 
-  // editId set ⇒ we're editing an existing message rather than composing a new
-  // one: `initial` is that message's raw content, which we decode back into the
-  // editor (body + embed builder) and save with api.editMessage.
+  // editId set ⇒ editing an existing message rather than composing: `initial` is
+  // that message's raw content, decoded back into the editor and the embed
+  // builder, and saved with api.editMessage.
   let { onClose, onSent, initial = "", editId = "" } = $props();
 
-  // Decode an embed already present in the seed/edited content, and keep the
-  // original disappearing-message token verbatim so an edit preserves the
-  // message's own expiry instead of resetting it to the channel default.
   const seededEmbed = parseEmbed(initial);
+  // Keep the original disappearing-message token verbatim so an edit preserves
+  // the message's own expiry instead of resetting it to the channel default.
   const ephToken = initial.match(EPH_RE)?.[0] || "";
+  const seedBody = stripEphemeral(stripEmbedToken(initial));
 
-  let body = $state(stripEphemeral(stripEmbedToken(initial)));
-  let ta = $state(null);
+  const EMPTY_EMBED = () => ({ color: "#14a394", title: "", desc: "", fields: [] });
+
+  let body = $state(seedBody);
+  let pending = $state([]);
+  let mode = $state("split");
+  // Focus mode is the editor's, but this dialog has to answer to it: see the
+  // embed panel below.
+  let zen = $state(false);
   let busy = $state(false);
+  // "" | "close" — the guarded-close bar. See requestClose.
+  let guard = $state("");
+  let restored = $state(""); // "3 minutes ago", when a draft came back
 
-  // Embed builder (open when the message already carries one).
   let embedOn = $state(!!seededEmbed);
-  let embed = $state(
-    seededEmbed
-      ? { ...seededEmbed, color: seededEmbed.color || "#14a394" }
-      : { color: "#14a394", title: "", desc: "", fields: [] },
-  );
+  let embed = $state(seededEmbed ? { ...EMPTY_EMBED(), ...seededEmbed, color: seededEmbed.color || "#14a394" } : EMPTY_EMBED());
 
+  const ch = $derived(activeChannel());
+  const guild = $derived(activeGuild());
   const cemoji = $derived(customEmojiMap());
-  const previewEmbed = $derived(
-    embedOn && (embed.title || embed.desc || embed.fields.some((f) => f.name || f.value))
-      ? embed
-      : null,
+  const ttl = $derived(S.activeChannelId ? channelTTL(S.activeChannelId) : 0);
+  // Offline is a real state and it is NOT an error: a message written with no
+  // peers connected is stored and gossiped when the link comes back. Say so
+  // rather than blocking, and rather than pretending it went out instantly.
+  const offline = $derived(!!S.netStatus && S.netStatus.peers === 0 && S.netStatus.hasBootstrap);
+
+  const embedFilled = $derived(
+    embedOn && !!(embed.title.trim() || embed.desc.trim() || embed.fields.some((f) => f.name.trim() || f.value.trim())),
   );
-  const canPost = $derived(!busy && (body.trim() || previewEmbed) && !!S.activeChannelId);
-  const meInitial = $derived((S.displayName || "You").trim()[0]?.toUpperCase() || "Y");
+  const previewEmbed = $derived(embedFilled ? embed : null);
+  const stats = $derived(bodyStats(body));
+  const canPost = $derived(!busy && !!S.activeChannelId && (!!body.trim() || !!previewEmbed || pending.length > 0));
 
-  const PALETTE = Object.entries(COLOR_NAMES); // [name, hex]
-  const noSelect = (e) => e.preventDefault(); // keep the textarea selection on tool click
+  // ---- drafts --------------------------------------------------------------
+  // Rescue only, and only for a NEW message: an edit already has its content
+  // safe in the message itself, so persisting an edit draft would mean offering
+  // to restore stale text over a message that has since changed.
+  const scope = $derived(editId ? "" : S.activeChannelId ? `channel:${S.activeChannelId}` : "");
 
-  // --- formatting: wrap or line-prefix the current selection ---
-  function surround(before, after = before) {
-    const el = ta;
-    if (!el) return;
-    const s = el.selectionStart,
-      e = el.selectionEnd;
-    const sel = body.slice(s, e) || "text";
-    body = body.slice(0, s) + before + sel + after + body.slice(e);
-    // tick(), not queueMicrotask: the selection must be set against the
-    // textarea AFTER Svelte flushes the new value, and microtask ordering
-    // relative to that flush isn't guaranteed.
-    tick().then(() => {
-      el.focus();
-      el.selectionStart = s + before.length;
-      el.selectionEnd = s + before.length + sel.length;
-    });
-  }
-  function linePrefix(prefix) {
-    const el = ta;
-    if (!el) return;
-    const s = el.selectionStart;
-    const lineStart = body.lastIndexOf("\n", s - 1) + 1;
-    body = body.slice(0, lineStart) + prefix + body.slice(lineStart);
-    tick().then(() => {
-      el.focus();
-      el.selectionStart = el.selectionEnd = s + prefix.length;
-    });
-  }
-  function applyColor(hexOrName) {
-    surround(`{${hexOrName}|`, "}");
+  // Restore only when the seed is empty — the seed is the inline composer's own
+  // draft, and that is always the more recent of the two. Once only: if the
+  // active channel changed under an open dialog, re-running this would overwrite
+  // whatever is being typed right now.
+  let restoreDone = false;
+  $effect(() => {
+    const s = scope;
+    if (restoreDone || !s || seedBody || seededEmbed) return;
+    restoreDone = true;
+    const d = loadDraft(s);
+    if (!d) return;
+    body = d.body;
+    if (d.embed) {
+      embed = { ...EMPTY_EMBED(), ...d.embed };
+      embedOn = true;
+    }
+    restored = draftAge(d.at);
+  });
+
+  function persist() {
+    if (scope) saveDraft(scope, { body, embed: embedOn ? embed : null });
   }
 
-  const TOOLS = [
-    { icon: "bold", title: "Bold", run: () => surround("**") },
-    { icon: "italic", title: "Italic", run: () => surround("*") },
-    { icon: "underline", title: "Underline", run: () => surround("__") },
-    { icon: "strike", title: "Strikethrough", run: () => surround("~~") },
-    { icon: "spoiler", title: "Spoiler", run: () => surround("||") },
-  ];
-  const TOOLS2 = [
-    { icon: "code", title: "Inline code", run: () => surround("`") },
-    { icon: "codeblock", title: "Code block", run: () => surround("```\n", "\n```") },
-    { icon: "quote", title: "Quote", run: () => linePrefix("> ") },
-    { icon: "list", title: "List", run: () => linePrefix("- ") },
-    { icon: "heading", title: "Heading", run: () => linePrefix("## ") },
-  ];
+  // ---- embed builder -------------------------------------------------------
+  // The panel opens BELOW the workspace, and in a dialog tall enough to scroll
+  // "it opened" has to mean "you can see it". Instant, not smooth: this is a
+  // reveal, not a journey, and a smooth scroll here is motion that explains
+  // nothing.
+  let ebEl = $state(null);
+  $effect(() => {
+    if (embedOn && ebEl) ebEl.scrollIntoView({ block: "nearest" });
+  });
+  const PALETTE = Object.entries(COLOR_NAMES);
+  const MAX_FIELDS = 8; // mirrors lib/richembed.js, which truncates at 8
 
   function addField() {
-    if (embed.fields.length < 8) embed.fields = [...embed.fields, { name: "", value: "" }];
+    if (embed.fields.length < MAX_FIELDS) {
+      embed.fields = [...embed.fields, { name: "", value: "" }];
+      persist();
+    }
   }
   function removeField(i) {
     embed.fields = embed.fields.filter((_, j) => j !== i);
+    persist();
+  }
+  function moveField(from, to) {
+    if (to < 0 || to >= embed.fields.length || from === to) return;
+    const next = [...embed.fields];
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    embed.fields = next;
+    persist();
   }
 
+  // Reorder by dragging the handle — and by ArrowUp/ArrowDown while the handle
+  // has focus, because a drag-only affordance is unreachable from a keyboard.
+  let dragFrom = $state(-1);
+  function onHandleKey(i, e) {
+    const dir = e.key === "ArrowUp" ? -1 : e.key === "ArrowDown" ? 1 : 0;
+    if (!dir) return;
+    e.preventDefault();
+    moveField(i, i + dir);
+    // Follow the row that moved, so a second press keeps going.
+    const next = i + dir;
+    tick().then(() => document.querySelector(`[data-fh="${next}"]`)?.focus());
+  }
+
+  // ---- close ---------------------------------------------------------------
+  // Rule: Escape must never silently throw away real writing. Two mechanisms,
+  // because they answer different questions —
+  //   · every keystroke is persisted (new messages), so even a crash is survivable
+  //   · a close with SUBSTANTIAL unsaved work asks first
+  // "Substantial" is deliberately not "any character": a dialog that argues
+  // about three typed characters trains people to click through it. Staged
+  // attachments always count, because those are the one thing localStorage
+  // cannot hold (a base64 image would blow the quota for every other draft).
+  // Compare embeds by the token they'd encode to — the same string the message
+  // would carry — rather than by "is one present", so tweaking a field counts.
+  const embedToken = $derived(previewEmbed ? encodeEmbed(previewEmbed) : "");
+  const seedToken = seededEmbed ? encodeEmbed(seededEmbed) : "";
+  const dirty = $derived(body !== seedBody || embedToken !== seedToken || pending.length > 0);
+  // Losing a typed EDIT silently is worse than one extra click, so an edit
+  // confirms on any change. A new message uses a threshold: a dialog that argues
+  // about three typed characters just teaches people to click through it.
+  const heavy = $derived(
+    editId ? dirty : pending.length > 0 || stats.words >= 12 || (!!embedToken && embedToken !== seedToken),
+  );
+
+  function requestClose() {
+    // The editor swallows Escape for its own layers (popover, emoji picker,
+    // focus mode) via a capture-phase handler, so by the time this runs the
+    // author really does mean "close this".
+    if (dirty && heavy && !guard) {
+      guard = "close";
+      return;
+    }
+    if (!editId) persist();
+    onClose();
+  }
+  function discardAndClose() {
+    if (scope) clearDraft(scope);
+    onClose();
+  }
+  function keepAndClose() {
+    persist();
+    // flash BEFORE onClose, not after. App.svelte reads S.modal.editId to build
+    // this component's props; nulling S.modal and then touching reactive state
+    // in the same tick re-evaluates that prop expression against the null and
+    // throws (verified in a real browser — it was the one page error left).
+    if (scope) flash("Draft kept — reopen the composer to pick it up", "info");
+    onClose();
+  }
+
+  // ---- send ---------------------------------------------------------------
   async function post() {
     if (!canPost) return;
     busy = true;
+    const chId = S.activeChannelId;
     try {
       let content = body.trim();
       if (previewEmbed) {
@@ -113,132 +195,220 @@
         content = content ? `${content}\n${token}` : token;
       }
       if (editId) {
-        // Preserve the original disappearing-message expiry (ephToken), never
-        // re-stamp — editing shouldn't reset or newly impose a TTL.
-        await api.editMessage(S.activeChannelId, editId, ephToken + content);
+        await api.editMessage(chId, editId, ephToken + content);
       } else {
+        // Attachments first, then the text — so a picture sits above its caption
+        // in the feed, exactly like the inline composer.
+        for (const a of pending) {
+          if (a.isImage) await api.sendAttachment(chId, a.dataUrl, a.w, a.h, "", !!a.spoiler, a.name || "", a.desc || "");
+          else await api.sendFile(chId, a.dataUrl, a.name, "");
+        }
+        pending = [];
         // Same stamping as the one-line composer: in a disappearing-messages
         // channel this message must expire like any other.
-        await api.sendMessage(S.activeChannelId, stampEphemeral(S.activeChannelId, content), "");
+        if (content) await api.sendMessage(chId, stampEphemeral(chId, content), "");
       }
+      if (scope) clearDraft(scope);
       onSent?.();
       onClose();
     } catch (err) {
+      // Whatever failed, the text is still in the box and the draft is still on
+      // disk — a retry can't lose it, and attachments already sent are gone from
+      // the tray so it can't double-post them either.
       flash(err);
       busy = false;
     }
   }
 </script>
 
-<Modal title={editId ? "Edit message" : "Advanced composer"} size="xl" {onClose}>
+<Modal title={editId ? "Edit message" : "Advanced composer"} size="xl" onClose={requestClose}>
   <div class="ac">
-    <!-- LEFT: the editor -->
-    <section class="pane editor">
-      <div class="toolbar" role="toolbar" aria-label="Formatting">
-        <div class="tgroup">
-          {#each TOOLS as t (t.icon)}
-            <button type="button" class="tb" title={t.title} aria-label={t.title} onmousedown={noSelect} onclick={t.run}>
-              <Icon name={t.icon} size={16} />
-            </button>
-          {/each}
-        </div>
-        <span class="tsep"></span>
-        <div class="tgroup">
-          {#each TOOLS2 as t (t.icon)}
-            <button type="button" class="tb" title={t.title} aria-label={t.title} onmousedown={noSelect} onclick={t.run}>
-              <Icon name={t.icon} size={16} />
-            </button>
-          {/each}
-        </div>
-        <span class="tsep"></span>
-        <div class="swatches" role="group" aria-label="Text colour">
-          {#each PALETTE as [name, hex] (name)}
-            <button
-              type="button"
-              class="sw"
-              style="--sw:{hex}"
-              title={`Colour: ${name}`}
-              aria-label={`Colour ${name}`}
-              onmousedown={noSelect}
-              onclick={() => applyColor(name)}
-            ></button>
-          {/each}
-        </div>
-      </div>
-
-      <div class="surface">
-        <textarea
-          bind:this={ta}
-          bind:value={body}
-          class="draft"
-          placeholder="Write your message…&#10;&#10;Select text, then tap a tool or a colour. Markdown works too: **bold**, *italic*, > quotes, - lists, ## headings, `code`, ||spoilers||."
-        ></textarea>
-      </div>
-
-      <div class="belowbar">
-        <button type="button" class="embed-toggle" class:on={embedOn} onclick={() => (embedOn = !embedOn)}>
-          <Icon name={embedOn ? "close" : "plus"} size={14} />
-          {embedOn ? "Remove rich embed" : "Add a rich embed"}
-        </button>
-        <span class="hint">Markdown supported · {body.length} chars</span>
-      </div>
-
-      {#if embedOn}
-        <div class="embed-builder">
-          <div class="row">
-            <label class="color-field" title="Embed accent colour">
-              <span class="clabel">Accent</span>
-              <input type="color" bind:value={embed.color} />
-            </label>
-            <input class="grow" maxlength="200" placeholder="Embed title" bind:value={embed.title} />
-          </div>
-          <textarea class="edesc" rows="2" maxlength="2000" placeholder="Embed description (markdown supported)" bind:value={embed.desc}></textarea>
-          {#each embed.fields as f, i (i)}
-            <div class="row field-row">
-              <input class="fname" maxlength="100" placeholder="Field name" bind:value={f.name} />
-              <input class="grow" maxlength="400" placeholder="Field value" bind:value={f.value} />
-              <button type="button" class="fx" aria-label="Remove field" onclick={() => removeField(i)}>
-                <Icon name="close" size={13} />
-              </button>
-            </div>
-          {/each}
-          {#if embed.fields.length < 8}
-            <button type="button" class="add-field" onclick={addField}>
-              <Icon name="plus" size={13} /> Add field
-            </button>
-          {/if}
-        </div>
-      {/if}
-    </section>
-
-    <!-- RIGHT: the live preview -->
-    <aside class="pane preview">
-      <div class="p-label"><span class="dot"></span> Live preview</div>
-      <div class="p-body">
-        {#if body.trim() || previewEmbed}
-          <div class="pmsg">
-            <div class="pav">{meInitial}</div>
-            <div class="pbody">
-              <div class="phead"><span class="pname">{S.displayName || "You"}</span><span class="ptime">now</span></div>
-              {#if body.trim()}
-                <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                <div class="md">{@html renderMarkdown(body, [], cemoji)}</div>
-              {/if}
-              {#if previewEmbed}
-                <EmbedView embed={previewEmbed} customEmoji={cemoji} />
-              {/if}
-            </div>
-          </div>
+    <!-- Where this is going, and under what rules. In a dialog you've navigated
+         away from the channel header, and a disappearing-messages timer that
+         silently applies is exactly the kind of thing a composer owes you. -->
+    <div class="ctx">
+      <span class="dest">
+        {#if editId}
+          <Icon name="edit" size={13} />
+          Editing your message in <strong>#{ch?.name || "this channel"}</strong>
         {:else}
-          <p class="empty">Your message will appear here, exactly as others will see it.</p>
+          <strong>#{ch?.name || "no channel"}</strong>
+          {#if guild?.name}<span class="in">in {guild.name}</span>{/if}
+        {/if}
+      </span>
+      {#if ttl > 0}
+        <span class="badge eph"><Icon name="clock" size={12} /> Disappears after {ttlLabel(ttl)}</span>
+      {/if}
+      {#if offline}
+        <span class="badge off"><Icon name="alert" size={12} /> Offline — it'll go out when you reconnect</span>
+      {/if}
+      {#if restored}
+        <span class="badge draft">
+          <Icon name="check" size={12} /> Draft from {restored}
+          <button
+            type="button"
+            onclick={() => {
+              body = "";
+              embed = EMPTY_EMBED();
+              embedOn = false;
+              restored = "";
+              if (scope) clearDraft(scope);
+            }}>Start over</button>
+        </span>
+      {/if}
+    </div>
+
+    <!-- minHeight: the workspace yields 50px to a panel the author just opened,
+         rather than the dialog growing a scrollbar the moment they open it.
+         attachments={!editId}: api.editMessage replaces content only — there is
+         no way to add an attachment to an existing message, so offering the tray
+         while editing would look like it worked and then quietly drop the file. -->
+    <RichEditor
+      bind:body
+      bind:pending
+      bind:mode
+      bind:zen
+      autofocus
+      minHeight={embedOn && !zen ? 150 : 200}
+      attachments={!editId}
+      placeholder={"Write your message…\n\nSelect text and use the toolbar, or type markdown directly: **bold**, *italic*, ||spoiler||, `code`, > quote, - list, ## heading. :shortcodes: and @mentions autocomplete."}
+      previewExtraFilled={!!previewEmbed}
+      onSubmit={post}
+      onInput={persist}
+      submitHint={editId ? "⌘/Ctrl + ↵ to save" : "⌘/Ctrl + ↵ to send"}>
+      {#snippet toolbarExtra()}
+        <span class="sep" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="embedbtn"
+          class:on={embedOn}
+          aria-pressed={embedOn}
+          title={embedOn ? "Remove the rich embed" : "Build a rich embed card"}
+          onclick={() => {
+            embedOn = !embedOn;
+            persist();
+          }}>
+          <Icon name={embedOn ? "close" : "diamond"} size={13} />
+          <span class="lbl">Embed</span>
+        </button>
+      {/snippet}
+      {#snippet previewExtra()}
+        {#if previewEmbed}<EmbedView embed={previewEmbed} customEmoji={cemoji} />{/if}
+      {/snippet}
+    </RichEditor>
+
+    {#if embedOn && !zen}
+      <!-- The embed builder is the one panel that appears rather than being
+           always present: most messages don't carry a card, and an empty
+           six-field form is the definition of a wall of controls. It also stands
+           down in focus mode; the card it builds is still in the message, it is
+           just not on screen while you write. -->
+      <section class="eb" bind:this={ebEl}>
+        <header>
+          <Icon name="diamond" size={13} />
+          <h4>Rich embed</h4>
+          <span class="ebhint">A card under your message. It syncs like any message — older peers see it too.</span>
+        </header>
+        <div class="row">
+          <div class="accent" role="group" aria-label="Accent colour">
+            {#each PALETTE as [name, hex] (name)}
+              <button
+                type="button"
+                class="acc"
+                class:on={embed.color === hex}
+                style="--acc:{hex}"
+                title={name}
+                aria-label={`Accent ${name}`}
+                onclick={() => {
+                  embed.color = hex;
+                  persist();
+                }}></button>
+            {/each}
+            <label class="acccustom" title="Custom accent colour">
+              <input type="color" bind:value={embed.color} oninput={persist} aria-label="Custom accent colour" />
+            </label>
+          </div>
+        </div>
+        <input class="etitle" maxlength="200" placeholder="Embed title" bind:value={embed.title} oninput={persist} />
+        <textarea class="edesc" rows="2" maxlength="2000" placeholder="Description — markdown works here too" bind:value={embed.desc} oninput={persist}
+        ></textarea>
+        {#if embed.fields.length}
+          <ul class="fields">
+            <!-- Keyed by index: field text is free-form, so a content-derived key
+                 can collide and Svelte rejects that at render time — a crash an
+                 author could cause by typing the same thing twice. -->
+            {#each embed.fields as f, i (i)}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <li class="frow" class:dragging={dragFrom === i} ondragover={(e) => e.preventDefault()} ondrop={() => (dragFrom = -1)}>
+                <button
+                  type="button"
+                  class="handle"
+                  data-fh={i}
+                  draggable="true"
+                  title="Drag to reorder — or use ↑ / ↓"
+                  aria-label={`Reorder field ${i + 1} of ${embed.fields.length}`}
+                  ondragstart={() => (dragFrom = i)}
+                  ondragend={() => (dragFrom = -1)}
+                  ondragenter={() => {
+                    if (dragFrom >= 0 && dragFrom !== i) {
+                      moveField(dragFrom, i);
+                      dragFrom = i;
+                    }
+                  }}
+                  onkeydown={(e) => onHandleKey(i, e)}><Icon name="menu" size={12} /></button>
+                <input class="fname" maxlength="100" placeholder="Field name" bind:value={f.name} oninput={persist} />
+                <input class="fval" maxlength="400" placeholder="Field value" bind:value={f.value} oninput={persist} />
+                <button type="button" class="fx" aria-label={`Remove field ${i + 1}`} title="Remove field" onclick={() => removeField(i)}>
+                  <Icon name="close" size={12} />
+                </button>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+        {#if embed.fields.length < MAX_FIELDS}
+          <button type="button" class="addfield" onclick={addField}>
+            <Icon name="plus" size={12} /> Add field
+            <span class="count">{embed.fields.length}/{MAX_FIELDS}</span>
+          </button>
+        {/if}
+      </section>
+    {/if}
+
+    {#if guard === "close"}
+      <!-- The designed close. Never a silent discard, and never a dead end: both
+           outcomes are one click, and the non-destructive one is the default. -->
+      <div class="guard" role="group" aria-live="polite" aria-label="Unsaved work">
+        <p>
+          <Icon name="alert" size={15} />
+          {#if editId}
+            Discard your changes to this message?
+          {:else if pending.length}
+            You have {pending.length} attachment{pending.length === 1 ? "" : "s"} staged — those can't be saved with a draft.
+          {:else}
+            {stats.words} words unsent.
+          {/if}
+        </p>
+        <button type="button" class="ghost" onclick={() => (guard = "")}>Keep writing</button>
+        {#if editId}
+          <button type="button" class="danger" onclick={onClose}>Discard changes</button>
+        {:else}
+          <button type="button" class="ghost danger" onclick={discardAndClose}>Discard</button>
+          <button type="button" onclick={keepAndClose}>Save for later</button>
         {/if}
       </div>
-    </aside>
-  </div>
-
-  <div class="actions">
-    <button type="button" class="ghost" onclick={onClose}>Cancel</button>
-    <button type="button" onclick={post} disabled={!canPost}>{editId ? "Save changes" : "Send message"}</button>
+    {:else}
+      <div class="actions">
+        <button type="button" class="ghost" onclick={requestClose}>Cancel</button>
+        <button type="button" class="send" onclick={post} disabled={!canPost}>
+          {#if busy}
+            <span class="spin" aria-hidden="true"></span> {editId ? "Saving…" : "Sending…"}
+          {:else}
+            <Icon name={editId ? "check" : "send"} size={14} />
+            {editId ? "Save changes" : "Send message"}
+          {/if}
+        </button>
+      </div>
+    {/if}
   </div>
 </Modal>
 
@@ -247,340 +417,376 @@
     flex: 1;
     min-height: 0;
     display: flex;
-    gap: 16px;
+    flex-direction: column;
+    gap: 12px;
     text-align: left;
   }
-  .pane {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    min-height: 0;
-  }
-  .editor {
-    flex: 1.12;
-  }
-  .preview {
-    flex: 0.88;
-  }
-  @media (max-width: 760px) {
+  /* See the note on RichEditor's .rx: on the phone the dialog is an auto-height
+     sheet, and flex negotiation there either crushes these blocks into each
+     other or balloons them. Natural heights + the sheet's own scroll. */
+  @media (max-width: 760px), (pointer: coarse) {
     .ac {
-      flex-direction: column;
-    }
-    /* The 1.12/0.88 split carries a flex-basis of 0 into the column axis, so
-       both panes were sized off the sheet's height rather than their content:
-       the editor's toolbar + surface + footer overran the preview by 40px at
-       390px and by 378px with the keyboard up. Let them be their own height
-       and let the sheet scroll. */
-    .editor,
-    .preview {
       flex: none;
-    }
-    .preview {
-      min-height: 180px;
+      min-height: auto;
     }
   }
 
-  /* ---- toolbar ---- */
-  .toolbar {
+  /* ---- context bar ------------------------------------------------------ */
+  .ctx {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 3px;
-    padding: 6px;
-    margin-bottom: 10px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-  }
-  .tgroup {
-    display: flex;
-    gap: 2px;
-  }
-  .tb {
-    width: 32px;
-    height: 32px;
-    display: grid;
-    place-items: center;
-    padding: 0;
-    background: transparent;
+    gap: 8px;
+    font-size: 12.5px;
     color: var(--text-muted);
-    border-radius: var(--radius-sm);
-    transition: background 0.12s ease, color 0.12s ease;
   }
-  .tb:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .tsep {
-    width: 1px;
-    height: 20px;
-    background: var(--border);
-    margin: 0 5px;
-  }
-  .swatches {
-    display: flex;
-    gap: 4px;
-  }
-  /* Descendant selector on purpose: Modal's mobile sheet puts a 44px
-     min-height on `.dialog :global(button)`, which outranks a bare `.sw` — and
-     a colour swatch is a dot, so 19×44 renders as an ellipse. */
-  .swatches .sw {
-    min-height: 19px;
-  }
-  .sw {
-    width: 19px;
-    height: 19px;
-    padding: 0;
-    border-radius: 50%;
-    background: var(--sw);
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
-    transition: transform 0.1s ease;
-  }
-  .sw:hover {
-    transform: scale(1.22);
-  }
-
-  /* ---- the writing surface (the star) ---- */
-  .surface {
-    flex: 1;
-    min-height: 180px;
-    display: flex;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    overflow: hidden;
-    transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  }
-  .surface:focus-within {
-    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
-  }
-  .draft {
-    flex: 1;
-    width: 100%;
-    resize: none;
-    background: transparent !important;
-    border: none !important;
-    box-shadow: none !important;
-    outline: none !important;
-    padding: 16px 18px;
-    font-family: inherit;
-    font-size: 15px;
-    line-height: 1.75;
-    color: var(--text);
-  }
-
-  .belowbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin-top: 10px;
-  }
-  .hint {
-    font-size: 11px;
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-    white-space: nowrap;
-  }
-  /* Readable at rest: a dashed accent frame with neutral label + accent glyph. */
-  .embed-toggle {
+  .dest {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    padding: 7px 12px;
-    font-size: 13px;
-    font-weight: 600;
+    min-width: 0;
+  }
+  .dest :global(svg) {
+    color: var(--text-faint);
+  }
+  .dest strong {
     color: var(--text);
-    background: transparent;
-    border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
-    border-radius: var(--radius-sm);
-    transition: background 0.12s ease, border-color 0.12s ease;
+    font-weight: 600;
   }
-  .embed-toggle :global(svg) {
+  .in {
+    color: var(--text-faint);
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    font-size: 11.5px;
+    border-radius: 999px;
+    background: var(--bg-3);
+  }
+  .badge.eph {
     color: var(--accent-hover);
-  }
-  .embed-toggle:hover {
     background: var(--accent-soft);
-    border-color: var(--accent);
+  }
+  .badge.off {
+    color: var(--warn-text);
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+  }
+  .badge.draft {
+    color: var(--ok-text);
+    background: var(--ok-soft);
+  }
+  .badge button {
+    padding: 0 0 0 6px;
+    min-height: 0;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: inherit;
+    background: none;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
-  .embed-builder {
-    margin-top: 10px;
-    max-height: 240px;
-    overflow-y: auto;
+  /* The embed toggle rides in the editor's own toolbar, so it reads as one of
+     the insert tools rather than a separate feature bolted underneath. */
+  .embedbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    height: 30px;
+    padding: 0 9px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: transparent;
+    border-radius: var(--radius-sm);
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
+  }
+  .embedbtn:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .embedbtn.on {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .sep {
+    width: 1px;
+    align-self: stretch;
+    margin: 2px 4px;
+    background: var(--border);
+  }
+
+  /* ---- embed builder ---------------------------------------------------- */
+  .eb {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    /* Sized so the panel and the editor's 200px floor BOTH fit the xl dialog at
+       a laptop height — otherwise opening the builder pushes the workspace past
+       the dialog and the whole thing starts scrolling under you mid-sentence. */
+    max-height: clamp(150px, 24vh, 240px);
+    /* min-height:0 with flex-shrink:0 is not a contradiction, it is the fix for
+       a runaway: WITHOUT it this panel contributes its full unclamped content
+       height to the column's min-content, which makes the column taller than the
+       dialog, and .rx (flex-grow:1) then eats the surplus — so adding a field
+       made the EDITOR grow and pushed the panel off-screen. min-height:0 stops
+       the contribution; flex-shrink:0 still keeps the panel at its own height. */
+    min-height: 0;
+    overflow-y: auto;
+    /* Both flex-shrink:0 declarations are load-bearing. A flex column with a
+       max-height SHRINKS its children to fit before it will scroll — which
+       squeezed the description box to a 20px slot and stacked the field rows on
+       top of it. Pinned children make the panel scroll like a panel should, and
+       pinning the panel itself stops the workspace stealing its height. */
+    flex-shrink: 0;
     padding: 12px;
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
+    /* Appears in place; nothing above it moves except downward, which is the
+       honest direction for a panel that opened. */
+    animation: eb-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
   }
-  .row {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  .grow {
-    flex: 1;
-    min-width: 0;
-  }
-  .color-field {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+  .eb > * {
     flex-shrink: 0;
   }
-  .clabel {
-    font-size: 12px;
-    color: var(--text-muted);
+  @keyframes eb-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
   }
-  .color-field input[type="color"] {
-    width: 30px;
-    height: 30px;
+  @media (prefers-reduced-motion: reduce) {
+    .eb {
+      animation: none;
+    }
+  }
+  .eb header {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .eb header :global(svg) {
+    color: var(--accent-hover);
+  }
+  .eb h4 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text);
+  }
+  .ebhint {
+    font-size: 11.5px;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .accent {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+  }
+  /* Descendant selector: the mobile sheet's 44px button floor would stretch a
+     18px dot into a lozenge. */
+  .accent .acc {
+    width: 18px;
+    height: 18px;
+    min-height: 18px;
     padding: 0;
+    border-radius: 50%;
+    background: var(--acc);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
+    transition: transform 0.12s ease;
+  }
+  .accent .acc:hover {
+    transform: scale(1.18);
+  }
+  .accent .acc.on {
+    box-shadow:
+      inset 0 0 0 1px rgba(0, 0, 0, 0.28),
+      0 0 0 2px var(--bg-1),
+      0 0 0 3.5px var(--text);
+  }
+  .accent .acccustom input[type="color"] {
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+    padding: 0;
+    margin-left: 4px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: none;
     cursor: pointer;
+  }
+  .etitle {
+    font-weight: 600;
   }
   .edesc {
     width: 100%;
     resize: vertical;
     font-family: inherit;
   }
-  .fname {
-    width: 34%;
-    min-width: 0;
+  .fields {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
-  .fx {
-    flex-shrink: 0;
-    width: 28px;
-    height: 28px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    color: var(--text-muted);
-    background: transparent;
-  }
-  .fx:hover {
-    color: var(--danger-text);
-    background: color-mix(in srgb, var(--danger) 14%, transparent);
-  }
-  .add-field {
-    align-self: flex-start;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 5px 9px;
-    font-size: 12px;
-    color: var(--accent-hover);
-    background: transparent;
-    border-radius: var(--radius-sm);
-  }
-  .add-field:hover {
-    background: var(--accent-soft);
-  }
-
-  /* ---- preview ---- */
-  .p-label {
+  .frow {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-muted);
-    margin-bottom: 8px;
   }
-  .p-label .dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--ok, #3ba55d);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+  .frow.dragging {
+    opacity: 0.5;
   }
-  .p-body {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    padding: 14px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-  }
-  .pmsg {
-    display: flex;
-    gap: 11px;
-  }
-  .pav {
-    width: 38px;
-    height: 38px;
+  .frow .handle {
     flex-shrink: 0;
-    border-radius: 50%;
+    width: 22px;
+    height: 26px;
+    min-height: 26px;
     display: grid;
     place-items: center;
-    font-weight: 700;
-    font-size: 14px;
+    padding: 0;
+    color: var(--text-faint);
+    background: transparent;
+    border-radius: 4px;
+    cursor: grab;
+  }
+  .frow .handle:hover,
+  .frow .handle:focus-visible {
+    color: var(--text);
+    background: var(--bg-3);
+  }
+  .fname {
+    width: 32%;
+    min-width: 0;
+  }
+  .fval {
+    flex: 1;
+    min-width: 0;
+  }
+  .frow .fx {
+    flex-shrink: 0;
+    width: 26px;
+    height: 26px;
+    min-height: 26px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 50%;
+    color: var(--text-muted);
+    background: transparent;
+  }
+  .frow .fx:hover {
+    color: var(--danger-text);
+    background: var(--danger-soft);
+  }
+  .addfield {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 600;
     color: var(--accent-hover);
+    background: transparent;
+    border: 1px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
+    border-radius: var(--radius-sm);
+  }
+  .addfield:hover {
     background: var(--accent-soft);
   }
-  .pbody {
-    min-width: 0;
-    flex: 1;
-  }
-  .phead {
-    display: flex;
-    align-items: baseline;
-    gap: 7px;
-    margin-bottom: 2px;
-  }
-  .pname {
-    font-weight: 600;
-    font-size: 14px;
-  }
-  .ptime {
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-  .md {
-    font-size: 14px;
-    line-height: 1.5;
-    overflow-wrap: anywhere;
-    white-space: pre-wrap;
-  }
-  /* Size Twemoji/custom-emoji images to the text, exactly like the feed —
-     without this they render at their full SVG size. */
-  .md :global(img.emoji) {
-    width: 1.375em;
-    height: 1.375em;
-    vertical-align: -0.3em;
-    margin: 0 0.5px;
-    object-fit: contain;
-  }
-  .md :global(img.cemoji) {
-    height: 1.375em;
-    width: auto;
-    vertical-align: -0.2em;
-    margin: 0 1px;
-    object-fit: contain;
-  }
-  .empty {
-    color: var(--text-muted);
-    font-size: 13px;
-    font-style: italic;
-    margin: 4px 0 0;
+  .count {
+    color: var(--text-faint);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
   }
 
-  /* ---- actions ---- */
-  .actions {
+  /* ---- actions / guard -------------------------------------------------- */
+  .actions,
+  .guard {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
     gap: 8px;
-    padding-top: 14px;
-    margin-top: 2px;
+    padding-top: 12px;
     border-top: 1px solid var(--border);
+  }
+  .guard :global(svg) {
+    color: var(--warn-text);
+    flex-shrink: 0;
+  }
+  .guard p {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0 auto 0 0;
+    font-size: 13px;
+    color: var(--text);
+  }
+  .guard .danger {
+    color: var(--danger-text);
+  }
+  .guard button.danger:not(.ghost) {
+    color: var(--danger-fg);
+    background: var(--danger);
+  }
+  .send {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .spin {
+    width: 13px;
+    height: 13px;
+    border: 2px solid color-mix(in srgb, var(--accent-fg) 35%, transparent);
+    border-top-color: var(--accent-fg);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  /* No prefers-reduced-motion block for the spinner: app.css already zeroes
+     every animation-duration and clamps iteration-count to 1 with !important
+     under that query, which a component rule cannot outrank — and the button's
+     own "Sending…"/"Posting…" label is what carries the meaning anyway. */
+
+  @media (max-width: 760px) {
+    .eb {
+      max-height: none;
+    }
+    .fname {
+      width: 100%;
+    }
+    .frow {
+      flex-wrap: wrap;
+    }
+    /* The guard is a decision, not a row of chrome: stack it so both buttons are
+       full-width thumb targets instead of three cramped ones. */
+    .guard {
+      flex-wrap: wrap;
+    }
+    .guard p {
+      width: 100%;
+      margin: 0;
+    }
+    .guard button {
+      flex: 1;
+    }
   }
 </style>
