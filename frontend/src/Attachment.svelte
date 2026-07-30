@@ -7,7 +7,8 @@
   import Icon from "./Icon.svelte";
   import { loadAttachment, copyImageToClipboard, saveImageSrc } from "./lib/attachments.js";
   import { knownRecipe } from "./lib/memerecipe.js";
-  import { openContextMenu, flash, S } from "./lib/state.svelte.js";
+  import { openContextMenu, flash, registerOverlay, S } from "./lib/state.svelte.js";
+  import { longpress, haptic } from "./lib/touch.js";
 
   // `messageId`/`own` exist only for "Edit meme": editing a picture in place
   // means editing the message that carries it, and only its author may.
@@ -64,6 +65,22 @@
     ]);
   }
 
+  // Touch counterpart of the right-click above. Svelte delegates touchstart at
+  // the root, so an attribute handler would run AFTER the message row's own
+  // longpress action has armed and both sheets would open; a native listener
+  // here stops the bubble first. A covered spoiler lets it through on purpose —
+  // there is no picture to act on yet, so the row's menu is the useful one.
+  function imageTouch(node) {
+    const stop = (ev) => {
+      if (!hidden) ev.stopPropagation();
+    };
+    node.addEventListener("touchstart", stop, { passive: true });
+    return { destroy: () => node.removeEventListener("touchstart", stop) };
+  }
+  const imageLongPress = (e) => {
+    if (!hidden) imageMenu(e);
+  };
+
   let state = $state("loading"); // loading | done | error
   // A spoiler stays covered until clicked. Tracked here rather than derived
   // from the token so revealing one doesn't un-hide every other copy of the
@@ -74,7 +91,11 @@
   let src = $state("");
   let errMsg = $state("");
 
-  // Reserve space: scale token dims into the same box the CSS allows.
+  // Reserve space: scale token dims into the same box the CSS allows. The width
+  // is only the DESKTOP ceiling — the placeholder carries the ratio as an
+  // aspect-ratio so `max-width:100%` can shrink it inside a phone's ~300px
+  // column without the reserved box ending up the wrong shape (and without the
+  // frame visibly jumping when the real image lands).
   const MAXW = 380;
   const MAXH = 280;
   const dims = $derived.by(() => {
@@ -135,7 +156,17 @@
     lightbox = false;
     pointers.clear();
     dragging = false;
+    flinging = false;
   }
+
+  // Android's hardware back is the reflex for "get this picture off my screen".
+  // Without registering here the back handler fell straight through to closing
+  // drawers behind the black overlay — or exiting the app with the photo still
+  // up. Escape (below) is the desktop half of the same job.
+  $effect(() => {
+    if (!lightbox) return;
+    return registerOverlay(closeLightbox);
+  });
 
   function onKeydown(e) {
     if (!lightbox) return;
@@ -190,10 +221,29 @@
   let moved = 0; // px travelled since pointerdown (click vs drag)
   let pinchDist = 0;
   let downOnBackdrop = false; // pointer capture retargets pointerup, so record at DOWN
+  // A long-press inside the viewer opens the image sheet; the lift that follows
+  // is a motionless pointerup, which the click path below would otherwise read
+  // as "zoom to 2.5×" — sheet and zoom at once. Cleared at each pointerdown.
+  let pressedMenu = false;
+  const lightboxLongPress = (e) => {
+    pressedMenu = true;
+    imageMenu(e);
+  };
+  // At fit scale there is nothing to pan, so a one-finger drag used to be a
+  // dead gesture that also swallowed its own lift. It is now the dismissal:
+  // the photo follows the finger, the backdrop thins, and a throw past
+  // FLING_PX (or a fast flick) lets go of it — what every native viewer does.
+  let flinging = $state(false);
+  const FLING_PX = 110;
+  // Backdrop opacity tracks the throw so the photo feels like it is leaving.
+  const backdrop = $derived(
+    flinging ? Math.max(0.15, 0.85 - Math.abs(ty) / 420) : 0.85,
+  );
 
   function onPointerDown(e) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     if (e.target.closest?.(".lb-bar")) return; // let the ✕ button be a button
+    pressedMenu = false;
     downOnBackdrop = e.target === overlayEl;
     overlayEl.setPointerCapture?.(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -229,6 +279,15 @@
       tx += dx;
       ty += dy;
       clampPan();
+    } else if (moved > 6 && e.pointerType !== "mouse") {
+      // Fit scale: throw-to-dismiss. Touch only — a mouse has the ✕, Escape and
+      // a backdrop click, and dragging a photo out of a desktop viewer isn't a
+      // gesture anyone means. Sideways gets a fraction of the travel so the
+      // image still feels grabbed without pretending it can be panned.
+      flinging = true;
+      dragging = true;
+      ty += dy;
+      tx += dx * 0.3;
     }
   }
 
@@ -236,9 +295,22 @@
     const wasPinching = pointers.size === 2;
     pointers.delete(e.pointerId);
     if (pointers.size > 0 || wasPinching) return;
+    if (flinging) {
+      const thrown = Math.abs(ty) > FLING_PX;
+      flinging = false;
+      dragging = false;
+      if (thrown) {
+        haptic("light");
+        closeLightbox();
+      } else {
+        tx = 0; // short of the threshold: spring back (the img keeps its transition)
+        ty = 0;
+      }
+      return;
+    }
     const wasDrag = dragging || moved > 4;
     dragging = false;
-    if (wasDrag) return;
+    if (wasDrag || pressedMenu) return;
     // A clean click: on the backdrop it closes; on the image it toggles zoom
     // at the click point (in), or back to fit (out).
     if (downOnBackdrop) {
@@ -260,12 +332,17 @@
     onclick={hidden ? reveal : openLightbox}
     oncontextmenu={hidden ? undefined : imageMenu}
     title={hidden ? "Spoiler — click to reveal" : "Click to enlarge"}
+    use:imageTouch
+    use:longpress={{ handler: imageLongPress }}
   >
+    <!-- min(): 380px is the desktop ceiling, but a phone's message column is
+         ~300px and the feed clips its overflow — an unclamped landscape photo
+         simply lost its right-hand third with no way to reach it. -->
     <img
       {src}
       alt={tok.desc || "attachment"}
       class:blur={hidden}
-      style="max-width:{MAXW}px;max-height:{MAXH}px"
+      style="max-width:min({MAXW}px, 100%);max-height:{MAXH}px"
     />
     {#if hidden}<span class="spoiler-tag">SPOILER</span>{/if}
   </button>
@@ -278,6 +355,8 @@
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
       class="lightbox"
+      class:flinging
+      style="--lb-dim:{backdrop}"
       role="dialog"
       aria-modal="true"
       aria-label="Image viewer"
@@ -297,6 +376,7 @@
         style="transform: translate({tx}px, {ty}px) scale({zoom})"
         draggable="false"
         oncontextmenu={imageMenu}
+        use:longpress={{ handler: lightboxLongPress }}
       />
       <div class="lb-bar">
         <span class="lb-zoom" class:show={zoom > 1}>{Math.round(zoom * 100)}%</span>
@@ -307,7 +387,10 @@
     </div>
   {/if}
 {:else}
-  <div class="frame placeholder" style="width:{dims.w}px;height:{dims.h}px">
+  <div
+    class="frame placeholder"
+    style="width:{dims.w}px;aspect-ratio:{dims.w} / {dims.h}"
+  >
     {#if state === "loading"}
       <span class="spin"></span>
       <span class="muted small">fetching image…</span>
@@ -342,7 +425,7 @@
     inset: 0;
     display: grid;
     place-items: center;
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 800;
     letter-spacing: 1.2px;
     color: #fff;
@@ -352,16 +435,19 @@
   .att-desc {
     display: block;
     margin-top: 3px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     line-height: 1.4;
     color: var(--text-muted);
-    max-width: 420px;
+    max-width: min(420px, 100%);
   }
   .frame.done {
     background: transparent;
     padding: 0;
     display: block;
     width: fit-content;
+    /* The shrink-to-fit box must itself be capped, or the image's own
+       max-width:100% has a containing block wider than the column. */
+    max-width: 100%;
     cursor: zoom-in;
   }
   .frame.done:hover {
@@ -372,16 +458,19 @@
     border-radius: var(--radius-sm);
     transition: filter 0.15s ease;
   }
-  /* Dim a touch on hover so the thumbnail reads as "click to enlarge". */
-  .frame.done:hover img {
-    filter: brightness(0.9);
+  /* Dim a touch on hover so the thumbnail reads as "click to enlarge". Gated on
+     a real pointer: Chromium latches :hover onto the last-tapped element, so on
+     a phone this left every photo you had opened permanently darkened. */
+  @media (pointer: fine) {
+    .frame.done:hover img {
+      filter: brightness(0.9);
+    }
   }
   .placeholder {
     background: var(--bg-1);
     border: 1px solid var(--border);
     color: var(--text-faint);
-    max-width: 380px;
-    max-height: 280px;
+    max-width: 100%;
   }
   .spin {
     width: 20px;
@@ -397,23 +486,27 @@
     }
   }
   .small {
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .retry {
     padding: 3px 12px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .lightbox {
     position: fixed;
     inset: 0;
     z-index: 300;
-    background: rgba(0, 0, 0, 0.85);
+    background: rgba(0, 0, 0, var(--lb-dim, 0.85));
     display: grid;
     place-items: center;
     padding: 4vh 4vw;
     overflow: hidden;
     touch-action: none; /* pointer events own pinch/drag */
     animation: lb-in 0.15s ease;
+    transition: background 0.18s ease;
+  }
+  .lightbox.flinging {
+    transition: none; /* the backdrop tracks the finger 1:1 during a throw */
   }
   @keyframes lb-in {
     from {
@@ -438,16 +531,19 @@
     cursor: grabbing;
     transition: none; /* 1:1 with the pointer while panning */
   }
+  /* The overlay is edge-to-edge, and the app draws under the status bar (see
+     MobileShell's own inset padding) — without the safe-area offset the ✕ sits
+     beneath the clock and the camera cutout. */
   .lb-bar {
     position: absolute;
-    top: 14px;
-    right: 16px;
+    top: calc(14px + env(safe-area-inset-top));
+    right: calc(16px + env(safe-area-inset-right));
     display: flex;
     align-items: center;
     gap: 10px;
   }
   .lb-zoom {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-variant-numeric: tabular-nums;
     color: rgba(255, 255, 255, 0.85);
     background: rgba(0, 0, 0, 0.45);
@@ -473,5 +569,14 @@
   }
   .lb-close:hover {
     background: rgba(255, 255, 255, 0.18);
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    /* Far top-right is the worst place on a phone for a thumb, so the button
+       gets the full tap minimum — and throw-to-dismiss plus hardware back are
+       the gestures actually meant to be used. */
+    .lb-close {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
   }
 </style>

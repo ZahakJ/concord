@@ -63,6 +63,7 @@
     gap: 12px;
     margin-top: 6px;
     max-width: 460px;
+    min-height: var(--tap-min);
     padding: 10px 12px;
     border-left: 3px solid var(--accent);
     border-radius: var(--radius-sm);
@@ -74,10 +75,17 @@
       box-shadow 0.14s ease,
       transform 0.14s ease;
   }
-  .card:hover {
+  /* Pointer-only: Chromium latches :hover onto the last-tapped element, which
+     left a link card you had merely tapped floating above the feed for good. */
+  @media (pointer: fine) {
+    .card:hover {
+      background: var(--bg-3);
+      box-shadow: 0 2px 10px rgb(0 0 0 / 0.14);
+      transform: translateY(-1px);
+    }
+  }
+  .card:active {
     background: var(--bg-3);
-    box-shadow: 0 2px 10px rgb(0 0 0 / 0.14);
-    transform: translateY(-1px);
   }
   .meta {
     display: flex;
@@ -87,13 +95,13 @@
     flex: 1;
   }
   .site {
-    font-size: 11px;
+    font-size: var(--fs-small);
     text-transform: uppercase;
     letter-spacing: 0.04em;
   }
   .title {
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-ui);
     color: var(--accent-hover);
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -101,7 +109,7 @@
     overflow: hidden;
   }
   .desc {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.4;
     display: -webkit-box;
     -webkit-line-clamp: 3;

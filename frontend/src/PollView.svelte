@@ -7,7 +7,8 @@
   // many — the fingerprints are already in m.reactions, so each row shows the
   // faces behind its number.
   import Avatar from "./Avatar.svelte";
-  import { S, react, memberByFpr, nameFor } from "./lib/state.svelte.js";
+  import { S, react, memberByFpr, nameFor, openContextMenu } from "./lib/state.svelte.js";
+  import { haptic } from "./lib/touch.js";
   import { POLL_EMOJI } from "./lib/polls.js";
 
   // `preview` renders the poll as it will look without letting anyone vote —
@@ -15,7 +16,10 @@
   let { m, poll, preview = false } = $props();
 
   const me = $derived(S.identity.fingerprint);
-  const FACES = 4; // how many voters to show before "+N"
+  // How many voters to show before "+N". One fewer on a phone: four overlapping
+  // 19px faces are ~61px of a ~300px card, taken straight out of the option
+  // label — and the label is the thing you are voting on.
+  const FACES = $derived(S.isMobile ? 3 : 4);
 
   const rows = $derived(
     poll.opts.map((text, i) => {
@@ -42,6 +46,10 @@
 
   function vote(r) {
     if (preview) return;
+    // On a single-choice poll a mis-tap doesn't just add a vote, it MOVES one —
+    // silently, since the row you left simply stops being highlighted. The tick
+    // of vibration is the confirmation that something changed at all.
+    haptic("light");
     // Single-choice: picking a new option clears your other picks.
     if (!poll.multi && !r.mine) {
       for (const other of rows) {
@@ -49,6 +57,21 @@
       }
     }
     react(m, r.emoji);
+  }
+
+  // Seeing WHO voted is the point of this component, and past the first few
+  // faces that was a `title` tooltip — which touch never renders, so a poll with
+  // twelve voters showed "+8" and no gesture could ever reveal them. The tally
+  // opens the full list, grouped by option, in the same sheet the message
+  // long-press uses.
+  function showVoters(e) {
+    const items = [];
+    for (const r of rows) {
+      if (!r.count) continue;
+      items.push({ header: true, label: `${r.emoji} ${r.text} · ${r.count}` });
+      for (const f of r.voters) items.push({ label: nameFor(f), onClick: () => {} });
+    }
+    openContextMenu(e, items, { title: poll.q });
   }
 </script>
 
@@ -97,7 +120,11 @@
   </div>
 
   <div class="poll-foot">
-    <span class="tally">{total || "No"} vote{total === 1 ? "" : "s"}</span>
+    {#if total && !preview}
+      <button class="tally" onclick={showVoters}>{total} vote{total === 1 ? "" : "s"} ›</button>
+    {:else}
+      <span class="tally flat">{total || "No"} vote{total === 1 ? "" : "s"}</span>
+    {/if}
     {#if !preview}
       <span class="state" class:done={voted}>{voted ? "You voted" : "Tap an option to vote"}</span>
     {/if}
@@ -121,12 +148,12 @@
   }
   .poll-q {
     font-weight: 700;
-    font-size: 15.5px;
+    font-size: var(--fs-body);
     line-height: 1.3;
   }
   /* The rules of the poll, stated once, quietly — not repeated on every row. */
   .poll-kind {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -155,8 +182,13 @@
       border-color 0.14s ease,
       transform 0.08s ease;
   }
-  .opt:hover:not(:disabled) {
-    border-color: var(--accent);
+  /* Pointer-only: Chromium latches :hover after a tap, so an option you merely
+     brushed past stayed accent-ringed and read as "selected" — on the one
+     control in the app where selection is the actual state being displayed. */
+  @media (pointer: fine) {
+    .opt:hover:not(:disabled) {
+      border-color: var(--accent);
+    }
   }
   .opt:active:not(:disabled) {
     transform: scale(0.995);
@@ -228,13 +260,16 @@
     font-size: 8px;
     font-weight: 900;
   }
+  /* Wraps rather than truncates. Between the marker, the faces cluster and the
+     percentage there were about 143px left in a phone-width card — roughly 20
+     characters — so options read "Should we move the mee…" and you voted on an
+     ellipsis. A taller row is the cheap half of that trade. */
   .opt-text {
     flex: 1;
     min-width: 0;
-    font-size: 13px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: var(--fs-ui);
+    line-height: 1.35;
+    overflow-wrap: anywhere;
   }
   .opt.mine .opt-text,
   .opt.lead .opt-text {
@@ -258,7 +293,7 @@
   }
   .more {
     margin-left: 3px;
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     font-variant-numeric: tabular-nums;
     color: var(--text-muted);
   }
@@ -266,7 +301,7 @@
     flex-shrink: 0;
     min-width: 2.6em;
     text-align: right;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     color: var(--text);
@@ -281,15 +316,53 @@
     justify-content: space-between;
     gap: 10px;
     margin-top: 10px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
   }
   .tally {
+    /* `font` is a shorthand and resets font-variant — it has to come first. */
+    font: inherit;
     font-variant-numeric: tabular-nums;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    text-align: left;
+    cursor: pointer;
+  }
+  .tally.flat {
+    cursor: default;
+  }
+  @media (pointer: fine) {
+    .tally:not(.flat):hover {
+      color: var(--text);
+      background: transparent;
+      text-decoration: underline;
+    }
   }
   .state.done {
     color: var(--accent-hover);
     font-weight: 600;
+  }
+  /* ---- phone ---- */
+  @media (pointer: coarse), (max-width: 768px) {
+    /* 43px rows 6px apart, on a control where a mis-tap MOVES your vote to the
+       neighbouring option with no confirmation and nothing that says it moved. */
+    .opt-body {
+      padding: 13px 12px;
+    }
+    .poll-opts {
+      gap: var(--sp-2);
+    }
+    /* The tally is now a real control, not a caption. */
+    .tally:not(.flat) {
+      min-height: var(--tap-min);
+      display: inline-flex;
+      align-items: center;
+    }
+    .poll-foot {
+      align-items: center;
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     .fill,

@@ -75,19 +75,21 @@
     text-align: center;
     transition: background 0.12s ease;
   }
-  .placeholder:hover {
-    background: var(--bg-2);
+  @media (pointer: fine) {
+    .placeholder:hover {
+      background: var(--bg-2);
+    }
   }
   .pi {
     opacity: 0.9;
   }
   .pl {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text);
   }
   .ph {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   .thumb {
     position: relative;
@@ -114,8 +116,10 @@
     background: rgba(0, 0, 0, 0.25);
     transition: background 0.15s ease;
   }
-  .thumb:hover .play {
-    background: rgba(0, 0, 0, 0.05);
+  @media (pointer: fine) {
+    .thumb:hover .play {
+      background: rgba(0, 0, 0, 0.05);
+    }
   }
   .play svg {
     filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
@@ -125,9 +129,11 @@
   }
   /* The red button swells slightly under the cursor — the whole thumbnail
      feels like a play control. */
-  .thumb:hover .play svg {
-    transform: scale(1.12);
-    filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.5));
+  @media (pointer: fine) {
+    .thumb:hover .play svg {
+      transform: scale(1.12);
+      filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.5));
+    }
   }
   .thumb:active .play svg {
     transform: scale(0.96);
