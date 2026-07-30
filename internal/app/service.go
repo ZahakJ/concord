@@ -832,11 +832,35 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		go s.deliverPendingDMInvites(p)
 		go func() {
 			time.Sleep(1500 * time.Millisecond)
-			s.announceProfileAll()
+			// Everything below is for a peer we have a relationship with. The
+			// host also connects to the rendezvous, DHT routing peers and relay
+			// candidates — several per 15s discovery tick — and running this
+			// tail for each of those meant re-announcing our profile to every
+			// guild (42 encrypted publishes on a real install), attempting a
+			// history sync with someone who shares nothing, retrying it 10s
+			// later, and probing stranded guilds. Per stranger. That is network
+			// noise at best; at login, when discovery fires hardest, it is part
+			// of why starting up dragged.
+			//
+			// The second look at 10s is not decoration: a member's linked device
+			// can resolve to its own key for a moment after connecting, until
+			// the roster commit carrying its certificate is applied. One recheck
+			// on the existing retry beat covers that window without handing
+			// every stranger a polling loop.
+			known := s.knownContact(s.presence(p).Fingerprint)
+			if known {
+				s.announceProfileAll()
+			}
 			// Pull any history we missed while apart from this peer; one retry
 			// covers a stream that failed while the connection settled.
-			if !s.syncFromPeer(p) {
+			if !known || !s.syncFromPeer(p) {
 				time.Sleep(10 * time.Second)
+				if !known {
+					if known = s.knownContact(s.presence(p).Fingerprint); !known {
+						return
+					}
+					s.announceProfileAll()
+				}
 				s.syncFromPeer(p)
 			}
 			// If sync couldn't bridge a gap and this peer can commit, this
