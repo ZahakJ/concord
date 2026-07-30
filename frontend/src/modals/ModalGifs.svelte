@@ -7,13 +7,21 @@
   //     ride the encrypted-attachment path, and searching it is a substring
   //     match over a list already in memory. Nothing leaves the machine.
   //
-  //   Search — Tenor, fetched BY THE USER'S OWN RENDEZVOUS. The rendezvous sees
-  //     the search terms; Google sees only the rendezvous. Critically, the
-  //     images come through it too: a result carries an opaque handle, never a
-  //     URL, and every thumbnail and full GIF arrives as an inline data URL from
-  //     the Go side. If anything here ever put a tenor.com address into an
-  //     <img src>, every member's browser would connect to Google and the tab's
-  //     privacy claim would become a lie. Don't.
+  //   Search — a public GIF service, fetched BY THE USER'S OWN RENDEZVOUS. The
+  //     rendezvous sees the search terms; the service sees only the rendezvous.
+  //     Critically, the images come through it too: a result carries an opaque
+  //     handle, never a URL, and every thumbnail and full GIF arrives as an
+  //     inline data URL from the Go side. If anything here ever put a provider
+  //     address into an <img src>, every member's browser would connect to that
+  //     provider and the tab's privacy claim would become a lie. Don't.
+  //
+  //   WHICH service is the node's, not ours. This tab used to say "Tenor"
+  //   everywhere; Google decommissioned the public Tenor API on 30 June 2026 and
+  //   every one of those sentences became false at once — including the
+  //   "unavailable" notice, which told people to go and get a key that could no
+  //   longer be issued. The node now reports the provider it actually uses in
+  //   `source`, and every sentence below is built from that. Do not put a vendor
+  //   name back into this file.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { S, activeGuild, flash, refreshGuilds } from "../lib/state.svelte.js";
@@ -204,7 +212,10 @@
   // away. Everything else — unreachable, rate-limited, stale — is worth another
   // press of Enter, so the input stays live.
   const usable = $derived(status?.status === "ok" || !DEAD_END.has(status?.status));
-  const source = $derived(status?.source || "Tenor");
+  // The provider the NODE says it used. The fallback is deliberately generic:
+  // guessing a vendor name is what made this tab lie once already, and an older
+  // node that sends no source is a node we genuinely do not know this about.
+  const source = $derived(status?.source || "the GIF service");
 
   // explain turns a status into the sentence shown in place of results. It also
   // says what to DO about it, because "unavailable" on its own tells the user
@@ -217,13 +228,19 @@
       case "unreachable":
         return "Your rendezvous didn't answer, so there is nothing to search through right now. This server's own GIFs still work — they come from members, not from a server.";
       case "unavailable":
-        return "Your rendezvous is reachable but has no GIF API key, so it can't search Tenor. Whoever runs it can set CONCORD_TENOR_KEY on the rendezvous to turn this on.";
+        // The node's own detail names the provider it is configured for and the
+        // variable to set — including, if that provider is Tenor, that its
+        // public API no longer exists. Preferred over anything written here,
+        // because only the node knows how it was configured.
+        return st.detail
+          ? `Your rendezvous is reachable but can't search: ${st.detail}.`
+          : "Your rendezvous is reachable but has no GIF search key, so it can't search. Whoever runs it can set CONCORD_GIF_KEY on the rendezvous — with a key from developers.giphy.com — to turn this on.";
       case "rate_limited":
         return "Your rendezvous is limiting GIF requests right now. Wait a few seconds and try again.";
       case "expired":
         return "Those results went stale — the rendezvous restarted since you searched. Search again.";
       case "upstream":
-        return `Your rendezvous couldn't reach the GIF service${st.detail ? ` (${st.detail})` : ""}. That's between it and Tenor; nothing on your machine is wrong.`;
+        return `Your rendezvous couldn't reach ${source}${st.detail ? ` (${st.detail})` : ""}. That's between it and ${source}; nothing on your machine is wrong.`;
       case "bad_request":
         return st.detail || "That search couldn't be run.";
       default:
@@ -454,8 +471,8 @@
         autofocus
         bind:value={sq}
         disabled={!usable}
-        placeholder={usable ? "Search Tenor via your rendezvous…" : "Search unavailable"}
-        aria-label="Search Tenor through your rendezvous"
+        placeholder={usable ? `Search ${source} via your rendezvous…` : "Search unavailable"}
+        aria-label="Search for GIFs through your rendezvous"
         onkeydown={(e) => {
           if (e.key === "Enter") runSearch(false);
         }}
@@ -531,15 +548,16 @@
     <p class="muted foot">
       {#if usable}
         Results from {source}, fetched by <strong>your rendezvous</strong> — it sees your search
-        terms. Google sees only your rendezvous, never you: the pictures come through it too, so
-        your browser never connects to Tenor.{#if status?.via}{" "}Proxied by
+        terms. {source} sees only your rendezvous, never you: the pictures come through it too, so
+        your browser never connects to {source}.{#if status?.via}{" "}Proxied by
           <code>{status.via.slice(0, 12)}…</code>.{/if}
         Sending one posts it as an ordinary encrypted attachment, so nobody else fetches it from
-        Tenor either.
+        {source} either.
       {:else}
-        When this works, results come from Tenor fetched by <strong>your rendezvous</strong> — it
-        would see your search terms, Google would see only it, and the pictures would come through
-        it too so your browser never connects to Tenor. Right now nothing is being sent anywhere.
+        When this works, results come from a GIF service fetched by <strong>your rendezvous</strong>
+        — it would see your search terms, the service would see only it, and the pictures would come
+        through it too so your browser never connects to the service. Right now nothing is being
+        sent anywhere.
       {/if}
     </p>
   {/if}

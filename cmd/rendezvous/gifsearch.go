@@ -26,22 +26,41 @@ import (
 
 // The GIF-search proxy.
 //
-// A member's client asks this node; this node asks Tenor. Nobody's browser
-// touches Google, so Google learns one IP — this node's — for the whole guild,
-// and learns nothing about who searched for what. The operator, in exchange,
-// sees the search terms. That is a real cost, and it is the trade the user
-// asked for: they run this node themselves, and they already route their
-// discovery, relaying and offline mail through it.
+// A member's client asks this node; this node asks the GIF vendor. Nobody's
+// browser touches the vendor, so the vendor learns one IP — this node's — for
+// the whole guild, and learns nothing about who searched for what. The operator,
+// in exchange, sees the search terms. That is a real cost, and it is the trade
+// the user asked for: they run this node themselves, and they already route
+// their discovery, relaying and offline mail through it.
+//
+// WHY THE VENDOR IS AN INTERFACE. This file used to say "Tenor" everywhere. On
+// 30 June 2026 Google decommissioned the public Tenor API: existing keys stopped
+// returning data, signups closed, and every part of this feature died at once —
+// including the "unavailable" message, which went on telling operators to go get
+// a CONCORD_TENOR_KEY that could no longer be obtained. Hardcoding one vendor
+// into the proxy was the mistake, not the choice of vendor. The upstream was
+// already isolated behind exactly one boundary (this node), so the vendor is now
+// a small interface: it knows a vendor's URL shape, JSON and pagination
+// convention, and nothing else. Everything that makes this safe — the signed
+// handles, the SSRF allowlist, the byte caps, the rate limits — stays outside
+// it, in gifProxy, where a new provider cannot weaken it by accident.
+//
+// Giphy is the default because it is alive and its signups are open. The Tenor
+// implementation is kept, and only kept: someone running a Tenor-compatible
+// mirror of their own can still select it, but nothing defaults to it, because
+// the public API it was written against no longer exists.
 //
 // This is the one part of the rendezvous that makes OUTBOUND requests to the
 // open web on a peer's behalf, so it is written as if peers were hostile:
 //
 //   - a peer never supplies a URL. It supplies an opaque handle that this node
-//     minted from an address Tenor itself returned, HMAC'd under a per-process
-//     secret. Anything else is refused, so this cannot be turned into an open
-//     proxy for scanning the operator's LAN or laundering traffic.
+//     minted from an address the vendor itself returned, HMAC'd under a
+//     per-process secret. Anything else is refused, so this cannot be turned
+//     into an open proxy for scanning the operator's LAN or laundering traffic.
 //   - the handle is checked against a host allowlist on the way back OUT as
 //     well, and again on every redirect, so a signature alone is not authority.
+//     The allowlist is the CONFIGURED provider's, never the union of all of
+//     them: a node proxying for Giphy has no business fetching from tenor.com.
 //   - responses are size-capped with a LimitReader (a Content-Length header is
 //     a claim, not a fact) and the whole exchange is under a timeout.
 //   - requests are token-bucketed per peer, because the expensive resource here
@@ -49,7 +68,8 @@ import (
 //
 // With no API key configured the proxy answers "unavailable" and says so. That
 // is a supported state, not a failure: most operators will never set a key, and
-// the client is required to explain the difference.
+// the client is required to explain the difference — truthfully, which is why
+// the reason string names the provider actually configured and what to set.
 
 const (
 	// gifSearchRate/Burst: searches cost the operator API quota, so they are the
@@ -67,22 +87,371 @@ const (
 	// inside the peer's stream deadline (30s) for the reply to be written back.
 	gifUpstreamTimeout = 12 * time.Second
 
-	// gifMaxQueryRunes caps the search terms. Tenor's own limit is far higher;
-	// this is here so a peer cannot push a megabyte of text through the
+	// gifMaxQueryRunes caps the search terms. Every vendor's own limit is far
+	// higher; this is here so a peer cannot push a megabyte of text through the
 	// operator's API account.
 	gifMaxQueryRunes = 100
 	gifMaxResults    = 30
+
+	// gifMaxCursor bounds a pagination cursor. It is echoed back from a previous
+	// reply of ours, but it still arrives from a peer.
+	gifMaxCursor = 64
 )
+
+// tenorGone is the one sentence every Tenor-related message carries, so the
+// operator hears the same fact from the startup log, the peer-facing reason
+// string and the comments. Kept as a constant precisely because a half-updated
+// version of it is how the old lie survived.
+const tenorGone = "the public Tenor API was decommissioned on 30 June 2026"
+
+// gifQuery is one search, already sanitized, as handed to a provider.
+type gifQuery struct {
+	Terms    string // cleanQuery'd search terms, never empty
+	Limit    int    // clamped to gifMaxResults
+	Pos      string // cursor from a previous reply of ours, length-bounded
+	Filter   string // the provider's own safety level, from contentFilter
+	Key      string // the operator's API key
+	ClientID string // an app-level analytics bucket, if the vendor has one
+}
+
+// gifCandidate is one upstream result BEFORE it is made safe for a peer: it
+// still carries real URLs, which is why it never leaves this file. gifProxy
+// re-checks both addresses against the allowlist and replaces them with signed
+// handles before anything goes down the wire.
+type gifCandidate struct {
+	ID            string
+	Title         string
+	Preview       string // URL of the small thumbnail
+	Full          string // URL of the full-size image
+	Width, Height int    // of Full; a layout hint only
+}
+
+// gifProvider is one upstream GIF vendor.
+//
+// Implementations are deliberately dumb: a URL shape, a JSON schema, a cursor
+// convention, and a list of hostnames their media lives on. They hold no
+// credentials, do no I/O, and enforce no policy — the proxy does that, so that
+// adding a vendor cannot loosen the SSRF gate or the caps.
+type gifProvider interface {
+	// name is shown to peers as provenance ("Results from Giphy…").
+	name() string
+	// apiBase is the vendor's public API root, used when the operator sets none.
+	apiBase() string
+	// mediaHosts lists the hostnames media may be fetched from. Each matches
+	// exactly or as a parent domain, https only. This is the ONE security input
+	// a provider supplies, and it is per provider on purpose.
+	mediaHosts() []string
+	// contentFilter validates a safety level and returns the vendor's own value
+	// for it. The empty string must map to the STRICTEST setting the vendor
+	// offers: an operator running a proxy for their friends is not signing up to
+	// moderate what it returns, and the permissive default is the surprising one.
+	contentFilter(level string) (string, error)
+	// searchURL builds one search request against base.
+	searchURL(base *url.URL, q gifQuery) *url.URL
+	// decode maps a vendor response into candidates plus the cursor for the next
+	// page ("" when exhausted). Formats the vendor already says are larger than
+	// maxBytes must be skipped: a handle that is guaranteed to fail when clicked
+	// is worse than one fewer result.
+	decode(body []byte, q gifQuery, maxBytes int64) ([]gifCandidate, string, error)
+}
+
+// ---- Giphy (the default) ----
+
+// giphyProvider speaks Giphy's v1 API. Chosen as the default in July 2026
+// because it is the surviving public GIF API of the two: it answers, it returns
+// a proper 401 for a bad key rather than a vague 400, and signups are open at
+// developers.giphy.com.
+type giphyProvider struct{}
+
+func (giphyProvider) name() string    { return "Giphy" }
+func (giphyProvider) apiBase() string { return "https://api.giphy.com" }
+
+// Giphy serves its media from media.giphy.com, media0-4.giphy.com and
+// i.giphy.com. All of them are under giphy.com, so one entry covers the CDN
+// without enumerating shards that come and go.
+func (giphyProvider) mediaHosts() []string { return []string{"giphy.com"} }
+
+// Giphy calls this "rating" and spells the levels y/g/pg/pg-13/r. The
+// Tenor-shaped words are accepted as aliases so an operator migrating off the
+// legacy CONCORD_TENOR_CONTENTFILTER does not have to learn a second vocabulary
+// in the same upgrade that already changed their variable names.
+func (giphyProvider) contentFilter(level string) (string, error) {
+	switch level {
+	case "":
+		return "g", nil // strictest useful default
+	case "y", "g", "pg", "pg-13", "r":
+		return level, nil
+	case "high":
+		return "g", nil
+	case "medium":
+		return "pg", nil
+	case "low":
+		return "pg-13", nil
+	case "off":
+		return "r", nil
+	default:
+		return "", fmt.Errorf("for provider giphy the content filter must be y|g|pg|pg-13|r (or high|medium|low|off), got %q", level)
+	}
+}
+
+// giphyMaxWindow is Giphy's documented ceiling on offset+limit. Asking past it
+// gets a 4xx, so the cursor stops there rather than handing the peer a "More
+// results" button that always fails.
+const giphyMaxWindow = 4999
+
+func (giphyProvider) searchURL(base *url.URL, q gifQuery) *url.URL {
+	u := *base
+	u.Path = strings.TrimSuffix(u.Path, "/") + "/v1/gifs/search"
+	qs := url.Values{
+		"api_key": {q.Key},
+		"q":       {q.Terms},
+		"limit":   {strconv.Itoa(q.Limit)},
+		"rating":  {q.Filter},
+		"lang":    {"en"},
+	}
+	if off := giphyOffset(q.Pos); off > 0 {
+		qs.Set("offset", strconv.Itoa(off))
+	}
+	u.RawQuery = qs.Encode()
+	return &u
+}
+
+// giphyOffset parses Giphy's cursor, which is a plain result offset. Anything
+// that is not a small non-negative integer is treated as "start from the top":
+// the cursor came back from a peer, and refusing the whole search over a
+// mangled one would be unhelpful.
+func giphyOffset(pos string) int {
+	if pos == "" || len(pos) > 9 {
+		return 0
+	}
+	n, err := strconv.Atoi(pos)
+	if err != nil || n < 0 {
+		return 0
+	}
+	if n > giphyMaxWindow {
+		return giphyMaxWindow
+	}
+	return n
+}
+
+// giphySearch is the slice of Giphy's response this proxy uses. Everything else
+// in their JSON is ignored on purpose: the less of a third party's schema that
+// reaches a peer, the less there is to go wrong.
+//
+// Note the string-typed numbers. Giphy really does serialize width, height and
+// size as JSON strings; decoding them as ints fails on the real API, which is
+// the sort of thing only a fixture built from a real response catches.
+type giphySearch struct {
+	Data []struct {
+		ID      string `json:"id"`
+		Title   string `json:"title"`
+		AltText string `json:"alt_text"`
+		Images  map[string]struct {
+			URL    string `json:"url"`
+			Width  string `json:"width"`
+			Height string `json:"height"`
+			Size   string `json:"size"`
+		} `json:"images"`
+	} `json:"data"`
+	Pagination struct {
+		TotalCount int `json:"total_count"`
+		Count      int `json:"count"`
+		Offset     int `json:"offset"`
+	} `json:"pagination"`
+}
+
+func (giphyProvider) decode(body []byte, q gifQuery, maxBytes int64) ([]gifCandidate, string, error) {
+	var gs giphySearch
+	if err := json.Unmarshal(body, &gs); err != nil {
+		return nil, "", err
+	}
+	out := make([]gifCandidate, 0, len(gs.Data))
+	for _, d := range gs.Data {
+		pick := func(names ...string) (string, int, int, bool) {
+			for _, n := range names {
+				im, ok := d.Images[n]
+				if !ok || im.URL == "" {
+					continue
+				}
+				if sz, err := strconv.ParseInt(im.Size, 10, 64); err == nil && sz > maxBytes {
+					continue
+				}
+				w, _ := strconv.Atoi(im.Width)
+				h, _ := strconv.Atoi(im.Height)
+				return im.URL, w, h, true
+			}
+			return "", 0, 0, false
+		}
+		// Thumbnail smallest-first; full biggest-that-fits-first. "downsized" and
+		// friends are Giphy's own size-bounded renditions, so preferring them
+		// keeps the common case inside our relay ceiling.
+		prev, _, _, okP := pick("fixed_width_small", "preview_gif", "fixed_width_downsampled", "fixed_width", "downsized")
+		full, w, h, okF := pick("downsized_medium", "downsized", "fixed_width", "original")
+		if !okP || !okF {
+			continue
+		}
+		title := d.AltText
+		if title == "" {
+			title = d.Title
+		}
+		out = append(out, gifCandidate{ID: d.ID, Title: title, Preview: prev, Full: full, Width: w, Height: h})
+	}
+
+	// Giphy has no opaque cursor: the next page is the next offset. Emitted only
+	// when there is reason to believe another page exists, so the UI's "More
+	// results" button is not offered into a guaranteed empty reply.
+	next := ""
+	if n := len(gs.Data); n > 0 {
+		at := giphyOffset(q.Pos) + n
+		if gs.Pagination.Offset > 0 || gs.Pagination.Count > 0 {
+			at = gs.Pagination.Offset + gs.Pagination.Count
+		}
+		if at < giphyMaxWindow && (gs.Pagination.TotalCount == 0 || at < gs.Pagination.TotalCount) {
+			next = strconv.Itoa(at)
+		}
+	}
+	return out, next, nil
+}
+
+// ---- Tenor (kept, not default) ----
+
+// tenorProvider speaks Tenor's v2 API. KEPT DELIBERATELY, DEFAULT DELIBERATELY
+// NOT: as of 30 June 2026 tenor.googleapis.com is decommissioned, so this is
+// useful only against a Tenor-compatible mirror the operator points
+// CONCORD_GIF_BASE at. Selecting it prints that fact at startup and says it in
+// the reason string peers see, so nobody spends an afternoon debugging a
+// service that no longer exists.
+type tenorProvider struct{}
+
+func (tenorProvider) name() string         { return "Tenor" }
+func (tenorProvider) apiBase() string      { return "https://tenor.googleapis.com" }
+func (tenorProvider) mediaHosts() []string { return []string{"tenor.com"} }
+
+func (tenorProvider) contentFilter(level string) (string, error) {
+	switch level {
+	case "off", "low", "medium", "high":
+		return level, nil
+	case "":
+		return "high", nil // strictest
+	default:
+		return "", fmt.Errorf("for provider tenor the content filter must be off|low|medium|high, got %q", level)
+	}
+}
+
+func (tenorProvider) searchURL(base *url.URL, q gifQuery) *url.URL {
+	u := *base
+	u.Path = strings.TrimSuffix(u.Path, "/") + "/v2/search"
+	qs := url.Values{
+		"q":             {q.Terms},
+		"key":           {q.Key},
+		"limit":         {strconv.Itoa(q.Limit)},
+		"media_filter":  {"tinygif,mediumgif,gif"},
+		"contentfilter": {q.Filter},
+	}
+	if q.ClientID != "" {
+		qs.Set("client_key", q.ClientID)
+	}
+	if q.Pos != "" {
+		qs.Set("pos", q.Pos)
+	}
+	u.RawQuery = qs.Encode()
+	return &u
+}
+
+// tenorSearch is the slice of Tenor's v2 response this proxy uses.
+type tenorSearch struct {
+	Results []struct {
+		ID                 string `json:"id"`
+		Title              string `json:"title"`
+		ContentDescription string `json:"content_description"`
+		MediaFormats       map[string]struct {
+			URL  string `json:"url"`
+			Dims []int  `json:"dims"`
+			Size int64  `json:"size"`
+		} `json:"media_formats"`
+	} `json:"results"`
+	Next string `json:"next"`
+}
+
+func (tenorProvider) decode(body []byte, _ gifQuery, maxBytes int64) ([]gifCandidate, string, error) {
+	var ts tenorSearch
+	if err := json.Unmarshal(body, &ts); err != nil {
+		return nil, "", err
+	}
+	out := make([]gifCandidate, 0, len(ts.Results))
+	for _, r := range ts.Results {
+		pick := func(names ...string) (string, int, int, bool) {
+			for _, n := range names {
+				f, ok := r.MediaFormats[n]
+				if !ok || f.URL == "" {
+					continue
+				}
+				if f.Size > maxBytes {
+					continue
+				}
+				w, h := 0, 0
+				if len(f.Dims) == 2 {
+					w, h = f.Dims[0], f.Dims[1]
+				}
+				return f.URL, w, h, true
+			}
+			return "", 0, 0, false
+		}
+		prev, _, _, okP := pick("tinygif", "mediumgif", "gif")
+		full, w, h, okF := pick("mediumgif", "gif", "tinygif")
+		if !okP || !okF {
+			continue
+		}
+		title := r.ContentDescription
+		if title == "" {
+			title = r.Title
+		}
+		out = append(out, gifCandidate{ID: r.ID, Title: title, Preview: prev, Full: full, Width: w, Height: h})
+	}
+	// Tenor's cursor is opaque; it is handed straight back next time.
+	return out, ts.Next, nil
+}
+
+// isTenorProvider reports whether the configured vendor is Tenor. Used only to
+// decide whether to say out loud that the public API behind it is gone; a type
+// assertion rather than a name comparison so a renamed label cannot silence it.
+func isTenorProvider(p gifProvider) bool {
+	_, ok := p.(tenorProvider)
+	return ok
+}
+
+// gifProviderByName resolves CONCORD_GIF_PROVIDER. Unknown names are an error
+// rather than a silent fallback: an operator who misspells their provider should
+// be told, not quietly proxied somewhere they did not choose.
+func gifProviderByName(name string) (gifProvider, error) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "giphy":
+		return giphyProvider{}, nil
+	case "tenor":
+		return tenorProvider{}, nil
+	default:
+		return nil, fmt.Errorf("CONCORD_GIF_PROVIDER must be giphy|tenor, got %q", name)
+	}
+}
+
+// ---- the proxy ----
 
 // gifProxy is the node's GIF-search service. A zero key means "not configured",
 // which is answered honestly rather than treated as an error.
 type gifProxy struct {
-	key      string   // Tenor API key, from CONCORD_TENOR_KEY
-	base     *url.URL // API base, from CONCORD_TENOR_BASE
-	filter   string   // Tenor contentfilter level
+	provider gifProvider
+	key      string   // API key, from CONCORD_GIF_KEY (or legacy CONCORD_TENOR_KEY)
+	base     *url.URL // API base, from CONCORD_GIF_BASE or the provider's default
+	filter   string   // the provider's own safety level
 	client   *http.Client
 	secret   []byte // per-process HMAC key for media handles
-	clientID string // Tenor "client_key", an app-level bucket for their analytics
+	clientID string // app-level analytics bucket, for vendors that have one
+
+	// legacyVars: this deployment was configured entirely through the old
+	// CONCORD_TENOR_* variables. It keeps working — an upgrade must not break a
+	// running node — but the operator is told to migrate, because the service
+	// those variables point at is gone.
+	legacyVars bool
 
 	mu      sync.Mutex
 	buckets map[peer.ID]*gifBuckets
@@ -123,14 +492,40 @@ func serveGifSearch(ctx context.Context, h host.Host) {
 	p, err := newGifProxy()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "gif search disabled:", err)
-		p = &gifProxy{buckets: map[peer.ID]*gifBuckets{}}
+		// Still answerable, so peers get "unavailable" with a reason rather than
+		// a stream that opens and says nothing. Giphy stands in as the named
+		// provider because it is the default the operator would be fixing towards.
+		p = &gifProxy{provider: giphyProvider{}, buckets: map[peer.ID]*gifBuckets{}}
 	}
 	cnet.ServeGifSearch(ctx, h, p.handle)
+
+	// Startup output names the provider AND the host it will actually reach, so
+	// "GIF search is on" can never mean a different upstream than the operator
+	// thinks. The Tenor notes are printed because a silent misconfiguration
+	// against a dead API is exactly what this rewrite exists to prevent.
+	if p.legacyVars {
+		fmt.Printf("GIF search proxy: configured from the legacy CONCORD_TENOR_* variables. %s — "+
+			"migrate to CONCORD_GIF_PROVIDER=giphy with CONCORD_GIF_KEY (developers.giphy.com).\n",
+			strings.ToUpper(tenorGone[:1])+tenorGone[1:])
+	}
 	if p.key == "" {
-		fmt.Println("GIF search proxy: no CONCORD_TENOR_KEY set — peers are told it is unavailable.")
+		fmt.Printf("GIF search proxy: no API key set — peers are told it is unavailable. "+
+			"Set CONCORD_GIF_KEY (provider %s, default giphy) to turn it on.\n", p.provider.name())
 		return
 	}
-	fmt.Println("GIF search proxy enabled (Tenor via", p.base.Host+").")
+	fmt.Printf("GIF search proxy enabled: %s via %s.\n", p.provider.name(), p.base.Host)
+	if isTenorProvider(p.provider) {
+		// Two different pieces of bad news, so two different sentences. Pointing
+		// at the dead public host is a node that WILL NOT work; pointing at a
+		// mirror is a node that will, as long as the mirror stays up.
+		if def, err := url.Parse(p.provider.apiBase()); err == nil && strings.EqualFold(p.base.Host, def.Host) {
+			fmt.Printf("  WARNING: %s. %s no longer answers, so searches from this node will fail — "+
+				"set CONCORD_GIF_PROVIDER=giphy with CONCORD_GIF_KEY, or point CONCORD_GIF_BASE at a Tenor-compatible mirror.\n",
+				tenorGone, p.base.Host)
+		} else {
+			fmt.Printf("  NOTE: %s; this works only for as long as the mirror at %s does.\n", tenorGone, p.base.Host)
+		}
+	}
 
 	// Idle peers' buckets are dropped so the map cannot grow forever as
 	// distinct peers come and go.
@@ -148,38 +543,102 @@ func serveGifSearch(ctx context.Context, h host.Host) {
 	}()
 }
 
-func newGifProxy() (*gifProxy, error) {
-	base := os.Getenv("CONCORD_TENOR_BASE")
-	if base == "" {
-		base = "https://tenor.googleapis.com"
+// gifConfig is the resolved answer to "which vendor, which key, which host".
+type gifConfig struct {
+	provider   gifProvider
+	key        string
+	base       *url.URL
+	filter     string
+	legacyVars bool
+}
+
+// resolveGifConfig reads the environment. It takes a getenv function rather than
+// calling os.Getenv directly so the compatibility matrix can be tested as a
+// table, without a process environment and without a real API anywhere near it.
+//
+// The rule, in order of precedence:
+//
+//	CONCORD_GIF_PROVIDER    giphy | tenor. Default giphy — UNLESS the only key
+//	                        present is the legacy CONCORD_TENOR_KEY, in which
+//	                        case a working deployment is left as it was.
+//	CONCORD_GIF_KEY         falls back to CONCORD_TENOR_KEY when the provider is
+//	                        tenor, so an existing node keeps running on upgrade.
+//	CONCORD_GIF_BASE        falls back to CONCORD_TENOR_BASE likewise, then to
+//	                        the provider's own public base.
+//	CONCORD_GIF_CONTENTFILTER  same fallback, then the provider's strictest.
+func resolveGifConfig(getenv func(string) string) (gifConfig, error) {
+	var cfg gifConfig
+
+	name := strings.TrimSpace(getenv("CONCORD_GIF_PROVIDER"))
+	legacyKey := getenv("CONCORD_TENOR_KEY")
+	newKey := getenv("CONCORD_GIF_KEY")
+	if name == "" {
+		// The one place the dead vendor is still chosen automatically: an
+		// operator whose node was working yesterday must not wake up to a node
+		// that refuses to start. They get a migration notice, not a breakage.
+		if newKey == "" && legacyKey != "" {
+			name = "tenor"
+		} else {
+			name = "giphy"
+		}
 	}
-	u, err := url.Parse(base)
-	if err != nil || u.Host == "" {
-		return nil, fmt.Errorf("CONCORD_TENOR_BASE %q is not a URL", base)
+	prov, err := gifProviderByName(name)
+	if err != nil {
+		return cfg, err
 	}
-	filter := os.Getenv("CONCORD_TENOR_CONTENTFILTER")
-	switch filter {
-	case "off", "low", "medium", "high":
-	case "":
-		// Default to Tenor's strictest setting. An operator running a proxy for
-		// their friends is not signing up to moderate what it returns, and the
-		// permissive default is the one that would surprise them.
-		filter = "high"
-	default:
-		return nil, fmt.Errorf("CONCORD_TENOR_CONTENTFILTER must be off|low|medium|high, got %q", filter)
+	cfg.provider = prov
+	_, isTenor := prov.(tenorProvider)
+
+	cfg.key = newKey
+	if cfg.key == "" && isTenor && legacyKey != "" {
+		cfg.key = legacyKey
+		cfg.legacyVars = true
 	}
 
+	baseRaw := getenv("CONCORD_GIF_BASE")
+	baseVar := "CONCORD_GIF_BASE"
+	if baseRaw == "" && isTenor {
+		if v := getenv("CONCORD_TENOR_BASE"); v != "" {
+			baseRaw, baseVar = v, "CONCORD_TENOR_BASE"
+		}
+	}
+	if baseRaw == "" {
+		baseRaw = prov.apiBase()
+	}
+	u, err := url.Parse(baseRaw)
+	if err != nil || u.Host == "" {
+		return cfg, fmt.Errorf("%s %q is not a URL", baseVar, baseRaw)
+	}
+	cfg.base = u
+
+	level := getenv("CONCORD_GIF_CONTENTFILTER")
+	if level == "" && isTenor {
+		level = getenv("CONCORD_TENOR_CONTENTFILTER")
+	}
+	if cfg.filter, err = prov.contentFilter(level); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func newGifProxy() (*gifProxy, error) {
+	cfg, err := resolveGifConfig(os.Getenv)
+	if err != nil {
+		return nil, err
+	}
 	secret := make([]byte, 32)
 	if _, err := rand.Read(secret); err != nil {
 		return nil, err
 	}
 	p := &gifProxy{
-		key:      os.Getenv("CONCORD_TENOR_KEY"),
-		base:     u,
-		filter:   filter,
-		secret:   secret,
-		clientID: "concord",
-		buckets:  map[peer.ID]*gifBuckets{},
+		provider:   cfg.provider,
+		key:        cfg.key,
+		base:       cfg.base,
+		filter:     cfg.filter,
+		legacyVars: cfg.legacyVars,
+		secret:     secret,
+		clientID:   "concord",
+		buckets:    map[peer.ID]*gifBuckets{},
 	}
 	p.client = &http.Client{
 		Timeout: gifUpstreamTimeout,
@@ -227,12 +686,16 @@ func (p *gifProxy) allow(id peer.ID, media bool) bool {
 //
 // The operator's own API base is allowed whatever its scheme, because they
 // chose it (a self-hosted mirror on the same box, or a test fixture on
-// loopback). Everything else must be https and under tenor.com — which is where
-// Tenor's CDN lives, and the only place a media URL can legitimately have come
-// from. Note what this does NOT defend against: if Tenor's own DNS were made to
+// loopback). Everything else must be https and under one of the CONFIGURED
+// provider's media hosts. Per provider, not a union of all of them: a node
+// proxying Giphy that would also fetch tenor.com is a node with a wider attack
+// surface than its operator asked for, and a signed handle from an earlier
+// configuration must stop being redeemable when the provider changes.
+//
+// Note what this does NOT defend against: if the vendor's own DNS were made to
 // answer with a private address, this check would still pass. Pinning
 // resolution would be the fix, and it is not worth the machinery here — an
-// attacker who controls tenor.com's DNS has far better targets than one hobby
+// attacker who controls giphy.com's DNS has far better targets than one hobby
 // node's LAN.
 func (p *gifProxy) allowURL(u *url.URL) bool {
 	if u == nil || u.Host == "" {
@@ -241,17 +704,22 @@ func (p *gifProxy) allowURL(u *url.URL) bool {
 	if p.base != nil && strings.EqualFold(u.Host, p.base.Host) {
 		return true
 	}
-	if u.Scheme != "https" {
+	if u.Scheme != "https" || p.provider == nil {
 		return false
 	}
 	h := strings.ToLower(u.Hostname())
-	return h == "tenor.com" || strings.HasSuffix(h, ".tenor.com")
+	for _, allowed := range p.provider.mediaHosts() {
+		if h == allowed || strings.HasSuffix(h, "."+allowed) {
+			return true
+		}
+	}
+	return false
 }
 
-// mint turns a URL Tenor gave us into a handle safe to hand a peer. The peer
-// gets the address back verbatim — it is not a secret, and pretending otherwise
-// would be theatre — but cannot change so much as one byte of it without the
-// MAC failing.
+// mint turns a URL the vendor gave us into a handle safe to hand a peer. The
+// peer gets the address back verbatim — it is not a secret, and pretending
+// otherwise would be theatre — but cannot change so much as one byte of it
+// without the MAC failing.
 func (p *gifProxy) mint(raw string) string {
 	mac := hmac.New(sha256.New, p.secret)
 	mac.Write([]byte(raw))
@@ -298,6 +766,27 @@ func gifReply(r cnet.GifResponse) ([]byte, error) {
 	return b, nil
 }
 
+// unavailableDetail is the sentence a peer's UI shows when this node has no key.
+// It has to be TRUE and it has to be actionable, which is the whole reason this
+// file was rewritten: the old one said "set CONCORD_TENOR_KEY", advice that
+// became impossible to follow the day Google closed Tenor's signups.
+func (p *gifProxy) unavailableDetail() string {
+	if isTenorProvider(p.provider) {
+		return "this rendezvous is set to the Tenor provider, but " + tenorGone +
+			" — whoever runs it should set CONCORD_GIF_PROVIDER=giphy and CONCORD_GIF_KEY"
+	}
+	return "this rendezvous has no GIF API key configured — whoever runs it can set CONCORD_GIF_KEY"
+}
+
+// providerName is nil-safe, because the disabled proxy built on a config error
+// still has to answer.
+func (p *gifProxy) providerName() string {
+	if p.provider == nil {
+		return ""
+	}
+	return p.provider.name()
+}
+
 // handle answers one request from a peer.
 //
 // There is no membership gate here, unlike the release protocol. Anyone who can
@@ -312,9 +801,13 @@ func (p *gifProxy) handle(ctx context.Context, from peer.ID, request []byte) ([]
 		return gifReply(cnet.GifResponse{Status: cnet.GifStatusBadRequest, Detail: "unreadable request"})
 	}
 	if p.key == "" {
+		// Source is set even here: the picker names the provider in its
+		// provenance line, and "Tenor" hardcoded in a frontend is how the last
+		// lie got shipped.
 		return gifReply(cnet.GifResponse{
 			Status: cnet.GifStatusUnavailable,
-			Detail: "this rendezvous has no GIF API key configured",
+			Detail: p.unavailableDetail(),
+			Source: p.providerName(),
 		})
 	}
 	// Only a real search spends API quota, so only a real search draws on the
@@ -331,7 +824,7 @@ func (p *gifProxy) handle(ctx context.Context, from peer.ID, request []byte) ([]
 		// Reached only when a key IS configured (the check above returns
 		// unavailable otherwise), so this is the client's way to find out
 		// whether the Search tab is usable before the user types anything.
-		return gifReply(cnet.GifResponse{Status: cnet.GifStatusOK, Source: "Tenor"})
+		return gifReply(cnet.GifResponse{Status: cnet.GifStatusOK, Source: p.providerName()})
 	case "search":
 		return gifReply(p.search(ctx, req))
 	case "media":
@@ -360,23 +853,6 @@ func cleanQuery(q string) string {
 	return q
 }
 
-// tenorSearch is the slice of Tenor's v2 response this proxy uses. Everything
-// else in their JSON is ignored on purpose: the less of a third party's schema
-// that reaches a peer, the less there is to go wrong.
-type tenorSearch struct {
-	Results []struct {
-		ID                 string `json:"id"`
-		Title              string `json:"title"`
-		ContentDescription string `json:"content_description"`
-		MediaFormats       map[string]struct {
-			URL  string `json:"url"`
-			Dims []int  `json:"dims"`
-			Size int64  `json:"size"`
-		} `json:"media_formats"`
-	} `json:"results"`
-	Next string `json:"next"`
-}
-
 func (p *gifProxy) search(ctx context.Context, req cnet.GifRequest) cnet.GifResponse {
 	q := cleanQuery(req.Query)
 	if q == "" {
@@ -389,80 +865,53 @@ func (p *gifProxy) search(ctx context.Context, req cnet.GifRequest) cnet.GifResp
 	if limit > gifMaxResults {
 		limit = gifMaxResults
 	}
+	pos := req.Pos
+	if len(pos) > gifMaxCursor {
+		// Over-long cursors are dropped rather than refused: the peer gets page
+		// one, which is a worse answer than they wanted but still an answer.
+		pos = ""
+	}
 
-	u := *p.base
-	u.Path = strings.TrimSuffix(u.Path, "/") + "/v2/search"
-	qs := url.Values{
-		"q":             {q},
-		"key":           {p.key},
-		"limit":         {strconv.Itoa(limit)},
-		"media_filter":  {"tinygif,mediumgif,gif"},
-		"contentfilter": {p.filter},
-	}
-	if p.clientID != "" {
-		qs.Set("client_key", p.clientID)
-	}
-	// The cursor is echoed back from a previous reply of ours, but it still
-	// arrives from a peer, so it is length-bounded like anything else.
-	if pos := req.Pos; pos != "" && len(pos) <= 64 {
-		qs.Set("pos", pos)
-	}
-	u.RawQuery = qs.Encode()
+	gq := gifQuery{Terms: q, Limit: limit, Pos: pos, Filter: p.filter, Key: p.key, ClientID: p.clientID}
+	u := p.provider.searchURL(p.base, gq)
 
-	body, _, err := p.fetch(ctx, &u, 1<<20)
+	body, _, err := p.fetch(ctx, u, 1<<20)
 	if err != nil {
 		// Deliberately not err.Error(): that string can contain the API key
 		// (net/http puts the full URL in its errors) and the peer must never
-		// see it.
-		return cnet.GifResponse{Status: cnet.GifStatusUpstream, Detail: "the GIF API did not answer"}
+		// see it. The provider name is safe and useful, so it is named instead.
+		return cnet.GifResponse{
+			Status: cnet.GifStatusUpstream,
+			Detail: "the GIF API did not answer",
+			Source: p.providerName(),
+		}
 	}
-	var ts tenorSearch
-	if err := json.Unmarshal(body, &ts); err != nil {
-		return cnet.GifResponse{Status: cnet.GifStatusUpstream, Detail: "the GIF API sent something unreadable"}
+	cands, next, err := p.provider.decode(body, gq, cnet.MaxGifMediaBytes)
+	if err != nil {
+		return cnet.GifResponse{
+			Status: cnet.GifStatusUpstream,
+			Detail: "the GIF API sent something unreadable",
+			Source: p.providerName(),
+		}
 	}
 
-	out := cnet.GifResponse{Status: cnet.GifStatusOK, Source: "Tenor", Next: ts.Next, Results: []cnet.GifHit{}}
-	for _, r := range ts.Results {
-		pick := func(names ...string) (string, int, int, bool) {
-			for _, n := range names {
-				f, ok := r.MediaFormats[n]
-				if !ok || f.URL == "" {
-					continue
-				}
-				// Skip a format Tenor already says is bigger than we would
-				// relay, so a peer never gets a handle that is guaranteed to
-				// fail when they click it.
-				if f.Size > cnet.MaxGifMediaBytes {
-					continue
-				}
-				fu, err := url.Parse(f.URL)
-				if err != nil || !p.allowURL(fu) {
-					continue
-				}
-				w, h := 0, 0
-				if len(f.Dims) == 2 {
-					w, h = f.Dims[0], f.Dims[1]
-				}
-				return f.URL, w, h, true
-			}
-			return "", 0, 0, false
-		}
-		// Thumbnail smallest-first, full biggest-that-fits-first.
-		prev, _, _, okP := pick("tinygif", "mediumgif", "gif")
-		full, w, h, okF := pick("mediumgif", "gif", "tinygif")
-		if !okP || !okF {
+	out := cnet.GifResponse{Status: cnet.GifStatusOK, Source: p.providerName(), Next: next, Results: []cnet.GifHit{}}
+	for _, c := range cands {
+		// The allowlist is applied HERE, outside the provider, over every address
+		// it proposed. A provider that returned an off-allowlist URL — because the
+		// vendor is compromised, or because a mirror is misconfigured — gets its
+		// result dropped, never minted into a handle.
+		pu, err1 := url.Parse(c.Preview)
+		fu, err2 := url.Parse(c.Full)
+		if err1 != nil || err2 != nil || !p.allowURL(pu) || !p.allowURL(fu) {
 			continue
 		}
-		title := r.ContentDescription
-		if title == "" {
-			title = r.Title
-		}
 		out.Results = append(out.Results, cnet.GifHit{
-			ID:      r.ID,
-			Title:   cleanQuery(title),
-			Preview: p.mint(prev),
-			Full:    p.mint(full),
-			Width:   w, Height: h,
+			ID:      c.ID,
+			Title:   cleanQuery(c.Title),
+			Preview: p.mint(c.Preview),
+			Full:    p.mint(c.Full),
+			Width:   c.Width, Height: c.Height,
 		})
 	}
 	return out
@@ -491,7 +940,7 @@ func (p *gifProxy) media(ctx context.Context, req cnet.GifRequest) cnet.GifRespo
 		// zip — is not what a peer asked for and is not going down the wire.
 		return cnet.GifResponse{Status: cnet.GifStatusUpstream, Detail: "that address did not return an image"}
 	}
-	return cnet.GifResponse{Status: cnet.GifStatusOK, Source: "Tenor", Media: body, Subtype: sub}
+	return cnet.GifResponse{Status: cnet.GifStatusOK, Source: p.providerName(), Media: body, Subtype: sub}
 }
 
 // gifSubtype maps a Content-Type to the four image subtypes Concord's
@@ -523,8 +972,8 @@ func (p *gifProxy) fetch(ctx context.Context, u *url.URL, max int64) ([]byte, st
 		return nil, "", err
 	}
 	// A fresh request with headers WE choose, not the peer's. This is the other
-	// half of the privacy property: Tenor sees one constant User-Agent and this
-	// node's IP for every member of every guild, with nothing to tell them
+	// half of the privacy property: the vendor sees one constant User-Agent and
+	// this node's IP for every member of every guild, with nothing to tell them
 	// apart. No cookies (this client has no jar), no Referer, no Accept-Language.
 	r.Header.Set("User-Agent", "concord-rendezvous")
 	r.Header.Set("Accept", "*/*")

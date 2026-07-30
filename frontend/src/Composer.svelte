@@ -1097,11 +1097,16 @@
         {/if}
         <!-- The guild's own GIF pack. A word, not a glyph: there is no icon for
              "GIF" that anyone reads correctly, and this is the label every
-             other client uses. -->
+             other client uses.
+
+             No vendor named in the tooltip: which GIF service the Search tab
+             reaches is the rendezvous operator's choice, and the picker itself
+             reports it. A hardcoded "Tenor" here went stale the day Google shut
+             that API down (30 June 2026). -->
         <button
           type="button"
           class="iconbtn gifbtn"
-          title="GIFs — this server's pack, or Tenor via your rendezvous"
+          title="GIFs — this server's pack, or a web search via your rendezvous"
           aria-label="Open the GIF picker"
           disabled={!ch}
           onclick={() => (S.modal = { kind: "gifs" })}

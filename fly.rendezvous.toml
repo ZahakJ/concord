@@ -21,6 +21,20 @@ primary_region = "iad"
   # relay refuses private/loopback peers (SSRF guard). Clients that can't reach
   # the relay simply fall back to a direct call.
   CONCORD_TURN_PORT = "3478"
+  # GIF search proxy (see cmd/rendezvous/gifsearch.go). Off until a key is set:
+  # with none, peers are simply told it is unavailable, which the picker explains.
+  # The provider is pluggable because hardcoding one burned us — Google
+  # decommissioned the public Tenor API on 30 June 2026 and the whole feature
+  # died with it. Giphy is the default; sign up at developers.giphy.com and:
+  #   fly secrets set -a concord-rdv-zahak CONCORD_GIF_KEY=...
+  # CONCORD_GIF_PROVIDER = "giphy"      # giphy | tenor (tenor = your own mirror only)
+  # CONCORD_GIF_CONTENTFILTER = "g"     # y|g|pg|pg-13|r (default g, the strictest useful)
+  # CONCORD_GIF_BASE = "https://api.giphy.com"   # override for a self-hosted mirror
+  # (CONCORD_GIF_KEY is a SECRET — never in this file.)
+  #
+  # The legacy CONCORD_TENOR_* variables still work and still select Tenor, but
+  # the public API they point at no longer answers. Migrate to CONCORD_GIF_*.
+
   # (CONCORD_PUBLIC_HOST is set as a fly SECRET on the app — not here.)
 
 # A single always-on machine is plenty for a personal/small deployment.

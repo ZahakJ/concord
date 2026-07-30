@@ -19,22 +19,29 @@ import (
 //
 // The guild pack (gifs.go) is still the private option: a collection the guild
 // owns, searched with a substring match over records already on disk, nothing
-// leaving the machine. This file adds the other one — searching Tenor — and
-// routes every byte of it through the user's OWN rendezvous.
+// leaving the machine. This file adds the other one — searching a public GIF
+// service — and routes every byte of it through the user's OWN rendezvous.
 //
-// What that buys, precisely: Google sees one IP (the rendezvous) and no search
-// terms tied to a person. What it costs: the rendezvous operator sees the
-// terms. That is a worse deal than the pack and a better one than Discord's,
+// WHICH service is the node's business, not the client's. The proxy speaks to
+// whichever provider its operator configured (Giphy by default since Google
+// decommissioned the public Tenor API on 30 June 2026), and names it in the
+// reply's Source field. Nothing here may hardcode a vendor: the frontend prints
+// Source verbatim, and a hardcoded "Tenor" in the UI is precisely how this
+// feature spent a month telling users something false.
+//
+// What the proxy buys, precisely: the provider sees one IP (the rendezvous) and
+// no search terms tied to a person. What it costs: the rendezvous operator sees
+// the terms. That is a worse deal than the pack and a better one than Discord's,
 // where the intermediary is a company. The UI is required to say all of this;
 // see ModalGifs.svelte.
 //
 // The single property that makes this worth building is that the MEDIA BYTES
-// come through the proxy too. If a result carried a tenor.com URL and the UI
-// rendered it, every member's browser would connect to Google and the feature
-// would be a privacy claim with nothing behind it. So a search result carries
-// an opaque handle, never an address, and thumbnails and full GIFs are both
-// fetched with an explicit "media" round trip. Nothing in the client can turn a
-// handle into a URL, because nothing in the client ever sees one.
+// come through the proxy too. If a result carried a provider URL and the UI
+// rendered it, every member's browser would connect to the provider and the
+// feature would be a privacy claim with nothing behind it. So a search result
+// carries an opaque handle, never an address, and thumbnails and full GIFs are
+// both fetched with an explicit "media" round trip. Nothing in the client can
+// turn a handle into a URL, because nothing in the client ever sees one.
 
 // Statuses the CLIENT decides, on top of the ones the node can report
 // (cnet.GifStatus*). They exist because "there is no proxy" and "the proxy said
@@ -64,7 +71,7 @@ const maxGifSearchResults = 24
 type GifSearchResult struct {
 	Status  string        `json:"status"`
 	Detail  string        `json:"detail,omitempty"`
-	Source  string        `json:"source,omitempty"` // who produced the results, e.g. "Tenor"
+	Source  string        `json:"source,omitempty"` // the provider the node used, e.g. "Giphy"
 	Via     string        `json:"via,omitempty"`    // peer id of the rendezvous that served them
 	Results []cnet.GifHit `json:"results"`
 	Next    string        `json:"next,omitempty"`
@@ -74,7 +81,7 @@ var errNoRendezvous = errors.New("app: no rendezvous is configured")
 
 // gifProxyRoundTrip is the one call that touches the network, indirected
 // through a package var purely so tests can stand a fake proxy in its place —
-// calling the real Tenor from a test is out of the question, and so is standing
+// calling a real GIF API from a test is out of the question, and so is standing
 // up a second libp2p host for every case. Production never reassigns it; a test
 // that does must restore it with t.Cleanup.
 var gifProxyRoundTrip = (*Service).askRendezvous
@@ -237,7 +244,7 @@ func gifDataURLOf(subtype string, plain []byte) string {
 // SendSearchedGif posts a searched GIF into a channel. It seals the bytes into
 // an ordinary encrypted attachment and emits the same v1 token the guild pack
 // does, so recipients need no new code and no idea where it came from — and, in
-// particular, do NOT fetch it from Tenor themselves.
+// particular, do NOT fetch it from the provider themselves.
 func (s *Service) SendSearchedGif(ctx context.Context, channelID, ref, replyTo string, w, h int) (domain.Message, error) {
 	s.mu.RLock()
 	_, tracked := s.channelToGuild[channelID]
@@ -249,7 +256,7 @@ func (s *Service) SendSearchedGif(ctx context.Context, channelID, ref, replyTo s
 	if err != nil {
 		return domain.Message{}, err
 	}
-	// Dimensions come from the search result, i.e. from Tenor via the node, so
+	// Dimensions come from the search result, i.e. from the provider via the node, so
 	// they are a layout hint from an untrusted source. Out-of-range values are
 	// dropped to "unknown" rather than rejected: a wrong hint should not stop a
 	// GIF being sent, but it must not be able to blow out every member's layout.
