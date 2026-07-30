@@ -534,9 +534,19 @@
         {/each}
       </select>
     {:else}
+      <!-- Two different reasons the picker is absent, and only one of them is
+           about a "window". On a phone setSinkId doesn't exist either, but
+           telling someone holding a handset that their window can't route audio
+           is nonsense — the phone routes calls itself, and the earpiece/speaker
+           choice belongs to the OS until the native route plugin lands. -->
       <span class="hint">
-        This app's window can't route audio itself, so calls play through
-        whatever your system has set as the output.
+        {#if S.isMobile}
+          Your phone decides where call audio goes — use its own speaker or
+          Bluetooth control while you're in a call.
+        {:else}
+          This app's window can't route audio itself, so calls play through
+          whatever your system has set as the output.
+        {/if}
       </span>
     {/if}
     <div class="knob">

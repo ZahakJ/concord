@@ -363,9 +363,17 @@
 
 <svelte:window onresize={() => (vw = window.innerWidth)} />
 
+<!-- Toasts pin themselves to --mchrome, so it has to describe the chrome that is
+     ACTUALLY on screen: the top bar, plus the search row while it is open, plus
+     the floating connection pill. Without the last two, a toast landed on top of
+     "Catching up…" and over the search field being typed into — the two states a
+     phone user sees most. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="mshell"
+  style="--mchrome: calc(52px + env(safe-area-inset-top) + {searchOpen ? 46 : 0}px + {conn.show
+    ? 38
+    : 0}px)"
   ontouchstart={onTouchStart}
   ontouchmove={onTouchMove}
   ontouchend={onTouchEnd}

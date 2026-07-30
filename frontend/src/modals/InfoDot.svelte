@@ -88,8 +88,12 @@
 />
 
 <span class="wrap" bind:this={dot} onmouseenter={onEnter} onmouseleave={onLeave} role="presentation">
+  <!-- tap-hit, not a bigger dot: this is the app's answer to a tooltip and it
+       sits inline beside a setting's label, where a 44px circle would shove the
+       row apart. The glyph stays 14px; only the hit box grows, and only on
+       touch. -->
   <button
-    class="dot"
+    class="dot tap-hit"
     class:on={open}
     aria-label={label}
     aria-expanded={open}
