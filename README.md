@@ -680,6 +680,26 @@ make test           # full suite (incl. a 3-node E2EE integration test)
 make race           # same, under the race detector
 ```
 
+**Guest-meeting smoke tests.** The browser-guest path crosses a process
+boundary — the rendezvous gateway relays bytes to a guest page that buffers
+and parses newline-terminated JSON lines — and each half once looked correct
+alone while the pair was broken for weeks (the gateway forwarded lines without
+the trailing `\n`; every guest join hung at "Connecting…"). Two guards now
+cover it:
+
+- *Automatic* — `cmd/rendezvous/guest_smoke_test.go` runs in the normal
+  `go test ./...` suite. It drives the real gateway handler over a real
+  libp2p stream and a real WebSocket, and parses the gateway's output with a
+  literal Go transcription of the guest page's `ws.onmessage` buffer-and-split
+  loop — so the test *is* the other half of the framing contract, and any
+  frame the page couldn't parse fails the suite.
+- *On demand* — `scripts/smoke-guest.sh` is the full browser end-to-end:
+  it builds and launches a local rendezvous + member app, mints a real guest
+  link, and drives member and guest in two Chromium contexts, asserting chat
+  both ways plus WebRTC audio packets and screen-share frames flowing in both
+  directions. Needs `chromium` and a `playwright-core` install
+  (`PLAYWRIGHT_CORE=<path>`); see the script header.
+
 ---
 
 ## 16. Playing with friends over the internet
