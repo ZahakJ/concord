@@ -180,12 +180,107 @@ func sanitizeForumMeta(c *domain.Channel) {
 	case "forum":
 		c.ForumTags = sanitizeForumTags(c.ForumTags)
 		c.Tags, c.Pinned, c.Solved = nil, false, false
+		c.Banner = sanitizeForumBanner(c.Banner)
 	case "thread":
 		c.Tags = sanitizePostTags(c.Tags)
-		c.ForumTags = nil
+		c.ForumTags, c.Banner = nil, ""
 	default:
-		c.ForumTags, c.Tags, c.Pinned, c.Solved = nil, nil, false, false
+		c.ForumTags, c.Tags, c.Pinned, c.Solved, c.Banner = nil, nil, false, false, ""
 	}
+}
+
+// sanitizeForumBanner keeps a banner only if it is one of the two shapes the
+// client can safely paint, and returns "" for anything else rather than an
+// error — this runs on records arriving from peers, where the right answer to a
+// junk field is to drop the field, not the record.
+//
+// The two shapes are exactly the guild banner's, and deliberately share its
+// validators: a complete base64 raster data URI, or "preset:<id>" over a narrow
+// charset. A PREFIX check is not enough. The guild header once built an unquoted
+// CSS url() from this kind of value, so a string beginning "data:image/" and
+// continuing ");background:url(http://…" escaped the declaration and made every
+// member who opened it fetch a remote asset — an IP disclosure handed to
+// whoever set the banner.
+func sanitizeForumBanner(b string) string {
+	if b == "" {
+		return ""
+	}
+	if strings.HasPrefix(b, presetPrefix) {
+		if validPresetID(strings.TrimPrefix(b, presetPrefix)) {
+			return b
+		}
+		return ""
+	}
+	if validImageDataURI(b, maxForumBannerBytes) {
+		return b
+	}
+	return ""
+}
+
+// maxForumBannerBytes bounds an uploaded forum banner. Smaller than a guild's:
+// a guild has one, a guild may hold many forums, and every one of them rides in
+// the channel list each member stores and syncs.
+const maxForumBannerBytes = 384 << 10
+
+// SetForumBanner sets (or clears, with "") a forum's own artwork. Managing a
+// channel's appearance is the same permission as managing the channel.
+func (s *Service) SetForumBanner(guildID, forumID, banner string) error {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return fmt.Errorf("app: you don't have permission to manage channels")
+	}
+	if banner != "" && sanitizeForumBanner(banner) == "" {
+		return fmt.Errorf("app: a forum banner must be a png/jpeg/gif/webp data URI under %d KB, or a preset", maxForumBannerBytes/1024)
+	}
+	if !s.isForum(guildID, forumID) {
+		return fmt.Errorf("app: banners can only be set on a forum channel")
+	}
+	_, groupID, ok := s.mutateChannel(guildID, forumID, func(c *domain.Channel) bool {
+		c.Banner = banner
+		return true
+	})
+	if !ok {
+		return fmt.Errorf("app: unknown forum %s", forumID)
+	}
+	// Its own meta type for the same reason the palette has one: channel_updated
+	// publishes a bare four-field Channel, so folding the banner into it would
+	// erase it every time somebody moved the channel.
+	s.publishMeta(groupID, guildMeta{Type: "forum_banner", ChannelID: forumID, ForumBanner: banner})
+	return nil
+}
+
+// applyForumBanner is the receive half, authorized and validated exactly as the
+// local path is — a peer's banner string reaches the same CSS context ours does.
+func (s *Service) applyForumBanner(guildID, actor, forumID, banner string) {
+	if forumID == "" || !s.memberHasPerm(guildID, actor, PermManageChannels) {
+		return
+	}
+	if !s.isForum(guildID, forumID) {
+		return
+	}
+	clean := sanitizeForumBanner(banner)
+	if banner != "" && clean == "" {
+		return // junk: leave whatever the forum already had rather than clearing it
+	}
+	s.mutateChannel(guildID, forumID, func(c *domain.Channel) bool {
+		c.Banner = clean
+		return true
+	})
+}
+
+// isForum reports whether the id names a forum channel in this guild.
+func (s *Service) isForum(guildID, channelID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		return false
+	}
+	for _, c := range g.Channels {
+		if c.ID == channelID && c.ChannelType() == "forum" {
+			return true
+		}
+	}
+	return false
 }
 
 // mayAddChannel decides whether actor is allowed to introduce this channel to
@@ -476,6 +571,50 @@ func (s *Service) SetPostSolved(guildID, postID string, solved bool) error {
 	return nil
 }
 
+// SetPostLocked closes a post to new messages, or reopens it.
+//
+// Moderation rather than curation, so it takes Manage Messages and the author
+// alone cannot do it: marking your own question answered leaves everyone free to
+// keep talking, whereas locking silences other people, and those should not be
+// the same button.
+func (s *Service) SetPostLocked(guildID, postID string, locked bool) error {
+	if _, _, ok := s.postAndForum(guildID, postID); !ok {
+		return fmt.Errorf("app: unknown forum post %s", postID)
+	}
+	if !s.hasPerm(guildID, PermManageMessages) {
+		return fmt.Errorf("app: you don't have permission to close posts")
+	}
+	_, groupID, changed := s.mutateChannel(guildID, postID, func(c *domain.Channel) bool {
+		if c.Locked == locked {
+			return false
+		}
+		c.Locked = locked
+		return true
+	})
+	if !changed {
+		return nil
+	}
+	s.publishMeta(groupID, guildMeta{Type: "post_meta", ChannelID: postID, PostLocked: &locked})
+	return nil
+}
+
+// postIsLocked reports whether this channel is a forum post that has been
+// closed. Used on BOTH the send and the receive side: refusing only to send
+// would make the lock a suggestion to whoever is running an unmodified client,
+// which is precisely the person who did not need convincing.
+func (s *Service) postIsLocked(channelID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, g := range s.guilds {
+		for _, c := range g.Channels {
+			if c.ID == channelID {
+				return c.Locked
+			}
+		}
+	}
+	return false
+}
+
 // applyForumTags adopts a peer's palette replacement. Same permission and the
 // same validation as the local path — a remote string is no more trustworthy
 // than one we typed, and this one ends up in a CSS colour.
@@ -528,6 +667,13 @@ func (s *Service) applyPostMeta(guildID, actor string, m guildMeta) {
 		}
 		if m.PostPinned != nil && mod && c.Pinned != *m.PostPinned {
 			c.Pinned = *m.PostPinned
+			changed = true
+		}
+		// Locking is moderation, not curation: an author closing their own thread
+		// to everyone else is a different act from marking their question
+		// answered, and only the former silences other people.
+		if m.PostLocked != nil && mod && c.Locked != *m.PostLocked {
+			c.Locked = *m.PostLocked
 			changed = true
 		}
 		if m.PostSolved != nil && curator && c.Solved != *m.PostSolved {

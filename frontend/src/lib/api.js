@@ -129,6 +129,12 @@ export const api = {
   // Pinning needs Manage Messages; tagging and answering also accept the post's
   // own author, so gate the buttons on both (see guild.myPerms).
   setPostPinned: (guildID, postID, pinned) => call("SetPostPinned", guildID, postID, pinned),
+  // Closing a post is moderation: every honest client refuses to send into it
+  // AND drops anything that arrives for it, so a modified client can publish and
+  // simply be ignored by everyone else.
+  setPostLocked: (guildID, postID, locked) => call("SetPostLocked", guildID, postID, locked),
+  // A forum's own artwork: a data URI, "preset:<id>", or "" to clear.
+  setForumBanner: (guildID, forumID, banner) => call("SetForumBanner", guildID, forumID, banner),
   setPostSolved: (guildID, postID, solved) => call("SetPostSolved", guildID, postID, solved),
   deleteChannel: (guildID, channelID) => call("DeleteChannel", guildID, channelID),
   deleteCategory: (guildID, categoryID) => call("DeleteCategory", guildID, categoryID),

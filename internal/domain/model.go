@@ -78,6 +78,23 @@ type Channel struct {
 	// permission, and a board can only offer "show unanswered" if the signal
 	// exists on every forum rather than only the ones that defined a tag for it.
 	Solved bool `json:"solved,omitempty"`
+	// Locked closes a POST to new messages. Advisory in the same sense as every
+	// other field here, and worth being exact about what that buys with no
+	// server: a locked post is enforced by every honest client — they refuse to
+	// send into it and DROP anything that arrives for it — so a modified client
+	// can still publish to the topic and simply be ignored by everyone else.
+	// That is a real quorum, not a lock, and calling it a lock in the UI would
+	// promise more than the network can.
+	Locked bool `json:"locked,omitempty"`
+	// Banner is a FORUM's own artwork: either a small data-URI image or
+	// "preset:<id>" naming an entry in the client's banner library, exactly as a
+	// guild banner does.
+	//
+	// Shared, unlike the board's layout and sort order, which stay in local
+	// storage. That split is the point: how YOU like the posts arranged is your
+	// business, but a banner is part of what the forum IS, so every member has
+	// to see the same one or it is decoration rather than identity.
+	Banner string `json:"banner,omitempty"`
 }
 
 // A ForumTag is one entry in a forum's tag palette: a short label with a colour

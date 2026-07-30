@@ -895,6 +895,12 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName string) (d
 	if kind == "" && s.isMuted(guildID, s.id.Fingerprint()) {
 		return domain.Message{}, fmt.Errorf("app: you're muted in this guild")
 	}
+	// A closed forum post takes no more messages. Moderators are not exempt:
+	// the point of closing a thread is that the conversation is over, and a
+	// moderator who wants the last word can reopen it, which leaves a trace.
+	if kind == "" && s.postIsLocked(channelID) {
+		return domain.Message{}, fmt.Errorf("app: this post is closed")
+	}
 
 	msg, err := domain.NewMessage(channelID, s.PublicKey(), content)
 	if err != nil {
@@ -1294,6 +1300,11 @@ type guildMeta struct {
 	// is built from a bare four-field Channel — folding the palette in would
 	// make every "move this channel" announcement wipe the forum's tags.
 	ForumTags []domain.ForumTag `json:"forumTags,omitempty"`
+	// forum_banner: a FORUM's own artwork — a data URI or "preset:<id>". Named
+	// distinctly from Banner above, which is a member's profile banner, because
+	// the two ride the same struct and confusing them would put a member's
+	// picture on a channel.
+	ForumBanner string `json:"forumBanner,omitempty"`
 	// post_meta: board state for the forum post named by ChannelID. POINTERS,
 	// so "field absent" is distinguishable from "field set to false" — a nil
 	// PostSolved means unchanged, not reopen. Each is authorized separately
@@ -1302,6 +1313,7 @@ type guildMeta struct {
 	PostTags   *[]string `json:"ptags,omitempty"`
 	PostPinned *bool     `json:"ppin,omitempty"`
 	PostSolved *bool     `json:"psolved,omitempty"`
+	PostLocked *bool     `json:"plock,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -1507,7 +1519,17 @@ func (s *Service) CreateCategory(guildID, name string) (domain.Category, error) 
 
 // DeleteChannel removes a channel for everyone. Requires ManageChannels.
 func (s *Service) DeleteChannel(guildID, channelID string) error {
-	if !s.hasPerm(guildID, PermManageChannels) {
+	// A forum POST is member content — CreateThread needs no permission, so
+	// requiring one to remove it would let anyone start a thread nobody but a
+	// moderator could ever take back. Its author may delete it; so may a
+	// moderator holding Manage Messages, which is the bit that already governs
+	// removing what members wrote. Every OTHER kind of channel still needs
+	// Manage Channels.
+	if _, _, isPost := s.postAndForum(guildID, channelID); isPost {
+		if !s.mayCuratePost(guildID, channelID, s.id.Fingerprint()) {
+			return fmt.Errorf("app: only the author or a moderator can delete this post")
+		}
+	} else if !s.hasPerm(guildID, PermManageChannels) {
 		return fmt.Errorf("app: you don't have permission to manage channels")
 	}
 	s.mu.RLock()
@@ -2019,6 +2041,10 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// one implementation — a peer's tag colour reaches a CSS context in the
 		// client and is no more trustworthy than one we typed ourselves.
 		s.applyForumTags(guildID, actor, m.ChannelID, m.ForumTags)
+	case "forum_banner":
+		// Same gating and the same two-shape validation as the local path — a
+		// peer's banner string reaches the same CSS context ours does.
+		s.applyForumBanner(guildID, actor, m.ChannelID, m.ForumBanner)
 	case "post_meta":
 		s.applyPostMeta(guildID, actor, m)
 	case "gif_added", "gif_removed":
@@ -2194,6 +2220,13 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	guildID := s.channelToGuild[m.ChannelID]
 	s.mu.RUnlock()
 	if guildID != "" && s.isMuted(guildID, accountFingerprintOf(m.Sender)) {
+		return
+	}
+	// Same for a closed forum post. Refusing only on the SEND side would make
+	// closing a thread a polite request to the one person who was never going to
+	// ignore it; dropping on receive is what makes every honest client agree the
+	// conversation is over.
+	if s.postIsLocked(m.ChannelID) {
 		return
 	}
 	// Backfill a display name from the message if we don't know this member's

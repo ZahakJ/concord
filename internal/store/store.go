@@ -227,6 +227,10 @@ CREATE TABLE IF NOT EXISTS pending_members (
 		// what it was.
 		`ALTER TABLE channels ADD COLUMN forum_tags TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN post_tags TEXT NOT NULL DEFAULT ''`,
+		// A forum's own banner: a data URI or "preset:<id>". Shared, unlike the
+		// board's layout/sort, which stay device-local — a banner is part of what
+		// the forum IS, so every member should see the same one.
+		`ALTER TABLE channels ADD COLUMN banner TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE channels ADD COLUMN solved INTEGER NOT NULL DEFAULT 0`,
 	} {
@@ -409,14 +413,16 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 	for _, c := range g.Channels {
 		if _, err := tx.Exec(
 			`INSERT INTO channels (id, guild_id, name, type, category, position, topic, parent, links,
-			   forum_tags, post_tags, pinned, solved)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			   forum_tags, post_tags, pinned, solved, banner)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type,
 			   category=excluded.category, position=excluded.position, topic=excluded.topic,
 			   parent=excluded.parent, links=excluded.links, forum_tags=excluded.forum_tags,
-			   post_tags=excluded.post_tags, pinned=excluded.pinned, solved=excluded.solved`,
+			   post_tags=excluded.post_tags, pinned=excluded.pinned, solved=excluded.solved,
+			   banner=excluded.banner`,
 			c.ID, g.ID, c.Name, c.Type, c.Category, c.Position, c.Topic, c.Parent, encodeLinks(c.Links),
 			encodeForumTags(c.ForumTags), encodeLinks(c.Tags), boolToInt(c.Pinned), boolToInt(c.Solved),
+			c.Banner,
 		); err != nil {
 			return fmt.Errorf("store: save channel: %w", err)
 		}
@@ -459,7 +465,7 @@ func (s *Store) Guilds() ([]domain.Guild, error) {
 func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	rows, err := s.db.Query(
 		`SELECT id, guild_id, name, type, category, position, topic, parent, links,
-		        forum_tags, post_tags, pinned, solved FROM channels
+		        forum_tags, post_tags, pinned, solved, banner FROM channels
 		 WHERE guild_id = ? ORDER BY position ASC, rowid ASC`, guildID)
 	if err != nil {
 		return nil, err
@@ -471,7 +477,7 @@ func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 		var links, forumTags, postTags string
 		var pinned, solved int
 		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Type, &c.Category, &c.Position, &c.Topic, &c.Parent,
-			&links, &forumTags, &postTags, &pinned, &solved); err != nil {
+			&links, &forumTags, &postTags, &pinned, &solved, &c.Banner); err != nil {
 			return nil, err
 		}
 		c.Links = decodeLinks(links)
@@ -570,8 +576,9 @@ func (s *Store) Categories(guildID string) ([]domain.Category, error) {
 // a moderator repeats. Narrow by design.
 func (s *Store) UpdateChannelForumMeta(c domain.Channel) error {
 	_, err := s.db.Exec(
-		`UPDATE channels SET forum_tags=?, post_tags=?, pinned=?, solved=? WHERE id=?`,
-		encodeForumTags(c.ForumTags), encodeLinks(c.Tags), boolToInt(c.Pinned), boolToInt(c.Solved), c.ID)
+		`UPDATE channels SET forum_tags=?, post_tags=?, pinned=?, solved=?, banner=? WHERE id=?`,
+		encodeForumTags(c.ForumTags), encodeLinks(c.Tags), boolToInt(c.Pinned), boolToInt(c.Solved),
+		c.Banner, c.ID)
 	if err != nil {
 		return fmt.Errorf("store: update channel forum meta: %w", err)
 	}

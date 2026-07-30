@@ -140,6 +140,8 @@ type ChannelView struct {
 	Tags      []string          `json:"tags,omitempty"`      // post: tag IDs into that palette
 	Pinned    bool              `json:"pinned,omitempty"`    // post: floated to the top of its board
 	Solved    bool              `json:"solved,omitempty"`    // post: marked answered
+	Locked    bool              `json:"locked,omitempty"`    // post: closed to new messages
+	Banner    string            `json:"banner,omitempty"`    // forum: its own artwork
 }
 
 type CategoryView struct {
@@ -749,6 +751,25 @@ func (b *Bridge) SetPostSolved(guildID, postID string, solved bool) error {
 		return err
 	}
 	return svc.SetPostSolved(guildID, postID, solved)
+}
+
+// SetPostLocked closes a forum post to new messages, or reopens it.
+func (b *Bridge) SetPostLocked(guildID, postID string, locked bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetPostLocked(guildID, postID, locked)
+}
+
+// SetForumBanner sets a forum's own artwork: a data URI, "preset:<id>", or ""
+// to clear it.
+func (b *Bridge) SetForumBanner(guildID, forumID, banner string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetForumBanner(guildID, forumID, banner)
 }
 
 // CreateCategory adds a sidebar category to a guild.
@@ -1665,7 +1686,8 @@ func isCustomDMName(n string) bool {
 func channelView(c domain.Channel) ChannelView {
 	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category,
 		Position: c.Position, Topic: c.Topic, Parent: c.Parent, Links: c.Links,
-		ForumTags: c.ForumTags, Tags: c.Tags, Pinned: c.Pinned, Solved: c.Solved}
+		ForumTags: c.ForumTags, Tags: c.Tags, Pinned: c.Pinned, Solved: c.Solved,
+		Locked: c.Locked, Banner: c.Banner}
 }
 
 func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
@@ -2335,6 +2357,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SetPostPinned(argStr(args, 0), argStr(args, 1), argBool(args, 2))
 	case "SetPostSolved":
 		return nil, b.SetPostSolved(argStr(args, 0), argStr(args, 1), argBool(args, 2))
+	case "SetPostLocked":
+		return nil, b.SetPostLocked(argStr(args, 0), argStr(args, 1), argBool(args, 2))
+	case "SetForumBanner":
+		return nil, b.SetForumBanner(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "CreateCategory":
 		return nil, b.CreateCategory(argStr(args, 0), argStr(args, 1))
 	case "DeleteChannel":
