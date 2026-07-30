@@ -144,7 +144,7 @@
     background: transparent;
     color: var(--text);
     text-align: left;
-    font-size: 15px;
+    font-size: var(--fs-body);
     border-radius: var(--radius-md);
   }
   .as-item:active {
@@ -186,6 +186,7 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
+    overscroll-behavior: contain;
     /* Never taller than the viewport — a long menu scrolls instead of pushing
        items off-screen where they can't be reached. */
     max-height: calc(100vh - 16px);
@@ -215,7 +216,7 @@
     background: transparent;
     color: var(--text);
     text-align: left;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-radius: var(--radius-sm);
   }
   .cm-item:hover {
@@ -238,11 +239,18 @@
      but a heading that reads as a heading is the same job either way. */
   .cm-header {
     padding: 4px 8px 2px;
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-muted);
+  }
+  /* The sheet's rows are twice the size of the popover's, so its group labels
+     have to grow with them or they read as debris between the rows. */
+  .as-list .cm-header {
+    padding: 8px 12px 4px;
+    font-size: var(--fs-compact);
+    letter-spacing: 0.02em;
   }
   /* Colour swatch dot, sized to sit where an icon would. */
   .cm-swatch {
@@ -254,7 +262,7 @@
   }
   .cm-tick {
     margin-left: auto;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 800;
     color: var(--accent-hover);
   }

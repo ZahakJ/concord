@@ -348,10 +348,18 @@
           </button>
           <div class="or"><span>or paste it</span></div>
         {/if}
+        <!-- A textarea on Android defaults to sentence capitalisation with
+             autocorrect and predictive text on, which mangles a code the
+             backend then rejects with an opaque error — on the one screen
+             where the user has no other way in. -->
         <textarea
           class="phrase-in"
           rows="3"
           placeholder="Paste the link code…"
+          autocapitalize="none"
+          autocorrect="off"
+          autocomplete="off"
+          spellcheck="false"
           bind:value={linkCode}
         ></textarea>
       {/if}
@@ -375,10 +383,18 @@
         Enter your 24-word recovery phrase and a new passphrase for this device.
         Your identity, servers, and history come back as you sync — nothing is lost.
       </p>
+      <!-- Same reason as the link code, and worse here: the IME will happily
+           "correct" uncommon BIP-39 words (gauge, nuclear, kernel) to
+           dictionary neighbours as you type, and the phrase is the only way
+           back into the account. -->
       <textarea
         class="phrase-in"
         rows="3"
         placeholder="word1 word2 word3 …"
+        autocapitalize="none"
+        autocorrect="off"
+        autocomplete="off"
+        spellcheck="false"
         bind:value={restorePhrase}
       ></textarea>
       <PassphraseField placeholder="New passphrase" autocomplete="new-password" bind:value={passphrase} />
@@ -411,7 +427,13 @@
       <button type="button" class="link" onclick={() => (forgot = false)}>Back</button>
     {:else if hasIdentity}
       <p class="muted">Welcome back — enter your passphrase to unlock.</p>
-      <PassphraseField placeholder="Passphrase" bind:value={passphrase} autofocus />
+      <!-- No autofocus on a phone. onMount raises the OS biometric sheet on the
+           same frame; autofocus slid the software keyboard up underneath it,
+           and dismissing the biometric prompt left the keyboard covering a card
+           the app can't scroll out from under it. Let the biometric prompt own
+           the first interaction; a tap on the field summons the keyboard when
+           it's actually wanted. -->
+      <PassphraseField placeholder="Passphrase" bind:value={passphrase} autofocus={!S.isMobile} />
       {#if error}<div class="error">{error}</div>{/if}
       <button type="submit" disabled={!passphrase || busy}>
         {busy ? "Unlocking…" : "Unlock"}
@@ -436,13 +458,15 @@
         Next you'll get a 24-word recovery phrase — the key to your account — to
         save.
       </p>
+      <!-- Likewise: a brand-new user's very first frame should be the copy
+           explaining what they're about to do, not a keyboard covering it. -->
       <input
         type="text"
         placeholder="Your name (what people see)"
         maxlength="32"
         autocomplete="off"
         bind:value={displayName}
-        autofocus
+        autofocus={!S.isMobile}
       />
       <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" bind:value={passphrase} />
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} />
@@ -478,7 +502,7 @@
     gap: 10px;
     padding: 10px 12px;
     margin: 4px 0 2px;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     line-height: 1.4;
     color: var(--text-muted);
     background: var(--accent-soft);
@@ -609,11 +633,13 @@
   }
   h1 {
     margin: 0;
-    font-size: 22px;
+    font-size: var(--fs-display);
   }
   p {
     margin: 0;
-    font-size: 13px;
+    /* 13px on a desktop card, 14px held at arm's length — the token carries
+       both, so the phone block no longer has to restate it. */
+    font-size: var(--fs-ui);
     line-height: 1.5;
   }
   .card.wide {
@@ -622,7 +648,7 @@
   }
   .phrase-in {
     font-family: ui-monospace, monospace;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     resize: vertical;
   }
   .scan-btn {
@@ -637,7 +663,7 @@
     align-items: center;
     gap: 10px;
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--fs-small);
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
@@ -657,7 +683,7 @@
     border-radius: 12px;
     background: color-mix(in srgb, var(--ok) 14%, transparent);
     border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
-    font-size: 13.5px;
+    font-size: var(--fs-ui);
     text-align: left;
   }
   .scanned-ok .tick {
@@ -673,7 +699,7 @@
   .scanned-ok .rescan {
     margin-left: auto;
     padding: 4px 10px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     background: transparent;
     border: 1px solid var(--border);
     border-radius: 999px;
@@ -691,23 +717,27 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     font-family: ui-monospace, monospace;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     text-align: left;
   }
+  /* This grid is the ONLY copy of the user's account key, and it used to
+     ellipsize: a long BIP-39 word in a narrow column was silently cut and
+     replaced with "…", with the blur on top hiding that it had happened. The
+     user transcribes a truncated word onto paper and finds out months later.
+     A phrase grid is not allowed to lie — it wraps or it grows, never clips. */
   .word {
     display: flex;
     gap: 6px;
     align-items: baseline;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
     transition: filter 0.15s ease;
   }
   /* Which word this is, not decoration — you read it to check word 17. */
   .wn {
     color: var(--text-muted);
-    font-size: 10px;
-    min-width: 14px;
+    font-size: var(--fs-tiny);
+    min-width: 16px;
+    flex: none;
     text-align: right;
   }
   .words.veiled .word {
@@ -723,7 +753,7 @@
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     padding: 5px 12px;
   }
   .ghost-sm:hover:not(:disabled) {
@@ -739,7 +769,7 @@
   .link {
     background: transparent;
     color: var(--text-muted);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     padding: 2px;
   }
   .link:hover {
@@ -753,18 +783,19 @@
     background: var(--danger);
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
     margin-top: 4px;
   }
 
   /* ---- touch adjustments ---- */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     /* flex + margin:auto centers like place-items but still scrolls when the
        card outgrows the screen (recovery-phrase step with the keyboard up). */
     .login {
       display: flex;
       overflow-y: auto;
-      padding: calc(12px + env(safe-area-inset-top)) 16px
+      overscroll-behavior: contain;
+      padding: calc(12px + env(safe-area-inset-top)) var(--sp-edge)
         calc(12px + env(safe-area-inset-bottom));
     }
     /* Full-bleed onboarding on a phone — no floating "card in a box". It blends
@@ -789,19 +820,39 @@
       font-size: 16px;
       padding: 12px;
     }
-    p {
-      font-size: 14px;
-    }
     button {
       min-height: 48px;
     }
     .phrase-actions .ghost-sm {
-      min-height: 42px;
-      font-size: 13px;
+      min-height: 44px;
     }
     .link {
-      min-height: 44px;
-      font-size: 13px;
+      min-height: var(--tap-min);
+    }
+    /* Two columns, not three. At 360px a three-up grid leaves ~72px for the
+       word itself — right at the edge for the longest BIP-39 entries, and over
+       it on a 320px device. Two columns give every word room at a size you can
+       transcribe from without leaning in. */
+    .words {
+      grid-template-columns: repeat(2, 1fr);
+      font-size: var(--fs-ui);
+      gap: 8px 12px;
+      padding: 14px 12px;
+    }
+    /* The "Rescan" chip is inline with a line of copy, so it can't grow without
+       shoving the confirmation around — pad the hit box instead. */
+    .scanned-ok .rescan {
+      position: relative;
+    }
+    .scanned-ok .rescan::after {
+      content: "";
+      position: absolute;
+      inset: -10px -6px;
+    }
+    /* Tracked-out micro-caps are the least legible thing on the screen, and
+       this one is only a divider label. */
+    .or {
+      letter-spacing: 0.04em;
     }
   }
 </style>

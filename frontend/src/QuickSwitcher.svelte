@@ -76,13 +76,15 @@
         run: () => toggleMute(id),
       });
     }
-    list.push({
-      id: "shortcuts",
-      label: "Keyboard shortcuts",
-      icon: "chevron",
-      sub: "Ctrl+/",
-      run: () => (S.modal = { kind: "shortcuts" }),
-    });
+    // A list of key bindings for a device with no keys. Off the menu on touch.
+    if (!S.isMobile)
+      list.push({
+        id: "shortcuts",
+        label: "Keyboard shortcuts",
+        icon: "chevron",
+        sub: "Ctrl+/",
+        run: () => (S.modal = { kind: "shortcuts" }),
+      });
     return list.map((a) => ({ ...a, kind: "action", key: `act:${a.id}` }));
   });
 
@@ -271,9 +273,10 @@
     gap: 2px;
     max-height: min(52vh, 430px);
     overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .sec {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     padding: 4px 10px 2px;
@@ -293,15 +296,23 @@
     text-align: left;
     padding: 8px 10px;
     border-radius: var(--radius-sm);
-    font-size: 14px;
+    font-size: var(--fs-ui);
     transition:
       background 0.1s ease,
       transform 0.12s ease;
   }
-  .hit.sel,
-  .hit:hover {
+  .hit.sel {
     background: var(--bg-3);
     transform: translateX(2px);
+  }
+  @media (pointer: fine) {
+    .hit:hover {
+      background: var(--bg-3);
+      transform: translateX(2px);
+    }
+  }
+  .hit:active {
+    background: var(--bg-3);
   }
   /* The selected row carries an accent edge + tinted icon, so keyboard focus
      reads instantly even while the mouse hovers elsewhere. */
@@ -334,7 +345,7 @@
   }
   .hit-kbd {
     font-family: inherit;
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     color: var(--text-muted);
     background: var(--bg-2);
     border: 1px solid var(--border);
@@ -354,21 +365,21 @@
     font-weight: 600;
   }
   .hit-sub {
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .none {
     padding: 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .hint {
-    font-size: 11px;
+    font-size: var(--fs-small);
     text-align: center;
     padding-top: 2px;
     border-top: 1px solid var(--border);
   }
   /* Mobile: the palette drops in full-width from the top edge; keyboard
      shortcut hints are meaningless on touch. */
-  @media (pointer: coarse), (max-width: 700px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .overlay {
       padding-top: 0;
       align-items: flex-start;
@@ -384,11 +395,20 @@
       font-size: 16px; /* stops iOS auto-zoom on focus */
     }
     .hit {
-      min-height: 44px;
-      font-size: 15px;
+      min-height: var(--tap-min);
+      font-size: var(--fs-body);
+    }
+    /* Both name keys nobody can press, and both steal width from .hit-label,
+       which ellipsizes — so a shortcut chip was truncating channel names to
+       make room for itself. */
+    .hit-kbd,
+    .hit-enter {
+      display: none;
     }
     .results {
-      max-height: 60vh;
+      /* dvh: the keyboard is up the whole time this palette is open, and vh
+         does not shrink for it in an Android WebView. */
+      max-height: 60dvh;
     }
     .hint {
       display: none;

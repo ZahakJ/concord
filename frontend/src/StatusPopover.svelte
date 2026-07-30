@@ -188,14 +188,9 @@
     .status-pop {
       animation: none;
     }
-    .presence:hover .dot,
-    .em:hover,
-    .em:active {
-      transform: none;
-    }
   }
   .sec-label {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin: 2px 4px 3px;
@@ -214,7 +209,21 @@
   .presence {
     transition: background 0.12s ease;
   }
-  .presence:hover {
+  @media (pointer: fine) {
+    .presence:hover {
+      background: var(--bg-3);
+    }
+    /* The dot answers the hover: grows and glows in its own presence color. */
+    .presence:hover .dot {
+      transform: scale(1.35);
+      box-shadow: 0 0 8px 1px color-mix(in srgb, var(--pc) 65%, transparent);
+    }
+    .em:hover {
+      background: var(--bg-3);
+      transform: scale(1.18);
+    }
+  }
+  .presence:active {
     background: var(--bg-3);
   }
   .presence.sel {
@@ -227,11 +236,6 @@
     flex-shrink: 0;
     transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
   }
-  /* The dot answers the hover: grows and glows in its own presence color. */
-  .presence:hover .dot {
-    transform: scale(1.35);
-    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--pc) 65%, transparent);
-  }
   .presence.sel .dot {
     box-shadow: 0 0 6px 1px color-mix(in srgb, var(--pc) 55%, transparent);
   }
@@ -242,10 +246,10 @@
     min-width: 0;
   }
   .p-text strong {
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .p-desc {
-    font-size: 11px;
+    font-size: var(--fs-small);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -278,15 +282,20 @@
   .em {
     transition: background 0.12s ease, transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  .em:hover {
-    background: var(--bg-3);
-    transform: scale(1.18);
-  }
   .em:active {
     transform: scale(0.95);
   }
   .em.sel {
     background: var(--accent-soft);
+  }
+  /* After the hover rules, not before them: this block used to sit above the
+     transforms it was meant to cancel, at the same specificity, so it lost. */
+  @media (prefers-reduced-motion: reduce) {
+    .presence:hover .dot,
+    .em:hover,
+    .em:active {
+      transform: none;
+    }
   }
   .st-box {
     display: flex;
@@ -297,7 +306,7 @@
     flex: 1;
     min-width: 0;
     padding: 7px 9px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-radius: var(--radius-sm);
   }
   .st-save {
@@ -321,14 +330,20 @@
   .preset {
     flex: 1;
     padding: 5px 4px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     background: var(--bg-3);
     color: var(--text-muted);
     border-radius: 10px;
     white-space: nowrap;
     transition: background 0.12s ease, color 0.12s ease;
   }
-  .preset:hover {
+  @media (pointer: fine) {
+    .preset:hover {
+      background: var(--border);
+      color: var(--text);
+    }
+  }
+  .preset:active {
     background: var(--border);
     color: var(--text);
   }
@@ -339,7 +354,7 @@
     gap: 5px;
     margin-top: 6px;
     padding: 5px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     background: transparent;
     color: var(--text-faint);
     border-radius: var(--radius-sm);
@@ -369,6 +384,13 @@
     bottom: 0;
     width: auto;
     z-index: 401; /* above its scrim */
+    /* Presence rows + emoji row + input + presets + the whole game shelf can
+       easily outgrow the screen, and an unbounded sheet grows UPWARD off the
+       top edge, where the presence options it starts with become unreachable.
+       dvh because the status input opens the keyboard. */
+    max-height: 88dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
     border: none;
     border-radius: 18px 18px 0 0;
     padding: 14px 14px calc(16px + env(safe-area-inset-bottom));
@@ -384,13 +406,14 @@
       animation: none;
     }
   }
-  @media (pointer: coarse), (max-width: 700px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .presence {
       min-height: 46px;
     }
     .em {
       font-size: 20px;
       padding: 8px 0;
+      min-height: var(--tap-min);
     }
     .st-box input {
       font-size: 16px; /* stops iOS auto-zoom on focus */
@@ -401,10 +424,11 @@
     }
     .preset {
       padding: 10px 6px;
-      font-size: 13px;
+      font-size: var(--fs-ui);
+      min-height: var(--tap-min);
     }
     .clear {
-      min-height: 42px;
+      min-height: var(--tap-min);
     }
   }
 </style>

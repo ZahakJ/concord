@@ -675,8 +675,12 @@
     top: auto;
     bottom: 0;
     width: auto;
-    max-height: 84vh;
+    /* dvh: the nickname and DM fields open the keyboard, and vh does not shrink
+       for it in an Android WebView — the card kept sizing to the whole screen
+       and put its own input underneath. */
+    max-height: 84dvh;
     overflow-y: auto;
+    overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     z-index: 401;
     border: none;
@@ -721,11 +725,19 @@
     gap: 6px;
   }
   .pop.sheet .name-row strong {
-    font-size: 19px;
+    font-size: var(--fs-title);
   }
   .pop.sheet .bio,
   .pop.sheet .status-text {
-    font-size: 14px;
+    font-size: var(--fs-ui);
+  }
+  /* A safety number is compared glyph by glyph against another device. It is
+     the string in the app that least tolerates being squinted at. */
+  .pop.sheet .fpr {
+    font-size: var(--fs-ui);
+  }
+  .pop.sheet .mod-btn {
+    flex: 1 1 45%;
   }
   /* 16px inputs: stops iOS auto-zoom on focus, and finger-sized buttons. */
   .pop.sheet input {
@@ -802,7 +814,7 @@
     gap: 4px;
     margin-bottom: 4px;
     padding: 2px 9px;
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 600;
     border-radius: 999px;
     color: var(--ok-text);
@@ -822,10 +834,12 @@
     flex-wrap: wrap;
   }
   .name-row strong {
+    /* Content, not chrome — deliberately off the UI scale. The sheet raises it
+       to --fs-title, where the card is the whole screen. */
     font-size: 16px;
   }
   .tag {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     background: var(--bg-3);
@@ -834,14 +848,14 @@
     border-radius: 8px;
   }
   .username {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     margin-top: -2px;
   }
   .mutual {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   .status-box {
     display: flex;
@@ -864,7 +878,7 @@
     display: flex;
     align-items: center;
     gap: 5px;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -895,7 +909,7 @@
     min-width: 0;
   }
   .act-title {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text);
     white-space: nowrap;
@@ -903,7 +917,7 @@
     text-overflow: ellipsis;
   }
   .act-artist {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
@@ -925,7 +939,7 @@
   .act-times {
     display: flex;
     justify-content: space-between;
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     font-variant-numeric: tabular-nums;
     color: var(--text-faint);
     margin-top: 3px;
@@ -935,13 +949,13 @@
     line-height: 1.25;
   }
   .status-text {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.4;
     color: var(--text);
     word-break: break-word;
   }
   .sec-label {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }
@@ -952,7 +966,7 @@
     gap: 8px;
   }
   .bio {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.45;
     white-space: pre-wrap;
     word-break: break-word;
@@ -960,7 +974,7 @@
     overflow-y: auto;
   }
   .role-badge {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     padding: 1px 6px;
@@ -988,7 +1002,7 @@
     align-items: center;
     gap: 5px;
     padding: 3px 9px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     background: var(--bg-3);
     color: var(--text-muted);
     border: 1px solid transparent;
@@ -1036,13 +1050,18 @@
     flex: 1;
     justify-content: center;
     padding: 7px 8px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     background: var(--bg-3);
     color: var(--text);
     border-radius: var(--radius-sm);
     white-space: nowrap;
   }
-  .mod-btn:hover {
+  @media (pointer: fine) {
+    .mod-btn:hover {
+      background: var(--bg-4, var(--border));
+    }
+  }
+  .mod-btn:active {
     background: var(--bg-4, var(--border));
   }
   .mod-btn.danger {
@@ -1058,7 +1077,7 @@
     align-self: flex-start;
     margin-top: 6px;
     padding: 4px 8px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     background: var(--bg-3);
     color: var(--text-muted);
     border-radius: var(--radius-sm);
@@ -1074,12 +1093,12 @@
   .nick-box input {
     flex: 1;
     padding: 7px 9px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-radius: var(--radius-sm);
   }
   .nick-save {
     padding: 0 12px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .divider {
     height: 1px;
@@ -1091,7 +1110,7 @@
     align-items: center;
     gap: 4px;
     padding: 2px 7px;
-    font-size: 11px;
+    font-size: var(--fs-small);
     background: var(--bg-3);
     color: var(--text-muted);
     border-radius: 8px;
@@ -1104,7 +1123,8 @@
   }
   .fpr {
     font-family: ui-monospace, monospace;
-    font-size: 11px;
+    font-size: var(--fs-small);
+    letter-spacing: 0.02em;
     line-height: 1.5;
     word-break: break-word;
     background: var(--bg-0);
@@ -1113,13 +1133,13 @@
     color: var(--text);
   }
   .hint {
-    font-size: 11px;
+    font-size: var(--fs-small);
     line-height: 1.4;
     margin: 4px 0 0;
   }
   .verify-btn {
     margin-top: 8px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 7px;
   }
   .dm-box {
@@ -1132,7 +1152,7 @@
   .dm-box input {
     flex: 1;
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-radius: var(--radius-sm);
   }
   .dm-send {

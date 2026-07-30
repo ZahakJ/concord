@@ -148,7 +148,7 @@
   }
   h1 {
     margin: 8px 0 0;
-    font-size: 22px;
+    font-size: var(--fs-display);
   }
   p {
     max-width: 440px;
@@ -171,7 +171,7 @@
     border-radius: 999px;
     background: var(--accent-soft);
     color: var(--accent-hover);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 600;
     /* Chips land a beat after the headline, left to right. */
     animation: card-in 0.35s ease backwards;
@@ -220,11 +220,18 @@
       transform: translateY(10px);
     }
   }
-  .card:hover {
-    background: var(--bg-1);
-    border-color: var(--accent);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 14%, transparent);
+  /* Mouse only: on touch this lift sticks to the last card you tapped, so the
+     screen keeps a card raised behind whatever dialog just opened. */
+  @media (pointer: fine) {
+    .card:hover {
+      background: var(--bg-1);
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px color-mix(in srgb, var(--accent) 14%, transparent);
+    }
+    .card:hover .ic {
+      transform: scale(1.12) rotate(-5deg);
+    }
   }
   .card:active {
     transform: translateY(0);
@@ -244,12 +251,8 @@
     margin-bottom: 6px;
     transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  /* The card's icon leans into the hover — a playful tilt with the lift. */
-  .card:hover .ic {
-    transform: scale(1.12) rotate(-5deg);
-  }
   .sub {
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   @media (prefers-reduced-motion: reduce) {
     .card,
@@ -268,7 +271,12 @@
   }
 
   /* ---- touch adjustments: cards stack full-width, comfy targets ---- */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
+    /* The first thing a new user sees after the door, held at arm's length —
+       the lede has to read as body copy, not as a caption. */
+    p {
+      font-size: var(--fs-body);
+    }
     .cards {
       flex-direction: column;
       width: 100%;

@@ -29,9 +29,99 @@
     DEFAULT_FOLDER_COLOR,
   } from "./lib/rail.js";
   import { playFlyby } from "./lib/sounds.js";
+  import { longpress } from "./lib/touch.js";
 
-  function guildMenu(e, sv) {
-    openContextMenu(e, guildMenuItems(sv), { title: sv.name });
+  // Touch: long-press opens the rail menus. iOS/WKWebView never synthesizes
+  // `contextmenu` for a plain element, so mute / leave / invite / guild settings
+  // / folder colour were unreachable from the rail entirely there; Android's
+  // synthesized one would double-fire alongside the longpress. Same pattern
+  // ChannelList and MemberPanel already use.
+  const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
+
+  // Every rail rearrangement — reorder, file into a folder, and (since a folder
+  // is only ever born by dropping one guild onto another) creating a folder at
+  // all — is built on HTML5 drag-and-drop, which no mobile WebView synthesizes
+  // from touch. Folders are a device-local preference, so a phone-only user
+  // could never have one. These give every drag a menu equivalent, which also
+  // hands the same operations to keyboard-only desktop users.
+  function arrangeItems(sv, folder) {
+    const items = [];
+    if (folder) {
+      const i = folder.ids.indexOf(sv.id);
+      if (i > 0)
+        items.push({ label: "Move up", icon: "chevron", onClick: () => moveInFolder(sv, folder, i - 1) });
+      if (i > -1 && i < folder.ids.length - 1)
+        // moveGuild reads its index against the layout BEFORE the guild is
+        // lifted out, so one step down is i+2, not i+1.
+        items.push({ label: "Move down", icon: "chevron", onClick: () => moveInFolder(sv, folder, i + 2) });
+      items.push({
+        label: "Take out of folder",
+        icon: "door",
+        onClick: () => commitRail(moveGuild(S.rail, sv.id, { kind: "top", index: topIndexOfFolder(folder.id) + 1 })),
+      });
+      return items;
+    }
+    const i = S.rail.findIndex((e) => e.t === "g" && e.id === sv.id);
+    if (i > 0) items.push({ label: "Move up", icon: "chevron", onClick: () => moveTop(sv, i - 1) });
+    if (i > -1 && i < S.rail.length - 1)
+      items.push({ label: "Move down", icon: "chevron", onClick: () => moveTop(sv, i + 2) });
+    const folders = S.rail.filter((e) => e.t === "f");
+    if (folders.length) {
+      items.push({ label: "Add to folder", header: true });
+      for (const f of folders)
+        items.push({
+          label: f.name || "Folder",
+          icon: "folder",
+          onClick: () => commitRail(moveGuild(S.rail, sv.id, { kind: "folder", folderId: f.id })),
+        });
+    }
+    const others = S.rail
+      .filter((e) => e.t === "g" && e.id !== sv.id)
+      .map((e) => guildById.get(e.id))
+      .filter(Boolean);
+    if (others.length) {
+      items.push({ label: "New folder with…", header: true });
+      for (const o of others)
+        items.push({
+          label: o.name,
+          icon: "diamond",
+          onClick: () => commitRail(combineGuilds(S.rail, sv.id, o.id, DEFAULT_FOLDER_COLOR)),
+        });
+    }
+    return items;
+  }
+  const moveTop = (sv, index) => commitRail(moveGuild(S.rail, sv.id, { kind: "top", index }));
+  const moveInFolder = (sv, folder, index) =>
+    commitRail(moveGuild(S.rail, sv.id, { kind: "folder", folderId: folder.id, index }));
+
+  // openContextMenu positions at the event, so a menu opened FROM a menu item
+  // needs the original point carried forward.
+  const atPoint = (e) => ({
+    clientX: e.clientX,
+    clientY: e.clientY,
+    preventDefault() {},
+    stopPropagation() {},
+  });
+
+  function guildMenu(e, sv, folder = null) {
+    const pt = atPoint(e);
+    const arrange = arrangeItems(sv, folder);
+    openContextMenu(
+      e,
+      [
+        ...guildMenuItems(sv),
+        // Behind one entry rather than inline: "New folder with…" lists every
+        // other guild, and a menu you have to scroll past to reach "Leave" is
+        // worse than one more tap.
+        arrange.length && { sep: true },
+        arrange.length && {
+          label: "Rearrange…",
+          icon: "folder",
+          onClick: () => openContextMenu(pt, arrange, { title: `Rearrange ${sv.name}` }),
+        },
+      ].filter(Boolean),
+      { title: sv.name },
+    );
   }
 
   function addMenu(e) {
@@ -263,11 +353,32 @@
     ["Sage", "#7bb87b"],
     ["Slate", "#7c8798"],
   ];
+  // The folder's name field is a 46px box in a 64px column — findable with a
+  // mouse, invisible as an affordance under a finger (its only cue was a hover
+  // border). Renaming gets a menu entry that opens the folder and puts the
+  // caret in the field, so the phone has a route to it at all.
+  function renameFromMenu(folder) {
+    if (!folder.open) commitRail(toggleFolder(S.rail, folder.id, true));
+    // Two frames: one for the rail to commit, one for the folder body to mount.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-folder="${folder.id}"] .folder-name`);
+        el?.focus();
+        el?.select?.();
+      }),
+    );
+  }
+
   function folderMenu(e, folder) {
+    const idx = topIndexOfFolder(folder.id);
     openContextMenu(
       e,
       [
         { label: folder.open ? "Collapse folder" : "Expand folder", icon: "folder", onClick: () => commitRail(toggleFolder(S.rail, folder.id)) },
+        { label: "Rename folder", icon: "edit", onClick: () => renameFromMenu(folder) },
+        idx > 0 && { label: "Move up", icon: "chevron", onClick: () => commitRail(moveFolder(S.rail, folder.id, idx - 1)) },
+        idx > -1 && idx < S.rail.length - 1 && { label: "Move down", icon: "chevron", onClick: () => commitRail(moveFolder(S.rail, folder.id, idx + 2)) },
+        { sep: true },
         ...SWATCHES.map(([name, color]) => ({
           label: name,
           swatch: color,
@@ -284,205 +395,218 @@
   }
 </script>
 
-<nav
-  class="rail"
-  aria-label="Servers"
-  ondragover={overRail}
-  ondrop={dropOnRail}
-  class:dragging={!!drag}
->
-  <button
-    class="pill home"
-    class:active={inDMs}
-    title="Direct messages"
-    aria-label="Home / Direct messages"
-    onclick={homeClick}
+<nav class="rail" aria-label="Servers">
+  <!-- The list scrolls; the add/meeting buttons below do not. They used to be
+       rendered last, after every guild, inside a 64px strip whose scrollbar is
+       hidden — so at ~13 bubbles (one phone screenful) the only way to create
+       or join anything was to guess that an unmarked column scrolls. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="rail-scroll"
+    ondragover={overRail}
+    ondrop={dropOnRail}
+    class:dragging={!!drag}
   >
-    <span class="jet" class:roll={rolling} onanimationend={() => (rolling = false)}>
-      <Icon name="concorde" size={24} />
-    </span>
-    {#if S.requests.length && !inDMs}
-      <!-- Message requests get a dot, never the red count badge: a stranger who
-           has not been accepted must not be able to make the app look like a
-           friend is waiting. -->
-      <span class="req-dot" title="Message requests waiting"></span>
-    {/if}
-  </button>
-  <div class="divider"></div>
-
-  {#each dms as dm, i (dm.id)}
-    {@const u = guildUnread(dm)}
-    <div class="bubble-wrap" style="--i:{i}">
-      <button
-        class="pill dm"
-        class:active={dm.id === S.activeGuildId}
-        title={dm.name}
-        aria-label={dm.name}
-        onclick={() => selectGuild(dm.id)}
-      >
-        {#if (dm.dmMembers ?? 2) > 2}
-          <GroupAvatar faces={dm.dmFaces || []} size={42} />
-        {:else}
-          <Avatar
-            name={dm.name}
-            image={dm.dmPeerAvatar || dm.dmFaces?.[0]?.avatar || dm.icon}
-            size={42}
-            online={dm.dmPeer ? !!dm.dmPeerOnline : null}
-            presence={dm.dmPeerPresence || ""}
-          />
-        {/if}
-      </button>
-      {#if dm.id !== S.activeGuildId && u.count > 0}
-        <span class="badge">{u.count > 99 ? "99+" : u.count}</span>
+    <button
+      class="pill home"
+      class:active={inDMs}
+      title="Direct messages"
+      aria-label={S.requests.length && !inDMs
+        ? `Home / Direct messages — ${S.requests.length} message request${S.requests.length === 1 ? "" : "s"} waiting`
+        : "Home / Direct messages"}
+      onclick={homeClick}
+    >
+      <span class="jet" class:roll={rolling} onanimationend={() => (rolling = false)}>
+        <Icon name="concorde" size={24} />
+      </span>
+      {#if S.requests.length && !inDMs}
+        <!-- Message requests get a dot, never the red count badge: a stranger who
+             has not been accepted must not be able to make the app look like a
+             friend is waiting. -->
+        <span class="req-dot" title="Message requests waiting"></span>
       {/if}
-    </div>
-  {/each}
+    </button>
+    <div class="divider"></div>
 
-  {#if dms.length}<div class="divider"></div>{/if}
-
-  {#each view as entry, idx (entry.t === "f" ? entry.folder.id : entry.id)}
-    {#if entry.t === "g"}
-      {@const sv = entry.g}
-      {@const u = guildUnread(sv)}
-      {#if dropHint?.k === "bar" && dropHint.index === idx}<div class="dropbar"></div>{/if}
-      <div class="bubble-wrap" style="--i:{idx}">
+    {#each dms as dm, i (dm.id)}
+      {@const u = guildUnread(dm)}
+      <div class="bubble-wrap" style="--i:{i}">
         <button
-          class="pill"
-          class:active={sv.id === S.activeGuildId}
-          class:hasicon={sv.icon}
-          class:combine={dropHint?.k === "combine" && dropHint.id === sv.id}
-          title={sv.name}
-          aria-label={sv.name}
-          draggable="true"
-          ondragstart={(e) => startDrag(e, { kind: "guild", id: sv.id })}
-          ondragend={endDrag}
-          ondragover={(e) => overGuild(e, sv, idx)}
-          ondrop={(e) => dropOnGuild(e, sv, idx)}
-          onclick={() => selectGuild(sv.id)}
-          oncontextmenu={(e) => guildMenu(e, sv)}
+          class="pill dm"
+          class:active={dm.id === S.activeGuildId}
+          title={dm.name}
+          aria-label={dm.name}
+          onclick={() => selectGuild(dm.id)}
         >
-          {#if sv.icon}
-            <img class="icon" src={sv.icon} alt="" />
+          {#if (dm.dmMembers ?? 2) > 2}
+            <GroupAvatar faces={dm.dmFaces || []} size={42} />
           {:else}
-            <span class="face" style={guildTint(sv.id)}>{initials(sv.name)}</span>
+            <Avatar
+              name={dm.name}
+              image={dm.dmPeerAvatar || dm.dmFaces?.[0]?.avatar || dm.icon}
+              size={42}
+              online={dm.dmPeer ? !!dm.dmPeerOnline : null}
+              presence={dm.dmPeerPresence || ""}
+            />
           {/if}
         </button>
-        {#if sv.id !== S.activeGuildId && u.count > 0}
-          <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
+        {#if dm.id !== S.activeGuildId && u.count > 0}
+          <span class="badge">{u.count > 99 ? "99+" : u.count}</span>
         {/if}
       </div>
-    {:else}
-      {@const folder = entry.folder}
-      {@const fu = folderUnread(entry.guilds)}
-      {#if dropHint?.k === "bar" && dropHint.index === idx}<div class="dropbar"></div>{/if}
-      <div class="folder" class:open={folder.open}>
-        <div class="bubble-wrap folder-wrap" style="--fc:{folder.color}">
+    {/each}
+
+    {#if dms.length}<div class="divider"></div>{/if}
+
+    {#each view as entry, idx (entry.t === "f" ? entry.folder.id : entry.id)}
+      {#if entry.t === "g"}
+        {@const sv = entry.g}
+        {@const u = guildUnread(sv)}
+        {#if dropHint?.k === "bar" && dropHint.index === idx}<div class="dropbar"></div>{/if}
+        <div class="bubble-wrap" style="--i:{idx}">
           <button
-            class="pill folder-tile"
-            class:combine={dropHint?.k === "folder" && dropHint.id === folder.id}
-            class:hasactive={entry.guilds.some((x) => x.id === S.activeGuildId) && !folder.open}
-            title={folder.name || "Folder"}
-            aria-label={folder.name || "Folder"}
+            class="pill"
+            class:active={sv.id === S.activeGuildId}
+            class:hasicon={sv.icon}
+            class:combine={dropHint?.k === "combine" && dropHint.id === sv.id}
+            title={sv.name}
+            aria-label={sv.name}
             draggable="true"
-            ondragstart={(e) => startDrag(e, { kind: "folder", id: folder.id })}
+            ondragstart={(e) => startDrag(e, { kind: "guild", id: sv.id })}
             ondragend={endDrag}
-            ondragover={(e) => overFolder(e, folder)}
-            ondrop={(e) => dropOnFolder(e, folder)}
-            onclick={() => commitRail(toggleFolder(S.rail, folder.id))}
-            oncontextmenu={(e) => folderMenu(e, folder)}
+            ondragover={(e) => overGuild(e, sv, idx)}
+            ondrop={(e) => dropOnGuild(e, sv, idx)}
+            onclick={() => selectGuild(sv.id)}
+            oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => guildMenu(e, sv)}
+            use:longpress={{ handler: (e) => guildMenu(e, sv) }}
           >
-            {#if folder.open}
-              <Icon name="folder" size={20} />
+            {#if sv.icon}
+              <img class="icon" src={sv.icon} alt="" />
             {:else}
-              <span class="mini-grid">
-                {#each entry.guilds.slice(0, 4) as gg (gg.id)}
-                  {#if gg.icon}
-                    <img class="mini" src={gg.icon} alt="" />
-                  {:else}
-                    <span class="mini face" style={guildTint(gg.id)}>{initials(gg.name)[0]}</span>
-                  {/if}
-                {/each}
-              </span>
+              <span class="face" style={guildTint(sv.id)}>{initials(sv.name)}</span>
             {/if}
           </button>
-          {#if !folder.open && fu.count > 0}
-            <span class="badge" class:mention={fu.mentions > 0}>{fu.count > 99 ? "99+" : fu.count}</span>
+          {#if sv.id !== S.activeGuildId && u.count > 0}
+            <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
           {/if}
         </div>
-
-        {#if folder.open}
-          <div
-            class="folder-body"
-            ondragover={(e) => { if (drag?.kind === "guild") { e.preventDefault(); } }}
-            ondrop={(e) => dropInFolder(e, folder)}
-            role="group"
-          >
-            <input
-              class="folder-name"
-              value={folder.name}
-              placeholder="Folder"
-              onclick={(e) => e.stopPropagation()}
-              oninput={(e) => onRename(e, folder)}
-            />
-            {#each entry.guilds as gg, mi (gg.id)}
-              {@const u = guildUnread(gg)}
-              {#if dropHint?.k === "fbar" && dropHint.fid === folder.id && dropHint.index === mi}<div class="dropbar dropbar--in"></div>{/if}
-              <div class="bubble-wrap" style="--i:{mi}">
-                <button
-                  class="pill"
-                  class:active={gg.id === S.activeGuildId}
-                  class:hasicon={gg.icon}
-                  title={gg.name}
-                  aria-label={gg.name}
-                  draggable="true"
-                  ondragstart={(e) => startDrag(e, { kind: "guild", id: gg.id })}
-                  ondragend={endDrag}
-                  ondragover={(e) => overInFolder(e, folder, mi)}
-                  ondrop={(e) => dropInFolder(e, folder)}
-                  onclick={() => selectGuild(gg.id)}
-                  oncontextmenu={(e) => guildMenu(e, gg)}
-                >
-                  {#if gg.icon}
-                    <img class="icon" src={gg.icon} alt="" />
-                  {:else}
-                    <span class="face" style={guildTint(gg.id)}>{initials(gg.name)}</span>
-                  {/if}
-                </button>
-                {#if gg.id !== S.activeGuildId && u.count > 0}
-                  <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
-                {/if}
-              </div>
-            {/each}
+      {:else}
+        {@const folder = entry.folder}
+        {@const fu = folderUnread(entry.guilds)}
+        {#if dropHint?.k === "bar" && dropHint.index === idx}<div class="dropbar"></div>{/if}
+        <div class="folder" class:open={folder.open} data-folder={folder.id}>
+          <div class="bubble-wrap folder-wrap" style="--fc:{folder.color}">
+            <button
+              class="pill folder-tile"
+              class:combine={dropHint?.k === "folder" && dropHint.id === folder.id}
+              class:hasactive={entry.guilds.some((x) => x.id === S.activeGuildId) && !folder.open}
+              title={folder.name || "Folder"}
+              aria-label={folder.name || "Folder"}
+              draggable="true"
+              ondragstart={(e) => startDrag(e, { kind: "folder", id: folder.id })}
+              ondragend={endDrag}
+              ondragover={(e) => overFolder(e, folder)}
+              ondrop={(e) => dropOnFolder(e, folder)}
+              onclick={() => commitRail(toggleFolder(S.rail, folder.id))}
+              oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => folderMenu(e, folder)}
+              use:longpress={{ handler: (e) => folderMenu(e, folder) }}
+            >
+              {#if folder.open}
+                <Icon name="folder" size={20} />
+              {:else}
+                <span class="mini-grid">
+                  {#each entry.guilds.slice(0, 4) as gg (gg.id)}
+                    {#if gg.icon}
+                      <img class="mini" src={gg.icon} alt="" />
+                    {:else}
+                      <span class="mini face" style={guildTint(gg.id)}>{initials(gg.name)[0]}</span>
+                    {/if}
+                  {/each}
+                </span>
+              {/if}
+            </button>
+            {#if !folder.open && fu.count > 0}
+              <span class="badge" class:mention={fu.mentions > 0}>{fu.count > 99 ? "99+" : fu.count}</span>
+            {/if}
           </div>
-        {/if}
-      </div>
-    {/if}
-  {/each}
-  {#if dropHint?.k === "bar" && dropHint.index >= view.length}<div class="dropbar"></div>{/if}
 
-  {#if S.isMobile}
-    <button class="pill add" title="Add a server" aria-label="Add a server" onclick={addMenu}>
-      <Icon name="plus" />
-    </button>
-    <button
-      class="pill add meet"
-      title="Instant meeting — a disposable room + invite to send anyone"
-      aria-label="Start an instant meeting"
-      onclick={startMeeting}
-    >
-      <Icon name="bolt" />
-    </button>
-  {:else}
-    <button class="pill add" title="Create a guild" aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
-      <Icon name="plus" />
-    </button>
-    <button class="pill add meet" title="Instant meeting — a disposable room + invite to send anyone" aria-label="Start an instant meeting" onclick={startMeeting}>
-      <Icon name="bolt" />
-    </button>
-    <button class="pill add" title="Join with invite" aria-label="Join with invite" onclick={() => (S.modal = { kind: "join", code: "" })}>
-      <Icon name="download" />
-    </button>
-  {/if}
+          {#if folder.open}
+            <div
+              class="folder-body"
+              ondragover={(e) => { if (drag?.kind === "guild") { e.preventDefault(); } }}
+              ondrop={(e) => dropInFolder(e, folder)}
+              role="group"
+            >
+              <input
+                class="folder-name"
+                value={folder.name}
+                placeholder="Folder"
+                onclick={(e) => e.stopPropagation()}
+                oninput={(e) => onRename(e, folder)}
+              />
+              {#each entry.guilds as gg, mi (gg.id)}
+                {@const u = guildUnread(gg)}
+                {#if dropHint?.k === "fbar" && dropHint.fid === folder.id && dropHint.index === mi}<div class="dropbar dropbar--in"></div>{/if}
+                <div class="bubble-wrap" style="--i:{mi}">
+                  <button
+                    class="pill"
+                    class:active={gg.id === S.activeGuildId}
+                    class:hasicon={gg.icon}
+                    title={gg.name}
+                    aria-label={gg.name}
+                    draggable="true"
+                    ondragstart={(e) => startDrag(e, { kind: "guild", id: gg.id })}
+                    ondragend={endDrag}
+                    ondragover={(e) => overInFolder(e, folder, mi)}
+                    ondrop={(e) => dropInFolder(e, folder)}
+                    onclick={() => selectGuild(gg.id)}
+                    oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => guildMenu(e, gg, folder)}
+                    use:longpress={{ handler: (e) => guildMenu(e, gg, folder) }}
+                  >
+                    {#if gg.icon}
+                      <img class="icon" src={gg.icon} alt="" />
+                    {:else}
+                      <span class="face" style={guildTint(gg.id)}>{initials(gg.name)}</span>
+                    {/if}
+                  </button>
+                  {#if gg.id !== S.activeGuildId && u.count > 0}
+                    <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+    {/each}
+    {#if dropHint?.k === "bar" && dropHint.index >= view.length}<div class="dropbar"></div>{/if}
+  </div>
+
+  <div class="rail-foot">
+    {#if S.isMobile}
+      <button class="pill add" title="Add a server" aria-label="Add a server" onclick={addMenu}>
+        <Icon name="plus" />
+      </button>
+      <button
+        class="pill add meet"
+        title="Instant meeting — a disposable room + invite to send anyone"
+        aria-label="Start an instant meeting"
+        onclick={startMeeting}
+      >
+        <Icon name="bolt" />
+      </button>
+    {:else}
+      <button class="pill add" title="Create a guild" aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
+        <Icon name="plus" />
+      </button>
+      <button class="pill add meet" title="Instant meeting — a disposable room + invite to send anyone" aria-label="Start an instant meeting" onclick={startMeeting}>
+        <Icon name="bolt" />
+      </button>
+      <button class="pill add" title="Join with invite" aria-label="Join with invite" onclick={() => (S.modal = { kind: "join", code: "" })}>
+        <Icon name="download" />
+      </button>
+    {/if}
+  </div>
 </nav>
 
 <style>
@@ -490,14 +614,41 @@
     background: var(--bg-0);
     display: flex;
     flex-direction: column;
+    min-height: 0;
+  }
+  /* `0 1 auto`, not `1`: a rail that fits keeps the add buttons directly under
+     the last guild, exactly as before. Only once the list outgrows the column
+     does the scroller claim the remaining height and leave the footer pinned. */
+  .rail-scroll {
+    flex: 0 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
     align-items: center;
     gap: 8px;
     padding: 10px 0;
     overflow-y: auto;
+    /* A fling off the end of the rail must not continue into the chat feed
+       showing past the open drawer. */
+    overscroll-behavior: contain;
     scrollbar-width: none;
   }
-  .rail::-webkit-scrollbar {
+  .rail-scroll::-webkit-scrollbar {
     display: none;
+  }
+  /* Creating or joining is always one tap away, whatever the guild count. The
+     hairline is also the only cue this strip has that the list above it
+     scrolls — its scrollbar is hidden, so at 20 guilds the way to add one was
+     to guess that an unmarked 64px column scrolls. */
+  .rail-foot {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0 calc(10px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: var(--bg-0);
   }
   .pill {
     position: relative;
@@ -507,7 +658,7 @@
     background: var(--bg-2);
     color: var(--text);
     font-weight: 600;
-    font-size: 14px;
+    font-size: var(--fs-ui);
     text-transform: uppercase;
     display: grid;
     place-items: center;
@@ -519,10 +670,15 @@
       box-shadow 0.18s ease;
     flex-shrink: 0;
   }
-  .pill:hover {
-    border-radius: 14px;
-    background: var(--bg-3);
-    transform: translateY(-1px) scale(1.04);
+  /* Mouse only: a tap synthesises :hover and leaves the pill stuck in its
+     squircle-and-lifted state until you tap elsewhere. :active is the touch
+     answer, and it is already unconditional below. */
+  @media (pointer: fine) {
+    .pill:hover {
+      border-radius: 14px;
+      background: var(--bg-3);
+      transform: translateY(-1px) scale(1.04);
+    }
   }
   .pill:active {
     transform: scale(0.92);
@@ -558,10 +714,12 @@
     background: var(--bg-3);
     color: var(--accent-hover);
   }
-  .pill.home:hover {
-    border-radius: 15px;
-    color: var(--accent-fg);
-    background: var(--accent);
+  @media (pointer: fine) {
+    .pill.home:hover {
+      border-radius: 15px;
+      color: var(--accent-fg);
+      background: var(--accent);
+    }
   }
   .pill.home :global(svg) {
     transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -616,9 +774,11 @@
   .pill.meet {
     color: var(--warn);
   }
-  .pill.meet:hover {
-    background: color-mix(in srgb, var(--warn) 24%, var(--bg-3));
-    color: var(--text);
+  @media (pointer: fine) {
+    .pill.meet:hover {
+      background: color-mix(in srgb, var(--warn) 24%, var(--bg-3));
+      color: var(--text);
+    }
   }
   .divider {
     width: 28px;
@@ -636,13 +796,15 @@
   .pill.add :global(svg) {
     transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
-  .pill.add:hover {
-    color: var(--accent-hover);
-    border-color: var(--accent-hover);
-    background: var(--bg-2);
-  }
-  .pill.add:hover :global(svg) {
-    transform: rotate(90deg);
+  @media (pointer: fine) {
+    .pill.add:hover {
+      color: var(--accent-hover);
+      border-color: var(--accent-hover);
+      background: var(--bg-2);
+    }
+    .pill.add:hover :global(svg) {
+      transform: rotate(90deg);
+    }
   }
   .bubble-wrap {
     position: relative;
@@ -680,9 +842,11 @@
       height 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
       opacity 0.18s ease;
   }
-  .bubble-wrap:hover::before {
-    height: 16px;
-    opacity: 0.7;
+  @media (pointer: fine) {
+    .bubble-wrap:hover::before {
+      height: 16px;
+      opacity: 0.7;
+    }
   }
   .bubble-wrap:has(.pill.active)::before {
     height: 30px;
@@ -703,7 +867,7 @@
     border-radius: 9px;
     background: var(--danger);
     color: var(--danger-fg);
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     line-height: 1;
     display: grid;
@@ -749,7 +913,8 @@
     .jet.roll {
       animation: none;
     }
-    .pill:hover {
+    .pill:hover,
+    .pill:active {
       transform: none;
     }
     .pill.add:hover :global(svg),
@@ -757,8 +922,8 @@
       transform: none;
     }
   }
-  @media (pointer: coarse), (max-width: 700px) {
-    .rail {
+  @media (pointer: coarse), (max-width: 768px) {
+    .rail-scroll {
       gap: 10px;
       padding: 12px 0;
     }
@@ -768,6 +933,19 @@
     }
     .bubble-wrap::before {
       left: -8px;
+    }
+    /* An open folder has to be wide enough for a name field that will not
+       trigger iOS focus zoom, which starts under 16px. The underline stays
+       drawn: hover was the only thing that ever said this was editable, and a
+       finger cannot produce one. */
+    .folder.open {
+      width: 60px; /* the rail column is 64px — leave it a rim */
+    }
+    .folder-name {
+      width: 54px;
+      font-size: 16px;
+      border-bottom-color: color-mix(in srgb, var(--border) 70%, transparent);
+      padding: 3px 0;
     }
   }
   .face {
@@ -798,8 +976,10 @@
     color: var(--text);
     overflow: hidden;
   }
-  .folder-tile:hover {
-    background: color-mix(in srgb, var(--fc, var(--accent)) 40%, var(--bg-2));
+  @media (pointer: fine) {
+    .folder-tile:hover {
+      background: color-mix(in srgb, var(--fc, var(--accent)) 40%, var(--bg-2));
+    }
   }
   .folder-tile.hasactive {
     box-shadow: 0 0 0 2px var(--fc, var(--accent));
@@ -825,7 +1005,7 @@
     object-fit: cover;
     display: grid;
     place-items: center;
-    font-size: 8px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     overflow: hidden;
   }
@@ -841,13 +1021,16 @@
     border: none;
     border-bottom: 1px solid transparent;
     color: var(--text-muted);
-    font-size: 9px;
+    font-size: var(--fs-micro);
     text-align: center;
     padding: 1px 0;
     outline: none;
+    text-overflow: ellipsis;
   }
-  .folder-name:hover {
-    border-bottom-color: var(--border);
+  @media (pointer: fine) {
+    .folder-name:hover {
+      border-bottom-color: var(--border);
+    }
   }
   .folder-name:focus {
     color: var(--text);
@@ -875,7 +1058,7 @@
   .dropbar--in {
     width: 24px;
   }
-  .rail.dragging .pill {
+  .rail-scroll.dragging .pill {
     cursor: grab;
   }
 </style>
