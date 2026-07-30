@@ -80,14 +80,14 @@
     text-align: left;
   }
   .label {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--text-muted);
   }
   .empty {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     margin: 2px 0 0;
   }
   hr {
@@ -121,13 +121,13 @@
     border-color: var(--accent);
   }
   .txt {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .sub {
-    font-size: 11px;
+    font-size: var(--fs-tiny);
   }
   .x {
     flex-shrink: 0;
@@ -141,5 +141,16 @@
   .x:hover {
     background: var(--bg-3);
     color: var(--text);
+  }
+  /* Cancel is destructive and sits 6px from a row that navigates away; 26px is
+     well under the floor. Modal's mobile rule only stretches the height. */
+  @media (pointer: coarse) {
+    .row {
+      gap: 10px;
+    }
+    .x {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
   }
 </style>

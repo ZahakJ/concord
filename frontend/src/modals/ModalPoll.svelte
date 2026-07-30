@@ -75,7 +75,10 @@
   <label class="field">
     <span class="lbl">Question</span>
     <!-- svelte-ignore a11y_autofocus -->
-    <input bind:value={q} maxlength="300" placeholder="What should we play tonight?" autofocus />
+    <!-- Not on a phone: this is a bottom sheet, so the IME opens straight over
+         the option rows, the multi-select switch, and the live preview that is
+         the point of this dialog — before any of them has been seen. -->
+    <input bind:value={q} maxlength="300" placeholder="What should we play tonight?" autofocus={!S.isMobile} />
   </label>
 
   <div class="field">
@@ -133,7 +136,7 @@
     text-align: left;
   }
   .lbl {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -187,7 +190,7 @@
     gap: 6px;
     padding: 9px 10px;
     margin-top: 2px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text);
     /* The global button style fills with the accent; this one is an affordance,
@@ -207,7 +210,7 @@
     border-color: var(--accent);
   }
   .cap {
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: var(--text-faint);
   }
   /* A switch row, not a button — the switch is the control, so the row itself
@@ -217,9 +220,22 @@
     align-items: center;
     gap: 10px;
     padding: 6px 2px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text);
     background: transparent;
+  }
+  /* Modal.svelte's mobile floor stretches .opt-x to 28x44 — tall enough, still
+     36% too narrow — and 8px from an input whose own target now runs the full
+     44px height. It's the destructive control on the row, and it sits right
+     where the thumb comes off the keyboard. */
+  @media (pointer: coarse) {
+    .opt-row {
+      gap: 12px;
+    }
+    .opt-x {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
   }
   .switch {
     width: 34px;
