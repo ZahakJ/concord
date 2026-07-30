@@ -26,7 +26,19 @@
     writeBoardPrefs,
   } from "../lib/forum.js";
 
-  let { forum, onClose } = $props();
+  let { forum: forumProp, onClose } = $props();
+
+  // The LIVE channel record, not the snapshot the opener handed us.
+  //
+  // A prop is the object as it was when the modal opened. Saving the header art
+  // updates the channel on the server and refreshes the guild list, but that
+  // prop keeps its old value forever — so every tile stayed unselected no matter
+  // what you clicked, and the picker looked broken while the setting was in fact
+  // being saved. Read it back out of the guild each time instead; the prop is
+  // only the fallback for the instant before the first refresh lands.
+  const forum = $derived(
+    (activeGuild()?.channels || []).find((c) => c.id === forumProp.id) || forumProp,
+  );
 
   const guild = $derived(activeGuild());
   const canManage = $derived(
