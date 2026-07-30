@@ -36,7 +36,8 @@
 <span
   class="avatar"
   class:ringed={!!frame}
-  style="width:{size}px;height:{size}px;font-size:{Math.round(size * 0.38)}px;{color
+  class:pictured={!!image}
+  style="width:{size}px;height:{size}px;font-size:{Math.round(size * 0.38)}px;{color && !image
     ? `background:${color};`
     : ''}"
 >
@@ -62,6 +63,8 @@
     position: relative;
     isolation: isolate; /* the ring sits behind the avatar, not the page */
     border-radius: 50%;
+    /* The tint is the backdrop for INITIALS and an emoji — see .pictured below,
+       which takes it away again once there is a picture to show. */
     background: var(--accent);
     color: var(--accent-fg);
     display: grid;
@@ -70,6 +73,14 @@
     text-transform: uppercase;
     flex-shrink: 0;
     user-select: none;
+  }
+  /* A picture gets no backplate. object-fit:cover fills the circle, so for an
+     opaque image the tint was merely invisible — but a logo or avatar saved as a
+     PNG with transparency showed the accent through its gaps, which reads as the
+     app colouring in someone's picture. A server icon on an announcement is the
+     obvious case: it should look like a profile picture, not a badge. */
+  .avatar.pictured {
+    background: transparent;
   }
   img {
     width: 100%;
