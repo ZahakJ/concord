@@ -43,6 +43,59 @@
 
   const wash = $derived(washFor(forum.id));
 
+  // ---- header art: SHARED, on the channel record --------------------------
+  // This used to live in the same device-local store as the layout, so a banner
+  // was a personal preference nobody else could see — decoration, not identity.
+  // Layout stays local (how YOU like the posts arranged is your business); the
+  // art is the forum's, so it rides the channel and every member gets it.
+  const art = $derived(forum.banner || "");
+  const isUploaded = $derived(!!art && !art.startsWith("preset:"));
+  const MAX_ART = 384 * 1024; // must match maxForumBannerBytes in internal/app/forum.go
+
+  async function setArt(banner) {
+    try {
+      await api.setForumBanner(guild.id, forum.id, banner);
+      await refreshGuilds();
+    } catch (err) {
+      flash(err);
+    }
+  }
+
+  function applyArtFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result);
+      // Checked here as well as in Go so the answer is instant and specific:
+      // a rejection that arrives after an upload round trip reads as a failure
+      // rather than as a size limit.
+      if (url.length > MAX_ART) {
+        flash(`That image is ${Math.round(url.length / 1024)} KB — the limit is ${MAX_ART / 1024} KB`, "error");
+        return;
+      }
+      setArt(url);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function pickBanner() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => applyArtFile(input.files?.[0]);
+    input.click();
+  }
+
+  // Paste or drop anywhere on the panel — the two gestures people try before
+  // they look for a button.
+  function onPaste(e) {
+    if (!canManage) return;
+    const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
+    if (!item) return;
+    e.preventDefault();
+    applyArtFile(item.getAsFile());
+  }
+
   // A curated dozen, not the whole catalogue. The full library is a profile
   // picker's job; a forum header wants art that a title can sit on, and offering
   // thirty of them would be the wall of choices this redesign is trying not to
@@ -157,6 +210,17 @@
   }
 </script>
 
+<svelte:window onpaste={onPaste} />
+
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  ondragover={(e) => e.preventDefault()}
+  ondrop={(e) => {
+    if (!canManage) return;
+    e.preventDefault();
+    applyArtFile(e.dataTransfer?.files?.[0]);
+  }}
+>
 <Modal title="Forum board" {onClose} wide>
   <!-- A live sample, not a description. Every choice below changes this strip,
        so the header you are designing is the header you are looking at. -->
@@ -202,18 +266,33 @@
       {/each}
     </div>
 
-    <div class="sub-head">Header art</div>
+    <div class="sub-head">
+      Header art
+      {#if canManage}<span class="shared">Everyone in {guild?.name || "this server"}</span>{/if}
+    </div>
     <div class="arts">
-      <button class="art" class:on={!prefs.banner} onclick={() => save({ banner: "" })}>
+      <button class="art" class:on={!art} onclick={() => setArt("")}>
         <Banner color={wash.color} color2={wash.color2} style={{ angle: wash.angle }} scale={0.3} />
         <span class="art-name">Auto</span>
       </button>
+      {#if canManage}
+        <!-- Your own picture. Offered FIRST after Auto because it is what people
+             come here for; a preset is the fallback when you have no art. -->
+        <button class="art up" class:on={isUploaded} onclick={pickBanner} title="Upload an image">
+          {#if isUploaded}
+            <span class="thumb" style="background-image:url('{art}')"></span>
+          {:else}
+            <span class="up-mark"><Icon name="plus" size={16} /></span>
+          {/if}
+          <span class="art-name">{isUploaded ? "Your image" : "Upload…"}</span>
+        </button>
+      {/if}
       {#each artChoices as b (b.id)}
         <button
           class="art"
-          class:on={prefs.banner === `preset:${b.id}`}
+          class:on={art === `preset:${b.id}`}
           title={b.name}
-          onclick={() => save({ banner: `preset:${b.id}` })}
+          onclick={() => setArt(`preset:${b.id}`)}
         >
           <Banner banner={`preset:${b.id}`} scale={0.3} />
           <span class="art-name">{b.name}</span>
@@ -221,8 +300,15 @@
       {/each}
     </div>
     <p class="note">
-      “Auto” colours the header from this forum's own id, so it looks the same for
-      everyone with nothing stored. A preset is yours alone.
+      {#if canManage}
+        “Auto” colours the header from this forum's own id, so it looks the same
+        for everyone with nothing stored. Anything else you pick here — a preset
+        or your own image — is the forum's, and every member sees it. Drop or
+        paste an image anywhere on this panel to use it.
+      {:else}
+        The header art belongs to the forum, and changing it needs permission to
+        manage channels.
+      {/if}
     </p>
   </section>
 
@@ -338,8 +424,32 @@
     {/if}
   </div>
 </Modal>
+</div>
 
 <style>
+  /* The upload tile matches the preset tiles so the row reads as one set of
+     choices rather than a grid with a button wedged into it. */
+  .art.up {
+    display: grid;
+    place-items: center;
+  }
+  .art.up .up-mark {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    aspect-ratio: 16 / 5;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+  }
+  .art.up .thumb {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 5;
+    border-radius: var(--radius-sm);
+    background-size: cover;
+    background-position: center;
+  }
   /* ---- live preview ----------------------------------------------------- */
   .preview {
     position: relative;

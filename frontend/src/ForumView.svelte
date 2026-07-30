@@ -337,6 +337,39 @@
     }
   }
 
+  async function setLocked(p, locked) {
+    try {
+      await api.setPostLocked(guild.id, p.id, locked);
+      flash(locked ? "Post closed" : "Post reopened", "success");
+      refresh({ quiet: true });
+    } catch (err) {
+      flash(err);
+    }
+  }
+
+  // Deleting a post takes the whole thread with it, so it asks first. The
+  // confirm names the post: "Delete this post?" on a board of forty is a
+  // question nobody can answer safely.
+  function confirmDelete(p) {
+    S.modal = {
+      kind: "confirm",
+      title: `Delete "${p.title || "this post"}"?`,
+      body: "The post and every reply in it are removed for everyone. This can't be undone.",
+      confirmLabel: "Delete post",
+      danger: true,
+      onConfirm: async () => {
+        S.modal = null;
+        try {
+          await api.deleteChannel(guild.id, p.id);
+          flash("Post deleted", "success");
+          refresh({ quiet: true });
+        } catch (err) {
+          flash(err);
+        }
+      },
+    };
+  }
+
   function postMenu(el, p) {
     menuAt(
       el,
@@ -365,6 +398,24 @@
             icon: "spark",
             onClick: () => (S.modal = { kind: "forumSettings", forum }),
           },
+        // Closing is moderation — it silences other people, which is why the
+        // author alone cannot do it (see SetPostLocked).
+        canPin && { sep: true },
+        canPin && {
+          label: p.locked ? "Reopen post" : "Close post",
+          icon: "lock",
+          onClick: () => setLocked(p, !p.locked),
+        },
+        // Deleting is offered to the AUTHOR as well: starting a post needs no
+        // permission, so needing one to take it back would leave a member unable
+        // to undo their own.
+        mayCurate(p) && { sep: true },
+        mayCurate(p) && {
+          label: "Delete post",
+          icon: "trash",
+          danger: true,
+          onClick: () => confirmDelete(p),
+        },
       ],
       { title: p.title || "Post" },
     );
