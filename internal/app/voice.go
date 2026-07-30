@@ -32,6 +32,12 @@ const voiceHeartbeat = 3 * time.Second
 type voiceAnnounce struct {
 	ChannelID string `json:"channelId"`
 	// "join"|"leave"|"lock"|"unlock"|"knock"|"admit"|"move"|"disconnect"
+	//
+	// Two more actions exist but are deliberately NEVER published: "unknock"
+	// (a knock withdrawn) and "refuse" (a knock declined) are emitted locally
+	// for browser guests only, whose sessions live on this node alone. Putting
+	// them on the topic would reach clients that treat an unknown action as a
+	// join and grow a phantom participant.
 	Action string `json:"action"`
 	// The fingerprint being acted on: admitted, moved, or disconnected.
 	Target string `json:"target,omitempty"`
@@ -152,6 +158,30 @@ func (s *Service) announceVoice(topic, channelID, action string) {
 // checks the sender's permissions against its own copy of the guild's
 // governance state before obeying (see the voice-presence handler).
 func (s *Service) PublishCallControl(channelID, action, target, dest string) error {
+	// Browser guests ride the same verbs, but none of it goes on the wire: a
+	// guest is a socket held by THIS node (guest.go), so this node is the only
+	// one that can act on them and the only one that needs to hear about it.
+	switch action {
+	case "lock", "unlock":
+		// The lock the user just set is also the guest door. Recorded from the
+		// LOCAL action only — see noteGuestDoor for why a remote member's lock
+		// does not decide who this node lets into its own relayed session.
+		s.noteGuestDoor(channelID, action == "lock")
+	case "admit", "refuse", "disconnect", "move":
+		if strings.HasPrefix(target, "guest:") {
+			// "move" is meaningless for a guest: their whole visit is scoped to one
+			// meeting channel, so decideGuest ignores it rather than pretending.
+			s.decideGuest(channelID, action, target)
+			return nil
+		}
+		if action == "refuse" {
+			// Refusal exists for guests, who are otherwise left hanging on an open
+			// socket. A member's ignored knock just times out on their side, and
+			// broadcasting an unknown verb would land in older clients' voice
+			// rosters as a phantom participant.
+			return nil
+		}
+	}
 	groupID, err := s.groupForChannel(channelID)
 	if err != nil {
 		return err

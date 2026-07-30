@@ -7,27 +7,40 @@
     <title>Concord meeting</title>
     <style>
       :root {
-        --bg-0: #101114;
-        --bg-1: #16181c;
-        --bg-2: #1d2025;
-        --bg-3: #282c33;
-        --border: #32363e;
+        --bg-0: #0e0f12;
+        --bg-1: #15171b;
+        --bg-2: #1c1f24;
+        --bg-3: #262a31;
+        --bg-4: #31363f;
+        --border: #2e323a;
         --text: #e8eaed;
         --muted: #969aa3;
         --faint: #6b6f78;
         --accent: #14a394;
         --accent-hi: color-mix(in srgb, var(--accent) 76%, white);
+        --danger: #e0555b;
+        --ok: #3ba55d;
+        --r: 12px;
         color-scheme: dark;
       }
       * { box-sizing: border-box; }
       html, body { height: 100%; margin: 0; }
       body {
-        background: radial-gradient(circle at 50% 0%, #1b2b31, var(--bg-0) 60%);
+        background: radial-gradient(circle at 50% -10%, #1b2b31, var(--bg-0) 62%);
         color: var(--text);
         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         display: grid;
         place-items: center;
+        -webkit-font-smoothing: antialiased;
       }
+      input, button, select { font: inherit; color: inherit; }
+      button { cursor: pointer; }
+      button:disabled { cursor: default; opacity: .5; }
+      /* One focus ring for the whole page: a stranger on a keyboard should
+         never lose track of where they are. */
+      :focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+
+      /* ---------------- join card ---------------- */
       .card {
         width: 420px;
         max-width: 94vw;
@@ -39,6 +52,7 @@
         text-align: center;
         animation: pop .28s cubic-bezier(.34,1.4,.5,1);
       }
+      .card.gone { display: none; }
       @keyframes pop { from { opacity: 0; transform: translateY(12px) scale(.97); } }
       .logo {
         width: 54px; height: 54px; margin: 0 auto 10px;
@@ -50,17 +64,15 @@
       }
       h1 { font-size: 20px; margin: 0 0 4px; }
       p.sub { margin: 0 0 18px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
-      input, button { font: inherit; }
-      input {
+      #name {
         width: 100%;
         background: var(--bg-3);
         border: 1px solid var(--border);
         border-radius: 10px;
-        color: var(--text);
         padding: 11px 13px;
         outline: none;
       }
-      input:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+      #name:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
       button.primary {
         width: 100%;
         margin-top: 10px;
@@ -70,172 +82,351 @@
         border-radius: 10px;
         padding: 12px;
         font-weight: 600;
-        cursor: pointer;
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px;
       }
-      button.primary:hover { background: var(--accent-hi); }
-      button.primary:disabled { opacity: .55; cursor: default; }
+      button.primary:hover:enabled { background: var(--accent-hi); }
+      button.ghost {
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 9px 16px;
+        color: var(--muted);
+      }
+      button.ghost:hover { background: var(--bg-2); color: var(--text); }
       .foot { margin-top: 14px; font-size: 11.5px; color: var(--faint); line-height: 1.5; }
       .foot a { color: var(--muted); }
+      .err { color: var(--danger); font-size: 13px; margin-top: 10px; min-height: 18px; }
+      .spin {
+        width: 14px; height: 14px; flex: none;
+        border: 2px solid rgba(255,255,255,.35);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: sp .7s linear infinite;
+      }
+      @keyframes sp { to { transform: rotate(360deg); } }
 
-      /* ---- chat ---- */
+      /* The knock: a visible state of its own, not a spinner on a button. The
+         host has been told a stranger is at the door and nothing else about the
+         meeting arrives until they decide. */
+      #knock { display: none; }
+      #knock.on { display: block; }
+      .door {
+        width: 68px; height: 68px; margin: 4px auto 14px;
+        border-radius: 18px;
+        display: grid; place-items: center;
+        font-size: 30px;
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 40%, transparent);
+        animation: knockpulse 1.9s ease-out infinite;
+      }
+      @keyframes knockpulse {
+        0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 34%, transparent); }
+        70%  { box-shadow: 0 0 0 18px transparent; }
+        100% { box-shadow: 0 0 0 0 transparent; }
+      }
+      #knockReason { color: var(--muted); font-size: 13.5px; line-height: 1.5; margin-bottom: 14px; }
+      #knockName { font-size: 12.5px; color: var(--faint); margin-bottom: 10px; }
+      #knockName b { color: var(--text); font-weight: 600; }
+
+      /* ---------------- room ---------------- */
       .room {
         display: none;
-        width: 760px; max-width: 96vw;
-        height: min(84vh, 720px);
+        width: 880px; max-width: 96vw;
+        height: min(88vh, 780px);
         background: var(--bg-1);
         border: 1px solid var(--border);
         border-radius: 16px;
         box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 24px 60px rgba(0,0,0,.5);
         overflow: hidden;
+        position: relative;
         flex-direction: column;
       }
       .room.on { display: flex; }
       .head {
         display: flex; align-items: center; gap: 10px;
-        padding: 12px 16px;
+        padding: 11px 14px;
         border-bottom: 1px solid var(--border);
         background: var(--bg-2);
+        flex: none;
       }
-      .head .dot { width: 8px; height: 8px; border-radius: 50%; background: #3ba55d; flex: none; }
-      .head .t { font-weight: 600; font-size: 14.5px; }
-      .head .you { margin-left: auto; font-size: 12px; color: var(--muted); }
-      .feed { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
-      .m { display: flex; flex-direction: column; gap: 2px; animation: mi .2s ease; }
-      @keyframes mi { from { opacity: 0; transform: translateY(4px); } }
-      .m .who { font-size: 12.5px; font-weight: 600; color: var(--accent); }
-      .m .body { font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
-      .m.sys .body { color: var(--faint); font-size: 12.5px; font-style: italic; }
-      .bar { display: flex; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--border); background: var(--bg-2); }
-      .bar input { flex: 1; }
-      .bar button {
-        background: var(--accent); color: #fff; border: none; border-radius: 10px;
-        padding: 0 18px; font-weight: 600; cursor: pointer;
-      }
-      .notice { padding: 10px 16px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--muted); font-size: 12px; text-align: center; border-bottom: 1px solid var(--border); }
-      .err { color: #e0555b; font-size: 13px; margin-top: 10px; min-height: 18px; }
-      @media (max-width: 700px) {
-        .room { height: 100dvh; max-width: 100vw; width: 100vw; border-radius: 0; border: none; }
-      }
-      /* ---- call ---- */
-      .callbtn {
-        margin-left: auto;
-        padding: 5px 11px;
+      .head .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+      .head .dot.bad { background: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 20%, transparent); }
+      .head .t { font-weight: 600; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .head .you { font-size: 12px; color: var(--faint); white-space: nowrap; }
+      .head .grow { flex: 1; }
+      .pill {
+        padding: 6px 12px;
         font-size: 13px;
         font-weight: 600;
-        border: 1px solid rgba(255, 255, 255, 0.16);
+        border: 1px solid var(--border);
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.06);
-        color: #e8eaed;
-        cursor: pointer;
+        background: var(--bg-3);
+        white-space: nowrap;
+        flex: none;
       }
-      .callbtn:hover {
-        background: rgba(255, 255, 255, 0.12);
+      .pill:hover:enabled { background: var(--bg-4); }
+      .pill.go { background: var(--accent); border-color: transparent; color: #fff; }
+      .pill.go:hover:enabled { background: var(--accent-hi); }
+      .notice {
+        padding: 8px 14px;
+        background: color-mix(in srgb, var(--accent) 9%, transparent);
+        color: var(--muted);
+        font-size: 11.5px;
+        text-align: center;
+        border-bottom: 1px solid var(--border);
+        flex: none;
       }
+      /* The visit is over (host ended it, kicked us, the link expired). Loud,
+         because everything below it has just stopped working. */
+      .over {
+        display: none;
+        padding: 10px 14px;
+        background: color-mix(in srgb, var(--danger) 14%, transparent);
+        border-bottom: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+        color: #ffc9cb;
+        font-size: 13px;
+        text-align: center;
+        flex: none;
+      }
+      .over.on { display: block; }
+
+      /* ---------------- call stage ---------------- */
       .stage {
         display: none;
         flex-direction: column;
         gap: 8px;
         padding: 10px 12px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-        background: #0b0c10;
+        border-bottom: 1px solid var(--border);
+        background: #0a0b0e;
+        flex: none;
       }
-      .stage.on {
-        display: flex;
-      }
+      .stage.on { display: flex; }
       .tiles {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         gap: 8px;
+        align-content: start;
       }
+      /* Voice-only: nobody needs a wall of empty rectangles, so presence rows
+         are short and wide instead of 4:3 boxes. */
+      .tiles.voice-only { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+      .tiles.voice-only .tile { aspect-ratio: 5 / 2; }
+      /* Theater. The focused tile spans the row and everyone else becomes a
+         thumbnail strip beneath it — the same shape as the member app. The tiles
+         are the SAME elements in both layouts (only classes change), because
+         re-parenting a <video> re-attaches its stream and drops frames. */
+      .tiles.theater { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); }
+      .tiles.theater .tile { aspect-ratio: 16 / 10; }
+      /* The big view is capped so the chat underneath never collapses to a line:
+         a guest who can watch but not talk is half a client. Real zoom is the ⛶
+         button, which takes the tile fullscreen. */
+      .tiles.theater .tile.focused {
+        grid-column: 1 / -1;
+        order: -1;
+        /* A height, not an aspect ratio: the big view should fill the row and let
+           the picture letterbox inside it (object-fit: contain), rather than
+           shrink its own box and sit off to one side. */
+        aspect-ratio: auto;
+        height: min(38vh, 330px);
+      }
+      .tiles.theater .tile:not(.focused) .lbl { font-size: 9.5px; padding: 1px 5px; }
+      .tile:fullscreen { max-height: none; aspect-ratio: auto; border: none; border-radius: 0; }
       .tile {
         position: relative;
         aspect-ratio: 4 / 3;
         border-radius: 10px;
         overflow: hidden;
         background: #05060a;
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255,255,255,.08);
+        cursor: pointer;
+        transition: border-color .15s ease;
       }
+      .tile:hover { border-color: rgba(255,255,255,.2); }
+      .tile.focused { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+      /* Speaking, same signal as the member app: a ring, not a moving layout. */
+      .tile.speaking { border-color: var(--ok); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--ok) 65%, transparent); }
       .tile video {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: none; /* shown only once the tile actually has video */
+        width: 100%; height: 100%;
+        object-fit: contain;   /* a shared screen must never be cropped */
+        background: #05060a;
+        display: none;         /* shown only once the tile actually has video */
       }
-      .tile.has-video video {
-        display: block;
-      }
-      .tile.has-video .ph {
-        display: none;
-      }
+      .tile.has-video video { display: block; }
+      .tile.has-video .ph { display: none; }
+      /* A camera is a face: fill the tile. A screen is a document: fit it. */
+      .tile.cam video { object-fit: cover; }
+      .tile.self.cam video { transform: scaleX(-1); } /* a mirror is what people expect of themselves */
       .ph {
-        position: absolute;
-        inset: 0;
-        display: grid;
-        place-items: center;
-        font-size: 30px;
-        color: #6b6f78;
-        background: #101114;
+        position: absolute; inset: 0;
+        display: grid; place-items: center;
+        font-size: 28px;
+        color: var(--faint);
+        background: var(--bg-1);
       }
-      /* Voice-only calls don't need a big empty stage. */
-      .tiles.audio-only .tile {
-        aspect-ratio: 5 / 2;
-      }
-      .tile.self video {
-        transform: scaleX(-1); /* a mirror is what people expect of themselves */
-      }
+      .tile.has-sound .lbl { max-width: calc(100% - 52px); }
       .tile .lbl {
-        position: absolute;
-        left: 6px;
-        bottom: 5px;
-        padding: 1px 7px;
+        position: absolute; left: 6px; bottom: 5px; right: 6px;
+        padding: 2px 8px;
         font-size: 11px;
         border-radius: 999px;
-        background: rgba(0, 0, 0, 0.55);
-        color: #e8eaed;
+        background: rgba(0,0,0,.6);
+        color: var(--text);
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        width: fit-content; max-width: calc(100% - 12px);
+        pointer-events: none;
       }
-      .ctrls {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .ctrls button {
-        padding: 6px 11px;
-        font-size: 12.5px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
+      .tile .snd, .tile .tbtn {
+        position: absolute;
+        border: none;
         border-radius: 999px;
-        background: rgba(255, 255, 255, 0.06);
-        color: #e8eaed;
-        cursor: pointer;
+        background: rgba(0,0,0,.72);
+        font-size: 12px;
+        line-height: 1;
+        padding: 5px 7px;
       }
-      .ctrls button:hover {
-        background: rgba(255, 255, 255, 0.12);
+      .tile .snd { right: 6px; bottom: 5px; display: none; }
+      .tile.has-sound .snd { display: block; }
+      .tile .snd.ducked { opacity: .55; }
+      .tile .tact { position: absolute; right: 5px; top: 5px; display: none; gap: 4px; }
+      .tile.focused .tact { display: flex; }
+      .tile .tbtn { position: static; }
+      .tile .snd:hover, .tile .tbtn:hover { background: rgba(0,0,0,.85); }
+
+      /* ---------------- controls ---------------- */
+      .ctrls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+      .ctl {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 7px 12px;
+        font-size: 12.5px;
+        border: 1px solid rgba(255,255,255,.14);
+        border-radius: 999px;
+        background: rgba(255,255,255,.06);
       }
-      .ctrls button.off {
-        border-color: rgba(240, 71, 71, 0.5);
-        color: #ff9b9b;
+      .ctl:hover:enabled { background: rgba(255,255,255,.13); }
+      .ctl .ico { font-size: 14px; line-height: 1; }
+      .ctl.on { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+      .ctl.off { border-color: rgba(240,71,71,.5); color: #ff9b9b; background: rgba(240,71,71,.12); }
+      .ctl.danger { border-color: rgba(240,71,71,.45); color: #ff9b9b; }
+      .callstat { margin-left: auto; font-size: 11.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+      .callstat .lvl {
+        width: 46px; height: 5px; border-radius: 3px;
+        background: var(--bg-3); overflow: hidden;
       }
-      .ctrls button.danger {
-        border-color: rgba(240, 71, 71, 0.45);
-        color: #ff9b9b;
+      .callstat .lvl i { display: block; height: 100%; width: 0%; background: var(--ok); transition: width .08s linear; }
+
+      /* ---------------- chat ---------------- */
+      .feed { flex: 1 1 auto; min-height: 96px; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      .m { display: flex; flex-direction: column; gap: 2px; animation: mi .2s ease; }
+      @keyframes mi { from { opacity: 0; transform: translateY(4px); } }
+      .m .who { font-size: 12.5px; font-weight: 600; color: var(--accent); }
+      .m .body { font-size: 14px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; }
+      .m.sys .body { color: var(--faint); font-size: 12.5px; font-style: italic; }
+      .bar { display: flex; gap: 8px; padding: 11px 12px; border-top: 1px solid var(--border); background: var(--bg-2); flex: none; }
+      .bar input {
+        flex: 1;
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        outline: none;
       }
-      .callstat {
-        margin-left: auto;
-        font-size: 11.5px;
-        color: #9aa0a8;
+      .bar input:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+      .bar button { background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 0 18px; font-weight: 600; }
+      .bar button:hover:enabled { background: var(--accent-hi); }
+
+      /* ---------------- settings sheet ---------------- */
+      .sheet {
+        position: absolute; inset: 0;
+        background: var(--bg-1);
+        display: none;
+        flex-direction: column;
+        z-index: 5;
+      }
+      .sheet.on { display: flex; animation: sheetin .18s ease; }
+      @keyframes sheetin { from { opacity: 0; transform: translateY(10px); } }
+      .sheet .shead {
+        display: flex; align-items: center; gap: 10px;
+        padding: 12px 14px;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg-2);
+        font-weight: 600; font-size: 14.5px;
+        flex: none;
+      }
+      .sheet .sbody { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 18px; }
+      .grp { display: flex; flex-direction: column; gap: 9px; }
+      .grp > h2 { font-size: 11px; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); margin: 0; }
+      .row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+      .row > label { flex: none; width: 108px; color: var(--muted); }
+      .row select, .row input[type="range"] { flex: 1; min-width: 0; }
+      .row input[type="range"] { accent-color: var(--accent); }
+      .row select {
+        background: var(--bg-3); border: 1px solid var(--border);
+        border-radius: 9px; padding: 8px 9px;
+      }
+      .row .val { flex: none; width: 46px; text-align: right; color: var(--faint); font-variant-numeric: tabular-nums; font-size: 12px; }
+      .hint { font-size: 11.5px; color: var(--faint); line-height: 1.5; margin: -2px 0 0; }
+      .check { display: flex; align-items: flex-start; gap: 9px; font-size: 13px; color: var(--text); }
+      .check input { margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+      .check span small { display: block; color: var(--faint); font-size: 11.5px; line-height: 1.45; margin-top: 2px; }
+      /* The mic meter, with the gate threshold drawn on it: a gate you cannot
+         see is a gate you cannot set. */
+      .meter { position: relative; height: 8px; border-radius: 4px; background: var(--bg-3); overflow: hidden; flex: 1; }
+      .meter i { display: block; height: 100%; width: 0%; background: var(--ok); transition: width .08s linear; }
+      .meter b { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #ffcf5c; display: none; }
+      .meter.gated i { background: var(--muted); }
+      .meter.open i { background: var(--ok); }
+
+      /* ---------------- narrow screens ----------------
+         A shared link is opened on a phone more often than anywhere else, so the
+         phone layout is the room filling the screen, not a shrunken card. */
+      @media (max-width: 760px) {
+        body { place-items: stretch; }
+        .room { height: 100dvh; max-height: none; width: 100vw; max-width: 100vw; border-radius: 0; border: none; }
+        .card { margin: auto; }
+        .head { padding: 10px 12px; padding-top: max(10px, env(safe-area-inset-top)); }
+        .head .you { display: none; }
+        .stage { padding: 8px; }
+        .tiles { grid-template-columns: repeat(auto-fit, minmax(126px, 1fr)); }
+        .tiles.theater .tile.focused { max-height: 40vh; }
+        .ctl .t { display: none; }        /* icon-only controls: they must all fit one row */
+        .ctl { padding: 9px 11px; }
+        .ctl .ico { font-size: 15px; }
+        .bar { padding-bottom: max(11px, env(safe-area-inset-bottom)); }
+        .row { flex-wrap: wrap; }
+        .row > label { width: 100%; }
+        .row select, .row input[type="range"] { flex: 1 1 60%; }
+      }
+      /* Landscape on a phone is where a call actually gets watched: give the
+         picture the screen and let chat scroll under it. */
+      @media (max-height: 480px) and (orientation: landscape) {
+        .notice { display: none; }
+        .tiles.theater .tile.focused { max-height: 52vh; }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition: none !important; }
       }
     </style>
   </head>
   <body>
-    <!-- Join card -->
+    <!-- Join card: the name prompt, the connecting spinner and the knock all
+         live here, one at a time. -->
     <div class="card" id="join">
-      <div class="logo">✈</div>
+      <div class="logo" id="logo">✈</div>
       <h1 id="title">Join the meeting</h1>
       <p class="sub" id="sub">
         You've been invited to a Concord meeting. Pick a name and hop in — no
         account, no download.
       </p>
-      <input id="name" placeholder="Your name" maxlength="24" autocomplete="off" />
-      <button class="primary" id="go">Join meeting</button>
+      <div id="joinForm">
+        <input id="name" placeholder="Your name" maxlength="24" autocomplete="off" />
+        <button class="primary" id="go">Join meeting</button>
+      </div>
+      <div id="knock">
+        <div class="door">🚪</div>
+        <div id="knockName"></div>
+        <div id="knockReason">Waiting for the host…</div>
+        <button class="ghost" id="knockCancel">Cancel</button>
+      </div>
       <div class="err" id="err"></div>
       <div class="foot">
         Concord is a serverless, end-to-end-encrypted chat app.<br />
@@ -248,39 +439,81 @@
     <!-- Room -->
     <div class="room" id="room">
       <div class="head">
-        <span class="dot"></span>
+        <span class="dot" id="live"></span>
         <span class="t" id="roomName">Meeting</span>
+        <span class="grow"></span>
         <span class="you" id="youAre"></span>
-        <button class="callbtn" id="callBtn" title="Join the voice call">
-          🎤 Join call
-        </button>
+        <button class="pill" id="setBtn" title="Audio &amp; video settings" aria-label="Audio and video settings">⚙</button>
+        <button class="pill go" id="callBtn" title="Join the voice call">🎤 Join call</button>
       </div>
       <div class="notice">You're a guest — the host can read what you send here.</div>
+      <div class="over" id="over"></div>
 
       <!-- Call stage: hidden until you join. Media is peer-to-peer with the
            host's app (DTLS-SRTP); it never touches this server. -->
       <div class="stage" id="stage">
-        <div class="tiles" id="tiles">
-          <div class="tile self" id="selfTile">
-            <video id="selfVid" autoplay playsinline muted></video>
-            <span class="ph" id="selfPh">🎤</span>
-            <span class="lbl">you</span>
-          </div>
-        </div>
+        <div class="tiles" id="tiles"></div>
         <div class="ctrls">
-          <button id="micBtn" title="Mute / unmute">🎤 Mute</button>
-          <button id="camBtn" title="Turn your camera on">📷 Turn on camera</button>
-          <button id="shareBtn" title="Share your screen">🖥️ Share screen</button>
-          <button id="hangBtn" class="danger" title="Leave the call">Leave call</button>
-          <span class="callstat" id="callStat">connecting…</span>
+          <button class="ctl" id="micBtn" title="Mute / unmute"><span class="ico">🎤</span><span class="t">Mute</span></button>
+          <button class="ctl" id="deafBtn" title="Deafen — stop hearing the call"><span class="ico">🔊</span><span class="t">Deafen</span></button>
+          <button class="ctl" id="camBtn" title="Turn your camera on"><span class="ico">📷</span><span class="t">Camera</span></button>
+          <button class="ctl" id="shareBtn" title="Share your screen"><span class="ico">🖥️</span><span class="t">Share</span></button>
+          <button class="ctl danger" id="hangBtn" title="Leave the call"><span class="ico">📴</span><span class="t">Leave</span></button>
+          <span class="callstat">
+            <span class="lvl" id="micLvlSmall" title="Your microphone level"><i></i></span>
+            <span id="callStat">connecting…</span>
+          </span>
         </div>
       </div>
 
       <div class="feed" id="feed"></div>
       <form class="bar" id="bar">
         <input id="msg" placeholder="Message the meeting…" maxlength="2000" autocomplete="off" />
-        <button type="submit">Send</button>
+        <button type="submit" id="send">Send</button>
       </form>
+
+      <!-- Settings. The same choices a member gets: which mic, which speaker,
+           which camera, how loud, and how much processing. -->
+      <aside class="sheet" id="sheet" aria-hidden="true">
+        <div class="shead">
+          <span>Audio &amp; video</span>
+          <span class="grow" style="flex:1"></span>
+          <button class="pill" id="sheetClose" aria-label="Close settings">Done</button>
+        </div>
+        <div class="sbody">
+          <!-- Applies to all three pickers below, so it sits above all three. -->
+          <p class="hint" id="permHint" style="display:none">
+            Your devices have no names yet — the browser only reveals them once you've
+            allowed the microphone at least once.
+            <button class="pill" id="permBtn" style="margin-left:6px">Allow</button>
+          </p>
+          <div class="grp">
+            <h2>Microphone</h2>
+            <div class="row"><label for="selMic">Input</label><select id="selMic"></select></div>
+            <div class="row">
+              <label>Level</label>
+              <span class="meter" id="meter"><i></i><b></b></span>
+            </div>
+            <div class="row"><label for="micGain">Boost</label><input id="micGain" type="range" min="25" max="400" step="5" value="100" /><span class="val" id="micGainV">100%</span></div>
+            <div class="row"><label for="micGate">Noise gate</label><input id="micGate" type="range" min="0" max="25" step="1" value="0" /><span class="val" id="micGateV">off</span></div>
+            <p class="hint" id="gateHint">The gate keeps your mic shut until you actually speak. The yellow mark on the meter is where it opens — set it just above your room, not your voice.</p>
+            <label class="check"><input type="checkbox" id="ec" checked /><span>Echo cancellation<small>Stops the room hearing itself back through your speakers. Turn it off only on headphones.</small></span></label>
+            <label class="check"><input type="checkbox" id="ns" checked /><span>Noise suppression<small>Filters fans, keyboards and hiss.</small></span></label>
+            <label class="check"><input type="checkbox" id="agc" checked /><span>Automatic gain<small>Levels you out as you move around.</small></span></label>
+          </div>
+          <div class="grp">
+            <h2>Sound</h2>
+            <div class="row"><label for="selSpk">Output</label><select id="selSpk"></select><button class="pill" id="toneBtn" title="Play a test tone">Test</button></div>
+            <p class="hint" id="spkHint" style="display:none">This browser always plays through the system's default output — it has no way to choose another.</p>
+            <div class="row"><label for="outVol">Volume</label><input id="outVol" type="range" min="0" max="100" step="1" value="100" /><span class="val" id="outVolV">100%</span></div>
+            <label class="check"><input type="checkbox" id="duck" checked /><span>Quiet other screen shares<small>With more than one screen being shared, the one you're watching plays at full volume and the rest drop to a background level. Voices are never touched.</small></span></label>
+          </div>
+          <div class="grp">
+            <h2>Camera</h2>
+            <div class="row"><label for="selCam">Camera</label><select id="selCam"></select></div>
+          </div>
+        </div>
+      </aside>
     </div>
 
     <script>
@@ -294,13 +527,14 @@
 
       const $ = (id) => document.getElementById(id);
       const feed = $("feed");
+      const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
       let ws = null;
+      let myName = "";
 
       if (!hostId || !token) {
         $("title").textContent = "Invalid meeting link";
         $("sub").textContent = "This link is missing its meeting details. Ask for a fresh one.";
-        $("name").style.display = "none";
-        $("go").style.display = "none";
+        $("joinForm").style.display = "none";
       }
 
       function addMsg(who, body, sys) {
@@ -319,22 +553,69 @@
         feed.appendChild(el);
         feed.scrollTop = feed.scrollHeight;
       }
+      // Notices that would otherwise repeat every time the state that produced
+      // them changes (ducking, the no-relay warning).
+      const said = new Set();
+      const sayOnce = (key, text) => {
+        if (said.has(key)) return;
+        said.add(key);
+        addMsg("", text, true);
+      };
 
-      $("go").onclick = () => {
-        const name = ($("name").value || "").trim() || "Guest";
-        $("go").disabled = true;
+      // ---------------------------------------------------------------------
+      // Join / knock state machine. Three states in one card: the name prompt,
+      // the connect spinner, and the knock at a locked door.
+      // ---------------------------------------------------------------------
+      function setJoinState(state, opts = {}) {
+        const form = state === "form";
+        $("joinForm").style.display = form ? "" : "none";
+        $("knock").classList.toggle("on", state === "knock");
+        $("go").disabled = !form;
+        $("go").innerHTML = state === "connecting" ? '<span class="spin"></span>Connecting…' : "Join meeting";
+        if (state === "knock") {
+          // Idempotent by construction: the gateway re-sends `waiting` every 15s
+          // as its liveness probe, and each one REPLACES this text. Appending
+          // would stack the same sentence forever.
+          // The pulsing door IS the logo here; two of them just looked broken.
+          $("logo").style.display = "none";
+          $("title").textContent = "Waiting for the host";
+          $("sub").textContent = opts.meeting || "";
+          $("knockName").innerHTML = "";
+          if (opts.name) {
+            $("knockName").append("The host sees you as ");
+            const b = document.createElement("b");
+            b.textContent = opts.name;
+            $("knockName").append(b);
+          }
+          $("knockReason").textContent = opts.reason || "The host has been asked to let you in…";
+        }
+        if (form) {
+          $("logo").style.display = "";
+          $("title").textContent = "Join the meeting";
+          $("sub").textContent =
+            "You've been invited to a Concord meeting. Pick a name and hop in — no account, no download.";
+          $("knockName").textContent = "";
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // The socket. Frames are line-delimited JSON in both directions; the
+      // gateway re-attaches the '\n' it consumed, and we buffer any partial
+      // tail rather than parsing half an SDP and dropping it.
+      // ---------------------------------------------------------------------
+      function connect() {
+        myName = ($("name").value || "").trim() || "Guest";
+        setJoinState("connecting");
         $("err").textContent = "Connecting…";
 
         const proto = location.protocol === "https:" ? "wss:" : "ws:";
         ws = new WebSocket(`${proto}//${location.host}/guest/ws?h=${encodeURIComponent(hostId)}`);
 
         ws.onopen = () => {
-          ws.send(JSON.stringify({ type: "hello", token, name }));
+          ws.send(JSON.stringify({ type: "hello", token, name: myName }));
         };
         let rxBuf = "";
         ws.onmessage = (ev) => {
-          // Frames are line-delimited JSON. Keep any partial tail for the next
-          // message instead of parsing half an SDP and dropping it.
           rxBuf += String(ev.data);
           const lines = rxBuf.split("\n");
           rxBuf = lines.pop() ?? "";
@@ -342,39 +623,86 @@
             if (!line.trim()) continue;
             let f;
             try { f = JSON.parse(line); } catch { continue; }
-            if (f.type === "welcome") {
-              $("join").style.display = "none";
-              $("room").classList.add("on");
-              $("roomName").textContent = f.meeting || "Meeting";
-              $("youAre").textContent = "you: " + (f.name || name);
-              channelId = f.channel || "";
-              $("msg").focus();
-            } else if (f.type === "signal") {
-              onSignal(f.data);
-            } else if (f.type === "msg") {
-              // The host now attributes guests properly, so `from` is the truth.
-              addMsg(f.from || "Someone", String(f.content || ""), false);
-            } else if (f.type === "sys") {
-              addMsg("", String(f.content || ""), true); // room notice, no author
-            } else if (f.type === "info") {
-              addMsg("", f.reason || "", true);
-            } else if (f.type === "end") {
-              addMsg("", f.reason || "The meeting has ended.", true);
-              $("err").textContent = f.reason || "";
-              $("go").disabled = false;
-              ws.close();
-            }
+            onFrame(f);
           }
         };
         ws.onerror = () => {
           $("err").textContent = "Couldn't reach the meeting. Ask the host to keep Concord open.";
-          $("go").disabled = false;
+          setJoinState("form");
         };
         ws.onclose = () => {
-          $("go").disabled = false;
+          setJoinState("form");
           leaveCall();
-          if ($("room").classList.contains("on")) addMsg("", "Disconnected.", true);
+          $("live").classList.add("bad");
+          if ($("room").classList.contains("on")) {
+            addMsg("", "Disconnected.", true);
+            endComposer();
+          }
         };
+      }
+
+      function onFrame(f) {
+        if (f.type === "welcome") {
+          // Reset the card as we leave it: a guest admitted from the door must
+          // not have a knock still armed behind the room (the socket can drop
+          // and put us back on this card at any moment).
+          setJoinState("form");
+          $("join").classList.add("gone");
+          $("room").classList.add("on");
+          $("roomName").textContent = f.meeting || "Meeting";
+          $("youAre").textContent = "you: " + (f.name || myName);
+          myName = f.name || myName;
+          channelId = f.channel || "";
+          $("err").textContent = "";
+          $("msg").focus();
+        } else if (f.type === "waiting") {
+          // Locked meeting: we are at the door. Nothing else about the meeting
+          // will arrive until the host decides, and we must send nothing.
+          setJoinState("knock", { meeting: f.meeting, name: f.name, reason: f.reason });
+          $("err").textContent = "";
+        } else if (f.type === "signal") {
+          onSignal(f.data);
+        } else if (f.type === "msg") {
+          // The host attributes guests properly, so `from` is the truth.
+          addMsg(f.from || "Someone", String(f.content || ""), false);
+        } else if (f.type === "sys") {
+          addMsg("", String(f.content || ""), true); // room notice, no author
+        } else if (f.type === "info") {
+          addMsg("", f.reason || "", true);
+        } else if (f.type === "end") {
+          const reason = f.reason || "The meeting has ended.";
+          addMsg("", reason, true);
+          // #err is where a guest who never got in reads what happened; #over is
+          // where a guest already in the room does.
+          $("err").textContent = reason;
+          $("over").textContent = reason;
+          $("over").classList.add("on");
+          endComposer();
+          setJoinState("form");
+          ws.close();
+        }
+      }
+
+      function endComposer() {
+        $("msg").disabled = true;
+        $("send").disabled = true;
+        $("msg").placeholder = "This meeting is over.";
+        // Hidden, not disabled: a greyed-out "Join call" still invites a click
+        // that can no longer do anything.
+        $("callBtn").style.display = "none";
+        $("setBtn").style.display = "none";
+      }
+
+      $("go").onclick = connect;
+      $("name").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") $("go").click();
+      });
+      // Walking away from a locked door: close the socket so the host's knock
+      // list clears instead of showing a stranger who left.
+      $("knockCancel").onclick = () => {
+        try { ws?.close(); } catch {}
+        setJoinState("form");
+        $("err").textContent = "";
       };
 
       $("bar").onsubmit = (e) => {
@@ -415,8 +743,8 @@
           /* no relay on this deployment — direct call */
         }
       }
+
       let pc = null;
-      let local = null; // our camera+mic stream
       let channelId = ""; // the voice room, learned from `welcome`
       let inCall = false;
       let makingOffer = false;
@@ -426,40 +754,579 @@
       // fire an offer into an empty room, strand its PC in have-local-offer, and
       // then fumble the real negotiation when the host finally shows up.
       let hostHere = false;
-      const remoteTiles = new Map(); // streamId -> tile element
 
       const sig = (payload) => {
         if (ws && ws.readyState === 1) {
           ws.send(JSON.stringify({ type: "signal", data: { channelId, ...payload } }));
         }
       };
-      const setStat = (t) => ($("callStat").textContent = t);
+      // One status line, two facts: the connection, and what you're watching.
+      // "Watching X" is the more useful of the two once media is flowing, but a
+      // connection that is NOT up outranks it — a frozen picture with a cheerful
+      // "watching" under it is the worst of both.
+      let connState = "connecting…";
+      const setStat = (t) => {
+        connState = t;
+        renderStat();
+      };
+      function renderStat() {
+        const f = focusKey && tiles.get(focusKey);
+        $("callStat").textContent =
+          connState === "connected" && f ? `watching ${f.label}` : connState;
+      }
 
+      // ---------------------------------------------------------------------
+      // Audio settings. What a member has, we have — with two honest omissions,
+      // both recorded here so nobody wonders later:
+      //
+      //   • Spectral noise reduction (the app's denoise.js) is an AudioWorklet,
+      //     and a worklet module has to be FETCHED by URL. This page is served
+      //     with `default-src 'none'; script-src 'unsafe-inline'`, so a blob:
+      //     worklet is blocked outright — porting it would mean widening the
+      //     CSP of the one page anonymous strangers load. Not worth it. The
+      //     browser's own noise suppression (below) stays available.
+      //   • Push-to-talk: a keyboard-held mic makes no sense on the phone a
+      //     shared link is usually opened on, and the noise gate covers the
+      //     same problem without a key.
+      //
+      // Everything else is the member chain, in the member's order: high-pass →
+      // boost → gate, metered on the RAW capture so a closed gate can still be
+      // reopened by your voice.
+      // ---------------------------------------------------------------------
+      const A = {
+        mic: "", speaker: "", camera: "",
+        gain: 1,        // 1 = the capture as it comes
+        gate: 0,        // 0 = off, else the RMS level that opens the mic
+        output: 1,      // master playback level
+        ec: true, ns: true, agc: true,
+        duck: true,     // quiet the shares you're not watching
+        bitrate: 64000, // what we ASK peers to send us, and what we spend
+      };
+      let ac = null;            // the one AudioContext: metering + the mic chain
+      let rawMic = null;        // the capture
+      let chain = null;         // { src, hp, gain, gate }
+      let sendStream = null;    // the processed mic, when a chain is in play
+      let micSender = null;
+      let muted = false, deafened = false;
+      let gateOpenUntil = 0;
+      const analysers = new Map(); // "self" | stream id -> { analyser, data }
+
+      function audioCtx() {
+        if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+        // A suspended context doesn't just stop the meter — when the chain is in
+        // play it IS the outgoing audio, so leaving it suspended would send
+        // silence. Autoplay policy suspends contexts made without a gesture.
+        if (ac.state === "suspended") ac.resume().catch(() => {});
+        return ac;
+      }
+
+      // openMic captures with the chosen device and processing flags, falling
+      // back to the system default when that exact device is gone (a headset
+      // unplugged mid-call must not leave us silent).
+      async function openMic() {
+        const proc = { echoCancellation: A.ec, noiseSuppression: A.ns, autoGainControl: A.agc };
+        try {
+          return await navigator.mediaDevices.getUserMedia({
+            audio: A.mic ? { ...proc, deviceId: { exact: A.mic } } : proc,
+          });
+        } catch (err) {
+          if (!A.mic || err?.name !== "OverconstrainedError") throw err;
+          return navigator.mediaDevices.getUserMedia({ audio: proc });
+        }
+      }
+
+      const needsChain = () => A.gain !== 1 || A.gate > 0;
+
+      // buildChain routes the capture through high-pass → boost → gate. Built
+      // only when a knob is off-default: at 100% with the gate off, the host
+      // gets the capture track itself, exactly as it did before any of this
+      // existed. Best effort — a browser without MediaStreamAudioDestinationNode
+      // simply keeps sending the raw track.
+      function buildChain() {
+        teardownChain();
+        if (!rawMic || !needsChain()) return;
+        try {
+          const ctx = audioCtx();
+          const src = ctx.createMediaStreamSource(rawMic);
+          // Order matters: the high-pass first so rumble never reaches the gate's
+          // level estimate, boost last so it lifts your voice, not the noise.
+          const hp = ctx.createBiquadFilter();
+          hp.type = "highpass";
+          hp.frequency.value = 85; // below the lowest speech fundamental
+          hp.Q.value = 0.7;
+          const gain = ctx.createGain();
+          gain.gain.value = A.gain;
+          const gate = ctx.createGain();
+          gate.gain.value = A.gate ? 0 : 1; // a gate starts closed
+          const dest = ctx.createMediaStreamDestination();
+          src.connect(hp).connect(gain).connect(gate).connect(dest);
+          chain = { src, hp, gain, gate };
+          sendStream = dest.stream;
+        } catch (err) {
+          console.warn("audio chain unavailable", err);
+          chain = null;
+          sendStream = null;
+        }
+      }
+      function teardownChain() {
+        if (chain) {
+          try { chain.src.disconnect(); chain.hp.disconnect(); } catch {}
+          chain = null;
+        }
+        sendStream?.getTracks().forEach((t) => t.stop());
+        sendStream = null;
+      }
+      const micTrack = () => sendStream?.getAudioTracks()[0] || rawMic?.getAudioTracks()[0] || null;
+      const micLive = () => !muted;
+      function applyMicLive() {
+        // Both ends of the chain: killing the capture silences what's downstream,
+        // and disabling the SENT track is what the host actually sees stop.
+        const live = micLive();
+        rawMic?.getAudioTracks().forEach((t) => (t.enabled = live));
+        sendStream?.getAudioTracks().forEach((t) => (t.enabled = live));
+      }
+
+      // sendMicTrack hands the current outgoing track to the host. replaceTrack
+      // keeps the m-line, so nothing renegotiates and nobody hears a gap.
+      async function sendMicTrack() {
+        const track = micTrack();
+        if (!track || !micSender) return;
+        track.enabled = micLive();
+        track.contentHint = A.ns || A.agc ? "speech" : "music";
+        try { await micSender.replaceTrack(track); } catch (err) { console.warn("mic swap", err); }
+        applySenderParams();
+      }
+      async function rechain() {
+        const had = !!chain;
+        buildChain();
+        if (had || chain) await sendMicTrack();
+      }
+      // reopenMic recaptures with the current device + processing. The new stream
+      // is opened FIRST, so a failure leaves the current mic running rather than
+      // knocking us silent mid-sentence.
+      async function reopenMic() {
+        if (!rawMic) return; // not in a call: the choice applies at the next join
+        let next;
+        try { next = await openMic(); } catch { return; }
+        if (!next.getAudioTracks().length) {
+          next.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        const old = rawMic;
+        teardownChain();
+        rawMic = next;
+        buildChain();
+        await sendMicTrack();
+        old.getTracks().forEach((t) => t.stop());
+        analysers.delete("self");
+        addAnalyser("self", next);
+      }
+
+      function addAnalyser(key, stream) {
+        if (!stream?.getAudioTracks().length || analysers.has(key)) return;
+        try {
+          const ctx = audioCtx();
+          const src = ctx.createMediaStreamSource(stream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 512;
+          src.connect(analyser);
+          analysers.set(key, { analyser, data: new Uint8Array(analyser.frequencyBinCount) });
+        } catch {
+          /* metering is best effort */
+        }
+      }
+
+      // The monitor does three jobs off one 150 ms tick: draw the mic meter,
+      // decide the gate, and mark who is speaking.
+      let monitor = null;
+      function startMonitor() {
+        if (monitor) return;
+        monitor = setInterval(() => {
+          let self = 0;
+          const loud = new Set();
+          for (const [key, { analyser, data }] of analysers) {
+            analyser.getByteTimeDomainData(data);
+            let sum = 0;
+            for (let i = 0; i < data.length; i++) {
+              const v = (data[i] - 128) / 128;
+              sum += v * v;
+            }
+            const rms = Math.sqrt(sum / data.length);
+            if (key === "self") self = rms;
+            else if (rms > 0.04) loud.add(key);
+          }
+          applyGate(self);
+          // "Speaking" should mean what the host can actually HEAR: with a gate
+          // on, room noise it is holding back must not light us up.
+          const selfSpeaking = self > 0.04 && micLive() && !(A.gate && self * A.gain < A.gate);
+          if (selfSpeaking) loud.add("self");
+          paintLevel(self);
+          paintSpeaking(loud);
+        }, 150);
+      }
+      // applyGate: fast to open, slow to close, with a hold so word tails and
+      // short pauses don't get chopped. Read PRE-gate and scaled by the boost, so
+      // the threshold means what the host would hear.
+      function applyGate(level) {
+        if (!chain || !A.gate) return;
+        if (level * A.gain >= A.gate) gateOpenUntil = Date.now() + 500;
+        const open = Date.now() < gateOpenUntil;
+        chain.gate.gain.setTargetAtTime(open ? 1 : 0, audioCtx().currentTime, open ? 0.01 : 0.15);
+      }
+      function paintLevel(rms) {
+        const pct = Math.min(100, rms * A.gain * 400);
+        $("meter").firstElementChild.style.width = pct + "%";
+        $("micLvlSmall").firstElementChild.style.width = pct + "%";
+        const open = !A.gate || Date.now() < gateOpenUntil;
+        $("meter").classList.toggle("gated", !!A.gate && !open);
+        $("meter").classList.toggle("open", !A.gate || open);
+      }
+
+      // ---------------------------------------------------------------------
+      // Tiles + theater.
+      //
+      // One element per video source, keyed like the member app: local sources
+      // are "self:screen"/"self:camera", remote ones "r:<streamId>" (a stream is
+      // exactly one camera or one screen). Layout is class-only — the focused
+      // tile spans the grid and the rest shrink to a strip — because moving a
+      // <video> in the DOM re-attaches its stream and drops frames.
+      // ---------------------------------------------------------------------
+      const tiles = new Map();       // key -> { key, kind, self, stream, label, node, video, snd }
+      const remoteKinds = new Map(); // remote stream id -> "screen" | "camera" (from videoMeta)
+      const pendingKind = new Map(); // remote stream id -> re-render fn, for a late videoMeta
+      const told = new Set();        // remote stream ids we've told the sharer we're watching
+      let focusKey = null;
+      // Our own two video sources, each with its own stream + senders so either
+      // can start or stop without touching the other.
+      let camStream = null, camSenders = [];
+      let shareStream = null, shareSenders = [];
+
+      function upsertTile(key, { kind, self = false, stream = null, label = "", ph = "🎤" }) {
+        let t = tiles.get(key);
+        if (!t) {
+          const node = document.createElement("div");
+          node.className = "tile";
+          node.dataset.key = key;
+          const video = document.createElement("video");
+          video.autoplay = true;
+          video.playsInline = true;
+          // ALWAYS muted. Every drop of call audio plays through the dedicated
+          // <audio> elements below — the only path that honours deafen, the
+          // master level, per-share ducking and the chosen speaker. An unmuted
+          // tile would double a stream up and slip past all four; on a LOCAL
+          // preview it would also feed your own shared sound back to you.
+          video.muted = true;
+          const phel = document.createElement("span");
+          phel.className = "ph";
+          const lbl = document.createElement("span");
+          lbl.className = "lbl";
+          const snd = document.createElement("button");
+          snd.className = "snd";
+          snd.onclick = (e) => { e.stopPropagation(); toggleShareSound(key); };
+          const tact = document.createElement("span");
+          tact.className = "tact";
+          const full = document.createElement("button");
+          full.className = "tbtn";
+          full.textContent = "⛶";
+          full.title = "Fullscreen";
+          full.onclick = (e) => { e.stopPropagation(); goFullscreen(node); };
+          const shrink = document.createElement("button");
+          shrink.className = "tbtn";
+          shrink.textContent = "✕";
+          shrink.title = "Exit full view";
+          shrink.onclick = (e) => { e.stopPropagation(); setFocus(null); };
+          tact.append(full, shrink);
+          node.append(video, phel, lbl, snd, tact);
+          node.onclick = () => setFocus(focusKey === key ? null : key);
+          t = { key, node, video, lbl, phel, snd };
+          tiles.set(key, t);
+          $("tiles").appendChild(node);
+        }
+        t.kind = kind;
+        t.self = self;
+        t.label = label;
+        t.phel.textContent = ph;
+        t.lbl.textContent = label;
+        t.node.title = kind === "screen" ? `${label} — click to ${focusKey === key ? "shrink" : "watch"}` : label;
+        t.node.classList.toggle("cam", kind === "camera");
+        t.node.classList.toggle("self", self);
+        if (stream && t.stream !== stream) {
+          t.stream = stream;
+          t.video.srcObject = stream;
+          t.video.play?.().catch(() => {});
+        }
+        if (!stream) {
+          t.stream = null;
+          t.video.srcObject = null;
+        }
+        t.node.classList.toggle("has-video", !!stream?.getVideoTracks().length);
+        relayout();
+        return t;
+      }
+
+      function removeTile(key) {
+        const t = tiles.get(key);
+        if (!t) return;
+        t.video.srcObject = null;
+        t.node.remove();
+        tiles.delete(key);
+        if (focusKey === key) setFocus(null);
+        else relayout();
+      }
+
+      // A screen share is the point of the call, so it takes the stage by itself
+      // the first time one appears — the member app does the same, and a share
+      // that arrives as one more small box is a share you have to hunt for.
+      let autoFocused = false;
+      function relayout() {
+        const shares = [...tiles.values()].filter((t) => t.kind === "screen" && t.stream);
+        if (shares.length && !focusKey && !autoFocused) {
+          autoFocused = true;
+          setFocus(shares[0].key);
+          return;
+        }
+        if (!shares.length) autoFocused = false;
+        const anyVideo = [...tiles.values()].some((t) => t.node.classList.contains("has-video"));
+        $("tiles").classList.toggle("voice-only", !anyVideo);
+        $("tiles").classList.toggle("theater", !!focusKey);
+        for (const t of tiles.values()) t.node.classList.toggle("focused", t.key === focusKey);
+      }
+
+      function setFocus(key) {
+        if (key && !tiles.has(key)) key = null;
+        focusKey = key;
+        relayout();
+        // Sharing into silence is unnerving — you can't tell whether anyone is
+        // looking. Tell the sharer we're watching; the app already understands
+        // this note (it's how one member tells another), so no protocol changed.
+        // Once per stream, not once per click: the host raises a notice on each
+        // one, and toggling focus back and forth must not spam them.
+        const t = key && tiles.get(key);
+        if (t && !t.self && t.kind === "screen" && t.stream && !told.has(t.stream.id)) {
+          told.add(t.stream.id);
+          sig({ watching: t.stream.id });
+        }
+        applyAudio();
+        renderStat();
+      }
+      function goFullscreen(node) {
+        if (document.fullscreenElement) document.exitFullscreen?.();
+        else node.requestFullscreen?.().catch(() => {});
+      }
+      // Only voice tiles get the ring: a screen share is not a person, and a ring
+      // around a shared document would read as "the screen is talking".
+      function paintSpeaking(loud) {
+        for (const t of tiles.values()) {
+          const speak =
+            t.kind === "voice" && (t.self ? loud.has("self") : !!voiceStreamId && loud.has(voiceStreamId));
+          t.node.classList.toggle("speaking", speak);
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // Remote audio + per-stream ducking.
+      //
+      // One <audio> per remote stream: the host's voice and the sound of what
+      // they're sharing arrive as DIFFERENT streams, and one element plays one
+      // stream — sharing an element would drop the voice the moment a screen
+      // share with sound started.
+      //
+      // The complaint this answers: with several screens live it gets noisy, and
+      // the one you're watching should be the one you hear. So share audio is
+      // ducked — per stream, via that element's own gain — while a DIFFERENT
+      // share holds the stage. Voices are never touched: not being able to hear
+      // the person talking is worse than any amount of noise.
+      // ---------------------------------------------------------------------
+      const DUCK = 0.12; // audible enough to know it's still there
+      const remoteAudio = new Map(); // stream id -> { el, share, gain, state }
+      const shareMuted = new Set();  // stream ids the guest silenced by hand
+      const hifiTracks = new Set();  // remote audio tracks that are shared media
+      let voiceStreamId = "";        // the first remote audio stream: the host's mic
+
+      function isShareStream(sid) {
+        // Either the app told us (videoMeta), or it's simply not the stream the
+        // voice came in on. The note can arrive after the track, so this is
+        // recomputed on every reconcile rather than cached at ontrack time.
+        return remoteKinds.get(sid) === "screen" || (!!voiceStreamId && voiceStreamId !== sid);
+      }
+
+      function applyAudio() {
+        const focused = focusKey && tiles.get(focusKey);
+        const watchingShare = !!(focused && focused.kind === "screen" && focused.stream);
+        const focusedSid = watchingShare ? focused.stream.id : "";
+        for (const [sid, a] of remoteAudio) {
+          a.share = isShareStream(sid);
+          let gain = 1;
+          a.state = "on";
+          if (a.share) {
+            if (shareMuted.has(sid)) { gain = 0; a.state = "off"; }
+            else if (A.duck && watchingShare && sid !== focusedSid) { gain = DUCK; a.state = "duck"; }
+          }
+          a.gain = gain;
+          a.el.muted = deafened || gain === 0;
+          a.el.volume = clamp(gain * A.output, 0, 1);
+        }
+        paintSound();
+      }
+
+      // Ducking has to be VISIBLE or it reads as a bug: every share tile that
+      // carries sound wears its own state, and clicking it is the override.
+      function paintSound() {
+        for (const t of tiles.values()) {
+          const sid = t.stream?.id;
+          const a = sid && remoteAudio.get(sid);
+          const has = !!a && a.share;
+          t.node.classList.toggle("has-sound", has);
+          if (!has) continue;
+          t.snd.classList.toggle("ducked", a.state !== "on");
+          t.snd.textContent = a.state === "off" ? "🔇" : a.state === "duck" ? "🔉" : "🔊";
+          t.snd.title =
+            a.state === "off"
+              ? "Sound muted — click to unmute"
+              : a.state === "duck"
+                ? "Quieted while you watch another screen — click to mute it"
+                : "Sound playing — click to mute";
+          if (a.state === "duck") {
+            sayOnce(
+              "duck",
+              "Two screens are being shared. The one you're watching plays at full volume; the other is quieted — tap 🔉 on a tile to change that.",
+            );
+          }
+        }
+      }
+      function toggleShareSound(key) {
+        const sid = tiles.get(key)?.stream?.id;
+        if (!sid || !remoteAudio.has(sid)) return;
+        if (shareMuted.has(sid)) shareMuted.delete(sid);
+        else shareMuted.add(sid);
+        applyAudio();
+      }
+
+      async function applySink(el) {
+        if (!el || typeof el.setSinkId !== "function") return;
+        try { await el.setSinkId(A.speaker || ""); } catch { /* device gone: stay on default */ }
+      }
+
+      // ---------------------------------------------------------------------
+      // Opus. Left alone a browser negotiates ~32 kbit/s mono "phone call", and
+      // an fmtp line describes what the SENDER of the SDP wants to RECEIVE — so
+      // the side LISTENING to a screen share is the only one that can ask for it
+      // in stereo. That's us, and not asking is most of why a guest sounded
+      // worse than a member. Ported from the app's sdp.js.
+      // ---------------------------------------------------------------------
+      function tuneOpus(sdp, hifiIndexes) {
+        if (!sdp) return sdp;
+        const hifi = new Set(hifiIndexes);
+        let mIndex = -1;
+        return sdp
+          .split(/(?=^m=)/m)
+          .map((sec) => {
+            if (!sec.startsWith("m=")) return sec;
+            mIndex++;
+            if (!sec.startsWith("m=audio")) return sec;
+            const pt = sec.match(/^a=rtpmap:(\d+) opus\/48000/im)?.[1];
+            if (!pt) return sec;
+            const isHifi = hifi.has(mIndex);
+            const want = {
+              minptime: "10",
+              useinbandfec: "1", // rebuild lost packets from the next one
+              usedtx: "0", // no "silence saves bandwidth" gaps mid-word
+              maxplaybackrate: "48000", // full band, not 16 kHz speech
+              "sprop-maxcapturerate": "48000",
+              maxaveragebitrate: String(isHifi ? Math.max(A.bitrate, 128000) : A.bitrate),
+              ...(isHifi ? { stereo: "1", "sprop-stereo": "1" } : { stereo: "0" }),
+            };
+            const line = new RegExp(`^a=fmtp:${pt} (.*)$`, "im");
+            const existing = sec.match(line);
+            const merged = {};
+            if (existing) {
+              for (const kv of existing[1].split(";")) {
+                const [k, v] = kv.split("=");
+                if (k?.trim()) merged[k.trim()] = v;
+              }
+            }
+            Object.assign(merged, want);
+            const fmtp = `a=fmtp:${pt} ${Object.entries(merged)
+              .map(([k, v]) => (v === undefined ? k : `${k}=${v}`))
+              .join(";")}`;
+            return existing
+              ? sec.replace(line, fmtp)
+              : sec.replace(new RegExp(`^(a=rtpmap:${pt} opus/48000.*)$`, "im"), `$1\r\n${fmtp}`);
+          })
+          .join("");
+      }
+      // Indexes, not mids: a brand-new transceiver has no mid until the
+      // description is applied, which is exactly when we tune it.
+      function hifiIndexes() {
+        const out = [];
+        if (!pc) return out;
+        const shareAudio = shareStream?.getAudioTracks()[0] || null;
+        pc.getTransceivers().forEach((t, i) => {
+          const rt = t.receiver?.track;
+          if (rt && hifiTracks.has(rt)) out.push(i);
+          else if (shareAudio && t.sender?.track === shareAudio) out.push(i);
+        });
+        return out;
+      }
+      const tune = (sdp) => {
+        try { return tuneOpus(sdp, hifiIndexes()); } catch (err) {
+          console.warn("sdp tune skipped", err);
+          return sdp; // a call at default quality beats a call that won't connect
+        }
+      };
+      // Our own encoder ceiling, and voice marked high priority so it's the last
+      // thing starved when a share and a call fight over the same uplink.
+      function applySenderParams() {
+        if (!pc) return;
+        const shareAudio = shareStream?.getAudioTracks()[0] || null;
+        for (const s of pc.getSenders()) {
+          if (s.track?.kind !== "audio") continue;
+          try {
+            const p = s.getParameters();
+            if (!p.encodings?.length) p.encodings = [{}];
+            p.encodings[0].maxBitrate = s.track === shareAudio ? Math.max(A.bitrate, 160000) : A.bitrate;
+            p.encodings[0].networkPriority = "high";
+            p.encodings[0].priority = "high";
+            s.setParameters(p).catch(() => {});
+          } catch {
+            /* older webviews reject encodings edits; the SDP half still applies */
+          }
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // Call lifecycle
+      // ---------------------------------------------------------------------
       // Joining is a VOICE call: we ask for the microphone and nothing else,
       // exactly like every other call app. The camera is opt-in — its own
       // button, its own permission prompt, whenever you feel like it (or never).
       async function joinCall() {
         if (inCall) return;
+        $("callBtn").disabled = true;
         try {
-          local = await navigator.mediaDevices.getUserMedia({ audio: true });
+          rawMic = await openMic();
         } catch {
+          $("callBtn").disabled = false;
           addMsg("", "Couldn't use your microphone — allow mic access and try again.", true);
           return;
         }
         inCall = true;
+        buildChain();
+        applyMicLive();
+        addAnalyser("self", rawMic);
+        startMonitor();
         $("stage").classList.add("on");
-        $("tiles").classList.add("audio-only");
         $("callBtn").style.display = "none";
         setStat("connecting…");
+        upsertTile("self:voice", { kind: "voice", self: true, label: `${myName} (you)`, ph: "🎤" });
         // Honesty about IP privacy: with a relay we're IP-private (relayOnly).
         // Without one (a host on a relay-less deployment) the call is direct and
         // the other participants can see your IP — say so plainly rather than
         // leak it silently.
         if (!relayOnly) {
-          addMsg(
-            "",
+          sayOnce(
+            "norelay",
             "⚠️ This meeting has no private relay — the other participants may see your IP address.",
-            true,
           );
         }
 
@@ -467,24 +1334,29 @@
           iceServers: ICE,
           iceTransportPolicy: relayOnly ? "relay" : "all",
         });
-        for (const track of local.getTracks()) pc.addTrack(track, local);
+        const track = micTrack();
+        if (track) {
+          track.contentHint = A.ns || A.agc ? "speech" : "music";
+          micSender = pc.addTrack(track, sendStream || rawMic);
+        }
         // Ask for a slot to RECEIVE the host's camera even though we're sending
         // none, so they can turn theirs on later without renegotiating from
         // scratch.
-        try {
-          pc.addTransceiver("video", { direction: "recvonly" });
-        } catch {}
+        try { pc.addTransceiver("video", { direction: "recvonly" }); } catch {}
 
         pc.onicecandidate = (e) => e.candidate && sig({ candidate: e.candidate });
         // We negotiate too, or our camera would never get an m-line: the app
         // only offers slots for the tracks IT sends, so a host with their camera
-        // off would never receive ours. We're the polite peer (see below), so on
-        // a collision we yield and take theirs.
+        // off would never receive ours. We're the polite peer, so on a collision
+        // we yield and take theirs.
         pc.onnegotiationneeded = async () => {
           if (!hostHere) return; // wait for the host's first offer
           try {
             makingOffer = true;
-            await pc.setLocalDescription();
+            const offer = await pc.createOffer();
+            offer.sdp = tune(offer.sdp);
+            await pc.setLocalDescription(offer);
+            applySenderParams();
             sig({ description: pc.localDescription });
           } catch (err) {
             console.warn("negotiation", err);
@@ -492,64 +1364,7 @@
             makingOffer = false;
           }
         };
-        pc.ontrack = (e) => {
-          const stream = e.streams[0];
-          if (!stream) return;
-          // Audio plays; only video earns a tile (otherwise an audio-only host
-          // shows up as a blank rectangle).
-          if (e.track.kind === "audio") {
-            // One element per stream: the host's voice and the sound of what
-            // they're sharing arrive as different streams, and one <audio>
-            // plays one stream — sharing an element would drop the voice the
-            // moment a screen share with sound started.
-            let a = document.getElementById("a-" + stream.id);
-            if (!a) {
-              a = document.createElement("audio");
-              a.id = "a-" + stream.id;
-              a.autoplay = true;
-              document.body.appendChild(a);
-            }
-            a.srcObject = stream;
-            if (!remoteTiles.has("audio")) {
-              const t = document.createElement("div");
-              t.className = "tile";
-              t.innerHTML = '<span class="ph">🎤</span>';
-              const l = document.createElement("span");
-              l.className = "lbl";
-              l.textContent = $("roomName").textContent || "host";
-              t.appendChild(l);
-              $("tiles").appendChild(t);
-              remoteTiles.set("audio", t);
-            }
-            setStat("connected");
-            return;
-          }
-          if (remoteTiles.has(stream.id)) return;
-          const tile = document.createElement("div");
-          tile.className = "tile";
-          const v = document.createElement("video");
-          v.autoplay = true;
-          v.playsInline = true;
-          // Sound comes out of the <audio> element above, so a shared screen's
-          // audio isn't played twice (once here, once there).
-          v.muted = true;
-          v.srcObject = stream;
-          const lbl = document.createElement("span");
-          lbl.className = "lbl";
-          lbl.textContent = $("roomName").textContent || "host";
-          tile.append(v, lbl);
-          tile.classList.add("has-video");
-          $("tiles").appendChild(tile);
-          $("tiles").classList.remove("audio-only");
-          remoteTiles.set(stream.id, tile);
-          stream.onremovetrack = () => {
-            if (!stream.getTracks().length) {
-              tile.remove();
-              remoteTiles.delete(stream.id);
-            }
-          };
-          setStat("connected");
-        };
+        pc.ontrack = onRemoteTrack;
         pc.onconnectionstatechange = () => {
           const st = pc.connectionState;
           if (st === "connected") setStat("connected");
@@ -557,10 +1372,76 @@
           else if (st === "failed" || st === "disconnected") setStat("connection lost");
         };
 
-        // Tell the app we're here; it opens the connection and offers. The
-        // videoMeta note labels our stream in its UI ("camera", not "video").
+        // Tell the app we're here; it opens the connection and offers.
         ws.send(JSON.stringify({ type: "call", action: "join" }));
         setStat("waiting for the host…");
+      }
+
+      function onRemoteTrack(e) {
+        const stream = e.streams[0];
+        if (!stream) return;
+        if (e.track.kind === "audio") {
+          // The host's mic is added at connection setup, so it lands first — but
+          // don't claim a stream the app has already told us is a screen.
+          if (!voiceStreamId && remoteKinds.get(stream.id) !== "screen") voiceStreamId = stream.id;
+          let a = remoteAudio.get(stream.id);
+          if (!a) {
+            const el = document.createElement("audio");
+            el.autoplay = true;
+            document.body.appendChild(el);
+            a = { el, share: false, gain: 1, state: "on" };
+            remoteAudio.set(stream.id, a);
+            applySink(el);
+          }
+          a.el.srcObject = stream;
+          a.el.play?.().catch(() => {});
+          if (isShareStream(stream.id)) hifiTracks.add(e.track);
+          else {
+            // The host's voice: it gets a presence tile and drives the speaking
+            // ring, exactly like a member's face would.
+            upsertTile("r:voice", { kind: "voice", label: "Host", ph: "🎤" });
+            addAnalyser(stream.id, stream);
+          }
+          e.track.addEventListener("ended", () => {
+            a.el.srcObject = null;
+            a.el.remove();
+            remoteAudio.delete(stream.id);
+            hifiTracks.delete(e.track);
+            if (stream.id === voiceStreamId) {
+              // Forget which stream the voice was on, or the next one to arrive
+              // would be classified as share audio by the fallback rule.
+              voiceStreamId = "";
+              removeTile("r:voice");
+            }
+            applyAudio();
+          });
+          applyAudio();
+          return;
+        }
+        // Video. One tile per stream — a peer sending a camera AND a screen shows
+        // two. The kind may arrive slightly before or after the track, so label
+        // from whatever we know now and re-label when the note lands.
+        const key = "r:" + stream.id;
+        const label = () => (remoteKinds.get(stream.id) === "screen" ? "Shared screen" : "Camera");
+        const kind = () => (remoteKinds.get(stream.id) === "screen" ? "screen" : "camera");
+        // An unlabelled video defaults to camera: the note may be lost or late,
+        // and guessing camera shows the person, while dropping it shows nothing.
+        const show = () => {
+          upsertTile(key, { kind: kind(), stream, label: label(), ph: "📷" });
+          applyAudio(); // a share's own audio may already be playing
+        };
+        pendingKind.set(stream.id, show);
+        show();
+        const clear = () => {
+          pendingKind.delete(stream.id);
+          removeTile(key);
+        };
+        // A track negotiated BEFORE frames flow (joining a share already in
+        // progress) arrives muted, then unmutes once frames land — so "mute" must
+        // not be treated as gone. Only "ended" is a real gone.
+        e.track.addEventListener("ended", clear);
+        e.track.addEventListener("mute", clear);
+        e.track.addEventListener("unmute", show);
       }
 
       // Perfect negotiation, guest side. The guest is ALWAYS the polite peer:
@@ -569,15 +1450,24 @@
       // sorts after a libp2p id, which makes it impolite — the two sides always
       // disagree, which is the whole point.)
       async function onSignal(data) {
-        if (!pc || !data) return;
+        if (!data) return;
+        // The kind note can arrive before we even have a peer connection.
+        if (data.videoMeta) {
+          remoteKinds.set(data.videoMeta.streamId, data.videoMeta.kind);
+          pendingKind.get(data.videoMeta.streamId)?.(); // re-label if the track is already here
+          applyAudio();                                  // and re-classify its sound
+          return;
+        }
+        if (!pc) return;
         try {
           if (data.description) {
             if (data.description.type === "offer" && !hostHere) {
               hostHere = true;
-              // The host is listening now. If our camera is already on, re-send
-              // the note that labels our stream — the one we sent earlier went
-              // nowhere if they hadn't joined the call yet.
-              if (camSender && local) sig({ videoMeta: { streamId: local.id, kind: "camera" } });
+              // The host is listening now. Re-send the notes that label our
+              // streams — any we sent earlier went nowhere if they weren't in
+              // the call yet.
+              if (camStream) sig({ videoMeta: { streamId: camStream.id, kind: "camera" } });
+              if (shareStream) sig({ videoMeta: { streamId: shareStream.id, kind: "screen" } });
             }
             const ready =
               !makingOffer && (pc.signalingState === "stable" || settingRemoteAnswer);
@@ -589,7 +1479,12 @@
             await pc.setRemoteDescription(data.description);
             settingRemoteAnswer = false;
             if (data.description.type === "offer") {
-              await pc.setLocalDescription();
+              // Created explicitly (rather than the implicit form) so the Opus
+              // parameters can be raised before the host ever sees them.
+              const answer = await pc.createAnswer();
+              answer.sdp = tune(answer.sdp);
+              await pc.setLocalDescription(answer);
+              applySenderParams();
               sig({ description: pc.localDescription });
             }
           } else if (data.candidate) {
@@ -604,116 +1499,326 @@
         if (!inCall) return;
         inCall = false;
         stopShare();
-        camSender = null;
+        stopCamera();
+        micSender = null;
         if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "call", action: "leave" }));
-        if (pc) {
-          pc.close();
-          pc = null;
-        }
-        if (local) {
-          local.getTracks().forEach((t) => t.stop());
-          local = null;
-        }
-        for (const tile of remoteTiles.values()) tile.remove();
-        remoteTiles.clear();
-        $("selfVid").srcObject = null;
-        $("selfTile").classList.remove("has-video");
+        if (pc) { pc.close(); pc = null; }
+        teardownChain();
+        rawMic?.getTracks().forEach((t) => t.stop());
+        rawMic = null;
+        for (const key of [...tiles.keys()]) removeTile(key);
+        for (const a of remoteAudio.values()) { a.el.srcObject = null; a.el.remove(); }
+        remoteAudio.clear();
+        remoteKinds.clear();
+        pendingKind.clear();
+        shareMuted.clear();
+        told.clear();
+        hifiTracks.clear();
+        voiceStreamId = "";
+        focusKey = null;
+        hostHere = false;
+        autoFocused = false;
+        clearInterval(monitor);
+        monitor = null;
+        analysers.clear();
+        if (ac) { ac.close().catch(() => {}); ac = null; }
         $("stage").classList.remove("on");
-        $("callBtn").style.display = "";
-        $("camBtn").textContent = "📷 Turn on camera";
-        $("camBtn").classList.remove("off");
+        if (!$("over").classList.contains("on")) {
+          $("callBtn").style.display = "";
+          $("callBtn").disabled = false;
+        }
+        setBtnState($("camBtn"), false, "Camera");
+        setBtnState($("shareBtn"), false, "Share");
       }
 
-      loadIce();
-      $("callBtn").onclick = joinCall;
-      $("hangBtn").onclick = leaveCall;
-      $("micBtn").onclick = () => {
-        if (!local) return;
-        const t = local.getAudioTracks()[0];
-        if (!t) return;
-        t.enabled = !t.enabled;
-        $("micBtn").textContent = t.enabled ? "🎤 Mute" : "🔇 Unmute";
-        $("micBtn").classList.toggle("off", !t.enabled);
+      const setBtnState = (btn, on, label) => {
+        btn.classList.toggle("on", on);
+        btn.querySelector(".t").textContent = label;
       };
-      // The camera is a separate, optional step: the browser only prompts for it
-      // if the guest actually asks for video. Turning it on adds a track (which
-      // renegotiates); turning it off drops the track and frees the light.
-      let camSender = null;
-      $("camBtn").onclick = async () => {
-        if (!pc || !inCall) return;
-        if (camSender) {
-          const track = camSender.track;
-          try {
-            pc.removeTrack(camSender);
-          } catch {}
-          track?.stop();
-          camSender = null;
-          $("selfVid").srcObject = null;
-          $("selfTile").classList.remove("has-video");
-          if (!anyRemoteVideo()) $("tiles").classList.add("audio-only");
-          $("camBtn").textContent = "📷 Turn on camera";
-          $("camBtn").classList.remove("off");
-          return;
-        }
-        let cam;
-        try {
-          cam = await navigator.mediaDevices.getUserMedia({ video: true });
-        } catch {
-          addMsg("", "Couldn't use your camera — allow camera access, or stay on voice.", true);
-          return;
-        }
-        const track = cam.getVideoTracks()[0];
-        if (!track) return;
-        local.addTrack(track);
-        camSender = pc.addTrack(track, local);
-        sig({ videoMeta: { streamId: local.id, kind: "camera" } });
-        $("selfVid").srcObject = local;
-        $("selfTile").classList.add("has-video");
-        $("tiles").classList.remove("audio-only");
-        $("camBtn").textContent = "📷 Turn off camera";
-        $("camBtn").classList.add("off");
-      };
-      const anyRemoteVideo = () => remoteTiles.size > 0;
 
-      // Screen sharing, same shape as the camera: an extra track on the same
-      // connection, labelled "screen" so the app renders it as a shared screen
-      // rather than a face. Ends when the browser's own "stop sharing" is hit.
-      let shareSender = null;
-      let shareStream = null;
+      // ---------------------------------------------------------------------
+      // Local video: camera and screen, each its own stream and its own senders,
+      // so either can start or stop without touching the other — and each with
+      // its own SELF-PREVIEW tile. A guest sharing their screen used to see
+      // nothing at all, which makes it impossible to tell what you're showing.
+      // ---------------------------------------------------------------------
+      function stopCamera() {
+        if (!camStream) return;
+        for (const s of camSenders) { try { pc?.removeTrack(s); } catch {} }
+        camSenders = [];
+        camStream.getTracks().forEach((t) => t.stop());
+        camStream = null;
+        removeTile("self:camera");
+        setBtnState($("camBtn"), false, "Camera");
+      }
+      async function startCamera() {
+        const want = A.camera ? { deviceId: { exact: A.camera } } : { width: 1280, height: 720 };
+        try {
+          camStream = await navigator.mediaDevices.getUserMedia({ video: want });
+        } catch (err) {
+          if (A.camera && err?.name === "OverconstrainedError") {
+            try { camStream = await navigator.mediaDevices.getUserMedia({ video: true }); } catch { camStream = null; }
+          }
+          if (!camStream) {
+            addMsg("", "Couldn't use your camera — allow camera access, or stay on voice.", true);
+            return;
+          }
+        }
+        const track = camStream.getVideoTracks()[0];
+        if (!track) { camStream = null; return; }
+        track.addEventListener("ended", stopCamera); // unplugged
+        camSenders = [pc.addTrack(track, camStream)];
+        sig({ videoMeta: { streamId: camStream.id, kind: "camera" } });
+        upsertTile("self:camera", { kind: "camera", self: true, stream: camStream, label: "You", ph: "📷" });
+        setBtnState($("camBtn"), true, "Camera off");
+      }
+
       function stopShare() {
-        if (!shareSender) return;
-        try {
-          pc?.removeTrack(shareSender);
-        } catch {}
-        shareStream?.getTracks().forEach((t) => t.stop());
-        shareSender = null;
+        if (!shareStream) return;
+        for (const s of shareSenders) { try { pc?.removeTrack(s); } catch {} }
+        shareSenders = [];
+        shareStream.getTracks().forEach((t) => t.stop());
         shareStream = null;
-        $("shareBtn").textContent = "🖥️ Share screen";
-        $("shareBtn").classList.remove("off");
+        removeTile("self:screen");
+        setBtnState($("shareBtn"), false, "Share");
       }
-      $("shareBtn").onclick = async () => {
-        if (!pc || !inCall) return;
-        if (shareSender) {
-          stopShare();
-          return;
-        }
+      async function startShare() {
         try {
-          shareStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+          // audio:true asks for the sound of what's on screen too. Whether it's
+          // offered is the platform's call (Chromium: tab/window, and system
+          // audio on Windows; WebKit: video only) — we just send what comes back.
+          shareStream = await navigator.mediaDevices.getDisplayMedia({
+            video: { frameRate: 30 },
+            audio: true,
+          });
         } catch {
           return; // they cancelled the picker — nothing to say
         }
         const track = shareStream.getVideoTracks()[0];
-        if (!track) return;
-        shareSender = pc.addTrack(track, shareStream);
+        if (!track) { shareStream = null; return; }
+        track.contentHint = "detail"; // text on a shared screen must stay readable
+        const sa = shareStream.getAudioTracks()[0];
+        if (sa) sa.contentHint = "music"; // a soundtrack, not a voice
+        for (const t of shareStream.getTracks()) {
+          try { shareSenders.push(pc.addTrack(t, shareStream)); } catch (err) { console.warn("share addTrack", err); }
+        }
         sig({ videoMeta: { streamId: shareStream.id, kind: "screen" } });
-        track.addEventListener("ended", stopShare); // the browser's stop button
-        $("shareBtn").textContent = "🖥️ Stop sharing";
-        $("shareBtn").classList.add("off");
+        applySenderParams();
+        track.addEventListener("ended", stopShare); // the browser's own stop button
+        // The preview is muted (see upsertTile): a guest hearing their own shared
+        // audio back is a howl, not a feature.
+        upsertTile("self:screen", { kind: "screen", self: true, stream: shareStream, label: "Your screen", ph: "🖥️" });
+        setBtnState($("shareBtn"), true, "Stop sharing");
+      }
+
+      // ---------------------------------------------------------------------
+      // Controls
+      // ---------------------------------------------------------------------
+      loadIce();
+      $("callBtn").onclick = joinCall;
+      $("hangBtn").onclick = leaveCall;
+      $("micBtn").onclick = () => {
+        if (!inCall) return;
+        muted = !muted;
+        applyMicLive();
+        $("micBtn").classList.toggle("off", muted);
+        $("micBtn").querySelector(".ico").textContent = muted ? "🔇" : "🎤";
+        $("micBtn").querySelector(".t").textContent = muted ? "Unmute" : "Mute";
+      };
+      // Deafen, Discord-style: silence everything coming in AND mute your own mic
+      // (you can't sensibly talk to a room you can't hear). Undeafening does not
+      // auto-unmute — that stays an explicit choice.
+      $("deafBtn").onclick = () => {
+        if (!inCall) return;
+        deafened = !deafened;
+        if (deafened && !muted) $("micBtn").click();
+        $("deafBtn").classList.toggle("off", deafened);
+        $("deafBtn").querySelector(".ico").textContent = deafened ? "🔇" : "🔊";
+        $("deafBtn").querySelector(".t").textContent = deafened ? "Undeafen" : "Deafen";
+        applyAudio();
+      };
+      $("camBtn").onclick = () => {
+        if (!pc || !inCall) return;
+        camStream ? stopCamera() : startCamera();
+      };
+      $("shareBtn").onclick = () => {
+        if (!pc || !inCall) return;
+        shareStream ? stopShare() : startShare();
       };
       window.addEventListener("beforeunload", leaveCall);
+      // Escape gets you out of a big view — the shortcut people already try.
+      window.addEventListener("keydown", (e) => {
+        if (e.key !== "Escape") return;
+        if ($("sheet").classList.contains("on")) closeSheet();
+        else if (focusKey && !document.fullscreenElement) setFocus(null);
+      });
 
-      $("name").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") $("go").click();
+      // ---------------------------------------------------------------------
+      // Settings sheet
+      // ---------------------------------------------------------------------
+      const canPickOutput = typeof HTMLMediaElement !== "undefined" &&
+        typeof HTMLMediaElement.prototype.setSinkId === "function";
+
+      function openSheet() {
+        $("sheet").classList.add("on");
+        $("sheet").setAttribute("aria-hidden", "false");
+        listDevices();
+      }
+      function closeSheet() {
+        $("sheet").classList.remove("on");
+        $("sheet").setAttribute("aria-hidden", "true");
+      }
+      $("setBtn").onclick = () => ($("sheet").classList.contains("on") ? closeSheet() : openSheet());
+      $("sheetClose").onclick = closeSheet;
+
+      // The browser hides device NAMES until a matching permission has been
+      // granted at least once — before that, enumerateDevices returns anonymous
+      // ids nobody could choose between. Say so instead of showing "Device 1".
+      async function listDevices() {
+        if (!navigator.mediaDevices?.enumerateDevices) return;
+        let all = [];
+        try { all = await navigator.mediaDevices.enumerateDevices(); } catch { return; }
+        const fill = (sel, kind, dflt) => {
+          const keep = sel.value;
+          sel.innerHTML = "";
+          const opt = document.createElement("option");
+          opt.value = "";
+          opt.textContent = dflt;
+          sel.appendChild(opt);
+          for (const d of all.filter((x) => x.kind === kind)) {
+            const o = document.createElement("option");
+            o.value = d.deviceId;
+            o.textContent = d.label || "(unnamed device)";
+            sel.appendChild(o);
+          }
+          sel.value = [...sel.options].some((o) => o.value === keep) ? keep : "";
+        };
+        fill($("selMic"), "audioinput", "System default");
+        fill($("selCam"), "videoinput", "System default");
+        if (canPickOutput) fill($("selSpk"), "audiooutput", "System default");
+        else {
+          $("selSpk").disabled = true;
+          $("spkHint").style.display = "";
+        }
+        const anonymous = all.some((d) => d.kind !== "audiooutput" && !d.label);
+        $("permHint").style.display = anonymous || !all.length ? "" : "none";
+      }
+      navigator.mediaDevices?.addEventListener?.("devicechange", () => {
+        if ($("sheet").classList.contains("on")) listDevices();
+      });
+      // Asking for the mic purely so the browser will reveal names; the stream is
+      // stopped the instant we have it.
+      $("permBtn").onclick = async () => {
+        try {
+          const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+          s.getTracks().forEach((t) => t.stop());
+        } catch {
+          try {
+            const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+            s.getTracks().forEach((t) => t.stop());
+          } catch { /* denied: names stay hidden */ }
+        }
+        listDevices();
+      };
+
+      $("selMic").onchange = () => { A.mic = $("selMic").value; reopenMic(); };
+      $("selCam").onchange = async () => {
+        A.camera = $("selCam").value;
+        if (!camStream) return; // off: the choice applies next time
+        stopCamera();
+        await startCamera();
+      };
+      $("selSpk").onchange = () => {
+        A.speaker = $("selSpk").value;
+        for (const a of remoteAudio.values()) applySink(a.el);
+      };
+      $("micGain").oninput = () => {
+        A.gain = clamp(Number($("micGain").value) / 100, 0.25, 4);
+        $("micGainV").textContent = Math.round(A.gain * 100) + "%";
+        if (chain && needsChain()) {
+          // Ramp rather than jump — a step in gain is an audible click.
+          chain.gain.gain.setTargetAtTime(A.gain, audioCtx().currentTime, 0.02);
+        } else rechain();
+      };
+      $("micGate").oninput = () => {
+        A.gate = clamp(Number($("micGate").value) / 100, 0, 0.25);
+        $("micGateV").textContent = A.gate ? A.gate.toFixed(2) : "off";
+        const b = $("meter").querySelector("b");
+        b.style.display = A.gate ? "block" : "none";
+        // The meter draws rms*gain*400, and the gate opens at rms*gain >= gate —
+        // so the mark sits at gate*400 and does NOT move when you change boost.
+        b.style.left = Math.min(99, A.gate * 400) + "%";
+        if (chain && needsChain()) {
+          // The monitor picks up the new threshold on its next tick — no track
+          // churn while a slider is dragged. Turning it OFF must leave the gate
+          // open for good, though.
+          if (!A.gate) chain.gate.gain.setTargetAtTime(1, audioCtx().currentTime, 0.02);
+        } else rechain();
+      };
+      $("outVol").oninput = () => {
+        A.output = Number($("outVol").value) / 100;
+        $("outVolV").textContent = Math.round(A.output * 100) + "%";
+        applyAudio();
+      };
+      $("duck").onchange = () => { A.duck = $("duck").checked; applyAudio(); };
+      for (const [id, key] of [["ec", "ec"], ["ns", "ns"], ["agc", "agc"]]) {
+        $(id).onchange = () => { A[key] = $(id).checked; reopenMic(); };
+      }
+
+      // A test tone, so the speaker picker means something: rendered to a WAV
+      // blob and played through a media element, because setSinkId lives on
+      // elements and hearing the beep come out of the RIGHT speaker is the whole
+      // point. (media-src blob: is in this page's CSP; nothing is fetched.)
+      let toneUrl = "";
+      $("toneBtn").onclick = async () => {
+        if (!toneUrl) {
+          const rate = 44100, n = Math.floor(rate * 0.4);
+          const buf = new ArrayBuffer(44 + n * 2), view = new DataView(buf);
+          const str = (off, s) => { for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i)); };
+          str(0, "RIFF"); view.setUint32(4, 36 + n * 2, true); str(8, "WAVEfmt ");
+          view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+          view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true);
+          view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+          str(36, "data"); view.setUint32(40, n * 2, true);
+          for (let i = 0; i < n; i++) {
+            const t = i / rate;
+            const env = Math.min(1, t * 60) * Math.exp(-5 * t); // soft bell, no click
+            const s = Math.sin(2 * Math.PI * 700 * t) + 0.3 * Math.sin(2 * Math.PI * 1400 * t);
+            view.setInt16(44 + i * 2, Math.round(clamp(s * 0.7, -1, 1) * env * 9000), true);
+          }
+          toneUrl = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+        }
+        const el = new Audio(toneUrl);
+        el.volume = A.output;
+        await applySink(el);
+        el.play().catch(() => {});
+      };
+
+      // A read-only window into the call, for the browser harness: per-stream
+      // gains and tile state are the two things a screenshot cannot prove.
+      window.__guest = () => ({
+        focus: focusKey,
+        deafened,
+        muted,
+        // What the host can actually hear from us, and separately whether the
+        // sound of our share is still going out: muting a mic must not mute a
+        // screen share's audio, and one boolean cannot say both.
+        micEnabled: micTrack()?.enabled ?? null,
+        shareAudioEnabled: shareStream?.getAudioTracks()[0]?.enabled ?? null,
+        chained: !!chain,
+        output: A.output,
+        duck: A.duck,
+        tiles: [...tiles.values()].map((t) => ({
+          key: t.key, kind: t.kind, self: !!t.self, label: t.label,
+          focused: t.node.classList.contains("focused"),
+          hasVideo: t.node.classList.contains("has-video"),
+          w: t.video.videoWidth, h: t.video.videoHeight, time: t.video.currentTime,
+          streamId: t.stream?.id || "",
+        })),
+        audio: [...remoteAudio.entries()].map(([sid, a]) => ({
+          streamId: sid, share: a.share, state: a.state, gain: a.gain,
+          volume: a.el.volume, muted: a.el.muted,
+        })),
       });
     </script>
   </body>

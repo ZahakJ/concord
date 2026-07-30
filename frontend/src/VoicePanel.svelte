@@ -16,8 +16,11 @@
     toggleCallLock,
     admitKnocker,
     denyKnocker,
+    isGuestFpr,
     togglePeerMute,
+    flash,
   } from "./lib/state.svelte.js";
+  import { api } from "./lib/api.js";
   import { bindLabel } from "./lib/keybind.js";
 
   // In push-to-talk the mic button stops being a toggle you watch and becomes a
@@ -36,10 +39,12 @@
   // Solo in a DM call = still ringing the other person.
   const solo = $derived(S.voiceParticipants.length === 0);
 
-  // Soft lock is only meaningful in guild voice (DMs are already private to
-  // their two members). The lock button + knock prompts show only there.
+  // Soft lock is meaningful in any call that isn't a DM (a DM is already private
+  // to its two members). That includes an instant MEETING: its guest link is
+  // public by design, and the lock is exactly what turns "anyone with the link
+  // walks in" into office hours where you let people in one at a time.
   const chId = $derived(S.voice?.channelId || "");
-  const isGuildCall = $derived(activeGuild()?.kind !== "dm" && activeGuild()?.kind !== "meeting");
+  const canLock = $derived(activeGuild()?.kind !== "dm");
   const locked = $derived(isCallLocked(chId));
   const knockers = $derived(S.callKnocks[chId] || []);
   const isDM = $derived(activeGuild()?.kind === "dm");
@@ -144,7 +149,28 @@
       deafened: !!st.deafened,
       self: false,
       localMuted: S.peerVolumes[pid] === 0,
+      // A browser guest, identified by the peer id the gateway gives them. They
+      // are the only participant a host removes from here, and the only one who
+      // needs it: a member is handled with roles and bans, while a guest holds
+      // nothing but an open socket and a link.
+      guest: isGuestFpr(pid),
     };
+  }
+
+  // Remove a guest from the meeting. Refusing at the door covers office hours;
+  // this is for the one you let in and then want gone. It was unreachable until
+  // now — the only disconnect control lived on the channel list's voice roster,
+  // which renders for channels of type "voice", and a meeting's single channel
+  // has no type at all. So in the one room guests can reach, the button that
+  // removes them did not exist.
+  async function evictGuest(pid, name) {
+    if (!S.activeChannelId) return;
+    try {
+      await api.signalCall(S.activeChannelId, "disconnect", pid, "");
+      flash(`Removed ${name}`, "success");
+    } catch (err) {
+      flash(err);
+    }
   }
 
   function screenLabel(tile) {
@@ -285,6 +311,21 @@
           {:else if t.muted}
             <span class="mute-badge" title="Muted" aria-label="Muted"><Icon name="micOff" size={11} /></span>
           {/if}
+          {#if t.guest}
+            <!-- Removing a guest acts on the WIRE, unlike the local mute beside
+                 it which only affects this device. -->
+            <button
+              class="evict"
+              title="Remove {t.name} from the meeting"
+              aria-label="Remove {t.name} from the meeting"
+              onclick={(e) => {
+                e.stopPropagation();
+                evictGuest(pid, t.name);
+              }}
+            >
+              <Icon name="close" size={12} />
+            </button>
+          {/if}
           {#if !t.self}
             <!-- Silence this participant for YOU only (local). Stops the tile-focus
                  click from also firing. -->
@@ -364,7 +405,7 @@
     >
       <Icon name={S.sharing ? "screenOff" : "screen"} size={18} />
     </button>
-    {#if isGuildCall}
+    {#if canLock}
       <button
         class="ctl"
         class:active={locked}
@@ -394,7 +435,13 @@
         <div class="knock">
           <span class="knock-who">{nameFor(fpr)} wants to join</span>
           <button class="knock-admit" onclick={() => admitKnocker(chId, fpr)}>Admit</button>
-          <button class="knock-deny" onclick={() => denyKnocker(chId, fpr)} aria-label="Ignore">✕</button>
+          <!-- A guest is told they were turned away (they're sitting on an open
+               socket); a member's knock is simply ignored. -->
+          <button
+            class="knock-deny"
+            onclick={() => denyKnocker(chId, fpr)}
+            aria-label={isGuestFpr(fpr) ? "Refuse" : "Ignore"}>✕</button
+          >
         </div>
       {/each}
     </div>
@@ -557,6 +604,37 @@
     background: color-mix(in srgb, var(--danger) 82%, #000);
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
     pointer-events: none;
+  }
+  /* Remove-guest sits top-LEFT, opposite the local mute, so a destructive
+     control is never where a harmless one was a moment ago. */
+  .evict {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    width: 22px;
+    height: 22px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.55);
+    color: #fff;
+    opacity: 0;
+    transition:
+      opacity 0.12s,
+      background 0.12s;
+  }
+  .tile:hover .evict,
+  .evict:focus-visible {
+    opacity: 1;
+  }
+  .evict:hover {
+    background: var(--danger, #d9534f);
+  }
+  @media (pointer: coarse) {
+    .evict {
+      opacity: 1; /* there is no hover to reveal it with */
+    }
   }
   /* Per-participant LOCAL mute: a small control top-right, revealed on tile
      hover (always shown once engaged so you can undo it). */

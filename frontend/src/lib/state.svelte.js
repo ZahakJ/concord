@@ -1482,9 +1482,9 @@ export async function startDM(fingerprint, text = "") {
   return dm;
 }
 
-// startMeeting creates a disposable meeting room (voice + chat, 24h TTL),
-// opens it, and pops the shareable invitation — the "send them a Concord
-// meeting instead of a Zoom link" move.
+// startMeeting creates a disposable meeting room (voice + chat, expiring), opens
+// it, and pops the shareable invitation — the "send them a Concord meeting
+// instead of a Zoom link" move. The modal owns the link's lifetime from there.
 export async function startMeeting() {
   try {
     const m = await api.startMeeting();
@@ -1493,12 +1493,14 @@ export async function startMeeting() {
     // A browser-guest link needs a rendezvous server; without one the modal
     // just offers the invite code (the app-to-app path).
     let guestLink = "";
+    let expires = 0;
     try {
       guestLink = await api.createGuestLink(m.guild.id);
+      expires = await api.meetingExpiry(m.guild.id);
     } catch {
       /* no rendezvous configured — code-only invitation */
     }
-    S.modal = { kind: "meeting", code: m.code, guestLink };
+    S.modal = { kind: "meeting", code: m.code, guestLink, guildId: m.guild.id, expires };
   } catch (err) {
     flash(err);
   }
@@ -1939,7 +1941,21 @@ function initEvents() {
         if (!list.includes(v.fingerprint)) {
           S.callKnocks = { ...S.callKnocks, [v.channelId]: [...list, v.fingerprint] };
         }
+      } else if (isGuestFpr(v.fingerprint) && !announcedKnocks.has(v.fingerprint)) {
+        // A guest is knocking at a room we're not sitting in. A member's knock
+        // can wait (they have the app, they'll knock again); a guest is holding
+        // an open socket at the door with a five-minute budget, so say so once.
+        announcedKnocks.add(v.fingerprint);
+        playDM();
+        flash(`${guestName(v.fingerprint)} is knocking to join — hit Call to let them in`, "info");
       }
+      return;
+    }
+    if (v.action === "unknock") {
+      // The knocker gave up (or was dealt with elsewhere). Local-only, emitted
+      // for browser guests — see voice.go on why it is never gossiped.
+      announcedKnocks.delete(v.fingerprint);
+      dropKnock(v.channelId, v.fingerprint);
       return;
     }
     if (v.action === "admit") {
@@ -2058,8 +2074,20 @@ function initEvents() {
 // no identity to look up, which is the entire point of being a guest.
 export const isGuestPeer = (peerId = "") => peerId.startsWith("guest:");
 export const isGuestFpr = (fpr = "") => fpr.startsWith("guest:");
-export const guestName = (fpr = "") => fpr.slice(6) || "Guest";
+// "guest:Alice#3f9c1d" → "Alice". The session id is in there because knocks and
+// moderation are keyed by fingerprint, and two strangers who both type "Alice"
+// have to be two separate decisions. A guest can't smuggle a '#' into their name
+// (the host strips it), so the last one is always the separator — and a
+// fingerprint from before the id existed still reads back as the whole name.
+export const guestName = (fpr = "") => {
+  const s = fpr.slice(6);
+  const cut = s.lastIndexOf("#");
+  return (cut > 0 ? s.slice(0, cut) : s) || "Guest";
+};
 const announcedGuests = new Set();
+// Knocking guests we have already nudged about, so a knock re-announced every
+// few seconds rings once rather than every tick.
+const announcedKnocks = new Set();
 
 // updateVoiceRoster folds one presence heartbeat into the guild-wide roster.
 function updateVoiceRoster(channelId, peerId, fingerprint, action) {
@@ -2078,7 +2106,13 @@ function updateVoiceRoster(channelId, peerId, fingerprint, action) {
     if (S.dismissedCalls.includes(channelId)) {
       S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
     }
-    forgetLock(channelId);
+    // …but the lock survives if WE are the ones in the room. The roster counts
+    // only other peers, so "empty" here also describes a host sitting alone in a
+    // locked meeting waiting for people to knock — which is exactly office
+    // hours, and dropping the lock there let the next guest walk straight in the
+    // moment the previous one left. The stale-lock worry (see forgetLock) is
+    // about a room with nobody inside to admit anyone.
+    if (S.voice?.channelId !== channelId) forgetLock(channelId);
   }
   S.voiceRosters = rosters;
 }
@@ -2231,6 +2265,10 @@ export function admitKnocker(channelId, fpr) {
   dropKnock(channelId, fpr);
 }
 export function denyKnocker(channelId, fpr) {
+  // A member's knock is simply ignored — it times out on their side and they
+  // still have the app. A GUEST is holding a socket open at the door, so silence
+  // would be an eternal spinner: tell the backend to close it with a reason.
+  if (isGuestFpr(fpr)) api.signalCall(channelId, "refuse", fpr).catch(() => {});
   dropKnock(channelId, fpr); // silently ignore; their knock times out
 }
 function dropKnock(channelId, fpr) {

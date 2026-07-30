@@ -56,6 +56,13 @@ func readCappedLine(r *bufio.Reader, max int) ([]byte, error) {
 
 const (
 	guestIdleTimeout = 10 * time.Minute
+	// How often the gateway pings the browser. A guest in a call can be silent
+	// for many minutes — ICE settles and the media then flows directly between
+	// browser and app, where this node sees nothing — so an idle READ deadline on
+	// its own hangs up on healthy meetings. Ping/pong is answered by the browser
+	// itself, below the page's JavaScript, so this keeps ANY version of the guest
+	// page alive, including one already sitting in someone's cached tab.
+	guestPingEvery = 45 * time.Second
 	// Big enough for a WebRTC offer/answer (SDP with video runs to several KB),
 	// not big enough to be a pipe: the gateway is a dumb relay of bytes it
 	// cannot read.
@@ -176,6 +183,38 @@ func relayGuest(ctx context.Context, h host.Host, w http.ResponseWriter, r *http
 		})
 	}
 
+	// All WebSocket writes go through here: gorilla allows exactly one concurrent
+	// writer, and the relay goroutine below now shares the socket with the
+	// keepalive pinger.
+	var wmu sync.Mutex
+	writeWS := func(typ int, payload []byte) error {
+		wmu.Lock()
+		defer wmu.Unlock()
+		_ = ws.SetWriteDeadline(time.Now().Add(20 * time.Second))
+		return ws.WriteMessage(typ, payload)
+	}
+	// A pong is proof the browser is still there, so it renews the read deadline
+	// that guest FRAMES would otherwise have to renew.
+	ws.SetPongHandler(func(string) error {
+		return ws.SetReadDeadline(time.Now().Add(guestIdleTimeout))
+	})
+	pinger := make(chan struct{})
+	defer close(pinger)
+	go func() {
+		t := time.NewTicker(guestPingEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-pinger:
+				return
+			case <-t.C:
+				if writeWS(websocket.PingMessage, nil) != nil {
+					return
+				}
+			}
+		}
+	}()
+
 	// host → guest. The host protocol is line-delimited JSON, so forward whole
 	// LINES — never raw chunks. A chat line fits in one read; a WebRTC offer is
 	// several KB of SDP and would otherwise be split across two WebSocket
@@ -187,13 +226,12 @@ func relayGuest(ctx context.Context, h host.Host, w http.ResponseWriter, r *http
 		for {
 			line, err := readCappedLine(r, guestMaxFrameSize)
 			if len(line) > 0 {
-				_ = ws.SetWriteDeadline(time.Now().Add(20 * time.Second))
 				// The '\n' readCappedLine consumed goes back on: the guest page
 				// buffers WebSocket data and parses only complete, newline-
 				// terminated lines (frames can coalesce or split in transit).
 				// Forwarding the line bare means its parser waits forever for a
 				// delimiter that never comes — no welcome, no signaling, nothing.
-				if werr := ws.WriteMessage(websocket.TextMessage, append(line, '\n')); werr != nil {
+				if werr := writeWS(websocket.TextMessage, append(line, '\n')); werr != nil {
 					return
 				}
 			}

@@ -118,6 +118,17 @@ type Service struct {
 	guestTokens   map[string]guestToken
 	guestSessions map[string][]*guestSession
 	guestByID     map[string]*guestSession
+	// guestDoor is the instant a channel's guest door stops being locked. A lock
+	// is re-announced every few seconds while it is on (see the front end's
+	// toggleCallLock), so treating it as a lease rather than a flag makes a
+	// crashed or reloaded host unlock itself instead of leaving a door nobody
+	// alive can open. Guarded by guestMu.
+	guestDoor map[string]time.Time
+
+	// meetingLife holds the chosen expiry of each instant meeting (guild ID →
+	// instant). Absent means the legacy fixed meetingTTL after creation.
+	// Guarded by mu, persisted under meetingLifetimeKey.
+	meetingLife map[string]time.Time
 
 	profiles map[string]Profile // fingerprint -> profile, learned from peers
 
@@ -746,6 +757,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		govOps:           map[string][]govOp{},
 		govState:         map[string]GuildState{},
 		govHashes:        map[string]map[string]bool{},
+		meetingLife:      map[string]time.Time{},
 		outOfSync:        map[string]bool{},
 		blocked:          map[string]bool{},
 		pendingMembers:   map[string]map[string]bool{},
@@ -905,10 +917,15 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// for us to know about (see ownDevicesKey).
 	s.loadOwnDevices()
 
-	// Instant meetings are disposable — clear any that outlived their TTL.
+	// Instant meetings are disposable — clear any that outlived their chosen
+	// lifetime. Load the lifetimes FIRST, or the sweep judges every meeting by
+	// the 24h default and deletes rooms whose links are good for a week.
+	s.loadMeetingLife()
 	s.sweepExpiredMeetings()
 
-	// Browser guests: token validation + the relayed-session handler.
+	// Browser guests: token validation + the relayed-session handler. Tokens are
+	// restored here too: a link the host mailed out is meant to survive them
+	// closing the app, which an in-memory-only token set could never do.
 	s.initGuests()
 
 	// Drop contacts an older build recorded for every peer it happened to dial.

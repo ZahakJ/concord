@@ -131,6 +131,15 @@ type ChannelView struct {
 	Links    []string `json:"links,omitempty"`  // announcement: consumer channel IDs
 	// LastActivity is the newest message time (UnixNano) — forum post ordering.
 	LastActivity int64 `json:"lastActivity,omitempty"`
+	// Forum metadata, carried here because it IS channel state — the sidebar and
+	// the forum settings modal read it from the guild snapshot they already have.
+	// A forum board should read ForumBoard instead: it adds the derived author,
+	// reply count and excerpt, and both are built from this same in-memory
+	// channel, so the two can never disagree.
+	ForumTags []domain.ForumTag `json:"forumTags,omitempty"` // forum: the tag palette
+	Tags      []string          `json:"tags,omitempty"`      // post: tag IDs into that palette
+	Pinned    bool              `json:"pinned,omitempty"`    // post: floated to the top of its board
+	Solved    bool              `json:"solved,omitempty"`    // post: marked answered
 }
 
 type CategoryView struct {
@@ -677,17 +686,69 @@ func (b *Bridge) SetChannelLinks(guildID, channelID string, links []string) erro
 	return svc.SetChannelLinks(guildID, channelID, links)
 }
 
-// CreateThread opens a forum post (thread) — any member may.
-func (b *Bridge) CreateThread(guildID, forumID, title, firstMessage string) (ChannelView, error) {
+// CreateThread opens a forum post (thread) — any member may. tagIDs are entries
+// of the forum's own palette (at most maxPostTags); an unknown id is an error,
+// not a silent drop.
+func (b *Bridge) CreateThread(guildID, forumID, title, firstMessage string, tagIDs []string) (ChannelView, error) {
 	svc, err := b.service()
 	if err != nil {
 		return ChannelView{}, err
 	}
-	ch, err := svc.CreateThread(guildID, forumID, title, firstMessage)
+	ch, err := svc.CreateThread(guildID, forumID, title, firstMessage, tagIDs)
 	if err != nil {
 		return ChannelView{}, err
 	}
 	return channelView(ch), nil
+}
+
+// ForumBoard returns a forum's tag palette plus its posts, each with the
+// metadata a card needs (author, reply count, excerpt) derived from the post's
+// own messages. One call: a board that fetched the palette separately could
+// render a chip whose tag it cannot name yet.
+func (b *Bridge) ForumBoard(guildID, forumID string) (appsvc.ForumBoard, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.ForumBoard{}, err
+	}
+	return svc.ForumBoard(guildID, forumID)
+}
+
+// SetForumTags replaces a forum's tag palette (ManageChannels). A tag with no id
+// gets one minted; the returned palette carries the ids to send back on a post.
+func (b *Bridge) SetForumTags(guildID, forumID string, tags []domain.ForumTag) ([]domain.ForumTag, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.SetForumTags(guildID, forumID, tags)
+}
+
+// SetPostTags sets which of its forum's tags a post carries (author or
+// ManageMessages).
+func (b *Bridge) SetPostTags(guildID, postID string, tagIDs []string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetPostTags(guildID, postID, tagIDs)
+}
+
+// SetPostPinned floats a post to the top of its board (ManageMessages).
+func (b *Bridge) SetPostPinned(guildID, postID string, pinned bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetPostPinned(guildID, postID, pinned)
+}
+
+// SetPostSolved marks a post answered or reopens it (author or ManageMessages).
+func (b *Bridge) SetPostSolved(guildID, postID string, solved bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetPostSolved(guildID, postID, solved)
 }
 
 // CreateCategory adds a sidebar category to a guild.
@@ -763,7 +824,9 @@ func (b *Bridge) LeaveVoice(channelID string) error {
 	return svc.LeaveVoice(channelID)
 }
 
-// SignalCall broadcasts a soft-lock control action (lock/unlock/knock/admit).
+// SignalCall broadcasts a soft-lock control action
+// (lock/unlock/knock/admit/refuse/move/disconnect). A target of
+// "guest:<name>#<session>" acts on a browser guest and stays on this node.
 func (b *Bridge) SignalCall(channelID, action, target, dest string) error {
 	svc, err := b.service()
 	if err != nil {
@@ -1600,7 +1663,9 @@ func isCustomDMName(n string) bool {
 }
 
 func channelView(c domain.Channel) ChannelView {
-	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category, Position: c.Position, Topic: c.Topic, Parent: c.Parent, Links: c.Links}
+	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category,
+		Position: c.Position, Topic: c.Topic, Parent: c.Parent, Links: c.Links,
+		ForumTags: c.ForumTags, Tags: c.Tags, Pinned: c.Pinned, Solved: c.Solved}
 }
 
 func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
@@ -1935,13 +2000,27 @@ func (b *Bridge) StartMeeting() (MeetingView, error) {
 }
 
 // CreateGuestLink issues a browser-guest URL for a meeting (no install
-// needed on the other end).
-func (b *Bridge) CreateGuestLink(guildID string) (string, error) {
+// needed on the other end). lifetimeHours picks how long the link lives from
+// the menu in app.meetingLifetimes (1h / 24h / 7d / 30d); 0 leaves the
+// meeting's lifetime as it is, which is what a caller from before link
+// lifetimes existed sends.
+func (b *Bridge) CreateGuestLink(guildID string, lifetimeHours int) (string, error) {
 	svc, err := b.service()
 	if err != nil {
 		return "", err
 	}
-	return svc.CreateGuestLink(guildID)
+	return svc.CreateGuestLink(guildID, lifetimeHours)
+}
+
+// MeetingExpiry is when a meeting and its guest link stop working (Unix
+// milliseconds, 0 if the guild is not a meeting) — so the UI that hands out the
+// link can say so instead of leaving the host guessing.
+func (b *Bridge) MeetingExpiry(guildID string) (int64, error) {
+	svc, err := b.service()
+	if err != nil {
+		return 0, err
+	}
+	return svc.MeetingExpiry(guildID), nil
 }
 
 // NotesDM returns (creating if needed) the user's personal self-DM.
@@ -2122,7 +2201,9 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "CreateGuild":
 		return b.CreateGuild(argStr(args, 0))
 	case "CreateGuestLink":
-		return b.CreateGuestLink(argStr(args, 0))
+		return b.CreateGuestLink(argStr(args, 0), argInt(args, 1))
+	case "MeetingExpiry":
+		return b.MeetingExpiry(argStr(args, 0))
 	case "StartMeeting":
 		return b.StartMeeting()
 	case "NotesDM":
@@ -2243,7 +2324,17 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SetChannelLinks":
 		return nil, b.SetChannelLinks(argStr(args, 0), argStr(args, 1), argStrs(args, 2))
 	case "CreateThread":
-		return b.CreateThread(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
+		return b.CreateThread(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStrs(args, 4))
+	case "ForumBoard":
+		return b.ForumBoard(argStr(args, 0), argStr(args, 1))
+	case "SetForumTags":
+		return b.SetForumTags(argStr(args, 0), argStr(args, 1), argForumTags(args, 2))
+	case "SetPostTags":
+		return nil, b.SetPostTags(argStr(args, 0), argStr(args, 1), argStrs(args, 2))
+	case "SetPostPinned":
+		return nil, b.SetPostPinned(argStr(args, 0), argStr(args, 1), argBool(args, 2))
+	case "SetPostSolved":
+		return nil, b.SetPostSolved(argStr(args, 0), argStr(args, 1), argBool(args, 2))
 	case "CreateCategory":
 		return nil, b.CreateCategory(argStr(args, 0), argStr(args, 1))
 	case "DeleteChannel":
@@ -2355,6 +2446,18 @@ func argStrs(args []json.RawMessage, i int) []string {
 	var s []string
 	_ = json.Unmarshal(args[i], &s)
 	return s
+}
+
+// argForumTags decodes a forum tag palette. A malformed entry decodes to its
+// zero value and is then refused by SetForumTags' validation, so a bad argument
+// produces an error the user can read rather than a silently empty palette.
+func argForumTags(args []json.RawMessage, i int) []domain.ForumTag {
+	if i >= len(args) {
+		return nil
+	}
+	var t []domain.ForumTag
+	_ = json.Unmarshal(args[i], &t)
+	return t
 }
 
 func argInt(args []json.RawMessage, i int) int {

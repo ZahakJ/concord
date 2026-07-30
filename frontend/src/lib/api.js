@@ -92,14 +92,44 @@ export const api = {
   createGuild: (name) => call("CreateGuild", name),
   notesDM: () => call("NotesDM"),
   startMeeting: () => call("StartMeeting"),
-  createGuestLink: (guildID) => call("CreateGuestLink", guildID),
+  // lifetimeHours picks how long the link (and the meeting room behind it)
+  // lives, from the menu in internal/app/guild.go (meetingLifetimes — mirrored
+  // by ModalMeeting's chips); 0 leaves it as it is. Calling this again for
+  // the same meeting returns the SAME url with a new lifetime, so changing your
+  // mind never kills a link you already sent.
+  createGuestLink: (guildID, lifetimeHours = 0) => call("CreateGuestLink", guildID, lifetimeHours),
+  meetingExpiry: (guildID) => call("MeetingExpiry", guildID),
   startDM: (fingerprint) => call("StartDM", fingerprint),
   createChannel: (guildID, name, type = "", category = "") =>
     call("CreateChannel", guildID, name, type, category),
   createCategory: (guildID, name) => call("CreateCategory", guildID, name),
   setChannelLinks: (guildID, channelID, links) => call("SetChannelLinks", guildID, channelID, links),
-  createThread: (guildID, forumID, title, firstMessage) =>
-    call("CreateThread", guildID, forumID, title, firstMessage),
+  // Forum posts. tags are ids from the forum's own palette (max 5); an id the
+  // forum does not define is an error, not a silent drop.
+  createThread: (guildID, forumID, title, firstMessage, tags = []) =>
+    call("CreateThread", guildID, forumID, title, firstMessage, tags),
+  // forumBoard is the ONE call a forum board needs: the tag palette plus every
+  // post with the metadata a card shows. Author, reply count and excerpt are
+  // DERIVED from each post's own messages rather than carried on the channel
+  // record — so a post whose history hasn't synced yet comes back with
+  // authorFingerprint "" and created 0. Render that as a pending card; it is not
+  // a post by nobody. Posts arrive pinned-first, then newest activity first;
+  // re-sorting and filtering are yours to do client-side over this list.
+  // Times (created, lastActivity) are UnixNano, matching channel.lastActivity.
+  forumBoard: (guildID, forumID) => call("ForumBoard", guildID, forumID),
+  // setForumTags replaces the whole palette (Manage Channels). A tag is
+  // {id, name, color, emoji}: omit id on a new tag and one is minted for you —
+  // the returned palette carries the ids. Keep the id when editing a tag, or
+  // every post carrying it comes untagged. Limits: 20 tags per forum, name 1–24
+  // characters, emoji ≤8, color a strict "#rrggbb" (validated, because it lands
+  // in a CSS context). Deleting a tag leaves posts carrying its id; resolve an
+  // unknown id to nothing.
+  setForumTags: (guildID, forumID, tags) => call("SetForumTags", guildID, forumID, tags),
+  setPostTags: (guildID, postID, tags) => call("SetPostTags", guildID, postID, tags),
+  // Pinning needs Manage Messages; tagging and answering also accept the post's
+  // own author, so gate the buttons on both (see guild.myPerms).
+  setPostPinned: (guildID, postID, pinned) => call("SetPostPinned", guildID, postID, pinned),
+  setPostSolved: (guildID, postID, solved) => call("SetPostSolved", guildID, postID, solved),
   deleteChannel: (guildID, channelID) => call("DeleteChannel", guildID, channelID),
   deleteCategory: (guildID, categoryID) => call("DeleteCategory", guildID, categoryID),
   setGuildProfile: (guildID, name, icon, banner, description) =>

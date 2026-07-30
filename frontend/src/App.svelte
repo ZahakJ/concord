@@ -65,6 +65,7 @@
   import ModalChannelLinks from "./modals/ModalChannelLinks.svelte";
   import ModalPublish from "./modals/ModalPublish.svelte";
   import ModalNewPost from "./modals/ModalNewPost.svelte";
+  import ModalForumSettings from "./modals/ModalForumSettings.svelte";
   import ModalMeeting from "./modals/ModalMeeting.svelte";
   import ModalShortcuts from "./modals/ModalShortcuts.svelte";
   import ModalNewDM from "./modals/ModalNewDM.svelte";
@@ -874,9 +875,17 @@
   {:else if S.modal?.kind === "publish"}
     <ModalPublish message={S.modal.message} channel={S.modal.channel} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "meeting"}
-    <ModalMeeting code={S.modal.code} guestLink={S.modal.guestLink || ""} onClose={() => (S.modal = null)} />
+    <ModalMeeting
+      code={S.modal.code}
+      guestLink={S.modal.guestLink || ""}
+      guildId={S.modal.guildId || ""}
+      expires={S.modal.expires || 0}
+      onClose={() => (S.modal = null)}
+    />
   {:else if S.modal?.kind === "newPost"}
     <ModalNewPost forum={S.modal.forum} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "forumSettings"}
+    <ModalForumSettings forum={S.modal.forum} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "rename"}
     <ModalCreate
       onSubmit={renameGuild}
