@@ -4,7 +4,6 @@
   import Icon from "./Icon.svelte";
   import Message from "./Message.svelte";
   import Avatar from "./Avatar.svelte";
-  import SearchPanel from "./SearchPanel.svelte";
   import {
     S,
     activeGuild,
@@ -294,8 +293,6 @@
     </section>
   </div>
 {/if}
-
-<SearchPanel />
 
 <div
   class="feed"

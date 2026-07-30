@@ -47,6 +47,7 @@
   import MemberPanel from "./MemberPanel.svelte";
   import Welcome from "./Welcome.svelte";
   import ForumView from "./ForumView.svelte";
+  import SearchPanel from "./SearchPanel.svelte";
   import QuickSwitcher from "./QuickSwitcher.svelte";
   import ProfilePopover from "./ProfilePopover.svelte";
   import ContextMenu from "./ContextMenu.svelte";
@@ -669,6 +670,11 @@
             onToggleCamera={toggleCamera}
           />
         {/if}
+        <!-- Search results overlay the pane for EVERY channel type. It used to
+             be mounted inside MessageList, which a forum channel never renders —
+             so searching from a forum board filled S.searchResults and displayed
+             them nowhere. -->
+        <SearchPanel />
         {#if activeChannelObj?.type === "forum"}
           <ForumView forum={activeChannelObj} />
         {:else}

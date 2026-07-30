@@ -105,6 +105,43 @@
      too, and anything larger starts wrapping them. */
   --tracking: 0em;
 
+  /* ---- Type scale -------------------------------------------------------
+     Until this existed every component picked its own size, and the app drifted
+     into 127 rules at 13px, 119 at 12px, 79 at 11px and 45 at 10px — a density
+     tuned for a mouse at desk distance. Held at arm's length that reads as fine
+     print, and the bottom of the range (8–10px) is simply illegible.
+
+     These defaults reproduce the current desktop rhythm, so a wide screen sees
+     no change. The phone block re-tunes only the SMALL end: the bottom steps
+     grow, content lands at 16px, and the big steps barely move — inflating
+     headings would just cost lines of content on the screen with the fewest to
+     spare. Components should reach for a token instead of a literal. */
+  --fs-micro: 9px; /* counters and badges — never prose */
+  --fs-tiny: 10.5px; /* timestamps, metadata */
+  --fs-small: 11.5px; /* secondary labels */
+  --fs-compact: 12.5px; /* dense UI text */
+  --fs-ui: 13px; /* default UI text — the app's most common size */
+  --fs-body: 15px; /* message and post CONTENT */
+  --fs-title: 17px;
+  --fs-display: 22px;
+
+  /* ---- Spacing ----------------------------------------------------------
+     A 4px rhythm. --sp-edge is the gutter between content and the screen edge;
+     it tightens on a phone, where 16px of chrome on both sides is 8% of the
+     viewport. */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+  --sp-6: 32px;
+  --sp-edge: 16px;
+
+  /* Minimum hit area. A mouse is pixel-accurate; a fingertip covers ~9mm, which
+     is why every touch platform specifies ~44px. Controls may LOOK smaller —
+     pad or use a ::before overlay to reach the target without redrawing. */
+  --tap-min: 32px;
+
   /* Legacy aliases (pre-token components reference these). */
   --bg: var(--bg-2);
   --bg-elevated: var(--bg-3);
@@ -1527,6 +1564,44 @@ textarea:focus {
   html,
   body {
     overscroll-behavior: none;
+  }
+}
+
+/* ---- THE PHONE BREAKPOINT ----------------------------------------------
+   ONE query, used everywhere. It is deliberately identical to detectMobile()
+   in lib/state.svelte.js — `(pointer: coarse) || (max-width: 768px)` — so CSS
+   and JS can never disagree about whether this is a phone. A layout that
+   styles itself as a phone while S.isMobile is false (or the reverse) is the
+   bug this contract exists to prevent.
+
+   Write it exactly as:  @media (pointer: coarse), (max-width: 768px)
+   The codebase previously used 480/560/600/620/700/760/768/900 and bare
+   (pointer: coarse) interchangeably; those are being migrated to this. Only
+   two other tiers are legitimate:
+     @media (max-width: 400px)   — the narrow floor, for genuine 360px squeeze
+     @media (pointer: fine)      — mouse-only affordances (hover reveals) */
+@media (pointer: coarse), (max-width: 768px) {
+  :root {
+    /* Grow the small end of the type scale; leave the top alone. */
+    --fs-micro: 11px;
+    --fs-tiny: 12px;
+    --fs-small: 12.5px;
+    --fs-compact: 13px;
+    --fs-ui: 14px;
+    --fs-body: 16px;
+    --fs-title: 19px;
+    --fs-display: 24px;
+    --sp-edge: 14px;
+    --tap-min: 44px;
+  }
+
+  /* iOS/WKWebView zooms the whole page when a focused field's text is under
+     16px, and never zooms back out — the single most jarring thing a web app
+     does on a phone. 16px is the threshold, not a preference. */
+  input,
+  textarea,
+  select {
+    font-size: max(16px, 1em);
   }
 }
 

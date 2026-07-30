@@ -24,6 +24,7 @@
   import ChannelList from "./ChannelList.svelte";
   import MessageList from "./MessageList.svelte";
   import ForumView from "./ForumView.svelte";
+  import SearchPanel from "./SearchPanel.svelte";
   import Composer from "./Composer.svelte";
   import MemberPanel from "./MemberPanel.svelte";
   import VoicePanel from "./VoicePanel.svelte";
@@ -388,6 +389,9 @@
           {onToggleCamera}
         />
       {/if}
+      <!-- Mounted per-pane, not inside MessageList: a forum channel renders
+           ForumView instead, and search results had nowhere to land there. -->
+      <SearchPanel />
       {#if activeChannelObj?.type === "forum"}
         <ForumView forum={activeChannelObj} />
       {:else}
