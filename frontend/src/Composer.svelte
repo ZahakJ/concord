@@ -6,9 +6,11 @@
   // last message.
   import Icon from "./Icon.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
+  import BottomSheet from "./BottomSheet.svelte";
   import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
-  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor, mentionRefs } from "./lib/state.svelte.js";
+  import { haptic } from "./lib/touch.js";
+  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor, mentionRefs, registerOverlay } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -53,6 +55,15 @@
   // Mobile markdown lives behind a toggle rather than an always-on toolbar row.
   let showFmt = $state(false);
   const showFmtBar = $derived(!mobile || showFmt);
+  // The phone composer is ONE row — "+", the text, emoji, and mic-or-send. The
+  // other five controls (GIF, poll, formatting, advanced compose, schedule) live
+  // in this sheet. Eight 44px targets came to 352px, which wrapped to a second
+  // row at 393px and a third at 360px, and the row's height then changed on the
+  // first keystroke as the mic dropped out.
+  let moreOpen = $state(false);
+  // Height of the mobile emoji panel while it's open, so the composer can sit ON
+  // TOP of it like a keyboard accessory instead of behind it.
+  let pickerH = $state(0);
 
   export function focus() {
     composerEl?.focus();
@@ -97,22 +108,73 @@
   });
 
   // ---- auto-growing textarea ----
-  // Keep in step with .draft's max-height in the CSS below.
+  // How tall the draft may grow. A flat 200px is right on a desktop and wrong on
+  // a phone: 200px of text plus the composer chrome is ~260px, and a 640px
+  // handset with the IME open has about 320px of app left — writing a paragraph
+  // erased the conversation you were replying to. On touch it's a share of what
+  // the keyboard actually leaves, which is why this is read (not a constant) on
+  // every autosize. The CSS max-height is only the pre-mount default.
   const DRAFT_MAX_H = 200;
+  function draftCap() {
+    if (!mobile) return DRAFT_MAX_H;
+    const vh = window.visualViewport?.height || window.innerHeight;
+    return Math.max(76, Math.min(DRAFT_MAX_H, Math.round(vh * 0.32)));
+  }
 
   function autosize() {
     if (!composerEl) return;
+    const cap = draftCap();
+    composerEl.style.maxHeight = cap + "px";
     composerEl.style.height = "auto";
     const full = composerEl.scrollHeight;
-    composerEl.style.height = Math.min(full, DRAFT_MAX_H) + "px";
+    composerEl.style.height = Math.min(full, cap) + "px";
     // The scrollbar appears only once the draft genuinely outgrows the cap.
     // Left on `overflow-y: auto`, the height we just assigned can land a
     // fraction of a pixel under the scrollHeight it came from — enough for the
     // browser to render a permanent, tiny scrollbar in a composer with nothing
     // typed in it at all.
-    composerEl.style.overflowY = full > DRAFT_MAX_H ? "auto" : "hidden";
+    composerEl.style.overflowY = full > cap ? "auto" : "hidden";
   }
   const queueAutosize = () => requestAnimationFrame(autosize);
+
+  // ---- the software keyboard ----
+  // Android (adjustResize) and iOS/WKWebView disagree about what an open IME
+  // does: one shrinks the layout viewport, so the composer rides up by itself;
+  // the other leaves the page exactly as it was and simply draws the keyboard
+  // over the bottom of it. Nothing in this app read visualViewport, so on the
+  // second — which is also what Android 15's enforced edge-to-edge produces on
+  // several OEM builds — the composer sat behind the keyboard with no fallback.
+  //
+  // --kb-inset is how many CSS px of the LAYOUT viewport the keyboard covers,
+  // and it is 0 whenever the platform already resized for us. The composer
+  // reserves exactly that much beneath itself (see .composer-wrap.mobile), which
+  // both guarantees clearance and drops the gesture-bar padding the IME has
+  // already covered.
+  function syncKbInset() {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const covered = window.innerHeight - vv.height - vv.offsetTop;
+    // A collapsing browser toolbar moves this by ~50px and is not a keyboard;
+    // no IME is under ~150px tall. Anything below the threshold is chrome.
+    document.documentElement.style.setProperty("--kb-inset", (covered > 90 ? Math.round(covered) : 0) + "px");
+    queueAutosize(); // the cap above is a share of the remaining height
+  }
+  $effect(() => {
+    const vv = window.visualViewport;
+    // One writer only: a second Composer (or a future shell-level tracker) would
+    // fight this one over the same variable.
+    if (!vv || window.__concordKbInset) return;
+    window.__concordKbInset = true;
+    syncKbInset();
+    vv.addEventListener("resize", syncKbInset);
+    vv.addEventListener("scroll", syncKbInset);
+    return () => {
+      window.__concordKbInset = false;
+      vv.removeEventListener("resize", syncKbInset);
+      vv.removeEventListener("scroll", syncKbInset);
+      document.documentElement.style.removeProperty("--kb-inset");
+    };
+  });
 
   // ---- slash commands (client-side text expansion) ----
   // One registry drives both the "/" autocomplete menu and applySlash(), so
@@ -510,7 +572,12 @@
     const text = replaceShortcodes(applySlash(raw).trim());
     const atts = pending;
     if ((!text && atts.length === 0) || !S.activeChannelId) return;
-    if (mobile) playLaunch();
+    if (mobile) {
+      playLaunch();
+      // A phone confirms a send by feel — the plane animation is under the
+      // thumb that just covered it.
+      haptic("light");
+    }
     const chId = S.activeChannelId;
     const prevDraft = draft;
     const prevReply = S.replyingTo;
@@ -627,6 +694,7 @@
   }
 
   function removePending(id) {
+    haptic("light"); // destructive and undoable by nothing — confirm it by feel
     pending = pending.filter((p) => p.id !== id);
     if (editingAtt === id) editingAtt = "";
   }
@@ -719,6 +787,9 @@
     mediaRec.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
     mediaRec.start();
     recording = true;
+    // You hold the phone to your face to record; the tap is the only signal that
+    // the mic went live that you don't have to look at the screen for.
+    haptic("medium");
     recSecs = 0;
     recTimer = setInterval(() => {
       if (++recSecs >= 300) stopRecording(true); // 5-minute cap
@@ -734,6 +805,7 @@
   }
 
   function stopRecording(send) {
+    haptic("medium"); // …and the one that says it stopped
     const rec = mediaRec;
     mediaRec = null;
     if (!rec) {
@@ -828,13 +900,73 @@
   });
 
   function pickEmoji(e) {
-    if (S.pickerTarget === "composer") {
-      draft += e;
-      composerEl?.focus();
-    } else if (S.pickerTarget) {
-      react(S.pickerTarget, e);
+    if (S.pickerTarget !== "composer") {
+      if (S.pickerTarget) react(S.pickerTarget, e);
+      S.pickerTarget = null;
+      return;
     }
+    // Insert at the caret the way accept() does. `draft += e` put the emoji at
+    // the END of the message however far back you'd moved to fix a typo.
+    const start = composerEl?.selectionStart ?? draft.length;
+    const end = composerEl?.selectionEnd ?? start;
+    draft = draft.slice(0, start) + e + draft.slice(end);
+    const pos = start + e.length;
+    saveDraft(S.activeChannelId, draft); // was only persisted on the next keystroke
+    queueAutosize(); // …and the box didn't grow when a run of emoji wrapped
+    requestAnimationFrame(() => composerEl?.setSelectionRange(pos, pos));
+    if (mobile) {
+      // The panel stays up for a run of emoji. Closing after every pick was
+      // sheet down, keyboard up, sheet up again — four viewport resizes to type
+      // two emoji. Deliberately no focus() either: the panel IS the keyboard
+      // here, and refocusing would raise the IME underneath it.
+      haptic("light");
+      return;
+    }
+    composerEl?.focus();
     S.pickerTarget = null;
+  }
+
+  function toggleEmojiPicker() {
+    if (S.pickerTarget === "composer") {
+      S.pickerTarget = null;
+      return;
+    }
+    // Drop the IME first: on a phone the panel and the keyboard would otherwise
+    // stack, and the panel is what was asked for.
+    if (mobile) composerEl?.blur();
+    S.pickerTarget = "composer";
+  }
+
+  // ---- the "+" sheet (phone) ----
+  function openMore() {
+    haptic("light");
+    composerEl?.blur(); // same reason as the emoji panel
+    moreOpen = true;
+  }
+  // Every row does its thing and dismisses — a sheet that stays up over the
+  // modal it just opened is a second scrim to get out of.
+  function fromSheet(run) {
+    moreOpen = false;
+    run();
+  }
+  // Hardware back closes the sheet before it reaches the drawers or exits.
+  $effect(() => {
+    if (moreOpen) return registerOverlay(() => (moreOpen = false));
+  });
+
+  function openAdvanced() {
+    S.modal = {
+      kind: "compose",
+      initial: draft,
+      // The modal seeds from the inline draft; once IT sends, the seed must go
+      // too — otherwise the same text sits in the one-line box waiting for a
+      // stray Enter to post it twice.
+      onSent: () => {
+        draft = "";
+        saveDraft(S.activeChannelId, "");
+        queueAutosize();
+      },
+    };
   }
 </script>
 
@@ -849,6 +981,17 @@
     <button class="mini" aria-label="Cancel reply" onclick={() => (S.replyingTo = null)}>
       <Icon name="close" size={11} />
     </button>
+    {#if mobile}
+      <!-- Swipe-to-reply is the gesture people trigger by accident, and Escape —
+           the only other way out — isn't on a phone keyboard. The whole banner
+           cancels, so the 23x15 pill isn't the sole escape. -->
+      <button
+        class="rb-cancel-all"
+        aria-hidden="true"
+        tabindex="-1"
+        onclick={() => (S.replyingTo = null)}
+      ></button>
+    {/if}
   </div>
 {/if}
 <div class="typing-line muted">
@@ -878,7 +1021,25 @@
   {/if}
 </div>
 
-<div class="composer-wrap">
+<!-- One textarea, two layouts. A snippet rather than a copy in each branch: two
+     copies mean two `bind:this`, and whichever mounted last silently owned the
+     caret-restoring code. -->
+{#snippet draftBox()}
+  <textarea
+    bind:this={composerEl}
+    class="draft"
+    rows="1"
+    placeholder={composerPlaceholder}
+    bind:value={draft}
+    disabled={!ch}
+    oninput={onInput}
+    onkeydown={onKeydown}
+    onpaste={onPaste}
+    onblur={() => setTimeout(() => (suggest = null), 150)}
+  ></textarea>
+{/snippet}
+
+<div class="composer-wrap" class:mobile style="--ep-h:{pickerH}px">
   {#if suggest}
     <div class="suggest-pop">
       <div class="suggest-head">
@@ -904,7 +1065,14 @@
     </div>
   {/if}
   {#if S.pickerTarget}
-    <EmojiPicker onPick={pickEmoji} onClose={() => (S.pickerTarget = null)} />
+    <!-- onHeight: on a phone the picker is a fixed panel at the bottom edge, so
+         it covered the very box it types into. Reporting its height lets the
+         composer sit on top of it, the way a keyboard accessory bar does. -->
+    <EmojiPicker
+      onPick={pickEmoji}
+      onClose={() => (S.pickerTarget = null)}
+      onHeight={(h) => (pickerH = h)}
+    />
   {/if}
 
   <form class="composer" class:mobile onsubmit={send}>
@@ -934,6 +1102,20 @@
               {#if p.spoiler}<span class="att-tag">SPOILER</span>{/if}
             {:else}
               <span class="att-file"><Icon name={p.isVideo ? "play" : "attach"} size={16} /><span class="att-name">{p.name}</span></span>
+            {/if}
+            {#if mobile}
+              <!-- Touch gets ONE target — the chip itself — instead of three
+                   19px buttons 2px apart in the corner of a 66px thumbnail,
+                   where aiming at "edit" regularly deleted the attachment. The
+                   spoiler and remove controls move into the panel below, at a
+                   size a finger can actually hit. -->
+              <button
+                type="button"
+                class="att-open"
+                aria-label="Attachment options for {p.name || p.origName || 'image'}"
+                aria-expanded={editingAtt === p.id}
+                onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}
+              ></button>
             {/if}
             <div class="att-tools">
               {#if p.isImage}
@@ -998,6 +1180,20 @@
               placeholder="Describe it for people who can't see it"
             />
           </label>
+          {#if mobile}
+            <!-- The overlay controls the chip no longer carries. Full-width rows,
+                 with the destructive one last and visually apart. -->
+            <div class="att-acts">
+              {#if p.isImage}
+                <button type="button" class="att-act" class:on={p.spoiler} aria-pressed={!!p.spoiler} onclick={() => toggleSpoiler(p.id)}>
+                  <Icon name="spoiler" size={16} /> {p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
+                </button>
+              {/if}
+              <button type="button" class="att-act danger" onclick={() => removePending(p.id)}>
+                <Icon name="trash" size={16} /> Remove
+              </button>
+            </div>
+          {/if}
           <button type="button" class="att-done" onclick={() => (editingAtt = "")}>Done</button>
         </div>
       {/if}
@@ -1045,6 +1241,51 @@
         >
           <Icon name="send" size={17} />
         </button>
+      {:else if mobile}
+        <!-- The phone row: "+", the text, emoji, and mic-or-send. Four targets,
+             one line, at any width from 360px up — and the fourth slot is always
+             occupied, so the composer no longer changed height on the first
+             keystroke as the mic dropped out from under the text. -->
+        <button
+          type="button"
+          class="iconbtn morebtn"
+          title="More"
+          aria-label="Attach a file, GIF, poll, or more"
+          aria-expanded={moreOpen}
+          disabled={!ch}
+          onclick={openMore}
+        >
+          <Icon name="plus" size={22} />
+        </button>
+        {@render draftBox()}
+        <button
+          type="button"
+          class="iconbtn"
+          title="Emoji"
+          aria-label="Emoji picker"
+          disabled={!ch}
+          onclick={toggleEmojiPicker}
+        >
+          <Icon name="smile" size={22} />
+        </button>
+        {#if canRecord && !canSend}
+          <!-- Mic and send share one slot, the way every phone messenger does
+               it: nothing to send means the thing you'd want is the mic. -->
+          <button
+            type="button"
+            class="iconbtn"
+            title="Record a voice message"
+            aria-label="Record a voice message"
+            disabled={!ch}
+            onclick={startRecording}
+          >
+            <Icon name="mic" size={22} />
+          </button>
+        {:else}
+          <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
+            <Icon name="send" size={17} />
+          </button>
+        {/if}
       {:else}
         <button
           type="button"
@@ -1056,31 +1297,7 @@
         >
           <Icon name="attach" size={20} />
         </button>
-        <textarea
-          bind:this={composerEl}
-          class="draft"
-          rows="1"
-          placeholder={composerPlaceholder}
-          bind:value={draft}
-          disabled={!ch}
-          oninput={onInput}
-          onkeydown={onKeydown}
-          onpaste={onPaste}
-          onblur={() => setTimeout(() => (suggest = null), 150)}
-        ></textarea>
-        {#if mobile}
-          <!-- Formatting lives behind a toggle on phones — no room for a
-               permanent toolbar row, and hover-reveal doesn't exist on touch. -->
-          <button
-            type="button"
-            class="iconbtn fmt-toggle"
-            class:on={showFmt}
-            title="Formatting"
-            aria-label="Toggle formatting toolbar"
-            disabled={!ch}
-            onclick={() => (showFmt = !showFmt)}
-          >Aa</button>
-        {/if}
+        {@render draftBox()}
         {#if canRecord && !draft.trim() && pending.length === 0}
           <!-- Mic replaces nothing; it appears when there's no text/attachment to
                send, the way messengers surface record-vs-send. -->
@@ -1127,19 +1344,7 @@
           title="Advanced composer (colors, rich embeds, preview)"
           aria-label="Advanced composer"
           disabled={!ch}
-          onclick={() =>
-            (S.modal = {
-              kind: "compose",
-              initial: draft,
-              // The modal seeds from the inline draft; once IT sends, the seed
-              // must go too — otherwise the same text sits in the one-line box
-              // waiting for a stray Enter to post it twice.
-              onSent: () => {
-                draft = "";
-                saveDraft(S.activeChannelId, "");
-                queueAutosize();
-              },
-            })}
+          onclick={openAdvanced}
         >
           <Icon name="heading" size={19} />
         </button>
@@ -1159,24 +1364,70 @@
           title="Emoji"
           aria-label="Emoji picker"
           disabled={!ch}
-          onclick={() => (S.pickerTarget = S.pickerTarget === "composer" ? null : "composer")}
+          onclick={toggleEmojiPicker}
         >
           <Icon name="smile" size={20} />
         </button>
-        {#if coarse}
-          <!-- Touch only: on a phone Enter is a newline, so this is the only way
-               to send. On desktop (even a narrow window) Enter sends and this
-               button is just noise — keyed on pointer coarseness, not layout, so
-               it never shows there. -->
-          <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
-            <Icon name="send" size={17} />
-          </button>
-        {/if}
       {/if}
     </div>
     </div>
   </form>
 </div>
+
+{#if moreOpen}
+  <!-- A sheet, not a popover: this is the phone's "everything else" drawer, so
+       it gets labels. Half these actions were unlabelled 44px glyphs before,
+       and "which one was the heading icon" is not a question a composer should
+       ask. -->
+  <BottomSheet title="Add to your message" onClose={() => (moreOpen = false)} maxHeight="76vh">
+    <div class="sheet-list">
+      <button type="button" class="sheet-row" onclick={() => fromSheet(() => fileInput.click())}>
+        <span class="sr-icon"><Icon name="attach" size={20} /></span>
+        <span class="sr-text">
+          <span class="sr-label">Photo or file</span>
+          <span class="sr-sub">Up to 5 MB images, 25 MB files</span>
+        </span>
+      </button>
+      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "gifs" }))}>
+        <span class="sr-icon sr-gif">GIF</span>
+        <span class="sr-text">
+          <span class="sr-label">GIF</span>
+          <!-- No vendor named: which service the Search tab reaches is the
+               rendezvous operator's choice, and the picker reports it. -->
+          <span class="sr-sub">This server's pack, or a search via your rendezvous</span>
+        </span>
+      </button>
+      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "poll" }))}>
+        <span class="sr-icon"><Icon name="poll" size={20} /></span>
+        <span class="sr-text"><span class="sr-label">Poll</span></span>
+      </button>
+      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (showFmt = !showFmt))}>
+        <span class="sr-icon sr-aa">Aa</span>
+        <span class="sr-text">
+          <span class="sr-label">Formatting</span>
+          <span class="sr-sub">Bold, italics, code, quotes, links</span>
+        </span>
+        <span class="sr-state">{showFmt ? "On" : "Off"}</span>
+      </button>
+      <button type="button" class="sheet-row" onclick={() => fromSheet(openAdvanced)}>
+        <span class="sr-icon"><Icon name="heading" size={20} /></span>
+        <span class="sr-text">
+          <span class="sr-label">Advanced composer</span>
+          <span class="sr-sub">Colours, rich embeds, preview</span>
+        </span>
+      </button>
+      <button type="button" class="sheet-row" onclick={() => fromSheet(scheduleSend)}>
+        <span class="sr-icon"><Icon name="clock" size={20} /></span>
+        <span class="sr-text">
+          <span class="sr-label">{draft.trim() ? "Send later" : "Scheduled & reminders"}</span>
+          <span class="sr-sub">
+            {draft.trim() ? "Pick a time for this message" : "See what's queued"}
+          </span>
+        </span>
+      </button>
+    </div>
+  </BottomSheet>
+{/if}
 
 <style>
   .eph-banner {
@@ -1186,7 +1437,7 @@
     width: 100%;
     padding: 6px 12px;
     margin-bottom: 4px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     background: color-mix(in srgb, var(--accent) 8%, var(--bg-input));
     border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
@@ -1209,13 +1460,27 @@
   .eph-banner:hover .eph-change {
     text-decoration: underline;
   }
+  /* Touch: the banner is the only route to the disappearing-timer settings, and
+     its "change" affordance announced itself with a hover underline no finger
+     can produce — so it read as static text. Underline it always, and give the
+     row a real target. */
+  @media (pointer: coarse) {
+    .eph-banner {
+      min-height: var(--tap-min);
+      font-size: var(--fs-ui);
+    }
+    .eph-change {
+      text-decoration: underline;
+    }
+  }
   .reply-banner {
+    position: relative; /* anchors the phone-wide cancel overlay */
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: 8px;
     padding: 6px 16px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-top: 1px solid var(--border);
     /* Faint accent wash ties the banner to the reply you're composing. */
     background: color-mix(in srgb, var(--accent) 7%, transparent);
@@ -1246,14 +1511,41 @@
     flex-shrink: 0;
     color: var(--accent-hover);
   }
+  /* Covers the banner's dead space so the whole strip cancels; the pill sits
+     above it (position:relative below) and keeps its own focus ring. */
+  .rb-cancel-all {
+    position: absolute;
+    inset: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+  }
+  .rb-label,
+  .reply-banner .mini {
+    /* Both are earlier siblings than the overlay, so without a lift the overlay
+       paints over them and the pill's own focus/hover would never fire. */
+    position: relative;
+    z-index: 1;
+  }
+  /* Fixed height, not min-height: the strip is always in the DOM, so anything
+     that grows with its content shifts the whole composer the moment someone
+     starts typing. The phone value is the larger --fs-compact plus its padding. */
   .typing-line {
     height: 20px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-style: italic;
     padding: 3px 16px 1px;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .typing-line {
+      height: 24px;
+      padding-left: var(--sp-edge);
+      padding-right: var(--sp-edge);
+    }
   }
   .typing-line .typer {
     font-weight: 600;
@@ -1345,6 +1637,21 @@
       transform: translateY(4px) scale(0.98);
     }
   }
+  /* On a phone the popover docks to both edges instead of floating: left:60px
+     was measured against the desktop composer's attach button, which the phone
+     layout no longer has anywhere near there, and min-width:240px with no
+     max-width ran a long member name off the right edge of a 360px screen.
+     Rows get the touch floor too — they sit directly above the keyboard, where
+     a mis-tap inserts the wrong mention into the message. */
+  .composer-wrap.mobile .suggest-pop {
+    left: var(--sp-2);
+    right: var(--sp-2);
+    min-width: 0;
+  }
+  .composer-wrap.mobile .suggest-item {
+    min-height: var(--tap-min);
+    padding: 10px 12px;
+  }
   .suggest-item {
     display: flex;
     align-items: center;
@@ -1353,8 +1660,13 @@
     text-align: left;
     padding: 6px 10px;
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-family: ui-monospace, monospace;
+    /* A long display name used to push the panel past the right edge — nothing
+       here wrapped or truncated, and .suggest-pop has a min-width. */
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
     transition:
       background 0.1s ease,
       transform 0.12s ease;
@@ -1373,7 +1685,7 @@
     margin-left: auto;
     padding-left: 12px;
     font-family: inherit;
-    font-size: 11px;
+    font-size: var(--fs-small);
     color: var(--accent-hover);
     opacity: 0;
     transition: opacity 0.12s ease;
@@ -1392,7 +1704,7 @@
     opacity: 0.9;
   }
   .suggest-head {
-    font-size: 10px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -1411,14 +1723,14 @@
       system-ui,
       -apple-system,
       sans-serif;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   .composer {
-    padding: 0 16px 16px;
+    padding: 0 var(--sp-4) var(--sp-4);
   }
   /* Formatting toolbar: a whisper-quiet row above the input that comes up to
      full strength while the composer is hovered or focused. No transforms, so
@@ -1445,6 +1757,9 @@
     gap: 8px;
     padding: 10px 10px 6px;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+    /* Several staged files make this row scroll; without containment the flick
+       that runs out of tray carries on into the conversation behind it. */
+    overscroll-behavior: contain;
   }
   .att-chip {
     position: relative;
@@ -1473,13 +1788,15 @@
     border-radius: 3px;
     background: rgba(0, 0, 0, 0.72);
     color: #fff;
-    font-size: 8px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     letter-spacing: 0.4px;
     pointer-events: none;
   }
-  /* The three controls, revealed on hover like Discord — but always visible on
-     a touchscreen, where there is no hover to reveal them with. */
+  /* The three controls, revealed on hover like Discord. A mouse can land on a
+     19px button; a fingertip covers all three, and the middle one is a delete
+     with no undo. On touch the chip is the target instead (.att-open) and these
+     move into the edit panel — see .att-acts. */
   .att-tools {
     position: absolute;
     top: 3px;
@@ -1493,10 +1810,66 @@
   .att-chip:focus-within .att-tools {
     opacity: 1;
   }
-  @media (pointer: coarse) {
-    .att-tools {
-      opacity: 1;
-    }
+  /* Scoped to the layout class, not the media query: whether .att-open exists at
+     all is a JS decision, and the two must never disagree — a hidden overlay
+     with nothing under it is a chip with no controls. */
+  .composer.mobile .att-tools {
+    display: none;
+  }
+  .att-open {
+    position: absolute;
+    inset: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+  }
+  .att-open[aria-expanded="true"] {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
+  /* The chip IS the control on touch, so it has to be a target — and a 64px
+     square is the floor with nothing spare for a thumb landing off-centre. */
+  .composer.mobile .att-chip img,
+  .composer.mobile .att-chip.loading {
+    width: 84px;
+    height: 84px;
+  }
+  /* The 34px right padding held the hover tools clear of the filename; with the
+     tools gone on touch it's just a truncated name for no reason. */
+  .composer.mobile .att-file {
+    padding-right: 12px;
+    min-height: var(--tap-min);
+  }
+  /* Full-width rows in the edit panel — spoiler and, last and tinted, remove. */
+  .att-acts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+  }
+  .att-act {
+    flex: 1 1 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: var(--tap-min);
+    padding: 0 12px;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    color: var(--text);
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .att-act.on {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-color: transparent;
+  }
+  .att-act.danger {
+    color: var(--danger-text);
+    border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
   }
   .att-tool {
     width: 19px;
@@ -1535,8 +1908,8 @@
     flex: 1;
     min-width: 130px;
   }
-  .att-edit span {
-    font-size: 10.5px;
+  .att-edit label span {
+    font-size: var(--fs-tiny);
     font-weight: 700;
     letter-spacing: 0.3px;
     text-transform: uppercase;
@@ -1548,7 +1921,7 @@
     border-radius: var(--radius-sm);
     color: var(--text);
     font: inherit;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     padding: 5px 7px;
     min-width: 0;
   }
@@ -1557,8 +1930,24 @@
     border-radius: var(--radius-sm);
     background: var(--accent);
     color: #fff;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     font-weight: 600;
+  }
+  /* The attachment editor is deliberately inline in the composer rather than a
+     dialog, so Modal.svelte's 16px/44px touch floor never reached it — and the
+     accessibility description is the last field that should be a 27px control
+     that makes iOS zoom the page in and never back out. */
+  @media (pointer: coarse) {
+    .att-edit input {
+      font-size: 16px;
+      min-height: var(--tap-min);
+      padding: 8px 10px;
+    }
+    .att-done {
+      min-height: var(--tap-min);
+      padding: 0 20px;
+      font-size: var(--fs-ui);
+    }
   }
   .att-chip.file {
     display: flex;
@@ -1577,29 +1966,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
-  }
-  .att-x {
-    position: absolute;
-    top: 3px;
-    right: 3px;
-    width: 18px;
-    height: 18px;
-    display: grid;
-    place-items: center;
-    border: none;
-    border-radius: 50%;
-    background: rgba(0, 0, 0, 0.65);
-    color: #fff;
-    font-size: 10px;
-    line-height: 1;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.12s ease;
-  }
-  .att-chip:hover .att-x,
-  .att-x:focus-visible {
-    opacity: 1;
+    font-size: var(--fs-ui);
   }
   .att-chip.loading {
     width: 64px;
@@ -1618,12 +1985,6 @@
   @keyframes att-spin {
     to {
       transform: rotate(360deg);
-    }
-  }
-  /* Coarse pointers can't hover to reveal the remove button — keep it visible. */
-  @media (pointer: coarse) {
-    .att-x {
-      opacity: 1;
     }
   }
   .fmt-bar {
@@ -1695,8 +2056,13 @@
   }
   .rec-label {
     flex: 1;
-    font-size: 13px;
+    min-width: 0;
+    font-size: var(--fs-ui);
     color: var(--text-muted);
+    /* Long-pressing a text label raises Android's selection handles and the
+       Copy/Share bar over the composer, mid-recording. */
+    -webkit-user-select: none;
+    user-select: none;
   }
   .rec-clock {
     color: var(--text);
@@ -1727,8 +2093,14 @@
     /* hidden, not auto: autosize() switches this on only when the draft really
        exceeds max-height. See the note there. */
     overflow-y: hidden;
+    /* Pre-mount default only — autosize() sets the real cap, which on a phone is
+       a share of what the keyboard leaves. */
     max-height: 200px;
     height: auto;
+    /* Once the draft scrolls, running out of textarea used to hand the flick to
+       the message feed: you lose your place in the draft AND in the conversation.
+       html/body's overscroll-behavior in app.css doesn't stop inner chaining. */
+    overscroll-behavior: contain;
     /* Naked inside the shell: the global textarea "recessed well" styling
        would draw a SECOND border/inset inside the composer. */
     background: transparent !important;
@@ -1797,97 +2169,113 @@
     color: var(--text);
   }
 
-  /* ---- mobile composer ---- */
+  /* ---- mobile composer ------------------------------------------------
+     ONE row: "+", the text, emoji, and mic-or-send. The old layout put eight
+     44px controls in a wrapping tray under the text — 352px of targets in the
+     322px a 360px handset leaves, so the emoji button orphaned onto a third
+     row, and typing one character dropped the mic and snapped the whole
+     composer 44px shorter. Four targets is 132px whatever the width, and the
+     fourth slot always holds something (mic OR send), so the height is fixed.
+     Everything the row lost is in the "+" sheet, with labels. */
   .composer.mobile {
-    padding: 0 10px calc(10px + env(safe-area-inset-bottom));
+    /* The gesture-bar inset is only worth reserving when nothing is already
+       covering it — subtract whatever the keyboard or the emoji panel occupies
+       rather than stacking a dead strip on top of them. */
+    padding: 0 var(--sp-3)
+      calc(var(--sp-2) + max(env(safe-area-inset-bottom) - var(--kb-inset, 0px) - var(--ep-h, 0px), 0px));
   }
-  /* On a phone the tray and the text can't share one line. Eight finger-sized
-     buttons at 44px come to ~350px, which on a 390px-wide screen left the
-     textarea about 8px — the placeholder rendered one character per line, and
-     it looked like the styling had simply collapsed. So the text gets its own
-     full-width row and the tray sits underneath it. */
+  /* Reserve what the software keyboard covers (0 when the platform already
+     resized the layout viewport for us) and, while the emoji panel is up, its
+     height too — so the composer rides ON TOP of the panel like a keyboard
+     accessory bar instead of behind it. Margin rather than transform: this is
+     the last child of the chat column, so the feed above it shrinks by the same
+     amount and the newest message stays visible. */
+  .composer-wrap.mobile {
+    margin-bottom: calc(var(--kb-inset, 0px) + var(--ep-h, 0px));
+    transition: margin-bottom 0.12s ease;
+  }
   .composer.mobile .input-box {
-    flex-wrap: wrap;
-    row-gap: 2px;
-    /* Seven 44px targets are 308px; a 360px handset leaves the tray 322px, and
-       the 3px gaps pushed it to 326 — the emoji button orphaned onto a third
-       row. Butt the targets together instead; the glyphs inside stay 24px
-       apart, which is what the eye actually reads. */
+    flex-wrap: nowrap;
     column-gap: 0;
+    /* Tighter than desktop's 3px 8px: every px here comes off the textarea. */
+    padding: 2px 4px;
   }
-  /* Send sits WITH the text, not in the tray. Two reasons. The tray was eight
-     44px targets in 390px of phone — 38px of slack, so a narrower handset or
-     Android's font scaling wrapped the send button onto a third row of its own,
-     which reads as a layout that broke. And it belongs here anyway: every
-     messaging app puts send beside what you just typed, where your thumb
-     already is. Taking it out of the tray also gives the remaining icons room
-     to breathe. */
   .composer.mobile .draft {
     flex: 1 1 auto;
-    order: -2;
-    font-size: 16px;
+    min-width: 0;
+    font-size: var(--fs-body);
     padding: 10px 6px;
   }
-  .composer.mobile .sendbtn {
-    order: -1;
-    flex: none;
-    align-self: flex-end;
-    margin-bottom: 2px;
-  }
-  /* Everything else wraps to the tray row beneath. */
-  .composer.mobile .iconbtn,
-  .composer.mobile .fmt-toggle {
-    order: 0;
-  }
-  .composer.mobile .input-box::after {
-    /* Forces the tray onto its own line without depending on the icons being
-       wide enough to wrap on their own — which is exactly the fragile bit that
-       put send on a third row. */
-    content: "";
-    flex-basis: 100%;
-    order: -1;
-  }
-  /* On touch the fmt bar can't hover-reveal — when toggled on, show it at
-     full strength and give the buttons real finger targets. */
+  /* On touch the fmt bar can't hover-reveal — when toggled on from the sheet,
+     show it at full strength and give the buttons real finger targets. */
   .composer.mobile .fmt-bar {
     opacity: 1;
+    flex-wrap: wrap;
     padding-bottom: 6px;
     gap: 4px;
   }
-  /* Eight buttons at a full 44px wide don't fit 360px of phone, so they share
-     the row evenly and take the 44px on the axis that's free: height. */
+  /* Two rows of four rather than eight abreast: eight shared 322px gave each
+     button 33px, side by side with its neighbours, in a row where hitting the
+     wrong one silently inserts the wrong markers into the message. */
   .composer.mobile .fmtbtn {
-    flex: 1 1 0;
+    flex: 1 1 21%;
     width: auto;
-    height: 44px;
+    height: var(--tap-min);
   }
-  /* Finger-sized (≥44px) targets for the icon row and send button; glyphs
-     stay grid-centered so only the tap area grows. */
+  /* The separators are a desktop grouping cue; in a wrapped grid they'd land
+     mid-row and eat 22px that the buttons need. */
+  .composer.mobile .fmt-sep {
+    display: none;
+  }
+  /* Finger-sized targets; glyphs stay grid-centered so only the tap area grows. */
   .composer.mobile .iconbtn {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: var(--tap-min);
+    min-height: var(--tap-min);
   }
   .composer.mobile .sendbtn {
-    width: 44px;
-    height: 44px;
+    width: var(--tap-min);
+    height: var(--tap-min);
+    margin: 2px 0;
   }
-  .fmt-toggle {
-    font-size: 14px;
-    font-weight: 700;
-    font-family: inherit;
-    line-height: 1;
-  }
-  .fmt-toggle.on {
+  /* The one control that opens something rather than doing something — tinted
+     so the row reads as [more] [text] [emoji] [send] rather than four glyphs. */
+  .composer.mobile .morebtn {
     color: var(--accent-hover);
   }
+  /* The recording transport is a different child set, and the row rules above
+     were written for the composing one: with align-items:flex-end the 44px send
+     button and the 10px dot sat on different baselines. */
+  .composer.mobile .input-box.recording {
+    align-items: center;
+    padding: 6px 8px;
+  }
+  /* The phone banner's cancel pill: keeps its 11px glyph, gains a real target. */
+  @media (pointer: coarse) {
+    .mini {
+      min-width: var(--tap-min);
+      min-height: var(--tap-min);
+    }
+  }
   /* Text where its neighbours are icons: sized down so "GIF" occupies the same
-     optical weight as a 20px glyph instead of shouting. */
+     optical weight as a 20px glyph instead of shouting. Not tokenised — this is
+     an optical match to a specific glyph size, not a step on the type scale. */
   .gifbtn {
     font-size: 11px;
     font-weight: 800;
     font-family: inherit;
     letter-spacing: 0.02em;
     line-height: 1;
+  }
+  /* A button whose label is a WORD is a word Android will happily offer to
+     select: a long press (or a tap misread as one) raises the blue handles and
+     the Copy/Share bar over the composer. */
+  .gifbtn,
+  .sr-gif,
+  .sr-aa,
+  .s-enter {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
   }
   .sendbtn {
     display: grid;
@@ -1930,5 +2318,75 @@
       transform: none;
       opacity: 1;
     }
+  }
+
+  /* ---- the "+" sheet ---- */
+  .sheet-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 4px 0 2px;
+  }
+  .sheet-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    min-height: 56px; /* comfortably past the floor: these are the primary rows */
+    padding: 8px 10px;
+    text-align: left;
+    background: transparent;
+    color: var(--text);
+    border: none;
+    border-radius: var(--radius-md);
+  }
+  .sheet-row:active {
+    background: var(--bg-3);
+  }
+  .sr-icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-md);
+    background: var(--bg-3);
+    color: var(--accent-hover);
+  }
+  /* Word, not glyph: no icon for "GIF" reads correctly, and every other client
+     spells it out. Sized to sit as one optical weight with the 20px glyphs. */
+  .sr-gif {
+    font-size: var(--fs-small);
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+  .sr-aa {
+    font-size: var(--fs-title);
+    font-weight: 700;
+  }
+  .sr-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+  }
+  .sr-label {
+    font-size: var(--fs-body);
+    font-weight: 600;
+  }
+  .sr-sub {
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .sr-state {
+    flex: none;
+    font-size: var(--fs-compact);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent-hover);
   }
 </style>

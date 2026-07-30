@@ -61,7 +61,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     text-align: left;
     transition:
       background 0.12s ease,
@@ -85,11 +85,15 @@
   }
   .custom-row {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
   }
   .custom-row input {
-    flex: 1;
-    min-width: 0;
+    flex: 1 1 60%;
+    /* A datetime-local field renders its own segmented spinner and has a real
+       intrinsic width; at min-width:0 it squeezed under it and clipped the
+       year. Wrapping the button below is the better failure. */
+    min-width: 170px;
   }
   .go {
     flex-shrink: 0;
@@ -102,7 +106,14 @@
     opacity: 0.5;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
+  }
+  /* Two columns put "Tomorrow morning" in ~150px at the narrow floor, where it
+     wraps to three lines and the presets stop scanning as a list. */
+  @media (max-width: 400px) {
+    .when {
+      grid-template-columns: 1fr;
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     .preset:hover {

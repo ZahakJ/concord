@@ -380,9 +380,11 @@
     <div class="bar">
       <span class="find"><Icon name="search" size={14} /></span>
       <!-- svelte-ignore a11y_autofocus -->
+      <!-- Not on a phone: this tab is usually opened to LOOK at the twelve GIFs
+           the server has, and the IME would cover the grid to no purpose. -->
       <input
         class="q"
-        autofocus
+        autofocus={!S.isMobile}
         bind:value={query}
         placeholder="Search this server's GIFs…"
         aria-label="Search this server's GIFs"
@@ -466,9 +468,12 @@
     <div class="bar">
       <span class="find"><Icon name="search" size={14} /></span>
       <!-- svelte-ignore a11y_autofocus -->
+      <!-- Same on this tab: the results grid is capped at 46vh and sits below
+           the box, so an IME on open leaves nothing to browse. Typing is still
+           one tap away. -->
       <input
         class="q"
-        autofocus
+        autofocus={!S.isMobile}
         bind:value={sq}
         disabled={!usable}
         placeholder={usable ? `Search ${source} via your rendezvous…` : "Search unavailable"}
@@ -595,14 +600,14 @@
   }
   .q {
     flex: 1;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .addbtn,
   .go {
     display: flex;
     align-items: center;
     gap: 4px;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     white-space: nowrap;
   }
   .add {
@@ -639,12 +644,13 @@
     min-width: 0;
   }
   .fields input {
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
   }
   .notice {
     margin: 8px 0 0;
     padding: 8px 10px;
-    font-size: 12.5px;
+    /* Every failure state in this tab is explained here and nowhere else. */
+    font-size: var(--fs-compact);
     line-height: 1.5;
     background: var(--bg-3);
     border-left: 2px solid var(--border);
@@ -713,7 +719,7 @@
   .cap {
     display: block;
     padding: 4px 6px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     text-align: left;
     color: var(--text-muted);
     white-space: nowrap;
@@ -734,22 +740,47 @@
   .rm:focus-visible {
     opacity: 1;
   }
+  /* This button is "Remove" in the pack tab and "Save to this server's GIFs" in
+     the search tab, and a finger generates no hover — so on a phone two of the
+     three management actions in this picker did not exist at all. Show it, and
+     give it a target: 3px/5px around a 12px icon is ~22x18. */
+  @media (pointer: coarse) {
+    .rm {
+      opacity: 1;
+      min-width: 36px;
+      min-height: 36px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      background: rgba(0, 0, 0, 0.72);
+    }
+    /* Destructive, sitting on a 90px thumbnail whose whole face SENDS the GIF —
+       so it has to look different from the save button that shares its class. */
+    .rm:not(.save) {
+      background: color-mix(in srgb, var(--danger) 78%, rgba(0, 0, 0, 0.8));
+    }
+  }
   .more {
     margin-top: 8px;
     width: 100%;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
   }
   .none {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 18px 8px;
     text-align: center;
   }
+  /* The longest and most consequential prose in the picker — the paragraph
+     saying that search terms reach the rendezvous and the images are proxied.
+     At the old flat 11.5px that was nine lines of sub-legible type on a 360px
+     sheet, i.e. a privacy explanation nobody reads. --fs-small carries it to
+     12.5px on a phone; the tab's claims are only worth making if they're read. */
   .foot {
     margin: 0;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     line-height: 1.5;
   }
   .foot code {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
 </style>

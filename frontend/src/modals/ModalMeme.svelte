@@ -471,6 +471,15 @@
     };
   }
 
+  // The grip radius is measured in IMAGE pixels, but what the finger has to hit
+  // is CSS pixels: an 800px-wide template drawn into ~350px of phone sheet
+  // shrank a 28px image-space radius to ~12px on screen. Convert a 24px CSS
+  // floor back into image space so the grip is grabbable at any display scale.
+  function gripRadius() {
+    const w = canvas?.getBoundingClientRect().width || dims.W;
+    return Math.max(18, dims.W * 0.035, (24 * dims.W) / w);
+  }
+
   function boxOf(cap) {
     const ctx = canvas.getContext("2d");
     // measurerFor, not a hand-rolled one pinned to a single face: captions can
@@ -489,7 +498,7 @@
       const isLay = !sel;
       const b = isLay ? layerBox(selLay, dims.W, dims.H) : boxOf(sel);
       const h = handlePos(b);
-      if (Math.hypot(p.x - h.x, p.y - h.y) <= Math.max(18, dims.W * 0.035)) {
+      if (Math.hypot(p.x - h.x, p.y - h.y) <= gripRadius()) {
         snap("scale");
         drag = {
           kind: "scale",
@@ -845,7 +854,12 @@
               onpointercancel={onUp}
               ondblclick={onDouble}
             ></canvas>
-            <p class="hint">Drag the text · corner grip scales &amp; spins · double-click to add</p>
+            <!-- Both halves of this line named gestures a phone doesn't have. -->
+            <p class="hint">
+              {S.isMobile
+                ? "Drag the text · drag the corner grip to scale and spin · double-tap to add one"
+                : "Drag the text · corner grip scales & spins · double-click to add"}
+            </p>
           {/if}
         </div>
 
@@ -896,9 +910,19 @@
             </div>
           {:else}
             <p class="pick">
-              {slots.length
-                ? `This template has ${slots.length} picture panel${slots.length > 1 ? "s" : ""} — paste (Ctrl+V) or drop a picture and it lands in the next one.`
-                : "Paste (Ctrl+V) or drop a picture and it goes on top of this one."}
+              <!-- Ctrl+V and drag-drop are the only routes this used to name,
+                   and neither exists on a phone — so a phone user read an
+                   instruction they couldn't follow and concluded the feature was
+                   desktop-only. The Add button above has always worked. -->
+              {#if S.isMobile}
+                {slots.length
+                  ? `This template has ${slots.length} picture panel${slots.length > 1 ? "s" : ""} — tap Add and your picture lands in the next one.`
+                  : "Tap Add to put a picture on top of this one."}
+              {:else}
+                {slots.length
+                  ? `This template has ${slots.length} picture panel${slots.length > 1 ? "s" : ""} — paste (Ctrl+V) or drop a picture and it lands in the next one.`
+                  : "Paste (Ctrl+V) or drop a picture and it goes on top of this one."}
+              {/if}
             </p>
           {/if}
 

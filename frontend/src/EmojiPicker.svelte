@@ -3,12 +3,25 @@
     EMOJI, CATEGORIES, searchEmoji, recentEmoji, pushRecentEmoji,
     SKIN_TONES, TONABLE, applyTone, emojiTone, setEmojiTone, emojiName,
   } from "./lib/emoji.js";
-  import { S, activeGuild } from "./lib/state.svelte.js";
+  import { S, activeGuild, registerOverlay } from "./lib/state.svelte.js";
 
   // Searchable, tabbed emoji grid. onPick(emoji) fires on selection. Closes on
   // Escape or an outside click (a short guard ignores the opening click).
-  let { onPick, onClose } = $props();
+  //
+  // onHeight reports the panel's height while it is a mobile bottom panel, so
+  // the composer can lift itself clear of it — otherwise the picker covers the
+  // very draft it types into, which is why picking used to close it every time.
+  let { onPick, onClose, onHeight } = $props();
   let query = $state("");
+  let panelH = $state(0);
+  $effect(() => {
+    onHeight?.(S.isMobile ? panelH : 0);
+    return () => onHeight?.(0);
+  });
+  // Hardware back closes the picker. Without this it skipped straight past to
+  // the drawers or App.exitApp() — and since the picker opens with the keyboard
+  // up, the reflexive "back to close" dismissed the IME and then quit the app.
+  $effect(() => registerOverlay(onClose));
   let recents = $state(recentEmoji());
   const openedAt = Date.now();
 
@@ -64,7 +77,7 @@
 
 <svelte:window onpointerdown={onOutside} onkeydown={(e) => e.key === "Escape" && onClose()} />
 
-<div class="picker" role="dialog">
+<div class="picker" role="dialog" bind:clientHeight={panelH}>
   {#if S.isMobile}
     <!-- Scrim lives INSIDE .picker (z-index:-1 within its stacking context):
          taps on it close the picker without also landing on the chat below,
@@ -329,7 +342,7 @@
   }
   .section-label {
     grid-column: 1 / -1;
-    font-size: 10px;
+    font-size: var(--fs-micro);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-muted);
@@ -342,7 +355,7 @@
     align-items: center;
     gap: 6px;
     padding: 34px 12px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-muted);
   }
   .none-face {
@@ -375,7 +388,7 @@
     object-fit: contain;
   }
   .pname {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-family: var(--font-mono, monospace);
     color: var(--text-muted);
     white-space: nowrap;
@@ -383,7 +396,7 @@
     text-overflow: ellipsis;
   }
   .phint {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   /* Hidden on desktop (anchored popover closes via outside-click). */
@@ -412,7 +425,9 @@
       position: fixed;
       left: 0;
       right: 0;
-      bottom: 0;
+      /* Clears the software keyboard when the platform draws it over the page
+         instead of resizing the layout viewport. Composer.svelte maintains it. */
+      bottom: var(--kb-inset, 0px);
       width: auto;
       border-left: none;
       border-right: none;
@@ -457,7 +472,12 @@
       inset: -4px;
     }
     .grid {
-      height: 42vh;
+      /* Was fixed at 8 columns, which is 39px a cell at 360px and 43px at 393 —
+         every target under the floor on the horizontal axis, in a grid where
+         every neighbour is another live target and a mis-pick can go straight
+         out as a reaction. Let the count follow the width instead. */
+      grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+      height: 46vh;
       gap: 4px;
     }
     .cell {
@@ -469,8 +489,12 @@
       width: 30px;
       height: 30px;
     }
-    .pchar {
-      font-size: 30px;
+    /* `preview` is set only by onmouseenter, which a finger never fires — so on
+       touch this was ~45px of a bottom sheet permanently reserved for a feature
+       that cannot happen, on the surface with the least room to spare. The grid
+       above takes the height back. */
+    .preview {
+      display: none;
     }
   }
 </style>

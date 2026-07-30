@@ -358,6 +358,25 @@
                   onkeydown={(e) => onHandleKey(i, e)}><Icon name="menu" size={12} /></button>
                 <input class="fname" maxlength="100" placeholder="Field name" bind:value={f.name} oninput={persist} />
                 <input class="fval" maxlength="400" placeholder="Field value" bind:value={f.value} oninput={persist} />
+                {#if S.isMobile}
+                  <!-- Android's WebView synthesises no HTML5 drag events from
+                       touch and a phone has no arrow keys, so the handle above
+                       responds to nothing there — with eight fields the only way
+                       to fix an ordering mistake was to delete and retype every
+                       row below it. Same moveField() the keyboard path uses. -->
+                  <button
+                    type="button"
+                    class="fmove"
+                    aria-label={`Move field ${i + 1} up`}
+                    disabled={i === 0}
+                    onclick={() => moveField(i, i - 1)}><Icon name="chevron" size={14} /></button>
+                  <button
+                    type="button"
+                    class="fmove down"
+                    aria-label={`Move field ${i + 1} down`}
+                    disabled={i === embed.fields.length - 1}
+                    onclick={() => moveField(i, i + 1)}><Icon name="chevron" size={14} /></button>
+                {/if}
                 <button type="button" class="fx" aria-label={`Remove field ${i + 1}`} title="Remove field" onclick={() => removeField(i)}>
                   <Icon name="close" size={12} />
                 </button>
@@ -675,6 +694,59 @@
   .fval {
     flex: 1;
     min-width: 0;
+  }
+  /* Desktop never renders these — the handle drags and ArrowUp/Down reorders. */
+  .fmove {
+    flex-shrink: 0;
+    width: var(--tap-min);
+    height: var(--tap-min);
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border-radius: 50%;
+    color: var(--text-muted);
+    background: transparent;
+  }
+  .fmove :global(svg) {
+    transform: rotate(90deg); /* the chevron points right at rest */
+  }
+  .fmove.down :global(svg) {
+    transform: rotate(-90deg);
+  }
+  .fmove:disabled {
+    opacity: 0.3;
+  }
+  /* On a phone the four controls plus two inputs cannot share 320px, so the
+     row becomes name / value / a control strip beneath them. */
+  @media (pointer: coarse) {
+    .frow {
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+    .frow .handle {
+      display: none; /* drag is unreachable here; the buttons replace it */
+    }
+    .fname,
+    .fval {
+      order: 1;
+      width: auto;
+      flex: 1 1 100%;
+    }
+    .fval {
+      order: 2;
+    }
+    .fmove {
+      order: 3;
+    }
+    .fmove:not(.down) {
+      margin-left: auto; /* the strip sits right, under the value it edits */
+    }
+    .frow .fx {
+      order: 4;
+      width: var(--tap-min);
+      height: var(--tap-min);
+      min-height: var(--tap-min);
+    }
   }
   .frow .fx {
     flex-shrink: 0;
