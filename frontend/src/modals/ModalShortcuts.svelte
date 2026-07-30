@@ -1,5 +1,6 @@
 <script>
   import Modal from "./Modal.svelte";
+  import { S } from "../lib/state.svelte.js";
   let { onClose } = $props();
 
   const groups = [
@@ -32,10 +33,15 @@
         [["Enter"], "Send message"],
         [["Shift", "Enter"], "New line"],
         [["↑"], "Edit your last message (empty composer)"],
-        [["/shrug", "/me", "/spoiler", "…"], "Slash commands"],
       ],
     },
     {
+      name: "Slash commands",
+      typed: true,
+      keys: [[["/shrug", "/me", "/spoiler", "…"], "Type one at the start of a message"]],
+    },
+    {
+      typed: true,
       name: "Formatting",
       keys: [
         [["**text**"], "Bold"],
@@ -50,11 +56,17 @@
       ],
     },
   ];
+
+  // A phone has no Ctrl, no Alt and no Esc, so four of the six groups describe
+  // chords the device cannot produce — four screens of them before reaching the
+  // one section (markdown you type) that does apply. Show only what's typeable,
+  // and say so in the title.
+  const shown = $derived(S.isMobile ? groups.filter((g) => g.typed) : groups);
 </script>
 
-<Modal title="Keyboard shortcuts & formatting" wide {onClose}>
+<Modal title={S.isMobile ? "Formatting" : "Keyboard shortcuts & formatting"} wide {onClose}>
   <div class="sc">
-    {#each groups as grp (grp.name)}
+    {#each shown as grp (grp.name)}
       <section class="sc-group">
         <h4>{grp.name}</h4>
         {#each grp.keys as [keys, desc] (desc)}
@@ -84,7 +96,7 @@
   }
   .sc-group h4 {
     margin: 0 0 4px;
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.08em;
@@ -96,7 +108,7 @@
     justify-content: space-between;
     gap: 16px;
     padding: 7px 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   }
   .sc-group h4 + .sc-row {
@@ -116,12 +128,12 @@
   }
   .sc-plus {
     color: var(--text-faint);
-    font-size: 10px;
+    font-size: var(--fs-tiny);
   }
   /* Proper keycaps: raised, subtle top-highlight, pressed-looking bottom edge. */
   kbd {
     font-family: ui-monospace, monospace;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     font-weight: 600;
     min-width: 22px;
     text-align: center;

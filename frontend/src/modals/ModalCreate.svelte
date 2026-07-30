@@ -1,6 +1,7 @@
 <script>
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import { S } from "../lib/state.svelte.js";
   let {
     onSubmit,
     onClose,
@@ -43,10 +44,13 @@
   {/if}
 
   <p class="muted">{hint}</p>
+  <!-- Not on a phone: the soft keyboard opens while the sheet is still running
+       its 0.28s slide-up, so the sheet's max-height recomputes mid-animation
+       and the panel visibly jumps. The field is one tap away. -->
   <input
     {placeholder}
     bind:value={name}
-    autofocus
+    autofocus={!S.isMobile}
     maxlength="48"
     onkeydown={(e) => e.key === "Enter" && name.trim() && onSubmit(name)}
   />

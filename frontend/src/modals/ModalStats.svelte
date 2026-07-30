@@ -4,8 +4,10 @@
   import Modal from "./Modal.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
+  import InfoDot from "./InfoDot.svelte";
   import { S, activeGuild, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { haptic } from "../lib/touch.js";
 
   let { onClose } = $props();
 
@@ -56,6 +58,21 @@
     return fmtDate(sec);
   }
   const transportLabel = { quic: "QUIC", tcp: "TCP", relay: "Relay", p2p: "P2P" };
+
+  // The full peer ID is the one thing you open a diagnostics panel to read, and
+  // it only ever existed in a title= tooltip — which a finger cannot produce.
+  // Tap the chip to put it on the clipboard instead.
+  let copied = $state("");
+  async function copyId(id) {
+    try {
+      await navigator.clipboard?.writeText(id);
+      haptic("light");
+      copied = id;
+      setTimeout(() => copied === id && (copied = ""), 1400);
+    } catch {
+      flash("Couldn't copy", "error");
+    }
+  }
 
   // ---- unlinking ----
   //
@@ -155,11 +172,15 @@
             {#if d.thisOne}
               <span class="pdev">this one</span>
             {:else if d.revokedAt}
-              <span class="pdev" title="Unlinked — it loses new traffic now and erases itself when it next connects">
-                unlinked
-              </span>
+              <span class="pdev">unlinked</span>
+              <InfoDot
+                text="Unlinked — it loses new traffic now and erases itself when it next connects."
+                label="What does unlinked mean?"
+              />
             {/if}
-            <code class="pid" title={d.peerId}>{d.peerId.slice(0, 12)}…{d.peerId.slice(-6)}</code>
+            <button class="pid" onclick={() => copyId(d.peerId)} title="Copy full ID">
+              {copied === d.peerId ? "copied" : `${d.peerId.slice(0, 12)}…${d.peerId.slice(-6)}`}
+            </button>
             <span class="prtt muted">
               {d.online ? "online" : `last seen ${fmtAgo(d.lastSeen)}`}
             </span>
@@ -191,11 +212,21 @@
       <div class="grid">
         <div class="stat"><span class="k">Database</span><span class="v">{fmtBytes(ns.dbSizeBytes)}</span></div>
         <div class="stat"><span class="k">Attachments</span><span class="v">{ns.attachmentCount} · {fmtBytes(ns.attachmentBytes)}</span></div>
-        <div class="stat" title="People/devices you're connected to, excluding rendezvous & relay nodes">
-          <span class="k">Peers online</span><span class="v">{ns.memberPeers}</span>
+        <div class="stat">
+          <span class="k">
+            Peers online<InfoDot
+              text="People and devices you're connected to, excluding rendezvous and relay nodes."
+              label="What counts as a peer?"
+            />
+          </span><span class="v">{ns.memberPeers}</span>
         </div>
-        <div class="stat" title="All libp2p connections, including rendezvous & relay infrastructure">
-          <span class="k">Connections</span><span class="v">{ns.peers}</span>
+        <div class="stat">
+          <span class="k">
+            Connections<InfoDot
+              text="All libp2p connections, including rendezvous and relay infrastructure."
+              label="What counts as a connection?"
+            />
+          </span><span class="v">{ns.peers}</span>
         </div>
         <div class="stat">
           <span class="k">Rendezvous</span>
@@ -224,19 +255,21 @@
               {#if grp.name}
                 <span class="pname">{grp.name}</span>
               {:else if grp.role !== "rendezvous"}
-                <span
-                  class="pname unknown"
-                  title="Connected peer whose profile you've never learned — someone else using your rendezvous, or a stray test instance"
-                >unknown peer</span>
-              {/if}
-              {#if grp.conns.length > 1}
-                <span class="pdev" title="One account, connected from more than one device">
-                  {grp.conns.length} devices
+                <span class="pname unknown">
+                  unknown peer<InfoDot
+                    text="A connected peer whose profile you've never learned — someone else using your rendezvous, or a stray test instance."
+                    label="What is an unknown peer?"
+                  />
                 </span>
               {/if}
-              <code class="pid" title={grp.conns.map((c) => c.id).join("\n")}>
-                {grp.conns[0].id.slice(0, 12)}…{grp.conns[0].id.slice(-6)}
-              </code>
+              {#if grp.conns.length > 1}
+                <span class="pdev">{grp.conns.length} devices</span>
+              {/if}
+              <button class="pid" onclick={() => copyId(grp.conns.map((c) => c.id).join("\n"))} title="Copy full ID">
+                {copied.startsWith(grp.conns[0].id)
+                  ? "copied"
+                  : `${grp.conns[0].id.slice(0, 12)}…${grp.conns[0].id.slice(-6)}`}
+              </button>
               {#if grp.role === "rendezvous"}<span class="prole">rendezvous</span>{/if}
               {#if grp.rtt > 0}<span class="prtt muted">{grp.rtt} ms</span>{/if}
               {#each grp.transports as t (t)}
@@ -274,7 +307,7 @@
     text-align: left;
   }
   .label {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -301,11 +334,11 @@
     border-radius: var(--radius-md);
   }
   .k {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   .v {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
   }
@@ -318,15 +351,22 @@
     gap: 4px;
     margin-top: 8px;
   }
+  /* Wraps, always. A peer row carries a dot, a name, a 19-character ID, a
+     latency, a transport pill and a direction — over 350px of unshrinkable
+     content in a sheet whose content box is 320px at 360px wide. Held on one
+     line it overflowed, and .dialog then computed overflow-x: auto and let the
+     whole settings sheet pan sideways under a thumb. */
   .peer {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
+    row-gap: 2px;
     padding: 6px 10px;
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .pdot {
     width: 7px;
@@ -340,13 +380,6 @@
   }
   .pdot.infra {
     background: var(--text-faint);
-  }
-  /* A device row carries more than a peer row does (name, id, when, latency,
-     transport, direction, the button), so it wraps onto a second line instead
-     of squeezing the name into two words per line. */
-  .peer.dev {
-    flex-wrap: wrap;
-    row-gap: 2px;
   }
   .peer.dev .pname {
     flex: none;
@@ -379,9 +412,10 @@
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
-  .unlink:hover:not(:disabled) {
+  .unlink:hover:not(:disabled),
+  .unlink:active:not(:disabled) {
     border-color: var(--danger);
     color: var(--danger);
   }
@@ -389,7 +423,7 @@
     opacity: 0.5;
   }
   .prole {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     padding: 1px 6px;
     border-radius: 999px;
     background: var(--bg-3);
@@ -402,7 +436,7 @@
   /* "2 devices" — quiet, next to the name it belongs to. */
   .pdev {
     flex: none;
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     padding: 1px 6px;
     border-radius: 999px;
     background: var(--bg-3);
@@ -413,13 +447,30 @@
     font-style: italic;
     color: var(--warn, #f0b232);
   }
+  /* A button, not a <code>: the full ID only ever lived in a title= tooltip,
+     which a touch device cannot open. Styled to stay a quiet inline chip. */
   .pid {
     font-family: var(--mono, monospace);
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--fs-small);
+    background: transparent;
+    border: none;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    border-radius: 5px;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pid:hover,
+  .pid:active {
+    background: var(--bg-3);
+    color: var(--text);
   }
   .prtt {
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-variant-numeric: tabular-nums;
   }
   .ptag {
@@ -428,16 +479,40 @@
     border-radius: 999px;
     background: var(--accent-soft);
     color: var(--accent-hover);
-    font-size: 11px;
+    font-size: var(--fs-small);
     font-weight: 600;
   }
   .pdir {
-    font-size: 11px;
+    font-size: var(--fs-small);
     min-width: 58px;
     text-align: right;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
+  }
+  /* One stat per row on a phone. Two columns left each cell ~148px of usable
+     width, and "↓ 12.4 KB/s ↑ 3.1 KB/s" simply does not fit in that. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .grid {
+      grid-template-columns: 1fr;
+    }
+    .stat {
+      flex-wrap: wrap;
+    }
+    /* The direction reserve is only there to line columns up on desktop; on a
+       wrapped row it just pushes the last item onto a line of its own. */
+    .pdir {
+      min-width: 0;
+      text-align: left;
+    }
+    /* The touch floor would turn the ID chip into a 44px block sitting in the
+       middle of a line of text. Keep it inline and buy the reach with padding
+       that the negative margin gives straight back to the layout. */
+    .pid {
+      min-height: 0;
+      padding: 7px 6px;
+      margin: -7px -6px;
+    }
   }
   .note {
     margin-top: 8px;

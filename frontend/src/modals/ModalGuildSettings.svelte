@@ -35,7 +35,12 @@
   const selected = $derived(art?.kind === "preset" ? art.template.id : "");
   // The shelves start open unless this guild already uses its own picture: then
   // the picker would be shouting over a decision that's already been made.
-  let picking = $state(!(g?.banner && !guildBannerArt(g.banner)?.template));
+  //
+  // …and never on a phone. The shelf drops its own scroller on touch (see
+  // .shelves below), so open-by-default put roughly eight rows of tiles —
+  // ~600px — between the name field and the Save button, with nothing to
+  // suggest a Save button existed. It's one tap to open.
+  let picking = $state(!S.isMobile && !(g?.banner && !guildBannerArt(g.banner)?.template));
 
   // Read an image file to a data URI. Kept raw (no canvas re-encode) so animated
   // GIF banners keep animating; rejected if too big for a gossip frame.
@@ -270,7 +275,7 @@
     padding: 4px 0;
     background: transparent;
     color: var(--text);
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     font-weight: 600;
   }
   .tpl-toggle :global(svg) {
@@ -286,6 +291,7 @@
   }
   .shelves {
     max-height: 40vh;
+    max-height: 40dvh; /* fallback line above; dvh shrinks with the keyboard */
     overflow-y: auto;
     margin: -4px -2px 0;
     padding: 0 2px;
@@ -296,7 +302,7 @@
   /* A phone sheet already scrolls, and it gives the dialog its own scrollbar: a
      150px scroller nested inside that is a trap for a thumb. On touch the whole
      shelf just lays out and the sheet scrolls it. */
-  @media (pointer: coarse), (max-width: 700px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .shelves {
       flex: none;
       max-height: none;
@@ -305,7 +311,7 @@
     }
   }
   .gtitle {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-faint);
@@ -335,11 +341,18 @@
   .tile.sel {
     border-color: var(--accent);
   }
-  .tile:not(:hover):not(.sel) :global(.fxfield) {
-    display: none;
-  }
-  .tile:not(:hover):not(.sel) :global(.drift) {
-    animation-play-state: paused;
+  /* Mouse only. On touch there is no hover, so the only tile a phone user ever
+     saw move was the one already chosen — while the heading above sells them as
+     "drawn scenes, animated". `content-visibility: auto` on .tile means only
+     the tiles actually on screen paint at all, so letting them all run costs
+     nothing a phone can feel. */
+  @media (pointer: fine) {
+    .tile:not(:hover):not(.sel) :global(.fxfield) {
+      display: none;
+    }
+    .tile:not(:hover):not(.sel) :global(.drift) {
+      animation-play-state: paused;
+    }
   }
   .tile :global(.art) {
     display: block;
@@ -356,7 +369,7 @@
     color: var(--text-faint);
   }
   .tname {
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     color: var(--text-muted);
     text-align: center;
     padding-bottom: 3px;
@@ -395,7 +408,7 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     padding: 4px 9px;
     background: rgba(0, 0, 0, 0.55);
     color: #fff;
@@ -448,7 +461,7 @@
   /* Touch has no hover, so the hint has to be permanent — but covering the tile
      printed "CHANGE" through the guild initial and neither could be read. A
      bottom strip says the same thing and leaves the tile legible. */
-  @media (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .cam-overlay {
       inset: auto 0 0 0;
       align-content: center;
@@ -463,7 +476,7 @@
     flex-direction: column;
     gap: 4px;
     text-align: left;
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .grow {
     flex: 1;
@@ -471,10 +484,10 @@
   textarea {
     resize: vertical;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 8px 10px;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
 </style>

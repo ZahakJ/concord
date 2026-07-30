@@ -52,7 +52,7 @@
 <style>
   .lead {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .input-well {
     position: relative;
@@ -75,7 +75,7 @@
     align-items: center;
     gap: 5px;
     align-self: flex-start;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     color: var(--ok-text);
     animation: chip-in 0.18s ease both;
   }
@@ -118,7 +118,7 @@
     background: transparent;
     resize: vertical;
     font-family: ui-monospace, monospace;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     min-height: 80px;
   }
   textarea:focus {
@@ -131,12 +131,13 @@
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     padding: 4px 10px;
     background: var(--bg-3);
     color: var(--text-muted);
   }
-  .paste:hover {
+  .paste:hover,
+  .paste:active {
     background: var(--border);
     color: var(--text);
   }

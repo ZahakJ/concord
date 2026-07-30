@@ -1,5 +1,6 @@
 <script>
   import Modal from "./Modal.svelte";
+  import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
@@ -88,7 +89,13 @@
     }
   }
 
+  // Removing an emoji is guild-wide and breaks every :name: already typed, so
+  // it asks first — the trash button used to be a one-tap unlabelled hit target
+  // that a phone could not even see (.rm below).
+  let confirmRm = $state("");
+
   async function remove(n) {
+    confirmRm = "";
     try {
       await api.removeCustomEmoji(g.id, n);
       await refreshGuilds();
@@ -137,7 +144,7 @@
       <div class="item" title=":{e.name}:">
         <img src={e.image} alt=":{e.name}:" />
         <span class="ename">:{e.name}:</span>
-        <button class="rm" aria-label="Remove :{e.name}:" onclick={() => remove(e.name)}>
+        <button class="rm" aria-label="Remove :{e.name}:" onclick={() => (confirmRm = e.name)}>
           <Icon name="trash" size={13} />
         </button>
       </div>
@@ -151,17 +158,27 @@
   </div>
 </Modal>
 
+{#if confirmRm}
+  <ConfirmDialog
+    title="Remove :{confirmRm}:?"
+    body="Nobody in this guild will be able to use it, and messages that already do will show the plain text."
+    confirmLabel="Remove"
+    onConfirm={() => remove(confirmRm)}
+    onClose={() => (confirmRm = "")}
+  />
+{/if}
+
 <style>
   .lead {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.5;
   }
   .lead code {
     background: var(--bg-0);
     padding: 1px 5px;
     border-radius: 4px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .add-row {
     display: flex;
@@ -209,7 +226,8 @@
   .name-in {
     flex: 1;
     font-family: ui-monospace, monospace;
-    font-size: 13px;
+    font-size: var(--fs-ui);
+    min-width: 0; /* the flex default keeps the field at its size attribute and pushes Add off the row */
   }
   .list {
     display: flex;
@@ -217,6 +235,14 @@
     gap: 4px;
     max-height: 240px;
     overflow-y: auto;
+  }
+  /* Nested scrollers inside a sheet that already scrolls are thumb traps — the
+     sheet's own scroll covers this list. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .list {
+      max-height: none;
+      overflow-y: visible;
+    }
   }
   .item {
     display: flex;
@@ -235,20 +261,36 @@
   }
   .ename {
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: ui-monospace, monospace;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .rm {
     background: transparent;
     color: var(--danger-text);
     padding: 4px 6px;
-    opacity: 0;
   }
-  .item:hover .rm {
-    opacity: 1;
+  /* Hidden-until-hover is a MOUSE affordance. Off a mouse, opacity:0 hides the
+     control without removing it from hit-testing, so the phone got an invisible
+     live "remove this emoji" target at the right edge of every row. */
+  @media (pointer: fine) {
+    .rm {
+      opacity: 0;
+    }
+    .item:hover .rm,
+    .item:focus-within .rm {
+      opacity: 1;
+    }
+  }
+  .rm:active {
+    background: color-mix(in srgb, var(--danger) 18%, transparent);
+    border-radius: var(--radius-sm);
   }
   .empty {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 8px;
   }
 </style>

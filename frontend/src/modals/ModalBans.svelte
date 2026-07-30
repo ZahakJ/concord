@@ -62,7 +62,7 @@
 
 <style>
   .empty {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 8px 2px;
   }
   .list {
@@ -71,6 +71,14 @@
     gap: 2px;
     max-height: 320px;
     overflow-y: auto;
+  }
+  /* One scroller per sheet: a list that scrolls inside a sheet that scrolls
+     makes the sheet feel arbitrarily sticky under a thumb. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .list {
+      max-height: none;
+      overflow-y: visible;
+    }
   }
   .ban-row {
     display: flex;
@@ -87,15 +95,17 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .unban {
     padding: 5px 12px;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     background: var(--bg-3);
     border-radius: var(--radius-sm);
+    flex: none;
   }
-  .unban:hover {
+  .unban:hover,
+  .unban:active {
     background: var(--accent);
     color: var(--accent-fg);
   }

@@ -85,7 +85,7 @@
     align-self: center;
   }
   .tiny {
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
   .warn {
     color: var(--danger-text);

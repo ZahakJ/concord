@@ -4,13 +4,29 @@
   import Avatar from "../Avatar.svelte";
   import { S, flash, refreshGuilds, nameFor } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { haptic } from "../lib/touch.js";
   let { code, onCopy, onClose } = $props();
 
   let copied = $state(false);
   function copy() {
     onCopy(code);
+    haptic("light");
     copied = true;
     setTimeout(() => (copied = false), 1600);
+  }
+
+  // On a phone the whole point of this screen is to get the code INTO
+  // WhatsApp/Signal/Messages. Copy-then-switch-apps-then-paste is the desktop
+  // metaphor; the OS share sheet is one tap. Offered only where it exists, and
+  // it falls back to Copy if the sheet is dismissed or the API is missing.
+  const canShare = typeof navigator !== "undefined" && !!navigator.share && S.isMobile;
+  async function share() {
+    try {
+      await navigator.share({ text: code });
+      haptic("light");
+    } catch {
+      /* dismissed, or the platform refused — the Copy button is still there */
+    }
   }
 
   // Add verified contacts straight in — no code needed. Their client
@@ -44,10 +60,17 @@
 
   <div class="code-well">
     <code>{code}</code>
-    <button class="copy" class:copied onclick={copy}>
-      <Icon name={copied ? "check" : "spark"} size={14} />
-      {copied ? "Copied" : "Copy code"}
-    </button>
+    <div class="give">
+      {#if canShare}
+        <button class="share" onclick={share}>
+          <Icon name="spark" size={14} /> Share code…
+        </button>
+      {/if}
+      <button class="copy" class:copied class:secondary={canShare} onclick={copy}>
+        <Icon name={copied ? "check" : "spark"} size={14} />
+        {copied ? "Copied" : "Copy code"}
+      </button>
+    </div>
   </div>
 
   <p class="hint muted">
@@ -87,7 +110,7 @@
 <style>
   .lead {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.55;
   }
   .divider {
@@ -95,7 +118,7 @@
     margin: 4px 0;
   }
   .add-head {
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .add-list {
     display: flex;
@@ -120,7 +143,7 @@
     flex: 1;
   }
   .who strong {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -129,7 +152,7 @@
     font-family: ui-monospace, monospace;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   .add-btn {
     flex-shrink: 0;
@@ -137,7 +160,7 @@
     background: var(--accent);
     color: var(--accent-fg);
     border-radius: var(--radius-sm);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .add-btn:disabled {
     opacity: 0.6;
@@ -188,12 +211,26 @@
   }
   code {
     font-family: ui-monospace, monospace;
-    font-size: 12px;
+    font-size: var(--fs-compact);
     line-height: 1.5;
     word-break: break-all;
     color: var(--text);
     max-height: 120px;
     overflow-y: auto;
+  }
+  .give {
+    display: flex;
+    gap: 8px;
+  }
+  .share {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    padding: 7px 16px;
   }
   .copy {
     align-self: flex-start;
@@ -201,7 +238,7 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     padding: 7px 16px;
     transition:
@@ -232,13 +269,33 @@
     align-items: center;
     gap: 6px;
     margin: 0;
-    font-size: 12px;
+    font-size: var(--fs-compact);
   }
-  /* Phone: the copy action is the whole point — make it unmissable. */
-  @media (pointer: coarse), (max-width: 700px) {
+  /* Phone: handing the code over is the whole point — make it unmissable, and
+     demote Copy to a quiet partner once the OS share sheet is available. */
+  @media (pointer: coarse), (max-width: 768px) {
     .copy {
       align-self: stretch;
+      flex: 1;
       min-height: 48px;
+    }
+    .share {
+      min-height: 48px;
+    }
+    .copy.secondary {
+      flex: 0 0 auto;
+      background: var(--bg-3);
+      color: var(--text);
+    }
+    /* The code is already inside a sheet that scrolls; a 120px window on it was
+       one more thumb trap, and it made a long code look truncated. */
+    code {
+      max-height: none;
+      overflow-y: visible;
+    }
+    .add-list {
+      max-height: none;
+      overflow-y: visible;
     }
   }
 </style>

@@ -164,7 +164,7 @@
     border: 1px solid var(--border);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
     color: var(--text);
-    font-size: 12px;
+    font-size: var(--fs-compact);
     font-weight: 400;
     font-style: normal;
     line-height: 1.5;

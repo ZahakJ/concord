@@ -79,7 +79,7 @@
 </script>
 
 <Modal title="New message" {onClose}>
-  <input class="search" bind:value={query} placeholder="Search contacts…" autofocus />
+  <input class="search" bind:value={query} placeholder="Search contacts…" autofocus={!S.isMobile} />
 
   {#if isGroup}
     <p class="hint muted">
@@ -123,10 +123,10 @@
 
 <style>
   .search {
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .hint {
-    font-size: 12px;
+    font-size: var(--fs-compact);
     margin: 8px 0 0;
   }
   .warn {
@@ -150,7 +150,8 @@
     padding: 7px 8px;
     border-radius: var(--radius-sm);
   }
-  .row:hover {
+  .row:hover,
+  .row:active {
     background: var(--bg-3);
   }
   .row.sel {
@@ -183,7 +184,7 @@
   }
   .none {
     padding: 14px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     text-align: center;
   }
   .foot {
@@ -191,6 +192,28 @@
     align-items: center;
     justify-content: space-between;
     margin-top: 12px;
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    /* Two nested scrollers in one sheet means a flick that starts inside the
+       list moves the list and the same flick 4px outside moves the sheet. One
+       scroller — the sheet's — behaves predictably. */
+    .list {
+      max-height: none;
+      overflow-y: visible;
+    }
+    /* …which makes the sheet tall, so its commit button has to be pinned or a
+       long contact list strands it below the fold. This footer isn't the shared
+       `.actions` class Modal pins for free, so it pins itself. */
+    .foot {
+      position: sticky;
+      bottom: calc(-20px - env(safe-area-inset-bottom));
+      z-index: 2;
+      gap: 10px;
+      margin: 12px -20px calc(-20px - env(safe-area-inset-bottom));
+      padding: 10px 20px calc(10px + env(safe-area-inset-bottom));
+      background: var(--bg-elevated);
+      border-top: 1px solid var(--border);
+    }
   }
   .link {
     background: transparent;

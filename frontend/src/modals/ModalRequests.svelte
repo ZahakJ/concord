@@ -81,12 +81,12 @@
 
 <style>
   .empty {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.5;
     margin: 0;
   }
   .intro {
-    font-size: 11px;
+    font-size: var(--fs-small);
     line-height: 1.5;
     margin: 0 0 10px;
   }
@@ -112,7 +112,7 @@
     flex: 1;
   }
   .who strong {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -126,7 +126,7 @@
     white-space: nowrap;
   }
   .tiny {
-    font-size: 11px;
+    font-size: var(--fs-small);
   }
   .acts {
     display: flex;
@@ -139,17 +139,19 @@
     align-items: center;
     gap: 5px;
     padding: 6px 11px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-radius: var(--radius-sm);
   }
   .acts .ghost {
     background: var(--bg-3);
     color: var(--text);
   }
-  .acts .ghost:hover {
+  .acts .ghost:hover,
+  .acts .ghost:active {
     background: var(--bg-2);
   }
-  .acts .danger:hover {
+  .acts .danger:hover,
+  .acts .danger:active {
     background: var(--danger);
     color: var(--danger-fg);
   }
