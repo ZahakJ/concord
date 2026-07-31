@@ -242,7 +242,7 @@
       max-height: 92dvh;
       border: none;
       border-radius: 18px 18px 0 0;
-      padding-bottom: calc(20px + env(safe-area-inset-bottom));
+      padding-bottom: calc(20px + var(--safe-bottom));
       animation: sheet-up 0.28s cubic-bezier(0.22, 1.1, 0.36, 1);
       touch-action: pan-y;
     }
@@ -313,10 +313,10 @@
        what every use of this class in the app is. */
     .dialog :global(.actions) {
       position: sticky;
-      bottom: calc(-20px - env(safe-area-inset-bottom));
+      bottom: calc(-20px - var(--safe-bottom));
       z-index: 2;
-      margin: 8px -20px calc(-20px - env(safe-area-inset-bottom));
-      padding: 10px 20px calc(10px + env(safe-area-inset-bottom));
+      margin: 8px -20px calc(-20px - var(--safe-bottom));
+      padding: 10px 20px calc(10px + var(--safe-bottom));
       background: var(--bg-elevated);
       border-top: 1px solid var(--border);
     }

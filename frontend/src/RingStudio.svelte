@@ -440,7 +440,7 @@
       max-width: none;
       max-height: 88vh;
       border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-      padding: var(--sp-3) var(--sp-3) calc(var(--sp-3) + env(safe-area-inset-bottom));
+      padding: var(--sp-3) var(--sp-3) calc(var(--sp-3) + var(--safe-bottom));
     }
     .x,
     .sat-btn,

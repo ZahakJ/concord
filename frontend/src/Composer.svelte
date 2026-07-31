@@ -2182,7 +2182,7 @@
        covering it — subtract whatever the keyboard or the emoji panel occupies
        rather than stacking a dead strip on top of them. */
     padding: 0 var(--sp-3)
-      calc(var(--sp-2) + max(env(safe-area-inset-bottom) - var(--kb-inset, 0px) - var(--ep-h, 0px), 0px));
+      calc(var(--sp-2) + max(var(--safe-bottom) - var(--kb-inset, 0px) - var(--ep-h, 0px), 0px));
   }
   /* Reserve what the software keyboard covers (0 when the platform already
      resized the layout viewport for us) and, while the emoji panel is up, its

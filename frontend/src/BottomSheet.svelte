@@ -165,7 +165,7 @@
        remainder is handed to the message feed behind the scrim, which is the
        classic "the wrong thing moved" feeling. */
     overscroll-behavior: contain;
-    padding: 0 10px calc(12px + env(safe-area-inset-bottom));
+    padding: 0 10px calc(12px + var(--safe-bottom));
   }
   @keyframes bs-fade {
     from {

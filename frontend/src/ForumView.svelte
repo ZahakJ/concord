@@ -1662,7 +1662,12 @@
     border-radius: 0;
   }
   .posts.list .body {
-    padding: 11px 4px 11px 0;
+    /* The card is a grid with NO column gap and the media column is a
+       full-bleed image, so a zero left padding put the title literally against
+       the edge of the artwork. It reads as a rendering fault rather than a
+       layout — most visible on a narrow window, where the text column is
+       tightest, but it was wrong at every width. */
+    padding: 11px var(--sp-2) 11px var(--sp-3);
   }
 
   /* ---- layout: gallery ------------------------------------------------- */
@@ -1989,7 +1994,7 @@
   .fab {
     position: fixed;
     right: 16px;
-    bottom: calc(18px + env(safe-area-inset-bottom));
+    bottom: calc(18px + var(--safe-bottom));
     z-index: 40;
     display: grid;
     place-items: center;
@@ -2014,7 +2019,7 @@
       /* The FAB's own offset is 18px + the home indicator, and it is 54px tall,
          so a flat 88px left it sitting ~18px over the last card on any
          gesture-nav phone. Reserve what the FAB actually occupies. */
-      padding-bottom: calc(88px + env(safe-area-inset-bottom));
+      padding-bottom: calc(88px + var(--safe-bottom));
     }
     .hero {
       min-height: 148px;

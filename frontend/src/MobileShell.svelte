@@ -324,10 +324,12 @@
       const vel = target === "left" ? drag.vel : -drag.vel;
       const open = Math.abs(vel) > 0.35 ? vel > 0 : frac > 0.5;
       dragging = false;
-      const was = target === "left" ? S.drawerOpen : S.membersOpen;
-      // The snap is the most physical moment in the app and it happens under the
-      // finger, often while the eye is still on the chat. Confirm it by feel.
-      if (open !== was) haptic("light");
+      // Deliberately NO haptic on the drawer snap. Opening and closing the
+      // drawer is the single most frequent gesture in the app and it is already
+      // fully visible — the drawer is tracking your finger. A buzz on something
+      // you do dozens of times an hour reads as a twitchy phone, not as
+      // feedback. Haptics are kept for things you cannot see happen or cannot
+      // undo: a long-press registering, a destructive confirm, a call ending.
       if (target === "left") {
         leftFrac = open ? 1 : 0;
         S.drawerOpen = open;
@@ -371,7 +373,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="mshell"
-  style="--mchrome: calc(52px + env(safe-area-inset-top) + {searchOpen ? 46 : 0}px + {conn.show
+  style="--mchrome: calc(52px + var(--safe-top) + {searchOpen ? 46 : 0}px + {conn.show
     ? 38
     : 0}px)"
   ontouchstart={onTouchStart}
@@ -568,9 +570,9 @@
        system bars, so on the phone this app actually ships to, env() alone
        meant the composer sat under the gesture pill and the whole feed sat
        under the keyboard. max() takes whichever platform answered. */
-    padding-bottom: calc(max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)) + var(--kb, 0px));
-    padding-left: max(env(safe-area-inset-left), var(--sa-left, 0px));
-    padding-right: max(env(safe-area-inset-right), var(--sa-right, 0px));
+    padding-bottom: calc(max(var(--safe-bottom), var(--sa-bottom, 0px)) + var(--kb, 0px));
+    padding-left: max(var(--safe-left), var(--sa-left, 0px));
+    padding-right: max(var(--safe-right), var(--sa-right, 0px));
   }
   /* Press feedback for lib/touch.js's longpress action: until the sheet opens
      ~400ms later there is otherwise no sign the press registered, and on
@@ -601,7 +603,7 @@
     height: 52px;
     flex-shrink: 0;
     padding: 0 6px;
-    padding-top: max(env(safe-area-inset-top), var(--sa-top, 0px));
+    padding-top: max(var(--safe-top), var(--sa-top, 0px));
     box-sizing: content-box;
     background: var(--bg-1);
     border-bottom: 1px solid var(--border);
@@ -798,18 +800,18 @@
      they pad themselves. Without the bottom one the settings gear and profile
      row at the foot of the channel list sit under the gesture nav bar. */
   .drawer {
-    padding-top: max(env(safe-area-inset-top), var(--sa-top, 0px));
-    padding-bottom: calc(max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)) + var(--kb, 0px));
+    padding-top: max(var(--safe-top), var(--sa-top, 0px));
+    padding-bottom: calc(max(var(--safe-bottom), var(--sa-bottom, 0px)) + var(--kb, 0px));
   }
   /* A hairline edge highlight so the drawer's rim catches the light. */
   .drawer.left {
     left: 0;
-    padding-left: max(env(safe-area-inset-left), var(--sa-left, 0px));
+    padding-left: max(var(--safe-left), var(--sa-left, 0px));
     border-right: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   }
   .drawer.right {
     right: 0;
-    padding-right: max(env(safe-area-inset-right), var(--sa-right, 0px));
+    padding-right: max(var(--safe-right), var(--sa-right, 0px));
     border-left: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
   }
   .drawer-rail {

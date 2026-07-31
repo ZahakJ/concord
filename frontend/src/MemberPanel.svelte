@@ -238,7 +238,7 @@
     border-left: 1px solid var(--border);
     /* index.html asks for viewport-fit=cover, so in the right-hand drawer the
        last row would sit under the home indicator without the inset. */
-    padding: 12px 8px calc(12px + env(safe-area-inset-bottom));
+    padding: 12px 8px calc(12px + var(--safe-bottom));
     overflow-y: auto;
     /* A fling that runs out of member list stops there instead of dragging the
        message feed visible past the open drawer's edge. */

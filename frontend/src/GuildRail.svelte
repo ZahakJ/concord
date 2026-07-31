@@ -646,7 +646,7 @@
     flex-direction: column;
     align-items: center;
     gap: 8px;
-    padding: 8px 0 calc(10px + env(safe-area-inset-bottom));
+    padding: 8px 0 calc(10px + var(--safe-bottom));
     border-top: 1px solid var(--border);
     background: var(--bg-0);
   }

@@ -1695,7 +1695,7 @@
        lets the OS nav overlap the self row and its settings/sign-out button.
        env() is 0 on desktop, so this is a no-op there. */
     padding: 8px;
-    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    padding-bottom: calc(8px + var(--safe-bottom));
     border-top: 1px solid var(--border);
     background: var(--bg-0);
     /* Your own framed avatar lives here; its ring overflows by design. */

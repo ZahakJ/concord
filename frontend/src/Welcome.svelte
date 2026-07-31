@@ -295,7 +295,7 @@
       padding: 6px 12px;
     }
     .welcome {
-      padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+      padding: 20px 16px calc(20px + var(--safe-bottom));
     }
   }
 </style>

@@ -99,7 +99,7 @@
   }
 
   // Where the phone bar sits: directly under the mobile top bar, measured rather
-  // than assumed. The bar is 52px plus env(safe-area-inset-top), and that inset
+  // than assumed. The bar is 52px plus var(--safe-top), and that inset
   // is 24-48px on an edge-to-edge Android and 47-59px on iOS — the old constant
   // 70px default parked this widget squarely on top of it, covering the Members
   // and ⋯ buttons.

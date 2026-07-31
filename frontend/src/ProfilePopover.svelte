@@ -685,7 +685,7 @@
     z-index: 401;
     border: none;
     border-radius: 16px 16px 0 0;
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: var(--safe-bottom);
     animation: pp-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
   }
   @keyframes pp-up {

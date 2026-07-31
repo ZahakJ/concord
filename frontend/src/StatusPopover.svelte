@@ -393,7 +393,7 @@
     overscroll-behavior: contain;
     border: none;
     border-radius: 18px 18px 0 0;
-    padding: 14px 14px calc(16px + env(safe-area-inset-bottom));
+    padding: 14px 14px calc(16px + var(--safe-bottom));
     animation: sheet-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
   }
   @keyframes sheet-up {

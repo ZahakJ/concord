@@ -433,7 +433,7 @@
       border-right: none;
       border-bottom: none;
       border-radius: 18px 18px 0 0;
-      padding-bottom: calc(10px + env(safe-area-inset-bottom));
+      padding-bottom: calc(10px + var(--safe-bottom));
       box-shadow: var(--shadow-pop);
       z-index: 90;
       /* Bottom-panel presentation slides up like the app's sheets. */

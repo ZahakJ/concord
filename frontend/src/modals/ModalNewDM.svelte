@@ -206,11 +206,11 @@
        `.actions` class Modal pins for free, so it pins itself. */
     .foot {
       position: sticky;
-      bottom: calc(-20px - env(safe-area-inset-bottom));
+      bottom: calc(-20px - var(--safe-bottom));
       z-index: 2;
       gap: 10px;
-      margin: 12px -20px calc(-20px - env(safe-area-inset-bottom));
-      padding: 10px 20px calc(10px + env(safe-area-inset-bottom));
+      margin: 12px -20px calc(-20px - var(--safe-bottom));
+      padding: 10px 20px calc(10px + var(--safe-bottom));
       background: var(--bg-elevated);
       border-top: 1px solid var(--border);
     }

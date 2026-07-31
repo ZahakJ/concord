@@ -666,7 +666,7 @@
       max-height: 88dvh;
       border: none;
       border-radius: 16px 16px 0 0;
-      padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
+      padding: 16px 14px calc(16px + var(--safe-bottom));
     }
     /* The remove button was revealed only on :hover — on touch that is an
        invisible control that still takes taps, which is worse than no control

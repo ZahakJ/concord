@@ -1299,7 +1299,7 @@
     position: absolute;
     left: var(--sp-3);
     right: var(--sp-3);
-    bottom: calc(var(--sp-3) + max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)));
+    bottom: calc(var(--sp-3) + max(var(--safe-bottom), var(--sa-bottom, 0px)));
     display: flex;
     align-items: center;
     gap: var(--sp-2);
@@ -1374,7 +1374,7 @@
   /* Update-available banner: a floating top-center pill (doesn't cover the rail). */
   .update-banner {
     position: fixed;
-    top: calc(12px + max(env(safe-area-inset-top), var(--sa-top, 0px)));
+    top: calc(12px + max(var(--safe-top), var(--sa-top, 0px)));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -1432,7 +1432,7 @@
   /* Incoming-call card. */
   .knock-wait {
     position: fixed;
-    top: calc(16px + max(env(safe-area-inset-top), var(--sa-top, 0px)));
+    top: calc(16px + max(var(--safe-top), var(--sa-top, 0px)));
     max-width: calc(100vw - 24px);
     left: 50%;
     transform: translateX(-50%);
@@ -1614,7 +1614,7 @@
       font-size: var(--fs-ui);
     }
     .ring-card {
-      top: calc(10px + env(safe-area-inset-top));
+      top: calc(10px + var(--safe-top));
       left: 12px;
       right: 12px;
       transform: none;

@@ -1465,7 +1465,7 @@
          tiles and name badges rendered between the buttons, and the band
          stopped 16px short of the panel edges. */
       margin: 0 -16px;
-      padding: 10px 16px calc(14px + env(safe-area-inset-bottom));
+      padding: 10px 16px calc(14px + var(--safe-bottom));
       background: var(--bg-0);
       border-top: 1px solid var(--border);
     }

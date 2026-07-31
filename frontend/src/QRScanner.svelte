@@ -198,7 +198,7 @@
   .hint {
     position: absolute;
     /* --sa-* is the Android inset bridge (MainActivity); env() is iOS. */
-    bottom: calc(48px + max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)));
+    bottom: calc(48px + max(var(--safe-bottom), var(--sa-bottom, 0px)));
     left: 24px;
     right: 24px;
     text-align: center;
@@ -214,7 +214,7 @@
      holds the phone at the code. */
   .torch {
     position: absolute;
-    bottom: calc(100px + max(env(safe-area-inset-bottom), var(--sa-bottom, 0px)));
+    bottom: calc(100px + max(var(--safe-bottom), var(--sa-bottom, 0px)));
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -266,7 +266,7 @@
   }
   .close {
     position: absolute;
-    top: calc(14px + max(env(safe-area-inset-top), var(--sa-top, 0px)));
+    top: calc(14px + max(var(--safe-top), var(--sa-top, 0px)));
     right: 14px;
     width: max(44px, var(--tap-min));
     height: max(44px, var(--tap-min));

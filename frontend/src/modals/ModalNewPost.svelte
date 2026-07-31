@@ -600,10 +600,10 @@
        sits flush on the edge rather than floating above it. */
     .actions {
       position: sticky;
-      bottom: calc(-20px - env(safe-area-inset-bottom));
+      bottom: calc(-20px - var(--safe-bottom));
       z-index: 2;
-      margin: 0 -20px calc(-20px - env(safe-area-inset-bottom));
-      padding: 12px 20px calc(12px + env(safe-area-inset-bottom));
+      margin: 0 -20px calc(-20px - var(--safe-bottom));
+      padding: 12px 20px calc(12px + var(--safe-bottom));
       background: var(--bg-elevated);
       border-top: 1px solid var(--border);
     }

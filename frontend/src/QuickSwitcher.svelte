@@ -389,7 +389,7 @@
       max-width: none;
       border: none;
       border-radius: 0 0 16px 16px;
-      padding-top: calc(12px + env(safe-area-inset-top));
+      padding-top: calc(12px + var(--safe-top));
     }
     .switcher input {
       font-size: 16px; /* stops iOS auto-zoom on focus */

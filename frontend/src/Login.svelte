@@ -795,8 +795,8 @@
       display: flex;
       overflow-y: auto;
       overscroll-behavior: contain;
-      padding: calc(12px + env(safe-area-inset-top)) var(--sp-edge)
-        calc(12px + env(safe-area-inset-bottom));
+      padding: calc(12px + var(--safe-top)) var(--sp-edge)
+        calc(12px + var(--safe-bottom));
     }
     /* Full-bleed onboarding on a phone — no floating "card in a box". It blends
        into the screen like every other native sheet, top-aligned with room to

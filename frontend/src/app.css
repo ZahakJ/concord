@@ -137,6 +137,24 @@
   --sp-6: 32px;
   --sp-edge: 16px;
 
+  /* ---- Safe areas -------------------------------------------------------
+     ALWAYS use these, never env(safe-area-inset-*) directly.
+
+     Android's WebView resolves env(safe-area-inset-*) to the display cutout
+     ONLY — never the status bar, the gesture/3-button nav bar or the IME. Since
+     targetSdk 36 forces edge-to-edge, a bare env() rule is simply zero on a
+     phone, and the app draws under the clock and under the nav bar. That is not
+     a theoretical gap: it shipped, and the top and bottom of the app were sitting
+     underneath the system bars.
+
+     MainActivity reads the real insets and publishes --sa-* on :root. iOS and
+     desktop never set those, so env() carries them there. max() takes whichever
+     platform actually answered. */
+  --safe-top: max(env(safe-area-inset-top), var(--sa-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom), var(--sa-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left), var(--sa-left, 0px));
+  --safe-right: max(env(safe-area-inset-right), var(--sa-right, 0px));
+
   /* Minimum hit area. A mouse is pixel-accurate; a fingertip covers ~9mm, which
      is why every touch platform specifies ~44px. Controls may LOOK smaller —
      pad or use a ::before overlay to reach the target without redrawing. */
@@ -148,7 +166,7 @@
      painting over it. MobileShell owns the value and should grow it while the
      connection pill or the search row are showing; the default is the bare
      top bar. Zero-cost on desktop, where nothing consumes it. */
-  --mchrome: calc(52px + env(safe-area-inset-top));
+  --mchrome: calc(52px + var(--safe-top));
 
   /* Legacy aliases (pre-token components reference these). */
   --bg: var(--bg-2);

@@ -536,8 +536,8 @@
      beneath the clock and the camera cutout. */
   .lb-bar {
     position: absolute;
-    top: calc(14px + env(safe-area-inset-top));
-    right: calc(16px + env(safe-area-inset-right));
+    top: calc(14px + var(--safe-top));
+    right: calc(16px + var(--safe-right));
     display: flex;
     align-items: center;
     gap: 10px;
