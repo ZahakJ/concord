@@ -74,23 +74,124 @@
     if (g?.id) load();
   });
 
-  // Decrypted previews, keyed by blob id. `started` is a plain Set, not state:
-  // it only guards against firing the same fetch twice, and making it reactive
-  // would re-run this effect on every resolution.
+  // ---- The grid, shared by both tabs ----
+  //
+  // Masonry, not squares: GIFs are every shape, and cropping them all to one
+  // 90px strip (the old grid) wasted half the sheet on letterboxing and cost a
+  // caption row per tile besides. Tiles keep their own aspect ratio, so the
+  // name moves into title/alt where screen readers and mouse hover still get
+  // it, and roughly twice as many results fit the same height.
+  //
+  // Columns are balanced in JS (shortest column takes the next tile) rather
+  // than CSS `columns`, because CSS columns reflow EVERY tile when a page of
+  // results is appended — the grid the user was looking at would shuffle under
+  // their finger. Balancing in order is deterministic: the same prefix of the
+  // list always lands in the same place, so paging in more only ever adds.
+  let gridW = $state(0);
+  const nCols = $derived(Math.max(2, Math.min(5, Math.round(gridW / 150) || 2)));
+
+  // One number for both the packer's height estimate and the tile's rendered
+  // aspect-ratio — if they ever disagree, the column balance is a lie. The
+  // clamp stops a 10:1 banner or a 1:10 strip from wrecking a column; 0x0
+  // means the record didn't know, and 4:3 is the least-wrong guess.
+  function ratio(x) {
+    const r = x.w > 0 && x.h > 0 ? x.w / x.h : 4 / 3;
+    return Math.min(2.2, Math.max(0.55, r));
+  }
+  function balance(list, n) {
+    const cols = Array.from({ length: n }, () => []);
+    const hts = Array(n).fill(0);
+    for (const x of list) {
+      let k = 0;
+      for (let i = 1; i < n; i++) if (hts[i] < hts[k]) k = i;
+      cols[k].push(x);
+      hts[k] += 1 / ratio(x);
+    }
+    return cols;
+  }
+  const packColumns = $derived(balance(filtered, nCols));
+
+  // Tiles fetch their image only when scrolled within a screen of view: one
+  // observer per mounted grid (use:scroller on the container), tiles register
+  // via use:lazy. A 100-result search therefore costs 100 round trips through
+  // the rendezvous only if the user actually scrolls past all 100 — the old
+  // grid fetched every thumbnail of every page up front.
+  let io = null;
+  const loaders = new Map();
+  function scroller(node) {
+    io?.disconnect();
+    io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const load = loaders.get(e.target);
+          if (!load) continue;
+          // A tile loads once; forgetting it here is what makes that true.
+          loaders.delete(e.target);
+          io?.unobserve(e.target);
+          enqueue(load);
+        }
+      },
+      { root: node, rootMargin: "240px 0px" },
+    );
+    // Tiles mount before their container's action runs — pick up strays.
+    for (const n of loaders.keys()) io.observe(n);
+    return {
+      destroy() {
+        io?.disconnect();
+        io = null;
+      },
+    };
+  }
+  function lazy(node, load) {
+    loaders.set(node, load);
+    io?.observe(node);
+    return {
+      // Each render hands in a fresh closure; keep the newest, but never
+      // resurrect a tile that already fired.
+      update(l) {
+        if (loaders.has(node)) loaders.set(node, l);
+      },
+      destroy() {
+        loaders.delete(node);
+        io?.unobserve(node);
+      },
+    };
+  }
+
+  // A small pool rather than firing everything that scrolls in at once: each
+  // image is a round trip through the rendezvous (or a decrypt, on the pack
+  // tab), and flooding it just makes the first row slower to appear.
+  const fetchQ = [];
+  let inflight = 0;
+  function enqueue(f) {
+    fetchQ.push(f);
+    pump();
+  }
+  function pump() {
+    while (inflight < 4 && fetchQ.length) {
+      inflight++;
+      Promise.resolve(fetchQ.shift()()).finally(() => {
+        inflight--;
+        pump();
+      });
+    }
+  }
+
+  // Decrypted pack previews, keyed by blob id. `started` is a plain Set, not
+  // state: it only guards against firing the same fetch twice (a tile
+  // re-registers every time its tab is re-opened).
   let srcs = $state({});
   let failed = $state({});
   const started = new Set();
-  $effect(() => {
+  function loadPackThumb(x) {
     const chId = S.activeChannelId;
-    if (!chId || tab !== "pack") return;
-    for (const x of filtered) {
-      if (started.has(x.id)) continue;
-      started.add(x.id);
-      loadAttachment(chId, { blobId: x.id, keys: x.keys, subtype: x.subtype })
-        .then((src) => (srcs[x.id] = src))
-        .catch(() => (failed[x.id] = true));
-    }
-  });
+    if (!chId || started.has(x.id)) return;
+    started.add(x.id);
+    return loadAttachment(chId, { blobId: x.id, keys: x.keys, subtype: x.subtype })
+      .then((src) => (srcs[x.id] = src))
+      .catch(() => (failed[x.id] = true));
+  }
 
   async function send(x) {
     if (sending) return;
@@ -181,7 +282,7 @@
 
   // ---- Search tab ----
 
-  let sq = $state(""); // what's in the search box, NOT yet sent anywhere
+  let sq = $state(""); // what's in the search box
   let sent = $state(""); // the terms actually handed to the rendezvous
   let hits = $state([]);
   let next = $state("");
@@ -196,7 +297,9 @@
   const DEAD_END = new Set(["no_rendezvous", "unavailable"]);
   let thumbs = $state({});
   let thumbFailed = $state({});
+  const startedThumbs = new Set();
   let saving = $state("");
+  const hitColumns = $derived(balance(hits, nCols));
 
   // The last SEARCH's failure, kept apart from the tab's own readiness.
   //
@@ -262,35 +365,61 @@
     if (tab === "search") probe();
   });
 
-  // Thumbnails come back as inline data URLs from the Go side — the browser
-  // issues no request of its own. A small pool rather than 24 at once: each one
-  // is a round trip through the rendezvous, and flooding it just makes the
-  // first row slower to appear.
-  async function loadThumbs(list) {
-    const queue = [...list];
-    const worker = async () => {
-      for (;;) {
-        const x = queue.shift();
-        if (!x) return;
-        try {
-          thumbs[x.id] = await api.gifSearchMedia(x.preview, false);
-        } catch {
-          thumbFailed[x.id] = true;
-        }
-      }
-    };
-    await Promise.all([worker(), worker(), worker(), worker()]);
+  function loadHitThumb(x) {
+    if (startedThumbs.has(x.id)) return;
+    startedThumbs.add(x.id);
+    return api
+      .gifSearchMedia(x.preview, false)
+      .then((d) => (thumbs[x.id] = d))
+      .catch(() => (thumbFailed[x.id] = true));
   }
 
-  // Runs only on submit — Enter or the button. Deliberately not debounced-as-
-  // you-type: that would hand the rendezvous a query for every prefix of what
-  // was typed, including the ones the user thought better of.
-  async function runSearch(more = false) {
+  // Search-as-you-type. The terms go to the user's OWN rendezvous and never to
+  // the provider directly, so typing ahead exposes prefixes only to a machine
+  // that already sees every query the user submits — the debounce exists to
+  // keep half-typed junk and burst load off it, not to guard a secret. Two
+  // characters before anything fires: a single letter is never the query the
+  // user means, and each prefix is still a round trip for the rendezvous.
+  let typeTimer = 0;
+  function onType() {
+    clearTimeout(typeTimer);
     const q = sq.trim();
-    if (!q || searching) return;
+    if (!q) {
+      // Clearing the box returns the tab to rest AND invalidates any reply
+      // still in flight — otherwise a slow search repopulates an emptied grid.
+      gen++;
+      searching = false;
+      hits = [];
+      next = "";
+      sent = "";
+      searched = false;
+      searchErr = null;
+      return;
+    }
+    if (q.length < 2) return;
+    typeTimer = setTimeout(() => runSearch(false), 300);
+  }
+  $effect(() => () => clearTimeout(typeTimer));
+
+  // With searches now overlapping (type, wait, type again), a slow reply must
+  // not clobber a newer one: each request takes a generation, and only the
+  // latest generation is allowed to touch state.
+  let gen = 0;
+
+  async function runSearch(more = false) {
+    // Paging continues the query the results came FROM, not whatever has been
+    // typed since — those results belong to `sent`.
+    const q = more ? sent : sq.trim();
+    if (!q) return;
+    if (more && (!next || searching)) return;
+    // Same terms, same results — unless the last attempt failed, in which case
+    // Enter is the retry path every transient-failure notice points at.
+    if (!more && q === sent && searched && !searchErr) return;
+    const my = ++gen;
     searching = true;
     try {
       const res = await api.searchGifs(q, more ? next : "");
+      if (my !== gen) return;
       // Keep source/via — they feed the provenance line — but do NOT let a
       // search result redefine whether the tab works. Only the probe does that.
       if (res.source) status = { ...(status || {}), source: res.source, via: res.via };
@@ -301,19 +430,42 @@
       }
       searchErr = null;
       sent = q;
-      hits = more ? [...hits, ...(res.results || [])] : res.results || [];
-      next = res.next || "";
-      searched = true;
       if (!more) {
         thumbs = {};
         thumbFailed = {};
+        startedThumbs.clear();
       }
-      await loadThumbs(res.results || []);
+      // Providers repeat results across page boundaries now and then, and a
+      // duplicate id would blow up the keyed {#each} — drop them.
+      const seen = new Set((more ? hits : []).map((h) => h.id));
+      const fresh = (res.results || []).filter((r) => {
+        if (seen.has(r.id)) return false;
+        seen.add(r.id);
+        return true;
+      });
+      hits = more ? [...hits, ...fresh] : fresh;
+      next = res.next || "";
+      searched = true;
     } catch (err) {
-      status = { status: "unreachable", detail: String(err) };
+      if (my === gen) status = { status: "unreachable", detail: String(err) };
     } finally {
-      searching = false;
+      if (my === gen) searching = false;
     }
+  }
+
+  // The next page fetches itself when the tail of the grid scrolls near — but
+  // the trigger stays a real, pressable button: a short page can leave it
+  // visible with no new intersection ever firing, and that must not strand the
+  // user.
+  function autopage(node) {
+    const obs = new IntersectionObserver(
+      (es) => {
+        if (es.some((e) => e.isIntersecting)) runSearch(true);
+      },
+      { root: node.closest(".grid"), rootMargin: "160px 0px" },
+    );
+    obs.observe(node);
+    return { destroy: () => obs.disconnect() };
   }
 
   async function sendHit(x) {
@@ -333,7 +485,7 @@
   // The name and tags a saved result gets. Both are validated again in Go
   // (validGuildGif); this keeps the common case from bouncing off that.
   function saveName(x) {
-    const t = (x.title || sent || "gif").replace(/[ -]/g, " ").trim();
+    const t = (x.title || sent || "gif").replace(/[ -]/g, " ").trim();
     return (t || "gif").slice(0, 64);
   }
   function saveTags() {
@@ -423,29 +575,41 @@
       </div>
     {/if}
 
-    <div class="grid" class:empty={filtered.length === 0}>
-      {#each filtered as x (x.id)}
-        <div class="cell">
-          <button
-            class="tile"
-            disabled={!S.activeChannelId || sending === x.id}
-            title={x.name}
-            onclick={() => send(x)}
-          >
-            {#if srcs[x.id]}
-              <img src={srcs[x.id]} alt={x.name} />
-            {:else if failed[x.id]}
-              <span class="ph">offline</span>
-            {:else}
-              <span class="ph shimmer"></span>
-            {/if}
-            <span class="cap">{x.name}</span>
-          </button>
-          {#if canManage}
-            <button class="rm" aria-label="Remove {x.name}" title="Remove" onclick={() => remove(x)}>
-              <Icon name="trash" size={12} />
-            </button>
-          {/if}
+    <div class="grid" bind:clientWidth={gridW} use:scroller>
+      {#if filtered.length > 0}
+        <div class="masonry">
+          {#each packColumns as col, ci (ci)}
+            <div class="col">
+              {#each col as x (x.id)}
+                <div class="cell">
+                  <!-- The name lives in title/alt now, not a caption row: on
+                       hover and to a screen reader it is still the name, and
+                       the grid gets the row back. -->
+                  <button
+                    class="tile"
+                    style:aspect-ratio={ratio(x)}
+                    disabled={!S.activeChannelId || sending === x.id}
+                    title={x.name}
+                    use:lazy={() => loadPackThumb(x)}
+                    onclick={() => send(x)}
+                  >
+                    {#if srcs[x.id]}
+                      <img src={srcs[x.id]} alt={x.name} />
+                    {:else if failed[x.id]}
+                      <span class="ph">offline</span>
+                    {:else}
+                      <span class="ph shimmer"></span>
+                    {/if}
+                  </button>
+                  {#if canManage}
+                    <button class="rm" aria-label="Remove {x.name}" title="Remove" onclick={() => remove(x)}>
+                      <Icon name="trash" size={12} />
+                    </button>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/each}
         </div>
       {:else}
         <p class="muted none">
@@ -457,7 +621,7 @@
             This server has no GIFs yet. Someone who can manage it can add some.
           {/if}
         </p>
-      {/each}
+      {/if}
     </div>
 
     <p class="muted foot">
@@ -468,9 +632,8 @@
     <div class="bar">
       <span class="find"><Icon name="search" size={14} /></span>
       <!-- svelte-ignore a11y_autofocus -->
-      <!-- Same on this tab: the results grid is capped at 46vh and sits below
-           the box, so an IME on open leaves nothing to browse. Typing is still
-           one tap away. -->
+      <!-- Same on this tab: the results grid sits below the box, and an IME on
+           open leaves nothing to browse. Typing is still one tap away. -->
       <input
         class="q"
         autofocus={!S.isMobile}
@@ -478,8 +641,13 @@
         disabled={!usable}
         placeholder={usable ? `Search ${source} via your rendezvous…` : "Search unavailable"}
         aria-label="Search for GIFs through your rendezvous"
+        enterkeyhint="search"
+        oninput={onType}
         onkeydown={(e) => {
-          if (e.key === "Enter") runSearch(false);
+          if (e.key === "Enter") {
+            clearTimeout(typeTimer);
+            runSearch(false);
+          }
         }}
       />
       <button class="go" onclick={() => runSearch(false)} disabled={!usable || searching || !sq.trim()}>
@@ -497,36 +665,50 @@
     {/if}
 
     {#if usable}
-      <div class="grid" class:empty={hits.length === 0}>
-        {#each hits as x (x.id)}
-          <div class="cell">
-            <button
-              class="tile"
-              disabled={!S.activeChannelId || sending === x.id}
-              title={x.title || "GIF"}
-              onclick={() => sendHit(x)}
-            >
-              {#if thumbs[x.id]}
-                <img src={thumbs[x.id]} alt={x.title || "GIF"} />
-              {:else if thumbFailed[x.id]}
-                <span class="ph">no preview</span>
-              {:else}
-                <span class="ph shimmer"></span>
-              {/if}
-              <span class="cap">{x.title || "GIF"}</span>
-            </button>
-            {#if canManage}
-              <button
-                class="rm save"
-                aria-label="Save {x.title || 'this GIF'} to this server's GIFs"
-                title="Save to this server's GIFs"
-                disabled={saving === x.id}
-                onclick={() => saveHit(x)}
-              >
-                <Icon name="plus" size={12} />
-              </button>
-            {/if}
+      <div class="grid" bind:clientWidth={gridW} use:scroller>
+        {#if hits.length > 0}
+          <div class="masonry">
+            {#each hitColumns as col, ci (ci)}
+              <div class="col">
+                {#each col as x (x.id)}
+                  <div class="cell">
+                    <button
+                      class="tile"
+                      style:aspect-ratio={ratio(x)}
+                      disabled={!S.activeChannelId || sending === x.id}
+                      title={x.title || "GIF"}
+                      use:lazy={() => loadHitThumb(x)}
+                      onclick={() => sendHit(x)}
+                    >
+                      {#if thumbs[x.id]}
+                        <img src={thumbs[x.id]} alt={x.title || "GIF"} />
+                      {:else if thumbFailed[x.id]}
+                        <span class="ph">no preview</span>
+                      {:else}
+                        <span class="ph shimmer"></span>
+                      {/if}
+                    </button>
+                    {#if canManage}
+                      <button
+                        class="rm save"
+                        aria-label="Save {x.title || 'this GIF'} to this server's GIFs"
+                        title="Save to this server's GIFs"
+                        disabled={saving === x.id}
+                        onclick={() => saveHit(x)}
+                      >
+                        <Icon name="plus" size={12} />
+                      </button>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {/each}
           </div>
+          {#if next}
+            <button class="more" use:autopage onclick={() => runSearch(true)} disabled={searching}>
+              {searching ? "Loading…" : "More results"}
+            </button>
+          {/if}
         {:else}
           <p class="muted none">
             {#if searching}
@@ -534,17 +716,11 @@
             {:else if searched}
               Your rendezvous found nothing for “{sent}”.
             {:else}
-              Type something and press Enter. Nothing is sent until you do.
+              Results appear as you type. Nothing is sent anywhere until you type.
             {/if}
           </p>
-        {/each}
+        {/if}
       </div>
-
-      {#if next && hits.length > 0}
-        <button class="more" onclick={() => runSearch(true)} disabled={searching}>
-          {searching ? "Loading…" : "More results"}
-        </button>
-      {/if}
     {/if}
 
     <!-- Phrased in the present tense only when it is actually happening: a
@@ -577,7 +753,7 @@
   }
   .tabs button {
     padding: 6px 10px;
-    font-size: 13px;
+    font-size: var(--fs-compact);
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
@@ -661,28 +837,43 @@
     border-left-color: var(--warn, var(--accent));
   }
   .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 8px;
-    max-height: 46vh;
+    margin-top: 8px;
+    max-height: 52vh;
     overflow-y: auto;
+    /* A flick that reaches the end of the results must stop there, not start
+       dragging the sheet underneath — on a phone that gesture dismissed the
+       whole modal mid-browse. */
+    overscroll-behavior: contain;
     /* Room for the remove button to sit proud of the tile. */
     padding: 2px;
   }
-  .grid.empty {
-    display: block;
+  .masonry {
+    display: flex;
+    gap: 6px;
+    align-items: flex-start;
+  }
+  .col {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
   .cell {
     position: relative;
   }
   .tile {
     width: 100%;
+    /* aspect-ratio is set per tile from the record's own dimensions, so the
+       placeholder occupies exactly the space the image will: nothing shifts
+       when a thumbnail lands, and the column heights the packer predicted are
+       the ones actually rendered. */
     padding: 0;
     background: var(--bg-0);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     overflow: hidden;
-    display: block;
+    display: grid;
     cursor: pointer;
   }
   .tile:hover:not(:disabled) {
@@ -691,15 +882,16 @@
   .tile img {
     display: block;
     width: 100%;
-    height: 90px;
+    height: 100%;
     object-fit: cover;
     background: var(--bg-3);
   }
   .ph {
     display: grid;
     place-items: center;
-    height: 90px;
-    font-size: 11px;
+    width: 100%;
+    height: 100%;
+    font-size: var(--fs-tiny);
     color: var(--text-faint);
     background: var(--bg-3);
   }
@@ -715,16 +907,6 @@
     .shimmer {
       animation: none;
     }
-  }
-  .cap {
-    display: block;
-    padding: 4px 6px;
-    font-size: var(--fs-small);
-    text-align: left;
-    color: var(--text-muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .rm {
     position: absolute;
@@ -754,8 +936,8 @@
       padding: 0;
       background: rgba(0, 0, 0, 0.72);
     }
-    /* Destructive, sitting on a 90px thumbnail whose whole face SENDS the GIF —
-       so it has to look different from the save button that shares its class. */
+    /* Destructive, sitting on a thumbnail whose whole face SENDS the GIF — so
+       it has to look different from the save button that shares its class. */
     .rm:not(.save) {
       background: color-mix(in srgb, var(--danger) 78%, rgba(0, 0, 0, 0.8));
     }
@@ -763,6 +945,7 @@
   .more {
     margin-top: 8px;
     width: 100%;
+    min-height: var(--tap-min);
     font-size: var(--fs-compact);
   }
   .none {
@@ -776,7 +959,7 @@
      sheet, i.e. a privacy explanation nobody reads. --fs-small carries it to
      12.5px on a phone; the tab's claims are only worth making if they're read. */
   .foot {
-    margin: 0;
+    margin: 8px 0 0;
     font-size: var(--fs-small);
     line-height: 1.5;
   }
