@@ -80,6 +80,24 @@ func run() error {
 		libp2p.Security(noise.ID, noise.New),
 		libp2p.EnableRelayService(relay.WithResources(relayRes)),
 		libp2p.EnableNATService(),
+		// WITHOUT THIS THE RELAY NEVER STARTS, and nothing else in Concord works
+		// for anyone behind a NAT.
+		//
+		// EnableRelayService does not start the relay; it hands it to a manager
+		// that waits for AutoNAT to announce EvtLocalReachabilityChanged(Public)
+		// — see go-libp2p p2p/host/relaysvc/relay.go. AutoNAT reaches that verdict
+		// only when other peers dial us back unsolicited, and on a fly.io machine
+		// that verdict may never arrive. Until it does, the node does not speak
+		// circuit v2 at all: AutoRelay on every client rejects it with "doesn't
+		// speak circuit v2", no client ever gets a reservation, and every NAT'd
+		// device ends up advertising nothing but LAN addresses. Two people behind
+		// two different routers then cannot reach each other, which presents as
+		// "my phone shows no peers" and "my other device never comes online".
+		//
+		// A rendezvous is a public server by definition — it is deployed at a
+		// known hostname precisely so it can be dialled. It has no business
+		// inferring its own reachability, so it is told.
+		libp2p.ForceReachabilityPublic(),
 	)
 	if err != nil {
 		return fmt.Errorf("start host: %w", err)

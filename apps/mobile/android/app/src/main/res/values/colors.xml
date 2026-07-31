@@ -5,7 +5,12 @@
          colour rather than the platform white, which flashed on every cold start
          and on every sign-out (which reloads the page). -->
     <color name="concord_bg">#16181C</color>
-    <!-- The brand teal, the accent token in frontend/src/app.css. It is the launcher
-         icon's background layer, so it must cover the full adaptive canvas. -->
-    <color name="concord_brand">#14A394</color>
+    <!-- The launcher icon's background layer. It must cover the full adaptive
+         canvas, so it is a colour rather than an inset drawable.
+
+         Deliberately the app's own near-black, NOT the brand teal: a teal tile
+         is what every generated-default icon in this class looks like, and on a
+         home screen it read as "some green app". The mark carries the brand;
+         the tile should get out of its way. -->
+    <color name="concord_icon_bg">#16181C</color>
 </resources>
