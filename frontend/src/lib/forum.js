@@ -421,9 +421,11 @@ export function normalizeBoardPrefs(raw) {
 
 // Two components render the same board look — the board itself and its settings
 // dialog, which sits on top of it — and localStorage fires no storage event in
-// the tab that wrote it. Without a nudge, choosing a header preset in the dialog
+// the tab that wrote it. Without a nudge, choosing a layout in the dialog
 // changed nothing until a reload, which reads as a broken control. So the write
-// announces itself, and the reader listens.
+// announces itself, and the reader listens. (The banner is NOT in this loop any
+// more: it moved onto the channel record when it became shared, so it arrives
+// like any other guild change — render it from forum.banner, never from here.)
 export const BOARD_PREFS_EVENT = "concord:board-prefs";
 
 export function readBoardPrefs(forumId) {

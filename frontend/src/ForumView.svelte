@@ -491,8 +491,12 @@
   // ---- header art ---------------------------------------------------------
   // "Auto" derives a two-tone wash from the forum's ID: every forum is
   // recognisably its own place with nothing stored and nothing synced. A chosen
-  // preset (device-local) overrides it.
+  // banner overrides it — read from the CHANNEL record, not from the board
+  // prefs: the art moved onto the channel when it became shared (SetForumBanner),
+  // and the settings dialog stopped writing prefs.banner, so a hero that kept
+  // reading the prefs showed every pick as doing nothing.
   const wash = $derived(washFor(forum.id));
+  const art = $derived(forum.banner || "");
 
   // The FAB opens a modal ~200ms later; without the tap confirmation the press
   // feels dropped.
@@ -510,9 +514,9 @@
        place — instead of an icon, an h2 and a grey rule. -->
   <header class="hero">
     <Banner
-      banner={prefs.banner}
-      color={prefs.banner ? "" : wash.color}
-      color2={prefs.banner ? "" : wash.color2}
+      banner={art}
+      color={art ? "" : wash.color}
+      color2={art ? "" : wash.color2}
       style={{ angle: wash.angle }}
       scale={0.7}
     />

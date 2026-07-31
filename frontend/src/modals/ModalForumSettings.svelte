@@ -249,10 +249,13 @@
   <!-- A live sample, not a description. Every choice below changes this strip,
        so the header you are designing is the header you are looking at. -->
   <div class="preview">
+    <!-- `art` is the forum's shared banner off the live channel record — the
+         prefs never carry the art any more, and a preview wired to them showed
+         Auto forever. -->
     <Banner
-      banner={prefs.banner}
-      color={prefs.banner ? "" : wash.color}
-      color2={prefs.banner ? "" : wash.color2}
+      banner={art}
+      color={art ? "" : wash.color}
+      color2={art ? "" : wash.color2}
       style={{ angle: wash.angle }}
       scale={0.5}
     />
