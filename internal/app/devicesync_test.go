@@ -5,6 +5,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
 )
 
 // TestMessageFromPhoneReachesTheDesktop is the reported symptom, reduced:
@@ -69,4 +72,43 @@ func TestDesktopAndPhoneSeeEachOtherOnline(t *testing.T) {
 		}
 		return false
 	}, "the desktop never saw the phone come online in its own device list")
+}
+
+// TestStrangersAreCountedNotListed pins the peer-list filter.
+//
+// A first attempt filtered on "has no fingerprint", which filtered NOTHING: a
+// fingerprint is derived from the peer's public key (Service.presence falls back
+// to identity.FingerprintOf), so every stranger on the DHT has one. The panel
+// still showed hundreds of rows and the bug looked fixed from the code alone.
+// The real test is whether the peer is somebody you know.
+func TestStrangersAreCountedNotListed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	boot := testRendezvous(t, ctx)
+	svc := startServiceOn(t, ctx, t.TempDir(), boot)
+
+	// A stranger: a plain libp2p host that shares no guild and was never verified.
+	stranger, err := libp2p.New(
+		libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"),
+		libp2p.Security(noise.ID, noise.New),
+	)
+	if err != nil {
+		t.Fatalf("stranger host: %v", err)
+	}
+	defer stranger.Close()
+
+	if err := stranger.Connect(ctx, svc.host.AddrInfo()); err != nil {
+		t.Fatalf("stranger connect: %v", err)
+	}
+
+	waitUntil(t, 20*time.Second, func() bool {
+		ns := svc.NetworkStats()
+		for _, p := range ns.PeerList {
+			if p.ID == stranger.ID().String() {
+				return false // listed as a person: the bug
+			}
+		}
+		return ns.BackgroundPeers > 0
+	}, "a stranger was listed as a peer instead of counted as background")
 }

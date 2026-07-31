@@ -199,17 +199,21 @@ func (s *Service) NetworkStats() NetworkStatsView {
 			if fpr := s.presence(p).Fingerprint; fpr == s.id.Fingerprint() {
 				continue
 			}
-			// A connection that has never identified itself as a Concord account
-			// is not a person: it is the DHT. Kademlia keeps connections to
-			// whatever shares its keyspace, and with the public-DHT opt-in that
-			// is hundreds of unrelated IPFS nodes. Listing them drowned the
-			// handful of rows that actually mean something — the report was
-			// "hundreds of peers, and I can't see my friend among them".
+			// Anything that is not SOMEBODY YOU KNOW is the DHT: Kademlia holds
+			// connections to whatever shares its keyspace, which with the
+			// public-DHT opt-in is hundreds of unrelated nodes. They are counted
+			// — "am I connected to anything at all" is a real question — but they
+			// do not get a row, because they drowned the handful that mean
+			// something.
 			//
-			// They are still counted, because "am I connected to anything at
-			// all" is a real diagnostic question; they just do not get a row.
+			// The test has to be knownContact, NOT a non-empty fingerprint: a
+			// fingerprint is DERIVED from the peer's public key (see
+			// Service.presence, which falls back to identity.FingerprintOf), so
+			// every stranger on the DHT has one. Filtering on "has a fingerprint"
+			// therefore filtered nothing at all, which is how a first attempt at
+			// this shipped without changing what anyone saw.
 			fpr := s.presence(p).Fingerprint
-			if fpr == "" {
+			if !s.knownContact(fpr) {
 				v.BackgroundPeers++
 				continue
 			}
