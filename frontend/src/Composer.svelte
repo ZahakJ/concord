@@ -16,6 +16,7 @@
   import { api } from "./lib/api.js";
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
+  import { stampTimestamp } from "./lib/timestamp.js";
   import { stagedImage } from "./lib/attachopts.js";
 
   let draft = $state("");
@@ -193,6 +194,15 @@
   // the menu can never drift out of sync with what actually expands. `args`
   // controls whether accepting a command leaves the caret after "/cmd ".
   const kaomoji = (face) => (rest) => (rest ? rest + " " : "") + face;
+  // A sealed timestamp is per-message intent: you arm it, you send, it disarms.
+  // Leaving it latched would silently stamp every later message, and a marker
+  // that appears when you did not ask for it is worse than no marker.
+  let sealNext = $state(false);
+  $effect(() => {
+    S.activeChannelId; // re-run on channel switch
+    sealNext = false;
+  });
+
   const SLASH_COMMANDS = [
     { name: "shrug", usage: "/shrug [message]", desc: "Appends ¯\\_(ツ)_/¯", args: true, expand: kaomoji("¯\\_(ツ)_/¯") },
     { name: "tableflip", usage: "/tableflip [message]", desc: "Appends (╯°□°)╯︵ ┻━┻", args: true, expand: kaomoji("(╯°□°)╯︵ ┻━┻") },
@@ -203,6 +213,18 @@
     { name: "fa", usage: "/fa [message]", desc: "┻━┻ ︵╰(°□°╰) fa me (╯°□°)╯︵ ┻━┻", args: true, expand: kaomoji("┻━┻ ︵╰(°□°╰) fa me (╯°□°)╯︵ ┻━┻") },
     { name: "me", usage: "/me <action>", desc: "Italicized action text", args: true, expand: (rest, text) => (rest ? `*${rest}*` : text) },
     { name: "spoiler", usage: "/spoiler <text>", desc: "Hides text until clicked", args: true, expand: (rest, text) => (rest ? `||${rest}||` : text) },
+    // Arms the seal and leaves the text alone, so "/timestamp on my way" sends
+    // "on my way" with the mark rather than the command word.
+    {
+      name: "timestamp",
+      usage: "/timestamp [message]",
+      desc: "Seal the exact send time onto this message",
+      args: true,
+      expand: (rest, text) => {
+        sealNext = true;
+        return rest || text.replace(/^\/timestamp\s*/i, "");
+      },
+    },
     // ACTIONS, not text expansions: these run instead of sending (see runAction).
     { name: "meme", usage: "/meme", desc: "Open the meme editor", expand: (_, text) => text },
     { name: "gif", usage: "/gif", desc: "This guild's GIF pack", expand: (_, text) => text },
@@ -616,7 +638,13 @@
         else await api.sendFile(chId, a.dataUrl, a.name, nextReply());
         sent++;
       }
-      if (text) await sendMessage(stampEphemeral(chId, text), nextReply());
+      if (text) {
+        // Seal before the ephemeral stamp so both tokens sit at the front in a
+        // stable order; each strips independently at render.
+        const body = sealNext ? stampTimestamp(text) : text;
+        await sendMessage(stampEphemeral(chId, body), nextReply());
+        sealNext = false;
+      }
     } catch (err) {
       // Restore only what did NOT go out, so a retry can't double-post. The text
       // is the last step, so on any failure it's unsent — put the draft back. The
@@ -1359,6 +1387,21 @@
           onclick={openAdvanced}
         >
           <Icon name="heading" size={19} />
+        </button>
+        <!-- Seal: arms a permanent timestamp on the next message. Distinct from
+             the clock beside it, which schedules a message for LATER — this one
+             records exactly when it went out. -->
+        <button
+          type="button"
+          class="iconbtn sealbtn"
+          class:armed={sealNext}
+          title={sealNext ? "Sealing the send time onto this message — click to cancel" : "Seal the exact send time onto this message"}
+          aria-label="Seal timestamp"
+          aria-pressed={sealNext}
+          disabled={!ch}
+          onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
+        >
+          <Icon name="diamond" size={18} />
         </button>
         <button
           type="button"
@@ -2135,6 +2178,34 @@
   /* Bare icon buttons: muted glyphs that brighten on hover, no box. Fixed square
      so every tray control occupies the same footprint regardless of its glyph's
      intrinsic size — the row reads as an even set, not a jumble of sizes. */
+  /* The seal reads as OFF by default and unmistakably ON when armed: the icon
+     takes the accent, the button gets a soft ring, and it breathes slowly so a
+     glance at the composer tells you the next message will be marked. Motion is
+     opacity/transform only, and prefers-reduced-motion drops it. */
+  .sealbtn {
+    position: relative; /* anchors the armed ring below */
+  }
+  .sealbtn.armed {
+    color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .sealbtn.armed::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    animation: seal-breathe 2.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+  @keyframes seal-breathe {
+    0%, 100% { opacity: 0.45; transform: scale(1); }
+    50% { opacity: 1; transform: scale(1.06); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sealbtn.armed::after { animation: none; opacity: 0.8; }
+  }
+
   .iconbtn {
     display: grid;
     place-items: center;

@@ -16,6 +16,7 @@
   import EmbedView from "./EmbedView.svelte";
   import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
+  import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo } from "./lib/timestamp.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
   import { untrack } from "svelte";
@@ -51,6 +52,7 @@
     fmtClock,
     jumpToChannel,
     mentionRefs,
+    clockOpts,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
@@ -207,8 +209,21 @@
   const bodyText = $derived.by(() => {
     let c = atts.length || files.length ? stripAttachTokens(m.content) : m.content;
     if (richEmbed) c = stripEmbedToken(c);
-    return stripEphemeral(c);
+    return stripTimestamp(stripEphemeral(c));
   });
+  // A sealed timestamp: the author explicitly marked when this was sent, so it
+  // is shown rather than hidden behind a hover the way the ordinary gutter time
+  // is. 0 when unsealed.
+  const sealMs = $derived(m.deleted ? 0 : sealedAt(m.content));
+  let sealOpen = $state(false);
+  // "3m ago" has to keep moving or it lies. One ticker per open card only.
+  let sealNow = $state(Date.now());
+  $effect(() => {
+    if (!sealOpen) return;
+    const id = setInterval(() => (sealNow = Date.now()), 1000);
+    return () => clearInterval(id);
+  });
+
   // Disappearing: expiry epoch (ms) if this message carries one, else 0.
   const ephExp = $derived(m.deleted ? 0 : ephemeralExpiry(m.content));
   // One embed per message: the first YouTube link gets a player; otherwise
@@ -809,7 +824,32 @@
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div class="body" class:jumbo={jumbo} use:animateInView={jumbo} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
-          {@html renderMarkdown(bodyText, mentionNames, cemoji, refs)}{#if m.edited}<span
+          {#if sealMs}
+            <!-- Tap AND hover, deliberately: hover is unreachable on a phone,
+                 and the whole point of a seal is that the time is legible
+                 without a pointer. -->
+            <button
+              type="button"
+              class="seal"
+              class:open={sealOpen}
+              title={sealFull(sealMs, clockOpts())}
+              aria-label="Sealed at {sealFull(sealMs, clockOpts())}"
+              aria-expanded={sealOpen}
+              onclick={(e) => { e.stopPropagation(); sealOpen = !sealOpen; if (sealOpen) { sealNow = Date.now(); haptic("light"); } }}
+              onmouseenter={() => (sealOpen = true)}
+              onmouseleave={() => (sealOpen = false)}
+            >
+              <Icon name="diamond" size={11} />
+              <span class="seal-t">{sealShort(sealMs, clockOpts())}</span>
+              {#if sealOpen}
+                <span class="seal-card" role="tooltip">
+                  <span class="seal-card-h">Sealed by the sender</span>
+                  <span class="seal-card-f">{sealFull(sealMs, clockOpts())}</span>
+                  <span class="seal-card-a">{sealAgo(sealMs, sealNow)}</span>
+                </span>
+              {/if}
+            </button>
+          {/if}{@html renderMarkdown(bodyText, mentionNames, cemoji, refs)}{#if m.edited}<span
               class="edited-tag">(edited)</span
             >{/if}
         </div>
@@ -1924,4 +1964,92 @@
     width: auto;
     vertical-align: -3px;
   }
+  /* ---- sealed timestamp ------------------------------------------------
+     A seal is the author saying "the time matters here", so it sits INLINE at
+     the head of the message rather than in the gutter with the ordinary clock:
+     it should read as part of the sentence, not as chrome. Small, accent-tinted,
+     and it states the time outright — the hover card adds the full date, the
+     seconds and a live "x ago", but nothing essential hides behind a pointer. */
+  .seal {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-right: 6px;
+    padding: 1px 6px 1px 4px;
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    vertical-align: baseline;
+    line-height: 1.5;
+    cursor: default;
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .seal:hover,
+  .seal.open {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .seal-t {
+    letter-spacing: 0.01em;
+  }
+  .seal-card {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 168px;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-pop);
+    color: var(--text);
+    text-align: left;
+    white-space: nowrap;
+    animation: seal-in 0.13s ease-out;
+  }
+  @keyframes seal-in {
+    from { opacity: 0; transform: translateY(3px); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .seal-card { animation: none; }
+  }
+  .seal-card-h {
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .seal-card-f {
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .seal-card-a {
+    font-size: var(--fs-tiny);
+    color: var(--text-muted);
+  }
+  /* On a phone the card would hang off the left edge of a narrow column, and
+     there is no pointer to dismiss it — it closes on the next tap instead. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .seal {
+      padding: 2px 8px 2px 6px;
+    }
+    .seal-card {
+      left: auto;
+      right: 0;
+    }
+  }
+
 </style>
