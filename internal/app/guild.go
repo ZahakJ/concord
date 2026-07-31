@@ -70,7 +70,7 @@ func (s *Service) CreateGuild(name string) (domain.Guild, error) {
 		return domain.Guild{}, err
 	}
 	s.trackGuild(&g)
-	return g, nil
+	return s.offerAfter(g, nil)
 }
 
 // meetingTTL is the DEFAULT lifetime of an instant meeting: how long it
@@ -635,6 +635,15 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 
 // JoinViaInvite redeems an invite code: it contacts the owner, exchanges an MLS
 // KeyPackage for a Welcome, joins the group, and subscribes to guild topics.
+// offerAfter tells this account's other devices about a guild we just gained, so
+// they are not stuck with whatever existed the moment they were linked.
+func (s *Service) offerAfter(g domain.Guild, err error) (domain.Guild, error) {
+	if err == nil {
+		go s.offerGuildsToOwnDevices()
+	}
+	return g, err
+}
+
 func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	ic, err := decodeInviteCode(strings.TrimSpace(code))
 	if err != nil {
@@ -708,7 +717,7 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	if len(g.Channels) > 0 && s.accountLeafCount(g.GroupID) <= 1 {
 		s.sendSystem(g.Channels[0].ID, "joined the server")
 	}
-	return g, nil
+	return s.offerAfter(g, nil)
 }
 
 // accountLeafCount returns how many MLS leaves in a group belong to THIS account

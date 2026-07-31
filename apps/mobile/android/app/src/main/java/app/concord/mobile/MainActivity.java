@@ -134,13 +134,39 @@ public class MainActivity extends BridgeActivity {
         float d = getResources().getDisplayMetrics().density;
         if (d <= 0) d = 1f;
 
-        int top = Math.round(bars.top / d);
+        // Publish only the inset the CSS still has to make up for.
+        //
+        // Whether the WebView is laid out edge-to-edge is NOT ours to assume:
+        // setDecorFitsSystemWindows(false) asks for it, but Capacitor's own view
+        // hierarchy may consume the insets first and hand the WebView a box that
+        // already sits below the status bar. Measured on an Android 15 device:
+        // the screen is 915dp tall and the WebView is 839 — already inset by
+        // exactly the status bar (52) plus the navigation bar (24).
+        //
+        // Publishing the full system inset in that situation makes the app pad a
+        // second time, which is the large dead band above the top bar. Publishing
+        // nothing on a device that IS edge-to-edge puts the top bar under the
+        // clock. Both failures have been reported, on different phones, from the
+        // same build — because the right answer differs per device.
+        //
+        // So: measure where the WebView actually sits and subtract what the
+        // platform has already done. Whatever is left is what CSS owes.
+        int[] loc = new int[2];
+        wv.getLocationOnScreen(loc);
+        int wvTop = loc[1];
+        int wvBottom = loc[1] + wv.getHeight();
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+
+        int topPx = Math.max(0, bars.top - wvTop);
+        int bottomBarsPx = Math.max(0, bars.bottom - Math.max(0, screenH - wvBottom));
+        int imePx = Math.max(0, ime.bottom - Math.max(0, screenH - wvBottom));
+
+        int top = Math.round(topPx / d);
         // Some OEM WebViews report a 0 top inset — before the first layout pass,
         // and on a few builds persistently. Trusting that puts the app's own top
-        // bar underneath the clock, which is the single most visible way this can
-        // fail. The platform's own status_bar_height is the honest fallback, and
-        // 24dp is the floor below which no Android status bar has ever been.
-        if (top <= 0) {
+        // bar underneath the clock. Only fall back when the WebView is genuinely
+        // full-bleed at the top, or this would re-introduce the double band.
+        if (top <= 0 && wvTop <= 0 && bars.top <= 0) {
             int px = 0;
             int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
             if (resId > 0) px = getResources().getDimensionPixelSize(resId);
@@ -148,10 +174,10 @@ public class MainActivity extends BridgeActivity {
         }
         int left = Math.round(bars.left / d);
         int right = Math.round(bars.right / d);
-        int kb = Math.round(ime.bottom / d);
+        int kb = Math.round(imePx / d);
         // The IME inset already spans the nav-bar strip, so the two must never be
         // added: a composer floating 48px above the keyboard is that bug.
-        int bottom = Math.max(0, Math.round(bars.bottom / d) - kb);
+        int bottom = Math.max(0, Math.round(bottomBarsPx / d) - kb);
 
         String js =
             "(function(s){s.setProperty('--sa-top','" + top + "px');" +

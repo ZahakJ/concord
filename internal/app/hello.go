@@ -56,6 +56,19 @@ type helloFrame struct {
 	// account, and only carrying a revocation OUR account key signed — see
 	// unlink.go for exactly how much that does and does not promise.
 	Revoked *identity.DeviceRevocation `json:"revoked,omitempty"`
+	// GuildInvites lets a device of this account into servers it is not in yet.
+	//
+	// Invites used to be handed over exactly once, during linking, so a guild
+	// created or joined afterwards never reached an already-linked device. That
+	// device then had no MLS group for it and no topic subscription — which
+	// presents not as "a server is missing" but as "my messages don't reach my
+	// other device" and "joining voice on my phone doesn't show on my desktop",
+	// because there is no channel for any of it to travel on.
+	//
+	// ONLY ever sent to a peer proven to be a device of OUR OWN account (see
+	// ownDevice), because an invite code grants entry to the guild. That is the
+	// same trust level the link flow already applies to the same codes.
+	GuildInvites []string `json:"guildInvites,omitempty"`
 }
 
 // helloTimeout bounds one exchange. A hello is an optimization, not a step in
@@ -120,7 +133,11 @@ func (s *Service) greet(p peer.ID) {
 		s.greeted.release(p)
 		return
 	}
-	req, err := json.Marshal(helloFrame{Credential: s.myCredential, Name: s.deviceLabel()})
+	req, err := json.Marshal(helloFrame{
+		Credential:   s.myCredential,
+		Name:         s.deviceLabel(),
+		GuildInvites: s.guildInvitesFor(p),
+	})
 	if err != nil {
 		return
 	}
@@ -158,6 +175,10 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// this peer: telling a device we unlinked that it has been unlinked is the
 	// one message it is still owed, and it is signed, so it proves itself.
 	out.Revoked = s.revocationFor(from)
+	// The other half of the exchange: whichever side answers also offers. The
+	// requester learned nothing about us until this frame, so its own offer may
+	// have been empty; this is what makes the sync symmetric.
+	out.GuildInvites = s.guildInvitesFor(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
 	}
@@ -165,11 +186,71 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 }
 
 // ingestHello verifies and applies one side of the exchange.
+// ownDevice reports whether a peer is a device of this very account. presence()
+// maps a device key to the account it was certified under, so this is true only
+// after that device has proved itself with an account-signed certificate.
+func (s *Service) ownDevice(p peer.ID) bool {
+	if p == s.host.PeerID() {
+		return false
+	}
+	return s.presence(p).Fingerprint == s.id.Fingerprint()
+}
+
+// guildInvitesFor returns invite codes to hand a device of ours, or nil for
+// anyone else. The guard is the whole security of this: these codes admit the
+// bearer to the guild.
+func (s *Service) guildInvitesFor(p peer.ID) []string {
+	if !s.ownDevice(p) {
+		return nil
+	}
+	codes, _ := s.linkGuildInvites()
+	return codes
+}
+
+// redeemOfferedInvites joins guilds this device is not in yet. Codes are only
+// acted on when they came from a device of our own account; anything else is
+// ignored outright rather than merely deprioritised.
+func (s *Service) redeemOfferedInvites(from peer.ID, codes []string) {
+	if len(codes) == 0 || !s.ownDevice(from) {
+		return
+	}
+	have := map[string]bool{}
+	for _, g := range s.Guilds() {
+		have[g.ID] = true
+	}
+	for _, code := range codes {
+		// JoinViaInvite is the same path the link flow uses, so a guild we are
+		// already in is rejected there too; the map just avoids the round trip.
+		g, err := s.JoinViaInvite(code)
+		if err == nil && !have[g.ID] {
+			have[g.ID] = true
+		}
+	}
+}
+
+// offerGuildsToOwnDevices re-greets every connected device of this account, so a
+// guild created or joined right now reaches them immediately instead of on the
+// next reconnect. The greet claim is released first because it is per-connection
+// and would otherwise swallow the second hello.
+func (s *Service) offerGuildsToOwnDevices() {
+	for _, p := range s.host.Peers() {
+		if !s.ownDevice(p) {
+			continue
+		}
+		s.greeted.release(p)
+		go s.greet(p)
+	}
+}
+
 func (s *Service) ingestHello(from peer.ID, raw []byte) {
 	var f helloFrame
 	if json.Unmarshal(raw, &f) != nil {
 		return
 	}
+	// Deliberately after the credential checks below would be too late: those
+	// return early for a frame carrying no certificate, and a re-greet from a
+	// device we already know is exactly that. ownDevice is what gates it.
+	defer func() { go s.redeemOfferedInvites(from, f.GuildInvites) }()
 	// A revocation naming THIS device is the one thing we act on before anything
 	// else, since acting on it means we stop existing.
 	if f.Revoked != nil {

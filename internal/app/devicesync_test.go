@@ -112,3 +112,70 @@ func TestStrangersAreCountedNotListed(t *testing.T) {
 		return ns.BackgroundPeers > 0
 	}, "a stranger was listed as a peer instead of counted as background")
 }
+
+// TestGuildJoinedAfterLinkingReachesTheOtherDevice is the reported bug.
+//
+// Guild invites were handed to a device exactly once, during linking. A guild
+// created or joined afterwards never reached it — so a phone linked on Monday
+// was permanently stuck with Monday's servers. It looks like a sync failure from
+// the outside ("my messages don't show up on my other device", "joining voice on
+// the phone doesn't appear on the desktop") but the phone was never a member of
+// that guild at all, so there was no channel for any of it to travel on.
+func TestGuildJoinedAfterLinkingReachesTheOtherDevice(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	boot := testRendezvous(t, ctx)
+	desk, phone, _, _ := linkedPair(t, ctx, t.TempDir(), t.TempDir(), boot)
+
+	// A guild that did not exist when the phone was linked.
+	later, err := desk.CreateGuild("Made After Linking")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+
+	waitUntil(t, 60*time.Second, func() bool {
+		for _, g := range phone.Guilds() {
+			if g.ID == later.ID {
+				return true
+			}
+		}
+		return false
+	}, "a guild created after linking never reached the other device")
+}
+
+// TestGuildInvitesAreOfferedOnlyToOwnDevices is the security half of the fix
+// above. An invite code admits its bearer to the guild, so the hello exchange
+// must hand them to a peer that has proved, with an account-signed certificate,
+// that it is a device of THIS account — and to nobody else, however friendly.
+func TestGuildInvitesAreOfferedOnlyToOwnDevices(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	boot := testRendezvous(t, ctx)
+	desk := startServiceOn(t, ctx, t.TempDir(), boot)
+	if _, err := desk.CreateGuild("Private"); err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+
+	// A different account entirely, connected to us.
+	other := startServiceOn(t, ctx, t.TempDir(), boot)
+	if err := other.host.Connect(ctx, desk.host.AddrInfo()); err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	if got := desk.guildInvitesFor(other.host.PeerID()); got != nil {
+		t.Fatalf("offered %d invite(s) to a peer that is not our device", len(got))
+	}
+	// And the receiving side refuses codes that did not come from our own device,
+	// so a forged frame cannot walk someone into a guild either.
+	codes, _ := desk.linkGuildInvites()
+	if len(codes) == 0 {
+		t.Fatal("no invite codes to test with")
+	}
+	before := len(other.Guilds())
+	other.redeemOfferedInvites(desk.host.PeerID(), codes)
+	if len(other.Guilds()) != before {
+		t.Fatal("a peer redeemed invites offered by an account that is not its own")
+	}
+}
