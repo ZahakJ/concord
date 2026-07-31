@@ -7,6 +7,7 @@ import (
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p/core/discovery"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
@@ -152,4 +153,64 @@ func TestBootstrapSetOptsIntoPublicNodes(t *testing.T) {
 	if got[0].ID != rendezvous[0].ID {
 		t.Fatal("the user's own rendezvous must still be tried first")
 	}
+}
+
+// addrlessOnce is a discovery stub that reports a peer the way the DHT often
+// really does: an id with NO addresses. A real DHT produces this intermittently
+// (the provider record is there, the addresses were never cached or have
+// expired), which is why the bug it guards hid on desktops for so long.
+type addrlessOnce struct{ id peer.ID }
+
+func (a addrlessOnce) FindPeers(ctx context.Context, ns string, _ ...discovery.Option) (<-chan peer.AddrInfo, error) {
+	ch := make(chan peer.AddrInfo, 1)
+	ch <- peer.AddrInfo{ID: a.id} // no Addrs, deliberately
+	close(ch)
+	return ch, nil
+}
+
+// TestAddrlessProviderRecordStillConnects is the phone-sees-nobody regression.
+//
+// findAndConnect used to `continue` on len(Addrs)==0, so a provider record that
+// arrived without addresses was dropped and never retried. A desktop survives
+// that because mDNS and the remembered-peer cache find the same person another
+// way. Android has neither — SELinux denies the netlink bind zeroconf needs, so
+// mDNS never starts and the DHT is the only route — so the phone connected to
+// its rendezvous and then sat there seeing nobody, while the desktop showed the
+// same contact online.
+//
+// The address here is already in B's peerstore, which is the common real case
+// (they have met before) and keeps the test off a live Kademlia walk: a
+// three-node loopback DHT elects no servers, so nothing would resolve. The
+// address-less record is the input under test either way.
+func TestAddrlessProviderRecordStillConnects(t *testing.T) {
+	loopback := []string{"/ip4/127.0.0.1/tcp/0"}
+
+	idA, _ := identity.Generate()
+	a, err := New(context.Background(), Config{Identity: idA, ListenAddrs: loopback})
+	if err != nil {
+		t.Fatalf("start A: %v", err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+
+	idB, _ := identity.Generate()
+	b, err := New(context.Background(), Config{Identity: idB, ListenAddrs: loopback})
+	if err != nil {
+		t.Fatalf("start B: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+
+	ai := a.AddrInfo()
+	b.Libp2p().Peerstore().AddAddrs(ai.ID, ai.Addrs, time.Hour)
+
+	// B discovers A with NO addresses at all. Before the fix this was a no-op.
+	b.findAndConnect(addrlessOnce{id: a.PeerID()}, DefaultRendezvous)
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if b.Libp2p().Network().Connectedness(a.PeerID()) == network.Connected {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("B never dialled an address-less provider record — a phone would see nobody")
 }

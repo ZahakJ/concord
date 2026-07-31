@@ -8,6 +8,7 @@ import (
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"github.com/libp2p/go-libp2p/core/discovery"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
@@ -314,7 +315,7 @@ func (n *Host) dialRemembered(peers []peer.AddrInfo) bool {
 	return reached
 }
 
-func (n *Host) discoverLoop(disc *drouting.RoutingDiscovery, rendezvous string) {
+func (n *Host) discoverLoop(disc peerFinder, rendezvous string) {
 	// Poll fairly often at first (mesh is small and warming), then steadily.
 	t := time.NewTicker(15 * time.Second)
 	defer t.Stop()
@@ -329,20 +330,74 @@ func (n *Host) discoverLoop(disc *drouting.RoutingDiscovery, rendezvous string) 
 	}
 }
 
-func (n *Host) findAndConnect(disc *drouting.RoutingDiscovery, rendezvous string) {
+// peerFinder is the discovery half of RoutingDiscovery, named as an interface
+// so a test can hand findAndConnect the address-less provider record that a
+// real DHT only produces intermittently.
+type peerFinder interface {
+	FindPeers(ctx context.Context, ns string, opts ...discovery.Option) (<-chan peer.AddrInfo, error)
+}
+
+// addrlessLookups bounds the extra Kademlia lookups one discovery round may
+// start. A provider record with no addresses costs a full DHT walk to resolve,
+// and a large mesh can hand us dozens at once.
+const addrlessLookups = 8
+
+func (n *Host) findAndConnect(disc peerFinder, rendezvous string) {
 	ctx, cancel := context.WithTimeout(n.ctx, 20*time.Second)
 	defer cancel()
 	peers, err := disc.FindPeers(ctx, rendezvous)
 	if err != nil {
 		return
 	}
+	// A provider record frequently arrives with the peer id and NO addresses —
+	// the record is in the DHT but the addresses were never cached, or expired.
+	// Skipping those outright (which this did) is survivable on a desktop, which
+	// also has mDNS and a remembered-peer cache to find the same person by
+	// another route. On Android it is fatal: SELinux denies the netlink bind
+	// zeroconf needs, so mDNS never starts, and the DHT is the ONLY discovery
+	// path there. The symptom is a phone that connects to its rendezvous and
+	// then sits there seeing nobody, while the desktop shows the same contact
+	// online.
+	//
+	// The host is not a routed host, so Connect will not resolve an empty
+	// AddrInfo for us. FindPeer is a targeted Kademlia lookup that answers
+	// exactly this question, so ask it.
+	slots := make(chan struct{}, addrlessLookups)
 	for p := range peers {
-		if p.ID == n.h.ID() || len(p.Addrs) == 0 {
+		if p.ID == n.h.ID() {
 			continue
 		}
 		if n.h.Network().Connectedness(p.ID) == network.Connected {
 			continue
 		}
-		go func(pi peer.AddrInfo) { _ = n.h.Connect(n.ctx, pi) }(p)
+		if len(p.Addrs) > 0 {
+			go func(pi peer.AddrInfo) { _ = n.h.Connect(n.ctx, pi) }(p)
+			continue
+		}
+		// We may already know where they are — from a previous connection, a
+		// remembered-peer entry, or an invite. Connect consults the peerstore,
+		// so spending a Kademlia walk to re-learn an address we are holding is
+		// pure latency. Try what we have first.
+		if len(n.h.Peerstore().Addrs(p.ID)) > 0 {
+			go func(id peer.ID) { _ = n.h.Connect(n.ctx, peer.AddrInfo{ID: id}) }(p.ID)
+			continue
+		}
+		select {
+		case slots <- struct{}{}:
+		default:
+			continue // already resolving as many as we allow this round
+		}
+		go func(id peer.ID) {
+			defer func() { <-slots }()
+			// Derived from n.ctx, not from ctx: the caller cancels that one on
+			// return and this outlives it.
+			lc, lcancel := context.WithTimeout(n.ctx, 20*time.Second)
+			defer lcancel()
+			pi, err := n.FindPeer(lc, id)
+			if err != nil || len(pi.Addrs) == 0 {
+				return
+			}
+			_ = n.h.Connect(n.ctx, pi)
+		}(p.ID)
 	}
 }
