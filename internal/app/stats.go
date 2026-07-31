@@ -137,6 +137,9 @@ type NetworkStatsView struct {
 	// DeviceList is THIS account's own devices — a separate list, not rows in
 	// PeerList. See LinkedDeviceView.
 	DeviceList []LinkedDeviceView `json:"deviceList"`
+	// Connections that never identified themselves as a Concord account: the
+	// Kademlia DHT's own mesh. Counted, not listed — see NetworkStats.
+	BackgroundPeers int `json:"backgroundPeers"`
 }
 
 // NetworkStats reports DB/blob size and per-peer connection details.
@@ -187,15 +190,27 @@ func (s *Service) NetworkStats() NetworkStatsView {
 			if fpr := s.presence(p).Fingerprint; fpr == s.id.Fingerprint() {
 				continue
 			}
+			// A connection that has never identified itself as a Concord account
+			// is not a person: it is the DHT. Kademlia keeps connections to
+			// whatever shares its keyspace, and with the public-DHT opt-in that
+			// is hundreds of unrelated IPFS nodes. Listing them drowned the
+			// handful of rows that actually mean something — the report was
+			// "hundreds of peers, and I can't see my friend among them".
+			//
+			// They are still counted, because "am I connected to anything at
+			// all" is a real diagnostic question; they just do not get a row.
+			fpr := s.presence(p).Fingerprint
+			if fpr == "" {
+				v.BackgroundPeers++
+				continue
+			}
 			memberPeers++
 			// Resolve the connection to a name you'd recognize, so the peer list
 			// reads "Alice / Bob", not two anonymous key hashes — and a stray test
 			// instance or stranger stands out immediately.
-			if fpr := s.presence(p).Fingerprint; fpr != "" {
-				pv.Fingerprint = fpr
-				if name := s.ProfileOf(fpr).Name; name != "" {
-					pv.Name = name
-				}
+			pv.Fingerprint = fpr
+			if name := s.ProfileOf(fpr).Name; name != "" {
+				pv.Name = name
 			}
 		}
 		pv.Transport, pv.Relayed = transportOf(addr), isRelayed(addr)

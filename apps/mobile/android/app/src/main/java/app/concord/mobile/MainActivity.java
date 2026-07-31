@@ -23,6 +23,9 @@ public class MainActivity extends BridgeActivity {
     // deadline is the safety net: if the bridge never comes up, holding the
     // splash forever would be worse than showing whatever did load.
     private static volatile boolean webReady = false;
+    // The live activity, so markWebReady() (a static callback from the plugin)
+    // can re-push the insets onto the freshly-loaded document.
+    private static volatile MainActivity current = null;
     private long splashDeadline = 0;
 
     @Override
@@ -60,12 +63,38 @@ public class MainActivity extends BridgeActivity {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
             getWindow().setAttributes(lp);
         }
+        current = this;
         installInsetBridge();
+    }
+
+    @Override
+    public void onDestroy() {
+        if (current == this) current = null;
+        super.onDestroy();
     }
 
     /** Called from ConcordCorePlugin once the web layer has mounted. */
     static void markWebReady() {
         webReady = true;
+        // The insets are published by writing INLINE STYLES onto
+        // document.documentElement, and a page load wipes those. The first push
+        // happens from onCreate, before the WebView has loaded anything, so its
+        // values were written onto a document that was then thrown away — and
+        // because pushInsets() de-duplicates on the value it sent, it saw no
+        // change afterwards and never wrote them again. Result: every safe-area
+        // rule in the app resolved to 0 on a real phone, which is exactly the
+        // "it still draws under the status bar" this bridge was added to fix.
+        //
+        // Every page load ends here (this runs on mount, including the reload
+        // after sign-out), so this is the right place to forget what we sent and
+        // say it again.
+        MainActivity self = current;
+        if (self != null) {
+            self.runOnUiThread(() -> {
+                self.lastPushed = "";
+                self.pushInsets();
+            });
+        }
     }
 
     // ---- window insets → CSS custom properties ----

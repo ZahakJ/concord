@@ -153,6 +153,18 @@
   function syncKbInset() {
     const vv = window.visualViewport;
     if (!vv) return;
+    // If the native bridge is reporting the IME, IT is the source of truth and
+    // the shell already reserves that space (.mshell pads by --kb). Measuring
+    // the same keyboard again here and adding our own margin reserved it TWICE
+    // — on a phone the IME is nearly half the screen, so the feed collapsed to a
+    // sliver above a huge grey band. Yield instead.
+    const nativeKb =
+      parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--kb")) || 0;
+    if (nativeKb > 0) {
+      document.documentElement.style.setProperty("--kb-inset", "0px");
+      queueAutosize();
+      return;
+    }
     const covered = window.innerHeight - vv.height - vv.offsetTop;
     // A collapsing browser toolbar moves this by ~50px and is not a keyboard;
     // no IME is under ~150px tall. Anything below the threshold is chrome.

@@ -237,19 +237,6 @@
         </span>
         <span class="chev">›</span>
       </button>
-      <!-- Stats is where you unlink a device, and until now it was reachable
-           only from a GUILD's menu or a keyboard shortcut — so on a phone, or
-           from a DM, or with no guilds at all, there was no route to your own
-           devices. Opened from here it carries no guildId; ModalStats falls
-           back to the active guild and skips guild stats when there isn't one. -->
-      <button class="row" onclick={() => (S.modal = { kind: "stats", from: "settings" })}>
-        <span class="chip"><Icon name="poll" size={17} /></span>
-        <span class="row-text">
-          <span class="row-title">Your devices &amp; diagnostics</span>
-          <span class="row-sub">Linked devices, peers, and connection health</span>
-        </span>
-        <span class="chev">›</span>
-      </button>
     </div>
   </section>
 

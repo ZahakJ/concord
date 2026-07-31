@@ -288,6 +288,16 @@
       {:else}
         <p class="muted tiny">No peers connected right now.</p>
       {/if}
+      {#if ns.backgroundPeers > 0}
+        <!-- One line instead of hundreds of rows. These are Kademlia's own mesh:
+             connections that never identified themselves as a Concord account,
+             which with the public-DHT setting on is mostly unrelated IPFS nodes.
+             They are worth knowing the size of and worth nothing individually. -->
+        <p class="muted tiny note">
+          + {ns.backgroundPeers} background {ns.backgroundPeers === 1 ? "connection" : "connections"}
+          holding the network open. They aren't people — that's the DHT itself.
+        </p>
+      {/if}
       <p class="muted tiny note">Attachment totals are for the whole device — blobs are shared and de-duplicated across guilds.</p>
     {:else}
       <p class="muted tiny">Loading…</p>
