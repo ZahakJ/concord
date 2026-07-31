@@ -134,6 +134,11 @@
 </script>
 
 <Modal title="Stats & diagnostics" {onClose} wide>
+  <!-- Reached from Settings there may be no guild open at all, and the panel is
+       worth opening anyway — it is the only route to your linked devices. Drop
+       the guild section entirely in that case rather than leaving a heading over
+       a "Loading…" that never resolves, because nothing was ever requested. -->
+  {#if guildId}
   <section>
     <strong class="label">{guild?.kind === "dm" ? "This conversation" : guild?.name || "This guild"}</strong>
     {#if gs}
@@ -156,6 +161,7 @@
   </section>
 
   <hr />
+  {/if}
 
   <!-- YOUR DEVICES. Its own section, above the peer list, because a device of
        yours is not one of the peers your rendezvous introduced you to — it used
