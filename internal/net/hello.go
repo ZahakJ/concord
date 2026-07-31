@@ -64,12 +64,16 @@ func (n *Host) HandleHello(responder HelloResponder) {
 // exists, and never worth establishing a connection of its own. If the peer is
 // gone the caller learns nothing, which is the same as not having asked.
 func (n *Host) SayHello(ctx context.Context, p peer.ID, request []byte) ([]byte, error) {
-	if n.h.Network().Connectedness(p) != network.Connected {
+	// Limited counts as connected here: a peer we hold only a metered relay
+	// circuit to still answers streams (newStream opts in), and the hello is
+	// most valuable precisely then — it is how a relay-only device gets placed
+	// at all.
+	if c := n.h.Network().Connectedness(p); c != network.Connected && c != network.Limited {
 		return nil, fmt.Errorf("net: hello: %s is not connected", p)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	s, err := n.h.NewStream(ctx, p, helloProtocol)
+	s, err := n.newStream(ctx, p, helloProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("net: open hello stream: %w", err)
 	}

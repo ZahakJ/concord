@@ -105,6 +105,17 @@ func (s *Service) depositForOffline(groupID []byte, ct []byte) {
 	// that mattered most.
 	online := map[string]bool{string(mailboxKeyOf(s.myCredential)): true}
 	for _, p := range s.host.Peers() {
+		// A peer whose only connection is relay-limited is NOT online for this
+		// purpose. Gossipsub refuses to publish over a limited connection, so
+		// the message this deposit backs up will never reach them live — and
+		// counting them as online used to mean the mailbox skipped them too,
+		// closing BOTH delivery paths at once: the device showed online, sent
+		// into the void, and nothing anywhere said so. Against a relay that
+		// still meters circuits (an un-upgraded rendezvous), this deposit is
+		// the only way a message crosses at all.
+		if s.host.LimitedOnly(p) {
+			continue
+		}
 		if pub, err := p.ExtractPublicKey(); err == nil {
 			if raw, err := pub.Raw(); err == nil {
 				online[string(raw)] = true
@@ -119,6 +130,16 @@ func (s *Service) depositForOffline(groupID []byte, ct []byte) {
 			continue
 		}
 		pub, ok := s.mailboxPubFor(fpr)
+		if !ok && fpr == s.id.Fingerprint() {
+			// Our own other device. Its mailbox key IS ours — the pair is
+			// derived from the account seed both devices share — so needing a
+			// learned profile for it is an indirection that can fail: two
+			// devices that have never held a full connection (relay-only from
+			// the day they were linked) may never have gossiped profiles at
+			// all, and the deposit for exactly the device that needed it most
+			// was skipped here.
+			pub, ok = s.mbxPub, true
+		}
 		if !ok {
 			continue // we don't know their mailbox key yet
 		}

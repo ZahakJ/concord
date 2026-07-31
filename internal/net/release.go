@@ -81,7 +81,7 @@ func (n *Host) HandleRelease(responder ReleaseResponder) {
 // RequestRelease asks an already-connected peer for release metadata or a
 // chunk of its binary.
 func (n *Host) RequestRelease(ctx context.Context, to peer.ID, request []byte) ([]byte, error) {
-	s, err := n.h.NewStream(ctx, to, releaseProtocol)
+	s, err := n.newStream(ctx, to, releaseProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("net: open release stream: %w", err)
 	}

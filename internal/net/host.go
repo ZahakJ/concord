@@ -26,7 +26,9 @@ import (
 	"github.com/libp2p/go-libp2p/core/metrics"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
+	"github.com/libp2p/go-libp2p/p2p/net/conngater"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/multiformats/go-multiaddr"
@@ -227,6 +229,13 @@ type Config struct {
 	// metadata: this node's peer ID and addresses become visible to a public
 	// network. Opt-in only — see NetConfig.PublicDHT.
 	PublicBootstrap bool
+
+	// BlockedIPs lists IPs this node must treat as unreachable: outbound dials
+	// to them are refused and inbound connections from them rejected. It exists
+	// so a test can build the topology every real deployment has and no test
+	// ever had — two devices behind different NATs whose only path to each
+	// other is a relay circuit. Production leaves it empty.
+	BlockedIPs []string
 }
 
 // Host is Concord's networking node.
@@ -324,6 +333,21 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		libp2p.EnableNATService(),
 		// Meter traffic so the Stats panel can show live bandwidth.
 		libp2p.BandwidthReporter(bwc),
+	}
+	// A simulated NAT, for tests only — see Config.BlockedIPs.
+	if len(cfg.BlockedIPs) > 0 {
+		gater, gerr := conngater.NewBasicConnectionGater(nil)
+		if gerr != nil {
+			return nil, fmt.Errorf("net: connection gater: %w", gerr)
+		}
+		for _, ip := range cfg.BlockedIPs {
+			parsed := stdnet.ParseIP(ip)
+			if parsed == nil {
+				return nil, fmt.Errorf("net: BlockedIPs entry %q is not an IP", ip)
+			}
+			_ = gater.BlockAddr(parsed)
+		}
+		opts = append(opts, libp2p.ConnectionGater(gater))
 	}
 	// The address factory is the only path by which a public address survives
 	// ForceReachabilityPrivate (see below and directAddrs); it stays out of the
@@ -487,6 +511,23 @@ func (n *Host) Connect(ctx context.Context, pi peer.AddrInfo) error {
 	return n.h.Connect(ctx, pi)
 }
 
+// newStream opens an application stream to p, explicitly accepting a
+// relay-limited connection.
+//
+// Every Concord protocol must open through here rather than h.NewStream. A
+// connection through a relay that enforces per-circuit limits is marked
+// "limited", and h.NewStream refuses to use such a connection — it blocks
+// waiting for a direct one that, between two devices behind different NATs,
+// never comes, and then fails with a deadline error that names neither the
+// relay nor the reason. Measured on the relay-only topology in
+// relayonly_test.go: two peers whose every stream — hello, history sync, DM,
+// call signalling — died that way while the connection between them sat there
+// carrying presence heartbeats. Concord's streams are small request/response
+// exchanges, exactly what a limited circuit is for, so accept it.
+func (n *Host) newStream(ctx context.Context, p peer.ID, proto protocol.ID) (network.Stream, error) {
+	return n.h.NewStream(network.WithAllowLimitedConn(ctx, "concord"), p, proto)
+}
+
 // Protect marks a peer connection as important so the connection manager won't
 // prune it — used to keep guild members (esp. over a relay) reachable.
 func (n *Host) Protect(p peer.ID) {
@@ -511,6 +552,24 @@ func (n *Host) PinnedPortTaken() bool { return n.portTaken }
 
 // Peers returns the peer IDs this node is currently connected to.
 func (n *Host) Peers() []peer.ID { return n.h.Network().Peers() }
+
+// LimitedOnly reports whether every connection we hold to p is a limited
+// (relay-metered) one. Such a peer is present — presence events fired, it
+// appears in Peers() — but gossipsub will not deliver to it, so anything that
+// treats "connected" as "reachable by publish" must ask this first. False for
+// a peer with any full connection, and for one with no connection at all.
+func (n *Host) LimitedOnly(p peer.ID) bool {
+	conns := n.h.Network().ConnsToPeer(p)
+	if len(conns) == 0 {
+		return false
+	}
+	for _, c := range conns {
+		if !c.Stat().Limited {
+			return false
+		}
+	}
+	return true
+}
 
 // Host exposes the underlying libp2p host for sibling layers (pubsub, media
 // signaling) within package net. Kept unexported-in-spirit by returning the

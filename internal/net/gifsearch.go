@@ -80,7 +80,7 @@ func ServeGifSearch(ctx context.Context, h host.Host, responder GifSearchRespond
 // RequestGifSearch asks an already-connected node to run a GIF search, or to
 // fetch one image it previously offered.
 func (n *Host) RequestGifSearch(ctx context.Context, to peer.ID, request []byte) ([]byte, error) {
-	s, err := n.h.NewStream(ctx, to, gifSearchProtocol)
+	s, err := n.newStream(ctx, to, gifSearchProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("net: open gif search stream: %w", err)
 	}
