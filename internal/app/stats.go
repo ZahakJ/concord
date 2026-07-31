@@ -140,6 +140,15 @@ type NetworkStatsView struct {
 	// Connections that never identified themselves as a Concord account: the
 	// Kademlia DHT's own mesh. Counted, not listed — see NetworkStats.
 	BackgroundPeers int `json:"backgroundPeers"`
+	// RelayReserved reports whether this device holds a circuit-relay slot, i.e.
+	// whether it advertises an address a peer behind a different NAT can dial.
+	// Without one, a machine on a home connection is reachable only by peers who
+	// can hole-punch to it — and a phone on mobile data usually cannot. It is the
+	// single most useful answer to "why does my other device never come online",
+	// and until now the panel could only say "offline".
+	RelayReserved bool `json:"relayReserved"`
+	// DialableAddrs is how many addresses this device is advertising at all.
+	DialableAddrs int `json:"dialableAddrs"`
 }
 
 // NetworkStats reports DB/blob size and per-peer connection details.
@@ -219,6 +228,12 @@ func (s *Service) NetworkStats() NetworkStatsView {
 		v.PeerList = append(v.PeerList, pv)
 	}
 	v.MemberPeers = memberPeers
+	for _, a := range s.host.Addrs() {
+		v.DialableAddrs++
+		if strings.Contains(a.String(), "p2p-circuit") {
+			v.RelayReserved = true
+		}
+	}
 	v.DeviceList = s.LinkedDevices()
 	return v
 }

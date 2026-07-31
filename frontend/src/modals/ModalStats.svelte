@@ -288,6 +288,24 @@
       {:else}
         <p class="muted tiny">No peers connected right now.</p>
       {/if}
+      <!-- The answer to "my other device never comes online". A machine on a home
+           connection is reachable from a phone on mobile data only through a relay;
+           without a reservation it is advertising addresses nothing outside its own
+           network can dial, and every symptom downstream ("offline", "messages don't
+           arrive") follows from that one fact. -->
+      <div class="stat">
+        <span class="k">Reachable from outside</span>
+        <span class="v" class:warn={!ns.relayReserved}>
+          {ns.relayReserved ? "yes — relay reserved" : "no relay slot"}
+        </span>
+      </div>
+      {#if !ns.relayReserved}
+        <p class="muted tiny note">
+          This device isn't advertising a relayed address, so a device on another
+          network — a phone on mobile data, say — has no route to it. Check that
+          the rendezvous is set and reachable under Connection.
+        </p>
+      {/if}
       {#if ns.backgroundPeers > 0}
         <!-- One line instead of hundreds of rows. These are Kademlia's own mesh:
              connections that never identified themselves as a Concord account,
