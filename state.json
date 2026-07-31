@@ -1,0 +1,31 @@
+{
+  "machine": "m-80ec1a30b01a",
+  "ts_ms": 1785515758185,
+  "threads": [
+    {
+      "id": "thread-1785515756909-1",
+      "repo_id": "repo-52173fc0c2ca0046",
+      "goal": "Merge origin/main (v0.47.0) into community-features, rebuild, restart service",
+      "head_stitch": null,
+      "lease_id": "lease-1785515756909-1",
+      "status": "active",
+      "note": "isolation unavailable (scope matches more than 5000 files — narrow the lease) — working in place"
+    }
+  ],
+  "leases": [
+    {
+      "id": "lease-1785515756909-1",
+      "thread_id": "thread-1785515756909-1",
+      "scope": [
+        "internal/**",
+        "frontend/**"
+      ],
+      "goal": "Merge origin/main (v0.47.0) into community-features, rebuild, restart service",
+      "criteria": [],
+      "holder": "zman",
+      "ttl_ms": 1800000,
+      "last_heartbeat_ms": 1785515756909
+    }
+  ],
+  "stitches": []
+}
