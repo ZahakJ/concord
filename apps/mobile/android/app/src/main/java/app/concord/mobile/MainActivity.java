@@ -15,6 +15,7 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.WebViewListener;
 
 public class MainActivity extends BridgeActivity {
     // The web layer signals its first paint (App.svelte's onMount) so the system
@@ -157,6 +158,27 @@ public class MainActivity extends BridgeActivity {
         // callback catches those, plus rotation and the gesture/3-button switch.
         wv.getViewTreeObserver().addOnGlobalLayoutListener(this::pushInsets);
         wv.post(this::pushInsets);
+        // Every NAVIGATION wipes the inline --sa-* styles with the old document,
+        // but lastPushed still says "already sent" — so every later push was
+        // being deduplicated away and the new document rendered with 0 insets.
+        // markWebReady() covers the pages that reach App.svelte's onMount; this
+        // covers the ones that don't (a crashed bundle, a stuck boot screen, any
+        // future page): forget what was sent the moment a new document paints.
+        // (Capacitor itself fires requestApplyInsets at page commit — it was the
+        // dedup that swallowed it.)
+        if (getBridge() != null) {
+            getBridge().addWebViewListener(
+                new WebViewListener() {
+                    @Override
+                    public void onPageCommitVisible(WebView view, String url) {
+                        runOnUiThread(() -> {
+                            lastPushed = "";
+                            pushInsets();
+                        });
+                    }
+                }
+            );
+        }
     }
 
     private void pushInsets() {
@@ -234,7 +256,12 @@ public class MainActivity extends BridgeActivity {
             // only here) means a page reload — which wipes both the inline
             // styles and window.__saFloor — heals on the markWebReady re-push.
             "if(!window.__saFloor){window.__saFloor=function(){" +
-            "var fb=window.innerHeight>=window.screen.height-1;" +
+            // -2, not -1: innerHeight and screen.height round the same physical
+            // size through devicePixelRatio separately (measured: 914 vs 915 on
+            // WebView 145 @2.625x — a 1px disagreement on a genuinely full-bleed
+            // screen). A platform-padded WebView is short by a whole bar (24dp+),
+            // so a 2px tolerance cannot misfire the floor.
+            "var fb=window.innerHeight>=window.screen.height-2;" +
             "document.documentElement.style.setProperty('--sa-floor-top'," +
             "fb?(document.documentElement.style.getPropertyValue('--sa-bars-top')||'0px'):'0px');" +
             "};addEventListener('resize',window.__saFloor);}" +
