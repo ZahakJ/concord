@@ -67,6 +67,24 @@ public class MainActivity extends BridgeActivity {
         installInsetBridge();
     }
 
+    // Visible-lifecycle → core cadence. onStop covers both backgrounding and
+    // the screen turning off, which are exactly the states where the node's
+    // 15–30s discovery/sync timers were keeping the radio permanently awake
+    // (measured: identical packet rate screen-on and screen-off before this).
+    // The plugin forwards to the Go core, which slows to a multi-minute beat
+    // without dropping any connection.
+    @Override
+    public void onStart() {
+        super.onStart();
+        ConcordCorePlugin.setForeground(true);
+    }
+
+    @Override
+    public void onStop() {
+        ConcordCorePlugin.setForeground(false);
+        super.onStop();
+    }
+
     @Override
     public void onDestroy() {
         if (current == this) current = null;

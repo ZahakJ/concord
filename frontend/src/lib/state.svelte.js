@@ -1306,7 +1306,14 @@ export async function onLogin() {
   refreshNetStatus();
   // Slow poll backstops the presence-event refresh (covers bootstrap dials that
   // don't produce a peer-presence event, e.g. a relay reservation forming).
-  setInterval(refreshNetStatus, 15000);
+  // Skipped while hidden — nobody can see the indicator, and on a phone every
+  // needless timer keeps the CPU awake — and refreshed the moment we're back.
+  setInterval(() => {
+    if (!document.hidden) refreshNetStatus();
+  }, 15000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) refreshNetStatus();
+  });
 }
 
 
@@ -2058,8 +2065,11 @@ function initEvents() {
   });
 
   // Expire voice-roster entries whose heartbeat stopped (missed ~3 beats = 9s),
-  // covering peers that crashed or dropped without a clean "leave".
+  // covering peers that crashed or dropped without a clean "leave". Skipped
+  // while hidden UNLESS we're in a call ourselves (then the roster drives real
+  // audio state); a hidden idle app repainting rosters is wasted battery.
   setInterval(() => {
+    if (document.hidden && !S.voice) return;
     const now = Date.now();
     let changed = false;
     const next = {};

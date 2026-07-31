@@ -32,6 +32,10 @@ type Bridge struct {
 
 	mu  sync.Mutex
 	svc *appsvc.Service
+	// wantBackground remembers the shell's last SetForeground call, so an
+	// identity unlocked while the app is off screen (biometric relock, a
+	// notification-triggered cold start) begins life already throttled.
+	wantBackground bool
 
 	// Event sinks, set by whichever transport owns the bridge.
 	OnMessage       func(MessageView)
@@ -535,6 +539,12 @@ func (b *Bridge) Login(passphrase string) error {
 		}
 	})
 	b.svc = svc
+	// The shell may have declared the app backgrounded before the unlock
+	// happened; a service born after that call must not start on the eager
+	// foreground cadence.
+	if b.wantBackground {
+		svc.SetBackground(true)
+	}
 	// Learn (once per version) that our own binary is a published release, so
 	// peers running an older one can pull it from us. Off the critical path:
 	// it hashes the executable and may touch the network.
@@ -1617,6 +1627,24 @@ func (b *Bridge) Nudge() error {
 	return nil
 }
 
+// SetForeground is the mobile shell reporting whether the app is on screen
+// (Activity onStart/onStop — which covers backgrounding AND the screen turning
+// off). Off screen, the core's periodic loops slow to one shared beat so the
+// radio can sleep; connections, gossip delivery and the relay reservation are
+// untouched, and returning to the foreground restores the eager cadence
+// immediately. Safe to call while locked — the choice is remembered and
+// applied when the service starts.
+func (b *Bridge) SetForeground(fg bool) error {
+	b.mu.Lock()
+	b.wantBackground = !fg
+	svc := b.svc
+	b.mu.Unlock()
+	if svc != nil {
+		svc.SetBackground(!fg)
+	}
+	return nil
+}
+
 // RegisterPush binds a device push token (platform "apns"/"fcm") to our mailbox
 // on the rendezvous nodes, so offline deposits trigger a wake. The mobile shell
 // calls it with the token from APNs/FCM after login. No-op when locked.
@@ -2227,6 +2255,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.NetworkStatus(), nil
 	case "Nudge":
 		return nil, b.Nudge()
+	case "SetForeground":
+		return nil, b.SetForeground(argBool(args, 0))
 	case "RegisterPush":
 		return nil, b.RegisterPush(argStr(args, 0), argStr(args, 1))
 	case "LinkOffer":

@@ -102,3 +102,7 @@ func asInt64(v any) int64 {
 	}
 	return 0
 }
+
+// richPresenceSupported: MPRIS exists here, so the poll loop has something to
+// ask. See mpris_other.go for why the unsupported platforms skip it entirely.
+const richPresenceSupported = true

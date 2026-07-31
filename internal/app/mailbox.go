@@ -249,10 +249,13 @@ const mailboxSweep = 3
 
 // sweepMailbox drains our mailbox on a slow beat, independent of reconnects.
 // Every third heal tick (~60s), so it costs one request per rendezvous node per
-// minute rather than one every twenty seconds.
+// minute rather than one every twenty seconds. Backgrounded, the heal tick
+// itself is already one slow beat (see background.go), so drain on every tick —
+// the mailbox is the delivery path of last resort and stretching it by another
+// factor of three would turn "a bit later" into "when I open the app".
 func (s *Service) sweepMailbox() {
 	s.mbxTick++
-	if s.mbxTick%mailboxSweep != 0 {
+	if !s.backgrounded() && s.mbxTick%mailboxSweep != 0 {
 		return
 	}
 	for _, node := range s.mailboxNodes() {

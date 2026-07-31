@@ -91,6 +91,13 @@ type Service struct {
 	activityInfo     *Activity
 	richPresenceStop context.CancelFunc
 
+	// Background mode (see background.go): bg is whether the mobile shell says
+	// the app is off screen; bgWake is closed on return to foreground so paced
+	// loops fire immediately instead of waiting out a stretched interval.
+	bgMu   sync.Mutex
+	bg     bool
+	bgWake chan struct{}
+
 	voiceMu    sync.Mutex
 	voiceRooms map[string]context.CancelFunc // channel ID -> heartbeat stop (rooms we're IN)
 	// voiceWatched marks voice channels whose presence topic we passively listen

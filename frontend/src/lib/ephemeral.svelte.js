@@ -89,6 +89,18 @@ let timer;
 export function startEphemeralSweep() {
   sweepNow();
   clearInterval(timer);
-  timer = setInterval(sweepNow, 5000);
-  return () => clearInterval(timer);
+  // Paused while hidden: an expiry only matters when someone can see the
+  // message, and a 5s timer running in a backgrounded phone app is pure
+  // battery. The visibilitychange sweep catches up anything that lapsed.
+  timer = setInterval(() => {
+    if (!document.hidden) sweepNow();
+  }, 5000);
+  const onVis = () => {
+    if (!document.hidden) sweepNow();
+  };
+  document.addEventListener("visibilitychange", onVis);
+  return () => {
+    clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVis);
+  };
 }

@@ -114,21 +114,40 @@ func (s *Service) healStrandedGuilds() {
 // runHealLoop periodically retries recovery for stranded guilds, so a member
 // that was stranded while every committer was offline heals automatically once
 // one comes back — no user action.
+// reconcileEvery runs the guild anti-entropy on every Nth heal tick (~60s)
+// rather than every tick. Reconcile is the backstop for a DROPPED gossip
+// message — live traffic still arrives instantly over the mesh — and measured
+// on the wire each reconcile costs the ASKED peer a 14–27 packet burst through
+// its radio. At 20s that burst was two-thirds of what a backgrounded phone
+// received from an idle desktop; peers cannot throttle each other, so the
+// polite cadence has to be the default one.
+const reconcileEvery = 3
+
+// The interval is paced (bgPace): backgrounded on a phone this beats every
+// backgroundBeat instead — anti-entropy this frequent through a phone radio is
+// most of what "Concord eats the battery" was — and the bgWake case runs a tick
+// immediately on return to foreground.
 func (s *Service) runHealLoop() {
-	t := time.NewTicker(healRetryInterval)
-	defer t.Stop()
+	tick := 0
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-t.C:
-			s.healStrandedGuilds()
-			s.retryPendingDMInvites()
-			s.reconcilePendingMembers()
-			s.noteDeviceLeaves()
-			s.reconcileGuilds()
-			s.sweepMailbox()
+		case <-s.bgWakeCh():
+			// Foregrounded: catch up now rather than in up to a full beat.
+		case <-time.After(s.bgPace(healRetryInterval)):
 		}
+		tick++
+		s.healStrandedGuilds()
+		s.retryPendingDMInvites()
+		s.reconcilePendingMembers()
+		s.noteDeviceLeaves()
+		// Backgrounded the tick itself is one slow beat, so reconcile rides
+		// every tick; foreground it runs on the polite cadence.
+		if s.backgrounded() || tick%reconcileEvery == 0 {
+			s.reconcileGuilds()
+		}
+		s.sweepMailbox()
 	}
 }
 

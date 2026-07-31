@@ -279,6 +279,11 @@ type Host struct {
 	// turn one absent friend into a stream of failures. Cleared per peer the
 	// moment we reach it again.
 	redialReported map[peer.ID]bool
+
+	// background: the mobile shell says the app is off screen, so the periodic
+	// discovery loops stretch to backgroundBeat (see SetBackground in dht.go).
+	// Guarded by mu.
+	background bool
 }
 
 // New brings up a libp2p host bound to cfg.Identity. The caller owns shutdown

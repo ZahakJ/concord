@@ -90,6 +90,17 @@ public class ConcordCorePlugin extends Plugin {
         call.resolve();
     }
 
+    // App visibility → core cadence. Called from MainActivity.onStart/onStop
+    // (NOT from JS: the WebView's own timers are throttled precisely when this
+    // matters, so the native lifecycle is the only reliable messenger). Off
+    // screen — including screen-off — the Go core slows its periodic
+    // discovery/sync loops so the radio can sleep; connections and message
+    // delivery stay up. See Node.SetForeground.
+    static void setForeground(boolean fg) {
+        Node n = node;
+        if (n != null) n.setForeground(fg);
+    }
+
     // "Stay connected": run a foreground service so Android keeps this process
     // (and the in-process libp2p node) alive while backgrounded.
     @PluginMethod

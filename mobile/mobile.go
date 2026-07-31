@@ -196,6 +196,15 @@ func (n *Node) Nudge() {
 	n.srv.Bridge().Nudge()
 }
 
+// SetForeground reports whether the app is on screen (Activity onStart/onStop
+// on Android). Off screen, the core slows its periodic discovery/sync loops to
+// one shared multi-minute beat so the phone's radio can sleep, while keeping
+// every connection (and therefore message delivery) alive. Safe to call
+// whether or not the identity is unlocked.
+func (n *Node) SetForeground(fg bool) {
+	_ = n.srv.Bridge().SetForeground(fg)
+}
+
 // Stop shuts the API server and the core down. The Node cannot be restarted;
 // call Start again for a fresh one.
 func (n *Node) Stop() {
