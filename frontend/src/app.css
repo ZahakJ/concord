@@ -149,8 +149,15 @@
 
      MainActivity reads the real insets and publishes --sa-* on :root. iOS and
      desktop never set those, so env() carries them there. max() takes whichever
-     platform actually answered. */
-  --safe-top: max(env(safe-area-inset-top), var(--sa-top, 0px));
+     platform actually answered.
+
+     --sa-floor-top is the Android belt-and-braces: a page-side check (installed
+     by the same native push) that floors the top inset at the raw status-bar
+     height whenever the viewport demonstrably spans the whole screen
+     (innerHeight >= screen.height). If the native remaining-inset measurement
+     ever reports 0 while the app is in fact full-bleed, this keeps the top bar
+     out from under the clock. Platforms that never set it resolve it to 0. */
+  --safe-top: max(env(safe-area-inset-top), var(--sa-top, 0px), var(--sa-floor-top, 0px));
   --safe-bottom: max(env(safe-area-inset-bottom), var(--sa-bottom, 0px));
   --safe-left: max(env(safe-area-inset-left), var(--sa-left, 0px));
   --safe-right: max(env(safe-area-inset-right), var(--sa-right, 0px));
