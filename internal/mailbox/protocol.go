@@ -269,7 +269,11 @@ func readFrame(r io.Reader) ([]byte, error) {
 // RequestOn opens a mailbox stream to a node and returns its response. Shared
 // by the client-side Host methods.
 func RequestOn(ctx context.Context, h host.Host, node peer.ID, req Request) (Response, error) {
-	s, err := h.NewStream(ctx, node, Protocol)
+	// A limited (relay) connection must be allowed here: a peer whose only path
+	// to the rendezvous is relayed still has to be able to deposit and collect
+	// mail, and NewStream refuses a limited conn by default. See
+	// internal/net/limited.go for why that default is wrong for Concord.
+	s, err := h.NewStream(network.WithAllowLimitedConn(ctx, "mailbox"), node, Protocol)
 	if err != nil {
 		return Response{}, err
 	}

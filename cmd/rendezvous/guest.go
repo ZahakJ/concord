@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"github.com/libp2p/go-libp2p/core/network"
 	"net/http"
 	"os"
 	"sync"
@@ -165,7 +166,9 @@ func relayGuest(ctx context.Context, h host.Host, w http.ResponseWriter, r *http
 	// node reaches it.
 	dialCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	stream, err := h.NewStream(dialCtx, pid, cnet.GuestProtocol)
+	// The host we are relaying a guest to may itself only be reachable over a
+	// relayed connection, which NewStream refuses by default.
+	stream, err := h.NewStream(network.WithAllowLimitedConn(dialCtx, "guest"), pid, cnet.GuestProtocol)
 	if err != nil {
 		// Newline-terminated like every other frame — the guest page only
 		// parses complete lines.

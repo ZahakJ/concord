@@ -49,7 +49,7 @@ func (n *Host) RequestInvite(ctx context.Context, owner peer.AddrInfo, request [
 	if err := n.h.Connect(ctx, owner); err != nil {
 		return nil, fmt.Errorf("net: connect to guild owner: %w", err)
 	}
-	s, err := n.h.NewStream(ctx, owner.ID, inviteProtocol)
+	s, err := n.h.NewStream(relayCtx(ctx, "invite"), owner.ID, inviteProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("net: open invite stream: %w", err)
 	}

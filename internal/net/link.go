@@ -86,7 +86,7 @@ func (n *Host) dialLinkStream(ctx context.Context, issuer peer.AddrInfo) (networ
 			lastErr = nil
 		}
 		if lastErr == nil {
-			s, serr := n.h.NewStream(attemptCtx, issuer.ID, linkProtocol)
+			s, serr := n.h.NewStream(relayCtx(attemptCtx, "link"), issuer.ID, linkProtocol)
 			cancel()
 			if serr == nil {
 				return s, nil

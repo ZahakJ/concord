@@ -69,7 +69,7 @@ func (n *Host) SayHello(ctx context.Context, p peer.ID, request []byte) ([]byte,
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	s, err := n.h.NewStream(ctx, p, helloProtocol)
+	s, err := n.h.NewStream(relayCtx(ctx, "hello"), p, helloProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("net: open hello stream: %w", err)
 	}

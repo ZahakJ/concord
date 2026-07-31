@@ -37,7 +37,7 @@ func (n *Host) HandleDMInvites(responder DMInviteResponder) {
 
 // RequestDMInvite pushes a DM invitation to an already-connected peer.
 func (n *Host) RequestDMInvite(ctx context.Context, to peer.ID, request []byte) ([]byte, error) {
-	s, err := n.h.NewStream(ctx, to, dmInviteProtocol)
+	s, err := n.h.NewStream(relayCtx(ctx, "dm-invite"), to, dmInviteProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("net: open dm-invite stream: %w", err)
 	}

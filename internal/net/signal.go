@@ -36,7 +36,7 @@ func (n *Host) HandleSignals(handler SignalHandler) {
 // connection already exists (voice peers discover each other via presence and
 // are already connected); it does not dial.
 func (n *Host) SendSignal(ctx context.Context, to peer.ID, data []byte) error {
-	s, err := n.h.NewStream(ctx, to, signalProtocol)
+	s, err := n.h.NewStream(relayCtx(ctx, "voice-signal"), to, signalProtocol)
 	if err != nil {
 		return fmt.Errorf("net: open signal stream: %w", err)
 	}
