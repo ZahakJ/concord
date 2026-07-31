@@ -63,10 +63,14 @@ func TestRelayCandidatesHonourTheLimit(t *testing.T) {
 	}
 }
 
-// TestRelayCandidatesFilterAndDedupe pins the two things a candidate list must
-// not do: offer the same peer twice (AutoRelay would hold one reservation and
-// count it as two), or offer a peer only reachable on the LAN — a relay behind
-// the same NAT we are is no help, and the seed lists used to skip that check.
+// TestRelayCandidatesFilterAndDedupe pins what the candidate list must not do:
+// offer the same peer twice (AutoRelay would hold one reservation and count it
+// as two), or offer a REMEMBERED peer only reachable on the LAN — a relay
+// behind the same NAT we are is no help. Configured rendezvous nodes are the
+// exception: the user typed that address in deliberately, so it is offered
+// exactly as given, private or not — a LAN- or loopback-hosted rendezvous is a
+// legitimate deployment, and filtering it left relay-only topologies silently
+// reservation-less.
 func TestRelayCandidatesFilterAndDedupe(t *testing.T) {
 	s := &relaySource{
 		boot: []peer.AddrInfo{
@@ -81,17 +85,20 @@ func TestRelayCandidatesFilterAndDedupe(t *testing.T) {
 	}
 
 	got := drainCandidates(t, s.candidates(context.Background(), 8))
-	if len(got) != 2 {
-		t.Fatalf("want the rendezvous and the one public friend, got %v", got)
+	if len(got) != 3 {
+		t.Fatalf("want both rendezvous nodes and the one public friend, got %v", got)
 	}
 	if got[0].ID != peer.ID("rendezvous") {
 		t.Fatalf("want the rendezvous offered first, got %s", got[0].ID)
 	}
-	if got[1].ID != peer.ID("friend") {
-		t.Fatalf("want the publicly-addressed friend second, got %s", got[1].ID)
+	if got[1].ID != peer.ID("lan-rendezvous") {
+		t.Fatalf("want the LAN rendezvous offered as configured, got %s", got[1].ID)
 	}
-	if len(got[1].Addrs) != 1 || got[1].Addrs[0].String() != "/ip4/8.8.8.8/tcp/4001" {
-		t.Fatalf("want the friend's LAN address stripped, got %v", got[1].Addrs)
+	if got[2].ID != peer.ID("friend") {
+		t.Fatalf("want the publicly-addressed friend last, got %s", got[2].ID)
+	}
+	if len(got[2].Addrs) != 1 || got[2].Addrs[0].String() != "/ip4/8.8.8.8/tcp/4001" {
+		t.Fatalf("want the friend's LAN address stripped, got %v", got[2].Addrs)
 	}
 }
 

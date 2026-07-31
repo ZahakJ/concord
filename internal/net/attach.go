@@ -48,7 +48,7 @@ func (n *Host) HandleAttachments(responder AttachResponder) {
 
 // RequestAttachment asks an already-connected peer for a blob.
 func (n *Host) RequestAttachment(ctx context.Context, to peer.ID, request []byte) ([]byte, error) {
-	s, err := n.h.NewStream(relayCtx(ctx, "attachment"), to, attachProtocol)
+	s, err := n.newStream(ctx, to, attachProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("net: open attach stream: %w", err)
 	}

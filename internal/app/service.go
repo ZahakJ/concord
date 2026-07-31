@@ -691,6 +691,13 @@ type Config struct {
 	// BootstrapPeers are multiaddrs of rendezvous/relay nodes for internet-wide
 	// discovery. When any are set, the DHT is enabled.
 	BootstrapPeers []string
+
+	// listenAddrs and blockedIPs shape reachability for tests in this package:
+	// pinning each device to its own loopback alias and blocking the other's
+	// simulates two NATs whose only shared path is a relay circuit. Unexported
+	// on purpose — no production caller can reach them.
+	listenAddrs []string
+	blockedIPs  []string
 }
 
 // Start loads (or creates) the identity, then brings up storage, networking
@@ -742,6 +749,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		BootstrapPeers:  bootstrap,
 		PublicBootstrap: netCfg.PublicDHT,
 		RememberedPeers: remembered,
+		ListenAddrs:     cfg.listenAddrs,
+		BlockedIPs:      cfg.blockedIPs,
 	})
 	if err != nil {
 		_ = st.Close()

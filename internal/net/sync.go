@@ -41,7 +41,7 @@ func (n *Host) HandleSync(responder SyncResponder) {
 
 // RequestSync asks an already-connected peer for missed history.
 func (n *Host) RequestSync(ctx context.Context, to peer.ID, request []byte) ([]byte, error) {
-	s, err := n.h.NewStream(relayCtx(ctx, "sync"), to, syncProtocol)
+	s, err := n.newStream(ctx, to, syncProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("net: open sync stream: %w", err)
 	}

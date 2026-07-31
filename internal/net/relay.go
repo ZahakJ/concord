@@ -1,8 +1,6 @@
 package net
 
 import (
-	"time"
-
 	"context"
 	"log"
 	"sync"
@@ -75,15 +73,14 @@ func (s *relaySource) candidates(_ context.Context, num int) <-chan peer.AddrInf
 	if h != nil {
 		seen[h.ID()] = true
 	}
-	// offer reports whether there is still room for more. Every candidate goes
-	// through the same public-address filter, seeds included: a relay behind the
-	// same kind of NAT we are is no help, and a LAN address in the list only
-	// wastes a reservation attempt.
+	// offer reports whether there is still room for more. Candidates found on
+	// our own go through a public-address filter: a relay behind the same kind
+	// of NAT we are is no help, and a LAN address in the list only wastes a
+	// reservation attempt.
 	offer := func(id peer.ID, addrs []multiaddr.Multiaddr) bool {
 		if sent >= num {
 			return false
 		}
-		addrs = publicAddrs(addrs)
 		if seen[id] || len(addrs) == 0 {
 			return true
 		}
@@ -93,13 +90,18 @@ func (s *relaySource) candidates(_ context.Context, num int) <-chan peer.AddrInf
 		return sent < num
 	}
 
+	// The rendezvous nodes are offered exactly as configured, private addresses
+	// included. They are the one entry the user typed in by hand, so filtering
+	// them for "looks public" second-guesses an explicit choice — and quietly
+	// breaks every deliberately-private deployment: a rendezvous on the office
+	// LAN, or the loopback one a test builds a relay-only topology around.
 	for _, pi := range boot {
 		if !offer(pi.ID, pi.Addrs) {
 			return out
 		}
 	}
 	for _, pi := range known {
-		if !offer(pi.ID, pi.Addrs) {
+		if !offer(pi.ID, publicAddrs(pi.Addrs)) {
 			return out
 		}
 	}
@@ -121,26 +123,56 @@ func (s *relaySource) candidates(_ context.Context, num int) <-chan peer.AddrInf
 		if !h.ConnManager().IsProtected(p, relayTag) {
 			continue
 		}
-		if !offer(p, h.Peerstore().Addrs(p)) {
+		if !offer(p, publicAddrs(h.Peerstore().Addrs(p))) {
 			return out
 		}
 	}
 	return out
 }
 
+// RendezvousRelayResources sizes the circuit-relay service a rendezvous node
+// runs. It lives here rather than in cmd/rendezvous so the tests that build a
+// stand-in rendezvous carry exactly the production configuration — a test relay
+// with library-default resources exhibits failures production doesn't have, and
+// hides ones it does.
+//
+// Limit is nil — no per-circuit duration or byte cap — and that nil is
+// load-bearing, not generosity. A relay that advertises ANY limit makes every
+// connection through it a "limited" connection on both ends, and go-libp2p
+// quarantines those: Connectedness reports Limited instead of Connected, and
+// gossipsub (which checks exactly that, pubsub.go processLoop) refuses to
+// attach the peer to any mesh. The result, measured on the relay-only topology
+// in relayonly_test.go with the previous 1h/512MB limit: the two devices
+// connect, presence fires, hole punching fails (as it does for real phones on
+// carrier NAT), and then not one pubsub message crosses in either direction —
+// no guild messages, no typing, no voice presence — while both sides render
+// each other ONLINE. A relayed connection Concord cannot publish over is
+// strictly worse than none, so the per-circuit meter goes. Abuse is bounded by
+// the caps that remain: total reservations, concurrent circuits, and both
+// per-peer and per-IP reservation counts.
+func RendezvousRelayResources() relayv2.Resources {
+	r := relayv2.DefaultResources()
+	r.Limit = nil // unlimited circuits — see above, this is what makes gossipsub work
+	r.MaxReservations = 512
+	r.MaxCircuits = 64
+	r.MaxReservationsPerPeer = 8
+	r.MaxReservationsPerIP = 16
+	return r
+}
+
 // peerRelayResources sizes the relay we run for friends.
 //
-// The library defaults cap a circuit at 128 KiB and two minutes, which is fine
-// for a hole-punch handshake and useless for the job this relay exists to do:
-// when the rendezvous is gone, a friend's whole session rides this circuit, and
-// one image attachment is already past the byte cap. The rendezvous node solved
-// the same problem with the same numbers (cmd/rendezvous/main.go) — but it is a
-// server, and this is somebody's laptop, so the per-circuit allowance matches
-// while the totals are far smaller. Unlimited is not on offer: a relay with no
-// ceiling is a machine strangers can spend.
+// Limit is nil for the same reason as RendezvousRelayResources — a limited
+// circuit is one gossipsub refuses to ride, so a friend relayed through us
+// would show online and hear nothing, which is the exact failure this relay
+// exists to prevent. This is somebody's laptop rather than a server, but the
+// exposure is narrower than it looks: unlike the rendezvous, every reservation
+// and every circuit here passes memberACL — only members of a guild we share
+// get either — and the counts stay small. "Strangers spending the machine" is
+// handled by the ACL, not by metering our own friends' sessions.
 func peerRelayResources() relayv2.Resources {
 	r := relayv2.DefaultResources()
-	r.Limit = &relayv2.RelayLimit{Duration: time.Hour, Data: 512 << 20}
+	r.Limit = nil // unlimited circuits for guild members — see RendezvousRelayResources
 	r.MaxReservations = 32
 	r.MaxCircuits = 8
 	r.MaxReservationsPerPeer = 4

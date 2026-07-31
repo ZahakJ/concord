@@ -22,7 +22,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/libp2p/go-libp2p"
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -32,6 +31,7 @@ import (
 
 	"github.com/zahak/concord/internal/identity"
 	"github.com/zahak/concord/internal/mailbox"
+	cnet "github.com/zahak/concord/internal/net"
 )
 
 func main() {
@@ -63,16 +63,10 @@ func run() error {
 		return err
 	}
 
-	// Relay service for NAT'd peers. Generous per-circuit limits (a friend group
-	// behind a symmetric NAT may hold a long relayed session) but NOT infinite:
-	// infinite limits turn the public fly.io node into a free open relay anyone
-	// can proxy unbounded traffic through, exhausting its bandwidth/bill.
-	relayRes := relay.DefaultResources()
-	relayRes.Limit = &relay.RelayLimit{Duration: time.Hour, Data: 512 << 20} // 512 MB/hr per circuit
-	relayRes.MaxReservations = 512
-	relayRes.MaxCircuits = 64
-	relayRes.MaxReservationsPerPeer = 8
-	relayRes.MaxReservationsPerIP = 16
+	// Relay service for NAT'd peers. The resource numbers live in internal/net
+	// (RendezvousRelayResources) so the tests that stand in for this node run
+	// the same relay this node does.
+	relayRes := cnet.RendezvousRelayResources()
 
 	h, err := libp2p.New(
 		libp2p.Identity(priv),
