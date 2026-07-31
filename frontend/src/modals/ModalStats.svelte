@@ -28,9 +28,65 @@
 
   $effect(() => {
     refresh();
-    const t = setInterval(refresh, 2000);
+    sampleInsets();
+    const t = setInterval(() => {
+      refresh();
+      sampleInsets();
+    }, 2000);
     return () => clearInterval(t);
   });
+
+  // ---- display insets --------------------------------------------------
+  // The numbers behind "the app draws under the status bar". Three layers,
+  // sampled separately so a screenshot of this section says exactly which
+  // layer lost the value:
+  //   1. what the native side pushed (inline --sa-* on <html>, set by
+  //      MainActivity's inset bridge — "unset" means the push never arrived),
+  //   2. what CSS resolves (--safe-*, env(); measured via a probe element,
+  //      because getComputedStyle on an unregistered custom property returns
+  //      the raw var()/env() expression, not pixels),
+  //   3. what the top bar is actually wearing (its computed padding-top).
+  // Plus the viewport geometry (is the page really full-bleed?) and the
+  // native push history (__saLog, written by the same script that sets
+  // --sa-*), which shows a good value being overwritten by a bad one.
+  let ins = $state(null);
+  function probePx(expr) {
+    const el = document.createElement("div");
+    el.style.cssText = `position:absolute;visibility:hidden;pointer-events:none;padding-top:${expr};`;
+    document.body.appendChild(el);
+    const v = getComputedStyle(el).paddingTop;
+    el.remove();
+    return v;
+  }
+  function sampleInsets() {
+    if (!S.isMobile) return;
+    const st = document.documentElement.style;
+    const raw = (p) => st.getPropertyValue(p).trim() || "unset";
+    const bar = document.querySelector("header.mtopbar");
+    ins = {
+      saTop: raw("--sa-top"),
+      saBottom: raw("--sa-bottom"),
+      saLeft: raw("--sa-left"),
+      saRight: raw("--sa-right"),
+      kb: raw("--kb"),
+      barsTop: raw("--sa-bars-top"),
+      floorTop: raw("--sa-floor-top"),
+      envTop: probePx("env(safe-area-inset-top, 0px)"),
+      envBottom: probePx("env(safe-area-inset-bottom, 0px)"),
+      safeTop: probePx("var(--safe-top, 0px)"),
+      safeBottom: probePx("var(--safe-bottom, 0px)"),
+      barPad: bar ? getComputedStyle(bar).paddingTop : "not mounted",
+      innerH: window.innerHeight,
+      innerW: window.innerWidth,
+      screenH: window.screen.height,
+      screenW: window.screen.width,
+      dpr: Math.round(window.devicePixelRatio * 1000) / 1000,
+      pushes: (window.__saLog || []).slice(-6).reverse(),
+      now: Date.now(),
+    };
+  }
+  const fmtPush = (p) =>
+    `top ${p.top} · bottom ${p.bottom} · kb ${p.kb} (bars.top ${p.barsTopPx}px · wvTop ${p.wvTopPx}px · winH ${p.winHPx}px · ×${p.d})`;
 
   function fmtBytes(n) {
     if (!n) return "0 B";
@@ -321,6 +377,63 @@
       <p class="muted tiny">Loading…</p>
     {/if}
   </section>
+
+  {#if ins}
+    <hr />
+    <!-- Phone-only (S.isMobile gates the sampler): the numbers behind the
+         status-bar / gesture-bar padding, for debugging insets on a device
+         where logcat isn't reachable. "Pushed" is what the native bridge
+         published; "resolved" is what CSS computed from it; "top bar wears"
+         is the padding actually on screen. If the app touches a system bar,
+         a screenshot of this section says which of the three lost the value. -->
+    <section>
+      <strong class="label">Display insets</strong>
+      <div class="grid">
+        <div class="stat">
+          <span class="k">Pushed --sa-* (t/b/l/r)</span>
+          <span class="v">{ins.saTop} / {ins.saBottom} / {ins.saLeft} / {ins.saRight}</span>
+        </div>
+        <div class="stat">
+          <span class="k">Pushed bar height · floor · kb</span>
+          <span class="v">{ins.barsTop} · {ins.floorTop} · {ins.kb}</span>
+        </div>
+        <div class="stat">
+          <span class="k">env() top · bottom</span>
+          <span class="v">{ins.envTop} · {ins.envBottom}</span>
+        </div>
+        <div class="stat">
+          <span class="k">Resolved --safe-top · --safe-bottom</span>
+          <span class="v">{ins.safeTop} · {ins.safeBottom}</span>
+        </div>
+        <div class="stat">
+          <span class="k">Top bar wears</span>
+          <span class="v">{ins.barPad}</span>
+        </div>
+        <div class="stat">
+          <span class="k">Viewport vs screen</span>
+          <span class="v">{ins.innerW}×{ins.innerH} / {ins.screenW}×{ins.screenH} @ {ins.dpr}×</span>
+        </div>
+      </div>
+      {#if ins.pushes.length}
+        <div class="pushlog">
+          {#each ins.pushes as p, i (i)}
+            <div class="pushrow muted">
+              <span class="pushage">{Math.round((ins.now - p.t) / 1000)}s ago</span>
+              {fmtPush(p)}
+            </div>
+          {/each}
+        </div>
+        <p class="muted tiny note">
+          Native pushes, newest first — a correct top later replaced by 0 shows up
+          here as two rows.
+        </p>
+      {:else}
+        <p class="muted tiny note">
+          No native pushes recorded — the inset bridge never wrote to this page.
+        </p>
+      {/if}
+    </section>
+  {/if}
 </Modal>
 
 {#if confirming}
@@ -550,5 +663,22 @@
   }
   .note {
     margin-top: 8px;
+  }
+  /* Inset push history: dense monospace rows, newest first. */
+  .pushlog {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-top: 8px;
+  }
+  .pushrow {
+    font-family: var(--mono, monospace);
+    font-size: var(--fs-tiny);
+    font-variant-numeric: tabular-nums;
+  }
+  .pushage {
+    display: inline-block;
+    min-width: 52px;
+    color: var(--text-faint);
   }
 </style>

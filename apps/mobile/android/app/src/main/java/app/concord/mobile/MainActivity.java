@@ -219,6 +219,16 @@ public class MainActivity extends BridgeActivity {
             "s.setProperty('--sa-right','" + right + "px');" +
             "s.setProperty('--kb','" + kb + "px');" +
             "s.setProperty('--sa-bars-top','" + barsTopDp + "px');" +
+            // A per-document history of what this bridge pushed, readable from
+            // the in-app diagnostics (Settings → Connection → Stats). This is
+            // the logcat we cannot get from a user's phone: a correct top later
+            // replaced by 0 shows up as two entries. Values are dp except the
+            // *Px fields, which are the raw native measurements.
+            "var L=window.__saLog=window.__saLog||[];" +
+            "L.push({t:Date.now(),top:" + top + ",bottom:" + bottom + ",kb:" + kb +
+            ",barsTopPx:" + bars.top + ",wvTopPx:" + wvTop + ",winHPx:" + winH +
+            ",d:" + d + "});" +
+            "if(L.length>40)L.shift();" +
             // The floor: measured by the renderer itself, so it stays right even
             // if the native geometry above ever lies. Reinstalling it here (and
             // only here) means a page reload — which wipes both the inline
