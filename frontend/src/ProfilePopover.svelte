@@ -20,6 +20,7 @@
     isBlocked,
     blockUser,
     unblockUser,
+    openContextMenu,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, PERM_ALL, has } from "./lib/perms.js";
@@ -89,6 +90,7 @@
     dmText = "";
     editingNick = false;
     copied = false;
+    revealFpr = false;
   });
 
   // Game collection lives in GameShelf; saving re-announces the profile.
@@ -313,6 +315,58 @@
       : 0,
   );
 
+  // The safety number stays off the resting card (it dominated the layout) but
+  // is one tap away — NOT in the overflow menu, because revealing it is the
+  // start of the app's only identity check and shouldn't hide behind chrome.
+  let revealFpr = $state(false);
+
+  // Secondary and destructive actions live behind ⋯ — the card keeps chat,
+  // identity and roles. Items snapshot nothing: the card is held open while
+  // the menu is up (see the window pointerdown guard), so handlers can keep
+  // reading `mem` live exactly as the old inline buttons did.
+  const hasOverflow = $derived(
+    !!mem && (canNick || canMakeAdmin || canMute || canModerate || !mem.isSelf),
+  );
+  function openOverflow(e) {
+    openContextMenu(
+      e,
+      [
+        canNick && {
+          label: mem.isSelf
+            ? mem.username
+              ? "Change guild nickname"
+              : "Set guild nickname"
+            : mem.username
+              ? "Change their nickname"
+              : "Give them a nickname",
+          icon: "edit",
+          onClick: startEditNick,
+        },
+        { sep: true },
+        canMakeAdmin && {
+          label: isAdmin ? "Remove admin" : "Make admin",
+          icon: "spark",
+          onClick: toggleAdmin,
+        },
+        canMute && {
+          label: isMuted ? "Unmute" : "Mute 10m",
+          icon: isMuted ? "micOff" : "mic",
+          onClick: toggleMute,
+        },
+        { sep: true },
+        canModerate && { label: "Kick", icon: "door", onClick: kick },
+        canModerate && { label: "Ban", icon: "trash", danger: true, onClick: ban },
+        !mem.isSelf && {
+          label: blocked ? "Unblock" : "Block",
+          icon: "lock",
+          danger: !blocked,
+          onClick: toggleBlock,
+        },
+      ],
+      { title: mem.name || "Member" },
+    );
+  }
+
   // Copy the full fingerprint; the button flips to "Copied" briefly.
   let copied = $state(false);
   let copyTimer;
@@ -340,12 +394,19 @@
   }
 </script>
 
+<!-- The ⋯ menu renders at the app root, outside .pop, so while it's up every
+     interaction with it (its backdrop, its sheet, an item) must not count as
+     "clicked outside the card" — the menu's actions read the card's member.
+     Escape likewise closes only the menu first; this component's listener was
+     registered before ContextMenu's, so S.contextMenu is still set here. -->
 <svelte:window
   onscroll={closeProfilePopover}
   onresize={closeProfilePopover}
-  onkeydown={(e) => e.key === "Escape" && closeProfilePopover()}
+  onkeydown={(e) => e.key === "Escape" && !S.contextMenu && closeProfilePopover()}
   onpointerdown={(e) => {
-    if (S.profilePopover && !e.target.closest(".pop") && !popoverJustOpened()) closeProfilePopover();
+    if (!S.profilePopover || popoverJustOpened()) return;
+    if (e.target.closest(".pop, .cm, .cm-backdrop, .bs-sheet, .bs-scrim")) return;
+    closeProfilePopover();
   }}
 />
 
@@ -363,7 +424,7 @@
     role="dialog"
     aria-label="{mem.name || 'Member'} profile"
     onmouseenter={holdProfilePopover}
-    onmouseleave={scheduleCloseProfilePopover}
+    onmouseleave={() => !S.contextMenu && scheduleCloseProfilePopover()}
   >
     <!-- Banner: a live preset scene wins, then an uploaded image, then the
          member's two theme colors as a gradient. It's tall, and the avatar
@@ -382,6 +443,14 @@
            rides on the banner art, so it's over-image chrome (light pill, dark
            shadow) rather than a themed surface. -->
       <button class="grip" onclick={closeProfilePopover} aria-label="Close profile"></button>
+    {/if}
+    {#if hasOverflow}
+      <!-- Discord-style overflow: moderation, nickname and block live here so
+           the resting card stays about the person. Rides the banner art, so
+           over-image chrome like the grip, not a themed surface. -->
+      <button class="more-btn" onclick={openOverflow} aria-label="More options" title="More options">
+        <Icon name="dots" size={16} />
+      </button>
     {/if}
     <div class="head">
       <div class="av-wrap">
@@ -483,27 +552,17 @@
         <GameShelf games={mem.games || []} editable={mem.isSelf} onchange={saveGames} />
       {/if}
 
-      {#if canNick}
-        {#if editingNick}
-          <form class="nick-box" onsubmit={saveNick}>
-            <input
-              bind:value={nickText}
-              placeholder="Nickname for this guild"
-              maxlength="64"
-              disabled={nickBusy}
-            />
-            <button type="submit" class="nick-save" disabled={nickBusy}>Save</button>
-          </form>
-        {:else}
-          <button class="nick-edit" onclick={startEditNick}>
-            <Icon name="edit" size={12} />
-            {#if mem.isSelf}
-              {mem.username ? "Change guild nickname" : "Set guild nickname"}
-            {:else}
-              {mem.username ? "Change their nickname" : "Give them a nickname"}
-            {/if}
-          </button>
-        {/if}
+      {#if canNick && editingNick}
+        <!-- Reached from the ⋯ menu; only the live editor earns card space. -->
+        <form class="nick-box" onsubmit={saveNick}>
+          <input
+            bind:value={nickText}
+            placeholder="Nickname for this guild"
+            maxlength="64"
+            disabled={nickBusy}
+          />
+          <button type="submit" class="nick-save" disabled={nickBusy}>Save</button>
+        </form>
       {/if}
 
       {#if canAssignRoles && S.roles.length}
@@ -539,21 +598,45 @@
 
       <div class="sec-head">
         <span class="sec-label muted">Safety number</span>
-        <button
-          class="copy-btn"
-          class:copied
-          onclick={copyFpr}
-          title="Copy the full safety number"
-          aria-label="Copy safety number"
-        >
-          <Icon name={copied ? "check" : "copy"} size={11} />
-          {copied ? "Copied" : "Copy"}
-        </button>
+        {#if revealFpr}
+          <button
+            class="copy-btn"
+            class:copied
+            onclick={copyFpr}
+            title="Copy the full safety number"
+            aria-label="Copy safety number"
+          >
+            <Icon name={copied ? "check" : "copy"} size={11} />
+            {copied ? "Copied" : "Copy"}
+          </button>
+        {:else}
+          <!-- title carries the number, so a desktop hover peeks it — but the
+               button is the real route: hover doesn't exist on a phone. -->
+          <button
+            class="copy-btn"
+            onclick={() => (revealFpr = true)}
+            title={fprShort}
+            aria-label="Show safety number"
+          >
+            <Icon name="eye" size={11} /> Show
+          </button>
+        {/if}
       </div>
-      <code class="fpr">{fprShort}</code>
+      {#if revealFpr}
+        <code class="fpr">{fprShort}</code>
+        {#if mem.isSelf}
+          <p class="hint muted">Others confirm it's really you by comparing this out-of-band.</p>
+        {:else if mem.verified}
+          <p class="hint muted">You've verified this fingerprint — no one can impersonate them.</p>
+        {:else}
+          <p class="hint muted">Compare this with them over a call; if it matches, verify.</p>
+          <!-- Verify lives behind the reveal on purpose: you cannot honestly
+               confirm a number you haven't looked at. -->
+          <button class="verify-btn" onclick={verify}>Verify identity</button>
+        {/if}
+      {/if}
 
       {#if mem.isSelf}
-        <p class="hint muted">Others confirm it's really you by comparing this out-of-band.</p>
         <!-- Your own card is now what the footer opens, so the way to change
              what's on it has to live here. -->
         <button
@@ -563,11 +646,6 @@
             S.modal = { kind: "profile" };
           }}>Edit profile</button
         >
-      {:else if mem.verified}
-        <p class="hint muted">You've verified this fingerprint — no one can impersonate them.</p>
-      {:else}
-        <p class="hint muted">Compare this with them over a call; if it matches, verify.</p>
-        <button class="verify-btn" onclick={verify}>Verify identity</button>
       {/if}
 
       {#if !mem.isSelf}
@@ -583,56 +661,11 @@
         </form>
       {/if}
 
-      {#if canModerate || canMute || canMakeAdmin}
-        <div class="divider"></div>
-        <div class="mod-actions">
-          {#if canMakeAdmin}
-            <button class="mod-btn admin" class:on={isAdmin} onclick={toggleAdmin}>
-              <Icon name="spark" size={13} />
-              {isAdmin ? "Remove admin" : "Make admin"}
-            </button>
-          {/if}
-          {#if canMute}
-            <button class="mod-btn" onclick={toggleMute}>
-              <Icon name={isMuted ? "micOff" : "mic"} size={13} />
-              {isMuted ? "Unmute" : "Mute 10m"}
-            </button>
-          {/if}
-          {#if canModerate}
-            <button class="mod-btn" onclick={kick}>
-              <Icon name="door" size={13} /> Kick
-            </button>
-            <button class="mod-btn danger" onclick={ban}>
-              <Icon name="trash" size={13} /> Ban
-            </button>
-          {/if}
-        </div>
-      {/if}
-
-      {#if mem && !mem.isSelf}
-        <div class="divider"></div>
-        <div class="mod-actions">
-          <button class="mod-btn danger" onclick={toggleBlock}>
-            <Icon name="lock" size={13} /> {blocked ? "Unblock" : "Block"}
-          </button>
-        </div>
-      {/if}
     </div>
   </div>
 {/if}
 
 <style>
-  .mod-btn.admin {
-    border-color: color-mix(in srgb, var(--warn) 55%, var(--border));
-    color: var(--warn-text);
-  }
-  .mod-btn.admin:hover {
-    background: color-mix(in srgb, var(--warn) 16%, transparent);
-  }
-  .mod-btn.admin.on {
-    background: color-mix(in srgb, var(--warn) 20%, transparent);
-    color: var(--warn-text);
-  }
   .pop {
     position: fixed;
     z-index: 250;
@@ -734,19 +767,14 @@
   /* A safety number is compared glyph by glyph against another device. It is
      the string in the app that least tolerates being squinted at. */
   .pop.sheet .fpr {
-    font-size: var(--fs-ui);
-  }
-  .pop.sheet .mod-btn {
-    flex: 1 1 45%;
+    font-size: var(--fs-body);
   }
   /* 16px inputs: stops iOS auto-zoom on focus, and finger-sized buttons. */
   .pop.sheet input {
     font-size: 16px;
     padding: 10px 12px;
   }
-  .pop.sheet .mod-btn,
-  .pop.sheet .verify-btn,
-  .pop.sheet .nick-edit {
+  .pop.sheet .verify-btn {
     min-height: 44px;
     font-size: 14px;
   }
@@ -765,6 +793,31 @@
   }
   .pop :global(.banner) {
     height: 112px;
+  }
+  /* Over-image chrome (like the grip): a dark disc so it survives any banner.
+     Visually 30px; the ::after squares the hit box off at --tap-min. */
+  .more-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.4);
+    color: #fff;
+  }
+  .more-btn::after {
+    content: "";
+    position: absolute;
+    inset: calc((var(--tap-min) - 100%) / -2);
+  }
+  .more-btn:hover {
+    background: rgba(0, 0, 0, 0.6);
   }
   .head {
     display: flex;
@@ -1038,53 +1091,6 @@
     font-size: 13px;
     line-height: 1;
   }
-  .mod-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .mod-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    flex: 1;
-    justify-content: center;
-    padding: 7px 8px;
-    font-size: var(--fs-compact);
-    background: var(--bg-3);
-    color: var(--text);
-    border-radius: var(--radius-sm);
-    white-space: nowrap;
-  }
-  @media (pointer: fine) {
-    .mod-btn:hover {
-      background: var(--bg-4, var(--border));
-    }
-  }
-  .mod-btn:active {
-    background: var(--bg-4, var(--border));
-  }
-  .mod-btn.danger {
-    color: var(--danger, #f04747);
-  }
-  .mod-btn.danger:hover {
-    background: color-mix(in srgb, var(--danger, #f04747) 18%, transparent);
-  }
-  .nick-edit {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    align-self: flex-start;
-    margin-top: 6px;
-    padding: 4px 8px;
-    font-size: var(--fs-compact);
-    background: var(--bg-3);
-    color: var(--text-muted);
-    border-radius: var(--radius-sm);
-  }
-  .nick-edit:hover {
-    color: var(--text);
-  }
   .nick-box {
     display: flex;
     gap: 6px;
@@ -1123,8 +1129,10 @@
   }
   .fpr {
     font-family: ui-monospace, monospace;
-    font-size: var(--fs-small);
-    letter-spacing: 0.02em;
+    /* Revealed on demand now, so it can afford to be read-aloud legible
+       instead of resting-layout small. */
+    font-size: var(--fs-ui);
+    letter-spacing: 0.04em;
     line-height: 1.5;
     word-break: break-word;
     background: var(--bg-0);
