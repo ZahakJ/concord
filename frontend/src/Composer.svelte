@@ -2193,8 +2193,12 @@
     /* The gesture-bar inset is only worth reserving when nothing is already
        covering it — subtract whatever the keyboard or the emoji panel occupies
        rather than stacking a dead strip on top of them. */
-    padding: 0 var(--sp-3)
-      calc(var(--sp-2) + max(var(--safe-bottom) - var(--kb-inset, 0px) - var(--ep-h, 0px), 0px));
+    /* NO safe-area inset here. The composer sits inside .mshell, which already
+       pads its own bottom by the system inset (and by the keyboard), so adding
+       it again applied the gesture bar's height TWICE — a dead strip under the
+       composer that read as "the bottom is padded weirdly and wastes space".
+       One owner per edge: the outermost positioned container. */
+    padding: 0 var(--sp-3) var(--sp-2);
   }
   /* Reserve what the software keyboard covers (0 when the platform already
      resized the layout viewport for us) and, while the emoji panel is up, its

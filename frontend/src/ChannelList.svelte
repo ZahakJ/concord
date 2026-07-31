@@ -1694,8 +1694,10 @@
        home indicator) — without this, edge-to-edge draw (viewport-fit=cover)
        lets the OS nav overlap the self row and its settings/sign-out button.
        env() is 0 on desktop, so this is a no-op there. */
+    /* No safe-area inset: on a phone this row lives inside the left drawer,
+       which pads its own bottom, and on desktop the inset is 0 anyway. Adding it
+       here stacked the gesture-bar gap twice inside the drawer. */
     padding: 8px;
-    padding-bottom: calc(8px + var(--safe-bottom));
     border-top: 1px solid var(--border);
     background: var(--bg-0);
     /* Your own framed avatar lives here; its ring overflows by design. */

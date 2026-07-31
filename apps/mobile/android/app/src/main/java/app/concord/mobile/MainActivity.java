@@ -135,6 +135,17 @@ public class MainActivity extends BridgeActivity {
         if (d <= 0) d = 1f;
 
         int top = Math.round(bars.top / d);
+        // Some OEM WebViews report a 0 top inset — before the first layout pass,
+        // and on a few builds persistently. Trusting that puts the app's own top
+        // bar underneath the clock, which is the single most visible way this can
+        // fail. The platform's own status_bar_height is the honest fallback, and
+        // 24dp is the floor below which no Android status bar has ever been.
+        if (top <= 0) {
+            int px = 0;
+            int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+            if (resId > 0) px = getResources().getDimensionPixelSize(resId);
+            top = px > 0 ? Math.round(px / d) : 24;
+        }
         int left = Math.round(bars.left / d);
         int right = Math.round(bars.right / d);
         int kb = Math.round(ime.bottom / d);

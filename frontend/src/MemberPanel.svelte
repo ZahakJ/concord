@@ -236,9 +236,9 @@
   .panel {
     background: var(--bg-1);
     border-left: 1px solid var(--border);
-    /* index.html asks for viewport-fit=cover, so in the right-hand drawer the
-       last row would sit under the home indicator without the inset. */
-    padding: 12px 8px calc(12px + var(--safe-bottom));
+    /* No safe-area inset: the right-hand drawer that hosts this on a phone pads
+       its own bottom, so repeating it here reserved the home indicator twice. */
+    padding: 12px 8px;
     overflow-y: auto;
     /* A fling that runs out of member list stops there instead of dragging the
        message feed visible past the open drawer's edge. */
