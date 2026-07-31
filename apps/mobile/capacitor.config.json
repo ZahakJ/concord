@@ -12,6 +12,9 @@
   "plugins": {
     "Keyboard": {
       "resizeOnFullScreen": false
+    },
+    "SystemBars": {
+      "insetsHandling": "disable"
     }
   }
 }
