@@ -347,7 +347,18 @@
     const n = S.netStatus;
     if (!n) return { show: true, cls: "connecting", text: "Connecting…" };
     if (n.outOfSyncGuilds > 0)
-      return { show: true, cls: "syncing", text: "Catching up…" };
+      // Only when the feed is NOT already saying it. MessageList shows a full
+      // out-of-sync banner for the open guild, and the pill floats over the top
+      // of the feed — so both appeared at once, saying the same two words, with
+      // the pill landing squarely on the banner's own sentence. The banner is
+      // the more useful of the two (it explains what to do), so it wins; the
+      // pill still covers the case where the guild you are LOOKING at is fine
+      // and some other one is catching up.
+      return {
+        show: !activeGuild()?.outOfSync,
+        cls: "syncing",
+        text: "Catching up…",
+      };
     if (n.peers > 0)
       return {
         show: false,
