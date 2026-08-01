@@ -161,6 +161,20 @@ type Service struct {
 	// unreadable traffic raises the alarm once per heal cycle rather than on
 	// every packet. See flagUndecryptable.
 	lastUndecryptable map[string]time.Time
+	// pendingCT holds ciphertexts that arrived before the commit that would let
+	// us read them (guarded by pendingCTMu, keyed by group ID). Gossip won't
+	// redeliver a message, so without this a message that races its own
+	// membership commit by a few milliseconds is lost until a full history
+	// sync. Retried whenever the group's epoch advances; see receiveCiphertext.
+	pendingCT   map[string][]pendingCipher
+	pendingCTMu sync.Mutex
+	// recovering dedupes concurrent recoverOutOfSync runs per guild (guarded by
+	// pendingCTMu, which is convenient and uncontended).
+	recovering map[string]bool
+	// joining serializes JoinViaInvite per guild (guarded by joiningMu); see
+	// claimJoin for why concurrent duplicate joins are actively harmful.
+	joining   map[string]*sync.Mutex
+	joiningMu sync.Mutex
 
 	// blocked is the in-memory mirror of the block list (see block.go), guarded
 	// by mu. A blocked account's DM/guild invites are dropped on arrival.
@@ -1573,10 +1587,11 @@ func (s *Service) setOutOfSync(guildID string, stranded bool) {
 	if was != stranded {
 		s.emitGuildUpdate()
 	}
-	// Newly stranded: try to auto-recover immediately (re-add from an online
-	// authorized committer). The heal loop retries if none is reachable yet.
+	// Newly stranded: try to auto-recover immediately — history-sync from any
+	// member first, a committer re-add only if nobody can bridge us (see
+	// recoverOutOfSync). The heal loop retries if no one is reachable yet.
 	if stranded && !was {
-		go s.healOutOfSync(guildID)
+		go s.recoverOutOfSync(guildID)
 	}
 }
 

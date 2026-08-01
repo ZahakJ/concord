@@ -206,8 +206,12 @@ func TestUndecryptableMessageStrandsTheGuild(t *testing.T) {
 	// Ciphertext this group can never read: right group, unreadable payload.
 	svc.receiveCiphertext(g.GroupID, []byte("not a valid MLS message"))
 
-	if !svc.OutOfSync(g.ID) {
-		t.Fatal("an undecryptable message was dropped silently — the conversation " +
+	// The flag is set by the recovery goroutine, not inline: recovery first
+	// tries to bridge the epoch from a connected member (so a message that
+	// merely raced its own commit never flashes the banner), and flags the
+	// guild once there is nobody who can. Here there are no peers at all, so
+	// it must conclude we are the stale side — quickly.
+	waitUntil(t, 10*time.Second, func() bool { return svc.OutOfSync(g.ID) },
+		"an undecryptable message was dropped silently — the conversation "+
 			"goes quiet and the app says nothing")
-	}
 }

@@ -21,10 +21,13 @@ import (
 
 const healRetryInterval = 20 * time.Second
 
-// authorizedCommitterOnline returns a connected peer authorized to commit
-// membership changes for the guild (owner preferred, else a manage-members
-// holder) — a valid target to request a re-add from.
-func (s *Service) authorizedCommitterOnline(guildID string) (peer.ID, bool) {
+// authorizedCommittersOnline returns every connected peer authorized to commit
+// membership changes for the guild, owner devices first (the owner is always
+// authorized; a manage-members holder needs the governance state to say so).
+// All of them are valid targets to request a re-add from, and a heal should
+// try each — the first pick being briefly unable to serve (mid-catch-up
+// itself, a dying connection) used to cost a full retry beat.
+func (s *Service) authorizedCommittersOnline(guildID string) []peer.ID {
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var ownerFpr string
@@ -35,37 +38,144 @@ func (s *Service) authorizedCommitterOnline(guildID string) (peer.ID, bool) {
 	}
 	s.mu.RUnlock()
 	if !ok {
-		return "", false
+		return nil
 	}
-	var fallback peer.ID
-	var haveFallback bool
+	var owners, mods []peer.ID
 	for _, p := range s.host.Peers() {
 		fpr := s.presence(p).Fingerprint
 		if fpr == ownerFpr {
-			return p, true // the owner is always an authorized committer
-		}
-		if st.Can(ownerFpr, fpr, PermManageMembers) {
-			fallback, haveFallback = p, true
+			owners = append(owners, p)
+		} else if st.Can(ownerFpr, fpr, PermManageMembers) {
+			mods = append(mods, p)
 		}
 	}
-	return fallback, haveFallback
+	return append(owners, mods...)
 }
 
-// healOutOfSync attempts one re-add for a stranded guild. No-op if the guild
-// isn't stranded or no authorized committer is reachable yet (a later attempt
-// retries). Safe to call concurrently/repeatedly.
+// recoverOutOfSync converges a guild whose ratchet ran ahead of us, cheapest
+// remedy first:
+//
+//  1. History-sync from each connected member. A member that merely missed a
+//     commit (a dropped gossip frame, a message that outran its commit) is
+//     bridged by any peer's commit log in one round trip — no new commits, no
+//     re-keying, nothing for OTHER members to keep up with. Every reachable
+//     member is tried, not just the first that answers: a peer at our own
+//     stale epoch answers happily and bridges nothing.
+//  2. Only if no reachable member could bridge us (a real epoch gap, or a
+//     forked group state): flag the guild — that is when the "Catching up…"
+//     banner is honest — and ask an authorized committer for a re-add. The
+//     re-add is the remedy of last resort because it costs two epoch-advancing
+//     commits that every other member must gaplessly apply; handing it out for
+//     transient races was itself a source of the drift it repaired.
+//
+// After each step the stashed undecryptable messages are retried, which is
+// both the delivery of record for whatever stranded us and the test of
+// whether recovery worked. One run per guild at a time; concurrent callers
+// return immediately (the running pass covers them).
+func (s *Service) recoverOutOfSync(guildID string) {
+	s.pendingCTMu.Lock()
+	if s.recovering == nil {
+		s.recovering = map[string]bool{}
+	}
+	if s.recovering[guildID] {
+		s.pendingCTMu.Unlock()
+		return
+	}
+	s.recovering[guildID] = true
+	s.pendingCTMu.Unlock()
+	defer func() {
+		s.pendingCTMu.Lock()
+		delete(s.recovering, guildID)
+		s.pendingCTMu.Unlock()
+	}()
+
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return
+	}
+
+	healthy := func() bool {
+		return s.pendingCiphertexts(groupID) == 0 && !s.OutOfSync(guildID)
+	}
+	if healthy() {
+		return
+	}
+	synced := 0
+	for _, p := range s.memberPeers(guildID) {
+		if err := s.syncGuildFromPeer(guildID, p); err != nil {
+			continue
+		}
+		synced++
+		s.retryPendingCiphertexts(groupID)
+		if healthy() {
+			return
+		}
+	}
+	// Escalate to the re-add only on EVIDENCE that our group state is beyond
+	// bridging — syncGuildFromPeer flags the guild when a peer reports an epoch
+	// gap, or when a current member's payload is unreadable at an epoch we
+	// supposedly share (a fork). A non-empty stash alone is not evidence: it
+	// may be a message racing a commit that is still in flight to everyone
+	// (retried when that commit lands), or junk from a sender who is himself
+	// broken — re-adding US fixes neither, and each re-add is two commits the
+	// whole guild must chew through.
+	if s.OutOfSync(guildID) {
+		s.healOutOfSync(guildID)
+		return
+	}
+	// Unreadable traffic and nobody we could ask about it: assume we are the
+	// stale side, say so (the banner), and let the heal loop keep trying as
+	// peers come and go.
+	if s.pendingCiphertexts(groupID) > 0 && synced == 0 {
+		s.setOutOfSync(guildID, true)
+	}
+}
+
+// memberPeers lists connected peers that are members of the guild, SyncHost
+// holders first (same preference as syncGuildFromAnyPeer).
+func (s *Service) memberPeers(guildID string) []peer.ID {
+	var hosts, others []peer.ID
+	for _, p := range s.host.Peers() {
+		fpr := s.presence(p).Fingerprint
+		if !s.guildHasMember(guildID, fpr) {
+			continue
+		}
+		if s.memberHasPerm(guildID, fpr, PermSyncHost) {
+			hosts = append(hosts, p)
+		} else {
+			others = append(others, p)
+		}
+	}
+	return append(hosts, others...)
+}
+
+// healOutOfSync attempts one re-add for a stranded guild, trying every online
+// authorized committer until one Welcome lands. No-op if the guild isn't
+// stranded or no committer is reachable yet (a later attempt retries). Safe to
+// call concurrently/repeatedly.
 func (s *Service) healOutOfSync(guildID string) {
 	if !s.OutOfSync(guildID) {
 		return
 	}
-	pid, ok := s.authorizedCommitterOnline(guildID)
-	if !ok {
-		return // nobody who can re-add us is reachable yet
+	for _, pid := range s.authorizedCommittersOnline(guildID) {
+		if s.healViaCommitter(guildID, pid) {
+			return
+		}
 	}
+}
 
+// healViaCommitter asks one authorized committer to re-add us, reporting
+// whether the ratchet was repaired.
+func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 	kp, err := s.mls.KeyPackage(s.ctx)
 	if err != nil {
-		return
+		return false
 	}
 	// Use this install's MLS leaf credential, not the bare account key: on a
 	// linked device the two differ (the leaf is a device cert), and the
@@ -78,27 +188,43 @@ func (s *Service) healOutOfSync(guildID string) {
 	defer cancel()
 	respBytes, err := s.host.RequestInvite(ctx, peer.AddrInfo{ID: pid}, req)
 	if err != nil {
-		return
+		return false
 	}
 	var resp inviteResponse
 	if json.Unmarshal(respBytes, &resp) != nil || resp.Error != "" || len(resp.Welcome) == 0 {
-		return
+		return false
 	}
 	// JoinGroup overwrites our local group entry with the fresh membership at the
 	// current epoch — the ratchet is repaired.
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
-		return
+		return false
 	}
 	s.setOutOfSync(guildID, false)
 	for fpr, p := range resp.Profiles {
 		s.learnProfile(fpr, p)
 	}
+	s.mu.RLock()
+	var groupID []byte
+	if g, ok := s.guilds[guildID]; ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if groupID != nil {
+		// The join reset the group to the committer's current epoch; whatever
+		// stranded us can never decrypt now, but its content comes back with the
+		// history pull below. Drop the stash so it can't re-flag the guild.
+		s.pendingCTMu.Lock()
+		delete(s.pendingCT, string(groupID))
+		s.pendingCTMu.Unlock()
+	}
 	go s.syncGuildFromPeer(guildID, pid) // pull any channel history we missed
 	s.announceProfile(guildID)
 	s.emitGuildUpdate()
+	return true
 }
 
-// healStrandedGuilds attempts a re-add for every currently-stranded guild.
+// healStrandedGuilds runs recovery for every currently-stranded guild —
+// sync-first, re-add only if syncing cannot bridge (see recoverOutOfSync).
 func (s *Service) healStrandedGuilds() {
 	s.mu.RLock()
 	ids := make([]string, 0, len(s.outOfSync))
@@ -107,7 +233,7 @@ func (s *Service) healStrandedGuilds() {
 	}
 	s.mu.RUnlock()
 	for _, id := range ids {
-		s.healOutOfSync(id)
+		s.recoverOutOfSync(id)
 	}
 }
 

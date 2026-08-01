@@ -67,6 +67,12 @@ type syncResponse struct {
 	// (e.g. we joined later than they diverged). No payload accompanies it —
 	// they couldn't decrypt one.
 	EpochGap bool `json:"epochGap,omitempty"`
+	// Epoch is the responder's current MLS epoch. It lets the requester tell a
+	// payload it cannot read because the RESPONDER is far behind (their
+	// problem) from one it cannot read at an epoch it supposedly shares (a
+	// fork — the requester's problem, curable only by a re-add). Absent from
+	// older peers, which reads as 0: "responder behind", the harmless verdict.
+	Epoch uint64 `json:"myEpoch,omitempty"`
 	// Payload is an MLS ciphertext (our current epoch) of syncPayload.
 	Payload []byte `json:"payload,omitempty"`
 }
@@ -111,6 +117,7 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	if err != nil {
 		return []byte{}, nil
 	}
+	resp.Epoch = myEpoch
 	if req.Epoch < myEpoch {
 		rows, err := s.store.CommitsAfter(guild.GroupID, req.Epoch)
 		if err != nil || !bridges(rows, req.Epoch, myEpoch) {
@@ -210,20 +217,9 @@ func (s *Service) syncFromPeer(p peer.ID) bool {
 // epoch gap and need backfill right now. Members holding the SyncHost permission
 // (designated always-on hosts) are tried first.
 func (s *Service) syncGuildFromAnyPeer(guildID string) {
-	var hosts, others []peer.ID
-	for _, p := range s.host.Peers() {
-		fpr := s.presence(p).Fingerprint
-		if !s.guildHasMember(guildID, fpr) {
-			continue
-		}
-		if s.memberHasPerm(guildID, fpr, PermSyncHost) {
-			hosts = append(hosts, p)
-		} else {
-			others = append(others, p)
-		}
-	}
+	peers := s.memberPeers(guildID)
 	declined := 0
-	for _, p := range append(hosts, others...) {
+	for _, p := range peers {
 		err := s.syncGuildFromPeer(guildID, p)
 		if err == nil {
 			return
@@ -236,7 +232,7 @@ func (s *Service) syncGuildFromAnyPeer(guildID string) {
 	// we were removed — or their rosters are stale in a way we cannot fix by
 	// asking again, and either way it is worth one line rather than a silent
 	// retry loop that outlives the problem.
-	if declined > 0 && declined == len(hosts)+len(others) {
+	if declined > 0 && declined == len(peers) {
 		log.Printf("concord/app: guild %s: every peer declined to sync with us (%d asked)", guildID, declined)
 	}
 }
@@ -418,6 +414,10 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 			// See the same call on the control topic.
 			s.relearnDevices(guild.GroupID)
 			s.emitGuildUpdate()
+			// The epoch moved: messages that arrived too early for it may be
+			// readable now. This is the delivery path for a message that raced
+			// its own commit and lost.
+			s.retryPendingCiphertexts(guild.GroupID)
 		}
 		if resp.EpochGap {
 			// Nobody reachable can bridge us; surface it rather than dropping
@@ -425,9 +425,22 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 			s.setOutOfSync(guildID, true)
 			return nil
 		}
-		s.setOutOfSync(guildID, false)
+		payloadOK := true
 		if len(resp.Payload) > 0 {
-			s.applySyncPayload(guildID, guild.GroupID, resp.Payload, s.presence(p).Fingerprint)
+			payloadOK = s.applySyncPayload(guildID, guild.GroupID, resp.Payload, s.presence(p).Fingerprint)
+		}
+		// Only a payload we could actually READ proves the ratchet is whole
+		// again. Clearing the flag on the epoch numbers alone hid a forked
+		// group: both sides at epoch N, different trees, nothing decryptable,
+		// banner gone.
+		if payloadOK {
+			s.setOutOfSync(guildID, false)
+		} else if cur, err := s.mls.Epoch(s.ctx, guild.GroupID); err == nil && resp.Epoch >= cur {
+			// We stand at (or past) the responder's epoch and still cannot read
+			// what they encrypt: no amount of commit bridging fixes that. Forked
+			// or corrupted local state — flag it, which is what routes us to the
+			// re-add heal.
+			s.setOutOfSync(guildID, true)
 		}
 		if applied == 0 {
 			return nil // epoch didn't move; a second round would repeat the first
@@ -437,15 +450,18 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 }
 
 // applySyncPayload decrypts a served payload and folds it into local state:
-// guild snapshot, profile roster, and message rows/state.
-func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, srcFpr string) {
+// guild snapshot, profile roster, and message rows/state. It reports whether
+// the payload could be read at all — false means our group state cannot
+// decrypt what a current member encrypted at their epoch, the signature of a
+// gap or fork that still needs repair.
+func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, srcFpr string) bool {
 	dec, err := s.mls.Decrypt(s.ctx, groupID, ciphertext)
 	if err != nil {
-		return
+		return false
 	}
 	var payload syncPayload
 	if json.Unmarshal(dec.Plaintext, &payload) != nil {
-		return
+		return true // readable but malformed: the ratchet itself is fine
 	}
 	// A backfill is only as trustworthy as its server for anything that MUTATES
 	// state we already hold (tombstoning/rewriting messages, overwriting cached
@@ -573,4 +589,5 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 	if anyNew {
 		s.unhideDM(guildID)
 	}
+	return true
 }
