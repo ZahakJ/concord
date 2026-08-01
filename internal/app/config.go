@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,10 +43,24 @@ func netConfigPath(dataDir string) string {
 }
 
 // LoadNetConfig reads the connection config, returning an empty one if absent.
+//
+// A file that EXISTS but cannot be read as JSON is not "no config" — it is a
+// interrupted write, and treating it as empty is how a user's node silently
+// forgot its rendezvous and came up alone: os.WriteFile truncates in place, the
+// process died between the truncate and the write (a Ctrl-C during the
+// update-bootstrap-from-peers save), and the next launch read 0 bytes without a
+// word of complaint. The .bak written on every successful save is the recovery.
 func LoadNetConfig(dataDir string) NetConfig {
 	var c NetConfig
 	if b, err := os.ReadFile(netConfigPath(dataDir)); err == nil {
-		_ = json.Unmarshal(b, &c)
+		if len(b) == 0 || json.Unmarshal(b, &c) != nil {
+			if bb, berr := os.ReadFile(netConfigPath(dataDir) + ".bak"); berr == nil {
+				_ = json.Unmarshal(bb, &c)
+				log.Printf("concord/app: netconfig.json was corrupt (%d bytes); restored from backup", len(b))
+			} else {
+				log.Printf("concord/app: netconfig.json is corrupt (%d bytes) and no backup exists — running without a configured rendezvous", len(b))
+			}
+		}
 	}
 	// SaveListenPort refuses a bad port, but this file is plaintext and meant to
 	// be hand-editable, so one can still arrive from an editor, a sync conflict
@@ -73,7 +88,20 @@ func SaveNetConfig(dataDir string, c NetConfig) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(netConfigPath(dataDir), b, 0o600)
+	path := netConfigPath(dataDir)
+	// Keep the last good file as .bak, then install the new one by RENAME.
+	// os.WriteFile truncates the target before writing, so a process killed in
+	// that window leaves 0 bytes — which is exactly how a node lost its
+	// rendezvous and booted alone. A rename either happens or does not; there is
+	// no state in between, and the .bak covers corruption from any other source.
+	if cur, rerr := os.ReadFile(path); rerr == nil && len(cur) > 0 && json.Valid(cur) {
+		_ = os.WriteFile(path+".bak", cur, 0o600)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // SaveBootstrap rewrites only the rendezvous list. SaveNetConfig writes the

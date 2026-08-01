@@ -90,3 +90,34 @@ func TestLoadNetConfigDefaultsToOff(t *testing.T) {
 		t.Fatalf("want an automatic port by default, got %d", c.ListenPort)
 	}
 }
+
+// TestNetConfigSurvivesATruncatedWrite pins the failure that took a user's node
+// off the network: os.WriteFile truncates in place, the process died between
+// truncate and write (a Ctrl-C mid-save), and the next launch read a 0-byte
+// file as "no config" — silently booting with no rendezvous at all.
+func TestNetConfigSurvivesATruncatedWrite(t *testing.T) {
+	dir := t.TempDir()
+	want := NetConfig{Bootstrap: []string{"/dns/example.com/tcp/4001/p2p/12D3KooWTest"}}
+	if err := SaveNetConfig(dir, want); err != nil {
+		t.Fatal(err)
+	}
+	// A second save creates the .bak of the first; the kill happens during it.
+	if err := SaveNetConfig(dir, want); err != nil {
+		t.Fatal(err)
+	}
+	// The truncation: exactly what an interrupted os.WriteFile leaves behind.
+	if err := os.WriteFile(netConfigPath(dir), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := LoadNetConfig(dir)
+	if len(got.Bootstrap) != 1 || got.Bootstrap[0] != want.Bootstrap[0] {
+		t.Fatalf("a truncated netconfig lost the rendezvous: got %+v — the node "+
+			"boots alone and the user sees 'no bootstrap node reachable'", got)
+	}
+
+	// And no stray .tmp is left around by the atomic path.
+	if _, err := os.Stat(netConfigPath(dir) + ".tmp"); err == nil {
+		t.Fatal("SaveNetConfig left its temp file behind")
+	}
+}
