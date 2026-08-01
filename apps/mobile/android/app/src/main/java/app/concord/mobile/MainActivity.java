@@ -274,12 +274,22 @@ public class MainActivity extends BridgeActivity {
             // only here) means a page reload — which wipes both the inline
             // styles and window.__saFloor — heals on the markWebReady re-push.
             "if(!window.__saFloor){window.__saFloor=function(){" +
-            // -2, not -1: innerHeight and screen.height round the same physical
-            // size through devicePixelRatio separately (measured: 914 vs 915 on
-            // WebView 145 @2.625x — a 1px disagreement on a genuinely full-bleed
-            // screen). A platform-padded WebView is short by a whole bar (24dp+),
-            // so a 2px tolerance cannot misfire the floor.
-            "var fb=window.innerHeight>=window.screen.height-2;" +
+            // The tolerance absorbs ROUNDING, and it has to be generous enough
+            // for any device, not just the one it was measured on. innerHeight
+            // and screen.height are each rounded from the same physical size
+            // through devicePixelRatio independently — 914 vs 915 was measured on
+            // WebView 145 at 2.625x, and a phone at a different density can
+            // disagree by more. A 2px window was fitted to one emulator; on a
+            // device that rounds further apart the check silently fails, the
+            // floor never engages, and if the native measurement is also 0 the
+            // top bar ends up under the clock with nothing to catch it — which is
+            // exactly the report this floor exists to prevent.
+            //
+            // 12px is still unambiguous: a WebView the platform has padded is
+            // short by an entire status bar, which is 24dp at the absolute
+            // minimum and usually far more. There is no device where a 12px
+            // disagreement means "padded".
+            "var fb=window.innerHeight>=window.screen.height-12;" +
             "document.documentElement.style.setProperty('--sa-floor-top'," +
             "fb?(document.documentElement.style.getPropertyValue('--sa-bars-top')||'0px'):'0px');" +
             "};addEventListener('resize',window.__saFloor);}" +

@@ -607,10 +607,12 @@
     const atts = pending;
     if ((!text && atts.length === 0) || !S.activeChannelId) return;
     if (mobile) {
+      // Sound, but deliberately NO vibration. Sending is the single most
+      // frequent action in the app and it is already confirmed twice over — the
+      // plane animation and the message appearing in the feed. A buzz on every
+      // send does not read as feedback, it reads as the phone twitching in your
+      // hand. Haptics are for what you cannot see or cannot undo.
       playLaunch();
-      // A phone confirms a send by feel — the plane animation is under the
-      // thumb that just covered it.
-      haptic("light");
     }
     const chId = S.activeChannelId;
     const prevDraft = draft;
