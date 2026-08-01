@@ -672,7 +672,10 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	// The door. A locked meeting turns arrival into a KNOCK: the host sees who is
 	// asking and decides. Until they do, this session is inert — it is not in the
 	// chat fan-out, gets no history, no roster, no signalling and no call.
-	if s.guestDoorLocked(tok.ChannelID) {
+	// A room minted by the public booking page ALWAYS knocks: its link went to a
+	// stranger on the open web, so auto-admitting on the unlocked default would
+	// turn "book a demo" into "walk straight into my client".
+	if s.guestDoorLocked(tok.ChannelID) || s.isBookingMeeting(tok.GuildID) {
 		admitted, reason := s.knockAtDoor(sess, meetingName)
 		if !admitted {
 			sess.end(reason)

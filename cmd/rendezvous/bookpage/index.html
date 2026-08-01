@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex" />
+    <title>Book a time</title>
+    <style>
+      /* Same visual family as the guest meeting page: this is the other half
+         of the same journey (book here, join there), so it should feel like
+         one product, not two websites. */
+      :root {
+        --bg-0: #0e0f12;
+        --bg-1: #15171b;
+        --bg-2: #1c1f24;
+        --bg-3: #262a31;
+        --border: #2e323a;
+        --text: #e8eaed;
+        --muted: #969aa3;
+        --faint: #6b6f78;
+        --accent: #14a394;
+        --accent-hi: color-mix(in srgb, var(--accent) 76%, white);
+        --danger: #e0555b;
+        --ok: #3ba55d;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      html, body { min-height: 100%; margin: 0; }
+      body {
+        background: radial-gradient(circle at 50% -10%, #1b2b31, var(--bg-0) 62%);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        display: grid;
+        place-items: start center;
+        padding: 4vh 12px 6vh;
+        -webkit-font-smoothing: antialiased;
+      }
+      input, button, textarea { font: inherit; color: inherit; }
+      button { cursor: pointer; }
+      button:disabled { cursor: default; opacity: .5; }
+      :focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+
+      .card {
+        width: 520px;
+        max-width: 96vw;
+        background: var(--bg-1);
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 24px 60px rgba(0,0,0,.5);
+        padding: 26px 24px;
+        animation: pop .28s cubic-bezier(.34,1.4,.5,1);
+      }
+      @keyframes pop { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+      .logo {
+        width: 54px; height: 54px; margin: 0 auto 10px;
+        display: grid; place-items: center;
+        border-radius: 50%;
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        color: var(--accent);
+        font-size: 26px;
+      }
+      h1 { font-size: 20px; margin: 0 0 4px; text-align: center; }
+      p.sub { margin: 0 0 16px; color: var(--muted); font-size: 13.5px; line-height: 1.55; text-align: center; }
+      .tzline { text-align: center; color: var(--faint); font-size: 11.5px; margin: 0 0 14px; }
+      .err { color: var(--danger); font-size: 13px; margin: 10px 0 0; min-height: 18px; text-align: center; }
+      .spin {
+        width: 22px; height: 22px; margin: 18px auto;
+        border: 3px solid rgba(255,255,255,.15);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: sp .7s linear infinite;
+      }
+      @keyframes sp { to { transform: rotate(360deg); } }
+
+      /* Day sections + slot grid */
+      .day { margin: 14px 0 0; }
+      .day h2 {
+        font-size: 12px; margin: 0 0 8px;
+        text-transform: uppercase; letter-spacing: .07em;
+        color: var(--muted); font-weight: 700;
+      }
+      .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+      .slot {
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 4px;
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+        transition: border-color .12s ease, background .12s ease;
+        min-height: 44px; /* a finger, not a mouse pointer, books most demos */
+      }
+      .slot:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: var(--bg-2); }
+
+      /* Booking form */
+      label { display: block; font-size: 12.5px; color: var(--muted); margin: 14px 0 5px; }
+      #vname, #vnote {
+        width: 100%;
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 11px 13px;
+        outline: none;
+      }
+      #vnote { min-height: 84px; resize: vertical; }
+      #vname:focus, #vnote:focus {
+        border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+      }
+      .picked {
+        margin: 4px 0 0;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--accent) 10%, transparent);
+        border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+        font-size: 14px;
+        text-align: center;
+      }
+      button.primary {
+        width: 100%;
+        margin-top: 16px;
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 10px;
+        padding: 12px;
+        font-weight: 600;
+        display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      }
+      button.primary:hover:enabled { background: var(--accent-hi); }
+      button.ghost {
+        width: 100%;
+        margin-top: 8px;
+        background: transparent;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 16px;
+        color: var(--muted);
+      }
+      button.ghost:hover { background: var(--bg-2); color: var(--text); }
+      .bspin {
+        width: 14px; height: 14px; flex: none;
+        border: 2px solid rgba(255,255,255,.35);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: sp .7s linear infinite;
+      }
+
+      /* Confirmation */
+      .bigok {
+        width: 60px; height: 60px; margin: 4px auto 12px;
+        border-radius: 50%;
+        display: grid; place-items: center;
+        font-size: 28px;
+        background: color-mix(in srgb, var(--ok) 16%, transparent);
+        color: var(--ok);
+      }
+      .linkrow { display: flex; gap: 8px; margin-top: 6px; }
+      #mlink {
+        flex: 1; min-width: 0;
+        background: var(--bg-3);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 12.5px;
+        color: var(--muted);
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .keep {
+        margin: 14px 0 0;
+        padding: 11px 13px;
+        border-radius: 10px;
+        background: color-mix(in srgb, #e6b453 9%, transparent);
+        border: 1px solid color-mix(in srgb, #e6b453 30%, transparent);
+        color: #e8d9b0;
+        font-size: 12.5px;
+        line-height: 1.55;
+      }
+      .foot { margin-top: 16px; font-size: 11.5px; color: var(--faint); line-height: 1.5; text-align: center; }
+      .hide { display: none !important; }
+      @media (prefers-reduced-motion: reduce) {
+        .card { animation: none; }
+        .spin, .bspin { animation-duration: 1.4s; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="logo" aria-hidden="true">📅</div>
+      <h1 id="title">Book a time</h1>
+      <p class="sub" id="blurb">Loading…</p>
+
+      <div id="loading"><div class="spin" role="status" aria-label="Loading available times"></div></div>
+
+      <div id="slotsview" class="hide">
+        <p class="tzline" id="tzline"></p>
+        <div id="days"></div>
+        <p class="err" id="slotserr" role="alert"></p>
+      </div>
+
+      <div id="formview" class="hide">
+        <div class="picked" id="picked"></div>
+        <label for="vname">Your name</label>
+        <input id="vname" maxlength="40" autocomplete="name" placeholder="So the host knows who's coming" />
+        <label for="vnote">What would you like to talk about? <span style="color:var(--faint)">(optional)</span></label>
+        <textarea id="vnote" maxlength="500"></textarea>
+        <button class="primary" id="bookbtn"><span id="bookspin" class="bspin hide"></span><span id="bookbtntext">Confirm booking</span></button>
+        <button class="ghost" id="backbtn">Pick a different time</button>
+        <p class="err" id="formerr" role="alert"></p>
+      </div>
+
+      <div id="doneview" class="hide">
+        <div class="bigok" aria-hidden="true">✓</div>
+        <p class="sub" id="donewhen"></p>
+        <label for="mlink">Your meeting link</label>
+        <div class="linkrow">
+          <input id="mlink" readonly />
+          <button class="ghost" id="copybtn" style="width:auto;margin:0;flex:none">Copy</button>
+        </div>
+        <button class="primary" id="icsbtn">Add to calendar (.ics)</button>
+        <div class="keep">
+          <strong>Keep this link.</strong> No email will be sent — the link above is
+          your only way into the meeting. It opens in any browser at the booked
+          time, and the host will let you in.
+        </div>
+      </div>
+
+      <div id="deadview" class="hide">
+        <p class="sub" id="deadmsg"></p>
+        <button class="ghost hide" id="retrybtn">Try again</button>
+      </div>
+
+      <p class="foot">Powered by Concord — peer-to-peer, end-to-end encrypted chat.<br />
+        This page only talks to the host's own Concord app.</p>
+    </div>
+
+    <script>
+      "use strict";
+      // Everything visitor-visible is inserted via textContent — never HTML —
+      // so nothing the host or a tampered response says can become markup.
+      const $ = (id) => document.getElementById(id);
+
+      // /book/<token> — the token is the last path segment; the host's peer id
+      // rides the fragment, exactly like a guest meeting link's.
+      const token = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
+      const frag = new URLSearchParams(location.hash.replace(/^#/, ""));
+      const hostPeer = frag.get("h") || "";
+
+      let slotMinutes = 30;
+      let chosen = 0;
+      let meetingURL = "", icsText = "";
+
+      const views = ["loading", "slotsview", "formview", "doneview", "deadview"];
+      function show(view) {
+        for (const v of views) $(v).classList.toggle("hide", v !== view);
+      }
+
+      function die(msg, retriable) {
+        show("deadview");
+        $("deadmsg").textContent = msg;
+        $("retrybtn").classList.toggle("hide", !retriable);
+      }
+
+      async function api(body) {
+        const res = await fetch("/book/api", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(Object.assign({ h: hostPeer, token }, body)),
+        });
+        return res.json();
+      }
+
+      const dayFmt = new Intl.DateTimeFormat(undefined, { weekday: "long", month: "long", day: "numeric" });
+      const timeFmt = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+      const fullFmt = new Intl.DateTimeFormat(undefined, {
+        weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit",
+      });
+
+      function renderSlots(resp) {
+        slotMinutes = resp.slotMinutes || 30;
+        $("title").textContent = "Book a time with " + (resp.host || "the host");
+        $("blurb").textContent = resp.blurb || (slotMinutes + "-minute slot, in the browser — no install, no account.");
+        try {
+          $("tzline").textContent = "Times shown in your timezone (" +
+            Intl.DateTimeFormat().resolvedOptions().timeZone + ") · " + slotMinutes + " min each";
+        } catch { $("tzline").textContent = slotMinutes + " min each"; }
+
+        const days = $("days");
+        days.textContent = "";
+        const slots = Array.isArray(resp.slots) ? resp.slots : [];
+        if (slots.length === 0) {
+          const p = document.createElement("p");
+          p.className = "sub";
+          p.textContent = "No times are open right now — check back later.";
+          days.appendChild(p);
+          show("slotsview");
+          return;
+        }
+        let curKey = "", grid = null;
+        for (const unix of slots) {
+          if (typeof unix !== "number") continue;
+          const d = new Date(unix * 1000);
+          const key = d.toDateString();
+          if (key !== curKey) {
+            curKey = key;
+            const sec = document.createElement("section");
+            sec.className = "day";
+            const h = document.createElement("h2");
+            h.textContent = dayFmt.format(d);
+            sec.appendChild(h);
+            grid = document.createElement("div");
+            grid.className = "slots";
+            sec.appendChild(grid);
+            days.appendChild(sec);
+          }
+          const b = document.createElement("button");
+          b.className = "slot";
+          b.textContent = timeFmt.format(d);
+          b.addEventListener("click", () => pick(unix));
+          grid.appendChild(b);
+        }
+        show("slotsview");
+      }
+
+      function pick(unix) {
+        chosen = unix;
+        $("picked").textContent = fullFmt.format(new Date(unix * 1000)) + " · " + slotMinutes + " min";
+        $("formerr").textContent = "";
+        show("formview");
+        $("vname").focus();
+      }
+
+      async function loadSlots() {
+        show("loading");
+        try {
+          const resp = await api({ op: "slots" });
+          if (!resp.ok) {
+            die(resp.error || "This booking page is no longer available.", !!resp.unreachable);
+            return;
+          }
+          renderSlots(resp);
+        } catch {
+          die("Something went wrong loading this page — try again in a moment.", true);
+        }
+      }
+
+      async function book() {
+        const name = $("vname").value.trim();
+        if (!name) { $("formerr").textContent = "Please enter your name."; $("vname").focus(); return; }
+        $("bookbtn").disabled = true;
+        $("bookspin").classList.remove("hide");
+        $("bookbtntext").textContent = "Booking…";
+        try {
+          const resp = await api({ op: "book", slot: chosen, name, note: $("vnote").value });
+          if (!resp.ok) {
+            if (resp.unreachable) { die(resp.error, true); return; }
+            // Most likely "just taken" — refresh the board so the stale slot
+            // disappears instead of failing again.
+            $("slotserr").textContent = resp.error || "That didn't work — try another time.";
+            await loadSlots();
+            $("slotserr").textContent = resp.error || "";
+            return;
+          }
+          meetingURL = String(resp.meetingURL || "");
+          icsText = String(resp.ics || "");
+          $("donewhen").textContent = "You're booked with " + (resp.host || "the host") + " — " +
+            fullFmt.format(new Date((resp.start || chosen) * 1000)) + ".";
+          $("mlink").value = meetingURL;
+          show("doneview");
+        } catch {
+          $("formerr").textContent = "Something went wrong — try again.";
+        } finally {
+          $("bookbtn").disabled = false;
+          $("bookspin").classList.add("hide");
+          $("bookbtntext").textContent = "Confirm booking";
+        }
+      }
+
+      $("bookbtn").addEventListener("click", book);
+      $("backbtn").addEventListener("click", () => { $("slotserr").textContent = ""; show("slotsview"); });
+      $("retrybtn").addEventListener("click", loadSlots);
+      $("copybtn").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(meetingURL);
+          $("copybtn").textContent = "Copied ✓";
+          setTimeout(() => ($("copybtn").textContent = "Copy"), 1600);
+        } catch {
+          $("mlink").select(); // clipboard API needs a secure context; selection is the fallback
+        }
+      });
+      $("icsbtn").addEventListener("click", () => {
+        const blob = new Blob([icsText], { type: "text/calendar;charset=utf-8" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "concord-demo.ics";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      });
+
+      if (!token || !hostPeer) {
+        die("This booking link is incomplete — ask for a fresh one.", false);
+      } else {
+        loadSlots();
+      }
+    </script>
+  </body>
+</html>

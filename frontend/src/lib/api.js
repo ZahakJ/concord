@@ -181,6 +181,13 @@ export const api = {
   rsvpEvent: (guildID, eventID, state) => call("RSVPEvent", guildID, eventID, state),
   eventICS: (guildID, eventID) => call("EventICS", guildID, eventID),
   eventsICS: (guildID) => call("EventsICS", guildID),
+  // Public booking page (Settings → Bookings). cfg is { enabled, blurb,
+  // slotMinutes, horizonDays, windows: [{weekday, startMin, endMin}] } —
+  // weekday 0 = Sunday, minutes counted from local midnight. The token/URL is
+  // minted host-side; cancelBooking keys by the booking's calendar event id.
+  bookingSettings: () => call("BookingSettings"),
+  setBookingConfig: (cfg) => call("SetBookingConfig", cfg),
+  cancelBooking: (eventID) => call("CancelBooking", eventID),
   setChannelMeta: (guildID, channelID, type, category, position, topic = "") =>
     call("SetChannelMeta", guildID, channelID, type, category, position, topic),
   renameChannel: (guildID, channelID, name) => call("RenameChannel", guildID, channelID, name),

@@ -122,6 +122,9 @@ func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
+	// Public booking page + its request relay (see booking.go). Shares this
+	// door because it IS the same door: plain HTTPS in, libp2p to the host out.
+	registerBookingGateway(ctx, mux, h)
 	// TURN credentials for IP-private calls. Present only when TURN is enabled;
 	// returns fresh time-windowed creds (see turn.go).
 	if ts != nil {

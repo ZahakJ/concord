@@ -137,6 +137,15 @@ type Service struct {
 	// Guarded by mu, persisted under meetingLifetimeKey.
 	meetingLife map[string]time.Time
 
+	// Public booking page (see booking.go): the host's availability config,
+	// the taken slots, and the receive-side rate budgets for the relayed
+	// /concord/booking/1.0.0 requests. All guarded by bookingMu.
+	bookingMu          sync.Mutex
+	bookingCfg         bookingConfig
+	bookingRecords     []bookingRecord
+	bookingSlotsBucket tokenBucket
+	bookingBookBucket  tokenBucket
+
 	profiles map[string]Profile // fingerprint -> profile, learned from peers
 
 	// nicks holds per-guild display-name overrides: guildID -> fingerprint ->
@@ -1042,6 +1051,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// restored here too: a link the host mailed out is meant to survive them
 	// closing the app, which an in-memory-only token set could never do.
 	s.initGuests()
+
+	// Public booking page: availability config + the relayed slots/book
+	// protocol. After initGuests — a booking answers with a guest link, and
+	// after the meeting sweep so stale rooms are already gone.
+	s.initBookings()
 
 	// Drop contacts an older build recorded for every peer it happened to dial.
 	// Once per launch is enough: recording is gated now, so the table can only
