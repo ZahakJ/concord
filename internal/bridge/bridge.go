@@ -520,7 +520,15 @@ func (b *Bridge) Login(passphrase string) error {
 	})
 	svc.OnTyping(func(from, channelID string) {
 		if b.OnTyping != nil {
-			b.OnTyping(TypingInfo{From: from, Name: svc.ProfileName(from), ChannelID: channelID})
+			name := svc.ProfileName(from)
+			// Your own account: typing relayed from your other device. The
+			// profile cache deliberately holds no self row (a peer echoing a
+			// stale profile must not rename you), so resolve your own name
+			// here or the strip would fall back to a truncated fingerprint.
+			if name == "" && from == svc.Fingerprint() {
+				name = svc.DisplayName()
+			}
+			b.OnTyping(TypingInfo{From: from, Name: name, ChannelID: channelID})
 		}
 	})
 	svc.OnGuildUpdate(func() {

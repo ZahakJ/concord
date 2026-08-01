@@ -11,17 +11,24 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-// These tests pin "typing from a linked device shows an encoded name".
+// These tests pin how typing from a linked device is attributed.
 //
 // The typing topic carries no payload — attribution is entirely
 // s.presence(from), which maps a DEVICE PeerID to its account via
 // s.deviceAccounts and otherwise falls back to the fingerprint of the raw
-// device key, a fingerprint belonging to no member. The bridge resolves the
-// emitted fingerprint to a display name via ProfileName, and anything that
-// resolves to nothing renders in the composer as a truncated raw key
-// ("TQVB GV2Y is typing…"). receiveTyping is the fix: attribute to a member
-// account (re-reading the roster once on a miss), drop what cannot be
-// attributed, and suppress one's own devices.
+// device key, a fingerprint belonging to no member. receiveTyping must
+// attribute every surfaced signal to a member ACCOUNT (re-reading the roster
+// once on a miss) and drop what cannot be attributed — never emit a raw
+// device-key fingerprint, which the composer would render as a truncated key
+// ("TQVB GV2Y is typing…").
+//
+// Two refinements over v0.49, both user-driven:
+//   - Your OWN account's other device is surfaced too, attributed to the
+//     account. v0.49 suppressed it; the user overruled that — typing on the
+//     phone must light up the account name on the desktop.
+//   - An unattributable signal still shows nothing, but now actively solicits
+//     a hello from the sender, so a member device our roster copy lags behind
+//     becomes attributable in seconds instead of at the next reconnect.
 
 // typingCapture wires an OnTyping listener and returns getters for the last
 // fingerprint seen on the wanted channel and the number of events.
@@ -67,13 +74,12 @@ func pumpTyping(t *testing.T, from *Service, channelID string, stop func() bool)
 	}
 }
 
-// TestTypingFromOwnPhoneIsSuppressedButNamesTheAccountToOthers: you type on
-// your phone. Your desktop must NOT show "you are typing" (it is your own
-// action, and before this fix it rendered as an encoded stranger, because
-// ProfileName holds no entry for one's own fingerprint). A friend in the same
-// guild, meanwhile, must see it attributed to your ACCOUNT — not to the
-// phone's device key.
-func TestTypingFromOwnPhoneIsSuppressedButNamesTheAccountToOthers(t *testing.T) {
+// TestTypingFromOwnPhoneNamesTheAccountEverywhere: you type on your phone.
+// Your desktop MUST surface it, attributed to your ACCOUNT fingerprint (the
+// bridge/frontend then render the account display name, never the phone's
+// device key) — and a friend in the same guild must see exactly the same
+// attribution.
+func TestTypingFromOwnPhoneNamesTheAccountEverywhere(t *testing.T) {
 	if testing.Short() {
 		t.Skip("network integration test")
 	}
@@ -85,8 +91,7 @@ func TestTypingFromOwnPhoneIsSuppressedButNamesTheAccountToOthers(t *testing.T) 
 	guildID := desk.Guilds()[0].ID
 
 	// The friend joins the shared guild, so the same typing gossip reaches a
-	// second account. The friend seeing the event proves delivery worked — which
-	// is what makes the desktop's silence mean "suppressed", not "lost".
+	// second account and we can assert both audiences see the same attribution.
 	friend := startServiceOn(t, ctx, t.TempDir(), boot)
 	code, err := desk.InviteCode(guildID)
 	if err != nil {
@@ -100,11 +105,14 @@ func TestTypingFromOwnPhoneIsSuppressedButNamesTheAccountToOthers(t *testing.T) 
 		return n == 3
 	}, "the friend never converged on the 3-leaf roster")
 
-	deskLast, deskCount := typingCapture(desk, textCh)
-	_ = deskLast
+	deskLast, _ := typingCapture(desk, textCh)
 	friendLast, _ := typingCapture(friend, textCh)
 
-	pumpTyping(t, phone, textCh, func() bool { _, ok := friendLast(); return ok })
+	pumpTyping(t, phone, textCh, func() bool {
+		_, d := deskLast()
+		_, f := friendLast()
+		return d && f
+	})
 	got, ok := friendLast()
 	if !ok {
 		t.Fatal("the friend never saw the phone typing at all")
@@ -113,12 +121,13 @@ func TestTypingFromOwnPhoneIsSuppressedButNamesTheAccountToOthers(t *testing.T) 
 		t.Fatalf("friend saw typing attributed to %q; want the account %q — the phone's device key leaked through", got, desk.Fingerprint())
 	}
 
-	// The same signals demonstrably reached this mesh; the desktop must have
-	// surfaced none of them.
-	time.Sleep(2 * time.Second) // grace for anything in flight
-	if n := deskCount(); n != 0 {
-		f, _ := deskLast()
-		t.Fatalf("the desktop surfaced %d typing event(s) for its own account's phone (as %q); your own typing is not news", n, f)
+	// The user's own desktop: the phone typing must show, and as the ACCOUNT.
+	dgot, dok := deskLast()
+	if !dok {
+		t.Fatal("the desktop never surfaced its own phone's typing; the user explicitly wants to see it")
+	}
+	if dgot != desk.Fingerprint() {
+		t.Fatalf("desktop attributed its own phone's typing to %q; want the account %q", dgot, desk.Fingerprint())
 	}
 }
 
@@ -200,7 +209,9 @@ func TestTypingFromFriendsPhoneNamesTheFriend(t *testing.T) {
 
 	// And a signal that cannot be attributed at all — the typing topic is
 	// plaintext gossip, so any key can publish to it — must surface NOTHING,
-	// not an encoded stranger.
+	// not an encoded stranger. Watch specifically for a non-friend attribution:
+	// the friend's phone is still pumping real gossip at this mesh, so a plain
+	// event count would race a legitimate late "Friend is typing…" delivery.
 	strangerKey, _, err := crypto.GenerateEd25519Key(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate stranger key: %v", err)
@@ -209,9 +220,49 @@ func TestTypingFromFriendsPhoneNamesTheFriend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stranger peer id: %v", err)
 	}
-	_, count3 := typingCapture(me, textCh)
-	me.receiveTyping(g.ID, g.GroupID, textCh, strangerID)
-	if n := count3(); n != 0 {
-		t.Fatalf("an outsider's typing signal was surfaced %d time(s); it belongs to no member and must be dropped", n)
+	var strangerMu sync.Mutex
+	strangerSeen := ""
+	me.OnTyping(func(from, ch string) {
+		if ch != textCh || from == fDesk.Fingerprint() {
+			return
+		}
+		strangerMu.Lock()
+		strangerSeen = from
+		strangerMu.Unlock()
+	})
+	me.receiveTyping(g.ID, g.GroupID, textCh, strangerID) // synchronous: emits during the call or not at all
+	strangerMu.Lock()
+	seen := strangerSeen
+	strangerMu.Unlock()
+	if seen != "" {
+		t.Fatalf("an outsider's typing signal was surfaced as %q; it belongs to no member and must be dropped", seen)
 	}
+
+	// The active half of the unlearned window: a signal we cannot attribute
+	// even after the roster re-read must SOLICIT a hello from its sender, so a
+	// member device our roster copy lags behind converges in seconds. Stage the
+	// lag with a guild whose roster genuinely lacks the phone's cert: to
+	// relearnDevices this is indistinguishable from an add-commit we have not
+	// applied yet.
+	g2, err := me.CreateGuild("Solo")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	me.deviceMu.Lock()
+	me.deviceAccounts = map[string]string{}
+	me.deviceMu.Unlock()
+	// In a real unlearned window the connection is fresh on both sides; this
+	// test mesh has been chatting for a minute, so reset the per-connection
+	// hello bookkeeping to match the window being simulated.
+	fPhone.answered.release(me.host.AddrInfo().ID)
+	me.solicited.release(fPhone.host.AddrInfo().ID)
+
+	_, count4 := typingCapture(me, g2.Channels[0].ID)
+	me.receiveTyping(g2.ID, g2.GroupID, g2.Channels[0].ID, fPhone.host.AddrInfo().ID)
+	if n := count4(); n != 0 {
+		t.Fatalf("typing surfaced %d time(s) in a guild the sender is no member of", n)
+	}
+	waitUntil(t, 30*time.Second, func() bool {
+		return me.presence(fPhone.host.AddrInfo().ID).Fingerprint == fDesk.Fingerprint()
+	}, "the unattributable signal never solicited the phone's certificate; attribution must converge without waiting for a reconnect")
 }

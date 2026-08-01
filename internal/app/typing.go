@@ -34,11 +34,19 @@ const typingPrefKey = "typing_indicators"
 //     THIS guild means an outsider's signal shows nothing at all instead of an
 //     unnameable ghost typing in the channel.
 //
-// Our own account is filtered out entirely: a typing signal from your own
-// other device is not news — you know you are typing — and every chat client
-// people are used to suppresses it. Surfacing it would only ever render as
-// noise (or, before this fix, as an encoded stranger, since ProfileName has no
-// entry for one's own fingerprint).
+// A signal from your OWN account's other device is surfaced too, attributed to
+// the account like anyone else's. v0.49 suppressed it ("you know you are
+// typing"), and the user overruled that: seeing your own name light up when
+// you type on your phone is confirmation the devices are talking, and hiding
+// it read as breakage, not politeness. What stays fixed from v0.49 is the
+// attribution — the ACCOUNT name, never the phone's raw device key.
+//
+// When attribution fails even after the roster re-read — our copy of the
+// roster may simply not include the sender's add-commit yet — the signal is
+// dropped, but we also ask the sender to introduce itself (solicitHello, an
+// empty hello frame that reveals nothing of us). A member device answers with
+// its certificate and the NEXT keystroke attributes; an outsider answers
+// nothing and has cost us one stream on this connection, ever.
 func (s *Service) receiveTyping(guildID string, groupID []byte, channelID string, from peer.ID) {
 	fpr := s.presence(from).Fingerprint
 	if !s.guildHasMember(guildID, fpr) {
@@ -47,11 +55,12 @@ func (s *Service) receiveTyping(guildID string, groupID []byte, channelID string
 		s.relearnDevices(groupID)
 		fpr = s.presence(from).Fingerprint
 		if !s.guildHasMember(guildID, fpr) {
-			return // cannot attribute: show nothing rather than a raw key
+			// Cannot attribute: show nothing rather than a raw key — but kick a
+			// hello at the sender so attribution converges in seconds instead of
+			// on the next reconnect. Off this goroutine: it dials.
+			go s.solicitHello(from)
+			return
 		}
-	}
-	if fpr == s.id.Fingerprint() {
-		return // our own other device: suppress, we know we are typing
 	}
 	s.emitTyping(fpr, channelID)
 }
