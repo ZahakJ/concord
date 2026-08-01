@@ -109,22 +109,32 @@
     border-radius: 50%;
     border: 2px solid var(--bg-1);
   }
-  /* Online friends breathe: a slow soft glow on the green dot. */
-  .dot.live {
+  /* Online friends breathe: a slow soft glow on the green dot. The glow lives
+     on a pseudo-element whose OPACITY animates — animating box-shadow itself
+     re-paints the layer sixty times a second for every visible dot (a real
+     cost on phones, where a member list can hold dozens), while an opacity
+     fade composites on the GPU for free. */
+  .dot.live::after {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: 50%;
+    box-shadow: 0 0 6px 1.5px color-mix(in srgb, var(--ok) 45%, transparent);
     animation: dot-breathe 3.2s ease-in-out infinite;
   }
   @keyframes dot-breathe {
     0%,
     100% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent);
+      opacity: 0;
     }
     50% {
-      box-shadow: 0 0 6px 1.5px color-mix(in srgb, var(--ok) 45%, transparent);
+      opacity: 1;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .dot.live {
+    .dot.live::after {
       animation: none;
+      opacity: 0;
     }
   }
 </style>

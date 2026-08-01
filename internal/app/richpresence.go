@@ -77,6 +77,9 @@ func (s *Service) RichPresenceEnabled() bool {
 }
 
 func (s *Service) startRichPresence() {
+	if !richPresenceSupported {
+		return // nothing to poll here; don't run an 8s timer to learn nothing
+	}
 	ctx, cancel := context.WithCancel(s.ctx)
 	s.activityMu.Lock()
 	if s.richPresenceStop != nil {

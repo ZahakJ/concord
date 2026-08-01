@@ -298,7 +298,12 @@ func (s *Service) keepDevicesClose() {
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-time.After(wait):
+		case <-s.bgWakeCh():
+			// Foregrounded: the OS just told us the user is back, which is
+			// exactly when one of their devices tends to have moved. Look now.
+		case <-time.After(s.bgPace(wait)):
+			// Backgrounded, the eager schedule is what dialed an absent desktop
+			// every 30s all night; bgPace stretches it to the background beat.
 		}
 	}
 }

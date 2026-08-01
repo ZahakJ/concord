@@ -99,7 +99,11 @@ func (n *Host) advertiseLoop(kdht *dht.IpfsDHT, disc *drouting.RoutingDiscovery,
 			// We just (re)gained a way into the network. Whatever we were waiting
 			// out is stale — announce again now, which is the difference between a
 			// returning phone appearing in seconds and appearing on the next TTL.
-		case <-time.After(wait):
+		case <-time.After(n.pace(wait)):
+			// pace only bites the failure backoff: the success wait is hours of
+			// TTL already, but an offline backgrounded phone retrying a failed
+			// announce every 30s all night is the radio drain background mode
+			// exists to stop.
 		}
 	}
 }
@@ -118,6 +122,43 @@ func (n *Host) waitRoutingTable(kdht *dht.IpfsDHT, timeout time.Duration) {
 		case <-time.After(250 * time.Millisecond):
 		}
 	}
+}
+
+// backgroundBeat is the shared slow cadence for every discovery loop while the
+// app is backgrounded on a phone. What it protects is the radio, not the CPU:
+// a DHT walk every 15s plus redials every 30s keeps a cellular modem
+// permanently in its high-power state. One beat, shared, so the wakes coincide
+// and the radio pays for one burst instead of several staggered ones.
+const backgroundBeat = 3 * time.Minute
+
+// SetBackground tells the host whether the app is off screen. Backgrounded,
+// the discovery loops slow to backgroundBeat; existing connections, the relay
+// reservation and gossipsub are untouched, so the node stays reachable and
+// messages keep arriving. The background→foreground edge kicks every loop
+// awake so a returning user gets the eager cadence immediately.
+func (n *Host) SetBackground(bg bool) {
+	n.mu.Lock()
+	changed := n.background != bg
+	n.background = bg
+	n.mu.Unlock()
+	if changed && !bg {
+		n.kickNetwork()
+	}
+}
+
+func (n *Host) backgrounded() bool {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.background
+}
+
+// pace stretches a foreground wait to the background beat while backgrounded;
+// waits already slower than the beat are left alone.
+func (n *Host) pace(wait time.Duration) time.Duration {
+	if wait < backgroundBeat && n.backgrounded() {
+		return backgroundBeat
+	}
+	return wait
 }
 
 // netKick returns the channel closed-and-replaced whenever we regain a way into
@@ -250,7 +291,14 @@ func (n *Host) keepBootstrapped(kdht *dht.IpfsDHT, peers, remembered []peer.Addr
 		select {
 		case <-n.ctx.Done():
 			return
-		case <-time.After(wait):
+		case <-time.After(n.pace(wait)):
+			// Backgrounded (phone in a pocket), both the healthy re-check and
+			// the offline redial stretch to the shared beat; the kickNetwork on
+			// return to foreground makes the next check immediate. Note the
+			// kick channel below is read BEFORE this loop causes its own kicks
+			// (kickNetwork replaces the channel), so waking ourselves is not a
+			// livelock risk.
+		case <-n.netKick():
 		}
 	}
 }
@@ -316,16 +364,18 @@ func (n *Host) dialRemembered(peers []peer.AddrInfo) bool {
 }
 
 func (n *Host) discoverLoop(disc peerFinder, rendezvous string) {
-	// Poll fairly often at first (mesh is small and warming), then steadily.
-	t := time.NewTicker(15 * time.Second)
-	defer t.Stop()
+	// Poll fairly often (mesh is small and warming) — except backgrounded on a
+	// phone, where each FindPeers is a full DHT walk through the radio and the
+	// mesh we already have delivers messages without it; there the wait is
+	// paced to backgroundBeat and the netKick fires on return to foreground.
+	const discoverInterval = 15 * time.Second
 	for {
 		n.findAndConnect(disc, rendezvous)
 		select {
 		case <-n.ctx.Done():
 			return
-		case <-n.netKick(): // back on the network: look now, not in 15s
-		case <-t.C:
+		case <-n.netKick(): // back on the network / foregrounded: look now
+		case <-time.After(n.pace(discoverInterval)):
 		}
 	}
 }
