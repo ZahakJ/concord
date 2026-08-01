@@ -525,11 +525,27 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 		s.mu.Unlock()
 	}
 
+	selfFpr := s.id.Fingerprint()
 	for fpr, p := range payload.Profiles {
+		if fpr == selfFpr {
+			// Our own account's profile, served back to us. Only another device
+			// of THIS account may move it (srcFpr is certificate-authenticated);
+			// any member can put our fingerprint in a roster, and adopting that
+			// would let a neighbor rewrite our identity on our own screen. This
+			// is the offline catch-up lane for linked devices — the device hello
+			// covers the same ground, sync covers it again for good measure.
+			if srcFpr == selfFpr {
+				s.AdoptLinkedProfile(p)
+			}
+			continue
+		}
 		// An untrusted backfill may fill in profiles we don't know yet, but must not
 		// overwrite a member's cached identity — in particular their MailboxPub,
-		// which routes offline mail. Trusted sources (owner/SyncHost) may refresh.
-		if !trusted && s.hasProfile(fpr) {
+		// which routes offline mail. Trusted sources (owner/SyncHost) may refresh —
+		// and so may the member itself for its OWN row (fpr == srcFpr): the same
+		// author-binding the gossip announce enforces, so a returning peer can
+		// hand us the fresh status it set while we were apart.
+		if !trusted && fpr != srcFpr && s.hasProfile(fpr) {
 			continue
 		}
 		s.learnProfile(fpr, p)

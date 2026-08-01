@@ -1820,11 +1820,13 @@ func (b *Bridge) RedeemLinkCode(code, passphrase string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Adopt the account's profile (name/avatar/…) so the linked device presents as
-	// the same person, not a blank fingerprint. Only if the issuer had one set.
-	if p := res.Profile; p.Name != "" || p.Avatar != "" || p.Emoji != "" {
-		_ = svc.SetProfile(p)
-	}
+	// Adopt the account's profile (name/avatar/…) so the linked device presents
+	// as the same person, not a blank fingerprint. AdoptLinkedProfile rather
+	// than SetProfile: it carries the game collection too, and it keeps the
+	// ISSUER's edit stamp — re-stamping here would make this blank device look
+	// like the newest editor and push its empty look back at the account. A
+	// no-profile issuer offers stamp 0, which adopts nothing.
+	svc.AdoptLinkedProfile(res.Profile)
 	// Verifications are the account's knowledge ("I compared safety numbers"),
 	// not the device's — carry them over so contacts verified on the old device
 	// stay verified here.

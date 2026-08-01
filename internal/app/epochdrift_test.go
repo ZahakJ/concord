@@ -214,8 +214,8 @@ func TestHelloDoesNotRejoinHeldGuilds(t *testing.T) {
 		t.Fatalf("epoch: %v", err)
 	}
 	for i := 0; i < 3; i++ {
-		desk.offerGuildsToOwnDevices()
-		phone.offerGuildsToOwnDevices()
+		desk.regreetOwnDevices()
+		phone.regreetOwnDevices()
 		time.Sleep(time.Second)
 	}
 	// Give any ping-pong time to show itself, then require stillness.
