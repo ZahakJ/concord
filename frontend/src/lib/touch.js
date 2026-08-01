@@ -45,6 +45,7 @@ export function hapticNotify(type = "SUCCESS") {
 // signal at all that the press registered.
 export function longpress(node, { handler, duration = 400, moveTolerance = 10 } = {}) {
   let timer = null;
+  let pressTimer = null;
   let startX = 0;
   let startY = 0;
 
@@ -52,6 +53,10 @@ export function longpress(node, { handler, duration = 400, moveTolerance = 10 } 
     if (timer) {
       clearTimeout(timer);
       timer = null;
+    }
+    if (pressTimer) {
+      clearTimeout(pressTimer);
+      pressTimer = null;
     }
     node.classList.remove("lp-press");
     node.removeEventListener("touchmove", onMove);
@@ -70,13 +75,21 @@ export function longpress(node, { handler, duration = 400, moveTolerance = 10 } 
     if (!t) return;
     startX = t.clientX;
     startY = t.clientY;
-    node.classList.add("lp-press");
+    // Press feedback only once the finger has proven it is STAYING. Applying it
+    // on touchstart meant every ordinary scroll-touch scaled and flashed the row
+    // under the finger for its first few pixels — the whole feed "shook" while
+    // scrolling, which is precisely the effect that got this reported. 180ms is
+    // past the point where a scroll or tap has already moved on, and still well
+    // before the 400ms menu, so a held press reads as held.
+    pressTimer = setTimeout(() => node.classList.add("lp-press"), 180);
     node.addEventListener("touchmove", onMove, { passive: true });
     node.addEventListener("touchend", clear);
     node.addEventListener("touchcancel", clear);
     timer = setTimeout(() => {
       clear();
-      haptic("medium");
+      // Light, not medium: this fires on every menu open, dozens of times a
+      // day, and the sheet sliding in is already the confirmation.
+      haptic("light");
       // The finger lift after a long-press still synthesizes a click — which
       // would land on whatever the handler just opened (e.g. the first row of
       // an action sheet). Eat it.

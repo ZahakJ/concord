@@ -110,6 +110,11 @@
   // recents first) — the smile button opens the full picker for everything else.
   const DEFAULT_QUICK = ["👍", "❤️", "😂"];
   const quickEmojis = [...new Set([...recentEmoji(), ...DEFAULT_QUICK])].slice(0, 3);
+  // The phone sheet has a full-width row to spend, so it offers twice the
+  // choice: recents first, then enough well-worn defaults to fill six slots —
+  // plus the "+" that ContextMenu renders for the whole picker.
+  const SHEET_QUICK = ["👍", "❤️", "😂", "😮", "😢", "🔥"];
+  const sheetEmojis = [...new Set([...recentEmoji(), ...SHEET_QUICK])].slice(0, 6);
 
   // The emoji the user just tapped bounces briefly (quick bar + pills share
   // this, keyed by emoji char).
@@ -623,7 +628,7 @@
       // title that doubles as the message's timestamp (desktop's anchored
       // popover ignores these extras).
       title: menuTitle,
-      quick: { emojis: quickEmojis, onPick: reactWithBounce },
+      quick: { emojis: sheetEmojis, onPick: reactWithBounce, onMore: () => (S.pickerTarget = m) },
     });
   }
 </script>

@@ -56,6 +56,18 @@
               }}
             >{em}</button>
           {/each}
+          {#if quick.onMore}
+            <!-- The door to the full picker lives IN the row, where the thumb
+                 already is — not as one more line in the list below. -->
+            <button
+              class="as-emoji as-more"
+              aria-label="More reactions"
+              onclick={() => {
+                closeContextMenu();
+                quick.onMore();
+              }}
+            ><Icon name="plus" size={20} /></button>
+          {/if}
         </div>
       {/if}
       <div class="as-list" role="menu">
@@ -107,9 +119,10 @@
   /* ---- mobile action-sheet rows ---- */
   .as-quick {
     display: flex;
-    justify-content: space-between;
+    justify-content: space-evenly;
+    align-items: center;
     gap: 4px;
-    padding: 2px 6px 10px;
+    padding: 4px 6px 12px;
     border-bottom: 1px solid var(--border);
     margin-bottom: 6px;
   }
