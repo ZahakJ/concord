@@ -2188,17 +2188,39 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 // path runs and the UI stops pretending everything is fine. Rate-limited to one
 // flag per group per healRetryInterval: a busy channel can deliver many
 // unreadable messages in a row and each one must not restart the heal.
+// undecryptableGrace is how long a group may fail to decrypt before the app says
+// so out loud. Long enough that an ordinary epoch hiccup — a commit crossing a
+// message in flight — heals invisibly; short enough that a genuine strand is
+// reported while the user is still in the conversation.
+const undecryptableGrace = 12 * time.Second
+
 func (s *Service) flagUndecryptable(groupID []byte) {
 	key := string(groupID)
+	now := time.Now()
 	s.mu.Lock()
 	if s.lastUndecryptable == nil {
 		s.lastUndecryptable = map[string]time.Time{}
+		s.firstUndecryptable = map[string]time.Time{}
 	}
-	if t, ok := s.lastUndecryptable[key]; ok && time.Since(t) < healRetryInterval {
+	// Rate limit: one flag per group per heal cycle, so a channel full of
+	// unreadable traffic cannot restart the repair on every packet.
+	if t, ok := s.lastUndecryptable[key]; ok && now.Sub(t) < healRetryInterval {
 		s.mu.Unlock()
 		return
 	}
-	s.lastUndecryptable[key] = time.Now()
+	// Patience: remember when this group FIRST failed, and stay quiet until it
+	// has been failing for longer than a normal epoch hiccup takes to settle. A
+	// run that stops resets the clock, so the next genuine strand starts fresh.
+	first, seen := s.firstUndecryptable[key]
+	if !seen || now.Sub(first) > 5*time.Minute {
+		s.firstUndecryptable[key] = now
+		first = now
+	}
+	s.lastUndecryptable[key] = now
+	if now.Sub(first) < undecryptableGrace {
+		s.mu.Unlock()
+		return // still inside the window where this routinely fixes itself
+	}
 	var guildID string
 	for id, g := range s.guilds {
 		if bytes.Equal(g.GroupID, groupID) {
@@ -2231,6 +2253,15 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 		// "Catching up…" banner AND kicks the heal path, which asks an authorized
 		// member to re-add us and converges the epochs. Repairing itself is the
 		// point; the banner is what makes the failure visible while it does.
+		// Deliberately NOT flagged on the first failure. Epochs drift for a second
+		// or two all the time — a commit lands, a message crosses it, the heal
+		// converges them and nobody should ever have known. Shouting "Catching
+		// up…" at both people for a hiccup that fixes itself is worse than the
+		// silence it replaced: it made a friend on the other end of a working
+		// conversation ask what was broken.
+		//
+		// So: only after the SAME group has failed repeatedly over a sustained
+		// window is this a real strand worth telling anyone about.
 		s.flagUndecryptable(groupID)
 		return
 	}

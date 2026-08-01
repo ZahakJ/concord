@@ -203,8 +203,24 @@ func TestUndecryptableMessageStrandsTheGuild(t *testing.T) {
 		t.Fatal("guild started out of sync")
 	}
 
-	// Ciphertext this group can never read: right group, unreadable payload.
+	// One failure is a hiccup, not a strand: epochs cross all the time and heal
+	// themselves, and shouting about it made a friend on a working conversation
+	// ask what was broken. It must stay quiet inside the grace window.
 	svc.receiveCiphertext(g.GroupID, []byte("not a valid MLS message"))
+	if svc.OutOfSync(g.ID) {
+		t.Fatal("a single decryption failure raised the alarm — every transient " +
+			"epoch hiccup will now tell both people something is wrong")
+	}
+
+	// A sustained run is a real strand. Backdate the start of the run rather than
+	// sleeping out the grace window.
+	svc.mu.Lock()
+	for k := range svc.firstUndecryptable {
+		svc.firstUndecryptable[k] = time.Now().Add(-time.Minute)
+	}
+	svc.lastUndecryptable = map[string]time.Time{}
+	svc.mu.Unlock()
+	svc.receiveCiphertext(g.GroupID, []byte("still not a valid MLS message"))
 
 	if !svc.OutOfSync(g.ID) {
 		t.Fatal("an undecryptable message was dropped silently — the conversation " +

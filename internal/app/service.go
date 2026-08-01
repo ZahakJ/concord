@@ -161,6 +161,9 @@ type Service struct {
 	// unreadable traffic raises the alarm once per heal cycle rather than on
 	// every packet. See flagUndecryptable.
 	lastUndecryptable map[string]time.Time
+	// When the current run of decryption failures began, per group — see
+	// undecryptableGrace.
+	firstUndecryptable map[string]time.Time
 
 	// blocked is the in-memory mirror of the block list (see block.go), guarded
 	// by mu. A blocked account's DM/guild invites are dropped on arrival.
