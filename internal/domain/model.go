@@ -204,6 +204,15 @@ type Event struct {
 	// account, set only through its own event_rsvp lane so nobody can answer
 	// on anyone else's behalf.
 	RSVPs map[string]string `json:"rsvps,omitempty"`
+	// GuestURL/GuestHost open the event to outsiders: a shareable browser-guest
+	// link into a disposable meeting room (eventguest.go), and the account
+	// fingerprint of whoever minted it — the node that room physically lives
+	// on. They travel with the event so every member can copy the link, but on
+	// receive only GuestHost's own frames may set, change or clear them: the
+	// room, its tokens and its door policy exist solely on that host's node,
+	// so nobody else can revoke a link there or point guests somewhere else.
+	GuestURL  string `json:"guestUrl,omitempty"`
+	GuestHost string `json:"guestHost,omitempty"`
 }
 
 // NewID returns a random 128-bit hex identifier for guilds, channels and

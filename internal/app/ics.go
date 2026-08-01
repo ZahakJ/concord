@@ -87,8 +87,22 @@ func icsVEvent(b *strings.Builder, ev domain.Event) {
 		icsFold(b, "DTEND:"+icsTime(ev.EndUnix))
 	}
 	icsFold(b, "SUMMARY:"+icsEscape(ev.Title))
-	if ev.Details != "" {
-		icsFold(b, "DESCRIPTION:"+icsEscape(ev.Details))
+	// A guest-opened event carries its join link both as the URL property and
+	// inside DESCRIPTION: URL is the spec's slot for exactly this, but plenty
+	// of calendar UIs only ever show the description, and "Add to calendar"
+	// must not strand the link behind a field the app hides.
+	desc := ev.Details
+	if ev.GuestURL != "" {
+		if desc != "" {
+			desc += "\n\n"
+		}
+		desc += "Join from your browser (no install):\n" + ev.GuestURL
+	}
+	if desc != "" {
+		icsFold(b, "DESCRIPTION:"+icsEscape(desc))
+	}
+	if ev.GuestURL != "" {
+		icsFold(b, "URL:"+icsEscape(ev.GuestURL))
 	}
 	if ev.Location != "" {
 		icsFold(b, "LOCATION:"+icsEscape(ev.Location))

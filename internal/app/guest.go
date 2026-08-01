@@ -674,8 +674,10 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	// chat fan-out, gets no history, no roster, no signalling and no call.
 	// A room minted by the public booking page ALWAYS knocks: its link went to a
 	// stranger on the open web, so auto-admitting on the unlocked default would
-	// turn "book a demo" into "walk straight into my client".
-	if s.guestDoorLocked(tok.ChannelID) || s.isBookingMeeting(tok.GuildID) {
+	// turn "book a demo" into "walk straight into my client". A guest-opened
+	// calendar event knocks BY DEFAULT for the same reason — its link is meant
+	// to be forwarded — unless the host explicitly chose an open door.
+	if s.guestDoorLocked(tok.ChannelID) || s.isBookingMeeting(tok.GuildID) || s.eventGuestKnocks(tok.GuildID) {
 		admitted, reason := s.knockAtDoor(sess, meetingName)
 		if !admitted {
 			sess.end(reason)

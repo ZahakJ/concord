@@ -147,6 +147,13 @@ type Service struct {
 	bookingSlotsBucket tokenBucket
 	bookingBookBucket  tokenBucket
 
+	// Guest-opened calendar events (see eventguest.go): event ID → the
+	// disposable meeting room this node hosts for it. Guarded by eventGuestMu,
+	// persisted under eventGuestsKey. Local-only by design — the room, its
+	// tokens and its door policy exist on the minting node alone.
+	eventGuestMu sync.Mutex
+	eventGuests  map[string]eventGuestRecord
+
 	profiles map[string]Profile // fingerprint -> profile, learned from peers
 
 	// nicks holds per-guild display-name overrides: guildID -> fingerprint ->
@@ -1080,6 +1087,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// protocol. After initGuests — a booking answers with a guest link, and
 	// after the meeting sweep so stale rooms are already gone.
 	s.initBookings()
+
+	// Guest-opened calendar events: restore which meeting rooms this node
+	// hosts for its events. After the meeting sweep for the same reason as
+	// bookings — records for rooms the sweep just deleted must be pruned.
+	s.initEventGuests()
 
 	// Drop contacts an older build recorded for every peer it happened to dial.
 	// Once per launch is enough: recording is gated now, so the table can only

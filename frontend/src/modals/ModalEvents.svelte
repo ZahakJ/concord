@@ -113,7 +113,7 @@
     } else {
       at = Date.now() + 3600000;
     }
-    return { id: "", title: "", details: "", location: "", start: toLocalInput(at), durMin: 60 };
+    return { id: "", title: "", details: "", location: "", start: toLocalInput(at), durMin: 60, guests: false, autoAdmit: false };
   }
   function startEdit(ev) {
     editing = {
@@ -123,8 +123,14 @@
       location: ev.location || "",
       start: toLocalInput(ev.startUnix * 1000),
       durMin: ev.endUnix ? Math.round((ev.endUnix - ev.startUnix) / 60) : 0,
+      guests: false,
+      autoAdmit: false,
     };
   }
+  // Whether the event being edited already has a live guest link — the form
+  // then points at the card (copy/revoke live there) instead of offering to
+  // mint a second one.
+  const editingHasGuests = $derived(!!editing?.id && !!events.find((e) => e.id === editing.id)?.guestUrl);
   const DURATIONS = [
     { min: 0, label: "No end time" },
     { min: 30, label: "30 minutes" },
@@ -143,14 +149,26 @@
     const startUnix = Math.floor(draftAt / 1000);
     const endUnix = editing.durMin ? startUnix + editing.durMin * 60 : 0;
     const isEdit = !!editing.id;
+    let saved;
     try {
       if (isEdit)
-        await api.updateEvent(gid, editing.id, editing.title.trim(), editing.details.trim(), startUnix, endUnix, editing.location.trim());
+        saved = await api.updateEvent(gid, editing.id, editing.title.trim(), editing.details.trim(), startUnix, endUnix, editing.location.trim());
       else
-        await api.createEvent(gid, editing.title.trim(), editing.details.trim(), startUnix, endUnix, editing.location.trim());
+        saved = await api.createEvent(gid, editing.title.trim(), editing.details.trim(), startUnix, endUnix, editing.location.trim());
     } catch (err) {
       flash(err); // e.g. not allowed to edit someone else's — never fail silently
       return;
+    }
+    // Guest access rides the same form: mint the link right after the event
+    // lands. A failure here must not un-save the event — report it apart.
+    if (editing.guests && !saved.guestUrl) {
+      try {
+        const opened = await api.openEventGuests(gid, saved.id, editing.autoAdmit);
+        await navigator.clipboard?.writeText(opened.guestUrl);
+        flash("Guest link copied — anyone with it can join from a browser", "success");
+      } catch (err) {
+        flash(err);
+      }
     }
     editing = null;
     await loadEvents(gid);
@@ -196,6 +214,22 @@
       </div>
       <input placeholder="Where? A channel, an address, someone's couch…" maxlength="160" bind:value={editing.location} />
       <textarea rows="3" placeholder="Details (optional)" maxlength="2000" bind:value={editing.details}></textarea>
+      {#if editingHasGuests}
+        <div class="gnote muted">
+          <Icon name="link" size={12} /> Guests can already join — copy or revoke the link on the event card.
+        </div>
+      {:else}
+        <label class="chk">
+          <input type="checkbox" bind:checked={editing.guests} />
+          <span>Open to guests — get a shareable link anyone can join from a browser</span>
+        </label>
+        {#if editing.guests}
+          <label class="chk sub">
+            <input type="checkbox" bind:checked={editing.autoAdmit} />
+            <span>Let guests straight in (otherwise they knock and you admit)</span>
+          </label>
+        {/if}
+      {/if}
       <div class="actions">
         <button class="ghost" onclick={() => (editing = null)}>Cancel</button>
         <button class="primary" disabled={!draftValid} onclick={save}>
@@ -543,6 +577,27 @@
   }
   textarea {
     resize: vertical;
+  }
+  .chk {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    /* Real tap target on phones without visually inflating the row. */
+    min-height: var(--tap-min, 24px);
+  }
+  .chk input {
+    flex-shrink: 0;
+  }
+  .chk.sub {
+    margin-left: 24px;
+  }
+  .gnote {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-compact);
   }
   .actions {
     display: flex;

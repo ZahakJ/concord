@@ -899,6 +899,26 @@ func (b *Bridge) EventsICS(guildID string) (string, error) {
 	return svc.EventsICS(guildID)
 }
 
+// OpenEventGuests opens a calendar event to browser guests: mints (or
+// returns) the event's disposable meeting room and its shareable link, which
+// lands on the event record itself. autoAdmit false = arrivals knock.
+func (b *Bridge) OpenEventGuests(guildID, eventID string, autoAdmit bool) (domain.Event, error) {
+	svc, err := b.service()
+	if err != nil {
+		return domain.Event{}, err
+	}
+	return svc.OpenEventGuests(guildID, eventID, autoAdmit)
+}
+
+// RevokeEventGuests closes an event to guests: link dead, room gone.
+func (b *Bridge) RevokeEventGuests(guildID, eventID string) (domain.Event, error) {
+	svc, err := b.service()
+	if err != nil {
+		return domain.Event{}, err
+	}
+	return svc.RevokeEventGuests(guildID, eventID)
+}
+
 // BookingSettings returns the public-booking config, the page URL (when
 // live) and the upcoming bookings, for the Settings → Bookings panel.
 func (b *Bridge) BookingSettings() (appsvc.BookingView, error) {
@@ -2566,6 +2586,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.EventICS(argStr(args, 0), argStr(args, 1))
 	case "EventsICS":
 		return b.EventsICS(argStr(args, 0))
+	case "OpenEventGuests":
+		return b.OpenEventGuests(argStr(args, 0), argStr(args, 1), argBool(args, 2))
+	case "RevokeEventGuests":
+		return b.RevokeEventGuests(argStr(args, 0), argStr(args, 1))
 	case "BookingSettings":
 		return b.BookingSettings()
 	case "SetBookingConfig":
