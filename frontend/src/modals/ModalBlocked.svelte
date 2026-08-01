@@ -19,7 +19,11 @@
     <div class="list">
       {#each S.blocked as fpr (fpr)}
         <div class="row">
-          <Avatar name={nameFor(fpr)} size={30} />
+          <Avatar
+            name={nameFor(fpr)}
+            image={S.contacts.find((c) => c.fingerprint === fpr)?.avatar || ""}
+            size={30}
+          />
           <span class="who">
             <strong>{nameFor(fpr)}</strong>
             <span class="tiny muted mono">{fpr.slice(0, 12)}…</span>

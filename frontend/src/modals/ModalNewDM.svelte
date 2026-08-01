@@ -97,7 +97,13 @@
   <div class="list">
     {#each shown as c (c.fingerprint)}
       <button class="row" class:sel={picked.has(c.fingerprint)} onclick={() => toggle(c.fingerprint)}>
-        <Avatar name={c.name || c.fingerprint} size={26} />
+        <Avatar
+          name={c.name || c.fingerprint}
+          image={c.avatar || ""}
+          emoji={c.emoji || ""}
+          color={c.color || ""}
+          size={26}
+        />
         <span class="nm">{c.name || c.fingerprint.slice(0, 9)}</span>
         {#if c.verified}
           <span class="vbadge" title="Verified"><Icon name="check" size={11} /></span>

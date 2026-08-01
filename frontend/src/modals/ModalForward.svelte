@@ -16,7 +16,15 @@
     const out = [];
     for (const g of S.guilds) {
       if (g.kind === "dm") {
-        out.push({ id: g.channels[0]?.id, label: g.name, sub: "DM", dm: true, guild: g });
+        out.push({
+          id: g.channels[0]?.id,
+          label: g.name,
+          sub: "DM",
+          dm: true,
+          guild: g,
+          // Same face the DM list shows, so the picker rows match it.
+          avatar: g.dmPeerAvatar || g.dmFaces?.[0]?.avatar || g.icon || "",
+        });
       } else {
         for (const c of g.channels) {
           if (c.type === "voice") continue;
@@ -54,7 +62,7 @@
     {#each destinations as d (d.id)}
       <button class="dest" disabled={busy} onclick={() => send(d)}>
         {#if d.dm}
-          <Avatar name={d.label} size={22} />
+          <Avatar name={d.label} image={d.avatar || ""} size={22} />
         {:else}
           <span class="hashicon"><Icon name="hash" size={13} /></span>
         {/if}

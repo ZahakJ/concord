@@ -14,6 +14,13 @@
 
   const label = (r) => r.fromName || nameFor(r.from) || r.from.slice(0, 9);
 
+  // A request carries only a self-asserted name — never an image (we haven't
+  // joined their group, so there's nothing else to know). But if we've already
+  // LEARNED this person's profile elsewhere (a shared guild, a past session),
+  // show that locally-known face instead of an initials disc. Never rendered
+  // from anything the request itself supplied.
+  const face = (r) => S.contacts.find((c) => c.fingerprint === r.from);
+
   async function accept(r) {
     busy = r.from;
     try {
@@ -51,7 +58,13 @@
     <div class="list">
       {#each S.requests as r (r.from)}
         <div class="row">
-          <Avatar name={label(r)} size={32} />
+          <Avatar
+            name={label(r)}
+            image={face(r)?.avatar || ""}
+            emoji={face(r)?.emoji || ""}
+            color={face(r)?.color || ""}
+            size={32}
+          />
           <span class="who">
             <strong>{label(r)}</strong>
             <span class="tiny muted mono">{r.from.slice(0, 12)}…</span>
