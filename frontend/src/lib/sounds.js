@@ -221,10 +221,7 @@ function thump(ac, sink, start, from, to, peak) {
 // Someone joined: a rising fifth, C4 up to G4. The old pair sat an octave
 // higher, which is exactly why it sounded thin — up there a sine has nothing
 // underneath it.
-export function playVoiceJoin() {
-  if (!enabled) return;
-  const ac = audio();
-  if (!ac) return;
+function buildJoin(ac) {
   const bus = roomBus(ac, { seconds: 1.7, decay: 2.4, wet: 0.32, damp: 2800, level: 0.62 });
   // The thump sits UNDER the notes, not over them. At the level this started
   // out (3x the notes) it read as a boom with a chime somewhere behind it —
@@ -234,16 +231,104 @@ export function playVoiceJoin() {
   note(ac, bus, 392.0, 0.085, 1.0, 0.17);
 }
 
-// Someone left: the same interval falling, darker and with a longer, quieter
-// room — a door closing down the hall rather than one slammed next to you.
-export function playVoiceLeave() {
+export function playVoiceJoin() {
   if (!enabled) return;
+  if (playChimeBlob("join")) return;
   const ac = audio();
   if (!ac) return;
+  buildJoin(ac);
+}
+
+// Someone left: the same interval falling, darker and with a longer, quieter
+// room — a door closing down the hall rather than one slammed next to you.
+function buildLeave(ac) {
   const bus = roomBus(ac, { seconds: 2.0, decay: 2.9, wet: 0.34, damp: 1900, level: 0.6 });
   thump(ac, bus, 0, 120, 44, 0.13);
   note(ac, bus, 392.0, 0.0, 0.7, 0.15);
   note(ac, bus, 261.63, 0.09, 1.15, 0.16);
+}
+
+export function playVoiceLeave() {
+  if (!enabled) return;
+  if (playChimeBlob("leave")) return;
+  const ac = audio();
+  if (!ac) return;
+  buildLeave(ac);
+}
+
+// ---- pre-rendered chimes for the phone --------------------------------------
+// Web Audio through Android's call-route flips has now failed twice: rebuilding
+// the context around every transition still left chimes "clunky, timed off, or
+// not heard sometimes" on the actual phone. So on Capacitor the join/leave
+// chimes stop being live synthesis at all: each is rendered ONCE offline (same
+// builders, same 48kHz, byte-identical sound) into a WAV blob, and played
+// through an <audio> element — Android's ordinary media pipeline, which survives
+// route changes as a matter of course because every media app depends on it.
+// Desktop keeps the live path; it has never misbehaved there.
+const chimeBlobs = { join: null, leave: null };
+let chimePriming = null;
+
+function wavFromBuffer(buf) {
+  const ch = buf.numberOfChannels, len = buf.length, rate = buf.sampleRate;
+  const bytes = 44 + len * ch * 2;
+  const out = new DataView(new ArrayBuffer(bytes));
+  const str = (o, s2) => { for (let i = 0; i < s2.length; i++) out.setUint8(o + i, s2.charCodeAt(i)); };
+  str(0, "RIFF"); out.setUint32(4, bytes - 8, true); str(8, "WAVE");
+  str(12, "fmt "); out.setUint32(16, 16, true); out.setUint16(20, 1, true);
+  out.setUint16(22, ch, true); out.setUint32(24, rate, true);
+  out.setUint32(28, rate * ch * 2, true); out.setUint16(32, ch * 2, true);
+  out.setUint16(34, 16, true); str(36, "data"); out.setUint32(40, len * ch * 2, true);
+  let o = 44;
+  const chans = []; for (let c = 0; c < ch; c++) chans.push(buf.getChannelData(c));
+  for (let i = 0; i < len; i++)
+    for (let c = 0; c < ch; c++) {
+      const v = Math.max(-1, Math.min(1, chans[c][i]));
+      out.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+      o += 2;
+    }
+  return new Blob([out.buffer], { type: "audio/wav" });
+}
+
+async function renderChime(builder, seconds) {
+  const oc = new OfflineAudioContext(2, Math.ceil(seconds * 48000), 48000);
+  builder(oc);
+  const rendered = await oc.startRendering();
+  return URL.createObjectURL(wavFromBuffer(rendered));
+}
+
+// primeChimes renders both blobs; kicked at module init on Capacitor so they
+// are ready long before the first call.
+function primeChimes() {
+  if (chimePriming) return chimePriming;
+  chimePriming = Promise.all([
+    renderChime(buildJoin, 4.2).then((u) => (chimeBlobs.join = u)),
+    renderChime(buildLeave, 4.8).then((u) => (chimeBlobs.leave = u)),
+  ]).catch(() => (chimePriming = null));
+  return chimePriming;
+}
+if (typeof window !== "undefined" && window.Capacitor) {
+  // Offline rendering needs no user gesture; do it while the app boots.
+  (window.requestIdleCallback || setTimeout)(() => primeChimes());
+}
+
+// playChimeBlob plays the pre-rendered chime on Capacitor. Returns true when it
+// owned the playback; false hands the caller back to the live path (desktop,
+// or a phone whose render has not landed yet — better a live chime than none).
+function playChimeBlob(which) {
+  if (typeof window === "undefined" || !window.Capacitor) return false;
+  const url = chimeBlobs[which];
+  if (!url) {
+    primeChimes();
+    return false;
+  }
+  try {
+    const el = new Audio(url);
+    el.volume = 1;
+    el.play().catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // Soft single ping for an @mention / notification.

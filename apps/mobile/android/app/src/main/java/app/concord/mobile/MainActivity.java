@@ -235,17 +235,20 @@ public class MainActivity extends BridgeActivity {
         int imePx = Math.max(0, ime.bottom - Math.max(0, winH - wvBottom));
 
         int top = Math.round(topPx / d);
-        // Some OEM WebViews report a 0 top inset — before the first layout pass,
-        // and on a few builds persistently. Trusting that puts the app's own top
-        // bar underneath the clock. Only fall back when the WebView is genuinely
-        // full-bleed at the top, or this would re-introduce the double band.
-        int barsTopDp = Math.round(bars.top / d);
+        // The published bar height is the MAX of every source we have: the live
+        // insets API, the platform's own status_bar_height resource, and 24dp —
+        // the smallest status bar Android has ever shipped. The insets API
+        // reporting 0 is exactly the failure mode that has kept the user's top
+        // bar under the clock across three rounds of cleverer detection, so no
+        // single source is trusted to be the only one. The page floors --sa-top
+        // at this value unconditionally; a hidden-status-bar mode would over-pad
+        // by one bar height, which Concord never enters and which is in any case
+        // the survivable direction.
+        int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        int resBarDp = resId > 0 ? Math.round(getResources().getDimensionPixelSize(resId) / d) : 0;
+        int barsTopDp = Math.max(Math.max(Math.round(bars.top / d), resBarDp), 24);
         if (top <= 0 && wvTop <= 0 && bars.top <= 0) {
-            int px = 0;
-            int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-            if (resId > 0) px = getResources().getDimensionPixelSize(resId);
-            top = px > 0 ? Math.round(px / d) : 24;
-            barsTopDp = top;
+            top = barsTopDp;
         }
         int left = Math.round(bars.left / d);
         int right = Math.round(bars.right / d);
@@ -271,54 +274,25 @@ public class MainActivity extends BridgeActivity {
             ",barsTopPx:" + bars.top + ",wvTopPx:" + wvTop + ",winHPx:" + winH +
             ",d:" + d + "});" +
             "if(L.length>40)L.shift();" +
-            // The floor: measured by the renderer itself, so it stays right even
-            // if the native geometry above ever lies. Reinstalling it here (and
-            // only here) means a page reload — which wipes both the inline
-            // styles and window.__saFloor — heals on the markWebReady re-push.
+            // THE FLOOR IS UNCONDITIONAL NOW. Three generations of detection —
+            // integer viewport comparison, then sub-pixel visualViewport with a
+            // remembered verdict — each measured correct on every emulator and
+            // each still failed on the user's actual phone, top bar under the
+            // clock. The user's own words ended the argument: "can't you just
+            // establish some safe padding that's dynamic on top even if you
+            // cannot reproduce". Yes.
             //
-            // The full-bleed decision is the load-bearing part, and it fails in
-            // two directions that hurt differently:
-            //   - decide "padded" when the page is really full-bleed → the floor
-            //     never engages, and if the native top is also 0 the app's bar
-            //     renders under the clock (the exact bug report this exists for);
-            //   - decide "full-bleed" when the platform really padded the
-            //     WebView → the floor double-pads and produces the dead band the
-            //     user hated just as much.
-            // So it is built from three rules:
-            //   1. Measure with BOTH innerHeight (integer, rounds against
-            //      screen.height — 914 vs 915 measured on WebView 145 at 2.625x)
-            //      and visualViewport.offsetTop+height (sub-pixel float, off by
-            //      <1px from screen.height when full-bleed), and take the max.
-            //      Pinch zoom can only shrink the visualViewport term, never
-            //      grow it past innerHeight, so the max is zoom-proof. The 12px
-            //      window on top absorbs any remaining rounding while staying
-            //      unambiguous: a platform-padded WebView is short by a whole
-            //      status bar, 24dp at the absolute minimum — no device rounds
-            //      that far.
-            //   2. Only re-decide while the keyboard is closed (--kb is pushed
-            //      by this same bridge). An open IME legitimately shrinks the
-            //      viewport, which the old check misread as "padded" and dropped
-            //      the floor mid-typing; an IME resize says nothing about who
-            //      owns the top edge, so the last keyboard-closed decision is
-            //      carried through instead.
-            //   3. The decision is remembered on window.__saFull and refreshed
-            //      on every resize and native push with the keyboard closed —
-            //      so a platform that starts padding the WebView mid-session
-            //      (the Capacitor runtime flip this file's header describes)
-            //      still turns the floor off on the resize it causes: this
-            //      stays a floor, never a latch stuck high.
-            "if(!window.__saFloor){window.__saFloor=function(){" +
-            "var st=document.documentElement.style;" +
-            "if(!(parseFloat(st.getPropertyValue('--kb'))>0)){" +
-            "var vv=window.visualViewport;" +
-            "var pb=vv?vv.offsetTop+vv.height:0;" +
-            "window.__saFull=Math.max(window.innerHeight,pb)>=window.screen.height-12;" +
-            "}" +
-            "st.setProperty('--sa-floor-top'," +
-            "window.__saFull?(st.getPropertyValue('--sa-bars-top')||'0px'):'0px');" +
-            "};addEventListener('resize',window.__saFloor);" +
-            "if(window.visualViewport)visualViewport.addEventListener('resize',window.__saFloor);}" +
-            "window.__saFloor();" +
+            // So on Android the top inset is floored at the status bar's raw
+            // height, always. No full-bleed detection, no verdict to get wrong.
+            // The double-pad this used to guard against required Capacitor to
+            // inset the WebView — and since insetsHandling:"disable" (v0.47)
+            // Capacitor never does; we own the insets outright, verified
+            // full-bleed on WebView 124 and 145. If some future platform pads
+            // anyway, the cost is a visible dead band — annoying, fixable, and
+            // strictly better than an unusable bar under the clock, which is
+            // the direction that has actually been failing for two weeks.
+            "document.documentElement.style.setProperty('--sa-floor-top'," +
+            "document.documentElement.style.getPropertyValue('--sa-bars-top')||'0px');" +
             "})(document.documentElement.style)";
         // onGlobalLayout fires on every frame of a scroll; only cross the bridge
         // when something actually moved.
