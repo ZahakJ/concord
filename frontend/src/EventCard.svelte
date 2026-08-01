@@ -100,6 +100,71 @@
     }
   }
 
+  // ---- guest access ----
+  // Only the account that opened the event to guests can revoke: the room and
+  // its tokens live on that member's node — the same rule the backend enforces
+  // on receive, mirrored here so the button only appears where it works.
+  const isGuestHost = $derived(!!ev.guestUrl && ev.guestHost === S.identity.fingerprint);
+  // Guests are for real guilds — a meeting is already a guest room, and events
+  // only surface in guilds anyway. Gate like the backend does.
+  const canInviteGuests = $derived(canEdit && !ev.guestUrl && !past && g?.kind !== "meeting");
+
+  function inviteGuests(e) {
+    // The door choice happens at mint time: knock (default, safe to forward
+    // the link anywhere) or walk-in for an openly shared event.
+    openContextMenu(
+      e,
+      [
+        { label: "Guests knock, you admit", icon: "door", onClick: () => openGuests(false) },
+        { label: "Open door — guests walk in", icon: "link", onClick: () => openGuests(true) },
+      ],
+      { title: "Invite guests" },
+    );
+  }
+
+  async function openGuests(autoAdmit) {
+    try {
+      const updated = await api.openEventGuests(ev.guildId, ev.id, autoAdmit);
+      ev.guestUrl = updated.guestUrl;
+      ev.guestHost = updated.guestHost;
+      await copyGuestLink();
+      loadEvents(ev.guildId);
+    } catch (err) {
+      flash(err);
+    }
+  }
+
+  async function copyGuestLink() {
+    try {
+      await navigator.clipboard?.writeText(ev.guestUrl);
+      flash("Guest link copied — anyone with it can join from a browser", "success");
+    } catch {
+      flash("Couldn't copy — long-press the link to copy it", "info");
+    }
+  }
+
+  // Two-tap revoke, same in-place arming as delete below.
+  let revokeArmed = $state(false);
+  let revokeT;
+  async function revokeGuests() {
+    if (!revokeArmed) {
+      revokeArmed = true;
+      revokeT = setTimeout(() => (revokeArmed = false), 2600);
+      return;
+    }
+    clearTimeout(revokeT);
+    revokeArmed = false;
+    try {
+      const updated = await api.revokeEventGuests(ev.guildId, ev.id);
+      ev.guestUrl = updated.guestUrl || "";
+      ev.guestHost = updated.guestHost || "";
+      flash("Guest link revoked — the room is gone", "success");
+      loadEvents(ev.guildId);
+    } catch (err) {
+      flash(err);
+    }
+  }
+
   // Two-tap delete: the trash arms, then confirms in place. A ConfirmDialog
   // would replace S.modal — i.e. close the calendar the user is standing in.
   let armed = $state(false);
@@ -163,6 +228,11 @@
       <!-- One flex unit, so a narrow card wraps the whole tool cluster to the
            next line instead of orphaning the last icon on a row of its own. -->
       <span class="actrow">
+        {#if canInviteGuests}
+          <button class="act" title="Invite guests (shareable link)" aria-label="Invite guests" onclick={inviteGuests}>
+            <Icon name="link" size={14} />
+          </button>
+        {/if}
         {#if !past}
           <button class="act" title="Remind me" aria-label="Remind me about this event" onclick={remind}>
             <Icon name="bell" size={14} />
@@ -190,6 +260,26 @@
         {/if}
       </span>
     </div>
+    {#if ev.guestUrl}
+      <!-- Every member sees the link and can copy it; only the host revokes. -->
+      <div class="guests" class:dim={past}>
+        <span class="gtag"><Icon name="link" size={11} /> Guests can join</span>
+        <button class="gcopy" title={ev.guestUrl} aria-label="Copy the guest link" onclick={copyGuestLink}>
+          <Icon name="copy" size={12} /> Copy link
+        </button>
+        {#if isGuestHost && canEdit}
+          <button
+            class="grevoke"
+            class:armed={revokeArmed}
+            title={revokeArmed ? "Tap again — the link dies and the room is deleted" : "Revoke the guest link"}
+            aria-label={revokeArmed ? "Tap again to revoke for everyone" : "Revoke the guest link"}
+            onclick={revokeGuests}
+          >
+            <Icon name="close" size={10} /> {revokeArmed ? "Sure?" : "Revoke"}
+          </button>
+        {/if}
+      </div>
+    {/if}
     {#if buckets.going.length || buckets.maybe.length || buckets.no.length}
       <div class="who muted">
         {#if buckets.going.length}<span><Icon name="check" size={10} /> {names(buckets.going)}</span>{/if}
@@ -437,6 +527,49 @@
     font-size: var(--fs-tiny);
     font-weight: 700;
   }
+  .guests {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .guests.dim {
+    opacity: 0.6;
+  }
+  .gtag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--ok-soft);
+    color: var(--ok-text);
+    font-size: var(--fs-tiny);
+    font-weight: 700;
+  }
+  .gcopy,
+  .grevoke {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+  }
+  .gcopy:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .grevoke:hover,
+  .grevoke.armed {
+    background: var(--danger-soft);
+    border-color: var(--danger);
+    color: var(--danger-text);
+  }
   .who {
     display: flex;
     flex-wrap: wrap;
@@ -459,6 +592,11 @@
       min-width: 40px;
       min-height: 40px;
       justify-content: center;
+    }
+    .gcopy,
+    .grevoke {
+      min-height: 36px;
+      padding: 4px 12px;
     }
   }
 </style>

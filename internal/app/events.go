@@ -29,6 +29,11 @@ const (
 	// Live event_rsvp frames add one authenticated member at a time, but a
 	// doctored history-sync snapshot could ship a map with a million entries.
 	maxEventRSVPs = 1024
+	// Guest-link fields (see eventguest.go). A minted link is base + peer id +
+	// token (~150 chars today); the caps leave headroom without letting a
+	// record ship a paragraph where a URL belongs.
+	maxEventGuestURLRunes  = 300
+	maxEventGuestHostRunes = 128
 )
 
 // validEventID bounds an event id to the same charset as other shared ids —
@@ -80,6 +85,25 @@ func validEvent(ev domain.Event) error {
 	}
 	if len(ev.RSVPs) > maxEventRSVPs {
 		return fmt.Errorf("app: too many RSVPs")
+	}
+	// Guest fields come as a pair or not at all: a URL with no accountable
+	// host (or a host claim with no link) is a record nobody could revoke.
+	if (ev.GuestURL == "") != (ev.GuestHost == "") {
+		return fmt.Errorf("app: a guest link and its host go together")
+	}
+	if ev.GuestURL != "" {
+		// The URL renders on every member's card and in ICS export; bound it like
+		// any other single-line text and insist it at least looks like a link.
+		if !validEventText(ev.GuestURL, maxEventGuestURLRunes, false) ||
+			(!strings.HasPrefix(ev.GuestURL, "https://") && !strings.HasPrefix(ev.GuestURL, "http://")) {
+			return fmt.Errorf("app: bad guest link")
+		}
+		// GuestHost is an account fingerprint — base32 blocks separated by
+		// spaces — so the single-line text screen (no control characters,
+		// bounded runes) is the right shape check.
+		if !validEventText(ev.GuestHost, maxEventGuestHostRunes, false) {
+			return fmt.Errorf("app: bad guest host")
+		}
 	}
 	return nil
 }
@@ -202,6 +226,10 @@ func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix
 	if err := s.store.SaveEvent(ev); err != nil {
 		return domain.Event{}, err
 	}
+	// GuestURL/GuestHost rode through untouched (ev started as a copy of
+	// existing): the link stays stable across edits. If this node hosts the
+	// room, its lifetime follows the new times.
+	s.syncEventGuestExpiry(ev)
 	s.emitGuildUpdate()
 	s.publishEvent(groupID, ev)
 	return ev, nil
@@ -227,6 +255,9 @@ func (s *Service) DeleteEvent(guildID, eventID string) error {
 	if err := s.store.DeleteEvent(guildID, eventID); err != nil {
 		return err
 	}
+	// A deleted event takes its guest room down with it (when this node hosts
+	// one) — a link into a party that no longer exists is a trap.
+	s.teardownEventGuestRoom(eventID)
 	s.emitGuildUpdate()
 	s.publishMeta(groupID, guildMeta{Type: "event_removed", EventID: eventID})
 	return nil
@@ -334,12 +365,27 @@ func (s *Service) applyEventUpsert(guildID, actor string, ev domain.Event) {
 		// answers travel their own event_rsvp frames, so an edit must not
 		// wipe (or invent) them.
 		ev.CreatedBy, ev.CreatedAt, ev.RSVPs = existing.CreatedBy, existing.CreatedAt, existing.RSVPs
+		// Guest access belongs to the account whose node hosts the room. Anyone
+		// else's edit carries the fields through UNCHANGED — so a moderator
+		// editing from a stale copy cannot kill a live link, and a forged frame
+		// cannot re-point guests at an attacker's room or claim someone else
+		// hosts one. GuestHost's own frames (their linked devices included) may
+		// set, move or clear freely — their node is where the room lives.
+		if actor != existing.GuestHost && existing.GuestHost != "" {
+			ev.GuestURL, ev.GuestHost = existing.GuestURL, existing.GuestHost
+		}
+		if ev.GuestHost != "" && ev.GuestHost != actor && existing.GuestHost == "" {
+			ev.GuestURL, ev.GuestHost = "", "" // nobody opens guests in someone else's name
+		}
 	} else {
 		if have, err := s.store.Events(guildID); err == nil && len(have) >= maxGuildEvents {
 			return
 		}
 		ev.CreatedBy = actor // authorship is authenticated, not asserted
 		ev.RSVPs = nil       // nobody arrives pre-RSVP'd on the author's say-so
+		if ev.GuestHost != actor {
+			ev.GuestURL, ev.GuestHost = "", "" // same rule on a fresh record
+		}
 		if ev.CreatedAt <= 0 {
 			ev.CreatedAt = time.Now().Unix()
 		}
@@ -347,6 +393,14 @@ func (s *Service) applyEventUpsert(guildID, actor string, ev domain.Event) {
 	if s.store.SaveEvent(ev) != nil {
 		return
 	}
+	// This node may host the event's guest room while another member (or our
+	// own linked device) edits it: follow the applied times, and honour a
+	// clear our other device published by tearing the room down here — the
+	// only place it physically exists.
+	if found && existing.GuestURL != "" && ev.GuestURL == "" {
+		s.teardownEventGuestRoom(ev.ID)
+	}
+	s.syncEventGuestExpiry(ev)
 	s.emitGuildUpdate()
 }
 
@@ -365,6 +419,9 @@ func (s *Service) applyEventRemove(guildID, actor, eventID string) {
 	if s.store.DeleteEvent(guildID, eventID) != nil {
 		return
 	}
+	// A moderator elsewhere deleted the event; if the guest room lives HERE,
+	// this is the only node that can actually close the door — do it.
+	s.teardownEventGuestRoom(eventID)
 	s.emitGuildUpdate()
 }
 
@@ -400,6 +457,15 @@ func (s *Service) applySyncedEvent(guildID string, ev domain.Event) {
 			return
 		}
 		ev.CreatedBy, ev.CreatedAt = existing.CreatedBy, existing.CreatedAt
+		// Same guest-field conservatism as the live lane, minus the actor (a
+		// sync responder attests nothing): once a host is on record, a synced
+		// copy can neither clear the link nor re-point it. A stale card is the
+		// worst outcome — a revoked link's room is already gone, so the link
+		// fails honestly — whereas adopting a doctored snapshot's URL would
+		// aim guests at an attacker's room.
+		if existing.GuestHost != "" {
+			ev.GuestURL, ev.GuestHost = existing.GuestURL, existing.GuestHost
+		}
 		merged := existing.RSVPs
 		if merged == nil {
 			merged = map[string]string{}

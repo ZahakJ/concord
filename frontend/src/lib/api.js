@@ -181,6 +181,13 @@ export const api = {
   rsvpEvent: (guildID, eventID, state) => call("RSVPEvent", guildID, eventID, state),
   eventICS: (guildID, eventID) => call("EventICS", guildID, eventID),
   eventsICS: (guildID) => call("EventsICS", guildID),
+  // Guest access on an event: openEventGuests mints (or returns — the URL is
+  // stable) a disposable meeting room and its browser-guest link, which lands
+  // on the event record as guestUrl/guestHost. autoAdmit false = guests knock.
+  // Revoke works only on the account that opened it (the room lives there).
+  openEventGuests: (guildID, eventID, autoAdmit = false) =>
+    call("OpenEventGuests", guildID, eventID, autoAdmit),
+  revokeEventGuests: (guildID, eventID) => call("RevokeEventGuests", guildID, eventID),
   // Public booking page (Settings → Bookings). cfg is { enabled, blurb,
   // slotMinutes, horizonDays, windows: [{weekday, startMin, endMin}] } —
   // weekday 0 = Sunday, minutes counted from local midnight. The token/URL is
