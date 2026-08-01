@@ -76,6 +76,14 @@ type helloFrame struct {
 	// ownDevice), because an invite code grants entry to the guild. That is the
 	// same trust level the link flow already applies to the same codes.
 	GuildInvites []string `json:"guildInvites,omitempty"`
+	// Profile is this account's stored profile with its edit stamp, offered —
+	// like GuildInvites — ONLY to a proven device of OUR OWN account. It is how
+	// a name/status/avatar edit made on one device reaches the others: live
+	// (the editing device re-greets its siblings) and on reconnect (every fresh
+	// connection between two devices exchanges hellos). The receive side adopts
+	// it only from a proven own device, and only when strictly newer than what
+	// it has (see adoptOfferedProfile), so replays and stale copies are inert.
+	Profile *Profile `json:"profile,omitempty"`
 }
 
 // helloTimeout bounds one exchange. A hello is an optimization, not a step in
@@ -145,6 +153,7 @@ func (s *Service) greet(p peer.ID) {
 		Name:         s.deviceLabel(),
 		AppVersion:   version.Version,
 		GuildInvites: s.guildInvitesFor(p),
+		Profile:      s.profileForDevice(p),
 	})
 	if err != nil {
 		return
@@ -220,6 +229,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	// requester learned nothing about us until this frame, so its own offer may
 	// have been empty; this is what makes the sync symmetric.
 	out.GuildInvites = s.guildInvitesFor(from)
+	out.Profile = s.profileForDevice(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
 		out.AppVersion = version.Version
@@ -247,6 +257,34 @@ func (s *Service) guildInvitesFor(p peer.ID) []string {
 	}
 	codes, _ := s.linkGuildInvites()
 	return codes
+}
+
+// profileForDevice returns our stored profile to offer a peer, or nil for
+// anyone who has not proven itself a device of THIS account. The guard is not
+// secrecy (guild members see the profile anyway) — it is scope: strangers and
+// friends have no business receiving the account's raw stored state, and the
+// receive side would refuse it from us regardless.
+func (s *Service) profileForDevice(p peer.ID) *Profile {
+	if !s.ownDevice(p) {
+		return nil
+	}
+	sp := s.selfStoredProfile()
+	if sp.UpdatedAt == 0 {
+		return nil // never edited: nothing to converge on
+	}
+	return &sp
+}
+
+// adoptOfferedProfile applies a profile that rode in on a hello. The receive-
+// side gate is everything here: only a peer that PROVED itself a device of
+// this very account — its account-signed certificate verified against the key
+// the connection is authenticated to — may move this device's own profile. A
+// friend's or stranger's hello, however well-formed, is ignored outright.
+func (s *Service) adoptOfferedProfile(from peer.ID, p *Profile) {
+	if p == nil || !s.ownDevice(from) {
+		return
+	}
+	s.AdoptLinkedProfile(*p)
 }
 
 // redeemOfferedInvites joins guilds this device is not in yet. Codes are only
@@ -288,11 +326,12 @@ func (s *Service) redeemOfferedInvites(from peer.ID, codes []string) {
 	}
 }
 
-// offerGuildsToOwnDevices re-greets every connected device of this account, so a
-// guild created or joined right now reaches them immediately instead of on the
-// next reconnect. The greet claim is released first because it is per-connection
+// regreetOwnDevices re-greets every connected device of this account, so that
+// whatever the hello now carries — a guild created or joined right now, a
+// profile just edited — reaches them immediately instead of on the next
+// reconnect. The greet claim is released first because it is per-connection
 // and would otherwise swallow the second hello.
-func (s *Service) offerGuildsToOwnDevices() {
+func (s *Service) regreetOwnDevices() {
 	for _, p := range s.host.Peers() {
 		if !s.ownDevice(p) {
 			continue
@@ -309,8 +348,12 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 	}
 	// Deliberately after the credential checks below would be too late: those
 	// return early for a frame carrying no certificate, and a re-greet from a
-	// device we already know is exactly that. ownDevice is what gates it.
-	defer func() { go s.redeemOfferedInvites(from, f.GuildInvites) }()
+	// device we already know is exactly that. ownDevice is what gates both the
+	// invites and the profile.
+	defer func() {
+		go s.redeemOfferedInvites(from, f.GuildInvites)
+		go s.adoptOfferedProfile(from, f.Profile)
+	}()
 	// A revocation naming THIS device is the one thing we act on before anything
 	// else, since acting on it means we stop existing.
 	if f.Revoked != nil {

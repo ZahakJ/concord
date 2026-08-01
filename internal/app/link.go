@@ -139,11 +139,14 @@ func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byt
 	sort.Strings(verified)
 
 	resp := linkResponse{
-		IssuerNonce:   issuerNonce,
-		IssuerProof:   link.Proof(secret, link.RoleIssuer, issuerNonce),
-		AccountSeed:   s.id.Seed(),
-		Cert:          cert,
-		Profile:       s.SelfProfile(),
+		IssuerNonce: issuerNonce,
+		IssuerProof: link.Proof(secret, link.RoleIssuer, issuerNonce),
+		AccountSeed: s.id.Seed(),
+		Cert:        cert,
+		// The STORED profile, edit stamp included: the joiner adopts it with
+		// AdoptLinkedProfile, and the stamp is what keeps a later hello from
+		// this issuer from reading as an older copy (see selfStoredProfile).
+		Profile:       s.selfStoredProfile(),
 		Bootstrap:     LoadNetConfig(s.dataDir).Bootstrap,
 		GuildInvites:  invites,
 		MissingGuilds: missing,

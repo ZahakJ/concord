@@ -639,7 +639,7 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 // they are not stuck with whatever existed the moment they were linked.
 func (s *Service) offerAfter(g domain.Guild, err error) (domain.Guild, error) {
 	if err == nil {
-		go s.offerGuildsToOwnDevices()
+		go s.regreetOwnDevices()
 	}
 	return g, err
 }
@@ -907,7 +907,11 @@ func (s *Service) profileRoster() map[string]Profile {
 		out[fpr] = p
 	}
 	s.mu.RUnlock()
-	out[s.id.Fingerprint()] = s.SelfProfile()
+	// The STORED copy, not the presentation copy: the roster is how our own
+	// devices catch up over sync, and they must never adopt a now-playing
+	// substitute as a manual status. Peers lose nothing — activity is ephemeral
+	// and travels over live announces only.
+	out[s.id.Fingerprint()] = s.selfStoredProfile()
 	return out
 }
 
@@ -1352,12 +1356,13 @@ type guildMeta struct {
 	Presence    string             `json:"presence,omitempty"`
 	Bio         string             `json:"bio,omitempty"`
 	MailboxPub  []byte             `json:"mbx,omitempty"`
-	Activity    *Activity          `json:"activity,omitempty"` // structured now-playing (rich presence)
-	Games       []Game             `json:"games,omitempty"`    // profile: curated game collection
-	Color2      string             `json:"color2,omitempty"`   // profile: gradient partner color
-	Frame       string             `json:"frame,omitempty"`    // profile: avatar frame enum id
-	Effect      string             `json:"effect,omitempty"`   // profile: card effect enum id
-	Style       *Style             `json:"style,omitempty"`    // profile: fine-grained style dials
+	Activity    *Activity          `json:"activity,omitempty"`  // structured now-playing (rich presence)
+	Games       []Game             `json:"games,omitempty"`     // profile: curated game collection
+	Color2      string             `json:"color2,omitempty"`    // profile: gradient partner color
+	Frame       string             `json:"frame,omitempty"`     // profile: avatar frame enum id
+	Effect      string             `json:"effect,omitempty"`    // profile: card effect enum id
+	Style       *Style             `json:"style,omitempty"`     // profile: fine-grained style dials
+	UpdatedAt   int64              `json:"updatedAt,omitempty"` // profile: owner's edit stamp (Profile.UpdatedAt)
 	CustomEmoji domain.CustomEmoji `json:"customEmoji,omitempty"`
 	// Gif carries a guild GIF-pack record (gifs.go). Only the reference travels
 	// here — the image itself is an encrypted attachment blob, fetched out of
@@ -1409,6 +1414,28 @@ type guildMeta struct {
 	RSVP    string        `json:"rsvp,omitempty"`
 }
 
+// applyProfileMeta is the receive half of a gossiped profile announce. Its own
+// method (rather than a switch arm) so tests can drive the gate directly, the
+// way channel renames do.
+func (s *Service) applyProfileMeta(guildID, actor string, m guildMeta) {
+	// A profile only speaks for its own author. The self-reported Fingerprint
+	// must equal the MLS-authenticated sender, or a member could overwrite any
+	// other member's cached identity — and, via MailboxPub, silently redirect
+	// their offline mail. Bind it to the authenticated actor.
+	if m.Fingerprint != "" && m.Fingerprint != actor {
+		return
+	}
+	// First time we see this member: reply with our own profile so the
+	// newcomer learns us too (bounded — only on genuinely new members).
+	// Our own account's announce (a linked device speaking to peers) is a
+	// no-op here: learnProfile never binds our own fingerprint, and devices
+	// converge over the device hello, which carries the STORED profile rather
+	// than this presentation copy (see selfStoredProfile).
+	if s.learnProfile(actor, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games, Color2: m.Color2, Frame: m.Frame, Effect: m.Effect, Style: m.Style, UpdatedAt: m.UpdatedAt}) {
+		s.announceProfile(guildID)
+	}
+}
+
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
 func (s *Service) announceProfileAll() {
 	s.mu.RLock()
@@ -1441,6 +1468,7 @@ func (s *Service) announceProfile(guildID string) {
 		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
 		Activity: p.Activity, Games: p.Games,
 		Color2: p.Color2, Frame: p.Frame, Effect: p.Effect, Style: p.Style,
+		UpdatedAt: p.UpdatedAt,
 	}
 	payload, _ := json.Marshal(meta)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
@@ -2284,18 +2312,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		}
 		s.emitGuildUpdate()
 	case "profile":
-		// A profile only speaks for its own author. The self-reported Fingerprint
-		// must equal the MLS-authenticated sender, or a member could overwrite any
-		// other member's cached identity — and, via MailboxPub, silently redirect
-		// their offline mail. Bind it to the authenticated actor.
-		if m.Fingerprint != "" && m.Fingerprint != actor {
-			return
-		}
-		// First time we see this member: reply with our own profile so the
-		// newcomer learns us too (bounded — only on genuinely new members).
-		if s.learnProfile(actor, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games, Color2: m.Color2, Frame: m.Frame, Effect: m.Effect, Style: m.Style}) {
-			s.announceProfile(guildID)
-		}
+		s.applyProfileMeta(guildID, actor, m)
 	case "nickname":
 		// A per-guild nickname. Two legitimate authors: the member themselves,
 		// or a moderator with MANAGE_MEMBERS renaming someone (Discord-style).

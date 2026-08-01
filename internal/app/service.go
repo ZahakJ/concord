@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -327,6 +328,11 @@ type Profile struct {
 	// gradient angle…). One small struct so the profile broadcast gains one
 	// short JSON object, not a dozen fields.
 	Style *Style `json:"style,omitempty"`
+	// UpdatedAt is when the profile's OWNER last edited it (UnixMilli; 0 =
+	// legacy/unknown). It is what lets the account's own devices converge on
+	// the newest edit (last-writer-wins) and what stops a stale relay from
+	// rolling a profile back. Advisory metadata — never rendered.
+	UpdatedAt int64 `json:"updatedAt,omitempty"`
 }
 
 // Style is the customization dial-set behind Frame/Effect. Every value is an
@@ -873,6 +879,24 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		}
 	}
 
+	// Stamp a profile that predates edit stamps (once). Every device-to-device
+	// lane — link handover, device hello, sync roster — offers the profile with
+	// its stamp and adopts only strictly newer, so a stampless (0) profile
+	// would never travel anywhere. The RAW display_name setting, not
+	// DisplayName(): that helper falls back to a fingerprint block, which reads
+	// as "a name is set" on every install — stamping a genuinely blank device
+	// here would crown it the account's newest editor and push its blankness
+	// over every device that actually has the profile.
+	if s.profileStamp() == 0 {
+		rawName, _ := st.GetSetting("display_name")
+		if p := s.selfStoredProfile(); strings.TrimSpace(rawName) != "" || p.Status != "" ||
+			p.Emoji != "" || p.Color != "" || p.Color2 != "" || p.Avatar != "" ||
+			p.Banner != "" || p.Presence != "" || p.Bio != "" || p.Frame != "" ||
+			p.Effect != "" || len(p.Games) > 0 {
+			s.bumpProfileStamp()
+		}
+	}
+
 	// Restore per-guild nicknames so server-scoped names survive restarts.
 	if nicks, err := st.Nicknames(); err == nil {
 		s.nicks = nicks
@@ -1339,7 +1363,9 @@ func (s *Service) SetDisplayName(name string) error {
 	if err := s.store.SetSetting("display_name", strings.TrimSpace(name)); err != nil {
 		return err
 	}
+	s.bumpProfileStamp()
 	s.announceProfileAll()
+	s.regreetOwnDevices()
 	return nil
 }
 
@@ -1379,7 +1405,104 @@ func (s *Service) SelfProfile() Profile {
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:], Activity: act,
 		Games: decodeGames(rawGames), Color2: color2, Frame: frame, Effect: effect, Style: style,
+		UpdatedAt: s.profileStamp(),
 	}
+}
+
+// selfStoredProfile is the profile as STORED, for the account's own devices:
+// link handover, device hello, sync roster. It differs from SelfProfile in one
+// deliberate way — no rich-presence substitution. SelfProfile stands the 🎵
+// now-playing line in for an empty status because that's what peers should
+// SEE; writing that presentation copy into another device's settings would
+// make a passing song a permanent manual status.
+func (s *Service) selfStoredProfile() Profile {
+	p := s.SelfProfile()
+	p.Activity = nil
+	p.Status, _ = s.store.GetSetting("status_text")
+	return p
+}
+
+// profileStamp reads this account's profile edit stamp (UnixMilli, 0 = a
+// profile that predates stamps or was never edited).
+func (s *Service) profileStamp() int64 {
+	raw, _ := s.store.GetSetting("profile_updated_at")
+	if raw == "" {
+		return 0
+	}
+	at, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return at
+}
+
+// bumpProfileStamp advances the edit stamp to now, strictly past the previous
+// value — two edits inside one clock tick (or across skewed device clocks)
+// must never tie, or the second edit loses last-writer-wins.
+func (s *Service) bumpProfileStamp() int64 {
+	at := time.Now().UnixMilli()
+	if prev := s.profileStamp(); at <= prev {
+		at = prev + 1
+	}
+	_ = s.store.SetSetting("profile_updated_at", strconv.FormatInt(at, 10))
+	return at
+}
+
+// AdoptLinkedProfile applies a profile edit authored by ANOTHER device of this
+// very account (link handover, device hello, sync roster — the caller has
+// already authenticated the author as this account). Last-writer-wins on the
+// edit stamp: an older or equal copy changes nothing, which is also what stops
+// two devices greeting each other from ping-ponging the same profile forever.
+// Reports whether anything was adopted.
+func (s *Service) AdoptLinkedProfile(p Profile) bool {
+	if p.UpdatedAt <= s.profileStamp() {
+		return false
+	}
+	// Bound every field exactly as a local edit would be. The author is our own
+	// account, but a bug (or compromise) on one device must not be able to wedge
+	// every other device with an oversized or malformed field.
+	if p.Avatar != "" && !validImageDataURI(p.Avatar, maxAvatarBytes) {
+		p.Avatar = ""
+	}
+	if len(p.Banner) > maxProfileBannerBytes || !validBanner(p.Banner) {
+		p.Banner = ""
+	}
+	if len(p.Bio) > maxBioBytes {
+		p.Bio = p.Bio[:maxBioBytes]
+	}
+	sanitizeProfileExtras(&p)
+	gamesJSON := ""
+	if games := sanitizeGames(p.Games); len(games) > 0 {
+		if raw, err := json.Marshal(games); err == nil {
+			gamesJSON = string(raw)
+		}
+	}
+	for k, v := range map[string]string{
+		"display_name":  strings.TrimSpace(p.Name),
+		"status_text":   strings.TrimSpace(p.Status),
+		"avatar_emoji":  strings.TrimSpace(p.Emoji),
+		"accent_color":  strings.TrimSpace(p.Color),
+		"avatar_image":  p.Avatar,
+		"banner_image":  p.Banner,
+		"presence":      strings.TrimSpace(p.Presence),
+		"bio":           strings.TrimSpace(p.Bio),
+		"accent_color2": p.Color2,
+		"avatar_frame":  p.Frame,
+		"card_effect":   p.Effect,
+		"card_style":    encodeStyle(p.Style),
+		"games":         gamesJSON,
+	} {
+		if err := s.store.SetSetting(k, v); err != nil {
+			return false
+		}
+	}
+	// Keep the AUTHOR's stamp, not a fresh one: re-stamping would make this
+	// device look like the newest editor and reflect the same profile back.
+	_ = s.store.SetSetting("profile_updated_at", strconv.FormatInt(p.UpdatedAt, 10))
+	s.emitGuildUpdate()
+	// Our guilds' members may only be hearing from THIS device — tell them too.
+	s.announceProfileAll()
+	return true
 }
 
 // SetGames replaces this peer's game collection and re-announces the profile
@@ -1392,7 +1515,9 @@ func (s *Service) SetGames(games []Game) error {
 	if err := s.store.SetSetting("games", string(raw)); err != nil {
 		return err
 	}
+	s.bumpProfileStamp()
 	s.announceProfileAll()
+	s.regreetOwnDevices()
 	return nil
 }
 
@@ -1432,7 +1557,12 @@ func (s *Service) SetProfile(p Profile) error {
 			return err
 		}
 	}
+	s.bumpProfileStamp()
 	s.announceProfileAll()
+	// The gossip announce above reaches PEERS; our own devices adopt the raw
+	// stored profile over the device hello instead (see selfStoredProfile for
+	// why the two copies differ), so push a fresh hello at them now.
+	s.regreetOwnDevices()
 	return nil
 }
 
@@ -1504,6 +1634,15 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	// keep the previous one; likewise keep a known mailbox key.
 	s.mu.Lock()
 	prev, known := s.profiles[fingerprint]
+	// Last-writer-wins when both copies carry an edit stamp: a peer relaying a
+	// STALE copy (an old roster, a device that slept through the edit) must not
+	// roll back a newer one. Equal stamps still apply — activity/now-playing
+	// updates ride announces without bumping the stamp. A stampless legacy copy
+	// (0) keeps the old newest-arrival-wins behavior.
+	if known && p.UpdatedAt != 0 && prev.UpdatedAt != 0 && p.UpdatedAt < prev.UpdatedAt {
+		s.mu.Unlock()
+		return false
+	}
 	if known {
 		if p.Name == "" && prev.Name != "" {
 			p.Name = prev.Name
