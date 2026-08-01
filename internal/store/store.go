@@ -182,6 +182,20 @@ CREATE TABLE IF NOT EXISTS blocked (
   fingerprint TEXT PRIMARY KEY,
   created     INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS events (
+  id         TEXT PRIMARY KEY,
+  guild_id   TEXT NOT NULL,
+  title      TEXT NOT NULL,
+  details    TEXT NOT NULL DEFAULT '',
+  start_unix INTEGER NOT NULL,
+  end_unix   INTEGER NOT NULL DEFAULT 0,
+  location   TEXT NOT NULL DEFAULT '',
+  created_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL DEFAULT 0,
+  rsvps      TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_events_guild ON events(guild_id, start_unix);
 CREATE TABLE IF NOT EXISTS pending_members (
   guild_id    TEXT NOT NULL,
   fingerprint TEXT NOT NULL,
@@ -640,6 +654,96 @@ func (s *Store) DeleteCategory(guildID, categoryID string) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// SaveEvent upserts one calendar event. guild_id, created_by and created_at
+// are deliberately NOT in the update set: identity and authorship are
+// immutable, so even a caller that was lied to cannot move an event between
+// guilds or reassign its author by re-saving it. RSVPs ride the row as JSON —
+// the map is small (one short word per member) and is always read and written
+// together with its event.
+func (s *Store) SaveEvent(e domain.Event) error {
+	rsvps := ""
+	if len(e.RSVPs) > 0 {
+		b, err := json.Marshal(e.RSVPs)
+		if err != nil {
+			return fmt.Errorf("store: save event: %w", err)
+		}
+		rsvps = string(b)
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO events (id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+		   title=excluded.title, details=excluded.details,
+		   start_unix=excluded.start_unix, end_unix=excluded.end_unix,
+		   location=excluded.location, updated_at=excluded.updated_at,
+		   rsvps=excluded.rsvps`,
+		e.ID, e.GuildID, e.Title, e.Details, e.StartUnix, e.EndUnix,
+		e.Location, e.CreatedBy, e.CreatedAt, e.UpdatedAt, rsvps)
+	if err != nil {
+		return fmt.Errorf("store: save event: %w", err)
+	}
+	return nil
+}
+
+// DeleteEvent removes one event. Guild-scoped so a caller fed a foreign event
+// id cannot delete another guild's entry through this guild's lane.
+func (s *Store) DeleteEvent(guildID, id string) error {
+	_, err := s.db.Exec(`DELETE FROM events WHERE guild_id=? AND id=?`, guildID, id)
+	return err
+}
+
+func scanEvent(scan func(dest ...any) error) (domain.Event, error) {
+	var e domain.Event
+	var rsvps string
+	if err := scan(&e.ID, &e.GuildID, &e.Title, &e.Details, &e.StartUnix,
+		&e.EndUnix, &e.Location, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &rsvps); err != nil {
+		return domain.Event{}, err
+	}
+	if rsvps != "" {
+		_ = json.Unmarshal([]byte(rsvps), &e.RSVPs)
+	}
+	return e, nil
+}
+
+// EventByID fetches one event regardless of guild. Global on purpose: callers
+// compare the returned GuildID against the lane the reference arrived on, the
+// same cross-guild-hijack check channel_added performs — a lookup scoped to
+// the claimed guild would report "unknown" and let an upsert overwrite another
+// guild's row through the primary key.
+func (s *Store) EventByID(id string) (domain.Event, bool, error) {
+	row := s.db.QueryRow(
+		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps
+		 FROM events WHERE id=?`, id)
+	e, err := scanEvent(row.Scan)
+	if err == sql.ErrNoRows {
+		return domain.Event{}, false, nil
+	}
+	if err != nil {
+		return domain.Event{}, false, err
+	}
+	return e, true, nil
+}
+
+// Events returns a guild's calendar ordered by start time.
+func (s *Store) Events(guildID string) ([]domain.Event, error) {
+	rows, err := s.db.Query(
+		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps
+		 FROM events WHERE guild_id=? ORDER BY start_unix ASC, created_at ASC, id ASC`, guildID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Event
+	for rows.Next() {
+		e, err := scanEvent(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
 }
 
 // CustomEmojiRow is one guild custom emoji.

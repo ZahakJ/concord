@@ -172,6 +172,40 @@ type Contact struct {
 	FirstSeen   time.Time `json:"firstSeen"`
 }
 
+// An Event is one entry in a guild's shared calendar: a title, a time, a
+// place. Shared state like a channel — created by a member, propagated
+// MLS-encrypted over the guild-meta lane, gated on receive exactly as
+// locally, and converged to fresh joiners through the history-sync snapshot.
+// Recurrence is deliberately absent in v1: one event is one record, and the
+// ICS export states that explicitly rather than leaving importers to guess
+// whether a missing RRULE was intent or a bug.
+type Event struct {
+	ID      string `json:"id"`
+	GuildID string `json:"guildId"`
+	Title   string `json:"title"`
+	Details string `json:"details,omitempty"`
+	// StartUnix/EndUnix are UTC Unix seconds. EndUnix zero means "no stated
+	// end": the ICS exporter then omits DTEND, which RFC 5545 defines as a
+	// point-in-time event, not a day-long block.
+	StartUnix int64 `json:"startUnix"`
+	EndUnix   int64 `json:"endUnix,omitempty"`
+	// Location is free text — a room, an address, or the name of a channel in
+	// this guild. Never a vendor link; nothing here is fetched.
+	Location string `json:"location,omitempty"`
+	// CreatedBy is the author's account fingerprint — the same identity string
+	// every permission check runs on. On receive it is bound to the
+	// MLS-authenticated sender, never adopted from the payload.
+	CreatedBy string `json:"createdBy"`
+	CreatedAt int64  `json:"createdAt"` // Unix seconds
+	// UpdatedAt orders competing copies of the same event during history sync
+	// (newest wins). Bumped on every edit and every RSVP change.
+	UpdatedAt int64 `json:"updatedAt,omitempty"`
+	// RSVPs maps a member fingerprint to going|maybe|no. One entry per
+	// account, set only through its own event_rsvp lane so nobody can answer
+	// on anyone else's behalf.
+	RSVPs map[string]string `json:"rsvps,omitempty"`
+}
+
 // NewID returns a random 128-bit hex identifier for guilds, channels and
 // messages. Random (not sequential) IDs avoid leaking counts or ordering.
 func NewID() string {

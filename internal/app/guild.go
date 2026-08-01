@@ -1395,6 +1395,18 @@ type guildMeta struct {
 	PostPinned *bool     `json:"ppin,omitempty"`
 	PostSolved *bool     `json:"psolved,omitempty"`
 	PostLocked *bool     `json:"plock,omitempty"`
+
+	// event_upserted carries a full calendar event — create and edit share the
+	// lane, told apart on receive by whether the id is already known (events.go
+	// gates each arm separately). event_removed and event_rsvp name their
+	// target via EventID; RSVP is the SENDER'S OWN answer (going|maybe|no, or
+	// "" to clear). Its own lane rather than a field on event_upserted, because
+	// an RSVP binds to the authenticated sender while an upsert speaks for the
+	// event's author — folding them together would let an author rewrite the
+	// attendee list with every edit.
+	Event   *domain.Event `json:"event,omitempty"`
+	EventID string        `json:"eventId,omitempty"`
+	RSVP    string        `json:"rsvp,omitempty"`
 }
 
 // announceProfileAll broadcasts this peer's display name to every guild it is in.
@@ -2181,6 +2193,19 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// ManageChannels in our copy of the roster, validate exactly as the
 		// local path does, and ignore junk rather than clearing anything.
 		s.applyChannelRename(guildID, actor, m.ChannelID, m.Name)
+	case "event_upserted":
+		// Creation is open to any member; edits re-check author-or-moderator on
+		// the receive side. All gating lives in events.go so this path and the
+		// local one share one implementation.
+		if m.Event != nil {
+			s.applyEventUpsert(guildID, actor, *m.Event)
+		}
+	case "event_removed":
+		s.applyEventRemove(guildID, actor, m.EventID)
+	case "event_rsvp":
+		// The answer binds to the MLS-authenticated actor — the payload cannot
+		// name a target, so nobody RSVPs on someone else's behalf.
+		_ = s.applyEventRSVP(guildID, actor, m.EventID, m.RSVP)
 	case "forum_banner":
 		// Same gating and the same two-shape validation as the local path — a
 		// peer's banner string reaches the same CSS context ours does.

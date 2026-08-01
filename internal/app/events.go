@@ -1,0 +1,418 @@
+package app
+
+import (
+	"fmt"
+	"strings"
+	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/zahak/concord/internal/domain"
+)
+
+// Guild calendar events: shared guild state, handled like every other kind —
+// applied locally, persisted, announced MLS-encrypted over the guild-meta
+// lane, gated on the RECEIVE side exactly as on the local side, and converged
+// to fresh joiners through the history-sync snapshot (sync.go). Nothing in
+// this file talks to any third party: "calendar interop" is the ICS file
+// format (ics.go), never a vendor.
+
+const (
+	maxEventTitleRunes    = 120
+	maxEventDetailsRunes  = 4000
+	maxEventLocationRunes = 200
+	// maxGuildEvents bounds one guild's calendar. Creating events is open to
+	// every member (unlike GIFs or emoji), so without a ceiling any single
+	// member could grow every other member's database without limit.
+	maxGuildEvents = 500
+	// maxEventRSVPs bounds the RSVP map on records arriving from outside.
+	// Live event_rsvp frames add one authenticated member at a time, but a
+	// doctored history-sync snapshot could ship a map with a million entries.
+	maxEventRSVPs = 1024
+)
+
+// validEventID bounds an event id to the same charset as other shared ids —
+// locally minted ids are domain.NewID() (32 lowercase hex) and pass. The
+// bound is not tidiness: the id is interpolated into an ICS "UID:" line,
+// where a control character would corrupt the exported calendar file.
+func validEventID(id string) bool { return validPresetID(id) }
+
+// validEventText refuses control and invisible formatting codepoints, the
+// same screen validGifText holds: Svelte escapes text so this is not an XSS
+// gate, it stops a peer shipping a title that is a screenful of newlines or
+// bidi overrides. Details may span lines; title and location may not.
+func validEventText(s string, maxRunes int, multiline bool) bool {
+	if utf8.RuneCountInString(s) > maxRunes {
+		return false
+	}
+	for _, r := range s {
+		if multiline && (r == '\n' || r == '\r') {
+			continue
+		}
+		if r < 0x20 || r == 0x7f || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Cs, r) {
+			return false
+		}
+	}
+	return true
+}
+
+// validEvent validates a record from ANY source — the local create/edit path
+// and the receive path run the same function, so the two cannot drift.
+func validEvent(ev domain.Event) error {
+	if !validEventID(ev.ID) {
+		return fmt.Errorf("app: bad event id")
+	}
+	if ev.Title == "" || ev.Title != strings.TrimSpace(ev.Title) ||
+		!validEventText(ev.Title, maxEventTitleRunes, false) {
+		return fmt.Errorf("app: an event title must be 1–%d characters of plain text", maxEventTitleRunes)
+	}
+	if !validEventText(ev.Details, maxEventDetailsRunes, true) {
+		return fmt.Errorf("app: event details must be at most %d characters", maxEventDetailsRunes)
+	}
+	if !validEventText(ev.Location, maxEventLocationRunes, false) {
+		return fmt.Errorf("app: an event location must be at most %d characters", maxEventLocationRunes)
+	}
+	if ev.StartUnix <= 0 {
+		return fmt.Errorf("app: an event needs a start time")
+	}
+	if ev.EndUnix != 0 && ev.EndUnix < ev.StartUnix {
+		return fmt.Errorf("app: an event cannot end before it starts")
+	}
+	if len(ev.RSVPs) > maxEventRSVPs {
+		return fmt.Errorf("app: too many RSVPs")
+	}
+	return nil
+}
+
+func validRSVPState(state string) bool {
+	switch state {
+	case "", "going", "maybe", "no":
+		return true
+	}
+	return false
+}
+
+// mayManageEvent reports whether actor may edit or delete an event: its
+// author may, and so may a moderator holding Manage Messages — the same two
+// arms forum-post curation uses (mayCuratePost), because a guild event is
+// member content, not guild structure.
+func (s *Service) mayManageEvent(guildID, actor string, ev domain.Event) bool {
+	if actor == "" {
+		return false
+	}
+	if actor == ev.CreatedBy {
+		return true
+	}
+	return s.memberHasPerm(guildID, actor, PermManageMessages)
+}
+
+// eventGroup resolves a guild's MLS group id, the handle publishMeta needs.
+func (s *Service) eventGroup(guildID string) ([]byte, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		return nil, false
+	}
+	return g.GroupID, true
+}
+
+// publishEvent announces an event over the guild-meta lane. The record's
+// GuildID claim is stripped first — the per-guild, MLS-encrypted topic is the
+// only authority on which guild it belongs to (same as a GIF record). RSVPs
+// are stripped too: each answer travels its own event_rsvp frame bound to its
+// authenticated sender, so an author cannot ship an event pre-filled with
+// other members' names.
+func (s *Service) publishEvent(groupID []byte, ev domain.Event) {
+	ev.GuildID = ""
+	ev.RSVPs = nil
+	s.publishMeta(groupID, guildMeta{Type: "event_upserted", Event: &ev})
+}
+
+// CreateEvent adds an event to a guild's calendar. Any member may create —
+// scheduling is participation, not administration — which is also exactly the
+// bar the receive gate holds (MLS decryption proves membership).
+func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix int64, location string) (domain.Event, error) {
+	groupID, ok := s.eventGroup(guildID)
+	if !ok {
+		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	now := time.Now().Unix()
+	ev := domain.Event{
+		ID:        domain.NewID(),
+		GuildID:   guildID,
+		Title:     strings.TrimSpace(title),
+		Details:   strings.TrimSpace(details),
+		StartUnix: startUnix,
+		EndUnix:   endUnix,
+		Location:  strings.TrimSpace(location),
+		CreatedBy: s.id.Fingerprint(),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := validEvent(ev); err != nil {
+		return domain.Event{}, err
+	}
+	if have, err := s.store.Events(guildID); err == nil && len(have) >= maxGuildEvents {
+		return domain.Event{}, fmt.Errorf("app: this guild already has %d events — remove one first", maxGuildEvents)
+	}
+	if err := s.store.SaveEvent(ev); err != nil {
+		return domain.Event{}, err
+	}
+	s.emitGuildUpdate()
+	s.publishEvent(groupID, ev)
+	return ev, nil
+}
+
+// UpdateEvent edits an event's details (author or Manage Messages). Author,
+// creation time and RSVPs are untouched: answers belong to the members who
+// gave them, and an edited time deliberately keeps them — flipping everyone
+// back to unanswered because the start moved an hour would throw away more
+// signal than it protects.
+func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix, endUnix int64, location string) (domain.Event, error) {
+	groupID, ok := s.eventGroup(guildID)
+	if !ok {
+		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	existing, found, err := s.store.EventByID(eventID)
+	if err != nil {
+		return domain.Event{}, err
+	}
+	if !found || existing.GuildID != guildID {
+		return domain.Event{}, fmt.Errorf("app: unknown event %s", eventID)
+	}
+	if !s.mayManageEvent(guildID, s.id.Fingerprint(), existing) {
+		return domain.Event{}, fmt.Errorf("app: only the event's author or a moderator can edit it")
+	}
+	ev := existing
+	ev.Title = strings.TrimSpace(title)
+	ev.Details = strings.TrimSpace(details)
+	ev.StartUnix = startUnix
+	ev.EndUnix = endUnix
+	ev.Location = strings.TrimSpace(location)
+	ev.UpdatedAt = time.Now().Unix()
+	if ev.UpdatedAt <= existing.UpdatedAt {
+		// Two edits inside one second must still order: sync convergence is
+		// newest-wins on UpdatedAt, and a tie would make the second edit lose.
+		ev.UpdatedAt = existing.UpdatedAt + 1
+	}
+	if err := validEvent(ev); err != nil {
+		return domain.Event{}, err
+	}
+	if err := s.store.SaveEvent(ev); err != nil {
+		return domain.Event{}, err
+	}
+	s.emitGuildUpdate()
+	s.publishEvent(groupID, ev)
+	return ev, nil
+}
+
+// DeleteEvent removes an event (author or Manage Messages) and announces the
+// removal.
+func (s *Service) DeleteEvent(guildID, eventID string) error {
+	groupID, ok := s.eventGroup(guildID)
+	if !ok {
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	existing, found, err := s.store.EventByID(eventID)
+	if err != nil {
+		return err
+	}
+	if !found || existing.GuildID != guildID {
+		return fmt.Errorf("app: unknown event %s", eventID)
+	}
+	if !s.mayManageEvent(guildID, s.id.Fingerprint(), existing) {
+		return fmt.Errorf("app: only the event's author or a moderator can delete it")
+	}
+	if err := s.store.DeleteEvent(guildID, eventID); err != nil {
+		return err
+	}
+	s.emitGuildUpdate()
+	s.publishMeta(groupID, guildMeta{Type: "event_removed", EventID: eventID})
+	return nil
+}
+
+// Events returns a guild's calendar, ordered by start time.
+func (s *Service) Events(guildID string) ([]domain.Event, error) {
+	return s.store.Events(guildID)
+}
+
+// RSVP records this account's answer to an event: going|maybe|no, or "" to
+// clear it. Any member; one answer per account.
+func (s *Service) RSVP(guildID, eventID, state string) error {
+	if !validRSVPState(state) {
+		return fmt.Errorf("app: an RSVP must be going, maybe, no, or empty to clear it")
+	}
+	groupID, ok := s.eventGroup(guildID)
+	if !ok {
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	if err := s.applyEventRSVP(guildID, s.id.Fingerprint(), eventID, state); err != nil {
+		return err
+	}
+	s.publishMeta(groupID, guildMeta{Type: "event_rsvp", EventID: eventID, RSVP: state})
+	return nil
+}
+
+// applyEventRSVP is the shared half of RSVP: the local call runs it with our
+// own fingerprint, receiveGuildMeta runs it with the MLS-authenticated
+// sender. The answer binds to the ACTOR — no payload field names a target —
+// so nobody can RSVP on someone else's behalf, on any peer.
+func (s *Service) applyEventRSVP(guildID, actor, eventID, state string) error {
+	if actor == "" || !validRSVPState(state) {
+		return fmt.Errorf("app: bad rsvp")
+	}
+	ev, found, err := s.store.EventByID(eventID)
+	if err != nil {
+		return err
+	}
+	if !found || ev.GuildID != guildID {
+		// An RSVP that outran its event (two gossip frames, no cross-frame
+		// ordering) is dropped here; history sync carries the full RSVP map
+		// with the event later, so nothing is permanently lost.
+		return fmt.Errorf("app: unknown event %s", eventID)
+	}
+	if state == "" {
+		if _, had := ev.RSVPs[actor]; !had {
+			return nil
+		}
+		delete(ev.RSVPs, actor)
+	} else {
+		if ev.RSVPs == nil {
+			ev.RSVPs = map[string]string{}
+		}
+		if ev.RSVPs[actor] == state {
+			return nil
+		}
+		ev.RSVPs[actor] = state
+	}
+	// Bump UpdatedAt so the answer travels with the event through the
+	// newest-wins history-sync path, not only through live gossip.
+	if now := time.Now().Unix(); now > ev.UpdatedAt {
+		ev.UpdatedAt = now
+	} else {
+		ev.UpdatedAt++
+	}
+	if err := s.store.SaveEvent(ev); err != nil {
+		return err
+	}
+	s.emitGuildUpdate()
+	return nil
+}
+
+// applyEventUpsert applies an event_upserted announcement from a peer. Any
+// member may CREATE (MLS decryption already proves membership — the same bar
+// the local path sets), but the recorded author is the authenticated sender,
+// never the payload's claim. An UPDATE must come from the event's author or a
+// moderator holding Manage Messages, re-checked HERE on the receive side —
+// a modified client must be ignorable, or the permission is decorative.
+func (s *Service) applyEventUpsert(guildID, actor string, ev domain.Event) {
+	if actor == "" {
+		return
+	}
+	// The record's own GuildID claim is discarded: the only authority on which
+	// guild an event belongs to is the MLS-encrypted topic it arrived on.
+	ev.GuildID = guildID
+	if validEvent(ev) != nil {
+		return
+	}
+	existing, found, err := s.store.EventByID(ev.ID)
+	if err != nil {
+		return
+	}
+	if found {
+		// Refuse an id that already belongs to another guild — the events
+		// table is keyed by id alone, so without this a member of one guild
+		// could rewrite another guild's event through the shared primary key.
+		if existing.GuildID != guildID {
+			return
+		}
+		if !s.mayManageEvent(guildID, actor, existing) {
+			return
+		}
+		// Author, creation time and RSVPs are immutable through this lane:
+		// answers travel their own event_rsvp frames, so an edit must not
+		// wipe (or invent) them.
+		ev.CreatedBy, ev.CreatedAt, ev.RSVPs = existing.CreatedBy, existing.CreatedAt, existing.RSVPs
+	} else {
+		if have, err := s.store.Events(guildID); err == nil && len(have) >= maxGuildEvents {
+			return
+		}
+		ev.CreatedBy = actor // authorship is authenticated, not asserted
+		ev.RSVPs = nil       // nobody arrives pre-RSVP'd on the author's say-so
+		if ev.CreatedAt <= 0 {
+			ev.CreatedAt = time.Now().Unix()
+		}
+	}
+	if s.store.SaveEvent(ev) != nil {
+		return
+	}
+	s.emitGuildUpdate()
+}
+
+// applyEventRemove is the receive half of DeleteEvent, mirroring its checks.
+func (s *Service) applyEventRemove(guildID, actor, eventID string) {
+	if eventID == "" || actor == "" {
+		return
+	}
+	existing, found, err := s.store.EventByID(eventID)
+	if err != nil || !found || existing.GuildID != guildID {
+		return
+	}
+	if !s.mayManageEvent(guildID, actor, existing) {
+		return
+	}
+	if s.store.DeleteEvent(guildID, eventID) != nil {
+		return
+	}
+	s.emitGuildUpdate()
+}
+
+// applySyncedEvent folds one event served by a history-sync responder into
+// local state. Same trust boundary as the GIF and emoji records beside it in
+// applySyncPayload: catch-up is attested by whichever member answered, not by
+// the event's author, so authorship cannot be re-verified here — the record
+// rides the same responder trust messages do (see the note above the gif loop
+// in applySyncPayload for what closing that fully would take). Adoption is
+// newest-wins by UpdatedAt with RSVPs merged (theirs overlaid on ours), so
+// answers given while the two sides were apart both survive; the cost is that
+// a CLEARED answer can be resurrected by a peer that never saw the clear,
+// which the next live event_rsvp frame corrects.
+func (s *Service) applySyncedEvent(guildID string, ev domain.Event) {
+	ev.GuildID = guildID
+	for fpr, st := range ev.RSVPs {
+		if fpr == "" || st == "" || !validRSVPState(st) {
+			delete(ev.RSVPs, fpr)
+		}
+	}
+	if validEvent(ev) != nil {
+		return
+	}
+	existing, found, err := s.store.EventByID(ev.ID)
+	if err != nil {
+		return
+	}
+	if found {
+		if existing.GuildID != guildID {
+			return // same cross-guild-hijack refusal as applyEventUpsert
+		}
+		if ev.UpdatedAt <= existing.UpdatedAt {
+			return
+		}
+		ev.CreatedBy, ev.CreatedAt = existing.CreatedBy, existing.CreatedAt
+		merged := existing.RSVPs
+		if merged == nil {
+			merged = map[string]string{}
+		}
+		for fpr, st := range ev.RSVPs {
+			merged[fpr] = st
+		}
+		ev.RSVPs = merged
+	} else if have, err := s.store.Events(guildID); err == nil && len(have) >= maxGuildEvents {
+		return
+	}
+	if s.store.SaveEvent(ev) != nil {
+		return
+	}
+	s.emitGuildUpdate()
+}

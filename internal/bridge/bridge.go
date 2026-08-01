@@ -827,6 +827,72 @@ func (b *Bridge) SetForumBanner(guildID, forumID, banner string) error {
 	return svc.SetForumBanner(guildID, forumID, banner)
 }
 
+// CreateEvent adds a calendar event to a guild (any member). Times are UTC
+// Unix seconds; endUnix zero means "no stated end".
+func (b *Bridge) CreateEvent(guildID, title, details string, startUnix, endUnix int64, location string) (domain.Event, error) {
+	svc, err := b.service()
+	if err != nil {
+		return domain.Event{}, err
+	}
+	return svc.CreateEvent(guildID, title, details, startUnix, endUnix, location)
+}
+
+// UpdateEvent edits an event (author or ManageMessages).
+func (b *Bridge) UpdateEvent(guildID, eventID, title, details string, startUnix, endUnix int64, location string) (domain.Event, error) {
+	svc, err := b.service()
+	if err != nil {
+		return domain.Event{}, err
+	}
+	return svc.UpdateEvent(guildID, eventID, title, details, startUnix, endUnix, location)
+}
+
+// DeleteEvent removes an event (author or ManageMessages).
+func (b *Bridge) DeleteEvent(guildID, eventID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.DeleteEvent(guildID, eventID)
+}
+
+// Events returns a guild's calendar, ordered by start time.
+func (b *Bridge) Events(guildID string) ([]domain.Event, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.Events(guildID)
+}
+
+// RSVPEvent records this account's answer to an event: going|maybe|no, or ""
+// to clear it.
+func (b *Bridge) RSVPEvent(guildID, eventID, state string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.RSVP(guildID, eventID, state)
+}
+
+// EventICS exports one event as RFC 5545 text (a file for the user's own
+// calendar app — the format, not a vendor).
+func (b *Bridge) EventICS(guildID, eventID string) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.EventICS(guildID, eventID)
+}
+
+// EventsICS exports a guild's whole calendar as RFC 5545 text.
+func (b *Bridge) EventsICS(guildID string) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.EventsICS(guildID)
+}
+
 // CreateCategory adds a sidebar category to a guild.
 func (b *Bridge) CreateCategory(guildID, name string) error {
 	svc, err := b.service()
@@ -2445,6 +2511,20 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SetPostLocked(argStr(args, 0), argStr(args, 1), argBool(args, 2))
 	case "SetForumBanner":
 		return nil, b.SetForumBanner(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "CreateEvent":
+		return b.CreateEvent(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt64(args, 3), argInt64(args, 4), argStr(args, 5))
+	case "UpdateEvent":
+		return b.UpdateEvent(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt64(args, 4), argInt64(args, 5), argStr(args, 6))
+	case "DeleteEvent":
+		return nil, b.DeleteEvent(argStr(args, 0), argStr(args, 1))
+	case "Events":
+		return b.Events(argStr(args, 0))
+	case "RSVPEvent":
+		return nil, b.RSVPEvent(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "EventICS":
+		return b.EventICS(argStr(args, 0), argStr(args, 1))
+	case "EventsICS":
+		return b.EventsICS(argStr(args, 0))
 	case "CreateCategory":
 		return nil, b.CreateCategory(argStr(args, 0), argStr(args, 1))
 	case "DeleteChannel":

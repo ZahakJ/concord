@@ -83,6 +83,7 @@ type syncPayload struct {
 	Categories []domain.Category           `json:"categories,omitempty"`
 	Emoji      []domain.CustomEmoji        `json:"emoji,omitempty"`
 	Gifs       []GuildGif                  `json:"gifs,omitempty"`     // GIF-pack records (references, not bytes)
+	Events     []domain.Event              `json:"events,omitempty"`   // calendar events, RSVPs included
 	GovOps     []json.RawMessage           `json:"govOps,omitempty"`   // signed governance log (roles/bans)
 	Messages   map[string][]domain.Message `json:"messages,omitempty"` // channelID -> changed rows
 }
@@ -147,6 +148,9 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	}
 	if gifs, err := s.GuildGifs(guild.ID); err == nil {
 		payload.Gifs = gifs
+	}
+	if evs, err := s.store.Events(guild.ID); err == nil {
+		payload.Events = evs
 	}
 	payload.GovOps = s.govOpsFor(guild.ID)
 	budget := maxSyncPayload
@@ -556,6 +560,12 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 	// cover emoji at the same time.
 	for _, g := range payload.Gifs {
 		s.applyGuildGif(guildID, g)
+	}
+	// Calendar events ride the snapshot so a member who joins AFTER an event
+	// was created still converges on it — the event_upserted gossip they never
+	// received is not replayed. Trust and merge rules live in applySyncedEvent.
+	for _, ev := range payload.Events {
+		s.applySyncedEvent(guildID, ev)
 	}
 	s.ingestGovOpsRaw(guildID, payload.GovOps)
 

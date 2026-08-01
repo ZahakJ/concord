@@ -168,6 +168,19 @@ export const api = {
     call("SendSearchedGif", channelID, ref, replyTo, w, h),
   saveSearchedGif: (guildID, name, tags, ref, w = 0, h = 0) =>
     call("SaveSearchedGif", guildID, name, tags, ref, w, h),
+  // Guild calendar events. Times are UTC Unix seconds (endUnix 0 = no stated
+  // end); rsvp state is "going" | "maybe" | "no" | "" (clear your answer).
+  // The ICS calls return RFC 5545 text to hand to the user's own calendar app
+  // as a downloaded file — the format, never a vendor.
+  createEvent: (guildID, title, details, startUnix, endUnix = 0, location = "") =>
+    call("CreateEvent", guildID, title, details, startUnix, endUnix, location),
+  updateEvent: (guildID, eventID, title, details, startUnix, endUnix = 0, location = "") =>
+    call("UpdateEvent", guildID, eventID, title, details, startUnix, endUnix, location),
+  deleteEvent: (guildID, eventID) => call("DeleteEvent", guildID, eventID),
+  events: (guildID) => call("Events", guildID),
+  rsvpEvent: (guildID, eventID, state) => call("RSVPEvent", guildID, eventID, state),
+  eventICS: (guildID, eventID) => call("EventICS", guildID, eventID),
+  eventsICS: (guildID) => call("EventsICS", guildID),
   setChannelMeta: (guildID, channelID, type, category, position, topic = "") =>
     call("SetChannelMeta", guildID, channelID, type, category, position, topic),
   renameChannel: (guildID, channelID, name) => call("RenameChannel", guildID, channelID, name),
