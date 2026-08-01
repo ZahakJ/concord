@@ -60,6 +60,10 @@ type ownDevice struct {
 	Cert     *identity.DeviceCert `json:"cert,omitempty"`
 	LinkedAt int64                `json:"linked,omitempty"`
 	LastSeen int64                `json:"seen,omitempty"`
+	// AppVersion is the last version this device reported in a hello. Purely
+	// diagnostic — it is what lets "the fix shipped" be distinguished from "the
+	// fix is installed" without physical access to the device.
+	AppVersion string `json:"appVersion,omitempty"`
 	// Revoked is when this device was unlinked, 0 if it wasn't. A revoked device
 	// stays in the registry rather than being deleted: forgetting it would make
 	// it a stranger again the next time it connects, which is precisely when we
@@ -125,7 +129,7 @@ func (s *Service) saveDeviceRegistry(recs []ownDevice) {
 // the phone itself presents. Writing it down the first time the phone says hello
 // means the recognition survives every restart afterwards, with no roster and no
 // network involved.
-func (s *Service) noteOwnDevice(cert *identity.DeviceCert, name string, seen bool) {
+func (s *Service) noteOwnDevice(cert *identity.DeviceCert, name, appVersion string, seen bool) {
 	if cert == nil || !cert.Verify() || !ed25519Equal(cert.AccountPub, s.id.PublicKey()) {
 		return
 	}
@@ -144,6 +148,9 @@ func (s *Service) noteOwnDevice(cert *identity.DeviceCert, name string, seen boo
 		}
 		if name != "" && recs[i].Name != name {
 			recs[i].Name, changed = name, true
+		}
+		if appVersion != "" && recs[i].AppVersion != appVersion {
+			recs[i].AppVersion, changed = appVersion, true
 		}
 		// Last-seen is written at most once a minute: a heartbeat that rewrote a
 		// settings row on every hello would be a database write per connection.
@@ -187,7 +194,7 @@ func (s *Service) ownDeviceCerts() []*identity.DeviceCert {
 // list with the one device you are definitely holding missing from it.
 func (s *Service) loadOwnDevices() {
 	if cert, ok := identity.ParseDeviceCert(s.myCredential); ok {
-		s.noteOwnDevice(cert, cert.DeviceName, true)
+		s.noteOwnDevice(cert, cert.DeviceName, "", true)
 	}
 	for _, c := range s.ownDeviceCerts() {
 		s.learnDeviceCert(c.Marshal())
@@ -374,6 +381,9 @@ type LinkedDeviceView struct {
 	Relayed   bool   `json:"relayed,omitempty"`
 	Direction string `json:"direction,omitempty"` // inbound | outbound
 	RTTms     int64  `json:"rttMs,omitempty"`
+	// AppVersion the device last reported. Empty for a device that has not said
+	// hello since this field existed — which is itself the diagnostic.
+	AppVersion string `json:"appVersion,omitempty"`
 }
 
 // LinkedDevices reports every device signed in to this account, connected or
@@ -393,6 +403,7 @@ func (s *Service) LinkedDevices() []LinkedDeviceView {
 		}
 		v := LinkedDeviceView{
 			Key: hex.EncodeToString(pub), PeerID: id.String(), Name: rec.Name,
+			AppVersion: rec.AppVersion,
 			ThisOne: id == self, LinkedAt: rec.LinkedAt, LastSeen: rec.LastSeen,
 			Revoked: rec.Revoked,
 		}

@@ -239,6 +239,10 @@
           <div class="peer dev" class:gone={!d.online} class:revoked={d.revokedAt}>
             <span class="pdot" class:relay={d.relayed} class:off={!d.online} class:infra={d.revokedAt}></span>
             <span class="pname">{d.name || "Linked device"}</span>
+            <!-- What the device RUNS, not just whether it is here. A fix
+                 "shipped to the phone" three times while the phone quietly ran
+                 an old build; this is the field that would have said so. -->
+            {#if d.appVersion}<span class="pver">{d.appVersion}</span>{/if}
             {#if d.thisOne}
               <span class="pdev">this one</span>
             {:else if d.revokedAt}
@@ -595,6 +599,15 @@
     color: var(--text);
   }
   /* "2 devices" — quiet, next to the name it belongs to. */
+  .pver {
+    flex-shrink: 0;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text-muted);
+    font-size: var(--fs-micro);
+    font-variant-numeric: tabular-nums;
+  }
   .pdev {
     flex: none;
     font-size: var(--fs-tiny);

@@ -10,6 +10,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/zahak/concord/internal/identity"
+	"github.com/zahak/concord/internal/version"
 )
 
 // The app half of /concord/hello (see net/hello.go for the wire and for why the
@@ -52,6 +53,11 @@ type helloFrame struct {
 	// Name is a device label, shown only in the owning account's own device
 	// diagnostics. Cosmetic; never trusted for anything.
 	Name string `json:"name,omitempty"`
+	// AppVersion is what this device is RUNNING, for the same diagnostics panel.
+	// It exists because a fix "shipped to the phone" three times while nothing
+	// proved the phone was running any of them — sideloaded Android builds do
+	// not self-update, and there was no way to see that from the other device.
+	AppVersion string `json:"appVersion,omitempty"`
 	// Revoked, when present, tells the peer that the device it just introduced
 	// has been unlinked from this account. Only ever sent to a device of OUR
 	// account, and only carrying a revocation OUR account key signed — see
@@ -137,6 +143,7 @@ func (s *Service) greet(p peer.ID) {
 	req, err := json.Marshal(helloFrame{
 		Credential:   s.myCredential,
 		Name:         s.deviceLabel(),
+		AppVersion:   version.Version,
 		GuildInvites: s.guildInvitesFor(p),
 	})
 	if err != nil {
@@ -215,6 +222,7 @@ func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]by
 	out.GuildInvites = s.guildInvitesFor(from)
 	if out.Revoked == nil && s.canPlace(from) {
 		out.Credential, out.Name = s.myCredential, s.deviceLabel()
+		out.AppVersion = version.Version
 	}
 	return json.Marshal(out)
 }
@@ -332,7 +340,7 @@ func (s *Service) ingestHello(from peer.ID, raw []byte) {
 		// If it's one of OURS, write it down — so this recognition survives
 		// restarts even when the device's leaf is in no roster we can read.
 		// noteOwnDevice ignores anything signed by another account.
-		s.noteOwnDevice(cert, f.Name, true)
+		s.noteOwnDevice(cert, f.Name, f.AppVersion, true)
 	}
 	if after := s.presence(from).Fingerprint; after != before {
 		s.peerResolved(from)

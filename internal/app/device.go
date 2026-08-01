@@ -93,7 +93,7 @@ func (s *Service) rememberOwnDevice(cert *identity.DeviceCert) {
 		return
 	}
 	s.learnDeviceCert(cert.Marshal())
-	s.noteOwnDevice(cert, cert.DeviceName, false)
+	s.noteOwnDevice(cert, cert.DeviceName, "", false)
 }
 
 // mailboxKeyOf returns the key a member's mailbox tag is derived from — the key
