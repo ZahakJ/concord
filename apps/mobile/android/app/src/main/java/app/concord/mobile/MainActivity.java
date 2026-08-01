@@ -149,9 +149,11 @@ public class MainActivity extends BridgeActivity {
     //     did NOT already do;
     //   - the pushed script also publishes the RAW bar height (--sa-bars-top)
     //     and installs a tiny page-side floor: whenever the page can see that
-    //     its viewport spans the whole screen (innerHeight >= screen.height) it
-    //     floors the top inset at the raw bar height, so a native measurement
-    //     gone wrong can never silently produce an unpadded status bar again.
+    //     its viewport spans the whole screen (via innerHeight AND
+    //     visualViewport, remembered across keyboard resizes — see the floor
+    //     comment in pushInsets) it floors the top inset at the raw bar height,
+    //     so a native measurement gone wrong can never silently produce an
+    //     unpadded status bar again.
 
     private String lastPushed = "";
 
@@ -273,26 +275,49 @@ public class MainActivity extends BridgeActivity {
             // if the native geometry above ever lies. Reinstalling it here (and
             // only here) means a page reload — which wipes both the inline
             // styles and window.__saFloor — heals on the markWebReady re-push.
-            "if(!window.__saFloor){window.__saFloor=function(){" +
-            // The tolerance absorbs ROUNDING, and it has to be generous enough
-            // for any device, not just the one it was measured on. innerHeight
-            // and screen.height are each rounded from the same physical size
-            // through devicePixelRatio independently — 914 vs 915 was measured on
-            // WebView 145 at 2.625x, and a phone at a different density can
-            // disagree by more. A 2px window was fitted to one emulator; on a
-            // device that rounds further apart the check silently fails, the
-            // floor never engages, and if the native measurement is also 0 the
-            // top bar ends up under the clock with nothing to catch it — which is
-            // exactly the report this floor exists to prevent.
             //
-            // 12px is still unambiguous: a WebView the platform has padded is
-            // short by an entire status bar, which is 24dp at the absolute
-            // minimum and usually far more. There is no device where a 12px
-            // disagreement means "padded".
-            "var fb=window.innerHeight>=window.screen.height-12;" +
-            "document.documentElement.style.setProperty('--sa-floor-top'," +
-            "fb?(document.documentElement.style.getPropertyValue('--sa-bars-top')||'0px'):'0px');" +
-            "};addEventListener('resize',window.__saFloor);}" +
+            // The full-bleed decision is the load-bearing part, and it fails in
+            // two directions that hurt differently:
+            //   - decide "padded" when the page is really full-bleed → the floor
+            //     never engages, and if the native top is also 0 the app's bar
+            //     renders under the clock (the exact bug report this exists for);
+            //   - decide "full-bleed" when the platform really padded the
+            //     WebView → the floor double-pads and produces the dead band the
+            //     user hated just as much.
+            // So it is built from three rules:
+            //   1. Measure with BOTH innerHeight (integer, rounds against
+            //      screen.height — 914 vs 915 measured on WebView 145 at 2.625x)
+            //      and visualViewport.offsetTop+height (sub-pixel float, off by
+            //      <1px from screen.height when full-bleed), and take the max.
+            //      Pinch zoom can only shrink the visualViewport term, never
+            //      grow it past innerHeight, so the max is zoom-proof. The 12px
+            //      window on top absorbs any remaining rounding while staying
+            //      unambiguous: a platform-padded WebView is short by a whole
+            //      status bar, 24dp at the absolute minimum — no device rounds
+            //      that far.
+            //   2. Only re-decide while the keyboard is closed (--kb is pushed
+            //      by this same bridge). An open IME legitimately shrinks the
+            //      viewport, which the old check misread as "padded" and dropped
+            //      the floor mid-typing; an IME resize says nothing about who
+            //      owns the top edge, so the last keyboard-closed decision is
+            //      carried through instead.
+            //   3. The decision is remembered on window.__saFull and refreshed
+            //      on every resize and native push with the keyboard closed —
+            //      so a platform that starts padding the WebView mid-session
+            //      (the Capacitor runtime flip this file's header describes)
+            //      still turns the floor off on the resize it causes: this
+            //      stays a floor, never a latch stuck high.
+            "if(!window.__saFloor){window.__saFloor=function(){" +
+            "var st=document.documentElement.style;" +
+            "if(!(parseFloat(st.getPropertyValue('--kb'))>0)){" +
+            "var vv=window.visualViewport;" +
+            "var pb=vv?vv.offsetTop+vv.height:0;" +
+            "window.__saFull=Math.max(window.innerHeight,pb)>=window.screen.height-12;" +
+            "}" +
+            "st.setProperty('--sa-floor-top'," +
+            "window.__saFull?(st.getPropertyValue('--sa-bars-top')||'0px'):'0px');" +
+            "};addEventListener('resize',window.__saFloor);" +
+            "if(window.visualViewport)visualViewport.addEventListener('resize',window.__saFloor);}" +
             "window.__saFloor();" +
             "})(document.documentElement.style)";
         // onGlobalLayout fires on every frame of a scroll; only cross the bridge
