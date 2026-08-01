@@ -86,6 +86,7 @@
   import ModalDevices from "./modals/ModalDevices.svelte";
   import ModalNotifications from "./modals/ModalNotifications.svelte";
   import ModalPrivacy from "./modals/ModalPrivacy.svelte";
+  import ModalBookings from "./modals/ModalBookings.svelte";
   import ModalConnection from "./modals/ModalConnection.svelte";
   import ModalWhen from "./modals/ModalWhen.svelte";
   import ModalScheduled from "./modals/ModalScheduled.svelte";
@@ -1109,6 +1110,8 @@
     <ModalNotifications onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "privacy"}
     <ModalPrivacy onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "bookings"}
+    <ModalBookings onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "connection"}
     <ModalConnection
       onClose={() => (S.modal = null)}

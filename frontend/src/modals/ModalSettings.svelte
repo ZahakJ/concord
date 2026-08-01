@@ -221,6 +221,14 @@
         </span>
         <span class="chev">›</span>
       </button>
+      <button class="row" onclick={() => openPanel("bookings", "settings")}>
+        <span class="chip"><Icon name="clock" size={17} /></span>
+        <span class="row-text">
+          <span class="row-title">Bookings</span>
+          <span class="row-sub">Office hours &amp; your public booking page</span>
+        </span>
+        <span class="chev">›</span>
+      </button>
       <button class="row" onclick={() => openPanel("connection", "settings")}>
         <span class="chip"><Icon name="link" size={17} /></span>
         <span class="row-text">

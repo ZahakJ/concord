@@ -893,6 +893,35 @@ func (b *Bridge) EventsICS(guildID string) (string, error) {
 	return svc.EventsICS(guildID)
 }
 
+// BookingSettings returns the public-booking config, the page URL (when
+// live) and the upcoming bookings, for the Settings → Bookings panel.
+func (b *Bridge) BookingSettings() (appsvc.BookingView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.BookingView{}, err
+	}
+	return svc.BookingSettings(), nil
+}
+
+// SetBookingConfig saves office-hours availability and the page toggle.
+func (b *Bridge) SetBookingConfig(in appsvc.BookingConfigInput) (appsvc.BookingView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.BookingView{}, err
+	}
+	return svc.SetBookingConfig(in)
+}
+
+// CancelBooking frees a booked slot: calendar event and meeting room go, and
+// the visitor's link stops answering.
+func (b *Bridge) CancelBooking(eventID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.CancelBooking(eventID)
+}
+
 // CreateCategory adds a sidebar category to a guild.
 func (b *Bridge) CreateCategory(guildID, name string) error {
 	svc, err := b.service()
@@ -2525,6 +2554,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.EventICS(argStr(args, 0), argStr(args, 1))
 	case "EventsICS":
 		return b.EventsICS(argStr(args, 0))
+	case "BookingSettings":
+		return b.BookingSettings()
+	case "SetBookingConfig":
+		return b.SetBookingConfig(argBookingConfig(args, 0))
+	case "CancelBooking":
+		return nil, b.CancelBooking(argStr(args, 0))
 	case "CreateCategory":
 		return nil, b.CreateCategory(argStr(args, 0), argStr(args, 1))
 	case "DeleteChannel":
@@ -2647,6 +2682,15 @@ func argStrs(args []json.RawMessage, i int) []string {
 // argForumTags decodes a forum tag palette. A malformed entry decodes to its
 // zero value and is then refused by SetForumTags' validation, so a bad argument
 // produces an error the user can read rather than a silently empty palette.
+func argBookingConfig(args []json.RawMessage, i int) appsvc.BookingConfigInput {
+	if i >= len(args) {
+		return appsvc.BookingConfigInput{}
+	}
+	var c appsvc.BookingConfigInput
+	_ = json.Unmarshal(args[i], &c)
+	return c
+}
+
 func argForumTags(args []json.RawMessage, i int) []domain.ForumTag {
 	if i >= len(args) {
 		return nil
