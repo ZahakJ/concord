@@ -12,6 +12,7 @@
 import { micStream, cameraStream, applySink } from "./devices.js";
 import { tuneOpus } from "./sdp.js";
 import { loadDenoiser, makeDenoiseNode, nrValue } from "./denoise.js";
+import { noteAudioRouteChange } from "./sounds.js";
 
 const DEFAULT_ICE = [{ urls: "stun:stun.l.google.com:19302" }];
 
@@ -119,6 +120,11 @@ export class VoiceMesh {
 
   async start() {
     this.localStream = await micStream(this.devices.mic, this.audio);
+    // Opening the mic for a call is the moment Android moves the system audio
+    // route to the communication path. The chime context predates that flip —
+    // tell sounds.js so the join chime (and anything after) plays on a context
+    // built for the route we're actually on.
+    noteAudioRouteChange();
     if (this.audio.nr) await loadDenoiser(this._ac());
     this._buildChain();
     // Join shut, not open, when the mic is on a key — and let the same call
@@ -558,6 +564,10 @@ export class VoiceMesh {
       this.localStream.getTracks().forEach((t) => t.stop());
       this.localStream = null;
     }
+    // Mirror of start(): releasing the mic sends the audio route back to the
+    // media path. The leave chime fires right after this returns — make sure
+    // it gets a context created on this side of the flip, not the call's.
+    noteAudioRouteChange();
   }
 
   // _addAnalyser wires an audio-level meter for a stream, keyed by "self" or a
