@@ -587,6 +587,17 @@ func (s *Store) UpdateChannelForumMeta(c domain.Channel) error {
 	return nil
 }
 
+// UpdateChannelName renames one channel. Its own statement rather than a field
+// on UpdateChannelMeta: that method is called by the channel_updated lane with a
+// bare four-field Channel, and adding name there would blank every channel's
+// name each time somebody moved one — the same hazard the forum banner dodged.
+func (s *Store) UpdateChannelName(id, name string) error {
+	if _, err := s.db.Exec(`UPDATE channels SET name=? WHERE id=?`, name, id); err != nil {
+		return fmt.Errorf("store: rename channel: %w", err)
+	}
+	return nil
+}
+
 // UpdateChannelMeta sets a channel's type/category/position/topic (layout +
 // advisory metadata).
 func (s *Store) UpdateChannelMeta(channelID, ctype, category string, position int, topic string) error {

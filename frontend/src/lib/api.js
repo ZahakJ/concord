@@ -170,6 +170,7 @@ export const api = {
     call("SaveSearchedGif", guildID, name, tags, ref, w, h),
   setChannelMeta: (guildID, channelID, type, category, position, topic = "") =>
     call("SetChannelMeta", guildID, channelID, type, category, position, topic),
+  renameChannel: (guildID, channelID, name) => call("RenameChannel", guildID, channelID, name),
   renameGuild: (guildID, name) => call("RenameGuild", guildID, name),
   leaveGuild: (guildID) => call("LeaveGuild", guildID),
   markRead: (channelID, atMs) => call("MarkRead", channelID, atMs),

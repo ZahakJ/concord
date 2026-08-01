@@ -873,6 +873,15 @@ func (b *Bridge) SetChannelMeta(guildID, channelID, ctype, category string, posi
 	return svc.SetChannelMeta(guildID, channelID, ctype, category, position, topic)
 }
 
+// RenameChannel renames a channel for every member (ManageChannels).
+func (b *Bridge) RenameChannel(guildID, channelID, name string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.RenameChannel(guildID, channelID, name)
+}
+
 // SendTyping broadcasts an ephemeral typing hint for a channel.
 func (b *Bridge) SendTyping(channelID string) error {
 	svc, err := b.service()
@@ -2466,6 +2475,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SendSearchedGif(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt(args, 3), argInt(args, 4))
 	case "SaveSearchedGif":
 		return nil, b.SaveSearchedGif(argStr(args, 0), argStr(args, 1), argStrs(args, 2), argStr(args, 3), argInt(args, 4), argInt(args, 5))
+	case "RenameChannel":
+		return nil, b.RenameChannel(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "SetChannelMeta":
 		return nil, b.SetChannelMeta(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt(args, 4), argStr(args, 5))
 	case "RenameGuild":

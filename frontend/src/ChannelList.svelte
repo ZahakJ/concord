@@ -766,6 +766,12 @@
                     {/each}
                     <div class="menu-sep"></div>
                   {/if}
+                  <button
+                    class="menu-item"
+                    onclick={() => (S.modal = { kind: "renameChannel", guildId: g.id, channelId: c.id, current: c.name })}
+                  >
+                    <Icon name="edit" size={13} /> Rename channel
+                  </button>
                   <button class="menu-item danger" onclick={() => deleteChannel(c)}>
                     <Icon name="trash" size={13} /> Delete channel
                   </button>

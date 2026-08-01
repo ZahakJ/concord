@@ -1752,6 +1752,60 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 	return nil
 }
 
+// RenameChannel renames a channel for everyone (ManageChannels). The name rides
+// its own meta type — channel_updated deliberately carries a bare four-field
+// Channel, so folding the name in there would erase it on every move.
+func (s *Service) RenameChannel(guildID, channelID, name string) error {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return fmt.Errorf("app: you don't have permission to manage channels")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("app: channel name is empty")
+	}
+	if len(name) > 80 {
+		return fmt.Errorf("app: channel name is too long (80 characters max)")
+	}
+	updated, groupID, ok := s.mutateChannel(guildID, channelID, func(c *domain.Channel) bool {
+		if c.Name == name {
+			return false
+		}
+		c.Name = name
+		return true
+	})
+	if !ok {
+		if updated.Name == name {
+			return nil // renamed to itself: nothing to say
+		}
+		return fmt.Errorf("app: unknown channel %s", channelID)
+	}
+	_ = s.store.UpdateChannelName(channelID, name)
+	s.publishMeta(groupID, guildMeta{Type: "channel_renamed", ChannelID: channelID, Name: name})
+	return nil
+}
+
+// applyChannelRename is the receive half of RenameChannel, mirroring its checks.
+func (s *Service) applyChannelRename(guildID, actor, channelID, name string) {
+	if channelID == "" || !s.memberHasPerm(guildID, actor, PermManageChannels) {
+		return
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 80 {
+		return
+	}
+	if !s.channelInGuild(channelID, guildID) {
+		return
+	}
+	s.mutateChannel(guildID, channelID, func(c *domain.Channel) bool {
+		if c.Name == name {
+			return false
+		}
+		c.Name = name
+		return true
+	})
+	_ = s.store.UpdateChannelName(channelID, name)
+}
+
 // SetChannelLinks records which channels an ANNOUNCEMENT channel publishes to
 // (ManageChannels). Links must be text channels of the same guild; the
 // announcement channel itself and anything unknown are dropped. Synced to
@@ -2122,6 +2176,11 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// one implementation — a peer's tag colour reaches a CSS context in the
 		// client and is no more trustworthy than one we typed ourselves.
 		s.applyForumTags(guildID, actor, m.ChannelID, m.ForumTags)
+	case "channel_renamed":
+		// Same shape as every other channel mutation: gate on the ACTOR holding
+		// ManageChannels in our copy of the roster, validate exactly as the
+		// local path does, and ignore junk rather than clearing anything.
+		s.applyChannelRename(guildID, actor, m.ChannelID, m.Name)
 	case "forum_banner":
 		// Same gating and the same two-shape validation as the local path — a
 		// peer's banner string reaches the same CSS context ours does.

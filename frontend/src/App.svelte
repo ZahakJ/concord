@@ -74,6 +74,7 @@
   import ModalShortcuts from "./modals/ModalShortcuts.svelte";
   import ModalNewDM from "./modals/ModalNewDM.svelte";
   import ModalRenameGroup from "./modals/ModalRenameGroup.svelte";
+  import ModalRenameChannel from "./modals/ModalRenameChannel.svelte";
   import ModalJoin from "./modals/ModalJoin.svelte";
   import ModalInvite from "./modals/ModalInvite.svelte";
   import ModalAddMembers from "./modals/ModalAddMembers.svelte";
@@ -1057,6 +1058,13 @@
   {:else if S.modal?.kind === "renameGroup"}
     <ModalRenameGroup
       guildId={S.modal.guildId}
+      current={S.modal.current}
+      onClose={() => (S.modal = null)}
+    />
+  {:else if S.modal?.kind === "renameChannel"}
+    <ModalRenameChannel
+      guildId={S.modal.guildId}
+      channelId={S.modal.channelId}
       current={S.modal.current}
       onClose={() => (S.modal = null)}
     />
