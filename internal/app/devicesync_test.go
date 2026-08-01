@@ -179,4 +179,3 @@ func TestGuildInvitesAreOfferedOnlyToOwnDevices(t *testing.T) {
 		t.Fatal("a peer redeemed invites offered by an account that is not its own")
 	}
 }
-

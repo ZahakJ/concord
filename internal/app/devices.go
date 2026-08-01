@@ -404,7 +404,7 @@ func (s *Service) LinkedDevices() []LinkedDeviceView {
 		v := LinkedDeviceView{
 			Key: hex.EncodeToString(pub), PeerID: id.String(), Name: rec.Name,
 			AppVersion: rec.AppVersion,
-			ThisOne: id == self, LinkedAt: rec.LinkedAt, LastSeen: rec.LastSeen,
+			ThisOne:    id == self, LinkedAt: rec.LinkedAt, LastSeen: rec.LastSeen,
 			Revoked: rec.Revoked,
 		}
 		if v.ThisOne {
