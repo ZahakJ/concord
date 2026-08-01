@@ -1925,7 +1925,14 @@ function initEvents() {
 
   on("typing", (t) => {
     if (t.channelId !== S.activeChannelId) return;
-    const label = t.name || (t.from || "").slice(0, 9);
+    // Your own typing (relayed from another of your devices) is not news — the
+    // backend suppresses it too; this guard just makes the client safe against
+    // an older backend that still forwards it.
+    if (t.from && t.from === S.identity?.fingerprint) return;
+    // Prefer the name the backend resolved, then the member roster we already
+    // hold; the truncated fingerprint is the last resort for a member whose
+    // profile hasn't arrived yet, not the normal look of a friend typing.
+    const label = t.name || memberByFpr(t.from)?.name || (t.from || "").slice(0, 9);
     // Clear the previous timer for this person, else its stale 4s timeout fires
     // and removes the FRESH entry — making a continuously-typing peer flicker off.
     const prev = S.typingList.find((x) => x.from === t.from);

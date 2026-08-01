@@ -1249,11 +1249,11 @@ func (s *Service) trackGuild(g *domain.Guild) {
 		_ = s.ps.Subscribe(s.ctx, domain.TopicID(groupID, channelID), func(_ peer.ID, ct []byte) {
 			s.receiveCiphertext(groupID, ct)
 		})
-		// Ephemeral typing signals (surfaced by sender ACCOUNT fingerprint — a
-		// linked device's PeerID key belongs to no member, so presenceFor here
-		// meant a friend typing from their phone showed up as nobody).
+		// Ephemeral typing signals, attributed to a member ACCOUNT or dropped
+		// (see receiveTyping: an unlearned device key must not surface as an
+		// encoded stranger, and your own other device is not news).
 		_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(groupID, channelID), func(from peer.ID, _ []byte) {
-			s.emitTyping(s.presence(from).Fingerprint, channelID)
+			s.receiveTyping(guildID, groupID, channelID, from)
 		})
 		// Watch voice presence for every voice channel so the sidebar shows who's
 		// in a call without us having to join it. In a DM (and an instant
@@ -1860,7 +1860,7 @@ func (s *Service) addChannel(guildID string, ch domain.Channel) {
 		s.receiveCiphertext(groupID, ct)
 	})
 	_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(groupID, channelID), func(from peer.ID, _ []byte) {
-		s.emitTyping(s.presence(from).Fingerprint, channelID)
+		s.receiveTyping(guildID, groupID, channelID, from)
 	})
 	if ch.ChannelType() == "voice" {
 		s.watchVoice(groupID, channelID)
