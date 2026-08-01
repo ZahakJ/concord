@@ -211,6 +211,29 @@
     if (richEmbed) c = stripEmbedToken(c);
     return stripTimestamp(stripEphemeral(c));
   });
+  // clampSealCard keeps the reveal card on screen. The card is anchored to the
+  // chip, and a chip can sit anywhere — including the left edge of a narrow
+  // phone column, where a right-anchored card walked straight off the screen
+  // ("the timestamp box shows out of screen partially LOL" — accurate). CSS
+  // alone cannot know where the chip is, so measure once on mount and shift by
+  // exactly the overflow; if the card would poke above the top bar, flip it
+  // below the chip instead.
+  function clampSealCard(node) {
+    const pad = 8;
+    const r = node.getBoundingClientRect();
+    let dx = 0;
+    if (r.left < pad) dx = pad - r.left;
+    else if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
+    if (dx) node.style.transform = `translateX(${dx}px)`;
+    // The top bar is ~52px plus the status bar; anything above ~90px is at risk
+    // of sliding under chrome. Flip below the chip — there is always room there,
+    // the feed scrolls.
+    if (r.top < 90) {
+      node.style.bottom = "auto";
+      node.style.top = "calc(100% + 6px)";
+    }
+  }
+
   // A sealed timestamp: the author explicitly marked when this was sent, so it
   // is shown rather than hidden behind a hover the way the ordinary gutter time
   // is. 0 when unsealed.
@@ -825,9 +848,11 @@
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div class="body" class:jumbo={jumbo} use:animateInView={jumbo} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
           {#if sealMs}
-            <!-- Tap AND hover, deliberately: hover is unreachable on a phone,
-                 and the whole point of a seal is that the time is legible
-                 without a pointer. -->
+            <!-- Tap AND hover, deliberately — but the hover pair must be gated
+                 on a device that HAS hover: a tap synthesizes mouseenter first
+                 and click second, so on touch the enter opened the card and the
+                 click toggled it straight back shut. The card flashed for one
+                 frame and the user reasonably reported it "broken". -->
             <button
               type="button"
               class="seal"
@@ -836,13 +861,13 @@
               aria-label="Sealed at {sealFull(sealMs, clockOpts())}"
               aria-expanded={sealOpen}
               onclick={(e) => { e.stopPropagation(); sealOpen = !sealOpen; if (sealOpen) { sealNow = Date.now(); haptic("light"); } }}
-              onmouseenter={() => (sealOpen = true)}
-              onmouseleave={() => (sealOpen = false)}
+              onmouseenter={() => { if (matchMedia("(hover: hover)").matches) sealOpen = true; }}
+              onmouseleave={() => { if (matchMedia("(hover: hover)").matches) sealOpen = false; }}
             >
               <Icon name="diamond" size={11} />
               <span class="seal-t">{sealShort(sealMs, clockOpts())}</span>
               {#if sealOpen}
-                <span class="seal-card" role="tooltip">
+                <span class="seal-card" role="tooltip" use:clampSealCard>
                   <span class="seal-card-h">Sealed by the sender</span>
                   <span class="seal-card-f">{sealFull(sealMs, clockOpts())}</span>
                   <span class="seal-card-a">{sealAgo(sealMs, sealNow)}</span>
