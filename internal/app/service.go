@@ -250,6 +250,11 @@ type Service struct {
 	// per connection, so reopening the stream can't be used to make us decode
 	// every guild's roster over and over.
 	answered greetSet
+	// solicited tracks the unplaceable peers we have asked to introduce
+	// themselves (solicitHello), one ask per connection: a member device pays
+	// once and is placed; an outsider spamming a gossip topic pays us nothing
+	// more than that one refused stream.
+	solicited greetSet
 
 	// reaching holds the own-account devices we currently have a dial in flight
 	// for (devices.go), so an unreachable phone costs one attempt at a time
@@ -986,6 +991,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		// A fresh connection deserves a fresh introduction, in both directions.
 		s.greeted.release(p)
 		s.answered.release(p)
+		s.solicited.release(p)
 		s.emitPeerDown(p, s.presence(p))
 	})
 

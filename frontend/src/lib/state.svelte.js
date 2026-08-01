@@ -1925,14 +1925,21 @@ function initEvents() {
 
   on("typing", (t) => {
     if (t.channelId !== S.activeChannelId) return;
-    // Your own typing (relayed from another of your devices) is not news — the
-    // backend suppresses it too; this guard just makes the client safe against
-    // an older backend that still forwards it.
-    if (t.from && t.from === S.identity?.fingerprint) return;
-    // Prefer the name the backend resolved, then the member roster we already
-    // hold; the truncated fingerprint is the last resort for a member whose
-    // profile hasn't arrived yet, not the normal look of a friend typing.
-    const label = t.name || memberByFpr(t.from)?.name || (t.from || "").slice(0, 9);
+    // Your own typing, relayed from another of your devices, IS shown — typing
+    // on your phone lighting up your name on your desktop is the proof the
+    // devices are talking (suppressing it read as breakage; the user overruled
+    // v0.49 here). It carries your account name, with a quiet "(you)".
+    const self = t.from && t.from === S.identity?.fingerprint;
+    // Resolve a human name: yours from the identity/roster, everyone else via
+    // the backend-resolved name, the member roster, then the contact list.
+    let label = self
+      ? S.displayName || memberByFpr(t.from)?.name || t.name
+      : t.name || memberByFpr(t.from)?.name || S.contacts.find((c) => c.fingerprint === t.from)?.name;
+    // No resolvable name means NO entry: a raw key or truncated fingerprint is
+    // never rendered in the typing strip. The backend only emits attributable
+    // signals, so this drop is a startup-order edge, not a normal path.
+    if (!label) return;
+    if (self) label += " (you)";
     // Clear the previous timer for this person, else its stale 4s timeout fires
     // and removes the FRESH entry — making a continuously-typing peer flicker off.
     const prev = S.typingList.find((x) => x.from === t.from);

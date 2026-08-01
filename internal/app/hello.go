@@ -154,6 +154,39 @@ func (s *Service) greet(p peer.ID) {
 	s.ingestHello(p, resp)
 }
 
+// solicitHello asks a peer we CANNOT place to please introduce itself, while
+// introducing nothing of ours: the frame is empty, which the protocol already
+// defines as "I'm not telling you who I am". The responder's own canPlace gate
+// decides whether to answer with a credential, so the exchange leaks nothing
+// in either direction that the other side wasn't already entitled to.
+//
+// greet cannot serve this case by design — its gate is that WE can place THEM.
+// The caller here is the opposite situation: a signal arrived from a peer we
+// cannot name (an unlearned linked device typing before we applied its
+// add-commit), and the fix is their certificate, not ours. One attempt per
+// peer per connection: an outsider gossiping into a topic would otherwise
+// cost us a stream per keystroke.
+func (s *Service) solicitHello(p peer.ID) {
+	if p == s.host.PeerID() || s.isMailboxNode(p) {
+		return
+	}
+	if !s.solicited.claim(p) {
+		return
+	}
+	req, err := json.Marshal(helloFrame{})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(s.ctx, helloTimeout)
+	defer cancel()
+	resp, err := s.host.SayHello(ctx, p, req)
+	if err != nil {
+		s.solicited.release(p) // dead stream; a later signal may retry
+		return
+	}
+	s.ingestHello(p, resp)
+}
+
 // handleHello is the responder: someone introduced themselves to us.
 func (s *Service) handleHello(_ context.Context, from peer.ID, req []byte) ([]byte, error) {
 	// One answer per connection. Composing an answer costs a knownContact, which

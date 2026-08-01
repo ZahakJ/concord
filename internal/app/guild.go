@@ -1319,9 +1319,9 @@ func (s *Service) trackGuild(g *domain.Guild) {
 		_ = s.ps.Subscribe(s.ctx, domain.TopicID(groupID, channelID), func(_ peer.ID, ct []byte) {
 			s.receiveCiphertext(groupID, ct)
 		})
-		// Ephemeral typing signals, attributed to a member ACCOUNT or dropped
-		// (see receiveTyping: an unlearned device key must not surface as an
-		// encoded stranger, and your own other device is not news).
+		// Ephemeral typing signals, attributed to a member ACCOUNT — your own
+		// included — or dropped (see receiveTyping: an unlearned device key
+		// must never surface as an encoded stranger).
 		_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(groupID, channelID), func(from peer.ID, _ []byte) {
 			s.receiveTyping(guildID, groupID, channelID, from)
 		})
