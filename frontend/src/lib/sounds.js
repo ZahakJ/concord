@@ -26,14 +26,57 @@ export function setSoundsEnabled(on) {
   }
 }
 
+// Android flips the system audio route around a WebRTC call (media rate in and
+// out of the communication rate — often 48kHz ⇄ 8/16kHz). A WebAudio context
+// created on one side of that flip is unreliable on the other: it can report
+// "running" while rendering silence, or render against the old hardware rate
+// and come out pitched/garbled. So the shared context is REBUILT, not resumed,
+// whenever it may straddle a route change:
+//   • voice.js calls noteAudioRouteChange() as a call's audio starts and stops
+//     (the two moments Android moves the route under us);
+//   • a context found "closed" (Android reclaims them under memory/focus
+//     pressure) is replaced rather than returned;
+//   • after each use a watchdog notices a context that claims to be running
+//     but whose clock isn't advancing, and flags it so the NEXT sound gets a
+//     fresh context — self-healing for route changes nobody announced (e.g. a
+//     native phone call).
+// A fresh context is created against the CURRENT route, so its sample rate
+// matches the hardware and the impulse cache (keyed by rate) re-bakes for it.
+// At the normal 48kHz the rendered chimes are identical to what this file has
+// always produced — nothing about the synthesis changes.
+let routeDirty = false;
+
+export function noteAudioRouteChange() {
+  routeDirty = true;
+}
+
 function audio() {
-  if (!ctx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (!AC) return null;
-    ctx = new AC();
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (ctx && (routeDirty || ctx.state === "closed")) {
+    try {
+      ctx.close().catch(() => {});
+    } catch {
+      /* already closed */
+    }
+    ctx = null;
   }
+  routeDirty = false;
+  if (!ctx) ctx = new AC();
   if (ctx.state === "suspended") ctx.resume().catch(() => {});
+  watchdog(ctx);
   return ctx;
+}
+
+// watchdog flags a context that reports "running" while its clock is stuck —
+// the signature of a context orphaned by an audio-route change. The current
+// sound is already lost (there is no way to know before playing into it); the
+// point is that the next one isn't.
+function watchdog(ac) {
+  const t0 = ac.currentTime;
+  setTimeout(() => {
+    if (ctx === ac && ac.state === "running" && ac.currentTime === t0) routeDirty = true;
+  }, 250);
 }
 
 // tone plays a short shaped oscillator at freq (Hz) starting at offset seconds.
