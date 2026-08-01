@@ -363,11 +363,17 @@
            arrive") follows from that one fact. -->
       <div class="stat">
         <span class="k">Reachable from outside</span>
-        <span class="v" class:warn={!ns.relayReserved}>
-          {ns.relayReserved ? "yes — relay reserved" : "no relay slot"}
+        <span class="v" class:warn={!ns.relayReserved && !ns.directlyReachable}>
+          {#if ns.directlyReachable}
+            yes — directly
+          {:else if ns.relayReserved}
+            yes — via relay
+          {:else}
+            no relay slot
+          {/if}
         </span>
       </div>
-      {#if !ns.relayReserved}
+      {#if !ns.relayReserved && !ns.directlyReachable}
         <p class="muted tiny note">
           This device isn't advertising a relayed address, so a device on another
           network — a phone on mobile data, say — has no route to it. Check that

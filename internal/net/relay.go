@@ -244,6 +244,16 @@ func (n *Host) syncRelayService() {
 	}
 }
 
+// DirectlyReachable reports whether this node has a routable public address —
+// the same condition under which it runs the peer-relay service. When true it
+// needs no relay reservation of its own (peers can dial it straight), so a
+// missing reservation is expected rather than a fault.
+func (n *Host) DirectlyReachable() bool {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.relaySvc != nil
+}
+
 // memberACL admits reservations and circuits only from peers tagged by
 // Host.Protect, i.e. members of a guild we share. Everyone else is refused, so
 // being publicly reachable does not turn a user's machine into free transit for

@@ -147,6 +147,10 @@ type NetworkStatsView struct {
 	// single most useful answer to "why does my other device never come online",
 	// and until now the panel could only say "offline".
 	RelayReserved bool `json:"relayReserved"`
+	// DirectlyReachable: this node has a routable public address, so peers dial
+	// it straight and it needs no relay reservation. Either this OR RelayReserved
+	// means "reachable from outside"; only NEITHER is a real problem.
+	DirectlyReachable bool `json:"directlyReachable"`
 	// DialableAddrs is how many addresses this device is advertising at all.
 	DialableAddrs int `json:"dialableAddrs"`
 }
@@ -238,6 +242,7 @@ func (s *Service) NetworkStats() NetworkStatsView {
 			v.RelayReserved = true
 		}
 	}
+	v.DirectlyReachable = s.host.DirectlyReachable()
 	v.DeviceList = s.LinkedDevices()
 	return v
 }
