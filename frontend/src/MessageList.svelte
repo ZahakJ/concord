@@ -22,6 +22,7 @@
     loadOlder,
     clockOpts,
     registerOverlay,
+    nudge,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
@@ -119,6 +120,10 @@
     if (!S.showPins || !S.isMobile) return;
     return registerOverlay(() => (S.showPins = false));
   });
+
+  // How many peers could actually serve the catch-up. The banner said "as soon
+  // as someone comes online" regardless, which is actively wrong when they are.
+  const syncPeers = $derived(S.netStatus?.memberPeers ?? 0);
 
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
@@ -249,10 +254,21 @@
 </script>
 
 {#if activeGuild()?.outOfSync}
-  <div class="oos-banner">
-    ⚠ Catching up… this guild changed while you were away. It'll sync automatically as soon as
-    someone who has those updates comes online. If it's stuck, ask an owner or moderator to
-    re-invite you (your history stays either way).
+  <!-- A slim strip, not a wall of red. This appears while the app is WORKING —
+       it is a progress state, not an error — and it used to shout the same three
+       sentences at you whether it had been two seconds or two days, including
+       "as soon as someone comes online" while the person you were talking to was
+       demonstrably online. Say what is actually true right now. -->
+  <div class="oos-banner" class:waiting={!syncPeers}>
+    <span class="oos-dot" class:spin={syncPeers > 0}></span>
+    <span class="oos-text">
+      {#if syncPeers > 0}
+        Catching up with {syncPeers} {syncPeers === 1 ? "peer" : "peers"}…
+      {:else}
+        Waiting for someone with the missing updates to come online
+      {/if}
+    </span>
+    <button class="oos-act" onclick={nudge}>Retry now</button>
   </div>
 {/if}
 
@@ -472,12 +488,63 @@
 
 <style>
   .oos-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
     border-bottom: 1px solid var(--border);
-    background: var(--danger-soft);
+    /* Accent, not danger: nothing is broken, the app is fetching. The red block
+       read as an error and took four lines to say so. */
+    background: var(--accent-soft);
     color: var(--text);
-    padding: var(--sp-2) var(--sp-edge);
-    font-size: var(--fs-ui);
-    line-height: 1.45;
+    padding: 6px var(--sp-edge);
+    font-size: var(--fs-compact);
+  }
+  .oos-banner.waiting {
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+  }
+  .oos-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .oos-dot {
+    width: 7px;
+    height: 7px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--warn);
+  }
+  .oos-dot.spin {
+    background: var(--accent);
+    animation: oos-pulse 1.1s ease-in-out infinite;
+  }
+  @keyframes oos-pulse {
+    50% {
+      opacity: 0.3;
+    }
+  }
+  .oos-act {
+    flex-shrink: 0;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .oos-act {
+      min-height: var(--tap-min);
+      padding-inline: var(--sp-3);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .oos-dot.spin {
+      animation: none;
+    }
   }
   .side-panel {
     border-bottom: 1px solid var(--border);
