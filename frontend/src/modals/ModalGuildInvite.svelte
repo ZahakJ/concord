@@ -12,6 +12,10 @@
   let { invite, onClose } = $props();
   let busy = $state(false);
 
+  // Server invites only come from verified contacts, so their learned profile
+  // face is available — show it rather than an initials disc.
+  const fromContact = $derived(S.contacts.find((c) => c.fingerprint === invite.from));
+
   async function accept() {
     busy = true;
     try {
@@ -29,7 +33,13 @@
 
 <Modal title="Server invite" onClose={busy ? () => {} : onClose}>
   <div class="who">
-    <Avatar name={invite.fromName || invite.from} size={44} />
+    <Avatar
+      name={invite.fromName || invite.from}
+      image={fromContact?.avatar || ""}
+      emoji={fromContact?.emoji || ""}
+      color={fromContact?.color || ""}
+      size={44}
+    />
     <p>
       <strong>{invite.fromName || invite.from.slice(0, 9)}</strong> invited you to
       <strong>{invite.guild || "their server"}</strong>.

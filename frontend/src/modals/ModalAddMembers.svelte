@@ -45,7 +45,13 @@
     <div class="list">
       {#each candidates as c (c.fingerprint)}
         <div class="row">
-          <Avatar name={c.name || c.fingerprint} size={32} />
+          <Avatar
+            name={c.name || c.fingerprint}
+            image={c.avatar || ""}
+            emoji={c.emoji || ""}
+            color={c.color || ""}
+            size={32}
+          />
           <span class="who">
             <strong>{c.name || c.fingerprint.slice(0, 9)}</strong>
             <span class="tiny muted mono">{c.fingerprint.slice(0, 9)}</span>

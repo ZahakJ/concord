@@ -255,6 +255,12 @@ type ContactView struct {
 	Fingerprint string `json:"fingerprint"`
 	Name        string `json:"name"` // profile display name (may be "" if unknown)
 	Verified    bool   `json:"verified"`
+	// The learned profile's face, so people pickers (New message, Add members,
+	// Invite) show the same avatar as every other surface instead of an
+	// initials disc. Empty when we've never learned a profile for them.
+	Avatar string `json:"avatar,omitempty"`
+	Emoji  string `json:"emoji,omitempty"`
+	Color  string `json:"color,omitempty"`
 }
 
 // ---- Connection settings (usable before unlock) ----
@@ -1712,7 +1718,11 @@ func (b *Bridge) Contacts() ([]ContactView, error) {
 	}
 	out := make([]ContactView, 0, len(contacts))
 	for _, c := range contacts {
-		out = append(out, ContactView{PeerID: c.PeerID, Fingerprint: c.Fingerprint, Name: svc.ProfileName(c.Fingerprint), Verified: c.Verified})
+		p := svc.ProfileOf(c.Fingerprint)
+		out = append(out, ContactView{
+			PeerID: c.PeerID, Fingerprint: c.Fingerprint, Name: p.Name, Verified: c.Verified,
+			Avatar: p.Avatar, Emoji: p.Emoji, Color: p.Color,
+		})
 	}
 	return out, nil
 }
