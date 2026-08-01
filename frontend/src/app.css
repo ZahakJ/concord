@@ -179,7 +179,15 @@
   --bg: var(--bg-2);
   --bg-elevated: var(--bg-3);
   --bg-sidebar: var(--bg-1);
-  --bg-input: var(--bg-3);
+  /* An input field sits JUST ABOVE the surface it lives on, not at the fully
+     elevated level of a popover. This used to be a flat var(--bg-3), which on
+     several packs — the translucent/animated ones especially — jumps a long way
+     from the feed's --bg-2: the composer and search boxes then read as bright,
+     over-saturated bars stuck to the surface rather than gentle wells cut into
+     it. That is the "textbox colour that doesn't match the background". Blending
+     partway to bg-3 keeps a clear-but-subtle lift, derived from each pack's own
+     tokens so it stays right on every theme. */
+  --bg-input: color-mix(in srgb, var(--bg-3) 42%, var(--bg-2));
   --verified: var(--ok);
   --radius: var(--radius-md);
 
