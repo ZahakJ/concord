@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -219,12 +220,30 @@ func (s *Service) redeemOfferedInvites(from peer.ID, codes []string) {
 		have[g.ID] = true
 	}
 	for _, code := range codes {
-		// JoinViaInvite is the same path the link flow uses, so a guild we are
-		// already in is rejected there too; the map just avoids the round trip.
-		g, err := s.JoinViaInvite(code)
-		if err == nil && !have[g.ID] {
-			have[g.ID] = true
+		// Skip guilds this device already holds — and the check has to happen
+		// HERE, because JoinViaInvite does not refuse a redundant join. It
+		// round-trips to the owner, whose invite handler treats an
+		// already-a-member joiner as a stale retry: it REMOVES our current leaf
+		// and re-adds it, two epoch-advancing commits every member must apply
+		// gaplessly. And since a successful join re-greets our own devices
+		// (offerAfter), which hands the same codes back, the old version of this
+		// loop — which redeemed every offered code unconditionally — fed itself:
+		// two linked devices re-joined each other's guilds in a permanent
+		// ping-pong, churning the group's epoch several times a second. Every
+		// OTHER member had to keep up with that commit storm over gossip; each
+		// dropped frame left them stranded at a dead epoch, unable to decrypt
+		// anything newer. That was the reported "sometimes instant, sometimes
+		// nothing arrives for minutes".
+		ic, err := decodeInviteCode(strings.TrimSpace(code))
+		if err != nil || have[ic.GuildID] {
+			continue
 		}
+		have[ic.GuildID] = true
+		// joinOfferedInvite re-checks "already a member" under the per-guild
+		// join lock, which is what closes the race this map cannot see: a join
+		// already in flight (the link flow's own redemption) when this hello
+		// landed.
+		s.joinOfferedInvite(code)
 	}
 }
 

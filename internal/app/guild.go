@@ -649,7 +649,46 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	if err != nil {
 		return domain.Guild{}, err
 	}
+	// One join per guild at a time: a concurrent duplicate reads to the owner
+	// as a stale retry, which REMOVES our live leaf and re-adds it — two
+	// epoch-advancing commits every member must gaplessly apply for nothing.
+	// An explicit call for a guild we already hold is still served (it is the
+	// owner's job to judge it — refuse a ban, re-admit a kick, re-add a
+	// stranded leaf); the automatic hello path uses joinOfferedInvite, which
+	// declines the redundant case entirely.
+	release := s.claimJoin(ic.GuildID)
+	defer release()
+	return s.joinViaInviteLocked(ic)
+}
 
+// joinOfferedInvite redeems a code offered by one of our own devices, joining
+// only if this device is not already a healthy member. The check runs INSIDE
+// the per-guild join lock: the link flow's startup redemption and the first
+// hello's offer race each other with the same codes, and the loser of that
+// race must become a no-op, not a duplicate join request (see JoinViaInvite
+// for what a duplicate costs — and it used to be worse: each redundant join
+// re-greeted our devices, which offered the codes again, a self-sustaining
+// re-join loop that churned the guild epoch several times a second and
+// stranded every member who dropped one commit frame).
+func (s *Service) joinOfferedInvite(code string) {
+	ic, err := decodeInviteCode(strings.TrimSpace(code))
+	if err != nil {
+		return
+	}
+	release := s.claimJoin(ic.GuildID)
+	defer release()
+	s.mu.RLock()
+	_, already := s.guilds[ic.GuildID]
+	s.mu.RUnlock()
+	if already && s.guildHasMember(ic.GuildID, s.id.Fingerprint()) {
+		return
+	}
+	_, _ = s.joinViaInviteLocked(ic)
+}
+
+// joinViaInviteLocked is the join proper; the caller holds the guild's join
+// lock (claimJoin).
+func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	// Adopt any rendezvous nodes carried by the invite: persist them for future
 	// restarts (DHT bootstrap) and connect to them right now so relayed dials
 	// to a NAT'd owner can resolve during this session.
@@ -720,6 +759,24 @@ func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	return s.offerAfter(g, nil)
 }
 
+// claimJoin takes the per-guild join lock, returning the release. It is what
+// keeps two overlapping redemptions of the same invite code (paste + hello
+// offer + link redeem) from turning into duplicate join requests at the owner.
+func (s *Service) claimJoin(guildID string) func() {
+	s.joiningMu.Lock()
+	if s.joining == nil {
+		s.joining = map[string]*sync.Mutex{}
+	}
+	m, ok := s.joining[guildID]
+	if !ok {
+		m = &sync.Mutex{}
+		s.joining[guildID] = m
+	}
+	s.joiningMu.Unlock()
+	m.Lock()
+	return m.Unlock
+}
+
 // accountLeafCount returns how many MLS leaves in a group belong to THIS account
 // (>1 means this install's account already has another device in the group).
 func (s *Service) accountLeafCount(groupID []byte) int {
@@ -757,6 +814,13 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// a private epoch chain — silently. Refuse rather than fork.
 	if !s.canManageMembers(req.GuildID) {
 		return json.Marshal(inviteResponse{Error: "inviter is not authorized to admit members"})
+	}
+	// A device that knows its own group state is stale must not mint commits:
+	// they would fork the group at a dead epoch and drag the joiner onto the
+	// fork. Refusing makes the requester try another committer (heals iterate
+	// candidates), which is strictly better than serving them poison.
+	if s.OutOfSync(req.GuildID) {
+		return json.Marshal(inviteResponse{Error: "inviter is catching up; ask another member"})
 	}
 
 	// Bind the claimed credential to the AUTHENTICATED caller. The libp2p PeerID
@@ -1233,6 +1297,12 @@ func (s *Service) trackGuild(g *domain.Guild) {
 			// peer cache, and nothing here should hold up commit delivery.
 			go s.rememberMembers()
 			s.emitGuildUpdate()
+			// The epoch just advanced. Any message that arrived moments BEFORE
+			// this commit — the two travel different gossip topics, so their
+			// order is luck — is sitting in the stash, readable now. Retrying
+			// here is what makes the send-during-a-membership-change case
+			// deliver in milliseconds instead of waiting for a history sync.
+			s.retryPendingCiphertexts(groupID)
 		} else {
 			go s.syncGuildFromAnyPeer(guildID)
 		}
@@ -2187,40 +2257,30 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 // flagUndecryptable marks the guild owning groupID as out of sync, so the heal
 // path runs and the UI stops pretending everything is fine. Rate-limited to one
 // flag per group per healRetryInterval: a busy channel can deliver many
-// unreadable messages in a row and each one must not restart the heal.
-// undecryptableGrace is how long a group may fail to decrypt before the app says
-// so out loud. Long enough that an ordinary epoch hiccup — a commit crossing a
-// message in flight — heals invisibly; short enough that a genuine strand is
-// reported while the user is still in the conversation.
-const undecryptableGrace = 12 * time.Second
+// undecryptableRecoverWindow rate-limits how often an unreadable message may
+// kick the recovery machinery for one group. A channel full of unreadable
+// traffic must raise the alarm once per beat, not once per packet — but the
+// beat has to be short, because between beats an arriving message is simply
+// lost until anti-entropy: this window IS the floor on how long a member can
+// stay silently deaf.
+const undecryptableRecoverWindow = 5 * time.Second
 
+// flagUndecryptable reacts to a message we could not read: stash aside for a
+// retry (the commit it needs is usually milliseconds behind it), and kick the
+// guild's recovery — history-sync first, re-add heal only if syncing every
+// reachable member could not bridge us. See recoverOutOfSync for the order and
+// why.
 func (s *Service) flagUndecryptable(groupID []byte) {
 	key := string(groupID)
-	now := time.Now()
 	s.mu.Lock()
 	if s.lastUndecryptable == nil {
 		s.lastUndecryptable = map[string]time.Time{}
-		s.firstUndecryptable = map[string]time.Time{}
 	}
-	// Rate limit: one flag per group per heal cycle, so a channel full of
-	// unreadable traffic cannot restart the repair on every packet.
-	if t, ok := s.lastUndecryptable[key]; ok && now.Sub(t) < healRetryInterval {
+	if t, ok := s.lastUndecryptable[key]; ok && time.Since(t) < undecryptableRecoverWindow {
 		s.mu.Unlock()
 		return
 	}
-	// Patience: remember when this group FIRST failed, and stay quiet until it
-	// has been failing for longer than a normal epoch hiccup takes to settle. A
-	// run that stops resets the clock, so the next genuine strand starts fresh.
-	first, seen := s.firstUndecryptable[key]
-	if !seen || now.Sub(first) > 5*time.Minute {
-		s.firstUndecryptable[key] = now
-		first = now
-	}
-	s.lastUndecryptable[key] = now
-	if now.Sub(first) < undecryptableGrace {
-		s.mu.Unlock()
-		return // still inside the window where this routinely fixes itself
-	}
+	s.lastUndecryptable[key] = time.Now()
 	var guildID string
 	for id, g := range s.guilds {
 		if bytes.Equal(g.GroupID, groupID) {
@@ -2230,44 +2290,123 @@ func (s *Service) flagUndecryptable(groupID []byte) {
 	}
 	s.mu.Unlock()
 	if guildID != "" {
-		s.setOutOfSync(guildID, true)
+		go s.recoverOutOfSync(guildID)
 	}
 }
 
-// receiveCiphertext decrypts an inbound channel message, persists it, and
-// notifies the UI. Decryption failures (e.g. an epoch we haven't reached yet)
-// are dropped rather than surfaced.
+// pendingCipher is a channel ciphertext we could not decrypt yet — almost
+// always a message that outran its own membership commit across two different
+// gossip topics. Kept briefly and retried when the epoch advances.
+type pendingCipher struct {
+	ct    []byte
+	added time.Time
+}
+
+// pendingCipherTTL bounds how long an unreadable ciphertext is kept for retry.
+// Long enough for several recovery rounds; short enough that garbage from a
+// broken or hostile peer cannot accumulate.
+const pendingCipherTTL = 2 * time.Minute
+
+// pendingCipherCap bounds the stash per group (newest win — the older a
+// ciphertext, the more likely history sync already delivered its content).
+const pendingCipherCap = 64
+
+// stashCiphertext keeps an undecryptable channel message for a later retry.
+func (s *Service) stashCiphertext(groupID, ct []byte) {
+	key := string(groupID)
+	s.pendingCTMu.Lock()
+	defer s.pendingCTMu.Unlock()
+	if s.pendingCT == nil {
+		s.pendingCT = map[string][]pendingCipher{}
+	}
+	q := s.pendingCT[key]
+	if len(q) >= pendingCipherCap {
+		q = q[1:]
+	}
+	s.pendingCT[key] = append(q, pendingCipher{ct: ct, added: time.Now()})
+}
+
+// retryPendingCiphertexts re-attempts every stashed ciphertext for a group.
+// Called whenever the group's epoch moves (a commit applied live, commits
+// bridged by history sync, a heal's re-join) — the moments a message that
+// arrived early could suddenly become readable. A gossip mesh delivers a
+// message exactly once, so this retry is the only way an in-flight message
+// survives racing its own membership commit.
+func (s *Service) retryPendingCiphertexts(groupID []byte) {
+	key := string(groupID)
+	s.pendingCTMu.Lock()
+	q := s.pendingCT[key]
+	delete(s.pendingCT, key)
+	s.pendingCTMu.Unlock()
+	if len(q) == 0 {
+		return
+	}
+	var keep []pendingCipher
+	for _, p := range q {
+		// deliverCiphertext, not receiveCiphertext: a still-unreadable entry
+		// must be re-queued by age here, not re-stashed as brand new (which
+		// would also re-kick recovery and make the stash immortal).
+		if !s.deliverCiphertext(groupID, p.ct) && time.Since(p.added) < pendingCipherTTL {
+			keep = append(keep, p)
+		}
+	}
+	if len(keep) > 0 {
+		s.pendingCTMu.Lock()
+		if s.pendingCT == nil {
+			s.pendingCT = map[string][]pendingCipher{}
+		}
+		s.pendingCT[key] = append(keep, s.pendingCT[key]...)
+		s.pendingCTMu.Unlock()
+	}
+}
+
+// pendingCiphertexts reports how many unreadable messages a group is sitting
+// on — recoverOutOfSync's measure of whether recovery actually recovered.
+func (s *Service) pendingCiphertexts(groupID []byte) int {
+	s.pendingCTMu.Lock()
+	defer s.pendingCTMu.Unlock()
+	return len(s.pendingCT[string(groupID)])
+}
+
+// receiveCiphertext handles an inbound channel message: decrypt, persist,
+// notify the UI. A message we cannot read yet is kept and retried — see
+// deliverCiphertext for the delivery half and the stash for the retry half.
 func (s *Service) receiveCiphertext(groupID, ct []byte) {
+	if s.deliverCiphertext(groupID, ct) {
+		return
+	}
+	// A message arrived, was addressed to a group we are in, and we could not
+	// read it. Dropping that silently is how a conversation becomes a black
+	// hole: the transport is demonstrably fine — typing indicators travel the
+	// same topics UNENCRYPTED and keep arriving — so both people watch each
+	// other type and neither ever receives a word, with nothing anywhere
+	// saying why.
+	//
+	// The cause is almost always a ratchet epoch we have not caught up to —
+	// often by mere milliseconds, when a message and the membership commit
+	// before it travel different gossip topics and arrive out of order. So:
+	// keep the ciphertext for a retry (in the racing-commit case that recovers
+	// the message with no network round trip at all), and kick recovery, which
+	// pulls the missing commits from a peer's log and only escalates to a
+	// re-add heal if no reachable member can bridge us. The "Catching up…"
+	// banner appears only when recovery finds a real gap — not for a
+	// two-millisecond race.
+	s.stashCiphertext(groupID, ct)
+	s.flagUndecryptable(groupID)
+}
+
+// deliverCiphertext decrypts and delivers one channel message, reporting
+// whether decryption succeeded. All post-decryption filtering (untracked
+// channel, mutes, duplicates) still counts as delivered — those messages are
+// finished, not pending.
+func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	msg, err := s.mls.Decrypt(s.ctx, groupID, ct)
 	if err != nil {
-		// A message arrived, was addressed to a group we are in, and we could not
-		// read it. Dropping that silently is how a conversation becomes a black
-		// hole: the transport is demonstrably fine — typing indicators travel the
-		// same topics UNENCRYPTED and keep arriving — so both people watch each
-		// other type and neither ever receives a word, with nothing anywhere
-		// saying why. That was reported from the outside as "low IQ bug", and it
-		// was: the app knew and said nothing.
-		//
-		// The cause is almost always a ratchet epoch we have not caught up to, so
-		// mark the guild stranded. That is not cosmetic — setOutOfSync shows the
-		// "Catching up…" banner AND kicks the heal path, which asks an authorized
-		// member to re-add us and converges the epochs. Repairing itself is the
-		// point; the banner is what makes the failure visible while it does.
-		// Deliberately NOT flagged on the first failure. Epochs drift for a second
-		// or two all the time — a commit lands, a message crosses it, the heal
-		// converges them and nobody should ever have known. Shouting "Catching
-		// up…" at both people for a hiccup that fixes itself is worse than the
-		// silence it replaced: it made a friend on the other end of a working
-		// conversation ask what was broken.
-		//
-		// So: only after the SAME group has failed repeatedly over a sustained
-		// window is this a real strand worth telling anyone about.
-		s.flagUndecryptable(groupID)
-		return
+		return false
 	}
 	var m domain.Message
 	if err := json.Unmarshal(msg.Plaintext, &m); err != nil {
-		return
+		return true
 	}
 	// Ignore messages for channels we no longer track (e.g. a guild we left but
 	// whose gossipsub subscription is still live this session).
@@ -2275,7 +2414,7 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	_, tracked := s.channelToGuild[m.ChannelID]
 	s.mu.RUnlock()
 	if !tracked {
-		return
+		return true
 	}
 	// Learn the sender's device→account mapping (if it's a device cert) so their
 	// linked-device PeerID resolves to the account in presence/roster views.
@@ -2288,37 +2427,37 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	switch m.Kind {
 	case "delete":
 		s.applyDelete(m.ReplyTo, m.Sender, m.ChannelID)
-		return
+		return true
 	case "reaction":
 		s.applyReaction(m.ReplyTo, m.Content, m.Sender)
-		return
+		return true
 	case "edit":
 		s.applyEdit(m.ReplyTo, m.Content, m.Sender)
-		return
+		return true
 	case "pin":
 		s.applyPin(m.ReplyTo)
-		return
+		return true
 	}
 	// Advisory mute: drop a normal message from a member who is currently muted.
 	s.mu.RLock()
 	guildID := s.channelToGuild[m.ChannelID]
 	s.mu.RUnlock()
 	if guildID != "" && s.isMuted(guildID, accountFingerprintOf(m.Sender)) {
-		return
+		return true
 	}
 	// Same for a closed forum post. Refusing only on the SEND side would make
 	// closing a thread a polite request to the one person who was never going to
 	// ignore it; dropping on receive is what makes every honest client agree the
 	// conversation is over.
 	if s.postIsLocked(m.ChannelID) {
-		return
+		return true
 	}
 	// Backfill a display name from the message if we don't know this member's
 	// name yet, so the roster and chat stay consistent.
 	s.learnNameHint(accountFingerprintOf(m.Sender), m.Name)
 	inserted, err := s.store.SaveMessage(m)
 	if err != nil || !inserted {
-		return // duplicate (gossip re-delivery or already synced): stay silent
+		return true // duplicate (gossip re-delivery or already synced): stay silent
 	}
 	s.emitMessage(m)
 	// A message landing in a closed DM reopens the conversation (Discord
@@ -2326,6 +2465,7 @@ func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	if guildID != "" {
 		s.unhideDM(guildID)
 	}
+	return true
 }
 
 // adoptBootstrap merges invite-carried rendezvous addrs into the saved network
