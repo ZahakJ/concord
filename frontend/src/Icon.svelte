@@ -69,6 +69,8 @@
     send: "M14.5 1.5 1.5 7.2 6.9 9.1 8.8 14.5z M14.5 1.5 6.9 9.1",
     // Mobile top bar: vertical-ellipsis "more" menu.
     dots: "M8 3.4h.01 M8 8h.01 M8 12.6h.01",
+    // Guild calendar (events panel, "Your calendar").
+    calendar: "M2.5 4h11v9.5h-11z M2.5 7h11 M5 2.5V5 M11 2.5V5",
     // Call events (missed-call lines in DMs).
     phone:
       "M4.4 2.5c.4 0 .8.2.9.6l.9 2.1a1 1 0 0 1-.2 1.1L4.8 7.5a9.8 9.8 0 0 0 3.7 3.7l1.2-1.2a1 1 0 0 1 1.1-.2l2.1.9c.4.1.6.5.6.9v1.4c0 .6-.5 1.1-1.1 1A11.9 11.9 0 0 1 2.5 3.6c-.1-.6.4-1.1 1-1.1z",

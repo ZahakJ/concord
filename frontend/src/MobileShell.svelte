@@ -176,6 +176,7 @@
         { label: "Jump to…", icon: "search", onClick: () => (S.quickSwitcher = true) },
         { label: "Search messages", icon: "search", onClick: () => (searchOpen = true) },
         { label: "Pinned messages", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
+        !dm && { label: "Events", icon: "calendar", onClick: () => (S.modal = { kind: "events" }) },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
         !g.dmNotes &&
           (inCall

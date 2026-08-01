@@ -37,6 +37,15 @@
       <strong>Open your Notes</strong>
       <span class="muted sub">A private, encrypted scratchpad</span>
     </button>
+    {#if S.guilds.some((g) => g.kind !== "dm")}
+      <!-- Only once there's a guild to have plans in — a brand-new user's
+           welcome shouldn't open onto an empty calendar. -->
+      <button class="card" onclick={() => (S.modal = { kind: "myCalendar" })}>
+        <span class="ic"><Icon name="calendar" size={18} /></span>
+        <strong>Your calendar</strong>
+        <span class="muted sub">What's coming up, across every guild</span>
+      </button>
+    {/if}
   </div>
 </div>
 
@@ -213,6 +222,9 @@
   }
   .cards .card:nth-child(3) {
     animation-delay: 0.14s;
+  }
+  .cards .card:nth-child(4) {
+    animation-delay: 0.21s;
   }
   @keyframes card-in {
     from {

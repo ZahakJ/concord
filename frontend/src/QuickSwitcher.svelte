@@ -60,6 +60,7 @@
       { id: "newdm", label: "New message", icon: "edit", run: () => (S.modal = { kind: "newDM" }) },
       { id: "create", label: "Create guild", icon: "plus", run: () => (S.modal = { kind: "create" }) },
       { id: "join", label: "Join with invite", icon: "door", run: () => (S.modal = { kind: "join" }) },
+      { id: "mycal", label: "Your calendar", icon: "calendar", run: () => (S.modal = { kind: "myCalendar" }) },
       { id: "settings", label: "Open settings", icon: "gear", run: () => (S.modal = { kind: "settings" }) },
       { id: "appearance", label: "Open appearance", icon: "spark", run: () => (S.modal = { kind: "appearance" }) },
       { id: "status", label: "Set status", icon: "smile", run: () => (S.statusPopRequest = true) },

@@ -95,6 +95,8 @@
   import ModalStats from "./modals/ModalStats.svelte";
   import ModalBlocked from "./modals/ModalBlocked.svelte";
   import ModalRequests from "./modals/ModalRequests.svelte";
+  import ModalEvents from "./modals/ModalEvents.svelte";
+  import ModalMyCalendar from "./modals/ModalMyCalendar.svelte";
   import { startScheduler } from "./lib/scheduled.svelte.js";
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
@@ -1053,6 +1055,10 @@
     <ModalBlocked onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "requests"}
     <ModalRequests onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "events"}
+    <ModalEvents onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "myCalendar"}
+    <ModalMyCalendar onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "newDM"}
     <ModalNewDM onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "renameGroup"}

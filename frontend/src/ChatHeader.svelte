@@ -212,6 +212,20 @@
       </button>
     {/if}
 
+    {#if g && g.kind !== "dm"}
+      <!-- The guild calendar — the thing that replaces "so when are we on?"
+           scroll-back. Mounted like Pins: a button here, a sheet entry on
+           phones (MobileShell's ⋯, since this header never renders there). -->
+      <button
+        class="ghost iconbtn"
+        title="Events"
+        aria-label="Guild events"
+        onclick={() => (S.modal = { kind: "events" })}
+      >
+        <Icon name="calendar" />
+      </button>
+    {/if}
+
     {#if ch && g?.kind !== "dm"}
       <button
         class="ghost iconbtn"
