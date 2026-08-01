@@ -2184,12 +2184,54 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 	}
 }
 
+// flagUndecryptable marks the guild owning groupID as out of sync, so the heal
+// path runs and the UI stops pretending everything is fine. Rate-limited to one
+// flag per group per healRetryInterval: a busy channel can deliver many
+// unreadable messages in a row and each one must not restart the heal.
+func (s *Service) flagUndecryptable(groupID []byte) {
+	key := string(groupID)
+	s.mu.Lock()
+	if s.lastUndecryptable == nil {
+		s.lastUndecryptable = map[string]time.Time{}
+	}
+	if t, ok := s.lastUndecryptable[key]; ok && time.Since(t) < healRetryInterval {
+		s.mu.Unlock()
+		return
+	}
+	s.lastUndecryptable[key] = time.Now()
+	var guildID string
+	for id, g := range s.guilds {
+		if bytes.Equal(g.GroupID, groupID) {
+			guildID = id
+			break
+		}
+	}
+	s.mu.Unlock()
+	if guildID != "" {
+		s.setOutOfSync(guildID, true)
+	}
+}
+
 // receiveCiphertext decrypts an inbound channel message, persists it, and
 // notifies the UI. Decryption failures (e.g. an epoch we haven't reached yet)
 // are dropped rather than surfaced.
 func (s *Service) receiveCiphertext(groupID, ct []byte) {
 	msg, err := s.mls.Decrypt(s.ctx, groupID, ct)
 	if err != nil {
+		// A message arrived, was addressed to a group we are in, and we could not
+		// read it. Dropping that silently is how a conversation becomes a black
+		// hole: the transport is demonstrably fine — typing indicators travel the
+		// same topics UNENCRYPTED and keep arriving — so both people watch each
+		// other type and neither ever receives a word, with nothing anywhere
+		// saying why. That was reported from the outside as "low IQ bug", and it
+		// was: the app knew and said nothing.
+		//
+		// The cause is almost always a ratchet epoch we have not caught up to, so
+		// mark the guild stranded. That is not cosmetic — setOutOfSync shows the
+		// "Catching up…" banner AND kicks the heal path, which asks an authorized
+		// member to re-add us and converges the epochs. Repairing itself is the
+		// point; the banner is what makes the failure visible while it does.
+		s.flagUndecryptable(groupID)
 		return
 	}
 	var m domain.Message

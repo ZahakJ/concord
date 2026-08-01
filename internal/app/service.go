@@ -157,6 +157,10 @@ type Service struct {
 	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
 	outOfSync map[string]bool
+	// Last time an undecryptable message flagged a group, so a channel full of
+	// unreadable traffic raises the alarm once per heal cycle rather than on
+	// every packet. See flagUndecryptable.
+	lastUndecryptable map[string]time.Time
 
 	// blocked is the in-memory mirror of the block list (see block.go), guarded
 	// by mu. A blocked account's DM/guild invites are dropped on arrival.

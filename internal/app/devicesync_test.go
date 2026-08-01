@@ -179,3 +179,35 @@ func TestGuildInvitesAreOfferedOnlyToOwnDevices(t *testing.T) {
 		t.Fatal("a peer redeemed invites offered by an account that is not its own")
 	}
 }
+
+// TestUndecryptableMessageStrandsTheGuild pins the "we can see each other typing
+// but neither of us gets any messages" report.
+//
+// Typing indicators are published UNENCRYPTED on the same topics, so they keep
+// arriving while messages — which must be decrypted — are dropped for being from
+// an epoch we have not reached. receiveCiphertext returned on that error without
+// a word, so the conversation became a black hole with nothing anywhere saying
+// why. It must instead mark the guild stranded, which both shows the banner and
+// starts the heal that converges the epochs.
+func TestUndecryptableMessageStrandsTheGuild(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	boot := testRendezvous(t, ctx)
+	svc := startServiceOn(t, ctx, t.TempDir(), boot)
+	g, err := svc.CreateGuild("Stranded")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	if svc.OutOfSync(g.ID) {
+		t.Fatal("guild started out of sync")
+	}
+
+	// Ciphertext this group can never read: right group, unreadable payload.
+	svc.receiveCiphertext(g.GroupID, []byte("not a valid MLS message"))
+
+	if !svc.OutOfSync(g.ID) {
+		t.Fatal("an undecryptable message was dropped silently — the conversation " +
+			"goes quiet and the app says nothing")
+	}
+}
