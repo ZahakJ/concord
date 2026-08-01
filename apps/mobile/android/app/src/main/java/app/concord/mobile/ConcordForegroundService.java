@@ -32,12 +32,30 @@ public class ConcordForegroundService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(NOTIF_ID, buildNotification());
-        acquireMulticastLock();
+        // NOT acquiring a multicast lock. See acquireMulticastLock below.
         // STICKY: if the OS reclaims us under heavy memory pressure, restart when
         // it can — the node re-establishes and drains the mailbox on restart.
         return START_STICKY;
     }
 
+    // DELIBERATELY UNUSED — kept so the reasoning survives the next person who
+    // notices mDNS is off on Android and reaches for this.
+    //
+    // A Wi-Fi multicast lock switches OFF the chip's multicast filtering, so the
+    // radio wakes the CPU for every broadcast and multicast packet on the
+    // network — on a busy home or office LAN that is a constant, and it was held
+    // for the entire life of the service, which is the entire time Concord is
+    // running.
+    //
+    // It bought nothing. It exists for mDNS, and mDNS never starts on Android at
+    // all: SELinux denies the netlink socket bind zeroconf needs, so
+    // Host.startMDNS fails and the node logs and carries on over DHT + relay
+    // (see internal/net/host.go, "mDNS discovery unavailable"). So this was pure
+    // radio cost for a feature the platform does not permit.
+    //
+    // If mDNS ever does work on Android, acquire it THEN — gated on the discovery
+    // actually having started, not on hope.
+    @SuppressWarnings("unused")
     private void acquireMulticastLock() {
         if (multicastLock != null && multicastLock.isHeld()) return;
         try {
