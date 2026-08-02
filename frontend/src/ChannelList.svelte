@@ -238,9 +238,14 @@
             })),
           ]
         : []),
+      canManageChannels && {
+        label: "Rename Channel",
+        icon: "edit",
+        onClick: () => (S.modal = { kind: "renameChannel", guildId: g.id, channelId: c.id, current: c.name }),
+      },
       canManageChannels && c.type !== "voice" && {
         label: "Edit Topic",
-        icon: "edit",
+        icon: "list",
         onClick: () => (S.modal = { kind: "channelTopic", channel: c }),
       },
       canManageChannels && c.type === "announcement" && {
