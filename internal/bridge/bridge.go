@@ -1874,8 +1874,12 @@ func (b *Bridge) RedeemLinkCode(code, passphrase string) (string, error) {
 	svc.ImportVerifiedFingerprints(res.Verified)
 	// Join each shared guild so the new device sees existing groups. Best-effort:
 	// history also converges via sync, so a transient failure isn't fatal.
+	// JoinLinkedInvite, not JoinViaInvite: this loop is machine-driven adoption,
+	// and it must honour a leave-tombstone on THIS device (a re-link handing
+	// over a guild the user deleted here must not resurrect it), where
+	// JoinViaInvite is the human's own paste and clears that tombstone.
 	for _, ic := range res.GuildInvites {
-		_, _ = svc.JoinViaInvite(ic)
+		svc.JoinLinkedInvite(ic)
 	}
 	// Guilds the issuer belongs to but does not administer can't be handed over
 	// from here — it has no authority to invite anyone to them. Saying so is the

@@ -690,7 +690,12 @@ export function confirmLeaveGuild(g) {
   S.modal = {
     kind: "confirm",
     title: `${verb} "${g.name}"?`,
-    body: "Its messages will be removed from this device.",
+    // Honest about what actually happens: removal is from THIS side and it
+    // sticks — linked devices and old invites won't quietly re-add it. For an
+    // owner, other members keep their copy (deleting is local, not a dissolve).
+    body: g.isOwner
+      ? "Its messages will be removed from this device, and it won't come back on its own. Other members keep their copy."
+      : "Its messages will be removed from this device, and you won't be re-added automatically. Rejoining takes a new invite.",
     confirmLabel: verb,
     onConfirm: async () => {
       S.modal = null;

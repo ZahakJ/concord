@@ -564,6 +564,16 @@ func (s *Service) handleDMInvite(_ context.Context, from peer.ID, request []byte
 			s.recordMessageRequest(senderFpr, req.Code)
 			return
 		}
+		// Leave-tombstone veto: an invite pushed AT us — even by a contact we
+		// trust — is automatic adoption, and a group the user deliberately left
+		// must not ride back in on it. (JoinViaInvite below would CLEAR the
+		// tombstone, because it exists for the human paste/accept; this pushed
+		// path has to check first.) Strangers' codes above are unaffected:
+		// nothing is redeemed until the user says yes, and that yes clears it.
+		if ic, derr := decodeInviteCode(strings.TrimSpace(req.Code)); derr == nil &&
+			s.store.GuildIsLeft(ic.GuildID) {
+			return
+		}
 		g, err := s.JoinViaInvite(req.Code)
 		if err != nil {
 			return

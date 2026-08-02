@@ -1052,6 +1052,14 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		return nil, fmt.Errorf("app: load guilds: %w", err)
 	}
 	for i := range guilds {
+		// A leave-tombstone outranks a stored row. A row can only coexist with
+		// one if a crash split deleteGuildLocal's two writes or something
+		// re-saved the guild after the leave — and loading it would resurrect
+		// a guild the user deliberately removed. Finish the delete instead.
+		if st.GuildIsLeft(guilds[i].ID) {
+			_ = st.DeleteGuild(guilds[i].ID)
+			continue
+		}
 		s.trackGuild(&guilds[i])
 	}
 

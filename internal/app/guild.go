@@ -467,13 +467,18 @@ func (s *Service) isGroupDM(guildID string) bool {
 	return len(people) > 1
 }
 
-// deleteGuildLocal is the hard removal: stop tracking the guild and delete its
-// stored data (and any DM bookkeeping for it).
+// deleteGuildLocal is the hard removal: stop tracking the guild, go quiet on
+// its topics, and delete its stored data (and any DM bookkeeping for it).
+// Membership itself is untouched — no MLS remove/commit — because a silent
+// leaf harms nobody, while a leave that mutated group crypto would put this
+// path inside the comms-critical zone for no user-visible gain.
 func (s *Service) deleteGuildLocal(guildID string) error {
 	s.mu.Lock()
 	g, ok := s.guilds[guildID]
 	var chIDs []string
+	var groupID []byte
 	if ok {
+		groupID = g.GroupID
 		for _, c := range g.Channels {
 			delete(s.channelToGuild, c.ID)
 			chIDs = append(chIDs, c.ID)
@@ -487,6 +492,17 @@ func (s *Service) deleteGuildLocal(guildID string) error {
 	if !ok {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
+	// Tombstone BEFORE deleting the data: leaving is an intent, not just a
+	// cleanup, and every automatic adoption path (a linked device's hello
+	// offer, a re-link handover, a contact's pushed invite, the startup load)
+	// consults this row to refuse the re-add. Written first so a crash between
+	// the two writes errs on the side of staying gone — the reverse order
+	// would recreate the reported bug in the crash window. An explicit
+	// user-driven JoinViaInvite clears it (see there).
+	_ = s.store.MarkGuildLeft(guildID)
+	// Go quiet: unwind the subscriptions trackGuild opened, so a left guild's
+	// frames stop arriving at all instead of being decrypted and dropped.
+	s.untrackGuildTopics(groupID, chIDs)
 	s.dmInviteMu.Lock()
 	delete(s.pendingDMInvites, guildID)
 	s.dmInviteMu.Unlock()
@@ -494,6 +510,31 @@ func (s *Service) deleteGuildLocal(guildID string) error {
 	_ = s.store.DeleteGuild(guildID)
 	s.emitGuildUpdate()
 	return nil
+}
+
+// untrackGuildTopics unwinds, symmetrically, everything trackGuild (and
+// watchVoice via trackGuild) subscribed for a guild: control, guild-meta, and
+// each channel's message/typing/voice topics. Called only from
+// deleteGuildLocal, after the guild has already been dropped from s.guilds.
+func (s *Service) untrackGuildTopics(groupID []byte, chIDs []string) {
+	s.ps.Unsubscribe(domain.ControlTopicID(groupID))
+	s.ps.Unsubscribe(domain.GuildMetaTopicID(groupID))
+	for _, ch := range chIDs {
+		// If the user was IN this room's call, stop the heartbeat goroutine.
+		// The departure announce inside LeaveVoice needs channelToGuild, which
+		// is already gone — acceptable: peers age us out of the roster, and a
+		// guild we are leaving is not owed a goodbye frame.
+		_ = s.LeaveVoice(ch)
+		s.ps.Unsubscribe(domain.TopicID(groupID, ch))
+		s.ps.Unsubscribe(domain.TypingTopicID(groupID, ch))
+		s.voiceMu.Lock()
+		watched := s.voiceWatched[ch]
+		delete(s.voiceWatched, ch) // so a re-join's watchVoice re-subscribes
+		s.voiceMu.Unlock()
+		if watched {
+			s.ps.Unsubscribe(domain.VoiceTopicID(groupID, ch))
+		}
+	}
 }
 
 // GuildMembers returns the account public keys of a guild's current members.
@@ -642,11 +683,20 @@ func (s *Service) offerAfter(g domain.Guild, err error) (domain.Guild, error) {
 	return g, err
 }
 
+// JoinViaInvite is the USER-INITIATED entry point: a human pasted this code
+// (or clicked accept on a request). That is why it may lift a leave-tombstone
+// where the automatic paths (joinOfferedInvite, JoinLinkedInvite, a pushed
+// invite) must honour it — the human just said "I want back in", and it is the
+// only voice allowed to override an earlier "get me out".
 func (s *Service) JoinViaInvite(code string) (domain.Guild, error) {
 	ic, err := decodeInviteCode(strings.TrimSpace(code))
 	if err != nil {
 		return domain.Guild{}, err
 	}
+	// Cleared even if the join then fails (owner offline): the intent stands,
+	// and a half-lifted state would leave the user unable to be re-offered the
+	// guild they are actively trying to re-enter.
+	_ = s.store.ClearGuildLeft(ic.GuildID)
 	// One join per guild at a time: a concurrent duplicate reads to the owner
 	// as a stale retry, which REMOVES our live leaf and re-adds it — two
 	// epoch-advancing commits every member must gaplessly apply for nothing.
@@ -673,6 +723,13 @@ func (s *Service) joinOfferedInvite(code string) {
 	if err != nil {
 		return
 	}
+	// Leave-tombstone veto, enforced RECEIVE-side: this path runs on nothing
+	// but another device's say-so, and a guild the user deliberately left must
+	// not ride back in on it. Only the user's own JoinViaInvite clears the
+	// tombstone.
+	if s.store.GuildIsLeft(ic.GuildID) {
+		return
+	}
 	release := s.claimJoin(ic.GuildID)
 	defer release()
 	s.mu.RLock()
@@ -682,6 +739,16 @@ func (s *Service) joinOfferedInvite(code string) {
 		return
 	}
 	_, _ = s.joinViaInviteLocked(ic)
+}
+
+// JoinLinkedInvite redeems one of the invite codes a device-link handover
+// carries (bridge.RedeemLinkCode). It is AUTOMATIC adoption — the user linked
+// a device, they did not name any guild — so unlike JoinViaInvite it honours
+// the leave-tombstone: a re-link of a device that still holds a guild the user
+// deleted must not resurrect it. Errors are deliberately swallowed, matching
+// the handover's best-effort contract (history converges via sync anyway).
+func (s *Service) JoinLinkedInvite(code string) {
+	s.joinOfferedInvite(code)
 }
 
 // joinViaInviteLocked is the join proper; the caller holds the guild's join

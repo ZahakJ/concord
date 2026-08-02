@@ -210,6 +210,10 @@ CREATE TABLE IF NOT EXISTS pending_members (
   created     INTEGER NOT NULL,
   PRIMARY KEY (guild_id, fingerprint)
 );
+CREATE TABLE IF NOT EXISTS left_guilds (
+  guild_id TEXT PRIMARY KEY,
+  at       INTEGER NOT NULL
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -1033,6 +1037,55 @@ func (s *Store) DeleteGuild(guildID string) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// MarkGuildLeft records that the user of THIS device deliberately left (or
+// deleted) a guild. The row is local intent memory: deleting a guild's data is
+// not enough to make leaving stick, because copies of the invite survive
+// elsewhere — a linked device's hello offer, a re-link handover, a contact's
+// push — and each of them re-adds the guild unless an adoption path can ask
+// "did I mean to be rid of this?" and refuse.
+func (s *Store) MarkGuildLeft(guildID string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO left_guilds (guild_id, at) VALUES (?, ?)
+		 ON CONFLICT(guild_id) DO UPDATE SET at = excluded.at`,
+		guildID, time.Now().Unix())
+	return err
+}
+
+// GuildIsLeft reports whether the user deliberately left guildID — the veto
+// every NON-user-initiated adoption path must consult before re-adding it.
+func (s *Store) GuildIsLeft(guildID string) bool {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(1) FROM left_guilds WHERE guild_id = ?`, guildID).Scan(&n)
+	return err == nil && n > 0
+}
+
+// ClearGuildLeft lifts the leave-tombstone. Called when the USER joins the
+// guild again on purpose — a tombstone that outranked an explicit re-join
+// would lock them out of a guild they want back.
+func (s *Store) ClearGuildLeft(guildID string) error {
+	_, err := s.db.Exec(`DELETE FROM left_guilds WHERE guild_id = ?`, guildID)
+	return err
+}
+
+// LeftGuilds lists every tombstoned guild ID (debugging/inspection).
+func (s *Store) LeftGuilds() ([]string, error) {
+	rows, err := s.db.Query(`SELECT guild_id FROM left_guilds ORDER BY at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 // SaveMessage stores a message, sealing its content at rest. Saving the same
