@@ -29,6 +29,19 @@ func TestNewGuildHasDefaultChannel(t *testing.T) {
 	}
 }
 
+func TestNewMeetingGuildIsVoiceFirst(t *testing.T) {
+	g := NewMeetingGuild("⚡ Meeting", []byte("group"), []byte("owner"))
+	if g.Kind != "meeting" {
+		t.Fatalf("kind = %q, want meeting", g.Kind)
+	}
+	// The seed channel must be a REAL voice channel: the sidebar roster and the
+	// guest-eviction control gate on Type == "voice", so a typeless channel
+	// renders as text and hides both.
+	if len(g.Channels) != 1 || g.Channels[0].Type != "voice" || g.Channels[0].Name != "meeting" {
+		t.Fatalf("expected one voice #meeting seed channel, got %+v", g.Channels)
+	}
+}
+
 func TestNewMessageValidation(t *testing.T) {
 	if _, err := NewMessage("", []byte("s"), "hi"); err == nil {
 		t.Fatal("expected error for empty channel")

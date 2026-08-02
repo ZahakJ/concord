@@ -227,9 +227,7 @@ func (s *Service) OpenEventGuests(guildID, eventID string, autoAdmit bool) (doma
 	if err != nil {
 		return domain.Event{}, fmt.Errorf("app: couldn't create the guest room — try again")
 	}
-	room := domain.NewGuild(eventGuestRoomName(ev.Title), gid, s.PublicKey())
-	room.Kind = "meeting"
-	room.Channels[0].Name = "meeting"
+	room := domain.NewMeetingGuild(eventGuestRoomName(ev.Title), gid, s.PublicKey())
 	if err := s.store.SaveGuild(room); err != nil {
 		return domain.Event{}, fmt.Errorf("app: couldn't create the guest room — try again")
 	}

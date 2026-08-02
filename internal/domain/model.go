@@ -258,6 +258,24 @@ func NewGuild(name string, groupID, ownerKey []byte) Guild {
 	}
 }
 
+// NewMeetingGuild constructs a disposable meeting room: Kind "meeting", with a
+// single seed channel that is a real VOICE channel named "meeting". A meeting
+// exists to be walked into as a call, so the room must READ as one the moment
+// it appears — the speaker glyph, the sidebar voice roster and the reachable
+// guest-eviction control all gate on Type == "voice", and the historically
+// typeless seed channel rendered as a text channel that merely allowed a call.
+// Voice channels carry their own chat, so seed system messages and meeting
+// text keep working. Rooms minted before this helper stay typeless in old DBs
+// and keep working through the Kind == "meeting" special-cases (voice-watch,
+// the Call button, relay-forced calls); only NEW rooms are voice-first.
+func NewMeetingGuild(name string, groupID, ownerKey []byte) Guild {
+	g := NewGuild(name, groupID, ownerKey)
+	g.Kind = "meeting"
+	g.Channels[0].Name = "meeting"
+	g.Channels[0].Type = "voice"
+	return g
+}
+
 // NewMessage constructs a message with a fresh ID and the current timestamp.
 func NewMessage(channelID string, sender []byte, content string) (Message, error) {
 	if channelID == "" {

@@ -590,9 +590,7 @@ func (s *Service) bookSlot(r bookingRequest) bookingResponse {
 	if err != nil {
 		return bookingResponse{Err: "The host's app couldn't create the meeting — try again."}
 	}
-	g := domain.NewGuild("📅 "+name+" — "+start.Format("Jan 2, 15:04"), gid, s.PublicKey())
-	g.Kind = "meeting"
-	g.Channels[0].Name = "meeting"
+	g := domain.NewMeetingGuild("📅 "+name+" — "+start.Format("Jan 2, 15:04"), gid, s.PublicKey())
 	if err := s.store.SaveGuild(g); err != nil {
 		return bookingResponse{Err: "The host's app couldn't create the meeting — try again."}
 	}

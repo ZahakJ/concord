@@ -194,9 +194,7 @@ func (s *Service) StartMeeting() (domain.Guild, string, error) {
 	if err != nil {
 		return domain.Guild{}, "", fmt.Errorf("app: create meeting group: %w", err)
 	}
-	g := domain.NewGuild("⚡ Meeting "+time.Now().Format("Jan 2, 15:04"), gid, s.PublicKey())
-	g.Kind = "meeting"
-	g.Channels[0].Name = "meeting"
+	g := domain.NewMeetingGuild("⚡ Meeting "+time.Now().Format("Jan 2, 15:04"), gid, s.PublicKey())
 	if err := s.store.SaveGuild(g); err != nil {
 		return domain.Guild{}, "", err
 	}
