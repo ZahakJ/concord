@@ -162,6 +162,19 @@
   --safe-left: max(env(safe-area-inset-left), var(--sa-left, 0px));
   --safe-right: max(env(safe-area-inset-right), var(--sa-right, 0px));
 
+  /* ANDROID HARD FLOOR — the belt that needs no suspenders.
+     main.js stamps data-platform="android" on <html> the moment the bundle
+     runs, before and independently of the native inset bridge. On Android the
+     WebView is edge-to-edge (insetsHandling:"disable") and env() reports 0, so
+     when the native --sa-* push never lands — an unregistered plugin, a document
+     swap the re-push missed, any OEM timing quirk — the top would otherwise sit
+     under the status bar with nothing to catch it. This guarantees baseline
+     clearance from CSS alone. 28px clears a standard Android status bar; a taller
+     notch is covered by --sa-top / --sa-floor-top when the bridge DOES answer,
+     which max() prefers. It only ever ADDS a floor, never caps, so a working
+     bridge is unaffected. Scoped to Android so iOS (env works) and desktop are
+     untouched. */
+
   /* Minimum hit area. A mouse is pixel-accurate; a fingertip covers ~9mm, which
      is why every touch platform specifies ~44px. Controls may LOOK smaller —
      pad or use a ::before overlay to reach the target without redrawing. */
@@ -1659,6 +1672,10 @@ textarea:focus {
   a:active {
     filter: brightness(1.18);
   }
+}
+
+:root[data-platform="android"] {
+  --safe-top: max(env(safe-area-inset-top), var(--sa-top, 0px), var(--sa-floor-top, 0px), 28px);
 }
 
 /* ---- THE PHONE BREAKPOINT ----------------------------------------------

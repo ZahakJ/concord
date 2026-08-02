@@ -15,6 +15,22 @@ loadAnimatedEmoji();
 // over. Desktop/browser mounts immediately — the page origin IS the API.
 async function boot() {
   const cap = typeof window !== "undefined" ? window.Capacitor : null;
+  // Stamp the platform on <html> the instant the bundle runs — BEFORE the native
+  // inset bridge pushes anything, and independently of whether it ever does. On
+  // Android the app draws edge-to-edge (insetsHandling:"disable") and env(safe-
+  // area-inset-*) reports 0, so if the native --sa-* push fails to land — a plugin
+  // that didn't register, a document swap the re-push missed, any OEM timing — the
+  // top bar renders under the status bar with nothing to catch it. This attribute
+  // lets app.css floor the top a fixed amount on Android with no native help at
+  // all; the bridge, when it works, still refines the exact value via max(). This
+  // is the belt that does not depend on the suspenders.
+  if (cap?.getPlatform) {
+    try {
+      document.documentElement.dataset.platform = cap.getPlatform();
+    } catch {
+      /* older Capacitor without getPlatform — the native push is the only path */
+    }
+  }
   if (cap?.Plugins?.ConcordCore) {
     const { port, token } = await cap.Plugins.ConcordCore.start();
     configureTransport({ baseURL: `http://127.0.0.1:${port}`, authToken: token });
