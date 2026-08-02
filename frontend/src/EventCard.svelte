@@ -407,7 +407,7 @@
         </button>
       </div>
       <span class="spring"></span>
-      {#if ev.guestUrl && ev.memberCode}
+      {#if ev.guestUrl && (ev.memberCode || isGuestHost)}
         <!-- THE button. The only filled control on the page when live. -->
         <!-- Visible text IS the accessible name ("Join now" / "Join early"),
              so voice control users can say what they see. -->

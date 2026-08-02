@@ -410,10 +410,28 @@ func (s *Service) JoinEventRoom(guildID, eventID string) (domain.Guild, error) {
 	if !found || ev.GuildID != guildID {
 		return domain.Guild{}, fmt.Errorf("app: unknown event %s", eventID)
 	}
+	// The HOST holds the room locally and owns its guild — no invite code is
+	// needed or wanted. This runs BEFORE the memberCode gate so the host can
+	// always join their own room, even one opened before member Join shipped;
+	// and while we are here, heal a code-less room (OpenEventGuests is
+	// idempotent) so members can join it too, closing the migration gap without
+	// the host having to know it exists.
+	s.eventGuestMu.Lock()
+	rec, hosting := s.eventGuests[eventID]
+	s.eventGuestMu.Unlock()
+	if hosting && rec.MeetingGuildID != "" {
+		s.mu.RLock()
+		room, have := s.guilds[rec.MeetingGuildID]
+		s.mu.RUnlock()
+		if have {
+			if ev.MemberCode == "" {
+				_, _ = s.OpenEventGuests(guildID, eventID, rec.AutoAdmit)
+			}
+			return *room, nil
+		}
+	}
 	if ev.MemberCode == "" {
 		if ev.GuestURL != "" {
-			// A room opened before member Join shipped: the host re-opening it
-			// (OpenEventGuests is idempotent) stamps the code on.
 			return domain.Guild{}, fmt.Errorf("app: this room predates one-tap Join — ask the host to re-open it")
 		}
 		return domain.Guild{}, fmt.Errorf("app: this event has no room to join")
