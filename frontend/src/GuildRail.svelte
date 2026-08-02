@@ -30,6 +30,7 @@
   } from "./lib/rail.js";
   import { playFlyby } from "./lib/sounds.js";
   import { longpress } from "./lib/touch.js";
+  import { RADAR, guildLiveSet } from "./lib/radar.svelte.js";
 
   // Touch: long-press opens the rail menus. iOS/WKWebView never synthesizes
   // `contextmenu` for a plain element, so mute / leave / invite / guild settings
@@ -165,6 +166,14 @@
     rolling = false;
     requestAnimationFrame(() => (rolling = true));
   }
+
+  // Event radar surfaces (lib/radar.svelte.js): guilds with a meeting live
+  // RIGHT NOW wear a pulsing --ok dot; guilds where someone scheduled or moved
+  // an event you haven't looked at yet wear a quiet accent dot; the calendar
+  // pill below totals the unseen count so "click the calendar thingy" has a
+  // visible reason. All of it clears by opening the relevant calendar.
+  const liveGuilds = $derived(guildLiveSet());
+  const unseenTotal = $derived(Object.values(RADAR.unseen).reduce((a, b) => a + b, 0));
 
   const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
   const inDMs = $derived(g?.kind === "dm");
@@ -489,6 +498,11 @@
           {#if sv.id !== S.activeGuildId && u.count > 0}
             <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
           {/if}
+          {#if liveGuilds.has(sv.id)}
+            <span class="live-dot" title="A scheduled event is live in {sv.name} — a channel inside wears LIVE"></span>
+          {:else if RADAR.unseen[sv.id]}
+            <span class="ev-dot" title="New event in {sv.name} — open its calendar"></span>
+          {/if}
         </div>
       {:else}
         {@const folder = entry.folder}
@@ -572,6 +586,11 @@
                   {#if gg.id !== S.activeGuildId && u.count > 0}
                     <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
                   {/if}
+                  {#if liveGuilds.has(gg.id)}
+                    <span class="live-dot" title="A scheduled event is live in {gg.name} — a channel inside wears LIVE"></span>
+                  {:else if RADAR.unseen[gg.id]}
+                    <span class="ev-dot" title="New event in {gg.name} — open its calendar"></span>
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -596,6 +615,13 @@
       onclick={() => (S.modal = S.modal?.kind === "myCalendar" ? null : { kind: "myCalendar" })}
     >
       <Icon name="calendar" size={20} />
+      {#if unseenTotal > 0}
+        <!-- Accent, not danger: new plans are an invitation, and red is spent
+             on "people are talking at you". Opening the calendar clears it. -->
+        <span class="cal-badge" aria-label="{unseenTotal} new or changed {unseenTotal === 1 ? 'event' : 'events'}">
+          {unseenTotal > 99 ? "99+" : unseenTotal}
+        </span>
+      {/if}
     </button>
     <div class="divider"></div>
     {#if S.isMobile}
@@ -916,6 +942,59 @@
       opacity: 0;
     }
   }
+  /* ---- event radar dots (bottom-right, opposite corner from unread) ----
+     live-dot: a meeting is happening inside — pulsing --ok, mirror of the
+     channel row's LIVE chip. ev-dot: unseen new/changed event — still accent,
+     quiet, cleared by opening that calendar. Both ride the bubble corner so
+     they can coexist with the red unread count at the top. */
+  .live-dot,
+  .ev-dot {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 2px solid var(--bg-0);
+    pointer-events: none;
+    animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .live-dot {
+    background: var(--ok);
+    animation:
+      badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+      rail-live-pulse 1.4s ease-in-out 0.3s infinite;
+  }
+  @keyframes rail-live-pulse {
+    50% {
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 25%, transparent);
+    }
+  }
+  .ev-dot {
+    background: var(--accent);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  /* The rail calendar's unseen-events count: same geometry as the unread
+     badge, accent ink — a nudge toward plans, not an alarm. */
+  .cal-badge {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    line-height: 1;
+    display: grid;
+    place-items: center;
+    border: 2px solid var(--bg-0);
+    pointer-events: none;
+    animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
   .badge.mention {
     animation:
       badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both,
@@ -940,6 +1019,11 @@
   @media (prefers-reduced-motion: reduce) {
     .badge.mention {
       animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    }
+    .live-dot,
+    .ev-dot,
+    .cal-badge {
+      animation: none;
     }
     .bubble-wrap,
     .pill.home,

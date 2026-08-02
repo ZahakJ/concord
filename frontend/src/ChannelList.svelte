@@ -47,6 +47,7 @@
     disconnectVoiceMember,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { RADAR, liveChannelSet } from "./lib/radar.svelte.js";
   import { PERM, has } from "./lib/perms.js";
   import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { longpress, haptic } from "./lib/touch.js";
@@ -66,6 +67,11 @@
 
   const g = $derived(activeGuild());
   const canManageChannels = $derived(has(g?.myPerms || 0, PERM.MANAGE_CHANNELS));
+
+  // Channels hosting a live channel-located event right now (the event radar's
+  // passive indicator). Derives from RADAR.now's tick, so the badge appears at
+  // start and clears itself when the live window ends — no timers here.
+  const liveChannels = $derived(liveChannelSet());
 
   function confirmDelete(title, body, onConfirm, confirmLabel = "Delete") {
     S.modal = { kind: "confirm", title, body, confirmLabel, onConfirm };
@@ -617,6 +623,20 @@
             />
           {/if}
           <span class="dm-name">{dm.dmNotes ? "Notes (you)" : dm.name}</span>
+          {#if !dm.dmNotes && liveChannels.has(dm.channels?.[0]?.id)}
+            <!-- A DM-located event is live: the conversation IS the meeting. -->
+            <span class="ch-live" title="A scheduled event is live in this conversation">
+              <i class="ch-live-dot"></i>LIVE
+            </span>
+          {:else if !dm.dmNotes && RADAR.unseen[dm.id]}
+            <!-- They put something on your shared calendar — same nudge the
+                 guild pill wears in the rail. Cleared by opening the calendar. -->
+            <span
+              class="ev-dot"
+              title="New event on this conversation's calendar"
+              aria-label="New event on this conversation's calendar"
+            ></span>
+          {/if}
           {#if unread.count > 0 && !active}
             <span class="count" class:mention={unread.mentions > 0}
               >{unread.count > 99 ? "99+" : unread.count}</span
@@ -745,6 +765,14 @@
               <span class="ch-name">{c.name}</span>
               {#if c.type === "voice" && isCallLocked(c.id)}
                 <span class="ch-lock" title="Call locked — knock to join"><Icon name="lock" size={11} /></span>
+              {/if}
+              {#if liveChannels.has(c.id)}
+                <!-- A scheduled event is happening IN here right now — the
+                     channel wears it, so the meeting is findable even after
+                     the go-live banner is gone. -->
+                <span class="ch-live" title="A scheduled event is live in here — join in">
+                  <i class="ch-live-dot"></i>LIVE
+                </span>
               {/if}
               {#if c.type !== "voice" && !active && u && !isMuted(c.id, g?.id)}
                 <span class="count" class:mention={u.mentions > 0}>
@@ -1234,6 +1262,39 @@
     background: #f04747;
     animation: live-pulse 1.4s ease-in-out infinite;
   }
+  /* A live scheduled event in this channel/DM. Same chip anatomy as the
+     screen-share LIVE above, but in --ok: a meeting is an invitation, not an
+     alarm — red stays reserved for mentions and broadcasts. */
+  .ch-live {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--ok-soft);
+    color: var(--ok-text);
+    font-size: var(--fs-micro);
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+  .ch-live-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--ok);
+    animation: live-pulse 1.4s ease-in-out infinite;
+  }
+  /* Unseen new/changed event on a DM's calendar — a quiet accent dot, the
+     same voice the guild pill uses in the rail. */
+  .ev-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+    flex-shrink: 0;
+  }
   @keyframes live-pulse {
     0%,
     100% {
@@ -1244,7 +1305,8 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .live-dot {
+    .live-dot,
+    .ch-live-dot {
       animation: none;
     }
   }
