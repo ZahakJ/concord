@@ -583,6 +583,21 @@
   </div>
 
   <div class="rail-foot">
+    <!-- The blended "Your calendar" used to hide behind the Welcome screen and
+         the jump palette — invisible once you live in a channel. The rail is
+         the one strip on screen in every layout (desktop column, phone
+         drawer), and the pinned footer keeps it reachable at any guild count.
+         Same pill DNA as the guilds above; tapping again puts it away. -->
+    <button
+      class="pill cal"
+      class:active={S.modal?.kind === "myCalendar"}
+      title="Your calendar — everything you're part of, one river"
+      aria-label="Your calendar"
+      onclick={() => (S.modal = S.modal?.kind === "myCalendar" ? null : { kind: "myCalendar" })}
+    >
+      <Icon name="calendar" size={20} />
+    </button>
+    <div class="divider"></div>
     {#if S.isMobile}
       <button class="pill add" title="Add a server" aria-label="Add a server" onclick={addMenu}>
         <Icon name="plus" />
@@ -788,6 +803,24 @@
     margin: 2px 0;
     flex-shrink: 0;
   }
+  /* The calendar pill: home's squircle voice (a place you go, not a guild),
+     accent ink so it reads as "yours". .pill.active supplies the open state —
+     the same fill a selected guild wears. */
+  .pill.cal {
+    border-radius: 15px;
+    background: var(--bg-3);
+    color: var(--accent-hover);
+  }
+  @media (pointer: fine) {
+    .pill.cal:hover {
+      border-radius: 15px;
+      background: var(--accent);
+      color: var(--accent-fg);
+    }
+  }
+  .pill.cal.active {
+    border-radius: 15px;
+  }
   .pill.add {
     background: transparent;
     border: 1px dashed var(--border);
@@ -814,7 +847,8 @@
     animation-delay: calc(40ms + var(--i, 0) * 25ms);
   }
   .pill.home,
-  .pill.add {
+  .pill.add,
+  .pill.cal {
     animation: rail-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1) both;
   }
   .pill.add {
@@ -910,6 +944,7 @@
     .bubble-wrap,
     .pill.home,
     .pill.add,
+    .pill.cal,
     .jet.roll {
       animation: none;
     }

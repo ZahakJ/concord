@@ -179,6 +179,9 @@
         // Every room has a calendar now: guilds share theirs, a DM's belongs
         // to its people, Notes' is private (a group of one).
         { label: g.dmNotes ? "Private events" : "Events", icon: "calendar", onClick: () => (S.modal = { kind: "events" }) },
+        // The blended calendar lives on the rail too, but mid-chat the rail is
+        // a drawer-swipe away — this sheet is already under the thumb.
+        { label: "Your calendar", icon: "calendar", onClick: () => (S.modal = { kind: "myCalendar" }) },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
         !g.dmNotes &&
           (inCall

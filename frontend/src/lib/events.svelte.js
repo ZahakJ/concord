@@ -76,6 +76,15 @@ export function guildTint(id) {
   return `background:linear-gradient(135deg, hsl(${hue} 42% 34%), hsl(${(hue + 45) % 360} 48% 25%));color:#fff`;
 }
 
+// One flat swatch from the same hash — for the month grid's event dots, where
+// a 5px gradient reads as mud. Lightness raised so the dot carries on dark
+// panel backgrounds where the 34%-lightness tile color would vanish.
+export function guildDotColor(id) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360} 52% 58%)`;
+}
+
 export const guildInitials = (name) =>
   (name || "?")
     .split(/\s+/)
