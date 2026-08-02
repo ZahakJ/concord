@@ -99,7 +99,9 @@
   import ModalEvents from "./modals/ModalEvents.svelte";
   import ModalMyCalendar from "./modals/ModalMyCalendar.svelte";
   import JoinVeil from "./JoinVeil.svelte";
+  import EventNudges from "./EventNudges.svelte";
   import { startScheduler } from "./lib/scheduled.svelte.js";
+  import { startEventRadar, markCalendarSeen, markAllCalendarsSeen } from "./lib/radar.svelte.js";
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
 
@@ -177,6 +179,30 @@
     }
   });
 
+  // Calendar watermarks for the event radar: standing in a calendar IS seeing
+  // its events. While ModalEvents (one guild/DM) or ModalMyCalendar (all of
+  // them) is open, keep that scope's "seen" mark current — the effect re-runs
+  // on every event-cache change, so an event landing under the user's nose is
+  // seen too — and advance it once more at close. Clears the rail/pill badges.
+  let openCal = null;
+  $effect(() => {
+    const m = S.modal;
+    const cur =
+      m?.kind === "myCalendar"
+        ? { all: true }
+        : m?.kind === "events"
+          ? { gid: m.guildId || S.activeGuildId } // same freeze rule ModalEvents uses
+          : null;
+    if (cur) {
+      if (cur.all) markAllCalendarsSeen();
+      else markCalendarSeen(cur.gid);
+    } else if (openCal) {
+      if (openCal.all) markAllCalendarsSeen();
+      else markCalendarSeen(openCal.gid);
+    }
+    openCal = cur;
+  });
+
   async function acceptCall(channelId) {
     await jumpToChannel(channelId); // open the DM so the call box is in view
     await joinVoice(channelId);
@@ -230,6 +256,7 @@
     requestPermission();
     installShortcuts();
     startScheduler();
+    startEventRadar(); // live-meeting + new-event radar (lib/radar.svelte.js)
     startEphemeralSweep();
     registerPushToken();
     applyStayConnected();
@@ -954,6 +981,10 @@
   {/if}
 
   <Toasts />
+
+  <!-- The event radar's banners: "live now — Join" and "new event — View".
+       Top-center, apart from the toast pile — these carry a verb. -->
+  <EventNudges onJoinVoice={joinVoice} />
 
   <!-- The join threshold — covers everything while an event room is entered. -->
   <JoinVeil />

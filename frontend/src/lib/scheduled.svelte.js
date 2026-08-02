@@ -80,23 +80,32 @@ async function fireDueScheduled(now) {
   }
 }
 
+// localNotify — the one OS-notification door for locally-decided alerts
+// (reminders here, the event radar in lib/radar.svelte.js). Only speaks when
+// the page is hidden: a visible app already showed its own toast/banner, and
+// doubling both is the fastest way to teach people to revoke the permission.
+// Degrades silently when Notification is absent or denied.
+export function localNotify(title, body, channelId, tag) {
+  try {
+    if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
+      const n = new Notification(title, { body, tag });
+      n.onclick = () => {
+        window.focus();
+        if (channelId) jumpToChannel(channelId);
+        n.close();
+      };
+    }
+  } catch {
+    /* no notifications available — the in-app surface still fired */
+  }
+}
+
 function fireDueReminders(now) {
   const due = reminders.filter((r) => r.at <= now);
   for (const r of due) {
     cancelReminder(r.id);
     flash(`⏰ Reminder: ${r.preview || "a message"}`, "info");
-    try {
-      if (typeof Notification !== "undefined" && Notification.permission === "granted" && document.hidden) {
-        const n = new Notification("⏰ Reminder", { body: r.preview || "You asked to be reminded", tag: r.id });
-        n.onclick = () => {
-          window.focus();
-          jumpToChannel(r.channelId);
-          n.close();
-        };
-      }
-    } catch {
-      /* no notifications available — the toast still fired */
-    }
+    localNotify("⏰ Reminder", r.preview || "You asked to be reminded", r.channelId, r.id);
   }
 }
 
