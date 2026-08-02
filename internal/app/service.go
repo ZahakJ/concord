@@ -321,6 +321,14 @@ type Profile struct {
 	// the profile card. A name plus an optional cover URL (validated against
 	// the Steam CDN allowlist) — art stays a URL, keeping broadcasts tiny.
 	Games []Game `json:"games,omitempty"`
+	// GamesSet says the sender is AUTHORITATIVE about Games — i.e. an empty
+	// Games really means "I have none", not "I didn't send them". Because
+	// Games is omitempty, those two cases are indistinguishable on the wire,
+	// and treating absence as emptiness silently WIPED a real collection when
+	// another device adopted the profile (see AdoptLinkedProfile). A build
+	// that predates this field never sets it, so its silence is now read as
+	// "don't touch my games" instead of "delete them".
+	GamesSet bool `json:"gamesSet,omitempty"`
 	// Color2 pairs with Color to form the profile's gradient theme
 	// (Nitro-style). Empty = single-color/default rendering.
 	Color2 string `json:"color2,omitempty"`
@@ -1429,6 +1437,9 @@ func (s *Service) SelfProfile() Profile {
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
 		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:], Activity: act,
 		Games: decodeGames(rawGames), Color2: color2, Frame: frame, Effect: effect, Style: style,
+		// This device read its own games out of the store, so whatever it says
+		// — including "none" — is the truth about this account's collection.
+		GamesSet:  true,
 		UpdatedAt: s.profileStamp(),
 	}
 }
@@ -1495,13 +1506,7 @@ func (s *Service) AdoptLinkedProfile(p Profile) bool {
 		p.Bio = p.Bio[:maxBioBytes]
 	}
 	sanitizeProfileExtras(&p)
-	gamesJSON := ""
-	if games := sanitizeGames(p.Games); len(games) > 0 {
-		if raw, err := json.Marshal(games); err == nil {
-			gamesJSON = string(raw)
-		}
-	}
-	for k, v := range map[string]string{
+	fields := map[string]string{
 		"display_name":  strings.TrimSpace(p.Name),
 		"status_text":   strings.TrimSpace(p.Status),
 		"avatar_emoji":  strings.TrimSpace(p.Emoji),
@@ -1514,8 +1519,23 @@ func (s *Service) AdoptLinkedProfile(p Profile) bool {
 		"avatar_frame":  p.Frame,
 		"card_effect":   p.Effect,
 		"card_style":    encodeStyle(p.Style),
-		"games":         gamesJSON,
-	} {
+	}
+	// Games are only overwritten by a sender that is AUTHORITATIVE about them.
+	// Games is `omitempty`, so a device that simply didn't send the field is
+	// indistinguishable on the wire from one holding zero games — and this
+	// function used to write "" for both, silently DESTROYING a real
+	// collection the moment any other device's profile won the stamp race.
+	// Now: an explicit GamesSet (or a non-empty list) may write; a silent
+	// sender leaves the local collection alone. Deleting your last game still
+	// propagates, because SelfProfile always sets GamesSet.
+	if games := sanitizeGames(p.Games); len(games) > 0 {
+		if raw, err := json.Marshal(games); err == nil {
+			fields["games"] = string(raw)
+		}
+	} else if p.GamesSet {
+		fields["games"] = ""
+	}
+	for k, v := range fields {
 		if err := s.store.SetSetting(k, v); err != nil {
 			return false
 		}

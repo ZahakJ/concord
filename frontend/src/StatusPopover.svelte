@@ -87,13 +87,30 @@
       pos = null;
       return;
     }
-    const cw = card.offsetWidth;
-    const ch = card.offsetHeight;
-    const left = Math.max(8, Math.min(anchor.x, window.innerWidth - cw - 8));
-    let top = anchor.y - ch - 8;
-    if (top < 8) top = anchor.y + anchor.h + 8;
-    top = Math.min(top, window.innerHeight - ch - 8);
-    pos = { left, top };
+    // The card's height is NOT reactive state — expanding the game shelf (or
+    // any other section) changes it without re-running this effect, and the
+    // card then grows DOWNWARD from a stale top until its bottom leaves the
+    // screen. Re-place on every size change instead, so growth pushes the top
+    // up and the card stays pinned just above the trigger.
+    const place = () => {
+      const cw = card.offsetWidth;
+      const ch = card.offsetHeight;
+      const left = Math.max(8, Math.min(anchor.x, window.innerWidth - cw - 8));
+      let top = anchor.y - ch - 8;
+      if (top < 8) top = anchor.y + anchor.h + 8;
+      // Never let the clamp push the top off-screen: a card taller than the
+      // viewport sits at the margin and scrolls internally (see max-height).
+      top = Math.max(8, Math.min(top, window.innerHeight - ch - 8));
+      pos = { left, top };
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(card);
+    window.addEventListener("resize", place);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", place);
+    };
   });
 </script>
 
@@ -176,6 +193,11 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
+    /* An expanded game shelf can outgrow the viewport. Cap it and scroll
+       inside rather than letting the card run off the bottom of the screen. */
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     animation: pop-in 0.18s cubic-bezier(0.34, 1.4, 0.64, 1);
   }
   @keyframes pop-in {

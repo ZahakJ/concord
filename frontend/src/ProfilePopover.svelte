@@ -112,14 +112,30 @@
       pos = null;
       return;
     }
-    const cw = card.offsetWidth;
-    const ch = card.offsetHeight;
-    let left = pop.rect.x + pop.rect.w / 2 - cw / 2;
-    left = Math.max(8, Math.min(left, window.innerWidth - cw - 8));
-    let top = pop.rect.y - ch - 8;
-    if (top < 8) top = pop.rect.y + pop.rect.h + 8;
-    top = Math.min(top, window.innerHeight - ch - 8);
-    pos = { left, top };
+    // Height is NOT reactive state: revealing the safety number (or any
+    // section that grows) would otherwise leave `top` stale and the card would
+    // extend downward off the screen. Re-place on every size change so growth
+    // moves the top edge up and the card stays anchored.
+    const place = () => {
+      const cw = card.offsetWidth;
+      const ch = card.offsetHeight;
+      let left = pop.rect.x + pop.rect.w / 2 - cw / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - cw - 8));
+      let top = pop.rect.y - ch - 8;
+      if (top < 8) top = pop.rect.y + pop.rect.h + 8;
+      // Clamp low AND high — a card taller than the viewport must not have its
+      // top pushed off-screen; it sits at the margin and scrolls internally.
+      top = Math.max(8, Math.min(top, window.innerHeight - ch - 8));
+      pos = { left, top };
+    };
+    place();
+    const ro = new ResizeObserver(place);
+    ro.observe(card);
+    window.addEventListener("resize", place);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", place);
+    };
   });
 
   async function verify() {
@@ -675,6 +691,11 @@
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
     overflow: hidden;
+    /* Revealing the safety number can outgrow the viewport — cap and scroll
+       inside instead of running off the bottom of the screen. */
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
     animation: pop-in 0.12s ease;
   }
   @keyframes pop-in {
