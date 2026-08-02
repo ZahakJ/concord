@@ -17,9 +17,12 @@ import (
 // security-critical rules — who may define/assign roles, who may ban, and the
 // anti-escalation guarantees — exhaustively unit-testable without networks.
 //
-// Trust anchor: the guild owner (guild.OwnerID) implicitly holds every
-// permission and outranks every role. Everyone else's power comes from named
-// roles the owner (or a delegate holding ManageRoles) defines and assigns.
+// Trust anchor: the guild owner implicitly holds every permission and outranks
+// every role. Everyone else's power comes from named roles the owner (or a
+// delegate holding ManageRoles) defines and assigns. guild.OwnerID stays the
+// immutable FOUNDING key and replay seed; the CURRENT owner is computed by
+// replay — a valid transfer_owner chain (each link signed by the then-current
+// owner) moves it, Discord-style, without touching MLS membership at all.
 
 // Permission is a capability bit. Each maps to a concrete action in the P2P
 // system, so a role grants exactly the powers it names — not a blanket "mod".
@@ -68,7 +71,7 @@ type Role struct {
 type govOp struct {
 	Seq    uint64 `json:"seq"`
 	Signer []byte `json:"signer"` // author's Ed25519 account public key
-	Type   string `json:"type"`   // role_upsert | role_delete | role_assign | ban | unban
+	Type   string `json:"type"`   // role_upsert | role_delete | role_assign | ban | unban | mute | unmute | transfer_owner
 
 	// role_upsert
 	RoleID   string `json:"roleId,omitempty"`
@@ -78,7 +81,8 @@ type govOp struct {
 	Position int    `json:"position,omitempty"`
 
 	// role_assign (Add=false removes) — Target is a member fingerprint;
-	// ban/unban/mute/unmute also use Target.
+	// ban/unban/mute/unmute also use Target, and transfer_owner names the
+	// NEW owner's account fingerprint in it.
 	Target string `json:"target,omitempty"`
 	Add    bool   `json:"add,omitempty"`
 	Until  int64  `json:"until,omitempty"` // mute: muted-until (unix seconds)
@@ -113,7 +117,16 @@ type GuildState struct {
 	MemberRoles map[string][]string // fingerprint -> assigned role IDs
 	Banned      map[string]bool     // barred fingerprints
 	Muted       map[string]int64    // fingerprint -> muted-until (unix seconds)
+	// owner is the CURRENT owner's account fingerprint as computed by replay:
+	// the founding owner unless a valid transfer_owner chain moved it.
+	// Unexported because it is derived — Owner() is the read, and every
+	// authority decision must consult it rather than guild.OwnerID.
+	owner string
 }
+
+// Owner is the guild's EFFECTIVE owner fingerprint after replaying the log
+// (empty only for a zero GuildState that never saw a replay).
+func (st GuildState) Owner() string { return st.owner }
 
 func newGuildState() GuildState {
 	return GuildState{
@@ -191,39 +204,46 @@ func canonicalOps(ops []govOp) []govOp {
 //     impossible unless you already are one.
 //   - ban/unban: ManageMembers (or owner); the owner cannot be banned; a ban
 //     strips the member's roles.
+//   - transfer_owner: only the THEN-current owner's signature moves ownership,
+//     evaluated in canonical order so every peer agrees on the chain A→B→C and
+//     a stale op the dethroned founder signs afterwards is dead on arrival.
+//
+// "Owner" everywhere below means the CURRENT owner (cur): it starts at the
+// founding key and each valid transfer_owner re-anchors every later op's
+// authority check — including who is ban/mute-immune — at the new owner.
 //
 // Invalidly-signed or unauthorized ops are skipped, not fatal (the log is
 // gossiped; a peer may see a stray or malicious op).
 func replayGuildOps(owner []byte, ops []govOp) GuildState {
-	ownerFpr := identity.FingerprintOf(owner)
+	cur := identity.FingerprintOf(owner)
 	st := newGuildState()
 	for _, o := range canonicalOps(ops) {
 		if !o.verifySig() {
 			continue
 		}
 		signer := o.signerFpr()
-		isOwner := signer == ownerFpr
+		isOwner := signer == cur
 
 		switch o.Type {
 		case "role_upsert":
 			if o.RoleID == "" {
 				continue
 			}
-			if !isOwner && !st.Can(ownerFpr, signer, PermManageRoles) {
+			if !isOwner && !st.Can(cur, signer, PermManageRoles) {
 				continue
 			}
 			newPerms := Permission(o.Perms) & permAll
 			if !isOwner {
 				// Can't mint a role more powerful than yourself.
-				if !st.permsOf(ownerFpr, signer).Has(newPerms) {
+				if !st.permsOf(cur, signer).Has(newPerms) {
 					continue
 				}
 				// Can't create/move a role at or above your own rank.
-				if o.Position >= st.topPosition(ownerFpr, signer) {
+				if o.Position >= st.topPosition(cur, signer) {
 					continue
 				}
 				// Can't edit an existing role that outranks you.
-				if existing, ok := st.Roles[o.RoleID]; ok && existing.Position >= st.topPosition(ownerFpr, signer) {
+				if existing, ok := st.Roles[o.RoleID]; ok && existing.Position >= st.topPosition(cur, signer) {
 					continue
 				}
 			}
@@ -236,7 +256,7 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 				continue
 			}
 			if !isOwner {
-				if !st.Can(ownerFpr, signer, PermManageRoles) || r.Position >= st.topPosition(ownerFpr, signer) {
+				if !st.Can(cur, signer, PermManageRoles) || r.Position >= st.topPosition(cur, signer) {
 					continue
 				}
 			}
@@ -250,12 +270,12 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 			// moderator from decorating (or re-ranking) them. The owner giving
 			// THEMSELVES a role is fine and is how they take the Admin badge;
 			// it grants nothing they don't already have.
-			if !ok || o.Target == "" || (o.Target == ownerFpr && !isOwner) {
+			if !ok || o.Target == "" || (o.Target == cur && !isOwner) {
 				continue
 			}
 			if !isOwner {
 				// Need ManageRoles, and the role must be below your own rank.
-				if !st.Can(ownerFpr, signer, PermManageRoles) || r.Position >= st.topPosition(ownerFpr, signer) {
+				if !st.Can(cur, signer, PermManageRoles) || r.Position >= st.topPosition(cur, signer) {
 					continue
 				}
 			}
@@ -267,34 +287,46 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 				st.MemberRoles[o.Target] = removeStr(st.MemberRoles[o.Target], o.RoleID)
 			}
 		case "ban":
-			if !isOwner && !st.Can(ownerFpr, signer, PermManageMembers) {
+			if !isOwner && !st.Can(cur, signer, PermManageMembers) {
 				continue
 			}
-			if o.Target == ownerFpr || o.Target == "" {
+			if o.Target == cur || o.Target == "" {
 				continue
 			}
 			st.Banned[o.Target] = true
 			delete(st.MemberRoles, o.Target) // a banned member forfeits its roles
 		case "unban":
-			if !isOwner && !st.Can(ownerFpr, signer, PermManageMembers) {
+			if !isOwner && !st.Can(cur, signer, PermManageMembers) {
 				continue
 			}
 			delete(st.Banned, o.Target)
 		case "mute":
-			if !isOwner && !st.Can(ownerFpr, signer, PermMuteMembers) {
+			if !isOwner && !st.Can(cur, signer, PermMuteMembers) {
 				continue
 			}
-			if o.Target == ownerFpr || o.Target == "" {
+			if o.Target == cur || o.Target == "" {
 				continue // the owner can't be muted
 			}
 			st.Muted[o.Target] = o.Until
 		case "unmute":
-			if !isOwner && !st.Can(ownerFpr, signer, PermMuteMembers) {
+			if !isOwner && !st.Can(cur, signer, PermMuteMembers) {
 				continue
 			}
 			delete(st.Muted, o.Target)
+		case "transfer_owner":
+			// Only the reigning owner abdicates — nobody else's signature moves
+			// the crown, no matter how the op reached us. A banned target can't
+			// take it (they're not a member; membership itself is enforced
+			// receive-side at ingest, because MLS membership is a moving fact
+			// while this replay must stay a pure function of the log).
+			// Transfer-to-self is a no-op, not a state change.
+			if !isOwner || o.Target == "" || o.Target == cur || st.Banned[o.Target] {
+				continue
+			}
+			cur = o.Target
 		}
 	}
+	st.owner = cur
 	return st
 }
 

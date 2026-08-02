@@ -11,7 +11,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
 	"github.com/zahak/concord/internal/store"
 )
 
@@ -250,10 +249,9 @@ func (s *Service) trustedSyncSource(guildID, fpr string) bool {
 	if fpr == "" {
 		return false
 	}
-	s.mu.RLock()
-	g, ok := s.guilds[guildID]
-	s.mu.RUnlock()
-	if ok && identity.FingerprintOf(g.OwnerID) == fpr {
+	// The EFFECTIVE owner (not the founding key): destructive-reconciliation
+	// trust must follow a transferred crown like every other authority.
+	if s.effectiveOwner(guildID) == fpr {
 		return true
 	}
 	return s.memberHasPerm(guildID, fpr, PermSyncHost)

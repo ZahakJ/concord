@@ -1658,6 +1658,16 @@ func (b *Bridge) AssignRole(guildID, fingerprint, roleID string, add bool) error
 	return svc.AssignRole(guildID, fingerprint, roleID, add)
 }
 
+// TransferOwnership hands the guild to another member (current owner only).
+// One signed governance op — the MLS group and epoch are untouched.
+func (b *Bridge) TransferOwnership(guildID, fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.TransferOwnership(guildID, fingerprint)
+}
+
 // BanMember bars a fingerprint and evicts them if present (manage-members).
 func (b *Bridge) BanMember(guildID, fingerprint string) error {
 	svc, err := b.service()
@@ -2537,6 +2547,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.DeleteRole(argStr(args, 0), argStr(args, 1))
 	case "AssignRole":
 		return nil, b.AssignRole(argStr(args, 0), argStr(args, 1), argStr(args, 2), argBool(args, 3))
+	case "TransferOwnership":
+		return nil, b.TransferOwnership(argStr(args, 0), argStr(args, 1))
 	case "BanMember":
 		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
 	case "UnbanMember":

@@ -8,6 +8,7 @@
     S,
     activeGuild,
     refreshRightPanel,
+    refreshGuilds,
     flash,
     openProfilePopover,
     openContextMenu,
@@ -51,6 +52,17 @@
         },
       },
       g?.canManage && !mem.isSelf && !mem.isOwner && { sep: true },
+      // Only the sitting owner can hand the crown over, and only to a member
+      // who's actually landed (a pending row isn't in the group yet).
+      g?.isOwner &&
+        !mem.isSelf &&
+        !mem.isOwner &&
+        !mem.pending && {
+          label: "Transfer Ownership…",
+          icon: "crown",
+          danger: true,
+          onClick: () => transferOwnership(mem),
+        },
       g?.canManage &&
         !mem.isSelf &&
         !mem.isOwner && {
@@ -60,6 +72,32 @@
           onClick: () => kick(mem),
         },
     ]);
+  }
+
+  // Handing the guild over is the most destructive thing an owner can do to
+  // themselves — menu action first, then a destructive-tier confirm spelling
+  // out exactly what changes hands (same two-step shape as kick/ban).
+  function transferOwnership(mem) {
+    const name = mem.name || mem.fingerprint.slice(0, 9);
+    S.modal = {
+      kind: "confirm",
+      title: `Transfer ownership to ${name}?`,
+      body: `This makes ${name} the owner of ${g?.name || "this guild"}. You'll become a regular member, and only ${name} can hand ownership back.`,
+      confirmLabel: "Transfer Ownership",
+      onConfirm: async () => {
+        S.modal = null;
+        try {
+          await api.transferOwnership(S.activeGuildId, mem.fingerprint);
+          // Both sides of the handover show immediately: the crown badge moves
+          // (members) and our own owner-only affordances drop (guild flags).
+          await refreshGuilds();
+          await refreshRightPanel();
+          flash(`${name} now owns this guild`, "success");
+        } catch (err) {
+          flash(err);
+        }
+      },
+    };
   }
 
   // A member's highest-ranked role (roles are highest-first), for a badge.

@@ -278,6 +278,7 @@ export const api = {
   deleteRole: (guildID, roleID) => call("DeleteRole", guildID, roleID),
   assignRole: (guildID, fingerprint, roleID, add) =>
     call("AssignRole", guildID, fingerprint, roleID, add),
+  transferOwnership: (guildID, fingerprint) => call("TransferOwnership", guildID, fingerprint),
   banMember: (guildID, fingerprint) => call("BanMember", guildID, fingerprint),
   unbanMember: (guildID, fingerprint) => call("UnbanMember", guildID, fingerprint),
   muteMember: (guildID, fingerprint, minutes) => call("MuteMember", guildID, fingerprint, minutes),

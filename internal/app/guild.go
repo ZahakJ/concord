@@ -13,7 +13,6 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
 )
 
 // This file implements the guild lifecycle: creating a guild, generating and
@@ -548,25 +547,17 @@ func (s *Service) GuildMembers(guildID string) ([][]byte, error) {
 	return s.mls.Members(s.ctx, g.GroupID)
 }
 
-// IsOwner reports whether this peer owns the guild.
+// IsOwner reports whether this peer is the guild's CURRENT owner — the
+// founding key only until a transfer_owner op moves the crown (govstate.go).
 func (s *Service) IsOwner(guildID string) bool {
-	s.mu.RLock()
-	g, ok := s.guilds[guildID]
-	s.mu.RUnlock()
-	return ok && bytes.Equal(g.OwnerID, s.PublicKey())
+	return s.IsGuildOwner(guildID, s.id.Fingerprint())
 }
 
-// GuildOwnerFingerprint is the account fingerprint of a guild's owner. Used to
-// authenticate relayed guest messages: a "guest" message is only genuine if the
-// meeting's OWNER (the host running the guest gateway) signed it.
+// GuildOwnerFingerprint is the account fingerprint of a guild's CURRENT owner.
+// Used to authenticate relayed guest messages: a "guest" message is only
+// genuine if the meeting's OWNER (the host running the guest gateway) signed it.
 func (s *Service) GuildOwnerFingerprint(guildID string) string {
-	s.mu.RLock()
-	g, ok := s.guilds[guildID]
-	s.mu.RUnlock()
-	if !ok {
-		return ""
-	}
-	return identity.FingerprintOf(g.OwnerID)
+	return s.effectiveOwner(guildID)
 }
 
 // RemoveMember evicts a member from a guild. The caller must be the owner or
@@ -583,10 +574,11 @@ func (s *Service) RemoveMember(guildID string, memberCredential []byte) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to remove members")
 	}
-	// Compare on the account key so a device leaf is recognized as its account
-	// (owner protection and self-check must hold across all of an account's
-	// devices, not just the exact credential bytes).
-	if bytes.Equal(accountKeyOf(g.OwnerID), accountKeyOf(memberCredential)) {
+	// Compare on the account fingerprint so a device leaf is recognized as its
+	// account (owner protection and self-check must hold across all of an
+	// account's devices) — against the EFFECTIVE owner, so a transferred crown
+	// protects its new head and stops shielding the old one.
+	if accountFingerprintOf(memberCredential) == s.effectiveOwner(guildID) {
 		return fmt.Errorf("app: the owner cannot be removed")
 	}
 	if bytes.Equal(accountKeyOf(memberCredential), s.PublicKey()) {
@@ -1575,11 +1567,10 @@ func (s *Service) nickAllowed(guildID, actor, target string) bool {
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	g, ok := s.guilds[guildID]
-	if !ok {
+	if _, ok := s.guilds[guildID]; !ok {
 		return false
 	}
-	owner := identity.FingerprintOf(g.OwnerID)
+	owner := s.effectiveOwnerLocked(guildID)
 	st := s.govState[guildID]
 	if !st.Can(owner, actor, PermManageMembers) {
 		return false

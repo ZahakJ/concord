@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
-
-	"github.com/zahak/concord/internal/identity"
 )
 
 // heal.go recovers a member stranded at an old MLS epoch (the "out of sync"
@@ -29,11 +27,13 @@ const healRetryInterval = 20 * time.Second
 // itself, a dying connection) used to cost a full retry beat.
 func (s *Service) authorizedCommittersOnline(guildID string) []peer.ID {
 	s.mu.RLock()
-	g, ok := s.guilds[guildID]
+	_, ok := s.guilds[guildID]
 	var ownerFpr string
 	var st GuildState
 	if ok {
-		ownerFpr = identity.FingerprintOf(g.OwnerID)
+		// The EFFECTIVE owner — after a transfer, heals must court the new
+		// owner's devices first; the founder is just another member now.
+		ownerFpr = s.effectiveOwnerLocked(guildID)
 		st = s.govState[guildID]
 	}
 	s.mu.RUnlock()

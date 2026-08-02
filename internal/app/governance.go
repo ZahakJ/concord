@@ -1,11 +1,5 @@
 package app
 
-import (
-	"bytes"
-
-	"github.com/zahak/concord/internal/identity"
-)
-
 // governance.go is the guild authorization layer: it decides whose membership
 // commits (adds/removes) honest peers will accept. This is the cryptographic
 // enforcement point of the guild's power structure — "who can kick/ban/invite"
@@ -33,25 +27,29 @@ func (s *Service) authorizedCommitter(guildID string, senderCred []byte) bool {
 		return false
 	}
 	s.mu.RLock()
-	g, ok := s.guilds[guildID]
-	var ownerID []byte
+	_, ok := s.guilds[guildID]
+	var owner string
 	var st GuildState
 	if ok {
-		ownerID = g.OwnerID
+		// The EFFECTIVE owner — after a transfer_owner the new owner's commits
+		// must be applied and the dethroned founder's refused, so this gate
+		// roots at the replayed chain, never at the founding key.
+		owner = s.effectiveOwnerLocked(guildID)
 		st = s.govState[guildID]
 	}
 	s.mu.RUnlock()
-	if !ok {
+	if !ok || owner == "" {
 		return false
 	}
-	// The owner is always authorized.
-	if bytes.Equal(ownerID, senderCred) {
+	// The (current) owner is always authorized — compared by ACCOUNT
+	// fingerprint so a commit from any of the owner's linked devices counts.
+	if accountFingerprintOf(senderCred) == owner {
 		return true
 	}
 	// A member the owner granted "manage members" may also invite/kick. This is
 	// what lets moderation happen without the owner being online — the crux of
 	// not being load-bearing. (Phase 4b self-device commits slot in here too.)
-	return st.Can(identity.FingerprintOf(ownerID), accountFingerprintOf(senderCred), PermManageMembers)
+	return st.Can(owner, accountFingerprintOf(senderCred), PermManageMembers)
 }
 
 // commitAuthorized extracts a commit's author from its MLS framing and runs it

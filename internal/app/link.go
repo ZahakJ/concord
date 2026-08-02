@@ -199,7 +199,11 @@ func (s *Service) linkGuildInvites() (codes, missing []string) {
 // how to reach that owner, which is the only case in which a guild is genuinely
 // unhandable.
 func (s *Service) ownerInviteCode(g domain.Guild) (string, bool) {
-	ownerFpr := identity.FingerprintOf(g.OwnerID)
+	// The EFFECTIVE owner: after a transfer, only the new owner (or a
+	// manage-members holder) can actually commit the linked device in — a code
+	// addressed to the dethroned founder would dial someone whose commits
+	// honest peers refuse.
+	ownerFpr := s.effectiveOwner(g.ID)
 	if ownerFpr == "" || ownerFpr == s.id.Fingerprint() {
 		return "", false // our own guild — InviteCode already had its say
 	}

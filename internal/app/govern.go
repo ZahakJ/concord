@@ -26,10 +26,36 @@ func (s *Service) rebuildGovStateLocked(guildID string) {
 	s.govState[guildID] = replayGuildOps(g.OwnerID, s.govOps[guildID])
 }
 
+// effectiveOwnerLocked is the guild's CURRENT owner fingerprint: the head of
+// the replayed transfer_owner chain, or the founding owner when no transfer
+// ever happened. Every authority decision must root HERE — rooting at
+// guild.OwnerID would let a dethroned founder keep ruling. The founding key
+// keeps only its non-authority roles (invite dialing, the Notes self-DM
+// identity check). Caller must hold s.mu.
+func (s *Service) effectiveOwnerLocked(guildID string) string {
+	if st, ok := s.govState[guildID]; ok && st.owner != "" {
+		return st.owner
+	}
+	// No folded state yet (no ops ingested / guild just tracked): the founder.
+	if g, ok := s.guilds[guildID]; ok {
+		return identity.FingerprintOf(g.OwnerID)
+	}
+	return ""
+}
+
+// effectiveOwner is effectiveOwnerLocked for callers that don't hold s.mu.
+// Empty for an unknown guild — callers compare against non-empty fingerprints.
+func (s *Service) effectiveOwner(guildID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.effectiveOwnerLocked(guildID)
+}
+
 // govStateCopy returns a deep copy of a guild's state so callers can't mutate
 // the live maps. Caller must hold s.mu (read).
 func (st GuildState) copy() GuildState {
 	out := newGuildState()
+	out.owner = st.owner
 	for k, v := range st.Roles {
 		out.Roles[k] = v
 	}
@@ -70,6 +96,16 @@ func (s *Service) isBanned(guildID, fingerprint string) bool {
 // state, refreshes the UI. Returns true if the op was new.
 func (s *Service) ingestGovOp(guildID string, o govOp) bool {
 	if !o.verifySig() {
+		return false
+	}
+	// transfer_owner receive-side gate: the named heir must be a CURRENT member
+	// of the guild's MLS group. This lives at ingest rather than replay because
+	// replay must stay a deterministic function of the recorded log, while
+	// membership is a moving fact — every honest peer runs this same gate
+	// independently before the op ever enters its log. A dropped op is not
+	// remembered as seen, so if it merely outran the target's join commit,
+	// the next sync re-delivery lands it.
+	if o.Type == "transfer_owner" && !s.guildHasMember(guildID, o.Target) {
 		return false
 	}
 	hash := o.hash()
@@ -136,11 +172,10 @@ func (s *Service) hasPerm(guildID string, need Permission) bool {
 	self := s.id.Fingerprint()
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	g, ok := s.guilds[guildID]
-	if !ok {
+	if _, ok := s.guilds[guildID]; !ok {
 		return false
 	}
-	return s.govState[guildID].Can(identity.FingerprintOf(g.OwnerID), self, need)
+	return s.govState[guildID].Can(s.effectiveOwnerLocked(guildID), self, need)
 }
 
 func (s *Service) canManageMembers(guildID string) bool {
@@ -153,11 +188,10 @@ func (s *Service) canManageMembers(guildID string) bool {
 func (s *Service) memberHasPerm(guildID, fpr string, need Permission) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	g, ok := s.guilds[guildID]
-	if !ok {
+	if _, ok := s.guilds[guildID]; !ok {
 		return false
 	}
-	return s.govState[guildID].Can(identity.FingerprintOf(g.OwnerID), fpr, need)
+	return s.govState[guildID].Can(s.effectiveOwnerLocked(guildID), fpr, need)
 }
 
 // ---- exported accessors for the bridge ----
@@ -175,11 +209,10 @@ func (s *Service) CanManageMembers(guildID string) bool { return s.canManageMemb
 func (s *Service) MemberPermission(guildID, fingerprint string) Permission {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	g, ok := s.guilds[guildID]
-	if !ok {
+	if _, ok := s.guilds[guildID]; !ok {
 		return 0
 	}
-	return s.govState[guildID].permsOf(identity.FingerprintOf(g.OwnerID), fingerprint)
+	return s.govState[guildID].permsOf(s.effectiveOwnerLocked(guildID), fingerprint)
 }
 
 // Roles returns a guild's role definitions.
@@ -207,15 +240,15 @@ func (s *Service) MemberRoleIDs(guildID, fingerprint string) []string {
 	return nil
 }
 
-// IsGuildOwner reports whether a fingerprint is the guild's owner.
+// IsGuildOwner reports whether a fingerprint is the guild's CURRENT owner
+// (the founding owner unless a transfer_owner chain moved it).
 func (s *Service) IsGuildOwner(guildID, fingerprint string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	g, ok := s.guilds[guildID]
-	if !ok {
+	if fingerprint == "" {
 		return false
 	}
-	return identity.FingerprintOf(g.OwnerID) == fingerprint
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.effectiveOwnerLocked(guildID) == fingerprint
 }
 
 // BannedFingerprints returns the guild's banlist.
@@ -283,6 +316,29 @@ func (s *Service) BanMember(guildID, targetFpr string) error {
 		return err
 	}
 	return s.removeMemberByFingerprint(guildID, targetFpr)
+}
+
+// TransferOwnership hands the guild to another member — what Discord does.
+// It is ONE signed governance op: the MLS group is untouched (nobody joins,
+// leaves, or re-keys), so messages and calls flow straight through it. The
+// issue-side checks here are a courtesy; ingest re-checks membership and
+// replay re-checks the owner chain on EVERY peer, so a client that skips
+// this function convinces nobody (receive-side doctrine).
+func (s *Service) TransferOwnership(guildID, targetFpr string) error {
+	self := s.id.Fingerprint()
+	if targetFpr == "" {
+		return fmt.Errorf("app: no member chosen")
+	}
+	if !s.IsGuildOwner(guildID, self) {
+		return fmt.Errorf("app: only the owner can transfer ownership")
+	}
+	if targetFpr == self {
+		return fmt.Errorf("app: you already own this server")
+	}
+	if !s.guildHasMember(guildID, targetFpr) {
+		return fmt.Errorf("app: ownership can only be handed to a current member")
+	}
+	return s.issueGovOp(guildID, govOp{Type: "transfer_owner", Target: targetFpr})
 }
 
 // UnbanMember lifts a ban. Requires manage-members.
