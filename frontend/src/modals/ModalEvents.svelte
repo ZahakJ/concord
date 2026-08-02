@@ -7,7 +7,8 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import EventCard from "../EventCard.svelte";
-  import { fly } from "svelte/transition";
+  import { fly, slide } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { S, flash } from "../lib/state.svelte.js";
   import { api, on } from "../lib/api.js";
   import {
@@ -172,14 +173,29 @@
     } else {
       at = Date.now() + 3600000;
     }
-    return { id: "", title: "", details: "", location: "", locationChannelId: "", start: toLocalInput(at), durMin: 60, guests: false, autoAdmit: false };
+    // mode's real default depends on locChannels — startCreate/startEdit set
+    // it; "remote" here is the safe floor (no channels → no dead toggle).
+    return { id: "", title: "", details: "", location: "", locationChannelId: "", mode: "remote", start: toLocalInput(at), durMin: 60, guests: false, autoAdmit: false };
   }
   // The OS picker is the fallback, never the greeting: chips first, the
   // datetime-local appears once a time has been touched (or on request).
   let showPicker = $state(false);
   let durMore = $state(false);
+  // Once a human has touched the room switch, mode flips stop second-guessing it.
+  let guestsTouched = $state(false);
   function startCreate() {
     editing = blankDraft();
+    // Where is an either/or: LOCAL (a channel of this guild) when the guild
+    // has channels, REMOTE (free text + the guests' door) otherwise. Local
+    // pre-selects the first voice channel — the common meeting case is zero
+    // extra taps and the mode is valid out of the gate.
+    editing.mode = locChannels.length ? "local" : "remote";
+    if (editing.mode === "local" && locVoice.length) editing.locationChannelId = locVoice[0].id;
+    else if (editing.mode === "local" && locChannels.length) editing.locationChannelId = locChannels[0].id;
+    // Remote IS the guest stuff → room armed by default. Except in a meeting
+    // room, which already has its own guest link — the core refuses a second.
+    editing.guests = editing.mode === "remote" && g?.kind !== "meeting";
+    guestsTouched = false;
     showPicker = false;
     durMore = false;
   }
@@ -200,10 +216,66 @@
       guests: false,
       autoAdmit: false,
     };
+    // Mode falls out of the same deleted-channel guard above: a live channel
+    // id → Local; anything else (free text, or a channel since deleted) →
+    // Remote with the saved words intact. No pre-select on edit.
+    editing.mode = editing.locationChannelId ? "local" : "remote";
+    guestsTouched = false;
     // Editing an existing time: show the precise picker straight away, and
     // unfold the full duration list when the value isn't one of the quick three.
     showPicker = true;
     durMore = ![30, 60, 120].includes(editing.durMin);
+  }
+  // Local↔Remote is non-destructive: a round-trip loses nothing. The one
+  // opinion: the FIRST flip to remote on a fresh draft arms the room (remote
+  // is the guest stuff), unless the human already touched the switch.
+  function setMode(m) {
+    if (editing.mode === m) return;
+    editing.mode = m;
+    if (m === "remote" && !editingHasGuests && !guestsTouched && !editing.id && g?.kind !== "meeting")
+      editing.guests = true;
+  }
+  // ---- keyboard: native radio idiom (arrows move AND select) ----
+  function focusChecked(group) {
+    queueMicrotask(() => group?.querySelector('[aria-checked="true"]')?.focus());
+  }
+  function modeKeys(e) {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    e.preventDefault();
+    setMode(editing.mode === "local" ? "remote" : "local");
+    focusChecked(e.currentTarget.closest(".where-seg"));
+  }
+  function chanTab(c) {
+    if (editing.locationChannelId) return editing.locationChannelId === c.id ? 0 : -1;
+    return locChannels[0]?.id === c.id ? 0 : -1; // no pick yet: first row is the stop
+  }
+  function chanKeys(e) {
+    // One radiogroup spanning voice+text; the kickers are presentational.
+    const list = [...locVoice, ...locText];
+    if (!list.length) return;
+    const idx = Math.max(0, list.findIndex((c) => c.id === editing.locationChannelId));
+    let next = -1;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") next = Math.min(idx + 1, list.length - 1);
+    else if (e.key === "ArrowUp" || e.key === "ArrowLeft") next = Math.max(idx - 1, 0);
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = list.length - 1;
+    else if (e.key.length === 1 && /\S/.test(e.key)) {
+      // Type-ahead: jump to the next channel whose name starts with the key.
+      const q = e.key.toLowerCase();
+      const wrapped = [...list.slice(idx + 1), ...list.slice(0, idx + 1)];
+      const hit = wrapped.find((c) => c.name.toLowerCase().startsWith(q));
+      if (hit) next = list.indexOf(hit);
+    }
+    if (next < 0) return;
+    e.preventDefault();
+    editing.locationChannelId = list[next].id;
+    focusChecked(e.currentTarget);
+  }
+  function doorKeys(e) {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+    e.preventDefault();
+    editing.autoAdmit = !editing.autoAdmit;
+    focusChecked(e.currentTarget);
   }
   // Whether the event being edited already has a live guest link — the form
   // then points at the card (copy/revoke live there) instead of offering to
@@ -225,7 +297,11 @@
     { min: 120, label: "2 h" },
   ];
   const draftAt = $derived(editing?.start ? new Date(editing.start).getTime() : NaN);
-  const draftValid = $derived(!!editing?.title.trim() && !isNaN(draftAt));
+  // Local REQUIRES a channel — belt-and-suspenders; the pre-select keeps it
+  // satisfied in practice.
+  const draftValid = $derived(
+    !!editing?.title.trim() && !isNaN(draftAt) && (editing.mode !== "local" || !!editing.locationChannelId),
+  );
 
   // The echo line: the form reads back what it heard, kicker-voiced, so a
   // disabled Create button always explains itself.
@@ -235,8 +311,11 @@
     const d = new Date(draftAt);
     const day = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
     const t = (x) => x.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    if (editing.durMin) return `${day} · ${t(d)} – ${t(new Date(draftAt + editing.durMin * 60000))}`;
-    return `${day} · ${t(d)}`;
+    // A disabled Create button always explains itself — unreachable in
+    // practice (local pre-selects a channel), cheap insurance regardless.
+    const tail = editing.mode === "local" && !editing.locationChannelId ? " · pick a channel" : "";
+    if (editing.durMin) return `${day} · ${t(d)} – ${t(new Date(draftAt + editing.durMin * 60000))}${tail}`;
+    return `${day} · ${t(d)}${tail}`;
   });
 
   // "When" chips — the bookpage slot DNA: obvious near-future times as pills,
@@ -285,8 +364,12 @@
     const isEdit = !!editing.id;
     // A picked channel writes BOTH fields: the id (what Join and the
     // in-channel reminder run on) and its label as the free-text location
-    // (what ICS export and stale channel lists still show).
-    const locCh = locChannels.find((c) => c.id === editing.locationChannelId) || null;
+    // (what ICS export and stale channel lists still show). Mode is the
+    // truth: a remote save ignores whatever channel the draft still carries.
+    const locCh =
+      editing.mode === "local"
+        ? locChannels.find((c) => c.id === editing.locationChannelId) || null
+        : null;
     const locStr = locCh ? locLabel(locCh) : editing.location.trim();
     const locChId = locCh ? locCh.id : "";
     let saved;
@@ -341,7 +424,7 @@
         bind:value={editing.title}
       />
       <!-- The form reads back what it heard. -->
-      <div class="kicker echo" class:unset={isNaN(draftAt)}>{echo}</div>
+      <div class="kicker echo" class:unset={isNaN(draftAt) || (editing.mode === "local" && !editing.locationChannelId)}>{echo}</div>
       {#if whenChips.length}
         <div class="chips" role="group" aria-label="When">
           {#each whenChips as c (c.ms)}
@@ -381,67 +464,149 @@
           {/if}
         </div>
       </div>
-      {#if locChannels.length}
-        <!-- The location is a real place in this guild first, words second:
-             pick a channel and Join walks people there (voice = its call),
-             with the guild posting the start reminder in that chat. The
-             native select is the phone-honest picker here. -->
-        <label class="fld">
-          <span class="muted tiny">Where</span>
-          <select class="locsel" bind:value={editing.locationChannelId}>
-            <option value="">Somewhere else — type it in…</option>
-            {#if locVoice.length}
-              <optgroup label="Voice channels">
-                {#each locVoice as c (c.id)}
-                  <option value={c.id}>🔊 {c.name}</option>
-                {/each}
-              </optgroup>
-            {/if}
-            {#if locText.length}
-              <optgroup label="Text channels">
-                {#each locText as c (c.id)}
-                  <option value={c.id}># {c.name}</option>
-                {/each}
-              </optgroup>
-            {/if}
-          </select>
-        </label>
-        {#if editing.locationChannelId}
-          <div class="gnote muted">
-            <Icon name="bell" size={12} />
-            Join takes members straight there{locVoice.some((c) => c.id === editing.locationChannelId)
-              ? " and into the call"
-              : ""} — and {g?.name || "the guild"} will post a reminder in that channel when it starts.
+      <!-- WHERE is a decision, not a dropdown: LOCAL (a channel of this
+           guild — Join walks people there, the guild reminds the room) or
+           REMOTE (words + the guests' door into a sealed disposable room).
+           Either/or; no channels in scope → Remote only, no dead toggle. -->
+      <div class="fld where-fld">
+        <span class="muted tiny" id="ev-where-lbl">Where</span>
+
+        {#if locChannels.length}
+          <div class="where-seg" role="radiogroup" aria-labelledby="ev-where-lbl">
+            <button
+              type="button"
+              class="wseg"
+              role="radio"
+              aria-checked={editing.mode === "local"}
+              tabindex={editing.mode === "local" ? 0 : -1}
+              onclick={() => setMode("local")}
+              onkeydown={modeKeys}
+            >
+              <strong class="wseg-t">Local</strong><span class="wseg-h">in a channel here</span>
+            </button>
+            <button
+              type="button"
+              class="wseg"
+              role="radio"
+              aria-checked={editing.mode === "remote"}
+              tabindex={editing.mode === "remote" ? 0 : -1}
+              onclick={() => setMode("remote")}
+              onkeydown={modeKeys}
+            >
+              <strong class="wseg-t">Remote</strong><span class="wseg-h">guests &amp; elsewhere</span>
+            </button>
           </div>
-        {:else}
-          <input placeholder="Where? An address, a link-up spot, someone's couch…" maxlength="160" bind:value={editing.location} />
         {/if}
-      {:else}
-        <input placeholder="Where? A channel, an address, someone's couch…" maxlength="160" bind:value={editing.location} />
-      {/if}
-      <textarea rows="3" placeholder="Details (optional)" maxlength="2000" bind:value={editing.details}></textarea>
-      {#if editingHasGuests}
-        <div class="gnote muted">
-          <Icon name="link" size={12} /> This event already has a room — Join, copy or revoke on the event card.
-        </div>
-      {:else}
-        <label class="chk">
-          <input type="checkbox" bind:checked={editing.guests} />
-          {#if editing.locationChannelId}
-            <!-- With a channel picked, members need no room — the checkbox is
-                 ONLY the outsiders' door, and says so. -->
-            <span>Also invite outside guests — they get a browser link into a separate, disposable room (this guild stays sealed)</span>
+
+        <div class="wslot">
+          {#if editing.mode === "local" && locChannels.length}
+            <div
+              class="wpane"
+              out:slide={{ duration: reduceMotion ? 0 : 140, easing: cubicOut }}
+              in:slide={{ duration: reduceMotion ? 0 : 180, delay: reduceMotion ? 0 : 90, easing: cubicOut }}
+            >
+              <div class="wpane-in" in:fly={{ y: reduceMotion ? 0 : 6, duration: reduceMotion ? 0 : 160, delay: reduceMotion ? 0 : 140 }}>
+                <div class="chpick" role="radiogroup" aria-label="Channel" onkeydown={chanKeys}>
+                  {#if locVoice.length}<div class="chkick" aria-hidden="true">Voice</div>{/if}
+                  {#each locVoice as c (c.id)}
+                    <button
+                      type="button"
+                      class="chrow"
+                      role="radio"
+                      aria-checked={editing.locationChannelId === c.id}
+                      tabindex={chanTab(c)}
+                      aria-label={`${c.name}, voice channel`}
+                      onclick={() => (editing.locationChannelId = c.id)}
+                    >
+                      <span class="chglyph">{#if editing.locationChannelId === c.id}<Icon name="check" size={14} />{:else}<Icon name="speaker" size={14} />{/if}</span>
+                      <span class="chname">{c.name}</span>
+                    </button>
+                  {/each}
+                  {#if locText.length}<div class="chkick" aria-hidden="true">Text</div>{/if}
+                  {#each locText as c (c.id)}
+                    <button
+                      type="button"
+                      class="chrow"
+                      role="radio"
+                      aria-checked={editing.locationChannelId === c.id}
+                      tabindex={chanTab(c)}
+                      aria-label={`${c.name}, text channel`}
+                      onclick={() => (editing.locationChannelId = c.id)}
+                    >
+                      <span class="chglyph">{#if editing.locationChannelId === c.id}<Icon name="check" size={14} />{:else}<Icon name="hash" size={14} />{/if}</span>
+                      <span class="chname">{c.name}</span>
+                    </button>
+                  {/each}
+                </div>
+                {#if editing.locationChannelId}
+                  <div class="gnote muted" transition:slide={{ duration: reduceMotion ? 0 : 150, easing: cubicOut }}>
+                    <Icon name="bell" size={12} />
+                    Join takes members straight there{locVoice.some((c) => c.id === editing.locationChannelId)
+                      ? " and into the call"
+                      : ""} — and {g?.name || "the guild"} will post a reminder in that channel when it starts.
+                  </div>
+                {/if}
+              </div>
+            </div>
           {:else}
-            <span>Open a meeting room — members join in one tap; guests get a shareable browser link</span>
+            <div
+              class="wpane"
+              out:slide={{ duration: reduceMotion ? 0 : 140, easing: cubicOut }}
+              in:slide={{ duration: reduceMotion ? 0 : 180, delay: reduceMotion ? 0 : 90, easing: cubicOut }}
+            >
+              <div class="wpane-in" in:fly={{ y: reduceMotion ? 0 : 6, duration: reduceMotion ? 0 : 160, delay: reduceMotion ? 0 : 140 }}>
+                <input placeholder="Where? An address, a link-up spot, someone's couch…" maxlength="160" bind:value={editing.location} />
+                {#if editingHasGuests}
+                  <div class="gnote muted">
+                    <Icon name="link" size={12} /> This event already has a room — Join, copy or revoke on the event card.
+                  </div>
+                {:else}
+                  <div class="roomcard" class:armed={editing.guests}>
+                    <label class="room-top">
+                      <span class="room-badge"><Icon name="link" size={14} /></span>
+                      <span class="room-txt">
+                        <strong>Meeting room</strong>
+                        <span class="room-sub">Guests get a browser link into a separate, sealed, disposable room — this event's guild stays out of it. Members join in one tap.</span>
+                      </span>
+                      <span class="switch">
+                        <input type="checkbox" bind:checked={editing.guests} onchange={() => (guestsTouched = true)} />
+                        <span class="knob" aria-hidden="true"></span>
+                      </span>
+                    </label>
+                    {#if editing.guests}
+                      <div class="room-door" transition:slide={{ duration: reduceMotion ? 0 : 150, easing: cubicOut }}>
+                        <span class="muted tiny">At the door</span>
+                        <div class="seg" role="radiogroup" aria-label="At the door" onkeydown={doorKeys}>
+                          <button
+                            type="button"
+                            class="seg-btn"
+                            class:on={!editing.autoAdmit}
+                            role="radio"
+                            aria-checked={!editing.autoAdmit}
+                            tabindex={!editing.autoAdmit ? 0 : -1}
+                            onclick={() => (editing.autoAdmit = false)}
+                          >They knock</button>
+                          <button
+                            type="button"
+                            class="seg-btn"
+                            class:on={editing.autoAdmit}
+                            role="radio"
+                            aria-checked={editing.autoAdmit}
+                            tabindex={editing.autoAdmit ? 0 : -1}
+                            onclick={() => (editing.autoAdmit = true)}
+                          >Straight in</button>
+                        </div>
+                        <span class="room-sub">{editing.autoAdmit ? "Guests walk right into the room." : "Knocking means you admit each guest."}</span>
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </div>
+            </div>
           {/if}
-        </label>
-        {#if editing.guests}
-          <label class="chk sub">
-            <input type="checkbox" bind:checked={editing.autoAdmit} />
-            <span>Let guests straight in (otherwise they knock and you admit{editing.locationChannelId ? "" : "; members always walk in"})</span>
-          </label>
-        {/if}
-      {/if}
+        </div>
+      </div>
+      <textarea rows="3" placeholder="Details (optional)" maxlength="2000" bind:value={editing.details}></textarea>
       <div class="actions">
         <button class="ghost" onclick={() => (editing = null)}>Cancel</button>
         <button class="primary" disabled={!draftValid} onclick={save}>
@@ -944,24 +1109,231 @@
   textarea {
     resize: vertical;
   }
-  .chk {
+  /* ---- WHERE: the one loud decision in the form ---- */
+  .where-fld {
+    gap: var(--sp-2);
+  }
+  /* The calendar .seg grown up: two full-width cells, and the CHOSEN one is
+     accent-FILLED — deliberately louder than the view tabs' quiet thumb,
+     because those are navigation and this is a decision. */
+  .where-seg {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    padding: 3px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .wseg {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    text-align: left;
+    gap: 1px;
+    padding: var(--sp-2) var(--sp-3);
+    border-radius: calc(var(--radius-md) - 3px);
+    min-height: var(--tap-min);
+    background: transparent;
+    transition:
+      background 0.12s ease,
+      color 0.12s ease,
+      box-shadow 0.18s var(--ease-calm);
+  }
+  .wseg-t {
+    font-size: var(--fs-ui);
+    font-weight: 650;
+    color: var(--text-muted);
+    transition: color 0.12s ease;
+  }
+  .wseg-h {
+    font-size: var(--fs-small);
+    color: var(--text-faint);
+    transition: color 0.12s ease;
+  }
+  .wseg:hover {
+    background: var(--bg-3);
+  }
+  .wseg:hover .wseg-t {
+    color: var(--text);
+  }
+  .wseg[aria-checked="true"] {
+    background: var(--accent);
+    box-shadow: var(--accent-glow);
+  }
+  .wseg[aria-checked="true"] .wseg-t {
+    color: var(--accent-fg);
+  }
+  .wseg[aria-checked="true"] .wseg-h {
+    color: color-mix(in srgb, var(--accent-fg) 72%, transparent);
+  }
+  /* The reveal slot: no fixed height — Details below rides the change; slide
+     handles the overflow clipping for free. */
+  .wpane-in {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+  }
+  /* ---- the channel picker: a real list, not a native select ---- */
+  .chpick {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--sp-1);
+    max-height: min(292px, 38dvh); /* Create stays reachable below */
+    overflow-y: auto;
+    overscroll-behavior: contain; /* the dialog must not steal the thumb */
+  }
+  .chkick {
+    font-size: var(--fs-tiny);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    padding: var(--sp-2) var(--sp-2) var(--sp-1);
+  }
+  .chrow {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
+    width: 100%;
+    min-height: var(--tap-min);
+    padding: 0 var(--sp-2);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-ui);
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid transparent;
+    text-align: left;
+    transition:
+      background 0.12s ease,
+      border-color 0.12s ease,
+      color 0.12s ease;
+  }
+  .chrow:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  /* The .slotchip.on palette scaled to a 44px row: selection lands with the
+     same snap the When chips taught. */
+  .chrow[aria-checked="true"] {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-hover);
+    font-weight: 650;
+  }
+  .chglyph {
+    width: 1.5em;
+    display: inline-flex;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--text-faint); /* the check inherits the row's accent instead */
+  }
+  .chrow[aria-checked="true"] .chglyph {
+    color: inherit;
+  }
+  .chname {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* ---- the remote room card: the guests' door, not naked checkboxes ---- */
+  .roomcard {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: var(--sp-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    transition:
+      background 0.12s ease,
+      border-color 0.12s ease;
+  }
+  .roomcard.armed {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent-soft) 40%, var(--bg-2));
+  }
+  .room-top {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    cursor: pointer; /* the whole row is the label → flips the switch */
+    min-height: var(--tap-min);
+  }
+  .room-badge {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .room-txt {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .room-txt strong {
+    font-size: var(--fs-ui);
+    font-weight: 650;
+  }
+  .room-sub {
     font-size: var(--fs-compact);
     color: var(--text-muted);
-    /* Real tap target on phones without visually inflating the row. */
-    min-height: var(--tap-min, 24px);
+    line-height: 1.4;
   }
-  .chk input {
+  /* A real checkbox wearing a switch: label-click, Space and SR semantics
+     all come free; only the pixels are ours. */
+  .switch {
+    position: relative;
     flex-shrink: 0;
-    /* app.css gives every input width:100% for the stacked-field layouts; a
-       checkbox in a flex row must NOT take the row (it shoved its own label
-       into a one-character column). */
+    width: 36px;
+    height: 20px;
+    margin-top: 2px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+  .switch input {
+    position: absolute;
+    opacity: 0;
+    inset: 0;
+    margin: 0;
+    /* app.css gives every input width:100% for stacked-field layouts — a
+       hidden checkbox must not take the row (same landmine the old .chk
+       documented). */
     width: auto;
   }
-  .chk.sub {
-    margin-left: 24px;
+  .switch .knob {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    transition: transform 0.15s var(--ease-calm), background 0.15s ease;
+  }
+  .switch:has(input:checked) {
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .switch input:checked ~ .knob {
+    transform: translateX(16px);
+    background: var(--accent-fg);
+  }
+  .room-door {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    align-items: flex-start;
   }
   .gnote {
     display: flex;
@@ -981,6 +1353,12 @@
     .riser {
       animation: none;
     }
+    .switch .knob {
+      transition: none; /* the color fades may stay; the travel may not */
+    }
+    .wseg {
+      transition: background 0.12s ease, color 0.12s ease; /* drop the glow bloom */
+    }
   }
   @media (pointer: coarse), (max-width: 768px) {
     .dayhead {
@@ -989,6 +1367,19 @@
     .slotchip {
       min-height: 44px;
       padding: 6px 15px;
+    }
+    /* One-handed at 393px: every Where control is a real target. The cells,
+       rows and room label already ride --tap-min (44px here); the door
+       segment's buttons are the one pair that needs the floor stated. */
+    .room-door .seg-btn {
+      min-height: var(--tap-min);
+    }
+    .room-door .seg {
+      align-self: stretch;
+    }
+    .room-door .seg-btn {
+      flex: 1;
+      justify-content: center;
     }
     /* The bar wraps on a phone; the create CTA takes its row whole. */
     .primary.new {
