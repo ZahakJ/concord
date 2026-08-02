@@ -98,9 +98,10 @@ func TestEventGuestOpenKnockSeedAndAutoAdmit(t *testing.T) {
 	if !strings.Contains(room.Name, "Game night") {
 		t.Fatalf("room not named for the event: %q", room.Name)
 	}
-	// Lifetime: the event's end plus the margin, exactly.
-	if got, want := s.meetingExpiry(rec.MeetingGuildID).Unix(), ev.EndUnix+int64(eventGuestMargin.Seconds()); got != want {
-		t.Fatalf("room expiry %d, want event end + margin %d", got, want)
+	// Lifetime: the room persists well past the event — anchored to now, not the
+	// scheduled end, so a meeting a while ago is still joinable like Teams.
+	if got, want := s.meetingExpiry(rec.MeetingGuildID).Unix(), time.Now().Add(eventGuestKeepOpen).Unix(); got < want-120 || got > want+120 {
+		t.Fatalf("room expiry %d, want ~now+keepOpen %d", got, want)
 	}
 
 	// Default door: a guest KNOCKS, is admitted by the host, and lands on the
@@ -191,9 +192,9 @@ func TestEventGuestLinkStableAcrossEdits(t *testing.T) {
 	s.eventGuestMu.Lock()
 	rec := s.eventGuests[ev.ID]
 	s.eventGuestMu.Unlock()
-	want := newStart + 3600 + int64(eventGuestMargin.Seconds())
-	if got := s.meetingExpiry(rec.MeetingGuildID).Unix(); got != want {
-		t.Fatalf("room expiry did not follow the edit: %d, want %d", got, want)
+	want := time.Now().Add(eventGuestKeepOpen).Unix()
+	if got := s.meetingExpiry(rec.MeetingGuildID).Unix(); got < want-120 || got > want+120 {
+		t.Fatalf("room expiry after re-open %d, want ~now+keepOpen %d", got, want)
 	}
 	// The token's own clock must agree, or the door shuts early (serveGuest
 	// checks both).

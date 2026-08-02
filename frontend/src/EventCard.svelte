@@ -171,7 +171,7 @@
   const isGuestHost = $derived(!!ev.guestUrl && ev.guestHost === S.identity.fingerprint);
   // Guests are for real guilds — a meeting is already a guest room, and events
   // only surface in guilds anyway. Gate like the backend does.
-  const canInviteGuests = $derived(canEdit && !ev.guestUrl && !past && g?.kind !== "meeting");
+  const canInviteGuests = $derived(canEdit && !ev.guestUrl && g?.kind !== "meeting");
 
   function inviteGuests(e) {
     // The door choice happens at mint time and governs the GUEST LINK only:
@@ -273,7 +273,7 @@
       canEdit && !!onEdit && { label: "Edit event", icon: "edit", onClick: () => onEdit(ev) },
       { sep: true },
       isGuestHost && canEdit && !!ev.guestUrl && {
-        label: revokeArmed ? "Tap again — closes the room for everyone" : "Revoke room…",
+        label: revokeArmed ? "Tap again — ends the room for everyone" : "End meeting room…",
         icon: "close",
         danger: true,
         keepOpen: !revokeArmed,
@@ -407,7 +407,7 @@
         </button>
       </div>
       <span class="spring"></span>
-      {#if ev.guestUrl && ev.memberCode && !past}
+      {#if ev.guestUrl && ev.memberCode}
         <!-- THE button. The only filled control on the page when live. -->
         <!-- Visible text IS the accessible name ("Join now" / "Join early"),
              so voice control users can say what they see. -->
@@ -418,7 +418,16 @@
           {:else}<Icon name="camera" size={13} /> Join{/if}
         </button>
       {:else if ev.guestUrl}
-        <span class="gtag" class:over={past}><Icon name="camera" size={11} /> {past ? "Room ended" : "Room open"}</span>
+        <span class="gtag"><Icon name="camera" size={11} /> Room open</span>
+      {/if}
+      {#if isGuestHost && canEdit && ev.guestUrl}
+        <!-- The loop-closer, right next to the room state: a meeting guild lives
+             until you end it (or the 30-day backstop). This IS the "delete it"
+             the room needs — same action as the menu's, surfaced where the eye
+             already is. Two-tap so a mis-tap can't tear down a live meeting. -->
+        <button class="gend" onclick={revokeGuests}>
+          {revokeArmed ? "Tap again to end" : "End room"}
+        </button>
       {/if}
     </div>
     {#if pile.length || buckets.no.length || ev.guestUrl}
@@ -523,6 +532,25 @@
     line-height: 1.1;
     font-variant-numeric: tabular-nums;
   }
+  /* End room: a quiet danger-text button, not a loud one — ending a meeting is
+     deliberate but not the card's headline. Two-tap arming reuses revokeArmed. */
+  .gend {
+    flex-shrink: 0;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    color: var(--danger-text);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .gend {
+      min-height: var(--tap-min);
+      padding-inline: var(--sp-3);
+    }
+  }
+
   /* Time bubble (agenda contexts, where the day heading owns the date). */
   .bt {
     font-size: var(--fs-ui);

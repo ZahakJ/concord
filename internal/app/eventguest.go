@@ -42,10 +42,14 @@ const (
 	// store as the guest tokens it complements.
 	eventGuestsKey = "events.guest"
 
-	// eventGuestMargin keeps the room alive past the event's end, so a party
-	// running long is not cut off at the stroke of the calendar. Same margin a
-	// booked slot gets.
-	eventGuestMargin = time.Hour
+	// eventGuestKeepOpen is how long a room stays joinable once opened. A meeting
+	// room is NOT a countdown that dies at the stroke of the scheduled end —
+	// people join late, meetings run over, "let's continue tomorrow" is normal,
+	// and Teams keeps the room around for exactly this. So the room lives until
+	// the host ENDS it (or deletes the event), with this as the automatic
+	// backstop that reclaims a forgotten room. Re-opening refreshes it. Kept just
+	// under maxMeetingLifetime so opening never trips the too-far-ahead guard.
+	eventGuestKeepOpen = 30 * 24 * time.Hour
 	// eventGuestDefaultLen stands in for a missing end time: an open-ended
 	// event holds its room for two hours, matching the "sane default" the UI's
 	// happening-now logic assumes (one hour) with room to spare.
@@ -126,13 +130,14 @@ func (s *Service) eventGuestKnocks(guildID string) bool {
 }
 
 // eventGuestRoomSpan derives the room's lifetime from the event's times: the
-// stated end (or start + a default length when open-ended) plus a margin.
+// stated end (or start + a default length when open-ended); the room's EXPIRY is
+// anchored to now, not the end — a room outlives its scheduled slot on purpose.
 func eventGuestRoomSpan(ev domain.Event) (end, expiry time.Time) {
 	end = time.Unix(ev.StartUnix, 0).Add(eventGuestDefaultLen)
 	if ev.EndUnix > 0 {
 		end = time.Unix(ev.EndUnix, 0)
 	}
-	return end, end.Add(eventGuestMargin)
+	return end, time.Now().Add(eventGuestKeepOpen)
 }
 
 // eventGuestRoomName seeds the room's sidebar name from the event title.
@@ -178,11 +183,8 @@ func (s *Service) OpenEventGuests(guildID, eventID string, autoAdmit bool) (doma
 		return domain.Event{}, fmt.Errorf("app: guest links need a rendezvous server (Settings → Connection)")
 	}
 
-	end, expiry := eventGuestRoomSpan(ev)
+	_, expiry := eventGuestRoomSpan(ev)
 	now := time.Now()
-	if now.After(end) {
-		return domain.Event{}, fmt.Errorf("app: this event is already over")
-	}
 	// The room's expiry is absolute, and every device refuses meetings pinned
 	// further out than the longest lifetime on the menu — so an event a season
 	// away opens its doors closer to the date, like a booking horizon.
@@ -256,7 +258,8 @@ func (s *Service) OpenEventGuests(guildID, eventID string, autoAdmit bool) (doma
 	// Seed context: an arriving guest should know what they walked into
 	// without anyone having to say it. One system message — title, time,
 	// details — which the guest history replay (and the room itself) shows.
-	s.sendSystem(room.Channels[0].ID, eventGuestSeed(ev, end))
+	eventEnd, _ := eventGuestRoomSpan(ev)
+	s.sendSystem(room.Channels[0].ID, eventGuestSeed(ev, eventEnd))
 
 	s.eventGuestMu.Lock()
 	s.eventGuests[eventID] = eventGuestRecord{
