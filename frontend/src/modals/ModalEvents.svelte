@@ -216,17 +216,17 @@
       <textarea rows="3" placeholder="Details (optional)" maxlength="2000" bind:value={editing.details}></textarea>
       {#if editingHasGuests}
         <div class="gnote muted">
-          <Icon name="link" size={12} /> Guests can already join — copy or revoke the link on the event card.
+          <Icon name="link" size={12} /> This event already has a room — Join, copy or revoke on the event card.
         </div>
       {:else}
         <label class="chk">
           <input type="checkbox" bind:checked={editing.guests} />
-          <span>Open to guests — get a shareable link anyone can join from a browser</span>
+          <span>Open a meeting room — members join in one tap; guests get a shareable browser link</span>
         </label>
         {#if editing.guests}
           <label class="chk sub">
             <input type="checkbox" bind:checked={editing.autoAdmit} />
-            <span>Let guests straight in (otherwise they knock and you admit)</span>
+            <span>Let guests straight in (otherwise they knock and you admit; members always walk in)</span>
           </label>
         {/if}
       {/if}

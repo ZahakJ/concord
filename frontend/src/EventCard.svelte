@@ -4,7 +4,7 @@
   // counts and names, and the per-event actions (remind me, add to my
   // calendar, edit/delete for those allowed).
   import Icon from "./Icon.svelte";
-  import { S, nameFor, flash, openContextMenu } from "./lib/state.svelte.js";
+  import { S, nameFor, flash, openContextMenu, selectGuild, refreshGuilds } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
@@ -110,15 +110,17 @@
   const canInviteGuests = $derived(canEdit && !ev.guestUrl && !past && g?.kind !== "meeting");
 
   function inviteGuests(e) {
-    // The door choice happens at mint time: knock (default, safe to forward
-    // the link anywhere) or walk-in for an openly shared event.
+    // The door choice happens at mint time and governs the GUEST LINK only:
+    // knock (default, safe to forward the link anywhere) or walk-in for an
+    // openly shared event. Members always walk in — their Join is a real
+    // invite, not the guest door.
     openContextMenu(
       e,
       [
         { label: "Guests knock, you admit", icon: "door", onClick: () => openGuests(false) },
         { label: "Open door — guests walk in", icon: "link", onClick: () => openGuests(true) },
       ],
-      { title: "Invite guests" },
+      { title: "Open meeting room" },
     );
   }
 
@@ -127,6 +129,7 @@
       const updated = await api.openEventGuests(ev.guildId, ev.id, autoAdmit);
       ev.guestUrl = updated.guestUrl;
       ev.guestHost = updated.guestHost;
+      ev.memberCode = updated.memberCode;
       await copyGuestLink();
       loadEvents(ev.guildId);
     } catch (err) {
@@ -140,6 +143,32 @@
       flash("Guest link copied — anyone with it can join from a browser", "success");
     } catch {
       flash("Couldn't copy — long-press the link to copy it", "info");
+    }
+  }
+
+  // ---- member Join ----
+  // The Teams split, exactly: people already IN this guild/DM tap Join and
+  // walk straight in as themselves — the memberCode on the event is a real
+  // invite into the meeting room (full identity, E2EE, never the guest
+  // knock). Only outsiders ride the copied browser link and wait at the door.
+  // The backend short-circuits for the host and for a member rejoining, so
+  // one handler covers all three shapes of "get me in".
+  let joining = $state(false);
+  async function joinRoom() {
+    if (joining) return;
+    joining = true;
+    try {
+      const room = await api.joinEventRoom(ev.guildId, ev.id);
+      // A fresh join means a guild S.guilds hasn't heard of yet — refresh
+      // before navigating or selectGuild lands on nothing.
+      if (!S.guilds.some((x) => x.id === room.id)) await refreshGuilds();
+      await selectGuild(room.id);
+      S.modal = null; // the room is the destination; the calendar's job is done
+    } catch (err) {
+      flash(err); // e.g. "this event's room has ended" — honest, not silent
+      loadEvents(ev.guildId); // a dead room usually means a stale card too
+    } finally {
+      joining = false;
     }
   }
 
@@ -158,7 +187,8 @@
       const updated = await api.revokeEventGuests(ev.guildId, ev.id);
       ev.guestUrl = updated.guestUrl || "";
       ev.guestHost = updated.guestHost || "";
-      flash("Guest link revoked — the room is gone", "success");
+      ev.memberCode = updated.memberCode || "";
+      flash("Room closed — the guest link and member Join are both dead", "success");
       loadEvents(ev.guildId);
     } catch (err) {
       flash(err);
@@ -229,8 +259,13 @@
            next line instead of orphaning the last icon on a row of its own. -->
       <span class="actrow">
         {#if canInviteGuests}
-          <button class="act" title="Invite guests (shareable link)" aria-label="Invite guests" onclick={inviteGuests}>
-            <Icon name="link" size={14} />
+          <button
+            class="act"
+            title="Open meeting room (members join in one tap; guests get a link)"
+            aria-label="Open meeting room"
+            onclick={inviteGuests}
+          >
+            <Icon name="camera" size={14} />
           </button>
         {/if}
         {#if !past}
@@ -261,11 +296,24 @@
       </span>
     </div>
     {#if ev.guestUrl}
-      <!-- Every member sees the link and can copy it; only the host revokes. -->
+      <!-- The room row. Join is the primary way in for everyone invited
+           (members walk in as themselves); the copyable guest link is the
+           secondary door for outsiders. Only the host revokes. -->
       <div class="guests" class:dim={past}>
-        <span class="gtag"><Icon name="link" size={11} /> Guests can join</span>
-        <button class="gcopy" title={ev.guestUrl} aria-label="Copy the guest link" onclick={copyGuestLink}>
-          <Icon name="copy" size={12} /> Copy link
+        {#if ev.memberCode && !past}
+          <button class="gjoin" disabled={joining} aria-label="Join the meeting room" onclick={joinRoom}>
+            {#if joining}<span class="spin" aria-hidden="true"></span> Joining…{:else}<Icon name="camera" size={13} /> Join{/if}
+          </button>
+        {:else}
+          <span class="gtag"><Icon name="camera" size={11} /> Room open</span>
+        {/if}
+        <button
+          class="gcopy"
+          title="For people outside this {g?.kind === 'dm' ? 'chat' : 'guild'} — they join from a browser and knock"
+          aria-label="Copy the guest link"
+          onclick={copyGuestLink}
+        >
+          <Icon name="copy" size={12} /> Guest link
         </button>
         {#if isGuestHost && canEdit}
           <button
@@ -547,6 +595,47 @@
     font-size: var(--fs-tiny);
     font-weight: 700;
   }
+  /* Join is THE action on a card with a live room — a filled button, not a
+     chip, so it reads before anything else on the row. */
+  .gjoin {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 16px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-size: var(--fs-compact);
+    font-weight: 700;
+  }
+  .gjoin:hover {
+    background: var(--accent-hover);
+  }
+  .gjoin:disabled {
+    opacity: 0.7;
+  }
+  .evcard.live .gjoin {
+    background: var(--ok);
+    color: var(--ok-fg, #fff);
+  }
+  .spin {
+    width: 12px;
+    height: 12px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: gjoin-spin 0.7s linear infinite;
+  }
+  @keyframes gjoin-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .spin {
+      animation: none;
+    }
+  }
   .gcopy,
   .grevoke {
     display: inline-flex;
@@ -597,6 +686,10 @@
     .grevoke {
       min-height: 36px;
       padding: 4px 12px;
+    }
+    .gjoin {
+      min-height: var(--tap-min, 44px);
+      padding: 4px 20px;
     }
   }
 </style>

@@ -213,6 +213,14 @@ type Event struct {
 	// so nobody else can revoke a link there or point guests somewhere else.
 	GuestURL  string `json:"guestUrl,omitempty"`
 	GuestHost string `json:"guestHost,omitempty"`
+	// MemberCode is the members' door into the same room: a guild invite code
+	// for the meeting guild, minted by GuestHost's node alongside GuestURL.
+	// Redeeming it makes the member a REAL member of the room — own identity,
+	// full E2EE — with no knock, mirroring how Teams lets internal people walk
+	// straight in while externals wait in the lobby. It travels only on this
+	// MLS-encrypted record, so outsiders never see it, and it obeys the same
+	// receive-side rule as GuestURL: only GuestHost's frames may touch it.
+	MemberCode string `json:"memberCode,omitempty"`
 }
 
 // NewID returns a random 128-bit hex identifier for guilds, channels and

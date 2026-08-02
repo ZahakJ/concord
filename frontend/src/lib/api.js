@@ -188,6 +188,9 @@ export const api = {
   openEventGuests: (guildID, eventID, autoAdmit = false) =>
     call("OpenEventGuests", guildID, eventID, autoAdmit),
   revokeEventGuests: (guildID, eventID) => call("RevokeEventGuests", guildID, eventID),
+  // One-tap Join for members: redeems the event's memberCode (a real invite
+  // into the meeting room, no knock) or returns the room if already joined.
+  joinEventRoom: (guildID, eventID) => call("JoinEventRoom", guildID, eventID),
   // Public booking page (Settings → Bookings). cfg is { enabled, blurb,
   // slotMinutes, horizonDays, windows: [{weekday, startMin, endMin}] } —
   // weekday 0 = Sunday, minutes counted from local midnight. The token/URL is

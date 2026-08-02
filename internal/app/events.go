@@ -34,6 +34,10 @@ const (
 	// record ship a paragraph where a URL belongs.
 	maxEventGuestURLRunes  = 300
 	maxEventGuestHostRunes = 128
+	// The members' invite code into the same room ("CI1" + base64, a few
+	// hundred chars today; multiaddr-heavy hosts run longer). Generous headroom
+	// without letting a record smuggle an essay through a code-shaped field.
+	maxEventMemberCodeRunes = 2048
 )
 
 // validEventID bounds an event id to the same charset as other shared ids —
@@ -103,6 +107,16 @@ func validEvent(ev domain.Event) error {
 		// bounded runes) is the right shape check.
 		if !validEventText(ev.GuestHost, maxEventGuestHostRunes, false) {
 			return fmt.Errorf("app: bad guest host")
+		}
+	}
+	// The member join code exists only while a recorded host answers for the
+	// room — a code with nobody accountable is a door nobody could close.
+	if ev.MemberCode != "" {
+		if ev.GuestHost == "" {
+			return fmt.Errorf("app: a member join code needs a recorded host")
+		}
+		if !validEventText(ev.MemberCode, maxEventMemberCodeRunes, false) {
+			return fmt.Errorf("app: bad member join code")
 		}
 	}
 	return nil
@@ -370,12 +384,14 @@ func (s *Service) applyEventUpsert(guildID, actor string, ev domain.Event) {
 		// editing from a stale copy cannot kill a live link, and a forged frame
 		// cannot re-point guests at an attacker's room or claim someone else
 		// hosts one. GuestHost's own frames (their linked devices included) may
-		// set, move or clear freely — their node is where the room lives.
+		// set, move or clear freely — their node is where the room lives. The
+		// member join code is the same room through another door, so it lives
+		// and dies by exactly the same rule.
 		if actor != existing.GuestHost && existing.GuestHost != "" {
-			ev.GuestURL, ev.GuestHost = existing.GuestURL, existing.GuestHost
+			ev.GuestURL, ev.GuestHost, ev.MemberCode = existing.GuestURL, existing.GuestHost, existing.MemberCode
 		}
 		if ev.GuestHost != "" && ev.GuestHost != actor && existing.GuestHost == "" {
-			ev.GuestURL, ev.GuestHost = "", "" // nobody opens guests in someone else's name
+			ev.GuestURL, ev.GuestHost, ev.MemberCode = "", "", "" // nobody opens a room in someone else's name
 		}
 	} else {
 		if have, err := s.store.Events(guildID); err == nil && len(have) >= maxGuildEvents {
@@ -384,7 +400,7 @@ func (s *Service) applyEventUpsert(guildID, actor string, ev domain.Event) {
 		ev.CreatedBy = actor // authorship is authenticated, not asserted
 		ev.RSVPs = nil       // nobody arrives pre-RSVP'd on the author's say-so
 		if ev.GuestHost != actor {
-			ev.GuestURL, ev.GuestHost = "", "" // same rule on a fresh record
+			ev.GuestURL, ev.GuestHost, ev.MemberCode = "", "", "" // same rule on a fresh record
 		}
 		if ev.CreatedAt <= 0 {
 			ev.CreatedAt = time.Now().Unix()
@@ -464,7 +480,7 @@ func (s *Service) applySyncedEvent(guildID string, ev domain.Event) {
 		// fails honestly — whereas adopting a doctored snapshot's URL would
 		// aim guests at an attacker's room.
 		if existing.GuestHost != "" {
-			ev.GuestURL, ev.GuestHost = existing.GuestURL, existing.GuestHost
+			ev.GuestURL, ev.GuestHost, ev.MemberCode = existing.GuestURL, existing.GuestHost, existing.MemberCode
 		}
 		merged := existing.RSVPs
 		if merged == nil {

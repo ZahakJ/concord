@@ -203,9 +203,14 @@ func (s *Service) OpenEventGuests(guildID, eventID string, autoAdmit bool) (doma
 		s.saveEventGuests()
 		s.setMeetingExpiry(rec.MeetingGuildID, expiry)
 		// CreateGuestLink reuses the existing token and stamps it with the
-		// meeting's (just refreshed) absolute expiry.
-		if url, err := s.CreateGuestLink(rec.MeetingGuildID, 0); err == nil && url != ev.GuestURL {
-			return s.stampEventGuest(groupID, ev, url)
+		// meeting's (just refreshed) absolute expiry. The member code is
+		// re-minted too: it carries our CURRENT addresses (fresher is more
+		// dialable), and an event opened before member Join existed picks the
+		// code up here instead of needing a new room.
+		url, uerr := s.CreateGuestLink(rec.MeetingGuildID, 0)
+		code, cerr := s.InviteCode(rec.MeetingGuildID)
+		if uerr == nil && cerr == nil && (url != ev.GuestURL || code != ev.MemberCode) {
+			return s.stampEventGuest(groupID, ev, url, code)
 		}
 		return ev, nil
 	}
@@ -235,6 +240,18 @@ func (s *Service) OpenEventGuests(guildID, eventID string, autoAdmit bool) (doma
 		s.dropGuestTokens(room.ID)
 		return domain.Event{}, err
 	}
+	// The members' door: a real invite into the room, so anyone already
+	// trusted with the event (guild/DM members — the only people the encrypted
+	// record reaches) joins as THEMSELVES, full identity and E2EE, no knock.
+	// We just created the room, so we are its owner and the mint cannot be a
+	// permission problem; failing here still tears the room down, because a
+	// room only guests can enter is not the feature.
+	code, err := s.InviteCode(room.ID)
+	if err != nil {
+		_ = s.deleteGuildLocal(room.ID)
+		s.dropGuestTokens(room.ID)
+		return domain.Event{}, err
+	}
 
 	// Seed context: an arriving guest should know what they walked into
 	// without anyone having to say it. One system message — title, time,
@@ -249,7 +266,7 @@ func (s *Service) OpenEventGuests(guildID, eventID string, autoAdmit bool) (doma
 	s.eventGuestMu.Unlock()
 	s.saveEventGuests()
 
-	updated, err := s.stampEventGuest(groupID, ev, url)
+	updated, err := s.stampEventGuest(groupID, ev, url, code)
 	if err != nil {
 		// The event write is what publishes the link; without it the room is an
 		// orphan nobody can reach — take it back down.
@@ -283,12 +300,13 @@ func eventGuestSeed(ev domain.Event, end time.Time) string {
 	return msg
 }
 
-// stampEventGuest writes the link onto the event and announces it — the same
-// upsert lane every edit rides, so members see "guests can join" through the
-// signal they already listen to.
-func (s *Service) stampEventGuest(groupID []byte, ev domain.Event, url string) (domain.Event, error) {
+// stampEventGuest writes both doors onto the event — the guest link and the
+// member join code — and announces it over the same upsert lane every edit
+// rides, so members see the room through the signal they already listen to.
+func (s *Service) stampEventGuest(groupID []byte, ev domain.Event, url, code string) (domain.Event, error) {
 	ev.GuestURL = url
 	ev.GuestHost = s.id.Fingerprint()
+	ev.MemberCode = code
 	if now := time.Now().Unix(); now > ev.UpdatedAt {
 		ev.UpdatedAt = now
 	} else {
@@ -331,10 +349,12 @@ func (s *Service) RevokeEventGuests(guildID, eventID string) (domain.Event, erro
 	}
 
 	// Tear down first: the record going away is what makes the link answer
-	// "no longer valid" even if the event write below fails.
+	// "no longer valid" even if the event write below fails. Deleting the room
+	// also kills the member code — redeeming it dials a guild this node no
+	// longer serves — so clearing all three fields below states a truth.
 	s.teardownEventGuestRoom(eventID)
 
-	ev.GuestURL, ev.GuestHost = "", ""
+	ev.GuestURL, ev.GuestHost, ev.MemberCode = "", "", ""
 	if now := time.Now().Unix(); now > ev.UpdatedAt {
 		ev.UpdatedAt = now
 	} else {
@@ -368,6 +388,56 @@ func (s *Service) teardownEventGuestRoom(eventID string) {
 	_ = s.deleteGuildLocal(rec.MeetingGuildID)
 	s.dropGuestTokens(rec.MeetingGuildID)
 	s.emitGuildUpdate()
+}
+
+// JoinEventRoom walks a MEMBER into an event's meeting room as themselves —
+// the Teams distinction: people already inside the guild/DM click Join and
+// walk straight in, only outsiders ride the guest link and knock. The code
+// being redeemed arrived on the event's MLS-encrypted record, gated on
+// receive so only the recorded host could have put it there; redeeming it is
+// the ordinary invite handshake to the host's node, so the joiner becomes a
+// real member of the room — own identity, full E2EE, never kind "guest" —
+// and the guest knock cannot apply to them by construction (it lives in
+// serveGuest, a path a member join never touches).
+func (s *Service) JoinEventRoom(guildID, eventID string) (domain.Guild, error) {
+	ev, found, err := s.store.EventByID(eventID)
+	if err != nil {
+		return domain.Guild{}, err
+	}
+	if !found || ev.GuildID != guildID {
+		return domain.Guild{}, fmt.Errorf("app: unknown event %s", eventID)
+	}
+	if ev.MemberCode == "" {
+		if ev.GuestURL != "" {
+			// A room opened before member Join shipped: the host re-opening it
+			// (OpenEventGuests is idempotent) stamps the code on.
+			return domain.Guild{}, fmt.Errorf("app: this room predates one-tap Join — ask the host to re-open it")
+		}
+		return domain.Guild{}, fmt.Errorf("app: this event has no room to join")
+	}
+	ic, err := decodeInviteCode(ev.MemberCode)
+	if err != nil {
+		return domain.Guild{}, fmt.Errorf("app: this event's join code is unreadable — ask the host to re-open the room")
+	}
+	// Already inside — the host who minted the room, or a member who joined
+	// earlier and is coming back: nothing to redeem, just hand the room over.
+	s.mu.RLock()
+	room, have := s.guilds[ic.GuildID]
+	s.mu.RUnlock()
+	if have && s.guildHasMember(ic.GuildID, s.id.Fingerprint()) {
+		return *room, nil
+	}
+	joined, err := s.JoinViaInvite(ev.MemberCode)
+	if err != nil {
+		// The host answering "unknown guild" means the room was torn down
+		// (revoked, expired, or the event died) and this member's copy of the
+		// event simply hasn't caught up — say what actually happened.
+		if strings.Contains(err.Error(), "unknown guild") {
+			return domain.Guild{}, fmt.Errorf("app: this event's room has ended")
+		}
+		return domain.Guild{}, err
+	}
+	return joined, nil
 }
 
 // syncEventGuestExpiry follows an applied edit's times when this node hosts
