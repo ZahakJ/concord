@@ -12,7 +12,7 @@
   import { on } from "../lib/api.js";
   import { EV, loadAllEvents, dayKey, fmtDayHeading, happeningNow, isPast } from "../lib/events.svelte.js";
 
-  let { onClose } = $props();
+  let { onClose, onJoinVoice } = $props();
 
   $effect(() => {
     loadAllEvents();
@@ -125,7 +125,7 @@
           </div>
         {/if}
         <div class="riser" style="animation-delay:{Math.min(grp.offset + i, 8) * 24}ms">
-          <EventCard {ev} {g} showGuild bubble="time" />
+          <EventCard {ev} {g} showGuild {onJoinVoice} bubble="time" />
         </div>
       {/each}
     {/each}

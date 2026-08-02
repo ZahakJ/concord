@@ -192,6 +192,18 @@ type Event struct {
 	// Location is free text — a room, an address, or the name of a channel in
 	// this guild. Never a vendor link; nothing here is fetched.
 	Location string `json:"location,omitempty"`
+	// LocationChannelID makes the location a REAL channel of the same guild:
+	// Join then navigates there (and into its call when it is a voice channel)
+	// instead of minting a disposable meeting guild, and the start announcement
+	// lands in that channel's own chat. Kept alongside Location rather than
+	// replacing it: Location doubles as the display label ("🔊 lounge") for ICS
+	// export and for members whose copy of the channel list hasn't caught up.
+	// It rides the same event_upserted lane and so inherits the exact same
+	// receive-side ownership as every other event field (author/ManageMessages,
+	// bound to the MLS-authenticated actor). Consumers must resolve it against
+	// the guild the event belongs to — a record naming a foreign guild's
+	// channel is ignored at the point of use, not trusted at face value.
+	LocationChannelID string `json:"locationChannelId,omitempty"`
 	// CreatedBy is the author's account fingerprint — the same identity string
 	// every permission check runs on. On receive it is bound to the
 	// MLS-authenticated sender, never adopted from the payload.

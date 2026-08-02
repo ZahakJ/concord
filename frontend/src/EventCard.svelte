@@ -8,7 +8,7 @@
   // into ⋯.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
-  import { S, nameFor, flash, openContextMenu, selectGuild, refreshGuilds } from "./lib/state.svelte.js";
+  import { S, nameFor, flash, openContextMenu, selectGuild, refreshGuilds, jumpToChannel } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
@@ -30,8 +30,10 @@
 
   // bubble: "date" (default) or "time" — in agenda contexts a day heading
   // already owns the date, so the bubble shows the start time instead of
-  // printing the same fact twice.
-  let { ev, g, showGuild = false, onEdit, bubble = "date" } = $props();
+  // printing the same fact twice. onJoinVoice is App's real voice lifecycle
+  // (mesh, knock, call view), threaded down so a voice-channel-located event's
+  // Join can enter the call exactly like clicking the channel would.
+  let { ev, g, showGuild = false, onEdit, onJoinVoice, bubble = "date" } = $props();
 
   // Soon-aware tick: 30s normally, 10s inside the T-60m window so the
   // countdown never visibly stalls. Minute-grained copy needs no 1s tick.
@@ -80,6 +82,29 @@
   const weekday = $derived(
     new Date(ev.startUnix * 1000).toLocaleDateString([], { weekday: "long" }),
   );
+
+  // ---- channel-located events ----
+  // The location is a REAL channel of this guild when the record names one AND
+  // it still resolves in OUR copy of the guild — the same receive-side rule
+  // the backend's announcer holds: a record naming a foreign or vanished
+  // channel renders as its free-text label, never as a door. In that mode the
+  // event needs no meeting room for members: Join IS the channel (voice = its
+  // call), and the guest room remains only as the outsiders' bridge.
+  const locCh = $derived(g?.channels?.find((c) => c.id === ev.locationChannelId) || null);
+  const locIsVoice = $derived(locCh?.type === "voice");
+
+  async function joinChannelLoc() {
+    if (!locCh) return;
+    const chId = locCh.id;
+    const voice = locIsVoice;
+    S.modal = null; // the channel is the destination; the calendar's job is done
+    haptic("light");
+    await jumpToChannel(chId);
+    // Voice room: enter its call through App's one true join path — it owns
+    // the knock-if-locked courtesy, mic capture and the call view. Without the
+    // callback (unexpected) navigation alone is still the honest 90%.
+    if (voice) onJoinVoice?.(chId);
+  }
 
   async function rsvp(state) {
     const next = mine === state ? "" : state; // tapping your answer clears it
@@ -135,9 +160,10 @@
       flash("It's already started — go!", "info");
       return;
     }
-    // Jump target for the fired reminder: the guild's first ordinary text
-    // channel (reminders navigate by channel; an event has no channel of its own).
+    // Jump target for the fired reminder: the event's OWN channel when it has
+    // one, else the guild's first ordinary text channel.
     const chId =
+      locCh?.id ||
       g?.channels?.find((c) => !c.parent && c.type !== "voice" && c.type !== "forum")?.id ||
       g?.channels?.[0]?.id ||
       "";
@@ -265,7 +291,9 @@
       !past && { label: "Remind me…", icon: "bell", onClick: () => remind(anchorEvt()) },
       { label: "Add to calendar (.ics)", icon: "download", onClick: addToCal },
       canInviteGuests && {
-        label: "Open meeting room…",
+        // A channel-located event already has its members' door (the channel):
+        // the room is then explicitly the OUTSIDERS' bridge, and says so.
+        label: locCh ? "Invite outside guests…" : "Open meeting room…",
         icon: "camera",
         onClick: () => inviteGuests(anchorEvt()),
       },
@@ -386,7 +414,15 @@
     <div class="meta muted">
       <Icon name="clock" size={11} />
       <span>{fmtEventTime(ev)}</span>
-      {#if ev.location}
+      {#if locCh}
+        <span class="dotsep">·</span>
+        <!-- The location IS a channel: a door, not a caption — tap to stand
+             in it (chat only; the call stays behind the explicit Join). -->
+        <button class="locbtn" title="Open {locIsVoice ? 'the voice channel' : 'the channel'}" onclick={async () => { S.modal = null; await jumpToChannel(locCh.id); }}>
+          <Icon name={locIsVoice ? "speaker" : "hash"} size={11} />
+          <span class="locname">{locCh.name}</span>
+        </button>
+      {:else if ev.location}
         <span class="dotsep">·</span>
         <span class="loc">{ev.location}</span>
       {/if}
@@ -407,7 +443,21 @@
         </button>
       </div>
       <span class="spring"></span>
-      {#if ev.guestUrl && (ev.memberCode || isGuestHost)}
+      {#if locCh && phase !== "ended"}
+        <!-- Channel mode: Join IS the channel — no meeting guild is minted,
+             ever. A voice location also enters its call; a text one lands in
+             the chat. This REPLACES the room join for this event; the guest
+             room (if opened) stays the outsiders-only door below. -->
+        <button class="gjoin" onclick={joinChannelLoc}>
+          {#if locIsVoice}
+            {#if phase === "live"}<Icon name="speaker" size={13} /> Join the call
+            {:else if phase === "soon"}<Icon name="speaker" size={13} /> Join early
+            {:else}<Icon name="speaker" size={13} /> Join in 🔊{/if}
+          {:else}
+            <Icon name="hash" size={13} /> Go to #{locCh.name}
+          {/if}
+        </button>
+      {:else if ev.guestUrl && (ev.memberCode || isGuestHost)}
         <!-- THE button. The only filled control on the page when live. -->
         <!-- Visible text IS the accessible name ("Join now" / "Join early"),
              so voice control users can say what they see. -->
@@ -676,6 +726,29 @@
     white-space: nowrap;
     max-width: 24ch;
   }
+  /* A channel location is a door: accent ink, inline with the meta line —
+     louder than the free-text caption, quieter than the Join pill. */
+  .locbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 0 3px;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    color: var(--accent-hover);
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    min-width: 0;
+  }
+  .locbtn:hover {
+    text-decoration: underline;
+  }
+  .locname {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 20ch;
+  }
   .details {
     margin: 0;
     font-size: var(--fs-compact);
@@ -904,6 +977,10 @@
     .gcopy,
     .faces {
       min-height: 36px;
+    }
+    .locbtn {
+      min-height: 32px;
+      padding-inline: var(--sp-2);
     }
   }
 </style>

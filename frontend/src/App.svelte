@@ -1061,9 +1061,11 @@
   {:else if S.modal?.kind === "requests"}
     <ModalRequests onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "events"}
-    <ModalEvents onClose={() => (S.modal = null)} />
+    <!-- onJoinVoice: a voice-channel-located event's Join enters the call
+         through the same lifecycle a sidebar click uses (knock included). -->
+    <ModalEvents onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
   {:else if S.modal?.kind === "myCalendar"}
-    <ModalMyCalendar onClose={() => (S.modal = null)} />
+    <ModalMyCalendar onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
   {:else if S.modal?.kind === "newDM"}
     <ModalNewDM onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "renameGroup"}

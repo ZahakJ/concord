@@ -20,7 +20,7 @@
     icsName,
   } from "../lib/events.svelte.js";
 
-  let { onClose } = $props();
+  let { onClose, onJoinVoice } = $props();
 
   // Frozen at open: the panel is about the guild it was opened from, even if
   // a background refresh changes the active guild id.
@@ -143,6 +143,24 @@
   function toLocalInput(ms) {
     return new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   }
+
+  // Channels this guild can host an event IN: the location picker's menu.
+  // Voice rooms first (they're what a meeting usually means), then the text-
+  // shaped kinds; never forum posts (threads have a parent) and never in a DM
+  // or meeting room — there the location stays plain words, gracefully.
+  const locChannels = $derived.by(() => {
+    if (!g || g.kind === "dm" || g.kind === "meeting") return [];
+    const ok = (c) =>
+      !c.parent && (c.type === "voice" || c.type === "" || c.type === "text" || c.type === "announcement");
+    const list = (g.channels || []).filter(ok);
+    return [...list.filter((c) => c.type === "voice"), ...list.filter((c) => c.type !== "voice")];
+  });
+  const locVoice = $derived(locChannels.filter((c) => c.type === "voice"));
+  const locText = $derived(locChannels.filter((c) => c.type !== "voice"));
+  // The picked channel's display label — doubles as the free-text Location so
+  // ICS exports and not-yet-synced peers still see "🔊 lounge" instead of air.
+  const locLabel = (c) => (c.type === "voice" ? `🔊 ${c.name}` : `# ${c.name}`);
+
   function blankDraft() {
     // A tapped day pre-fills its evening; otherwise an hour from now, like
     // ModalWhen's custom default.
@@ -154,7 +172,7 @@
     } else {
       at = Date.now() + 3600000;
     }
-    return { id: "", title: "", details: "", location: "", start: toLocalInput(at), durMin: 60, guests: false, autoAdmit: false };
+    return { id: "", title: "", details: "", location: "", locationChannelId: "", start: toLocalInput(at), durMin: 60, guests: false, autoAdmit: false };
   }
   // The OS picker is the fallback, never the greeting: chips first, the
   // datetime-local appears once a time has been touched (or on request).
@@ -171,6 +189,12 @@
       title: ev.title,
       details: ev.details || "",
       location: ev.location || "",
+      // A channel that has since been deleted falls back to the free-text
+      // label the form saved alongside it — the picker shows "somewhere
+      // else…" and the words survive.
+      locationChannelId: locChannels.some((c) => c.id === ev.locationChannelId)
+        ? ev.locationChannelId
+        : "",
       start: toLocalInput(ev.startUnix * 1000),
       durMin: ev.endUnix ? Math.round((ev.endUnix - ev.startUnix) / 60) : 0,
       guests: false,
@@ -259,12 +283,18 @@
     const startUnix = Math.floor(draftAt / 1000);
     const endUnix = editing.durMin ? startUnix + editing.durMin * 60 : 0;
     const isEdit = !!editing.id;
+    // A picked channel writes BOTH fields: the id (what Join and the
+    // in-channel reminder run on) and its label as the free-text location
+    // (what ICS export and stale channel lists still show).
+    const locCh = locChannels.find((c) => c.id === editing.locationChannelId) || null;
+    const locStr = locCh ? locLabel(locCh) : editing.location.trim();
+    const locChId = locCh ? locCh.id : "";
     let saved;
     try {
       if (isEdit)
-        saved = await api.updateEvent(gid, editing.id, editing.title.trim(), editing.details.trim(), startUnix, endUnix, editing.location.trim());
+        saved = await api.updateEvent(gid, editing.id, editing.title.trim(), editing.details.trim(), startUnix, endUnix, locStr, locChId);
       else
-        saved = await api.createEvent(gid, editing.title.trim(), editing.details.trim(), startUnix, endUnix, editing.location.trim());
+        saved = await api.createEvent(gid, editing.title.trim(), editing.details.trim(), startUnix, endUnix, locStr, locChId);
     } catch (err) {
       flash(err); // e.g. not allowed to edit someone else's — never fail silently
       return;
@@ -351,7 +381,44 @@
           {/if}
         </div>
       </div>
-      <input placeholder="Where? A channel, an address, someone's couch…" maxlength="160" bind:value={editing.location} />
+      {#if locChannels.length}
+        <!-- The location is a real place in this guild first, words second:
+             pick a channel and Join walks people there (voice = its call),
+             with the guild posting the start reminder in that chat. The
+             native select is the phone-honest picker here. -->
+        <label class="fld">
+          <span class="muted tiny">Where</span>
+          <select class="locsel" bind:value={editing.locationChannelId}>
+            <option value="">Somewhere else — type it in…</option>
+            {#if locVoice.length}
+              <optgroup label="Voice channels">
+                {#each locVoice as c (c.id)}
+                  <option value={c.id}>🔊 {c.name}</option>
+                {/each}
+              </optgroup>
+            {/if}
+            {#if locText.length}
+              <optgroup label="Text channels">
+                {#each locText as c (c.id)}
+                  <option value={c.id}># {c.name}</option>
+                {/each}
+              </optgroup>
+            {/if}
+          </select>
+        </label>
+        {#if editing.locationChannelId}
+          <div class="gnote muted">
+            <Icon name="bell" size={12} />
+            Join takes members straight there{locVoice.some((c) => c.id === editing.locationChannelId)
+              ? " and into the call"
+              : ""} — and {g?.name || "the guild"} will post a reminder in that channel when it starts.
+          </div>
+        {:else}
+          <input placeholder="Where? An address, a link-up spot, someone's couch…" maxlength="160" bind:value={editing.location} />
+        {/if}
+      {:else}
+        <input placeholder="Where? A channel, an address, someone's couch…" maxlength="160" bind:value={editing.location} />
+      {/if}
       <textarea rows="3" placeholder="Details (optional)" maxlength="2000" bind:value={editing.details}></textarea>
       {#if editingHasGuests}
         <div class="gnote muted">
@@ -360,12 +427,18 @@
       {:else}
         <label class="chk">
           <input type="checkbox" bind:checked={editing.guests} />
-          <span>Open a meeting room — members join in one tap; guests get a shareable browser link</span>
+          {#if editing.locationChannelId}
+            <!-- With a channel picked, members need no room — the checkbox is
+                 ONLY the outsiders' door, and says so. -->
+            <span>Also invite outside guests — they get a browser link into a separate, disposable room (this guild stays sealed)</span>
+          {:else}
+            <span>Open a meeting room — members join in one tap; guests get a shareable browser link</span>
+          {/if}
         </label>
         {#if editing.guests}
           <label class="chk sub">
             <input type="checkbox" bind:checked={editing.autoAdmit} />
-            <span>Let guests straight in (otherwise they knock and you admit; members always walk in)</span>
+            <span>Let guests straight in (otherwise they knock and you admit{editing.locationChannelId ? "" : "; members always walk in"})</span>
           </label>
         {/if}
       {/if}
@@ -464,7 +537,7 @@
         {/if}
         {#each grp.events as ev, i (ev.id)}
           <div class="riser" style="animation-delay:{Math.min(grp.offset + i, 8) * 24}ms">
-            <EventCard {ev} {g} onEdit={startEdit} bubble="time" />
+            <EventCard {ev} {g} onEdit={startEdit} {onJoinVoice} bubble="time" />
           </div>
         {/each}
       {:else}
@@ -495,7 +568,7 @@
         {#if showPast}
           {#each [...pastEvents].reverse() as ev (ev.id)}
             <div class="riser">
-              <EventCard {ev} {g} onEdit={startEdit} />
+              <EventCard {ev} {g} onEdit={startEdit} {onJoinVoice} />
             </div>
           {/each}
         {/if}

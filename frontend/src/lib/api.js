@@ -170,12 +170,15 @@ export const api = {
     call("SaveSearchedGif", guildID, name, tags, ref, w, h),
   // Guild calendar events. Times are UTC Unix seconds (endUnix 0 = no stated
   // end); rsvp state is "going" | "maybe" | "no" | "" (clear your answer).
+  // locationChannelId ties the event to one of the guild's OWN channels (Join
+  // then navigates there instead of minting a meeting room; location stays as
+  // the display label). "" keeps the location free text / external.
   // The ICS calls return RFC 5545 text to hand to the user's own calendar app
   // as a downloaded file — the format, never a vendor.
-  createEvent: (guildID, title, details, startUnix, endUnix = 0, location = "") =>
-    call("CreateEvent", guildID, title, details, startUnix, endUnix, location),
-  updateEvent: (guildID, eventID, title, details, startUnix, endUnix = 0, location = "") =>
-    call("UpdateEvent", guildID, eventID, title, details, startUnix, endUnix, location),
+  createEvent: (guildID, title, details, startUnix, endUnix = 0, location = "", locationChannelId = "") =>
+    call("CreateEvent", guildID, title, details, startUnix, endUnix, location, locationChannelId),
+  updateEvent: (guildID, eventID, title, details, startUnix, endUnix = 0, location = "", locationChannelId = "") =>
+    call("UpdateEvent", guildID, eventID, title, details, startUnix, endUnix, location, locationChannelId),
   deleteEvent: (guildID, eventID) => call("DeleteEvent", guildID, eventID),
   events: (guildID) => call("Events", guildID),
   rsvpEvent: (guildID, eventID, state) => call("RSVPEvent", guildID, eventID, state),

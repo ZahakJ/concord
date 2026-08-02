@@ -81,6 +81,13 @@ func validEvent(ev domain.Event) error {
 	if !validEventText(ev.Location, maxEventLocationRunes, false) {
 		return fmt.Errorf("app: an event location must be at most %d characters", maxEventLocationRunes)
 	}
+	// A channel location is an id-shaped reference, never free text. Shape only
+	// here: whether the channel actually exists in THIS guild is re-checked at
+	// every point of use (card render, Join, the start announcement), because a
+	// receive-side record can legitimately arrive before its channel has synced.
+	if ev.LocationChannelID != "" && !validEventID(ev.LocationChannelID) {
+		return fmt.Errorf("app: bad event location channel")
+	}
 	if ev.StartUnix <= 0 {
 		return fmt.Errorf("app: an event needs a start time")
 	}
@@ -167,26 +174,44 @@ func (s *Service) publishEvent(groupID []byte, ev domain.Event) {
 	s.publishMeta(groupID, guildMeta{Type: "event_upserted", Event: &ev})
 }
 
+// locationChannelInGuild is the LOCAL courtesy check behind a channel-located
+// event: creating one pointing at a channel this guild doesn't own is a typo
+// worth an error, not a record worth publishing. It is deliberately NOT the
+// enforcement — every consumer re-resolves the id against the event's own
+// guild on its own copy of the state (the receive side), so a doctored record
+// naming a foreign channel is inert everywhere it could matter.
+func (s *Service) locationChannelInGuild(guildID, channelID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.channelToGuild[channelID] == guildID
+}
+
 // CreateEvent adds an event to a guild's calendar. Any member may create —
 // scheduling is participation, not administration — which is also exactly the
 // bar the receive gate holds (MLS decryption proves membership).
-func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix int64, location string) (domain.Event, error) {
+// locationChannelID ties the event to one of THIS guild's channels ("" = the
+// free-text location stands alone).
+func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix int64, location, locationChannelID string) (domain.Event, error) {
 	groupID, ok := s.eventGroup(guildID)
 	if !ok {
 		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
 	}
+	if locationChannelID != "" && !s.locationChannelInGuild(guildID, locationChannelID) {
+		return domain.Event{}, fmt.Errorf("app: that channel isn't in this guild")
+	}
 	now := time.Now().Unix()
 	ev := domain.Event{
-		ID:        domain.NewID(),
-		GuildID:   guildID,
-		Title:     strings.TrimSpace(title),
-		Details:   strings.TrimSpace(details),
-		StartUnix: startUnix,
-		EndUnix:   endUnix,
-		Location:  strings.TrimSpace(location),
-		CreatedBy: s.id.Fingerprint(),
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:                domain.NewID(),
+		GuildID:           guildID,
+		Title:             strings.TrimSpace(title),
+		Details:           strings.TrimSpace(details),
+		StartUnix:         startUnix,
+		EndUnix:           endUnix,
+		Location:          strings.TrimSpace(location),
+		LocationChannelID: locationChannelID,
+		CreatedBy:         s.id.Fingerprint(),
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 	if err := validEvent(ev); err != nil {
 		return domain.Event{}, err
@@ -207,10 +232,13 @@ func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix
 // gave them, and an edited time deliberately keeps them — flipping everyone
 // back to unanswered because the start moved an hour would throw away more
 // signal than it protects.
-func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix, endUnix int64, location string) (domain.Event, error) {
+func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix, endUnix int64, location, locationChannelID string) (domain.Event, error) {
 	groupID, ok := s.eventGroup(guildID)
 	if !ok {
 		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	if locationChannelID != "" && !s.locationChannelInGuild(guildID, locationChannelID) {
+		return domain.Event{}, fmt.Errorf("app: that channel isn't in this guild")
 	}
 	existing, found, err := s.store.EventByID(eventID)
 	if err != nil {
@@ -228,6 +256,7 @@ func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix
 	ev.StartUnix = startUnix
 	ev.EndUnix = endUnix
 	ev.Location = strings.TrimSpace(location)
+	ev.LocationChannelID = locationChannelID
 	ev.UpdatedAt = time.Now().Unix()
 	if ev.UpdatedAt <= existing.UpdatedAt {
 		// Two edits inside one second must still order: sync convergence is
@@ -497,4 +526,140 @@ func (s *Service) applySyncedEvent(guildID string, ev domain.Event) {
 		return
 	}
 	s.emitGuildUpdate()
+}
+
+// ---- in-channel start announcements ----
+//
+// A channel-located event gets ONE shared "it's happening" beat: a system
+// message, spoken in the GUILD's name, posted into the event's own channel
+// just before it starts. This is deliberately not the personal reminder
+// (lib/scheduled.svelte.js — local notification, stays local): the personal
+// one belongs to whoever asked for it, the in-channel one belongs to the
+// event. Exactly one node posts it — the event's AUTHOR — because five
+// members with reminders posting five "it's starting" lines is spam, and the
+// author is the one deterministic, accountable identity every copy of the
+// record already agrees on (the same single-writer philosophy as GuestHost
+// owning the guest room). The cost is honest: an author whose devices are all
+// offline at start time announces nothing, which beats electing a poster via
+// a coordination protocol this feature does not deserve.
+
+const (
+	// eventAnnounceLead is the pre-roll: the announcement lands a few minutes
+	// before start so "come to the lounge" arrives while it can still be acted
+	// on, not after everyone is already late.
+	eventAnnounceLead = 5 * 60 // seconds
+	// eventAnnounceGrace keeps a briefly-offline author useful: booting within
+	// this window past start still announces ("is starting" is still true-ish),
+	// while booting the next day stays silent instead of necro-posting.
+	eventAnnounceGrace = 10 * 60 // seconds
+	// eventAnnounceTick paces the sweep. Coarse on purpose — the lead is
+	// minutes, so a half-minute of jitter is invisible, and the differing tick
+	// phase between an author's linked devices is what usually serializes them
+	// ahead of the message-scan dedup below.
+	eventAnnounceTick = 30 * time.Second
+)
+
+// runEventAnnounceLoop sweeps for channel-located events entering their start
+// window. Started once at service start; lives until shutdown.
+func (s *Service) runEventAnnounceLoop() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-time.After(eventAnnounceTick):
+		}
+		s.announceDueEvents(time.Now().Unix())
+	}
+}
+
+// announceDueEvents posts the start announcement for every event this node is
+// responsible for whose window [start-lead, start+grace] contains now.
+// Split from the loop so tests can drive the time boundary directly.
+func (s *Service) announceDueEvents(now int64) {
+	s.mu.RLock()
+	gids := make([]string, 0, len(s.guilds))
+	for id := range s.guilds {
+		gids = append(gids, id)
+	}
+	s.mu.RUnlock()
+	me := s.id.Fingerprint()
+	for _, gid := range gids {
+		evs, err := s.store.Events(gid)
+		if err != nil {
+			continue
+		}
+		for _, ev := range evs {
+			if ev.LocationChannelID == "" || ev.CreatedBy != me {
+				continue // free-text/external event, or not ours to announce
+			}
+			if now < ev.StartUnix-eventAnnounceLead || now > ev.StartUnix+eventAnnounceGrace {
+				continue
+			}
+			s.announceEventStart(ev)
+		}
+	}
+}
+
+// announceEventStart posts the single in-channel announcement for one event,
+// deduplicated at three layers: a local "announced" marker (this node never
+// posts twice, across restarts), a scan of the channel's recent messages for
+// the identical announcement (an author's OTHER linked device — same
+// fingerprint, so equally "the author" — may have posted first; its message
+// syncs to us like any other), and only then the send. The content string is
+// fully determined by the event record, which is what makes the scan a real
+// equality check rather than a heuristic.
+func (s *Service) announceEventStart(ev domain.Event) {
+	if done, err := s.store.EventAnnounced(ev.ID); err != nil || done {
+		return
+	}
+	// RECEIVE-side gate at the point of consequence: resolve the claimed
+	// channel against OUR copy of the event's own guild. A record naming a
+	// foreign guild's channel (doctored client) or a channel that no longer
+	// exists posts nothing — and an honestly not-yet-synced channel simply
+	// retries on the next tick while the window is open.
+	s.mu.RLock()
+	inGuild := s.channelToGuild[ev.LocationChannelID] == ev.GuildID
+	var guildName, chName, chType string
+	if g, ok := s.guilds[ev.GuildID]; ok {
+		guildName = g.Name
+		for _, c := range g.Channels {
+			if c.ID == ev.LocationChannelID {
+				chName, chType = c.Name, c.Type
+			}
+		}
+	}
+	s.mu.RUnlock()
+	if !inGuild || chName == "" || guildName == "" {
+		return
+	}
+	content := eventAnnounceText(ev.Title, chName, chType)
+	// Cross-device dedup: if the identical announcement already sits in the
+	// channel (posted by our other device, or by us before a lost marker),
+	// adopt it instead of repeating it.
+	if msgs, err := s.store.Messages(ev.LocationChannelID, 60); err == nil {
+		for _, m := range msgs {
+			if m.Kind == "system" && m.Content == content {
+				_ = s.store.MarkEventAnnounced(ev.ID)
+				return
+			}
+		}
+	}
+	// Spoken by the guild, not by a member: the user-facing rule is "the GUILD
+	// reminds people". Name is the same self-asserted, decorative display field
+	// every message carries — this changes who the line READS as, not any
+	// authenticated fact (the signature is still this node's).
+	if _, err := s.sendAs(ev.LocationChannelID, content, "system", "", guildName); err != nil {
+		return // transient send failure: leave unmarked so the next tick retries
+	}
+	_ = s.store.MarkEventAnnounced(ev.ID)
+}
+
+// eventAnnounceText is the one announcement string for an event — a pure
+// function of the record so every device of the author computes the same
+// bytes, which the dedup scan above depends on.
+func eventAnnounceText(title, chName, chType string) string {
+	if chType == "voice" {
+		return fmt.Sprintf("⏰ %s is starting — join the call in 🔊 %s", title, chName)
+	}
+	return fmt.Sprintf("⏰ %s is starting here in #%s — come on in", title, chName)
 }

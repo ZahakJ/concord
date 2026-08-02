@@ -834,22 +834,23 @@ func (b *Bridge) SetForumBanner(guildID, forumID, banner string) error {
 }
 
 // CreateEvent adds a calendar event to a guild (any member). Times are UTC
-// Unix seconds; endUnix zero means "no stated end".
-func (b *Bridge) CreateEvent(guildID, title, details string, startUnix, endUnix int64, location string) (domain.Event, error) {
+// Unix seconds; endUnix zero means "no stated end". locationChannelID ties the
+// event to one of the guild's own channels ("" = free-text location only).
+func (b *Bridge) CreateEvent(guildID, title, details string, startUnix, endUnix int64, location, locationChannelID string) (domain.Event, error) {
 	svc, err := b.service()
 	if err != nil {
 		return domain.Event{}, err
 	}
-	return svc.CreateEvent(guildID, title, details, startUnix, endUnix, location)
+	return svc.CreateEvent(guildID, title, details, startUnix, endUnix, location, locationChannelID)
 }
 
 // UpdateEvent edits an event (author or ManageMessages).
-func (b *Bridge) UpdateEvent(guildID, eventID, title, details string, startUnix, endUnix int64, location string) (domain.Event, error) {
+func (b *Bridge) UpdateEvent(guildID, eventID, title, details string, startUnix, endUnix int64, location, locationChannelID string) (domain.Event, error) {
 	svc, err := b.service()
 	if err != nil {
 		return domain.Event{}, err
 	}
-	return svc.UpdateEvent(guildID, eventID, title, details, startUnix, endUnix, location)
+	return svc.UpdateEvent(guildID, eventID, title, details, startUnix, endUnix, location, locationChannelID)
 }
 
 // DeleteEvent removes an event (author or ManageMessages).
@@ -2583,9 +2584,9 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SetForumBanner":
 		return nil, b.SetForumBanner(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "CreateEvent":
-		return b.CreateEvent(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt64(args, 3), argInt64(args, 4), argStr(args, 5))
+		return b.CreateEvent(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt64(args, 3), argInt64(args, 4), argStr(args, 5), argStr(args, 6))
 	case "UpdateEvent":
-		return b.UpdateEvent(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt64(args, 4), argInt64(args, 5), argStr(args, 6))
+		return b.UpdateEvent(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argInt64(args, 4), argInt64(args, 5), argStr(args, 6), argStr(args, 7))
 	case "DeleteEvent":
 		return nil, b.DeleteEvent(argStr(args, 0), argStr(args, 1))
 	case "Events":

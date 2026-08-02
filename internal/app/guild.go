@@ -992,6 +992,15 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName string) (d
 		// nesting their words under the host's.
 		msg.Name = guestName
 	}
+	if kind == "system" && guestName != "" {
+		// A system notice can also speak for something other than the member
+		// whose node posted it — today, the GUILD itself announcing that a
+		// channel-located calendar event is starting (events.go). Same footing
+		// as the guest case: Name is display-only and self-asserted everywhere,
+		// so this re-labels the line, it does not forge authorship — the
+		// signature and sender stay this node's.
+		msg.Name = guestName
+	}
 	msg.Kind = kind
 	msg.ReplyTo = replyTo
 	payload, _ := json.Marshal(msg)

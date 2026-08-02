@@ -22,7 +22,7 @@ func eventForGuests(t *testing.T, s *Service) (domain.Guild, domain.Event) {
 		t.Fatalf("CreateGuild: %v", err)
 	}
 	start := time.Now().Add(2 * time.Hour).Unix()
-	ev, err := s.CreateEvent(g.ID, "Game night", "Bring snacks", start, start+7200, "the lounge")
+	ev, err := s.CreateEvent(g.ID, "Game night", "Bring snacks", start, start+7200, "the lounge", "")
 	if err != nil {
 		t.Fatalf("CreateEvent: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestEventGuestLinkStableAcrossEdits(t *testing.T) {
 		t.Fatalf("OpenEventGuests: %v", err)
 	}
 	newStart := time.Now().Add(26 * time.Hour).Unix()
-	edited, err := s.UpdateEvent(g.ID, ev.ID, "Game night (moved)", "Now with pizza", newStart, newStart+3600, "the lounge")
+	edited, err := s.UpdateEvent(g.ID, ev.ID, "Game night (moved)", "Now with pizza", newStart, newStart+3600, "the lounge", "")
 	if err != nil {
 		t.Fatalf("UpdateEvent: %v", err)
 	}

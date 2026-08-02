@@ -1101,6 +1101,10 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()
 
+	// Channel-located calendar events: post the one in-channel "it's starting"
+	// announcement when an event this account authored enters its start window.
+	go s.runEventAnnounceLoop()
+
 	// Keep this account's own devices reachable. Rendezvous discovery would get
 	// there eventually; our own devices are the one set of peers we can look up
 	// by name instead of searching for (see devices.go).
