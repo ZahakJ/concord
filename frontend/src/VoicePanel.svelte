@@ -4,6 +4,7 @@
   // Discord-style — dynamic and animated, works the same in a DM call or a
   // guild voice room.
   import { scale } from "svelte/transition";
+  import { flip } from "svelte/animate";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
   import {
@@ -59,6 +60,38 @@
   const locked = $derived(isCallLocked(chId));
   const knockers = $derived(S.callKnocks[chId] || []);
   const isDM = $derived(activeGuild()?.kind === "dm");
+
+  // A knocker's face for the door card. Members resolve to their real profile;
+  // a browser guest has no member record, so Avatar falls back to initials of
+  // the name baked into their guest fingerprint.
+  function knockerInfo(fpr) {
+    const mem = memberByFpr(fpr);
+    return {
+      name: nameFor(fpr),
+      emoji: mem?.emoji || "",
+      color: mem?.color || "",
+      image: mem?.avatar || "",
+    };
+  }
+
+  // Door-card enter/exit: the card fades and rises while its SLOT (height +
+  // padding) grows/collapses, so the stack and the panel edge settle smoothly
+  // instead of snapping when a knocker arrives or is dealt with.
+  function knockSlot(node, { duration = 240 } = {}) {
+    const h = node.offsetHeight;
+    return {
+      duration: noMotion ? 0 : duration,
+      easing: (t) => 1 - Math.pow(1 - t, 3), // cubic-out — calm, no bounce
+      css: (t, u) => `
+        opacity: ${t};
+        transform: translateY(${u * -8}px) scale(${0.96 + t * 0.04});
+        height: ${t * h}px;
+        padding-top: ${t * 10}px;
+        padding-bottom: ${t * 10}px;
+        overflow: hidden;
+      `,
+    };
+  }
 
   // Ring for ~30s while alone in a DM call, then quietly settle into "just you
   // in the call" if they never pick up (Discord-style).
@@ -749,14 +782,41 @@
 
   {#if knockers.length}
     <div class="knocks">
+      <!-- The caption survives stacking: one knocker or five, the section reads
+           as ONE doorway, not a pile of unrelated alerts. -->
+      <div class="knocks-cap" transition:scale={pop}>
+        <Icon name="door" size={12} />
+        <span>At the door{knockers.length > 1 ? ` · ${knockers.length}` : ""}</span>
+      </div>
       {#each knockers as fpr (fpr)}
-        <div class="knock">
-          <span class="knock-who">{nameFor(fpr)} wants to join</span>
+        {@const who = knockerInfo(fpr)}
+        <div
+          class="knock"
+          in:knockSlot
+          out:knockSlot
+          animate:flip={{ duration: noMotion ? 0 : 220 }}
+        >
+          <!-- The face raps and the rings ripple on the same 2.4s clock: a
+               literal knock-knock, so "pending" reads without any copy. -->
+          <span class="knock-ava" aria-hidden="true">
+            <span class="knock-ring"></span>
+            <span class="knock-ring r2"></span>
+            <span class="knock-rap">
+              <Avatar name={who.name} emoji={who.emoji} color={who.color} image={who.image} size={36} />
+            </span>
+          </span>
+          <span class="knock-id">
+            <span class="knock-who">{who.name}</span>
+            <span class="knock-sub">
+              {isGuestFpr(fpr) ? "knocking with an invite link" : "knocking to join"}
+            </span>
+          </span>
           <!-- The two answers live in their own row on a phone: this is the
                decision that lets a stranger holding a public link into the call,
                and they used to be a 26px pair a finger-width apart. -->
           <div class="knock-acts">
             <button class="knock-admit" onclick={withHaptic(() => admitKnocker(chId, fpr), "medium")}>
+              <Icon name="door" size={15} />
               Admit
             </button>
             <!-- A guest is told they were turned away (they're sitting on an open
@@ -764,8 +824,11 @@
             <button
               class="knock-deny"
               onclick={withHaptic(() => denyKnocker(chId, fpr), "medium")}
-              aria-label={isGuestFpr(fpr) ? "Refuse" : "Ignore"}>✕</button
+              title={isGuestFpr(fpr) ? "Refuse" : "Ignore"}
+              aria-label={isGuestFpr(fpr) ? "Refuse" : "Ignore"}
             >
+              <Icon name="close" size={14} />
+            </button>
           </div>
         </div>
       {/each}
@@ -1267,23 +1330,118 @@
     flex-direction: column;
     gap: 6px;
     padding: 4px 8px 8px;
+    /* First thing in the panel, every size. As the panel's last DOM child it
+       rendered below the sticky controls — a scrollable 46vh panel hid the one
+       decision the lock exists for under the fold. */
+    order: -1;
+  }
+  .knocks-cap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    /* Caption and cards share the stage's centered column — a 1280px window
+       shouldn't stretch one name and two buttons across the whole panel. */
+    width: 100%;
+    max-width: 640px;
+    margin-inline: auto;
+    padding: 0 2px;
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
   }
   .knock {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 7px 10px;
-    background: color-mix(in srgb, var(--accent) 12%, var(--bg-1));
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-    border-radius: var(--radius-md);
+    gap: 10px;
+    width: 100%;
+    max-width: 640px;
+    margin-inline: auto;
+    /* padding-block 10px is load-bearing: knockSlot animates it in JS, so the
+       two values must agree or the card jumps at the end of the transition. */
+    padding: 10px 12px;
+    /* Accent-lit from the corner the avatar sits in, fading to the panel's own
+       surface — a doorway with light spilling through, not a solid alert bar. */
+    background: linear-gradient(
+      115deg,
+      color-mix(in srgb, var(--accent) 17%, var(--bg-1)),
+      var(--bg-1) 70%
+    );
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 22px -12px color-mix(in srgb, var(--accent) 55%, transparent);
     font-size: var(--fs-ui);
   }
-  .knock-who {
+  .knock-ava {
+    position: relative;
+    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+  }
+  /* Sonar rings: two quick ripples then a rest — the rhythm of a real knock,
+     not a metronome. Ring 2 trails ring 1 by a beat. */
+  .knock-ring {
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    opacity: 0;
+    pointer-events: none;
+    animation: knock-ping 2.4s ease-out infinite;
+  }
+  .knock-ring.r2 {
+    animation-delay: 0.3s;
+  }
+  @keyframes knock-ping {
+    0% {
+      transform: scale(0.75);
+      opacity: 0.65;
+    }
+    45%,
+    100% {
+      transform: scale(1.45);
+      opacity: 0;
+    }
+  }
+  .knock-rap {
+    display: grid;
+    animation: knock-rap 2.4s var(--ease-calm) infinite;
+  }
+  @keyframes knock-rap {
+    0%,
+    16%,
+    100% {
+      transform: none;
+    }
+    5% {
+      transform: rotate(-7deg) translateX(-1px);
+    }
+    11% {
+      transform: rotate(5deg) translateX(1px);
+    }
+  }
+  .knock-id {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .knock-who {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-weight: 650;
+  }
+  .knock-sub {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-tiny);
+    color: var(--text-muted);
   }
   .knock-acts {
     display: flex;
@@ -1293,26 +1451,59 @@
   }
   .knock-admit {
     flex-shrink: 0;
-    padding: 5px 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
     background: var(--accent);
-    color: #fff;
-    border-radius: var(--radius-sm);
+    color: var(--accent-fg);
+    border-radius: 999px;
     font-size: var(--fs-compact);
-    font-weight: 600;
+    font-weight: 700;
+    transition:
+      transform 0.12s ease,
+      box-shadow 0.15s ease,
+      background 0.12s ease;
+  }
+  .knock-admit:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--accent-glow);
+  }
+  .knock-admit:active {
+    transform: scale(0.95);
   }
   .knock-deny {
     flex-shrink: 0;
-    width: 26px;
-    height: 26px;
+    width: 30px;
+    height: 30px;
     padding: 0; /* else the global button padding pushes the ✕ off-center */
     display: grid;
     place-items: center;
     border-radius: 50%;
     color: var(--text-muted);
+    transition:
+      background 0.12s ease,
+      color 0.12s ease;
   }
   .knock-deny:hover {
-    background: var(--bg-3);
-    color: var(--text);
+    background: color-mix(in srgb, var(--danger) 16%, transparent);
+    color: var(--danger-text);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .knock-ring {
+      /* Pending still needs to read: one static soft halo instead of ripples. */
+      animation: none;
+      opacity: 0.3;
+      transform: none;
+    }
+    .knock-ring.r2 {
+      display: none;
+    }
+    .knock-rap {
+      animation: none;
+    }
   }
   .ctl {
     width: 44px;
@@ -1445,11 +1636,8 @@
       user-select: none;
       -webkit-touch-callout: none;
     }
-    /* A knock is the entire point of locking a call, and as the panel's last
-       child it rendered below the sticky controls — off-screen, with nothing
-       to hint it was there. Float it to the top of the panel. */
+    /* order:-1 comes from the base tier; only the gutter changes here. */
     .knocks {
-      order: -1;
       padding: 0;
     }
     .controls {
@@ -1535,6 +1723,9 @@
     .knock-deny {
       width: var(--tap-min);
       height: var(--tap-min);
+      /* A bare glyph reads as decoration next to a full-width accent pill; the
+         hairline makes it a peer button, not an afterthought. */
+      border: 1px solid var(--border);
     }
   }
 

@@ -31,7 +31,8 @@
       <Avatar name={me.name} emoji={me.emoji} color={me.color} image={me.avatar} size={64} />
       <div class="line">Joining “{S.joinVeil.title}”…</div>
       <div class="foot">
-        {#if slow}Still knocking…{:else}as {me.name || "you"} · end-to-end encrypted{/if}
+        {#if slow}Still knocking — someone inside has to let you in…{:else}as {me.name || "you"}
+          · end-to-end encrypted{/if}
       </div>
     </div>
   </div>

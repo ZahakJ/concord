@@ -512,7 +512,8 @@
     if (!admitted && isCallLocked(channelId)) {
       S.knocking = channelId;
       api.signalCall(channelId, "knock").catch(() => {});
-      flash("Call is locked — knocking to be let in…", "info");
+      // No flash here: the knock-wait pill says the same thing persistently,
+      // and the toast used to land right on top of it.
       return;
     }
     joining = true;
@@ -884,11 +885,19 @@
   <ProfilePopover />
   <ContextMenu />
 
-  <!-- Knocking on a locked call: waiting to be admitted. -->
+  <!-- Knocking on a locked call: waiting to be admitted. The door icon ripples
+       on the same knock-knock rhythm the host sees on our avatar — both ends of
+       the door share one heartbeat. -->
   {#if S.knocking}
     <div class="knock-wait" role="status">
-      <span class="kw-dot"></span>
-      <span>Waiting to be let into the call…</span>
+      <span class="kw-door" aria-hidden="true">
+        <span class="kw-ring"></span>
+        <Icon name="door" size={16} />
+      </span>
+      <span class="kw-copy">
+        <span class="kw-line">Knocking…</span>
+        <span class="kw-sub">waiting for someone inside to let you in</span>
+      </span>
       <button class="kw-cancel" onclick={() => (S.knocking = "")}>Cancel</button>
     </div>
   {/if}
@@ -1452,53 +1461,109 @@
     background: var(--bg-3);
     color: var(--text);
   }
-  /* Incoming-call card. */
+  /* Waiting-at-the-door pill. */
   .knock-wait {
     position: fixed;
     top: calc(16px + max(var(--safe-top), var(--sa-top, 0px)));
     max-width: calc(100vw - 24px);
     left: 50%;
-    transform: translateX(-50%);
+    /* Centering lives on `translate`, not `transform`, so the entrance keyframe
+       can animate transform without snapping the pill off-center. */
+    translate: -50% 0;
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    background: var(--bg-elevated, var(--bg-1));
+    gap: 12px;
+    padding: 8px 10px 8px 8px;
+    /* Same doorway light as the host's knock card: accent spilling from the
+       icon's corner, so the two ends of this interaction rhyme. */
+    background: linear-gradient(
+      115deg,
+      color-mix(in srgb, var(--accent) 14%, var(--bg-elevated, var(--bg-1))),
+      var(--bg-elevated, var(--bg-1)) 70%
+    );
     border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-    border-radius: 22px;
+    border-radius: 999px;
     box-shadow: var(--shadow-pop);
     z-index: 215;
-    font-size: 13px;
+    font-size: var(--fs-compact);
+    animation: kw-in 240ms var(--ease-calm);
   }
-  .kw-dot {
-    width: 9px;
-    height: 9px;
+  @keyframes kw-in {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+  }
+  .kw-door {
+    flex-shrink: 0;
+    position: relative;
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
     border-radius: 50%;
-    background: var(--accent);
-    animation: kw-pulse 1.2s ease-in-out infinite;
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--accent-hover, var(--accent));
   }
-  @keyframes kw-pulse {
-    0%,
+  .kw-ring {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    opacity: 0;
+    pointer-events: none;
+    /* 2.4s to match the host-side knock rings — one knock, one heartbeat. */
+    animation: kw-ping 2.4s ease-out infinite;
+  }
+  @keyframes kw-ping {
+    0% {
+      transform: scale(0.8);
+      opacity: 0.6;
+    }
+    45%,
     100% {
-      opacity: 1;
+      transform: scale(1.45);
+      opacity: 0;
     }
-    50% {
-      opacity: 0.3;
-    }
+  }
+  .kw-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .kw-line {
+    font-weight: 650;
+    line-height: 1.2;
+  }
+  .kw-sub {
+    font-size: var(--fs-tiny);
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .kw-cancel {
-    padding: 4px 12px;
+    flex-shrink: 0;
+    padding: 6px 14px;
     background: var(--bg-3);
     color: var(--text);
-    border-radius: 12px;
-    font-size: 12px;
+    border-radius: 999px;
+    font-size: var(--fs-tiny);
+    font-weight: 600;
   }
   .kw-cancel:hover {
     background: var(--bg-input);
   }
   @media (prefers-reduced-motion: reduce) {
-    .kw-dot {
+    .knock-wait {
       animation: none;
+    }
+    .kw-ring {
+      /* Still-waiting must read without motion: one static soft halo. */
+      animation: none;
+      opacity: 0.3;
+      transform: none;
     }
   }
   .ring-card {
@@ -1627,14 +1692,23 @@
     .knock-wait {
       left: var(--sp-3);
       right: var(--sp-3);
-      transform: none;
+      translate: none;
       max-width: none;
       font-size: var(--fs-ui);
     }
     .kw-cancel {
       min-height: var(--tap-min);
       padding: 0 var(--sp-4);
-      font-size: var(--fs-ui);
+      font-size: var(--fs-compact);
+    }
+    /* The copy column yields; Cancel keeps its full tap size. The subline
+       wraps instead of ellipsizing mid-word — there's vertical room to spare
+       on a phone, and "let yo…" read like a bug. */
+    .kw-copy {
+      flex: 1;
+    }
+    .kw-sub {
+      white-space: normal;
     }
     .ring-card {
       top: calc(10px + var(--safe-top));
