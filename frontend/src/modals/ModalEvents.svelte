@@ -4,6 +4,8 @@
   // toggle there, never the landing view, because 393px turns grids into
   // squint tests. Desktop lands on the grid. Editorial throughout: typography
   // and hairlines carry the hierarchy, color is reserved for state.
+  // The same panel serves DMs (shared with the people in the chat) and the
+  // Notes self-DM (private to you) — see the isDM/isNotes derivations below.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import EventCard from "../EventCard.svelte";
@@ -29,6 +31,18 @@
   const g = $derived(S.guilds.find((x) => x.id === gid) || null);
   const events = $derived(EV.byGuild[gid] || []);
 
+  // DMs get calendars too — same records, same sync lane, different manners.
+  // A DM has exactly ONE channel and it doubles as the call (ChatHeader's
+  // "Call" button), so a DM event's natural place is the conversation itself:
+  // no channel picker, no throwaway guest guild — Join lands in the DM's own
+  // call. Notes is the degenerate case: a single-member DM (just you), so its
+  // events are private reminders — no call, no guests, only words.
+  const isDM = $derived(g?.kind === "dm");
+  const isNotes = $derived(!!g?.dmNotes);
+  const dmChannel = $derived(isDM ? g?.channels?.[0] || null : null);
+  // "you both" for a 1:1, "everyone" once it's a group DM.
+  const dmEveryone = $derived((g?.dmMembers ?? 2) > 2 ? "everyone" : "you both");
+
   let view = $state(S.isMobile ? "agenda" : "grid");
   let selectedDay = $state(""); // a dayKey, or "" = everything
   let editing = $state(null); // null | draft {id?, title, details, location, start, durMin}
@@ -44,7 +58,11 @@
   });
 
   const title = $derived(
-    editing ? (editing.id ? "Edit event" : "New event") : `${g?.name || "Guild"} · Events`,
+    editing
+      ? (editing.id ? "Edit event" : "New event")
+      : isNotes
+        ? "Private events"
+        : `${g?.name || "Guild"} · Events`,
   );
 
   // ---- month grid ----
@@ -185,16 +203,29 @@
   let guestsTouched = $state(false);
   function startCreate() {
     editing = blankDraft();
-    // Where is an either/or: LOCAL (a channel of this guild) when the guild
-    // has channels, REMOTE (free text + the guests' door) otherwise. Local
-    // pre-selects the first voice channel — the common meeting case is zero
-    // extra taps and the mode is valid out of the gate.
-    editing.mode = locChannels.length ? "local" : "remote";
-    if (editing.mode === "local" && locVoice.length) editing.locationChannelId = locVoice[0].id;
-    else if (editing.mode === "local" && locChannels.length) editing.locationChannelId = locChannels[0].id;
-    // Remote IS the guest stuff → room armed by default. Except in a meeting
-    // room, which already has its own guest link — the core refuses a second.
-    editing.guests = editing.mode === "remote" && g?.kind !== "meeting";
+    if (isNotes) {
+      // Notes is a party of one: no call to join, no guests to invite. The
+      // draft is pure words-and-a-time — a reminder only you will ever see.
+      editing.mode = "remote";
+      editing.guests = false;
+    } else if (isDM) {
+      // A DM event defaults to the DM itself: the single channel IS the call,
+      // so Join drops everyone straight in — no throwaway room minted.
+      editing.mode = "local";
+      editing.locationChannelId = dmChannel?.id || "";
+      editing.guests = false;
+    } else {
+      // Where is an either/or: LOCAL (a channel of this guild) when the guild
+      // has channels, REMOTE (free text + the guests' door) otherwise. Local
+      // pre-selects the first voice channel — the common meeting case is zero
+      // extra taps and the mode is valid out of the gate.
+      editing.mode = locChannels.length ? "local" : "remote";
+      if (editing.mode === "local" && locVoice.length) editing.locationChannelId = locVoice[0].id;
+      else if (editing.mode === "local" && locChannels.length) editing.locationChannelId = locChannels[0].id;
+      // Remote IS the guest stuff → room armed by default. Except in a meeting
+      // room, which already has its own guest link — the core refuses a second.
+      editing.guests = editing.mode === "remote" && g?.kind !== "meeting";
+    }
     guestsTouched = false;
     showPicker = false;
     durMore = false;
@@ -207,8 +238,11 @@
       location: ev.location || "",
       // A channel that has since been deleted falls back to the free-text
       // label the form saved alongside it — the picker shows "somewhere
-      // else…" and the words survive.
-      locationChannelId: locChannels.some((c) => c.id === ev.locationChannelId)
+      // else…" and the words survive. In a DM the only valid channel is the
+      // DM's own (locChannels is empty there by design).
+      locationChannelId: (isDM
+        ? !!ev.locationChannelId && ev.locationChannelId === dmChannel?.id
+        : locChannels.some((c) => c.id === ev.locationChannelId))
         ? ev.locationChannelId
         : "",
       start: toLocalInput(ev.startUnix * 1000),
@@ -232,7 +266,12 @@
   function setMode(m) {
     if (editing.mode === m) return;
     editing.mode = m;
-    if (m === "remote" && !editingHasGuests && !guestsTouched && !editing.id && g?.kind !== "meeting")
+    // In a DM, Local means THIS conversation — restore its channel on the way
+    // back so the draft is valid again without any picker.
+    if (m === "local" && isDM) editing.locationChannelId = dmChannel?.id || "";
+    // …and don't auto-arm the guest room there: "somewhere else" in a DM is
+    // usually a real-world spot between people who already share the chat.
+    if (m === "remote" && !editingHasGuests && !guestsTouched && !editing.id && g?.kind !== "meeting" && !isDM)
       editing.guests = true;
   }
   // ---- keyboard: native radio idiom (arrows move AND select) ----
@@ -368,9 +407,11 @@
     // truth: a remote save ignores whatever channel the draft still carries.
     const locCh =
       editing.mode === "local"
-        ? locChannels.find((c) => c.id === editing.locationChannelId) || null
+        ? (isDM ? dmChannel : locChannels.find((c) => c.id === editing.locationChannelId)) || null
         : null;
-    const locStr = locCh ? locLabel(locCh) : editing.location.trim();
+    // The DM's channel label ("dm") means nothing on a card or in an .ics —
+    // the human-true location is the conversation itself.
+    const locStr = locCh ? (isDM ? `📞 ${g?.name || "this chat"}` : locLabel(locCh)) : editing.location.trim();
     const locChId = locCh ? locCh.id : "";
     let saved;
     try {
@@ -395,7 +436,14 @@
     }
     editing = null;
     await loadEvents(gid);
-    flash(isEdit ? "Event updated" : "Event created — everyone can RSVP now", "success");
+    flash(
+      isEdit
+        ? "Event updated"
+        : isNotes
+          ? "Saved — only you can see this"
+          : "Event created — everyone can RSVP now",
+      "success",
+    );
     // Land the list where the new thing is.
     view = "agenda";
     selectedDay = "";
@@ -499,7 +547,28 @@
         {/if}
 
         <div class="wslot">
-          {#if editing.mode === "local" && locChannels.length}
+          {#if editing.mode === "local" && isDM && !isNotes}
+            <!-- A DM event's default place: the conversation itself. No
+                 segment, no picker — there is exactly one room here and it
+                 already doubles as the call. "Somewhere else…" is the quiet
+                 exit to free text (+ the outside-guest door). -->
+            <div
+              class="wpane"
+              out:slide={{ duration: reduceMotion ? 0 : 140, easing: cubicOut }}
+              in:slide={{ duration: reduceMotion ? 0 : 180, delay: reduceMotion ? 0 : 90, easing: cubicOut }}
+            >
+              <div class="wpane-in" in:fly={{ y: reduceMotion ? 0 : 6, duration: reduceMotion ? 0 : 160, delay: reduceMotion ? 0 : 140 }}>
+                <div class="herecard">
+                  <span class="here-badge"><Icon name="phone" size={14} /></span>
+                  <span class="here-txt">
+                    <strong>Right here — {g?.name || "this chat"}</strong>
+                    <span class="here-sub">Join drops {dmEveryone} into this conversation's call when it's time.</span>
+                  </span>
+                </div>
+                <button type="button" class="wlink" onclick={() => setMode("remote")}>Somewhere else…</button>
+              </div>
+            </div>
+          {:else if editing.mode === "local" && locChannels.length}
             <div
               class="wpane"
               out:slide={{ duration: reduceMotion ? 0 : 140, easing: cubicOut }}
@@ -555,8 +624,11 @@
               in:slide={{ duration: reduceMotion ? 0 : 180, delay: reduceMotion ? 0 : 90, easing: cubicOut }}
             >
               <div class="wpane-in" in:fly={{ y: reduceMotion ? 0 : 6, duration: reduceMotion ? 0 : 160, delay: reduceMotion ? 0 : 140 }}>
-                <input placeholder="Where? An address, a link-up spot, someone's couch…" maxlength="160" bind:value={editing.location} />
-                {#if editingHasGuests}
+                <input placeholder={isNotes ? "Where? Only you will see it (optional)" : "Where? An address, a link-up spot, someone's couch…"} maxlength="160" bind:value={editing.location} />
+                {#if isNotes}
+                  <!-- A one-member DM: no call to point at, no guests to
+                       admit. The words above are the whole story. -->
+                {:else if editingHasGuests}
                   <div class="gnote muted">
                     <Icon name="link" size={12} /> This event already has a room — Join, copy or revoke on the event card.
                   </div>
@@ -600,6 +672,9 @@
                       </div>
                     {/if}
                   </div>
+                {/if}
+                {#if isDM && !isNotes}
+                  <button type="button" class="wlink" onclick={() => setMode("local")}>Actually — right here, in our call</button>
                 {/if}
               </div>
             </div>
@@ -712,6 +787,18 @@
             {#if selectedDay}
               <strong>Nothing on {fmtDayHeading(selectedDay)}</strong>
               <p class="muted">A free day. Suspiciously free. Fix that?</p>
+            {:else if isNotes}
+              <strong>Nothing planned — just yours</strong>
+              <p class="muted">
+                Dentist, deadline, "call mom" — events here are private to you, synced to your own
+                devices, and show up in Your calendar tagged Private.
+              </p>
+            {:else if isDM}
+              <strong>Nothing planned {(g?.dmMembers ?? 2) > 2 ? "here" : `with ${g?.name || "them"}`} yet</strong>
+              <p class="muted">
+                "When are we hopping on?" — put a time on it. Everyone in this chat sees it, and
+                Join drops {dmEveryone} straight into the call.
+              </p>
             {:else}
               <strong>Nothing on the calendar yet</strong>
               <p class="muted">
@@ -1112,6 +1199,10 @@
   /* ---- WHERE: the one loud decision in the form ---- */
   .where-fld {
     gap: var(--sp-2);
+    /* .fld's flex-basis (150px) means WIDTH inside .row2, but this fld sits
+       directly in the COLUMN .form where it becomes a height floor — invisible
+       under the tall guild panes, an 80px void under Notes' single input. */
+    flex: 0 0 auto;
   }
   /* The calendar .seg grown up: two full-width cells, and the CHOSEN one is
      accent-FILLED — deliberately louder than the view tabs' quiet thumb,
@@ -1335,6 +1426,60 @@
     gap: var(--sp-1);
     align-items: flex-start;
   }
+  /* ---- the DM "right here" card: the roomcard's armed voice, stating the
+     default rather than asking a question — a DM event lives in the DM. ---- */
+  .herecard {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+    border-radius: var(--radius-md);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: color-mix(in srgb, var(--accent-soft) 40%, var(--bg-2));
+    min-height: var(--tap-min);
+  }
+  .here-badge {
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .here-txt {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .here-txt strong {
+    font-size: var(--fs-ui);
+    font-weight: 650;
+  }
+  .here-sub {
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+  /* The quiet exit under the card — a link, not a control, because 90% of DM
+     events never leave the chat. */
+  .wlink {
+    align-self: flex-start;
+    padding: 4px 2px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+    text-underline-offset: 3px;
+  }
+  .wlink:hover {
+    color: var(--accent-hover);
+  }
   .gnote {
     display: flex;
     align-items: center;
@@ -1385,6 +1530,10 @@
     .primary.new {
       flex: 1 1 100%;
       justify-content: center;
+    }
+    /* The "somewhere else…" link is a one-thumb target too. */
+    .wlink {
+      min-height: var(--tap-min);
     }
   }
 </style>

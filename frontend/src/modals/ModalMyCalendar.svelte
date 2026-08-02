@@ -1,15 +1,18 @@
 <script>
-  // "Your calendar": one agenda across every guild — the daily-driver view.
+  // "Your calendar": ONE river across everything you're part of — guild
+  // events, DM plans, and your private Notes reminders — the per-user blend.
   // A masthead answers "what's my day?" in one glance (weekday, date, the
-  // next thing coming); the river below groups every guild's events by day,
-  // each entry wearing its guild in the kicker. A now-line floats in Today's
-  // group so you can see where you stand in the day. Read-mostly: RSVPs and
-  // reminders work here, creating/editing happens in the guild's own calendar.
+  // next thing coming); the river below groups every source's events by day,
+  // each entry wearing where it came from in the kicker: a guild its badge, a
+  // DM the person/group (tap-through), Notes a Private seal. Guild calendars
+  // themselves stay shared-only — the blending happens HERE, on your screen,
+  // never in anyone else's view. Read-mostly: RSVPs and reminders work here,
+  // creating/editing happens in each room's own calendar.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import EventCard from "../EventCard.svelte";
-  import { S, clockOpts } from "../lib/state.svelte.js";
-  import { on } from "../lib/api.js";
+  import { S, clockOpts, flash, refreshGuilds } from "../lib/state.svelte.js";
+  import { api, on } from "../lib/api.js";
   import { EV, loadAllEvents, dayKey, fmtDayHeading, happeningNow, isPast } from "../lib/events.svelte.js";
 
   let { onClose, onJoinVoice } = $props();
@@ -87,11 +90,28 @@
     return i > 0 ? i : -1;
   });
 
+  // Where an entry comes from, masthead-voiced: a guild is a place ("in"), a
+  // DM is people ("with"), Notes is nobody's business but yours ("private").
+  const srcPhrase = (g) => (g.dmNotes ? "private" : g.kind === "dm" ? `with ${g.name}` : `in ${g.name}`);
+
   // Open the guild's own calendar to plan — from here you pick WHERE first.
   function planIn(g) {
     S.modal = { kind: "events", guildId: g.id };
   }
   const firstGuild = $derived(S.guilds.find((g) => g.kind !== "dm") || null);
+
+  // The private door: open (creating on first use) the Notes self-DM's
+  // calendar. NotesDM() is idempotent, and a fresh Notes needs a guild
+  // refresh or ModalEvents opens onto a guild id S.guilds can't resolve.
+  async function planPrivate() {
+    try {
+      const notes = await api.notesDM();
+      if (!S.guilds.some((g) => g.id === notes.id)) await refreshGuilds();
+      S.modal = { kind: "events", guildId: notes.id };
+    } catch (err) {
+      flash(err);
+    }
+  }
 </script>
 
 <Modal title="Your calendar" {onClose} wide>
@@ -101,9 +121,9 @@
     {#if nextUp}
       <div class="mnext" class:live={nextUp.kind === "now"}>
         {#if nextUp.kind === "now"}
-          <span class="mn-dot"></span>Now: {nextUp.ev.title} — happening in {nextUp.g.name}
+          <span class="mn-dot"></span>Now: {nextUp.ev.title} — {srcPhrase(nextUp.g)}
         {:else}
-          Next: {nextUp.ev.title} — {relSoon(nextUp.ev.startUnix)} · {nextUp.g.name}
+          Next: {nextUp.ev.title} — {relSoon(nextUp.ev.startUnix)} · {nextUp.g.dmNotes ? "private" : nextUp.g.name}
         {/if}
       </div>
     {:else if upcoming.length}
@@ -134,14 +154,21 @@
         <span class="badge"><Icon name="calendar" size={20} /></span>
         <strong>A clear horizon</strong>
         <p class="muted">
-          Nothing scheduled in any of your guilds. Enjoy it — or be the reason everyone else
-          can't.
+          Nothing coming up anywhere — no guild events, no plans in your chats, nothing private.
+          Enjoy it — or be the reason everyone else can't.
         </p>
-        {#if firstGuild}
-          <button class="primary" onclick={() => planIn(firstGuild)}>
-            <Icon name="plus" size={13} /> Open {firstGuild.name}'s calendar
+        <div class="empty-acts">
+          {#if firstGuild}
+            <button class="primary" onclick={() => planIn(firstGuild)}>
+              <Icon name="plus" size={13} /> Open {firstGuild.name}'s calendar
+            </button>
+          {/if}
+          <!-- The private lane is always available — Notes exists (or is
+               created) on demand, and only your devices ever see it. -->
+          <button class="ghost priv" onclick={planPrivate}>
+            <Icon name="lock" size={12} /> Add something private
           </button>
-        {/if}
+        </div>
       </div>
     {/if}
   </div>
@@ -285,6 +312,26 @@
     border-radius: var(--radius-md);
     font-weight: 600;
     font-size: var(--fs-ui);
+  }
+  .empty-acts {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+  }
+  .ghost.priv {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    font-size: var(--fs-ui);
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .empty-acts .primary,
+    .empty-acts .ghost.priv {
+      min-height: var(--tap-min);
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     .riser,

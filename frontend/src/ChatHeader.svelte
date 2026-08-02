@@ -212,14 +212,17 @@
       </button>
     {/if}
 
-    {#if g && g.kind !== "dm"}
-      <!-- The guild calendar — the thing that replaces "so when are we on?"
-           scroll-back. Mounted like Pins: a button here, a sheet entry on
+    {#if g}
+      <!-- The calendar — the thing that replaces "so when are we on?"
+           scroll-back. Every room gets one: a guild's is the crew's shared
+           board, a DM's is "when are we hopping on?" between its people, and
+           Notes' is your private list (a single-member group, so private by
+           construction). Mounted like Pins: a button here, a sheet entry on
            phones (MobileShell's ⋯, since this header never renders there). -->
       <button
         class="ghost iconbtn"
-        title="Events"
-        aria-label="Guild events"
+        title={g.dmNotes ? "Private events" : "Events"}
+        aria-label={g.dmNotes ? "Private events" : g.kind === "dm" ? "Events in this conversation" : "Guild events"}
         onclick={() => (S.modal = { kind: "events" })}
       >
         <Icon name="calendar" />

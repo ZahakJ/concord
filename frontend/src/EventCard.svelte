@@ -92,11 +92,18 @@
   // call), and the guest room remains only as the outsiders' bridge.
   const locCh = $derived(g?.channels?.find((c) => c.id === ev.locationChannelId) || null);
   const locIsVoice = $derived(locCh?.type === "voice");
+  // DM-located events: the DM's single channel doubles as its call (the same
+  // fact ChatHeader's "Call" button rests on), so a text-typed channel still
+  // joins like a voice room here. Notes is a DM of one — no call to join, so
+  // it never takes the call arm (and Notes events carry no channel anyway).
+  const isDM = $derived(g?.kind === "dm");
+  const isNotes = $derived(!!g?.dmNotes);
+  const locIsCall = $derived(locIsVoice || (isDM && !isNotes && !!locCh));
 
   async function joinChannelLoc() {
     if (!locCh) return;
     const chId = locCh.id;
-    const voice = locIsVoice;
+    const voice = locIsCall;
     S.modal = null; // the channel is the destination; the calendar's job is done
     haptic("light");
     await jumpToChannel(chId);
@@ -195,9 +202,10 @@
   // its tokens live on that member's node — the same rule the backend enforces
   // on receive, mirrored here so the action only appears where it works.
   const isGuestHost = $derived(!!ev.guestUrl && ev.guestHost === S.identity.fingerprint);
-  // Guests are for real guilds — a meeting is already a guest room, and events
-  // only surface in guilds anyway. Gate like the backend does.
-  const canInviteGuests = $derived(canEdit && !ev.guestUrl && g?.kind !== "meeting");
+  // Guests are for rooms with people in them — a meeting is already a guest
+  // room (the backend refuses a second), and Notes is a party of one: nobody
+  // to admit, so the door never renders there.
+  const canInviteGuests = $derived(canEdit && !ev.guestUrl && g?.kind !== "meeting" && !isNotes);
 
   function inviteGuests(e) {
     // The door choice happens at mint time and governs the GUEST LINK only:
@@ -392,8 +400,24 @@
     <header class="top">
       <div class="kicker st" class:k-soon={phase === "soon"} class:k-live={phase === "live"}>
         {#if showGuild && g}
-          <span class="gbadge" style={guildTint(g.id)}>{guildInitials(g.name)}</span>
-          <span class="gname">{g.name}</span>
+          <!-- The blend's source tag: a guild wears its rail badge, a DM wears
+               the person/group with a tap-through into the conversation, and
+               Notes wears a lock — Private is a state, not a place. -->
+          {#if isNotes}
+            <span class="srctag private"><Icon name="lock" size={9} /> Private</span>
+          {:else if isDM}
+            <button
+              class="srctag dm"
+              title="Open the conversation"
+              onclick={async () => { S.modal = null; await selectGuild(g.id); }}
+            >
+              <Icon name="forum" size={10} />
+              <span class="srcname">{g.name}</span>
+            </button>
+          {:else}
+            <span class="gbadge" style={guildTint(g.id)}>{guildInitials(g.name)}</span>
+            <span class="gname">{g.name}</span>
+          {/if}
           <span class="ksep" aria-hidden="true">·</span>
         {/if}
         {#if phase === "live"}
@@ -406,6 +430,21 @@
           <span>{weekday} · {fmtT(ev.startUnix)}</span>
         {/if}
       </div>
+      {#if canEdit}
+        <!-- Delete, surfaced: the ⋯ menu kept it too well hidden. Same
+             two-tap arming (shared `armed` state + timer, so the menu item
+             and this button arm each other), same api.deleteEvent — this is
+             a louder door to the SAME machinery, not a second path. -->
+        <button
+          class="del"
+          class:armed
+          aria-label={armed ? "Tap again — deletes for everyone" : "Delete event"}
+          title={armed ? "Tap again — deletes for everyone" : "Delete event"}
+          onclick={del}
+        >
+          {#if armed}<span class="del-txt">Tap again</span>{:else}<Icon name="trash" size={14} />{/if}
+        </button>
+      {/if}
       <button class="dots" aria-label="Event options" title="Event options" onclick={openMenu}>
         <Icon name="dots" size={15} />
       </button>
@@ -417,10 +456,12 @@
       {#if locCh}
         <span class="dotsep">·</span>
         <!-- The location IS a channel: a door, not a caption — tap to stand
-             in it (chat only; the call stays behind the explicit Join). -->
-        <button class="locbtn" title="Open {locIsVoice ? 'the voice channel' : 'the channel'}" onclick={async () => { S.modal = null; await jumpToChannel(locCh.id); }}>
-          <Icon name={locIsVoice ? "speaker" : "hash"} size={11} />
-          <span class="locname">{locCh.name}</span>
+             in it (chat only; the call stays behind the explicit Join). In a
+             DM the channel's stored name ("dm") means nothing — say what it
+             is: this very conversation. -->
+        <button class="locbtn" title={isDM ? "Open the conversation" : `Open ${locIsVoice ? "the voice channel" : "the channel"}`} onclick={async () => { S.modal = null; await jumpToChannel(locCh.id); }}>
+          <Icon name={isDM ? "phone" : locIsVoice ? "speaker" : "hash"} size={11} />
+          <span class="locname">{isDM ? "This chat" : locCh.name}</span>
         </button>
       {:else if ev.location}
         <span class="dotsep">·</span>
@@ -449,9 +490,12 @@
              the chat. This REPLACES the room join for this event; the guest
              room (if opened) stays the outsiders-only door below. -->
         <button class="gjoin" onclick={joinChannelLoc}>
-          {#if locIsVoice}
-            {#if phase === "live"}<Icon name="speaker" size={13} /> Join the call
-            {:else if phase === "soon"}<Icon name="speaker" size={13} /> Join early
+          {#if locIsCall}
+            <!-- A DM location wears the phone (its channel IS the call);
+                 a guild voice channel keeps the speaker. -->
+            {#if phase === "live"}<Icon name={isDM ? "phone" : "speaker"} size={13} /> Join the call
+            {:else if phase === "soon"}<Icon name={isDM ? "phone" : "speaker"} size={13} /> Join early
+            {:else if isDM}<Icon name="phone" size={13} /> Join the call
             {:else}<Icon name="speaker" size={13} /> Join in 🔊{/if}
           {:else}
             <Icon name="hash" size={13} /> Go to #{locCh.name}
@@ -677,6 +721,43 @@
     max-width: 14ch;
     color: var(--text-muted);
   }
+  /* ---- source tags (the "Your calendar" blend) ---- */
+  /* Shared pill geometry; the two flavors diverge in voice: Private is a
+     quiet uppercase seal (state, not place), a DM is a tinted door you can
+     tap through to the conversation. */
+  .srctag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    padding: 1px 8px;
+    min-width: 0;
+    border-radius: 999px;
+    font-size: var(--fs-tiny);
+    font-weight: 700;
+    line-height: 1.6;
+  }
+  .srctag.private {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: var(--fs-micro);
+  }
+  .srctag.dm {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+  }
+  .srctag.dm:hover {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .srcname {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 14ch;
+  }
   .ksep {
     color: var(--text-faint);
   }
@@ -695,6 +776,38 @@
   .dots:hover {
     background: var(--bg-3);
     color: var(--text);
+  }
+  /* The surfaced delete: a ghost until touched, then an armed danger pill
+     whose label IS the confirmation — the two-tap safety stays intact. */
+  .del {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    margin: -4px 0 0 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-faint);
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+  .del:hover {
+    background: var(--danger-soft);
+    color: var(--danger-text);
+  }
+  .del.armed {
+    width: auto;
+    padding: 0 10px;
+    border-radius: 999px;
+    background: var(--danger-soft);
+    border: 1px solid var(--danger);
+    color: var(--danger-text);
+  }
+  .del-txt {
+    font-size: var(--fs-tiny);
+    font-weight: 700;
+    white-space: nowrap;
   }
   .title {
     font-size: var(--fs-ui);
@@ -715,6 +828,14 @@
     font-variant-numeric: tabular-nums;
   }
   .meta :global(svg) {
+    flex-shrink: 0;
+  }
+  /* Same guard for the header's icon buttons and source tags: a flex-item svg
+     with no explicit shrink lock can be crushed to 0 width (this is what made
+     the ⋯ menu button render as an invisible 28px square). */
+  .dots :global(svg),
+  .del :global(svg),
+  .srctag :global(svg) {
     flex-shrink: 0;
   }
   .dotsep {
@@ -967,6 +1088,17 @@
       width: 40px;
       height: 40px;
       margin-top: -8px;
+    }
+    .del {
+      width: 40px;
+      height: 40px;
+      margin-top: -8px;
+    }
+    .del.armed {
+      width: auto;
+    }
+    .srctag {
+      min-height: 24px; /* inline kicker chip; the row's 40px buttons carry the tap floor */
     }
     .gjoin {
       min-height: 44px;
