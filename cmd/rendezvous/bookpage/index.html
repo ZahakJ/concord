@@ -45,7 +45,7 @@
         max-width: 96vw;
         background: var(--bg-1);
         border: 1px solid var(--border);
-        border-radius: 16px;
+        border-radius: 14px; /* the app's --radius-lg — one material, both sides of the door */
         box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 24px 60px rgba(0,0,0,.5);
         padding: 26px 24px;
         animation: pop .28s cubic-bezier(.34,1.4,.5,1);
@@ -72,25 +72,31 @@
       }
       @keyframes sp { to { transform: rotate(360deg); } }
 
-      /* Day sections + slot grid */
+      /* Day sections + slot grid. The kicker voice (tiny bold caps, tracked
+         out) and the slot pill are shared with the app's calendar — booking
+         out here and picking a time in there are one gesture. */
       .day { margin: 14px 0 0; }
       .day h2 {
         font-size: 12px; margin: 0 0 8px;
-        text-transform: uppercase; letter-spacing: .07em;
+        text-transform: uppercase; letter-spacing: .08em;
         color: var(--muted); font-weight: 700;
       }
       .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
       .slot {
         background: var(--bg-3);
         border: 1px solid var(--border);
-        border-radius: 10px;
+        border-radius: 999px;
         padding: 10px 4px;
         font-size: 13.5px;
         font-variant-numeric: tabular-nums;
-        transition: border-color .12s ease, background .12s ease;
+        transition: border-color .12s ease, background .12s ease, color .12s ease;
         min-height: 44px; /* a finger, not a mouse pointer, books most demos */
       }
-      .slot:hover { border-color: color-mix(in srgb, var(--accent) 60%, transparent); background: var(--bg-2); }
+      .slot:hover {
+        border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+        background: color-mix(in srgb, var(--accent) 14%, transparent);
+        color: var(--accent-hi);
+      }
 
       /* Booking form */
       label { display: block; font-size: 12.5px; color: var(--muted); margin: 14px 0 5px; }
@@ -146,7 +152,12 @@
         animation: sp .7s linear infinite;
       }
 
-      /* Confirmation */
+      /* Confirmation: a kicker headline and one calm 200ms check — done. */
+      .kicker {
+        font-size: 10.5px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .08em;
+        color: var(--ok); text-align: center; margin: 2px 0 6px;
+      }
       .bigok {
         width: 60px; height: 60px; margin: 4px auto 12px;
         border-radius: 50%;
@@ -154,7 +165,9 @@
         font-size: 28px;
         background: color-mix(in srgb, var(--ok) 16%, transparent);
         color: var(--ok);
+        animation: okpop .2s cubic-bezier(.25,.8,.35,1);
       }
+      @keyframes okpop { from { opacity: 0; transform: scale(.85); } }
       .linkrow { display: flex; gap: 8px; margin-top: 6px; }
       #mlink {
         flex: 1; min-width: 0;
@@ -179,7 +192,7 @@
       .foot { margin-top: 16px; font-size: 11.5px; color: var(--faint); line-height: 1.5; text-align: center; }
       .hide { display: none !important; }
       @media (prefers-reduced-motion: reduce) {
-        .card { animation: none; }
+        .card, .bigok { animation: none; }
         .spin, .bspin { animation-duration: 1.4s; }
       }
     </style>
@@ -210,6 +223,7 @@
       </div>
 
       <div id="doneview" class="hide">
+        <div class="kicker">You're booked</div>
         <div class="bigok" aria-hidden="true">✓</div>
         <p class="sub" id="donewhen"></p>
         <label for="mlink">Your meeting link</label>

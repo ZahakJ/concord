@@ -46,7 +46,7 @@
         max-width: 94vw;
         background: var(--bg-1);
         border: 1px solid var(--border);
-        border-radius: 16px;
+        border-radius: 14px; /* the app's --radius-lg — one material, both sides of the door */
         box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 24px 60px rgba(0,0,0,.5);
         padding: 26px 24px;
         text-align: center;
@@ -63,6 +63,15 @@
         font-size: 26px;
       }
       h1 { font-size: 20px; margin: 0 0 4px; }
+      /* The kicker — the same tiny tracked-caps state line the app's event
+         cards speak in. One voice on both sides of the door. */
+      .kicker {
+        font-size: 10.5px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .08em;
+        color: var(--muted); margin: 0 0 6px;
+        display: none;
+      }
+      .kicker.on { display: block; }
       p.sub { margin: 0 0 18px; color: var(--muted); font-size: 13.5px; line-height: 1.5; }
       #name {
         width: 100%;
@@ -135,13 +144,16 @@
         height: min(88vh, 780px);
         background: var(--bg-1);
         border: 1px solid var(--border);
-        border-radius: 16px;
+        border-radius: 14px;
         box-shadow: 0 2px 6px rgba(0,0,0,.3), 0 24px 60px rgba(0,0,0,.5);
         overflow: hidden;
         position: relative;
         flex-direction: column;
       }
-      .room.on { display: flex; }
+      /* The threshold: being admitted is a door swinging open, not a scene
+         cut — the same brief fade the app plays for members joining. */
+      .room.on { display: flex; animation: threshold .22s cubic-bezier(.25,.8,.35,1); }
+      @keyframes threshold { from { opacity: 0; } }
       .head {
         display: flex; align-items: center; gap: 10px;
         padding: 11px 14px;
@@ -412,6 +424,7 @@
          live here, one at a time. -->
     <div class="card" id="join">
       <div class="logo" id="logo">✈</div>
+      <div class="kicker" id="kick">Waiting at the door</div>
       <h1 id="title">Join the meeting</h1>
       <p class="sub" id="sub">
         You've been invited to a Concord meeting. Pick a name and hop in — no
@@ -566,13 +579,19 @@
       // Join / knock state machine. Three states in one card: the name prompt,
       // the connect spinner, and the knock at a locked door.
       // ---------------------------------------------------------------------
+      let stillT = 0; // slow-knock timer: honest door language when the host is quiet
       function setJoinState(state, opts = {}) {
         const form = state === "form";
         $("joinForm").style.display = form ? "" : "none";
         $("knock").classList.toggle("on", state === "knock");
+        $("kick").classList.toggle("on", state === "knock");
         $("go").disabled = !form;
         $("go").innerHTML = state === "connecting" ? '<span class="spin"></span>Connecting…' : "Join meeting";
+        clearTimeout(stillT);
         if (state === "knock") {
+          // Each `waiting` re-send resets this: after a quiet stretch the line
+          // softens to the same words the app's join veil uses.
+          stillT = setTimeout(() => { $("knockReason").textContent = "Still knocking…"; }, 10000);
           // Idempotent by construction: the gateway re-sends `waiting` every 15s
           // as its liveness probe, and each one REPLACES this text. Appending
           // would stack the same sentence forever.

@@ -56,18 +56,10 @@ export function fmtEventTime(ev) {
   return `${t(ev.startUnix)} – ${t(ev.endUnix)}`;
 }
 
-// happeningNow drives the live pulse. An event with no stated end counts as
-// "now" for an hour — long enough to matter, short enough that yesterday's
-// standup isn't still throbbing on the card.
-export function happeningNow(ev, now = Date.now() / 1000) {
-  const end = ev.endUnix || ev.startUnix + 3600;
-  return ev.startUnix <= now && now < end;
-}
-
-// isPast: the event is over (same one-hour assumption for open-ended events).
-export function isPast(ev, now = Date.now() / 1000) {
-  return (ev.endUnix || ev.startUnix + 3600) <= now;
-}
+// Time reasoning (happeningNow / isPast / eventPhase / fmtCountdown) lives in
+// eventtime.js — pure functions node can test — re-exported here so consumers
+// keep one import for everything calendar.
+export { happeningNow, isPast, eventPhase, fmtCountdown } from "./eventtime.js";
 
 export function rsvpBuckets(ev) {
   const b = { going: [], maybe: [], no: [] };

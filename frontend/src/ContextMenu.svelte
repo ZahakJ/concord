@@ -28,8 +28,11 @@
     pos = { x: Math.max(8, x), y: Math.max(8, y) };
   });
 
+  // `keepOpen` items leave the menu up after the tap — the two-tap arming
+  // pattern (delete/revoke) relabels itself in place instead of closing under
+  // the finger. The caller is responsible for refreshing S.contextMenu.items.
   function run(item) {
-    closeContextMenu();
+    if (!item.keepOpen) closeContextMenu();
     item.onClick?.();
   }
 </script>

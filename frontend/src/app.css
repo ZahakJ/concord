@@ -77,6 +77,13 @@
   --float-shadow:
     0 4px 16px color-mix(in srgb, var(--accent) 45%, transparent),
     0 2px 5px rgba(0, 0, 0, 0.35);
+  /* Calm-editorial motion: ONE duration and ONE ease for the events/calendar
+     surface, so every fade and slide there feels like the same hand. */
+  --dur-calm: 200ms;
+  --ease-calm: cubic-bezier(0.25, 0.8, 0.35, 1);
+  /* Hairline: the events surface separates with ink, not grey boxes. Derived
+     from --border so every theme pack keeps its own temperature. */
+  --hairline: color-mix(in srgb, var(--border) 55%, transparent);
 
   /* Message density (Appearance setting). Compact overrides these to tighten
      the feed; components read the vars so the whole rhythm shifts together.
@@ -1582,6 +1589,16 @@ textarea:focus {
 
 .muted {
   color: var(--text-muted);
+}
+/* The kicker — the events surface's voice: a tiny, bold, tracked-out caps line
+   ABOVE a thing (state over a card title, the day over its agenda, the guild
+   over an aggregated event). Color says state; the recipe never changes. */
+.kicker {
+  font-size: var(--fs-tiny);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
 }
 .mono {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;

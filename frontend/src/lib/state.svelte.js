@@ -44,6 +44,10 @@ export const S = $state({
   // Panels we drilled through to reach S.modal, so Back can walk out the way
   // it came in (see openPanel/backPanel).
   modalStack: [], // { kind, ... }
+  // The join threshold: { title, leaving? } while an event's meeting room is
+  // being entered — JoinVeil.svelte renders it above everything, and the
+  // joiner lands in the room mid-fade instead of context-jumping.
+  joinVeil: null,
   toasts: [], // [{ id, kind, text }] — kind: "info" | "success" | "error"
   quickSwitcher: false,
   // Raised by the command palette's "Set status" action; ChannelList consumes

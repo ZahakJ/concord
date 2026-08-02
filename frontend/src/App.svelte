@@ -98,6 +98,7 @@
   import ModalRequests from "./modals/ModalRequests.svelte";
   import ModalEvents from "./modals/ModalEvents.svelte";
   import ModalMyCalendar from "./modals/ModalMyCalendar.svelte";
+  import JoinVeil from "./JoinVeil.svelte";
   import { startScheduler } from "./lib/scheduled.svelte.js";
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
   import ConfirmDialog from "./modals/ConfirmDialog.svelte";
@@ -944,6 +945,9 @@
   {/if}
 
   <Toasts />
+
+  <!-- The join threshold — covers everything while an event room is entered. -->
+  <JoinVeil />
 
   <!-- Concorde fly-in: the jet takes off straight up (nose-first) trailing a
        vertical vapour trail while the overlay fades to reveal the app. Pure

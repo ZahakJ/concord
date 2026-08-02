@@ -1,16 +1,23 @@
 <script>
   // One calendar event, everywhere an event appears: the per-guild panel and
-  // the aggregated "Your calendar". Date bubble, time/place, RSVP chips with
-  // counts and names, and the per-event actions (remind me, add to my
-  // calendar, edit/delete for those allowed).
+  // the aggregated "Your calendar". Editorial card: a KICKER line above the
+  // title is the state machine (when / starts-in / live / ended), color is
+  // reserved for state, boxes are reserved for heat — an ordinary upcoming
+  // event is ink on the page, a soon event is warm, the live one is the only
+  // surfaced card in the list. One phase-driven CTA; everything else folds
+  // into ⋯.
   import Icon from "./Icon.svelte";
+  import Avatar from "./Avatar.svelte";
   import { S, nameFor, flash, openContextMenu, selectGuild, refreshGuilds } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
+  import { haptic } from "./lib/touch.js";
+  import { clockOpts } from "./lib/state.svelte.js";
   import {
     fmtEventTime,
-    happeningNow,
+    eventPhase,
+    fmtCountdown,
     isPast,
     rsvpBuckets,
     guildTint,
@@ -21,27 +28,58 @@
     loadEvents,
   } from "./lib/events.svelte.js";
 
-  let { ev, g, showGuild = false, onEdit } = $props();
+  // bubble: "date" (default) or "time" — in agenda contexts a day heading
+  // already owns the date, so the bubble shows the start time instead of
+  // printing the same fact twice.
+  let { ev, g, showGuild = false, onEdit, bubble = "date" } = $props();
 
-  // A slow tick so "Now" appears/disappears while the panel is open, instead
-  // of only on reopen. 30s is plenty for a minute-grained state.
+  // Soon-aware tick: 30s normally, 10s inside the T-60m window so the
+  // countdown never visibly stalls. Minute-grained copy needs no 1s tick.
+  // Paused while the tab is hidden; a visibility flip re-syncs immediately.
   let now = $state(Date.now() / 1000);
   $effect(() => {
-    const t = setInterval(() => (now = Date.now() / 1000), 30000);
-    return () => clearInterval(t);
+    let t;
+    const tick = () => {
+      now = Date.now() / 1000;
+      if (!document.hidden) schedule();
+    };
+    const schedule = () => {
+      clearTimeout(t);
+      t = setTimeout(tick, eventPhase(ev, Date.now() / 1000) === "soon" ? 10000 : 30000);
+    };
+    const onVis = () => {
+      if (!document.hidden) tick();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    schedule();
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   });
 
-  const live = $derived(happeningNow(ev, now));
+  const phase = $derived(eventPhase(ev, now));
   const past = $derived(isPast(ev, now));
   const mine = $derived(ev.rsvps?.[S.identity.fingerprint] || "");
   const buckets = $derived(rsvpBuckets(ev));
   // Mirrors the backend's mayCurateEvent gate (author or ManageMessages), so
-  // the buttons only appear where the action would succeed.
+  // the actions only appear where they would succeed.
   const canEdit = $derived(
     !!g && (ev.createdBy === S.identity.fingerprint || g.isOwner || has(g.myPerms || 0, PERM.MANAGE_MESSAGES)),
   );
   const mon = $derived(new Date(ev.startUnix * 1000).toLocaleDateString([], { month: "short" }));
   const dayN = $derived(new Date(ev.startUnix * 1000).getDate());
+  const fmtT = (u) =>
+    new Date(u * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...clockOpts() });
+  // The time bubble splits "6:00 PM" into a big number over a micro meridiem;
+  // 24h locales just show the number.
+  const bubbleTime = $derived.by(() => {
+    const parts = fmtT(ev.startUnix).split(" ");
+    return { t: parts[0], m: parts[1] || "" };
+  });
+  const weekday = $derived(
+    new Date(ev.startUnix * 1000).toLocaleDateString([], { weekday: "long" }),
+  );
 
   async function rsvp(state) {
     const next = mine === state ? "" : state; // tapping your answer clears it
@@ -59,10 +97,36 @@
     }
   }
 
-  // Names line under the chips — counts alone don't answer "who's coming".
-  function names(list) {
-    const shown = list.slice(0, 6).map((f) => nameFor(f));
-    return shown.join(", ") + (list.length > 6 ? ` +${list.length - 6}` : "");
+  // ---- facepile ----
+  // Faces instead of a names line: going first, maybe faded behind them, +N
+  // for the rest. Tap → full names, bucketed — hover tooltips don't exist on
+  // a phone, a tap target does.
+  const pile = $derived(
+    [
+      ...buckets.going.map((f) => ({ f, st: "going" })),
+      ...buckets.maybe.map((f) => ({ f, st: "maybe" })),
+    ].slice(0, 5),
+  );
+  const pileExtra = $derived(Math.max(0, buckets.going.length + buckets.maybe.length - 5));
+  const countsLine = $derived.by(() => {
+    const parts = [];
+    if (buckets.going.length) parts.push(`${buckets.going.length} going`);
+    if (buckets.maybe.length) parts.push(`${buckets.maybe.length} maybe`);
+    if (buckets.no.length) parts.push(`${buckets.no.length} can't`);
+    return parts.join(" · ");
+  });
+  function showWho(e) {
+    const bucketItems = (label, list) =>
+      list.length ? [{ header: true, label }, ...list.map((f) => ({ label: nameFor(f) }))] : [];
+    openContextMenu(
+      e,
+      [
+        ...bucketItems("Going", buckets.going),
+        ...bucketItems("Maybe", buckets.maybe),
+        ...bucketItems("Can't", buckets.no),
+      ],
+      { title: ev.title },
+    );
   }
 
   function remind(e) {
@@ -103,7 +167,7 @@
   // ---- guest access ----
   // Only the account that opened the event to guests can revoke: the room and
   // its tokens live on that member's node — the same rule the backend enforces
-  // on receive, mirrored here so the button only appears where it works.
+  // on receive, mirrored here so the action only appears where it works.
   const isGuestHost = $derived(!!ev.guestUrl && ev.guestHost === S.identity.fingerprint);
   // Guests are for real guilds — a meeting is already a guest room, and events
   // only surface in guilds anyway. Gate like the backend does.
@@ -146,25 +210,33 @@
     }
   }
 
-  // ---- member Join ----
-  // The Teams split, exactly: people already IN this guild/DM tap Join and
-  // walk straight in as themselves — the memberCode on the event is a real
-  // invite into the meeting room (full identity, E2EE, never the guest
-  // knock). Only outsiders ride the copied browser link and wait at the door.
-  // The backend short-circuits for the host and for a member rejoining, so
-  // one handler covers all three shapes of "get me in".
+  // ---- member Join: the threshold ----
+  // People already IN this guild/DM tap Join and walk straight in as
+  // themselves — the memberCode on the event is a real invite into the meeting
+  // room (full identity, E2EE, never the guest knock). The veil covers the
+  // ~500ms doorway: who you are, that it's E2EE, then you land mid-fade in the
+  // room. A minimum dwell keeps a fast join from strobing; a slow one is
+  // masked and says "Still knocking…" (JoinVeil owns that line).
   let joining = $state(false);
   async function joinRoom() {
     if (joining) return;
     joining = true;
+    S.joinVeil = { title: ev.title };
+    const dwell = new Promise((r) => setTimeout(r, 500));
     try {
-      const room = await api.joinEventRoom(ev.guildId, ev.id);
+      const [room] = await Promise.all([api.joinEventRoom(ev.guildId, ev.id), dwell]);
       // A fresh join means a guild S.guilds hasn't heard of yet — refresh
       // before navigating or selectGuild lands on nothing.
       if (!S.guilds.some((x) => x.id === room.id)) await refreshGuilds();
       await selectGuild(room.id);
       S.modal = null; // the room is the destination; the calendar's job is done
+      haptic("light"); // you're through the door
+      S.joinVeil = { title: ev.title, leaving: true };
+      setTimeout(() => {
+        if (S.joinVeil?.leaving) S.joinVeil = null;
+      }, 260);
     } catch (err) {
+      S.joinVeil = null; // drop the veil before the honest flash
       flash(err); // e.g. "this event's room has ended" — honest, not silent
       loadEvents(ev.guildId); // a dead room usually means a stale card too
     } finally {
@@ -172,13 +244,71 @@
     }
   }
 
-  // Two-tap revoke, same in-place arming as delete below.
+  // ---- the ⋯ menu ----
+  // The whole former icon toolbar folds into one overflow: Remind / .ics /
+  // room / edit / danger. Two-tap arming lives IN the item label (keepOpen
+  // keeps the sheet up for the first tap), reusing the same 2.6s timers.
+  let menuAnchor = null;
+  const anchorEvt = () => {
+    // Submenus (Remind me…, Open meeting room…) open after the ⋯ menu closed —
+    // re-anchor them to the ⋯ button instead of a stale pointer position.
+    const r = menuAnchor?.getBoundingClientRect();
+    return {
+      clientX: r ? r.left : window.innerWidth / 2,
+      clientY: r ? r.bottom + 4 : window.innerHeight / 2,
+      preventDefault() {},
+      stopPropagation() {},
+    };
+  };
+  function buildMenu() {
+    return [
+      !past && { label: "Remind me…", icon: "bell", onClick: () => remind(anchorEvt()) },
+      { label: "Add to calendar (.ics)", icon: "download", onClick: addToCal },
+      canInviteGuests && {
+        label: "Open meeting room…",
+        icon: "camera",
+        onClick: () => inviteGuests(anchorEvt()),
+      },
+      !!ev.guestUrl && { label: "Copy guest link", icon: "copy", onClick: copyGuestLink },
+      canEdit && !!onEdit && { label: "Edit event", icon: "edit", onClick: () => onEdit(ev) },
+      { sep: true },
+      isGuestHost && canEdit && !!ev.guestUrl && {
+        label: revokeArmed ? "Tap again — closes the room for everyone" : "Revoke room…",
+        icon: "close",
+        danger: true,
+        keepOpen: !revokeArmed,
+        onClick: revokeGuests,
+      },
+      canEdit && {
+        label: armed ? "Tap again — deletes for everyone" : "Delete event…",
+        icon: "trash",
+        danger: true,
+        keepOpen: !armed,
+        onClick: del,
+      },
+    ];
+  }
+  function openMenu(e) {
+    menuAnchor = e.currentTarget;
+    openContextMenu(e, buildMenu(), { title: ev.title });
+  }
+  // Re-render the OPEN menu after an arming state flips, so the label is the
+  // confirmation ("Tap again — …") instead of a second identical line.
+  function refreshMenu() {
+    if (S.contextMenu) S.contextMenu = { ...S.contextMenu, items: buildMenu().filter(Boolean) };
+  }
+
+  // Two-tap revoke, armed in place inside the menu.
   let revokeArmed = $state(false);
   let revokeT;
   async function revokeGuests() {
     if (!revokeArmed) {
       revokeArmed = true;
-      revokeT = setTimeout(() => (revokeArmed = false), 2600);
+      refreshMenu();
+      revokeT = setTimeout(() => {
+        revokeArmed = false;
+        refreshMenu();
+      }, 2600);
       return;
     }
     clearTimeout(revokeT);
@@ -195,14 +325,18 @@
     }
   }
 
-  // Two-tap delete: the trash arms, then confirms in place. A ConfirmDialog
-  // would replace S.modal — i.e. close the calendar the user is standing in.
+  // Two-tap delete: arms, then confirms in place. A ConfirmDialog would
+  // replace S.modal — i.e. close the calendar the user is standing in.
   let armed = $state(false);
   let armT;
   async function del() {
     if (!armed) {
       armed = true;
-      armT = setTimeout(() => (armed = false), 2600);
+      refreshMenu();
+      armT = setTimeout(() => {
+        armed = false;
+        refreshMenu();
+      }, 2600);
       return;
     }
     clearTimeout(armT);
@@ -216,24 +350,40 @@
   }
 </script>
 
-<article class="evcard" class:live class:past>
+<article class="evcard" class:soon={phase === "soon"} class:live={phase === "live"} class:ended={phase === "ended"}>
   <div class="date" aria-hidden="true">
-    <span class="mon">{mon}</span>
-    <span class="dayn">{dayN}</span>
+    {#if bubble === "time"}
+      <span class="bt">{bubbleTime.t}</span>
+      {#if bubbleTime.m}<span class="bm">{bubbleTime.m}</span>{/if}
+    {:else}
+      <span class="mon">{mon}</span>
+      <span class="dayn">{dayN}</span>
+    {/if}
   </div>
   <div class="body">
     <header class="top">
-      <strong class="title">{ev.title}</strong>
-      {#if live}
-        <span class="now"><span class="now-dot"></span>Now</span>
-      {/if}
+      <div class="kicker st" class:k-soon={phase === "soon"} class:k-live={phase === "live"}>
+        {#if showGuild && g}
+          <span class="gbadge" style={guildTint(g.id)}>{guildInitials(g.name)}</span>
+          <span class="gname">{g.name}</span>
+          <span class="ksep" aria-hidden="true">·</span>
+        {/if}
+        {#if phase === "live"}
+          <span class="now-dot"></span><span>Happening now</span>
+        {:else if phase === "soon"}
+          <span>{fmtCountdown(ev.startUnix, now)}</span>
+        {:else if phase === "ended"}
+          <span>Ended · {fmtT(ev.endUnix || ev.startUnix + 3600)}</span>
+        {:else}
+          <span>{weekday} · {fmtT(ev.startUnix)}</span>
+        {/if}
+      </div>
+      <button class="dots" aria-label="Event options" title="Event options" onclick={openMenu}>
+        <Icon name="dots" size={15} />
+      </button>
     </header>
+    <strong class="title">{ev.title}</strong>
     <div class="meta muted">
-      {#if showGuild && g}
-        <span class="gbadge" style={guildTint(g.id)}>{guildInitials(g.name)}</span>
-        <span class="gname">{g.name}</span>
-        <span class="dotsep">·</span>
-      {/if}
       <Icon name="clock" size={11} />
       <span>{fmtEventTime(ev)}</span>
       {#if ev.location}
@@ -244,115 +394,80 @@
     {#if ev.details}
       <p class="details">{ev.details}</p>
     {/if}
-    <div class="rsvps" role="group" aria-label="RSVP">
-      <button class="chip going" class:on={mine === "going"} onclick={() => rsvp("going")}>
-        <Icon name="check" size={11} /> Going{#if buckets.going.length}<span class="cnt">{buckets.going.length}</span>{/if}
-      </button>
-      <button class="chip maybe" class:on={mine === "maybe"} onclick={() => rsvp("maybe")}>
-        Maybe{#if buckets.maybe.length}<span class="cnt">{buckets.maybe.length}</span>{/if}
-      </button>
-      <button class="chip no" class:on={mine === "no"} onclick={() => rsvp("no")}>
-        <Icon name="close" size={10} /> No{#if buckets.no.length}<span class="cnt">{buckets.no.length}</span>{/if}
-      </button>
-      <span class="spring"></span>
-      <!-- One flex unit, so a narrow card wraps the whole tool cluster to the
-           next line instead of orphaning the last icon on a row of its own. -->
-      <span class="actrow">
-        {#if canInviteGuests}
-          <button
-            class="act"
-            title="Open meeting room (members join in one tap; guests get a link)"
-            aria-label="Open meeting room"
-            onclick={inviteGuests}
-          >
-            <Icon name="camera" size={14} />
-          </button>
-        {/if}
-        {#if !past}
-          <button class="act" title="Remind me" aria-label="Remind me about this event" onclick={remind}>
-            <Icon name="bell" size={14} />
-          </button>
-        {/if}
-        <button class="act" title="Add to my calendar (.ics)" aria-label="Add to my calendar" onclick={addToCal}>
-          <Icon name="download" size={14} />
+    <div class="ctarow">
+      <div class="rsvps" class:readonly={phase === "ended"} role="group" aria-label="RSVP">
+        <button class="chip going" class:on={mine === "going"} onclick={() => rsvp("going")}>
+          <Icon name="check" size={11} /> Going{#if buckets.going.length}<span class="cnt">{buckets.going.length}</span>{/if}
         </button>
-        {#if canEdit && onEdit}
-          <button class="act" title="Edit event" aria-label="Edit event" onclick={() => onEdit(ev)}>
-            <Icon name="edit" size={14} />
-          </button>
-        {/if}
-        {#if canEdit}
-          <button
-            class="act danger"
-            class:armed
-            title={armed ? "Tap again to delete for everyone" : "Delete event"}
-            aria-label={armed ? "Tap again to delete for everyone" : "Delete event"}
-            onclick={del}
-          >
-            <Icon name="trash" size={14} />
-            {#if armed}<span class="arm-label">Sure?</span>{/if}
-          </button>
-        {/if}
-      </span>
-    </div>
-    {#if ev.guestUrl}
-      <!-- The room row. Join is the primary way in for everyone invited
-           (members walk in as themselves); the copyable guest link is the
-           secondary door for outsiders. Only the host revokes. -->
-      <div class="guests" class:dim={past}>
-        {#if ev.memberCode && !past}
-          <button class="gjoin" disabled={joining} aria-label="Join the meeting room" onclick={joinRoom}>
-            {#if joining}<span class="spin" aria-hidden="true"></span> Joining…{:else}<Icon name="camera" size={13} /> Join{/if}
-          </button>
-        {:else}
-          <span class="gtag"><Icon name="camera" size={11} /> Room open</span>
-        {/if}
-        <button
-          class="gcopy"
-          title="For people outside this {g?.kind === 'dm' ? 'chat' : 'guild'} — they join from a browser and knock"
-          aria-label="Copy the guest link"
-          onclick={copyGuestLink}
-        >
-          <Icon name="copy" size={12} /> Guest link
+        <button class="chip maybe" class:on={mine === "maybe"} onclick={() => rsvp("maybe")}>
+          Maybe{#if buckets.maybe.length}<span class="cnt">{buckets.maybe.length}</span>{/if}
         </button>
-        {#if isGuestHost && canEdit}
-          <button
-            class="grevoke"
-            class:armed={revokeArmed}
-            title={revokeArmed ? "Tap again — the link dies and the room is deleted" : "Revoke the guest link"}
-            aria-label={revokeArmed ? "Tap again to revoke for everyone" : "Revoke the guest link"}
-            onclick={revokeGuests}
-          >
-            <Icon name="close" size={10} /> {revokeArmed ? "Sure?" : "Revoke"}
-          </button>
-        {/if}
+        <button class="chip no" class:on={mine === "no"} onclick={() => rsvp("no")}>
+          <Icon name="close" size={10} /> No{#if buckets.no.length}<span class="cnt">{buckets.no.length}</span>{/if}
+        </button>
       </div>
-    {/if}
-    {#if buckets.going.length || buckets.maybe.length || buckets.no.length}
-      <div class="who muted">
-        {#if buckets.going.length}<span><Icon name="check" size={10} /> {names(buckets.going)}</span>{/if}
-        {#if buckets.maybe.length}<span>? {names(buckets.maybe)}</span>{/if}
-        {#if buckets.no.length}<span><Icon name="close" size={9} /> {names(buckets.no)}</span>{/if}
+      <span class="spring"></span>
+      {#if ev.guestUrl && ev.memberCode && !past}
+        <!-- THE button. The only filled control on the page when live. -->
+        <!-- Visible text IS the accessible name ("Join now" / "Join early"),
+             so voice control users can say what they see. -->
+        <button class="gjoin" disabled={joining} onclick={joinRoom}>
+          {#if joining}<span class="spin" aria-hidden="true"></span> Opening the room…
+          {:else if phase === "live"}<Icon name="camera" size={13} /> Join now
+          {:else if phase === "soon"}<Icon name="camera" size={13} /> Join early
+          {:else}<Icon name="camera" size={13} /> Join{/if}
+        </button>
+      {:else if ev.guestUrl}
+        <span class="gtag" class:over={past}><Icon name="camera" size={11} /> {past ? "Room ended" : "Room open"}</span>
+      {/if}
+    </div>
+    {#if pile.length || buckets.no.length || ev.guestUrl}
+      <div class="footrow">
+        {#if pile.length || buckets.no.length}
+          <button class="faces" aria-label="See who's coming" onclick={showWho}>
+            {#each pile as p (p.f)}
+              <span class="face" class:maybe={p.st === "maybe"}><Avatar name={nameFor(p.f)} size={22} /></span>
+            {/each}
+            {#if pileExtra}<span class="face more">+{pileExtra}</span>{/if}
+            <span class="counts">{countsLine}</span>
+          </button>
+        {/if}
+        <span class="spring"></span>
+        {#if ev.guestUrl && !past}
+          <!-- The guest door, as a whisper — outsiders only; members use Join. -->
+          <button class="gcopy" aria-label="Copy the guest link" title="For people outside this {g?.kind === 'dm' ? 'chat' : 'guild'} — they join from a browser and knock" onclick={copyGuestLink}>
+            <Icon name="copy" size={11} /> Guest link
+          </button>
+        {/if}
       </div>
     {/if}
   </div>
 </article>
 
 <style>
+  /* Default temperature: ink on the page. No box, no border — the list's
+     hairlines (owned by the parent) do the separating. */
   .evcard {
     display: flex;
-    gap: 12px;
-    padding: 12px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    gap: var(--sp-3);
+    padding: var(--sp-3) 2px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-lg);
     text-align: left;
   }
-  /* Happening right now: the card glows softly — noticeable in a list scan,
-     quiet enough to live next to ordinary cards. */
+  /* T-60m: warmth, not alarm. A still, warm frame lifts the card off the page. */
+  .evcard.soon {
+    border-color: color-mix(in srgb, var(--warn) 45%, var(--border));
+    padding: var(--sp-3);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--warn) 8%, transparent);
+  }
+  /* LIVE: the only surfaced card in the list — one beacon, breathing slowly. */
   .evcard.live {
-    border-color: color-mix(in srgb, var(--ok) 55%, transparent);
-    animation: ev-breathe 3.2s ease-in-out infinite;
+    background: var(--bg-1);
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+    padding: var(--sp-3);
+    animation: ev-breathe 4s ease-in-out infinite;
   }
   @keyframes ev-breathe {
     0%,
@@ -360,11 +475,16 @@
       box-shadow: 0 0 0 0 transparent;
     }
     50% {
-      box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 22%, transparent);
+      box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 10%, transparent);
     }
   }
-  .evcard.past {
-    opacity: 0.62;
+  /* Ended: dimmed with ink, not opacity — a blanket fade muddies facepiles. */
+  .evcard.ended .title {
+    color: var(--text-muted);
+  }
+  .evcard.ended .meta,
+  .evcard.ended .details {
+    color: var(--text-faint);
   }
   .date {
     flex-shrink: 0;
@@ -378,9 +498,17 @@
     background: var(--accent-soft);
     color: var(--accent-hover);
   }
+  .evcard.soon .date {
+    background: color-mix(in srgb, var(--warn) 14%, transparent);
+    color: var(--warn-text);
+  }
   .evcard.live .date {
     background: var(--ok-soft);
     color: var(--ok-text);
+  }
+  .evcard.ended .date {
+    background: var(--bg-2);
+    color: var(--text-faint);
   }
   .mon {
     font-size: var(--fs-tiny);
@@ -390,8 +518,23 @@
     line-height: 1.1;
   }
   .dayn {
-    font-size: 19px;
+    font-size: var(--fs-display);
     font-weight: 700;
+    line-height: 1.1;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Time bubble (agenda contexts, where the day heading owns the date). */
+  .bt {
+    font-size: var(--fs-ui);
+    font-weight: 700;
+    line-height: 1.15;
+    font-variant-numeric: tabular-nums;
+  }
+  .bm {
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
     line-height: 1.1;
   }
   .body {
@@ -403,9 +546,77 @@
   }
   .top {
     display: flex;
-    align-items: center;
-    gap: 8px;
+    align-items: flex-start;
+    gap: var(--sp-2);
     min-width: 0;
+  }
+  /* The kicker IS the state machine: one line above the title answers
+     when / what-now before the eye reaches the words. */
+  .st {
+    flex: 1;
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    color: var(--text-faint);
+    padding-top: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .st.k-soon {
+    color: var(--warn-text);
+  }
+  .st.k-live {
+    color: var(--ok-text);
+  }
+  .now-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--ok);
+    flex-shrink: 0;
+    animation: ev-now-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes ev-now-pulse {
+    50% {
+      opacity: 0.3;
+    }
+  }
+  .gbadge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 5px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0;
+    flex-shrink: 0;
+  }
+  .gname {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 14ch;
+    color: var(--text-muted);
+  }
+  .ksep {
+    color: var(--text-faint);
+  }
+  .dots {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    margin: -4px -4px 0 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .dots:hover {
+    background: var(--bg-3);
+    color: var(--text);
   }
   .title {
     font-size: var(--fs-ui);
@@ -416,36 +627,6 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
   }
-  .now {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    flex-shrink: 0;
-    padding: 2px 8px;
-    border-radius: 999px;
-    background: var(--ok-soft);
-    color: var(--ok-text);
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-  }
-  .now-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--ok);
-    animation: ev-now-pulse 1.4s ease-in-out infinite;
-  }
-  @keyframes ev-now-pulse {
-    50% {
-      opacity: 0.3;
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .now-dot,
-    .evcard.live {
-      animation: none;
-    }
-  }
   .meta {
     display: flex;
     align-items: center;
@@ -453,6 +634,7 @@
     font-size: var(--fs-compact);
     flex-wrap: wrap;
     min-width: 0;
+    font-variant-numeric: tabular-nums;
   }
   .meta :global(svg) {
     flex-shrink: 0;
@@ -465,23 +647,6 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 24ch;
-  }
-  .gbadge {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 18px;
-    height: 18px;
-    border-radius: 6px;
-    font-size: 8px;
-    font-weight: 700;
-    flex-shrink: 0;
-  }
-  .gname {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 16ch;
   }
   .details {
     margin: 0;
@@ -496,12 +661,27 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
-  .rsvps {
+  .ctarow {
     display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    margin-top: 2px;
+  }
+  .rsvps {
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     flex-wrap: wrap;
-    margin-top: 2px;
+  }
+  /* History matters: an ended card keeps its counts, loses its buttons. */
+  .rsvps.readonly {
+    pointer-events: none;
+  }
+  .rsvps.readonly .chip {
+    background: transparent;
+    border-color: var(--hairline);
+    color: var(--text-faint);
   }
   .spring {
     flex: 1;
@@ -510,7 +690,7 @@
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 4px 10px;
+    padding: 4px 11px;
     border-radius: 999px;
     background: var(--bg-2);
     border: 1px solid var(--border);
@@ -528,6 +708,7 @@
     padding: 0 5px;
     border-radius: 999px;
     background: var(--bg-3);
+    font-variant-numeric: tabular-nums;
   }
   .chip.going.on {
     background: var(--ok-soft);
@@ -547,56 +728,8 @@
   .chip.on .cnt {
     background: transparent;
   }
-  .actrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-  }
-  .act {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 5px;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--text-muted);
-  }
-  .act:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .act.danger:hover {
-    background: var(--danger-soft);
-    color: var(--danger-text);
-  }
-  .act.armed {
-    background: var(--danger-soft);
-    color: var(--danger-text);
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-  }
-  .guests {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-  .guests.dim {
-    opacity: 0.6;
-  }
-  .gtag {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 3px 9px;
-    border-radius: 999px;
-    background: var(--ok-soft);
-    color: var(--ok-text);
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-  }
-  /* Join is THE action on a card with a live room — a filled button, not a
-     chip, so it reads before anything else on the row. */
+  /* Join is THE action — filled pill, promoted early ("soon") and loud when
+     live. Accent before the hour, --ok during it. */
   .gjoin {
     display: inline-flex;
     align-items: center;
@@ -607,6 +740,7 @@
     color: var(--accent-fg);
     font-size: var(--fs-compact);
     font-weight: 700;
+    transition: background 0.12s ease;
   }
   .gjoin:hover {
     background: var(--accent-hover);
@@ -631,65 +765,117 @@
       transform: rotate(360deg);
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .spin {
-      animation: none;
-    }
-  }
-  .gcopy,
-  .grevoke {
+  .gtag {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    padding: 4px 10px;
+    padding: 3px 9px;
     border-radius: 999px;
-    background: var(--bg-2);
-    border: 1px solid var(--border);
+    background: var(--ok-soft);
+    color: var(--ok-text);
+    font-size: var(--fs-tiny);
+    font-weight: 700;
+  }
+  .gtag.over {
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--text-faint);
+  }
+  .footrow {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    min-height: 24px;
+  }
+  .faces {
+    display: inline-flex;
+    align-items: center;
+    background: transparent;
+    padding: 1px 2px;
+    border-radius: 999px;
+    min-width: 0;
+  }
+  .faces:hover .counts {
+    color: var(--text);
+  }
+  .face {
+    display: inline-flex;
+    border-radius: 50%;
+    border: 2px solid var(--bg-1);
+    flex-shrink: 0;
+  }
+  .face + .face {
+    margin-left: -6px;
+  }
+  .face.maybe {
+    opacity: 0.55;
+  }
+  .face.more {
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-3);
     color: var(--text-muted);
+    font-size: var(--fs-micro);
+    font-weight: 700;
+  }
+  .counts {
+    margin-left: 7px;
+    font-size: var(--fs-tiny);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* The guest link is a whisper, not a pill — outsiders' door, kept quiet. */
+  .gcopy {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 4px;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    color: var(--text-faint);
     font-size: var(--fs-tiny);
     font-weight: 600;
   }
   .gcopy:hover {
-    background: var(--bg-3);
-    color: var(--text);
+    color: var(--text-muted);
+    text-decoration: underline;
   }
-  .grevoke:hover,
-  .grevoke.armed {
-    background: var(--danger-soft);
-    border-color: var(--danger);
-    color: var(--danger-text);
+  .gcopy:active {
+    text-decoration: underline;
   }
-  .who {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    font-size: var(--fs-tiny);
+  @media (prefers-reduced-motion: reduce) {
+    .now-dot,
+    .evcard.live,
+    .spin {
+      animation: none;
+    }
   }
-  .who span {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    min-width: 0;
-  }
-  /* Phones: RSVP is the thing people do most — real targets. */
+  /* Phones: every primary tappable reaches 44px; Join stretches to a full
+     row so the thumb cannot miss the door. */
   @media (pointer: coarse), (max-width: 768px) {
     .chip {
-      min-height: 36px;
-      padding: 4px 12px;
+      min-height: 44px;
+      padding: 4px 14px;
     }
-    .act {
-      min-width: 40px;
-      min-height: 40px;
+    .dots {
+      width: 40px;
+      height: 40px;
+      margin-top: -8px;
+    }
+    .gjoin {
+      min-height: 44px;
+      padding: 4px 20px;
+      flex: 1 1 auto;
       justify-content: center;
     }
     .gcopy,
-    .grevoke {
+    .faces {
       min-height: 36px;
-      padding: 4px 12px;
-    }
-    .gjoin {
-      min-height: var(--tap-min, 44px);
-      padding: 4px 20px;
     }
   }
 </style>

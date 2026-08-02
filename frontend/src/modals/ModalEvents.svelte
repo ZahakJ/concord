@@ -2,10 +2,12 @@
   // The guild calendar: agenda list + month grid (toggle), day drill-down,
   // and the create/edit form. The agenda leads on phones — a month grid is a
   // toggle there, never the landing view, because 393px turns grids into
-  // squint tests. Desktop lands on the grid.
+  // squint tests. Desktop lands on the grid. Editorial throughout: typography
+  // and hairlines carry the hierarchy, color is reserved for state.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import EventCard from "../EventCard.svelte";
+  import { fly } from "svelte/transition";
   import { S, flash } from "../lib/state.svelte.js";
   import { api, on } from "../lib/api.js";
   import {
@@ -13,6 +15,7 @@
     loadEvents,
     dayKey,
     fmtDayHeading,
+    happeningNow,
     downloadICS,
     icsName,
   } from "../lib/events.svelte.js";
@@ -30,6 +33,8 @@
   let editing = $state(null); // null | draft {id?, title, details, location, start, durMin}
   let showPast = $state(false);
 
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
   // Load on open; recheck on every guild-updated — that's the signal the core
   // emits for event upserts/removals/RSVPs (local and gossiped alike).
   $effect(() => {
@@ -43,6 +48,9 @@
 
   // ---- month grid ----
   let month = $state(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+  let pageDir = $state(1); // which way the fresh month slides in from
+  const monthName = $derived(month.toLocaleDateString([], { month: "long" }));
+  const monthYear = $derived(month.getFullYear());
   const monthLabel = $derived(month.toLocaleDateString([], { month: "long", year: "numeric" }));
   // Monday-start; 2024-01-01 is a Monday, so it mints locale day initials.
   const dayNames = [...Array(7)].map((_, i) =>
@@ -53,9 +61,11 @@
     const start = new Date(month);
     start.setDate(1 - lead);
     const counts = {};
+    const liveDays = {};
     for (const ev of events) {
       const k = dayKey(ev.startUnix);
       counts[k] = (counts[k] || 0) + 1;
+      if (happeningNow(ev)) liveDays[k] = true;
     }
     const today = new Date().toDateString();
     const out = [];
@@ -70,16 +80,40 @@
         n: d.getDate(),
         out: d.getMonth() !== month.getMonth(),
         today: key === today,
+        live: !!liveDays[key],
         count: counts[key] || 0,
       });
     }
     return out;
   });
   function pageMonth(dir) {
+    pageDir = dir;
     month = new Date(month.getFullYear(), month.getMonth() + dir, 1);
+  }
+  function goToday() {
+    const now = new Date();
+    pageDir = now > month ? 1 : -1;
+    month = new Date(now.getFullYear(), now.getMonth(), 1);
+    selectedDay = now.toDateString();
   }
   function pickDay(key) {
     selectedDay = selectedDay === key ? "" : key; // tap again to widen back out
+  }
+
+  // Swipe to page on coarse pointers. Claim the gesture only when it is
+  // decisively horizontal (|dx| > |dy|×1.5) so vertical scroll and the
+  // sheet's drag-dismiss keep working.
+  let swipe = null;
+  function swipeStart(e) {
+    if (e.pointerType !== "touch") return;
+    swipe = { x: e.clientX, y: e.clientY };
+  }
+  function swipeEnd(e) {
+    if (!swipe) return;
+    const dx = e.clientX - swipe.x;
+    const dy = e.clientY - swipe.y;
+    swipe = null;
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy) * 1.5) pageMonth(dx < 0 ? 1 : -1);
   }
 
   // ---- agenda ----
@@ -90,6 +124,13 @@
       const k = dayKey(ev.startUnix);
       if (!out.length || out[out.length - 1].key !== k) out.push({ key: k, events: [] });
       out[out.length - 1].events.push(ev);
+    }
+    // A flat running offset per group, so the entrance stagger can count
+    // across group boundaries (first 8 entries only).
+    let off = 0;
+    for (const grp of out) {
+      grp.offset = off;
+      off += grp.events.length;
     }
     return out;
   };
@@ -115,6 +156,15 @@
     }
     return { id: "", title: "", details: "", location: "", start: toLocalInput(at), durMin: 60, guests: false, autoAdmit: false };
   }
+  // The OS picker is the fallback, never the greeting: chips first, the
+  // datetime-local appears once a time has been touched (or on request).
+  let showPicker = $state(false);
+  let durMore = $state(false);
+  function startCreate() {
+    editing = blankDraft();
+    showPicker = false;
+    durMore = false;
+  }
   function startEdit(ev) {
     editing = {
       id: ev.id,
@@ -126,6 +176,10 @@
       guests: false,
       autoAdmit: false,
     };
+    // Editing an existing time: show the precise picker straight away, and
+    // unfold the full duration list when the value isn't one of the quick three.
+    showPicker = true;
+    durMore = ![30, 60, 120].includes(editing.durMin);
   }
   // Whether the event being edited already has a live guest link — the form
   // then points at the card (copy/revoke live there) instead of offering to
@@ -141,8 +195,64 @@
     { min: 240, label: "4 hours" },
     { min: 480, label: "All day-ish (8h)" },
   ];
+  const QUICK_DUR = [
+    { min: 30, label: "30 min" },
+    { min: 60, label: "1 h" },
+    { min: 120, label: "2 h" },
+  ];
   const draftAt = $derived(editing?.start ? new Date(editing.start).getTime() : NaN);
   const draftValid = $derived(!!editing?.title.trim() && !isNaN(draftAt));
+
+  // The echo line: the form reads back what it heard, kicker-voiced, so a
+  // disabled Create button always explains itself.
+  const echo = $derived.by(() => {
+    if (!editing) return "";
+    if (isNaN(draftAt)) return "Pick a time";
+    const d = new Date(draftAt);
+    const day = d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+    const t = (x) => x.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    if (editing.durMin) return `${day} · ${t(d)} – ${t(new Date(draftAt + editing.durMin * 60000))}`;
+    return `${day} · ${t(d)}`;
+  });
+
+  // "When" chips — the bookpage slot DNA: obvious near-future times as pills,
+  // the OS picker demoted to "Pick a time…".
+  const whenChips = $derived.by(() => {
+    if (!editing || editing.id) return [];
+    const out = [];
+    const seen = new Set();
+    const push = (label, ms) => {
+      if (ms > Date.now() && !seen.has(ms)) {
+        seen.add(ms);
+        out.push({ label, ms });
+      }
+    };
+    const at = (base, h) => {
+      const d = new Date(base);
+      d.setHours(h, 0, 0, 0);
+      return d.getTime();
+    };
+    const now = new Date();
+    if (selectedDay) {
+      const t = at(new Date(selectedDay), 18);
+      const lbl = new Date(t).toLocaleDateString([], { weekday: "short" });
+      push(`That evening (${lbl} 6 PM)`, t);
+    }
+    push("Tonight 7 PM", at(now, 19));
+    const tom = new Date(now);
+    tom.setDate(tom.getDate() + 1);
+    push("Tomorrow 9 AM", at(tom, 9));
+    push("Tomorrow 7 PM", at(tom, 19));
+    const mon = new Date(now);
+    mon.setDate(mon.getDate() + (((8 - mon.getDay()) % 7) || 7));
+    push("Next Mon 9 AM", at(mon, 9));
+    return out.slice(0, 4);
+  });
+  const pickedMs = $derived(isNaN(draftAt) ? 0 : draftAt);
+  function pickChip(ms) {
+    editing.start = toLocalInput(ms);
+    showPicker = true; // fine-tuning is one glance away once a time exists
+  }
 
   async function save() {
     if (!draftValid) return;
@@ -191,26 +301,55 @@
 <Modal {title} {onClose} wide>
   {#if editing}
     <div class="form">
+      <!-- Title first: the event is a sentence, not a database row. -->
       <!-- svelte-ignore a11y_autofocus -->
       <input
+        class="title-in"
         autofocus={!S.isMobile}
         placeholder="What's happening?"
         maxlength="120"
         bind:value={editing.title}
       />
+      <!-- The form reads back what it heard. -->
+      <div class="kicker echo" class:unset={isNaN(draftAt)}>{echo}</div>
+      {#if whenChips.length}
+        <div class="chips" role="group" aria-label="When">
+          {#each whenChips as c (c.ms)}
+            <button class="slotchip" class:on={pickedMs === c.ms} onclick={() => pickChip(c.ms)}>
+              {c.label}
+            </button>
+          {/each}
+          {#if !showPicker}
+            <button class="slotchip more" onclick={() => (showPicker = true)}>Pick a time…</button>
+          {/if}
+        </div>
+      {/if}
       <div class="row2">
-        <label class="fld">
-          <span class="muted tiny">Starts</span>
-          <input type="datetime-local" bind:value={editing.start} />
-        </label>
-        <label class="fld">
+        {#if showPicker || !whenChips.length}
+          <label class="fld">
+            <span class="muted tiny">Starts</span>
+            <input type="datetime-local" bind:value={editing.start} />
+          </label>
+        {/if}
+        <div class="fld">
           <span class="muted tiny">Lasts</span>
-          <select bind:value={editing.durMin}>
-            {#each DURATIONS as d (d.min)}
-              <option value={d.min}>{d.label}</option>
-            {/each}
-          </select>
-        </label>
+          {#if durMore}
+            <select bind:value={editing.durMin}>
+              {#each DURATIONS as d (d.min)}
+                <option value={d.min}>{d.label}</option>
+              {/each}
+            </select>
+          {:else}
+            <div class="chips" role="group" aria-label="Duration">
+              {#each QUICK_DUR as d (d.min)}
+                <button class="slotchip" class:on={editing.durMin === d.min} onclick={() => (editing.durMin = d.min)}>
+                  {d.label}
+                </button>
+              {/each}
+              <button class="slotchip more" onclick={() => (durMore = true)}>More…</button>
+            </div>
+          {/if}
+        </div>
       </div>
       <input placeholder="Where? A channel, an address, someone's couch…" maxlength="160" bind:value={editing.location} />
       <textarea rows="3" placeholder="Details (optional)" maxlength="2000" bind:value={editing.details}></textarea>
@@ -253,50 +392,67 @@
           <Icon name="download" size={13} /> <span class="xl">.ics</span>
         </button>
       {/if}
-      <button class="primary new" onclick={() => (editing = blankDraft())}>
+      <button class="primary new" onclick={startCreate}>
         <Icon name="plus" size={13} /> New event
       </button>
     </div>
 
     {#if view === "grid"}
       <div class="grid-head">
-        <button class="pg" aria-label="Previous month" onclick={() => pageMonth(-1)}>
-          <span class="chev-l"><Icon name="chevron" size={14} /></span>
-        </button>
-        <strong class="mlabel">{monthLabel}</strong>
-        <button class="pg" aria-label="Next month" onclick={() => pageMonth(1)}>
-          <Icon name="chevron" size={14} />
-        </button>
-      </div>
-      <div class="grid" role="grid" aria-label={monthLabel}>
-        {#each dayNames as d, i (i)}
-          <span class="dow muted">{d}</span>
-        {/each}
-        {#each cells as c (c.key)}
-          <button
-            class="cell"
-            class:outm={c.out}
-            class:today={c.today}
-            class:sel={selectedDay === c.key}
-            class:hasev={c.count > 0}
-            role="gridcell"
-            aria-label="{c.key}{c.count ? `, ${c.count} event${c.count === 1 ? '' : 's'}` : ''}"
-            onclick={() => pickDay(c.key)}
-          >
-            <span class="dn">{c.n}</span>
-            {#if c.count}
-              <span class="dots" aria-hidden="true">
-                {#each Array(Math.min(c.count, 3)) as _, i (i)}<span class="dot"></span>{/each}
-              </span>
-            {/if}
+        <div class="mtitle">
+          <strong class="mname">{monthName}</strong>
+          <span class="myear">{monthYear}</span>
+        </div>
+        <div class="mnav">
+          <button class="pg" aria-label="Previous month" onclick={() => pageMonth(-1)}>
+            <span class="chev-l"><Icon name="chevron" size={14} /></span>
           </button>
-        {/each}
+          <button class="pg tdy" onclick={goToday}>Today</button>
+          <button class="pg" aria-label="Next month" onclick={() => pageMonth(1)}>
+            <Icon name="chevron" size={14} />
+          </button>
+        </div>
+      </div>
+      <div class="gridwrap" onpointerdown={swipeStart} onpointerup={swipeEnd} onpointercancel={() => (swipe = null)}>
+        <div class="dows">
+          {#each dayNames as d, i (i)}
+            <span class="dow muted">{d}</span>
+          {/each}
+        </div>
+        {#key monthLabel}
+          <div
+            class="grid"
+            role="grid"
+            aria-label={monthLabel}
+            in:fly={{ x: reduceMotion ? 0 : pageDir * 14, duration: reduceMotion ? 90 : 180 }}
+          >
+            {#each cells as c (c.key)}
+              <button
+                class="cell"
+                class:outm={c.out}
+                class:today={c.today}
+                class:sel={selectedDay === c.key}
+                class:hasev={c.count > 0}
+                role="gridcell"
+                aria-label="{c.key}{c.count ? `, ${c.count} event${c.count === 1 ? '' : 's'}` : ''}"
+                onclick={() => pickDay(c.key)}
+              >
+                <span class="dn">{c.n}</span>
+                <span class="dots" aria-hidden="true">
+                  {#if c.count}
+                    {#each Array(Math.min(c.count, 3)) as _, i (i)}<span class="dot" class:livedot={c.live && i === 0}></span>{/each}
+                  {/if}
+                </span>
+              </button>
+            {/each}
+          </div>
+        {/key}
       </div>
     {/if}
 
     {#if selectedDay}
       <div class="dayline">
-        <strong>{fmtDayHeading(selectedDay)}</strong>
+        <strong class="kicker dayk">{fmtDayHeading(selectedDay)}</strong>
         <button class="ghost mini-clear" onclick={() => (selectedDay = "")}>Show all</button>
       </div>
     {/if}
@@ -304,10 +460,12 @@
     <div class="list">
       {#each groups as grp (grp.key)}
         {#if !selectedDay}
-          <div class="dayhead muted">{fmtDayHeading(grp.key)}</div>
+          <div class="dayhead kicker">{fmtDayHeading(grp.key)}</div>
         {/if}
-        {#each grp.events as ev (ev.id)}
-          <EventCard {ev} {g} onEdit={startEdit} />
+        {#each grp.events as ev, i (ev.id)}
+          <div class="riser" style="animation-delay:{Math.min(grp.offset + i, 8) * 24}ms">
+            <EventCard {ev} {g} onEdit={startEdit} bubble="time" />
+          </div>
         {/each}
       {:else}
         {#if !pastEvents.length}
@@ -323,7 +481,7 @@
                 time and everyone can RSVP right here.
               </p>
             {/if}
-            <button class="primary" onclick={() => (editing = blankDraft())}>
+            <button class="primary" onclick={startCreate}>
               <Icon name="plus" size={13} /> Plan something
             </button>
           </div>
@@ -336,7 +494,9 @@
         </button>
         {#if showPast}
           {#each [...pastEvents].reverse() as ev (ev.id)}
-            <EventCard {ev} {g} onEdit={startEdit} />
+            <div class="riser">
+              <EventCard {ev} {g} onEdit={startEdit} />
+            </div>
           {/each}
         {/if}
       {/if}
@@ -399,23 +559,49 @@
     padding: 6px 10px;
     font-size: var(--fs-compact);
   }
+  /* ---- month grid, editorial: the month is typography, not 42 boxes ---- */
   .grid-head {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: space-between;
+    gap: 8px;
     margin-top: 4px;
   }
-  .mlabel {
-    font-size: var(--fs-ui);
+  .mtitle {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    min-width: 0;
+  }
+  .mname {
+    font-size: var(--fs-display);
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .myear {
+    font-size: var(--fs-display);
+    font-weight: 300;
+    color: var(--text-faint);
+    line-height: 1.1;
+  }
+  .mnav {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
   }
   .pg {
     display: grid;
     place-items: center;
-    width: 34px;
+    min-width: 34px;
     height: 34px;
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text-muted);
+  }
+  .pg.tdy {
+    padding: 0 10px;
+    font-size: var(--fs-compact);
+    font-weight: 600;
   }
   .pg:hover {
     background: var(--bg-3);
@@ -425,51 +611,79 @@
     display: flex;
     transform: rotate(180deg);
   }
+  .gridwrap {
+    touch-action: pan-y; /* horizontal is ours (swipe to page months) */
+    overflow: hidden;
+    /* The dialog is a column flexbox with a max-height: overflow:hidden makes
+       this the ONLY shrinkable child, and the whole month silently collapses
+       to zero. Never shrink — the dialog scrolls instead. */
+    flex: none;
+  }
+  .dows,
   .grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
-    gap: 3px;
+    column-gap: 2px;
   }
   .dow {
     text-align: center;
     font-size: var(--fs-tiny);
     font-weight: 700;
     text-transform: uppercase;
-    padding: 2px 0;
+    letter-spacing: 0.08em;
+    padding: 2px 0 6px;
+    color: var(--text-faint);
   }
+  /* Flat cells — numbers on the page. Hairlines separate week ROWS only. */
   .cell {
     position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    min-height: 44px;
-    padding: 2px;
-    border-radius: var(--radius-sm);
-    background: var(--bg-1);
-    border: 1px solid transparent;
+    gap: 1px;
+    min-height: 46px;
+    padding: 3px 2px 2px;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
+    border-top: 1px solid transparent;
     color: var(--text);
     font-size: var(--fs-compact);
   }
-  .cell:hover {
+  .grid .cell:nth-child(n + 8) {
+    border-top-color: var(--hairline);
+  }
+  .cell:hover .dn {
     background: var(--bg-3);
   }
   .cell.outm {
     color: var(--text-faint);
-    background: transparent;
   }
-  /* Today reads as today at a glance: an accent ring, and a bold number. */
-  .cell.today {
-    border-color: var(--accent);
+  .dn {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    font-variant-numeric: tabular-nums;
+    transition: background 0.12s ease;
   }
+  /* TODAY is the loudest mark on the grid: a filled accent disc. */
   .cell.today .dn {
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-weight: 700;
+  }
+  /* SELECTED is a ring — distinct from today even when they coincide. */
+  .cell.sel .dn {
+    box-shadow: 0 0 0 1.5px var(--accent);
     color: var(--accent-hover);
     font-weight: 700;
   }
-  .cell.sel {
-    background: var(--accent-soft);
-    border-color: var(--accent);
+  .cell.today.sel .dn {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+    color: var(--accent-fg);
   }
   .dots {
     display: flex;
@@ -482,6 +696,9 @@
     border-radius: 50%;
     background: var(--accent);
   }
+  .dot.livedot {
+    background: var(--ok);
+  }
   .cell.outm .dot {
     opacity: 0.5;
   }
@@ -491,21 +708,39 @@
     justify-content: space-between;
     gap: 8px;
   }
+  .dayk {
+    color: var(--text-muted);
+  }
   .mini-clear {
     padding: 4px 10px;
     font-size: var(--fs-compact);
   }
+  /* ---- agenda ---- */
   .list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
   }
+  /* Day headings: kicker-voiced, sticky under the sheet's pinned top strip. */
   .dayhead {
-    font-size: var(--fs-small);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    margin-top: 6px;
+    position: sticky;
+    top: 33px; /* just below the pinned title strip */
+    z-index: 2;
+    background: var(--bg-elevated);
+    color: var(--text-faint);
+    padding: 8px 0 4px;
+    margin-top: var(--sp-2);
+  }
+  .riser {
+    animation: ev-rise var(--dur-calm) var(--ease-calm) backwards;
+  }
+  .riser + .riser {
+    border-top: 1px solid var(--hairline);
+  }
+  @keyframes ev-rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
   }
   .pastbtn {
     display: inline-flex;
@@ -513,7 +748,7 @@
     gap: 6px;
     align-self: flex-start;
     background: transparent;
-    padding: 6px 4px;
+    padding: 8px 4px;
     font-size: var(--fs-compact);
   }
   .pastbtn:hover {
@@ -550,15 +785,73 @@
     font-size: var(--fs-compact);
     line-height: 1.5;
   }
+  /* ---- create / edit: three taps, not a tax form ---- */
   .form {
     display: flex;
     flex-direction: column;
     gap: 10px;
   }
+  /* Title first, borderless: an underline that warms on focus. */
+  .form .title-in {
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--hairline);
+    border-radius: 0;
+    box-shadow: none;
+    padding: 6px 2px 8px;
+    font-size: var(--fs-title);
+    font-weight: 650;
+  }
+  .form .title-in:focus {
+    border-bottom-color: var(--accent);
+    background: transparent;
+    box-shadow: none;
+  }
+  .echo {
+    color: var(--accent-hover);
+    padding: 0 2px;
+  }
+  .echo.unset {
+    color: var(--text-faint);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  /* The bookpage slot pill, verbatim geometry: 999px, tabular, tint-on-select. */
+  .slotchip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 13px;
+    border-radius: 999px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  }
+  .slotchip:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .slotchip.on {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--accent-hover);
+  }
+  .slotchip.more {
+    background: transparent;
+    border-style: dashed;
+  }
   .row2 {
     display: flex;
     gap: 10px;
     flex-wrap: wrap;
+    align-items: flex-end;
   }
   .fld {
     flex: 1 1 150px;
@@ -589,6 +882,10 @@
   }
   .chk input {
     flex-shrink: 0;
+    /* app.css gives every input width:100% for the stacked-field layouts; a
+       checkbox in a flex row must NOT take the row (it shoved its own label
+       into a one-character column). */
+    width: auto;
   }
   .chk.sub {
     margin-left: 24px;
@@ -606,5 +903,24 @@
   }
   .actions .ghost {
     padding: 7px 14px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .riser {
+      animation: none;
+    }
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .dayhead {
+      top: 44px; /* the sheet's grip strip is taller on phones */
+    }
+    .slotchip {
+      min-height: 44px;
+      padding: 6px 15px;
+    }
+    /* The bar wraps on a phone; the create CTA takes its row whole. */
+    .primary.new {
+      flex: 1 1 100%;
+      justify-content: center;
+    }
   }
 </style>
