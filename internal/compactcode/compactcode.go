@@ -289,11 +289,11 @@ func RankAddrs(addrs []string) []string {
 }
 
 const (
-	tierPublic = iota // a forwarded port or a real public IP: one hop, no third party
-	tierCircuit       // works from anywhere, but costs a relay and its uptime
-	tierLAN           // only from the same network — still the fastest path when it applies
-	tierUnknown       // not a multiaddr we can judge; keep, but try last
-	tierDrop          // loopback, link-local, unspecified: unreachable from any other machine
+	tierPublic  = iota // a forwarded port or a real public IP: one hop, no third party
+	tierCircuit        // works from anywhere, but costs a relay and its uptime
+	tierLAN            // only from the same network — still the fastest path when it applies
+	tierUnknown        // not a multiaddr we can judge; keep, but try last
+	tierDrop           // loopback, link-local, unspecified: unreachable from any other machine
 )
 
 func addrTier(a string) int {

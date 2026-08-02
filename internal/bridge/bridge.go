@@ -919,6 +919,16 @@ func (b *Bridge) RevokeEventGuests(guildID, eventID string) (domain.Event, error
 	return svc.RevokeEventGuests(guildID, eventID)
 }
 
+// JoinEventRoom joins an event's meeting room as a full member (one-tap Join
+// for people already in the event's guild/DM; guests keep the browser link).
+func (b *Bridge) JoinEventRoom(guildID, eventID string) (domain.Guild, error) {
+	svc, err := b.service()
+	if err != nil {
+		return domain.Guild{}, err
+	}
+	return svc.JoinEventRoom(guildID, eventID)
+}
+
 // BookingSettings returns the public-booking config, the page URL (when
 // live) and the upcoming bookings, for the Settings → Bookings panel.
 func (b *Bridge) BookingSettings() (appsvc.BookingView, error) {
@@ -2590,6 +2600,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.OpenEventGuests(argStr(args, 0), argStr(args, 1), argBool(args, 2))
 	case "RevokeEventGuests":
 		return b.RevokeEventGuests(argStr(args, 0), argStr(args, 1))
+	case "JoinEventRoom":
+		return b.JoinEventRoom(argStr(args, 0), argStr(args, 1))
 	case "BookingSettings":
 		return b.BookingSettings()
 	case "SetBookingConfig":

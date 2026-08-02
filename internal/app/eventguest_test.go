@@ -61,6 +61,15 @@ func TestEventGuestOpenKnockSeedAndAutoAdmit(t *testing.T) {
 	if opened.GuestHost != s.id.Fingerprint() {
 		t.Fatalf("guest host is %q, want this account", opened.GuestHost)
 	}
+	// The members' door is minted alongside the guest link, and it is a real
+	// invite into the meeting room — decoding it must name that room.
+	if opened.MemberCode == "" {
+		t.Fatal("no member join code on the opened event")
+	}
+	ic, err := decodeInviteCode(opened.MemberCode)
+	if err != nil {
+		t.Fatalf("member code does not decode: %v", err)
+	}
 
 	s.eventGuestMu.Lock()
 	rec, ok := s.eventGuests[ev.ID]
@@ -73,6 +82,18 @@ func TestEventGuestOpenKnockSeedAndAutoAdmit(t *testing.T) {
 	s.mu.RUnlock()
 	if !alive || room.Kind != "meeting" {
 		t.Fatalf("guest room missing or not a meeting: alive=%v kind=%q", alive, room.Kind)
+	}
+	if ic.GuildID != rec.MeetingGuildID {
+		t.Fatalf("member code points at %q, want the meeting room %q", ic.GuildID, rec.MeetingGuildID)
+	}
+	// The HOST tapping Join must land in the room they already own — no
+	// network round-trip, no self-dial, just the guild back.
+	joined, err := s.JoinEventRoom(g.ID, ev.ID)
+	if err != nil {
+		t.Fatalf("host JoinEventRoom: %v", err)
+	}
+	if joined.ID != rec.MeetingGuildID {
+		t.Fatalf("host joined %q, want their own room %q", joined.ID, rec.MeetingGuildID)
 	}
 	if !strings.Contains(room.Name, "Game night") {
 		t.Fatalf("room not named for the event: %q", room.Name)
@@ -164,6 +185,9 @@ func TestEventGuestLinkStableAcrossEdits(t *testing.T) {
 	if edited.GuestURL != opened.GuestURL || edited.GuestHost != opened.GuestHost {
 		t.Fatalf("edit changed the guest link: %+q -> %+q", opened.GuestURL, edited.GuestURL)
 	}
+	if edited.MemberCode != opened.MemberCode {
+		t.Fatalf("edit changed the member join code: %+q -> %+q", opened.MemberCode, edited.MemberCode)
+	}
 	s.eventGuestMu.Lock()
 	rec := s.eventGuests[ev.ID]
 	s.eventGuestMu.Unlock()
@@ -206,8 +230,12 @@ func TestEventGuestRevokeTearsDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RevokeEventGuests: %v", err)
 	}
-	if revoked.GuestURL != "" || revoked.GuestHost != "" {
-		t.Fatalf("revoke left guest fields on the event: %+v", revoked)
+	if revoked.GuestURL != "" || revoked.GuestHost != "" || revoked.MemberCode != "" {
+		t.Fatalf("revoke left room fields on the event: %+v", revoked)
+	}
+	// Join after revoke fails HONESTLY — no room, said plainly.
+	if _, err := s.JoinEventRoom(g.ID, ev.ID); err == nil || !strings.Contains(err.Error(), "no room") {
+		t.Fatalf("Join after revoke: %v, want a plain 'no room to join'", err)
 	}
 	s.mu.RLock()
 	_, alive := s.guilds[roomID]
@@ -325,10 +353,10 @@ func TestEventGuestFieldsObeyTheirHost(t *testing.T) {
 	stored, _, _ = s.store.EventByID(ev.ID)
 
 	// 1) The author edits from a stale copy carrying no guest fields: the live
-	// link must survive.
+	// link AND the member join code must survive.
 	forged := stored
 	forged.Title = "Game night (attacker edit)"
-	forged.GuestURL, forged.GuestHost = "", ""
+	forged.GuestURL, forged.GuestHost, forged.MemberCode = "", "", ""
 	forged.UpdatedAt = stored.UpdatedAt + 10
 	s.applyEventUpsert(g.ID, "attacker-fpr", forged)
 	after, _, _ := s.store.EventByID(ev.ID)
@@ -338,31 +366,40 @@ func TestEventGuestFieldsObeyTheirHost(t *testing.T) {
 	if after.GuestURL != opened.GuestURL || after.GuestHost != opened.GuestHost {
 		t.Fatal("a non-host edit killed the guest link")
 	}
+	if after.MemberCode != opened.MemberCode {
+		t.Fatal("a non-host edit killed the member join code")
+	}
 
-	// 2) The author tries to re-point guests at another room.
+	// 2) The author tries to re-point guests (and members) at another room.
 	forged = after
 	forged.GuestURL = "https://evil.example/guest#h=x&t=y"
 	forged.GuestHost = "attacker-fpr"
+	forged.MemberCode = "CI1evilcode"
 	forged.UpdatedAt = after.UpdatedAt + 10
 	s.applyEventUpsert(g.ID, "attacker-fpr", forged)
 	after, _, _ = s.store.EventByID(ev.ID)
 	if after.GuestURL != opened.GuestURL || after.GuestHost != opened.GuestHost {
 		t.Fatalf("a non-host re-pointed the guest link: %q", after.GuestURL)
 	}
+	if after.MemberCode != opened.MemberCode {
+		t.Fatalf("a non-host re-pointed the member join code: %q", after.MemberCode)
+	}
 
-	// 3) A fresh record cannot arrive claiming somebody else hosts a room.
+	// 3) A fresh record cannot arrive claiming somebody else hosts a room —
+	// neither door survives the create gate.
 	alien := domain.Event{
 		ID: domain.NewID(), Title: "Planted", StartUnix: time.Now().Add(time.Hour).Unix(),
 		GuestURL: "https://evil.example/guest#h=x&t=y", GuestHost: "innocent-bystander",
-		CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+		MemberCode: "CI1evilcode",
+		CreatedAt:  time.Now().Unix(), UpdatedAt: time.Now().Unix(),
 	}
 	s.applyEventUpsert(g.ID, "attacker-fpr", alien)
 	planted, found, _ := s.store.EventByID(alien.ID)
 	if !found {
 		t.Fatal("benign part of the create did not apply")
 	}
-	if planted.GuestURL != "" || planted.GuestHost != "" {
-		t.Fatal("a create claimed a guest room in someone else's name")
+	if planted.GuestURL != "" || planted.GuestHost != "" || planted.MemberCode != "" {
+		t.Fatal("a create claimed a room in someone else's name")
 	}
 
 	// 4) The host's own frame (e.g. their linked device revoking) clears the
@@ -371,11 +408,11 @@ func TestEventGuestFieldsObeyTheirHost(t *testing.T) {
 	roomID := s.eventGuests[ev.ID].MeetingGuildID
 	s.eventGuestMu.Unlock()
 	clear := after
-	clear.GuestURL, clear.GuestHost = "", ""
+	clear.GuestURL, clear.GuestHost, clear.MemberCode = "", "", ""
 	clear.UpdatedAt = after.UpdatedAt + 10
 	s.applyEventUpsert(g.ID, s.id.Fingerprint(), clear)
 	after, _, _ = s.store.EventByID(ev.ID)
-	if after.GuestURL != "" || after.GuestHost != "" {
+	if after.GuestURL != "" || after.GuestHost != "" || after.MemberCode != "" {
 		t.Fatal("the host's own clear did not apply")
 	}
 	s.mu.RLock()

@@ -195,7 +195,8 @@ CREATE TABLE IF NOT EXISTS events (
   updated_at INTEGER NOT NULL DEFAULT 0,
   rsvps      TEXT NOT NULL DEFAULT '',
   guest_url  TEXT NOT NULL DEFAULT '',
-  guest_host TEXT NOT NULL DEFAULT ''
+  guest_host TEXT NOT NULL DEFAULT '',
+  member_code TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_events_guild ON events(guild_id, start_unix);
 CREATE TABLE IF NOT EXISTS pending_members (
@@ -255,6 +256,9 @@ CREATE TABLE IF NOT EXISTS pending_members (
 		// fingerprint of the member whose node hosts the room (eventguest.go).
 		`ALTER TABLE events ADD COLUMN guest_url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE events ADD COLUMN guest_host TEXT NOT NULL DEFAULT ''`,
+		// The members' invite code into the same room (Teams-style one-tap
+		// Join for people already in the guild/DM; eventguest.go).
+		`ALTER TABLE events ADD COLUMN member_code TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -678,15 +682,16 @@ func (s *Store) SaveEvent(e domain.Event) error {
 		rsvps = string(b)
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO events (id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO events (id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   title=excluded.title, details=excluded.details,
 		   start_unix=excluded.start_unix, end_unix=excluded.end_unix,
 		   location=excluded.location, updated_at=excluded.updated_at,
-		   rsvps=excluded.rsvps, guest_url=excluded.guest_url, guest_host=excluded.guest_host`,
+		   rsvps=excluded.rsvps, guest_url=excluded.guest_url, guest_host=excluded.guest_host,
+		   member_code=excluded.member_code`,
 		e.ID, e.GuildID, e.Title, e.Details, e.StartUnix, e.EndUnix,
-		e.Location, e.CreatedBy, e.CreatedAt, e.UpdatedAt, rsvps, e.GuestURL, e.GuestHost)
+		e.Location, e.CreatedBy, e.CreatedAt, e.UpdatedAt, rsvps, e.GuestURL, e.GuestHost, e.MemberCode)
 	if err != nil {
 		return fmt.Errorf("store: save event: %w", err)
 	}
@@ -705,7 +710,7 @@ func scanEvent(scan func(dest ...any) error) (domain.Event, error) {
 	var rsvps string
 	if err := scan(&e.ID, &e.GuildID, &e.Title, &e.Details, &e.StartUnix,
 		&e.EndUnix, &e.Location, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &rsvps,
-		&e.GuestURL, &e.GuestHost); err != nil {
+		&e.GuestURL, &e.GuestHost, &e.MemberCode); err != nil {
 		return domain.Event{}, err
 	}
 	if rsvps != "" {
@@ -721,7 +726,7 @@ func scanEvent(scan func(dest ...any) error) (domain.Event, error) {
 // guild's row through the primary key.
 func (s *Store) EventByID(id string) (domain.Event, bool, error) {
 	row := s.db.QueryRow(
-		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host
+		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code
 		 FROM events WHERE id=?`, id)
 	e, err := scanEvent(row.Scan)
 	if err == sql.ErrNoRows {
@@ -736,7 +741,7 @@ func (s *Store) EventByID(id string) (domain.Event, bool, error) {
 // Events returns a guild's calendar ordered by start time.
 func (s *Store) Events(guildID string) ([]domain.Event, error) {
 	rows, err := s.db.Query(
-		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host
+		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code
 		 FROM events WHERE guild_id=? ORDER BY start_unix ASC, created_at ASC, id ASC`, guildID)
 	if err != nil {
 		return nil, err
