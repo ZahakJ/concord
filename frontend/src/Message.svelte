@@ -239,13 +239,32 @@
   const fxName = $derived(m.deleted ? "" : fxEffect(m.content));
   function fxOnView(node) {
     if (!fxName) return;
-    const io = new IntersectionObserver((entries) => {
-      if (!entries.some((e) => e.isIntersecting)) return;
-      io.disconnect();
-      playFxOnce(m.id, fxName);
+    // Not an IntersectionObserver: a .msg row's own box measures as a
+    // degenerate 32px sliver hanging left of the viewport (its children
+    // overflow-paint the real content), so intersection never reports true.
+    // Only the row's VERTICAL geometry is trustworthy — check that by hand on
+    // mount and then on every scroll until the row crosses the screen.
+    const visible = () => {
+      const r = node.getBoundingClientRect();
+      return r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+    };
+    let onScroll = null;
+    const raf = requestAnimationFrame(() => {
+      if (visible()) return playFxOnce(m.id, fxName);
+      onScroll = () => {
+        if (!visible()) return;
+        window.removeEventListener("scroll", onScroll, true);
+        onScroll = null;
+        playFxOnce(m.id, fxName);
+      };
+      window.addEventListener("scroll", onScroll, true);
     });
-    io.observe(node);
-    return { destroy: () => io.disconnect() };
+    return {
+      destroy() {
+        cancelAnimationFrame(raf);
+        if (onScroll) window.removeEventListener("scroll", onScroll, true);
+      },
+    };
   }
   // clampSealCard keeps the reveal card on screen. The card is anchored to the
   // chip, and a chip can sit anywhere — including the left edge of a narrow

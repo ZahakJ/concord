@@ -1534,9 +1534,13 @@
   .app {
     display: grid;
     /* Side-column widths come from the vars only once the user has dragged a
-       resize handle (script sets them from S.prefs); the fallbacks here are
-       the untouched defaults, and the 900px tier below narrows them. */
-    grid-template-columns: 64px var(--col-channels, 220px) 1fr var(--col-members, 260px);
+       resize handle (script sets them from S.prefs); the --cw/--mw fallbacks
+       here are the untouched defaults, and the 900px tier below narrows them.
+       The intermediate vars exist so the resize HANDLES (absolute, below) can
+       track the same widths without repeating the fallback logic. */
+    --cw: var(--col-channels, 220px);
+    --mw: var(--col-members, 260px);
+    grid-template-columns: 64px var(--cw) 1fr var(--mw);
     height: 100%;
     /* Sit above the animated theme backdrop (.theme-bg, z-index 0). */
     position: relative;
@@ -1547,14 +1551,19 @@
     overflow: hidden;
   }
   .app.no-panel {
-    grid-template-columns: 64px var(--col-channels, 220px) 1fr;
+    grid-template-columns: 64px var(--cw) 1fr;
   }
   /* Column resize handles: thin strips overlapping each side column's inner
-     edge (explicit grid placement, no track of their own). Desktop-only —
-     coarse pointers can't hit a 5px strip, and phones get MobileShell anyway. */
+     edge. Absolutely positioned OUT of the grid flow on purpose — as grid
+     children they perturbed auto-placement and rehomed every later sibling
+     (the chat column collapsed into a 32px strip; caught by the live smoke
+     test). Desktop-only — coarse pointers can't hit a 5px strip, and phones
+     get MobileShell anyway. */
   .col-rz {
     display: none;
-    grid-row: 1;
+    position: absolute;
+    top: 0;
+    bottom: 0;
     width: 5px;
     z-index: 5;
     cursor: col-resize;
@@ -1564,12 +1573,10 @@
     transition: opacity 120ms ease;
   }
   .rz-channels {
-    grid-column: 2;
-    justify-self: end;
+    left: calc(64px + var(--cw) - 5px);
   }
   .rz-members {
-    grid-column: 4;
-    justify-self: start;
+    right: var(--mw);
   }
   @media (pointer: fine) {
     .col-rz {
@@ -1592,11 +1599,10 @@
      window widths. It keeps its column, narrower; the toggle decides. */
   @media (max-width: 900px) {
     .app {
-      grid-template-columns: 64px var(--col-channels, 190px) 1fr var(--col-members, 200px);
-    }
-    /* Higher specificity, or .app.no-panel keeps the wide 220px column. */
-    .app.no-panel {
-      grid-template-columns: 64px var(--col-channels, 190px) 1fr;
+      /* Only the fallbacks narrow — a user-dragged width still wins, and the
+         handles keep tracking via the same intermediate vars. */
+      --cw: var(--col-channels, 190px);
+      --mw: var(--col-members, 200px);
     }
   }
   .chat {
