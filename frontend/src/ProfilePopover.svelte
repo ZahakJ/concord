@@ -4,7 +4,7 @@
   // clamped to the viewport. Rendered once at the app root so nothing clips it.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
-  import GameShelf from "./GameShelf.svelte";
+  import GameShelf, { coverStyle, gameHue } from "./GameShelf.svelte";
   import {
     S,
     activeGuild,
@@ -285,6 +285,22 @@
 
   // Custom status split into emoji + text so each part can be styled.
   const statusParts = $derived(mem ? splitStatus(mem.status) : { emoji: "", text: "" });
+  // "🎮 <name>" is the GameShelf's now-playing convention — promote it from a
+  // plain status line to the PLAYING block. The wire format stays an ordinary
+  // custom status, so peers on older builds render it fine as-is.
+  const playingGame = $derived(statusParts.emoji === "🎮" && statusParts.text ? statusParts.text : "");
+  // The status string carries only the NAME; box art has to come from a shelf
+  // this client can already see — theirs (rendered further down this card) or
+  // our own. No match falls back to the generated-cover gradient.
+  const playingCover = $derived.by(() => {
+    if (!playingGame) return "";
+    const lc = playingGame.toLowerCase();
+    const hit = [...(mem?.games || []), ...(S.identity.games || [])].find(
+      (g) => g.name.toLowerCase() === lc,
+    );
+    return hit?.cover || "";
+  });
+
   // When the member has no manual status, the backend fills status with the
   // "Artist — Title" line for old clients — don't render that twice here.
   const activityLine = $derived.by(() => {
@@ -518,7 +534,26 @@
         </div>
       {/if}
 
-      {#if (statusParts.emoji || statusParts.text) && !(mem.activity && statusParts.text === activityLine)}
+      {#if playingGame}
+        <!-- Now playing (manual, from the GameShelf's Play button): the music
+             card's shape, tinted to the game instead of the accent. Replaces
+             the plain status box — the status string IS this line. -->
+        <div class="activity playing" style="--game-tint:hsl({gameHue(playingGame)} 45% 55%)">
+          <div class="act-label"><Icon name="die" size={12} /> Playing</div>
+          <div class="act-row">
+            {#if playingCover}
+              <img class="act-art game" src={playingCover} alt="" />
+            {:else}
+              <span class="act-art game ph-game" style={coverStyle(playingGame)}>
+                <Icon name="die" size={18} />
+              </span>
+            {/if}
+            <div class="act-meta">
+              <div class="act-title" title={playingGame}>{playingGame}</div>
+            </div>
+          </div>
+        </div>
+      {:else if (statusParts.emoji || statusParts.text) && !(mem.activity && statusParts.text === activityLine)}
         <div class="status-box">
           {#if statusParts.emoji}<span class="status-emoji">{statusParts.emoji}</span>{/if}
           {#if statusParts.text}<span class="status-text">{statusParts.text}</span>{/if}
@@ -947,6 +982,27 @@
     background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--bg-0)), var(--bg-0) 70%);
     border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
     border-radius: var(--radius-sm);
+  }
+  /* PLAYING variant: same card, tinted to the game's generated-cover hue
+     (GameShelf's title hash) instead of the accent. Eyebrow text blends
+     toward --text so any hue stays readable on its own tint. */
+  .activity.playing {
+    background: linear-gradient(135deg, color-mix(in srgb, var(--game-tint) 15%, var(--bg-0)), var(--bg-0) 70%);
+    border-color: color-mix(in srgb, var(--game-tint) 26%, transparent);
+  }
+  .activity.playing .act-label {
+    color: color-mix(in srgb, var(--game-tint) 55%, var(--text));
+  }
+  /* Game box art is portrait (2:3), not the music card's square. */
+  .act-art.game {
+    width: 36px;
+    height: 52px;
+    border-radius: 6px;
+  }
+  .act-art.ph-game {
+    display: grid;
+    place-items: center;
+    color: rgba(255, 255, 255, 0.85);
   }
   .act-label {
     display: flex;

@@ -361,6 +361,14 @@
           .filter((r) => hit(r.name))
           .map((r) => ({ key: `r:${r.name}`, name: r.name, kind: "role", color: r.color })),
       ].slice(0, 6);
+      // @everyone is synthetic — no member or role backs it — and appended
+      // AFTER the slice so a full list can't hide it, and last so a broadcast
+      // is never the accidental default selection when someone was reaching
+      // for a member. Offered only while the query is still a prefix of
+      // "everyone" (covers the bare "@" too).
+      if ("everyone".startsWith(q)) {
+        items.push({ key: "e:everyone", name: "everyone", kind: "everyone" });
+      }
       suggest = items.length ? { kind: "mention", start: mention.start, items, sel: 0 } : null;
       return;
     }
@@ -1111,6 +1119,7 @@
           {:else}
             <span class="s-emoji">@</span><span style={roleTint(item)}>{item.name}</span>
             {#if item.kind === "role"}<span class="s-desc">role</span>{/if}
+            {#if item.kind === "everyone"}<span class="s-desc">notifies the whole channel</span>{/if}
           {/if}
           <kbd class="s-enter" aria-hidden="true">↵</kbd>
         </button>

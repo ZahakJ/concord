@@ -175,6 +175,16 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
     stash(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`),
   );
 
+  // @everyone / @here: the synthetic broadcast mention — no member or role
+  // backs it, so it can't come from the tables below. It wears the self style
+  // for EVERY viewer because it addresses every viewer. Runs before the people
+  // pass so a member who happens to be named "everyone" can't turn a broadcast
+  // into a single ping — matching isMentionOfSelf (state.svelte.js), which
+  // counts these as a broadcast regardless of any same-named member.
+  s = s.replace(/@(everyone|here)(?![\w])/g, (_, name) =>
+    stash(`<span class="mention mention-self" data-mention="${name}">@${name}</span>`),
+  );
+
   // People. Longest name first so "@Ann Lee" wins over "@Ann". Names arrive
   // escaped with the same escapeHtml, so they match the escaped text. `self`
   // (the viewer's own name) gets an extra class so their mentions stand out.

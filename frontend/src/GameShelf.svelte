@@ -1,3 +1,23 @@
+<script module>
+  // Generated box art: a muted duotone from the title hash — deliberately
+  // restrained so placeholder tiles sit quietly next to real covers instead
+  // of screaming random rainbow. Module-scoped and exported so the other
+  // now-playing renderings (member-list line, profile PLAYING block) can tint
+  // themselves to match the game's cover.
+  export function gameHash(name) {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    return h;
+  }
+  export const gameHue = (name) => gameHash(name) % 360;
+  export function coverStyle(name) {
+    const h = gameHash(name);
+    const h1 = h % 360;
+    const h2 = (h1 + 30 + (h % 50)) % 360;
+    return `background:linear-gradient(165deg, hsl(${h1} 32% 30%), hsl(${h2} 38% 15%))`;
+  }
+</script>
+
 <script>
   // Game collection, Discord-style: profile cards show a COMPACT strip (a few
   // mini covers + "+N"), and clicking it opens a popup with the full library —
@@ -10,8 +30,9 @@
   // the card stays open underneath.
   import Icon from "./Icon.svelte";
   import EmptyState from "./EmptyState.svelte";
-  import { S, flash } from "./lib/state.svelte.js";
+  import { S, flash, patchProfile, refreshRightPanel } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { splitStatus, joinStatus } from "./lib/presence.js";
 
   let { games = [], editable = false, onchange } = $props();
 
@@ -101,16 +122,28 @@
 
   const remove = (name) => commit(games.filter((g) => g.name !== name));
 
-  // Generated box art: a muted duotone from the title hash — deliberately
-  // restrained so placeholder tiles sit quietly next to real covers instead
-  // of screaming random rainbow.
-  function coverStyle(name) {
-    let h = 0;
-    for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
-    const h1 = h % 360;
-    const h2 = (h1 + 30 + (h % 50)) % 360;
-    return `background:linear-gradient(165deg, hsl(${h1} 32% 30%), hsl(${h2} 38% 15%))`;
+  // ---- now playing ----
+  // Deliberately manual — no process detection, you press Play when you sit
+  // down. "Now playing" IS just the custom status set to "🎮 <name>" through
+  // the exact save path the status popover uses, so peers without this build
+  // see a plain, sensible status instead of a format they can't render.
+  const playing = $derived.by(() => {
+    const { emoji, text } = splitStatus(S.identity.status);
+    return emoji === "🎮" ? text : "";
+  });
+  async function togglePlay(name) {
+    if (busy) return;
+    busy = true;
+    try {
+      await patchProfile({ status: playing === name ? "" : joinStatus("🎮", name) });
+      await refreshRightPanel(); // your own status line in the member list
+    } catch (err) {
+      flash(err);
+    } finally {
+      busy = false;
+    }
   }
+
   const initials = (name) =>
     name
       .split(/\s+/)
@@ -225,6 +258,17 @@
                 {/if}
                 <span class="g-sheen"></span>
                 {#if editable}
+                  <!-- Play/Stop only on your OWN shelf: it writes your status. -->
+                  <button
+                    class="g-play"
+                    class:on={playing === g.name}
+                    onclick={() => togglePlay(g.name)}
+                    disabled={busy}
+                    title={playing === g.name ? "Stop playing" : `Play ${g.name}`}
+                    aria-label={playing === g.name ? `Stop playing ${g.name}` : `Play ${g.name}`}
+                  >
+                    {#if playing === g.name}<span class="g-stop"></span>{:else}<Icon name="play" size={12} />{/if}
+                  </button>
                   <button class="g-x" onclick={() => remove(g.name)} title="Remove {g.name}" aria-label="Remove {g.name}">
                     <Icon name="trash" size={11} />
                   </button>
@@ -647,6 +691,54 @@
     background: rgba(190, 40, 45, 0.85);
     color: #fff;
   }
+  /* Play/Stop: the manual now-playing toggle. Same quiet scrim as .g-x —
+     except while ACTIVE it stays visible, so the shelf shows what's currently
+     being played at a glance. */
+  .g-play {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    padding: 0; /* same off-center hazard as .g-x */
+    line-height: 0;
+    border-radius: 6px;
+    border: none;
+    background: rgba(0, 0, 0, 0.55);
+    color: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    cursor: pointer;
+    transition:
+      opacity 0.12s ease,
+      background 0.12s ease;
+  }
+  @media (pointer: fine) {
+    .g-tile:hover .g-play {
+      opacity: 1;
+    }
+    .g-play:hover {
+      background: color-mix(in srgb, var(--accent) 80%, black);
+      color: #fff;
+    }
+  }
+  .g-play:focus-visible {
+    opacity: 1;
+  }
+  .g-play.on {
+    opacity: 1;
+    background: color-mix(in srgb, var(--accent) 75%, black);
+    color: #fff;
+  }
+  /* The stop glyph is a plain square — the stroked icon set has no "stop". */
+  .g-stop {
+    width: 8px;
+    height: 8px;
+    border-radius: 1.5px;
+    background: currentColor;
+  }
   .g-empty {
     font-size: var(--fs-small);
   }
@@ -684,13 +776,15 @@
     /* The remove button was revealed only on :hover — on touch that is an
        invisible control that still takes taps, which is worse than no control
        at all. It shows, on its own scrim, and gets a real hit box. */
-    .g-x {
+    .g-x,
+    .g-play {
       opacity: 1;
       width: 30px;
       height: 30px;
       border-radius: 8px;
     }
-    .g-x::after {
+    .g-x::after,
+    .g-play::after {
       content: "";
       position: absolute;
       inset: -7px;

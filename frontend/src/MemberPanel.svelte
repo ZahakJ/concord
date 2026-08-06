@@ -17,6 +17,8 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { longpress } from "./lib/touch.js";
+  import { splitStatus } from "./lib/presence.js";
+  import { gameHue } from "./GameShelf.svelte";
 
   // Touch: long-press opens the member menu (iOS never synthesizes contextmenu
   // for plain elements, and Android's synthesized one would double-fire
@@ -211,6 +213,14 @@
   const iAmHeir = $derived(
     !!g && g.kind !== "dm" && !g.isOwner && g.heir === S.identity.fingerprint,
   );
+
+  // "🎮 <name>" is the GameShelf's now-playing convention (its Play button
+  // writes it as a plain custom status, so old builds render it fine as-is).
+  // Here it's promoted to a "Playing <name>" line in the game's tint.
+  function playingGame(status) {
+    const { emoji, text } = splitStatus(status);
+    return emoji === "🎮" && text ? text : "";
+  }
 
   // A member's highest-ranked role (roles are highest-first), for a badge.
   function topRole(mem) {
@@ -434,6 +444,11 @@
             <span class="muted member-status listening">
               <span class="eq" aria-label="Listening"><i></i><i></i><i></i></span>
               {mem.activity.artist ? `${mem.activity.artist} — ${mem.activity.title}` : mem.activity.title}
+            </span>
+          {:else if playingGame(mem.status)}
+            {@const game = playingGame(mem.status)}
+            <span class="muted member-status playing" style="--game-tint:hsl({gameHue(game)} 45% 55%)">
+              <Icon name="play" size={9} /> Playing {game}
             </span>
           {:else if mem.status}
             <span class="muted member-status">{mem.status}</span>
@@ -663,6 +678,16 @@
      Only playing members animate — not a list-wide loop. */
   .member-status.listening {
     color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
+  }
+  /* Playing members: same treatment as listening, but tinted to the game's
+     generated-cover hue (GameShelf's title hash) so each title reads as its
+     own colour — blended toward --text-muted so any hue stays legible. */
+  .member-status.playing {
+    color: color-mix(in srgb, var(--game-tint) 55%, var(--text-muted));
+  }
+  .member-status.playing :global(svg) {
+    vertical-align: -1px;
+    margin-right: 1px;
   }
   .eq {
     display: inline-flex;

@@ -40,13 +40,90 @@
   const voted = $derived(rows.some((r) => r.mine));
   const pct = (c) => (total ? Math.round((c / total) * 100) : 0);
 
+  // ---- closing time ----
+  // `until` runs on each client's OWN clock — the same local-clock honesty as
+  // ephemeral expiry: the author sealed an absolute time into the content, and
+  // every reader compares it to their own Date.now(). No coordination, no
+  // authority; a skewed clock freezes a little early or late and that's fine.
+  let now = $state(Date.now() / 1000);
+  $effect(() => {
+    if (!poll.until || Date.now() / 1000 >= poll.until) return;
+    let t;
+    const tick = () => {
+      now = Date.now() / 1000;
+      if (now < poll.until) schedule();
+    };
+    const schedule = () => {
+      clearTimeout(t);
+      // Land exactly on the boundary when it's near; otherwise a lazy 30s beat
+      // keeps the "closes in" line honest — it's minute-grained, not a stopwatch.
+      t = setTimeout(tick, Math.min(Math.max(poll.until * 1000 - Date.now(), 250), 30000));
+    };
+    schedule();
+    return () => clearTimeout(t);
+  });
+  const closed = $derived(!!poll.until && now >= poll.until);
+  // Forward-looking twin of timestamp.js's sealAgo, same coarse grain — a
+  // deadline you glance at, not a countdown you watch.
+  function closesIn(until, nowS) {
+    const s = Math.max(0, Math.round(until - nowS));
+    if (s < 60) return "under a minute";
+    const mins = Math.round(s / 60);
+    if (mins < 60) return `${mins}m`;
+    const h = Math.round(mins / 60);
+    if (h < 24) return `${h}h`;
+    return `${Math.round(h / 24)}d`;
+  }
+
+  // The crown: once closed, the single front-runner wears it. A tie crowns
+  // nobody — two winners is no winner, and half a trophy helps no one.
+  const winner = $derived.by(() => {
+    if (!closed || !total) return -1;
+    const top = rows.filter((r) => r.count === leader);
+    return top.length === 1 ? top[0].i : -1;
+  });
+
+  // ---- the flip to CLOSED ----
+  // One trophy burst out of the crown, only for the transition you actually
+  // watched: prevClosed starts null so a poll that MOUNTS already-closed
+  // (scrolling back through history) renders frozen and stays quiet — the
+  // burst is for "it just closed", never "it already was". Same edge-tracker
+  // as EventCard's live flip; effects run post-render, so by the time the
+  // flip is observed the crown is in the DOM to measure.
+  let crownEl = $state(null);
+  let prevClosed = null;
+  $effect(() => {
+    const isClosed = closed;
+    if (prevClosed === false && isClosed && winner >= 0 && !preview) {
+      const r = crownEl?.getBoundingClientRect();
+      if (r)
+        radialBurst(r.left + r.width / 2, r.top + r.height / 2, {
+          glyphs: ["🏆"],
+          n: 6,
+          dist: [18, 46],
+          size: [11, 15],
+          dur: [0.5, 0.8],
+          seed: `poll-close-${m.id}`,
+        });
+    }
+    prevClosed = isClosed;
+  });
+
+  // ---- trivia ----
+  // The answer key rides in the token from the start, but stays face-down
+  // until YOU have committed (voted) or the poll has: knowing the answer
+  // before you pick would make the quiz a formality.
+  const hasAnswer = $derived(poll.answer != null);
+  const revealed = $derived(hasAnswer && (voted || closed) && !preview);
+  const mineRight = $derived(hasAnswer && !!rows[poll.answer]?.mine);
+
   const who = (fpr) => {
     const mem = memberByFpr(fpr);
     return { name: nameFor(fpr), emoji: mem?.emoji || "", color: mem?.color || "", image: mem?.avatar || "" };
   };
 
   function vote(r, e) {
-    if (preview) return;
+    if (preview || closed) return;
     // On a single-choice poll a mis-tap doesn't just add a vote, it MOVES one —
     // silently, since the row you left simply stops being highlighted. The tick
     // of vibration is the confirmation that something changed at all.
@@ -98,7 +175,11 @@
 <div class="poll" class:preview>
   <div class="poll-head">
     <div class="poll-q">{poll.q}</div>
-    <span class="poll-kind">{poll.multi ? "Pick as many as you like" : "Pick one"}</span>
+    <span class="poll-kind">{hasAnswer ? "Quiz · " : ""}{poll.multi ? "Pick as many as you like" : "Pick one"}</span>
+    {#if poll.until}
+      <!-- The clock line: quiet while it counts, a flat verdict once it's over. -->
+      <span class="poll-close" class:over={closed}>{closed ? "Closed" : `Closes in ${closesIn(poll.until, now)}`}</span>
+    {/if}
   </div>
 
   <div class="poll-opts">
@@ -107,20 +188,32 @@
         class="opt"
         class:mine={r.mine}
         class:lead={r.count > 0 && r.count === leader}
+        class:correct={revealed && r.i === poll.answer}
+        class:wrong={revealed && r.mine && r.i !== poll.answer}
         onclick={(e) => vote(r, e)}
         aria-pressed={r.mine}
-        disabled={preview}
+        disabled={preview || closed}
         title={r.count ? r.voters.map(who).map((w) => w.name).join(", ") : "No votes yet"}
       >
         <span class="fill" style="width:{pct(r.count)}%"></span>
         <span class="opt-body">
           <!-- The emoji is the option's identity everywhere else (it's the
                underlying reaction), so it stays — as a marker that fills in
-               when it's yours, rather than a loose glyph. -->
-          <span class="mark" class:on={r.mine}>
+               when it's yours, rather than a loose glyph. Once a quiz is
+               revealed the badge grades instead of confirms: the correct row
+               wears ✓ in --ok whether or not it's yours, and your miss wears
+               ✕ in danger ink. -->
+          <span class="mark" class:on={r.mine} class:ok-on={revealed && r.i === poll.answer}>
             <span class="mark-emoji">{r.emoji}</span>
-            {#if r.mine}<span class="mark-check" aria-hidden="true">✓</span>{/if}
+            {#if revealed && r.i === poll.answer}
+              <span class="mark-check ok" aria-hidden="true">✓</span>
+            {:else if revealed && r.mine}
+              <span class="mark-check bad" aria-hidden="true">✕</span>
+            {:else if r.mine}
+              <span class="mark-check" aria-hidden="true">✓</span>
+            {/if}
           </span>
+          {#if r.i === winner}<span class="crown" bind:this={crownEl} title="Winner">🏆</span>{/if}
           <span class="opt-text">{r.text}</span>
           {#if r.count}
             <span class="faces">
@@ -146,7 +239,11 @@
       <span class="tally flat">{total || "No"} vote{total === 1 ? "" : "s"}</span>
     {/if}
     {#if !preview}
-      <span class="state" class:done={voted}>{voted ? "You voted" : "Tap an option to vote"}</span>
+      <span class="state" class:done={voted} class:right={revealed && voted && mineRight} class:miss={revealed && voted && !mineRight}>
+        {#if revealed && voted}{mineRight ? "You got it" : "Not this time"}
+        {:else if closed}Poll closed
+        {:else}{voted ? "You voted" : "Tap an option to vote"}{/if}
+      </span>
     {/if}
   </div>
 </div>
@@ -178,6 +275,19 @@
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-muted);
+  }
+  /* Deadline, stated once and quietly — the countdown is minute-grained so it
+     never demands attention the way a ticking stopwatch would. */
+  .poll-close {
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .poll-close.over {
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
   }
   .poll-opts {
     display: flex;
@@ -215,6 +325,25 @@
   }
   .opt.mine {
     border-color: var(--accent);
+  }
+  /* Trivia reveal: the verdict speaks in a different COLOR channel from the
+     accent that means "yours" — --ok for the right row, danger for your miss —
+     so right-and-mine reads as both at a glance. Declared after .mine so the
+     verdict's border wins once revealed. */
+  .opt.correct {
+    border-color: var(--ok);
+  }
+  .opt.correct .fill {
+    background: color-mix(in srgb, var(--ok) 16%, transparent);
+  }
+  .opt.correct .opt-text {
+    font-weight: 600;
+  }
+  .opt.wrong {
+    border-color: var(--danger);
+  }
+  .opt.wrong .fill {
+    background: color-mix(in srgb, var(--danger) 12%, transparent);
   }
   .opt:disabled {
     cursor: default;
@@ -262,6 +391,10 @@
     background: var(--accent-soft);
     box-shadow: inset 0 0 0 1.5px var(--accent);
   }
+  .mark.ok-on {
+    background: var(--ok-soft);
+    box-shadow: inset 0 0 0 1.5px var(--ok);
+  }
   .mark-emoji {
     font-size: 13px;
     line-height: 1;
@@ -279,6 +412,20 @@
     color: var(--accent-fg);
     font-size: 8px;
     font-weight: 900;
+  }
+  .mark-check.ok {
+    background: var(--ok);
+    color: var(--ok-fg, #fff);
+  }
+  .mark-check.bad {
+    background: var(--danger);
+    color: #fff;
+  }
+  /* The trophy sits in the row, not on it — a small fact, not a banner. */
+  .crown {
+    flex-shrink: 0;
+    font-size: 14px;
+    line-height: 1;
   }
   /* Wraps rather than truncates. Between the marker, the faces cluster and the
      percentage there were about 143px left in a phone-width card — roughly 20
@@ -362,6 +509,14 @@
   }
   .state.done {
     color: var(--accent-hover);
+    font-weight: 600;
+  }
+  .state.right {
+    color: var(--ok-text);
+    font-weight: 600;
+  }
+  .state.miss {
+    color: var(--danger-text);
     font-weight: 600;
   }
   /* ---- phone ---- */
