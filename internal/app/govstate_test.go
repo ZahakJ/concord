@@ -356,3 +356,42 @@ func TestNicknameAuthority(t *testing.T) {
 		t.Error("a moderator must not rename a moderator of equal rank")
 	}
 }
+
+func TestSlowModeReplay(t *testing.T) {
+	owner := mustID(t)
+	mod := mustID(t)
+	rando := mustID(t)
+	modFpr := identity.FingerprintOf(mod.PublicKey())
+
+	slowOp := func(id *identity.Identity, seq uint64, ch string, secs int64) govOp {
+		o := govOp{Seq: seq, Signer: id.PublicKey(), Type: "slow_mode", ChannelID: ch, Seconds: secs, Time: int64(seq)}
+		o.Sig = id.Sign(o.signingBytes())
+		return o
+	}
+
+	ops := []govOp{
+		upsertRole(owner, 1, "r_chan", "Channeler", PermManageChannels, 10),
+		assignRole(owner, 2, modFpr, "r_chan", true),
+		slowOp(mod, 3, "ch1", 30),      // authorized
+		slowOp(rando, 4, "ch2", 30),    // unauthorized — no perms
+		slowOp(owner, 5, "ch3", 99999), // over the ceiling: clamped in replay
+		slowOp(owner, 6, "", 30),       // no channel: inert
+	}
+	st := replayGuildOps(owner.PublicKey(), ops)
+
+	if st.SlowMode["ch1"] != 30 {
+		t.Fatal("authorized manage-channels holder should set slow mode")
+	}
+	if st.SlowMode["ch2"] != 0 {
+		t.Fatal("a member without manage-channels must not set slow mode")
+	}
+	if st.SlowMode["ch3"] != 21600 {
+		t.Fatalf("over-ceiling seconds must clamp in replay, got %d", st.SlowMode["ch3"])
+	}
+	// Zero turns it off.
+	ops = append(ops, slowOp(mod, 7, "ch1", 0))
+	st = replayGuildOps(owner.PublicKey(), ops)
+	if st.SlowMode["ch1"] != 0 {
+		t.Fatal("seconds<=0 should clear slow mode")
+	}
+}

@@ -170,6 +170,11 @@ type Service struct {
 	// govHashes indexes each guild's ingested op hashes for O(1) dedup, instead
 	// of re-hashing the whole op log on every ingest (sync replays the full log).
 	govHashes map[string]map[string]bool
+	// slowSeen tracks the last ACCEPTED message time per channel|sender for
+	// slow-mode enforcement, keyed on the AUTHOR's Sent stamp so every honest
+	// client agrees on which message was the too-soon one. In-memory only: an
+	// advisory limiter that forgets across restarts is still a limiter.
+	slowSeen map[string]int64
 
 	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
@@ -310,6 +315,16 @@ type Profile struct {
 	Presence string `json:"presence,omitempty"`
 	// Bio is a longer "about me" shown on the profile card.
 	Bio string `json:"bio,omitempty"`
+	// Pronouns is a short free-text line ("she/her", "they/them", anything the
+	// user likes) rendered quietly under the display name. Tightly bounded
+	// (maxPronounsBytes) — it rides every profile broadcast.
+	Pronouns string `json:"pronouns,omitempty"`
+	// Birthday is the month and day ONLY, as "MM-DD". Concord never asks for,
+	// accepts, or stores a birth year: a full date of birth is identifying
+	// data a privacy app has no business holding. Anything that isn't a valid
+	// MM-DD is dropped to "" on every path — our own edits and peers'
+	// broadcasts alike (see sanitizeProfileExtras). "" = not shared.
+	Birthday string `json:"birthday,omitempty"`
 	// MailboxPub is this member's X25519 mailbox key, shared so others can seal
 	// offline envelopes to them (see mailbox.go). Not user-facing.
 	MailboxPub []byte `json:"mbx,omitempty"`
@@ -494,6 +509,26 @@ func sanitizeProfileExtras(p *Profile) {
 		p.Effect = ""
 	}
 	p.Style = sanitizeStyle(p.Style)
+	// Pronouns are free text but tiny. Cut at the byte cap, backing off to the
+	// previous rune boundary so a multi-byte glyph is dropped whole, not torn
+	// into invalid UTF-8.
+	p.Pronouns = strings.TrimSpace(p.Pronouns)
+	if len(p.Pronouns) > maxPronounsBytes {
+		cut := maxPronounsBytes
+		for cut > 0 && !utf8.RuneStart(p.Pronouns[cut]) {
+			cut--
+		}
+		p.Pronouns = strings.TrimSpace(p.Pronouns[:cut])
+	}
+	// Birthday: exactly "MM-DD" or nothing. A malformed value — including
+	// anything long enough to be smuggling a year — is dropped outright, never
+	// trimmed into shape: guessing which part of a bad string was the day is
+	// how a year would sneak into storage.
+	if !birthdayRe.MatchString(strings.TrimSpace(p.Birthday)) {
+		p.Birthday = ""
+	} else {
+		p.Birthday = strings.TrimSpace(p.Birthday)
+	}
 }
 
 // Game is one entry in a member's game collection.
@@ -734,6 +769,14 @@ const maxNameBytes = 64
 // maxBioBytes bounds the profile "about me" so profile broadcasts stay small.
 const maxBioBytes = 600
 
+// maxPronounsBytes bounds the pronouns line — a few short words, not a bio.
+const maxPronounsBytes = 40
+
+// birthdayRe admits a month-day pair only ("MM-DD", "01".."12" / "01".."31").
+// Deliberately no year group: even if a peer broadcasts one, it must never be
+// stored or re-gossiped — the shape itself is the privacy guarantee.
+var birthdayRe = regexp.MustCompile(`^(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$`)
+
 // PeerPresence is a UI-facing view of a connected peer.
 type PeerPresence struct {
 	PeerID      string `json:"peerId"`
@@ -865,6 +908,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		nicks:            map[string]map[string]string{},
 		govOps:           map[string][]govOp{},
 		govState:         map[string]GuildState{},
+		slowSeen:         map[string]int64{},
 		govHashes:        map[string]map[string]bool{},
 		meetingLife:      map[string]time.Time{},
 		outOfSync:        map[string]bool{},
@@ -890,7 +934,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// of fingerprint-only names right after unlock).
 	if rows, err := st.Profiles(); err == nil {
 		for _, r := range rows {
-			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, MailboxPub: r.MailboxPub, Games: decodeGames(r.Games), Color2: r.Color2, Frame: r.Frame, Effect: r.Effect, Style: decodeStyle(r.Style)}
+			s.profiles[r.Fingerprint] = Profile{Name: r.Name, Status: r.Status, Emoji: r.Emoji, Color: r.Color, Avatar: r.Avatar, Banner: r.Banner, Presence: r.Presence, Bio: r.Bio, Pronouns: r.Pronouns, Birthday: r.Birthday, MailboxPub: r.MailboxPub, Games: decodeGames(r.Games), Color2: r.Color2, Frame: r.Frame, Effect: r.Effect, Style: decodeStyle(r.Style)}
 		}
 	}
 
@@ -906,7 +950,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		rawName, _ := st.GetSetting("display_name")
 		if p := s.selfStoredProfile(); strings.TrimSpace(rawName) != "" || p.Status != "" ||
 			p.Emoji != "" || p.Color != "" || p.Color2 != "" || p.Avatar != "" ||
-			p.Banner != "" || p.Presence != "" || p.Bio != "" || p.Frame != "" ||
+			p.Banner != "" || p.Presence != "" || p.Bio != "" || p.Pronouns != "" ||
+			p.Birthday != "" || p.Frame != "" ||
 			p.Effect != "" || len(p.Games) > 0 {
 			s.bumpProfileStamp()
 		}
@@ -1410,6 +1455,8 @@ func (s *Service) SelfProfile() Profile {
 	banner, _ := s.store.GetSetting("banner_image")
 	presence, _ := s.store.GetSetting("presence")
 	bio, _ := s.store.GetSetting("bio")
+	pronouns, _ := s.store.GetSetting("pronouns")
+	birthday, _ := s.store.GetSetting("birthday")
 	// Rich presence travels as structured Activity alongside the manual status
 	// — it does NOT replace a status the user chose. The 🎵 string only stands
 	// in when there's no manual status (also what pre-activity clients show).
@@ -1435,7 +1482,8 @@ func (s *Service) SelfProfile() Profile {
 	}
 	return Profile{
 		Name: s.DisplayName(), Status: status, Emoji: emoji, Color: color, Avatar: avatar,
-		Banner: banner, Presence: presence, Bio: bio, MailboxPub: s.mbxPub[:], Activity: act,
+		Banner: banner, Presence: presence, Bio: bio, Pronouns: pronouns, Birthday: birthday,
+		MailboxPub: s.mbxPub[:], Activity: act,
 		Games: decodeGames(rawGames), Color2: color2, Frame: frame, Effect: effect, Style: style,
 		// This device read its own games out of the store, so whatever it says
 		// — including "none" — is the truth about this account's collection.
@@ -1515,6 +1563,9 @@ func (s *Service) AdoptLinkedProfile(p Profile) bool {
 		"banner_image":  p.Banner,
 		"presence":      strings.TrimSpace(p.Presence),
 		"bio":           strings.TrimSpace(p.Bio),
+		"pronouns":      p.Pronouns, // trimmed+capped by sanitizeProfileExtras above
+		"birthday":      p.Birthday, // "MM-DD" or "" — sanitize already refused anything with a year
+
 		"accent_color2": p.Color2,
 		"avatar_frame":  p.Frame,
 		"card_effect":   p.Effect,
@@ -1592,6 +1643,9 @@ func (s *Service) SetProfile(p Profile) error {
 		"banner_image":  p.Banner,
 		"presence":      strings.TrimSpace(p.Presence),
 		"bio":           strings.TrimSpace(p.Bio),
+		"pronouns":      p.Pronouns, // trimmed+capped by sanitizeProfileExtras above
+		"birthday":      p.Birthday, // "MM-DD" or "" — sanitize already refused anything with a year
+
 		"accent_color2": p.Color2,
 		"avatar_frame":  p.Frame,
 		"card_effect":   p.Effect,
@@ -1709,7 +1763,7 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	_ = s.store.SaveProfile(store.ProfileRow{
 		Fingerprint: fingerprint,
 		Name:        p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
-		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
+		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, Pronouns: p.Pronouns, Birthday: p.Birthday, MailboxPub: p.MailboxPub,
 		Games: gamesJSON, Color2: p.Color2, Frame: p.Frame, Effect: p.Effect, Style: encodeStyle(p.Style),
 	})
 	s.emitGuildUpdate()
@@ -1719,7 +1773,8 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 func profilesEqual(a, b Profile) bool {
 	return a.Name == b.Name && a.Status == b.Status && a.Emoji == b.Emoji &&
 		a.Color == b.Color && a.Avatar == b.Avatar && a.Banner == b.Banner &&
-		a.Presence == b.Presence && a.Bio == b.Bio && bytes.Equal(a.MailboxPub, b.MailboxPub) &&
+		a.Presence == b.Presence && a.Bio == b.Bio && a.Pronouns == b.Pronouns &&
+		a.Birthday == b.Birthday && bytes.Equal(a.MailboxPub, b.MailboxPub) &&
 		a.Color2 == b.Color2 && a.Frame == b.Frame && a.Effect == b.Effect &&
 		stylesEqual(a.Style, b.Style) &&
 		activityEqual(a.Activity, b.Activity) && activityPosEqual(a.Activity, b.Activity) &&

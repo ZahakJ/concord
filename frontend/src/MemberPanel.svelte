@@ -222,6 +222,16 @@
     return emoji === "🎮" && text ? text : "";
   }
 
+  // The 🎂 is a per-VIEWER render: the member's "MM-DD" (no year — the backend
+  // refuses to store one) against THIS client's local clock, decided
+  // independently on every screen. Nothing is posted or announced on the
+  // member's behalf, so viewers across timezones may briefly disagree.
+  function birthdayToday(mem) {
+    if (!mem.birthday) return false;
+    const now = new Date();
+    return mem.birthday === `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+
   // A member's highest-ranked role (roles are highest-first), for a badge.
   function topRole(mem) {
     if (!mem.roleIds?.length) return null;
@@ -412,6 +422,9 @@
               class="mname"
               style={roleColorFor(mem.fingerprint) ? `color:${roleColorFor(mem.fingerprint)}` : ""}
             >{mem.name || mem.fingerprint.slice(0, 9)}</span>{mem.isSelf ? " (you)" : ""}
+            {#if birthdayToday(mem)}
+              <span class="bday" title="Birthday today">🎂</span>
+            {/if}
             {#if mem.isOwner}
               <span class="role-badge owner" title="Guild owner">owner</span>
             {:else if mem.isHeir}
@@ -665,8 +678,12 @@
     white-space: nowrap;
   }
   .member-name .role-badge,
-  .member-name .v-badge {
+  .member-name .v-badge,
+  .member-name .bday {
     flex-shrink: 0;
+  }
+  .member-name .bday {
+    font-size: 12px;
   }
   .member-status {
     font-size: var(--fs-small);

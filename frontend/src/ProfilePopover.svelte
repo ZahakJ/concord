@@ -285,6 +285,16 @@
 
   // Custom status split into emoji + text so each part can be styled.
   const statusParts = $derived(mem ? splitStatus(mem.status) : { emoji: "", text: "" });
+
+  // The 🎂 chip is a per-VIEWER render: the member's "MM-DD" (no year — the
+  // backend refuses to store one) compared against THIS client's local clock
+  // when the card opens. Nothing is posted or announced on anyone's behalf,
+  // so viewers in different timezones may briefly disagree about the day.
+  const isBirthday = $derived.by(() => {
+    if (!mem?.birthday) return false;
+    const now = new Date();
+    return mem.birthday === `${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  });
   // "🎮 <name>" is the GameShelf's now-playing convention — promote it from a
   // plain status line to the PLAYING block. The wire format stays an ordinary
   // custom status, so peers on older builds render it fine as-is.
@@ -525,8 +535,12 @@
         {:else if mem.canManage}
           <span class="role-badge mod" title="Can manage members">mod</span>
         {/if}
+        {#if isBirthday}
+          <span class="bday-chip" title="It's their birthday today">🎂</span>
+        {/if}
       </div>
       {#if mem.username}<div class="username muted">{mem.username}</div>{/if}
+      {#if mem.pronouns}<div class="pronouns muted">{mem.pronouns}</div>{/if}
       {#if sharedDMs > 0}
         <div class="mutual muted">
           <Icon name="members" size={12} />
@@ -959,6 +973,19 @@
   .username {
     font-size: var(--fs-compact);
     margin-top: -2px;
+  }
+  /* Pronouns sit quietly under the name — informational, never decorated. */
+  .pronouns {
+    font-size: var(--fs-small);
+    margin-top: -1px;
+  }
+  /* Birthday chip: same quiet shape as the "you" tag, emoji does the talking. */
+  .bday-chip {
+    font-size: 13px;
+    background: var(--bg-3);
+    padding: 1px 6px;
+    border-radius: 8px;
+    line-height: 1.4;
   }
   .mutual {
     display: inline-flex;

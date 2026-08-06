@@ -290,6 +290,7 @@ export const api = {
   banMember: (guildID, fingerprint) => call("BanMember", guildID, fingerprint),
   unbanMember: (guildID, fingerprint) => call("UnbanMember", guildID, fingerprint),
   muteMember: (guildID, fingerprint, minutes) => call("MuteMember", guildID, fingerprint, minutes),
+  setSlowMode: (guildID, channelID, seconds) => call("SetSlowMode", guildID, channelID, seconds),
   unmuteMember: (guildID, fingerprint) => call("UnmuteMember", guildID, fingerprint),
   bans: (guildID) => call("Bans", guildID),
   contacts: () => call("Contacts"),
@@ -299,8 +300,15 @@ export const api = {
   callIceServers: () => call("CallIceServers"),
   revealDeleted: (channelID, messageID) => call("RevealDeleted", channelID, messageID),
   sendTyping: (channelID) => call("SendTyping", channelID),
-  setProfile: (name, status, emoji, color, avatar, banner = "", presence = "", bio = "", color2 = "", frame = "", effect = "", style = "") =>
-    call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style),
+  // pronouns/birthday (birthday is "MM-DD" — never a year) ride at the END of
+  // the positional list. Leave them undefined to keep the stored values: the
+  // bridge reads the short arity as "don't touch", so callers that patch other
+  // fields can't silently wipe these two (the games-wipe lesson). Pass "" to
+  // actually clear one.
+  setProfile: (name, status, emoji, color, avatar, banner = "", presence = "", bio = "", color2 = "", frame = "", effect = "", style = "", pronouns, birthday) =>
+    pronouns === undefined && birthday === undefined
+      ? call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style)
+      : call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style, pronouns ?? "", birthday ?? ""),
   verifyFingerprint: (fingerprint) => call("VerifyFingerprint", fingerprint),
   pinMessage: (channelID, messageID) => call("PinMessage", channelID, messageID),
   searchMessages: (query) => call("SearchMessages", query),

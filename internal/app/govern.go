@@ -69,6 +69,9 @@ func (st GuildState) copy() GuildState {
 	for k, v := range st.Muted {
 		out.Muted[k] = v
 	}
+	for k, v := range st.SlowMode {
+		out.SlowMode[k] = v
+	}
 	return out
 }
 
@@ -431,6 +434,64 @@ func (s *Service) MuteMember(guildID, targetFpr string, minutes int) error {
 	}
 	until := time.Now().Add(time.Duration(minutes) * time.Minute).Unix()
 	return s.issueGovOp(guildID, govOp{Type: "mute", Target: targetFpr, Until: until})
+}
+
+// SetSlowMode sets a channel's posting interval (0 turns it off). A channel
+// setting, so it rides manage-channels; enforcement is the same advisory
+// two-legs mutes use — the sender's composer refuses, honest receivers drop.
+func (s *Service) SetSlowMode(guildID, channelID string, seconds int64) error {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return fmt.Errorf("app: you don't have permission to manage channels")
+	}
+	if seconds < 0 {
+		seconds = 0
+	}
+	if seconds > 21600 {
+		seconds = 21600
+	}
+	return s.issueGovOp(guildID, govOp{Type: "slow_mode", ChannelID: channelID, Seconds: seconds})
+}
+
+// SlowModeSeconds is the channel's current interval (0 = off).
+func (s *Service) SlowModeSeconds(guildID, channelID string) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if st, ok := s.govState[guildID]; ok {
+		return st.SlowMode[channelID]
+	}
+	return 0
+}
+
+// slowModeWait: how much longer fpr must wait before posting in channelID
+// (0 = free to post). The owner and channel/message managers are exempt — the
+// interval paces the room, not the people running it.
+func (s *Service) slowModeWait(guildID, channelID, fpr string, at time.Time) time.Duration {
+	interval := s.SlowModeSeconds(guildID, channelID)
+	if interval <= 0 {
+		return 0
+	}
+	if s.memberHasPerm(guildID, fpr, PermManageMessages) ||
+		s.memberHasPerm(guildID, fpr, PermManageChannels) {
+		return 0
+	}
+	s.mu.RLock()
+	last := s.slowSeen[channelID+"|"+fpr]
+	s.mu.RUnlock()
+	if last == 0 {
+		return 0
+	}
+	if remaining := interval - (at.Unix() - last); remaining > 0 {
+		return time.Duration(remaining) * time.Second
+	}
+	return 0
+}
+
+func (s *Service) noteSlowSend(channelID, fpr string, at time.Time) {
+	s.mu.Lock()
+	if at.Unix() > s.slowSeen[channelID+"|"+fpr] {
+		s.slowSeen[channelID+"|"+fpr] = at.Unix()
+	}
+	s.mu.Unlock()
 }
 
 // UnmuteMember lifts a mute. Requires mute-members.

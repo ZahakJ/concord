@@ -116,6 +116,8 @@ type IdentityInfo struct {
 	Banner      string           `json:"banner"`
 	Presence    string           `json:"presence"`
 	Bio         string           `json:"bio"`
+	Pronouns    string           `json:"pronouns,omitempty"` // short "she/her"-style line
+	Birthday    string           `json:"birthday,omitempty"` // "MM-DD" only — never a year
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
 	Color2      string           `json:"color2,omitempty"`   // gradient partner color
@@ -135,6 +137,9 @@ type ChannelView struct {
 	Links    []string `json:"links,omitempty"`  // announcement: consumer channel IDs
 	// LastActivity is the newest message time (UnixNano) — forum post ordering.
 	LastActivity int64 `json:"lastActivity,omitempty"`
+	// SlowMode is the governed posting interval in seconds (0 = off); the
+	// composer paces itself with it and managers see it in channel settings.
+	SlowMode int64 `json:"slowMode,omitempty"`
 	// Forum metadata, carried here because it IS channel state — the sidebar and
 	// the forum settings modal read it from the guild snapshot they already have.
 	// A forum board should read ForumBoard instead: it adds the derived author,
@@ -237,6 +242,8 @@ type MemberView struct {
 	Banner      string           `json:"banner"`
 	Presence    string           `json:"presence"` // "" | online | idle | dnd | invisible
 	Bio         string           `json:"bio"`
+	Pronouns    string           `json:"pronouns,omitempty"` // short "she/her"-style line
+	Birthday    string           `json:"birthday,omitempty"` // "MM-DD" only — never a year; 🎂 is a per-VIEWER render off their local clock
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
 	Color2      string           `json:"color2,omitempty"`   // gradient partner color
@@ -1083,6 +1090,8 @@ func (b *Bridge) Identity() (IdentityInfo, error) {
 		Banner:      p.Banner,
 		Presence:    p.Presence,
 		Bio:         p.Bio,
+		Pronouns:    p.Pronouns,
+		Birthday:    p.Birthday,
 		Activity:    p.Activity,
 		Games:       p.Games,
 		Color2:      p.Color2,
@@ -1112,15 +1121,16 @@ func (b *Bridge) SearchGames(query string) ([]appsvc.GameSearchResult, error) {
 }
 
 // SetProfile updates this peer's profile (incl. avatar + banner images) and
-// re-announces.
-func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, styleJSON string) error {
+// re-announces. Args are positional over the RPC, so new fields (pronouns,
+// birthday — "MM-DD", never a year) go LAST: older callers just stop early.
+func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, styleJSON, pronouns, birthday string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
 	return svc.SetProfile(appsvc.Profile{
 		Name: name, Status: status, Emoji: emoji, Color: color, Avatar: avatar,
-		Banner: banner, Presence: presence, Bio: bio,
+		Banner: banner, Presence: presence, Bio: bio, Pronouns: pronouns, Birthday: birthday,
 		Color2: color2, Frame: frame, Effect: effect, Style: parseStyle(styleJSON),
 	})
 }
@@ -1549,6 +1559,8 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Banner:      p.Banner,
 			Presence:    p.Presence,
 			Bio:         p.Bio,
+			Pronouns:    p.Pronouns,
+			Birthday:    p.Birthday,
 			IsSelf:      isSelf,
 			Online:      isSelf || online[fpr],
 			Verified:    isSelf || verified[fpr],
@@ -1780,6 +1792,16 @@ func (b *Bridge) MuteMember(guildID, fingerprint string, minutes int) error {
 		return err
 	}
 	return svc.MuteMember(guildID, fingerprint, minutes)
+}
+
+// SetSlowMode sets a channel's governed posting interval (manage-channels;
+// 0 turns it off).
+func (b *Bridge) SetSlowMode(guildID, channelID string, seconds int) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetSlowMode(guildID, channelID, int64(seconds))
 }
 
 // UnmuteMember lifts a mute (mute-members).
@@ -2019,6 +2041,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		if c.Parent != "" {
 			cv.LastActivity = svc.ChannelLastActivity(c.ID) // forum post ordering
 		}
+		cv.SlowMode = svc.SlowModeSeconds(g.ID, c.ID)
 		channels = append(channels, cv)
 	}
 	cats := []CategoryView{}
@@ -2647,6 +2670,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
 	case "UnbanMember":
 		return nil, b.UnbanMember(argStr(args, 0), argStr(args, 1))
+	case "SetSlowMode":
+		return nil, b.SetSlowMode(argStr(args, 0), argStr(args, 1), argInt(args, 2))
 	case "MuteMember":
 		return nil, b.MuteMember(argStr(args, 0), argStr(args, 1), argInt(args, 2))
 	case "UnmuteMember":
@@ -2666,7 +2691,20 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SendTyping":
 		return nil, b.SendTyping(argStr(args, 0))
 	case "SetProfile":
-		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9), argStr(args, 10), argStr(args, 11))
+		// pronouns/birthday ride at the END of the positional list. A caller
+		// built before they existed stops at style (12 args) — for it the two
+		// are ABSENT, not cleared, so carry the stored values through instead
+		// of letting argStr's "" erase them. Same lesson as the games wipe:
+		// silence on the wire must never read as deletion. Clearing is still
+		// possible — a new-arity caller passes them explicitly as "".
+		pronouns, birthday := argStr(args, 12), argStr(args, 13)
+		if len(args) <= 12 {
+			if svc, err := b.service(); err == nil {
+				cur := svc.SelfProfile()
+				pronouns, birthday = cur.Pronouns, cur.Birthday
+			}
+		}
+		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9), argStr(args, 10), argStr(args, 11), pronouns, birthday)
 	case "VerifyFingerprint":
 		return nil, b.VerifyFingerprint(argStr(args, 0))
 	case "PinMessage":

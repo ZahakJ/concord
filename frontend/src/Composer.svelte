@@ -52,7 +52,29 @@
   // in a narrow window keeps Enter-to-send.
   const mobile = $derived(S.isMobile);
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
-  const canSend = $derived((!!draft.trim() || pending.length > 0) && !!ch);
+  const canSend = $derived((!!draft.trim() || pending.length > 0) && !!ch && slowLeft <= 0);
+
+  // Slow mode countdown. The backend is the contract (a too-soon send errors);
+  // this keeps honest fingers off the wall and says how long. Managers are
+  // exempt on both sides. Channel switches clear the count — each channel's
+  // interval is its own.
+  const slowSecs = $derived(Number(ch?.slowMode) || 0);
+  let slowLeft = $state(0);
+  let slowTimer = null;
+  $effect(() => {
+    S.activeChannelId;
+    slowLeft = 0;
+    clearInterval(slowTimer);
+  });
+  function armSlowMode() {
+    if (!slowSecs || canModerate) return;
+    slowLeft = slowSecs;
+    clearInterval(slowTimer);
+    slowTimer = setInterval(() => {
+      slowLeft -= 1;
+      if (slowLeft <= 0) clearInterval(slowTimer);
+    }, 1000);
+  }
   // Disappearing-messages timer for this channel (0 = off). channelTTL reads the
   // reactive per-channel store, so this updates the moment you change it.
   const ephTTL = $derived(ch ? channelTTL(S.activeChannelId) : 0);
@@ -665,6 +687,7 @@
         const body = sealNext ? stampTimestamp(text) : text;
         await sendMessage(stampEphemeral(chId, body), nextReply());
         sealNext = false;
+        if (chId === S.activeChannelId) armSlowMode();
       }
     } catch (err) {
       // Restore only what did NOT go out, so a retry can't double-post. The text
@@ -1363,6 +1386,11 @@
             <Icon name="mic" size={22} />
           </button>
         {:else}
+          {#if slowLeft > 0}
+            <span class="slow-chip" title="Slow mode — one message per {slowSecs}s">
+              <Icon name="clock" size={11} /> {slowLeft}s
+            </span>
+          {/if}
           <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
             <Icon name="send" size={17} />
           </button>
@@ -2415,6 +2443,19 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+  }
+  .slow-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    align-self: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text-muted);
+    font-size: var(--fs-tiny);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
   }
   .sendbtn {
     display: grid;

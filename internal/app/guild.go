@@ -1029,6 +1029,14 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName string) (d
 	if kind == "" && s.isMuted(guildID, s.id.Fingerprint()) {
 		return domain.Message{}, fmt.Errorf("app: you're muted in this guild")
 	}
+	// Slow mode, send side: the composer's countdown should make this error
+	// rare, but the composer is UI and this is the contract. Moderators are
+	// exempt — the interval exists to pace the room, not the people running it.
+	if kind == "" {
+		if wait := s.slowModeWait(guildID, channelID, s.id.Fingerprint(), time.Now()); wait > 0 {
+			return domain.Message{}, fmt.Errorf("app: slow mode: wait %ds", int(wait/time.Second))
+		}
+	}
 	// A closed forum post takes no more messages. Moderators are not exempt:
 	// the point of closing a thread is that the conversation is over, and a
 	// moderator who wants the last word can reopen it, which leaves a trace.
@@ -1071,6 +1079,9 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName string) (d
 	// Also stash a sealed copy in the mailbox of any member who is offline, so
 	// they receive it on reconnect even if no peer is online to sync from.
 	go s.depositForOffline(groupID, ct)
+	if msg.Kind == "" {
+		s.noteSlowSend(channelID, s.id.Fingerprint(), msg.Sent)
+	}
 	switch msg.Kind {
 	case "delete":
 		s.applyDelete(msg.ReplyTo, msg.Sender, channelID)
@@ -2621,6 +2632,31 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	s.mu.RUnlock()
 	if guildID != "" && s.isMuted(guildID, accountFingerprintOf(m.Sender)) {
 		return true
+	}
+	// Slow mode, receive side (advisory, same footing as the mute drop):
+	// honest clients agree on which message came too soon by comparing the
+	// AUTHOR's own Sent stamps, so wall-clock skew between receivers can't
+	// fork what everyone keeps. An out-of-order older stamp is left for the
+	// store's dedup — only a genuinely newer, too-soon message is dropped.
+	if guildID != "" && m.Kind == "" {
+		if iv := s.SlowModeSeconds(guildID, m.ChannelID); iv > 0 {
+			fpr := accountFingerprintOf(m.Sender)
+			if !s.memberHasPerm(guildID, fpr, PermManageMessages) &&
+				!s.memberHasPerm(guildID, fpr, PermManageChannels) {
+				key := m.ChannelID + "|" + fpr
+				sent := m.Sent.Unix()
+				s.mu.Lock()
+				last := s.slowSeen[key]
+				if last != 0 && sent > last && sent-last < iv {
+					s.mu.Unlock()
+					return true
+				}
+				if sent > last {
+					s.slowSeen[key] = sent
+				}
+				s.mu.Unlock()
+			}
+		}
 	}
 	// Same for a closed forum post. Refusing only on the SEND side would make
 	// closing a thread a polite request to the one person who was never going to

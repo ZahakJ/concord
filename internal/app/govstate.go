@@ -88,6 +88,10 @@ type govOp struct {
 	Add    bool   `json:"add,omitempty"`
 	Until  int64  `json:"until,omitempty"` // mute: muted-until (unix seconds)
 
+	// slow_mode — per-channel posting interval. Seconds <= 0 turns it off.
+	ChannelID string `json:"channelId,omitempty"`
+	Seconds   int64  `json:"seconds,omitempty"`
+
 	Time int64  `json:"t"`   // author wall-clock (unix nanos), ordering tiebreak
 	Sig  []byte `json:"sig"` // signature over the op with Sig zeroed
 }
@@ -118,6 +122,7 @@ type GuildState struct {
 	MemberRoles map[string][]string // fingerprint -> assigned role IDs
 	Banned      map[string]bool     // barred fingerprints
 	Muted       map[string]int64    // fingerprint -> muted-until (unix seconds)
+	SlowMode    map[string]int64    // channelID -> seconds between posts (absent = off)
 	// owner is the CURRENT owner's account fingerprint as computed by replay:
 	// the founding owner unless a valid transfer_owner chain moved it.
 	// Unexported because it is derived — Owner() is the read, and every
@@ -145,6 +150,7 @@ func newGuildState() GuildState {
 		MemberRoles: map[string][]string{},
 		Banned:      map[string]bool{},
 		Muted:       map[string]int64{},
+		SlowMode:    map[string]int64{},
 	}
 }
 
@@ -329,6 +335,23 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 				continue
 			}
 			delete(st.Muted, o.Target)
+		case "slow_mode":
+			// A channel setting, so it rides manage-channels. The clamp is part
+			// of the REPLAY (not just the issuing UI) so every honest client
+			// derives the identical state from a hand-crafted op too.
+			if !isOwner && !st.Can(cur, signer, PermManageChannels) {
+				continue
+			}
+			if o.ChannelID == "" {
+				continue
+			}
+			if o.Seconds <= 0 {
+				delete(st.SlowMode, o.ChannelID)
+			} else if o.Seconds > 21600 {
+				st.SlowMode[o.ChannelID] = 21600 // 6h, Discord's own ceiling
+			} else {
+				st.SlowMode[o.ChannelID] = o.Seconds
+			}
 		case "transfer_owner":
 			// Only the reigning owner abdicates — nobody else's signature moves
 			// the crown, no matter how the op reached us. A banned target can't

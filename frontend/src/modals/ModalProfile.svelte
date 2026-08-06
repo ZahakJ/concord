@@ -17,6 +17,25 @@
   let avatar = $state(identity.avatar || "");
   let presence = $state(identity.presence || "online");
   let bio = $state(identity.bio || "");
+  let pronouns = $state(identity.pronouns || "");
+  // Birthday is "MM-DD" — month and day only. There is no year control here
+  // and never will be: Concord doesn't ask, so it can't store or leak it.
+  const bday0 = /^(\d{2})-(\d{2})$/.exec(identity.birthday || "");
+  let bMonth = $state(bday0 ? bday0[1] : "");
+  let bDay = $state(bday0 ? bday0[2] : "");
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
+    "August", "September", "October", "November", "December"];
+  // Real month lengths (Feb 29 exists — leap-day birthdays are real people).
+  const MONTH_DAYS = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  const dayOptions = $derived(
+    Array.from({ length: bMonth ? MONTH_DAYS[+bMonth - 1] : 31 }, (_, i) => String(i + 1).padStart(2, "0")),
+  );
+  // Switching from a longer month can strand an impossible day (Mar 31 → Feb);
+  // drop it rather than silently saving a date that never comes around.
+  $effect(() => {
+    if (bDay && bMonth && +bDay > MONTH_DAYS[+bMonth - 1]) bDay = "";
+  });
+  const birthday = $derived(bMonth && bDay ? `${bMonth}-${bDay}` : "");
   let color2 = $state(identity.color2 || "");
   let frame = $state(identity.frame || "");
   let effect = $state(identity.effect || "");
@@ -187,7 +206,21 @@
     else loadForCrop(item.getAsFile());
   }
 
-  function save() {
+  async function save() {
+    // The shell's onSubmit handler forwards only the twelve classic fields
+    // (the API is positional), so the two newest ones are committed here —
+    // and only when they actually changed, to spare a double broadcast. The
+    // shell's follow-up save uses the old arity, which the backend reads as
+    // "leave pronouns/birthday alone", so it can't wipe what we just wrote.
+    if (pronouns.trim() !== (identity.pronouns || "") || birthday !== (identity.birthday || "")) {
+      try {
+        await api.setProfile(
+          name.trim(), status.trim(), emoji, color, avatar, banner, presence,
+          bio.trim(), color2, frame, effect, JSON.stringify(styleObj),
+          pronouns.trim(), birthday,
+        );
+      } catch {}
+    }
     onSubmit({
       name: name.trim(),
       status: status.trim(),
@@ -326,6 +359,40 @@
     <span class="muted">About me</span>
     <textarea bind:value={bio} maxlength="600" rows="3" placeholder="A short bio — shown on your profile card"></textarea>
   </label>
+  <label class="field">
+    <span class="muted">Pronouns</span>
+    <input bind:value={pronouns} maxlength="40" placeholder="she/her, they/them — anything you like" />
+  </label>
+  <div class="field">
+    <span class="muted">Birthday (optional)</span>
+    <div class="bday-row">
+      <select bind:value={bMonth} aria-label="Birthday month">
+        <option value="">Month</option>
+        {#each MONTHS as m, i (m)}
+          <option value={String(i + 1).padStart(2, "0")}>{m}</option>
+        {/each}
+      </select>
+      <select bind:value={bDay} disabled={!bMonth} aria-label="Birthday day">
+        <option value="">Day</option>
+        {#each dayOptions as d (d)}
+          <option value={d}>{+d}</option>
+        {/each}
+      </select>
+      {#if bMonth || bDay}
+        <button
+          type="button"
+          class="ghost small-btn"
+          onclick={() => {
+            bMonth = "";
+            bDay = "";
+          }}>Clear</button
+        >
+      {/if}
+    </div>
+    <p class="tiny muted">
+      Just the day — Concord never asks for the year. People in your guilds see a 🎂 on the day.
+    </p>
+  </div>
   <div class="field">
     <span class="muted">Fallback emoji (used when no picture)</span>
     <div class="emoji-row">
@@ -452,6 +519,19 @@
     gap: 4px;
     text-align: left;
     font-size: 12px;
+  }
+  .bday-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .bday-row select {
+    padding: 6px 8px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-size: 13px;
   }
   .theme-preview {
     height: 34px;
