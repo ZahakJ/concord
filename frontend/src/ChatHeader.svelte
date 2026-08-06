@@ -22,6 +22,10 @@
   // in lib/search.js, shared with the results panel's chip refinement.
   import { runSearch, closeSearch } from "./lib/search.js";
   import { channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
+  // Icon buttons carry use:tooltip (below-center, default delay) instead of
+  // native title= — instant theme-matched labels; aria-label stays and is the
+  // tip's text unless the tip needs richer wording than the label.
+  import { tooltip } from "./lib/tooltip.js";
 
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
 
@@ -148,7 +152,7 @@
     {#if S.voice && S.voice.channelId === S.activeChannelId && (g?.kind === "dm" || g?.kind === "meeting")}
       <!-- In a DM call, the call box carries the controls; the header is just a
            one-click hang-up so clicking "call" again intuitively leaves. -->
-      <button class="ghost iconbtn endcall" title="Leave call" aria-label="Leave call" onclick={onLeaveVoice}>
+      <button class="ghost iconbtn endcall" use:tooltip aria-label="Leave call" onclick={onLeaveVoice}>
         <Icon name="door" /> <span class="n">End call</span>
       </button>
     {:else if S.voice && S.voice.channelId === S.activeChannelId}
@@ -174,7 +178,7 @@
       </span>
     {:else if ch && peerInCall}
       <!-- The other side is already on a call — make it obvious and one-click. -->
-      <button class="ghost iconbtn live-join" title="Join the call" onclick={() => onJoinVoice()}>
+      <button class="ghost iconbtn live-join" use:tooltip={"Join the call"} onclick={() => onJoinVoice()}>
         <span class="live-dot"></span>
         <span class="n">Live{peerSharing ? " · sharing" : ""} · Join</span>
       </button>
@@ -182,7 +186,7 @@
       <button
         class="ghost iconbtn"
         class:call={g?.kind === "dm" || g?.kind === "meeting"}
-        title={g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Join voice"}
+        use:tooltip={{ text: g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Join voice" }}
         onclick={() => onJoinVoice()}
       >
         <Icon name="speaker" /> <span class="n">{g?.kind === "dm" || g?.kind === "meeting" ? "Call" : "Voice"}</span>
@@ -193,7 +197,7 @@
       <button
         class="ghost iconbtn"
         class:pin-active={S.showPins}
-        title="Pinned messages"
+        use:tooltip
         aria-label="Pinned messages"
         onclick={() => (S.showPins = !S.showPins)}
       >
@@ -205,7 +209,7 @@
       <button
         class="ghost iconbtn"
         class:pin-active={ephTTL > 0}
-        title={ephTTL > 0 ? `Disappearing after ${ttlLabel(ephTTL)}` : "Disappearing messages"}
+        use:tooltip={{ text: ephTTL > 0 ? `Disappearing after ${ttlLabel(ephTTL)}` : "Disappearing messages" }}
         aria-label="Disappearing messages"
         onclick={() => (S.modal = { kind: "disappear", channelId: S.activeChannelId })}
       >
@@ -222,7 +226,7 @@
            phones (MobileShell's ⋯, since this header never renders there). -->
       <button
         class="ghost iconbtn"
-        title={g.dmNotes ? "Private events" : "Events"}
+        use:tooltip={{ text: g.dmNotes ? "Private events" : "Events" }}
         aria-label={g.dmNotes ? "Private events" : g.kind === "dm" ? "Events in this conversation" : "Guild events"}
         onclick={() => (S.modal = { kind: "events" })}
       >
@@ -234,7 +238,7 @@
       <button
         class="ghost iconbtn"
         class:pin-active={S.prefs.memberPanel}
-        title="Toggle member list (Ctrl+U)"
+        use:tooltip={{ text: "Toggle member list (Ctrl+U)" }}
         aria-label="Toggle member list"
         aria-pressed={S.prefs.memberPanel}
         onclick={toggleMemberPanel}

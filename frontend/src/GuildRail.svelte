@@ -30,7 +30,13 @@
   } from "./lib/rail.js";
   import { playFlyby } from "./lib/sounds.js";
   import { longpress } from "./lib/touch.js";
+  import { tooltip } from "./lib/tooltip.js";
   import { RADAR, guildLiveSet } from "./lib/radar.svelte.js";
+
+  // The rail is an icon-only column — identifying a bubble is the whole point
+  // of hovering it, so the tip comes fast and sits to the right, off the strip.
+  // Text falls through to each pill's aria-label (see lib/tooltip.js).
+  const railTip = { side: "right", delay: 80 };
 
   // Touch: long-press opens the rail menus. iOS/WKWebView never synthesizes
   // `contextmenu` for a plain element, so mute / leave / invite / guild settings
@@ -419,7 +425,7 @@
     <button
       class="pill home"
       class:active={inDMs}
-      title="Direct messages"
+      use:tooltip={railTip}
       aria-label={S.requests.length && !inDMs
         ? `Home / Direct messages — ${S.requests.length} message request${S.requests.length === 1 ? "" : "s"} waiting`
         : "Home / Direct messages"}
@@ -443,7 +449,7 @@
         <button
           class="pill dm"
           class:active={dm.id === S.activeGuildId}
-          title={dm.name}
+          use:tooltip={railTip}
           aria-label={dm.name}
           onclick={() => selectGuild(dm.id)}
         >
@@ -478,7 +484,7 @@
             class:active={sv.id === S.activeGuildId}
             class:hasicon={sv.icon}
             class:combine={dropHint?.k === "combine" && dropHint.id === sv.id}
-            title={sv.name}
+            use:tooltip={railTip}
             aria-label={sv.name}
             draggable="true"
             ondragstart={(e) => startDrag(e, { kind: "guild", id: sv.id })}
@@ -514,7 +520,7 @@
               class="pill folder-tile"
               class:combine={dropHint?.k === "folder" && dropHint.id === folder.id}
               class:hasactive={entry.guilds.some((x) => x.id === S.activeGuildId) && !folder.open}
-              title={folder.name || "Folder"}
+              use:tooltip={railTip}
               aria-label={folder.name || "Folder"}
               draggable="true"
               ondragstart={(e) => startDrag(e, { kind: "folder", id: folder.id })}
@@ -566,7 +572,7 @@
                     class="pill"
                     class:active={gg.id === S.activeGuildId}
                     class:hasicon={gg.icon}
-                    title={gg.name}
+                    use:tooltip={railTip}
                     aria-label={gg.name}
                     draggable="true"
                     ondragstart={(e) => startDrag(e, { kind: "guild", id: gg.id })}
@@ -610,7 +616,7 @@
     <button
       class="pill cal"
       class:active={S.modal?.kind === "myCalendar"}
-      title="Your calendar — everything you're part of, one river"
+      use:tooltip={{ ...railTip, text: "Your calendar — everything you're part of, one river" }}
       aria-label="Your calendar"
       onclick={() => (S.modal = S.modal?.kind === "myCalendar" ? null : { kind: "myCalendar" })}
     >
@@ -625,25 +631,30 @@
     </button>
     <div class="divider"></div>
     {#if S.isMobile}
-      <button class="pill add" title="Add a server" aria-label="Add a server" onclick={addMenu}>
+      <button class="pill add" use:tooltip={railTip} aria-label="Add a server" onclick={addMenu}>
         <Icon name="plus" />
       </button>
       <button
         class="pill add meet"
-        title="Instant meeting — a disposable room + invite to send anyone"
+        use:tooltip={{ ...railTip, text: "Instant meeting — a disposable room + invite to send anyone" }}
         aria-label="Start an instant meeting"
         onclick={startMeeting}
       >
         <Icon name="bolt" />
       </button>
     {:else}
-      <button class="pill add" title="Create a guild" aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
+      <button class="pill add" use:tooltip={railTip} aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
         <Icon name="plus" />
       </button>
-      <button class="pill add meet" title="Instant meeting — a disposable room + invite to send anyone" aria-label="Start an instant meeting" onclick={startMeeting}>
+      <button
+        class="pill add meet"
+        use:tooltip={{ ...railTip, text: "Instant meeting — a disposable room + invite to send anyone" }}
+        aria-label="Start an instant meeting"
+        onclick={startMeeting}
+      >
         <Icon name="bolt" />
       </button>
-      <button class="pill add" title="Join with invite" aria-label="Join with invite" onclick={() => (S.modal = { kind: "join", code: "" })}>
+      <button class="pill add" use:tooltip={railTip} aria-label="Join with invite" onclick={() => (S.modal = { kind: "join", code: "" })}>
         <Icon name="download" />
       </button>
     {/if}

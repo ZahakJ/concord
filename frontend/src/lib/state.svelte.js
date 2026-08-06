@@ -147,6 +147,11 @@ export const S = $state({
     echoCancel: true,
     noiseSuppress: true,
     autoGain: true,
+    // Desktop side-column widths, px (drag the column edges in App.svelte).
+    // At the default value the CSS var stays unset, so the stylesheet's
+    // responsive defaults (narrower under 900px) keep deciding.
+    colChannels: 220,
+    colMembers: 260,
     ...loadJSON("concord.prefs", {}),
   },
 

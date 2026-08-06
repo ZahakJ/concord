@@ -34,6 +34,7 @@
     forgetLock,
     clearCallState,
     publishVoiceState,
+    setPref,
   } from "./lib/state.svelte.js";
 
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
@@ -116,6 +117,64 @@
   const activeChannelObj = $derived(
     activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null,
   );
+
+  // Resizable side columns. The persisted pref only overrides the stylesheet
+  // when it differs from the wide-desktop default: an untouched pref leaves the
+  // CSS var unset, so the sub-900px media query can still pick its narrower
+  // base widths. Once you drag, your width wins at every desktop size (clamped).
+  const COL_MIN = 160;
+  const COL_MAX = 360;
+  const COL_DEFAULTS = { colChannels: 220, colMembers: 260 };
+  // Live width during a drag, px (0 = not dragging). Persisting happens once,
+  // on pointerup, so a drag doesn't hammer localStorage on every pointermove.
+  let liveCols = $state({ colChannels: 0, colMembers: 0 });
+
+  function clampCol(w) {
+    return Math.min(COL_MAX, Math.max(COL_MIN, Math.round(w)));
+  }
+  function colVar(key) {
+    if (liveCols[key]) return liveCols[key];
+    const v = Number(S.prefs[key]);
+    // Untouched (or garbage) pref → no override; stylesheet defaults decide.
+    if (!v || v === COL_DEFAULTS[key]) return 0;
+    return clampCol(v);
+  }
+  const gridStyle = $derived(
+    [
+      colVar("colChannels") ? `--col-channels:${colVar("colChannels")}px` : "",
+      colVar("colMembers") ? `--col-members:${colVar("colMembers")}px` : "",
+    ]
+      .filter(Boolean)
+      .join(";"),
+  );
+
+  // dir: +1 when dragging right widens the column (channel list, handle on its
+  // right edge), -1 when dragging left widens it (member panel, handle on its
+  // left edge). Start width is measured from the rendered column — the handle's
+  // previous sibling in the grid — so the clamp applies on top of whichever
+  // base (220/260, or 190/200 under 900px) is currently in effect.
+  function startColDrag(e, key, dir) {
+    if (e.button !== 0) return;
+    e.preventDefault(); // don't start a text selection under the drag
+    const handle = e.currentTarget;
+    const startW =
+      handle.previousElementSibling?.getBoundingClientRect().width ?? COL_DEFAULTS[key];
+    const startX = e.clientX;
+    handle.setPointerCapture(e.pointerId);
+    const move = (ev) => {
+      liveCols[key] = clampCol(startW + dir * (ev.clientX - startX));
+    };
+    const up = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      if (liveCols[key]) setPref(key, liveCols[key]);
+      liveCols[key] = 0; // pref carries the width from here on
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  }
 
   // Voice: the call box shows inline on its own channel; navigate away and it
   // pins to a small draggable floating window instead.
@@ -867,7 +926,7 @@
     onToggleCamera={toggleCamera}
   />
 {:else}
-  <div class="app" class:no-panel={isDM || !hasChannel}>
+  <div class="app" class:no-panel={isDM || !hasChannel} style={gridStyle}>
     <GuildRail />
     <ChannelList
       onJoinVoice={joinVoice}
@@ -876,6 +935,17 @@
       onToggleShare={toggleScreenShare}
       onToggleCamera={toggleCamera}
     />
+    <!-- Overlaps the channel list's right edge (explicit grid placement, so it
+         takes no track of its own). Must come right after ChannelList: the drag
+         measures its previous sibling. Double-click resets to the default. -->
+    <div
+      class="col-rz rz-channels"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize channel list"
+      onpointerdown={(e) => startColDrag(e, "colChannels", 1)}
+      ondblclick={() => setPref("colChannels", COL_DEFAULTS.colChannels)}
+    ></div>
 
     <main class="chat">
       {#if hasChannel}
@@ -913,6 +983,15 @@
 
     {#if !isDM && hasChannel && S.prefs.memberPanel}
       <MemberPanel />
+      <!-- Inner (left) edge of the member panel; dragging left widens it. -->
+      <div
+        class="col-rz rz-members"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize member panel"
+        onpointerdown={(e) => startColDrag(e, "colMembers", -1)}
+        ondblclick={() => setPref("colMembers", COL_DEFAULTS.colMembers)}
+      ></div>
     {/if}
   </div>{/if}
 {#if S.ready}
@@ -1406,7 +1485,10 @@
   }
   .app {
     display: grid;
-    grid-template-columns: 64px 220px 1fr 260px;
+    /* Side-column widths come from the vars only once the user has dragged a
+       resize handle (script sets them from S.prefs); the fallbacks here are
+       the untouched defaults, and the 900px tier below narrows them. */
+    grid-template-columns: 64px var(--col-channels, 220px) 1fr var(--col-members, 260px);
     height: 100%;
     /* Sit above the animated theme backdrop (.theme-bg, z-index 0). */
     position: relative;
@@ -1417,7 +1499,42 @@
     overflow: hidden;
   }
   .app.no-panel {
-    grid-template-columns: 64px 220px 1fr;
+    grid-template-columns: 64px var(--col-channels, 220px) 1fr;
+  }
+  /* Column resize handles: thin strips overlapping each side column's inner
+     edge (explicit grid placement, no track of their own). Desktop-only —
+     coarse pointers can't hit a 5px strip, and phones get MobileShell anyway. */
+  .col-rz {
+    display: none;
+    grid-row: 1;
+    width: 5px;
+    z-index: 5;
+    cursor: col-resize;
+    touch-action: none; /* a drag resizes; it must never scroll */
+    background: var(--accent);
+    opacity: 0; /* invisible until hovered; the cursor is the affordance */
+    transition: opacity 120ms ease;
+  }
+  .rz-channels {
+    grid-column: 2;
+    justify-self: end;
+  }
+  .rz-members {
+    grid-column: 4;
+    justify-self: start;
+  }
+  @media (pointer: fine) {
+    .col-rz {
+      display: block;
+    }
+    .col-rz:hover {
+      opacity: 0.5;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .col-rz {
+      transition: none;
+    }
   }
   /* Narrow desktop (a window parked beside something else). Not a phone tier —
      below 768px S.isMobile is true and MobileShell renders instead of .app —
@@ -1427,11 +1544,11 @@
      window widths. It keeps its column, narrower; the toggle decides. */
   @media (max-width: 900px) {
     .app {
-      grid-template-columns: 64px 190px 1fr 200px;
+      grid-template-columns: 64px var(--col-channels, 190px) 1fr var(--col-members, 200px);
     }
     /* Higher specificity, or .app.no-panel keeps the wide 220px column. */
     .app.no-panel {
-      grid-template-columns: 64px 190px 1fr;
+      grid-template-columns: 64px var(--col-channels, 190px) 1fr;
     }
   }
   .chat {
