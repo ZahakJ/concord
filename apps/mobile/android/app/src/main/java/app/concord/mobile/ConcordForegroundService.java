@@ -32,6 +32,21 @@ public class ConcordForegroundService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         startForeground(NOTIF_ID, buildNotification());
+        // A START_STICKY restart hands back an EMPTY process: no WebView, no
+        // JavaScript, nobody to call the plugin's start(). If the service
+        // doesn't boot the core itself, the tray reads "Connected — you'll
+        // receive messages" over a process where nothing is running — a lie
+        // that holds until the user next opens the app. Booting here is what
+        // makes the notification's promise true (and it's a no-op on the
+        // normal path, where the plugin already started the node).
+        try {
+            NodeHolder.ensureStarted(getApplicationContext());
+        } catch (Exception e) {
+            // Without a core this service is only decoration — don't stand in
+            // the tray promising a connection that doesn't exist.
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         // NOT acquiring a multicast lock. See acquireMulticastLock below.
         // STICKY: if the OS reclaims us under heavy memory pressure, restart when
         // it can — the node re-establishes and drains the mailbox on restart.

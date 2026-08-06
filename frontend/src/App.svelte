@@ -580,6 +580,9 @@
     App.addListener("pause", () => {
       if (S.ready && shouldAppLock()) appLocked = true;
     });
+    // The ongoing-call notification's "Hang up" action, relayed by the native
+    // call service. Same teardown as any in-app leave.
+    cap?.Plugins?.ConcordCore?.addListener?.("hangup", () => leaveVoice());
   }
 
   // ---- voice lifecycle (owns the mesh; state lives in S) ----
@@ -733,6 +736,10 @@
     }
     S.voice = { mesh, channelId };
     S.joiningVoice = "";
+    // Android: a microphone-type foreground service for the call's duration —
+    // without it, Android 14+ cuts the mic the moment the app leaves the
+    // screen, and the room hears you silently drop.
+    window.Capacitor?.Plugins?.ConcordCore?.startCallService?.().catch(() => {});
     // Rejoining a call clears any prior "declined" suppression for this channel.
     if (S.dismissedCalls.includes(channelId))
       S.dismissedCalls = S.dismissedCalls.filter((c) => c !== channelId);
@@ -746,6 +753,9 @@
   async function leaveVoice() {
     if (!S.voice) return;
     const ch = S.voice.channelId;
+    // The call is over — release the microphone foreground service first so
+    // the ongoing-call notification never outlives the call it announces.
+    window.Capacitor?.Plugins?.ConcordCore?.stopCallService?.().catch(() => {});
     // If we locked the call, unlock it as we leave, and clear knock bookkeeping.
     if (isCallLocked(ch)) api.signalCall(ch, "unlock").catch(() => {});
     clearCallState(ch);

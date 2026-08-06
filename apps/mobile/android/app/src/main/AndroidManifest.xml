@@ -40,6 +40,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Call-scoped: Android 14+ blocks background mic capture unless a
+             microphone-type foreground service is running. Lives exactly as
+             long as a call does. -->
+        <service
+            android:name=".ConcordCallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -60,6 +68,9 @@
     <!-- Foreground service to keep the P2P node connected in the background. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- The call-scoped service above; without this type the mic goes silent
+         the moment the app leaves the screen mid-call. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Voice: WebView getUserMedia. Capacitor's BridgeWebChromeClient maps the
          webview's AUDIO/VIDEO_CAPTURE requests to these runtime permissions. -->

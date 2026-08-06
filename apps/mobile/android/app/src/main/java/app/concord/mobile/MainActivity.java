@@ -74,14 +74,25 @@ public class MainActivity extends BridgeActivity {
     // (measured: identical packet rate screen-on and screen-off before this).
     // The plugin forwards to the Go core, which slows to a multi-minute beat
     // without dropping any connection.
+    // Whether any activity is on screen — the native notifier stands down
+    // while true, because the JS notification gate (which can read the user's
+    // per-channel settings) is alive and owns the decision.
+    private static volatile boolean visible = false;
+
+    static boolean isVisible() {
+        return visible;
+    }
+
     @Override
     public void onStart() {
         super.onStart();
+        visible = true;
         ConcordCorePlugin.setForeground(true);
     }
 
     @Override
     public void onStop() {
+        visible = false;
         ConcordCorePlugin.setForeground(false);
         super.onStop();
     }
