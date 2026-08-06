@@ -18,7 +18,9 @@
     registerOverlay,
     flash,
     clearFeed,
+    accentForeground,
   } from "./lib/state.svelte.js";
+  import { guildAccent } from "./lib/guildaccent.js";
   import { api } from "./lib/api.js";
   import { haptic } from "./lib/touch.js";
   import { runSearch, closeSearch } from "./lib/search.js";
@@ -43,6 +45,16 @@
     onToggleShare,
     onToggleCamera,
   } = $props();
+
+  // Per-guild accent, same stamp and precedence as the desktop grid in
+  // App.svelte: explicit user preset > guild banner hue > pack/profile.
+  const guildAccentVars = $derived.by(() => {
+    if (S.prefs.accent || S.prefs.guildAccents === false) return "";
+    const g = activeGuild();
+    if (!g || g.kind === "dm") return "";
+    const c = guildAccent(g.banner);
+    return c ? `--accent:${c};--accent-fg:${accentForeground(c)};` : "";
+  });
 
   const isDM = $derived(activeGuild()?.kind === "dm");
   const hasChannel = $derived(!!S.activeChannelId && !!activeGuild());
@@ -390,7 +402,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="mshell"
-  style="--mchrome: calc(52px + var(--safe-top) + {searchOpen ? 46 : 0}px + {conn.show
+  style="{guildAccentVars}--mchrome: calc(52px + var(--safe-top) + {searchOpen ? 46 : 0}px + {conn.show
     ? 38
     : 0}px)"
   ontouchstart={onTouchStart}

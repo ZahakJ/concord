@@ -31,6 +31,25 @@
   import { playFlyby } from "./lib/sounds.js";
   import { longpress } from "./lib/touch.js";
   import { tooltip } from "./lib/tooltip.js";
+  import FxLayer from "./FxLayer.svelte";
+
+  // Seasonal touches: the FX engine has shipped snow, petals and leaves for a
+  // year, and nothing ever read the calendar. Local clock ONLY (no network —
+  // the no-runtime-fetch rule), a sparse field over just this 64px rail, and
+  // an Appearance toggle to turn it off. Quiet months return null and the
+  // layer simply isn't there.
+  function seasonFx() {
+    const m = new Date().getMonth();
+    if (m === 11 || m === 0)
+      return { kind: "fall", n: 8, glyphs: ["❄"], colors: ["#e8f1ff", "#ffffff"], size: [3, 5], dur: [8, 14], opacity: [0.3, 0.6], drift: 6 };
+    if (m === 2 || m === 3)
+      return { kind: "fall", tumble: true, n: 6, glyphs: ["🌸"], colors: ["#f9a8d4"], size: [3, 5], dur: [9, 15], opacity: [0.3, 0.55], drift: 8 };
+    if (m === 9 || m === 10)
+      return { kind: "fall", tumble: true, n: 6, glyphs: ["🍂"], colors: ["#d97706"], size: [3, 5], dur: [9, 15], opacity: [0.3, 0.55], drift: 8 };
+    return null;
+  }
+  const season = seasonFx(); // computed once — nobody keeps the app open across an equinox
+  const seasonOn = $derived(!!season && S.prefs.seasonal !== false);
   import { RADAR, guildLiveSet } from "./lib/radar.svelte.js";
 
   // The rail is an icon-only column — identifying a bubble is the whole point
@@ -411,6 +430,9 @@
 </script>
 
 <nav class="rail" aria-label="Servers">
+  {#if seasonOn}
+    <div class="season" aria-hidden="true"><FxLayer fx={season} seed="season" scale={0.6} /></div>
+  {/if}
   <!-- The list scrolls; the add/meeting buttons below do not. They used to be
        rendered last, after every guild, inside a 64px strip whose scrollbar is
        hidden — so at ~13 bubbles (one phone screenful) the only way to create
@@ -667,6 +689,20 @@
     display: flex;
     flex-direction: column;
     min-height: 0;
+    position: relative;
+  }
+  /* Seasonal field floats over the rail's chrome but under nothing clickable —
+     pointer-events off, and the pills stack above it. */
+  .season {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .season :global(.fxfield) {
+    position: absolute;
+    inset: 0;
   }
   /* `0 1 auto`, not `1`: a rail that fits keeps the add buttons directly under
      the last guild, exactly as before. Only once the list outgrows the column

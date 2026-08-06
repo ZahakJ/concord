@@ -5,6 +5,7 @@
   // data-density / --accent) with a short cross-fade; see state.svelte.js.
   import { slide } from "svelte/transition";
   import Modal from "./Modal.svelte";
+  import SettingRow from "./SettingRow.svelte";
   import { S, setAppearance } from "../lib/state.svelte.js";
 
   let { onClose } = $props();
@@ -100,6 +101,19 @@
     { id: "oceanic", label: "Oceanic", bg: "#16232b", hi: "#294049", ac: "#5ec8cc", font: INTER, r: 7, av: "40%", note: "Inter, squircles" },
   ];
 
+  // The Daylight set: light-ground packs (every pack above is dark). `day`
+  // flips the mini window's ink dark-on-light — the default card paints its
+  // sample text by mixing the accent toward WHITE, which vanishes on these.
+  // Porcelain previews its pastel mesh with a held-still `grad`, exactly like
+  // the textured row (in the app its mesh is painted on the root canvas, not
+  // .theme-bg — see app.css).
+  const DAY_PACKS = [
+    { id: "paper", label: "Paper", bg: "#f0eadc", hi: "#e9e2d1", ac: "#9c4a2c", font: SERIF, r: 5, av: "5px", rule: true, day: true, note: "Serif, warm paper" },
+    { id: "solarized", label: "Solarized", bg: "#f3ebd3", hi: "#eee8d5", ac: "#268bd2", font: MONO, r: 3, av: "3px", day: true, note: "Monospaced classic" },
+    { id: "meadow", label: "Meadow", bg: "#e4eeda", hi: "#dde9d0", ac: "#2b8347", font: NUNITO, r: 12, av: "50%", card: true, day: true, note: "Rounded, soft greens" },
+    { id: "porcelain", label: "Porcelain", bg: "#f4f5f9", hi: "#dde2ec", ac: "#5661d8", font: INTER, r: 12, av: "50%", day: true, still: true, grad: "radial-gradient(circle at 18% 18%,#ffb8d2,transparent 55%),radial-gradient(circle at 82% 75%,#a4c6ff,#eef1f6)", note: "Pastel glass" },
+  ];
+
   // Textured packs: a static coloured mesh glows through translucent surfaces —
   // richer than a flat palette, but zero animation cost. `grad` drives the card.
   const TEXTURE_PACKS = [
@@ -162,6 +176,7 @@
       <span
         class="pk"
         class:still
+        class:day={p.day}
         data-motion={p.motion || null}
         style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac};--pk-r:{p.r}px;--pk-av:{p.av};--pk-font:{p.font};{p.grad
           ? `--pk-grad:${p.grad};`
@@ -191,6 +206,14 @@
       shape, shadow depth and feed rhythm come with it. (An accent preset or a
       Corners/Typeface choice under Customize still overrides the pack.)
     </p>
+
+    <div class="live-head">
+      <span class="live-tag day-tag">☀ Daylight</span>
+      <span class="muted tiny">Bright grounds, dark ink — for light-mode eyes.</span>
+    </div>
+    <div class="pack-row" role="radiogroup" aria-label="Daylight theme pack">
+      {#each DAY_PACKS as p (p.id)}{@render packCard(p, p.still)}{/each}
+    </div>
 
     <div class="live-head">
       <span class="live-tag">✨ Animated</span>
@@ -343,6 +366,26 @@
       <p class="muted tiny">
         Makes everything bigger or smaller. Ctrl+= and Ctrl+− work anywhere; Ctrl+0 resets.
       </p>
+    </section>
+
+    <section>
+      <strong class="label">Flair</strong>
+      <SettingRow
+        icon="diamond"
+        title="Use guild colors"
+        sub="Each guild tints the app with its banner's hue"
+        info="Derived from the banner a guild already chose, so every guild has a color identity for free. Your own accent preset above always wins when set."
+        checked={S.prefs.guildAccents !== false}
+        onclick={() => setAppearance("guildAccents", S.prefs.guildAccents === false)}
+      />
+      <SettingRow
+        icon="spark"
+        title="Seasonal touches"
+        sub="Snow in December, petals in spring, leaves in autumn"
+        info="A sparse drift over the server rail, driven by this device's clock only — nothing is fetched. Quiet months show nothing."
+        checked={S.prefs.seasonal !== false}
+        onclick={() => setAppearance("seasonal", S.prefs.seasonal === false)}
+      />
     </section>
 
     <section>
@@ -815,6 +858,38 @@
     .pk-glow {
       animation: none !important;
     }
+  }
+  /* Daylight cards: the base card mixes its inks toward WHITE (fine on every
+     dark pack, invisible on a light one), so these flip each mix toward black.
+     The rail keeps the app's light-mode convention — chrome darker than page. */
+  .pk.day {
+    border-color: rgba(0, 0, 0, 0.12);
+  }
+  .pk.day .pk-rail {
+    background: color-mix(in srgb, var(--pk-bg) 82%, black);
+  }
+  .pk.day .pk-rail i {
+    background: color-mix(in srgb, var(--pk-bg) 55%, black);
+  }
+  .pk.day .pk-rail i:first-child {
+    background: var(--pk-ac);
+  }
+  .pk.day .pk-ag {
+    color: color-mix(in srgb, var(--pk-ac) 60%, black);
+  }
+  .pk.day .pk-line {
+    background: color-mix(in srgb, var(--pk-hi) 72%, black);
+  }
+  .pk.day .pk-body.rule .pk-msg + .pk-msg {
+    border-top-color: color-mix(in srgb, var(--pk-hi) 60%, black);
+  }
+  /* Porcelain: restate the glass translucency — the darkened day rail above
+     out-specifies the `.pk-glow ~ .pk-rail` rule and would paint over the mesh. */
+  .pk.day .pk-glow ~ .pk-rail {
+    background: color-mix(in srgb, var(--pk-bg) 70%, transparent);
+  }
+  .pk.day .pk-glow ~ .pk-body {
+    background: color-mix(in srgb, var(--pk-bg) 60%, transparent);
   }
 
   /* Accent swatches: filled dots; the profile one is hollow (a ring of the

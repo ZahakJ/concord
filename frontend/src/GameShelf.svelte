@@ -9,6 +9,7 @@
   // the popovers' outside-click/hover-close logic treats it as "inside" and
   // the card stays open underneath.
   import Icon from "./Icon.svelte";
+  import EmptyState from "./EmptyState.svelte";
   import { S, flash } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
 
@@ -235,7 +236,13 @@
         </div>
         </div>
       {:else}
-        <div class="g-empty muted">Nothing here yet.</div>
+        <div class="gs-empty">
+          <EmptyState
+            icon="die"
+            headline="Nothing here yet"
+            sub="Show off what you play — add your first game and it lands on the shelf."
+          />
+        </div>
       {/if}
     </div>
   </div>
@@ -642,6 +649,12 @@
   }
   .g-empty {
     font-size: var(--fs-small);
+  }
+  /* The empty library dialog: EmptyState leaves centering to the parent. */
+  .gs-empty {
+    display: grid;
+    place-items: center;
+    padding: 4px 0 12px;
   }
   /* Touch: "Add a game" is an 18px pill in a tight card header, so the tap area
      is padded out to 44px rather than the chip itself. */

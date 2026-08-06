@@ -1037,6 +1037,117 @@
     radial-gradient(120% 100% at 50% 0%, #291b3a 0%, #100b1a 72%);
 }
 
+/* ── Daylight packs ───────────────────────────────────────────────────────
+   The light half of the collection: every pack above declares color-scheme:
+   dark, so a light-mode user had exactly one look. These four are bright
+   grounds with dark ink, following the light theme's inverted depth scale
+   (bg-2 is the page, bg-0 the deepest chrome, bg-3 the hover/input fill —
+   DARKER than the page so existing hover styles read).
+
+   The grouped block first: the [data-theme="light"] status/shadow overrides
+   are keyed on the theme attribute and never fire when the app is in dark
+   mode with a light PACK, so each of these has to carry them itself — dark
+   mode's #e0555b-on-22%-tint reds are tuned for dark grounds. Shared here so
+   the four palettes below stay readable against each other. Same contrast
+   contract as the rest of the file, measured not guessed: each --text-faint
+   clears 3:1 on its own --bg-3, each --text clears 4.5:1 on bg-0/1/2 (for
+   porcelain, composited over the brightest spot of its mesh). */
+:root[data-theme-pack="paper"],
+:root[data-theme-pack="solarized"],
+:root[data-theme-pack="meadow"],
+:root[data-theme-pack="porcelain"] {
+  /* On a bright ground the accent's hover/link form darkens, like the light
+     theme — it doubles as name/link text and needs the contrast. */
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, black);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --danger: #c93a41;
+  --ok: #2b8446;
+  --warn: #a3701a;
+  /* Fills dark enough that white is the surviving ink — light theme's call. */
+  --danger-fg: #ffffff;
+  --ok-fg: #ffffff;
+  --shadow-pop:
+    0 2px 6px rgba(20, 24, 32, 0.08),
+    0 12px 32px rgba(20, 24, 32, 0.18);
+  --float-shadow:
+    0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 2px 5px rgba(20, 24, 32, 0.14);
+  --accent-glow: none;
+  color-scheme: light;
+}
+/* Paper: a reading room at noon — warm off-white stock, dark umber ink, a
+   leather-red accent. The serif + hairline personality lives with the other
+   personality blocks below. */
+:root[data-theme-pack="paper"] {
+  --bg-0: #e6dfd0;
+  --bg-1: #f0eadc;
+  --bg-2: #f8f3e8;
+  --bg-3: #e9e2d1;
+  --border: #cfc5ae;
+  --text: #2a251c;
+  --text-muted: #5c5445;
+  --text-faint: #78705c; /* 3.81:1 on bg-3 */
+  --accent: #9c4a2c;
+  --bg-elevated: #fdfaf2;
+}
+/* Solarized (light): base3 ground, base2 hover, blue accent. --text is base01
+   pulled darker — canonical base00 body ink measures 3.9:1 on this bg-0,
+   under the 4.5 floor, so the hue stays and the lightness gives. */
+:root[data-theme-pack="solarized"] {
+  --bg-0: #e8e0c7;
+  --bg-1: #f3ebd3;
+  --bg-2: #fdf6e3;
+  --bg-3: #eee8d5;
+  --border: #cdc5a8;
+  --text: #43565c;
+  --text-muted: #586c73;
+  --text-faint: #778585; /* 3.13:1 on bg-3 */
+  --accent: #268bd2;
+  --bg-elevated: #fefaec;
+}
+/* Meadow: soft greens front to back, a lawn-dark accent (the same darkness
+   the light theme's --ok needed for white ink to survive on the fill). */
+:root[data-theme-pack="meadow"] {
+  --bg-0: #d5e3c8;
+  --bg-1: #e4eeda;
+  --bg-2: #f1f7ea;
+  --bg-3: #dde9d0;
+  --border: #b7cca4;
+  --text: #25301d;
+  --text-muted: #53644a;
+  --text-faint: #6e8064; /* 3.37:1 on bg-3 */
+  --accent: #2b8347;
+  --bg-elevated: #fbfdf8;
+}
+/* Porcelain: the light twin of the textured packs — translucent near-white
+   surfaces over a static pastel mesh. The mesh is painted on the ROOT CANVAS
+   itself rather than on .theme-bg: the backdrop element is gated by
+   TEXTURED_PACKS in state.svelte.js, and its mobile scrim is a black 0.62
+   sheet tuned for dark glass, which would bury a light one. An html
+   background propagates to the canvas, sits behind body's translucent
+   var(--bg-2) wash, and costs one static paint — the same mechanism with no
+   JS gate and no scrim needed: the worst (brightest) spot of the mesh only
+   RAISES the composite, and the ink here is dark. */
+:root[data-theme-pack="porcelain"] {
+  --bg-0: rgba(255, 255, 255, 0.45);
+  --bg-1: rgba(255, 255, 255, 0.68);
+  --bg-2: rgba(255, 255, 255, 0.6);
+  --bg-3: rgba(210, 216, 230, 0.78);
+  --border: rgba(96, 110, 138, 0.3);
+  --text: #262a33;
+  --text-muted: #59616f;
+  --text-faint: #6f7787; /* 3.37:1 on bg-3 composited over the mesh highlight */
+  --accent: #5661d8;
+  --bg-elevated: rgba(253, 253, 255, 0.96);
+  background:
+    radial-gradient(58% 48% at 12% 8%, rgba(255, 184, 210, 0.5), transparent 62%),
+    radial-gradient(54% 44% at 88% 14%, rgba(164, 198, 255, 0.52), transparent 62%),
+    radial-gradient(72% 60% at 68% 100%, rgba(168, 232, 206, 0.46), transparent 64%),
+    radial-gradient(120% 100% at 50% 0%, #f8f6fa 0%, #e9edf3 72%);
+  /* Viewport-anchored, like .theme-bg's position:fixed. */
+  background-attachment: fixed;
+}
+
 /* ── Pack personality: shape, type, rhythm, surface ───────────────────────
    The part that makes a pack a *skin* rather than a recolor. Every block below
    is what you'd see in a SCREENSHOT WITH THE COLOURS REMOVED: the typeface,
@@ -1324,6 +1435,65 @@
   --msg-gap: 10px;
   --msg-group-pull: -6px;
   --feed-pad: 14px;
+}
+
+/* --- Daylight: the light packs' shapes. Paper reads like a book page — serif,
+   square-ish, author groups separated by a hairline the way a printed thread
+   would be. Solarized keeps its terminal ancestry: monospaced, tight, near-
+   square. Meadow is the light twin of Sakura's airy card feed. Porcelain is
+   glass over the pastel mesh: big radii and a shadow that is grey-blue haze,
+   not black smoke — a dark drop shadow on a near-white ground reads as dirt. */
+:root[data-theme-pack="paper"] {
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --ui-font: "Source Serif 4", Georgia, serif;
+  --avatar-radius: 5px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  --msg-rule-pad: 5px;
+  /* Ink on stock casts no glow; one shallow contact shadow is all a page gets. */
+  --shadow-pop: 0 1px 3px rgba(58, 48, 30, 0.2);
+  --msg-gap: 14px;
+  --feed-pad: 20px;
+}
+:root[data-theme-pack="solarized"] {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 5px;
+  --ui-font: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  --tracking: -0.01em;
+  --avatar-radius: 3px;
+  --msg-pad-y: 1px;
+  --msg-gap: 8px;
+  --msg-group-pull: -5px;
+  --feed-pad: 13px;
+}
+:root[data-theme-pack="meadow"] {
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --ui-font: "Nunito", system-ui, sans-serif;
+  --tracking: 0.006em;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 70%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 75%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 5px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 22px;
+}
+:root[data-theme-pack="porcelain"] {
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --ui-font: "Inter", system-ui, sans-serif;
+  --tracking: 0.01em;
+  --shadow-pop:
+    0 2px 8px rgba(44, 54, 82, 0.1),
+    0 16px 44px rgba(44, 54, 82, 0.16);
+  --accent-glow: 0 0 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  --msg-gap: 13px;
+  --feed-pad: 20px;
 }
 
 /* ── The structural tokens, wired up ──────────────────────────────────────

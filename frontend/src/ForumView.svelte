@@ -25,6 +25,7 @@
   import { cubicOut } from "svelte/easing";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
+  import EmptyState from "./EmptyState.svelte";
   import Banner from "./Banner.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import { api, on } from "./lib/api.js";
@@ -715,23 +716,11 @@
     </div>
   {:else if !posts.length}
     <div class="state">
-      <!-- The empty board still shows what a board looks like: three generated
-           tiles, the same art an image-less post gets. -->
-      <div class="ghost-cards" aria-hidden="true">
-        {#each ["one", "two", "three"] as seed, i (seed)}
-          {@const t = tileFor(forum.id + seed, "")}
-          <span
-            class="ghost-card"
-            style="--i:{i};background:linear-gradient({t.angle}deg,{t.color},{t.color2})"
-          >
-            <i></i><i class="short"></i>
-          </span>
-        {/each}
-      </div>
-      <h3>Nothing here yet</h3>
-      <p class="muted">
-        Start the first post — it becomes its own thread, with its own unread badge.
-      </p>
+      <EmptyState
+        icon="forum"
+        headline="Nothing here yet"
+        sub="Start the first post — it becomes its own thread, with its own unread badge."
+      />
       <button class="cta solid" onclick={newPost}><Icon name="plus" size={14} /> New Post</button>
     </div>
   {:else if !visible.length}
@@ -1859,43 +1848,6 @@
     background: var(--danger-soft);
     color: var(--danger-text);
   }
-  /* Three tiles fanned out: the empty board still shows the shape of a board. */
-  .ghost-cards {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 6px;
-  }
-  .ghost-card {
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    gap: 4px;
-    width: 68px;
-    height: 50px;
-    padding: 7px;
-    border-radius: 9px;
-    opacity: 0.85;
-    animation: card-in 0.45s cubic-bezier(0.2, 0.8, 0.25, 1) both;
-    animation-delay: calc(var(--i, 0) * 80ms);
-  }
-  /* Two bars inside each tile, so the fan reads as three POSTS rather than three
-     paint swatches. */
-  .ghost-card i {
-    height: 4px;
-    border-radius: 2px;
-    background: rgba(255, 255, 255, 0.72);
-  }
-  .ghost-card i.short {
-    width: 55%;
-    background: rgba(255, 255, 255, 0.4);
-  }
-  .ghost-card:first-child {
-    transform: rotate(-6deg);
-  }
-  .ghost-card:last-child {
-    transform: rotate(6deg);
-  }
-
   /* ---- tag picker ------------------------------------------------------- */
   .pick-wrap {
     position: fixed;

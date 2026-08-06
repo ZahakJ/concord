@@ -13,6 +13,7 @@
     activeGuild,
     activeChannel,
     guildUnread,
+    accentForeground,
     onLogin,
     refreshGuilds,
     refreshRightPanel,
@@ -37,6 +38,7 @@
     setPref,
   } from "./lib/state.svelte.js";
 
+  import { guildAccent } from "./lib/guildaccent.js";
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
   import { initDeepLinks, consumePendingChannel } from "./lib/deeplink.js";
   import { closeSearch } from "./lib/search.js";
@@ -140,10 +142,24 @@
     if (!v || v === COL_DEFAULTS[key]) return 0;
     return clampCol(v);
   }
+  // Per-guild accent: the active guild's banner hue becomes --accent for the
+  // whole view, and every derived token (hover/soft/glow are color-mix'd from
+  // it) follows — each guild reads as a PLACE. Precedence: a user's explicit
+  // accent preset always wins, then the guild, then pack/profile (the root
+  // values this stamp overrides). "Use guild colors" in Appearance opts out.
+  const guildAccentVars = $derived.by(() => {
+    if (S.prefs.accent || S.prefs.guildAccents === false) return "";
+    const g = activeGuild();
+    if (!g || g.kind === "dm") return "";
+    const c = guildAccent(g.banner);
+    return c ? `--accent:${c};--accent-fg:${accentForeground(c)}` : "";
+  });
+
   const gridStyle = $derived(
     [
       colVar("colChannels") ? `--col-channels:${colVar("colChannels")}px` : "",
       colVar("colMembers") ? `--col-members:${colVar("colMembers")}px` : "",
+      guildAccentVars,
     ]
       .filter(Boolean)
       .join(";"),

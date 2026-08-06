@@ -1,7 +1,8 @@
 <script>
   // Inline SVG icon set (16px grid, stroked) — replaces the old emoji-glyph
   // buttons so icons render identically on every platform.
-  let { name, size = 16 } = $props();
+  // `draw` sketches the stroke in on mount (~250ms) — opt-in per call site.
+  let { name, size = 16, draw = false } = $props();
 
   const P = {
     hash: "M5 2 4 14 M12 2 11 14 M2.5 5.5h11 M2 10.5h11",
@@ -73,6 +74,8 @@
     calendar: "M2.5 4h11v9.5h-11z M2.5 7h11 M5 2.5V5 M11 2.5V5",
     // Ownership transfer (member context menu): a simple three-point crown.
     crown: "M2.5 12.5 2 5l3.5 2.5L8 3.5l2.5 4L14 5l-.5 7.5z",
+    // Empty game library (EmptyState badge): a five-pip die.
+    die: "M2.5 2.5h11v11h-11z M5.4 5.4h.01 M10.6 5.4h.01 M8 8h.01 M5.4 10.6h.01 M10.6 10.6h.01",
     // Call events (missed-call lines in DMs).
     phone:
       "M4.4 2.5c.4 0 .8.2.9.6l.9 2.1a1 1 0 0 1-.2 1.1L4.8 7.5a9.8 9.8 0 0 0 3.7 3.7l1.2-1.2a1 1 0 0 1 1.1-.2l2.1.9c.4.1.6.5.6.9v1.4c0 .6-.5 1.1-1.1 1A11.9 11.9 0 0 1 2.5 3.6c-.1-.6.4-1.1 1-1.1z",
@@ -102,6 +105,31 @@
     stroke-linejoin="round"
     aria-hidden="true"
   >
-    <path d={P[name] || P.diamond} />
+    <!-- pathLength=1 normalises every glyph's length so one dasharray value
+         covers the whole set when draw is on. -->
+    <path d={P[name] || P.diamond} pathLength={draw ? 1 : undefined} class:draw />
   </svg>
 {/if}
+
+<style>
+  /* Opt-in draw-in: the stroke sketches itself from nothing on mount. */
+  .draw {
+    stroke-dasharray: 1;
+    animation: icon-draw 0.25s ease-out both;
+  }
+  @keyframes icon-draw {
+    from {
+      stroke-dashoffset: 1;
+    }
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    /* No sketching; dashoffset stays at its default 0, so with dasharray 1 on
+       a pathLength-1 path the glyph simply renders complete. */
+    .draw {
+      animation: none;
+    }
+  }
+</style>

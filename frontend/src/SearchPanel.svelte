@@ -5,6 +5,7 @@
   import { tick } from "svelte";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
+  import EmptyState from "./EmptyState.svelte";
   import {
     S,
     jumpToChannel,
@@ -161,9 +162,11 @@
           </button>
         {:else}
           <div class="sp-empty">
-            <Icon name="search" size={18} />
-            <strong>No matches</strong>
-            <span>Nothing in any conversation matches that — try fewer words or drop a filter.</span>
+            <EmptyState
+              icon="search"
+              headline="No matches"
+              sub="Nothing in any conversation matches that — try fewer words or drop a filter."
+            />
           </div>
         {/each}
       {/if}
@@ -362,19 +365,11 @@
     border-radius: 3px;
     padding: 0 1px;
   }
+  /* The illustrated EmptyState centers itself content-wise; this wrapper only
+     centers it inside the results strip (EmptyState leaves that to parents). */
   .sp-empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: 3px;
-    padding: 18px 24px 14px;
-    color: var(--text-muted);
-    font-size: var(--fs-compact);
-  }
-  .sp-empty strong {
-    color: var(--text);
-    font-size: var(--fs-ui);
+    display: grid;
+    place-items: center;
   }
   /* Loading skeleton: three shimmering placeholder rows. */
   .sp-skel {
