@@ -71,7 +71,7 @@ type Role struct {
 type govOp struct {
 	Seq    uint64 `json:"seq"`
 	Signer []byte `json:"signer"` // author's Ed25519 account public key
-	Type   string `json:"type"`   // role_upsert | role_delete | role_assign | ban | unban | mute | unmute | transfer_owner
+	Type   string `json:"type"`   // role_upsert | role_delete | role_assign | ban | unban | mute | unmute | transfer_owner | set_heir | claim_heir
 
 	// role_upsert
 	RoleID   string `json:"roleId,omitempty"`
@@ -81,8 +81,9 @@ type govOp struct {
 	Position int    `json:"position,omitempty"`
 
 	// role_assign (Add=false removes) — Target is a member fingerprint;
-	// ban/unban/mute/unmute also use Target, and transfer_owner names the
-	// NEW owner's account fingerprint in it.
+	// ban/unban/mute/unmute also use Target, transfer_owner names the
+	// NEW owner's account fingerprint in it, and set_heir names the
+	// designated heir (empty = revoke the designation).
 	Target string `json:"target,omitempty"`
 	Add    bool   `json:"add,omitempty"`
 	Until  int64  `json:"until,omitempty"` // mute: muted-until (unix seconds)
@@ -122,11 +123,21 @@ type GuildState struct {
 	// Unexported because it is derived — Owner() is the read, and every
 	// authority decision must consult it rather than guild.OwnerID.
 	owner string
+	// heir is the fingerprint the current owner pre-authorized to claim
+	// ownership ("" = none). Derived like owner: only a set_heir signed by the
+	// then-current owner records it, and it is consumed by a successful
+	// claim_heir or cleared by any ownership change.
+	heir string
 }
 
 // Owner is the guild's EFFECTIVE owner fingerprint after replaying the log
 // (empty only for a zero GuildState that never saw a replay).
 func (st GuildState) Owner() string { return st.owner }
+
+// Heir is the fingerprint the current owner named as their successor
+// ("" = none). The heir may claim ownership AT ANY TIME — see set_heir in
+// replayGuildOps for why this is deliberately not a liveness-gated switch.
+func (st GuildState) Heir() string { return st.heir }
 
 func newGuildState() GuildState {
 	return GuildState{
@@ -207,6 +218,11 @@ func canonicalOps(ops []govOp) []govOp {
 //   - transfer_owner: only the THEN-current owner's signature moves ownership,
 //     evaluated in canonical order so every peer agrees on the chain A→B→C and
 //     a stale op the dethroned founder signs afterwards is dead on arrival.
+//   - set_heir / claim_heir: the involuntary-succession pair. Only the
+//     then-current owner names (or, with an empty Target, revokes) an heir;
+//     only the named heir's own signature converts the designation into
+//     ownership, via the same cur machinery as transfer_owner. Any ownership
+//     change voids the designation.
 //
 // "Owner" everywhere below means the CURRENT owner (cur): it starts at the
 // founding key and each valid transfer_owner re-anchors every later op's
@@ -324,6 +340,34 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 				continue
 			}
 			cur = o.Target
+			// A handover voids any standing heir designation: it was the OLD
+			// owner's trust decision, and the new owner names their own.
+			st.heir = ""
+		case "set_heir":
+			// Only the reigning owner pre-authorizes a successor (or revokes
+			// the designation with an empty Target). This is the involuntary-
+			// succession primitive: the resulting claim is valid WHENEVER the
+			// heir uses it, not merely "if the owner goes quiet" — wall-clock
+			// liveness is not a fact partitioned peers can agree on, and a
+			// liveness gate could crown two owners on two sides of a partition.
+			// So the heir holds a permanent, revocable break-glass, and the UI
+			// says exactly that at designation time.
+			if !isOwner || o.Target == cur || st.Banned[o.Target] {
+				continue // self-heir is meaningless; a banned fpr can't inherit
+			}
+			st.heir = o.Target
+		case "claim_heir":
+			// The heir cashes the owner's standing authorization: ownership
+			// moves through the SAME cur machinery as transfer_owner, so there
+			// is exactly one notion of "current owner" for every later rule.
+			// Only a signature from the fingerprint the live designation names
+			// counts, and a since-banned heir cannot claim. The designation is
+			// consumed — the new owner names their own heir.
+			if st.heir == "" || signer != st.heir || st.Banned[signer] {
+				continue
+			}
+			cur = signer
+			st.heir = ""
 		}
 	}
 	st.owner = cur

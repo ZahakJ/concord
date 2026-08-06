@@ -179,15 +179,19 @@ type GuildView struct {
 	// OwnerFingerprint authenticates relayed guest messages: kind:"guest" is only
 	// honoured in a meeting when the owner (the host) signed it. Without it a
 	// member could forge an unaccountable "guest" author.
-	OwnerFingerprint string         `json:"ownerFingerprint,omitempty"`
-	CanManage        bool           `json:"canManage"`   // viewer may invite/kick/ban here
-	MyPerms          uint32         `json:"myPerms"`     // viewer's effective permission bitmask
-	Icon             string         `json:"icon"`        // guild logo (data URI)
-	Banner           string         `json:"banner"`      // guild banner image (data URI)
-	Description      string         `json:"description"` // guild blurb
-	Channels         []ChannelView  `json:"channels"`
-	Categories       []CategoryView `json:"categories"`
-	Emoji            []EmojiView    `json:"emoji"`
+	OwnerFingerprint string `json:"ownerFingerprint,omitempty"`
+	// Heir is the member the current owner pre-authorized to claim ownership
+	// ("" = none). Drives the heir badge, the owner's revoke affordance, and
+	// the heir's own "take ownership" affordance.
+	Heir        string         `json:"heir,omitempty"`
+	CanManage   bool           `json:"canManage"`   // viewer may invite/kick/ban here
+	MyPerms     uint32         `json:"myPerms"`     // viewer's effective permission bitmask
+	Icon        string         `json:"icon"`        // guild logo (data URI)
+	Banner      string         `json:"banner"`      // guild banner image (data URI)
+	Description string         `json:"description"` // guild blurb
+	Channels    []ChannelView  `json:"channels"`
+	Categories  []CategoryView `json:"categories"`
+	Emoji       []EmojiView    `json:"emoji"`
 	// OutOfSync: this member is stranded at an old MLS epoch that no reachable
 	// peer could bridge; new messages can't be decrypted until re-invited.
 	OutOfSync bool `json:"outOfSync,omitempty"`
@@ -243,6 +247,7 @@ type MemberView struct {
 	Online      bool             `json:"online"`
 	Verified    bool             `json:"verified"`
 	IsOwner     bool             `json:"isOwner"`    // guild owner (implicit full authority)
+	IsHeir      bool             `json:"isHeir"`     // named heir (may claim ownership at any time)
 	Perms       uint32           `json:"perms"`      // effective permission bitmask
 	CanManage   bool             `json:"canManage"`  // owner or manage-members holder
 	RoleIDs     []string         `json:"roleIds"`    // assigned role IDs (highest-first from Roles())
@@ -1452,6 +1457,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 	}
 
 	verified := svc.VerifiedFingerprints()
+	heir := svc.GuildHeir(guildID)
 	out := make([]MemberView, 0, len(creds))
 	// One row per ACCOUNT: an account's linked devices are separate MLS leaves,
 	// but they're the same person — collapse them by account fingerprint so a
@@ -1497,6 +1503,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Online:      isSelf || online[fpr],
 			Verified:    isSelf || verified[fpr],
 			IsOwner:     isOwner,
+			IsHeir:      heir != "" && fpr == heir,
 			Perms:       perms,
 			CanManage:   isOwner || perms&uint32(appsvc.PermManageMembers) != 0,
 			RoleIDs:     svc.MemberRoleIDs(guildID, fpr),
@@ -1666,6 +1673,36 @@ func (b *Bridge) TransferOwnership(guildID, fingerprint string) error {
 		return err
 	}
 	return svc.TransferOwnership(guildID, fingerprint)
+}
+
+// SetHeir pre-authorizes a member to claim guild ownership (owner only).
+// The heir can use it AT ANY TIME — it is a standing, revocable authorization,
+// not a dead-man switch, and the UI words it that way.
+func (b *Bridge) SetHeir(guildID, fingerprint string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetHeir(guildID, fingerprint)
+}
+
+// ClearHeir revokes the guild's heir designation (owner only).
+func (b *Bridge) ClearHeir(guildID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.ClearHeir(guildID)
+}
+
+// ClaimOwnership makes THIS peer the guild owner, if it is the named heir.
+// One signed governance op — the MLS group and epoch are untouched.
+func (b *Bridge) ClaimOwnership(guildID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.ClaimOwnership(guildID)
 }
 
 // BanMember bars a fingerprint and evicts them if present (manage-members).
@@ -2038,6 +2075,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
 		OwnerFingerprint: svc.GuildOwnerFingerprint(g.ID),
+		Heir:             svc.GuildHeir(g.ID),
 		DMPeerPresence:   dmPeerPresence, DMPeerOnline: dmPeerOnline,
 		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers, DMFaces: dmFaces,
 		DMNamed:   g.Kind == "dm" && isCustomDMName(g.Name),
@@ -2549,6 +2587,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.AssignRole(argStr(args, 0), argStr(args, 1), argStr(args, 2), argBool(args, 3))
 	case "TransferOwnership":
 		return nil, b.TransferOwnership(argStr(args, 0), argStr(args, 1))
+	case "SetHeir":
+		return nil, b.SetHeir(argStr(args, 0), argStr(args, 1))
+	case "ClearHeir":
+		return nil, b.ClearHeir(argStr(args, 0))
+	case "ClaimOwnership":
+		return nil, b.ClaimOwnership(argStr(args, 0))
 	case "BanMember":
 		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
 	case "UnbanMember":

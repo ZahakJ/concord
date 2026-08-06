@@ -56,6 +56,7 @@ func (s *Service) effectiveOwner(guildID string) string {
 func (st GuildState) copy() GuildState {
 	out := newGuildState()
 	out.owner = st.owner
+	out.heir = st.heir
 	for k, v := range st.Roles {
 		out.Roles[k] = v
 	}
@@ -106,6 +107,16 @@ func (s *Service) ingestGovOp(guildID string, o govOp) bool {
 	// remembered as seen, so if it merely outran the target's join commit,
 	// the next sync re-delivery lands it.
 	if o.Type == "transfer_owner" && !s.guildHasMember(guildID, o.Target) {
+		return false
+	}
+	// set_heir names a future owner, so it runs the same gate on its Target
+	// (an empty Target is a revocation and always passes). claim_heir's future
+	// owner is its SIGNER, so the gate keys on that — an heir who has since
+	// left the guild cannot claim it from outside.
+	if o.Type == "set_heir" && o.Target != "" && !s.guildHasMember(guildID, o.Target) {
+		return false
+	}
+	if o.Type == "claim_heir" && !s.guildHasMember(guildID, o.signerFpr()) {
 		return false
 	}
 	hash := o.hash()
@@ -339,6 +350,65 @@ func (s *Service) TransferOwnership(guildID, targetFpr string) error {
 		return fmt.Errorf("app: ownership can only be handed to a current member")
 	}
 	return s.issueGovOp(guildID, govOp{Type: "transfer_owner", Target: targetFpr})
+}
+
+// GuildHeir returns the fingerprint the current owner named as heir
+// ("" = none). Derived from replay, so every peer reads the same answer.
+func (s *Service) GuildHeir(guildID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if st, ok := s.govState[guildID]; ok {
+		return st.heir
+	}
+	return ""
+}
+
+// SetHeir pre-authorizes a member to claim ownership of the guild (owner
+// only). BE CLEAR ABOUT WHAT THIS IS: the heir can cash it AT ANY TIME, not
+// just "if the owner disappears" — a liveness gate is unimplementable in a
+// partitioned P2P network without risking two crowned owners, so we don't
+// pretend to have one. The owner can revoke (ClearHeir) any time before it's
+// used. Issue-side checks are a courtesy; ingest re-checks membership and
+// replay re-checks the owner's signature on EVERY peer.
+func (s *Service) SetHeir(guildID, targetFpr string) error {
+	self := s.id.Fingerprint()
+	if targetFpr == "" {
+		return fmt.Errorf("app: no member chosen")
+	}
+	if !s.IsGuildOwner(guildID, self) {
+		return fmt.Errorf("app: only the owner can name an heir")
+	}
+	if targetFpr == self {
+		return fmt.Errorf("app: you already own this server")
+	}
+	if !s.guildHasMember(guildID, targetFpr) {
+		return fmt.Errorf("app: the heir must be a current member")
+	}
+	return s.issueGovOp(guildID, govOp{Type: "set_heir", Target: targetFpr})
+}
+
+// ClearHeir revokes the standing heir designation (owner only). An empty
+// Target on a set_heir IS the revocation — one op type, one replay rule.
+func (s *Service) ClearHeir(guildID string) error {
+	if !s.IsGuildOwner(guildID, s.id.Fingerprint()) {
+		return fmt.Errorf("app: only the owner can revoke an heir")
+	}
+	return s.issueGovOp(guildID, govOp{Type: "set_heir"})
+}
+
+// ClaimOwnership is the heir cashing the owner's pre-authorization: one signed
+// governance op, MLS untouched, exactly like TransferOwnership but initiated
+// by the successor. Replay only honors it when the signer matches the live
+// designation, so a non-heir issuing this convinces nobody.
+func (s *Service) ClaimOwnership(guildID string) error {
+	self := s.id.Fingerprint()
+	if s.IsGuildOwner(guildID, self) {
+		return fmt.Errorf("app: you already own this server")
+	}
+	if s.GuildHeir(guildID) != self {
+		return fmt.Errorf("app: the owner has not named you their heir")
+	}
+	return s.issueGovOp(guildID, govOp{Type: "claim_heir"})
 }
 
 // UnbanMember lifts a ban. Requires manage-members.

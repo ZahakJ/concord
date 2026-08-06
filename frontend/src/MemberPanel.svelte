@@ -63,6 +63,15 @@
           danger: true,
           onClick: () => transferOwnership(mem),
         },
+      // Succession: name (or unname) an heir. Same eligibility as a transfer —
+      // the crown can only ever land on a member who's actually here.
+      g?.isOwner &&
+        !mem.isSelf &&
+        !mem.isOwner &&
+        !mem.pending &&
+        (mem.isHeir
+          ? { label: "Revoke Heir", icon: "crown", onClick: () => revokeHeir(mem) }
+          : { label: "Name as Heir…", icon: "crown", onClick: () => nameHeir(mem) }),
       g?.canManage &&
         !mem.isSelf &&
         !mem.isOwner && {
@@ -99,6 +108,109 @@
       },
     };
   }
+
+  // Naming an heir hands out a PERMANENT break-glass: the claim is valid
+  // whenever the heir uses it, not just "if the owner goes quiet" — a liveness
+  // gate can't exist in a partitioned P2P network without risking two crowned
+  // owners. The confirm copy must say that plainly, never soften it into a
+  // dead-man switch the system doesn't actually have.
+  function nameHeir(mem) {
+    const name = mem.name || mem.fingerprint.slice(0, 9);
+    S.modal = {
+      kind: "confirm",
+      title: `Name ${name} as heir?`,
+      body: `${name} will be able to take ownership of ${g?.name || "this guild"} at any time — including while you're still around. Only name someone you'd trust to run this place. You can revoke this whenever you like, until it's used.`,
+      confirmLabel: "Name as Heir",
+      onConfirm: async () => {
+        S.modal = null;
+        try {
+          await api.setHeir(S.activeGuildId, mem.fingerprint);
+          await refreshGuilds();
+          await refreshRightPanel();
+          flash(`${name} is now this guild's heir`, "success");
+        } catch (err) {
+          flash(err);
+        }
+      },
+    };
+  }
+
+  // Revoking is the safe direction — no confirm needed, just do it.
+  async function revokeHeir(mem) {
+    try {
+      await api.clearHeir(S.activeGuildId);
+      await refreshGuilds();
+      await refreshRightPanel();
+      flash(`${mem.name || "Member"} is no longer the heir`);
+    } catch (err) {
+      flash(err);
+    }
+  }
+
+  // The heir cashing the designation — worded for the real situation (the
+  // owner is gone, or asked them to), two-step confirmed like a transfer.
+  function claimOwnership() {
+    S.modal = {
+      kind: "confirm",
+      title: "Take ownership of this guild?",
+      body: `The owner named you their heir, so you can take over at any time. You'll become the owner of ${g?.name || "this guild"} and the current owner becomes a regular member. Do this if the owner is gone — or asked you to.`,
+      confirmLabel: "Take Ownership",
+      onConfirm: async () => {
+        S.modal = null;
+        try {
+          await api.claimOwnership(S.activeGuildId);
+          await refreshGuilds();
+          await refreshRightPanel();
+          flash("You now own this guild", "success");
+        } catch (err) {
+          flash(err);
+        }
+      },
+    };
+  }
+
+  // "Name an heir" from the nudge: reuse the context-menu idiom as a picker —
+  // same surface the member row's own menu uses, anchored at the button.
+  function pickHeir(e) {
+    const eligible = S.members.filter((m) => !m.isSelf && !m.pending);
+    openContextMenu(
+      e,
+      eligible.map((m) => ({
+        label: m.name || m.fingerprint.slice(0, 9),
+        icon: "crown",
+        onClick: () => nameHeir(m),
+      })),
+    );
+  }
+
+  // ---- sole-admin freeze warning ----
+  // The owner is the guild's permission ROOT. If they vanish while nobody
+  // else holds manage-members, no one can ever add or remove a member again —
+  // the guild freezes. Another admin OR a named heir defuses that, so the
+  // nudge only shows while NEITHER exists (and there's actually someone to
+  // promote). Dismissal is per guild and purely local.
+  let heirNudgeDismissed = $state(
+    JSON.parse(localStorage.getItem("heirNudgeDismissed") || "{}"),
+  );
+  function dismissNudge() {
+    heirNudgeDismissed[S.activeGuildId] = true;
+    localStorage.setItem("heirNudgeDismissed", JSON.stringify(heirNudgeDismissed));
+  }
+  const soleAdminRisk = $derived(
+    !!g &&
+      g.kind !== "dm" &&
+      g.isOwner &&
+      !g.heir &&
+      !heirNudgeDismissed[g.id] &&
+      S.members.some((m) => !m.isSelf && !m.pending) &&
+      !S.members.some((m) => !m.isSelf && !m.pending && m.canManage),
+  );
+
+  // The heir's own affordance: visible only to the named heir, who may not
+  // otherwise know (or remember) they hold the break-glass.
+  const iAmHeir = $derived(
+    !!g && g.kind !== "dm" && !g.isOwner && g.heir === S.identity.fingerprint,
+  );
 
   // A member's highest-ranked role (roles are highest-first), for a badge.
   function topRole(mem) {
@@ -167,6 +279,37 @@
 </script>
 
 <aside class="panel">
+  {#if soleAdminRisk}
+    <div class="notice warn" role="note">
+      <div class="notice-head">
+        <Icon name="crown" size={13} />
+        <strong>You're this guild's only admin</strong>
+        <button class="notice-x" aria-label="Dismiss warning" onclick={dismissNudge}>
+          <Icon name="close" size={11} />
+        </button>
+      </div>
+      <p>
+        If you lose this account, nobody will be able to add or remove members again. Give
+        someone a role with “manage members”, or name an heir who can take over.
+      </p>
+      <div class="notice-actions">
+        <button class="notice-btn" onclick={() => (S.modal = { kind: "roles" })}>Open roles</button>
+        <button class="notice-btn" onclick={pickHeir}>Name an heir…</button>
+      </div>
+    </div>
+  {/if}
+  {#if iAmHeir}
+    <div class="notice accent" role="note">
+      <div class="notice-head">
+        <Icon name="crown" size={13} />
+        <strong>You're the named heir</strong>
+      </div>
+      <p>The owner authorized you to take over this guild — for when they're gone, or ask you to.</p>
+      <div class="notice-actions">
+        <button class="notice-btn" onclick={claimOwnership}>Take ownership…</button>
+      </div>
+    </div>
+  {/if}
   {#each memberGroups as grp (grp.id)}
     <div class="section-head">
       <span style={grp.color ? `color:${grp.color}` : ""}>{grp.name} — {grp.members.length}</span>
@@ -199,6 +342,8 @@
             >{mem.name || mem.fingerprint.slice(0, 9)}</span>{mem.isSelf ? " (you)" : ""}
             {#if mem.isOwner}
               <span class="role-badge owner" title="Guild owner">owner</span>
+            {:else if mem.isHeir}
+              <span class="role-badge heir" title="Named heir — can take ownership at any time">heir</span>
             {:else if topRole(mem)}
               {@const r = topRole(mem)}
               <!-- A role colour is picked to be seen, not to be read: painting
@@ -511,6 +656,99 @@
     flex-shrink: 0;
     background: color-mix(in srgb, var(--warn) 22%, transparent);
     color: var(--warn-text);
+  }
+  /* Heir: same badge shape as owner, warn-tinted — a standing authorization
+     worth noticing, not an alarm. Text blends toward --text like the owner
+     badge so it stays readable on the tint in every theme pack. */
+  .role-badge.heir {
+    background: color-mix(in srgb, var(--warn) 20%, transparent);
+    color: color-mix(in srgb, var(--warn) 50%, var(--text));
+  }
+  /* Inline notices (sole-admin freeze warning, heir's claim card). Calm
+     tinted cards, not toasts: they describe a standing state of the guild.
+     Tokens only, so they hold in dark/light and every pack; full-width and
+     wrap-friendly so they sit fine in the 393px right drawer. */
+  .notice {
+    margin: 4px 4px 8px;
+    padding: 10px;
+    border-radius: var(--radius-md);
+    font-size: var(--fs-small);
+    line-height: 1.45;
+  }
+  .notice.warn {
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+    color: var(--text);
+  }
+  .notice.warn .notice-head {
+    color: var(--warn-text);
+  }
+  .notice.accent {
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    color: var(--text);
+  }
+  .notice.accent .notice-head {
+    color: color-mix(in srgb, var(--accent) 50%, var(--text));
+  }
+  .notice-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-ui);
+    margin-bottom: 4px;
+  }
+  .notice-head strong {
+    flex: 1;
+    min-width: 0;
+  }
+  .notice p {
+    margin: 0 0 8px;
+    color: var(--text-muted);
+  }
+  .notice-x {
+    background: transparent;
+    color: inherit;
+    padding: 2px 4px;
+    opacity: 0.7;
+    flex-shrink: 0;
+  }
+  .notice-x:hover {
+    opacity: 1;
+    background: transparent;
+  }
+  /* Touch: pad the dismiss X's tap area out without growing the glyph. */
+  @media (pointer: coarse) {
+    .notice-x {
+      position: relative;
+    }
+    .notice-x::after {
+      content: "";
+      position: absolute;
+      inset: -10px;
+    }
+  }
+  .notice-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .notice-btn {
+    padding: 6px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3);
+    color: var(--text);
+    font-size: var(--fs-ui);
+    font-weight: 600;
+  }
+  .notice-btn:hover,
+  .notice-btn:active {
+    background: var(--bg-4, var(--bg-3));
+  }
+  @media (pointer: coarse) {
+    .notice-btn {
+      min-height: 38px;
+    }
   }
   .role-badge.owner {
     background: color-mix(in srgb, var(--accent) 22%, transparent);
