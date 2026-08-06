@@ -26,6 +26,13 @@
 
 {#if S.joinVeil}
   <div class="veil" class:leaving={S.joinVeil.leaving} role="status" aria-live="polite">
+    <!-- A hint of the destination behind the copy. The veil only knows the
+         event's TITLE — the room's guild id (and thus its banner preset)
+         doesn't exist client-side until the join resolves, and matching
+         S.guilds by name would happily paint some other "Weekly sync"'s
+         banner. So the identity here is the accent: a soft radial wash, dim
+         enough to stay under the text. -->
+    <div class="wash" aria-hidden="true"></div>
     <div class="inner">
       <div class="kicker evk">{S.joinVeil.title}</div>
       <Avatar name={me.name} emoji={me.emoji} color={me.color} image={me.avatar} size={64} />
@@ -49,13 +56,33 @@
        fade is a reveal, not a scene cut. No backdrop-filter — phones. */
     background: color-mix(in srgb, var(--bg-0) 82%, transparent);
     animation: veil-in 140ms var(--ease-calm);
+    /* Full-cover circle at rest so .leaving has a start value to iris from.
+       % is against the box diagonal — 140% clears the corners with room. */
+    clip-path: circle(140% at 50% 50%);
   }
   .veil.leaving {
-    opacity: 0;
     pointer-events: none;
-    transition: opacity 220ms var(--ease-calm);
+    /* The door opens: the veil irises down to a point over your avatar and
+       the already-rendered room is what's left. clip-path only — stays on the
+       compositor. 220ms, because EventCard tears the veil down at 260ms; a
+       longer iris would get cut off mid-shrink. */
+    clip-path: circle(0% at 50% 50%);
+    transition: clip-path 220ms var(--ease-calm);
+  }
+  .wash {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    /* Two off-center accent pools, dimmed hard. No filter blur — radial
+       gradients are already soft, and the "no backdrop-filter — phones" rule
+       above extends to any per-frame filter work on a full-screen layer. */
+    background:
+      radial-gradient(55% 70% at 50% 26%, color-mix(in srgb, var(--accent) 32%, transparent), transparent 70%),
+      radial-gradient(60% 75% at 78% 88%, color-mix(in srgb, var(--accent-hover) 22%, transparent), transparent 72%);
+    opacity: 0.45;
   }
   .inner {
+    position: relative; /* above the wash */
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -92,8 +119,13 @@
   @media (prefers-reduced-motion: reduce) {
     .veil {
       animation: none;
+      clip-path: none;
     }
+    /* Reduced motion keeps the pre-iris exit: no clip animation, the veil
+       just stops being there (the old instant opacity drop). */
     .veil.leaving {
+      clip-path: none;
+      opacity: 0;
       transition: none;
     }
   }

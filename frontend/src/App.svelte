@@ -75,6 +75,7 @@
   import ModalForumSettings from "./modals/ModalForumSettings.svelte";
   import ModalMeeting from "./modals/ModalMeeting.svelte";
   import ModalShortcuts from "./modals/ModalShortcuts.svelte";
+  import ModalWhatsNew from "./modals/ModalWhatsNew.svelte";
   import ModalNewDM from "./modals/ModalNewDM.svelte";
   import ModalRenameGroup from "./modals/ModalRenameGroup.svelte";
   import ModalRenameChannel from "./modals/ModalRenameChannel.svelte";
@@ -201,6 +202,25 @@
       if (c) return gg.kind === "dm" ? gg.name : `${gg.name} · ${c.name}`;
     }
     return "";
+  });
+
+  // One-time "What's new" splash after an update. Polish used to ship
+  // invisibly — v0.54's headline features arrived unannounced. A fresh install
+  // has nothing to announce, so it only records the version and stays quiet.
+  let whatsNewChecked = false;
+  $effect(() => {
+    if (!S.ready || whatsNewChecked) return;
+    whatsNewChecked = true;
+    api
+      .appVersion()
+      .then((v) => {
+        if (!v) return;
+        const seen = localStorage.getItem("concord.seenVersion") || "";
+        if (seen === v) return;
+        localStorage.setItem("concord.seenVersion", v);
+        if (seen && !S.modal) S.modal = { kind: "whatsNew", version: v };
+      })
+      .catch(() => {});
   });
 
   // Window title carries the unread signal to the taskbar/dock: "(3) #general
@@ -1180,6 +1200,8 @@
     <ModalGuildSettings onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "shortcuts"}
     <ModalShortcuts onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "whatsNew"}
+    <ModalWhatsNew version={S.modal.version} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "when"}
     <ModalWhen onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "scheduled"}

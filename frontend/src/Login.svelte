@@ -3,6 +3,7 @@
   import { api } from "./lib/api.js";
   import { S, flash } from "./lib/state.svelte.js";
   import { linkCodeFrom } from "./lib/deeplink.js";
+  import { confettiBurst } from "./lib/burst.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import Icon from "./Icon.svelte";
   import PassphraseField from "./PassphraseField.svelte";
@@ -130,6 +131,11 @@
       // over — better said out loud than discovered as missing servers later.
       const warning = await api.redeemLinkCode(code, passphrase);
       if (warning) flash(warning);
+      // The link just landed — celebrate HERE, on the transition the user
+      // watched happen, not on the mount of whatever screen comes next. The
+      // scanned-ok tick above isn't this moment: a scan only captures the
+      // code, redeeming it is what links the device.
+      confettiBurst({ seed: "device-link" });
       onLogin();
     } catch (err) {
       // Strip only the Go package prefix (app:/net:/store:) — NOT everything up

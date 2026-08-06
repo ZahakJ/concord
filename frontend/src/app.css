@@ -2227,3 +2227,61 @@ textarea:focus {
     opacity: var(--o);
   }
 }
+
+/* ---- one-shot bursts (lib/burst.js) ----
+   The looped engine above decorates; these celebrate. Every keyframe here runs
+   exactly once (iteration-count 1, forwards) and the layer removes itself, so
+   nothing lingers to cost frames after the moment passes. Transform/opacity
+   only, same as the looped kinds. JS already bails under reduced motion; the
+   guard below is belt-and-braces for anything that slipped through. */
+.fx-once {
+  contain: layout style;
+}
+.fxo {
+  position: absolute;
+  left: var(--x, 0);
+  top: 0;
+  font-size: var(--sz);
+  line-height: 1;
+  color: var(--c);
+  will-change: transform, opacity;
+}
+.fxo::before {
+  content: attr(data-g);
+}
+.fxo-radial {
+  animation: fxo-radial var(--du) cubic-bezier(0.16, 0.84, 0.44, 1) 1 forwards;
+}
+@keyframes fxo-radial {
+  from {
+    transform: translate(-50%, -50%) scale(0.4) rotate(0deg);
+    opacity: 1;
+  }
+  to {
+    transform: translate(calc(var(--tx) - 50%), calc(var(--ty) - 50%)) scale(1) rotate(var(--rot));
+    opacity: 0;
+  }
+}
+.fxo-fall {
+  top: -5%;
+  animation: fxo-fall var(--du) ease-in var(--d, 0s) 1 both;
+}
+@keyframes fxo-fall {
+  from {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  to {
+    transform: translate3d(var(--dx), 108vh, 0) rotate(var(--rot));
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fxo {
+    animation: none !important;
+    opacity: 0;
+  }
+}

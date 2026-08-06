@@ -17,6 +17,8 @@
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
   import { stampTimestamp } from "./lib/timestamp.js";
+  import { playSend } from "./lib/sounds.js";
+  import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
   import { stagedImage } from "./lib/attachopts.js";
 
   let draft = $state("");
@@ -194,6 +196,7 @@
   // the menu can never drift out of sync with what actually expands. `args`
   // controls whether accepting a command leaves the caret after "/cmd ".
   const kaomoji = (face) => (rest) => (rest ? rest + " " : "") + face;
+  const fxExpand = (name) => (rest) => `${rest || FX_EFFECTS[name].body} ${encodeFx(name)}`;
   // A sealed timestamp is per-message intent: you arm it, you send, it disarms.
   // Leaving it latched would silently stamp every later message, and a marker
   // that appears when you did not ask for it is worse than no marker.
@@ -225,6 +228,13 @@
         return rest || text.replace(/^\/timestamp\s*/i, "");
       },
     },
+    // Send effects: the token rides the message itself (lib/fxtoken.js), so
+    // every peer's client plays the burst when the row first scrolls into
+    // view. Sent bare, the effect's emoji stands in as the body — a message
+    // that is pure fireworks still needs a row to live in.
+    { name: "confetti", usage: "/confetti [message]", desc: "Send with a confetti burst", args: true, expand: fxExpand("confetti") },
+    { name: "fireworks", usage: "/fireworks [message]", desc: "Send with fireworks", args: true, expand: fxExpand("fireworks") },
+    { name: "hearts", usage: "/hearts [message]", desc: "Send with floating hearts", args: true, expand: fxExpand("hearts") },
     // ACTIONS, not text expansions: these run instead of sending (see runAction).
     { name: "meme", usage: "/meme", desc: "Open the meme editor", expand: (_, text) => text },
     { name: "gif", usage: "/gif", desc: "This guild's GIF pack", expand: (_, text) => text },
@@ -606,14 +616,14 @@
     const text = replaceShortcodes(applySlash(raw).trim());
     const atts = pending;
     if ((!text && atts.length === 0) || !S.activeChannelId) return;
-    if (mobile) {
-      // Sound, but deliberately NO vibration. Sending is the single most
-      // frequent action in the app and it is already confirmed twice over — the
-      // plane animation and the message appearing in the feed. A buzz on every
-      // send does not read as feedback, it reads as the phone twitching in your
-      // hand. Haptics are for what you cannot see or cannot undo.
-      playLaunch();
-    }
+    // Plane animation + a two-note tick, every platform. Deliberately NO
+    // vibration: sending is the single most frequent action in the app and it
+    // is already confirmed twice over — a buzz on every send does not read as
+    // feedback, it reads as the phone twitching in your hand. Haptics are for
+    // what you cannot see or cannot undo. (The tick rides the global sound
+    // mute like every other chime.)
+    playLaunch();
+    playSend();
     const chId = S.activeChannelId;
     const prevDraft = draft;
     const prevReply = S.replyingTo;

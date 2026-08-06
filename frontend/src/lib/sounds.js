@@ -441,6 +441,19 @@ function noiseSource(ac, dur) {
   return src;
 }
 
+// The send tick: two tiny ascending notes riding the same mute switch as
+// everything else. Quiet on purpose — sending happens hundreds of times a day,
+// so this has to disappear into muscle memory as confirmation, not fanfare.
+export function playSend() {
+  play(
+    [
+      [1320, 0, 0.05, 0.045],
+      [1760, 0.045, 0.07, 0.04],
+    ],
+    "triangle",
+  );
+}
+
 // Easter egg: the home button's logo is a Concorde, so hammering it flies one
 // past you. Synthesized like everything else here — there are no audio files in
 // this app and there must not be.

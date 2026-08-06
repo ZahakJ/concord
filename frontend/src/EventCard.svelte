@@ -14,6 +14,7 @@
   import { addReminder } from "./lib/scheduled.svelte.js";
   import { haptic } from "./lib/touch.js";
   import { clockOpts } from "./lib/state.svelte.js";
+  import { radialBurst } from "./lib/burst.js";
   import {
     fmtEventTime,
     eventPhase,
@@ -62,6 +63,33 @@
 
   const phase = $derived(eventPhase(ev, now));
   const past = $derived(isPast(ev, now));
+
+  // ---- the flip to LIVE ----
+  // A tiny burst out of the now-dot, only for the transition you actually
+  // watched: prevLive starts null so a card that MOUNTS live (opening the
+  // calendar mid-event) stays quiet — the ripple is for "it just started",
+  // never "it already was". Effects run post-render, so by the time the flip
+  // is observed the live kicker (and its dot) is in the DOM to measure.
+  // Color is --ok, not --accent: on this card color is reserved for state,
+  // and live's ink is --ok everywhere else. burst.js owns the reduced-motion
+  // bail and the layer cap.
+  let nowDot = $state(null);
+  let prevLive = null;
+  $effect(() => {
+    const isLive = phase === "live";
+    if (prevLive === false && isLive) {
+      const r = nowDot?.getBoundingClientRect();
+      if (r)
+        radialBurst(r.left + r.width / 2, r.top + r.height / 2, {
+          glyphs: ["●", "✦"],
+          colors: ["var(--ok)"],
+          n: 6,
+          dist: [16, 40],
+          seed: `live-${ev.id}`,
+        });
+    }
+    prevLive = isLive;
+  });
   const mine = $derived(ev.rsvps?.[S.identity.fingerprint] || "");
   const buckets = $derived(rsvpBuckets(ev));
   // Mirrors the backend's mayCurateEvent gate (author or ManageMessages), so
@@ -421,7 +449,7 @@
           <span class="ksep" aria-hidden="true">·</span>
         {/if}
         {#if phase === "live"}
-          <span class="now-dot"></span><span>Happening now</span>
+          <span class="now-dot" bind:this={nowDot}></span><span>Happening now</span>
         {:else if phase === "soon"}
           <span>{fmtCountdown(ev.startUnix, now)}</span>
         {:else if phase === "ended"}

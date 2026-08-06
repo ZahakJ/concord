@@ -11,7 +11,7 @@
 // identical in the picker, on the card, and on everyone else's screen — and it
 // doesn't reshuffle on every re-render.
 
-function rng(seed) {
+export function rng(seed) {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < seed.length; i++) {
     h ^= seed.charCodeAt(i);

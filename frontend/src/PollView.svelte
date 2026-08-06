@@ -10,6 +10,7 @@
   import { S, react, memberByFpr, nameFor, openContextMenu } from "./lib/state.svelte.js";
   import { haptic } from "./lib/touch.js";
   import { POLL_EMOJI } from "./lib/polls.js";
+  import { radialBurst } from "./lib/burst.js";
 
   // `preview` renders the poll as it will look without letting anyone vote —
   // used by the composer so you can see what you're about to post.
@@ -44,7 +45,7 @@
     return { name: nameFor(fpr), emoji: mem?.emoji || "", color: mem?.color || "", image: mem?.avatar || "" };
   };
 
-  function vote(r) {
+  function vote(r, e) {
     if (preview) return;
     // On a single-choice poll a mis-tap doesn't just add a vote, it MOVES one —
     // silently, since the row you left simply stops being highlighted. The tick
@@ -54,6 +55,25 @@
     if (!poll.multi && !r.mine) {
       for (const other of rows) {
         if (other.i !== r.i && other.mine) react(m, other.emoji);
+      }
+    }
+    // A vote LANDING gets a tick-sized burst from the row's marker; retracting
+    // is a correction, not a moment, so it gets nothing. On a single-choice
+    // move the burst fires only where the vote arrives, which is the half of
+    // the silent move worth pointing at. Keyboard "clicks" report (0,0), so the
+    // origin comes from the marker's rect, never the pointer.
+    if (!r.mine) {
+      const mark = e?.currentTarget?.querySelector?.(".mark");
+      const box = (mark || e?.currentTarget)?.getBoundingClientRect?.();
+      if (box) {
+        radialBurst(box.left + box.width / 2, box.top + box.height / 2, {
+          glyphs: ["✓"],
+          colors: ["var(--accent)"],
+          n: 5,
+          dist: [14, 32],
+          size: [8, 11],
+          dur: [0.4, 0.65],
+        });
       }
     }
     react(m, r.emoji);
@@ -87,7 +107,7 @@
         class="opt"
         class:mine={r.mine}
         class:lead={r.count > 0 && r.count === leader}
-        onclick={() => vote(r)}
+        onclick={(e) => vote(r, e)}
         aria-pressed={r.mine}
         disabled={preview}
         title={r.count ? r.voters.map(who).map((w) => w.name).join(", ") : "No votes yet"}

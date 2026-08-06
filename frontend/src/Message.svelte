@@ -16,6 +16,8 @@
   import EmbedView from "./EmbedView.svelte";
   import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
+  import { fxEffect, stripFx, playFxOnce } from "./lib/fxtoken.js";
+  import { radialBurst } from "./lib/burst.js";
   import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo } from "./lib/timestamp.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
@@ -120,7 +122,7 @@
   // this, keyed by emoji char).
   let bounced = $state(null);
   let bounceTimer;
-  function reactWithBounce(emoji) {
+  function reactWithBounce(emoji, e) {
     // Reacting is a broadcast: everyone in the channel sees it. Mid-scroll on a
     // phone the 450ms bounce is easy to miss, and a reader who misses it taps
     // again and silently un-reacts. A tick of vibration confirms it landed.
@@ -131,6 +133,19 @@
       bounced = emoji;
       bounceTimer = setTimeout(() => (bounced = null), 500);
     });
+    // ADDING a reaction earns a little burst of the emoji itself out of the
+    // control you tapped; un-reacting is a retraction and stays quiet. Custom
+    // emoji (":name:") have no glyph to throw — the bounce carries those.
+    const adding = !(m.reactions?.[emoji] || []).includes(S.identity.fingerprint);
+    const at = e?.currentTarget?.getBoundingClientRect?.();
+    if (adding && at && !emoji.startsWith(":")) {
+      radialBurst(at.left + at.width / 2, at.top + at.height / 2, {
+        glyphs: [emoji],
+        n: 6,
+        size: [11, 16],
+        seed: m.id + emoji,
+      });
+    }
     if (!emoji.startsWith(":")) pushRecentEmoji(emoji); // unicode only (custom emoji are guild-scoped)
     react(m, emoji);
   }
@@ -214,8 +229,24 @@
   const bodyText = $derived.by(() => {
     let c = atts.length || files.length ? stripAttachTokens(m.content) : m.content;
     if (richEmbed) c = stripEmbedToken(c);
-    return stripTimestamp(stripEphemeral(c));
+    return stripFx(stripTimestamp(stripEphemeral(c)));
   });
+
+  // Send effects ([fx](concord://fx/v1/…)): the burst plays once per session
+  // when the row first scrolls into view, seeded by the message id so every
+  // peer watches the identical field. Deleted rows keep their words private
+  // AND their fireworks.
+  const fxName = $derived(m.deleted ? "" : fxEffect(m.content));
+  function fxOnView(node) {
+    if (!fxName) return;
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      io.disconnect();
+      playFxOnce(m.id, fxName);
+    });
+    io.observe(node);
+    return { destroy: () => io.disconnect() };
+  }
   // clampSealCard keeps the reveal card on screen. The card is anchored to the
   // chip, and a chip can sit anywhere — including the left edge of a narrow
   // phone column, where a right-anchored card walked straight off the screen
@@ -658,6 +689,7 @@
   data-msg-id={m.id}
   oncontextmenu={coarse ? (e) => e.preventDefault() : messageMenu}
   use:longpress={{ handler: messageMenu }}
+  use:fxOnView
 >
   {#if compact}
     <span class="gutter-time muted" title={new Date(m.sent).toLocaleString()}>{fmtTime(m.sent)}</span>
@@ -943,7 +975,7 @@
             <button
               class="reaction"
               class:mine={fprs.includes(S.identity.fingerprint)}
-              onclick={() => reactWithBounce(emoji)}
+              onclick={(ev) => reactWithBounce(emoji, ev)}
               use:stopTouch
               use:longpress={{ handler: whoReacted(emoji, fprs) }}
             >
@@ -981,7 +1013,7 @@
     <div class="msg-actions" role="toolbar" aria-label="Message actions">
       <div class="grp">
         {#each quickEmojis as e (e)}
-          <button class="emoji-btn" class:bounce={bounced === e} title="React {e}" aria-label="React {e}" onclick={() => reactWithBounce(e)}>{e}</button>
+          <button class="emoji-btn" class:bounce={bounced === e} title="React {e}" aria-label="React {e}" onclick={(ev) => reactWithBounce(e, ev)}>{e}</button>
         {/each}
         <button class="add-react" title="More reactions" aria-label="More reactions" onclick={() => (S.pickerTarget = m)}>
           <Icon name="smile" size={15} />
