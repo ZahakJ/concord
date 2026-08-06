@@ -295,20 +295,25 @@ func (s *Service) isForum(guildID, channelID string) bool {
 // channel list wholesale and would eventually repair it. A post that shows up on
 // a delay nobody can explain is arguably the worse failure.)
 //
-// A post is recognised structurally — a thread whose parent is a forum we
-// already hold in this guild — so this grants nothing beyond posting: a member
-// cannot smuggle in a text channel, a voice room, or a thread under a channel
-// that is not a forum.
+// Member content is recognised structurally — a thread whose parent is a forum
+// or a text channel we already hold in this guild — so this grants nothing
+// beyond posting: a member cannot smuggle in a top-level text channel, a voice
+// room, or a thread under anything that cannot parent one (another thread, a
+// voice room, an announcement feed).
 func (s *Service) mayAddChannel(guildID, actor string, ch domain.Channel) bool {
-	if s.isForumPost(guildID, ch) {
+	if s.isMemberThread(guildID, ch) {
 		return true
 	}
 	return s.memberHasPerm(guildID, actor, PermManageChannels)
 }
 
-// isForumPost reports whether a channel record describes a post in a forum this
-// guild actually has. Used to recognise member content on the receive path.
-func (s *Service) isForumPost(guildID string, c domain.Channel) bool {
+// isMemberThread reports whether a channel record describes member content this
+// guild actually has a parent for: a thread under a forum (a post) or a thread
+// under a text channel (a thread started from a message). The two are the same
+// child-channel machinery end to end — the parent's type only gated the UI, and
+// this receive-path gate, until threads could be started from any text-channel
+// message. Used to recognise member content on the receive path.
+func (s *Service) isMemberThread(guildID string, c domain.Channel) bool {
 	if c.Type != "thread" || c.Parent == "" {
 		return false
 	}
@@ -319,7 +324,14 @@ func (s *Service) isForumPost(guildID string, c domain.Channel) bool {
 		return false
 	}
 	for _, existing := range g.Channels {
-		if existing.ID == c.Parent && existing.Type == "forum" {
+		if existing.ID != c.Parent {
+			continue
+		}
+		// ChannelType, not the raw Type: a plain text channel stores the empty
+		// string, and matching on that raw value would read as accepting
+		// "anything untyped" rather than what it means — text.
+		switch existing.ChannelType() {
+		case "forum", "text":
 			return true
 		}
 	}

@@ -2013,7 +2013,10 @@ func (s *Service) CreateThread(guildID, forumID, title, firstMessage string, tag
 	if ok {
 		groupID = g.GroupID
 		for _, c := range g.Channels {
-			if c.ID == forumID && c.Type == "forum" {
+			// Text channels too: "start a thread from this message" is the same
+			// child-channel machinery a forum post rides — the parent type only
+			// ever gated the UI. (ChannelType, not raw Type: text stores "".)
+			if t := c.ChannelType(); c.ID == forumID && (t == "forum" || t == "text") {
 				isForum = true
 				palette = c.ForumTags
 			}
@@ -2024,7 +2027,7 @@ func (s *Service) CreateThread(guildID, forumID, title, firstMessage string, tag
 		return domain.Channel{}, fmt.Errorf("app: unknown guild %s", guildID)
 	}
 	if !isForum {
-		return domain.Channel{}, fmt.Errorf("app: posts can only be created in a forum channel")
+		return domain.Channel{}, fmt.Errorf("app: threads can only be started in a forum or text channel")
 	}
 	if len(tagIDs) > maxPostTags {
 		return domain.Channel{}, fmt.Errorf("app: a post can carry at most %d tags", maxPostTags)

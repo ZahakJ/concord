@@ -311,6 +311,15 @@ CREATE TABLE IF NOT EXISTS scheduled_sends (
 		`CREATE INDEX IF NOT EXISTS idx_messages_channel_updated ON messages(channel_id, updated)`); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
+	// Global (sent, id) index for SearchMessages' keyset pagination: each page
+	// asks for the next batch older than a (sent, id) cursor across ALL
+	// channels, which idx_messages_channel (channel-first) can't serve — without
+	// this, every page re-sorts the whole table. Timestamps and ids are already
+	// stored in the clear, so the index reveals nothing new.
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_messages_sent ON messages(sent, id)`); err != nil {
+		return fmt.Errorf("store: migrate: %w", err)
+	}
 	return nil
 }
 
@@ -1520,49 +1529,142 @@ func (s *Store) BookmarkedMessages() ([]domain.Message, error) {
 	return out, rows.Err()
 }
 
-// SearchMessages scans all stored messages for a case-insensitive substring
+// SearchFilter optionally narrows SearchMessages. The zero value matches
+// everything. Every field describes metadata the schema stores in the clear,
+// so the narrowing happens in SQL — before any row is decrypted. The fields
+// mirror the operators frontend/src/lib/search.js parses (from:, in:,
+// before:, after:), so the bridge can hand them straight through.
+type SearchFilter struct {
+	// FromSender is a case-insensitive substring of the sender's display name
+	// (SQLite's lower(), so the folding is ASCII-only).
+	FromSender string
+	// InChannel is a channel id, or a channel name (leading '#' ignored).
+	InChannel string
+	// BeforeUnix and AfterUnix bound sent strictly, in Unix nanoseconds (the
+	// resolution of the sent column). BeforeUnix doubles as a keyset cursor:
+	// pass the oldest hit's Sent.UnixNano() back in to fetch the next page.
+	BeforeUnix int64
+	AfterUnix  int64
+}
+
+// SearchMessages scans stored messages for a case-insensitive substring
 // match, newest first, up to limit. Search runs entirely locally over the
 // user's own (at-rest-encrypted) history — no server ever sees the query.
-func (s *Store) SearchMessages(query string, limit int) ([]domain.Message, error) {
+// An optional SearchFilter narrows the scan in SQL before anything is
+// decrypted.
+//
+// Why this is a scan and not an index: this build's SQLite ships FTS5, and a
+// contentless (content='') virtual table keyed by message id — fed from the
+// plaintext SaveMessage/UpdateContent briefly hold — would make queries
+// instant. But an FTS index stores every token of every message (the full
+// vocabulary plus positions), which is recoverable plaintext, and this
+// database file is not encrypted as a whole: at-rest privacy comes only from
+// the sealed content_enc column (see the package comment). Writing such an
+// index next to it would hand a stolen database most of every message and
+// quietly void "a stolen database file yields no readable messages". Until
+// the file itself is sealed (SQLCipher-style), search stays decrypt-and-scan,
+// and the effort here goes into bounding the scan instead: clear-text filters
+// are pushed into WHERE, and decryption proceeds in keyset-paged batches
+// under a hard per-call budget.
+func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) ([]domain.Message, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, nil
 	}
 	if limit <= 0 {
 		limit = 50
 	}
-	rows, err := s.db.Query(
-		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
-		 FROM messages WHERE deleted = 0 AND kind = '' ORDER BY sent DESC`)
-	if err != nil {
-		return nil, err
+	var f SearchFilter
+	if len(filter) > 0 {
+		f = filter[0]
 	}
-	defer rows.Close()
+
+	where := `deleted = 0 AND kind = ''`
+	var args []any
+	if f.FromSender != "" {
+		where += ` AND instr(lower(name), ?) > 0`
+		args = append(args, strings.ToLower(f.FromSender))
+	}
+	if f.InChannel != "" {
+		where += ` AND (channel_id = ? OR channel_id IN (SELECT id FROM channels WHERE lower(name) = ?))`
+		args = append(args, f.InChannel, strings.ToLower(strings.TrimPrefix(f.InChannel, "#")))
+	}
+	if f.AfterUnix > 0 {
+		where += ` AND sent > ?`
+		args = append(args, f.AfterUnix)
+	}
 
 	needle := strings.ToLower(query)
 	var out []domain.Message
-	for rows.Next() && len(out) < limit {
-		var m domain.Message
-		var enc, nonceB []byte
-		var sent int64
-		var deleted, edited, pinned int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
+
+	// Keyset cursor: the strictly-descending (sent, id) position of the last
+	// row examined, seeded by BeforeUnix. Each page fetches (and decrypts) at
+	// most batch rows; maxScan caps the decryption work of one call, so a
+	// query with no matches in an enormous history returns bounded-late
+	// instead of grinding through everything — the caller resumes deeper via
+	// BeforeUnix if it wants more.
+	curSent, curID := f.BeforeUnix, ""
+	const batch = 256     // rows fetched and decrypted per page
+	const maxScan = 20000 // decryption budget per call
+	for scanned := 0; len(out) < limit && scanned < maxScan; {
+		q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
+		 FROM messages WHERE ` + where
+		pageArgs := append([]any{}, args...)
+		if curSent > 0 {
+			if curID == "" {
+				// First page under a caller-supplied bound: strictly older.
+				q += ` AND sent < ?`
+				pageArgs = append(pageArgs, curSent)
+			} else {
+				// Later pages tiebreak on id so same-nanosecond rows can't
+				// slip between two pages.
+				q += ` AND (sent < ? OR (sent = ? AND id > ?))`
+				pageArgs = append(pageArgs, curSent, curSent, curID)
+			}
+		}
+		q += ` ORDER BY sent DESC, id ASC LIMIT ?`
+		pageArgs = append(pageArgs, batch)
+
+		rows, err := s.db.Query(q, pageArgs...)
+		if err != nil {
 			return nil, err
 		}
-		content, err := s.open(enc, nonceB)
-		if err != nil {
-			continue // skip undecryptable rows rather than abort the search
-		}
-		if !strings.Contains(strings.ToLower(content), needle) {
-			continue
-		}
+		fetched := 0
+		for rows.Next() && len(out) < limit && scanned < maxScan {
+			fetched++
+			var m domain.Message
+			var enc, nonceB []byte
+			var sent int64
+			var deleted, edited, pinned int
+			if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			curSent, curID = sent, m.ID
+			scanned++
+			content, err := s.open(enc, nonceB)
+			if err != nil {
+				continue // skip undecryptable rows rather than abort the search
+			}
+			if !strings.Contains(strings.ToLower(content), needle) {
+				continue
+			}
 
-		m.Content = content
-		m.Edited = edited != 0
-		m.Pinned = pinned != 0
-		m.Sent = time.Unix(0, sent).UTC()
-		out = append(out, m)
+			m.Content = content
+			m.Edited = edited != 0
+			m.Pinned = pinned != 0
+			m.Sent = time.Unix(0, sent).UTC()
+			out = append(out, m)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if fetched < batch {
+			break // history exhausted
+		}
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 // UpdateContent replaces a message's (encrypted) content, but only if bySender

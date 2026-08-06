@@ -120,18 +120,20 @@
     const cats = [...(g.categories || [])].sort((a, b) => a.position - b.position);
     const byCat = (id) =>
       g.channels
-        .filter((c) => !c.parent && (c.category || "") === id) // threads nest under their forum
+        .filter((c) => !c.parent && (c.category || "") === id) // threads nest under their parent (forum board or text channel)
         .sort((a, b) => a.position - b.position);
     const out = [{ id: "", name: "", channels: byCat("") }];
     for (const cat of cats) out.push({ id: cat.id, name: cat.name, channels: byCat(cat.id) });
     return out.filter((grp) => grp.channels.length || grp.id);
   });
 
-  // A channel's unread, INCLUDING its forum posts: threads don't appear in the
-  // sidebar, so their unread has to surface on the forum row or it's invisible.
+  // A channel's unread, INCLUDING its threads: forum posts and message-started
+  // threads don't appear in the sidebar, so their unread has to surface on the
+  // parent's row or it's invisible. Text channels can parent threads too now,
+  // so both kinds roll up; voice and announcement rows keep the cheap path.
   function channelUnread(c) {
     const own = S.unread[c.id];
-    if (c.type !== "forum") return own;
+    if (c.type !== "forum" && (c.type || "text") !== "text") return own;
     let count = own?.count || 0;
     let mentions = own?.mentions || 0;
     for (const t of g?.channels || []) {

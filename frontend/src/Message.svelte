@@ -54,9 +54,11 @@
     activeChannel,
     fmtClock,
     jumpToChannel,
+    refreshGuilds,
     mentionRefs,
     clockOpts,
   } from "./lib/state.svelte.js";
+  import { clampToBytes, TITLE_MAX_BYTES } from "./lib/postdraft.js";
   import { api } from "./lib/api.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
   import { longpress, haptic } from "./lib/touch.js";
@@ -661,6 +663,56 @@
     `${guest ? guestName : announce ? announceGuild?.name || "Server" : nameFor(m.sender, m.senderName)} · ${new Date(m.sent).toLocaleString()}`,
   );
 
+  // Start a thread from this message: a forum post IS a thread channel under
+  // its parent, and the same machinery works with a text channel as the parent.
+  // Offered only where it can succeed — a guild text channel. Not in DMs, not
+  // in announcement/voice chat, and not inside a thread (no threads under
+  // threads; the backend refuses them anyway).
+  const canThread = $derived(
+    activeGuild()?.kind !== "dm" && (activeChannel()?.type || "text") === "text",
+  );
+  let threadPrompt = $state(false);
+  let threadTitle = $state("");
+  let threadBusy = $state(false);
+
+  // Same byte-honest clamp as ModalNewPost: the backend caps a title at 64
+  // UTF-8 BYTES with a raw slice, and maxlength counts characters.
+  function onThreadTitle(e) {
+    const v = clampToBytes(e.currentTarget.value, TITLE_MAX_BYTES);
+    if (v !== e.currentTarget.value) e.currentTarget.value = v;
+    threadTitle = v;
+  }
+
+  async function createThreadFromMessage() {
+    const title = threadTitle.trim();
+    if (!title || threadBusy) return;
+    threadBusy = true;
+    try {
+      // The opening message quotes the origin (capped — a wall of text makes a
+      // bad excerpt) and carries a concord://msg link back to it, in exactly
+      // the shape "Copy Message Link" produces.
+      let src = stripAttachTokens(m.content).trim() || previewText(m.content);
+      if (src.length > 280) src = src.slice(0, 280) + "…";
+      const quoted = src
+        .split("\n")
+        .map((l) => `> ${l}`)
+        .join("\n");
+      const opener = `${quoted}\n\nconcord://msg/${m.channelId}/${m.id}`;
+      const ch = await api.createThread(S.activeGuildId, m.channelId, title, opener, []);
+      threadPrompt = false;
+      threadTitle = "";
+      // CreateThread returns the new channel; refresh first so jumpToChannel
+      // can find it in the guild snapshot.
+      await refreshGuilds();
+      await jumpToChannel(ch.id);
+      flash("Thread created", "success");
+    } catch (err) {
+      flash(err);
+    } finally {
+      threadBusy = false;
+    }
+  }
+
   function messageMenu(e) {
     // Bookmark state loads lazily: the first menu of a session may label a
     // saved row "Save Message" for a beat, which merely re-saves it (no-op).
@@ -736,6 +788,14 @@
       },
       (link || pre) && { sep: true },
       { label: "Reply", icon: "reply", onClick: () => (S.replyingTo = m) },
+      canThread && {
+        label: "Start Thread",
+        icon: "forum",
+        onClick: () => {
+          threadTitle = "";
+          threadPrompt = true;
+        },
+      },
       isOwn && { label: "Edit", icon: "edit", onClick: startEdit },
       memeTok && {
         label: "Edit meme",
@@ -1147,6 +1207,37 @@
             </span>
           </span>
         {/each}
+      </div>
+    {/if}
+
+    {#if threadPrompt}
+      <!-- The whole ceremony a thread needs is one line: a title. A modal would
+           also hide the message the thread is about — which is exactly what the
+           title is written from. -->
+      <div class="thread-prompt">
+        <span class="tp-icon"><Icon name="forum" size={14} /></span>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="tp-input"
+          placeholder="Thread title"
+          aria-label="Thread title"
+          value={threadTitle}
+          oninput={onThreadTitle}
+          autofocus={!S.isMobile}
+          onkeydown={(e) => {
+            if (e.key === "Enter") createThreadFromMessage();
+            else if (e.key === "Escape") threadPrompt = false;
+          }}
+        />
+        <button type="button" class="tp-btn" onclick={() => (threadPrompt = false)}>Cancel</button>
+        <button
+          type="button"
+          class="tp-btn go"
+          onclick={createThreadFromMessage}
+          disabled={threadBusy || !threadTitle.trim()}
+        >
+          {threadBusy ? "Creating…" : "Create"}
+        </button>
       </div>
     {/if}
   </div>
@@ -1656,6 +1747,71 @@
       padding-right: 48px;
     }
   }
+  /* Start-Thread's one-line prompt: same quiet chrome as the edit box, sized
+     to sit under the message it threads off rather than over it. */
+  .thread-prompt {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    padding: 5px 8px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    max-width: 440px;
+  }
+  .tp-icon {
+    display: inline-flex;
+    color: var(--text-faint);
+    flex-shrink: 0;
+  }
+  .thread-prompt .tp-input {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 4px;
+    font-family: inherit;
+    font-size: var(--fs-ui);
+    color: var(--text);
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    outline: none;
+  }
+  .tp-btn {
+    padding: 3px 10px;
+    font-size: var(--fs-small);
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3);
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .tp-btn:hover {
+    background: color-mix(in srgb, var(--text) 14%, var(--bg-3));
+    color: var(--text);
+  }
+  .tp-btn.go {
+    background: var(--accent);
+    color: var(--accent-fg, #fff);
+  }
+  .tp-btn.go:hover:not(:disabled) {
+    background: var(--accent-hover);
+  }
+  .tp-btn:disabled {
+    opacity: 0.6;
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .thread-prompt {
+      max-width: none;
+      flex-wrap: wrap;
+    }
+    .tp-btn {
+      min-height: var(--tap-min);
+      padding: 10px 16px;
+      font-size: var(--fs-ui);
+    }
+  }
+
   /* :shortcode autocomplete inside the edit box (composer parity). */
   .edit-suggest {
     position: absolute;

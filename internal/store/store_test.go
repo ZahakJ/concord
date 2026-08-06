@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -593,5 +594,113 @@ func TestPruneContactsKeepsVerifiedAndRelated(t *testing.T) {
 	// Idempotent: a second pass with nothing new to do must delete nothing.
 	if n, err := s.PruneContacts(map[string]bool{"FRIEND": true}); err != nil || n != 0 {
 		t.Fatalf("second prune = (%d, %v), want (0, nil)", n, err)
+	}
+}
+
+// The filtered search exists so that from:/in:/before:/after: narrow the scan
+// in SQL — a filter that silently matched nothing (or everything) would
+// either hide messages from the user or decrypt the whole history per
+// keystroke again. Paging via BeforeUnix and the internal keyset batches get
+// exercised too: a match sitting past the first batch must still be found.
+func TestSearchMessagesFilters(t *testing.T) {
+	s, _ := openTestStore(t)
+
+	// Two channels with names, so in: can resolve a name to an id.
+	g := domain.NewGuild("G", []byte("gid"), []byte("owner"))
+	g.Channels = []domain.Channel{
+		{ID: "ch-gen", GuildID: g.ID, Name: "general"},
+		{ID: "ch-dev", GuildID: g.ID, Name: "dev"},
+	}
+	if err := s.SaveGuild(g); err != nil {
+		t.Fatalf("SaveGuild: %v", err)
+	}
+
+	base := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	save := func(id, ch, name, body string, at time.Time) {
+		t.Helper()
+		if _, err := s.SaveMessage(domain.Message{
+			ID: id, ChannelID: ch, Sender: []byte(name), Name: name,
+			Content: body, Sent: at,
+		}); err != nil {
+			t.Fatalf("SaveMessage %s: %v", id, err)
+		}
+	}
+	save("m1", "ch-gen", "alice", "pizza tonight", base)
+	save("m2", "ch-dev", "alice", "pizza build is green", base.Add(1*time.Hour))
+	save("m3", "ch-gen", "bob", "pizza again?", base.Add(2*time.Hour))
+	save("m4", "ch-dev", "bob", "no pizza talk here", base.Add(3*time.Hour))
+
+	contents := func(ms []domain.Message) []string {
+		var out []string
+		for _, m := range ms {
+			out = append(out, m.ID)
+		}
+		return out
+	}
+
+	// from: narrows by sender display name, case-insensitively.
+	hits, err := s.SearchMessages("pizza", 50, SearchFilter{FromSender: "ALICE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 || hits[0].ID != "m2" || hits[1].ID != "m1" {
+		t.Fatalf("from:alice got %v, want [m2 m1]", contents(hits))
+	}
+
+	// in: accepts a channel name (with or without '#') or a raw id.
+	for _, ch := range []string{"dev", "#dev", "ch-dev"} {
+		hits, err = s.SearchMessages("pizza", 50, SearchFilter{InChannel: ch})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(hits) != 2 || hits[0].ID != "m4" || hits[1].ID != "m2" {
+			t.Fatalf("in:%s got %v, want [m4 m2]", ch, contents(hits))
+		}
+	}
+
+	// before:/after: bound sent strictly, in UnixNano like the column.
+	hits, err = s.SearchMessages("pizza", 50, SearchFilter{
+		AfterUnix:  base.UnixNano(),
+		BeforeUnix: base.Add(3 * time.Hour).UnixNano(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 2 || hits[0].ID != "m3" || hits[1].ID != "m2" {
+		t.Fatalf("after/before window got %v, want [m3 m2]", contents(hits))
+	}
+
+	// BeforeUnix as keyset cursor: page through all four hits one at a time.
+	var paged []string
+	cursor := int64(0)
+	for {
+		hits, err = s.SearchMessages("pizza", 1, SearchFilter{BeforeUnix: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(hits) == 0 {
+			break
+		}
+		paged = append(paged, hits[0].ID)
+		cursor = hits[0].Sent.UnixNano()
+	}
+	if len(paged) != 4 || paged[0] != "m4" || paged[3] != "m1" {
+		t.Fatalf("keyset paging walked %v, want [m4 m3 m2 m1]", paged)
+	}
+
+	// A match deeper than one internal batch (256 rows) must still be found:
+	// the keyset loop, not the first page, is what finds it.
+	old := base.Add(-time.Hour)
+	for i := 0; i < 300; i++ {
+		save(fmt.Sprintf("noise-%03d", i), "ch-gen", "carol", "nothing to see",
+			old.Add(time.Duration(i)*time.Millisecond))
+	}
+	save("deep", "ch-gen", "carol", "the buried pizza", old.Add(-time.Minute))
+	hits, err = s.SearchMessages("buried", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].ID != "deep" {
+		t.Fatalf("match beyond the first keyset batch got %v, want [deep]", contents(hits))
 	}
 }
