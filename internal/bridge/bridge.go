@@ -688,6 +688,17 @@ func (b *Bridge) GuildStats(guildID string) (appsvc.GuildStatsView, error) {
 	return svc.GuildStats(guildID)
 }
 
+// PropsTally returns a guild's received-props counts keyed by member
+// fingerprint — computed from the local reaction history, so it costs no
+// network and answers instantly.
+func (b *Bridge) PropsTally(guildID string) (map[string]int, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.PropsTally(guildID)
+}
+
 // NetworkStats returns a whole-device network + storage snapshot.
 func (b *Bridge) NetworkStats() (appsvc.NetworkStatsView, error) {
 	svc, err := b.service()
@@ -1413,6 +1424,52 @@ func (b *Bridge) SendCallNotice(channelID, kind, content string) error {
 	}
 	_, err = svc.SendCallNotice(channelID, kind, content)
 	return err
+}
+
+// ScheduledSendView is one queued send-later message for the manager UI.
+// fireAt is unix seconds.
+type ScheduledSendView struct {
+	ID        string `json:"id"`
+	ChannelID string `json:"channelId"`
+	Content   string `json:"content"`
+	FireAt    int64  `json:"fireAt"`
+}
+
+// ScheduleSend queues a message to be sent later by the Go service, so it
+// fires as long as this device's Concord is running — the window that queued
+// it can close. fireAtUnix is unix seconds. Returns the queue row id.
+func (b *Bridge) ScheduleSend(channelID, content, replyTo string, fireAtUnix int64) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.ScheduleSend(channelID, content, replyTo, fireAtUnix)
+}
+
+// CancelScheduledSend removes a queued send before it fires.
+func (b *Bridge) CancelScheduledSend(id string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.CancelScheduledSend(id)
+}
+
+// ScheduledSends returns the send-later queue, soonest first.
+func (b *Bridge) ScheduledSends() ([]ScheduledSendView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	list, err := svc.ScheduledSends()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ScheduledSendView, 0, len(list))
+	for _, ss := range list {
+		out = append(out, ScheduledSendView{ID: ss.ID, ChannelID: ss.ChannelID, Content: ss.Content, FireAt: ss.FireAt})
+	}
+	return out, nil
 }
 
 // PreviewView is a scraped link summary for embeds (see internal/app/preview.go).
@@ -2607,6 +2664,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "SendCallNotice":
 		return nil, b.SendCallNotice(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+	case "ScheduleSend":
+		return b.ScheduleSend(argStr(args, 0), argStr(args, 1), argStr(args, 2), argInt64(args, 3))
+	case "CancelScheduledSend":
+		return nil, b.CancelScheduledSend(argStr(args, 0))
+	case "ScheduledSends":
+		return b.ScheduledSends()
 	case "SendAttachment":
 		return b.SendAttachment(argStr(args, 0), argStr(args, 1), argInt(args, 2), argInt(args, 3), argStr(args, 4),
 			argBool(args, 5), argStr(args, 6), argStr(args, 7))
@@ -2829,6 +2892,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.SetTypingEnabled(argBool(args, 0))
 	case "GuildStats":
 		return b.GuildStats(argStr(args, 0))
+	case "PropsTally":
+		return b.PropsTally(argStr(args, 0))
 	case "NetworkStats":
 		return b.NetworkStats()
 	case "LinkedDevices":

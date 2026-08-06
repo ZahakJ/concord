@@ -225,6 +225,7 @@ export const api = {
     call("EditMessage", channelID, messageID, content),
   expireMessage: (channelID, messageID) => call("ExpireMessage", channelID, messageID),
   guildStats: (guildID) => call("GuildStats", guildID),
+  propsTally: (guildID) => call("PropsTally", guildID),
   networkStats: () => call("NetworkStats"),
   linkedDevices: () => call("LinkedDevices"),
   unlinkDevice: (deviceKey) => call("UnlinkDevice", deviceKey),
@@ -252,6 +253,12 @@ export const api = {
     call("SendMessage", channelID, content, replyTo),
   sendCallNotice: (channelID, kind, content) =>
     call("SendCallNotice", channelID, kind, content),
+  // Send-later queue, held by the Go service so it fires without this window.
+  // fireAtUnix is unix SECONDS (the JS side otherwise speaks epoch ms).
+  scheduleSend: (channelID, content, replyTo, fireAtUnix) =>
+    call("ScheduleSend", channelID, content, replyTo, fireAtUnix),
+  cancelScheduledSend: (id) => call("CancelScheduledSend", id),
+  scheduledSends: () => call("ScheduledSends"),
   // Resolves to the new blob's id — the meme editor keys its local render
   // recipe by it. Everything else ignores the return.
   sendAttachment: (channelID, dataURL, w, h, replyTo = "", spoiler = false, name = "", desc = "") =>

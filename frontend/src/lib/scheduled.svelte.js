@@ -1,17 +1,19 @@
-// scheduled.svelte.js — client-side scheduled messages + message reminders.
-// Both are purely local (this device): persisted in localStorage and processed
-// by a single ticker. Scheduled messages fire even after a restart (anything
-// past-due is sent on next launch); reminders raise a notification + toast.
-// Nothing here touches the backend — a scheduled send is just a normal
-// SendMessage issued later.
+// scheduled.svelte.js — scheduled messages + message reminders.
+// The two halves live in different places on purpose. A scheduled SEND is held
+// by the Go service (scheduled_sends table, swept by a core loop): closing this
+// window no longer kills it — it fires as long as this device's Concord is
+// running. `scheduled` here is just a mirror of that queue for the UI.
+// REMINDERS stay purely local (localStorage + the ticker below): a reminder is
+// a notification for the eyes reading this window, so a backend copy firing
+// with no window open would alert no one.
 import { api } from "./api.js";
 import { S, flash, jumpToChannel, clockOpts } from "./state.svelte.js";
 
-const SKEY = "concord.scheduled";
+const SKEY = "concord.scheduled"; // legacy queue — drained into the backend once
 const RKEY = "concord.reminders";
 
-// { id, channelId, text, replyTo, at }  — at = epoch ms
-export let scheduled = $state(load(SKEY));
+// { id, channelId, text, at } — at = epoch ms. Mirror of the backend queue.
+export let scheduled = $state([]);
 // { id, channelId, messageId, preview, at }
 export let reminders = $state(load(RKEY));
 
@@ -25,7 +27,6 @@ function load(key) {
 }
 function persist() {
   try {
-    localStorage.setItem(SKEY, JSON.stringify(scheduled));
     localStorage.setItem(RKEY, JSON.stringify(reminders));
   } catch {
     /* storage blocked — in-memory only for this session */
@@ -34,17 +35,41 @@ function persist() {
 
 const uid = () => (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random());
 
-export function scheduleMessage(channelId, text, replyTo, at) {
-  scheduled.push({ id: uid(), channelId, text, replyTo: replyTo || "", at });
-  scheduled.sort((a, b) => a.at - b.at);
-  persist();
-}
-export function cancelScheduled(id) {
-  const i = scheduled.findIndex((s) => s.id === id);
-  if (i >= 0) {
-    scheduled.splice(i, 1);
-    persist();
+// refreshScheduled re-mirrors the backend queue. Exported states can't be
+// reassigned, so the array is replaced in place. Quiet on failure (not logged
+// in yet, backend restarting) — the stale mirror is better than an error.
+export async function refreshScheduled() {
+  try {
+    const list = (await api.scheduledSends()) || [];
+    scheduled.splice(
+      0,
+      scheduled.length,
+      ...list.map((s) => ({ id: s.id, channelId: s.channelId, text: s.content, at: s.fireAt * 1000 })),
+    );
+  } catch {
+    /* keep the current mirror */
   }
+}
+
+export async function scheduleMessage(channelId, text, replyTo, at) {
+  try {
+    // The backend speaks unix seconds; everything JS-side is epoch ms.
+    await api.scheduleSend(channelId, text, replyTo || "", Math.round(at / 1000));
+    await refreshScheduled();
+  } catch {
+    flash("Couldn't schedule the message", "error");
+  }
+}
+export async function cancelScheduled(id) {
+  // Optimistic: drop from the mirror now, tell the backend, resync either way.
+  const i = scheduled.findIndex((s) => s.id === id);
+  if (i >= 0) scheduled.splice(i, 1);
+  try {
+    await api.cancelScheduledSend(id);
+  } catch {
+    /* resync below puts it back if the cancel didn't land */
+  }
+  await refreshScheduled();
 }
 export function addReminder(channelId, messageId, preview, at) {
   reminders.push({ id: uid(), channelId, messageId, preview: (preview || "").slice(0, 140), at });
@@ -59,24 +84,26 @@ export function cancelReminder(id) {
   }
 }
 
-function channelExists(channelId) {
-  return S.guilds.some((g) => g.channels?.some((c) => c.id === channelId));
-}
-
-async function fireDueScheduled(now) {
-  const due = scheduled.filter((s) => s.at <= now);
-  for (const s of due) {
-    cancelScheduled(s.id);
-    if (!channelExists(s.channelId)) {
-      flash("A scheduled message was dropped — its channel is gone", "error");
-      continue;
-    }
+// migrateLocalScheduled drains the pre-backend localStorage queue into the Go
+// service, once. Entries the backend refuses (channel gone, not logged in yet)
+// stay in localStorage for the next launch to retry, so an upgrade can't drop
+// someone's queued message.
+async function migrateLocalScheduled() {
+  const legacy = load(SKEY);
+  if (legacy.length === 0) return;
+  const kept = [];
+  for (const s of legacy) {
     try {
-      await api.sendMessage(s.channelId, s.text, s.replyTo);
+      await api.scheduleSend(s.channelId, s.text, s.replyTo || "", Math.round(s.at / 1000));
     } catch {
-      // Re-queue a minute out so a transient failure doesn't lose the message.
-      scheduleMessage(s.channelId, s.text, s.replyTo, Date.now() + 60000);
+      kept.push(s);
     }
+  }
+  try {
+    if (kept.length === 0) localStorage.removeItem(SKEY);
+    else localStorage.setItem(SKEY, JSON.stringify(kept));
+  } catch {
+    /* storage blocked — nothing to clean up */
   }
 }
 
@@ -111,12 +138,12 @@ function fireDueReminders(now) {
 
 let timer;
 export function startScheduler() {
+  migrateLocalScheduled().then(refreshScheduled);
   const tick = () => {
-    const now = Date.now();
-    fireDueScheduled(now);
-    fireDueReminders(now);
+    fireDueReminders(Date.now());
+    // Re-mirror the backend queue so fired sends fall off the manager list.
+    refreshScheduled();
   };
-  tick(); // catch anything past-due from a previous session
   clearInterval(timer);
   timer = setInterval(tick, 15000);
   return () => clearInterval(timer);

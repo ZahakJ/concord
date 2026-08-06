@@ -1,6 +1,13 @@
 package app
 
-import "time"
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/zahak/concord/internal/domain"
+	"github.com/zahak/concord/internal/store"
+)
 
 // Background mode (phones). Measured on Android with the app backgrounded and
 // the screen off, the core kept up the exact same cadence as foregrounded:
@@ -67,4 +74,97 @@ func (s *Service) bgWakeCh() <-chan struct{} {
 		s.bgWake = make(chan struct{})
 	}
 	return s.bgWake
+}
+
+// ---- scheduled sends ----
+// Send-later used to live in the frontend: localStorage plus a JS ticker, which
+// meant closing the window silently killed every queued message. The queue now
+// lives in the store and this loop fires it, so a scheduled send only needs
+// this device's Concord running — in the tray, backgrounded, window closed —
+// when the time comes.
+
+// scheduledSendTick paces the sweep. Coarse on purpose, like the event
+// announcer: "send at 9:00" landing at 9:00:29 is invisible, and bgPace
+// stretches it to the background beat on a backgrounded phone (a queued
+// message then lands within one beat of its time, still better than never).
+const scheduledSendTick = 30 * time.Second
+
+// ScheduleSend queues a message to be sent later on this device. fireAt is
+// unix seconds; a past time fires on the next sweep. Returns the queue row id.
+func (s *Service) ScheduleSend(channelID, content, replyTo string, fireAt int64) (string, error) {
+	s.mu.RLock()
+	_, ok := s.channelToGuild[channelID]
+	s.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("app: unknown channel %s", channelID)
+	}
+	if content == "" {
+		return "", fmt.Errorf("app: empty scheduled message")
+	}
+	ss := store.ScheduledSend{
+		ID:        domain.NewID(),
+		ChannelID: channelID,
+		Content:   content,
+		ReplyTo:   replyTo,
+		FireAt:    fireAt,
+		Created:   time.Now().Unix(),
+	}
+	if err := s.store.AddScheduledSend(ss); err != nil {
+		return "", err
+	}
+	return ss.ID, nil
+}
+
+// CancelScheduledSend removes a queued send before it fires.
+func (s *Service) CancelScheduledSend(id string) error {
+	return s.store.DeleteScheduledSend(id)
+}
+
+// ScheduledSends returns the queue, soonest first, for the manager UI.
+func (s *Service) ScheduledSends() ([]store.ScheduledSend, error) {
+	return s.store.ScheduledSends()
+}
+
+// runScheduledSendLoop sweeps the send-later queue. Started once at service
+// start; lives until shutdown.
+func (s *Service) runScheduledSendLoop() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.bgWakeCh():
+			// Foregrounded: fire anything that came due during the slow beat.
+		case <-time.After(s.bgPace(scheduledSendTick)):
+		}
+		s.fireDueScheduledSends(time.Now().Unix())
+	}
+}
+
+// fireDueScheduledSends sends every queued message whose time has come through
+// the normal SendMessage path, deleting each row only after its send succeeds —
+// a transient failure (guild still healing, no peers yet) keeps the row and
+// retries next sweep. A row whose channel no longer exists is dropped: it can
+// never send, and retrying it forever would just be a log leak.
+// Split from the loop so tests can drive the time boundary directly.
+func (s *Service) fireDueScheduledSends(now int64) {
+	due, err := s.store.DueScheduledSends(now)
+	if err != nil {
+		log.Printf("concord/app: scheduled sends: %v", err)
+		return
+	}
+	for _, ss := range due {
+		s.mu.RLock()
+		_, known := s.channelToGuild[ss.ChannelID]
+		s.mu.RUnlock()
+		if !known {
+			log.Printf("concord/app: dropping scheduled send %s — its channel is gone", ss.ID)
+			_ = s.store.DeleteScheduledSend(ss.ID)
+			continue
+		}
+		if _, err := s.SendMessage(ss.ChannelID, ss.Content, ss.ReplyTo); err != nil {
+			log.Printf("concord/app: scheduled send %s failed (will retry): %v", ss.ID, err)
+			continue
+		}
+		_ = s.store.DeleteScheduledSend(ss.ID)
+	}
 }

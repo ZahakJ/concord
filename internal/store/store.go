@@ -219,6 +219,15 @@ CREATE TABLE IF NOT EXISTS saved_messages (
   channel_id TEXT NOT NULL,
   at         INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS scheduled_sends (
+  id          TEXT PRIMARY KEY,
+  channel_id  TEXT NOT NULL,
+  content_enc BLOB NOT NULL,
+  nonce       BLOB NOT NULL,
+  reply_to    TEXT NOT NULL DEFAULT '',
+  fire_at     INTEGER NOT NULL,
+  created     INTEGER NOT NULL
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -1345,6 +1354,61 @@ func (s *Store) reactionsForChannel(channelID string) (map[string]map[string][]s
 	return out, rows.Err()
 }
 
+// propsEmoji is the fixed set of reactions that count as "props" — the
+// celebratory subset, not every emoji (a 😢 is sympathy, not applause). The
+// bare ❤ rides along with ❤️ because pickers disagree about the variation
+// selector and the two render as the same glyph.
+var propsEmoji = []string{"🏆", "⭐", "💯", "❤️", "❤", "👏"}
+
+// PropsTally counts the props each member has RECEIVED in a guild: reactions
+// from the set above on messages they authored, keyed by account fingerprint.
+// One grouped join resolves messages to the guild through their channel row
+// instead of walking channels one by one. fprOf turns a stored sender
+// credential into its account fingerprint (identity-layer knowledge the store
+// doesn't have) and thereby also collapses a person's devices onto one row.
+//
+// Every viewer computes this from their own replica, so the totals are
+// eventually consistent exactly like the reaction counts they are derived
+// from — and there is no authority to trust or distrust: your number is what
+// your own history shows.
+func (s *Store) PropsTally(guildID string, fprOf func(sender []byte) string) (map[string]int, error) {
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(propsEmoji)), ",")
+	args := []any{guildID}
+	for _, e := range propsEmoji {
+		args = append(args, e)
+	}
+	rows, err := s.db.Query(
+		`SELECT m.sender, COUNT(*)
+		 FROM reactions r
+		 JOIN messages m ON m.id = r.message_id
+		 JOIN channels c ON c.id = m.channel_id
+		 WHERE c.guild_id = ? AND m.deleted = 0 AND r.emoji IN (`+ph+`)
+		 GROUP BY m.sender`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var sender []byte
+		var n int
+		if err := rows.Scan(&sender, &n); err != nil {
+			return nil, err
+		}
+		out[fprOf(sender)] += n
+	}
+	return out, rows.Err()
+}
+
+// PropsFor is one member's received-props count — just a read of the tally.
+func (s *Store) PropsFor(guildID, fingerprint string, fprOf func(sender []byte) string) (int, error) {
+	tally, err := s.PropsTally(guildID, fprOf)
+	if err != nil {
+		return 0, err
+	}
+	return tally[fingerprint], nil
+}
+
 // MessageByID loads a single message (with reactions) for post-reaction refresh.
 func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
 	var m domain.Message
@@ -2136,6 +2200,85 @@ func (s *Store) BlockedFingerprints() ([]string, error) {
 		out = append(out, f)
 	}
 	return out, rows.Err()
+}
+
+// ---- scheduled sends (send-later queue) ----
+// Queued on the device that scheduled them and fired by the service's periodic
+// sweep, so a message survives the window closing — it only needs this device's
+// Concord running when the time comes. The draft body is exactly as sensitive
+// as a sent message body, so it is sealed at rest the same way.
+
+// ScheduledSend is one queued send-later message. FireAt/Created are unix
+// seconds; Content is the plaintext draft (sealed in the database).
+type ScheduledSend struct {
+	ID        string
+	ChannelID string
+	Content   string
+	ReplyTo   string
+	FireAt    int64
+	Created   int64
+}
+
+// AddScheduledSend queues a send-later message, sealing its body at rest.
+func (s *Store) AddScheduledSend(ss ScheduledSend) error {
+	var nonce [nonceSize]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return err
+	}
+	sealed := secretbox.Seal(nil, []byte(ss.Content), &nonce, &s.key)
+	_, err := s.db.Exec(
+		`INSERT INTO scheduled_sends (id, channel_id, content_enc, nonce, reply_to, fire_at, created)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		ss.ID, ss.ChannelID, sealed, nonce[:], ss.ReplyTo, ss.FireAt, ss.Created,
+	)
+	if err != nil {
+		return fmt.Errorf("store: add scheduled send: %w", err)
+	}
+	return nil
+}
+
+// DueScheduledSends returns every queued send whose fire time is at or before
+// now (unix seconds), soonest first, decrypting bodies. Rows are NOT deleted
+// here — the caller deletes each one only after the send succeeds, so a failed
+// send stays queued for the next sweep.
+func (s *Store) DueScheduledSends(now int64) ([]ScheduledSend, error) {
+	return s.scheduledSendsWhere(`WHERE fire_at <= ?`, now)
+}
+
+// ScheduledSends returns the whole queue, soonest first, for the manager UI.
+func (s *Store) ScheduledSends() ([]ScheduledSend, error) {
+	return s.scheduledSendsWhere(``)
+}
+
+func (s *Store) scheduledSendsWhere(where string, args ...any) ([]ScheduledSend, error) {
+	rows, err := s.db.Query(
+		`SELECT id, channel_id, content_enc, nonce, reply_to, fire_at, created
+		 FROM scheduled_sends `+where+` ORDER BY fire_at ASC`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ScheduledSend
+	for rows.Next() {
+		var ss ScheduledSend
+		var enc, nonceB []byte
+		if err := rows.Scan(&ss.ID, &ss.ChannelID, &enc, &nonceB, &ss.ReplyTo, &ss.FireAt, &ss.Created); err != nil {
+			return nil, err
+		}
+		content, err := s.open(enc, nonceB)
+		if err != nil {
+			continue
+		}
+		ss.Content = content
+		out = append(out, ss)
+	}
+	return out, rows.Err()
+}
+
+// DeleteScheduledSend removes one queued send (sent or cancelled).
+func (s *Store) DeleteScheduledSend(id string) error {
+	_, err := s.db.Exec(`DELETE FROM scheduled_sends WHERE id = ?`, id)
+	return err
 }
 
 // ---- storage stats (read-only aggregates for the Stats panel) ----

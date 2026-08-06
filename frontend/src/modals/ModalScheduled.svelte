@@ -1,7 +1,8 @@
 <script>
-  // Manage everything time-based on this device: queued scheduled messages and
-  // pending message reminders, each with when it fires, where it lives, and a
-  // cancel. Jumping takes you to the channel/message.
+  // Manage everything time-based on this device: queued scheduled messages
+  // (held by the Go service — see lib/scheduled.svelte.js) and pending message
+  // reminders (local to this window), each with when it fires, where it lives,
+  // and a cancel. Jumping takes you to the channel/message.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { S, jumpToChannel } from "../lib/state.svelte.js";
@@ -10,10 +11,15 @@
     reminders,
     cancelScheduled,
     cancelReminder,
+    refreshScheduled,
     whenLabel,
   } from "../lib/scheduled.svelte.js";
 
   let { onClose } = $props();
+
+  // Re-mirror the backend queue on open, so the list is current even if the
+  // 15s background refresh hasn't ticked since a send fired.
+  refreshScheduled();
 
   function channelName(channelId) {
     for (const g of S.guilds) {
@@ -34,6 +40,11 @@
     {#if scheduled.length === 0}
       <p class="muted empty">Nothing queued. Write a message, then use the clock to send it later.</p>
     {:else}
+      <!-- Honest about the boundary: the queue lives in this device's Concord
+           service, not this window — but not on your other devices either. -->
+      <p class="muted empty">
+        These send from this device — even if this window closes, as long as Concord is running here.
+      </p>
       {#each scheduled as s (s.id)}
         <div class="row">
           <button class="rmain" onclick={() => go(s.channelId)} title="Go to channel">

@@ -1124,6 +1124,14 @@ func (s *Service) applyReaction(targetID, emoji string, bySender []byte) {
 	}
 }
 
+// PropsTally is a guild's received-props ledger (see store.PropsTally), keyed
+// by account fingerprint. Computed here, from this replica, over the same
+// reaction history every member already holds — no wire format and no trust
+// questions: each viewer's totals converge as reactions sync.
+func (s *Service) PropsTally(guildID string) (map[string]int, error) {
+	return s.store.PropsTally(guildID, accountFingerprintOf)
+}
+
 // EditMessage edits one of this peer's own messages for everyone.
 func (s *Service) EditMessage(channelID, targetID, newContent string) error {
 	_, err := s.send(channelID, newContent, "edit", targetID)

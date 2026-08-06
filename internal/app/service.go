@@ -1171,6 +1171,10 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// by name instead of searching for (see devices.go).
 	go s.keepDevicesClose()
 
+	// Send-later queue: fire scheduled messages whose time has come, so a
+	// queued send survives the window that queued it closing (background.go).
+	go s.runScheduledSendLoop()
+
 	// Resume rich presence if the user had it on.
 	if s.RichPresenceEnabled() {
 		s.startRichPresence()

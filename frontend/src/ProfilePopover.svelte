@@ -1,3 +1,11 @@
+<script module>
+  // Props tallies, guildId -> {fingerprint: count}, cached for the session:
+  // the card opens dozens of times and the history behind the number changes
+  // slowly, so one fetch per guild is plenty. Module scope on purpose — the
+  // cache outlives any one card.
+  const propsCache = new Map();
+</script>
+
 <script>
   // Floating Discord-style profile card. Reads S.profilePopover ({fingerprint,
   // rect}); positions itself above the anchor (or below when there's no room),
@@ -357,6 +365,32 @@
       : 0,
   );
 
+  // Props: celebratory reactions (🏆 ⭐ 💯 ❤️ 👏) received on this member's
+  // messages in the active guild, counted from OUR OWN replica's reaction
+  // history — no wire format, so it's eventually consistent exactly the way
+  // reaction counts already are. Fetched lazily when a card opens in a guild.
+  let propsTally = $state(null);
+  $effect(() => {
+    const gid = S.profilePopover ? S.activeGuildId : "";
+    propsTally = null;
+    if (!gid || activeGuild()?.kind === "dm") return;
+    const cached = propsCache.get(gid);
+    if (cached) {
+      propsTally = cached;
+      return;
+    }
+    let stale = false;
+    api
+      .propsTally(gid)
+      .then((t) => {
+        propsCache.set(gid, t || {});
+        if (!stale) propsTally = t || {};
+      })
+      .catch(() => {});
+    return () => (stale = true);
+  });
+  const propsCount = $derived(mem && propsTally ? propsTally[mem.fingerprint] || 0 : 0);
+
   // The safety number stays off the resting card (it dominated the layout) but
   // is one tap away — NOT in the overflow menu, because revealing it is the
   // start of the app's only identity check and shouldn't hide behind chrome.
@@ -610,6 +644,13 @@
         <div class="divider"></div>
         <div class="sec-label muted">About me</div>
         <div class="bio">{mem.bio}</div>
+      {/if}
+
+      {#if propsCount > 0}
+        <!-- Hidden at zero: "0 props" reads as a judgment, absence doesn't. -->
+        <div class="props muted" title="Celebratory reactions received on their messages in this guild">
+          ⭐ {propsCount} {propsCount === 1 ? "prop" : "props"}
+        </div>
       {/if}
 
       {#if (mem.games || []).length || mem.isSelf}
@@ -992,6 +1033,11 @@
     align-items: center;
     gap: 5px;
     font-size: var(--fs-small);
+  }
+  /* Received props — a quiet count in the bio's neighborhood, not a badge. */
+  .props {
+    font-size: var(--fs-small);
+    margin-top: 2px;
   }
   .status-box {
     display: flex;

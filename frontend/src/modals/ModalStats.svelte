@@ -16,14 +16,31 @@
 
   let gs = $state(null); // guild stats
   let ns = $state(null); // network stats
+  let props = $state(null); // top members by received props
 
   async function refresh() {
     try {
-      if (guildId) gs = await api.guildStats(guildId);
+      if (guildId) {
+        gs = await api.guildStats(guildId);
+        props = await loadProps();
+      }
       ns = await api.networkStats();
     } catch {
       /* transient — next tick retries */
     }
+  }
+
+  // Props leaderboard: celebratory reactions (🏆 ⭐ 💯 ❤️ 👏) received on each
+  // member's messages, tallied from THIS replica's reaction history. Every
+  // viewer computes it locally — eventually consistent exactly like the
+  // reaction counts it's derived from, and nobody's word to take for it.
+  async function loadProps() {
+    const [tally, members] = await Promise.all([api.propsTally(guildId), api.members(guildId)]);
+    const nameOf = new Map((members || []).map((m) => [m.fingerprint, m.name]));
+    return Object.entries(tally || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([fpr, n]) => ({ fpr, n, name: nameOf.get(fpr) || fpr.slice(0, 9) }));
   }
 
   $effect(() => {
@@ -221,6 +238,30 @@
       </div>
     {:else}
       <p class="muted tiny">Loading…</p>
+    {/if}
+  </section>
+
+  <hr />
+
+  <section>
+    <strong class="label">Props</strong>
+    {#if props === null}
+      <p class="muted tiny">Loading…</p>
+    {:else if props.length}
+      <div class="peers">
+        {#each props as p (p.fpr)}
+          <div class="peer">
+            <span class="pname">{p.name}</span>
+            <span class="ptag">⭐ {p.n}</span>
+          </div>
+        {/each}
+      </div>
+      <p class="muted tiny note">
+        Celebratory reactions (🏆 ⭐ 💯 ❤️ 👏) received on each member's messages,
+        counted from this device's own history.
+      </p>
+    {:else}
+      <p class="muted tiny">No props given yet — react with 🏆 ⭐ 💯 ❤️ 👏 to change that.</p>
     {/if}
   </section>
 
