@@ -184,6 +184,10 @@ export function installShortcuts() {
       return;
     }
     if (e.key === "Escape" && !inputFocused()) {
+      // An open modal owns Escape — Modal.svelte has its own window listener
+      // that dismisses it, so acting here too would fire two actions (e.g.
+      // cancel-reply AND close-modal) on a single keypress.
+      if (S.modal) return;
       if (e.shiftKey) {
         markAllRead();
       } else if (S.contextMenu) S.contextMenu = null;
@@ -192,7 +196,6 @@ export function installShortcuts() {
       else if (S.showPins) S.showPins = false;
       else if (S.searchResults !== null || S.searchLoading) closeSearch();
       else if (S.replyingTo) S.replyingTo = null;
-      else if (S.modal) S.modal = null;
       // Nothing to dismiss → mark the current channel read (Discord-style).
       else if (S.activeChannelId) markRead(S.activeChannelId);
     }

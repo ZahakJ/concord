@@ -430,32 +430,6 @@
        summon a horizontal scrollbar (see ChannelList .scroll). */
     overflow-x: clip;
   }
-  .add-people {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    width: 100%;
-    padding: 8px;
-    margin-bottom: 8px;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-    border-radius: var(--radius-md);
-    font-size: var(--fs-ui);
-    font-weight: 600;
-    transition:
-      background 0.13s ease,
-      transform 0.1s ease;
-  }
-  @media (pointer: fine) {
-    .add-people:hover {
-      background: color-mix(in srgb, var(--accent) 22%, transparent);
-    }
-  }
-  .add-people:active {
-    transform: scale(0.98);
-  }
   .section-head {
     display: flex;
     justify-content: space-between;
