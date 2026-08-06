@@ -35,6 +35,7 @@
   const accent = $derived(S.prefs.accent || "");
   const density = $derived(S.prefs.density || "cozy");
   const clock = $derived(S.prefs.clock || "system");
+  const uiScale = $derived(Number(S.prefs.uiScale) || 1);
   const profileColor = $derived(S.identity.color || "#14a394");
   const themePack = $derived(S.prefs.themePack || "");
   const shape = $derived(S.prefs.shape || "");
@@ -323,6 +324,28 @@
     </section>
 
     <section>
+      <strong class="label">UI scale</strong>
+      <div class="scale-row">
+        <input
+          type="range"
+          min="0.8"
+          max="1.5"
+          step="0.05"
+          value={uiScale}
+          aria-label="UI scale"
+          oninput={(e) => setAppearance("uiScale", Number(e.currentTarget.value))}
+        />
+        <span class="scale-val">{Math.round(uiScale * 100)}%</span>
+        <button class="scale-reset" disabled={uiScale === 1} onclick={() => setAppearance("uiScale", 1)}>
+          Reset
+        </button>
+      </div>
+      <p class="muted tiny">
+        Makes everything bigger or smaller. Ctrl+= and Ctrl+− work anywhere; Ctrl+0 resets.
+      </p>
+    </section>
+
+    <section>
       <strong class="label">Clock</strong>
       <div class="seg three" role="radiogroup" aria-label="Timestamp format">
         {#each [["system", "Automatic"], ["12", "12-hour"], ["24", "24-hour"]] as [id, label] (id)}
@@ -348,6 +371,30 @@
 </Modal>
 
 <style>
+  .scale-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .scale-row input[type="range"] {
+    flex: 1;
+    accent-color: var(--accent);
+  }
+  .scale-val {
+    font-variant-numeric: tabular-nums;
+    min-width: 4ch;
+    text-align: right;
+    font-size: var(--fs-ui);
+    color: var(--text-muted);
+  }
+  .scale-reset {
+    font-size: var(--fs-tiny);
+    padding: 4px 10px;
+  }
+  .scale-reset:disabled {
+    opacity: 0.45;
+  }
+
   /* Disclosure: the second layer of this dialog. Quiet at rest so the theme
      gallery above it stays the thing you look at. */
   .disclose {

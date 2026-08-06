@@ -11,11 +11,12 @@
 //   Ctrl+Shift+D      toggle deafen (while in a call)
 //   (your choice)     hold to talk, when push-to-talk is on — see below
 //   Ctrl/Cmd+U        toggle the member panel
+//   Ctrl/Cmd+= / - / 0  zoom the UI in / out / back to 100%
 //   Escape            close switcher / pins / search / reply — or, if nothing
 //                     is open, mark the current channel read
 //   Shift+Escape      mark ALL channels read
 //   ? or Ctrl+/       keyboard-shortcut cheat sheet
-import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted } from "./state.svelte.js";
+import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash } from "./state.svelte.js";
 import { closeSearch } from "./search.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
 
@@ -175,6 +176,21 @@ export function installShortcuts() {
       const dir = e.key === "ArrowDown" ? 1 : -1;
       if (e.shiftKey) stepUnread(dir);
       else stepChannel(dir);
+      return;
+    }
+    // Ctrl+= / Ctrl+- / Ctrl+0 — UI zoom. The desktop webview has no browser
+    // chrome, so the app must supply the zoom keys everyone's hands know.
+    if (mod && !e.altKey && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) {
+      e.preventDefault();
+      const cur = Number(S.prefs.uiScale) || 1;
+      const next =
+        e.key === "0"
+          ? 1
+          : Math.min(1.5, Math.max(0.8, Math.round((cur + (e.key === "-" ? -0.1 : 0.1)) * 10) / 10));
+      if (next !== cur) {
+        setAppearance("uiScale", next);
+        flash(`Zoom ${Math.round(next * 100)}%`, "info");
+      }
       return;
     }
     // Cheat sheet: ? (Shift+/) or Ctrl+/.

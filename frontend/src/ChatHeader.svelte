@@ -14,6 +14,7 @@
     voiceMembersFor,
     channelTypeIcon,
     toggleMemberPanel,
+    openProfilePopover,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
@@ -246,36 +247,53 @@
       <button class="ghost invite" onclick={showInvite}>Invite</button>
     {/if}
 
-    {#if g && g.kind !== "dm"}
+    {#if g}
       <Menu label="More" icon="chevron">
         {#if ch}
           <button class="menu-item" onclick={exportChannel}>
             <Icon name="download" size={14} /> Export history
           </button>
         {/if}
-        <button class="menu-item" onclick={() => (S.modal = { kind: "emoji" })}>
-          <Icon name="smile" size={14} /> Guild emoji
-        </button>
-        {#if g.isOwner}
-          <button class="menu-item" onclick={() => (S.modal = { kind: "rename" })}>
-            <Icon name="edit" size={14} /> Rename guild
+        {#if g.kind === "dm"}
+          {#if g.dmPeer}
+            <button class="menu-item" onclick={(e) => openProfilePopover(g.dmPeer, e.currentTarget)}>
+              <Icon name="spark" size={14} /> View profile
+            </button>
+          {/if}
+          {#if (g.dmMembers ?? 2) > 2}
+            <button
+              class="menu-item"
+              onclick={() =>
+                (S.modal = { kind: "renameGroup", guildId: g.id, current: g.dmNamed ? g.name : "" })}
+            >
+              <Icon name="edit" size={14} /> Rename group
+            </button>
+          {/if}
+        {:else}
+          <button class="menu-item" onclick={() => (S.modal = { kind: "emoji" })}>
+            <Icon name="smile" size={14} /> Guild emoji
+          </button>
+          {#if g.isOwner}
+            <button class="menu-item" onclick={() => (S.modal = { kind: "rename" })}>
+              <Icon name="edit" size={14} /> Rename guild
+            </button>
+          {/if}
+          {#if has(g.myPerms, PERM.MANAGE_ROLES) || g.isOwner}
+            <button class="menu-item" onclick={() => (S.modal = { kind: "roles" })}>
+              <Icon name="spark" size={14} /> Roles
+            </button>
+          {/if}
+          {#if g.canManage}
+            <button class="menu-item" onclick={() => (S.modal = { kind: "bans" })}>
+              <Icon name="door" size={14} /> Banned members
+            </button>
+          {/if}
+          <div class="menu-sep"></div>
+          <button class="menu-item danger" onclick={confirmLeave}>
+            <Icon name={g.isOwner ? "trash" : "door"} size={14} />
+            {g.isOwner ? "Delete guild" : "Leave guild"}
           </button>
         {/if}
-        {#if has(g.myPerms, PERM.MANAGE_ROLES) || g.isOwner}
-          <button class="menu-item" onclick={() => (S.modal = { kind: "roles" })}>
-            <Icon name="spark" size={14} /> Roles
-          </button>
-        {/if}
-        {#if g.canManage}
-          <button class="menu-item" onclick={() => (S.modal = { kind: "bans" })}>
-            <Icon name="door" size={14} /> Banned members
-          </button>
-        {/if}
-        <div class="menu-sep"></div>
-        <button class="menu-item danger" onclick={confirmLeave}>
-          <Icon name={g.isOwner ? "trash" : "door"} size={14} />
-          {g.isOwner ? "Delete guild" : "Leave guild"}
-        </button>
       </Menu>
     {/if}
   </div>

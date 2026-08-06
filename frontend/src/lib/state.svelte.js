@@ -88,6 +88,11 @@ export const S = $state({
   // lib/rail.js). An array of { t:"g", id } / { t:"f", id, name, color, open,
   // ids }. Reconciled against the live guild list on render.
   rail: loadJSON("concord.rail", []),
+  // MRU trail of channel ids, newest first (cap 15). The command palette's
+  // empty-query "Jump to" is this list: the Ctrl+K muscle memory is "bounce
+  // back to where I just was", not "the first six channels of whichever guild
+  // sorts first".
+  recentChannels: loadJSON("concord.mru", []),
   readAnchor: "", // ISO time we'd last read the active channel (for the "new" line)
 
   // Privacy + appearance prefs. linkPreviews defaults OFF: fetching a preview
@@ -109,6 +114,10 @@ export const S = $state({
     shape: "",
     font: "",
     density: "cozy",
+    // Whole-UI scale, 0.8..1.5. The Wails webview has no browser chrome to
+    // zoom with, so this is the only recourse when 13px UI text is too small.
+    // Ctrl+= / Ctrl+- / Ctrl+0 step it; a slider lives in Appearance.
+    uiScale: 1,
     clock: "system", // "system" | "12" | "24" — timestamp hour format
     memberPanel: true, // show the right-hand member panel (toggle with Ctrl+U)
     // Chosen call hardware (see lib/devices.js). "" = whatever the OS picked,
@@ -1110,6 +1119,38 @@ export function feedNearBottom() {
   if (!feedEl) return true;
   return feedEl.scrollHeight - feedEl.scrollTop - feedEl.clientHeight < 120;
 }
+
+// ---- reading-position stash ----
+// channelId -> the first visible message id when the reader left mid-scroll.
+// Session-only on purpose: after a restart the NEW-divider/bottom landing is
+// the right default again, and stale anchors would fight history growth.
+const scrollStash = {};
+
+function firstVisibleMsgId() {
+  if (!feedEl) return "";
+  const top = feedEl.getBoundingClientRect().top;
+  for (const el of feedEl.querySelectorAll("[data-msg-id]")) {
+    if (el.getBoundingClientRect().bottom > top + 8) return el.dataset.msgId || "";
+  }
+  return "";
+}
+
+// Instant, flash-free — unlike scrollToMessage this is not a "look here" jump,
+// it's the reader's own place quietly coming back.
+function restoreReadingPosition(id) {
+  const anchor = scrollStash[id];
+  if (!anchor) return false;
+  delete scrollStash[id];
+  if (!S.messages.some((m) => m.id === anchor)) return false;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      feedEl
+        ?.querySelector(`[data-msg-id="${CSS.escape(anchor)}"]`)
+        ?.scrollIntoView({ block: "start" });
+    });
+  });
+  return true;
+}
 // scrollToMessage: center the target row and flash-highlight it so the eye
 // lands on it (shared by reply-ref clicks, pin jumps, and search results).
 // The flash is restartable — jumping again (same row or another) clears any
@@ -1267,6 +1308,11 @@ export function applyAppearance() {
   // Accent precedence: explicit preset > theme pack's own accent (CSS) >
   // profile color. An inline --accent would defeat the pack's palette, so
   // clear it when the pack should win.
+  // UI scale rides CSS zoom: it scales the fixed-px type/spacing tokens in one
+  // move and both engines this app ships on (Chromium, WebKitGTK) honor it.
+  const scale = Number(S.prefs.uiScale) || 1;
+  if (scale !== 1) el.style.zoom = scale;
+  else el.style.removeProperty("zoom");
   if (S.prefs.accent) applyAccent(S.prefs.accent);
   else if (S.prefs.themePack) {
     document.documentElement.style.removeProperty("--accent");
@@ -1539,6 +1585,17 @@ export async function createGroupDM(fingerprints) {
 }
 
 export async function selectChannel(id) {
+  const mru = [id, ...S.recentChannels.filter((c) => c !== id)].slice(0, 15);
+  S.recentChannels = mru;
+  saveJSON("concord.mru", mru);
+  // If the reader left the outgoing channel mid-scroll, remember the first
+  // visible row so coming back doesn't dump them at the bottom to scroll-hunt.
+  // At-bottom clears any stale anchor: bottom is where they chose to be.
+  const prev = S.activeChannelId;
+  if (prev && prev !== id) {
+    if (!feedNearBottom()) scrollStash[prev] = firstVisibleMsgId();
+    else delete scrollStash[prev];
+  }
   S.activeChannelId = id;
   rememberPlace(S.activeGuildId, id);
   // Snapshot where we left off BEFORE marking read, to place the "new messages"
@@ -1586,8 +1643,10 @@ export async function selectChannel(id) {
     S.messages.some(
       (m) => m.kind === "" && m.sender !== S.identity.fingerprint && m.sent > S.readAnchor,
     );
+  // Unread beats the stash: catching up on what you missed outranks resuming
+  // an old scrollback session.
   if (hasUnread) scrollToNewDivider();
-  else scrollSoon();
+  else if (!restoreReadingPosition(id)) scrollSoon();
 }
 
 // loadOlder pages in the messages just before the oldest row currently loaded.

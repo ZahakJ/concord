@@ -14,6 +14,7 @@
         [["Alt", "↑/↓"], "Previous / next channel"],
         [["Alt", "Shift", "↑/↓"], "Previous / next unread channel"],
         [["Ctrl", "Alt", "↑/↓"], "Previous / next server"],
+        [["Ctrl/⌘", "+/−/0"], "Zoom the whole UI in / out / reset"],
       ],
     },
     {

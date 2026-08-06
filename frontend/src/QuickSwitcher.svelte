@@ -12,6 +12,7 @@
     isMuted,
     channelShort,
     isDMChannel,
+    guildUnread,
   } from "./lib/state.svelte.js";
 
   let query = $state("");
@@ -110,8 +111,18 @@
     }
 
     if (!q) {
+      // Empty query = recency. "Jump to" is the MRU trail (minus where you
+      // already are), padded with the raw channel list for fresh installs.
+      const byId = new Map();
+      for (const d of dests) if (d.kind === "channel") byId.set(d.c.id, d);
+      const recent = S.recentChannels
+        .filter((cid) => cid !== S.activeChannelId)
+        .map((cid) => byId.get(cid))
+        .filter(Boolean);
+      const seen = new Set(recent);
+      const rest = dests.filter((i) => i.kind === "channel" && !seen.has(i));
       return {
-        jump: dests.filter((i) => i.kind === "channel").slice(0, 6),
+        jump: [...recent, ...rest].slice(0, 6),
         acts: actionOnly ? actions : actions.slice(0, 5),
       };
     }
@@ -137,6 +148,17 @@
     sel;
     listEl?.querySelector(".hit.sel")?.scrollIntoView({ block: "nearest" });
   });
+
+  // Unread state for a result row, so the list shows which hit needs you.
+  // Channels read their own counter; guild/DM rows aggregate like the rail.
+  function unreadFor(item) {
+    if (item.kind === "channel") return S.unread[item.c.id] || null;
+    if (item.kind === "guild" || item.kind === "dm") {
+      const u = guildUnread(item.g);
+      return u.count ? u : null;
+    }
+    return null;
+  }
 
   async function go(item) {
     S.quickSwitcher = false;
@@ -184,6 +206,12 @@
         <kbd class="hit-kbd">{item.sub}</kbd>
       {:else}
         <span class="muted hit-sub">{item.sub}</span>
+      {/if}
+    {/if}
+    {#if item.kind !== "action"}
+      {@const u = unreadFor(item)}
+      {#if u?.count}
+        <span class="hit-unread" class:mention={u.mentions > 0}>{u.mentions > 0 ? u.mentions : u.count}</span>
       {/if}
     {/if}
     <span class="hit-enter" aria-hidden="true">↵</span>
@@ -354,6 +382,25 @@
     border-radius: 5px;
     padding: 1px 6px;
     white-space: nowrap;
+  }
+  /* Same pill the channel list wears, so "this one needs you" reads the same
+     everywhere. Mentions swap the count for the mention tally in accent. */
+  .hit-unread {
+    min-width: 18px;
+    padding: 0 5px;
+    height: 16px;
+    border-radius: 8px;
+    background: var(--text-muted);
+    color: var(--bg-1);
+    font-size: var(--fs-tiny);
+    font-weight: 700;
+    display: grid;
+    place-items: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .hit-unread.mention {
+    background: var(--accent);
+    color: var(--accent-fg, #fff);
   }
   .hit-label {
     flex: 1;

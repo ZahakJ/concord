@@ -245,6 +245,50 @@
     return out;
   });
 
+  // ---- member filter ----
+  // Only worth its pixels once the roster outgrows a glance — below ~15 rows
+  // scanning is faster than typing.
+  let memberFilter = $state("");
+  const showFilter = $derived(S.members.length > 15);
+  const filtering = $derived(!!memberFilter.trim());
+
+  // A query typed against one guild's roster means nothing in the next one's —
+  // carrying it over would greet you with a mysteriously empty panel.
+  $effect(() => {
+    S.activeGuildId;
+    memberFilter = "";
+  });
+
+  // Matches what the row actually shows: the display name (fingerprint when
+  // nameless) and the status one-liner under it. Groups keep their full count
+  // so headers can say "n of m"; emptied groups drop out entirely.
+  const filteredGroups = $derived.by(() => {
+    const q = memberFilter.trim().toLowerCase();
+    const groups = memberGroups.map((grp) => ({ ...grp, total: grp.members.length }));
+    if (!q) return groups;
+    return groups
+      .map((grp) => ({
+        ...grp,
+        members: grp.members.filter(
+          (m) =>
+            (m.name || m.fingerprint).toLowerCase().includes(q) ||
+            m.status?.toLowerCase().includes(q),
+        ),
+      }))
+      .filter((grp) => grp.members.length);
+  });
+
+  function filterKeydown(e) {
+    if (e.key !== "Escape") return;
+    // Escape clears the filter instead of climbing the global Escape ladder
+    // (drawer/popover close) — but only while there's something to clear, so a
+    // second press still backs you out of the panel.
+    if (memberFilter) {
+      e.stopPropagation();
+      memberFilter = "";
+    }
+  }
+
   // Kicking ejects a member — confirm first (a hover-revealed danger button is
   // one stray click otherwise), matching the profile popover's flow.
   function kick(mem) {
@@ -310,9 +354,27 @@
       </div>
     </div>
   {/if}
-  {#each memberGroups as grp (grp.id)}
+  {#if showFilter}
+    <div class="filter-wrap">
+      <input
+        class="member-filter"
+        type="text"
+        placeholder="Filter members"
+        aria-label="Filter members by name or status"
+        bind:value={memberFilter}
+        onkeydown={filterKeydown}
+      />
+      {#if memberFilter}
+        <button class="filter-x" aria-label="Clear filter" onclick={() => (memberFilter = "")}>
+          <Icon name="close" size={11} />
+        </button>
+      {/if}
+    </div>
+  {/if}
+  {#each filteredGroups as grp (grp.id)}
     <div class="section-head">
-      <span style={grp.color ? `color:${grp.color}` : ""}>{grp.name} — {grp.members.length}</span>
+      <span style={grp.color ? `color:${grp.color}` : ""}
+        >{grp.name} — {filtering ? `${grp.members.length} of ${grp.total}` : grp.total}</span>
     </div>
     {#each grp.members as mem (mem.fingerprint)}
       <div class="member-row">
@@ -385,6 +447,10 @@
         {/if}
       </div>
     {/each}
+  {:else}
+    {#if filtering}
+      <div class="muted small">No members match “{memberFilter.trim()}”.</div>
+    {/if}
   {/each}
 
   <div class="section-head">
@@ -440,6 +506,60 @@
     font-weight: 700;
     color: var(--text-muted);
     margin: 12px 8px 4px;
+  }
+  /* The filter is background chrome like the rest of this panel — a quiet
+     recessed well, no accent until the field itself is focused (the global
+     input focus style provides that). */
+  .filter-wrap {
+    position: relative;
+    margin: 8px 4px 0;
+  }
+  .member-filter {
+    background: var(--bg-2);
+    border-color: transparent;
+    border-radius: var(--radius-md);
+    font-size: var(--fs-ui);
+    /* Compact: the global 11px/14px input padding is dialog-sized; leave room
+       on the right for the clear X so text never runs under it. */
+    padding: 6px 26px 6px 10px;
+    box-shadow: none;
+  }
+  @media (pointer: fine) {
+    .member-filter:hover:not(:focus) {
+      background: var(--bg-3);
+      border-color: transparent;
+    }
+  }
+  .member-filter:focus {
+    background: var(--bg-3);
+  }
+  .filter-x {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 3px 5px;
+    background: transparent;
+    color: var(--text-muted);
+    display: inline-grid;
+    place-items: center;
+  }
+  .filter-x:hover,
+  .filter-x:active {
+    background: transparent;
+    color: var(--text);
+  }
+  /* Finger-sized field in the mobile drawer; the X pads its hit box out
+     without growing the glyph. */
+  @media (pointer: coarse) {
+    .member-filter {
+      padding: 9px 30px 9px 12px;
+    }
+    .filter-x::after {
+      content: "";
+      position: absolute;
+      inset: -10px;
+    }
   }
   .member-row {
     display: flex;

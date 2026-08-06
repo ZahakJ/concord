@@ -17,6 +17,40 @@
 
   let el = $state(null);
   let pos = $state({ x: 0, y: 0 });
+  let prevFocus = null;
+
+  // The popover claims role="menu", so it has to honour the contract: focus
+  // moves into it on open and returns whence it came on close. Reads only the
+  // menu's presence — a keepOpen relabel that swaps `items` must not yank
+  // focus back to the first row mid-interaction.
+  $effect(() => {
+    if (!S.contextMenu || S.isMobile || !el) return;
+    prevFocus = document.activeElement;
+    el.querySelector(".cm-item:not(:disabled)")?.focus();
+    return () => {
+      if (prevFocus?.isConnected) prevFocus.focus();
+      prevFocus = null;
+    };
+  });
+
+  // Roving focus over the item buttons; separators/headers/disabled rows fall
+  // out of the query. Enter/Space need no handling — a focused <button>
+  // activates natively. preventDefault keeps the arrows from scrolling a
+  // menu tall enough to overflow.
+  function onMenuKey(e) {
+    const items = [...el.querySelectorAll(".cm-item:not(:disabled)")];
+    if (!items.length) return;
+    const n = items.length;
+    const i = items.indexOf(document.activeElement);
+    let next = null;
+    if (e.key === "ArrowDown") next = items[i < 0 ? 0 : (i + 1) % n];
+    else if (e.key === "ArrowUp") next = items[i < 0 ? n - 1 : (i - 1 + n) % n];
+    else if (e.key === "Home") next = items[0];
+    else if (e.key === "End") next = items[n - 1];
+    if (!next) return;
+    e.preventDefault();
+    next.focus();
+  }
 
   // Place at the cursor, flipping so the menu stays on-screen.
   $effect(() => {
@@ -99,14 +133,23 @@
   {:else}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="cm-backdrop" onpointerdown={closeContextMenu} oncontextmenu={(e) => e.preventDefault()}></div>
-    <div class="cm" bind:this={el} style="left:{pos.x}px; top:{pos.y}px" role="menu">
+    <div class="cm" bind:this={el} style="left:{pos.x}px; top:{pos.y}px" role="menu" onkeydown={onMenuKey}>
       {#each S.contextMenu.items as item (item)}
         {#if item.sep}
           <div class="cm-sep"></div>
         {:else if item.header}
           <div class="cm-header">{item.label}</div>
         {:else}
-          <button class="cm-item" class:danger={item.danger} class:active={item.active} role="menuitem" onclick={() => run(item)}>
+          <!-- Hover pulls focus so the pointer and the arrow keys move one
+               highlight instead of fighting over two. -->
+          <button
+            class="cm-item"
+            class:danger={item.danger}
+            class:active={item.active}
+            role="menuitem"
+            onclick={() => run(item)}
+            onpointerenter={(e) => e.currentTarget.focus()}
+          >
             {#if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
             {:else if item.icon}<Icon name={item.icon} size={14} />{/if}
             <span>{item.label}</span>
@@ -235,14 +278,19 @@
     font-size: var(--fs-ui);
     border-radius: var(--radius-sm);
   }
-  .cm-item:hover {
+  /* Keyboard focus wears the hover highlight — one indicator, however you
+     arrived. The background carries it, so no ring on top. */
+  .cm-item:hover,
+  .cm-item:focus-visible {
     background: var(--accent);
     color: var(--accent-fg);
+    outline: none;
   }
   .cm-item.danger {
     color: var(--danger-text);
   }
-  .cm-item.danger:hover {
+  .cm-item.danger:hover,
+  .cm-item.danger:focus-visible {
     background: var(--danger);
     color: var(--danger-fg);
   }
@@ -282,7 +330,8 @@
     font-weight: 800;
     color: var(--accent-hover);
   }
-  .cm-item:hover .cm-tick {
+  .cm-item:hover .cm-tick,
+  .cm-item:focus-visible .cm-tick {
     color: currentColor;
   }
 </style>

@@ -631,6 +631,21 @@
       quick: { emojis: sheetEmojis, onPick: reactWithBounce, onMore: () => (S.pickerTarget = m) },
     });
   }
+
+  // The hover toolbar carries the common verbs; Remind Me, Mark Unread, Copy
+  // Text and friends lived only behind right-click, which plenty of users
+  // never do. ⋯ opens the SAME menu (no duplicated item list), anchored under
+  // the button via a synthetic point — same shape as EventCard's anchorEvt.
+  // No target on the point, so messageMenu's link/pre/img sniffing all miss.
+  function moreMenu(e) {
+    const r = e.currentTarget.getBoundingClientRect();
+    messageMenu({
+      clientX: r.left,
+      clientY: r.bottom + 4,
+      preventDefault() {},
+      stopPropagation() {},
+    });
+  }
 </script>
 
 <!-- Touch: only the longpress action opens the menu (Android's WebView also
@@ -1006,6 +1021,12 @@
           </button>
         </div>
       {/if}
+      <span class="sep"></span>
+      <div class="grp">
+        <button title="More" aria-label="More" onclick={moreMenu}>
+          <Icon name="dots" size={15} />
+        </button>
+      </div>
     </div>
   {/if}
 </div>

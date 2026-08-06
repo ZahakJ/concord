@@ -11,6 +11,8 @@
   import {
     S,
     activeGuild,
+    activeChannel,
+    guildUnread,
     onLogin,
     refreshGuilds,
     refreshRightPanel,
@@ -140,6 +142,17 @@
       if (c) return gg.kind === "dm" ? gg.name : `${gg.name} · ${c.name}`;
     }
     return "";
+  });
+
+  // Window title carries the unread signal to the taskbar/dock: "(3) #general
+  // — Concord" while minimized or behind another window. Mentions only — raw
+  // unread counts would make the title flicker on every chatty channel.
+  $effect(() => {
+    const ch = activeChannel();
+    let mentions = 0;
+    for (const g of S.guilds) mentions += guildUnread(g).mentions;
+    const where = ch?.name ? `${isDMChannel(ch.id) ? "" : "#"}${ch.name} — ` : "";
+    document.title = `${mentions ? `(${mentions}) ` : ""}${where}Concord`;
   });
 
   // Ring while a DM call is incoming; stops when accepted, declined, or ended.
