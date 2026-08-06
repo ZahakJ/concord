@@ -26,6 +26,22 @@
   import { api } from "./lib/api.js";
   import { bindLabel } from "./lib/keybind.js";
   import { haptic, longpress } from "./lib/touch.js";
+  import { SOUNDBOARD, playSfx } from "./lib/sounds.js";
+
+  // Soundboard: play locally on press (instant feedback), gossip a ~30-byte
+  // "sfx" trigger on the room's voice topic — every peer synthesizes the same
+  // recipe locally (lib/sounds.js). Own presses rate-limit to match the
+  // receive-side gate, so what you hear is what the room hears.
+  let sfxOpen = $state(false);
+  let sfxLastPress = 0;
+  function pressSfx(id) {
+    const now = Date.now();
+    if (now - sfxLastPress < 1000) return;
+    sfxLastPress = now;
+    haptic("light");
+    playSfx(id);
+    api.signalCall(chId, "sfx", id).catch(() => {});
+  }
   import {
     canShareScreen,
     listDevices,
@@ -701,6 +717,13 @@
     {/if}
   {/if}
 
+  {#if sfxOpen}
+    <div class="sfx-row" role="toolbar" aria-label="Soundboard">
+      {#each SOUNDBOARD as s (s.id)}
+        <button class="sfx" title={s.name} aria-label={s.name} onclick={() => pressSfx(s.id)}>{s.emoji}</button>
+      {/each}
+    </div>
+  {/if}
   <div class="controls">
     <button
       class="ctl"
@@ -723,6 +746,16 @@
       onclick={withHaptic(onToggleDeafen)}
     >
       <Icon name={S.deafened ? "deafened" : "speaker"} size={18} />
+    </button>
+    <button
+      class="ctl"
+      class:active={sfxOpen}
+      title="Soundboard"
+      aria-label="Soundboard"
+      aria-expanded={sfxOpen}
+      onclick={() => (sfxOpen = !sfxOpen)}
+    >
+      <Icon name="megaphone" size={18} />
     </button>
     {#if canRoute}
       <button
@@ -1329,6 +1362,37 @@
   /* Call controls, on the call box itself (Discord-style). Sticky to the bottom
      of the (scrollable) panel so mute/leave are always reachable, never scrolled
      off when there are many tiles or a big screen share. */
+  .sfx-row {
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .sfx {
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    font-size: 17px;
+    border-radius: var(--radius-md);
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    transition: transform 0.1s ease;
+  }
+  @media (pointer: fine) {
+    .sfx:hover {
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    }
+  }
+  .sfx:active {
+    transform: scale(0.9);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sfx {
+      transition: none;
+    }
+  }
   .controls {
     position: sticky;
     bottom: 0;

@@ -4,7 +4,11 @@
 import { api, on } from "./api.js";
 import { notify } from "./notify.js";
 import { containsMention } from "./markdown.js";
-import { playVoiceJoin, playVoiceLeave, playMention, playDM } from "./sounds.js";
+import { playVoiceJoin, playVoiceLeave, playMention, playDM, playSfx } from "./sounds.js";
+
+// Per-sender soundboard rate limit (last accepted press, ms). Module-local:
+// nothing else needs to react to it.
+const sfxLast = {};
 import { PERM, has } from "./perms.js";
 import {
   LEVELS as NOTIF_LEVELS,
@@ -2027,6 +2031,25 @@ function initEvents() {
   // Voice presence is now guild-wide: every peer hears join/leave heartbeats for
   // every voice channel, so the sidebar can show who's in each call.
   on("voice-presence", (v) => {
+    // Soundboard: a ~30-byte trigger; every client synthesizes locally
+    // (lib/sounds.js SOUNDBOARD). Gates: only while WE are in that room, never
+    // our own echo (we played on press), a per-sender rate limit so a held
+    // button can't become a siren, and a zeroed per-peer volume slider mutes
+    // their sound effects along with their voice.
+    if (v.action === "sfx") {
+      if (
+        S.voice?.channelId === v.channelId &&
+        v.fingerprint !== S.identity.fingerprint &&
+        S.peerVolumes[v.fingerprint] !== 0
+      ) {
+        const now = Date.now();
+        if (now - (sfxLast[v.fingerprint] || 0) >= 1000) {
+          sfxLast[v.fingerprint] = now;
+          playSfx(v.target);
+        }
+      }
+      return;
+    }
     // Soft-lock control actions ride the same presence topic (see voice.go).
     if (v.action === "lock" || v.action === "unlock") {
       const locks = { ...S.callLocks };

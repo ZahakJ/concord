@@ -454,6 +454,122 @@ export function playSend() {
   );
 }
 
+// ---- the voice-room soundboard ----
+// Six effects built from oscillators and noise, honoring the file's vow: there
+// are no audio files in this app and there must not be. On the wire a
+// soundboard press is a ~30-byte trigger on the room's voice topic; every
+// client synthesizes the sound LOCALLY from the same recipe — nothing to
+// download, nothing to cache, and an airhorn arrives as fast as a heartbeat.
+export const SOUNDBOARD = [
+  { id: "airhorn", name: "Airhorn", emoji: "📯" },
+  { id: "drumroll", name: "Drumroll", emoji: "🥁" },
+  { id: "rimshot", name: "Ba dum tss", emoji: "🪘" },
+  { id: "trombone", name: "Sad trombone", emoji: "🎺" },
+  { id: "applause", name: "Applause", emoji: "👏" },
+  { id: "crickets", name: "Crickets", emoji: "🦗" },
+];
+
+// A noise burst through a bandpass — the grain applause, drums and cymbals
+// are all made of. peak is pre-compressor; keep these modest.
+function noiseHit(ac, sink, start, dur, freq, q, peak) {
+  const src = noiseSource(ac, dur);
+  const bp = ac.createBiquadFilter();
+  bp.type = "bandpass";
+  bp.frequency.value = freq;
+  bp.Q.value = q;
+  const g = ac.createGain();
+  const t0 = ac.currentTime + start;
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(peak, t0 + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(bp).connect(g).connect(sink);
+  src.start(t0);
+  src.stop(t0 + dur + 0.02);
+}
+
+// A pitched slide — the trombone's wah and the airhorn's opening scoop.
+function slide(ac, sink, wave, from, to, start, dur, peak) {
+  const osc = ac.createOscillator();
+  osc.type = wave;
+  const t0 = ac.currentTime + start;
+  osc.frequency.setValueAtTime(from, t0);
+  osc.frequency.linearRampToValueAtTime(to, t0 + dur);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(peak, t0 + 0.03);
+  g.gain.setValueAtTime(peak, t0 + dur - 0.08);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  osc.connect(g).connect(sink);
+  osc.start(t0);
+  osc.stop(t0 + dur + 0.02);
+}
+
+const SFX = {
+  airhorn(ac) {
+    const bus = roomBus(ac, { seconds: 0.9, decay: 2.2, wet: 0.22, damp: 3200, level: 0.5 });
+    // Three sawtooths a few cents apart: the beat between them IS the honk.
+    for (const det of [1, 1.006, 0.993]) {
+      slide(ac, bus, "sawtooth", 415 * det, 466 * det, 0, 0.75, 0.05);
+    }
+  },
+  drumroll(ac) {
+    const bus = roomBus(ac, { seconds: 0.8, decay: 2.0, wet: 0.15, damp: 2500, level: 0.7 });
+    // Alternating-hand hits, quickening crescendo.
+    for (let i = 0; i < 26; i++) {
+      const t = i * 0.052;
+      noiseHit(ac, bus, t, 0.05, 190 + (i % 2) * 25, 1.6, 0.02 + (i / 26) * 0.045);
+    }
+    noiseHit(ac, bus, 26 * 0.052, 0.5, 900, 0.7, 0.09); // the cymbal it was building to
+  },
+  rimshot(ac) {
+    const bus = roomBus(ac, { seconds: 1.2, decay: 2.4, wet: 0.25, damp: 3000, level: 0.8 });
+    thump(ac, bus, 0, 160, 70, 0.12); // ba
+    thump(ac, bus, 0.17, 150, 65, 0.12); // dum
+    noiseHit(ac, bus, 0.34, 0.7, 3800, 0.8, 0.07); // tss
+  },
+  trombone(ac) {
+    const bus = roomBus(ac, { seconds: 1.4, decay: 2.6, wet: 0.3, damp: 2200, level: 0.55 });
+    // Wah, wah, wah, waaah — four droops, the last one giving up entirely.
+    slide(ac, bus, "sawtooth", 233, 224, 0.0, 0.32, 0.045);
+    slide(ac, bus, "sawtooth", 220, 211, 0.38, 0.32, 0.045);
+    slide(ac, bus, "sawtooth", 208, 199, 0.76, 0.32, 0.045);
+    slide(ac, bus, "sawtooth", 196, 170, 1.14, 0.85, 0.05);
+  },
+  applause(ac) {
+    const bus = roomBus(ac, { seconds: 1.0, decay: 2.0, wet: 0.3, damp: 4000, level: 0.7 });
+    // Decorrelated grains — many small hands, no loop, dying out naturally.
+    for (let i = 0; i < 46; i++) {
+      const t = Math.random() * 1.5;
+      noiseHit(ac, bus, t, 0.045, 1200 + Math.random() * 2200, 1.1, 0.02 * (1 - t / 2.1));
+    }
+  },
+  crickets(ac) {
+    const bus = roomBus(ac, { seconds: 0.6, decay: 1.6, wet: 0.2, damp: 6000, level: 0.5 });
+    // Two crickets trading chirps: high tones pulsed into short triplets.
+    for (const [base, offset] of [
+      [4300, 0],
+      [3900, 0.9],
+    ]) {
+      for (let c = 0; c < 3; c++) {
+        for (let p = 0; p < 4; p++) {
+          const t = offset + c * 0.55 + p * 0.055;
+          tone(ac, base + Math.random() * 120, t, 0.035, 0.02, "sine");
+        }
+      }
+    }
+  },
+};
+
+// playSfx renders one soundboard effect. Rides the global sound mute like
+// every other chime; rate limiting and per-sender gates live with the caller
+// (lib/state.svelte.js), which knows who pressed it.
+export function playSfx(id) {
+  if (!enabled) return;
+  const ac = audio();
+  if (!ac) return;
+  SFX[id]?.(ac);
+}
+
 // Easter egg: the home button's logo is a Concorde, so hammering it flies one
 // past you. Synthesized like everything else here — there are no audio files in
 // this app and there must not be.
