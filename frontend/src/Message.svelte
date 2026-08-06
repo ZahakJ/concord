@@ -266,6 +266,119 @@
       },
     };
   }
+  // Swipe-to-reply: a short leftward drag on the row slides it out (capped) and
+  // arms a reply that commits on release — the messenger-standard shortcut past
+  // long-press → sheet → Reply. Touch only. MobileShell's drawer gesture claims
+  // mostly-horizontal touches over the whole chat pane; rows advertise
+  // data-swipe-reply so its claim step stands down for LEFTWARD drags that
+  // start here (see its onTouchMove). If our own threshold is never met the row
+  // just snaps back — the shell never gets the drag handed back mid-stream;
+  // losing that one drag is far cheaper than a handoff protocol.
+  const SWIPE_CAP = 64; // px the row travels, tops
+  const SWIPE_COMMIT = 40; // px past which release replies
+  function swipeReply(node) {
+    if (!coarse) return;
+    node.dataset.swipeReply = ""; // the flag MobileShell's claim defers to
+    let sx = 0;
+    let sy = 0;
+    let tracking = false;
+    let claimed = false;
+    let buzzed = false;
+    let dx = 0;
+
+    // Transform-only (no layout work mid-drag), and skipped entirely under
+    // reduced motion — the gesture still commits, there is just no slide (and
+    // the hint stays clipped off-screen, so the haptic is the feedback there).
+    function visual(x) {
+      if (reduceMotion) return;
+      node.style.transform = x ? `translateX(${x}px)` : "";
+      node.style.setProperty("--swipe-p", String(Math.min(1, -x / SWIPE_COMMIT)));
+    }
+    function settle() {
+      if (!reduceMotion && claimed) {
+        // Snap back through a brief transition, then drop the class so the
+        // NEXT drag tracks the finger raw instead of easing behind it.
+        node.classList.add("swipe-settle");
+        setTimeout(() => node.classList.remove("swipe-settle"), 200);
+      }
+      node.classList.remove("swipe-commit");
+      visual(0);
+      tracking = claimed = buzzed = false;
+      dx = 0;
+    }
+    function onStart(e) {
+      if (e.touches.length !== 1) return;
+      // Same stand-downs as the shell's drawer: text fields keep their touches
+      // (an edit-in-place textarea lives inside the row), and a live selection
+      // means the finger is about to adjust handles, not swipe.
+      if (e.target.closest?.("textarea, input")) return;
+      const sel = window.getSelection?.();
+      if (sel && !sel.isCollapsed) return;
+      sx = e.touches[0].clientX;
+      sy = e.touches[0].clientY;
+      dx = 0;
+      tracking = true;
+      claimed = buzzed = false;
+    }
+    function onMove(e) {
+      if (!tracking) return;
+      const t = e.touches[0];
+      if (!t || e.touches.length !== 1) {
+        tracking = false;
+        return;
+      }
+      dx = t.clientX - sx;
+      const dy = t.clientY - sy;
+      if (!claimed) {
+        // Same claim geometry as the shell so the two gestures carve up the
+        // plane identically: mostly-vertical is a scroll, rightward belongs to
+        // the drawer, only a clear leftward slant is ours. (By ±10px of any
+        // movement the longpress has already cancelled itself — lib/touch.js
+        // onMove — so a drag never races the 400ms menu.)
+        if (Math.abs(dy) > 14 && Math.abs(dy) > Math.abs(dx)) {
+          tracking = false;
+          return;
+        }
+        if (dx > 0) {
+          tracking = false;
+          return;
+        }
+        if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+        claimed = true;
+      }
+      visual(Math.max(dx, -SWIPE_CAP));
+      const past = dx <= -SWIPE_COMMIT;
+      node.classList.toggle("swipe-commit", past);
+      if (past && !buzzed) {
+        buzzed = true; // exactly once per drag, even if the finger wanders back
+        haptic("light");
+      }
+    }
+    function onEnd(e) {
+      if (claimed) {
+        // A claimed drag ending over a link would still synthesize a click on
+        // it — same ghost-click the shell and longpress both eat.
+        if (e.cancelable) e.preventDefault();
+        if (dx <= -SWIPE_COMMIT) S.replyingTo = m;
+      }
+      settle();
+    }
+    function onCancel() {
+      settle(); // browser took the touch (scroll/system gesture): no reply
+    }
+    node.addEventListener("touchstart", onStart, { passive: true });
+    node.addEventListener("touchmove", onMove, { passive: true });
+    node.addEventListener("touchend", onEnd);
+    node.addEventListener("touchcancel", onCancel);
+    return {
+      destroy() {
+        node.removeEventListener("touchstart", onStart);
+        node.removeEventListener("touchmove", onMove);
+        node.removeEventListener("touchend", onEnd);
+        node.removeEventListener("touchcancel", onCancel);
+      },
+    };
+  }
   // clampSealCard keeps the reveal card on screen. The card is anchored to the
   // chip, and a chip can sit anywhere — including the left edge of a narrow
   // phone column, where a right-anchored card walked straight off the screen
@@ -709,6 +822,7 @@
   oncontextmenu={coarse ? (e) => e.preventDefault() : messageMenu}
   use:longpress={{ handler: messageMenu }}
   use:fxOnView
+  use:swipeReply
 >
   {#if compact}
     <span class="gutter-time muted" title={new Date(m.sent).toLocaleString()}>{fmtTime(m.sent)}</span>
@@ -1027,6 +1141,17 @@
       </div>
     {/if}
   </div>
+
+  {#if coarse}
+    <!-- Swipe-to-reply affordance. In-flow zero-width flex child, NOT absolute
+         against .msg: the row's own box is a degenerate sliver (see fxOnView),
+         so only child boxes anchor anything trustworthy. The dot paints just
+         past the row's right edge — the feed's overflow-x:hidden clips it until
+         the leftward slide carries it on screen. -->
+    <span class="swipe-hint" aria-hidden="true">
+      <span class="swipe-hint-dot"><Icon name="reply" size={14} /></span>
+    </span>
+  {/if}
 
   {#if !m.deleted && S.editing?.id !== m.id}
     <div class="msg-actions" role="toolbar" aria-label="Message actions">
@@ -1817,6 +1942,40 @@
     .react-who {
       display: none;
     }
+  }
+
+  /* ---- swipe-to-reply (touch; see swipeReply in the script) --------------
+     The drag itself writes an inline translateX; this class rides only for the
+     ~200ms snap-back so tracking stays raw under the finger. Reduced motion
+     never gets the transform in the first place (guarded in JS). */
+  .msg.swipe-settle {
+    transition: transform 0.18s ease;
+  }
+  .swipe-hint {
+    flex: 0 0 0;
+    align-self: center;
+    position: relative;
+  }
+  /* Opacity/scale keyed to --swipe-p (0 → commit threshold = 1), set by the
+     drag on the row, so the dot fades and grows as the row travels. */
+  .swipe-hint-dot {
+    position: absolute;
+    top: 50%;
+    left: 16px;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: var(--bg-3);
+    color: var(--text-muted);
+    display: grid;
+    place-items: center;
+    opacity: var(--swipe-p, 0);
+    transform: translateY(-50%) scale(calc(0.55 + 0.45 * var(--swipe-p, 0)));
+  }
+  /* Past the commit threshold (the moment the haptic fires): released = reply. */
+  .msg.swipe-commit .swipe-hint-dot {
+    background: var(--accent);
+    color: var(--bg-0);
   }
   .grp {
     display: flex;

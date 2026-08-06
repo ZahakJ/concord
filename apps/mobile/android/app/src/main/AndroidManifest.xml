@@ -32,7 +32,23 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="concord" />
             </intent-filter>
+            <!-- Share-sheet target, TEXT/LINKS ONLY for now (v1): handled in
+                 MainActivity.handleShareIntent → "shareIn" plugin event → the
+                 active conversation's composer. image/*, video/* and
+                 ACTION_SEND_MULTIPLE are deliberately NOT declared yet —
+                 stream bytes have no route into the composer's attachment
+                 flow, and advertising a type we'd silently drop is worse than
+                 not appearing in the sheet for it. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/*" />
+            </intent-filter>
         </activity>
+
+        <!-- Tray actions on message notifications: "Mark read" and the
+             swipe-away/tap cleanup of the stacked MessagingStyle history. -->
+        <receiver android:name=".MarkReadReceiver" android:exported="false" />
 
         <!-- Keeps the P2P node alive in the background so messages arrive. -->
         <service
@@ -76,6 +92,9 @@
          webview's AUDIO/VIDEO_CAPTURE requests to these runtime permissions. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- CallAudioPlugin's proximity wake lock: screen off against the cheek
+         while the call is on the earpiece. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />

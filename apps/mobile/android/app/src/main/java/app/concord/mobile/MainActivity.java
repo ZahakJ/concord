@@ -39,7 +39,11 @@ public class MainActivity extends BridgeActivity {
 
         // Local plugins must be registered before super.onCreate wires the bridge.
         registerPlugin(ConcordCorePlugin.class);
+        registerPlugin(CallAudioPlugin.class);
         super.onCreate(savedInstanceState);
+        // A cold start straight from another app's share sheet: the intent is
+        // already here, long before JS can listen — emitShareIn stashes it.
+        handleShareIntent(getIntent());
 
         // Android 15+ (targetSdk 35+) forces edge-to-edge with no way to opt out;
         // declare it explicitly so older releases behave identically, then hand
@@ -101,6 +105,36 @@ public class MainActivity extends BridgeActivity {
     public void onDestroy() {
         if (current == this) current = null;
         super.onDestroy();
+    }
+
+    // ---- share-sheet target ----
+    // ACTION_SEND text/* (the manifest filter) lands here — warm via
+    // onNewIntent (launchMode singleTask), cold via onCreate above. v1 is
+    // text/links only: shared images/videos arrive as content:// streams whose
+    // bytes have no path into the composer's attachment flow from out here, so
+    // Concord doesn't advertise those MIME types yet rather than accept and
+    // silently drop them.
+    @Override
+    public void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        handleShareIntent(intent);
+    }
+
+    private void handleShareIntent(android.content.Intent intent) {
+        if (intent == null || !android.content.Intent.ACTION_SEND.equals(intent.getAction())) return;
+        String type = intent.getType();
+        if (type == null || !type.startsWith("text/")) return;
+        String text = intent.getStringExtra(android.content.Intent.EXTRA_TEXT);
+        if (text == null || text.trim().isEmpty()) return;
+        // A browser share is (title in SUBJECT, URL in TEXT) — keep both.
+        String subject = intent.getStringExtra(android.content.Intent.EXTRA_SUBJECT);
+        if (subject != null && !subject.trim().isEmpty() && !text.contains(subject)) {
+            text = subject + "\n" + text;
+        }
+        // Consumed: a config-change relaunch re-delivers getIntent(), and the
+        // same share must not land in the composer twice.
+        intent.removeExtra(android.content.Intent.EXTRA_TEXT);
+        ConcordCorePlugin.emitShareIn(text);
     }
 
     /** Called from ConcordCorePlugin once the web layer has mounted. */

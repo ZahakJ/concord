@@ -378,6 +378,14 @@
     // guild list only exists now, so this is the first moment it can be opened.
     const pending = consumePendingChannel();
     if (pending) jumpToChannel(pending).catch(() => {});
+    // Likewise a share that arrived before login: the composer exists (or is
+    // about to — insertShare retries while it mounts) only from here on.
+    if (pendingShareText) {
+      const t = pendingShareText;
+      pendingShareText = "";
+      shareRetries = 0;
+      insertShare(t);
+    }
   }
 
   // ---- system bar / theme-color sync ----
@@ -619,6 +627,50 @@
     // The ongoing-call notification's "Hang up" action, relayed by the native
     // call service. Same teardown as any in-app leave.
     cap?.Plugins?.ConcordCore?.addListener?.("hangup", () => leaveVoice());
+    // Text shared from another app (the OS share sheet). The native side
+    // retains the event across a cold start, so this listener catches both
+    // warm and cold shares once it's attached in onMount.
+    cap?.Plugins?.ConcordCore?.addListener?.("shareIn", (ev) => handleShareIn(ev?.text));
+  }
+
+  // ---- share-sheet intake (Android) ----
+  // v1 is text/links into the ACTIVE conversation's composer draft. A proper
+  // conversation picker, and image/video streams, are follow-ups — streams
+  // need a route into the composer's attachment flow, which only Composer owns.
+  let pendingShareText = "";
+  let shareRetries = 0;
+  function handleShareIn(text) {
+    const t = (text || "").trim();
+    if (!t) return;
+    // A cold share arrives before login/guilds; start() drains this stash.
+    if (!S.ready || !S.activeChannelId) {
+      pendingShareText = t;
+      return;
+    }
+    shareRetries = 0;
+    insertShare(t);
+  }
+  function insertShare(text) {
+    // The composer owns its draft privately (per-channel, localStorage-backed
+    // only on switch), so reach it the way a paste does — through the textarea,
+    // whose input event feeds bind:value, the autosize AND the draft save.
+    const el = document.querySelector("textarea.draft");
+    if (!el) {
+      // Mounts a beat after login / channel selection — or never, on a forum
+      // board. Try briefly, then tell the user instead of losing their share.
+      if (shareRetries++ < 12) {
+        setTimeout(() => insertShare(text), 250);
+      } else {
+        flash("Open a conversation to share into it", "error");
+      }
+      return;
+    }
+    el.value = el.value ? `${el.value.replace(/\s+$/, "")}\n${text}` : text;
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.focus();
+    const g = activeGuild();
+    const where = g?.kind === "dm" ? g.name || "the conversation" : `#${activeChannel()?.name || "channel"}`;
+    flash(`Shared into ${where}`, "success");
   }
 
   // ---- voice lifecycle (owns the mesh; state lives in S) ----
@@ -792,6 +844,13 @@
     // The call is over — release the microphone foreground service first so
     // the ongoing-call notification never outlives the call it announces.
     window.Capacitor?.Plugins?.ConcordCore?.stopCallService?.().catch(() => {});
+    // Hand the audio route back to the OS: MODE_IN_COMMUNICATION (and the
+    // earpiece proximity lock) outliving the call would mute media playback
+    // and blank the screen in-pocket. Every leave path funnels through here,
+    // so this is the single place the route is cleared. The setRoute/getRoute
+    // half of the contract lives in lib/devices.js; reset is call-teardown
+    // only, hence the direct runtime-global reach (no-op off Android).
+    window.Capacitor?.Plugins?.CallAudio?.reset?.().catch(() => {});
     // If we locked the call, unlock it as we leave, and clear knock bookkeeping.
     if (isCallLocked(ch)) api.signalCall(ch, "unlock").catch(() => {});
     clearCallState(ch);

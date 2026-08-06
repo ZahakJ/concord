@@ -5,13 +5,19 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.Person;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
+import android.view.WindowManager;
 
 import androidx.core.app.NotificationManagerCompat;
+
+import java.util.ArrayDeque;
+import java.util.HashMap;
+import java.util.Map;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.PermissionState;
@@ -50,6 +56,30 @@ public class ConcordCorePlugin extends Plugin {
     @Override
     public void load() {
         instance = this;
+        // A share that arrived before the bridge existed (cold start straight
+        // from another app's share sheet) waits here for the first listener.
+        String stashed = pendingShare;
+        if (stashed != null) {
+            pendingShare = null;
+            emitShareIn(stashed);
+        }
+    }
+
+    // ---- share-sheet intake ----
+    // MainActivity hands shared text here; JS (App.svelte) listens for
+    // "shareIn". retainUntilConsumed=true because on a cold start the intent
+    // is processed long before App.svelte's onMount attaches the listener.
+    private static volatile String pendingShare;
+
+    static void emitShareIn(String text) {
+        ConcordCorePlugin p = instance;
+        if (p == null) {
+            pendingShare = text;
+            return;
+        }
+        JSObject data = new JSObject();
+        data.put("text", text);
+        p.notifyListeners("shareIn", data, true);
     }
 
     @PluginMethod
@@ -138,7 +168,36 @@ public class ConcordCorePlugin extends Plugin {
     // here we just render it. No content leaves the device — it's already been
     // decrypted locally. Tapping opens the app. Needs no Firebase/push creds.
     private static final String MSG_CHANNEL_ID = "concord_messages";
-    private static final int MSG_NOTIF_ID = 2;
+    static final int MSG_NOTIF_ID = 2; // package-private: MarkReadReceiver cancels by it
+
+    // In-memory conversation history behind MessagingStyle: the last few
+    // (sender, text, time) lines per tag, so a second message stacks under the
+    // first instead of overwriting it — the tag-replace behavior above used to
+    // mean a busy channel's notification only ever showed its newest line.
+    // Process-local on purpose: the tray itself survives a process restart and
+    // simply restacks from one line again.
+    private static final int HISTORY_MAX = 6;
+    private static final long HISTORY_TTL_MS = 60L * 60 * 1000; // stale lines age out
+    private static final Map<String, ArrayDeque<MsgLine>> HISTORY = new HashMap<>();
+
+    private static final class MsgLine {
+        final String sender;
+        final String text;
+        final long at;
+
+        MsgLine(String sender, String text, long at) {
+            this.sender = sender;
+            this.text = text;
+            this.at = at;
+        }
+    }
+
+    /** Swiped away, tapped, or marked read: the stack is done with. */
+    static void clearNotificationHistory(String tag) {
+        synchronized (HISTORY) {
+            HISTORY.remove(tag);
+        }
+    }
 
     @PluginMethod
     public void postNotification(PluginCall call) {
@@ -183,16 +242,62 @@ public class ConcordCorePlugin extends Plugin {
         }
         PendingIntent pi = PendingIntent.getActivity(ctx, tag.hashCode(), launch, piFlags);
 
+        // Append to the tag's history and render the WHOLE stack, MessagingStyle:
+        // sender names against their lines, newest at the bottom, like every
+        // other messenger's tray entry. A copy is rendered outside the lock.
+        long now = System.currentTimeMillis();
+        ArrayDeque<MsgLine> lines;
+        synchronized (HISTORY) {
+            ArrayDeque<MsgLine> q = HISTORY.get(tag);
+            if (q == null) HISTORY.put(tag, q = new ArrayDeque<>());
+            while (!q.isEmpty()
+                && (q.size() >= HISTORY_MAX || now - q.peekFirst().at > HISTORY_TTL_MS)) {
+                q.pollFirst();
+            }
+            q.addLast(new MsgLine(title, body, now));
+            lines = new ArrayDeque<>(q);
+        }
+        Notification.MessagingStyle style;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            // "You" is the device owner slot; we never add own-messages, so the
+            // name is never rendered — the API just requires a user Person.
+            style = new Notification.MessagingStyle(new Person.Builder().setName("You").build());
+            for (MsgLine l : lines) {
+                style.addMessage(new Notification.MessagingStyle.Message(
+                    l.text, l.at, new Person.Builder().setName(l.sender).build()));
+            }
+        } else {
+            style = new Notification.MessagingStyle("You");
+            for (MsgLine l : lines) style.addMessage(l.text, l.at, l.sender);
+        }
+
+        // Swipe-away (and tap, via autoCancel) must clear the stacked history,
+        // or a channel's next message resurrects lines the user already saw.
+        Intent dismissed = new Intent(ctx, MarkReadReceiver.class)
+            .setAction(MarkReadReceiver.ACTION_DISMISSED)
+            .putExtra(MarkReadReceiver.EXTRA_TAG, tag);
+        PendingIntent delPi = PendingIntent.getBroadcast(ctx, tag.hashCode(), dismissed, piFlags);
+        // "Mark read" pushes the read cursor through the core (fans out to all
+        // devices) without opening the app. Reply-from-tray (RemoteInput) is a
+        // deliberate follow-up — the send path is the heavy half.
+        Intent markRead = new Intent(ctx, MarkReadReceiver.class)
+            .setAction(MarkReadReceiver.ACTION_MARK_READ)
+            .putExtra(MarkReadReceiver.EXTRA_TAG, tag);
+        PendingIntent mrPi = PendingIntent.getBroadcast(ctx, tag.hashCode(), markRead, piFlags);
+
         Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(ctx, MSG_CHANNEL_ID)
             : new Notification.Builder(ctx);
         Notification n = b
             .setContentTitle(title)
             .setContentText(body)
-            .setStyle(new Notification.BigTextStyle().bigText(body))
+            .setStyle(style)
             .setSmallIcon(R.drawable.ic_stat_concord)
             .setColor(BRAND_TEAL)
             .setContentIntent(pi)
+            .setDeleteIntent(delPi)
+            .addAction(new Notification.Action.Builder(
+                (android.graphics.drawable.Icon) null, "Mark read", mrPi).build())
             .setAutoCancel(true)
             .setPriority(Notification.PRIORITY_HIGH)
             .build();
@@ -280,6 +385,25 @@ public class ConcordCorePlugin extends Plugin {
     @PluginMethod
     public void appReady(PluginCall call) {
         MainActivity.markWebReady();
+        call.resolve();
+    }
+
+    /**
+     * FLAG_KEEP_SCREEN_ON while something is worth watching hands-free (a video
+     * tile, a screen share, the QR scanner held up to another screen). The web
+     * navigator.wakeLock covers calls, but the WebView drops it silently on
+     * visibility changes; the window flag has no such failure mode.
+     */
+    @PluginMethod
+    public void setKeepAwake(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        android.app.Activity act = getActivity();
+        if (act != null) {
+            act.runOnUiThread(() -> {
+                if (on) act.getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                else act.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            });
+        }
         call.resolve();
     }
 }

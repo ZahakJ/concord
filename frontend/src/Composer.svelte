@@ -29,6 +29,7 @@
   let pending = $state([]);
   let composerEl = $state(null);
   let fileInput = $state(null);
+  let cameraInput = $state(null);
   let suggest = $state(null); // { kind:"emoji"|"mention"|"channel"|"slash", start, items, sel }
   let lastTypingSent = 0;
 
@@ -1130,11 +1131,30 @@
   <form class="composer" class:mobile onsubmit={send}>
     <input
       type="file"
+      multiple
       bind:this={fileInput}
       style="display:none"
       onchange={(e) => {
-        attachFile(e.target.files?.[0]);
-        e.target.value = "";
+        // Every file, not files[0]: the picker allows a multi-select, and the
+        // drop path already feeds each one through attachFile — mirror it.
+        [...(e.currentTarget.files ?? [])].forEach((f) => attachFile(f));
+        // Reset so picking the same file twice still fires change.
+        e.currentTarget.value = "";
+      }}
+    />
+    <!-- capture="environment" routes straight to the rear camera on phones.
+         Desktop never sees this input: the attach button there clicks the
+         plain picker directly, and the camera row lives in the coarse-pointer
+         sheet only. -->
+    <input
+      type="file"
+      accept="image/*"
+      capture="environment"
+      bind:this={cameraInput}
+      style="display:none"
+      onchange={(e) => {
+        [...(e.currentTarget.files ?? [])].forEach((f) => attachFile(f));
+        e.currentTarget.value = "";
       }}
     />
     {#if ephTTL > 0}
@@ -1455,6 +1475,17 @@
           <span class="sr-sub">Up to 5 MB images, 25 MB files</span>
         </span>
       </button>
+      {#if coarse}
+        <!-- coarse, not mobile: the sheet also shows in a narrowed desktop
+             window, where "take a photo" would open a file picker and shrug. -->
+        <button type="button" class="sheet-row" onclick={() => fromSheet(() => cameraInput.click())}>
+          <span class="sr-icon"><Icon name="camera" size={20} /></span>
+          <span class="sr-text">
+            <span class="sr-label">Take a photo</span>
+            <span class="sr-sub">Straight from the camera</span>
+          </span>
+        </button>
+      {/if}
       <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "gifs" }))}>
         <span class="sr-icon sr-gif">GIF</span>
         <span class="sr-text">

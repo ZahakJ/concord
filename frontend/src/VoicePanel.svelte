@@ -463,6 +463,20 @@
     if (got) route = got;
   }
 
+  // FLAG_KEEP_SCREEN_ON while any camera or screen share is live on the stage.
+  // App.svelte's navigator.wakeLock covers voice-only calls, but the WebView
+  // drops that lock silently on visibility flips and the re-acquire can fail;
+  // for video — where a sleeping screen ends the show mid-frame — the native
+  // window flag has no such failure mode. No-op outside the Android app.
+  $effect(() => {
+    const core = window.Capacitor?.Plugins?.ConcordCore;
+    if (!core?.setKeepAwake || !S.videoTiles.length) return;
+    core.setKeepAwake({ on: true }).catch(() => {});
+    return () => {
+      core.setKeepAwake({ on: false }).catch(() => {});
+    };
+  });
+
   // Muting is the one control you need to know landed without looking at it,
   // and the phone said nothing — the :active scale is under your fingertip at
   // exactly the moment it plays.

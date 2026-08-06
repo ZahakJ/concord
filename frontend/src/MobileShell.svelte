@@ -272,6 +272,11 @@
       prevX: t.clientX,
       prevT: performance.now(),
       vel: 0,
+      // Message rows own leftward drags (swipe-to-reply); direction isn't
+      // known yet, so just remember where the touch landed and decide at
+      // claim time. The attribute is set by Message.svelte's action, touch
+      // devices only.
+      fromMsg: !!e.target.closest?.("[data-swipe-reply]"),
     };
   }
 
@@ -288,6 +293,16 @@
         return;
       }
       if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
+      // Swipe-to-reply (Message.svelte) owns leftward drags that start on a
+      // message row — same shape as the .dock / inHScroller stand-downs, just
+      // decided here because it needs the direction. Only while both drawers
+      // are shut: a leftward drag with a drawer open is how it closes, from
+      // anywhere. If the row's own threshold never fires it just snaps back;
+      // the drag is not handed back to us and that's fine.
+      if (drag.fromMsg && dx < 0 && leftFrac === 0 && rightFrac === 0) {
+        drag = null;
+        return;
+      }
       // Claim: an open drawer always owns the gesture; otherwise the swipe
       // direction picks which drawer is being pulled in.
       drag.target =

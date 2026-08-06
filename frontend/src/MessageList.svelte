@@ -23,6 +23,7 @@
     clockOpts,
     registerOverlay,
     nudge,
+    selectChannel,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
@@ -251,6 +252,74 @@
     dragOver = false;
     onDropFiles?.([...(e.dataTransfer?.files || [])]);
   }
+
+  // Pull-to-refresh: overscroll-behavior-y: contain (mobile .feed rule below)
+  // swallows the OS gesture, and the connection pill — the only other manual
+  // resync affordance — hides itself while nominally online. So a deliberate
+  // drag past the top of loaded history becomes the manual "are we current?"
+  // gesture: nudge() (reconnect + resync, same as the banner's "Retry now")
+  // plus a refetch of the channel's latest page. Touch-only — mouse users
+  // have the pill/banner and no rubber-band instinct.
+  let pullDist = $state(0); // dampened indicator travel, px
+  let pullRefreshing = $state(false);
+  let pullStartY = 0;
+  let pullArmed = false;
+  let pullBuzzed = false; // one haptic per threshold crossing, not per move
+  const PULL_GO = 70;
+
+  function onPullStart(e) {
+    // Arm ONLY when the feed is already resting at the very top with nothing
+    // in flight — the scroll-up pagination (onscroll's loadOlder under
+    // scrollTop 240) owns every gesture before that point, and a pull that
+    // fires while older pages are still streaming in would lie about "top".
+    pullArmed =
+      !!window.matchMedia?.("(pointer: coarse)")?.matches &&
+      !!feedEl &&
+      feedEl.scrollTop === 0 &&
+      !S.feedLoading &&
+      !S.loadingOlder &&
+      !pullRefreshing;
+    pullStartY = e.touches[0].clientY;
+    pullBuzzed = false;
+  }
+  function onPullMove(e) {
+    if (!pullArmed) return;
+    // The finger scrolled the feed off the top mid-gesture: that's a scroll,
+    // not a pull. Stand down for the rest of this touch.
+    if (feedEl.scrollTop > 0) {
+      pullArmed = false;
+      pullDist = 0;
+      return;
+    }
+    const dy = e.touches[0].clientY - pullStartY;
+    // Half-rate damping: crossing the 70px threshold takes ~140px of real
+    // travel, so a stray flick at the top can't trigger a resync.
+    pullDist = dy > 0 ? Math.min(dy / 2, 100) : 0;
+    if (pullDist >= PULL_GO && !pullBuzzed) {
+      pullBuzzed = true;
+      haptic("light");
+    }
+  }
+  function onPullCancel() {
+    pullArmed = false;
+    pullDist = 0;
+  }
+  async function onPullEnd() {
+    if (!pullArmed) return;
+    pullArmed = false;
+    if (pullDist < PULL_GO) {
+      pullDist = 0;
+      return;
+    }
+    pullRefreshing = true;
+    pullDist = PULL_GO; // hold at the threshold while working
+    await nudge();
+    // Re-selecting the channel refetches its latest page — the exact cheap
+    // path a channel switch already uses, no bespoke refresh machinery.
+    if (S.activeChannelId) await selectChannel(S.activeChannelId);
+    pullRefreshing = false;
+    pullDist = 0;
+  }
 </script>
 
 {#if activeGuild()?.outOfSync}
@@ -344,6 +413,10 @@
   ondragleave={onDragLeave}
   ondragover={(e) => e.preventDefault()}
   ondrop={onDrop}
+  ontouchstart={onPullStart}
+  ontouchmove={onPullMove}
+  ontouchend={onPullEnd}
+  ontouchcancel={onPullCancel}
   onscroll={async () => {
     atBottom = feedNearBottom();
     if (S.newBelow && atBottom) S.newBelow = false;
@@ -361,6 +434,18 @@
     }
   }}
 >
+  {#if pullDist > 0 || pullRefreshing}
+    <!-- Transform-only travel (plus compositor-cheap opacity), so the drag
+         never touches layout. Absolute at the feed's top edge: the pull can
+         only exist at scrollTop 0, where absolute-top IS the visible top. -->
+    <div
+      class="pull-hint"
+      aria-hidden="true"
+      style="transform: translate(-50%, {pullDist - 44}px); opacity: {Math.min(pullDist / PULL_GO, 1)}"
+    >
+      <span class="ol-spin"></span>
+    </div>
+  {/if}
   {#if S.loadingOlder}
     <div class="older-loading"><span class="ol-spin"></span> Loading older messages…</div>
   {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading}
@@ -1051,6 +1136,26 @@
     .ol-spin {
       animation: none;
     }
+  }
+  /* Pull-to-refresh chip: reuses .ol-spin, floats on a small elevated disc so
+     it reads over message text. Position comes from an inline transform that
+     tracks the finger — no transition, because a spring that lags the drag
+     feels broken; the chip simply vanishes when the pull resolves. */
+  .pull-hint {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    z-index: 3;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--bg-elevated, var(--bg-1));
+    border: 1px solid var(--border);
+    box-shadow: var(--float-shadow);
+    pointer-events: none;
+    will-change: transform, opacity;
   }
   /* "You're scrolled up" indicator: a slim glassy bar above the composer —
      quiet context plus one accent action, not a floating blob. */

@@ -97,8 +97,21 @@
     }
   }
 
-  onMount(startCamera);
-  onDestroy(stop);
+  // Aiming at another device's screen is a hold-still, no-touch pose that
+  // easily outlasts a short display timeout — the screen dimming mid-scan
+  // kills the camera feed at the exact moment of alignment. Native keep-awake
+  // for the scanner's lifetime; no-op outside the Android app.
+  const keepAwake = (on) =>
+    window.Capacitor?.Plugins?.ConcordCore?.setKeepAwake?.({ on }).catch(() => {});
+
+  onMount(() => {
+    keepAwake(true);
+    startCamera();
+  });
+  onDestroy(() => {
+    keepAwake(false);
+    stop();
+  });
 </script>
 
 <div class="scanner" role="dialog" aria-label="Scan QR code">
