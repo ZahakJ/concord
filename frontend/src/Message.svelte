@@ -18,6 +18,7 @@
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
   import { fxEffect, stripFx, playFxOnce } from "./lib/fxtoken.js";
   import { radialBurst } from "./lib/burst.js";
+  import { saved, isSaved, toggleSaved, refreshSaved } from "./lib/saved.svelte.js";
   import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo } from "./lib/timestamp.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
@@ -661,6 +662,9 @@
   );
 
   function messageMenu(e) {
+    // Bookmark state loads lazily: the first menu of a session may label a
+    // saved row "Save Message" for a beat, which merely re-saves it (no-op).
+    if (!saved.loaded) refreshSaved();
     if (m.deleted) {
       // A tombstone used to open nothing at all, which left a moderator's only
       // route to the original a 15px hover-labelled button.
@@ -764,6 +768,11 @@
         onClick: () => (S.modal = { kind: "publish", message: m, channel: activeChannel() }),
       },
       { label: "Forward", icon: "forward", onClick: () => (S.modal = { kind: "forward", message: m }) },
+      {
+        label: isSaved(m.id) ? "Remove from Saved" : "Save Message",
+        icon: "pin",
+        onClick: () => toggleSaved(m),
+      },
       { label: "Mark Unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
       {
         label: "Remind Me",

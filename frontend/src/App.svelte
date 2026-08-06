@@ -78,6 +78,7 @@
   import ModalMeeting from "./modals/ModalMeeting.svelte";
   import ModalShortcuts from "./modals/ModalShortcuts.svelte";
   import ModalWhatsNew from "./modals/ModalWhatsNew.svelte";
+  import ModalSaved from "./modals/ModalSaved.svelte";
   import ModalNewDM from "./modals/ModalNewDM.svelte";
   import ModalRenameGroup from "./modals/ModalRenameGroup.svelte";
   import ModalRenameChannel from "./modals/ModalRenameChannel.svelte";
@@ -1277,6 +1278,8 @@
     <ModalShortcuts onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "whatsNew"}
     <ModalWhatsNew version={S.modal.version} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "saved"}
+    <ModalSaved onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "when"}
     <ModalWhen onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "scheduled"}

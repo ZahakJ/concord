@@ -214,6 +214,11 @@ CREATE TABLE IF NOT EXISTS left_guilds (
   guild_id TEXT PRIMARY KEY,
   at       INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS saved_messages (
+  message_id TEXT PRIMARY KEY,
+  channel_id TEXT NOT NULL,
+  at         INTEGER NOT NULL
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -1384,6 +1389,66 @@ func (s *Store) TogglePinned(id string) (bool, error) {
 		return false, err
 	}
 	return newVal == 1, nil
+}
+
+// ---- saved messages (bookmarks) ----
+// Purely local, deliberately: a bookmark is the reader's business, so it never
+// rides any wire. Signal/Telegram users lean on "Saved Messages"; the prior
+// workaround here (forward-to-Notes) lost the jump-back link.
+
+func (s *Store) BookmarkMessage(messageID, channelID string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO saved_messages (message_id, channel_id, at) VALUES (?, ?, ?)
+		 ON CONFLICT(message_id) DO UPDATE SET at = excluded.at`,
+		messageID, channelID, time.Now().Unix())
+	return err
+}
+
+func (s *Store) UnbookmarkMessage(messageID string) error {
+	_, err := s.db.Exec(`DELETE FROM saved_messages WHERE message_id = ?`, messageID)
+	return err
+}
+
+func (s *Store) MessageIsBookmarked(messageID string) bool {
+	var n int
+	err := s.db.QueryRow(
+		`SELECT COUNT(1) FROM saved_messages WHERE message_id = ?`, messageID).Scan(&n)
+	return err == nil && n > 0
+}
+
+// SavedMessages returns the bookmarked messages, most recently saved first.
+// A bookmark whose message has since been deleted (or belongs to a guild the
+// user left) simply doesn't join — stale rows are pruned as they're noticed.
+func (s *Store) BookmarkedMessages() ([]domain.Message, error) {
+	rows, err := s.db.Query(
+		`SELECT m.id, m.channel_id, m.sender, m.name, m.kind, m.reply_to, m.edited, m.pinned, m.content_enc, m.nonce, m.sent
+		 FROM saved_messages sv JOIN messages m ON m.id = sv.message_id
+		 WHERE m.deleted = 0 ORDER BY sv.at DESC LIMIT 200`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []domain.Message
+	for rows.Next() {
+		var m domain.Message
+		var enc, nonceB []byte
+		var sent int64
+		var edited, pinned int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
+			return nil, err
+		}
+		content, err := s.open(enc, nonceB)
+		if err != nil {
+			continue
+		}
+		m.Content = content
+		m.Edited = edited != 0
+		m.Pinned = pinned != 0
+		m.Sent = time.Unix(0, sent).UTC()
+		out = append(out, m)
+	}
+	return out, rows.Err()
 }
 
 // SearchMessages scans all stored messages for a case-insensitive substring

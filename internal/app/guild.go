@@ -1158,6 +1158,17 @@ func (s *Service) SearchMessages(query string, limit int) ([]domain.Message, err
 	return s.store.SearchMessages(query, limit)
 }
 
+// Saved messages (bookmarks): device-local, never on any wire.
+func (s *Service) BookmarkMessage(messageID, channelID string) error {
+	return s.store.BookmarkMessage(messageID, channelID)
+}
+func (s *Service) UnbookmarkMessage(messageID string) error {
+	return s.store.UnbookmarkMessage(messageID)
+}
+func (s *Service) BookmarkedMessages() ([]domain.Message, error) {
+	return s.store.BookmarkedMessages()
+}
+
 // DeleteMessage removes one of this peer's own messages for everyone.
 // maxPurge bounds one /clear: a slip of the finger shouldn't be able to erase a
 // channel, and each delete is its own signed message on the wire.

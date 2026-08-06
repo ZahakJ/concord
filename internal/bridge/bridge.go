@@ -1173,6 +1173,56 @@ func (b *Bridge) SearchMessages(query string) ([]MessageView, error) {
 	return out, nil
 }
 
+// Saved messages (bookmarks) — device-local; the panel reuses the same
+// MessageView shape the feed renders, so jump-to-message just works.
+func (b *Bridge) BookmarkMessage(messageID, channelID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.BookmarkMessage(messageID, channelID)
+}
+
+func (b *Bridge) UnbookmarkMessage(messageID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.UnbookmarkMessage(messageID)
+}
+
+func (b *Bridge) SavedMessages() ([]MessageView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	msgs, err := svc.BookmarkedMessages()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MessageView, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, messageView(m))
+	}
+	return out, nil
+}
+
+func (b *Bridge) SavedMessageIDs() ([]string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	msgs, err := svc.BookmarkedMessages()
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		ids = append(ids, m.ID)
+	}
+	return ids, nil
+}
+
 // SetDisplayName updates this peer's display name.
 func (b *Bridge) Guilds() ([]GuildView, error) {
 	svc, err := b.service()
@@ -2621,6 +2671,14 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.VerifyFingerprint(argStr(args, 0))
 	case "PinMessage":
 		return nil, b.PinMessage(argStr(args, 0), argStr(args, 1))
+	case "BookmarkMessage":
+		return nil, b.BookmarkMessage(argStr(args, 0), argStr(args, 1))
+	case "UnbookmarkMessage":
+		return nil, b.UnbookmarkMessage(argStr(args, 0))
+	case "SavedMessages":
+		return b.SavedMessages()
+	case "SavedMessageIDs":
+		return b.SavedMessageIDs()
 	case "SearchMessages":
 		return b.SearchMessages(argStr(args, 0))
 	case "CreateChannel":

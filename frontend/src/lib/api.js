@@ -209,6 +209,11 @@ export const api = {
   markRead: (channelID, atMs) => call("MarkRead", channelID, atMs),
   readState: () => call("ReadState"),
   appVersion: () => call("AppVersion"),
+  // Saved messages (bookmarks) — device-local, never on any wire.
+  bookmarkMessage: (id, channelId) => call("BookmarkMessage", id, channelId),
+  unbookmarkMessage: (id) => call("UnbookmarkMessage", id),
+  savedMessages: () => call("SavedMessages"),
+  savedMessageIDs: () => call("SavedMessageIDs"),
   canSelfUpdate: () => call("CanSelfUpdate"),
   applyUpdate: () => call("ApplyUpdate"),
   updateState: () => call("UpdateState"),
