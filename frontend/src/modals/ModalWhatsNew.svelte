@@ -17,23 +17,23 @@
   const HIGHLIGHTS = [
     {
       icon: "spark",
-      title: "Messages can celebrate",
-      desc: "Try /confetti, /fireworks or /hearts — and your reactions burst where you tap them.",
+      title: "Moments",
+      desc: "Share a story with your guilds — a scene, a caption, your colors. Fades after 24 hours; delete it any time.",
+    },
+    {
+      icon: "diamond",
+      title: "A whole new coat of paint",
+      desc: "Guilds tint the app with their banner's colors, light mode gets four real themes, and /confetti, /fireworks and /hearts celebrate with everyone.",
+    },
+    {
+      icon: "speaker",
+      title: "Voice rooms became hangouts",
+      desc: "A synthesized soundboard (airhorn included) — and on Android, calls survive your pocket.",
     },
     {
       icon: "gear",
-      title: "The desktop grew up",
-      desc: "Zoom with Ctrl+= / Ctrl+−, drag the side columns to fit, and Ctrl+K now remembers where you've been.",
-    },
-    {
-      icon: "phone",
-      title: "Calls survive your pocket",
-      desc: "On Android, switching apps or turning the screen off no longer mutes you mid-call.",
-    },
-    {
-      icon: "bell",
-      title: "Messages find a sleeping phone",
-      desc: "DM notifications now arrive even when the app is fully closed.",
+      title: "And a hundred small things",
+      desc: "Threads from any message, saved messages, polls that close and quiz, slow mode, a guild settings hub, swipe to reply…",
     },
   ];
 
