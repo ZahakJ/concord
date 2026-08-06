@@ -35,6 +35,12 @@ const (
 	// machine, so it is additionally held to the same charset every other
 	// banner preset is (validPresetID).
 	maxStoryPresetBytes = 64
+	// maxStorySceneBytes caps a CUSTOM scene — a whole-string-validated raster
+	// data URI (validImageDataURI, the guild-banner gate). Tighter than the
+	// guild-image cap because a story also rides the sync payload up to twenty
+	// deep per guild; 250KB keeps a full tray under the kind of transfer a
+	// fresh peer can absorb without noticing.
+	maxStorySceneBytes = 250 << 10
 	// maxStoryCaptionBytes bounds the caption — a story is a headline, not a
 	// blog post, and the record rides gossip frames and sync payloads.
 	maxStoryCaptionBytes = 300
@@ -102,13 +108,16 @@ func (r storyRecord) verifySig(authorKey []byte) bool {
 	return identity.Verify(authorKey, r.signingBytes(), r.Sig)
 }
 
-// validStoryPreset admits the frontend contract: a "preset:<id>" string,
-// length-capped and charset-pinned because the id ends up in CSS.
-func validStoryPreset(preset string) bool {
-	if len(preset) > maxStoryPresetBytes || !strings.HasPrefix(preset, presetPrefix) {
-		return false
+// validStoryScene admits the two scene forms a story can wear: a "preset:<id>"
+// reference (length-capped, charset-pinned because the id ends up in CSS) or a
+// custom image as a WHOLE-string-validated raster data URI — the same gate
+// guild banners pass, for the same reason (the unquoted-CSS-url escape that
+// validImageDataURI exists to kill).
+func validStoryScene(scene string) bool {
+	if strings.HasPrefix(scene, presetPrefix) {
+		return len(scene) <= maxStoryPresetBytes && validPresetID(strings.TrimPrefix(scene, presetPrefix))
 	}
-	return validPresetID(strings.TrimPrefix(preset, presetPrefix))
+	return validImageDataURI(scene, maxStorySceneBytes)
 }
 
 // validStoryRecord validates a record from ANY source — our own PostStory runs
@@ -118,7 +127,7 @@ func validStoryRecord(r storyRecord) bool {
 	if r.StoryID == "" || len(r.StoryID) > 64 || r.GuildID == "" || r.Author == "" {
 		return false
 	}
-	if !validStoryPreset(r.Preset) {
+	if !validStoryScene(r.Preset) {
 		return false
 	}
 	if len(r.Caption) > maxStoryCaptionBytes {
@@ -210,6 +219,12 @@ func (s *Service) ingestStory(guildID string, r storyRecord, authorKey []byte, n
 	if !r.verifySig(authorKey) {
 		return false
 	}
+	// A retracted story stays retracted: sync replays and late gossip must not
+	// resurrect what its author deleted (the tombstone carries the author's
+	// own signed retraction, so this veto is as authenticated as the insert).
+	if s.store.StoryIsTombstoned(r.StoryID) {
+		return false
+	}
 	inserted, err := s.store.SaveStory(storyRow(r))
 	return err == nil && inserted
 }
@@ -220,8 +235,8 @@ func (s *Service) ingestStory(guildID string, r storyRecord, authorKey []byte, n
 // profile announce — same MLS-encrypted guildMeta frame, Type "story".
 func (s *Service) PostStory(guildIDs []string, preset, caption string) error {
 	caption = strings.TrimSpace(caption)
-	if !validStoryPreset(preset) {
-		return fmt.Errorf("app: a story needs a %q banner preset", presetPrefix+"<id>")
+	if !validStoryScene(preset) {
+		return fmt.Errorf("app: a story needs a banner preset or a png/jpeg/gif/webp image under %dKB", maxStorySceneBytes>>10)
 	}
 	if len(caption) > maxStoryCaptionBytes {
 		return fmt.Errorf("app: a story caption is at most %d bytes", maxStoryCaptionBytes)
@@ -308,6 +323,137 @@ func (s *Service) applySyncedStory(guildID string, rec storyRecord) bool {
 	}
 	key := s.memberAccountKey(guildID, rec.Author)
 	return s.ingestStory(guildID, rec, key, time.Now().Unix())
+}
+
+// ---- deletion ----
+// A story's retraction is a SECOND author-signed record, because it has to
+// survive the same two untrusted journeys the story did: gossip relayed by
+// anyone, and sync served by a responder who attests nothing. The tombstone
+// persists the whole signed retraction until the story would have expired on
+// its own — after that, expiry is the retraction.
+
+type storyDelete struct {
+	// Kind pins the signed shape ("story_del") so a delete's bytes can never
+	// double as some future record type — cheap domain separation.
+	Kind    string `json:"kind"`
+	StoryID string `json:"storyId"`
+	GuildID string `json:"guildId"`
+	Author  string `json:"author"`
+	At      int64  `json:"t"` // unix seconds
+	Sig     []byte `json:"sig,omitempty"`
+}
+
+func (d storyDelete) signingBytes() []byte {
+	c := d
+	c.Sig = nil
+	b, _ := json.Marshal(c)
+	return b
+}
+
+func (d storyDelete) verifySig(authorKey []byte) bool {
+	if len(authorKey) != ed25519.PublicKeySize || len(d.Sig) != ed25519.SignatureSize {
+		return false
+	}
+	if identity.FingerprintOf(authorKey) != d.Author {
+		return false
+	}
+	return identity.Verify(authorKey, d.signingBytes(), d.Sig)
+}
+
+func validStoryDelete(d storyDelete) bool {
+	return d.Kind == "story_del" && d.StoryID != "" && len(d.StoryID) <= 64 &&
+		d.GuildID != "" && d.Author != "" && d.At > 0
+}
+
+// DeleteStory retracts one of OUR OWN stories everywhere: locally, on the
+// guild's meta topic, and (via the tombstone) in every future sync answer.
+func (s *Service) DeleteStory(storyID string) error {
+	row, err := s.store.StoryByID(storyID)
+	if err != nil {
+		return fmt.Errorf("app: unknown story")
+	}
+	self := s.id.Fingerprint()
+	if row.Author != self {
+		return fmt.Errorf("app: only the author can delete a story")
+	}
+	d := storyDelete{Kind: "story_del", StoryID: storyID, GuildID: row.GuildID, Author: self, At: time.Now().Unix()}
+	d.Sig = s.id.Sign(d.signingBytes())
+	_ = s.store.TombstoneStory(store.StoryTombstone{
+		StoryID: d.StoryID, GuildID: d.GuildID, Author: d.Author, At: d.At,
+		ExpiresAt: row.ExpiresAt, Sig: d.Sig,
+	})
+	_ = s.store.DeleteStory(storyID)
+	s.mu.RLock()
+	g, ok := s.guilds[row.GuildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if ok {
+		s.publishMeta(groupID, guildMeta{Type: "story_del", StoryDel: &d})
+	}
+	s.emitStory(row.GuildID)
+	return nil
+}
+
+// applyStoryDel is the single funnel for a retraction from EITHER path.
+// checkActor is the gossip arm's MLS-authenticated sender ("" on the sync arm,
+// where there is no authenticated actor and the signature carries everything).
+func (s *Service) applyStoryDel(guildID, checkActor string, d storyDelete, expiresAtHint int64) bool {
+	if !validStoryDelete(d) || d.GuildID != guildID {
+		return false
+	}
+	if checkActor != "" && d.Author != checkActor {
+		return false
+	}
+	if !d.verifySig(s.memberAccountKey(guildID, d.Author)) {
+		return false
+	}
+	// Only the author's own signed retraction removes a story we hold — and an
+	// id we DON'T hold can still be tombstoned, because ids are minted by their
+	// author: a member can only ever pre-tombstone their own namespace.
+	expiresAt := expiresAtHint
+	if row, err := s.store.StoryByID(d.StoryID); err == nil {
+		if row.Author != d.Author {
+			return false
+		}
+		expiresAt = row.ExpiresAt
+	}
+	if expiresAt <= 0 {
+		expiresAt = d.At + int64(storyLifetime/time.Second)
+	}
+	_ = s.store.TombstoneStory(store.StoryTombstone{
+		StoryID: d.StoryID, GuildID: d.GuildID, Author: d.Author, At: d.At,
+		ExpiresAt: expiresAt, Sig: d.Sig,
+	})
+	_ = s.store.DeleteStory(d.StoryID)
+	return true
+}
+
+// applyStoryDelMeta is the gossip arm of a retraction.
+func (s *Service) applyStoryDelMeta(guildID, actor string, m guildMeta) {
+	if m.StoryDel == nil {
+		return
+	}
+	if s.applyStoryDel(guildID, actor, *m.StoryDel, 0) {
+		s.emitStory(guildID)
+	}
+}
+
+// storyDelsForSync returns a guild's still-relevant retractions so a peer who
+// missed the delete hears about it from ANY member — verifiably, since the
+// tombstone carries the author's own signature.
+func (s *Service) storyDelsForSync(guildID string, nowUnix int64) []storyDelete {
+	ts, err := s.store.StoryTombstones(guildID, nowUnix)
+	if err != nil {
+		return nil
+	}
+	out := make([]storyDelete, 0, len(ts))
+	for _, t := range ts {
+		out = append(out, storyDelete{Kind: "story_del", StoryID: t.StoryID, GuildID: t.GuildID, Author: t.Author, At: t.At, Sig: t.Sig})
+	}
+	return out
 }
 
 // storiesForSync returns the unexpired stories a sync RESPONDER serves for one

@@ -52,14 +52,15 @@
   });
 
   // The clock: one rAF loop, reading `paused` per frame rather than
-  // re-arming the effect on every pause flip.
+  // re-arming the effect on every pause flip. An armed delete-confirm also
+  // holds the clock — the story must not advance out from under the decision.
   $effect(() => {
     let raf;
     let last = performance.now();
     const tick = (now) => {
       const dt = now - last;
       last = now;
-      if (!paused && dt < 1000) {
+      if (!paused && !confirmDelete && dt < 1000) {
         // A background tab freezes rAF; a resumed one hands us the whole gap
         // in a single dt — skip it rather than blowing through stories.
         progress += dt / DURATION;
@@ -79,6 +80,46 @@
     }
     index++;
     progress = 0;
+  }
+
+  // Deleting your own story. The viewer sits at z-index 400, ABOVE the modal
+  // tier, so a confirm raised through S.modal would open underneath it —
+  // instead the trash button itself is the confirm: first tap arms it red
+  // ("Delete?"), second tap retracts. Any navigation disarms.
+  let confirmDelete = $state(false);
+  let deleting = false;
+  $effect(() => {
+    story?.id; // moving to another story is a "never mind"
+    confirmDelete = false;
+  });
+  async function deleteCurrent() {
+    if (!confirmDelete) {
+      confirmDelete = true;
+      return;
+    }
+    const s = story;
+    if (!s || deleting) return;
+    deleting = true;
+    try {
+      await api.deleteStory(s.id);
+      // The tray re-fetches on this echo (deletion DOES cross the network,
+      // but the backend event repaints other peers — this one repaints us).
+      changed = false; // seen-echo on close is redundant now
+      window.dispatchEvent(new CustomEvent("concord:stories-changed"));
+      // Slide past the gap: the splice moves the next story into this index.
+      stories.splice(index, 1);
+      if (stories.length === 0 || index >= stories.length) {
+        onClose?.();
+        return;
+      }
+      progress = 0;
+      confirmDelete = false;
+    } catch (err) {
+      flash(err);
+      confirmDelete = false;
+    } finally {
+      deleting = false;
+    }
   }
 
   function rewind() {
@@ -199,6 +240,16 @@
           <span class="name">{story.authorName || story.author.slice(0, 9)}{isSelf ? " (you)" : ""}</span>
           <span class="when">{sealAgo(story.postedAt * 1000)}</span>
         </span>
+        {#if isSelf}
+          <button
+            class="x del"
+            class:armed={confirmDelete}
+            aria-label={confirmDelete ? "Confirm delete" : "Delete moment"}
+            onclick={deleteCurrent}
+          >
+            {#if confirmDelete}Delete?{:else}<Icon name="trash" size={15} />{/if}
+          </button>
+        {/if}
         <button class="x" aria-label="Close" onclick={() => onClose?.()}>
           <Icon name="close" size={16} />
         </button>
@@ -318,6 +369,21 @@
   .x:hover,
   .x:active {
     background: rgba(0, 0, 0, 0.55);
+  }
+  /* Armed, the trash button becomes its own confirm — a red pill that says
+     what the next tap does. Raw rgba like the rest of this chrome: everything
+     here paints over art on black, not over the theme. */
+  .del.armed {
+    width: auto;
+    border-radius: 999px;
+    padding: 0 12px;
+    background: rgba(196, 49, 42, 0.9);
+    font-size: var(--fs-small);
+    font-weight: 600;
+  }
+  .del.armed:hover,
+  .del.armed:active {
+    background: rgba(219, 55, 47, 0.95);
   }
   .caption-wrap {
     position: relative;

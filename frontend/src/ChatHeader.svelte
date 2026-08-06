@@ -17,7 +17,6 @@
     openProfilePopover,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
-  import { PERM, has } from "./lib/perms.js";
   // Operator parsing (from:/in:/has:/before:/after:) + the backend call live
   // in lib/search.js, shared with the results panel's chip refinement.
   import { runSearch, closeSearch } from "./lib/search.js";
@@ -274,24 +273,12 @@
             </button>
           {/if}
         {:else}
-          <button class="menu-item" onclick={() => (S.modal = { kind: "emoji" })}>
-            <Icon name="smile" size={14} /> Guild emoji
+          <!-- One door instead of a pile: emoji, roles, bans and rename all
+               live inside the guild hub now (renaming is the hub's Overview
+               panel). The menu keeps only the exit — leaving isn't managing. -->
+          <button class="menu-item" onclick={() => (S.modal = { kind: "guildHub" })}>
+            <Icon name="gear" size={14} /> Guild settings
           </button>
-          {#if g.isOwner}
-            <button class="menu-item" onclick={() => (S.modal = { kind: "rename" })}>
-              <Icon name="edit" size={14} /> Rename guild
-            </button>
-          {/if}
-          {#if has(g.myPerms, PERM.MANAGE_ROLES) || g.isOwner}
-            <button class="menu-item" onclick={() => (S.modal = { kind: "roles" })}>
-              <Icon name="spark" size={14} /> Roles
-            </button>
-          {/if}
-          {#if g.canManage}
-            <button class="menu-item" onclick={() => (S.modal = { kind: "bans" })}>
-              <Icon name="door" size={14} /> Banned members
-            </button>
-          {/if}
           <div class="menu-sep"></div>
           <button class="menu-item danger" onclick={confirmLeave}>
             <Icon name={g.isOwner ? "trash" : "door"} size={14} />

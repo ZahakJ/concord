@@ -109,29 +109,73 @@ export function confettiBurst(opts = {}) {
   }
 }
 
-// Fireworks: a few staggered radial bursts across the upper half. Composed
-// from radialBurst so it shares the cap and the reduced-motion bail.
+// Fireworks: a real show, not three polite pops. Five rockets climb from the
+// bottom edge on staggered fuses, each exploding into a white core flash, a
+// colored shell ring that droops under gravity, and slow-fading embers —
+// then a two-shell finale. All of it lives in ONE layer (a show is one
+// celebration, not six against the cap), all transform/opacity, and the
+// timeline tops out ~3.6s so nothing lingers to cost frames.
 export function fireworksBurst(seed = `${Date.now()}`) {
+  if (reduced() || live >= MAX_LIVE) return;
   const r = rng(seed);
   const w = window.innerWidth;
   const h = window.innerHeight;
-  const colors = ["#f43f5e", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7"];
-  for (let i = 0; i < 3; i++) {
-    const x = w * lerp(0.2, 0.8, r());
-    const y = h * lerp(0.15, 0.45, r());
+  const colors = ["#f43f5e", "#f59e0b", "#22c55e", "#3b82f6", "#a855f7", "#22d3ee"];
+  const el = mountLayer(
+    "position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:210;",
+    4200,
+  );
+
+  const explode = (x, y, c, big) => {
+    // The core: a white flash that outruns the shell and dies first.
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + r();
+      const d = lerp(14, 30, r()) * (big ? 1.5 : 1);
+      const p = document.createElement("span");
+      p.className = "fxo fxo-glow fxo-radial";
+      p.dataset.g = "✦";
+      p.style.cssText =
+        `left:${x}px;top:${y}px;--tx:${Math.round(Math.cos(a) * d)}px;--ty:${Math.round(Math.sin(a) * d)}px;` +
+        `--sz:${lerp(9, 13, r()).toFixed(1)}px;--du:0.45s;--c:#fff;--rot:0deg`;
+      el.appendChild(p);
+    }
+    // The shell: a full colored ring that expands, then droops under gravity.
+    const n = big ? 20 : 14;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + r() * 0.4;
+      const d = lerp(55, 120, r()) * (big ? 1.35 : 1);
+      const p = document.createElement("span");
+      p.className = "fxo fxo-glow fxo-shell";
+      p.dataset.g = r() < 0.3 ? "✧" : "●";
+      p.style.cssText =
+        `left:${x}px;top:${y}px;--tx:${Math.round(Math.cos(a) * d)}px;--ty:${Math.round(Math.sin(a) * d)}px;` +
+        `--sz:${lerp(7, 12, r()).toFixed(1)}px;--du:${lerp(1.1, 1.6, r()).toFixed(2)}s;` +
+        `--c:${c};--rot:${Math.round(lerp(-180, 180, r()))}deg`;
+      el.appendChild(p);
+    }
+  };
+
+  const shoot = (delayMs, big) => {
+    const x = w * lerp(0.15, 0.85, r());
+    const apexY = h * lerp(0.14, 0.42, r());
     const c = colors[Math.floor(r() * colors.length)];
-    setTimeout(
-      () =>
-        radialBurst(x, y, {
-          glyphs: ["✦", "✧", "●"],
-          colors: [c],
-          n: 12,
-          dist: [40, 110],
-          size: [8, 14],
-          dur: [0.7, 1.1],
-          seed: seed + i,
-        }),
-      i * 260,
-    );
-  }
+    const rise = lerp(0.5, 0.7, r());
+    setTimeout(() => {
+      if (!el.isConnected) return;
+      const rocket = document.createElement("span");
+      rocket.className = "fxo fxo-glow fxo-shot";
+      rocket.style.cssText =
+        `left:${x}px;top:${h}px;--apex:${Math.round(apexY - h)}px;--du:${rise.toFixed(2)}s;--c:${c};--sz:4px`;
+      el.appendChild(rocket);
+      setTimeout(() => {
+        rocket.remove();
+        if (el.isConnected) explode(x, apexY, c, big);
+      }, rise * 1000);
+    }, delayMs);
+  };
+
+  for (let i = 0; i < 5; i++) shoot(i * 380 + r() * 120, false);
+  // The finale: two big shells nearly together, center stage.
+  shoot(2300, true);
+  shoot(2450, true);
 }

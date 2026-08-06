@@ -246,6 +246,14 @@ CREATE TABLE IF NOT EXISTS story_seen (
   story_id TEXT PRIMARY KEY,
   at       INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS story_tombstones (
+  story_id   TEXT PRIMARY KEY,
+  guild_id   TEXT NOT NULL,
+  author     TEXT NOT NULL,
+  at         INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  sig        BLOB NOT NULL
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -2497,8 +2505,83 @@ func (s *Store) DeleteExpiredStories(nowUnix int64) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("store: expire stories: %w", err)
 	}
+	// Tombstones outlive their story only until the story would have expired
+	// anyway — past that, expiry itself is the retraction.
+	_, _ = s.db.Exec(`DELETE FROM story_tombstones WHERE expires_at <= ?`, nowUnix)
 	n, _ := res.RowsAffected()
 	return int(n), nil
+}
+
+// StoryByID fetches one story (caption decrypted); sql.ErrNoRows if absent.
+func (s *Store) StoryByID(storyID string) (StoryRow, error) {
+	var w StoryRow
+	var enc, nonceB []byte
+	err := s.db.QueryRow(
+		`SELECT story_id, guild_id, author, preset, content_enc, nonce, color1, color2, posted_at, expires_at, sig
+		 FROM stories WHERE story_id = ?`, storyID).
+		Scan(&w.StoryID, &w.GuildID, &w.Author, &w.Preset, &enc, &nonceB, &w.Color1, &w.Color2, &w.PostedAt, &w.ExpiresAt, &w.Sig)
+	if err != nil {
+		return StoryRow{}, err
+	}
+	caption, err := s.open(enc, nonceB)
+	if err != nil {
+		return StoryRow{}, err
+	}
+	w.Caption = caption
+	return w, nil
+}
+
+// StoryTombstone is a persisted, author-signed retraction — kept whole so sync
+// can re-serve it verifiably until the story would have expired on its own.
+type StoryTombstone struct {
+	StoryID   string
+	GuildID   string
+	Author    string
+	At        int64
+	ExpiresAt int64
+	Sig       []byte
+}
+
+func (s *Store) TombstoneStory(t StoryTombstone) error {
+	_, err := s.db.Exec(
+		`INSERT OR IGNORE INTO story_tombstones (story_id, guild_id, author, at, expires_at, sig)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		t.StoryID, t.GuildID, t.Author, t.At, t.ExpiresAt, t.Sig)
+	return err
+}
+
+func (s *Store) DeleteStory(storyID string) error {
+	if _, err := s.db.Exec(`DELETE FROM stories WHERE story_id = ?`, storyID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`DELETE FROM story_seen WHERE story_id = ?`, storyID)
+	return err
+}
+
+func (s *Store) StoryIsTombstoned(storyID string) bool {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM story_tombstones WHERE story_id = ?`, storyID).Scan(&n)
+	return err == nil && n > 0
+}
+
+// StoryTombstones returns a guild's still-relevant retractions, newest first.
+func (s *Store) StoryTombstones(guildID string, nowUnix int64) ([]StoryTombstone, error) {
+	rows, err := s.db.Query(
+		`SELECT story_id, guild_id, author, at, expires_at, sig FROM story_tombstones
+		 WHERE guild_id = ? AND expires_at > ? ORDER BY at DESC LIMIT 40`, guildID, nowUnix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StoryTombstone
+	for rows.Next() {
+		var t StoryTombstone
+		if err := rows.Scan(&t.StoryID, &t.GuildID, &t.Author, &t.At, &t.ExpiresAt, &t.Sig); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
 }
 
 // MarkStorySeen records locally that the user opened a story. Idempotent — the

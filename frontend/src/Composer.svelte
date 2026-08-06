@@ -420,8 +420,17 @@
             ? `#${item.name} `
             : `/${item.name}` + (item.args ? " " : "");
     const pos = suggest.start + insert.length;
+    const before = draft;
     draft = draft.slice(0, suggest.start) + insert + draft.slice(caret);
     suggest = null;
+    // Accepting a suggestion that changes NOTHING means the command was
+    // already fully typed — "/gif" + Enter used to merely close the popover
+    // and demand a second, unguessable Enter ("/gif doesn't work"). When the
+    // accept is a no-op on an argless slash command, that Enter meant SEND.
+    if (draft === before && before.trim().startsWith("/") && !item?.args) {
+      send();
+      return;
+    }
     composerEl?.focus();
     queueAutosize();
     // Land the caret right after what we inserted (e.g. after "/spoiler ") so

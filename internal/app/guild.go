@@ -1514,6 +1514,9 @@ type guildMeta struct {
 	// alone — because the same record is later re-served over history sync,
 	// where the responder attests nothing.
 	Story *storyRecord `json:"story,omitempty"`
+	// storyDel: the author's signed retraction of one of their stories —
+	// signed for the same reason the story itself is.
+	StoryDel *storyDelete `json:"storyDel,omitempty"`
 }
 
 // applyProfileMeta is the receive half of a gossiped profile announce. Its own
@@ -2422,6 +2425,8 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		// applyStoryMeta (story.go) so this path and history sync share one
 		// gate — the story equivalent of the profile rule two cases up.
 		s.applyStoryMeta(guildID, actor, m)
+	case "story_del":
+		s.applyStoryDelMeta(guildID, actor, m)
 	case "nickname":
 		// A per-guild nickname. Two legitimate authors: the member themselves,
 		// or a moderator with MANAGE_MEMBERS renaming someone (Discord-style).

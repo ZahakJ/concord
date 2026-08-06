@@ -151,3 +151,65 @@ func TestStoryReplayIdempotence(t *testing.T) {
 		t.Fatal("a story signed for g1 must not be accepted under g2")
 	}
 }
+
+func TestStoryDeleteTombstoneAndForgery(t *testing.T) {
+	author := mustID(t)
+	mallory := mustID(t)
+	svc := storyTestService(t)
+	now := time.Now().Unix()
+	rec := signedStory(t, author, "st-del", "g1", now)
+	if !svc.ingestStory("g1", rec, author.PublicKey(), now) {
+		t.Fatal("setup: valid story should ingest")
+	}
+
+	del := storyDelete{Kind: "story_del", StoryID: "st-del", GuildID: "g1",
+		Author: identity.FingerprintOf(author.PublicKey()), At: now + 1}
+	del.Sig = author.Sign(del.signingBytes())
+
+	// Mallory cannot retract Alice's story, however she signs it.
+	forged := del
+	forged.Sig = mallory.Sign(forged.signingBytes())
+	if forged.verifySig(mallory.PublicKey()) {
+		t.Fatal("a delete signed by a non-author key must not verify as the author")
+	}
+
+	// The author's own retraction verifies, and once tombstoned the same
+	// signed story must never re-ingest — sync replay cannot resurrect it.
+	if !del.verifySig(author.PublicKey()) {
+		t.Fatal("the author's own delete must verify")
+	}
+	if err := svc.store.TombstoneStory(store.StoryTombstone{
+		StoryID: del.StoryID, GuildID: del.GuildID, Author: del.Author,
+		At: del.At, ExpiresAt: rec.ExpiresAt, Sig: del.Sig,
+	}); err != nil {
+		t.Fatalf("tombstone: %v", err)
+	}
+	if err := svc.store.DeleteStory("st-del"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if svc.ingestStory("g1", rec, author.PublicKey(), now) {
+		t.Fatal("a tombstoned story must not re-ingest")
+	}
+	rows, _ := svc.store.GuildStories("g1", now)
+	if len(rows) != 0 {
+		t.Fatalf("expected no stories after retraction, got %d", len(rows))
+	}
+}
+
+func TestStoryCustomSceneValidation(t *testing.T) {
+	if !validStoryScene("preset:galaxy") {
+		t.Fatal("a preset scene must pass")
+	}
+	if !validStoryScene("data:image/png;base64,iVBORw0KGgo=") {
+		t.Fatal("a small raster data URI must pass")
+	}
+	if validStoryScene("data:image/svg+xml;base64,PHN2Zz4=") {
+		t.Fatal("svg must be rejected (script-capable)")
+	}
+	if validStoryScene("data:image/png;base64,x\" onerror=alert(1)") {
+		t.Fatal("a data URI with junk after the base64 must be rejected")
+	}
+	if validStoryScene("preset:galaxy);background:url(http://evil") {
+		t.Fatal("a CSS-escaping preset id must be rejected")
+	}
+}

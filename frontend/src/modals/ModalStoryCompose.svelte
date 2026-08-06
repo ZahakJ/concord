@@ -1,38 +1,59 @@
 <script>
-  // Share a moment: pick a live banner preset, write the headline, and read —
-  // in plain words — exactly who gets it and for how long. The audience line
-  // is mandatory honesty, not decoration: a story fans out to whole guilds,
-  // and "who can see this" must be answered before Post, not discovered after.
+  // Share a moment: pick a scene — any live banner preset, or your own image —
+  // write the headline, and read — in plain words — exactly who gets it and
+  // for how long. The audience line is mandatory honesty, not decoration: a
+  // story fans out to whole guilds, and "who can see this" must be answered
+  // before Post, not discovered after.
   import Modal from "./Modal.svelte";
   import Banner from "../Banner.svelte";
+  import Icon from "../Icon.svelte";
   import { S, activeGuild, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
-  import { BANNER_BY_ID } from "../lib/banners.js";
+  import { BANNERS, BANNER_GROUPS } from "../lib/banners.js";
   import { confettiBurst } from "../lib/burst.js";
 
   let { onClose } = $props();
 
-  // A dozen curated presets, one per mood. The full 40-strong library lives in
-  // BannerStudio; a story composer needs a shelf, not a warehouse.
-  const PRESET_IDS = [
-    "galaxy",
-    "meteors",
-    "aurora",
-    "sakura",
-    "sunrise",
-    "ocean",
-    "campfire",
-    "fireflies",
-    "synthwave",
-    "equalizer",
-    "hearts",
-    "midnight",
-  ];
-  const PRESETS = PRESET_IDS.map((id) => BANNER_BY_ID[id]).filter(Boolean);
-
-  let sel = $state("galaxy");
+  let sel = $state("galaxy"); // chosen preset id (idle while a custom image is set)
+  let custom = $state(""); // uploaded raster data URI — the whole scene, verbatim
   let caption = $state("");
   let posting = $state(false);
+
+  // What actually posts and previews: the server's 'preset' field takes either
+  // form (story.go validStoryScene), and Banner.svelte paints either.
+  const scene = $derived(custom || `preset:${sel}`);
+
+  // Server truth: 250KB of DATA URI, not of file (story.go maxStorySceneBytes
+  // caps the whole string) — base64 costs a third, hence "~180 KB" of image.
+  const MAX_SCENE = 250 * 1024;
+
+  // Read an image file to a data URI. Kept raw (no canvas re-encode) so
+  // animated GIF scenes keep animating — same trade as ModalGuildSettings'
+  // applyImageFile; rejected if too big for a story record.
+  function applyImageFile(file) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (String(reader.result).length > MAX_SCENE) {
+        flash("Image too large — keep it under ~180 KB", "error");
+        return;
+      }
+      custom = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  }
+  function pickImage() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = () => applyImageFile(input.files?.[0]);
+    input.click();
+  }
+
+  // The full library, shelved by group like ModalGuildSettings' picker — and
+  // like there, the shelf starts folded on a phone so the caption and Post
+  // button aren't pushed under eight rows of tiles.
+  let picking = $state(!S.isMobile);
 
   // Server truth: 300 BYTES, not characters (story.go maxStoryCaptionBytes) —
   // an emoji costs four apiece, so the meter counts what the server counts.
@@ -67,7 +88,7 @@
   const countOf = (id) => (counts[id] == null || counts[id] < 0 ? "…" : counts[id]);
 
   const canPost = $derived(
-    !!sel && !!caption.trim() && bytes <= MAX_BYTES && chosen.length > 0 && !posting,
+    !!scene && !!caption.trim() && bytes <= MAX_BYTES && chosen.length > 0 && !posting,
   );
 
   async function post() {
@@ -76,7 +97,7 @@
     try {
       await api.postStory(
         chosen.map((g) => g.id),
-        `preset:${sel}`,
+        scene,
         caption.trim(),
       );
       // Local echo for the tray: the "story" event covers arrivals from
@@ -95,22 +116,59 @@
 </script>
 
 <Modal title="Share a moment" {onClose} wide>
-  <!-- Live preview: exactly the banner + caption the viewer will paint. -->
+  <!-- Live preview: exactly the scene + caption the viewer will paint — an
+       uploaded image full-bleed, a preset with all its fx. -->
   <div class="hero-wrap">
-    <Banner banner={`preset:${sel}`} scrim="light" class="story-hero">
+    <Banner banner={scene} scrim="light" class="story-hero">
       {#if caption.trim()}
         <span class="hero-caption">{caption.trim()}</span>
       {/if}
     </Banner>
   </div>
 
-  <div class="grid">
-    {#each PRESETS as p (p.id)}
-      <button class="tile" class:sel={sel === p.id} title={p.name} onclick={() => (sel = p.id)}>
-        <Banner banner={`preset:${p.id}`} scale={0.4} class="tile-art" />
-      </button>
-    {/each}
+  <div class="tpl-head">
+    <button class="tpl-toggle" onclick={() => (picking = !picking)} aria-expanded={picking}>
+      <Icon name="chevron" size={12} />
+      <span>Scenes</span>
+      <span class="muted tiny">{BANNERS.length} drawn scenes, animated — or your own image</span>
+    </button>
   </div>
+  {#if picking}
+    <!-- Every tile is the real thing at 0.45 scale, and only the hovered/chosen
+         one animates — the shelves trade ModalGuildSettings makes, for the
+         same laptop fan. -->
+    <div class="shelves">
+      <div class="grid">
+        <button class="tile upload" class:sel={!!custom} title="Upload image" onclick={pickImage}>
+          {#if custom}
+            <img class="art-img" src={custom} alt="" />
+          {:else}
+            <span class="art-none"><Icon name="attach" size={13} /></span>
+          {/if}
+          <span class="tname">Upload image</span>
+        </button>
+      </div>
+      {#each BANNER_GROUPS as grp (grp)}
+        <div class="gtitle">{grp}</div>
+        <div class="grid">
+          {#each BANNERS.filter((b) => b.group === grp) as b (b.id)}
+            <button
+              class="tile"
+              class:sel={!custom && sel === b.id}
+              title={b.name}
+              onclick={() => {
+                custom = "";
+                sel = b.id;
+              }}
+            >
+              <Banner banner={`preset:${b.id}`} scale={0.45} class="art" />
+              <span class="tname">{b.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   <label class="cap-label">
     <textarea
@@ -181,31 +239,129 @@
     word-break: break-word;
     white-space: pre-wrap;
   }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 6px;
+  /* ---- scene picker: ModalGuildSettings' shelves idiom, replicated ---- */
+  .tpl-head {
+    display: flex;
+    margin-top: -4px;
   }
-  @media (max-width: 768px) {
-    .grid {
-      grid-template-columns: repeat(4, 1fr);
+  .tpl-toggle {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 4px 0;
+    background: transparent;
+    color: var(--text);
+    font-size: var(--fs-compact);
+    font-weight: 600;
+  }
+  .tpl-toggle :global(svg) {
+    transition: transform 0.15s ease;
+  }
+  .tpl-toggle[aria-expanded="true"] :global(svg) {
+    transform: rotate(90deg);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tpl-toggle :global(svg) {
+      transition: none;
     }
   }
+  .tiny {
+    font-size: var(--fs-tiny);
+  }
+  .shelves {
+    max-height: 40vh;
+    max-height: 40dvh; /* fallback line above; dvh shrinks with the keyboard */
+    overflow-y: auto;
+    margin: -4px -2px 0;
+    padding: 0 2px;
+    /* The last row is always cut off somewhere; fading it says "keep scrolling"
+       instead of "this tile is broken". */
+    mask-image: linear-gradient(#000 calc(100% - 22px), transparent);
+  }
+  /* A phone sheet already scrolls, and it gives the dialog its own scrollbar: a
+     150px scroller nested inside that is a trap for a thumb. On touch the whole
+     shelf just lays out and the sheet scrolls it. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .shelves {
+      flex: none;
+      max-height: none;
+      overflow-y: visible;
+      mask-image: none;
+    }
+  }
+  .gtitle {
+    font-size: var(--fs-tiny);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    margin: 9px 0 4px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 8px;
+  }
+  /* Offscreen tiles don't paint and don't animate — the same trade BannerStudio
+     makes: a shelf of live scenes is only cheap if the ones you can't see are
+     asleep. */
   .tile {
+    content-visibility: auto;
+    contain-intrinsic-size: 100px 62px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     padding: 0;
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-    border: 2px solid transparent;
     background: transparent;
-    aspect-ratio: 2 / 1;
+    border: 2px solid transparent;
+    border-radius: 9px;
+    overflow: hidden;
+    min-height: 0; /* the mobile 44px button floor would stretch the tiles */
   }
   .tile.sel {
     border-color: var(--accent);
   }
-  .tile :global(.tile-art) {
+  /* Mouse only: on touch there is no hover, and content-visibility already
+     keeps the offscreen rows asleep. */
+  @media (pointer: fine) {
+    .tile:not(:hover):not(.sel) :global(.fxfield) {
+      display: none;
+    }
+    .tile:not(:hover):not(.sel) :global(.drift) {
+      animation-play-state: paused;
+    }
+  }
+  .tile :global(.art) {
+    display: block;
     width: 100%;
-    height: 100%;
-    border-radius: calc(var(--radius-sm) - 2px);
+    height: 44px;
+    border-radius: 6px;
+  }
+  .art-img {
+    display: block;
+    width: 100%;
+    height: 44px;
+    object-fit: cover;
+    border-radius: 6px;
+  }
+  .art-none {
+    display: grid;
+    place-items: center;
+    height: 44px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    color: var(--text-faint);
+  }
+  .tname {
+    font-size: var(--fs-tiny);
+    color: var(--text-muted);
+    text-align: center;
+    padding-bottom: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tile.sel .tname {
+    color: var(--text);
   }
   .cap-label {
     position: relative;

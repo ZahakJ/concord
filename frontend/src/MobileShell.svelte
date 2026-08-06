@@ -205,7 +205,7 @@
           onClick: async () => (S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) }),
         },
         !dm && { sep: true },
-        !dm && { label: "Guild settings", icon: "gear", onClick: () => (S.modal = { kind: "guildSettings" }) },
+        !dm && { label: "Guild settings", icon: "gear", onClick: () => (S.modal = { kind: "guildHub" }) },
         !dm && { label: "Guild emoji", icon: "smile", onClick: () => (S.modal = { kind: "emoji" }) },
         !dm && (has(g.myPerms, PERM.MANAGE_ROLES) || g.isOwner) && {
           label: "Roles",

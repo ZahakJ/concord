@@ -975,6 +975,15 @@ func (b *Bridge) MarkStorySeen(storyID string) error {
 	return svc.MarkStorySeen(storyID)
 }
 
+// DeleteStory retracts one of this account's own stories everywhere.
+func (b *Bridge) DeleteStory(storyID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.DeleteStory(storyID)
+}
+
 // RSVPEvent records this account's answer to an event: going|maybe|no, or ""
 // to clear it.
 func (b *Bridge) RSVPEvent(guildID, eventID, state string) error {
@@ -2895,6 +2904,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.PostStory(argStrs(args, 0), argStr(args, 1), argStr(args, 2))
 	case "GuildStories":
 		return b.GuildStories(argStr(args, 0))
+	case "DeleteStory":
+		return nil, b.DeleteStory(argStr(args, 0))
 	case "MarkStorySeen":
 		return nil, b.MarkStorySeen(argStr(args, 0))
 	case "RSVPEvent":

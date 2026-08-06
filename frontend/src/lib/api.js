@@ -316,14 +316,18 @@ export const api = {
     pronouns === undefined && birthday === undefined
       ? call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style)
       : call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style, pronouns ?? "", birthday ?? ""),
-  // Moments: guild-scoped stories, text-on-a-banner-preset only (no photos,
-  // no video — see internal/app/story.go). guildIds fans one signed record out
-  // to several guilds; preset is a "preset:<id>" reference; the caption is at
-  // most 300 BYTES (the server counts bytes, not characters). markStorySeen is
-  // strictly local — there are no view receipts, nothing leaves this device.
+  // Moments: guild-scoped stories, text-on-a-banner scene (no video — see
+  // internal/app/story.go). guildIds fans one signed record out to several
+  // guilds; preset is EITHER a "preset:<id>" reference OR a whole raster image
+  // data URI (png/jpeg/gif/webp, at most 250KB — story.go's scene gate); the
+  // caption is at most 300 BYTES (the server counts bytes, not characters).
+  // markStorySeen is strictly local — there are no view receipts, nothing
+  // leaves this device. deleteStory retracts one of your OWN stories
+  // everywhere it was posted.
   postStory: (guildIds, preset, caption) => call("PostStory", guildIds, preset, caption),
   guildStories: (guildID) => call("GuildStories", guildID),
   markStorySeen: (storyID) => call("MarkStorySeen", storyID),
+  deleteStory: (storyID) => call("DeleteStory", storyID),
   verifyFingerprint: (fingerprint) => call("VerifyFingerprint", fingerprint),
   pinMessage: (channelID, messageID) => call("PinMessage", channelID, messageID),
   searchMessages: (query) => call("SearchMessages", query),

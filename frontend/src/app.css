@@ -2436,6 +2436,52 @@ textarea:focus {
   top: -5%;
   animation: fxo-fall var(--du) ease-in var(--d, 0s) 1 both;
 }
+/* Fireworks-only pieces. Glow is a STATIC text-shadow (never animated — the
+   codebase's own GPU rule), affordable because a show is ~50 one-shot glyphs. */
+.fxo-glow::before {
+  text-shadow: 0 0 7px var(--c);
+}
+/* The rocket: a glowing streak climbing to its apex, gone at the top. */
+.fxo-shot {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: linear-gradient(to top, transparent, var(--c) 55%, #fff);
+  box-shadow: 0 0 6px var(--c);
+  animation: fxo-shot var(--du) cubic-bezier(0.2, 0.7, 0.45, 1) 1 both;
+}
+.fxo-shot::before {
+  content: none;
+}
+@keyframes fxo-shot {
+  from {
+    transform: translate3d(0, 0, 0);
+    opacity: 1;
+  }
+  to {
+    transform: translate3d(0, var(--apex), 0);
+    opacity: 0.9;
+  }
+}
+/* The shell: expands fast, hangs bright, then droops under gravity and dies —
+   the droop is what separates a firework from a dandelion. */
+.fxo-shell {
+  animation: fxo-shell var(--du) cubic-bezier(0.16, 0.84, 0.44, 1) 1 forwards;
+}
+@keyframes fxo-shell {
+  from {
+    transform: translate(-50%, -50%) scale(0.3) rotate(0deg);
+    opacity: 1;
+  }
+  55% {
+    transform: translate(calc(var(--tx) - 50%), calc(var(--ty) - 50%)) scale(1) rotate(var(--rot));
+    opacity: 1;
+  }
+  to {
+    transform: translate(calc(var(--tx) - 50%), calc(var(--ty) - 50% + 34px)) scale(0.75) rotate(var(--rot));
+    opacity: 0;
+  }
+}
 @keyframes fxo-fall {
   from {
     transform: translate3d(0, 0, 0) rotate(0deg);

@@ -89,6 +89,9 @@ type syncPayload struct {
 	// payload they are NOT taken on the responder's word: the applier verifies
 	// each signature and the author's membership before storing.
 	Stories []storyRecord `json:"stories,omitempty"`
+	// StoryDels are author-signed retractions, verified exactly like Stories —
+	// a peer who slept through a delete hears it from whoever answers.
+	StoryDels []storyDelete `json:"storyDels,omitempty"`
 }
 
 // handleSyncRequest serves a peer's catch-up request from local state.
@@ -159,6 +162,7 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	// Stories: unexpired only (filtered here on the RESPONDER, so a dead record
 	// never spends payload budget), newest first, capped per guild.
 	payload.Stories = s.storiesForSync(guild.ID, time.Now().Unix())
+	payload.StoryDels = s.storyDelsForSync(guild.ID, time.Now().Unix())
 	budget := maxSyncPayload
 	for _, ch := range guild.Channels {
 		msgs, err := s.store.MessagesChangedSince(ch.ID, req.Since[ch.ID], syncMessagesPerChannel)
@@ -600,6 +604,13 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 	storyChanged := false
 	for _, rec := range payload.Stories {
 		if s.applySyncedStory(guildID, rec) {
+			storyChanged = true
+		}
+	}
+	// Retractions AFTER inserts, so a payload carrying both a story and its
+	// own delete nets out to deleted, whatever order the responder built it in.
+	for _, d := range payload.StoryDels {
+		if s.applyStoryDel(guildID, "", d, 0) {
 			storyChanged = true
 		}
 	}

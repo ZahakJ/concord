@@ -557,7 +557,7 @@
       class:has-banner={!!art}
       class:ink-dark={art?.ink === "dark"}
       title={g.description || g.name}
-      onclick={() => (S.modal = { kind: "guildSettings" })}
+      onclick={() => (S.modal = { kind: "guildHub" })}
       oncontextmenu={(e) => openContextMenu(e, guildMenuItems(g), { title: g.name })}
     >
       {#if art}

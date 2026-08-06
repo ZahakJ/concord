@@ -90,14 +90,19 @@
 </script>
 
 {#if g && g.kind !== "dm"}
-  <div class="tray" role="group" aria-label="Moments">
+  <div class="moments" role="group" aria-label="Moments">
+    <!-- The panel's own idiom for a section: with no stories the whole thing
+         collapses to this label plus the quiet + tile — a corner of the
+         roster, not a floating Share blob. -->
+    <div class="section-head">Moments</div>
+    <div class="tray">
     <button
       class="tile"
       title="Share a moment"
       onclick={() => (S.modal = { kind: "storyCompose" })}
     >
-      <span class="ring add"><span class="hole plus"><Icon name="plus" size={16} /></span></span>
-      <span class="tlabel">Share</span>
+      <span class="ring add"><span class="hole plus"><Icon name="plus" size={14} /></span></span>
+      <span class="tlabel dim">Share</span>
     </button>
     {#each authors as a (a.fpr)}
       {@const mem = memberByFpr(a.fpr)}
@@ -121,28 +126,42 @@
               emoji={mem?.emoji || ""}
               color={mem?.color || a.color1}
               image={mem?.avatar || ""}
-              size={36}
+              size={32}
             />
           </span>
         </span>
         <span class="tlabel" class:dim={!a.unseen}>{a.name || a.fpr.slice(0, 9)}</span>
       </button>
     {/each}
+    </div>
   </div>
 {/if}
 
 <style>
+  .moments {
+    border-bottom: 1px solid var(--border);
+    flex: none;
+  }
+  /* MemberPanel's .section-head, replicated (not shared — this component must
+     stay droppable into the panel without reaching into its styles). Keep the
+     two in step. */
+  .section-head {
+    text-transform: uppercase;
+    font-size: var(--fs-tiny);
+    letter-spacing: 0.07em;
+    font-weight: 700;
+    color: var(--text-muted);
+    margin: 10px 8px 0;
+  }
   .tray {
     display: flex;
-    gap: 6px;
-    padding: 2px 4px 8px;
+    gap: 4px;
+    padding: 2px 4px 6px;
     margin: 0 4px;
     overflow-x: auto;
-    border-bottom: 1px solid var(--border);
     /* A fling that runs out of tray must not drag the member list sideways. */
     overscroll-behavior-x: contain;
     scrollbar-width: none;
-    flex: none;
   }
   .tray::-webkit-scrollbar {
     display: none;
@@ -155,45 +174,54 @@
     background: transparent;
     padding: 4px 2px;
     flex: none;
-    width: 56px;
+    width: 52px;
   }
   .tile:hover,
   .tile:active {
     background: transparent;
   }
   /* The 2px arc: gradient padding around a bg-colored hole. Seen stories fall
-     back to the quiet --border grey — present, already read. */
+     back to the quiet --border grey — present, already read. Both boxes follow
+     --avatar-radius so square-avatar theme packs get a square ring around
+     their square face — the +4/+2 keeps the corners concentric through the
+     padding, and 50% packs just clamp back to a circle. */
   .ring {
-    border-radius: 50%;
+    border-radius: calc(var(--avatar-radius, 50%) + 4px);
     padding: 2px;
     background: var(--border);
     display: inline-grid;
     place-items: center;
   }
   .hole {
-    border-radius: 50%;
+    border-radius: calc(var(--avatar-radius, 50%) + 2px);
     padding: 2px;
     background: var(--bg-1);
     display: inline-grid;
     place-items: center;
   }
+  /* The + tile is an invitation, not a story: a ghost dashed outline in the
+     avatar's own shape, no filled ring pretending to be unseen. */
   .hole.plus {
+    /* 32px avatar + the hole's own 2px padding — the ghost tile must sit on
+       exactly the story tiles' baseline. */
     width: 36px;
     height: 36px;
-    color: var(--text-muted);
-    background: var(--bg-2);
+    color: var(--text-faint);
+    background: transparent;
+    border: 1px dashed var(--border);
+    border-radius: var(--avatar-radius, 50%);
   }
   .tile:hover .hole.plus {
     color: var(--text);
-    background: var(--bg-3);
+    border-color: var(--text-faint);
   }
   .ring.add {
-    background: var(--border);
+    background: transparent;
   }
   .tlabel {
     font-size: var(--fs-micro);
     color: var(--text);
-    max-width: 54px;
+    max-width: 50px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -204,7 +232,7 @@
   /* Finger-sized tiles in the mobile members drawer. */
   @media (pointer: coarse) {
     .tile {
-      width: 62px;
+      width: 58px;
     }
   }
 </style>

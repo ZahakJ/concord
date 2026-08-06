@@ -70,6 +70,7 @@
   import ModalBans from "./modals/ModalBans.svelte";
   import ModalRoles from "./modals/ModalRoles.svelte";
   import ModalGuildSettings from "./modals/ModalGuildSettings.svelte";
+  import ModalGuildHub from "./modals/ModalGuildHub.svelte";
   import ModalChannelTopic from "./modals/ModalChannelTopic.svelte";
   import ModalChannelLinks from "./modals/ModalChannelLinks.svelte";
   import ModalPublish from "./modals/ModalPublish.svelte";
@@ -1274,6 +1275,10 @@
     <ModalBans onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "roles"}
     <ModalRoles onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "guildHub"}
+    <!-- The hub is the front door; guildSettings below is now its Overview
+         panel (opened via openPanel, so Back returns to the hub). -->
+    <ModalGuildHub onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "guildSettings"}
     <ModalGuildSettings onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "shortcuts"}
