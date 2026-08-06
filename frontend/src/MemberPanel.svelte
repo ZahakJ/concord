@@ -4,6 +4,7 @@
   // control is its own sibling button (no more button-in-button nesting).
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
+  import StoryTray from "./StoryTray.svelte";
   import {
     S,
     activeGuild,
@@ -343,6 +344,9 @@
 </script>
 
 <aside class="panel">
+  <!-- Moments tray rides the top of the roster. It hides itself for DMs and
+       owns all its data/refresh logic — this panel just gives it the slot. -->
+  <StoryTray />
   {#if soleAdminRisk}
     <div class="notice warn" role="note">
       <div class="notice-head">

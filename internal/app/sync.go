@@ -85,6 +85,10 @@ type syncPayload struct {
 	Events     []domain.Event              `json:"events,omitempty"`   // calendar events, RSVPs included
 	GovOps     []json.RawMessage           `json:"govOps,omitempty"`   // signed governance log (roles/bans)
 	Messages   map[string][]domain.Message `json:"messages,omitempty"` // channelID -> changed rows
+	// Stories are AUTHOR-SIGNED records (story.go), so unlike the rest of this
+	// payload they are NOT taken on the responder's word: the applier verifies
+	// each signature and the author's membership before storing.
+	Stories []storyRecord `json:"stories,omitempty"`
 }
 
 // handleSyncRequest serves a peer's catch-up request from local state.
@@ -152,6 +156,9 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 		payload.Events = evs
 	}
 	payload.GovOps = s.govOpsFor(guild.ID)
+	// Stories: unexpired only (filtered here on the RESPONDER, so a dead record
+	// never spends payload budget), newest first, capped per guild.
+	payload.Stories = s.storiesForSync(guild.ID, time.Now().Unix())
 	budget := maxSyncPayload
 	for _, ch := range guild.Channels {
 		msgs, err := s.store.MessagesChangedSince(ch.ID, req.Since[ch.ID], syncMessagesPerChannel)
@@ -582,6 +589,23 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 		s.applySyncedEvent(guildID, ev)
 	}
 	s.ingestGovOpsRaw(guildID, payload.GovOps)
+
+	// Stories: the responder attests NOTHING for these — this payload is just
+	// whatever the serving member's disk says, and "trusted" above only covers
+	// mutating state we already hold. Each record must prove itself: the
+	// author's signature is verified against our roster's key for them, and
+	// the author's membership is re-checked, in applySyncedStory. This is the
+	// per-record closing of the forgery gap the message comment above still
+	// names as open for message rows.
+	storyChanged := false
+	for _, rec := range payload.Stories {
+		if s.applySyncedStory(guildID, rec) {
+			storyChanged = true
+		}
+	}
+	if storyChanged {
+		s.emitStory(guildID)
+	}
 
 	self := s.id.Fingerprint()
 	anyNew := false

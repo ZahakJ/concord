@@ -316,6 +316,14 @@ export const api = {
     pronouns === undefined && birthday === undefined
       ? call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style)
       : call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style, pronouns ?? "", birthday ?? ""),
+  // Moments: guild-scoped stories, text-on-a-banner-preset only (no photos,
+  // no video — see internal/app/story.go). guildIds fans one signed record out
+  // to several guilds; preset is a "preset:<id>" reference; the caption is at
+  // most 300 BYTES (the server counts bytes, not characters). markStorySeen is
+  // strictly local — there are no view receipts, nothing leaves this device.
+  postStory: (guildIds, preset, caption) => call("PostStory", guildIds, preset, caption),
+  guildStories: (guildID) => call("GuildStories", guildID),
+  markStorySeen: (storyID) => call("MarkStorySeen", storyID),
   verifyFingerprint: (fingerprint) => call("VerifyFingerprint", fingerprint),
   pinMessage: (channelID, messageID) => call("PinMessage", channelID, messageID),
   searchMessages: (query) => call("SearchMessages", query),

@@ -112,6 +112,9 @@ type Service struct {
 	onGuildUpdate []func()
 	onGuildInvite []func(GuildInvite)
 	onReadState   []func(channelID string, at int64)
+	// onStory fires when a guild's stories change ("" = expiry sweep, several
+	// guilds may have changed). See story.go.
+	onStory []func(guildID string)
 
 	// Read markers awaiting broadcast to our own devices. Coalesced (see
 	// broadcastReadMarker) so a mark-all-read burst becomes ONE publish.
@@ -1174,6 +1177,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// Send-later queue: fire scheduled messages whose time has come, so a
 	// queued send survives the window that queued it closing (background.go).
 	go s.runScheduledSendLoop()
+
+	// Stories expire after a day; sweep the dead ones at open and hourly
+	// (story.go). Reads filter by expiry themselves, so this is disk hygiene,
+	// not correctness.
+	go s.runStoryGCLoop()
 
 	// Resume rich presence if the user had it on.
 	if s.RichPresenceEnabled() {

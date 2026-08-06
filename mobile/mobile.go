@@ -187,6 +187,13 @@ func (n *Node) SetEventSink(sink EventSink) {
 		}
 		emit("read-state", r)
 	}
+	prevStory := b.OnStory
+	b.OnStory = func(u bridge.StoryUpdate) {
+		if prevStory != nil {
+			prevStory(u)
+		}
+		emit("story", u)
+	}
 }
 
 // Nudge asks the core to hurry reconnection after the OS resumes the app:

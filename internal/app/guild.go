@@ -1508,6 +1508,12 @@ type guildMeta struct {
 	Event   *domain.Event `json:"event,omitempty"`
 	EventID string        `json:"eventId,omitempty"`
 	RSVP    string        `json:"rsvp,omitempty"`
+
+	// story: a Moments announce (story.go). The record is SELF-SIGNED by its
+	// author — unlike most meta above, whose authority is the MLS sender
+	// alone — because the same record is later re-served over history sync,
+	// where the responder attests nothing.
+	Story *storyRecord `json:"story,omitempty"`
 }
 
 // applyProfileMeta is the receive half of a gossiped profile announce. Its own
@@ -2411,6 +2417,11 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		s.emitGuildUpdate()
 	case "profile":
 		s.applyProfileMeta(guildID, actor, m)
+	case "story":
+		// Actor binding, signature verification and expiry all live in
+		// applyStoryMeta (story.go) so this path and history sync share one
+		// gate — the story equivalent of the profile rule two cases up.
+		s.applyStoryMeta(guildID, actor, m)
 	case "nickname":
 		// A per-guild nickname. Two legitimate authors: the member themselves,
 		// or a moderator with MANAGE_MEMBERS renaming someone (Discord-style).

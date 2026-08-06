@@ -46,6 +46,14 @@ type Bridge struct {
 	OnGuildUpdate   func()
 	OnGuildInvite   func(appsvc.GuildInvite)
 	OnReadState     func(ReadStateView)
+	// OnStory fires as the "story" event when a guild's stories change
+	// (GuildID "" = the expiry sweep; recheck every guild).
+	OnStory func(StoryUpdate)
+}
+
+// StoryUpdate names the guild whose stories changed ("" = several may have).
+type StoryUpdate struct {
+	GuildID string `json:"guildId"`
 }
 
 // ReadStateView reports a channel's read cursor advancing (locally, in another
@@ -564,6 +572,11 @@ func (b *Bridge) Login(passphrase string) error {
 			b.OnReadState(ReadStateView{ChannelID: channelID, At: at})
 		}
 	})
+	svc.OnStory(func(guildID string) {
+		if b.OnStory != nil {
+			b.OnStory(StoryUpdate{GuildID: guildID})
+		}
+	})
 	b.svc = svc
 	// The shell may have declared the app backgrounded before the unlock
 	// happened; a service born after that call must not start on the eager
@@ -892,6 +905,74 @@ func (b *Bridge) Events(guildID string) ([]domain.Event, error) {
 		return nil, err
 	}
 	return svc.Events(guildID)
+}
+
+// StoryView is one Moments story as the frontend consumes it: the signed
+// record's display fields plus the resolved author name and this device's
+// local seen flag. The signature stays in the core — the UI has no use for it.
+type StoryView struct {
+	ID         string `json:"id"`
+	GuildID    string `json:"guildId"`
+	Author     string `json:"author"` // account fingerprint
+	AuthorName string `json:"authorName"`
+	Preset     string `json:"preset"`
+	Caption    string `json:"caption"`
+	Color1     string `json:"color1"`
+	Color2     string `json:"color2"`
+	PostedAt   int64  `json:"postedAt"`  // unix seconds
+	ExpiresAt  int64  `json:"expiresAt"` // unix seconds
+	Seen       bool   `json:"seen"`
+}
+
+// PostStory publishes a text-on-banner story to each of the given guilds.
+func (b *Bridge) PostStory(guildIDs []string, preset, caption string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.PostStory(guildIDs, preset, caption)
+}
+
+// GuildStories returns a guild's unexpired stories, newest first.
+func (b *Bridge) GuildStories(guildID string) ([]StoryView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	recs, err := svc.GuildStories(guildID)
+	if err != nil {
+		return nil, err
+	}
+	self := svc.Fingerprint()
+	out := make([]StoryView, 0, len(recs))
+	for _, r := range recs {
+		// Resolve the author's display name the way the member list does: own
+		// profile for ourselves (the cache holds no self row), a per-guild
+		// nickname shadowing the profile name for everyone.
+		name := svc.ProfileOf(r.Author).Name
+		if r.Author == self {
+			name = svc.SelfProfile().Name
+		}
+		if nick := svc.NickOf(guildID, r.Author); nick != "" {
+			name = nick
+		}
+		out = append(out, StoryView{
+			ID: r.StoryID, GuildID: r.GuildID, Author: r.Author, AuthorName: name,
+			Preset: r.Preset, Caption: r.Caption, Color1: r.Color1, Color2: r.Color2,
+			PostedAt: r.PostedAt, ExpiresAt: r.ExpiresAt, Seen: svc.StoryIsSeen(r.StoryID),
+		})
+	}
+	return out, nil
+}
+
+// MarkStorySeen records locally that the user opened a story (no view
+// receipts — nothing leaves this device).
+func (b *Bridge) MarkStorySeen(storyID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.MarkStorySeen(storyID)
 }
 
 // RSVPEvent records this account's answer to an event: going|maybe|no, or ""
@@ -2810,6 +2891,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.DeleteEvent(argStr(args, 0), argStr(args, 1))
 	case "Events":
 		return b.Events(argStr(args, 0))
+	case "PostStory":
+		return nil, b.PostStory(argStrs(args, 0), argStr(args, 1), argStr(args, 2))
+	case "GuildStories":
+		return b.GuildStories(argStr(args, 0))
+	case "MarkStorySeen":
+		return nil, b.MarkStorySeen(argStr(args, 0))
 	case "RSVPEvent":
 		return nil, b.RSVPEvent(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "EventICS":

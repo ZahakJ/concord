@@ -93,6 +93,7 @@ func main() {
 			b.OnGuildUpdate = func() { wruntime.EventsEmit(ctx, "guild-updated", nil) }
 			b.OnGuildInvite = func(inv appsvc.GuildInvite) { wruntime.EventsEmit(ctx, "guild-invite", inv) }
 			b.OnReadState = func(r bridge.ReadStateView) { wruntime.EventsEmit(ctx, "read-state", r) }
+			b.OnStory = func(u bridge.StoryUpdate) { wruntime.EventsEmit(ctx, "story", u) }
 		},
 		OnShutdown: func(context.Context) { b.Close() },
 	})

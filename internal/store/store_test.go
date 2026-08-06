@@ -704,3 +704,97 @@ func TestSearchMessagesFilters(t *testing.T) {
 		t.Fatalf("match beyond the first keyset batch got %v, want [deep]", contents(hits))
 	}
 }
+
+func TestStoriesRoundTripExpiryAndSeen(t *testing.T) {
+	s, path := openTestStore(t)
+	now := time.Now().Unix()
+
+	fresh := StoryRow{
+		StoryID: "st-fresh", GuildID: "g1", Author: "FPRA",
+		Preset: "preset:galaxy", Caption: "meet in the-void tonight",
+		Color1: "#aabbcc", Color2: "#112233",
+		PostedAt: now, ExpiresAt: now + 3600, Sig: []byte("sig-a"),
+	}
+	dead := StoryRow{
+		StoryID: "st-dead", GuildID: "g1", Author: "FPRB",
+		Preset: "preset:dune", Caption: "yesterday's news",
+		PostedAt: now - 90000, ExpiresAt: now - 3600, Sig: []byte("sig-b"),
+	}
+	otherGuild := fresh
+	otherGuild.StoryID, otherGuild.GuildID = "st-other", "g2"
+	for _, r := range []StoryRow{fresh, dead, otherGuild} {
+		if _, err := s.SaveStory(r); err != nil {
+			t.Fatalf("SaveStory(%s): %v", r.StoryID, err)
+		}
+	}
+
+	// Saving the same story id again is a no-op, not a second row and not an
+	// overwrite — gossip re-delivery and overlapping syncs replay records.
+	changed := fresh
+	changed.Caption = "rewritten"
+	if inserted, err := s.SaveStory(changed); err != nil || inserted {
+		t.Fatalf("replayed SaveStory: inserted=%v err=%v, want no-op", inserted, err)
+	}
+
+	// Listing is guild-scoped and judges expiry by the caller's clock — the
+	// dead story is invisible even though no sweep has run yet.
+	got, err := s.GuildStories("g1", now)
+	if err != nil {
+		t.Fatalf("GuildStories: %v", err)
+	}
+	if len(got) != 1 || got[0].StoryID != "st-fresh" {
+		t.Fatalf("GuildStories(g1) = %+v, want just st-fresh", got)
+	}
+	r := got[0]
+	if r.Caption != fresh.Caption || r.Preset != fresh.Preset ||
+		r.Color1 != fresh.Color1 || r.Author != "FPRA" || !bytes.Equal(r.Sig, fresh.Sig) {
+		t.Fatalf("story round-trip mismatch: %+v", r)
+	}
+
+	// The caption is content, sealed at rest like a message body.
+	for _, f := range []string{path, path + "-wal"} {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			continue // -wal may not exist
+		}
+		if bytes.Contains(raw, []byte("meet in the-void tonight")) {
+			t.Fatalf("plaintext story caption found in %s", f)
+		}
+	}
+
+	// Seen markers are local and idempotent.
+	if s2, err := s.StoryIsSeen("st-fresh"); err != nil || s2 {
+		t.Fatalf("StoryIsSeen before marking = %v, %v", s2, err)
+	}
+	if err := s.MarkStorySeen("st-fresh"); err != nil {
+		t.Fatalf("MarkStorySeen: %v", err)
+	}
+	if err := s.MarkStorySeen("st-fresh"); err != nil {
+		t.Fatalf("MarkStorySeen (again): %v", err)
+	}
+	if s2, err := s.StoryIsSeen("st-fresh"); err != nil || !s2 {
+		t.Fatalf("StoryIsSeen after marking = %v, %v", s2, err)
+	}
+	_ = s.MarkStorySeen("st-dead")
+
+	// The sweep removes the expired story and its seen marker, and only those.
+	n, err := s.DeleteExpiredStories(now)
+	if err != nil {
+		t.Fatalf("DeleteExpiredStories: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("DeleteExpiredStories removed %d, want 1", n)
+	}
+	if got, _ := s.GuildStories("g1", now); len(got) != 1 {
+		t.Fatalf("fresh story lost to the sweep: %+v", got)
+	}
+	if got, _ := s.GuildStories("g2", now); len(got) != 1 {
+		t.Fatalf("other guild's story lost to the sweep: %+v", got)
+	}
+	if seen, _ := s.StoryIsSeen("st-dead"); seen {
+		t.Fatal("seen marker must die with its expired story")
+	}
+	if seen, _ := s.StoryIsSeen("st-fresh"); !seen {
+		t.Fatal("living story's seen marker must survive the sweep")
+	}
+}

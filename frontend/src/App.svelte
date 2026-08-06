@@ -104,6 +104,8 @@
   import ModalRequests from "./modals/ModalRequests.svelte";
   import ModalEvents from "./modals/ModalEvents.svelte";
   import ModalMyCalendar from "./modals/ModalMyCalendar.svelte";
+  import ModalStoryCompose from "./modals/ModalStoryCompose.svelte";
+  import StoryViewer from "./StoryViewer.svelte";
   import JoinVeil from "./JoinVeil.svelte";
   import EventNudges from "./EventNudges.svelte";
   import { startScheduler } from "./lib/scheduled.svelte.js";
@@ -1307,6 +1309,17 @@
     <ModalEvents onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
   {:else if S.modal?.kind === "myCalendar"}
     <ModalMyCalendar onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
+  {:else if S.modal?.kind === "storyCompose"}
+    <ModalStoryCompose onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "storyViewer"}
+    <!-- Not a Modal: a fullscreen overlay (the studios' tier). It still
+         routes through S.modal so the tray can open it from anywhere, and it
+         registers its own overlay closer for Esc / the hardware back button. -->
+    <StoryViewer
+      stories={S.modal.stories || []}
+      start={S.modal.start || 0}
+      onClose={() => (S.modal = null)}
+    />
   {:else if S.modal?.kind === "newDM"}
     <ModalNewDM onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "renameGroup"}

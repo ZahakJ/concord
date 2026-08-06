@@ -228,6 +228,24 @@ CREATE TABLE IF NOT EXISTS scheduled_sends (
   fire_at     INTEGER NOT NULL,
   created     INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS stories (
+  story_id    TEXT PRIMARY KEY,
+  guild_id    TEXT NOT NULL,
+  author      TEXT NOT NULL,
+  preset      TEXT NOT NULL,
+  content_enc BLOB NOT NULL,
+  nonce       BLOB NOT NULL,
+  color1      TEXT NOT NULL DEFAULT '',
+  color2      TEXT NOT NULL DEFAULT '',
+  posted_at   INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  sig         BLOB NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stories_guild ON stories(guild_id, posted_at);
+CREATE TABLE IF NOT EXISTS story_seen (
+  story_id TEXT PRIMARY KEY,
+  at       INTEGER NOT NULL
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -2381,6 +2399,121 @@ func (s *Store) scheduledSendsWhere(where string, args ...any) ([]ScheduledSend,
 func (s *Store) DeleteScheduledSend(id string) error {
 	_, err := s.db.Exec(`DELETE FROM scheduled_sends WHERE id = ?`, id)
 	return err
+}
+
+// ---- stories (guild-scoped, 24h-expiring banner posts) ----
+// A story is a signed record: preset + caption + accent colors, no media. The
+// caption is what the author WROTE — content, exactly as sensitive as a message
+// body — so it is sealed at rest like one (content_enc/nonce). The preset id,
+// colors, times and signature are structural metadata, stored clear so listing
+// and expiry sweeps never have to decrypt anything. story_seen is LOCAL state
+// ("I opened this") that never leaves the device — Moments v1 deliberately has
+// no view receipts, so there is nothing to gossip.
+
+// StoryRow is one stored story. Caption is plaintext in memory (sealed only at
+// rest); Sig is the author's Ed25519 signature, kept verbatim so the row can be
+// re-served over history sync and re-verified by the receiver.
+type StoryRow struct {
+	StoryID   string
+	GuildID   string
+	Author    string // author's account fingerprint
+	Preset    string // banner preset id, e.g. "preset:galaxy"
+	Caption   string
+	Color1    string
+	Color2    string
+	PostedAt  int64 // unix seconds
+	ExpiresAt int64 // unix seconds
+	Sig       []byte
+}
+
+// SaveStory stores a story, sealing its caption at rest. Saving the same
+// story_id twice is a no-op — gossip re-delivery and overlapping history syncs
+// replay records, and idempotence here is what makes that harmless. The bool
+// reports whether a new row was inserted. Insert-only on purpose: a story is
+// immutable once signed, so an "update" arriving under a known id is either a
+// replay (fine to drop) or a forgery attempt (must be dropped).
+func (s *Store) SaveStory(r StoryRow) (bool, error) {
+	var nonce [nonceSize]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return false, err
+	}
+	sealed := secretbox.Seal(nil, []byte(r.Caption), &nonce, &s.key)
+	res, err := s.db.Exec(
+		`INSERT INTO stories (story_id, guild_id, author, preset, content_enc, nonce, color1, color2, posted_at, expires_at, sig)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(story_id) DO NOTHING`,
+		r.StoryID, r.GuildID, r.Author, r.Preset, sealed, nonce[:],
+		r.Color1, r.Color2, r.PostedAt, r.ExpiresAt, r.Sig,
+	)
+	if err != nil {
+		return false, fmt.Errorf("store: save story: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// GuildStories returns a guild's unexpired stories, newest first, decrypting
+// captions. Expiry is judged against the caller's clock (nowUnix) rather than
+// relying on the sweep having run — a story must never be shown past its time
+// just because the hourly GC hasn't fired yet.
+func (s *Store) GuildStories(guildID string, nowUnix int64) ([]StoryRow, error) {
+	rows, err := s.db.Query(
+		`SELECT story_id, guild_id, author, preset, content_enc, nonce, color1, color2, posted_at, expires_at, sig
+		 FROM stories WHERE guild_id = ? AND expires_at > ?
+		 ORDER BY posted_at DESC, story_id ASC`, guildID, nowUnix)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []StoryRow
+	for rows.Next() {
+		var r StoryRow
+		var enc, nonceB []byte
+		if err := rows.Scan(&r.StoryID, &r.GuildID, &r.Author, &r.Preset, &enc, &nonceB,
+			&r.Color1, &r.Color2, &r.PostedAt, &r.ExpiresAt, &r.Sig); err != nil {
+			return nil, err
+		}
+		caption, err := s.open(enc, nonceB)
+		if err != nil {
+			return nil, err
+		}
+		r.Caption = caption
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// DeleteExpiredStories removes every story past its expiry, and the local
+// seen-markers with them — a marker for a dead story is meaningless, and a
+// future story that happened to mint the same id must not arrive pre-seen.
+// Returns how many stories went.
+func (s *Store) DeleteExpiredStories(nowUnix int64) (int, error) {
+	if _, err := s.db.Exec(
+		`DELETE FROM story_seen WHERE story_id IN
+		   (SELECT story_id FROM stories WHERE expires_at <= ?)`, nowUnix); err != nil {
+		return 0, fmt.Errorf("store: expire stories: %w", err)
+	}
+	res, err := s.db.Exec(`DELETE FROM stories WHERE expires_at <= ?`, nowUnix)
+	if err != nil {
+		return 0, fmt.Errorf("store: expire stories: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+// MarkStorySeen records locally that the user opened a story. Idempotent — the
+// first open's timestamp is the one that sticks.
+func (s *Store) MarkStorySeen(storyID string) error {
+	_, err := s.db.Exec(`INSERT OR IGNORE INTO story_seen (story_id, at) VALUES (?, ?)`,
+		storyID, time.Now().Unix())
+	return err
+}
+
+// StoryIsSeen reports whether the user has opened a story on this device.
+func (s *Store) StoryIsSeen(storyID string) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM story_seen WHERE story_id = ?`, storyID).Scan(&n)
+	return n > 0, err
 }
 
 // ---- storage stats (read-only aggregates for the Stats panel) ----
