@@ -44,6 +44,13 @@
         display: grid;
         place-items: center;
         background: #16181c;
+        transition: opacity 0.22s ease;
+      }
+      /* Held until the app knows which screen comes next, then crossfaded out
+         over whatever mounted underneath (see clearBootMark in App.svelte). */
+      #boot.gone {
+        opacity: 0;
+        pointer-events: none;
       }
       #boot svg {
         width: 68px;

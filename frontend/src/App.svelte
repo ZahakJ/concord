@@ -324,10 +324,20 @@
 
   // Skip the login screen if the backend is already unlocked (e.g. after a
   // browser refresh — the Go process stays running and holds the session).
+  // The boot mark from index.html. Svelte's mount() appends to #app rather than
+  // clearing it, so it has to go by hand — but NOT before we know what replaces
+  // it. Removing it up front is what made a refresh flash the login card on its
+  // way back to the app: the session probe is a round trip, and until it
+  // answers, `!S.ready` means "login". Now the splash covers that gap and
+  // crossfades into whichever screen won.
+  function clearBootMark() {
+    const el = document.getElementById("boot");
+    if (!el) return;
+    el.classList.add("gone");
+    setTimeout(() => el.remove(), 240);
+  }
+
   onMount(async () => {
-    // The boot mark from index.html. Svelte's mount() appends to #app rather
-    // than clearing it, so this has to go by hand or it sits under the app.
-    document.getElementById("boot")?.remove();
     // Skip the self-update check on mobile — the app stores own updates there.
     if (!window.Capacitor) checkForUpdate(); // fire-and-forget; works on the login screen too
     initDeepLinks(); // concord:// links (QR scanned with the OS camera)
@@ -344,16 +354,33 @@
     // it stops announcing us to a room we're no longer in. "pagehide" is the
     // one that also fires when a mobile browser backgrounds the page.
     addEventListener("pagehide", () => leaveVoiceOnUnload(S.voice?.channelId || ""));
+    // Settle exactly once, whatever happens: session restored, no session, or
+    // a core that never answers. The deadline is the safety net — a wedged
+    // probe must not trap someone behind a splash forever, and the login
+    // screen is the honest thing to show when we can't tell.
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      booting = false;
+      clearBootMark();
+    };
+    const deadline = setTimeout(settle, 8000);
     try {
       if (await api.session()) await start();
     } catch {
       /* not unlocked yet — show the login screen */
+    } finally {
+      clearTimeout(deadline);
+      settle();
     }
   });
 
   // Concorde fly-in: a short takeoff moment between unlocking and the app.
   // Only on a real login (not session-restore refreshes), and never under
   // prefers-reduced-motion.
+  // True until the session probe answers — see clearBootMark below.
+  let booting = $state(true);
   let flyIn = $state(false);
   function playFlyIn() {
     if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -1022,7 +1049,10 @@
   </div>
 {/if}
 
-{#if !S.ready}
+{#if booting}
+  <!-- Nothing: index.html's boot splash still owns the screen until the
+       session probe says whether this is a login or a restored session. -->
+{:else if !S.ready}
   <Login onLogin={() => start(true)} />
 {:else if S.isMobile}
   <MobileShell
