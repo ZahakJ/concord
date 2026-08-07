@@ -7,8 +7,6 @@
   // into the bundle at build time: no network, per the no-runtime-fetch rule.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
-  import { confettiBurst } from "../lib/burst.js";
-  import { onMount } from "svelte";
 
   let { version = "", onClose } = $props();
 
@@ -37,7 +35,9 @@
     },
   ];
 
-  onMount(() => confettiBurst({ seed: `whatsnew-${version}` }));
+  // Deliberately no confetti here. The splash already arrives unannounced on
+  // top of a fresh login; adding a burst to it made opening the app feel like
+  // being shouted at. The gradient header is the celebration.
 </script>
 
 <Modal title="" {onClose}>

@@ -1189,11 +1189,18 @@
   <!-- The join threshold — covers everything while an event room is entered. -->
   <JoinVeil />
 
-  <!-- Concorde fly-in: the jet takes off straight up (nose-first) trailing a
-       vertical vapour trail while the overlay fades to reveal the app. Pure
-       theater, 1.5s, once per unlock. pointer-events:none — never blocks input. -->
+  <!-- Concorde fly-in: the mark spools up on the runway, cracks off with a
+       shockwave ring, then BANKS into a climb to the upper right, dragging a
+       contrail and a sweep of speed through the curtain it pulls off the app.
+       Pure theater, 1.5s, once per unlock. pointer-events:none — never blocks
+       input, and playFlyIn() bails entirely under reduced motion. -->
   {#if flyIn}
     <div class="flyin" aria-hidden="true">
+      <span class="boom"></span>
+      {#each [0, 1, 2, 3, 4] as i (i)}
+        <span class="streak s{i}"></span>
+      {/each}
+      <span class="sweep"></span>
       <div class="flyin-jet">
         <span class="contrail"></span>
         <Icon name="concorde" size={54} />
@@ -1426,46 +1433,171 @@
     animation: flyin-fade 1.5s ease forwards;
     overflow: hidden;
   }
-  /* The mark is a head-on front view (nose up), so it takes off STRAIGHT UP from
-     the centre — nose already pointing where it goes — with a vertical vapour
-     trail directly beneath it (no awkward diagonal). */
+  /* The mark is a head-on view with the nose UP, so a climb to the upper right
+     means banking the sprite ~40° first — the nose has to point where it's
+     going or it reads as a jet sliding sideways. It spools on the spot, then
+     the same keyframe rotates AND translates, which is what sells the bank.
+     Everything here is transform/opacity; the glow is a static drop-shadow. */
   .flyin-jet {
     position: absolute;
-    left: 50%;
-    top: 82%;
+    left: 46%;
+    top: 74%;
     color: var(--text);
-    filter: drop-shadow(0 0 14px color-mix(in srgb, var(--accent) 55%, transparent));
-    animation: flyin-jet 1.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+    filter: drop-shadow(0 0 16px color-mix(in srgb, var(--accent) 60%, transparent));
+    animation: flyin-jet 1.4s cubic-bezier(0.5, 0, 0.25, 1) forwards;
   }
-  /* Trail hangs straight down from the jet's tail, brightest at the nozzle and
-     fading with distance. It's a child, so it rides the jet's climb. */
+  /* Trail hangs from the tail in the jet's OWN rotated frame, so it lines up
+     with the flight path for free once the sprite banks — brightest at the
+     nozzle, gone by the far end. */
   .contrail {
     position: absolute;
-    top: 90%;
+    top: 88%;
     left: 50%;
     transform: translateX(-50%);
     width: 3px;
-    height: 62vh;
+    height: 74vh;
     border-radius: 2px;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 75%, white), transparent);
-    opacity: 0.8;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 80%, white),
+      color-mix(in srgb, var(--accent) 35%, transparent) 45%,
+      transparent
+    );
+    opacity: 0.85;
   }
   @keyframes flyin-jet {
+    /* On the runway: nose still up, engines lighting. */
     0% {
-      transform: translate(-50%, 0) scale(0.85);
+      transform: translate(-50%, 6vh) rotate(0deg) scale(0.8);
       opacity: 0;
     }
-    18% {
+    14% {
+      transform: translate(-50%, 2vh) rotate(0deg) scale(1);
+      opacity: 1;
+    }
+    /* The crack: banks into the climb and goes. */
+    30% {
+      transform: translate(-50%, -4vh) rotate(38deg) scale(1.06);
       opacity: 1;
     }
     100% {
-      transform: translate(-50%, -118vh) scale(1.2);
+      transform: translate(78vw, -104vh) rotate(42deg) scale(1.3);
       opacity: 1;
+    }
+  }
+  /* Shockwave at the moment of acceleration — one ring, gone in 700ms. */
+  .boom {
+    position: absolute;
+    left: 46%;
+    top: 74%;
+    width: 60px;
+    height: 60px;
+    margin: -30px 0 0 -30px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--accent) 70%, white);
+    opacity: 0;
+    animation: flyin-boom 0.75s ease-out 0.26s forwards;
+  }
+  @keyframes flyin-boom {
+    0% {
+      transform: scale(0.3);
+      opacity: 0.85;
+    }
+    100% {
+      transform: scale(7);
+      opacity: 0;
+    }
+  }
+  /* Speed lines racing along the flight axis — the cheap trick that turns
+     "something moved" into "something moved FAST". */
+  .streak {
+    position: absolute;
+    left: 40%;
+    top: 70%;
+    width: 2px;
+    height: 130px;
+    border-radius: 2px;
+    background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--accent) 60%, white), transparent);
+    opacity: 0;
+    transform: rotate(42deg);
+    animation: flyin-streak 0.6s ease-out forwards;
+  }
+  .streak.s0 {
+    left: 26%;
+    top: 84%;
+    animation-delay: 0.3s;
+  }
+  .streak.s1 {
+    left: 58%;
+    top: 88%;
+    animation-delay: 0.36s;
+  }
+  .streak.s2 {
+    left: 38%;
+    top: 60%;
+    height: 90px;
+    animation-delay: 0.42s;
+  }
+  .streak.s3 {
+    left: 70%;
+    top: 66%;
+    animation-delay: 0.48s;
+  }
+  .streak.s4 {
+    left: 16%;
+    top: 62%;
+    height: 80px;
+    animation-delay: 0.54s;
+  }
+  @keyframes flyin-streak {
+    0% {
+      transform: rotate(42deg) translateY(40px);
+      opacity: 0;
+    }
+    35% {
+      opacity: 0.7;
+    }
+    100% {
+      transform: rotate(42deg) translateY(-260px);
+      opacity: 0;
+    }
+  }
+  /* The curtain being pulled: a wide skewed band of light crossing along the
+     flight path. Reads as a directional wipe, but it's one translate — no
+     mask or clip-path animation on a full-screen element. */
+  .sweep {
+    position: absolute;
+    top: -60%;
+    left: -70%;
+    width: 60%;
+    height: 220%;
+    transform: rotate(42deg) translateX(-60vw);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--accent) 22%, transparent) 45%,
+      color-mix(in srgb, var(--accent) 8%, transparent) 60%,
+      transparent
+    );
+    opacity: 0;
+    animation: flyin-sweep 0.95s cubic-bezier(0.4, 0, 0.2, 1) 0.24s forwards;
+  }
+  @keyframes flyin-sweep {
+    0% {
+      transform: rotate(42deg) translateX(-60vw);
+      opacity: 0;
+    }
+    25% {
+      opacity: 1;
+    }
+    100% {
+      transform: rotate(42deg) translateX(190vw);
+      opacity: 0;
     }
   }
   @keyframes flyin-fade {
     0%,
-    45% {
+    38% {
       opacity: 1;
     }
     100% {

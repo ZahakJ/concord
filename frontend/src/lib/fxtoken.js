@@ -47,13 +47,45 @@ export function stripFx(content) {
   return content ? content.replace(FX_RE, "").trim() : content;
 }
 
-// Played-this-session ledger: scrolling back through Tuesday's confetti should
-// not re-rain it on every pass. Session-only on purpose — reopening the app on
-// the message IS a fresh viewing.
-const played = new Set();
+// An effect celebrates a MOMENT, so it fires once and only near the moment.
+// Two gates, because one of them alone was wrong in a way that shipped:
+//
+//   1. A PERSISTENT ledger. This was session-only, which meant every login
+//      re-rained every confetti message still on screen — you logged in to a
+//      fireworks display for a party three days ago.
+//   2. An age window. A ledger alone still fires the first time you scroll
+//      back into an old celebration, or on a fresh device syncing history.
+//      Effects that arrive already-stale never play at all.
+//
+// The ledger is capped and pruned: it only needs to remember long enough for
+// a message to age out of the window anyway.
+const LEDGER_KEY = "concord.fxPlayed";
+const FX_MAX_AGE_MS = 30 * 60 * 1000; // celebrate what just happened, not history
+const LEDGER_CAP = 300;
 
-export function playFxOnce(messageId, name) {
+function loadLedger() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LEDGER_KEY) || "[]");
+    return Array.isArray(raw) ? raw.slice(-LEDGER_CAP) : [];
+  } catch {
+    return [];
+  }
+}
+let ledger = loadLedger();
+const played = new Set(ledger);
+
+export function playFxOnce(messageId, name, sentAt) {
   if (!name || played.has(messageId)) return;
+  // Unknown/unparseable timestamps are treated as old: silence is the safe
+  // failure for something whose whole job is to be loud.
+  const age = Date.now() - (sentAt ? new Date(sentAt).getTime() : 0);
   played.add(messageId);
+  ledger = [...ledger, messageId].slice(-LEDGER_CAP);
+  try {
+    localStorage.setItem(LEDGER_KEY, JSON.stringify(ledger));
+  } catch {
+    /* private mode / quota: the in-memory set still holds for this session */
+  }
+  if (!(age >= 0 && age < FX_MAX_AGE_MS)) return;
   FX_EFFECTS[name]?.play(messageId);
 }
