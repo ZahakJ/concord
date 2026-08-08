@@ -307,15 +307,14 @@ export const api = {
   callIceServers: () => call("CallIceServers"),
   revealDeleted: (channelID, messageID) => call("RevealDeleted", channelID, messageID),
   sendTyping: (channelID) => call("SendTyping", channelID),
-  // pronouns/birthday (birthday is "MM-DD" — never a year) ride at the END of
-  // the positional list. Leave them undefined to keep the stored values: the
-  // bridge reads the short arity as "don't touch", so callers that patch other
-  // fields can't silently wipe these two (the games-wipe lesson). Pass "" to
-  // actually clear one.
-  setProfile: (name, status, emoji, color, avatar, banner = "", presence = "", bio = "", color2 = "", frame = "", effect = "", style = "", pronouns, birthday) =>
-    pronouns === undefined && birthday === undefined
+  // birthday ("MM-DD" — never a year) rides at the END of the positional list.
+  // Leave it undefined to keep the stored value: the bridge reads the short
+  // arity as "don't touch", so callers patching other fields can't silently
+  // wipe it (the games-wipe lesson). Pass "" to actually clear it.
+  setProfile: (name, status, emoji, color, avatar, banner = "", presence = "", bio = "", color2 = "", frame = "", effect = "", style = "", birthday) =>
+    birthday === undefined
       ? call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style)
-      : call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style, pronouns ?? "", birthday ?? ""),
+      : call("SetProfile", name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, style, birthday),
   // Moments: guild-scoped stories, text-on-a-banner scene (no video — see
   // internal/app/story.go). guildIds fans one signed record out to several
   // guilds; preset is EITHER a "preset:<id>" reference OR a whole raster image
