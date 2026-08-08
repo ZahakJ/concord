@@ -7,12 +7,12 @@ messages. Every guild is a cryptographic group, every message is end-to-end
 encrypted, and the one piece of infrastructure Concord can use is untrusted by
 construction.
 
-![Unlocking Concord and landing in a guild channel, with the member list and moments row](docs/demo.gif)
+![Alice types a message on the left; it arrives on Bob's screen on the right, with a live typing indicator in between](docs/demo.gif)
 
-> Unlocking a device and arriving in a guild: channels down the side, an
-> MLS-encrypted conversation in the middle, members and moments on the right.
-> Both peers here run on one machine as isolated instances, and no server sits
-> between them.
+> Two devices, two identities, one conversation. Alice types and Bob's screen
+> shows she is typing; she sends and it lands. The delay you see is the delay
+> the app had — these are two separate Concord instances, each with its own
+> keypair and database, and there is no server between them to go through.
 
 | | |
 |---|---|
