@@ -259,10 +259,19 @@ type Host struct {
 	disc   *dht.IpfsDHT
 	relays *relaySource
 
-	mu sync.RWMutex
+	// relayMu guards relaySvc alone, and deliberately is NOT mu. Starting or
+	// stopping the relay registers/unregisters a swarm notifiee, and the swarm
+	// holds its notifiee lock while it runs our own Connected/Disconnected
+	// handlers, which take mu. Guarding the relay with mu therefore inverts the
+	// two locks, and a connection dying while reachability flips wedges the host
+	// for good: notifications stop firing, so gossipsub never learns about new
+	// peers and the app never hears anyone connect.
+	relayMu sync.Mutex
 	// relaySvc is the circuit relay we run for guild members while publicly
-	// reachable; nil otherwise. Guarded by mu, which serveRelay also holds.
-	relaySvc       interface{ Close() error }
+	// reachable; nil otherwise.
+	relaySvc interface{ Close() error }
+
+	mu             sync.RWMutex
 	onConnected    []func(peer.ID)
 	onDisconnected []func(peer.ID)
 	onRedialFailed func(peer.ID)
@@ -555,6 +564,14 @@ func (n *Host) AddrInfo() peer.AddrInfo {
 // the conflict is resolved.
 func (n *Host) PinnedPortTaken() bool { return n.portTaken }
 
+// LANDiscovery reports whether mDNS actually came up, i.e. whether peers on the
+// same network are found with no server involved. New only logs the failure and
+// carries on (Android's sandbox denies the socket outright, and many managed
+// networks drop multicast), so nothing else can tell a user that the
+// same-Wi-Fi rung is missing on this machine. Set once during New, before any
+// caller exists, and never written again.
+func (n *Host) LANDiscovery() bool { return n.mdns != nil }
+
 // Peers returns the peer IDs this node is currently connected to.
 func (n *Host) Peers() []peer.ID { return n.h.Network().Peers() }
 
@@ -694,11 +711,11 @@ func (n *Host) Close() error {
 	if n.kdht != nil {
 		_ = n.kdht.Close()
 	}
-	n.mu.Lock()
+	n.relayMu.Lock()
 	if n.relaySvc != nil {
 		_ = n.relaySvc.Close()
 		n.relaySvc = nil
 	}
-	n.mu.Unlock()
+	n.relayMu.Unlock()
 	return n.h.Close()
 }

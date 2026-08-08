@@ -217,17 +217,10 @@ func (n *Host) serveRelay() {
 }
 
 func (n *Host) syncRelayService() {
-	// Listen addresses, not h.Addrs(): the latter grows to include the external
-	// address identify observed for us, which a NAT'd node has too. Only an
-	// address on one of our own interfaces means traffic can actually arrive.
-	listen, err := n.h.Network().InterfaceListenAddresses()
-	if err != nil {
-		return
-	}
-	public := len(publicAddrs(listen)) > 0
+	public := n.DirectlyReachable()
 
-	n.mu.Lock()
-	defer n.mu.Unlock()
+	n.relayMu.Lock()
+	defer n.relayMu.Unlock()
 	switch {
 	case public && n.relaySvc == nil:
 		svc, err := relayv2.New(n.h, relayv2.WithACL(memberACL{h: n.h}),
@@ -248,10 +241,21 @@ func (n *Host) syncRelayService() {
 // the same condition under which it runs the peer-relay service. When true it
 // needs no relay reservation of its own (peers can dial it straight), so a
 // missing reservation is expected rather than a fault.
+//
+// Listen addresses, not h.Addrs(): the latter grows to include the external
+// address identify observed for us, which a NAT'd node has too. Only an address
+// on one of our own interfaces means traffic can actually arrive.
+//
+// Measured here rather than read off relaySvc, which is the same answer only
+// while the DHT is on: serveRelay never runs without it, so a node that pinned
+// a forwarded port and configured no rendezvous would have reported itself
+// unreachable while strangers were dialling it.
 func (n *Host) DirectlyReachable() bool {
-	n.mu.RLock()
-	defer n.mu.RUnlock()
-	return n.relaySvc != nil
+	listen, err := n.h.Network().InterfaceListenAddresses()
+	if err != nil {
+		return false
+	}
+	return len(publicAddrs(listen)) > 0
 }
 
 // memberACL admits reservations and circuits only from peers tagged by
