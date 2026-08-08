@@ -2031,6 +2031,18 @@ func (b *Bridge) NetworkStatus() appsvc.NetStatus {
 	return svc.NetworkStatus()
 }
 
+// ReachabilityStatus reports whether other people can reach this node, and by
+// which route, for the "Can people reach me?" panel. Returns a zeroed status
+// when the identity is locked — the same convention as NetworkStatus, and the
+// honest answer there anyway: a locked client is running no node at all.
+func (b *Bridge) ReachabilityStatus() appsvc.ReachStatus {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.ReachStatus{}
+	}
+	return svc.Reachability()
+}
+
 // Nudge forces a fast reconnect + mailbox drain + resync. The mobile shell calls
 // it when the OS resumes the app. No-op (nil error) when locked.
 func (b *Bridge) Nudge() error {
@@ -2676,6 +2688,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.SearchGames(argStr(args, 0))
 	case "NetworkStatus":
 		return b.NetworkStatus(), nil
+	case "ReachabilityStatus":
+		return b.ReachabilityStatus(), nil
 	case "Nudge":
 		return nil, b.Nudge()
 	case "SetForeground":

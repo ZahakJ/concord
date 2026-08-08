@@ -95,6 +95,7 @@
   import ModalPrivacy from "./modals/ModalPrivacy.svelte";
   import ModalBookings from "./modals/ModalBookings.svelte";
   import ModalConnection from "./modals/ModalConnection.svelte";
+  import ModalReach from "./modals/ModalReach.svelte";
   import ModalWhen from "./modals/ModalWhen.svelte";
   import ModalScheduled from "./modals/ModalScheduled.svelte";
   import ModalPoll from "./modals/ModalPoll.svelte";
@@ -1425,6 +1426,8 @@
       onClose={() => (S.modal = null)}
       onSaved={() => flash("Rendezvous saved", "success")}
     />
+  {:else if S.modal?.kind === "reach"}
+    <ModalReach onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "linkDevice"}
     <ModalLinkDevice onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "appearance"}

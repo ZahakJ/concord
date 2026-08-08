@@ -2,7 +2,7 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
-  import { S, flash, refreshGuilds, nameFor } from "../lib/state.svelte.js";
+  import { S, flash, refreshGuilds, nameFor, openPanel } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { haptic } from "../lib/touch.js";
   let { code, onCopy, onClose } = $props();
@@ -77,6 +77,13 @@
     <Icon name="spark" size={12} /> Anyone with this code can join, so share it directly with people
     you trust.
   </p>
+
+  <!-- The code carries the addresses a joiner dials, so this is the moment the
+       question "will that actually work from their network?" is live. Answering
+       it after they report the code not working means answering it a day late. -->
+  <button class="check" onclick={() => openPanel("reach", "invite")}>
+    <Icon name="bolt" size={12} /> Can people reach me?
+  </button>
 
   {#if candidates.length}
     <div class="divider"></div>
@@ -276,6 +283,25 @@
     gap: 6px;
     margin: 0;
     font-size: var(--fs-compact);
+  }
+  /* Quiet by design: it sits beside a warning about who may join, and must not
+     compete with Copy for the eye. */
+  .check {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    font-size: var(--fs-compact);
+  }
+  .check:hover,
+  .check:active {
+    background: var(--bg-3);
+    color: var(--text);
   }
   /* Phone: handing the code over is the whole point — make it unmissable, and
      demote Copy to a quiet partner once the OS share sheet is available. */
