@@ -46,5 +46,12 @@ jobs:
       - run: cd frontend && npm ci && npm run build
       - run: go build ./...
       - run: go vet ./...
+      # -p 1 runs one package at a time. Several tests here stand up real
+      # libp2p nodes and wait on them with deadlines in the tens of seconds;
+      # with packages running concurrently under the race detector they lose
+      # the CPU long enough to blow those deadlines and fail for reasons that
+      # have nothing to do with the change under test. Serialising costs a
+      # couple of minutes of wall clock and buys a green build that means
+      # something.
       - name: Tests (race detector)
-        run: go test -race ./...
+        run: go test -race -p 1 ./...

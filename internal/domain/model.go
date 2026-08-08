@@ -347,3 +347,34 @@ func VoiceTopicID(groupID []byte, channelID string) string {
 	h.Write([]byte(channelID))
 	return topicPrefix + hex.EncodeToString(h.Sum(nil)[:16])
 }
+
+// Clone returns a deep copy of a channel: the slice fields get their own
+// backing arrays rather than aliasing the original's.
+func (c Channel) Clone() Channel {
+	out := c
+	out.Links = append([]string(nil), c.Links...)
+	out.Tags = append([]string(nil), c.Tags...)
+	out.ForumTags = append([]ForumTag(nil), c.ForumTags...)
+	return out
+}
+
+// Clone returns a deep copy of a guild.
+//
+// A plain `*g` copies the struct, which copies the slice HEADERS and leaves
+// every element shared with the original. Code that took a copy under a read
+// lock and then released it was therefore still reading memory that a writer
+// holding the lock could mutate: renaming a channel while a peer's history
+// sync walked the same guild was a live data race, caught by the race
+// detector once CI started running it. Copy guilds with this, not with `*g`.
+func (g Guild) Clone() Guild {
+	out := g
+	out.GroupID = append([]byte(nil), g.GroupID...)
+	out.OwnerID = append([]byte(nil), g.OwnerID...)
+	if g.Channels != nil {
+		out.Channels = make([]Channel, len(g.Channels))
+		for i, c := range g.Channels {
+			out.Channels[i] = c.Clone()
+		}
+	}
+	return out
+}

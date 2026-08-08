@@ -162,7 +162,7 @@ func (s *Service) NotesDM() (domain.Guild, error) {
 	s.mu.RLock()
 	for _, g := range s.guilds {
 		if g.Kind == "dm" && len(g.OwnerID) > 0 && string(g.OwnerID) == string(s.PublicKey()) && g.Name == notesGuildName {
-			gc := *g
+			gc := g.Clone()
 			s.mu.RUnlock()
 			s.unhideDM(gc.ID) // opening Notes always surfaces it
 			return gc, nil
@@ -329,7 +329,7 @@ func (s *Service) RenameDM(guildID, name string) error {
 	}
 	g.Name = name
 	groupID := g.GroupID
-	gc := *g
+	gc := g.Clone()
 	s.mu.Unlock()
 
 	_ = s.store.SaveGuild(gc)
@@ -771,7 +771,7 @@ func (s *Service) findDMByMembers(want []string) *domain.Guild {
 			}
 		}
 		if match {
-			gc := *g
+			gc := g.Clone()
 			return &gc
 		}
 	}

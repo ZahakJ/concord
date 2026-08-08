@@ -28,12 +28,6 @@ Both maintainers named in [MAINTAINERS.md](MAINTAINERS.md) receive these
 reports. If one is unreachable, the other picks it up; you do not need to chase
 a specific person.
 
-> Maintainers: GitHub only offers private vulnerability reporting on public
-> repositories, so it cannot be switched on before this one is published. Turn
-> it on the moment it is, under *Settings → Advanced Security → Private
-> vulnerability reporting*. Until then this page points reporters at a button
-> that is not there.
-
 Please do not open a public issue, and do not post a proof of concept in a
 discussion or a pull request, until a fix has shipped.
 

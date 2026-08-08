@@ -104,7 +104,7 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	g, ok := s.guilds[req.GuildID]
 	var guild domain.Guild
 	if ok {
-		guild = *g
+		guild = g.Clone()
 	}
 	s.mu.RUnlock()
 	if !ok {
@@ -361,7 +361,7 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 		g, ok := s.guilds[guildID]
 		var guild domain.Guild
 		if ok {
-			guild = *g
+			guild = g.Clone()
 		}
 		s.mu.RUnlock()
 		if !ok {
@@ -523,7 +523,7 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 			changed = true
 		}
 		if changed {
-			gc := *g
+			gc := g.Clone()
 			s.mu.Unlock()
 			_ = s.store.SaveGuild(gc)
 			s.emitGuildUpdate()
