@@ -4,7 +4,7 @@ Concord is a peer-to-peer, end-to-end-encrypted messenger. This document states
 plainly what data exists, where it lives, who can read it, and — just as
 importantly — what Concord does *not* protect. The [README](README.md) covers
 the same ground in architectural depth (see especially
-[§13 Threat model](README.md#13-threat-model--what-concord-defends-against));
+[§13 Threat model](docs/DESIGN.md#13-threat-model-what-concord-defends-against));
 this page is the short, honest version.
 
 ## The model in one paragraph
@@ -91,8 +91,8 @@ exactly two exceptions. Naming them is the point of this section.
   nothing at all if you never place a call. See `internal/app/ice.go`.
 
 Neither can be switched off from the UI today. The README covers the same two
-in architectural terms ([§1](README.md#1-the-problem-and-the-thesis),
-[§9.2](README.md#92-ip-privacy-the-honest-state-of-it)).
+in architectural terms ([§1](docs/DESIGN.md#1-the-problem-and-the-thesis),
+[§9.2](docs/DESIGN.md#92-ip-privacy-the-state-of-it)).
 
 ## Honest limitations
 
