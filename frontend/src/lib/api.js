@@ -75,6 +75,7 @@ export const api = {
   setListenPort: (port) => call("SetListenPort", port),
   session: () => call("Session"),
   networkStatus: () => call("NetworkStatus"),
+  reachability: () => call("ReachabilityStatus"),
   nudge: () => call("Nudge"),
   registerPush: (platform, token) => call("RegisterPush", platform, token),
   linkOffer: () => call("LinkOffer"),

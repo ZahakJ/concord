@@ -104,6 +104,28 @@ know what the one server can and cannot see, or
 for the known gaps. [PRIVACY.md](PRIVACY.md) is the plain-language summary of
 what data exists and who can read it.
 
+## Finding each other
+
+Two people can only talk if at least one of them can accept an incoming
+connection, and home routers usually refuse. Which of these three you are in
+decides what, if anything, you have to set up:
+
+| Where you both are | What it takes | What it costs |
+|---|---|---|
+| The same Wi-Fi | Nothing. Concord asks the local network and dials whatever answers. | Nothing, but in practice this is desktop to desktop: Android's sandbox refuses the socket that mDNS needs, and many workplace networks drop the packets. |
+| Different networks, one side can forward a port | That side pins a port and adds one rule in its router. The invite code carries its own address, so the other side dials it directly. No server is involved. | The forwarding side's IP address is inside every invite code it hands out, whether or not the router rule works. |
+| Different networks, neither can forward | Somebody runs a rendezvous: a small always-on node that introduces the two and carries their traffic when neither can be dialled. | One machine has to exist somewhere. It does not have to be yours; a friend's works, and their invite code points your client at it automatically. |
+
+Inside the app, **Can people reach me?** (in the Ctrl+K palette, and beside every
+invite code) reports which of the three you are actually in and offers the one
+thing to do about it.
+
+There is a fourth rung, off by default: bootstrapping off the public IPFS DHT so
+two people who have never met can find each other with no Concord server alive.
+It solves finding, not reaching, and it costs metadata.
+[§4.6 of DESIGN.md](docs/DESIGN.md#46-the-ladder-concord-climbs) walks all four
+rungs and states the price of each.
+
 ## What is in it
 
 Guilds with channels, categories, roles and permissions; replies, edits,

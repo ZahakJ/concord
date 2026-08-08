@@ -1232,6 +1232,56 @@ func (s *Service) NetworkStatus() NetStatus {
 	return ns
 }
 
+// ReachStatus answers "can somebody reach me?" for the diagnostic panel. Every
+// field is either measured on the running node or read from the connection
+// config; none is guessed from another. In particular Reachable is not inferred
+// from having a rendezvous configured, which would report the opposite of the
+// truth for the user who set one up precisely because they are unreachable.
+type ReachStatus struct {
+	// Reachable: this node holds a routable public address on an interface it
+	// actually listens on, so peers can dial it without any relay.
+	//
+	// Read from the same condition that starts the peer-relay service, not from
+	// libp2p's AutoNAT. AutoNAT's verdict is unavailable by construction here:
+	// net.New pins reachability to Private (ForceReachabilityPrivate) so
+	// AutoRelay reserves a circuit immediately instead of waiting minutes for a
+	// verdict, which means the probe never runs and its answer would be a
+	// constant.
+	Reachable bool `json:"reachable"`
+	// HasRendezvous: at least one rendezvous address is configured;
+	// RendezvousReached: one of them is answering right now.
+	HasRendezvous     bool `json:"hasRendezvous"`
+	RendezvousReached bool `json:"rendezvousReached"`
+	// PinnedPort is the fixed listen port the user asked for, 0 when the node
+	// takes a fresh one each launch. PinnedPortTaken means they asked and
+	// something else already held it, so their router rule leads nowhere.
+	PinnedPort      int  `json:"pinnedPort"`
+	PinnedPortTaken bool `json:"pinnedPortTaken"`
+	// PublicDHT: the public-IPFS-DHT opt-in. It buys discovery, not
+	// reachability, which is why it is reported separately from the rest.
+	PublicDHT bool `json:"publicDHT"`
+	// LANDiscovery: mDNS is running, so people on this same network are found
+	// with no server at all. False on Android always, and wherever multicast is
+	// filtered.
+	LANDiscovery bool `json:"lanDiscovery"`
+}
+
+// Reachability reports how (and whether) other people can currently reach this
+// node. Cheap enough to call on modal open; it reads live host state and the
+// plaintext connection config, and touches the network not at all.
+func (s *Service) Reachability() ReachStatus {
+	cfg := LoadNetConfig(s.dataDir)
+	return ReachStatus{
+		Reachable:         s.host.DirectlyReachable(),
+		HasRendezvous:     len(s.bootstrapPeers()) > 0,
+		RendezvousReached: len(s.mailboxNodes()) > 0,
+		PinnedPort:        cfg.ListenPort,
+		PinnedPortTaken:   s.host.PinnedPortTaken(),
+		PublicDHT:         cfg.PublicDHT,
+		LANDiscovery:      s.host.LANDiscovery(),
+	}
+}
+
 // Nudge forces a fast reconnect + catch-up, called when the OS resumes the app
 // (mobile) or the user hits "reconnect". It re-dials bootstrap nodes, re-drains
 // the mailbox on any that are up, re-syncs history from every connected peer,
