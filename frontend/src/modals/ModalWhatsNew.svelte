@@ -14,26 +14,27 @@
   // 3-4 rows maximum: a changelog is a document, this is a wave hello.
   const HIGHLIGHTS = [
     {
+      icon: "bolt",
+      title: "Can people reach me?",
+      desc: "A new check in the Ctrl+K palette tells you whether friends can actually connect to you, and what to do when they cannot.",
+    },
+    {
+      icon: "lock",
+      title: "A tighter lock on your identity",
+      desc: "The local app now authenticates every request to itself, so nothing else running on your machine can read your recovery phrase.",
+    },
+    {
+      icon: "crown",
+      title: "Guild ownership holds",
+      desc: "A former owner can no longer take a guild back by backdating a governance record.",
+    },
+    {
       icon: "spark",
-      title: "Moments",
-      desc: "Share a story with your guilds — a scene, a caption, your colors. Fades after 24 hours; delete it any time.",
-    },
-    {
-      icon: "diamond",
-      title: "A whole new coat of paint",
-      desc: "Guilds tint the app with their banner's colors, light mode gets four real themes, and /confetti, /fireworks and /hearts celebrate with everyone.",
-    },
-    {
-      icon: "speaker",
-      title: "Voice rooms became hangouts",
-      desc: "A synthesized soundboard (airhorn included) — and on Android, calls survive your pocket.",
-    },
-    {
-      icon: "gear",
-      title: "And a hundred small things",
-      desc: "Threads from any message, saved messages, polls that close and quiz, slow mode, a guild settings hub, swipe to reply…",
+      title: "Fixes",
+      desc: "A rare hang that could leave a node connected to nobody, DMs that now stay in recency order, and a single Enter finally sends /gif.",
     },
   ];
+
 
   // Deliberately no confetti here. The splash already arrives unannounced on
   // top of a fresh login; adding a burst to it made opening the app feel like
