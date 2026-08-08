@@ -7,8 +7,8 @@
 // guest's WebSocket receives is recorded by a hook installed before any page
 // script runs, so "a knocking guest sees nothing" is checked against the wire,
 // not against whatever the page chose to render.
-import fs from "node:fs";
 import path from "node:path";
+import { loadChromium } from "./playwright.mjs";
 
 const need = (name) => {
   const v = process.env[name];
@@ -25,17 +25,7 @@ const PASSPHRASE = need("PASSPHRASE");
 const OUT_DIR = process.env.OUT_DIR || ".";
 const CHROMIUM = process.env.CHROMIUM || "/usr/bin/chromium";
 
-let pwPath =
-  process.env.PLAYWRIGHT_CORE ||
-  "/tmp/claude-1000/-home-avicenna-Documents-side-concord/8fb499ff-d55a-41c7-9317-4b8b6c3d03ea/scratchpad/node_modules/playwright-core/index.mjs";
-if (fs.existsSync(pwPath) && fs.statSync(pwPath).isDirectory()) {
-  pwPath = path.join(pwPath, "index.mjs");
-}
-if (!fs.existsSync(pwPath)) {
-  console.error("FAIL: playwright-core not found. Set PLAYWRIGHT_CORE=<dir>/node_modules/playwright-core.");
-  process.exit(1);
-}
-const { chromium } = await import(pwPath);
+const chromium = await loadChromium();
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 23), ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

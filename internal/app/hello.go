@@ -9,8 +9,8 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/zahak/concord/internal/identity"
-	"github.com/zahak/concord/internal/version"
+	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/version"
 )
 
 // The app half of /concord/hello (see net/hello.go for the wire and for why the

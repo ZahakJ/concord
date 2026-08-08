@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // Read state ("which channels have I read, through when") is account-level

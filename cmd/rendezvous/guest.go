@@ -5,17 +5,20 @@ import (
 	"context"
 	"embed"
 	"fmt"
-	"github.com/libp2p/go-libp2p/core/network"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	cnet "github.com/zahak/concord/internal/net"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // The guest gateway: the ONE piece of Concord that speaks plain HTTPS to the
@@ -55,6 +58,90 @@ func readCappedLine(r *bufio.Reader, max int) ([]byte, error) {
 	}
 }
 
+// ipBucket is one client IP's allowance at one door.
+type ipBucket struct {
+	tokens float64
+	last   time.Time
+}
+
+// ipLimiter is booking.go's bookLimiter with the budget left to the caller.
+// Same table, same reaping, same reasoning — an anonymous caller's IP is the
+// only handle this node has on them — but the guest socket and the TURN
+// credential endpoint cost the node different things, so each names its own
+// rate at the call site instead of baking two fixed budgets into the type.
+// It borrows booking.go's table bounds because the failure it guards against
+// is identical: a botnet on fresh IPs growing the map until the node dies.
+//
+// The zero value is usable, like bookLimiter's.
+type ipLimiter struct {
+	mu      sync.Mutex
+	buckets map[string]*ipBucket
+}
+
+func (l *ipLimiter) allow(ip string, rate, burst float64) bool {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.buckets == nil {
+		l.buckets = map[string]*ipBucket{}
+	}
+	// Reap before refusing to grow: a full table must not become a denial of
+	// service against every NEW visitor.
+	if len(l.buckets) >= maxBookBuckets {
+		for k, b := range l.buckets {
+			if now.Sub(b.last) > bookBucketIdle {
+				delete(l.buckets, k)
+			}
+		}
+		if len(l.buckets) >= maxBookBuckets {
+			return false
+		}
+	}
+	b := l.buckets[ip]
+	if b == nil {
+		b = &ipBucket{tokens: burst, last: now}
+		l.buckets[ip] = b
+	}
+	b.tokens += now.Sub(b.last).Seconds() * rate
+	if b.tokens > burst {
+		b.tokens = burst
+	}
+	b.last = now
+	if b.tokens < 1 {
+		return false
+	}
+	b.tokens--
+	return true
+}
+
+// guestGate is the abuse control for /guest/ws. It is a value the caller owns
+// rather than package state so the gateway's limits are visible where the
+// gateway is built (and so a test can drive a fresh one).
+//
+// WHY THIS EXISTS AT ALL. /guest/ws is unauthenticated by design — the whole
+// point is that someone with a link needs no account — and it makes this node
+// DIAL a peer id the caller chose and then hold a stream open for the length
+// of a meeting. Unbounded, that is a free dialer and a free socket farm: a
+// loop can pin every dial worker in the swarm, and a slow drip of sockets
+// nobody ever closes exhausts file descriptors while looking like traffic.
+type guestGate struct {
+	ips      ipLimiter
+	sessions atomic.Int64
+}
+
+const (
+	// Per IP. A real guest opens ONE socket and reopens it after a network
+	// flap, so a small burst with a slow refill is generous for a person and
+	// hostile to a loop.
+	guestConnRate  = 0.2 // sustained new sockets per second per IP
+	guestConnBurst = 10.0
+	// Globally, for when the IPs are not the same IP. Each live session is a
+	// goroutine pair, a libp2p stream and a browser socket; this bounds the
+	// gateway's total exposure however the load is spread. Sized far above any
+	// plausible real meeting and far below what would hurt the node.
+	maxGuestSessions = 512
+)
+
 const (
 	guestIdleTimeout = 10 * time.Minute
 	// How often the gateway pings the browser. A guest in a call can be silent
@@ -76,13 +163,38 @@ var upgrader = websocket.Upgrader{
 	// The page is served from this same origin; a guest link opened anywhere
 	// else has no business driving someone's meeting.
 	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true // non-browser client (curl/tests)
-		}
-		host := os.Getenv("CONCORD_PUBLIC_HOST")
-		return host == "" || origin == "https://"+host || origin == "http://"+host
+		return guestOriginAllowed(r.Header.Get("Origin"), os.Getenv("CONCORD_PUBLIC_HOST"))
 	},
+}
+
+// guestOriginAllowed decides whether a browser at origin may open the relay.
+//
+// A deployment that has been told its public name (CONCORD_PUBLIC_HOST) is a
+// deployment that knows exactly one origin its own page is served from, so
+// nothing else is admitted — including a MISSING Origin. Every real guest is a
+// browser and browsers always send it; accepting its absence was a hole a
+// scripted client walked straight through while every browser-borne attack was
+// being carefully turned away. (Origin is not authentication — anyone with a
+// socket can claim any value — so this only stops OTHER PAGES driving a
+// visitor's meeting. The rate limit is what handles the scripted case.)
+//
+// With no public host configured the check stays open, because a local dev run
+// is reached as localhost, as a LAN IP, and through whatever tunnel someone is
+// testing with, and there is nothing here to compare against.
+func guestOriginAllowed(origin, publicHost string) bool {
+	if publicHost == "" {
+		return true
+	}
+	if origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+		return false
+	}
+	// Host, not the whole origin string: the scheme is whatever terminates TLS
+	// in front of this node, and hostnames are case-insensitive.
+	return strings.EqualFold(u.Host, publicHost)
 }
 
 // serveGuestGateway starts the HTTPS side of the node (fly.io terminates TLS
@@ -92,6 +204,8 @@ func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 	if port == "" {
 		port = "8080"
 	}
+
+	gate := &guestGate{}
 
 	mux := http.NewServeMux()
 	// The guest page itself (the meeting link points here; the token rides the
@@ -117,7 +231,7 @@ func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 	})
 	// The relay socket: ?h=<host peer id>, then the guest's own frames.
 	mux.HandleFunc("/guest/ws", func(w http.ResponseWriter, r *http.Request) {
-		relayGuest(ctx, h, w, r)
+		relayGuest(ctx, h, gate, w, r)
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("ok"))
@@ -149,13 +263,27 @@ func serveGuestGateway(ctx context.Context, h host.Host, ts *turnServer) {
 }
 
 // relayGuest pipes one browser WebSocket to one libp2p stream on the host.
-func relayGuest(ctx context.Context, h host.Host, w http.ResponseWriter, r *http.Request) {
+func relayGuest(ctx context.Context, h host.Host, gate *guestGate, w http.ResponseWriter, r *http.Request) {
 	hostID := r.URL.Query().Get("h")
 	pid, err := peer.Decode(hostID)
 	if err != nil {
 		http.Error(w, "bad host id", http.StatusBadRequest)
 		return
 	}
+	if !gate.ips.allow(clientIP(r), guestConnRate, guestConnBurst) {
+		http.Error(w, "too many connection attempts — give it a minute", http.StatusTooManyRequests)
+		return
+	}
+	// Claimed BEFORE the upgrade so a flood is refused with a plain HTTP status
+	// — cheaper than a hijacked connection, and something a load balancer can
+	// see. Released by the defer, which covers every return below including the
+	// failed dial.
+	if n := gate.sessions.Add(1); n > maxGuestSessions {
+		gate.sessions.Add(-1)
+		http.Error(w, "the guest gateway is at capacity — try again shortly", http.StatusServiceUnavailable)
+		return
+	}
+	defer gate.sessions.Add(-1)
 
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {

@@ -18,7 +18,7 @@ VERSION ?= dev
 # gomobile bind flags shared by both mobile cores.
 #   -checklinkname=0: github.com/wlynxg/anet (libp2p's Android net shim) uses
 #    go:linkname into net internals that Go 1.23+ rejects by default.
-MOBILE_LDFLAGS := -checklinkname=0 -s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)
+MOBILE_LDFLAGS := -checklinkname=0 -s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)
 ANDROID_API    := 26
 IOS_VERSION    := 15.0
 
@@ -133,23 +133,22 @@ ios-app: frontend ios-core
 # Friends download ONE file for their OS, run it, and the browser opens.
 #
 # This builds the web track ONLY, into dist-release/ — it does NOT build the
-# desktop apps or publish anything. Real releases are tag-driven: pushing a
-# `v*` tag runs .github/workflows/release.yml, which builds this AND the native
-# desktop apps (per-OS, via Wails) and attaches everything to the GitHub
-# Release. See README §16 "Cutting a release". Use this target only for a quick
-# local smoke test of the web binaries.
+# desktop apps or publish anything. Real releases go through
+# scripts/publish-release.sh, which calls this target and then adds the native
+# desktop apps, SHA256SUMS and the GitHub Release. See README "Cutting a
+# release". Use this target only for a quick local smoke test of the binaries.
 release: frontend
 	rm -rf dist-release && mkdir -p dist-release
 	# The version is stamped into each filename so downloaded builds are visibly
 	# distinct across releases; the updater matches assets by OS keyword.
-	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-linux-amd64-$(VERSION) .
-	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-linux-arm64-$(VERSION) .
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-macos-arm64-$(VERSION) .
-	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-macos-intel-$(VERSION) .
+	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-linux-amd64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=linux   GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-linux-arm64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-macos-arm64-$(VERSION) .
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-macos-intel-$(VERSION) .
 	# Windows: embed version info + manifest (goversioninfo) and DON'T strip
 	# symbols — both markedly reduce Defender false positives on unsigned exes.
 	go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 -o resource_windows_amd64.syso build/versioninfo.json
-	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X github.com/zahak/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-windows-$(VERSION).exe .
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-windows-$(VERSION).exe .
 	@rm -f resource_windows_amd64.syso
 	@echo && echo "Release binaries in dist-release/:" && ls -lh dist-release/
 
@@ -200,6 +199,6 @@ help:
 	@echo "  make test | race   run tests (optionally with the race detector)"
 	@echo "  make dev-clean      delete local test data (.dev/)"
 	@echo
-	@echo "Releases are tag-driven: 'git push origin vX.Y.Z' builds the web"
-	@echo "binaries + desktop apps and publishes them all to the GitHub Release."
-	@echo "See README section 16 'Cutting a release'."
+	@echo "Releases are built locally: 'scripts/publish-release.sh vX.Y.Z' builds"
+	@echo "the web binaries + desktop apps and publishes the GitHub Release."
+	@echo "See README 'Cutting a release'."

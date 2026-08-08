@@ -33,7 +33,7 @@ make release VERSION="$VERSION"
 if pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
   echo "==> building native Linux desktop app"
   go build -tags "wails desktop production webkit2_41" -trimpath \
-    -ldflags "-X github.com/zahak/concord/internal/version.Version=$VERSION" \
+    -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=$VERSION" \
     -o "dist-release/concord-desktop-linux-$VERSION" .
 else
   echo "==> webkit2gtk-4.1 not found; skipping the native Linux desktop build"
@@ -48,7 +48,7 @@ go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 \
   -o resource_windows_amd64.syso build/versioninfo.json
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath \
   -tags "wails desktop production" \
-  -ldflags "-s -w -H windowsgui -X github.com/zahak/concord/internal/version.Version=$VERSION" \
+  -ldflags "-s -w -H windowsgui -X github.com/ZahakJ/concord/internal/version.Version=$VERSION" \
   -o "dist-release/concord-desktop-windows-$VERSION.exe" .
 rm -f resource_windows_amd64.syso
 

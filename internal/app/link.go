@@ -12,10 +12,10 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
-	"github.com/zahak/concord/internal/link"
-	cnet "github.com/zahak/concord/internal/net"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/link"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // Device linking (Phase 4), app layer. An already-unlocked device (the issuer)

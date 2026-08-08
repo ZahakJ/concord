@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // Ownership transfer, pure-replay side (govstate.go). These tests inject ops

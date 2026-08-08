@@ -9,7 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 func addrInfo(t *testing.T, id string, addrs ...string) peer.AddrInfo {

@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // appDir is the subdirectory under the OS config root where Concord stores all

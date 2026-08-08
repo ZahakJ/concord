@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/zahak/concord/internal/version"
+	"github.com/ZahakJ/concord/internal/version"
 )
 
 // ensureInstalled — Linux flavor of the Windows self-install: launched from a

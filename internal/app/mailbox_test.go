@@ -9,7 +9,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 
-	"github.com/zahak/concord/internal/mailbox"
+	"github.com/ZahakJ/concord/internal/mailbox"
 )
 
 // startMailboxNode brings up a bare libp2p host serving the mailbox protocol,

@@ -228,31 +228,60 @@ func (s *Store) gcLocked() {
 	}
 }
 
-// evictLocked drops the globally-oldest envelopes until under the byte cap.
+// evictLocked brings the store back under the global byte cap by dropping from
+// the mailbox holding the MOST bytes, oldest envelope first.
+//
+// It used to drop the globally-oldest envelope, which sounds fair and is the
+// opposite. Mail sits longest for exactly the people this store exists for —
+// the ones who have been offline a while — so oldest-first aims the eviction at
+// them. A flooder registers a handful of mailboxes of its own (a mailbox tag
+// costs a keypair), stuffs them past the global cap, and the store answers by
+// deleting everyone else's genuine pending mail while the flooder's fresh junk,
+// being the newest, survives untouched.
+//
+// Charging the eviction to the fattest mailbox makes a flooder pay in its own
+// bytes instead: a box holding one or two real envelopes is never chosen while
+// a stuffed one exists, so a mailbox that has been drained recently — small,
+// because its owner is around and acking — is the last thing touched. This is
+// only about WHOSE bytes go; the cap itself is unchanged, and a genuinely full
+// store still sheds mail.
 func (s *Store) evictLocked() {
+	if s.total <= MaxTotalBytes {
+		return
+	}
+	// Sizes computed once and then maintained, so a long eviction run stays
+	// O(boxes) per dropped envelope rather than rescanning every envelope.
+	sizes := make(map[string]int, len(s.boxes))
+	for mid, box := range s.boxes {
+		n := 0
+		for _, e := range box {
+			n += len(e.Data)
+		}
+		sizes[mid] = n
+	}
 	for s.total > MaxTotalBytes {
-		var oldestMID string
-		var oldest time.Time
-		found := false
-		for mid, box := range s.boxes {
-			if len(box) == 0 {
+		heaviest, heaviestN := "", -1
+		for mid, n := range sizes {
+			if len(s.boxes[mid]) == 0 {
 				continue
 			}
-			if !found || box[0].stored.Before(oldest) {
-				oldest = box[0].stored
-				oldestMID = mid
-				found = true
+			// Ties broken on the older head: map order is random, and eviction
+			// deciding differently on identical stores would be untestable.
+			if n > heaviestN || (n == heaviestN && s.boxes[mid][0].stored.Before(s.boxes[heaviest][0].stored)) {
+				heaviest, heaviestN = mid, n
 			}
 		}
-		if !found {
+		if heaviest == "" {
 			return
 		}
-		box := s.boxes[oldestMID]
+		box := s.boxes[heaviest]
 		s.total -= len(box[0].Data)
+		sizes[heaviest] -= len(box[0].Data)
 		if len(box) == 1 {
-			delete(s.boxes, oldestMID)
+			delete(s.boxes, heaviest)
+			delete(sizes, heaviest)
 		} else {
-			s.boxes[oldestMID] = box[1:]
+			s.boxes[heaviest] = box[1:]
 		}
 	}
 }

@@ -2,6 +2,8 @@ package main
 
 import (
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -41,5 +43,35 @@ func TestPublicPeersOnly(t *testing.T) {
 	}
 	if publicPeersOnly(nil, nil) {
 		t.Error("nil peer IP must be denied")
+	}
+}
+
+// TestTURNCredsRateLimit: /turn has to stay open — a guest joining a meeting
+// link has no account to authenticate with — but every pair it hands out is an
+// hour's licence to push media through a relay the operator pays for. Open is
+// not unlimited.
+func TestTURNCredsRateLimit(t *testing.T) {
+	ts := &turnServer{secret: "test-secret", public: "concord.example", port: "3478"}
+
+	ask := func(ip string) int {
+		r := httptest.NewRequest(http.MethodGet, "/turn", nil)
+		r.Header.Set("X-Forwarded-For", ip)
+		w := httptest.NewRecorder()
+		ts.handleTURNCreds(w, r)
+		return w.Code
+	}
+
+	for i := 0; i < int(turnCredsBurst); i++ {
+		if got := ask("198.51.100.4"); got != http.StatusOK {
+			t.Fatalf("request %d inside the burst answered %d; a client renegotiating "+
+				"a call must not be refused its ICE config", i, got)
+		}
+	}
+	if got := ask("198.51.100.4"); got != http.StatusTooManyRequests {
+		t.Fatalf("past the burst /turn answered %d, want %d", got, http.StatusTooManyRequests)
+	}
+	// Per IP: one harvester must not stop everyone else's calls from connecting.
+	if got := ask("203.0.113.11"); got != http.StatusOK {
+		t.Fatalf("a different client IP answered %d — the limiter is not per IP", got)
 	}
 }

@@ -13,8 +13,8 @@ import (
 	"net/url"
 	"sync"
 
-	appsvc "github.com/zahak/concord/internal/app"
-	"github.com/zahak/concord/internal/bridge"
+	appsvc "github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/bridge"
 )
 
 // sseEvent is one Server-Sent Event fanned out to connected clients.

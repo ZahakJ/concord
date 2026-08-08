@@ -12,7 +12,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	cnet "github.com/zahak/concord/internal/net"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // Peer-to-peer software distribution, transport half.

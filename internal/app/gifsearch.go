@@ -11,8 +11,8 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/zahak/concord/internal/domain"
-	cnet "github.com/zahak/concord/internal/net"
+	"github.com/ZahakJ/concord/internal/domain"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // GIF search, client half.

@@ -11,7 +11,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // A release transfer is many chunk round trips on one protocol, so the thing

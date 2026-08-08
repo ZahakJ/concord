@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	appsvc "github.com/zahak/concord/internal/app"
-	"github.com/zahak/concord/internal/version"
+	appsvc "github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/version"
 )
 
 // Updating from a PEER instead of from GitHub.

@@ -4,13 +4,15 @@
 # crashed the UI at runtime while the build stayed green.
 name: ci
 
-# MANUAL ONLY (workflow_dispatch). GitHub Actions billing is disabled on this
-# private repo, so a push/PR-triggered run just fails in ~5s on the payment
-# error and emails a failure — pure noise, no signal. The real check runs
-# locally before every release: `go build ./... && go test ./...` and
-# `cd frontend && npm run build && node --test src/lib/*.test.mjs`. Re-enable
-# the push/pull_request triggers here if Actions billing is ever restored.
+# Runs on every push and pull request: Actions minutes are free for public
+# repos, so there is no reason to gate the one check that reviews a contribution
+# before a human does. workflow_dispatch stays for re-running a branch by hand.
+# Limiting push to main keeps a PR branch from running the suite twice (once for
+# the push, once for the PR) and keeps tag pushes to the release workflow.
 on:
+  push:
+    branches: [main]
+  pull_request:
   workflow_dispatch:
 
 jobs:

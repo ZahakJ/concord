@@ -15,7 +15,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // Browser guests: someone with just the meeting link joins from a plain web

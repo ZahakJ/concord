@@ -1,22 +1,18 @@
 # Dual-track release: the zero-dependency web binaries (one per OS, browser
 # shell) AND the branded native desktop apps (real window + Concorde icon).
-# Triggered on a version tag. The web track cross-compiles from Linux; the
-# native track needs each OS's WebView, so it runs on a per-OS matrix.
+# The web track cross-compiles from Linux; the native track needs each OS's
+# WebView, so it runs on a per-OS matrix.
 #
 # Both tracks upload their outputs as workflow artifacts, then a final `publish`
-# job gathers everything and attaches it to the GitHub Release for the tag — so
-# a push of `vX.Y.Z` produces a complete release with no manual `gh release
-# upload` afterward.
+# job gathers everything and attaches it to the GitHub Release for the tag.
 name: release
 
-# MANUAL ONLY (workflow_dispatch). Tag pushes deliberately do NOT trigger this
-# any more: on a private repo the macOS jobs (native + mobile-ios) bill at a
-# 10x minute multiplier, so every `git push origin vX.Y.Z` quietly burned
-# hundreds of billed minutes. The normal release path is now LOCAL:
-# scripts/publish-release.sh builds the web binaries (and whatever native
-# artifacts this machine can produce) and uploads them to the dist repo with
-# `gh` — zero Actions compute. Run this workflow by hand only when you
-# specifically want CI-built per-OS desktop apps and have billing headroom.
+# MANUAL ONLY (workflow_dispatch), run from the tag you want to release — the
+# publish job checks for a tag ref and does nothing without one. Tag pushes do
+# not trigger it: the default release path is local (scripts/publish-release.sh
+# builds the web binaries plus whatever native artifacts the machine can produce
+# and uploads them with `gh`), and a maintainer should decide deliberately when
+# to spend a full cross-OS matrix — the macOS jobs alone take ~40 minutes.
 on:
   workflow_dispatch:
 
@@ -107,7 +103,7 @@ jobs:
       # check. Wails still adds -w -s in production; that's fine — the version
       # string survives stripping.
       - name: Build native app
-        run: wails build -tags "wails webkit2_41" -skipbindings -ldflags "-X github.com/zahak/concord/internal/version.Version=${{ github.ref_name }}"
+        run: wails build -tags "wails webkit2_41" -skipbindings -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=${{ github.ref_name }}"
 
       # Name each output per-OS so it's a direct download and doesn't collide
       # with the web track (which also emits a concord-windows.exe). Windows and
@@ -267,9 +263,9 @@ jobs:
           echo "Release assets:" && ls -lh release-assets/
       - name: Generate SHA256SUMS
         run: cd release-assets && sha256sum * > SHA256SUMS && cat SHA256SUMS
-      # Always publish to the private source repo (archive + how you distribute
-      # today). Uses the default GITHUB_TOKEN via `permissions: contents: write`.
-      - name: Publish GitHub Release (private repo)
+      # Always publish to this repo's own Releases. Uses the default GITHUB_TOKEN
+      # via `permissions: contents: write`.
+      - name: Publish GitHub Release (source repo)
         uses: softprops/action-gh-release@v2
         with:
           files: |
@@ -277,11 +273,12 @@ jobs:
             WINDOWS.md
           fail_on_unmatched_files: false
           generate_release_notes: true
-      # ALSO publish to the SEPARATE PUBLIC dist repo — but only once it's wired
-      # up. The app polls concord-dist's releases unauthenticated for updates, so
-      # the source repo can stay private. Until DIST_REPO_TOKEN (a fine-grained
-      # PAT scoped to contents:write on ZahakJ/concord-dist ONLY) is added, this
-      # step is skipped and the release still succeeds to the private repo.
+      # ALSO publish to the separate download-only dist repo, which is what the
+      # in-app update check polls (internal/bridge/update.go) — kept apart so a
+      # fork can point its updater somewhere else without touching source
+      # history. Skipped unless DIST_REPO_TOKEN (a fine-grained PAT scoped to
+      # contents:write on ZahakJ/concord-dist ONLY) is set, so a fork's release
+      # still succeeds with the step inert.
       # tag_name is explicit because the dist repo has no such ref.
       - name: Publish GitHub Release (public dist repo)
         if: env.DIST_TOKEN != ''

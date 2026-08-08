@@ -8,7 +8,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // forum.go turns a forum channel from a list of titles into a board you can

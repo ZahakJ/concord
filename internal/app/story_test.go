@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/identity"
-	"github.com/zahak/concord/internal/store"
+	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // signedStory builds a valid record signed by its author, exactly the way

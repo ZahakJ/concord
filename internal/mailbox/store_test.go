@@ -2,8 +2,11 @@ package mailbox
 
 import (
 	"bytes"
+	"strconv"
 	"testing"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 func TestStoreRegisterDepositDrainAck(t *testing.T) {
@@ -114,6 +117,58 @@ func TestStoreFloodFairness(t *testing.T) {
 	}
 }
 
+// TestStoreEvictionSparesSmallMailboxes pins the GLOBAL eviction policy, which
+// is a different attack from TestStoreFloodFairness above: there the flooder
+// aims at one victim's tag, here it registers mailboxes of its own and fills
+// the store until the byte cap forces eviction on everyone.
+//
+// With oldest-first eviction the flooder wins outright — the mail waiting
+// longest belongs to the people who have been offline longest, which is who the
+// store is for, while the flooder's junk is the newest thing in it. Eviction
+// must come out of the fattest mailboxes instead.
+func TestStoreEvictionSparesSmallMailboxes(t *testing.T) {
+	s := New()
+
+	// Someone who has been offline a while: two real envelopes, deposited first
+	// so they are also the OLDEST bytes in the store — the ones the previous
+	// policy reached for first.
+	const victim = "quiet-recipient"
+	s.Register(victim)
+	realA, _ := s.Deposit(victim, "honest-sender", []byte("real-1"), time.Hour)
+	realB, _ := s.Deposit(victim, "honest-sender", []byte("real-2"), time.Hour)
+
+	// The flooder registers its own mailboxes (a tag costs a keypair) and stuffs
+	// each to the per-mailbox cap until the store is over its byte ceiling.
+	env := make([]byte, MaxEnvelope)
+	boxes := MaxTotalBytes/(MaxPerMailbox*MaxEnvelope) + 2
+	for b := 0; b < boxes; b++ {
+		mid := "flood-" + strconv.Itoa(b)
+		s.Register(mid)
+		for i := 0; i < MaxPerMailbox; i++ {
+			s.Deposit(mid, "flooder", env, time.Hour)
+		}
+	}
+
+	if _, _, total := s.Stats(); total > MaxTotalBytes {
+		t.Fatalf("store is over its byte cap after eviction: %d > %d", total, MaxTotalBytes)
+	}
+	got := s.Drain(victim)
+	haveA, haveB := false, false
+	for _, e := range got {
+		if e.ID == realA {
+			haveA = true
+		}
+		if e.ID == realB {
+			haveB = true
+		}
+	}
+	if !haveA || !haveB {
+		t.Fatalf("a store-wide flood purged an offline recipient's genuine mail "+
+			"(realA=%v realB=%v, %d left) — eviction is aimed at the wrong bytes",
+			haveA, haveB, len(got))
+	}
+}
+
 func TestMailboxIDStable(t *testing.T) {
 	pub := []byte("account-pubkey-32-bytes-xxxxxxxx")
 	if MailboxID(pub) != MailboxID(pub) {
@@ -135,16 +190,16 @@ func TestDepositRateLimit(t *testing.T) {
 
 	// The full burst should be permitted up front.
 	for i := 0; i < int(depositBurst); i++ {
-		if !svc.allowDeposit(p) {
+		if !svc.allowDeposit(p, 1) {
 			t.Fatalf("deposit %d within burst was rate-limited", i)
 		}
 	}
 	// The next one exceeds the burst and must be refused.
-	if svc.allowDeposit(p) {
+	if svc.allowDeposit(p, 1) {
 		t.Fatal("deposit past the burst should be rate-limited")
 	}
 	// A different peer has its own independent bucket.
-	if !svc.allowDeposit("peerB") {
+	if !svc.allowDeposit("peerB", 1) {
 		t.Fatal("a distinct peer must not be limited by another's usage")
 	}
 
@@ -152,7 +207,51 @@ func TestDepositRateLimit(t *testing.T) {
 	svc.mu.Lock()
 	svc.buckets[p].last = svc.buckets[p].last.Add(-2 * time.Second)
 	svc.mu.Unlock()
-	if !svc.allowDeposit(p) {
+	if !svc.allowDeposit(p, 1) {
 		t.Fatal("bucket should refill after time passes")
+	}
+}
+
+// TestDepositGlobalByteCeiling is the point of the second dimension: rotating
+// peer ids is free, so a limit keyed on identity is a limit an attacker opts
+// out of. Every fresh identity here passes its own per-peer bucket and is still
+// stopped, because the ceiling it runs into is keyed on nothing.
+func TestDepositGlobalByteCeiling(t *testing.T) {
+	svc := NewService(New())
+	const env = MaxEnvelope // the biggest envelope the store accepts
+
+	// One deposit each from a never-repeated identity — the cheapest possible
+	// evasion of the per-peer bucket.
+	perIdentity := 0
+	stopped := false
+	for i := 0; i < int(depositBytesBurst/env)+20; i++ {
+		if !svc.allowDeposit(peer.ID("flooder-"+strconv.Itoa(i)), env) {
+			stopped = true
+			break
+		}
+		perIdentity++
+	}
+	if !stopped {
+		t.Fatalf("%d deposits from %d distinct identities were all allowed — "+
+			"the ceiling is still keyed on identity", perIdentity, perIdentity)
+	}
+	if want := int(depositBytesBurst / env); perIdentity < want/2 {
+		t.Fatalf("only %d deposits got through before the ceiling; the burst (%d) "+
+			"should cover an honest fan-out", perIdentity, want)
+	}
+
+	// An honest depositor is refused too while the ceiling is spent. That is
+	// what a node-wide ceiling MEANS: the alternative — exempting anyone — is
+	// a hole shaped exactly like the flood it is meant to stop.
+	if svc.allowDeposit("honest", env) {
+		t.Fatal("the global ceiling did not apply once spent")
+	}
+
+	// It refills: an hour of quiet, and the node is open for business again.
+	svc.mu.Lock()
+	svc.globalBytes.last = svc.globalBytes.last.Add(-time.Hour)
+	svc.mu.Unlock()
+	if !svc.allowDeposit("honest", env) {
+		t.Fatal("the ceiling should refill over time, not latch shut")
 	}
 }

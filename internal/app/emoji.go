@@ -5,8 +5,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/store"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // Custom server emoji: a guild-scoped image referenced as :name: in messages

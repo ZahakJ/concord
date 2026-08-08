@@ -13,7 +13,7 @@ import (
 
 	"golang.org/x/sys/windows/registry"
 
-	"github.com/zahak/concord/internal/version"
+	"github.com/ZahakJ/concord/internal/version"
 )
 
 // ensureInstalled makes the desktop app behave like a properly installed

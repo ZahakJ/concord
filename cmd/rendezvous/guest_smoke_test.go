@@ -19,7 +19,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 
-	cnet "github.com/zahak/concord/internal/net"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // These tests pin the FRAMING CONTRACT between the guest gateway (relayGuest)
@@ -93,8 +93,9 @@ func newLoopbackHost(t *testing.T, listen bool) host.Host {
 func newGatewayServer(t *testing.T, ctx context.Context, gw host.Host) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
+	gate := &guestGate{}
 	mux.HandleFunc("/guest/ws", func(w http.ResponseWriter, r *http.Request) {
-		relayGuest(ctx, gw, w, r)
+		relayGuest(ctx, gw, gate, w, r)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

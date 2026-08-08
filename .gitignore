@@ -1,8 +1,15 @@
 # Build output
 /bin/
-/build/
 /rendezvous
 frontend/dist/
+
+# build/ is NOT ignored wholesale: it also holds committed packaging inputs the
+# release needs (appicon.svg, windows/icon.ico, windows/installer.nsi,
+# versioninfo.json — see scripts/publish-release.sh). Only the generated
+# subtrees go: wails output, and the patched libc module fork `make
+# android-core` materializes.
+/build/bin/
+/build/libc-fork/
 
 # Node
 frontend/node_modules/
@@ -17,3 +24,9 @@ resource_windows_amd64.syso
 
 # Twemoji assets, copied from node_modules by `npm run prep-twemoji`
 frontend/public/twemoji/
+
+# Coding-agent state (sessions, worktrees, local settings) is per-machine and
+# per-person. .claude/skills/ is the exception — those are checked-in project
+# docs, so they stay tracked.
+/.claude/*
+!/.claude/skills/

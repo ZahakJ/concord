@@ -4,7 +4,10 @@
 # The node is untrusted infrastructure: it relays end-to-end-encrypted traffic
 # and serves the DHT; it never sees plaintext or media.
 
-app = "concord-rdv-zahak"
+# Rename to your own app before deploying — fly app names are globally unique.
+# Whatever you pick becomes the host friends paste as a bootstrap multiaddr
+# (/dns/<your-app>.fly.dev/tcp/4001/p2p/…), so keep it short and memorable.
+app = "your-app"
 primary_region = "iad"
 
 [build]
@@ -16,7 +19,7 @@ primary_region = "iad"
   CONCORD_GUEST_PORT = "8080"
   # TURN relay for IP-private calls (see cmd/rendezvous/turn.go). Dormant until
   # CONCORD_TURN_SECRET is set as a fly SECRET — set it to enable the relay:
-  #   fly secrets set -a concord-rdv-zahak CONCORD_TURN_SECRET=$(openssl rand -hex 32)
+  #   fly secrets set -a <your-app> CONCORD_TURN_SECRET=$(openssl rand -hex 32)
   # Calls force-relay through TCP:3478, so only that port is exposed below; the
   # relay refuses private/loopback peers (SSRF guard). Clients that can't reach
   # the relay simply fall back to a direct call.
@@ -26,7 +29,7 @@ primary_region = "iad"
   # The provider is pluggable because hardcoding one burned us — Google
   # decommissioned the public Tenor API on 30 June 2026 and the whole feature
   # died with it. Giphy is the default; sign up at developers.giphy.com and:
-  #   fly secrets set -a concord-rdv-zahak CONCORD_GIF_KEY=...
+  #   fly secrets set -a <your-app> CONCORD_GIF_KEY=...
   # CONCORD_GIF_PROVIDER = "giphy"      # giphy | tenor (tenor = your own mirror only)
   # CONCORD_GIF_CONTENTFILTER = "g"     # y|g|pg|pg-13|r (default g, the strictest useful)
   # CONCORD_GIF_BASE = "https://api.giphy.com"   # override for a self-hosted mirror

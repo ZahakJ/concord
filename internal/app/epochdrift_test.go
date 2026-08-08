@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/crypto/mls"
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/crypto/mls"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // The intermittent-sync report, reduced: with every device online, a message

@@ -23,7 +23,7 @@ import (
 
 	"golang.org/x/crypto/nacl/secretbox"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 
 	_ "modernc.org/sqlite"
 )

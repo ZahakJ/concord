@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 func TestDeviceMarkerRoundTripAndScoping(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/store"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // Per-guild GIF packs: a guild curates its own collection, members search it

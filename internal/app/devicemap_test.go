@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // A linked device is only recognised as a member if its device key can be

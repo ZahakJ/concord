@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // testFingerprint is a fingerprint of a real key, so nothing downstream can

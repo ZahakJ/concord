@@ -16,8 +16,8 @@ import (
 	"github.com/multiformats/go-multiaddr"
 	manet "github.com/multiformats/go-multiaddr/net"
 
-	"github.com/zahak/concord/internal/identity"
-	cnet "github.com/zahak/concord/internal/net"
+	"github.com/ZahakJ/concord/internal/identity"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 func testPeerID(t *testing.T) string {

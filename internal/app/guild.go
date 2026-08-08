@@ -12,7 +12,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // This file implements the guild lifecycle: creating a guild, generating and

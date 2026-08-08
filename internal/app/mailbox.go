@@ -13,8 +13,8 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/crypto/nacl/box"
 
-	"github.com/zahak/concord/internal/identity"
-	"github.com/zahak/concord/internal/mailbox"
+	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/mailbox"
 )
 
 // Client-side mailbox integration. When a group member is offline we deposit

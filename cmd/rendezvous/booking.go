@@ -15,7 +15,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	cnet "github.com/zahak/concord/internal/net"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // The public booking door: /book/<token> serves a self-contained page, and

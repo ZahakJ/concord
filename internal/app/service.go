@@ -21,11 +21,11 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/zahak/concord/internal/crypto/mls"
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
-	cnet "github.com/zahak/concord/internal/net"
-	"github.com/zahak/concord/internal/store"
+	"github.com/ZahakJ/concord/internal/crypto/mls"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
+	cnet "github.com/ZahakJ/concord/internal/net"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // Service is the orchestration layer (layer 6): it owns the identity, network

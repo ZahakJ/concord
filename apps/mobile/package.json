@@ -1,14 +1,15 @@
 {
   "name": "mobile",
   "version": "1.0.0",
-  "description": "",
+  "private": true,
+  "description": "Capacitor shells for the Concord Android and iOS apps: they host the web UI and the gomobile-built Go core.",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "author": "Concord contributors",
+  "license": "AGPL-3.0-or-later",
   "type": "commonjs",
   "dependencies": {
     "@capacitor/android": "^8.4.1",

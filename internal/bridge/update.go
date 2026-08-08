@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zahak/concord/internal/version"
+	"github.com/ZahakJ/concord/internal/version"
 )
 
 // updateRepo is the PUBLIC distribution repo — it holds only release binaries,

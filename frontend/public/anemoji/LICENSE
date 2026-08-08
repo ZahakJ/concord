@@ -1,0 +1,18 @@
+The animated emoji in this directory are Noto Animated Emoji.
+
+Copyright Google Inc.
+Licensed under the Creative Commons Attribution 4.0 International licence
+(CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+
+Source: https://googlefonts.github.io/noto-emoji-animation/, fetched from
+fonts.gstatic.com/s/e/notoemoji/latest/<codepoints>/512.webp
+
+Modifications by Concord contributors (see frontend/scripts/prep-anemoji.mjs):
+each animation is downscaled from 512x512 to 80x80, has every second frame
+dropped with the per-frame delay doubled to preserve the original timing, and
+is re-encoded as WebP at quality 38. Files are renamed to the codepoint
+spelling the app's emoji renderer looks up rather than Noto's. Only a curated
+subset of roughly 150 emoji is included, not the full set.
+
+CC BY 4.0 permits these changes provided the licence is named and the
+modifications indicated, which is what this file does.

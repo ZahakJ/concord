@@ -29,9 +29,9 @@ import (
 	// it directly, so keep it pinned with a blank import (the documented idiom).
 	_ "golang.org/x/mobile/bind"
 
-	"github.com/zahak/concord/internal/bridge"
-	"github.com/zahak/concord/internal/httpapi"
-	"github.com/zahak/concord/internal/version"
+	"github.com/ZahakJ/concord/internal/bridge"
+	"github.com/ZahakJ/concord/internal/httpapi"
+	"github.com/ZahakJ/concord/internal/version"
 )
 
 // webviewOrigins are the Origin values Capacitor webviews present:

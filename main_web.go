@@ -22,8 +22,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/zahak/concord/internal/bridge"
-	"github.com/zahak/concord/internal/httpapi"
+	"github.com/ZahakJ/concord/internal/bridge"
+	"github.com/ZahakJ/concord/internal/httpapi"
 )
 
 //go:embed all:frontend/dist

@@ -24,9 +24,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/linux"
 	wruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	appsvc "github.com/zahak/concord/internal/app"
-	"github.com/zahak/concord/internal/bridge"
-	"github.com/zahak/concord/internal/httpapi"
+	appsvc "github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/bridge"
+	"github.com/ZahakJ/concord/internal/httpapi"
 )
 
 //go:embed all:frontend/dist

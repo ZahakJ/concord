@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // TestContactDeviceLinkRaisesNotice is the acceptance test for the missing half

@@ -9,7 +9,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // Direct messages are ordinary MLS groups tagged kind="dm", rendered without

@@ -23,8 +23,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/zahak/concord/internal/app"
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/identity"
 	"golang.org/x/term"
 )
 

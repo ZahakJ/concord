@@ -1,8 +1,8 @@
 // One mixed-version case: mint a guest link on whichever app is running, open
 // it in a real browser through whichever gateway is running, and report what the
 // guest actually receives. Driven by scripts/verify-compat.sh.
-import fs from "node:fs";
 import path from "node:path";
+import { loadChromium } from "./playwright.mjs";
 
 const CASE = process.env.CASE || "?";
 const MEMBER_URL = process.env.MEMBER_URL;
@@ -10,10 +10,7 @@ const OUT_DIR = process.env.OUT_DIR || ".";
 const CHROMIUM = process.env.CHROMIUM || "/usr/bin/chromium";
 const PASSPHRASE = "compat-pass";
 
-let pwPath = process.env.PLAYWRIGHT_CORE ||
-  "/tmp/claude-1000/-home-avicenna-Documents-side-concord/8fb499ff-d55a-41c7-9317-4b8b6c3d03ea/scratchpad/node_modules/playwright-core/index.mjs";
-if (fs.existsSync(pwPath) && fs.statSync(pwPath).isDirectory()) pwPath = path.join(pwPath, "index.mjs");
-const { chromium } = await import(pwPath);
+const chromium = await loadChromium();
 
 const log = (...a) => console.log(`[${CASE}]`, ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

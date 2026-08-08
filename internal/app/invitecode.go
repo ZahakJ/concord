@@ -8,7 +8,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/zahak/concord/internal/compactcode"
+	"github.com/ZahakJ/concord/internal/compactcode"
 )
 
 // Compact wire format for guild invite codes ("Concord Invite v1"). The

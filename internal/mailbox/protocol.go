@@ -74,9 +74,51 @@ const (
 	depositBurst = 120.0
 )
 
+// The identity-INDEPENDENT ceiling, measured in BYTES.
+//
+// The per-peer bucket above is keyed on the libp2p peer id, and a peer id is a
+// keypair anyone can generate in a millisecond. A flooder that makes a new
+// identity per deposit is handed a fresh 120-deposit burst every time, so the
+// per-peer limit bounds nothing on its own — the store's byte cap is the only
+// thing left standing, and reaching it is exactly the attack: filling the store
+// forces eviction of other people's genuine offline mail. This node cannot tell
+// members from strangers (guilds are end-to-end encrypted and it is in none of
+// them), so there is no identity-shaped fix.
+//
+// This bucket is therefore keyed on nothing. Bytes rather than deposits because
+// bytes are what the store is capped in: at 256 MiB/hour the whole 64 MiB store
+// can turn over four times an hour, which is far more churn than a friend group
+// generates and far too slow to sweep a mailbox clean on demand. The burst
+// covers one honest fan-out — a message sealed separately to every offline
+// member of a large guild, all deposited at once.
+const (
+	depositBytesRate  = float64(256<<20) / 3600 // 256 MiB/hour across ALL depositors
+	depositBytesBurst = float64(16 << 20)
+)
+
 type bucket struct {
 	tokens float64
 	last   time.Time
+}
+
+// take consumes cost tokens, refilling first; reports whether the caller may
+// go. A bucket that cannot cover the cost is left untouched, so a request that
+// is refused does not also slow down the next one.
+func (b *bucket) take(rate, burst, cost float64) bool {
+	now := time.Now()
+	if b.last.IsZero() {
+		b.tokens, b.last = burst, now
+	}
+	b.tokens += now.Sub(b.last).Seconds() * rate
+	if b.tokens > burst {
+		b.tokens = burst
+	}
+	b.last = now
+	if b.tokens < cost {
+		return false
+	}
+	b.tokens -= cost
+	return true
 }
 
 // Service handles inbound mailbox requests on a libp2p host (the rendezvous
@@ -96,6 +138,9 @@ type Service struct {
 
 	mu      sync.Mutex
 	buckets map[peer.ID]*bucket
+	// globalBytes is the whole node's deposit allowance, drawn on by every
+	// depositor together. See depositBytesRate.
+	globalBytes bucket
 }
 
 // NewService wraps a store as a stream handler.
@@ -112,26 +157,23 @@ func (svc *Service) WithPush(ps *PushStore, n Notifier) *Service {
 	return svc
 }
 
-// allowDeposit reports whether peer p may deposit right now, consuming a token.
-func (svc *Service) allowDeposit(p peer.ID) bool {
+// allowDeposit reports whether peer p may deposit an envelope of size bytes
+// right now, consuming from both the per-peer and the node-wide allowance.
+func (svc *Service) allowDeposit(p peer.ID, size int) bool {
 	svc.mu.Lock()
 	defer svc.mu.Unlock()
-	now := time.Now()
 	b := svc.buckets[p]
 	if b == nil {
-		b = &bucket{tokens: depositBurst, last: now}
+		b = &bucket{}
 		svc.buckets[p] = b
 	}
-	b.tokens += now.Sub(b.last).Seconds() * depositRate
-	if b.tokens > depositBurst {
-		b.tokens = depositBurst
-	}
-	b.last = now
-	if b.tokens < 1 {
+	if !b.take(depositRate, depositBurst, 1) {
 		return false
 	}
-	b.tokens--
-	return true
+	// Charged only AFTER the per-peer bucket agreed, so one loud peer cannot
+	// spend the node's whole allowance on deposits it was going to be refused
+	// anyway.
+	return svc.globalBytes.take(depositBytesRate, depositBytesBurst, float64(size))
 }
 
 // pruneBuckets drops fully-refilled, idle buckets so the map can't grow without
@@ -193,7 +235,7 @@ func (svc *Service) handle(s network.Stream) {
 		}
 	case "deposit":
 		if req.Target != "" {
-			if !svc.allowDeposit(s.Conn().RemotePeer()) {
+			if !svc.allowDeposit(s.Conn().RemotePeer(), len(req.Envelope)) {
 				resp.Error = "rate limited"
 			} else if _, ok := svc.store.Deposit(req.Target, s.Conn().RemotePeer().String(), req.Envelope, time.Duration(req.TTLSeconds)*time.Second); ok {
 				resp.OK = true

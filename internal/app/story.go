@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
-	"github.com/zahak/concord/internal/store"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // Moments v1: guild-scoped stories. A story is TEXT ON A BANNER PRESET —

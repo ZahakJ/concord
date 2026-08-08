@@ -43,6 +43,17 @@ import (
 // the hour.
 const turnCredTTL = time.Hour
 
+// Per-IP budget for /turn. Minting a credential is one HMAC, so the cost being
+// bounded here is not CPU: each pair is an hour's authorization to push media
+// through the operator's relay, and the endpoint has to stay open to unauthed
+// guests, so an IP is the only handle there is. One call per client per call
+// setup means a burst of 20 covers page reloads and renegotiation while a
+// harvester collecting credentials to hand around gets one every ten seconds.
+const (
+	turnCredsRate  = 0.1
+	turnCredsBurst = 20.0
+)
+
 // serveTURN starts the TURN relay when CONCORD_TURN_SECRET is set (no secret =
 // feature off, and clients fall back to plain peer-to-peer). It listens on
 // CONCORD_TURN_PORT (default 3478) over TCP — TCP works through the restrictive
@@ -129,6 +140,15 @@ func serveTURN(ctx context.Context) *turnServer {
 	}
 	ts.server = server
 	fmt.Println("TURN relay listening on :" + port + " (tcp) realm=" + realm)
+	if allowPrivatePeers {
+		// Said out loud at every start: this is a local-development switch, and a
+		// node that has it set on the public internet is an open pivot into its
+		// operator's network. See allowPrivatePeers.
+		fmt.Fprintln(os.Stderr,
+			"turn: WARNING — CONCORD_TURN_ALLOW_PRIVATE=1: this relay will forward to loopback, "+
+				"private and cloud-metadata addresses. That is for local development only; unset it on any node "+
+				"reachable from the internet.")
+	}
 
 	go func() {
 		<-ctx.Done()
@@ -142,6 +162,11 @@ type turnServer struct {
 	secret string
 	public string
 	port   string
+
+	// creds rate-limits /turn per client IP. A value, not a pointer: the zero
+	// value works, so a turnServer built anywhere is never one credential
+	// handler away from a nil dereference.
+	creds ipLimiter
 }
 
 // publicPeersOnly is the TURN permission filter: relay ONLY toward globally
@@ -150,8 +175,19 @@ type turnServer struct {
 // CGNAT space — every address class an attacker could use to pivot from this
 // public relay into a private network or the relay host itself.
 //
-// CONCORD_TURN_ALLOW_PRIVATE=1 disables the filter for LOCAL development only,
-// where peers are 127.0.0.1. Never set it in production.
+// CONCORD_TURN_ALLOW_PRIVATE=1 turns the filter OFF. It exists because a local
+// development run has peers at 127.0.0.1 and the filter would refuse every one
+// of them, so there is no way to exercise the relay without it.
+//
+// What setting it costs, spelled out because the one-line version has been
+// misread as a tuning knob: with the filter off, anyone who can reach this
+// relay — it is on the public internet, and /turn hands out credentials to
+// unauthenticated callers by design — can Allocate and then have the relay
+// send UDP to any address they name. That is 127.0.0.1 and every service bound
+// to it, the operator's RFC1918 neighbours, and 169.254.169.254, which on every
+// major cloud answers with instance credentials. The relay becomes a general
+// pivot into whatever network it is running in. Set it on a laptop; never on a
+// deployed node.
 var allowPrivatePeers = os.Getenv("CONCORD_TURN_ALLOW_PRIVATE") == "1"
 
 // resolveRelayIP finds a routable address for the hostname clients dial. It is
@@ -224,7 +260,16 @@ type turnCredsResponse struct {
 // TURN relay with ephemeral creds) to any caller. It is intentionally open: the
 // credentials are short-lived and the relay exists to be usable by unauthed
 // guests joining a meeting link. It reveals nothing — the secret stays here.
+//
+// Open is not the same as unlimited, though: every issued pair is an hour of
+// relay bandwidth someone else pays for, so the caller's IP is budgeted the
+// same way the booking door budgets its visitors.
 func (t *turnServer) handleTURNCreds(w http.ResponseWriter, r *http.Request) {
+	if !t.creds.allow(clientIP(r), turnCredsRate, turnCredsBurst) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		http.Error(w, "too many credential requests — try again shortly", http.StatusTooManyRequests)
+		return
+	}
 	user, pass, ttl := t.credentials()
 	host := t.public
 	if host == "" {

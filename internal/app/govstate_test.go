@@ -3,7 +3,7 @@ package app
 import (
 	"testing"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // upsertRole builds a signed role_upsert op.

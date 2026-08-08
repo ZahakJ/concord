@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // Message requests: a DM from someone you have no relationship with waits in a

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // TestUnauthorizedCommitRejected is the foundational acceptance test for the

@@ -1,7 +1,7 @@
 // Package version holds the release tag stamped into the binary at build time
 // via:
 //
-//	-ldflags "-X github.com/zahak/concord/internal/version.Version=vX.Y.Z"
+//	-ldflags "-X github.com/ZahakJ/concord/internal/version.Version=vX.Y.Z"
 //
 // (see the Makefile `release` target and the CI native build). Unstamped local
 // and dev builds report "dev"; the update check treats that as "never nag".

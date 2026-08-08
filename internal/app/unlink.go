@@ -13,8 +13,8 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // Unlinking a device — what it actually does, and what it cannot do.

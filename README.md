@@ -688,12 +688,21 @@ argument:
 
 - **Latency.** Two hops through a third machine instead of one, plus whatever
   detour its geography imposes.
-- **Throughput.** Bounded by the relay's link and by explicit resource limits.
-  On the rendezvous: 512 MB per hour per circuit, 64 concurrent circuits, 512
-  reservations, 8 per peer. On a peer relaying for friends: the same per-circuit
-  allowance, but 8 circuits and 32 reservations, because it is somebody's laptop
-  rather than a server. Unlimited is deliberately not on offer — a relay with no
-  ceiling is a machine strangers can spend.
+- **Throughput.** Bounded by the relay's link and by explicit resource limits —
+  but deliberately *not* by a per-circuit meter. On the rendezvous: 512
+  reservations, 64 concurrent circuits, 8 reservations per peer and 16 per IP.
+  On a peer relaying for friends: 32 reservations, 8 circuits, 4 per peer and 4
+  per IP, because it is somebody's laptop rather than a server. There is no
+  per-circuit byte or duration cap, and that absence is load-bearing rather than
+  generous: a relay advertising *any* limit makes every connection through it a
+  "limited" connection on both ends, and go-libp2p quarantines those — gossipsub
+  refuses to attach a limited peer to a mesh. Measured on the relay-only test
+  topology with the previous 1 h / 512 MB cap: the two devices connected,
+  presence fired, both rendered each other ONLINE, and then not one message
+  crossed in either direction. A relayed connection Concord cannot publish over
+  is worse than none, so the meter went. What bounds abuse is the counts above,
+  plus — on a peer relay — the member-only ACL, which is the real answer to
+  "strangers spending my machine" (§5.5).
 - **It is somebody else's bandwidth**, and asking for it should be the exception.
 - **It is designed to be replaced.** Every relayed connection is immediately a
   DCUtR candidate; when punching succeeds the circuit is dropped.
@@ -734,7 +743,7 @@ what stops working the day it dies.
 
 ### 6.1 What it is
 
-One Go binary, about twelve hundred lines including everything below, running as
+One Go binary, a couple of thousand lines including everything below, running as
 a single process on the smallest machine a host will rent. It holds a stable
 identity derived from one environment variable (`CONCORD_RELAY_SEED`) so its
 address is predictable and can be embedded in invite codes. It stores none of
@@ -748,10 +757,11 @@ from an optional push-token file — nothing on its disk that concerns you.
    │  1  DHT server        stores provider records (§4)                │
    │  2  Circuit relay     splices two streams (§5.3)                  │
    │  3  Offline mailbox   holds sealed envelopes for absent peers      │
-   │  4  Guest gateway     the only plain-HTTPS door (§10)             │
-   │  5  GIF proxy         fetches search results AND image bytes (§6.6)│
-   │  6  Push bridge       optional, contentless wake notifications     │
-   │  7  TURN relay        optional, off by default — see §9            │
+   │  4  Guest gateway     plain-HTTPS door into a meeting (§10)       │
+   │  5  Booking gateway   plain-HTTPS door to a host's free slots     │
+   │  6  GIF proxy         fetches search results AND image bytes (§6.6)│
+   │  7  Push bridge       optional, contentless wake notifications     │
+   │  8  TURN relay        optional, off by default — see §9            │
    │                                                                   │
    └─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
 ```
@@ -805,14 +815,27 @@ Its properties are worth spelling out because each one is a deliberate refusal:
 - Deletion happens on **acknowledgement**, not on delivery, so a recipient that
   crashes mid-processing gets its mail again.
 
-**4 · Guest gateway.** The one plain-HTTPS surface in the entire system: it
-serves a single self-contained page and pipes that page's WebSocket into a
+**4 · Guest gateway.** One of the node's two plain-HTTPS surfaces — the two
+places where somebody with no Concord install reaches a Concord user at all.
+It serves a single self-contained page and pipes that page's WebSocket into a
 libp2p stream to the meeting host. Fully described in §10, including the one
 thing it *can* read.
 
-**5 · GIF proxy.** See §6.6 — the design reasoning is the interesting part.
+**5 · Booking gateway.** The other one, sharing the same HTTPS listener. It
+serves the booking page for a `/book/<token>` link and relays each of that
+page's requests over one short libp2p stream to the host named in the link.
+The node holds no calendar: it does not know which tokens are real, which slots
+are free, or what was booked — the host computes and keeps all of it, and an
+offline host means the page says so rather than answering from a cache that
+does not exist. What this node *does* own is abuse control for the open-web
+side. A visitor has no identity, so the only handle to rate-limit a scripted
+booker by is their IP, and that is visible only here: browsing slots gets a
+loose budget, actually booking gets a hard trickle, because a booking mints a
+meeting room on the host's disk.
 
-**6 · Push bridge (optional).** On a mobile device a process that is not running
+**6 · GIF proxy.** See §6.6 — the design reasoning is the interesting part.
+
+**7 · Push bridge (optional).** On a mobile device a process that is not running
 cannot notice a deposit, so — only if the operator configures platform
 credentials — the node sends a **contentless wake** on deposit: for Apple, a
 generic "New encrypted message" alert (iOS discards silent pushes from
@@ -823,7 +846,7 @@ commodity infrastructure, because it holds Apple/Google credentials. With no
 credentials configured it does not exist, and the mailbox works exactly as
 before.
 
-**7 · TURN relay (optional, off).** A media relay for hiding participants' IP
+**8 · TURN relay (optional, off).** A media relay for hiding participants' IP
 addresses from each other. §9 explains what it does, why it is switched off on
 the reference deployment, and why a *dead* relay is worse than no relay.
 
@@ -839,6 +862,7 @@ the reference deployment, and why a *dead* relay is worse than no relay.
 | **Opaque mailbox tags**, envelope sizes, deposit times | it is the drop box |
 | **Guest search terms and the results fetched** (if the GIF proxy is on) | it makes the upstream request on your behalf |
 | **A guest's own messages in a meeting** (if a guest joins via the gateway) | the guest's leg terminates at the gateway before continuing to the host |
+| **A booking visitor's IP, and every request they make** — the link token, the slot picked, the name and note typed | the booking page's leg is plain HTTPS terminating here, and the node re-marshals the request before relaying it |
 
 That list is the metadata cost of peer-to-peer. It is not a bug that can be
 patched out; onion-routed discovery is the only real answer and is future work.
@@ -856,8 +880,10 @@ patched out; onion-routed discovery is the only real answer and is future work.
 | Forge, alter or reorder a message | every message is authenticated under the group key |
 | Retain your history | it stores no messages, and the mailbox is bounded, opaque and in memory |
 
-The one exception in that table's direction is the guest leg (§10) — which is
-why guests are meeting-scoped, single-channel and labelled as guests.
+The exceptions in that table's direction are the two plain-HTTPS legs: the
+guest leg (§10) — which is why guests are meeting-scoped, single-channel and
+labelled as guests — and the booking leg, which is why a booking carries a name
+and a note and nothing else.
 
 ### 6.5 The day it dies
 
@@ -1109,32 +1135,58 @@ log** that every peer folds into identical state.
        ├─ the author's ACCOUNT public key
        ├─ a sequence number and a wall-clock timestamp
        ├─ the operation itself   (role_upsert | role_delete | role_assign |
-       │                          ban | unban | mute | unmute)
+       │                          ban | unban | mute | unmute | slow_mode |
+       │                          transfer_owner | set_heir | claim_heir)
        └─ an Ed25519 signature over all of the above
 
    Operations travel MLS-ENCRYPTED on the guild's meta topic, and are re-served
    in history sync. Every peer sorts them by (sequence, timestamp, hash) — a
    deterministic total order independent of arrival order — and folds them into
-   roles, role assignments, bans and mutes. Invalid or unauthorised operations
-   are skipped, not fatal.
+   roles, role assignments, bans, mutes, per-channel slow mode, and who the
+   guild's owner and designated heir currently are. Invalid or unauthorised
+   operations are skipped, not fatal.
 ```
 
-The trust anchor is the **guild owner**: the account key stamped into the guild
-when it was created, which implicitly holds every permission and outranks
-everyone. From there, permissions are a bitmask (manage members, manage
-messages, manage channels, manage guild, manage roles, mute members, act as a
-sync host), and the escalation-prevention invariants are enforced during replay
-on every peer:
+The trust anchor is the **current owner**, and *current* is doing real work.
+The founding key — the account stamped into the guild when it was created — is
+only the seed the replay starts from. Ownership then moves along a chain of
+`transfer_owner` ops, each signed by the then-reigning owner, and the anchor is
+the head of that chain: a founder who handed the guild over is an ordinary
+member from that op onward, and a stale op they sign afterwards is dead on
+arrival. Because the chain is folded in the same canonical order everywhere,
+every peer computes the same head without asking anyone. No MLS state is
+touched by a handover at all; the crown is a fact about the log, not about the
+ratchet tree.
+
+`set_heir` / `claim_heir` are the same mechanism aimed at the owner who
+*vanishes* rather than hands over. Only the reigning owner may name an heir (or
+revoke the designation with an empty target), and only that heir's own
+signature converts the designation into ownership. The claim is valid whenever
+the heir uses it — deliberately not gated on the owner having gone quiet, since
+wall-clock liveness is not a fact two sides of a partition can agree on, and
+gating on it could crown two owners at once. So an heir holds a permanent,
+revocable break-glass, and the UI says exactly that when it is granted. Any
+ownership change voids the standing designation: it was the old owner's trust
+decision, and the new owner names their own.
+
+From there, permissions are a bitmask (manage members, manage messages, manage
+channels, manage guild, manage roles, mute members, act as a sync host), and the
+escalation-prevention invariants are enforced during replay on every peer:
 
 - a role you create cannot carry permissions you do not hold;
 - a role you create or edit must rank strictly below your own highest rank;
-- only the owner may grant a role to the owner;
-- the owner cannot be banned or muted.
+- only the current owner may grant a role to the current owner;
+- the current owner cannot be banned or muted;
+- only the current owner transfers ownership or names an heir, and a banned
+  fingerprint can neither inherit nor be transferred to;
+- `slow_mode` rides manage-channels, and its six-hour ceiling is clamped inside
+  the replay rather than in the UI that issues it, so a hand-crafted op folds to
+  the same state on every peer.
 
 **Then the two halves are joined.** When a commit arrives on the control topic,
 every receiver reads the committer's identity out of the commit's *signed public
 framing* — no group secrets required — maps the leaf index to an account, and
-**refuses to apply the commit unless that account is the owner or holds
+**refuses to apply the commit unless that account is the current owner or holds
 manage-members.** A patched client can publish whatever commit it likes; it is
 simply dropped by everyone. The gate runs identically on the live control topic
 and on commits backfilled through history sync. Two related refusals fall out of
@@ -1829,10 +1881,9 @@ which calls connect, report success, and carry no sound.
 ### Cutting a release
 
 **Releases are built LOCALLY and uploaded with `gh` — zero GitHub Actions
-compute.** (CI-built releases used to burn paid macOS runner minutes at a 10×
-multiplier on this private repo; the `release` workflow is now
-`workflow_dispatch`-only for the rare case you want CI-built Windows/macOS
-desktop apps and have billing headroom.)
+compute.** (CI-built releases burn macOS runner minutes at a 10× multiplier, so
+the `release` workflow is `workflow_dispatch`-only: run it deliberately, for the
+rare case you want CI-built Windows/macOS desktop apps.)
 
 ```sh
 git tag v0.9.0 && git push origin main v0.9.0   # version the source
@@ -1841,8 +1892,9 @@ scripts/publish-release.sh v0.9.0 notes.md      # build + publish to concord-dis
 
 The script cross-compiles the web binaries for every OS, builds the native Linux
 desktop app when webkit2gtk is installed, generates `SHA256SUMS`, signs it, and
-creates the Release on the public dist repo. The app polls the dist repo's
-releases unauthenticated for update checks, so the source stays private.
+creates the Release on the dist repo. The app polls that repo's releases
+unauthenticated for update checks, which is why no token is ever embedded in a
+shipped binary.
 
 The dist-repo Release ends up with, with **no manual `gh release upload` step**:
 
@@ -1871,11 +1923,13 @@ with no embedded key refuses peer updates outright.
 
 **One-time setup for the public dist repo** (already done once; documented here):
 
-1. Create the **public** repo `ZahakJ/concord-dist` (Releases only, no source).
+1. Create the separate repo `ZahakJ/concord-dist` (Releases only, no source).
+   Keeping binaries out of the source repo is what keeps release automation
+   from needing any write access to the source.
 2. Create a **fine-grained PAT**: owner `ZahakJ`, repository access = **only
    `concord-dist`**, permission **Contents: Read and write**. (If leaked it can
-   only write the public dist repo — never read the private source.) Set an
-   expiry + rotation reminder.
+   only write the dist repo — it cannot touch this one.) Set an expiry +
+   rotation reminder.
 3. Add it to this repo as the Actions secret **`DIST_REPO_TOKEN`**.
 
 **Windows false-positive submission (per release):** unsigned exes lose

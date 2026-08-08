@@ -56,17 +56,43 @@ It is deliberately designed to learn as little as possible:
   content. Push tokens are keyed by the opaque mailbox tag, not by identity.
   Push is the one feature that requires trusting a node with APNs/FCM
   credentials; self-hosting without push is fully supported.
+- **Its two plain-HTTPS doors are the exception to "ciphertext only".** A
+  browser guest joining a meeting, and a visitor booking a slot on a
+  `/book/<token>` link, have no Concord install and no keys, so their leg
+  terminates at the node before continuing to the host. It therefore sees a
+  guest's own messages, and a booking visitor's IP plus whatever they submit —
+  the slot, their name, their note. It stores none of it, and everything else
+  passing through remains ciphertext.
 - **The TURN relay for calls** exists so meeting-link participants can hide
   their IP addresses from *each other*; media through it stays DTLS-SRTP
   encrypted end to end.
 - You can self-host the whole thing.
 
-## No telemetry
+## No telemetry, and the two outbound calls that are not to your peers
 
-Concord contains no analytics, no crash reporting, no telemetry, and no
-phone-home of any kind. There are no accounts, so there is nothing to sign up
-for and no email or phone number to collect. The only network connections the
-app makes are to your peers and to whatever rendezvous node you configure.
+Concord contains no analytics, no crash reporting, and no telemetry. There are
+no accounts, so there is nothing to sign up for and no email or phone number to
+collect. Nearly every connection the app makes is to your peers or to whatever
+rendezvous node you configure — but *nearly* is not *only*, and there are
+exactly two exceptions. Naming them is the point of this section.
+
+- **`api.github.com`, once at launch.** The app asks the public release repo
+  (`ZahakJ/concord-dist`) for its latest release tag so it can tell you an
+  update exists. It is unauthenticated, sends no identifier beyond what any
+  HTTP request carries — your IP and a `concord-updater` user agent — and any
+  error is a silent no-op. Builds without a release version stamp (i.e. built
+  from source) skip the request entirely, and so does the mobile app, which
+  does not self-update. See `internal/bridge/update.go`.
+- **`stun.l.google.com`, at call time only.** Starting a call needs to learn
+  your own external address. If the rendezvous you bootstrap through serves ICE
+  configuration, that is used and Google is never contacted; only when it does
+  not is there a fallback to this hardcoded public STUN server. It learns your
+  IP and that you are starting a call — no media, no identity, no group, and
+  nothing at all if you never place a call. See `internal/app/ice.go`.
+
+Neither can be switched off from the UI today. The README covers the same two
+in architectural terms ([§1](README.md#1-the-problem-and-the-thesis),
+[§9.2](README.md#92-ip-privacy-the-honest-state-of-it)).
 
 ## Honest limitations
 
@@ -88,6 +114,19 @@ Stating what is *not* protected is part of the privacy policy:
   boot), at-rest encryption no longer protects your identity or history from
   someone who compromises that machine. That trade-off is yours to make;
   Concord's default is to ask for the passphrase.
+- **Not everything on your disk is encrypted.** Two things sit beside the
+  database in the clear, and a stolen or shared machine gives them up even
+  though your message bodies stay sealed:
+  - `peers.json` — a plaintext record of everyone this install has connected
+    to: peer ID (a public key), last known addresses, last-seen time. It is
+    bounded (64 entries, forgotten after a month of no contact) and holds
+    nothing the network did not already see, but read as a list it is a map of
+    who you talk to. It is outside the encrypted store on purpose: reconnecting
+    has to work before your identity is unlocked.
+  - The `mls/` directory — each group's serialized MLS state and its leaf
+    private keys, written as plain files by the MLS library. Your history is
+    encrypted under your passphrase; your group keys are not, so at-rest
+    protection does not extend to them.
 - **Verification matters.** First-contact impersonation is defeated by
   comparing key fingerprints ("safety numbers") out of band — actually do it.
 

@@ -9,7 +9,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // Voice/video is a browser-to-browser WebRTC mesh. Go's only jobs are:

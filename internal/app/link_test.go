@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/identity"
-	"github.com/zahak/concord/internal/link"
+	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/link"
 )
 
 // buildIssuerResponse mirrors what handleLinkRequest produces, without needing a

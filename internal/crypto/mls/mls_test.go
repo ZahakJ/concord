@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // engineForNewMember builds an MLS engine whose credential is a fresh Concord

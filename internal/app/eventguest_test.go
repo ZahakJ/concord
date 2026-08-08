@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // These tests pin the guest-opened-event contract: opening mints a knock-gated

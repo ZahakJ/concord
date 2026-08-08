@@ -8,7 +8,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // govstate.go is the pure (I/O-free) core of guild governance: the permission

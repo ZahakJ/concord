@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // Search had no test of its own: the only ones that exercised it lived in

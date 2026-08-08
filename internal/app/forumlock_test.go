@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // Closing a post has to hold on BOTH sides. Refusing only to send makes it a

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"testing"
 
-	appsvc "github.com/zahak/concord/internal/app"
+	appsvc "github.com/ZahakJ/concord/internal/app"
 )
 
 // armSigning gives the build under test a real embedded key, since most peer

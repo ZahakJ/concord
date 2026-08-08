@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // TestEventICSFixture pins the exact bytes of an export: CRLF line endings,

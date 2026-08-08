@@ -5,8 +5,8 @@
 // — WebRTC media actually flowing both ways, screen shares decoding on the far
 // side. Run it via scripts/smoke-guest.sh, which builds and launches everything
 // and feeds this driver its environment.
-import fs from "node:fs";
 import path from "node:path";
+import { loadChromium } from "./playwright.mjs";
 
 const need = (name) => {
   const v = process.env[name];
@@ -23,22 +23,7 @@ const PASSPHRASE = need("PASSPHRASE");
 const OUT_DIR = process.env.OUT_DIR || ".";
 const CHROMIUM = process.env.CHROMIUM || "/usr/bin/chromium";
 
-// playwright-core is deliberately NOT a project dependency (the app has no JS
-// test deps beyond vite); the harness borrows an install from wherever the
-// developer keeps one.
-let pwPath =
-  process.env.PLAYWRIGHT_CORE ||
-  "/tmp/claude-1000/-home-avicenna-Documents-side-concord/8fb499ff-d55a-41c7-9317-4b8b6c3d03ea/scratchpad/node_modules/playwright-core/index.mjs";
-if (fs.existsSync(pwPath) && fs.statSync(pwPath).isDirectory()) {
-  pwPath = path.join(pwPath, "index.mjs");
-}
-if (!fs.existsSync(pwPath)) {
-  console.error(
-    "FAIL: playwright-core not found. Run `npm i playwright-core` somewhere and set PLAYWRIGHT_CORE=<that dir>/node_modules/playwright-core (or its index.mjs).",
-  );
-  process.exit(1);
-}
-const { chromium } = await import(pwPath);
+const chromium = await loadChromium();
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 23), ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

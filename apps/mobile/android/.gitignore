@@ -6,6 +6,11 @@
 *.ap_
 *.aab
 
+# `gomobile bind` writes concord-sources.jar beside concord.aar; it is build
+# output like the .aar, not a checked-in dependency. `make android-core`
+# regenerates both.
+*-sources.jar
+
 # Files for the ART/Dalvik VM
 *.dex
 

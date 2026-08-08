@@ -7,12 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	cnet "github.com/zahak/concord/internal/net"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // The proxy is the only part of the rendezvous that makes outbound requests on
@@ -617,6 +618,43 @@ func TestGifProxyRateLimits(t *testing.T) {
 	// The bucket is per peer: one greedy client must not lock everyone out.
 	if got := ask(t, p, "polite", cnet.GifRequest{Op: "search", Query: "cat"}).Status; got != cnet.GifStatusOK {
 		t.Fatalf("a different peer got %q — the limiter is not per peer", got)
+	}
+}
+
+// TestGifProxyGlobalSearchCeiling: the per-peer bucket above is keyed on a
+// libp2p peer id, and a peer id is a keypair — a millisecond of work. An
+// attacker who never reuses one is handed a fresh full burst every request, so
+// the per-peer limit is a limit they simply opt out of, and the operator's API
+// quota is what pays. The ceiling that catches this is keyed on nothing at all.
+func TestGifProxyGlobalSearchCeiling(t *testing.T) {
+	srv := fakeGiphy(t, []byte("GIF89a"))
+	p := newTestProxy(t, "giphy", "test-key", srv.URL)
+
+	served, limited := 0, false
+	for i := 0; i < int(gifGlobalSearchBurst)+40; i++ {
+		// A never-repeated identity, which is exactly what the evasion costs.
+		from := peer.ID("throwaway-" + strconv.Itoa(i))
+		if ask(t, p, from, cnet.GifRequest{Op: "search", Query: "cat"}).Status == cnet.GifStatusRateLimited {
+			limited = true
+			break
+		}
+		served++
+	}
+	if !limited {
+		t.Fatalf("%d searches from %d never-repeated identities were all served — "+
+			"the limit is still keyed on peer id", served, served)
+	}
+	// The ceiling must not be so tight that it fires before the per-peer buckets
+	// do; a guild all searching at once after someone drops a link is honest.
+	if served < int(gifSearchBurst) {
+		t.Fatalf("the global ceiling fired after only %d searches, inside a single "+
+			"peer's own burst of %d", served, int(gifSearchBurst))
+	}
+	// It bites searches, which spend quota — not the rest. A client must still
+	// be able to ask whether the feature exists, or it cannot tell a busy node
+	// from one that was never configured.
+	if got := ask(t, p, "somebody", cnet.GifRequest{Op: "status"}).Status; got != cnet.GifStatusOK {
+		t.Fatalf("status op returned %q while the search ceiling was spent", got)
 	}
 }
 

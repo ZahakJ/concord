@@ -20,7 +20,7 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/multiformats/go-multiaddr"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // relayRendezvous runs a DHT+relay node the way cmd/rendezvous does, on loopback.

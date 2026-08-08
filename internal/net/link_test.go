@@ -7,7 +7,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/network"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // libp2p reporting a peer as Connected does not mean the connection works. A

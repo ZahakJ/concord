@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // govern.go is the service-level wiring for guild governance: it turns the pure

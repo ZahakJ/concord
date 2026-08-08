@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	appsvc "github.com/zahak/concord/internal/app"
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
-	"github.com/zahak/concord/internal/version"
+	appsvc "github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/version"
 )
 
 // bridge is the transport-agnostic API surface the UI drives. It wraps Concord's

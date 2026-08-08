@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 // TestThreeNodeGuildE2EE is the Phase 2 acceptance test: three independent

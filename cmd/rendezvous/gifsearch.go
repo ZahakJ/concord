@@ -21,7 +21,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 
-	cnet "github.com/zahak/concord/internal/net"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // The GIF-search proxy.
@@ -82,6 +82,24 @@ const (
 	// using this node as a general-purpose downloader.
 	gifMediaRate  = 4.0
 	gifMediaBurst = 60.0
+
+	// The identity-INDEPENDENT ceiling, and the one that actually bounds the
+	// operator's bill.
+	//
+	// The buckets above are keyed on libp2p peer id. A peer id is a keypair, and
+	// a keypair costs a millisecond to generate: a script that makes a fresh
+	// identity per search is handed a fresh full burst every time, so per-peer
+	// limits alone bound nothing at all. There is no fix for that at the
+	// identity layer — this node deliberately has no idea who is a member, since
+	// guilds are end-to-end encrypted and it is in none of them.
+	//
+	// So the second dimension is keyed on nothing. It is the operator's API
+	// quota, spent at one rate no matter how many identities spend it. The
+	// sustained rate is the hourly ceiling; the burst lets a whole guild search
+	// at once after someone drops a link, which is the busiest honest minute
+	// this node ever has.
+	gifGlobalSearchRate  = 600.0 / 3600 // 600 searches/hour across ALL peers
+	gifGlobalSearchBurst = 120.0
 
 	// gifUpstreamTimeout bounds one outbound HTTPS exchange. It must leave room
 	// inside the peer's stream deadline (30s) for the reply to be written back.
@@ -455,6 +473,9 @@ type gifProxy struct {
 
 	mu      sync.Mutex
 	buckets map[peer.ID]*gifBuckets
+	// globalSearch is the whole node's search allowance, drawn on by every peer
+	// together. See gifGlobalSearchRate.
+	globalSearch gifBucket
 }
 
 type gifBuckets struct {
@@ -677,9 +698,17 @@ func (p *gifProxy) allow(id peer.ID, media bool) bool {
 		p.buckets[id] = b
 	}
 	if media {
+		// No global ceiling on media: a media handle can only be obtained from a
+		// search reply this node minted, so the search ceiling below already
+		// bounds how many of them can exist.
 		return b.media.take(gifMediaRate, gifMediaBurst)
 	}
-	return b.search.take(gifSearchRate, gifSearchBurst)
+	if !b.search.take(gifSearchRate, gifSearchBurst) {
+		return false
+	}
+	// Drawn only AFTER the per-peer bucket agreed, so one loud peer cannot spend
+	// the node's whole allowance on requests it was going to be refused anyway.
+	return p.globalSearch.take(gifGlobalSearchRate, gifGlobalSearchBurst)
 }
 
 // allowURL is the SSRF gate: the only addresses this node will ever fetch.

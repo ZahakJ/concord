@@ -7,9 +7,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/zahak/concord/internal/app"
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // runREPL is a minimal line-oriented console for driving a Service from the

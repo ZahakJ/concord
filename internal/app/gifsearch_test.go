@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	cnet "github.com/zahak/concord/internal/net"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // The client half is tested against a fake proxy rather than a real rendezvous,

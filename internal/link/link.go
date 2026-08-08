@@ -24,7 +24,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zahak/concord/internal/compactcode"
+	"github.com/ZahakJ/concord/internal/compactcode"
 )
 
 // Protocol is the libp2p stream protocol ID for device linking.

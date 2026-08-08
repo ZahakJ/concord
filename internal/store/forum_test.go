@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/domain"
 )
 
 func TestChannelForumMetadataRoundTrip(t *testing.T) {

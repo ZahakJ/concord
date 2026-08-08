@@ -33,8 +33,8 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/multiformats/go-multiaddr"
 
-	"github.com/zahak/concord/internal/mailbox"
-	cnet "github.com/zahak/concord/internal/net"
+	"github.com/ZahakJ/concord/internal/mailbox"
+	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
 // productionRendezvous is testRendezvous with the pieces that matter for a

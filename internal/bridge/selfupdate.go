@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zahak/concord/internal/version"
+	"github.com/ZahakJ/concord/internal/version"
 )
 
 // Full self-update: download the matching release binary, verify it against

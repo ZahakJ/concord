@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/zahak/concord/internal/domain"
-	"github.com/zahak/concord/internal/store"
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // Background mode (phones). Measured on Android with the app backgrounded and

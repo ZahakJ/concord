@@ -1,4 +1,4 @@
-module github.com/zahak/concord
+module github.com/ZahakJ/concord
 
 go 1.26.3
 

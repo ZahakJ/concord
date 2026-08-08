@@ -4,8 +4,8 @@
 // this does not read the guest's UI to decide: it wraps WebSocket in the page
 // before the page's own script runs and asserts on the exact frames received.
 // A spinner proves nothing; an empty frame log does.
-import fs from "node:fs";
 import path from "node:path";
+import { loadChromium } from "./playwright.mjs";
 
 const need = (n) => {
   const v = process.env[n];
@@ -18,10 +18,7 @@ const OUT_DIR = process.env.OUT_DIR || ".";
 const CHROMIUM = process.env.CHROMIUM || "/usr/bin/chromium";
 const PASSPHRASE = "verify-guest-pass";
 
-let pwPath = process.env.PLAYWRIGHT_CORE ||
-  "/tmp/claude-1000/-home-avicenna-Documents-side-concord/8fb499ff-d55a-41c7-9317-4b8b6c3d03ea/scratchpad/node_modules/playwright-core/index.mjs";
-if (fs.existsSync(pwPath) && fs.statSync(pwPath).isDirectory()) pwPath = path.join(pwPath, "index.mjs");
-const { chromium } = await import(pwPath);
+const chromium = await loadChromium();
 
 const log = (...a) => console.log(new Date().toISOString().slice(11, 23), ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
