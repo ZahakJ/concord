@@ -38,4 +38,17 @@ func TestReachabilityReportsMeasuredState(t *testing.T) {
 	if r.PublicDHT {
 		t.Error("public DHT is opt-in and was never opted into")
 	}
+	// Reachable is exactly "some public family is present". The values themselves
+	// depend on the machine running the test — a CI box behind NAT reports
+	// neither, a developer's laptop on an IPv6-enabled ISP reports v6 — so the
+	// invariant is what gets pinned, not the answer.
+	if r.Reachable != (r.PublicIPv4 || r.PublicIPv6) {
+		t.Errorf("Reachable=%v but PublicIPv4=%v PublicIPv6=%v; the verdict and its reason disagree",
+			r.Reachable, r.PublicIPv4, r.PublicIPv6)
+	}
+	// The UI downgrades its claim when only IPv6 is present, so a v6-only node
+	// must never be indistinguishable from a v4 one.
+	if r.PublicIPv6 && !r.PublicIPv4 {
+		t.Log("this host is IPv6-only-public: the panel must say so rather than claim plain reachability")
+	}
 }

@@ -1248,6 +1248,14 @@ type ReachStatus struct {
 	// verdict, which means the probe never runs and its answer would be a
 	// constant.
 	Reachable bool `json:"reachable"`
+	// PublicIPv4 / PublicIPv6 say which address family made Reachable true, and
+	// they are not interchangeable. A public IPv4 address means this machine is
+	// not behind NAT. A public IPv6 address is what nearly every home router now
+	// hands out while still dropping unsolicited inbound traffic to it, and it is
+	// unusable by a friend on an IPv4-only network — so "reachable over IPv6
+	// only" is a much weaker claim than "reachable", and the UI states it as one.
+	PublicIPv4 bool `json:"publicIPv4"`
+	PublicIPv6 bool `json:"publicIPv6"`
 	// HasRendezvous: at least one rendezvous address is configured;
 	// RendezvousReached: one of them is answering right now.
 	HasRendezvous     bool `json:"hasRendezvous"`
@@ -1271,8 +1279,11 @@ type ReachStatus struct {
 // plaintext connection config, and touches the network not at all.
 func (s *Service) Reachability() ReachStatus {
 	cfg := LoadNetConfig(s.dataDir)
+	v4, v6 := s.host.PublicAddrFamilies()
 	return ReachStatus{
-		Reachable:         s.host.DirectlyReachable(),
+		Reachable:         v4 || v6,
+		PublicIPv4:        v4,
+		PublicIPv6:        v6,
 		HasRendezvous:     len(s.bootstrapPeers()) > 0,
 		RendezvousReached: len(s.mailboxNodes()) > 0,
 		PinnedPort:        cfg.ListenPort,

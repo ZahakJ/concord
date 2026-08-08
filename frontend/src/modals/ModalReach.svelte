@@ -55,19 +55,35 @@
   // The five situations, in the order the node rules them out. Direct
   // reachability wins outright; after that it comes down to whether anything is
   // willing to introduce you, and mDNS is the last thing left.
+  // IPv6-only reachability is deliberately NOT folded into "direct". The node
+  // reports a routable address, not a working one — nothing probes inbound — and
+  // for IPv6 the gap between those two is where most users live: home routers
+  // hand out a global address and drop unsolicited inbound traffic to it, and a
+  // friend on an IPv4-only network cannot dial it whatever the router does.
+  // Saying "you're reachable" there is the one answer this panel exists to avoid.
   const verdict = $derived.by(() => {
     if (!r) return null;
-    if (r.reachable) return "direct";
+    if (r.reachable) return r.publicIPv4 ? "direct" : "directV6";
     if (r.hasRendezvous) return r.rendezvousReached ? "relayed" : "relayDown";
     return r.lanDiscovery ? "lanOnly" : "stuck";
   });
+
+  // Reachable on a port that changes every launch: the address inside codes you
+  // already handed out is stale the moment Concord restarts.
+  const portDrifts = $derived(!!r && r.reachable && !r.pinnedPort);
 
   const said = {
     direct: {
       tone: "ok",
       icon: "check",
       head: "People can reach you directly.",
-      body: "This computer answers on an address the rest of the internet can dial, so anyone you invite connects straight to you with nothing in between.",
+      body: "This computer holds a public address of its own rather than sitting behind your router, so anyone you invite connects straight to you with nothing in between. A firewall on this machine could still refuse the port, which is the one thing left that would stop it.",
+    },
+    directV6: {
+      tone: "ok",
+      icon: "check",
+      head: "Some people can reach you directly, over IPv6.",
+      body: "Your only public address is an IPv6 one, and two things outside Concord decide whether it works: your router has to allow incoming connections to it, and most block them by default; and your friend's network has to speak IPv6 at all, which many still do not.",
     },
     relayed: {
       tone: "ok",
@@ -102,9 +118,16 @@
   );
   const portSub = $derived.by(() => {
     if (!r) return "";
-    if (!r.pinnedPort) return "No fixed port — Concord takes a new one each start";
+    if (!r.pinnedPort) {
+      // "Concord takes a new one each start" was true and said nothing about
+      // what it costs. What it costs is that issued invite codes go stale.
+      return r.reachable
+        ? "No fixed port — invite codes you hand out go stale when Concord restarts"
+        : "No fixed port — Concord takes a new one each start";
+    }
     if (r.pinnedPortTaken) return `Port ${r.pinnedPort} was already in use at startup`;
-    return r.reachable ? `Port ${r.pinnedPort}, and people are reaching you` : `Port ${r.pinnedPort} pinned`;
+    // Deliberately not "people are reaching you": nothing here measured that.
+    return r.reachable ? `Port ${r.pinnedPort}, and it stays put across restarts` : `Port ${r.pinnedPort} pinned`;
   });
   const rvSub = $derived(
     !r
@@ -128,17 +151,45 @@
       <div class="say">
         <strong>{now.head}</strong>
         <p>{now.body}</p>
+        {#if verdict === "directV6"}
+          <p>
+            {#if r.hasRendezvous}
+              When either of those fails your rendezvous introduces you instead, so treat IPv6 as
+              a bonus route rather than the one to count on.
+            {:else}
+              Nothing else is set up to introduce you, so anyone whose router or network cannot
+              use IPv6 will not reach you at all. A rendezvous covers them.
+            {/if}
+          </p>
+        {/if}
         {#if verdict === "relayDown"}
           <button class="act" disabled={busy} onclick={reconnect}>
             {busy ? "Trying…" : "Try reconnecting"}
           </button>
-        {:else if verdict === "lanOnly" || verdict === "stuck"}
+        {:else if verdict === "lanOnly" || verdict === "stuck" || (verdict === "directV6" && !r.hasRendezvous)}
           <button class="act" onclick={openConnection}>Set a rendezvous address</button>
+        {:else if portDrifts}
+          <button class="act" onclick={openConnection}>Pin a port</button>
         {:else}
           <span class="quiet">Nothing to do.</span>
         {/if}
       </div>
     </div>
+
+    {#if portDrifts}
+      <p class="lead warn">
+        You are reachable on a port Concord picked at random this launch, and it will pick a
+        different one next time. Every invite code you have already handed out carries the old
+        one, so the direct route in those codes stops working the moment you restart.
+        {#if r.hasRendezvous}
+          Friends fall back to your rendezvous, which still gets them in — just the slower way.
+        {:else}
+          With no rendezvous set there is nothing to fall back to, so those codes stop working
+          entirely.
+        {/if}
+        Pinning a port keeps the codes you give out valid.
+      </p>
+    {/if}
 
     {#if r.pinnedPortTaken}
       <p class="lead warn">

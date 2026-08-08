@@ -251,11 +251,41 @@ func (n *Host) syncRelayService() {
 // a forwarded port and configured no rendezvous would have reported itself
 // unreachable while strangers were dialling it.
 func (n *Host) DirectlyReachable() bool {
+	v4, v6 := n.PublicAddrFamilies()
+	return v4 || v6
+}
+
+// PublicAddrFamilies reports which internet-routable address families this node
+// listens on. Split out from DirectlyReachable because the two answers promise
+// very different things and only one of them is close to a guarantee.
+//
+// A public IPv4 address means this machine is not behind NAT at all, so an
+// inbound connection arrives unless a firewall on the machine itself refuses it.
+//
+// A public IPv6 address means far less. Consumer routers hand every device a
+// globally routable IPv6 address and then drop unsolicited inbound packets to it
+// by default, so the address is routable in principle and unreachable in
+// practice; and even where the router allows it, a friend whose network is
+// IPv4-only cannot dial an IPv6 address at all. Callers that want to tell a user
+// "people can reach you" must not treat the two as the same finding.
+//
+// Neither answer is a measurement of inbound connectivity — nothing here probes
+// from outside. See ReachStatus.Reachable for why AutoNAT cannot supply that.
+func (n *Host) PublicAddrFamilies() (v4, v6 bool) {
 	listen, err := n.h.Network().InterfaceListenAddresses()
 	if err != nil {
-		return false
+		return false, false
 	}
-	return len(publicAddrs(listen)) > 0
+	for _, a := range publicAddrs(listen) {
+		if _, err := a.ValueForProtocol(multiaddr.P_IP4); err == nil {
+			v4 = true
+			continue
+		}
+		if _, err := a.ValueForProtocol(multiaddr.P_IP6); err == nil {
+			v6 = true
+		}
+	}
+	return v4, v6
 }
 
 // memberACL admits reservations and circuits only from peers tagged by
