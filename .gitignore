@@ -30,3 +30,9 @@ frontend/public/twemoji/
 # docs, so they stay tracked.
 /.claude/*
 !/.claude/skills/
+
+# Bundled meme templates: third-party images with real rightsholders (see
+# frontend/public/memes/README.md). Kept out of the repo so nothing here
+# redistributes them; drop your own pack in this directory and the editor
+# picks it up at runtime.
+frontend/public/memes/
