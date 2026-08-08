@@ -36,6 +36,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with: { go-version-file: go.mod }
+      # The binary embeds frontend/dist (see main_web.go), and dist is a build
+      # artifact rather than a tracked directory, so Go cannot compile at all
+      # until the frontend has been built once. This job is separate from the
+      # frontend one and starts from a clean checkout, so it has to build it
+      # here or `go build ./...` fails on the embed with no matching files.
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: cd frontend && npm ci && npm run build
       - run: go build ./...
       - run: go vet ./...
       - name: Tests (race detector)
