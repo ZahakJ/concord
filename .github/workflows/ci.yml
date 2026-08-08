@@ -13,6 +13,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 4 * * *" # nightly, for the integration job below
   workflow_dispatch:
 
 jobs:
@@ -46,12 +48,30 @@ jobs:
       - run: cd frontend && npm ci && npm run build
       - run: go build ./...
       - run: go vet ./...
-      # -p 1 runs one package at a time. Several tests here stand up real
-      # libp2p nodes and wait on them with deadlines in the tens of seconds;
-      # with packages running concurrently under the race detector they lose
-      # the CPU long enough to blow those deadlines and fail for reasons that
-      # have nothing to do with the change under test. Serialising costs a
-      # couple of minutes of wall clock and buys a green build that means
-      # something.
+      # -short skips the 84 tests that stand up real libp2p nodes and wait on
+      # message propagation with deadlines in the tens of seconds. Those are
+      # worth running, but not as the gate on a pull request: under the race
+      # detector on a shared runner they miss their deadlines often enough that
+      # a red build would stop meaning anything, and a gate people learn to
+      # ignore is worse than no gate. This leaves 130 tests covering the pure
+      # logic, in under a minute, deterministically. The full suite runs in the
+      # integration job below.
       - name: Tests (race detector)
-        run: go test -race -p 1 ./...
+        run: go test -race -short ./...
+
+  # The network integration suite: every test the gate above skips. Scheduled
+  # rather than blocking, because it drives multi-node message propagation and
+  # is inherently timing-sensitive. -p 1 keeps packages from competing for the
+  # CPU, which is most of the difference between it passing and not.
+  integration:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: cd frontend && npm ci && npm run build
+      - name: Full suite (race detector, serialised)
+        run: go test -race -p 1 -timeout 30m ./...
