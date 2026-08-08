@@ -55,7 +55,7 @@ why.
 ## Install
 
 Downloads are on the [releases
-page](https://github.com/ZahakJ/concord-dist/releases):
+page](https://github.com/ZahakJ/concord/releases):
 
 - **Web build**: one self-contained file per OS. Run it and your browser opens
   on the app. No dependencies, no installer, no admin rights.

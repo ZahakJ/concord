@@ -12,7 +12,7 @@
 
   let { code, guestLink = "", guildId = "", expires = 0, onClose } = $props();
 
-  const DOWNLOAD = "https://github.com/ZahakJ/concord-dist/releases/latest";
+  const DOWNLOAD = "https://github.com/ZahakJ/concord/releases/latest";
 
   // How long the link works. The room dies with it — one lifetime, not two
   // things to reason about — so the label says so out loud. These MIRROR

@@ -76,8 +76,8 @@ collect. Nearly every connection the app makes is to your peers or to whatever
 rendezvous node you configure — but *nearly* is not *only*, and there are
 exactly two exceptions. Naming them is the point of this section.
 
-- **`api.github.com`, once at launch.** The app asks the public release repo
-  (`ZahakJ/concord-dist`) for its latest release tag so it can tell you an
+- **`api.github.com`, once at launch.** The app asks the project's own repo
+  (`ZahakJ/concord`) for its latest release tag so it can tell you an
   update exists. It is unauthenticated, sends no identifier beyond what any
   HTTP request carries — your IP and a `concord-updater` user agent — and any
   error is a silent no-op. Builds without a release version stamp (i.e. built

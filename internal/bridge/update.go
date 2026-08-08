@@ -12,12 +12,11 @@ import (
 	"github.com/ZahakJ/concord/internal/version"
 )
 
-// updateRepo is the PUBLIC distribution repo — it holds only release binaries,
-// no source. The app polls its "latest release" UNAUTHENTICATED at startup;
-// GitHub's 60 req/hr/IP unauthenticated budget is ample for a launch-time check.
-// Keeping this separate from the (private) source repo means no token is ever
-// embedded in the shipped binary.
-const updateRepo = "ZahakJ/concord-dist"
+// updateRepo is where releases are published. The app polls its "latest
+// release" UNAUTHENTICATED at startup; GitHub's 60 req/hr/IP unauthenticated
+// budget is ample for a launch-time check, and an unauthenticated poll means no
+// token is ever embedded in a shipped binary.
+const updateRepo = "ZahakJ/concord"
 
 // NativeBuild is set by the Wails desktop main. A native build must never be
 // offered the zero-dep WEB binary as its update — that silently "upgrades" a
