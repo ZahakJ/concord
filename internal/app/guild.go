@@ -241,7 +241,7 @@ func (s *Service) Guilds() []domain.Guild {
 		if s.hiddenDMs[id] {
 			continue
 		}
-		out = append(out, *g)
+		out = append(out, g.Clone())
 	}
 	return out
 }
@@ -337,7 +337,7 @@ func (s *Service) RenameGuild(guildID, name string) error {
 	}
 	g.Name = name
 	groupID := g.GroupID
-	guildCopy := *g
+	guildCopy := g.Clone()
 	s.mu.Unlock()
 
 	_ = s.store.SaveGuild(guildCopy)
@@ -396,7 +396,7 @@ func (s *Service) SetGuildProfile(guildID, name, icon, banner, description strin
 	}
 	g.Icon, g.Banner, g.Description = icon, banner, description
 	groupID := g.GroupID
-	guildCopy := *g
+	guildCopy := g.Clone()
 	s.mu.Unlock()
 
 	_ = s.store.SaveGuild(guildCopy)
@@ -1990,7 +1990,7 @@ func (s *Service) SetChannelLinks(guildID, channelID string, links []string) err
 			updated = g.Channels[i]
 		}
 	}
-	gc := *g
+	gc := g.Clone()
 	s.mu.Unlock()
 	if updated.ID == "" {
 		return fmt.Errorf("app: unknown channel")
@@ -2121,7 +2121,7 @@ func (s *Service) addChannel(guildID string, ch domain.Channel) {
 	g.Channels = append(g.Channels, ch)
 	s.channelToGuild[ch.ID] = guildID
 	groupID := g.GroupID
-	guildCopy := *g
+	guildCopy := g.Clone()
 	s.mu.Unlock()
 
 	_ = s.store.SaveGuild(guildCopy)
@@ -2263,7 +2263,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 					g.Channels[i].Links = m.Channel.Links
 				}
 			}
-			gc = *g
+			gc = g.Clone()
 		}
 		s.mu.Unlock()
 		if gc.ID != "" {
@@ -2361,7 +2361,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		s.mu.Lock()
 		if g, ok := s.guilds[guildID]; ok {
 			g.Name = m.Name
-			gc := *g
+			gc := g.Clone()
 			s.mu.Unlock()
 			_ = s.store.SaveGuild(gc)
 		} else {
@@ -2411,7 +2411,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 				g.Name = m.Name
 			}
 			g.Icon, g.Banner, g.Description = m.GuildIcon, m.GuildBanner, m.GuildDescription
-			gc := *g
+			gc := g.Clone()
 			s.mu.Unlock()
 			_ = s.store.SaveGuild(gc)
 		} else {
