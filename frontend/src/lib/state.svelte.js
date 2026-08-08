@@ -1898,6 +1898,20 @@ function initEvents() {
     // whole message on every edit/reaction/pin and on sync backfill, all reusing
     // the original id + `sent`. Deduping by id is what keeps those from inflating
     // unread counts and re-firing chimes/notifications.
+    // Keep the conversation's recency current. lastActivity is computed by the
+    // backend when guilds are fetched, so without this the DM list stays in
+    // whatever order the last refresh produced: a DM that just received a
+    // message did not move to the top until something else happened to
+    // re-fetch. Bumping it here is what makes "most recent first" true while
+    // you are sitting there watching it. Stored in UnixNano to match what the
+    // backend sends.
+    const arrivedAt = m.sent ? new Date(m.sent).getTime() * 1e6 : Date.now() * 1e6;
+    const owner = S.guilds.find((g) => g.channels.some((c) => c.id === m.channelId));
+    if (owner && arrivedAt > (owner.lastActivity || 0)) {
+      owner.lastActivity = arrivedAt;
+      S.guilds = [...S.guilds]; // reassign so dmList()'s sort re-runs
+    }
+
     const firstSeen = !!m.id && !countedMsgIds.has(m.id);
     if (m.id) {
       countedMsgIds.add(m.id);
