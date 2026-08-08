@@ -6,10 +6,10 @@ vulnerability reports, and either can cut a release.
 | GitHub | Role |
 |---|---|
 | [@ZahakJ](https://github.com/ZahakJ) | Wrote the tree. Project lead: the tie-break on design, protocol and releases. |
-| `TODO: @second-maintainer-handle` | `TODO: fill in when the handle is known` |
+| [@zyads](https://github.com/zyads) | Maintainer. Review, triage, and a second pair of eyes on protocol and crypto changes. |
 
-The second row is a placeholder. Replace it, and the matching handle in
-[`.github/CODEOWNERS`](.github/CODEOWNERS), before pointing anyone at this file.
+Both maintainers can merge. [`.github/CODEOWNERS`](.github/CODEOWNERS) requests
+review from both on every pull request.
 
 ## Areas
 

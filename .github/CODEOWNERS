@@ -8,8 +8,8 @@
 # MAINTAINERS.md says which changes need BOTH approvals rather than one. GitHub
 # cannot express that, so it stays a rule we keep, not one that is enforced.
 #
-# The second handle below is a placeholder. GitHub reports a CODEOWNERS rule
-# naming an account it cannot resolve as an error and applies nothing from that
-# line, so review requests stay manual until it is replaced.
+# Both maintainers are requested on every pull request. A CODEOWNERS rule that
+# names an account GitHub cannot resolve is treated as an error and applies
+# nothing, so keep these handles correct.
 
-*   @ZahakJ @TODO-SECOND-MAINTAINER-HANDLE
+*   @ZahakJ @zyads
