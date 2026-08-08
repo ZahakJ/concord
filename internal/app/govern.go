@@ -98,7 +98,7 @@ func (s *Service) isBanned(guildID, fingerprint string) bool {
 // ingestGovOp validates and records a governance op (from any source: local
 // action, gossip, or sync). Dedupes by content hash, persists, appends, refolds
 // state, refreshes the UI. Returns true if the op was new.
-func (s *Service) ingestGovOp(guildID string, o govOp) bool {
+func (s *Service) ingestGovOp(guildID string, o govOp, live bool) bool {
 	if !o.verifySig() {
 		return false
 	}
@@ -124,6 +124,31 @@ func (s *Service) ingestGovOp(guildID string, o govOp) bool {
 	}
 	hash := o.hash()
 	s.mu.Lock()
+	// BACKDATING GUARD (live path only).
+	//
+	// replayGuildOps folds the log in Seq order, and Seq is a plain signed
+	// field: its author picks it. So a member who LOST authority could sign a
+	// new op carrying a Seq from before they lost it, and replay would fold it
+	// while they still had the power to issue it. Concretely, a former owner
+	// could backdate a ban on the member they handed the guild to — which then
+	// makes the real transfer_owner skip its banned target — or backdate a
+	// set_heir/claim_heir pair, and either way take the guild back for good.
+	//
+	// A signer's own ops only ever move forward, so an op arriving LIVE that
+	// claims a Seq at or below one we already hold from that same signer is
+	// backdated by construction. Refuse it.
+	//
+	// Only the live path: a sync backfill legitimately replays a signer's older
+	// ops out of order, and rejecting those would fork our log from the peer we
+	// are catching up with. The bound this leaves is narrow and worth stating —
+	// a peer that has not yet seen the transfer has nothing newer from that
+	// signer to compare against, so it can still accept the forgery until it
+	// syncs. Closing that needs ops to commit to the log head they were built
+	// on, which is a protocol change, not a check (see docs/DESIGN.md).
+	if live && o.Seq <= s.highestSeqBySignerLocked(guildID, o.signerFpr()) {
+		s.mu.Unlock()
+		return false
+	}
 	if s.govHashes[guildID] == nil {
 		s.govHashes[guildID] = map[string]bool{}
 	}
@@ -140,6 +165,18 @@ func (s *Service) ingestGovOp(guildID string, o govOp) bool {
 	_ = s.store.SaveGuildOp(guildID, hash, raw)
 	s.emitGuildUpdate()
 	return true
+}
+
+// highestSeqBySignerLocked is the highest Seq we already hold from one signer
+// in a guild. Callers hold s.mu.
+func (s *Service) highestSeqBySignerLocked(guildID, signerFpr string) uint64 {
+	var max uint64
+	for _, o := range s.govOps[guildID] {
+		if o.Seq > max && o.signerFpr() == signerFpr {
+			max = o.Seq
+		}
+	}
+	return max
 }
 
 // nextGovSeq returns one past the highest op seq known for the guild.
@@ -164,7 +201,7 @@ func (s *Service) issueGovOp(guildID string, o govOp) error {
 	o.Time = time.Now().UnixNano()
 	o.Sig = s.id.Sign(o.signingBytes())
 
-	if !s.ingestGovOp(guildID, o) {
+	if !s.ingestGovOp(guildID, o, true) {
 		return fmt.Errorf("app: governance op rejected locally")
 	}
 	s.mu.RLock()
@@ -565,7 +602,7 @@ func (s *Service) ingestGovOpsRaw(guildID string, raws []json.RawMessage) {
 	for _, raw := range raws {
 		var o govOp
 		if json.Unmarshal(raw, &o) == nil {
-			s.ingestGovOp(guildID, o)
+			s.ingestGovOp(guildID, o, false)
 		}
 	}
 }

@@ -103,13 +103,28 @@ func TestTransferOwnerSelfAndBannedTargetIgnored(t *testing.T) {
 	founderFpr := identity.FingerprintOf(founder.PublicKey())
 	outcastFpr := identity.FingerprintOf(outcast.PublicKey())
 
+	// A self-transfer is a no-op, not a state change.
 	st := replayGuildOps(founder.PublicKey(), []govOp{
-		transferOp(founder, 1, founderFpr), // self-transfer: a no-op, not a change
-		banOp(founder, 2, "ban", outcastFpr),
-		transferOp(founder, 3, outcastFpr), // a banned fingerprint can't take the crown
+		transferOp(founder, 1, founderFpr),
 	})
 	if st.Owner() != founderFpr {
-		t.Fatalf("owner = %q, want %q — self/banned transfers must not move ownership", st.Owner(), founderFpr)
+		t.Fatalf("owner = %q, want %q — a self-transfer must not move ownership", st.Owner(), founderFpr)
+	}
+
+	// Handing the crown to someone currently banned SUCCEEDS and lifts the ban.
+	// The owner holds unban already, so naming them owner is an unambiguous
+	// readmission — and the previous rule (ban vetoes transfer) was an attacker
+	// lever: a ban folded in ahead of the transfer made the transfer skip,
+	// leaving the outgoing owner in place. See TestDethronedOwnerCannotRetakeGuild.
+	st = replayGuildOps(founder.PublicKey(), []govOp{
+		banOp(founder, 2, "ban", outcastFpr),
+		transferOp(founder, 3, outcastFpr),
+	})
+	if st.Owner() != outcastFpr {
+		t.Fatalf("owner = %q, want %q — a transfer readmits its target", st.Owner(), outcastFpr)
+	}
+	if st.Banned[outcastFpr] {
+		t.Fatal("the new owner must not still be banned")
 	}
 }
 
@@ -228,7 +243,7 @@ func TestTransferOwnershipLive(t *testing.T) {
 	// membership gate passes — only the replay owner-chain check stops it).
 	grab := govOp{Seq: 99, Signer: c.PublicKey(), Type: "transfer_owner", Target: c.Fingerprint(), Time: time.Now().UnixNano()}
 	grab.Sig = c.id.Sign(grab.signingBytes())
-	a.ingestGovOp(g.ID, grab)
+	a.ingestGovOp(g.ID, grab, true)
 	if !a.IsGuildOwner(g.ID, b.Fingerprint()) {
 		t.Fatal("a non-owner's hand-crafted transfer op must be ignored on replay")
 	}

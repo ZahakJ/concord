@@ -9,7 +9,9 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"mime"
@@ -38,9 +40,31 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// Loopback is NOT a trust boundary. Every process on this machine can reach
+	// 127.0.0.1, and this RPC surface includes RevealMnemonic — the 24 words
+	// that ARE the account. Unauthenticated, any program the user runs could
+	// have walked off with the identity, which is not a threat model a
+	// key-is-your-account app gets to ignore. So the browser build mints a
+	// bearer token exactly like the mobile shells already did, and hands it to
+	// the page through the URL it opens.
+	//
+	// CONCORD_API_TOKEN pins it instead, which is how the dev scripts and the
+	// multi-peer test harness drive the same surface (see CONTRIBUTING.md).
+	// There is deliberately no "disable auth" switch: an escape hatch that
+	// turns the lock off is the lock nobody notices is off.
+	token := os.Getenv("CONCORD_API_TOKEN")
+	if token == "" {
+		var b [32]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			fmt.Fprintln(os.Stderr, "concord: could not generate an API token:", err)
+			os.Exit(1)
+		}
+		token = hex.EncodeToString(b[:])
+	}
+
 	// Browser build: enforce the cross-origin CSRF guard (trusted=false) and
 	// stream events over SSE.
-	srv := httpapi.New(ctx, false)
+	srv := httpapi.New(ctx, false, httpapi.WithAuthToken(token))
 	srv.WireSSE()
 	defer srv.Bridge().Close()
 
@@ -58,7 +82,10 @@ func main() {
 		_ = httpSrv.Close()
 	}()
 
-	url := "http://" + addr
+	// The token rides the opened URL once; the page stores it and strips it
+	// from the address bar (frontend/src/main.js), so it does not linger in
+	// browser history or in a screenshot of the window.
+	url := "http://" + addr + "/?t=" + token
 	// Bind with a short retry: after a self-update restart the previous process
 	// may hold the port for a beat (Windows spawn-and-exit path especially).
 	var ln net.Listener
@@ -74,6 +101,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "concord:", err)
 		os.Exit(1)
 	}
+	// Print the URL WITH the token: on a headless box (CONCORD_NO_OPEN) this
+	// line is the only way in, and the terminal is already as trusted as the
+	// process itself.
 	fmt.Printf("Concord is running — %s\n", url)
 	if os.Getenv("CONCORD_NO_OPEN") == "" {
 		go openBrowser(url)

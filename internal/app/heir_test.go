@@ -312,10 +312,10 @@ func TestHeirClaimLive(t *testing.T) {
 	// the replay rules are what stop these.)
 	grab := govOp{Seq: 99, Signer: c.PublicKey(), Type: "claim_heir", Time: time.Now().UnixNano()}
 	grab.Sig = c.id.Sign(grab.signingBytes())
-	a.ingestGovOp(g.ID, grab)
+	a.ingestGovOp(g.ID, grab, true)
 	usurp := govOp{Seq: 100, Signer: c.PublicKey(), Type: "set_heir", Target: c.Fingerprint(), Time: time.Now().UnixNano()}
 	usurp.Sig = c.id.Sign(usurp.signingBytes())
-	a.ingestGovOp(g.ID, usurp)
+	a.ingestGovOp(g.ID, usurp, true)
 	if !a.IsGuildOwner(g.ID, a.Fingerprint()) || a.GuildHeir(g.ID) != b.Fingerprint() {
 		t.Fatal("C's crafted claim/set_heir must be inert on replay at an honest peer")
 	}
@@ -333,7 +333,7 @@ func TestHeirClaimLive(t *testing.T) {
 	}
 	stale := govOp{Seq: 101, Signer: b.PublicKey(), Type: "claim_heir", Time: time.Now().UnixNano()}
 	stale.Sig = b.id.Sign(stale.signingBytes())
-	a.ingestGovOp(g.ID, stale)
+	a.ingestGovOp(g.ID, stale, true)
 	if !a.IsGuildOwner(g.ID, a.Fingerprint()) {
 		t.Fatal("a crafted claim against a revoked designation must be inert on replay")
 	}

@@ -2463,7 +2463,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if len(m.GovOp) > 0 {
 			var o govOp
 			if json.Unmarshal(m.GovOp, &o) == nil {
-				s.ingestGovOp(guildID, o)
+				s.ingestGovOp(guildID, o, true)
 			}
 		}
 	}

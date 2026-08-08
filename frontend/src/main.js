@@ -10,6 +10,33 @@ import { loadAnimatedEmoji } from "./lib/markdown.js";
 // let it lose the race harmlessly — an emoji that misses it simply stays still.
 loadAnimatedEmoji();
 
+// The browser build's bearer token (main_web.go). It arrives once on the URL
+// the binary opens, then lives in localStorage so a reload — or a second tab
+// the user opens by hand — still authenticates. localStorage is the right
+// place precisely because the threat this token exists for is ANOTHER LOCAL
+// PROCESS curling 127.0.0.1, which cannot read this origin's storage.
+const TOKEN_KEY = "concord.apiToken";
+function browserToken() {
+  let token = "";
+  try {
+    const url = new URL(window.location.href);
+    token = url.searchParams.get("t") || "";
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+      // Strip it from the address bar so it stays out of history, bookmarks,
+      // and any screenshot of the window.
+      url.searchParams.delete("t");
+      history.replaceState(null, "", url.pathname + url.search + url.hash);
+    } else {
+      token = localStorage.getItem(TOKEN_KEY) || "";
+    }
+  } catch {
+    /* file:// or a locked-down storage policy: fall through unauthenticated
+       and let the API surface the 401 rather than failing silently here. */
+  }
+  return token;
+}
+
 // On mobile (Capacitor), the Go core runs in-process behind a loopback port
 // with a bearer token; the native ConcordCore plugin boots it and hands both
 // over. Desktop/browser mounts immediately — the page origin IS the API.
@@ -34,6 +61,10 @@ async function boot() {
   if (cap?.Plugins?.ConcordCore) {
     const { port, token } = await cap.Plugins.ConcordCore.start();
     configureTransport({ baseURL: `http://127.0.0.1:${port}`, authToken: token });
+  } else {
+    // Browser build: same origin, but the RPC surface now wants the token the
+    // binary handed us. Empty is tolerated so a dev server still mounts.
+    configureTransport({ baseURL: "", authToken: browserToken() });
   }
   return mount(App, { target: document.getElementById("app") });
 }

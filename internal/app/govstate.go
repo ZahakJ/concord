@@ -354,14 +354,21 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 			}
 		case "transfer_owner":
 			// Only the reigning owner abdicates — nobody else's signature moves
-			// the crown, no matter how the op reached us. A banned target can't
-			// take it (they're not a member; membership itself is enforced
+			// the crown, no matter how the op reached us. Transfer-to-self is a
+			// no-op, not a state change. (Membership of the target is enforced
 			// receive-side at ingest, because MLS membership is a moving fact
-			// while this replay must stay a pure function of the log).
-			// Transfer-to-self is a no-op, not a state change.
-			if !isOwner || o.Target == "" || o.Target == cur || st.Banned[o.Target] {
+			// while this replay must stay a pure function of the log.)
+			//
+			// A ban on the target does NOT veto the handover, and that is
+			// deliberate: the owner outranks every ban and cannot be removed,
+			// so "banned owner" is not a state this system can be in. Letting a
+			// ban block a transfer also handed an attacker a lever — a ban
+			// folded in ahead of the transfer made the transfer skip, leaving
+			// the outgoing owner in place. Naming someone owner readmits them.
+			if !isOwner || o.Target == "" || o.Target == cur {
 				continue
 			}
+			delete(st.Banned, o.Target)
 			cur = o.Target
 			// A handover voids any standing heir designation: it was the OLD
 			// owner's trust decision, and the new owner names their own.
@@ -386,6 +393,14 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 			// Only a signature from the fingerprint the live designation names
 			// counts, and a since-banned heir cannot claim. The designation is
 			// consumed — the new owner names their own heir.
+			//
+			// The ban veto STAYS here, unlike transfer_owner: "named an heir,
+			// then banned them" is an in-order revocation by the same owner and
+			// blocking the claim is the honest reading of it. The backdating
+			// attack that made the veto dangerous on transfer_owner is stopped
+			// upstream at ingest (see ingestGovOp), which is where an
+			// out-of-order op belongs — not in a rule that would also throw away
+			// a legitimate revocation.
 			if st.heir == "" || signer != st.heir || st.Banned[signer] {
 				continue
 			}

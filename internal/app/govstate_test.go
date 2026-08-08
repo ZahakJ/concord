@@ -1,9 +1,13 @@
 package app
 
 import (
+	"bytes"
+	"path/filepath"
 	"testing"
 
+	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // upsertRole builds a signed role_upsert op.
@@ -393,5 +397,87 @@ func TestSlowModeReplay(t *testing.T) {
 	st = replayGuildOps(owner.PublicKey(), ops)
 	if st.SlowMode["ch1"] != 0 {
 		t.Fatal("seconds<=0 should clear slow mode")
+	}
+}
+
+// A dethroned owner must not be able to take a guild back by BACKDATING an op:
+// Seq is a signed-but-self-chosen field, so a forged low Seq would otherwise
+// fold into replay at a position where the signer still held the crown.
+// Two shapes were exploitable; both are covered here at the replay level.
+func TestDethronedOwnerCannotRetakeGuild(t *testing.T) {
+	alice := mustID(t) // founding owner, later transfers away
+	bob := mustID(t)   // the new owner
+	bobFpr := identity.FingerprintOf(bob.PublicKey())
+
+	op := func(id *identity.Identity, seq uint64, typ, target string) govOp {
+		o := govOp{Seq: seq, Signer: id.PublicKey(), Type: typ, Target: target, Time: int64(seq)}
+		o.Sig = id.Sign(o.signingBytes())
+		return o
+	}
+
+	// The honest history: Alice hands the guild to Bob at Seq 5.
+	honest := []govOp{op(alice, 5, "transfer_owner", bobFpr)}
+	if got := replayGuildOps(alice.PublicKey(), honest).Owner(); got != bobFpr {
+		t.Fatalf("setup: transfer should make Bob owner, got %q", got)
+	}
+
+	// SHAPE 1 — backdated ban. Alice signs "ban Bob" at Seq 1, which sorts
+	// before her own transfer. A ban must not void the handover.
+	withBan := append(append([]govOp(nil), honest...), op(alice, 1, "ban", bobFpr))
+	st := replayGuildOps(alice.PublicKey(), withBan)
+	if st.Owner() != bobFpr {
+		t.Fatalf("a backdated ban must not undo the transfer: owner is %q, want Bob", st.Owner())
+	}
+	if st.Banned[bobFpr] {
+		t.Fatal("being made owner must clear a ban on the new owner")
+	}
+
+	// SHAPE 2 — backdated succession (set_heir + claim_heir before the
+	// transfer) is NOT stoppable at replay: a set_heir at Seq 1 is
+	// indistinguishable from one Alice genuinely issued while she was owner.
+	// Its defence is the ingest guard, asserted in the next test. Recording
+	// the limit here so nobody "fixes" replay and assumes it covers this.
+}
+
+// The ingest guard is what stops a backdated op reaching the log at all: a
+// signer's own ops only move forward, so one arriving LIVE at or below a Seq
+// we already hold from that signer is forged by construction. This is the
+// defence that covers the succession shape replay cannot see.
+func TestBackdatedGovOpRefusedOnLivePath(t *testing.T) {
+	alice := mustID(t)
+	victim := mustID(t)
+	victimFpr := identity.FingerprintOf(victim.PublicKey())
+
+	st, err := store.Open(filepath.Join(t.TempDir(), "concord.db"), bytes.Repeat([]byte{9}, 32))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	svc := &Service{
+		store:     st,
+		govOps:    map[string][]govOp{},
+		govState:  map[string]GuildState{},
+		govHashes: map[string]map[string]bool{},
+		guilds:    map[string]*domain.Guild{},
+	}
+
+	sign := func(seq uint64, typ, target string) govOp {
+		o := govOp{Seq: seq, Signer: alice.PublicKey(), Type: typ, Target: target, Time: int64(seq)}
+		o.Sig = alice.Sign(o.signingBytes())
+		return o
+	}
+
+	// Alice's genuine op lands at Seq 5.
+	if !svc.ingestGovOp("g1", sign(5, "ban", victimFpr), true) {
+		t.Fatal("a fresh op from Alice should be accepted")
+	}
+	// Now she tries to slip one in behind it.
+	if svc.ingestGovOp("g1", sign(1, "unban", victimFpr), true) {
+		t.Fatal("a backdated op arriving live must be refused")
+	}
+	// The same op is still accepted off the SYNC path, where a peer
+	// legitimately replays a signer's older ops out of order.
+	if !svc.ingestGovOp("g1", sign(1, "unban", victimFpr), false) {
+		t.Fatal("sync backfill must still accept older ops, or logs fork")
 	}
 }
