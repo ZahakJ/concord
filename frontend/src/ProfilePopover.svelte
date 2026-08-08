@@ -574,7 +574,6 @@
         {/if}
       </div>
       {#if mem.username}<div class="username muted">{mem.username}</div>{/if}
-      {#if mem.pronouns}<div class="pronouns muted">{mem.pronouns}</div>{/if}
       {#if sharedDMs > 0}
         <div class="mutual muted">
           <Icon name="members" size={12} />
@@ -1014,11 +1013,6 @@
   .username {
     font-size: var(--fs-compact);
     margin-top: -2px;
-  }
-  /* Pronouns sit quietly under the name — informational, never decorated. */
-  .pronouns {
-    font-size: var(--fs-small);
-    margin-top: -1px;
   }
   /* Birthday chip: same quiet shape as the "you" tag, emoji does the talking. */
   .bday-chip {

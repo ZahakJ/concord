@@ -289,7 +289,6 @@ CREATE TABLE IF NOT EXISTS story_tombstones (
 		// Optional identity extras. birthday holds the month and day ONLY
 		// ("MM-DD") — Concord never asks for or stores a birth year, so a
 		// column wide enough for one must never learn to carry it.
-		`ALTER TABLE profiles ADD COLUMN pronouns TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE profiles ADD COLUMN birthday TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN parent TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN links TEXT NOT NULL DEFAULT ''`,
@@ -1851,7 +1850,7 @@ type ProfileRow struct {
 	Fingerprint, Name, Status, Emoji, Color, Avatar string
 	Banner                                          string
 	Presence, Bio                                   string
-	Pronouns, Birthday                              string // birthday is "MM-DD" — never a year
+	Birthday                                        string // "MM-DD" — never a year
 	MailboxPub                                      []byte
 	Games                                           string // JSON array of games ("" = none)
 	Color2, Frame, Effect, Style                    string
@@ -1861,16 +1860,16 @@ type ProfileRow struct {
 // mailbox key) survive restarts instead of living only in memory.
 func (s *Store) SaveProfile(p ProfileRow) error {
 	_, err := s.db.Exec(
-		`INSERT INTO profiles (fingerprint, name, status, emoji, color, avatar, banner, presence, bio, pronouns, birthday, mailbox_pub, games, color2, frame, effect, style, updated)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO profiles (fingerprint, name, status, emoji, color, avatar, banner, presence, bio, birthday, mailbox_pub, games, color2, frame, effect, style, updated)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(fingerprint) DO UPDATE SET
 		   name=excluded.name, status=excluded.status, emoji=excluded.emoji,
 		   color=excluded.color, avatar=excluded.avatar, banner=excluded.banner,
 		   presence=excluded.presence, bio=excluded.bio,
-		   pronouns=excluded.pronouns, birthday=excluded.birthday, mailbox_pub=excluded.mailbox_pub,
+		   birthday=excluded.birthday, mailbox_pub=excluded.mailbox_pub,
 		   games=excluded.games, color2=excluded.color2,
 		   frame=excluded.frame, effect=excluded.effect, style=excluded.style, updated=excluded.updated`,
-		p.Fingerprint, p.Name, p.Status, p.Emoji, p.Color, p.Avatar, p.Banner, p.Presence, p.Bio, p.Pronouns, p.Birthday, p.MailboxPub, p.Games, p.Color2, p.Frame, p.Effect, p.Style, time.Now().UnixNano(),
+		p.Fingerprint, p.Name, p.Status, p.Emoji, p.Color, p.Avatar, p.Banner, p.Presence, p.Bio, p.Birthday, p.MailboxPub, p.Games, p.Color2, p.Frame, p.Effect, p.Style, time.Now().UnixNano(),
 	)
 	if err != nil {
 		return fmt.Errorf("store: save profile: %w", err)
@@ -1880,7 +1879,7 @@ func (s *Store) SaveProfile(p ProfileRow) error {
 
 // Profiles returns every learned peer profile.
 func (s *Store) Profiles() ([]ProfileRow, error) {
-	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar, banner, presence, bio, pronouns, birthday, mailbox_pub, games, color2, frame, effect, style FROM profiles`)
+	rows, err := s.db.Query(`SELECT fingerprint, name, status, emoji, color, avatar, banner, presence, bio, birthday, mailbox_pub, games, color2, frame, effect, style FROM profiles`)
 	if err != nil {
 		return nil, err
 	}
@@ -1888,7 +1887,7 @@ func (s *Store) Profiles() ([]ProfileRow, error) {
 	var out []ProfileRow
 	for rows.Next() {
 		var p ProfileRow
-		if err := rows.Scan(&p.Fingerprint, &p.Name, &p.Status, &p.Emoji, &p.Color, &p.Avatar, &p.Banner, &p.Presence, &p.Bio, &p.Pronouns, &p.Birthday, &p.MailboxPub, &p.Games, &p.Color2, &p.Frame, &p.Effect, &p.Style); err != nil {
+		if err := rows.Scan(&p.Fingerprint, &p.Name, &p.Status, &p.Emoji, &p.Color, &p.Avatar, &p.Banner, &p.Presence, &p.Bio, &p.Birthday, &p.MailboxPub, &p.Games, &p.Color2, &p.Frame, &p.Effect, &p.Style); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

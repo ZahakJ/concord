@@ -124,7 +124,6 @@ type IdentityInfo struct {
 	Banner      string           `json:"banner"`
 	Presence    string           `json:"presence"`
 	Bio         string           `json:"bio"`
-	Pronouns    string           `json:"pronouns,omitempty"` // short "she/her"-style line
 	Birthday    string           `json:"birthday,omitempty"` // "MM-DD" only — never a year
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
@@ -250,7 +249,6 @@ type MemberView struct {
 	Banner      string           `json:"banner"`
 	Presence    string           `json:"presence"` // "" | online | idle | dnd | invisible
 	Bio         string           `json:"bio"`
-	Pronouns    string           `json:"pronouns,omitempty"` // short "she/her"-style line
 	Birthday    string           `json:"birthday,omitempty"` // "MM-DD" only — never a year; 🎂 is a per-VIEWER render off their local clock
 	Activity    *appsvc.Activity `json:"activity,omitempty"` // structured now-playing
 	Games       []appsvc.Game    `json:"games,omitempty"`    // curated game collection
@@ -1191,7 +1189,6 @@ func (b *Bridge) Identity() (IdentityInfo, error) {
 		Banner:      p.Banner,
 		Presence:    p.Presence,
 		Bio:         p.Bio,
-		Pronouns:    p.Pronouns,
 		Birthday:    p.Birthday,
 		Activity:    p.Activity,
 		Games:       p.Games,
@@ -1222,16 +1219,16 @@ func (b *Bridge) SearchGames(query string) ([]appsvc.GameSearchResult, error) {
 }
 
 // SetProfile updates this peer's profile (incl. avatar + banner images) and
-// re-announces. Args are positional over the RPC, so new fields (pronouns,
+// re-announces. Args are positional over the RPC, so a new field
 // birthday — "MM-DD", never a year) go LAST: older callers just stop early.
-func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, styleJSON, pronouns, birthday string) error {
+func (b *Bridge) SetProfile(name, status, emoji, color, avatar, banner, presence, bio, color2, frame, effect, styleJSON, birthday string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
 	return svc.SetProfile(appsvc.Profile{
 		Name: name, Status: status, Emoji: emoji, Color: color, Avatar: avatar,
-		Banner: banner, Presence: presence, Bio: bio, Pronouns: pronouns, Birthday: birthday,
+		Banner: banner, Presence: presence, Bio: bio, Birthday: birthday,
 		Color2: color2, Frame: frame, Effect: effect, Style: parseStyle(styleJSON),
 	})
 }
@@ -1706,7 +1703,6 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 			Banner:      p.Banner,
 			Presence:    p.Presence,
 			Bio:         p.Bio,
-			Pronouns:    p.Pronouns,
 			Birthday:    p.Birthday,
 			IsSelf:      isSelf,
 			Online:      isSelf || online[fpr],
@@ -2844,20 +2840,19 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SendTyping":
 		return nil, b.SendTyping(argStr(args, 0))
 	case "SetProfile":
-		// pronouns/birthday ride at the END of the positional list. A caller
-		// built before they existed stops at style (12 args) — for it the two
-		// are ABSENT, not cleared, so carry the stored values through instead
-		// of letting argStr's "" erase them. Same lesson as the games wipe:
-		// silence on the wire must never read as deletion. Clearing is still
-		// possible — a new-arity caller passes them explicitly as "".
-		pronouns, birthday := argStr(args, 12), argStr(args, 13)
+		// birthday rides at the END of the positional list. A caller built
+		// before it existed stops at style (12 args) — for it the field is
+		// ABSENT, not cleared, so carry the stored value through instead of
+		// letting argStr's "" erase it. Same lesson as the games wipe: silence
+		// on the wire must never read as deletion. Clearing is still possible;
+		// a new-arity caller passes it explicitly as "".
+		birthday := argStr(args, 12)
 		if len(args) <= 12 {
 			if svc, err := b.service(); err == nil {
-				cur := svc.SelfProfile()
-				pronouns, birthday = cur.Pronouns, cur.Birthday
+				birthday = svc.SelfProfile().Birthday
 			}
 		}
-		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9), argStr(args, 10), argStr(args, 11), pronouns, birthday)
+		return nil, b.SetProfile(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3), argStr(args, 4), argStr(args, 5), argStr(args, 6), argStr(args, 7), argStr(args, 8), argStr(args, 9), argStr(args, 10), argStr(args, 11), birthday)
 	case "VerifyFingerprint":
 		return nil, b.VerifyFingerprint(argStr(args, 0))
 	case "PinMessage":

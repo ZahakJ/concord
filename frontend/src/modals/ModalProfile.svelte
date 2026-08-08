@@ -17,7 +17,6 @@
   let avatar = $state(identity.avatar || "");
   let presence = $state(identity.presence || "online");
   let bio = $state(identity.bio || "");
-  let pronouns = $state(identity.pronouns || "");
   // Birthday is "MM-DD" — month and day only. There is no year control here
   // and never will be: Concord doesn't ask, so it can't store or leak it.
   const bday0 = /^(\d{2})-(\d{2})$/.exec(identity.birthday || "");
@@ -208,16 +207,16 @@
 
   async function save() {
     // The shell's onSubmit handler forwards only the twelve classic fields
-    // (the API is positional), so the two newest ones are committed here —
-    // and only when they actually changed, to spare a double broadcast. The
-    // shell's follow-up save uses the old arity, which the backend reads as
-    // "leave pronouns/birthday alone", so it can't wipe what we just wrote.
-    if (pronouns.trim() !== (identity.pronouns || "") || birthday !== (identity.birthday || "")) {
+    // (the API is positional), so birthday is committed here, and only when it
+    // actually changed, to spare a double broadcast. The shell's follow-up
+    // save uses the old arity, which the backend reads as "leave birthday
+    // alone", so it can't wipe what we just wrote.
+    if (birthday !== (identity.birthday || "")) {
       try {
         await api.setProfile(
           name.trim(), status.trim(), emoji, color, avatar, banner, presence,
           bio.trim(), color2, frame, effect, JSON.stringify(styleObj),
-          pronouns.trim(), birthday,
+          birthday,
         );
       } catch {}
     }
@@ -358,10 +357,6 @@
   <label class="field">
     <span class="muted">About me</span>
     <textarea bind:value={bio} maxlength="600" rows="3" placeholder="A short bio — shown on your profile card"></textarea>
-  </label>
-  <label class="field">
-    <span class="muted">Pronouns</span>
-    <input bind:value={pronouns} maxlength="40" placeholder="she/her, they/them — anything you like" />
   </label>
   <div class="field">
     <span class="muted">Birthday (optional)</span>
