@@ -15,7 +15,7 @@ Day-to-day contribution flow, code style and pull-request expectations live in
 | The browser-served build, tests, releases | Go (the version in `go.mod`) and Node 22+ |
 | The native desktop window (`make gui`) | `webkit2gtk-4.1` and cgo |
 | The Windows installer in a release | `wine` (NSIS is fetched and cached on first use) |
-| Publishing a release | the `gh` CLI, authenticated, with write access to the dist repo |
+| Publishing a release | the `gh` CLI, authenticated, with write access to this repo |
 | App icons (`make icons`) | ImageMagick |
 | Android | gomobile, `ANDROID_HOME` with an NDK, a JDK 17–21 on `JAVA_HOME` |
 | iOS | macOS with Xcode |
@@ -246,21 +246,14 @@ Commit the printed public line to `internal/bridge/release-pubkey.txt`. Publishi
 without a signature fails loudly rather than shipping a release that
 signature-enforcing builds would refuse to install.
 
-### The dist repository
+### Where releases go
 
-Binaries go to a separate public repo, `ZahakJ/concord-dist`, which holds
-releases and no source. The app polls its releases unauthenticated for update
-checks, which is why no token is ever embedded in a shipped binary, and keeping
-binaries out of the source repo is what keeps release automation from needing
-write access to the source.
-
-One-time setup, already done and recorded here:
-
-1. Create `ZahakJ/concord-dist`.
-2. Create a fine-grained PAT: owner `ZahakJ`, repository access limited to
-   `concord-dist`, permission Contents: Read and write. If it leaks it can only
-   write the dist repo. Set an expiry and a rotation reminder.
-3. Add it to the source repo as the Actions secret `DIST_REPO_TOKEN`.
+Binaries are published to this repository's own Releases, which is also what the
+in-app update check polls (`internal/bridge/update.go`). That poll is
+unauthenticated, so no token is ever embedded in a shipped binary, and the
+workflow signs in with the run's built-in `GITHUB_TOKEN` under
+`permissions: contents: write`. There is no personal access token to create,
+scope or rotate, and a fork can cut its own releases with no secrets configured.
 
 ### Windows false-positive submission
 

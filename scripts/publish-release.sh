@@ -20,7 +20,7 @@ cd "$(dirname "$0")/.."
 
 VERSION="${1:?usage: publish-release.sh vX.Y.Z [notes-file.md]}"
 NOTES_FILE="${2:-}"
-DIST_REPO="ZahakJ/concord-dist"
+RELEASE_REPO="ZahakJ/concord"
 
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "error: version must look like v0.9.0" >&2; exit 1; }
 command -v gh >/dev/null || { echo "error: needs the gh CLI, authenticated" >&2; exit 1; }
@@ -110,21 +110,21 @@ else
 fi
 echo && ls -lh dist-release/ && echo
 
-echo "==> publishing $VERSION to $DIST_REPO"
+echo "==> publishing $VERSION to $RELEASE_REPO"
 # Create the release EMPTY, then upload assets one-by-one with retries.
 # (`gh release create` with assets rolls the whole release back if any single
 # upload hiccups — and large uploads DO hiccup with transient TLS resets.)
-if ! gh release view "$VERSION" --repo "$DIST_REPO" >/dev/null 2>&1; then
+if ! gh release view "$VERSION" --repo "$RELEASE_REPO" >/dev/null 2>&1; then
   if [[ -n "$NOTES_FILE" ]]; then
-    gh release create "$VERSION" --repo "$DIST_REPO" --title "Concord $VERSION" --notes-file "$NOTES_FILE"
+    gh release create "$VERSION" --repo "$RELEASE_REPO" --title "Concord $VERSION" --notes-file "$NOTES_FILE"
   else
-    gh release create "$VERSION" --repo "$DIST_REPO" --title "Concord $VERSION" --notes "Concord $VERSION"
+    gh release create "$VERSION" --repo "$RELEASE_REPO" --title "Concord $VERSION" --notes "Concord $VERSION"
   fi
 fi
 for f in dist-release/*; do
   ok=""
   for try in 1 2 3 4 5; do
-    if gh release upload "$VERSION" "$f" --repo "$DIST_REPO" --clobber; then
+    if gh release upload "$VERSION" "$f" --repo "$RELEASE_REPO" --clobber; then
       ok=1
       echo "uploaded: $(basename "$f")"
       break
@@ -135,4 +135,4 @@ for f in dist-release/*; do
   [[ -n "$ok" ]] || { echo "error: gave up on $(basename "$f")" >&2; exit 1; }
 done
 
-echo "done: https://github.com/$DIST_REPO/releases/tag/$VERSION"
+echo "done: https://github.com/$RELEASE_REPO/releases/tag/$VERSION"
