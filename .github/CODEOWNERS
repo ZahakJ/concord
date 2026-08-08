@@ -1,0 +1,15 @@
+# Concord code owners.
+#
+# GitHub requests a review from everyone matched here when a pull request
+# touches a matching path. Two maintainers read the whole tree, so one catch-all
+# rule is the whole file: per-directory rules would name the same two people and
+# only add places to forget when one of them changes.
+#
+# MAINTAINERS.md says which changes need BOTH approvals rather than one. GitHub
+# cannot express that, so it stays a rule we keep, not one that is enforced.
+#
+# The second handle below is a placeholder. GitHub reports a CODEOWNERS rule
+# naming an account it cannot resolve as an error and applies nothing from that
+# line, so review requests stay manual until it is replaced.
+
+*   @ZahakJ @TODO-SECOND-MAINTAINER-HANDLE
