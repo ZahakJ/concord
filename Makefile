@@ -12,7 +12,7 @@ N ?= 2
 VERSION ?= dev
 
 .PHONY: gui gui-dev web cli rendezvous frontend test race fmt clean release-keygen \
-        peers rendezvous-run dev-clean help release icons native \
+        peers rendezvous-run dev-clean help release icons banner native \
         android-core ios-core android-app ios-app
 
 # gomobile bind flags shared by both mobile cores.
@@ -30,6 +30,27 @@ frontend:
 # gets committed to internal/bridge/release-pubkey.txt so every build carries it.
 release-keygen:
 	go run ./cmd/releasekey gen
+
+# README banner and social-preview card, rendered from docs/media/*.svg rather
+# than hand-exported, so a wording change is a text edit and not a trip through
+# an image editor.
+#
+# The wordmark is set in Inter, which the app already bundles — but as woff2,
+# which neither fontconfig nor rsvg will read. So it is decompressed into a
+# throwaway font directory that only this command can see, keeping the banner in
+# the app's own typeface without installing anything on the machine. Needs
+# rsvg-convert and woff2_decompress.
+banner:
+	@tmp=$$(mktemp -d); mkdir -p "$$tmp/fonts"; \
+	cp frontend/public/fonts/inter-latin-300700.woff2 "$$tmp/fonts/"; \
+	( cd "$$tmp/fonts" && woff2_decompress inter-latin-300700.woff2 >/dev/null ); \
+	XDG_DATA_HOME="$$tmp" fc-cache -f "$$tmp/fonts" >/dev/null 2>&1; \
+	for v in banner banner-light; do \
+		XDG_DATA_HOME="$$tmp" rsvg-convert -w 2000 -o docs/media/$$v.png docs/media/$$v.svg || exit 1; \
+	done; \
+	XDG_DATA_HOME="$$tmp" rsvg-convert -w 1280 -o docs/media/social-preview.png docs/media/social-preview.svg || exit 1; \
+	rm -rf "$$tmp"
+	@echo "banner + social preview regenerated under docs/media/"
 
 # Regenerate app-icon assets from build/appicon.svg (needs ImageMagick).
 # Produces the PNG (Wails/Linux), the multi-size Windows .ico, and macOS .icns.
@@ -214,7 +235,8 @@ help:
 	@echo "  make release       build web binaries locally (smoke test only)"
 	@echo "  make test | race   run tests (optionally with the race detector)"
 	@echo "  make dev-clean      delete local test data (.dev/)"
+	@echo "  make icons|banner  regenerate the app icons / README artwork"
 	@echo
 	@echo "Releases are built locally: 'scripts/publish-release.sh vX.Y.Z' builds"
 	@echo "the web binaries + desktop apps and publishes the GitHub Release."
-	@echo "See README 'Cutting a release'."
+	@echo "See docs/RELEASING.md."

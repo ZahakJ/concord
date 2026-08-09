@@ -1,4 +1,18 @@
-# Concord
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/banner.png">
+    <source media="(prefers-color-scheme: light)" srcset="docs/media/banner-light.png">
+    <img src="docs/media/banner.png" alt="Concord — peer-to-peer, end-to-end encrypted chat. No company, no account database, no server in the middle." width="820">
+  </picture>
+</p>
+
+<p align="center">
+  <a href="https://github.com/ZahakJ/concord/actions/workflows/ci.yml"><img src="https://github.com/ZahakJ/concord/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/ZahakJ/concord/releases/latest"><img src="https://img.shields.io/github/v/release/ZahakJ/concord?color=14a394&label=release" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-AGPL--3.0--or--later-14a394" alt="Licence: AGPL-3.0-or-later"></a>
+  <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/ZahakJ/concord?color=14a394" alt="Go version"></a>
+  <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-report%20privately-14a394" alt="Security policy"></a>
+</p>
 
 A peer-to-peer, end-to-end-encrypted alternative to Discord: guilds, channels,
 direct messages, voice, video and screen sharing, with nobody in the middle.
