@@ -159,7 +159,7 @@ jobs:
         with: { distribution: temurin, java-version: "21" }
       # Third-party actions are pinned by commit, not by tag: a tag is mutable,
       # and this job holds the signing keystore. (v3)
-      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699
       - name: Install NDK + gomobile
         # gomobile/gobind are pinned to the golang.org/x/mobile revision in
         # go.mod. They were @latest, which is the one unpinned input in a
