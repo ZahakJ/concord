@@ -8,9 +8,25 @@ what Concord changed. Where an upstream licence text has to travel with the
 files, a copy sits next to them; those files are pointed at from each entry.
 
 Ordinary Go and npm dependencies are resolved at build time rather than
-committed, so they are not enumerated here — `go.mod`/`go.sum` and
-`frontend/package-lock.json` are the manifest for those. The two npm packages
-that end up compiled into the shipped web bundle are noted at the end.
+committed, so they are not enumerated one by one here — `go.mod`/`go.sum` and
+`frontend/package-lock.json` are the exact manifest, pinned by hash. The two npm
+packages that end up compiled into the shipped web bundle are noted at the end.
+
+That is the right answer for the *source*, and an incomplete one for the
+*binaries*. Concord links its Go dependencies statically, so a downloaded
+release contains code under MIT, BSD-2-Clause, BSD-3-Clause and Apache-2.0, and
+each of those licences asks that its copyright notice travel with the copy. The
+dependency tree is machine-readable, so the notice can be too:
+
+```sh
+go install github.com/google/go-licenses@latest
+go-licenses report ./... > NOTICES-go.txt     # every module, licence and holder
+```
+
+Anyone redistributing a built Concord binary should generate that and ship it
+alongside. The maintainers' own releases are covered by the source being
+published under AGPL-3.0-or-later at the URL in the binary, but "you could go
+and look" is a weaker position than handing someone the list.
 
 ---
 
@@ -124,11 +140,16 @@ come from. No family in the set declares a Reserved Font Name.
 
 ## Meme templates
 
-`frontend/public/memes/` holds 101 image-macro templates sourced from imgflip's
-public catalogue and re-encoded to WebP. They are third-party photographs and
-artwork, several with identifiable commercial rightsholders, and Concord claims
-no rights in them and holds no licence to them. The pack is optional: deleting
-the directory costs nothing and breaks nothing. See
+The meme editor takes an optional pack of 101 image-macro templates sourced from
+imgflip's public catalogue and re-encoded to WebP. They are third-party
+photographs and artwork, several with identifiable commercial rightsholders, and
+Concord claims no rights in them and holds no licence to them.
+
+For that reason **the images are not in this repository and not in any release**.
+`frontend/scripts/prep-memes.mjs` builds the pack into
+`frontend/public/memes/` on the machine that runs it; only the README describing
+the position is tracked. The pack is optional either way — deleting the
+directory costs nothing and breaks nothing. See
 `frontend/public/memes/README.md` for the full position.
 
 ## npm packages compiled into the web bundle

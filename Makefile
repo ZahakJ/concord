@@ -107,6 +107,19 @@ ios-core:
 MOBILE_VERSION_NAME := $(patsubst v%,%,$(VERSION))
 MOBILE_VERSION_CODE ?= 1
 
+# Windows version resource, stamped from the same tag (see the `release` target).
+# WIN_PATCH is empty unless VERSION splits into three dot-separated parts, so an
+# unstamped local build (VERSION=dev) passes no flags and goversioninfo falls
+# back to whatever build/versioninfo.json carries.
+WIN_VERSION := $(patsubst v%,%,$(VERSION))
+WIN_MAJOR   := $(word 1,$(subst ., ,$(WIN_VERSION)))
+WIN_MINOR   := $(word 2,$(subst ., ,$(WIN_VERSION)))
+WIN_PATCH   := $(word 3,$(subst ., ,$(WIN_VERSION)))
+WIN_STAMP    = $(if $(WIN_PATCH),\
+	-ver-major $(WIN_MAJOR) -ver-minor $(WIN_MINOR) -ver-patch $(WIN_PATCH) \
+	-product-ver-major $(WIN_MAJOR) -product-ver-minor $(WIN_MINOR) -product-ver-patch $(WIN_PATCH) \
+	-file-version "$(WIN_VERSION).0" -product-version "$(WIN_VERSION)")
+
 android-app: frontend android-core
 	cd apps/mobile && npm ci && npx cap sync android
 	cd apps/mobile/android && ./gradlew bundleRelease \
@@ -147,7 +160,10 @@ release: frontend
 	CGO_ENABLED=0 GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-macos-intel-$(VERSION) .
 	# Windows: embed version info + manifest (goversioninfo) and DON'T strip
 	# symbols — both markedly reduce Defender false positives on unsigned exes.
-	go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 -o resource_windows_amd64.syso build/versioninfo.json
+	# The version is stamped from the tag rather than read out of the JSON: the
+	# committed numbers rot silently otherwise, and once did — v0.55.1 shipped an
+	# exe whose Properties pane read 0.31.0. See WIN_* above for the dev case.
+	go run github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0 -64 $(WIN_STAMP) -o resource_windows_amd64.syso build/versioninfo.json
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)" -o dist-release/concord-windows-$(VERSION).exe .
 	@rm -f resource_windows_amd64.syso
 	@echo && echo "Release binaries in dist-release/:" && ls -lh dist-release/

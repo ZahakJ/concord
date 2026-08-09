@@ -12,8 +12,8 @@
   "info": {
     "companyName": "Concord",
     "productName": "Concord",
-    "productVersion": "0.31.0",
-    "copyright": "Concord contributors. MIT licensed.",
+    "productVersion": "0.55.1",
+    "copyright": "Copyright (C) 2026 Concord contributors. AGPL-3.0-or-later.",
     "comments": "Secure peer-to-peer chat — https://github.com/ZahakJ/concord"
   }
 }

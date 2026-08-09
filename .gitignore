@@ -25,14 +25,20 @@ resource_windows_amd64.syso
 # Twemoji assets, copied from node_modules by `npm run prep-twemoji`
 frontend/public/twemoji/
 
-# Coding-agent state (sessions, worktrees, local settings) is per-machine and
-# per-person. .claude/skills/ is the exception — those are checked-in project
-# docs, so they stay tracked.
-/.claude/*
-!/.claude/skills/
+# Coding-agent state (sessions, worktrees, local settings, skills) is
+# per-machine and per-person, and none of it is documentation a contributor
+# should have to know to look for. What was worth keeping out of .claude/skills/
+# lives in CONTRIBUTING.md instead, under the multi-peer dev loop.
+/.claude/
 
-# Bundled meme templates: third-party images with real rightsholders (see
-# frontend/public/memes/README.md). Kept out of the repo so nothing here
-# redistributes them; drop your own pack in this directory and the editor
-# picks it up at runtime.
-frontend/public/memes/
+# Bundled meme templates: third-party images with real rightsholders. Kept out
+# of the repo so nothing here redistributes them; drop your own pack in this
+# directory and the editor picks it up at runtime. The README is the exception
+# and IS tracked — it carries the provenance and licensing position, and three
+# other documents cite it, so ignoring it left those citations pointing at
+# nothing for anyone who had not run prep-memes.mjs.
+# The pattern excludes the directory's CONTENTS, not the directory: git cannot
+# re-include a file whose parent directory is itself excluded, so `memes/` plus
+# a negation would silently keep ignoring the README.
+frontend/public/memes/*
+!frontend/public/memes/README.md

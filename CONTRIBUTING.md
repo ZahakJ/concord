@@ -52,11 +52,17 @@ cd frontend && npm test        # markdown, render and other unit tests
 cd frontend && npm run build   # must succeed; a broken build is a broken release
 ```
 
-On every push and pull request, CI runs `go build ./...`, `go vet ./...`,
-`go test -race ./...`, and the three frontend steps. See
+On every pull request (and every push to `main`), CI runs `go build ./...`,
+`go vet ./...`, `go test -race -short ./...`, and the three frontend steps. See
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It has to be green
 before anything merges. Formatting is the one thing CI does not check, so run
 `make fmt` yourself.
+
+`-short` is deliberate: it skips the tests that stand up real libp2p nodes and
+wait on message propagation, which are too timing-sensitive to gate a pull
+request on a shared runner. Those run nightly in the `integration` job, and
+`make test` runs them locally — so a change to the networking layer wants a
+local `make race` before you push, because the gate will not catch it.
 
 Run the rest locally first as well. The Go suite starts real libp2p hosts and is
 occasionally timing-flaky under load, so re-run a single failure on its own
@@ -79,19 +85,57 @@ in peer 1, copy its invite code, and join from peer 2. They find each other over
 mDNS on loopback within a couple of seconds. Logs land in `.dev/peer*.log`. To
 start one peer from scratch, delete just its directory: `rm -rf .dev/peer2`.
 
+The `?t=` on each printed URL is the local API token — the page stores it and
+strips it from the address bar. Every request to the core needs it, so open the
+URL as printed rather than retyping the bare host, or you get `unauthorized`.
+
 You can also drive a peer without a browser. The UI talks to the core over a
-small JSON-RPC endpoint, and so can you:
+small JSON-RPC endpoint, and so can you. `make peers` pins one token for the
+run and prints it; a standalone binary mints a random one and prints it on the
+URL at startup:
 
 ```sh
-curl -s -X POST http://127.0.0.1:8801/rpc -H 'Content-Type: application/json' \
+export CONCORD_API_TOKEN=<the token make peers printed>
+curl -s -X POST http://127.0.0.1:8801/rpc \
+  -H "Authorization: Bearer $CONCORD_API_TOKEN" \
+  -H 'Content-Type: application/json' \
   -d '{"method":"Login","args":["any-passphrase"]}'
 ```
 
 The available methods are the `Dispatch` switch in `internal/bridge/bridge.go`
-and nothing else. `curl -N http://127.0.0.1:8801/events` streams the same
-server-sent events the UI reacts to, which is the fastest way to see whether a
-change reached the other side. A CSRF guard rejects requests carrying a foreign
-`Origin` header; curl sends none, so it passes.
+and nothing else. `curl -N "http://127.0.0.1:8801/events?token=$CONCORD_API_TOKEN"`
+streams the same server-sent events the UI reacts to, which is the fastest way
+to see whether a change reached the other side — SSE cannot set headers, so it
+takes the token as a query parameter. A CSRF guard additionally rejects requests
+carrying a foreign `Origin` header; curl sends none, so it passes.
+
+One shell gotcha: zsh reserves `GID`, so it is the one variable name not to
+reach for when scripting guild IDs.
+
+### Driving the real UI without a browser window
+
+For a change you want to *see* rather than assert on, `chromium --headless
+--screenshot` does not work — the SSE stream never lets the page reach a settled
+state, so the capture hangs. Playwright against the system Chromium does, with
+no browser download:
+
+```sh
+npm i playwright-core
+```
+
+```js
+import { chromium } from "playwright-core";
+const browser = await chromium.launch({ executablePath: "/usr/bin/chromium" });
+```
+
+Then: load `127.0.0.1:8801`, fill `input[placeholder*="assphrase"]` and press
+Enter (the backend session survives a reload, but the UI always asks), then
+press Escape to dismiss anything already open. Useful handles: member names are
+`.mname`, the profile popover is `[role="dialog"][aria-label*="profile"]`, and
+the composer's `input[type="file"]` takes `setInputFiles` to send an attachment.
+Clicking the guild-name header opens Guild settings, which is usually not what
+you wanted. `scripts/playwright.mjs` and the `smoke-*` scripts are worked
+examples.
 
 To exercise internet-style discovery without deploying anything, `make
 rendezvous-run` starts a local rendezvous node with a stable identity and prints

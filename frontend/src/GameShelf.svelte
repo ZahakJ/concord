@@ -36,9 +36,13 @@
 
   let { games = [], editable = false, onchange } = $props();
 
-  // Covers always render: the backend only admits Steam-CDN URLs into
-  // profiles, so there's no arbitrary-host IP leak to gate against.
-  const allowRemote = true;
+  // Box art is fetched by the WEBVIEW, straight from Valve's CDN — the backend
+  // allowlist (validGameCover, service.go) bounds WHICH host that is, but it
+  // cannot stop the request, and the request is what carries your IP. Opening
+  // someone's profile would otherwise be a zero-click disclosure to a third
+  // party, which is the same shape as the link-preview problem and gets the
+  // same answer: off by default, one switch in Privacy & safety to turn on.
+  // Off, every tile falls back to the generated gradient cover below.
 
   const STRIP = 5; // mini covers shown before "+N"
 
@@ -151,7 +155,7 @@
       .map((w) => w[0]?.toUpperCase() || "")
       .join("");
 
-  const showCover = (g) => g.cover && !broken[g.name] && allowRemote;
+  const showCover = (g) => g.cover && !broken[g.name] && S.prefs.gameCovers;
 </script>
 
 <svelte:window onkeydowncapture={onKeydown} />
@@ -220,7 +224,7 @@
           <div class="g-results">
             {#each results as r (r.name)}
               <button class="g-result" onclick={() => pick(r)} disabled={have(r.name)}>
-                {#if r.thumb}
+                {#if r.thumb && S.prefs.gameCovers}
                   <img class="g-rthumb" src={r.thumb} alt="" loading="lazy" />
                 {:else}
                   <span class="g-rthumb ph" style={coverStyle(r.name)}></span>

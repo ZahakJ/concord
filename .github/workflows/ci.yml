@@ -17,6 +17,12 @@ on:
     - cron: "17 4 * * *" # nightly, for the integration job below
   workflow_dispatch:
 
+# Read-only. Nothing here needs to write, and on a public repo `pull_request`
+# runs code from forks — a token that cannot do anything is the cheapest way to
+# keep that true no matter what the repository default becomes.
+permissions:
+  contents: read
+
 jobs:
   frontend:
     runs-on: ubuntu-latest

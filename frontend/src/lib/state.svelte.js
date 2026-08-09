@@ -108,6 +108,12 @@ export const S = $state({
   // Spread over defaults so prefs saved before a key existed still get it.
   prefs: {
     linkPreviews: false,
+    // Game box art defaults OFF for the same reason. A profile card carrying a
+    // game collection would otherwise load images straight from Valve's CDN the
+    // moment you opened it — no click, no prompt — telling Valve your IP and
+    // when you were online. The generated gradient covers are the fallback and
+    // were designed to stand on their own, so off costs nothing but the art.
+    gameCovers: false,
     showDeleted: false, // off = deleted messages vanish; on = leave a faint marker
     hideCallIp: false, // on = always relay calls through the rendezvous (hide IP)
     theme: "dark",
