@@ -72,8 +72,13 @@ jobs:
       - name: Linux WebView deps
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev
+      # Keep this in step with the wails LIBRARY version in go.mod. Nothing
+      # enforces it and no test catches a mismatch: CI never runs `wails build`,
+      # so a Dependabot bump of the library sails through green while this line
+      # still installs the old CLI. Verified locally against v2.13.0 with the
+      # exact flags below before bumping.
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.12.0
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.13.0
       - name: Build frontend
         run: cd frontend && npm ci && npm run build
       # `wails build` emits a raw binary (Linux), a .app bundle (macOS), or an

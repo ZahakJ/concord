@@ -1,0 +1,32 @@
+#!/bin/sh
+# Commit authors here are GitHub noreply addresses. Git picks the address up
+# from config, so getting it wrong is easy and permanent; this checks before
+# the commit exists rather than after.
+#
+# Enable (once per clone):  git config core.hooksPath .githooks
+# See CONTRIBUTING.md.
+
+fail=0
+for who in AUTHOR COMMITTER; do
+	ident=$(git var "GIT_${who}_IDENT") || exit 1
+	email=$(printf '%s' "$ident" | sed -n 's/.*<\(.*\)>.*/\1/p')
+	case "$email" in
+	*@users.noreply.github.com) ;;
+	*)
+		echo "commit refused: ${who} email is <${email}>" >&2
+		fail=1
+		;;
+	esac
+done
+
+if [ "$fail" -ne 0 ]; then
+	cat >&2 <<'EOF'
+
+Commits here use a GitHub noreply address. Set yours for this repository:
+
+    git config user.email 'ID+username@users.noreply.github.com'
+
+Yours is shown on https://github.com/settings/emails.
+EOF
+	exit 1
+fi

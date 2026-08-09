@@ -25,6 +25,20 @@ a `replace` in `go.mod`, so there is no extra fetch step.
 Mobile (`make android-core`, `make ios-core`) additionally needs gomobile plus
 an Android NDK or Xcode. You need none of it to work on the core or the UI.
 
+## One-time setup
+
+```sh
+git config core.hooksPath .githooks
+```
+
+Commit authors here are GitHub noreply addresses. That line turns on two hooks
+in [`.githooks/`](.githooks) which check it, one before the commit is written
+and one before it is pushed. Yours is shown on
+<https://github.com/settings/emails> and looks like
+`ID+username@users.noreply.github.com`.
+
+Git does not clone hooks, so this is per-clone.
+
 ## Building
 
 `make help` lists every target. The two that matter:

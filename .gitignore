@@ -19,6 +19,9 @@ frontend/node_modules/
 
 # Wails
 /frontend/wailsjs/
+# `wails build` writes this to decide whether to re-run npm install; it is a
+# cache keyed on package.json, regenerated on every build.
+/frontend/package.json.md5
 dist-release/
 resource_windows_amd64.syso
 
