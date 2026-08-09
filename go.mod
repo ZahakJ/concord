@@ -13,7 +13,7 @@ require (
 	github.com/pion/turn/v4 v4.0.2
 	github.com/thomas-vilte/mls-go v1.5.0
 	github.com/tyler-smith/go-bip39 v1.1.0
-	github.com/wailsapp/wails/v2 v2.12.0
+	github.com/wailsapp/wails/v2 v2.13.0
 	golang.org/x/crypto v0.54.0
 	golang.org/x/mobile v0.0.0-20260709172247-6129f5bee9d5
 	golang.org/x/net v0.57.0
