@@ -1,23 +1,28 @@
-# Dependency updates, batched so they arrive as something a two-person project
-# can actually review rather than as a daily drip of single-line pull requests.
+# Dependency updates, batched hard.
 #
-# Monthly, not weekly: nothing here is a service with an exposed attack surface
-# waiting on a patch — the rendezvous node is the only thing that listens, and
-# it is a dumb pipe. Security advisories are pushed by GitHub regardless of this
-# schedule, so the cadence below only governs routine version bumps.
+# Two people maintain this, .github/CODEOWNERS requests review from both on
+# every pull request, and Dependabot's first run over a repository that never
+# had it opens one per outdated dependency — which was twelve pull requests and
+# roughly two dozen review-request emails between them in an afternoon. A
+# maintainer who mutes the notifications is worse off than one who never got
+# them, so the volume is the thing to fix, not the inbox.
+#
+# So: one grouped pull request per ecosystem, monthly. Four a month between
+# everything, each one a single review. Security advisories are pushed by GitHub
+# regardless of this file and are not affected — those should interrupt.
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
     schedule: { interval: monthly }
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     groups:
-      # libp2p ships its modules in lockstep and they must move together; a
-      # single-module bump usually will not even build.
-      libp2p:
-        patterns: ["github.com/libp2p/*", "github.com/multiformats/*"]
-      golang-x:
-        patterns: ["golang.org/x/*"]
+      # Everything in one pull request. Splitting by family (libp2p, x/*, the
+      # rest) sounds tidier and just means three reviews instead of one; these
+      # move together often enough that a single "bump the Go deps" is the
+      # honest unit of work.
+      go-dependencies:
+        patterns: ["*"]
     ignore:
       # Vendored under third_party/mls-go and wired in with a `replace`, so a
       # version bump here does nothing except create noise. Updating the fork is
@@ -28,18 +33,18 @@ updates:
   - package-ecosystem: npm
     directory: /frontend
     schedule: { interval: monthly }
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 2
     groups:
-      dev-dependencies:
-        dependency-type: development
+      frontend:
+        patterns: ["*"]
 
   - package-ecosystem: npm
     directory: /apps/mobile
     schedule: { interval: monthly }
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
     groups:
-      capacitor:
-        patterns: ["@capacitor/*"]
+      mobile:
+        patterns: ["*"]
 
   # Actions are pinned by commit SHA in the release workflow, which is exactly
   # the case Dependabot exists to maintain: a human will not notice a pinned
@@ -47,3 +52,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: monthly }
+    open-pull-requests-limit: 2
+    groups:
+      actions:
+        patterns: ["*"]
