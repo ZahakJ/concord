@@ -44,7 +44,7 @@ jobs:
         with: { node-version: "22" }
       # Stamp the git tag into the binary (internal/version.Version) for the update check.
       - run: make release VERSION=${{ github.ref_name }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: concord-web-binaries
           path: dist-release/*
@@ -131,7 +131,7 @@ jobs:
           cd build/bin
           zip -r -q ../../${{ matrix.out }}-${{ github.ref_name }}.zip *.app
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.out }}
           # Matches concord-desktop-linux, concord-desktop-windows.exe, or
@@ -189,13 +189,13 @@ jobs:
       # so local and CI builds stay identical. VERSION stamps the Go core.
       - name: Build app bundle
         run: make android-app VERSION=${{ github.ref_name }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: concord-android
           path: apps/mobile/android/app/build/outputs/bundle/release/*.aab
       # The sideloadable APK ships as a GitHub Release download (unlike the
       # .aab) — separate artifact so the publish job can include just it.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: concord-android-apk
           path: apps/mobile/android/app/build/outputs/apk/release/concord-*-android.apk
@@ -234,7 +234,7 @@ jobs:
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath build/App.xcarchive archive \
             CODE_SIGNING_ALLOWED=NO
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: concord-ios-archive
           path: apps/mobile/ios/App/build/App.xcarchive
