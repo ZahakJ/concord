@@ -38,13 +38,17 @@ construction.
 - **One optional node.** A rendezvous you host yourself helps peers find and
   reach each other. It cannot read what it carries, and the app is built to
   degrade rather than stop when it is gone.
-- **Nothing is fetched at runtime.** Emoji, typefaces, icons and sounds are in
-  the binary. No CDN learns your IP address and the moment you opened the app.
+- **Nothing is fetched at runtime, by default.** Emoji, typefaces, icons and
+  sounds are in the binary, so no CDN learns your IP address and the moment you
+  opened the app. The handful of features that *could* reach a third party —
+  link previews, YouTube embeds, game box art — ship switched off and say so
+  where they sit. [PRIVACY.md](PRIVACY.md) names every outbound call the app can
+  make and what triggers it.
 - **Self-contained, not minimal.** Concord ships stories, a soundboard, a meme
-  editor, polls, events, calendars, more than twenty themes and a shelf of small
-  games, and every one of them obeys the rule above. The soundboard synthesizes
-  its sounds from oscillators instead of shipping audio files; story backgrounds
-  are drawn presets rather than downloaded images.
+  editor, polls, events, calendars, more than twenty themes and a game
+  collection for your profile. The soundboard synthesizes its sounds from
+  oscillators instead of shipping audio files; story backgrounds are drawn
+  presets rather than downloaded images.
 
 The trade is stated up front: Concord is built for friend groups and
 communities, not million-user servers. A full mesh of live audio does not scale
@@ -145,13 +149,20 @@ left for you to find.
 
 ## Meme templates
 
-`frontend/public/memes/` holds an optional starter pack for the meme editor: 101
+The meme editor takes an optional starter pack in `frontend/public/memes/`: 101
 WebP templates and a `manifest.json` giving each one a label, search tags and
-caption-box placements. The editor reads the manifest at runtime and falls back
-to bring-your-own images when the directory is absent, so deleting it costs
-nothing and breaks nothing. The templates are third-party images that Concord
-claims no rights in. Format and provenance are in
-[frontend/public/memes/README.md](frontend/public/memes/README.md).
+caption-box placements. **The images are not in this repository.** They are
+third-party photographs and artwork with identifiable rightsholders, several of
+them commercial, and Concord holds no licence to redistribute them — so the pack
+is built rather than checked in. `node frontend/scripts/prep-memes.mjs` fetches
+and re-encodes it; releases ship without it.
+
+Nothing depends on the pack. The editor reads the manifest at runtime and falls
+back to bring-your-own images when the directory is absent, so paste, upload and
+"Make a meme" on any picture in the conversation all work with no pack at all.
+The full position is in
+[frontend/public/memes/README.md](frontend/public/memes/README.md), which is
+tracked even though the images it describes are not.
 
 ## Documentation
 
@@ -160,6 +171,8 @@ claims no rights in. Format and provenance are in
 | [docs/DESIGN.md](docs/DESIGN.md) | How Concord works, end to end, and what it costs |
 | [PRIVACY.md](PRIVACY.md) | What data exists and who can read it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, the multi-peer dev loop, code style |
+| [MAINTAINERS.md](MAINTAINERS.md) | Who decides what, and how a change gets merged |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | How we expect people to treat each other |
 | [docs/RELEASING.md](docs/RELEASING.md) | Maintainer runbook: releases and self-hosting a rendezvous |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability |
 | [WINDOWS.md](WINDOWS.md) | SmartScreen, Defender, and the fallback |

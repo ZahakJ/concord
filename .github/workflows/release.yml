@@ -157,13 +157,21 @@ jobs:
         with: { node-version: "22" }
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: "21" }
-      - uses: android-actions/setup-android@v3
+      # Third-party actions are pinned by commit, not by tag: a tag is mutable,
+      # and this job holds the signing keystore. (v3)
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
       - name: Install NDK + gomobile
+        # gomobile/gobind are pinned to the golang.org/x/mobile revision in
+        # go.mod. They were @latest, which is the one unpinned input in a
+        # release build where the NDK, Wails and goversioninfo are all fixed —
+        # so the artifact depended on whatever upstream had merged that morning.
         run: |
           sdkmanager "ndk;27.2.12479018"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
+          mobile_ver=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          echo "pinning gomobile to $mobile_ver"
+          go install golang.org/x/mobile/cmd/gomobile@"$mobile_ver"
+          go install golang.org/x/mobile/cmd/gobind@"$mobile_ver"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Decode signing keystore
         if: env.ANDROID_KEYSTORE_B64 != ''
@@ -206,9 +214,11 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - name: Install gomobile
+        # Pinned to go.mod's x/mobile revision — see the Android job.
         run: |
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
+          mobile_ver=$(go list -m -f '{{.Version}}' golang.org/x/mobile)
+          go install golang.org/x/mobile/cmd/gomobile@"$mobile_ver"
+          go install golang.org/x/mobile/cmd/gobind@"$mobile_ver"
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Build iOS core (xcframework)
         run: make ios-core VERSION=${{ github.ref_name }}
@@ -242,6 +252,8 @@ jobs:
     if: always() && needs.web.result == 'success' && startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -250,24 +262,61 @@ jobs:
         # Store-track artifacts (.aab / .xcarchive) stay workflow-only; the
         # sideloadable APK (concord-android-apk) IS a Release download so
         # friends can install directly from the release page.
+        # WINDOWS.md is copied IN rather than attached separately, so it is
+        # covered by SHA256SUMS like every other asset — matching what
+        # scripts/publish-release.sh does locally.
         run: |
           mkdir -p release-assets
           find artifacts -type f \
             -not -path '*/concord-android/*' \
             -not -path '*/concord-ios-archive/*' \
             -exec cp {} release-assets/ \;
+          cp WINDOWS.md release-assets/
           echo "Release assets:" && ls -lh release-assets/
       - name: Generate SHA256SUMS
-        run: cd release-assets && sha256sum * > SHA256SUMS && cat SHA256SUMS
+        # Excludes the manifest itself explicitly rather than relying on glob
+        # expansion happening before the redirect truncates it.
+        run: cd release-assets && sha256sum $(ls | grep -v '^SHA256SUMS$') > SHA256SUMS && cat SHA256SUMS
+      # The signing key is deliberately OFFLINE (cmd/releasekey): the ordinary
+      # release path is scripts/publish-release.sh on a maintainer's machine,
+      # which signs there and never lets the key near a runner.
+      #
+      # This matters more than it looks. internal/bridge/release-pubkey.txt is
+      # populated, so every build enforces signatures — a release published with
+      # a SHA256SUMS and no SHA256SUMS.sig is one that every existing install
+      # REFUSES to update to (verifyWithKey -> errUnsignedRelease). Publishing
+      # unsigned is therefore not "slightly weaker", it is broken.
+      #
+      # So: sign if a key is configured, and otherwise publish a DRAFT — which
+      # the maintainer can see and finish locally, and which the updater (it
+      # asks for the latest PUBLISHED release) never sees.
+      - name: Sign the manifest
+        id: sign
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          if [ -z "$RELEASE_SIGNING_KEY" ]; then
+            echo "::warning::No RELEASE_SIGNING_KEY secret — publishing a DRAFT. Sign SHA256SUMS locally ('go run ./cmd/releasekey sign') and publish the draft, or existing installs will refuse this release."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          umask 077
+          printf '%s' "$RELEASE_SIGNING_KEY" > "$RUNNER_TEMP/release.key"
+          CONCORD_RELEASE_KEY="$RUNNER_TEMP/release.key" \
+            go run ./cmd/releasekey sign release-assets/SHA256SUMS
+          rm -f "$RUNNER_TEMP/release.key"
+          test -s release-assets/SHA256SUMS.sig
+          echo "signed=true" >> "$GITHUB_OUTPUT"
       # Publishes to this repo's own Releases, which is also what the in-app
       # update check polls (internal/bridge/update.go). The default GITHUB_TOKEN
       # with `permissions: contents: write` is enough — no personal access token
       # is involved, so a fork's release works with no secrets configured.
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        # Pinned by commit (v2): this step runs with contents: write.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
         with:
-          files: |
-            release-assets/*
-            WINDOWS.md
+          files: release-assets/*
           fail_on_unmatched_files: false
           generate_release_notes: true
+          # Unsigned means draft. See the signing step above for why.
+          draft: ${{ steps.sign.outputs.signed != 'true' }}

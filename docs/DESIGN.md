@@ -58,13 +58,19 @@ the participants, or a statement of what that costs.
 ### Self-contained, not minimal
 
 Concord ships stories, a soundboard, a meme editor, polls, events, calendars,
-more than twenty themes and a shelf of small games. It is not a minimal
-application. It is a self-contained one: one binary, no external services, no
-runtime fetches, no account database. Features are built to hold that line
-rather than trimmed to avoid testing it. The soundboard synthesizes its sounds
-from oscillators instead of shipping audio files. Emoji and typefaces are
-compiled in rather than requested from a CDN. Story backgrounds are drawn
-presets, not stock images pulled down on demand.
+more than twenty themes and a game collection for your profile. It is not a
+minimal application. It is a self-contained one: one binary, no external
+services, no runtime fetches by default, no account database. Features are built
+to hold that line rather than trimmed to avoid testing it. The soundboard
+synthesizes its sounds from oscillators instead of shipping audio files. Emoji
+and typefaces are compiled in rather than requested from a CDN. Story
+backgrounds are drawn presets, not stock images pulled down on demand.
+
+Where a feature genuinely cannot be built without reaching a third party, the
+line holds by making the reach opt-in rather than by dropping the feature or
+quietly taking it: link previews, YouTube embeds and game box art all ship off,
+and §12 explains each. That "by default" is load-bearing, and the moment it
+stops being true of something, this document is wrong rather than aspirational.
 
 ### What Concord does not have
 
@@ -1643,7 +1649,7 @@ that no third party knows anything. There is no way to have this feature and the
 CDN. So the assets ship in the binary, every stylesheet reference is same-origin,
 and the favicon is an inline data URI rather than one more request.
 
-The same reasoning shapes two features that *could* have been remote:
+The same reasoning shapes three features that *could* have been remote:
 
 - **Guild GIF packs and custom emoji.** A guild curates its own collection.
   Records travel on the guild's meta topic (MLS-encrypted); the images ride the
@@ -1655,6 +1661,17 @@ The same reasoning shapes two features that *could* have been remote:
   Google"). Turning them on is one click; so is a second click to load an embed.
   Non-YouTube previews are fetched by the local backend behind an SSRF guard,
   not by the browser.
+- **Game box art.** A profile can list the games you play, and Steam's public
+  storefront has the covers. Those are images on Valve's CDN, fetched by the app
+  itself, so rendering one hands Valve your IP and the time — and a profile card
+  would do it with no click at all, which is the link-preview problem wearing a
+  different hat. So covers are **off by default** and collections render a
+  gradient generated from the title hash instead; the fallback was designed to
+  stand on its own rather than to look broken, which is what makes the default
+  affordable. The backend also allowlists the cover URLs it will store
+  (`validGameCover`), because an arbitrary-host URL in a profile would be a
+  deanonymizing beacon aimed at everyone who opened your card. The allowlist
+  bounds *which* third party; the switch is what bounds *whether*.
 
 ### An asymmetry in how packs are received
 

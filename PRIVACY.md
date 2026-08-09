@@ -68,13 +68,15 @@ It is deliberately designed to learn as little as possible:
   encrypted end to end.
 - You can self-host the whole thing.
 
-## No telemetry, and the two outbound calls that are not to your peers
+## No telemetry, and the outbound calls that are not to your peers
 
 Concord contains no analytics, no crash reporting, and no telemetry. There are
 no accounts, so there is nothing to sign up for and no email or phone number to
 collect. Nearly every connection the app makes is to your peers or to whatever
-rendezvous node you configure — but *nearly* is not *only*, and there are
-exactly two exceptions. Naming them is the point of this section.
+rendezvous node you configure — but *nearly* is not *only*. Naming the
+exceptions is the point of this section.
+
+Two happen without you asking:
 
 - **`api.github.com`, once at launch.** The app asks the project's own repo
   (`ZahakJ/concord`) for its latest release tag so it can tell you an
@@ -93,6 +95,25 @@ exactly two exceptions. Naming them is the point of this section.
 Neither can be switched off from the UI today. The README covers the same two
 in architectural terms ([§1](docs/DESIGN.md#1-the-problem-and-the-thesis),
 [§9.2](docs/DESIGN.md#92-ip-privacy-the-state-of-it)).
+
+Two more reach Valve, and both are yours to trigger:
+
+- **`store.steampowered.com`, while you type in the game-collection editor.**
+  Adding a game to your profile suggests real titles from Steam's public
+  storefront search. The query goes out from the Go backend rather than the
+  webview, but the backend runs on your machine, so this is your IP either way.
+  It happens only while that box is open and only from what you type into it.
+  See `internal/app/games.go`.
+- **`cdn.*.steamstatic.com`, only if you switch box art on.** Game covers are
+  images on Valve's CDN, fetched by the app itself. Loading one tells Valve your
+  IP and when you were online, and a profile card would do it with no click at
+  all — so **it is off by default**, and collections show generated covers
+  instead. *Privacy & safety → Game box art* turns it on. See
+  `frontend/src/GameShelf.svelte`.
+
+Link previews and YouTube embeds are the same shape and the same answer: off by
+default, one click to load, described in
+[§12 of DESIGN.md](docs/DESIGN.md#12-assets-why-nothing-is-fetched-at-runtime).
 
 ## Honest limitations
 

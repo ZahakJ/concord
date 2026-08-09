@@ -1,0 +1,49 @@
+# Dependency updates, batched so they arrive as something a two-person project
+# can actually review rather than as a daily drip of single-line pull requests.
+#
+# Monthly, not weekly: nothing here is a service with an exposed attack surface
+# waiting on a patch — the rendezvous node is the only thing that listens, and
+# it is a dumb pipe. Security advisories are pushed by GitHub regardless of this
+# schedule, so the cadence below only governs routine version bumps.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 5
+    groups:
+      # libp2p ships its modules in lockstep and they must move together; a
+      # single-module bump usually will not even build.
+      libp2p:
+        patterns: ["github.com/libp2p/*", "github.com/multiformats/*"]
+      golang-x:
+        patterns: ["golang.org/x/*"]
+    ignore:
+      # Vendored under third_party/mls-go and wired in with a `replace`, so a
+      # version bump here does nothing except create noise. Updating the fork is
+      # a manual re-vendor — see THIRD-PARTY-NOTICES.md for the local changes
+      # that have to be carried forward.
+      - dependency-name: github.com/thomas-vilte/mls-go
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 5
+    groups:
+      dev-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: npm
+    directory: /apps/mobile
+    schedule: { interval: monthly }
+    open-pull-requests-limit: 3
+    groups:
+      capacitor:
+        patterns: ["@capacitor/*"]
+
+  # Actions are pinned by commit SHA in the release workflow, which is exactly
+  # the case Dependabot exists to maintain: a human will not notice a pinned
+  # digest going stale.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: monthly }

@@ -89,6 +89,14 @@
       onclick={() => setPref("linkPreviews", !S.prefs.linkPreviews)}
     />
     <SettingRow
+      icon="spark"
+      title="Game box art"
+      sub="Load real cover images for game collections"
+      info="Off by default. Covers come from Valve's CDN and are fetched by the app itself, so opening a profile that lists games would tell Valve your IP and the moment you were online — without you clicking anything. Off, collections show generated covers instead and nothing leaves the device. Searching for a game to add always contacts Steam, whatever this says."
+      checked={S.prefs.gameCovers}
+      onclick={() => setPref("gameCovers", !S.prefs.gameCovers)}
+    />
+    <SettingRow
       icon="lock"
       title="Hide my IP on calls"
       sub="Relay call media instead of connecting directly"

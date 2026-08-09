@@ -1,14 +1,17 @@
 // prep-memes.mjs — build the bundled meme template pack.
 //
 // Run by hand, NOT as part of `npm run build`: it needs the network and
-// ImageMagick, and its output is committed.
+// ImageMagick.
 //
 //   node scripts/prep-memes.mjs
 //
 // Sources the well-known templates from imgflip's public catalogue and
-// re-encodes them to WebP at 600px. See README.md in public/memes for the
-// provenance and licensing position — these are third-party images and the pack
-// is deliberately optional.
+// re-encodes them to WebP at 600px. Its output is NOT committed — public/memes/
+// is gitignored except for the README, because these are third-party images
+// with real rightsholders and the repository holds no licence to redistribute
+// them. Anyone who wants the pack runs this; everyone else gets the editor's
+// bring-your-own path, which is the reason the pack is optional at all. See
+// README.md in public/memes for the full provenance and licensing position.
 //
 // It MERGES rather than overwrites. Entries already in manifest.json keep their
 // hand-placed caption boxes and hand-written tags, because those were checked by
