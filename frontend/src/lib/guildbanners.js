@@ -11,7 +11,7 @@
 //     read a name over. Contrast is a requirement here, not a preference —
 //     Banner.svelte lays SCRIM_ALPHA over the art and guildbanners.test.mjs
 //     proves every template clears 4.5:1 under it.
-//   • It is a server's IDENTITY, so the shelves are shaped like the servers
+//   • It is a guild's IDENTITY, so the shelves are shaped like the guilds
 //     people actually run — a clan, a dev team, a music room, a study corner —
 //     not like a colour wheel.
 //   • It is short and wide (a ~240×56 header), so the motifs are big and
@@ -32,7 +32,7 @@ export const SCRIM_ALPHA = { light: 0.5, dark: 0.5 };
 
 // The ink each template expects the header to print in: "light" (white text,
 // dark scrim) unless a template says `ink: "dark"`. One deliberately does — a
-// book club or a work server does not want a neon coliseum — and it flips the
+// book club or a work guild does not want a neon coliseum — and it flips the
 // header to dark text over a WHITE scrim instead.
 export const GUILD_BANNERS = [
   // ---------- Arena: competitive rooms. Loud on purpose, dark where the name sits. ----------
@@ -117,7 +117,7 @@ export const GUILD_BANNERS = [
     fx: { kind: "fall", n: 13, colors: ["#9aa0a8", "#d0d4d9"], size: [1.2, 2.4], dur: [5, 11], drift: 30, glow: 2, opacity: [0.25, 0.6] },
   },
 
-  // ---------- Terminal: dev teams, homelabs, anyone whose server has a repo. ----------
+  // ---------- Terminal: dev teams, homelabs, anyone whose guild has a repo. ----------
   {
     // Log rules behind falling code. Kept dim: a dev room reads text all day.
     id: "commit-log",
@@ -222,7 +222,7 @@ export const GUILD_BANNERS = [
     fx: { kind: "twinkle", n: 13, colors: ["#eaff8f", "#c8ff5a"], size: [1.4, 3], dur: [3, 7], drift: 30, glow: 9, opacity: [0.3, 0.85] },
   },
 
-  // ---------- Arcade: retro. Cabinets, speedruns, emulator servers. ----------
+  // ---------- Arcade: retro. Cabinets, speedruns, emulator guilds. ----------
   {
     id: "insert-coin",
     name: "Insert Coin",
@@ -243,7 +243,7 @@ export const GUILD_BANNERS = [
       "linear-gradient(180deg, #16053a 0%, #4a1170 38%, #b3247e 56%, #ff6a3d 64%, #1a0730 76%, #0a0320 100%)",
     fx: { kind: "grid", colors: ["rgba(110,231,255,.5)"], dur: [3.4, 3.4], opacity: [0.55, 0.55] },
   },
-  // ---------- Signature: quiet. Work servers, book clubs, anything that has to
+  // ---------- Signature: quiet. Work guilds, book clubs, anything that has to
   // look like it means it. One dark, one pale — no padding. ----------
   {
     id: "graphite",
@@ -315,7 +315,7 @@ export const GUILD_BANNERS = [
 
 export const GUILD_BANNER_BY_ID = Object.fromEntries(GUILD_BANNERS.map((b) => [b.id, b]));
 
-// The picker's shelves, in the order a server owner is likely to shop them.
+// The picker's shelves, in the order a guild owner is likely to shop them.
 export const GUILD_BANNER_GROUPS = [
   "Arena",
   "Guild hall",

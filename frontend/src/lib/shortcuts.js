@@ -5,8 +5,8 @@
 //   Ctrl/Cmd+,        user settings
 //   Ctrl/Cmd+Shift+,  network stats
 //   Alt+↑ / Alt+↓     previous / next channel in the active guild
-//   Alt+Shift+↑/↓     previous / next unread channel (across servers)
-//   Ctrl+Alt+↑/↓      previous / next server
+//   Alt+Shift+↑/↓     previous / next unread channel (across guilds)
+//   Ctrl+Alt+↑/↓      previous / next guild
 //   Ctrl+Shift+M      toggle mic mute (while in a call)
 //   Ctrl+Shift+D      toggle deafen (while in a call)
 //   (your choice)     hold to talk, when push-to-talk is on — see below
@@ -33,11 +33,11 @@ function stepChannel(dir) {
 }
 
 function stepGuild(dir) {
-  const servers = S.guilds.filter((g) => g.kind !== "dm");
-  if (!servers.length) return;
-  const i = servers.findIndex((g) => g.id === S.activeGuildId);
+  const guilds = S.guilds.filter((g) => g.kind !== "dm");
+  if (!guilds.length) return;
+  const i = guilds.findIndex((g) => g.id === S.activeGuildId);
   const from = i < 0 ? (dir > 0 ? -1 : 0) : i;
-  selectGuild(servers[(from + dir + servers.length) % servers.length].id);
+  selectGuild(guilds[(from + dir + guilds.length) % guilds.length].id);
 }
 
 // Focus the desktop search box, returning false if it isn't on screen (mobile
@@ -165,7 +165,7 @@ export function installShortcuts() {
       toggleMemberPanel();
       return;
     }
-    // Ctrl+Alt+↑/↓ — previous / next server (distinct from plain Alt = channel).
+    // Ctrl+Alt+↑/↓ — previous / next guild (distinct from plain Alt = channel).
     if (mod && e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
       e.preventDefault();
       stepGuild(e.key === "ArrowDown" ? 1 : -1);

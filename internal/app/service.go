@@ -759,7 +759,6 @@ const maxNameBytes = 64
 // maxBioBytes bounds the profile "about me" so profile broadcasts stay small.
 const maxBioBytes = 600
 
-
 // birthdayRe admits a month-day pair only ("MM-DD", "01".."12" / "01".."31").
 // Deliberately no year group: even if a peer broadcasts one, it must never be
 // stored or re-gossiped — the shape itself is the privacy guarantee.
@@ -1612,15 +1611,15 @@ func (s *Service) AdoptLinkedProfile(p Profile) bool {
 	}
 	sanitizeProfileExtras(&p)
 	fields := map[string]string{
-		"display_name":  strings.TrimSpace(p.Name),
-		"status_text":   strings.TrimSpace(p.Status),
-		"avatar_emoji":  strings.TrimSpace(p.Emoji),
-		"accent_color":  strings.TrimSpace(p.Color),
-		"avatar_image":  p.Avatar,
-		"banner_image":  p.Banner,
-		"presence":      strings.TrimSpace(p.Presence),
-		"bio":           strings.TrimSpace(p.Bio),
-		"birthday":      p.Birthday, // "MM-DD" or "" — sanitize already refused anything with a year
+		"display_name": strings.TrimSpace(p.Name),
+		"status_text":  strings.TrimSpace(p.Status),
+		"avatar_emoji": strings.TrimSpace(p.Emoji),
+		"accent_color": strings.TrimSpace(p.Color),
+		"avatar_image": p.Avatar,
+		"banner_image": p.Banner,
+		"presence":     strings.TrimSpace(p.Presence),
+		"bio":          strings.TrimSpace(p.Bio),
+		"birthday":     p.Birthday, // "MM-DD" or "" — sanitize already refused anything with a year
 
 		"accent_color2": p.Color2,
 		"avatar_frame":  p.Frame,
@@ -1691,15 +1690,15 @@ func (s *Service) SetProfile(p Profile) error {
 	}
 	sanitizeProfileExtras(&p)
 	for k, v := range map[string]string{
-		"display_name":  strings.TrimSpace(p.Name),
-		"status_text":   strings.TrimSpace(p.Status),
-		"avatar_emoji":  strings.TrimSpace(p.Emoji),
-		"accent_color":  strings.TrimSpace(p.Color),
-		"avatar_image":  p.Avatar,
-		"banner_image":  p.Banner,
-		"presence":      strings.TrimSpace(p.Presence),
-		"bio":           strings.TrimSpace(p.Bio),
-		"birthday":      p.Birthday, // "MM-DD" or "" — sanitize already refused anything with a year
+		"display_name": strings.TrimSpace(p.Name),
+		"status_text":  strings.TrimSpace(p.Status),
+		"avatar_emoji": strings.TrimSpace(p.Emoji),
+		"accent_color": strings.TrimSpace(p.Color),
+		"avatar_image": p.Avatar,
+		"banner_image": p.Banner,
+		"presence":     strings.TrimSpace(p.Presence),
+		"bio":          strings.TrimSpace(p.Bio),
+		"birthday":     p.Birthday, // "MM-DD" or "" — sanitize already refused anything with a year
 
 		"accent_color2": p.Color2,
 		"avatar_frame":  p.Frame,

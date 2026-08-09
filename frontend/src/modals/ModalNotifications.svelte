@@ -57,7 +57,7 @@
 <Modal title="Notifications &amp; sounds" {onClose} wide>
   <SettingGroup
     label="How loud"
-    info="Every server and channel has its own level — all messages, only @mentions, or nothing — on its {S.isMobile
+    info="Every guild and channel has its own level — all messages, only @mentions, or nothing — on its {S.isMobile
       ? 'long-press'
       : 'right-click'} menu."
   >

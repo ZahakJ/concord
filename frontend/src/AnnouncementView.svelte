@@ -1,10 +1,10 @@
 <script>
-  // A published announcement, rendered as the server speaking.
+  // A published announcement, rendered as the guild speaking.
   //
   // It used to be a bordered card with a badge and the original author's face
   // inside it — which is the visual language of a QUOTE: "look what someone
   // said over there". An announcement is the opposite. It is not a forward, it
-  // is the server telling you something, so it wears the server's name and icon
+  // is the guild telling you something, so it wears the guild's name and icon
   // in the message header (see Message.svelte) and the body here is just the
   // text, formatted like any other message. Nothing to draw a box around.
   //
@@ -24,7 +24,7 @@
 <div class="body">{@html renderMarkdown(announce.body, names, customEmojiMap(), mentionRefs())}</div>
 
 <style>
-  /* An announcement renders as the server talking, formatted like any other
+  /* An announcement renders as the guild talking, formatted like any other
      message — so it takes the message-content step rather than a size of its
      own, which had it reading SMALLER than the messages around it. */
   .body {

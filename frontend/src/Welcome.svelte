@@ -1,6 +1,6 @@
 <script>
   // Shown in the main area when no channel is open (typically a brand-new
-  // user with no servers yet). Turns an empty screen into a warm first run.
+  // user with no guilds yet). Turns an empty screen into a warm first run.
   import Icon from "./Icon.svelte";
   import { S, selectNotes } from "./lib/state.svelte.js";
 </script>

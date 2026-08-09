@@ -124,11 +124,11 @@
     error = "";
     try {
       // Dials the other device, adopts the account, logs in linked, and joins
-      // your existing servers — then we're in.
+      // your existing guilds — then we're in.
       // A non-empty return is a WARNING, not a failure: the device is linked
-      // and logged in either way. The usual case is servers the other device
+      // and logged in either way. The usual case is guilds the other device
       // belongs to but doesn't administer, which it has no authority to hand
-      // over — better said out loud than discovered as missing servers later.
+      // over — better said out loud than discovered as missing guilds later.
       const warning = await api.redeemLinkCode(code, passphrase);
       if (warning) flash(warning);
       // The link just landed — celebrate HERE, on the transition the user
@@ -322,7 +322,7 @@
     {:else if confirmingReset}
       <p class="muted">
         This permanently deletes your identity and all data on <strong>this device</strong>
-        so you can create a new passphrase. Servers you own will be lost. This
+        so you can create a new passphrase. Guilds you own will be lost. This
         cannot be undone.
       </p>
       {#if error}<div class="error">{error}</div>{/if}
@@ -387,7 +387,7 @@
     {:else if restoring}
       <p class="muted">
         Enter your 24-word recovery phrase and a new passphrase for this device.
-        Your identity, servers, and history come back as you sync — nothing is lost.
+        Your identity, guilds, and history come back as you sync — nothing is lost.
       </p>
       <!-- Same reason as the link code, and worse here: the IME will happily
            "correct" uncommon BIP-39 words (gauge, nuclear, kernel) to
@@ -416,9 +416,9 @@
       <p class="muted">
         Your passphrase can't be looked up — it's never stored anywhere. If this
         account is also on <strong>another device</strong>, re-linking from it is
-        the best fix: everything comes back — profile, servers, and history. The
+        the best fix: everything comes back — profile, guilds, and history. The
         <strong>24-word recovery phrase</strong> restores your identity, but
-        servers and history only return by re-linking or re-invites.
+        guilds and history only return by re-linking or re-invites.
       </p>
       {#if error}<div class="error">{error}</div>{/if}
       <button type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>

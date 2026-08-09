@@ -809,9 +809,9 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	// Announce arrival with a system message — but only for a genuine first join.
 	// When this is an additional DEVICE of an account already in the guild (device
 	// linking), the account has another leaf here already, so stay quiet rather
-	// than posting a bogus "joined the server" for a member who never left.
+	// than posting a bogus "joined the guild" for a member who never left.
 	if len(g.Channels) > 0 && s.accountLeafCount(g.GroupID) <= 1 {
-		s.sendSystem(g.Channels[0].ID, "joined the server")
+		s.sendSystem(g.Channels[0].ID, "joined the guild")
 	}
 	return s.offerAfter(g, nil)
 }

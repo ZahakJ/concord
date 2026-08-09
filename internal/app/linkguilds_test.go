@@ -119,7 +119,7 @@ func TestLinkedDeviceJoinsAServerTheIssuerDoesNotOwn(t *testing.T) {
 		}
 	}
 	if !joined {
-		t.Fatal("the linked device never joined the server its account belongs to")
+		t.Fatal("the linked device never joined the guild its account belongs to")
 	}
 	// Three leaves under two accounts: the owner, the member, the member's device.
 	waitUntil(t, 30*time.Second, func() bool {

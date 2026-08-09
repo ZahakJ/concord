@@ -3,7 +3,7 @@
   // screen because a picker that implies more privacy than it delivers is worse
   // than one that offers less.
   //
-  //   This server — the guild's own pack. Records travel P2P to members, images
+  //   This guild — its own pack. Records travel P2P to members, images
   //     ride the encrypted-attachment path, and searching it is a substring
   //     match over a list already in memory. Nothing leaves the machine.
   //
@@ -327,9 +327,9 @@
     if (!st) return "";
     switch (st.status) {
       case "no_rendezvous":
-        return "You have no rendezvous configured, so there is nothing to search through. Add one under Settings → Connection — or use this server's own GIFs, which need no server at all.";
+        return "You have no rendezvous configured, so there is nothing to search through. Add one under Settings → Connection — or use this guild's own GIFs, which need no server at all.";
       case "unreachable":
-        return "Your rendezvous didn't answer, so there is nothing to search through right now. This server's own GIFs still work — they come from members, not from a server.";
+        return "Your rendezvous didn't answer, so there is nothing to search through right now. This guild's own GIFs still work — they come from members, not from a server.";
       case "unavailable":
         // The node's own detail names the provider it is configured for and the
         // variable to set — including, if that provider is Tenor, that its
@@ -503,7 +503,7 @@
       await api.saveSearchedGif(g.id, saveName(x), saveTags(), x.full, x.w || 0, x.h || 0);
       await load();
       await refreshGuilds();
-      flash("Saved to this server's GIFs", "ok");
+      flash("Saved to this guild's GIFs", "ok");
     } catch (err) {
       flash(err);
     } finally {
@@ -518,7 +518,7 @@
       role="tab"
       aria-selected={tab === "pack"}
       class:on={tab === "pack"}
-      onclick={() => (tab = "pack")}>This server</button
+      onclick={() => (tab = "pack")}>This guild</button
     >
     <button
       role="tab"
@@ -533,13 +533,13 @@
       <span class="find"><Icon name="search" size={14} /></span>
       <!-- svelte-ignore a11y_autofocus -->
       <!-- Not on a phone: this tab is usually opened to LOOK at the twelve GIFs
-           the server has, and the IME would cover the grid to no purpose. -->
+           the guild has, and the IME would cover the grid to no purpose. -->
       <input
         class="q"
         autofocus={!S.isMobile}
         bind:value={query}
-        placeholder="Search this server's GIFs…"
-        aria-label="Search this server's GIFs"
+        placeholder="Search this guild's GIFs…"
+        aria-label="Search this guild's GIFs"
       />
       {#if canManage}
         <button class="addbtn" onclick={() => (adding = !adding)} title="Add a GIF to this guild">
@@ -616,16 +616,16 @@
           {#if query.trim()}
             Nothing matches “{query.trim()}”.
           {:else if canManage}
-            This server has no GIFs yet — add the first one, or find one under Search.
+            This guild has no GIFs yet — add the first one, or find one under Search.
           {:else}
-            This server has no GIFs yet. Someone who can manage it can add some.
+            This guild has no GIFs yet. Someone who can manage it can add some.
           {/if}
         </p>
       {/if}
     </div>
 
     <p class="muted foot">
-      Shared by this server's members, peer to peer. Searching this tab sends nothing anywhere — the
+      Shared by this guild's members, peer to peer. Searching this tab sends nothing anywhere — the
       filter runs on GIFs already on your machine.
     </p>
   {:else}
@@ -691,8 +691,8 @@
                     {#if canManage}
                       <button
                         class="rm save"
-                        aria-label="Save {x.title || 'this GIF'} to this server's GIFs"
-                        title="Save to this server's GIFs"
+                        aria-label="Save {x.title || 'this GIF'} to this guild's GIFs"
+                        title="Save to this guild's GIFs"
                         disabled={saving === x.id}
                         onclick={() => saveHit(x)}
                       >
@@ -922,7 +922,7 @@
   .rm:focus-visible {
     opacity: 1;
   }
-  /* This button is "Remove" in the pack tab and "Save to this server's GIFs" in
+  /* This button is "Remove" in the pack tab and "Save to this guild's GIFs" in
      the search tab, and a finger generates no hover — so on a phone two of the
      three management actions in this picker did not exist at all. Show it, and
      give it a target: 3px/5px around a 12px icon is ~22x18. */

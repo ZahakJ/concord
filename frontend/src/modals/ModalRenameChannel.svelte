@@ -22,7 +22,7 @@
 </script>
 
 <Modal title="Rename channel" {onClose}>
-  <p class="muted">Everyone in the server sees the new name.</p>
+  <p class="muted">Everyone in the guild sees the new name.</p>
   <input
     placeholder="channel-name"
     maxlength="80"

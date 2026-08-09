@@ -1579,7 +1579,7 @@ type SearchFilter struct {
 // decrypted.
 //
 // Why this is a scan and not an index: this build's SQLite ships FTS5, and a
-// contentless (content='') virtual table keyed by message id — fed from the
+// contentless (content=”) virtual table keyed by message id — fed from the
 // plaintext SaveMessage/UpdateContent briefly hold — would make queries
 // instant. But an FTS index stores every token of every message (the full
 // vocabulary plus positions), which is recoverable plaintext, and this

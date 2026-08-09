@@ -54,6 +54,17 @@ jobs:
       - run: cd frontend && npm ci && npm run build
       - run: go build ./...
       - run: go vet ./...
+      # Formatting used to be the one thing CI did not check, on the reasoning
+      # that contributors run `make fmt`. Two files had drifted by the time
+      # anyone looked. It costs a second here and it is never a judgement call,
+      # so it may as well be the machine's job. third_party/ is vendored and
+      # formatted upstream's way, not ours.
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^third_party/' || true)
+          if [ -n "$unformatted" ]; then
+            echo "::error::Not gofmt'd — run 'make fmt':"; echo "$unformatted"; exit 1
+          fi
       # -short skips the 84 tests that stand up real libp2p nodes and wait on
       # message propagation with deadlines in the tens of seconds. Those are
       # worth running, but not as the gate on a pull request: under the race

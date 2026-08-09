@@ -158,7 +158,7 @@
   // ---- unlinking ----
   //
   // The confirm text is deliberately exact about what this can and cannot do
-  // (see internal/app/unlink.go). Removing the device's leaf from your servers
+  // (see internal/app/unlink.go). Removing the device's leaf from your guilds
   // is real and immediate; the self-erase only happens if that device comes back
   // online running an honest client. Promising a remote wipe would be a promise
   // no serverless design can keep, and the one place someone would rely on it is
@@ -172,7 +172,7 @@
     try {
       await api.unlinkDevice(dev.key);
       flash(
-        `${label} unlinked — it loses access to your servers now, and erases itself the next time it comes online`,
+        `${label} unlinked — it loses access to your guilds now, and erases itself the next time it comes online`,
         "success",
       );
     } catch (err) {
@@ -312,7 +312,7 @@
       </div>
       <p class="muted tiny note">
         Every device signed in to this account. Unlinking one removes it from your
-        servers immediately; it erases its own copy only if it comes back online.
+        guilds immediately; it erases its own copy only if it comes back online.
       </p>
     {:else}
       <p class="muted tiny">Loading…</p>
@@ -504,7 +504,7 @@
 {#if confirming}
   <ConfirmDialog
     title="Unlink {confirming.name || 'this device'}?"
-    body={"It stops receiving anything new from your servers straight away — that part is immediate and cannot be undone by whoever holds it.\n\nIt erases its own copy of your messages only when it next comes online with Concord running. A device that stays off keeps what it already downloaded, and this cannot reach it. If the device is in someone else's hands, treat everything on it as already read."}
+    body={"It stops receiving anything new from your guilds straight away — that part is immediate and cannot be undone by whoever holds it.\n\nIt erases its own copy of your messages only when it next comes online with Concord running. A device that stays off keeps what it already downloaded, and this cannot reach it. If the device is in someone else's hands, treat everything on it as already read."}
     confirmLabel="Unlink"
     onConfirm={() => unlink(confirming)}
     onClose={() => (confirming = null)}

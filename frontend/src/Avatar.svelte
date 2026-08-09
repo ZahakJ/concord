@@ -77,7 +77,7 @@
   /* A picture gets no backplate. object-fit:cover fills the circle, so for an
      opaque image the tint was merely invisible — but a logo or avatar saved as a
      PNG with transparency showed the accent through its gaps, which reads as the
-     app colouring in someone's picture. A server icon on an announcement is the
+     app colouring in someone's picture. A guild icon on an announcement is the
      obvious case: it should look like a profile picture, not a badge. */
   .avatar.pictured {
     background: transparent;

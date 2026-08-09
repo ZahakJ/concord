@@ -210,12 +210,12 @@
       { label: "Mark As Read", icon: "check", onClick: () => markRead(c.id) },
       // Notification level, listed flat with a tick on the one in force — the
       // same shape "Change type to…" uses below, since this menu has no
-      // submenus. "Use server default" is a fourth, distinct answer: it's not a
+      // submenus. "Use guild default" is a fourth, distinct answer: it's not a
       // level, it's declining to pin one.
       { sep: true },
       { label: "Notifications", header: true },
       {
-        label: `Use server default (${levelLabel(guildNotifLevel(g?.id))})`,
+        label: `Use guild default (${levelLabel(guildNotifLevel(g?.id))})`,
         icon: "bell",
         active: !S.notifs.channels[c.id],
         onClick: () => setChannelNotifs(c.id, null),

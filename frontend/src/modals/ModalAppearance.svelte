@@ -382,7 +382,7 @@
         icon="spark"
         title="Seasonal touches"
         sub="Snow in December, petals in spring, leaves in autumn"
-        info="A sparse drift over the server rail, driven by this device's clock only — nothing is fetched. Quiet months show nothing."
+        info="A sparse drift over the guild rail, driven by this device's clock only — nothing is fetched. Quiet months show nothing."
         checked={S.prefs.seasonal !== false}
         onclick={() => setAppearance("seasonal", S.prefs.seasonal === false)}
       />

@@ -7,9 +7,9 @@
 //
 // Three levels, resolved down a chain:
 //
-//   channel setting  →  server setting  →  "all"
+//   channel setting  →  guild setting  →  "all"
 //
-// A channel set to null follows its server; a server set to nothing is "all".
+// A channel set to null follows its guild; a guild set to nothing is "all".
 // The levels are deliberately few, because the honest questions are only three:
 //
 //   all       everything pings
@@ -57,12 +57,12 @@ export function migrateMutes(state, mutes) {
   return { ...state, channels };
 }
 
-// resolve answers "how loud is this channel", walking channel → server → all.
+// resolve answers "how loud is this channel", walking channel → guild → all.
 export function resolve(state, channelId, guildId) {
   return state?.channels?.[channelId] || state?.guilds?.[guildId] || "all";
 }
 
-// setChannel pins one channel, or clears it back to following its server.
+// setChannel pins one channel, or clears it back to following its guild.
 export function setChannel(state, channelId, level) {
   const channels = { ...state.channels };
   if (isLevel(level)) channels[channelId] = level;
@@ -70,7 +70,7 @@ export function setChannel(state, channelId, level) {
   return { ...state, channels };
 }
 
-// setGuild sets a server's default. Clearing a server to "all" also drops any
+// setGuild sets a guild's default. Clearing a guild to "all" also drops any
 // channel overrides that merely repeat it, so the stored map doesn't
 // accumulate settings that say nothing.
 export function setGuild(state, guildId, level, channelIds = []) {

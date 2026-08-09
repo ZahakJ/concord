@@ -154,11 +154,11 @@
     openContextMenu(
       e,
       [
-        { label: "Create a server", icon: "spark", onClick: () => (S.modal = { kind: "create" }) },
+        { label: "Create a guild", icon: "spark", onClick: () => (S.modal = { kind: "create" }) },
         { label: "Join with an invite code", icon: "download", onClick: () => (S.modal = { kind: "join", code: "" }) },
         { label: "Instant meeting (1 hour – 30 days)", icon: "bolt", onClick: startMeeting },
       ],
-      { title: "Add a server" },
+      { title: "Add a guild" },
     );
   }
 
@@ -202,8 +202,8 @@
 
   const g = $derived(S.guilds.find((x) => x.id === S.activeGuildId) || null);
   const inDMs = $derived(g?.kind === "dm");
-  const servers = $derived(S.guilds.filter((x) => x.kind !== "dm"));
-  const guildById = $derived(new Map(servers.map((s) => [s.id, s])));
+  const allGuilds = $derived(S.guilds.filter((x) => x.kind !== "dm"));
+  const guildById = $derived(new Map(allGuilds.map((s) => [s.id, s])));
   const dms = $derived(
     S.guilds.filter(
       (x) =>
@@ -214,9 +214,9 @@
   );
 
   // Keep the persisted layout in step with the live guild set (adds/removes,
-  // dissolved folders). Runs whenever the server list changes.
+  // dissolved folders). Runs whenever the guild list changes.
   $effect(() => {
-    const ids = servers.map((s) => s.id);
+    const ids = allGuilds.map((s) => s.id);
     const next = reconcile(S.rail, ids);
     if (JSON.stringify(next) !== JSON.stringify(S.rail)) commitRail(next);
   });
@@ -429,7 +429,7 @@
   }
 </script>
 
-<nav class="rail" aria-label="Servers">
+<nav class="rail" aria-label="Guilds">
   {#if seasonOn}
     <div class="season" aria-hidden="true"><FxLayer fx={season} seed="season" scale={0.6} /></div>
   {/if}
@@ -653,7 +653,7 @@
     </button>
     <div class="divider"></div>
     {#if S.isMobile}
-      <button class="pill add" use:tooltip={railTip} aria-label="Add a server" onclick={addMenu}>
+      <button class="pill add" use:tooltip={railTip} aria-label="Add a guild" onclick={addMenu}>
         <Icon name="plus" />
       </button>
       <button

@@ -32,7 +32,7 @@
   // The LIVE channel record, not the snapshot the opener handed us.
   //
   // A prop is the object as it was when the modal opened. Saving the header art
-  // updates the channel on the server and refreshes the guild list, but that
+  // updates the channel on the backend and refreshes the guild list, but that
   // prop keeps its old value forever — so every tile stayed unselected no matter
   // what you clicked, and the picker looked broken while the setting was in fact
   // being saved. Read it back out of the guild each time instead; the prop is
@@ -295,7 +295,7 @@
 
     <div class="sub-head">
       Header art
-      {#if canManage}<span class="shared">Everyone in {guild?.name || "this server"}</span>{/if}
+      {#if canManage}<span class="shared">Everyone in {guild?.name || "this guild"}</span>{/if}
     </div>
     <div class="arts">
       <button class="art" class:on={!art} onclick={() => setArt("")}>
@@ -342,7 +342,7 @@
   <section>
     <div class="sec-head">
       <h4>Tags</h4>
-      <span class="shared">Everyone in {guild?.name || "this server"}</span>
+      <span class="shared">Everyone in {guild?.name || "this guild"}</span>
     </div>
 
     {#if !canManage}

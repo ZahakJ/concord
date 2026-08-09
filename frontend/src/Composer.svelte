@@ -1441,7 +1441,7 @@
         <button
           type="button"
           class="iconbtn gifbtn"
-          title="GIFs — this server's pack, or a web search via your rendezvous"
+          title="GIFs — this guild's pack, or a web search via your rendezvous"
           aria-label="Open the GIF picker"
           disabled={!ch}
           onclick={() => (S.modal = { kind: "gifs" })}
@@ -1538,7 +1538,7 @@
           <span class="sr-label">GIF</span>
           <!-- No vendor named: which service the Search tab reaches is the
                rendezvous operator's choice, and the picker reports it. -->
-          <span class="sr-sub">This server's pack, or a search via your rendezvous</span>
+          <span class="sr-sub">This guild's pack, or a search via your rendezvous</span>
         </span>
       </button>
       <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "poll" }))}>

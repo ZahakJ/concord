@@ -1,8 +1,8 @@
 <script>
-  // Someone you've VERIFIED wants to add you to their server. This is an offer,
+  // Someone you've VERIFIED wants to add you to their guild. This is an offer,
   // not a fait accompli: nothing joins until you say yes (accepting is what
   // redeems the invite code — see internal/app/dm.go, which deliberately does
-  // NOT auto-redeem server invites the way DM invites are auto-redeemed).
+  // NOT auto-redeem guild invites the way DM invites are auto-redeemed).
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
@@ -12,7 +12,7 @@
   let { invite, onClose } = $props();
   let busy = $state(false);
 
-  // Server invites only come from verified contacts, so their learned profile
+  // Guild invites only come from verified contacts, so their learned profile
   // face is available — show it rather than an initials disc.
   const fromContact = $derived(S.contacts.find((c) => c.fingerprint === invite.from));
 
@@ -31,7 +31,7 @@
   }
 </script>
 
-<Modal title="Server invite" onClose={busy ? () => {} : onClose}>
+<Modal title="Guild invite" onClose={busy ? () => {} : onClose}>
   <div class="who">
     <Avatar
       name={invite.fromName || invite.from}
@@ -42,7 +42,7 @@
     />
     <p>
       <strong>{invite.fromName || invite.from.slice(0, 9)}</strong> invited you to
-      <strong>{invite.guild || "their server"}</strong>.
+      <strong>{invite.guild || "their guild"}</strong>.
     </p>
     <p class="tiny muted">
       You've verified them, which is why this reached you at all — invites from
@@ -53,7 +53,7 @@
     <button class="ghost" disabled={busy} onclick={onClose}>Ignore</button>
     <button disabled={busy} onclick={accept}>
       <Icon name="check" size={14} />
-      {busy ? "Joining…" : "Join server"}
+      {busy ? "Joining…" : "Join guild"}
     </button>
   </div>
 </Modal>

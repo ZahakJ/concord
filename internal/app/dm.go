@@ -193,7 +193,7 @@ type dmInvite struct {
 	// see you in the server you never joined. We offer it instead, and only the
 	// invitee's "yes" redeems the code.
 	Kind  string `json:"kind,omitempty"`
-	Guild string `json:"guild,omitempty"` // server name, for the prompt
+	Guild string `json:"guild,omitempty"` // guild name, for the prompt
 }
 
 // NewDMInvite creates a fresh 2-person DM group owned by this peer and returns
@@ -698,7 +698,7 @@ func (s *Service) isTrustedGroupDMInvite(guildID, senderFpr string) bool {
 	// reachable peer. (An audit flagged that a shared *large/public* guild widens
 	// this to near-strangers; tightening it to verified-or-existing-DM is a
 	// trust-model choice that would require mutual verification for the common
-	// "add people from our shared server" flow — left as a deliberate decision.)
+	// "add people from our shared guild" flow — left as a deliberate decision.)
 	return s.sharesOtherGroupWith(senderFpr, guildID)
 }
 

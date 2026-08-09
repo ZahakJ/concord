@@ -224,7 +224,7 @@
   const poll = $derived(m.deleted ? null : parsePoll(m.content));
   const announce = $derived(m.deleted ? null : parseAnnounce(m.content));
   // The announcement speaks for the guild it was published in, which is the one
-  // this channel belongs to — not a remote server, so the local guild is it.
+  // this channel belongs to — not a remote guild, so the local guild is it.
   const announceGuild = $derived(announce ? activeGuild() : null);
   const richEmbed = $derived(m.deleted ? null : parseEmbed(m.content));
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
@@ -660,7 +660,7 @@
   // read the send time of a GROUPED message: the compact row's gutter clock is
   // hover-revealed, and hover does not exist here.
   const menuTitle = $derived(
-    `${guest ? guestName : announce ? announceGuild?.name || "Server" : nameFor(m.sender, m.senderName)} · ${new Date(m.sent).toLocaleString()}`,
+    `${guest ? guestName : announce ? announceGuild?.name || "Guild" : nameFor(m.sender, m.senderName)} · ${new Date(m.sent).toLocaleString()}`,
   );
 
   // Start a thread from this message: a forum post IS a thread channel under
@@ -901,11 +901,11 @@
         <Avatar name={guestName} emoji="👤" color="#5b6270" size={38} />
       </span>
     {:else if announce}
-      <!-- A published announcement is the server talking, so it wears the
-           server's face rather than the face of whoever pressed Publish. -->
+      <!-- A published announcement is the guild talking, so it wears the
+           guild's face rather than the face of whoever pressed Publish. -->
       <span class="av-btn" title={announceGuild?.name || "Announcement"}>
         <Avatar
-          name={announceGuild?.name || "Server"}
+          name={announceGuild?.name || "Guild"}
           image={announceGuild?.icon || ""}
           size={38}
         />
@@ -955,7 +955,7 @@
             >guest</span
           >
         {:else if announce}
-          <span class="sender server-name">{announceGuild?.name || "Server"}</span>
+          <span class="sender guild-name">{announceGuild?.name || "Guild"}</span>
           <span class="ann-badge" title={announce.from ? `Published from #${announce.from}` : "Announcement"}>
             <Icon name="megaphone" size={10} /> announcement
           </span>
@@ -1461,9 +1461,9 @@
       text-decoration: underline;
     }
   }
-  /* Marks the row as the server speaking rather than a person — quiet, since
+  /* Marks the row as the guild speaking rather than a person — quiet, since
      the guild's name and icon already carry the point. */
-  .server-name {
+  .guild-name {
     font-weight: 700;
     color: var(--text);
     cursor: default;

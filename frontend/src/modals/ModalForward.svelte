@@ -11,7 +11,7 @@
   let query = $state("");
   let busy = $state(false);
 
-  // Flatten every forwardable destination: text channels in servers + DMs.
+  // Flatten every forwardable destination: text channels in guilds + DMs.
   const destinations = $derived.by(() => {
     const out = [];
     for (const g of S.guilds) {

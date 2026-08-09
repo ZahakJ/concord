@@ -5,7 +5,7 @@
   let { onSubmit, onClose, error } = $props();
   let code = $state("");
   let busy = $state(false);
-  let submitted = $state(""); // so a stale server error hides once the code is edited
+  let submitted = $state(""); // so a stale backend error hides once the code is edited
 
   async function join() {
     if (!code.trim() || busy) return;

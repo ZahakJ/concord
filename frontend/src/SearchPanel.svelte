@@ -37,7 +37,7 @@
   }
 
   // whereFor: human label for the conversation a hit lives in — "#channel ·
-  // guild" for servers, the counterpart's name for DMs.
+  // guild" for guilds, the counterpart's name for DMs.
   function whereFor(chId) {
     for (const g of S.guilds) {
       const c = g.channels.find((x) => x.id === chId);

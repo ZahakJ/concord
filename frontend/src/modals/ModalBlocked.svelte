@@ -1,5 +1,5 @@
 <script>
-  // The block list: people you've blocked can't add you to DMs or servers.
+  // The block list: people you've blocked can't add you to DMs or guilds.
   // Unblock from here.
   import Modal from "./Modal.svelte";
   import Avatar from "../Avatar.svelte";
@@ -12,10 +12,10 @@
   {#if S.blocked.length === 0}
     <p class="muted empty">
       You haven't blocked anyone. Blocking someone stops them from adding you to
-      DMs or servers — open their profile and choose “Block”.
+      DMs or guilds — open their profile and choose “Block”.
     </p>
   {:else}
-    <p class="muted tiny intro">Blocked people can't add you to DMs or servers.</p>
+    <p class="muted tiny intro">Blocked people can't add you to DMs or guilds.</p>
     <div class="list">
       {#each S.blocked as fpr (fpr)}
         <div class="row">

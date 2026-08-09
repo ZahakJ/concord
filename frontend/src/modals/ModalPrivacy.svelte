@@ -149,7 +149,7 @@
     <SettingRow
       icon="members"
       title="Message requests"
-      info="A DM from someone you don't share a server with, haven't verified and never messaged first waits here. Concord holds their invitation without opening it, so until you accept they can't see your profile, your presence, or that you're even there."
+      info="A DM from someone you don't share a guild with, haven't verified and never messaged first waits here. Concord holds their invitation without opening it, so until you accept they can't see your profile, your presence, or that you're even there."
       sub={S.requests.length
         ? `${S.requests.length} waiting`
         : "DMs from people you don't know yet"}
@@ -159,7 +159,7 @@
     <SettingRow
       icon="lock"
       title="Blocked users"
-      sub="People who can't add you to DMs or servers"
+      sub="People who can't add you to DMs or guilds"
       to="blocked"
       from="privacy"
     />

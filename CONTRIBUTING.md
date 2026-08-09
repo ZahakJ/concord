@@ -55,8 +55,8 @@ cd frontend && npm run build   # must succeed; a broken build is a broken releas
 On every pull request (and every push to `main`), CI runs `go build ./...`,
 `go vet ./...`, `go test -race -short ./...`, and the three frontend steps. See
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It has to be green
-before anything merges. Formatting is the one thing CI does not check, so run
-`make fmt` yourself.
+before anything merges. `gofmt` is part of that gate, so run `make fmt` before
+you push rather than discovering it in a red build.
 
 `-short` is deliberate: it skips the tests that stand up real libp2p nodes and
 wait on message propagation, which are too timing-sensitive to gate a pull

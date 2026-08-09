@@ -83,7 +83,7 @@ export const S = $state({
   // unread[channelId] = { count, mentions } — counts survive refresh via the
   // localStorage last-read map (recomputed on load).
   unread: {},
-  // How loud each channel and server is allowed to be (see lib/notifs.js).
+  // How loud each channel and guild is allowed to be (see lib/notifs.js).
   // Seeded from the old per-channel mute list so an upgrade is silent about
   // itself — a channel you'd muted comes back as "Nothing", which is the same
   // thing under a name that leaves room for "only @mentions".
@@ -470,8 +470,8 @@ export function markAllRead() {
 //
 // The pure model lives in lib/notifs.js; this is the reactive skin over it.
 
-// guildIdOf: which server (or DM pseudo-guild) a channel belongs to, so a
-// channel with no setting of its own can fall through to its server's.
+// guildIdOf: which guild (or DM pseudo-guild) a channel belongs to, so a
+// channel with no setting of its own can fall through to its guild's.
 export function guildIdOf(channelId) {
   return S.guilds.find((g) => g.channels.some((c) => c.id === channelId))?.id || "";
 }
@@ -498,7 +498,7 @@ function saveNotifs(next) {
   saveJSON("concord.notifs", next);
 }
 
-// level = null puts the channel back to following its server.
+// level = null puts the channel back to following its guild.
 export function setChannelNotifs(channelId, level) {
   saveNotifs(setChannelNotif(S.notifs, channelId, level));
 }
@@ -509,8 +509,8 @@ export function setGuildNotifs(guildId, level) {
 }
 
 // The one-click version, still on the bell icon in the channel list: silence,
-// or hand the channel back to whatever its server says. It clears rather than
-// pinning "all", so unmuting a channel in a server you'd set to @mentions-only
+// or hand the channel back to whatever its guild says. It clears rather than
+// pinning "all", so unmuting a channel in a guild you'd set to @mentions-only
 // returns it to @mentions-only rather than quietly making it the loud one.
 export function toggleMute(channelId) {
   setChannelNotifs(channelId, isMuted(channelId) ? null : "none");
@@ -682,7 +682,7 @@ export function guildMenuItems(g) {
     },
     { label: "Stats & diagnostics", icon: "poll", onClick: () => (S.modal = { kind: "stats", guildId: g.id }) },
     { sep: true },
-    // The server-wide default every channel falls back to. Flat, with a tick on
+    // The guild-wide default every channel falls back to. Flat, with a tick on
     // the one in force — this menu has no submenus.
     { label: "Notifications", header: true },
     ...NOTIF_LEVELS.map((l) => ({
@@ -1423,7 +1423,7 @@ export async function blockUser(fingerprint, name = "") {
       }
       await refreshGuilds();
     }
-    flash(`Blocked ${name || "user"} — they can't add you to DMs or servers`, "success");
+    flash(`Blocked ${name || "user"} — they can't add you to DMs or guilds`, "success");
   } catch (err) {
     flash(err);
   }
@@ -1480,7 +1480,7 @@ export async function refreshGuilds() {
     // app, and inside it the channel you were reading. Only when that place
     // still exists; a guild you've since left falls through to the default.
     const resume = S.guilds.find((g) => g.id === lastPlace.guildId);
-    // No memory yet: land on the top SERVER in the rail rather than Notes/DMs,
+    // No memory yet: land on the top GUILD in the rail rather than Notes/DMs,
     // which sort first in the raw list because they're usually the oldest.
     const first = resume || S.guilds.find((g) => g.kind !== "dm") || S.guilds[0];
     await selectGuild(first.id);
@@ -1873,7 +1873,7 @@ export async function deleteMsg(m) {
     const g = activeGuild();
     if (g && g.kind !== "dm" && m.sender === S.identity.fingerprint && !deleteHintShown) {
       deleteHintShown = true;
-      flash("Deleted for members — moderators can still view it in this server.", "info");
+      flash("Deleted for members — moderators can still view it in this guild.", "info");
     }
   } catch (err) {
     flash(err);
@@ -2183,7 +2183,7 @@ function initEvents() {
       S.voice.mesh.handlePresence(v.from, v.action);
     }
   });
-  // A verified contact is offering to add us to their server. We show it; we
+  // A verified contact is offering to add us to their guild. We show it; we
   // never join on their say-so.
   on("guild-invite", (inv) => {
     if (!inv?.code) return;
@@ -2302,7 +2302,7 @@ export function forgetLock(channelId) {
 //
 // `members` must be THAT guild's roster. S.members only holds the guild
 // currently on screen, and permissions don't travel between guilds: an admin of
-// the server you happen to be looking at has no authority over a call in a
+// the guild you happen to be looking at has no authority over a call in a
 // different one. Callers acting on a remote guild pass its roster explicitly
 // (see modAuthority).
 export function canModerateVoice(fingerprint, guild = activeGuild(), members = null) {
