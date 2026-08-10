@@ -8,11 +8,10 @@
   import DecorStudio from "../DecorStudio.svelte";
   import EffectStudio from "../EffectStudio.svelte";
   import CardFrameStudio from "../CardFrameStudio.svelte";
-  import { DECORATION_BY_ID } from "../lib/decorations.js";
+  import { DECORATION_BY_ID, DECORATIONS } from "../lib/decorations.js";
   import { CARD_EFFECT_BY_ID, CARD_EFFECTS } from "../lib/cardfx.js";
   import { CARD_FRAME_BY_ID, CARD_FRAMES } from "../lib/cardframes.js";
   import { CARD_SCENE_BY_ID, CARD_SCENES } from "../lib/cardscenes.js";
-  import { FRAME_BY_ID, FRAMES } from "../lib/frames.js";
   import GameShelf from "../GameShelf.svelte";
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
   import { api } from "../lib/api.js";
@@ -284,6 +283,11 @@
           onpointerenter={() => (pasteTarget = "avatar")}
           onclick={() => fileInput?.click()}
         >
+          <!-- The decoration belongs here as much as the ring does. It was
+               missing, and the card claims to be exactly what other people see
+               — the member list and the profile popover have always drawn it.
+               Now that the drawn rings are decorations, its absence would have
+               meant picking one and watching the preview not change. -->
           <Avatar
             name={name || "You"}
             {emoji}
@@ -291,6 +295,7 @@
             image={avatar}
             size={72}
             {frame}
+            decoration={dec}
             style={styleObj}
             {color2}
           />
@@ -440,16 +445,18 @@
     </div>
   </div>
 
-  <!-- Three named things rather than one bundled "ring": what surrounds your
-       avatar, what is worn on it, and what plays across your card. They stack,
-       so they are three questions and not one list. -->
+  <!-- Three named things rather than one bundled "ring": the gradient ring
+       around your avatar, everything worn ON it, and what plays across your
+       card. They stack, so they are three questions and not one list. -->
   <div class="field">
-    <span class="muted">Avatar frame</span>
+    <span class="muted">Avatar ring</span>
     <button type="button" class="ring-entry" onclick={() => (ringStudio = true)}>
       <Avatar name={name || "You"} {emoji} {color} image={avatar} size={30} {frame} style={styleObj} {color2} />
       <span class="re-text">
-        <strong>{FRAME_BY_ID[frame]?.name || RING_BY_ID[frame]?.name || "None"}</strong>
-        <span class="tiny muted">{FRAMES.length} drawn · {RINGS.length - 1} animated rings</span>
+        <!-- A ring saved before the drawn ones became decorations still lives
+             in `frame`, so it is named out of the decoration table too. -->
+        <strong>{RING_BY_ID[frame]?.name || DECORATION_BY_ID[frame]?.name || "None"}</strong>
+        <span class="tiny muted">{RINGS.length - 1} animated rings, tunable</span>
       </span>
       <span class="chev">›</span>
     </button>
@@ -461,7 +468,7 @@
       <Avatar name={name || "You"} {emoji} {color} image={avatar} size={30} decoration={dec} {color2} />
       <span class="re-text">
         <strong>{DECORATION_BY_ID[dec]?.name || "None"}</strong>
-        <span class="tiny muted">Worn on your avatar — stacks with the frame</span>
+        <span class="tiny muted">{DECORATIONS.length} drawn — ears, crowns, wings, bands. Stacks with the ring</span>
       </span>
       <span class="chev">›</span>
     </button>

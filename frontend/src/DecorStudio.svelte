@@ -1,8 +1,8 @@
 <script>
-  // The decoration picker: things WORN on your avatar, as against the frame
-  // that surrounds it. Separate doors because they are separate choices — you
-  // wear ears AND a runic ring, and a single list mixing the two would hide
-  // that they stack.
+  // The decoration picker: everything WORN on your avatar — ears, crowns,
+  // wings, and the drawn bands that encircle the face. One door, because they
+  // are one choice; the gradient rings of lib/rings.js are the separate door,
+  // and only because they have dials this picker has nothing to say about.
   //
   // Every tile draws YOUR avatar with the decoration on it, in your own
   // colours, because the whole point of drawing these as paths rather than
@@ -39,7 +39,7 @@
   <div class="preview">
     <Avatar {name} {emoji} {color} image={avatar} size={84} decoration={sel} {color2} />
     <p class="tiny muted">
-      Worn over whatever frame you pick — the two stack. Drawn, so it takes your
+      Worn over whatever ring you pick — the two stack. Drawn, so it takes your
       colours and stays sharp at any size.
     </p>
   </div>

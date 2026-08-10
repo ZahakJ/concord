@@ -2921,8 +2921,10 @@
    component's own (0,3,0) `.msg:hover` / `.avatar` rules deterministically,
    whichever order the bundler emits the stylesheets in. */
 
-/* Avatar silhouette. Ringed avatars keep their circle — AvatarRing draws its
-   art as a disc, and a disc inside a square reads as a rendering bug. */
+/* Avatar silhouette. Ringed avatars keep their circle — ring art is drawn as a
+   disc, and a disc around a square reads as a rendering bug. Avatar.svelte sets
+   .ringed for a gradient ring (lib/rings.js) and for a worn decoration that
+   encircles the face (`ring: true` in lib/decorations.js) alike. */
 :root[data-theme] .avatar:not(.ringed),
 :root[data-theme] .avatar:not(.ringed) > img {
   border-radius: var(--avatar-radius);

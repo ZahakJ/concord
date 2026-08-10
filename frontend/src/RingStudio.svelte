@@ -1,21 +1,17 @@
 <script>
   import { registerOverlay } from "./lib/state.svelte.js";
-  // The avatar-FRAME editor. Two vocabularies live here because they answer the
-  // same question — what surrounds your face — and splitting them across two
-  // doors would only make you look in both.
+  // The avatar-RING editor: the gradient vocabulary of lib/rings.js — weather,
+  // cosmic, fire, orbiting riders — and the dials that tune it.
   //
-  //   Rings  (lib/rings.js)  gradients: weather, cosmic, fire, orbiting riders,
-  //                          tunable by the dials below.
-  //   Frames (lib/frames.js) drawn: runes, chainmail, laurel, filigree. No
-  //                          dials — the drawing IS the thing, and speed or
-  //                          thickness would mean nothing to it.
-  //
-  // Both travel in the profile's `frame` field, so the dials simply hide when
-  // the selection is a drawn one.
+  // The drawn rings (runes, chainmail, laurel, filigree) used to sit in here
+  // too, under their own headings. They are decorations now and live in
+  // DecorStudio with everything else worn on an avatar, because a ring of runes
+  // and a pair of ears are the same choice made twice and no one should have to
+  // look in two doors for it. Only the gradients, which the dials below
+  // actually mean something to, are left here.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import { RING_BY_ID, RING_GROUPS, SATELLITES, PALETTES, hasRider, hasPalette } from "./lib/rings.js";
-  import { FRAME_BY_ID, FRAME_GROUPS, drawnFrame } from "./lib/frames.js";
 
   let {
     ring = "",
@@ -47,13 +43,9 @@
   const dials = $derived({ speed: sp, dir: dr, glow: gl, width: w, sat: st, pal: pl });
   // Configs appear only for the rings they belong to: the rider shelf for
   // anything that orbits, the palette shelf for the Gradient ring.
-  const rider = $derived(!isDrawn && hasRider(sel));
-  const palette = $derived(!isDrawn && hasPalette(sel));
-  // A drawn frame has no speed, direction, glow or thickness to tune, and no
-  // rider or colorway either — so every dial disappears for one.
-  const isDrawn = $derived(!!drawnFrame(sel));
-  const animated = $derived(!isDrawn && sel !== "" && sel !== "theme-solid");
-  const nameOf = $derived(FRAME_BY_ID[sel]?.name || RING_BY_ID[sel]?.name || "None");
+  const rider = $derived(hasRider(sel));
+  const palette = $derived(hasPalette(sel));
+  const animated = $derived(sel !== "" && sel !== "theme-solid");
 
   // Your own satellite: downscale to a 64px sprite so it costs ~2KB on the
   // wire, not a megabyte — it orbits at ~14px on screen.
@@ -78,7 +70,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="rs-scrim" onclick={(e) => e.target === e.currentTarget && onClose()}>
-  <div class="rs" role="dialog" aria-label="Avatar frame">
+  <div class="rs" role="dialog" aria-label="Avatar ring">
     <div class="rs-head">
       <strong>Avatar ring</strong>
       <button class="x" onclick={onClose} aria-label="Close"><Icon name="close" size={14} /></button>
@@ -177,17 +169,6 @@
         <span class="none-dot"></span>
         <span class="oname">None</span>
       </button>
-      {#each FRAME_GROUPS as g (g.title)}
-        <div class="gtitle">{g.title}</div>
-        <div class="grid">
-          {#each g.ids as id (id)}
-            <button class="opt" class:sel={sel === id} onclick={() => (sel = id)} title={FRAME_BY_ID[id]?.name}>
-              <Avatar {name} {emoji} {color} image={avatar} size={36} frame={id} {color2} preview />
-              <span class="oname">{FRAME_BY_ID[id]?.name}</span>
-            </button>
-          {/each}
-        </div>
-      {/each}
       {#each RING_GROUPS as g (g.title)}
         <div class="gtitle">{g.title}</div>
         <div class="grid">

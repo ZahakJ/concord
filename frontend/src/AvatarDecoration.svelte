@@ -8,18 +8,14 @@
   // without compositing the avatar into the SVG, which would lose the image
   // element, the presence dot and the text fallback.
   import { decoration } from "./lib/decorations.js";
-  import { drawnFrame } from "./lib/frames.js";
 
-  // kind picks which library the id is resolved against. Both are authored to
-  // the same contract and painted identically; only the picker distinguishes
-  // "worn on the avatar" from "encircling it".
   // `preview` overrides the small-size freeze below. A picker is the ONE place
   // motion has to be visible — it is the whole reason to choose one decoration
   // over another — and it shows tens of tiles, not the forty rows of a member
   // list that the freeze exists to protect.
-  let { id = "", kind = "decoration", size = 32, color = "", color2 = "", preview = false } = $props();
+  let { id = "", size = 32, color = "", color2 = "", preview = false } = $props();
 
-  const d = $derived(kind === "frame" ? drawnFrame(id) : decoration(id));
+  const d = $derived(decoration(id));
   const back = $derived(d ? d.parts.filter((p) => p.z === "back") : []);
   const front = $derived(d ? d.parts.filter((p) => p.z !== "back") : []);
 
@@ -299,7 +295,7 @@
     86% { transform: translateY(-1px); }
   }
 
-  /* Frames ask for this one: a slow rotation about the avatar's centre, for
+  /* The worn rings ask for this one: a slow rotation about the avatar's centre, for
      rings of runes, orbiting gems and turning filigree. transform-origin is
      overridden because the default (the part's own box) would spin each
      fragment on the spot instead of carrying it around the circle. Linear, not

@@ -21,12 +21,19 @@
 //   5. THE BOX. There are only about 12 units of headroom straight up before
 //      art leaves the 100-unit viewBox. Every crown drawn to look right on its
 //      own turned out to be clipped at the top until this was checked.
+//   6. THE RING FLAG. `ring: true` is what tells Avatar.svelte to keep the
+//      circular silhouette (app.css hands a non-.ringed avatar the theme's
+//      --avatar-radius, which some packs square off). An entry that encircles
+//      the face without the flag gets a disc drawn around a squircle; one that
+//      claims the flag without reaching past the avatar's own edge takes the
+//      circle away from a theme for nothing.
 import { readFileSync } from "node:fs";
 import {
   DECORATIONS,
   DECORATION_BY_ID,
   DECORATION_GROUPS,
   decoration,
+  wornRing,
 } from "./decorations.js";
 
 let failures = 0;
@@ -55,7 +62,17 @@ const hex = /^#[0-9a-f]{3,8}$/i;
 
 ok(animClasses.size >= 8, `only ${animClasses.size} animation classes found — did the CSS move?`);
 ok(painter.includes(".dec.tilt"), "the painter no longer defines the whole-piece tilt");
-ok(DECORATIONS.length >= 40, `expected at least 40 decorations, got ${DECORATIONS.length}`);
+ok(DECORATIONS.length >= 61, `expected at least 61 decorations, got ${DECORATIONS.length}`);
+// The drawn rings folded in from the old frames library. They are counted
+// rather than named so adding one is free, but losing the lot is not: every id
+// among them is still reachable from a profile's `frame` field, saved before
+// the two libraries became one.
+ok(
+  DECORATIONS.filter((d) => d.ring).length >= 21,
+  `expected at least 21 worn rings, got ${DECORATIONS.filter((d) => d.ring).length}`,
+);
+for (const id of ["runic-ring", "laurel-ring", "chainmail", "sunburst-crown"])
+  ok(!!decoration(id) && wornRing(id), `${id}: a legacy \`frame\` id must still resolve, as a ring`);
 
 const seen = new Set();
 for (const d of DECORATIONS) {
@@ -70,11 +87,15 @@ for (const d of DECORATIONS) {
   if (d.anim != null) ok(animClasses.has(d.anim), `${where}: anim "${d.anim}" is not defined`);
   if (d.tilt != null) ok(d.tilt === true, `${where}: tilt is a flag, not ${d.tilt}`);
 
+  if (d.ring != null) ok(d.ring === true, `${where}: ring is a flag, not ${d.ring}`);
+
   let animated = 0;
   let backTotal = 0;
   let backOutside = 0;
   let lo = [Infinity, Infinity];
   let hi = [-Infinity, -Infinity];
+  // Which quarters of the annulus outside the avatar this decoration reaches.
+  const around = new Set();
 
   for (const [i, p] of d.parts.entries()) {
     const at = `${where}[${i}]`;
@@ -120,6 +141,8 @@ for (const d of DECORATIONS) {
     for (const [x, y] of pts) {
       lo = [Math.min(lo[0], x), Math.min(lo[1], y)];
       hi = [Math.max(hi[0], x), Math.max(hi[1], y)];
+      if (Math.hypot(x - 50, y - 50) > 36.5)
+        around.add((x < 50 ? 0 : 1) + (y < 50 ? 0 : 2));
     }
 
     // 4. visibility
@@ -139,16 +162,36 @@ for (const d of DECORATIONS) {
     );
 
   // 5. the box
+  //
+  // A figure gets half a unit of slack, because the failure it guards against
+  // is a crown drawn to look right on its own and then cut off at the top.
+  // A ring gets three, and the difference is not laziness: a ring is authored
+  // OUT to the edge of the box on every side, so a link whose short axis is
+  // 5 units wide sits its long axis across the boundary by a unit or two, and
+  // that has always painted — the painter's SVG is overflow: visible, and the
+  // overlay is 138% of the avatar. Past three units it would start reaching
+  // into the tile beside it in a picker grid, which is the real limit.
+  const pad = d.ring ? 3 : 0.5;
   ok(
-    lo[0] >= -0.5 && lo[1] >= -0.5 && hi[0] <= 100.5 && hi[1] <= 100.5,
+    lo[0] >= -pad && lo[1] >= -pad && hi[0] <= 100 + pad && hi[1] <= 100 + pad,
     `${where}: art leaves the viewBox — x ${lo[0].toFixed(1)}..${hi[0].toFixed(1)}, y ${lo[1].toFixed(1)}..${hi[1].toFixed(1)}`,
   );
+
+  // 6. the ring flag
+  if (d.ring)
+    ok(
+      around.size === 4,
+      `${where}: claims ring: true but only reaches ${around.size} of the 4 quarters outside the avatar — it does not encircle, and the flag costs the wearer's theme its avatar shape`,
+    );
 }
 
 // Lookup fails closed — the property that makes it safe to render an id that
 // arrived on someone else's broadcast profile.
 ok(decoration("") === null, "decoration('') should be null");
 ok(decoration("no-such-decoration") === null, "an unknown id must resolve to null");
+ok(wornRing("") === false, "wornRing('') should be false");
+ok(wornRing("no-such-decoration") === false, "wornRing must fail closed too");
+ok(wornRing("cat-ears") === false, "a figure worn on the head is not a ring");
 ok(decoration(DECORATIONS[0].id) === DECORATIONS[0], "a known id must resolve to its decoration");
 ok(Object.keys(DECORATION_BY_ID).length === DECORATIONS.length, "index size mismatch");
 ok(
@@ -240,5 +283,5 @@ if (failures) {
   process.exit(1);
 }
 console.log(
-  `decorations.js: all passed (${DECORATIONS.length} decorations, ${DECORATIONS.reduce((n, d) => n + d.parts.length, 0)} parts, ${animClasses.size} animations)`,
+  `decorations.js: all passed (${DECORATIONS.length} decorations, ${DECORATIONS.filter((d) => d.ring).length} of them rings, ${DECORATIONS.reduce((n, d) => n + d.parts.length, 0)} parts, ${animClasses.size} animations)`,
 );

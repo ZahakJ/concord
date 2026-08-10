@@ -14,8 +14,8 @@
   // Two libraries feed one choice. A SCENE (lib/cardscenes.js) is drawn art —
   // a ghost, a canopy, a planet with moons; a FIELD (lib/cardfx.js) is the
   // particle engine. They share the `effect` id space and are shown in one
-  // gallery under two headings, exactly as drawn frames and gradient rings
-  // share `frame`.
+  // gallery under two headings, because a person choosing what plays across
+  // their card is not thinking about which file the art came out of.
   import { registerOverlay, S } from "./lib/state.svelte.js";
   import Icon from "./Icon.svelte";
   import FxLayer from "./FxLayer.svelte";
