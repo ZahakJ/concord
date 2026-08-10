@@ -119,7 +119,7 @@
   .es-scrim {
     position: fixed;
     inset: 0;
-    background: #0006;
+    background: rgba(0, 0, 0, 0.55);
     z-index: 60;
   }
   .es {
@@ -130,7 +130,13 @@
     max-height: 88vh;
     display: flex;
     flex-direction: column;
-    background: var(--bg-2);
+    /* Matches modals/Modal.svelte deliberately. These panels had drifted to
+       --bg-2 on a 0.4 scrim with no shadow, which put them BELOW the surface
+       every other dialog in the app sits on and left them reading as
+       half-transparent — the panel edge fell too close in value to the page
+       behind it to register as an edge at all. */
+    background: var(--bg-elevated);
+    box-shadow: var(--shadow-pop);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     z-index: 61;
