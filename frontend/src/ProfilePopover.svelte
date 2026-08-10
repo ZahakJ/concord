@@ -34,6 +34,8 @@
   import { PERM, PERM_ALL, has } from "./lib/perms.js";
   import { splitStatus } from "./lib/presence.js";
   import Banner from "./Banner.svelte";
+  import FxLayer from "./FxLayer.svelte";
+  import { cardEffect } from "./lib/cardfx.js";
 
   let dmText = $state("");
   let dmBusy = $state(false);
@@ -493,7 +495,7 @@
   {/if}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="pop {mem.effect ? `card-effect-${mem.effect}` : ''}"
+    class="pop {mem.effect && !cardEffect(mem.effect) ? `card-effect-${mem.effect}` : ''}"
     class:sheet={S.isMobile}
     bind:this={card}
     style={S.isMobile ? "" : pos ? `left:${pos.left}px;top:${pos.top}px` : "opacity:0;pointer-events:none"}
@@ -502,6 +504,12 @@
     onmouseenter={holdProfilePopover}
     onmouseleave={() => !S.contextMenu && scheduleCloseProfilePopover()}
   >
+    <!-- The card effect, painted by the shared particle engine (lib/fx.js)
+         rather than one bespoke CSS class per effect. The four original ids
+         keep the class above, so a profile saved before this still renders. -->
+    {#if cardEffect(mem.effect)}
+      <span class="pop-fx"><FxLayer fx={cardEffect(mem.effect).fx} seed={mem.effect} /></span>
+    {/if}
     <!-- Banner: a live preset scene wins, then an uploaded image, then the
          member's two theme colors as a gradient. It's tall, and the avatar
          straddles its bottom edge — the card is art, not empty background. -->
@@ -547,6 +555,7 @@
           online={mem.online}
           presence={mem.presence}
           frame={mem.frame}
+          decoration={mem.style?.dec || ""}
           style={mem.style}
           color2={mem.color2}
         />
@@ -771,6 +780,18 @@
 {/if}
 
 <style>
+  /* The card effect sits behind everything and is inert: it decorates a card
+     people click through, so it must not eat a single pointer event. Clipped
+     to the card's radius or particles would spill past the rounded corner. */
+  .pop-fx {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+
   .pop {
     position: fixed;
     z-index: 250;

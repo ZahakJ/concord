@@ -381,6 +381,13 @@ type Style struct {
 	Sat string `json:"sat,omitempty"`
 	// The Gradient ring's colorway id (see frontend lib/rings.js PALETTES).
 	Pal string `json:"pal,omitempty"`
+	// Dec is the worn decoration's id (see frontend lib/decorations.js): ears,
+	// a crown, wings, a jaw. A peer of Frame rather than a dial on it — the two
+	// compose, so you can wear a decoration over any ring. It rides here rather
+	// than as another positional argument on SetProfile, which already carries
+	// thirteen, and it is bounded and resolved against a table that fails
+	// closed exactly like Pal.
+	Dec string `json:"dec,omitempty"`
 }
 
 // maxSatBytes caps the orbiting sprite. The frontend bakes it to 64×64 PNG
@@ -439,6 +446,9 @@ func sanitizeStyle(st *Style) *Style {
 	}
 	if validID(st.Pal) {
 		out.Pal = st.Pal
+	}
+	if validID(st.Dec) {
+		out.Dec = st.Dec
 	}
 	if out == (Style{}) {
 		return nil
