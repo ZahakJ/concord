@@ -481,3 +481,61 @@ func TestBackdatedGovOpRefusedOnLivePath(t *testing.T) {
 		t.Fatal("sync backfill must still accept older ops, or logs fork")
 	}
 }
+
+// Retention folds like slow mode: guild-wide under the "" key, per-channel
+// overrides beside it, and the clamp applied during REPLAY so a hand-crafted op
+// cannot put a value in the state that the issuing UI would have refused. A
+// policy of one second would be a foot-gun; a policy of a century is a lie.
+func TestRetentionReplayClampsAndScopes(t *testing.T) {
+	owner := mustID(t)
+	seq := uint64(1)
+	op := func(id *identity.Identity, channel string, secs int64) govOp {
+		o := govOp{Seq: seq, Signer: id.PublicKey(), Type: "retention", ChannelID: channel, Seconds: secs, Time: int64(seq)}
+		seq++
+		o.Sig = id.Sign(o.signingBytes())
+		return o
+	}
+
+	stranger := mustID(t)
+	st := replayGuildOps(owner.PublicKey(), []govOp{
+		op(owner, "", 7*24*3600),  // guild-wide: a week
+		op(owner, "ch1", 3600),    // channel override: an hour
+		op(owner, "ch2", 1),       // below the floor
+		op(owner, "ch3", 1<<40),   // absurdly above the ceiling
+		op(stranger, "ch4", 3600), // no permission at all
+	})
+
+	if got := st.Retention[""]; got != 7*24*3600 {
+		t.Errorf("guild-wide retention = %d, want %d", got, 7*24*3600)
+	}
+	if got := st.Retention["ch1"]; got != 3600 {
+		t.Errorf("ch1 retention = %d, want 3600", got)
+	}
+	if got := st.Retention["ch2"]; got != 3600 {
+		t.Errorf("ch2 retention = %d, want the 3600 floor — a sub-hour policy escaped the clamp", got)
+	}
+	if got := st.Retention["ch3"]; got != 31536000 {
+		t.Errorf("ch3 retention = %d, want the 31536000 ceiling", got)
+	}
+	if _, ok := st.Retention["ch4"]; ok {
+		t.Error("a signer with no manage-guild permission set a retention policy")
+	}
+}
+
+// Setting a policy to zero must remove it rather than record a zero, so that
+// "off" and "keep for no time at all" cannot be confused by anything reading
+// the map later.
+func TestRetentionZeroClearsThePolicy(t *testing.T) {
+	owner := mustID(t)
+	seq := uint64(1)
+	op := func(channel string, secs int64) govOp {
+		o := govOp{Seq: seq, Signer: owner.PublicKey(), Type: "retention", ChannelID: channel, Seconds: secs, Time: int64(seq)}
+		seq++
+		o.Sig = owner.Sign(o.signingBytes())
+		return o
+	}
+	st := replayGuildOps(owner.PublicKey(), []govOp{op("", 86400), op("", 0)})
+	if v, ok := st.Retention[""]; ok {
+		t.Fatalf("policy still present as %d after being set to zero", v)
+	}
+}

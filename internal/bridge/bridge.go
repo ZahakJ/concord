@@ -147,6 +147,10 @@ type ChannelView struct {
 	// SlowMode is the governed posting interval in seconds (0 = off); the
 	// composer paces itself with it and managers see it in channel settings.
 	SlowMode int64 `json:"slowMode,omitempty"`
+	// Retention is how long messages are kept in this channel, in seconds
+	// (0 = forever) — the channel's own override if set, otherwise the guild's
+	// policy. Enforced locally by each client; see Service.SetRetention.
+	Retention int64 `json:"retention,omitempty"`
 	// Forum metadata, carried here because it IS channel state — the sidebar and
 	// the forum settings modal read it from the guild snapshot they already have.
 	// A forum board should read ForumBoard instead: it adds the derived author,
@@ -1937,6 +1941,26 @@ func (b *Bridge) MuteMember(guildID, fingerprint string, minutes int) error {
 	return svc.MuteMember(guildID, fingerprint, minutes)
 }
 
+// SetRetention sets how long messages are kept, in seconds (0 = forever).
+// An empty channelID sets the guild-wide policy; a channel id overrides it for
+// that channel. Needs manage-guild — it deletes other members' copies too.
+func (b *Bridge) SetRetention(guildID, channelID string, seconds int) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetRetention(guildID, channelID, int64(seconds))
+}
+
+// GuildRetention reads the guild-wide policy in seconds (0 = forever).
+func (b *Bridge) GuildRetention(guildID string) (int64, error) {
+	svc, err := b.service()
+	if err != nil {
+		return 0, err
+	}
+	return svc.RetentionSeconds(guildID, ""), nil
+}
+
 // SetSlowMode sets a channel's governed posting interval (manage-channels;
 // 0 turns it off).
 func (b *Bridge) SetSlowMode(guildID, channelID string, seconds int) error {
@@ -2197,6 +2221,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 			cv.LastActivity = svc.ChannelLastActivity(c.ID) // forum post ordering
 		}
 		cv.SlowMode = svc.SlowModeSeconds(g.ID, c.ID)
+		cv.Retention = svc.RetentionSeconds(g.ID, c.ID)
 		channels = append(channels, cv)
 	}
 	cats := []CategoryView{}
@@ -2833,6 +2858,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
 	case "UnbanMember":
 		return nil, b.UnbanMember(argStr(args, 0), argStr(args, 1))
+	case "SetRetention":
+		return nil, b.SetRetention(argStr(args, 0), argStr(args, 1), argInt(args, 2))
+	case "GuildRetention":
+		return b.GuildRetention(argStr(args, 0))
 	case "SetSlowMode":
 		return nil, b.SetSlowMode(argStr(args, 0), argStr(args, 1), argInt(args, 2))
 	case "MuteMember":

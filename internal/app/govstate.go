@@ -71,7 +71,7 @@ type Role struct {
 type govOp struct {
 	Seq    uint64 `json:"seq"`
 	Signer []byte `json:"signer"` // author's Ed25519 account public key
-	Type   string `json:"type"`   // role_upsert | role_delete | role_assign | ban | unban | mute | unmute | transfer_owner | set_heir | claim_heir
+	Type   string `json:"type"`   // role_upsert | role_delete | role_assign | ban | unban | mute | unmute | transfer_owner | set_heir | claim_heir | slow_mode | retention
 
 	// role_upsert
 	RoleID   string `json:"roleId,omitempty"`
@@ -123,6 +123,12 @@ type GuildState struct {
 	Banned      map[string]bool     // barred fingerprints
 	Muted       map[string]int64    // fingerprint -> muted-until (unix seconds)
 	SlowMode    map[string]int64    // channelID -> seconds between posts (absent = off)
+	// Retention: how long messages are kept, in seconds. The "" key is the
+	// guild-wide policy; a channelID key overrides it for that channel.
+	// Absent = keep forever. Enforcement is local and advisory, like mutes and
+	// slow mode: each honest client prunes its own copy, and no client can
+	// reach into anyone else's. The UI has to say so.
+	Retention map[string]int64
 	// owner is the CURRENT owner's account fingerprint as computed by replay:
 	// the founding owner unless a valid transfer_owner chain moved it.
 	// Unexported because it is derived — Owner() is the read, and every
@@ -151,6 +157,7 @@ func newGuildState() GuildState {
 		Banned:      map[string]bool{},
 		Muted:       map[string]int64{},
 		SlowMode:    map[string]int64{},
+		Retention:   map[string]int64{},
 	}
 }
 
@@ -351,6 +358,29 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 				st.SlowMode[o.ChannelID] = 21600 // 6h, Discord's own ceiling
 			} else {
 				st.SlowMode[o.ChannelID] = o.Seconds
+			}
+		case "retention":
+			// Deleting everyone's history is not a channel tweak, so it rides
+			// manage-guild rather than manage-channels. Empty ChannelID is the
+			// guild-wide policy; a channel id overrides it for that channel.
+			if !isOwner && !st.Can(cur, signer, PermManageGuild) {
+				continue
+			}
+			// Clamped in REPLAY, not just at the point of issue, so a
+			// hand-crafted op folds to the same state on every honest client.
+			// The floor is an hour: this is housekeeping for old messages, and
+			// a policy of seconds would be a foot-gun that eats a conversation
+			// as fast as it is typed. Ephemeral-by-design already exists
+			// elsewhere as moments.
+			switch {
+			case o.Seconds <= 0:
+				delete(st.Retention, o.ChannelID)
+			case o.Seconds < 3600:
+				st.Retention[o.ChannelID] = 3600
+			case o.Seconds > 31536000:
+				st.Retention[o.ChannelID] = 31536000 // a year
+			default:
+				st.Retention[o.ChannelID] = o.Seconds
 			}
 		case "transfer_owner":
 			// Only the reigning owner abdicates — nobody else's signature moves

@@ -1834,6 +1834,83 @@ func (s *Store) PurgeDeletedContent(channelIDs []string) (int, error) {
 	return int(n), nil
 }
 
+// PruneMessagesBefore deletes messages in the given channels sent before cutoff
+// (UnixNano), and returns how many rows went.
+//
+// Two carve-outs, both of which are an explicit "keep this" from a person:
+// pinned messages, which the guild decided to keep, and saved messages, which
+// this device's owner decided to keep. A retention policy is housekeeping for
+// the messages nobody marked; silently eating the ones somebody deliberately
+// kept would make the feature untrustworthy the first time it happened.
+//
+// Reactions are removed in the same transaction because nothing in this schema
+// cascades — an orphaned reaction row would otherwise outlive its message
+// forever. Attachments are not touched here: they are a size-bounded cache
+// keyed by blob id and evicted by last use (see putAttachment), so a blob whose
+// last referent just went is simply the next thing evicted under pressure, and
+// deleting it eagerly would also drop a blob still referenced from a channel
+// with a longer policy.
+// pruneBatch bounds one delete transaction. The store runs on a single
+// connection, so an unbounded first sweep over a long history would hold it for
+// the whole delete and stall every read the UI makes behind it. Batching gives
+// those reads the connection back between chunks; the caller loops.
+const pruneBatch = 2000
+
+func (s *Store) PruneMessagesBefore(channelIDs []string, cutoff int64) (int, error) {
+	total := 0
+	for {
+		n, err := s.pruneMessagesChunk(channelIDs, cutoff)
+		if err != nil {
+			return total, err
+		}
+		total += n
+		if n < pruneBatch {
+			return total, nil
+		}
+	}
+}
+
+func (s *Store) pruneMessagesChunk(channelIDs []string, cutoff int64) (int, error) {
+	if len(channelIDs) == 0 {
+		return 0, nil
+	}
+	ph := make([]string, len(channelIDs))
+	args := []any{}
+	for i, id := range channelIDs {
+		ph[i] = "?"
+		args = append(args, id)
+	}
+	in := strings.Join(ph, ",")
+	// One id list, computed once and reused by both statements, so the reaction
+	// delete and the message delete cannot disagree about which rows go. The
+	// index this rides is idx_messages_channel(channel_id, sent), which makes it
+	// a range scan over exactly the doomed rows rather than a table scan.
+	victims := `SELECT id FROM messages
+		    WHERE channel_id IN (` + in + `) AND sent < ? AND pinned = 0
+		      AND id NOT IN (SELECT message_id FROM saved_messages)
+		    LIMIT ?`
+	args = append(args, cutoff, pruneBatch)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+
+	if _, err := tx.Exec(`DELETE FROM reactions WHERE message_id IN (`+victims+`)`, args...); err != nil {
+		return 0, fmt.Errorf("store: prune reactions: %w", err)
+	}
+	res, err := tx.Exec(`DELETE FROM messages WHERE id IN (`+victims+`)`, args...)
+	if err != nil {
+		return 0, fmt.Errorf("store: prune messages: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("store: prune commit: %w", err)
+	}
+	return int(n), nil
+}
+
 // SetSetting stores a key/value app setting (e.g. the display name).
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(

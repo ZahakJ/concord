@@ -177,6 +177,23 @@
       </div>
     </section>
 
+    <!-- DATA -->
+    {#if g.canManage}
+      <section class="grp">
+        <div class="sec-label">Data</div>
+        <div class="card">
+          <button class="row" onclick={() => openPanel("retention")}>
+            <span class="chip"><Icon name="clock" size={17} /></span>
+            <span class="row-text">
+              <span class="row-title">Message history</span>
+              <span class="row-sub">How long members keep messages before their copy prunes itself</span>
+            </span>
+            <span class="chev">›</span>
+          </button>
+        </div>
+      </section>
+    {/if}
+
     <!-- DANGER -->
     <section class="grp">
       <div class="sec-label">Danger zone</div>

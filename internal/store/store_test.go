@@ -844,3 +844,173 @@ func TestOpenWaitsOutALockInsteadOfFailing(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 }
+
+// Retention pruning removes old messages but must leave the two kinds somebody
+// deliberately kept: pinned (the guild said keep) and saved (this device's
+// owner said keep). Getting that wrong eats the messages people care most about.
+func TestPruneMessagesBeforeSparesPinnedAndSaved(t *testing.T) {
+	s, _ := openTestStore(t)
+	old := time.Now().Add(-48 * time.Hour)
+	recent := time.Now().Add(-1 * time.Hour)
+
+	save := func(id string, at time.Time) {
+		t.Helper()
+		if _, err := s.SaveMessage(domain.Message{
+			ID: id, ChannelID: "c1", Sender: []byte("k"), Content: "x", Sent: at,
+		}); err != nil {
+			t.Fatalf("save %s: %v", id, err)
+		}
+	}
+	save("old-plain", old)
+	save("old-pinned", old)
+	save("old-saved", old)
+	save("recent", recent)
+	save("other-channel", old)
+	if _, err := s.db.Exec(`UPDATE messages SET channel_id='c2' WHERE id='other-channel'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE messages SET pinned=1 WHERE id='old-pinned'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO saved_messages (message_id, channel_id, at) VALUES ('old-saved','c1',1)`); err != nil {
+		t.Fatal(err)
+	}
+	// A reaction on the row that is about to go: nothing in this schema
+	// cascades, so an orphan here would outlive its message forever.
+	if _, err := s.db.Exec(`INSERT INTO reactions (message_id, fingerprint, emoji) VALUES ('old-plain','fpr','x')`); err != nil {
+		t.Fatal(err)
+	}
+
+	cutoff := time.Now().Add(-24 * time.Hour).UnixNano()
+	n, err := s.PruneMessagesBefore([]string{"c1"}, cutoff)
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("pruned %d rows, want 1 (only old-plain)", n)
+	}
+
+	left := map[string]bool{}
+	rows, err := s.db.Query(`SELECT id FROM messages`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		left[id] = true
+	}
+	for _, want := range []string{"old-pinned", "old-saved", "recent", "other-channel"} {
+		if !left[want] {
+			t.Errorf("%s was pruned and should not have been", want)
+		}
+	}
+	if left["old-plain"] {
+		t.Error("old-plain survived the cutoff")
+	}
+
+	var orphans int
+	if err := s.db.QueryRow(`SELECT count(*) FROM reactions WHERE message_id='old-plain'`).Scan(&orphans); err != nil {
+		t.Fatal(err)
+	}
+	if orphans != 0 {
+		t.Errorf("left %d orphaned reaction rows", orphans)
+	}
+}
+
+// An empty channel list must be a no-op, not "prune everything" — the natural
+// SQL for it (an empty IN clause) is easy to get wrong in the other direction.
+func TestPruneMessagesBeforeIgnoresEmptyChannelList(t *testing.T) {
+	s, _ := openTestStore(t)
+	if _, err := s.SaveMessage(domain.Message{
+		ID: "m", ChannelID: "c1", Sender: []byte("k"), Content: "x",
+		Sent: time.Now().Add(-72 * time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.PruneMessagesBefore(nil, time.Now().UnixNano())
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("pruned %d rows with no channels given, want 0", n)
+	}
+	var count int
+	if err := s.db.QueryRow(`SELECT count(*) FROM messages`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("message count %d, want 1 — an empty channel list deleted data", count)
+	}
+}
+
+// A sweep larger than one batch must delete everything, not stop at the limit.
+// The batching exists so a long history does not hold the single connection for
+// one enormous transaction; it would be worse than useless if it also left rows
+// behind and reported success.
+func TestPruneMessagesBeforeLoopsPastOneBatch(t *testing.T) {
+	s, _ := openTestStore(t)
+	old := time.Now().Add(-48 * time.Hour)
+	const n = pruneBatch + 250
+	for i := 0; i < n; i++ {
+		if _, err := s.SaveMessage(domain.Message{
+			ID: fmt.Sprintf("m%05d", i), ChannelID: "c1",
+			Sender: []byte("k"), Content: "x", Sent: old.Add(time.Duration(i) * time.Millisecond),
+		}); err != nil {
+			t.Fatalf("save %d: %v", i, err)
+		}
+	}
+	got, err := s.PruneMessagesBefore([]string{"c1"}, time.Now().UnixNano())
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	if got != n {
+		t.Fatalf("pruned %d rows, want all %d — the batch loop stopped early", got, n)
+	}
+	var left int
+	if err := s.db.QueryRow(`SELECT count(*) FROM messages`).Scan(&left); err != nil {
+		t.Fatal(err)
+	}
+	if left != 0 {
+		t.Fatalf("%d messages survived a sweep that reported completion", left)
+	}
+}
+
+// Retention must also clear the bodies of soft-deleted messages. Deleting a
+// message sets deleted = 1 but deliberately KEEPS content_enc so a moderator can
+// reveal the original (see MarkDeleted / EmptyTrash) — which means retained
+// deleted content is the one store that grows without bound and holds exactly
+// the text people tried to take back. A retention policy that skipped it would
+// leave the most sensitive rows as the only permanent ones.
+func TestPruneMessagesBeforeClearsRetainedDeletedBodies(t *testing.T) {
+	s, _ := openTestStore(t)
+	old := time.Now().Add(-48 * time.Hour)
+	if _, err := s.SaveMessage(domain.Message{
+		ID: "regretted", ChannelID: "c1", Sender: []byte("k"),
+		Content: "something they took back", Sent: old,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Soft delete: flagged, but the body is still on disk by design.
+	if _, _, err := s.MarkDeleted("regretted", []byte("k"), true); err != nil {
+		t.Fatal(err)
+	}
+	var body []byte
+	if err := s.db.QueryRow(`SELECT content_enc FROM messages WHERE id='regretted'`).Scan(&body); err != nil {
+		t.Fatalf("precondition: the body should still be retained after a delete: %v", err)
+	}
+
+	if _, err := s.PruneMessagesBefore([]string{"c1"}, time.Now().Add(-24*time.Hour).UnixNano()); err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM messages WHERE id='regretted'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatal("a soft-deleted message outlived the retention cutoff, so its retained body did too")
+	}
+}

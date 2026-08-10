@@ -299,6 +299,10 @@ export const api = {
   unbanMember: (guildID, fingerprint) => call("UnbanMember", guildID, fingerprint),
   muteMember: (guildID, fingerprint, minutes) => call("MuteMember", guildID, fingerprint, minutes),
   setSlowMode: (guildID, channelID, seconds) => call("SetSlowMode", guildID, channelID, seconds),
+  // Retention: "" as channelID sets the guild-wide policy; 0 seconds = keep
+  // everything. Enforced locally by each client (see ModalRetention).
+  setRetention: (guildID, channelID, seconds) => call("SetRetention", guildID, channelID, seconds),
+  guildRetention: (guildID) => call("GuildRetention", guildID),
   unmuteMember: (guildID, fingerprint) => call("UnmuteMember", guildID, fingerprint),
   bans: (guildID) => call("Bans", guildID),
   contacts: () => call("Contacts"),

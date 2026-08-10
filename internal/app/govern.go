@@ -72,6 +72,9 @@ func (st GuildState) copy() GuildState {
 	for k, v := range st.SlowMode {
 		out.SlowMode[k] = v
 	}
+	for k, v := range st.Retention {
+		out.Retention[k] = v
+	}
 	return out
 }
 
@@ -471,6 +474,49 @@ func (s *Service) MuteMember(guildID, targetFpr string, minutes int) error {
 	}
 	until := time.Now().Add(time.Duration(minutes) * time.Minute).Unix()
 	return s.issueGovOp(guildID, govOp{Type: "mute", Target: targetFpr, Until: until})
+}
+
+// RetentionSeconds is the policy that applies to one channel, in seconds
+// (0 = keep everything): the channel's override if it has one, else the
+// guild-wide policy. Pass an empty channelID to read the guild-wide value
+// itself rather than what any channel resolves to.
+func (s *Service) RetentionSeconds(guildID, channelID string) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.govState[guildID]
+	if !ok {
+		return 0
+	}
+	return s.retentionFor(st, channelID)
+}
+
+// SetRetention sets how long messages are kept, in seconds; 0 turns it off and
+// keeps everything. channelID empty sets the guild-wide policy, otherwise it
+// overrides that policy for one channel.
+//
+// This deletes other people's copies of the conversation on their machines, so
+// it rides manage-guild rather than manage-channels. It is still only a request:
+// there is no server to enforce it, an honest client prunes its own store, and a
+// modified one can keep whatever it likes. Say that where the switch is, or the
+// feature promises something it cannot deliver.
+func (s *Service) SetRetention(guildID, channelID string, seconds int64) error {
+	if !s.hasPerm(guildID, PermManageGuild) {
+		return fmt.Errorf("app: you don't have permission to manage this guild")
+	}
+	if seconds < 0 {
+		seconds = 0
+	}
+	return s.issueGovOp(guildID, govOp{Type: "retention", ChannelID: channelID, Seconds: seconds})
+}
+
+// retentionFor resolves the policy that applies to one channel, in seconds:
+// the channel's own override, else the guild-wide policy, else 0 for "keep
+// everything".
+func (s *Service) retentionFor(st GuildState, channelID string) int64 {
+	if v, ok := st.Retention[channelID]; ok {
+		return v
+	}
+	return st.Retention[""]
 }
 
 // SetSlowMode sets a channel's posting interval (0 turns it off). A channel

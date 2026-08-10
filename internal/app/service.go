@@ -1166,6 +1166,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// (story.go). Reads filter by expiry themselves, so this is disk hygiene,
 	// not correctness.
 	go s.runStoryGCLoop()
+	go s.runRetentionLoop()
 
 	// Resume rich presence if the user had it on.
 	if s.RichPresenceEnabled() {
