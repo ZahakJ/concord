@@ -1,16 +1,23 @@
 # Bundled typefaces
 
-Eight families, all under the SIL Open Font License 1.1 (full text in
+Eleven families, all under the SIL Open Font License 1.1 (full text in
 `OFL.txt`). They are shipped as files inside the app because Concord never
 fetches a webfont at runtime — a request to a font host on every launch would
 tell that host your IP and the moment you opened the app.
 
 The `.woff2` files here were produced by `frontend/scripts/prep-fonts.mjs`,
 which pulls the Google Fonts distribution of each family and keeps only the
-`latin` and `latin-ext` subsets. Filenames carry the app-side id (the
+subsets the app renders — `latin` and `latin-ext` for the eight Latin families,
+`arabic` for the three Arabic ones. Filenames carry the app-side id (the
 `[data-font]` value in `app.css`), not the family name, so `cyber-latin-600.woff2`
 is Chakra Petch. Nothing else is modified: glyphs, metrics and naming are the
 upstream distribution's.
+
+The `ar-*` families are not offered in the font menu. None of the eight Latin
+families contains an Arabic glyph, so each stack in `app.css` names one of these
+after its Latin family and the browser falls through to it for Arabic alone.
+They are declared with a `unicode-range` covering only Arabic, so a reader who
+never encounters it never downloads one.
 
 | id | Family | Upstream | Copyright | Reserved Font Name |
 |----|--------|----------|-----------|--------------------|
@@ -22,6 +29,9 @@ upstream distribution's.
 | `rounded` | Nunito | https://github.com/googlefonts/nunito | Copyright 2014 The Nunito Project Authors | none |
 | `cyber` | Chakra Petch | https://github.com/m4rc1e/Chakra-Petch | Copyright 2018 The Chakra Petch Project Authors | none |
 | `comic` | Comic Neue | https://github.com/crozynski/comicneue | Copyright 2014 The Comic Neue Project Authors | none |
+| `ar-sans` | Noto Sans Arabic | https://github.com/notofonts/arabic | Copyright 2022 The Noto Project Authors | none |
+| `ar-naskh` | Noto Naskh Arabic | https://github.com/notofonts/arabic | Copyright 2022 The Noto Project Authors | none |
+| `ar-kufi` | Noto Kufi Arabic | https://github.com/notofonts/arabic | Copyright 2022 The Noto Project Authors | none |
 
 The copyright lines are quoted from each family's `OFL.txt` in the Google Fonts
 repository (`google/fonts/ofl/<family>/OFL.txt`), which is the distribution
