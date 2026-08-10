@@ -90,3 +90,32 @@ func TestLoadOrCreate(t *testing.T) {
 		t.Fatal("identity not stable across LoadOrCreate calls")
 	}
 }
+
+// The shared envelope must round-trip, and must refuse a wrong passphrase
+// rather than returning plausible-looking rubbish. It protects the history
+// archive, so a silent partial decrypt would be a corrupted restore.
+func TestSealWithPassphraseRoundTripsAndRejects(t *testing.T) {
+	plain := []byte(`{"messages":[{"id":"m1","content":"hello"}]}`)
+	sealed, err := SealWithPassphrase("correct horse", plain)
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	if bytes.Contains(sealed, []byte("hello")) {
+		t.Fatal("plaintext is visible in the sealed envelope")
+	}
+	got, err := OpenWithPassphrase("correct horse", sealed)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	if !bytes.Equal(got, plain) {
+		t.Fatalf("round trip changed the bytes")
+	}
+	if _, err := OpenWithPassphrase("wrong", sealed); err != ErrWrongPassphrase {
+		t.Fatalf("wrong passphrase gave %v, want ErrWrongPassphrase", err)
+	}
+	// A truncated or edited envelope is the same failure, not a partial read.
+	sealed[len(sealed)-8] ^= 0xff
+	if _, err := OpenWithPassphrase("correct horse", sealed); err == nil {
+		t.Fatal("a tampered envelope opened successfully")
+	}
+}

@@ -3,6 +3,7 @@ package bridge
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1941,6 +1942,36 @@ func (b *Bridge) MuteMember(guildID, fingerprint string, minutes int) error {
 	return svc.MuteMember(guildID, fingerprint, minutes)
 }
 
+// ExportArchive returns a sealed history archive as base64, plus a count of
+// what went in. Base64 because the RPC surface is JSON — the caller writes it
+// to a file. withAttachments carries the cached blobs too (large, and complete
+// only as far as the cache still holds them).
+func (b *Bridge) ExportArchive(passphrase string, withAttachments bool) (map[string]any, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	sealed, st, err := svc.ExportArchive(passphrase, withAttachments)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"data": base64.StdEncoding.EncodeToString(sealed), "stats": st}, nil
+}
+
+// ImportArchive merges a base64 sealed archive into this device. Additive: it
+// never overwrites or removes anything already here.
+func (b *Bridge) ImportArchive(dataB64, passphrase string) (appsvc.ArchiveStats, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.ArchiveStats{}, err
+	}
+	raw, err := base64.StdEncoding.DecodeString(dataB64)
+	if err != nil {
+		return appsvc.ArchiveStats{}, fmt.Errorf("bridge: archive is not valid base64: %w", err)
+	}
+	return svc.ImportArchive(raw, passphrase)
+}
+
 // SetRetention sets how long messages are kept, in seconds (0 = forever).
 // An empty channelID sets the guild-wide policy; a channel id overrides it for
 // that channel. Needs manage-guild — it deletes other members' copies too.
@@ -2858,6 +2889,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
 	case "UnbanMember":
 		return nil, b.UnbanMember(argStr(args, 0), argStr(args, 1))
+	case "ExportArchive":
+		return b.ExportArchive(argStr(args, 0), argBool(args, 1))
+	case "ImportArchive":
+		return b.ImportArchive(argStr(args, 0), argStr(args, 1))
 	case "SetRetention":
 		return nil, b.SetRetention(argStr(args, 0), argStr(args, 1), argInt(args, 2))
 	case "GuildRetention":

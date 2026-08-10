@@ -1911,6 +1911,82 @@ func (s *Store) pruneMessagesChunk(channelIDs []string, cutoff int64) (int, erro
 	return int(n), nil
 }
 
+// SetPinned sets a message's pinned flag outright. TogglePinned is the right
+// call for a user clicking "pin"; this is for a restore, where flipping a flag
+// would mean running the same archive twice undid itself.
+func (s *Store) SetPinned(id string, pinned bool) error {
+	v := 0
+	if pinned {
+		v = 1
+	}
+	_, err := s.db.Exec(`UPDATE messages SET pinned = ? WHERE id = ?`, v, id)
+	return err
+}
+
+// AddReaction records one reaction if it is not already there. Idempotent, for
+// the same reason SetPinned exists: ToggleReaction would remove it on a second
+// pass over the same archive.
+func (s *Store) AddReaction(messageID, fingerprint, emoji string) error {
+	_, err := s.db.Exec(
+		`INSERT INTO reactions (message_id, fingerprint, emoji) VALUES (?, ?, ?)
+		 ON CONFLICT(message_id, fingerprint, emoji) DO NOTHING`,
+		messageID, fingerprint, emoji)
+	return err
+}
+
+// SavedMessageIDs lists every bookmarked message id. Unlike BookmarkedMessages
+// this joins nothing and caps nothing — an archive has to carry the whole set,
+// including bookmarks whose message is soft-deleted, or a restore would quietly
+// drop them.
+func (s *Store) SavedMessageIDs() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT message_id FROM saved_messages`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
+// SaveBookmark records a bookmark without touching the message. Used by an
+// archive restore, where the message is written separately (and may already be
+// present). Idempotent.
+func (s *Store) SaveBookmark(messageID, channelID string, at int64) error {
+	_, err := s.db.Exec(
+		`INSERT INTO saved_messages (message_id, channel_id, at) VALUES (?, ?, ?)
+		 ON CONFLICT(message_id) DO NOTHING`, messageID, channelID, at)
+	return err
+}
+
+// AttachmentBlobs returns every cached attachment, for an archive that opted
+// into carrying them. This is a CACHE, not a record: it is bounded and evicted
+// by least-recent use, so what comes back is whatever survived, never a
+// guarantee of every file ever shared.
+func (s *Store) AttachmentBlobs() (map[string][]byte, error) {
+	rows, err := s.db.Query(`SELECT blob_id, ct FROM attachments`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]byte{}
+	for rows.Next() {
+		var id string
+		var ct []byte
+		if err := rows.Scan(&id, &ct); err != nil {
+			return nil, err
+		}
+		out[id] = ct
+	}
+	return out, rows.Err()
+}
+
 // SetSetting stores a key/value app setting (e.g. the display name).
 func (s *Store) SetSetting(key, value string) error {
 	_, err := s.db.Exec(
