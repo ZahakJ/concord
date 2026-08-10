@@ -4026,14 +4026,46 @@ textarea:focus {
     transform: translate3d(var(--dx), -25%, 0);
   }
 }
-/* Falling/rising things tumble as they go (leaves, confetti, petals). */
-.fx-tumble .fxp::before {
-  animation: fx-tumble var(--du) linear infinite;
-  animation-delay: var(--d);
+/* Falling/rising things tumble as they go (leaves, confetti, petals).
+   
+   The spin is folded into the SAME keyframe that moves the particle, rather
+   than animating the ::before separately, because Chromium does not composite
+   a transform animation on a pseudo-element: it re-runs style and repaints the
+   whole field every frame instead. Measured on the seasonal guild rail — six
+   glyphs in a 64px column, the smallest use there is — over ten seconds:
+   0.007s of task time without the spin, 0.59s with it, of which 0.38s was
+   style recalculation. Eighty-five times the cost for a decorative flourish.
+   
+   transform-origin is the part that is easy to get wrong. .fxp is a zero-width,
+   FULL-HEIGHT column and the speck is its ::before pinned at the top, so the
+   default origin (the column's centre) would swing the speck through a huge arc
+   across the screen. The origin is moved to the speck's own centre, which is
+   half a speck below the column's top-left corner.
+   
+   Kept as its own selector rather than folded into .fx-fall so a field without
+   tumble keeps the simpler, cheaper keyframe. */
+.fx-tumble.fx-fall .fxp {
+  transform-origin: 0 calc(var(--sz) / 2);
+  animation-name: fx-fall-tumble;
 }
-@keyframes fx-tumble {
+@keyframes fx-fall-tumble {
+  from {
+    transform: translate3d(calc(var(--dx) * -1), -25%, 0) rotate(0deg);
+  }
   to {
-    transform: rotate(var(--rot));
+    transform: translate3d(var(--dx), 120%, 0) rotate(var(--rot));
+  }
+}
+.fx-tumble.fx-rise .fxp {
+  transform-origin: 0 calc(var(--sz) / 2);
+  animation-name: fx-rise-tumble;
+}
+@keyframes fx-rise-tumble {
+  from {
+    transform: translate3d(calc(var(--dx) * -1), 115%, 0) rotate(0deg);
+  }
+  to {
+    transform: translate3d(var(--dx), -25%, 0) rotate(var(--rot));
   }
 }
 /* Rain and matrix streaks are drawn as elongated drops, not dots. */
