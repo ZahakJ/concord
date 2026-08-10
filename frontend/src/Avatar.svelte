@@ -20,6 +20,9 @@
     // of `frame`: a decoration composes WITH a ring rather than replacing it,
     // which is the point of splitting them.
     decoration = "",
+    // Passed straight through to the decoration painter: let a picker tile
+    // animate even at thumbnail size.
+    preview = false,
   } = $props();
 
   const glyph = $derived(emoji || (name || "?").slice(0, 2));
@@ -51,12 +54,12 @@
        through the decoration painter, anything else is a gradient ring
        (lib/rings.js). Old ring ids keep working untouched. -->
   {#if frame && drawnFrame(frame)}
-    <AvatarDecoration id={frame} kind="frame" {size} {color} {color2} />
+    <AvatarDecoration id={frame} kind="frame" {size} {color} {color2} {preview} />
   {:else if frame}
     <AvatarRing ring={frame} {size} {style} {color} {color2} />
   {/if}
   {#if decoration}
-    <AvatarDecoration id={decoration} {size} {color} {color2} />
+    <AvatarDecoration id={decoration} {size} {color} {color2} {preview} />
   {/if}
   {#if image}
     <img src={image} alt="" />

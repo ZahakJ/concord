@@ -59,7 +59,7 @@
             onclick={() => (sel = id)}
             title={DECORATION_BY_ID[id]?.name}
           >
-            <Avatar {name} {emoji} {color} image={avatar} size={36} decoration={id} {color2} />
+            <Avatar {name} {emoji} {color} image={avatar} size={36} decoration={id} {color2} preview />
             <span class="oname">{DECORATION_BY_ID[id]?.name}</span>
           </button>
         {/each}

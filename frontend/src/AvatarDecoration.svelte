@@ -13,7 +13,11 @@
   // kind picks which library the id is resolved against. Both are authored to
   // the same contract and painted identically; only the picker distinguishes
   // "worn on the avatar" from "encircling it".
-  let { id = "", kind = "decoration", size = 32, color = "", color2 = "" } = $props();
+  // `preview` overrides the small-size freeze below. A picker is the ONE place
+  // motion has to be visible — it is the whole reason to choose one decoration
+  // over another — and it shows tens of tiles, not the forty rows of a member
+  // list that the freeze exists to protect.
+  let { id = "", kind = "decoration", size = 32, color = "", color2 = "", preview = false } = $props();
 
   const d = $derived(kind === "frame" ? drawnFrame(id) : decoration(id));
   const back = $derived(d ? d.parts.filter((p) => p.z === "back") : []);
@@ -22,7 +26,7 @@
   // Animation is a luxury for something 20 pixels tall: at that size the motion
   // is invisible and a member list would run one timer per row. The threshold
   // is the same reasoning AvatarRing uses for its glow.
-  const still = $derived(size < 40);
+  const still = $derived(!preview && size < 40);
 
   const vars = $derived(
     `--d-c1:${color || "var(--accent)"};--d-c2:${color2 || color || "var(--accent)"};`,

@@ -182,7 +182,7 @@
         <div class="grid">
           {#each g.ids as id (id)}
             <button class="opt" class:sel={sel === id} onclick={() => (sel = id)} title={FRAME_BY_ID[id]?.name}>
-              <Avatar {name} {emoji} {color} image={avatar} size={36} frame={id} {color2} />
+              <Avatar {name} {emoji} {color} image={avatar} size={36} frame={id} {color2} preview />
               <span class="oname">{FRAME_BY_ID[id]?.name}</span>
             </button>
           {/each}
