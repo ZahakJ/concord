@@ -396,6 +396,17 @@ type Style struct {
 	// SetProfile already carries thirteen positional arguments — and it is
 	// bounded by validID and resolved against a table that fails closed.
 	Cf string `json:"cf,omitempty"`
+	// Dc is the colourway the worn decoration is painted in (see frontend
+	// lib/decorations.js COLORWAYS): gold, obsidian, azure… A preset id and
+	// never a colour, which is the whole reason this can ride on a peer's
+	// profile at all — the value is looked up in a table on the viewer's
+	// machine and expanded into a five-step ramp there, so nothing a peer
+	// sends reaches a fill. Empty means the wearer's own profile colour, which
+	// is what every decoration was painted in before the field existed, so an
+	// absent Dc has to keep rendering exactly that. Bounded by validID and
+	// resolved fail-closed BACK to that default: an id this build does not
+	// know paints the profile colour, never nothing and never a raw value.
+	Dc string `json:"dc,omitempty"`
 }
 
 // maxSatBytes caps the orbiting sprite. The frontend bakes it to 64×64 PNG
@@ -460,6 +471,9 @@ func sanitizeStyle(st *Style) *Style {
 	}
 	if validID(st.Cf) {
 		out.Cf = st.Cf
+	}
+	if validID(st.Dc) {
+		out.Dc = st.Dc
 	}
 	if out == (Style{}) {
 		return nil

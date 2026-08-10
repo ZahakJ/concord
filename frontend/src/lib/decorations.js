@@ -73,10 +73,16 @@
 // wash; five steps give the same shape a lit face, a body and a crease.
 //
 // `own: [c1, c2]` gives a piece its own colourway — gold for a crown, orange
-// for a fox — as the DEFAULT. A wearer who has set a profile colour overrides
-// it and gets the piece in their own colour, still shaded. Never bake a
-// colourway into the fills instead: that is exactly what made half the library
-// unchangeable and the other half the same teal.
+// for a fox — which the wearer can ask for by name ("As designed"). By default
+// a wearer who has set a profile colour gets the piece in their own colour,
+// still shaded, and `own` only shows through when there is no profile colour
+// at all. Never bake a colourway into the fills instead: that is exactly what
+// made half the library unchangeable and the other half the same teal.
+//
+// What the wearer is actually painted in is decided by COLORWAYS at the bottom
+// of this file — a bounded table of named bases (gold, obsidian, azure…) that
+// the same ramp expands. The base is the wearer's choice; everything above is
+// the piece's.
 //
 // Material. `defs` carries gradients and filters, built by the helpers below
 // and referenced by name. `filter: "name"` puts a part through one.
@@ -131,8 +137,15 @@
 // That rule is why the rings below are still reachable from the profile's
 // `frame` field as well as its `dec` field. They were their own library once
 // and `frame` was where they travelled, so Avatar.svelte resolves a `frame`
-// against this table before it falls through to lib/rings.js. No migration was
-// needed and none should be written: the ids never moved, only the file did.
+// against the RINGS in this table before it falls through to lib/rings.js. No
+// migration was needed and none should be written: the ids never moved, only
+// the file did.
+//
+// Against the RINGS, precisely — a `ring: true` entry and nothing else. Only
+// those twenty-one ever travelled in `frame`, and matching the whole table
+// there meant any figure sharing a name with a gradient ring silently ate it.
+// "comet" is a name both libraries chose, and for one commit a wearer of the
+// gradient comet got a drawn one.
 
 const P = (d, o = {}) => ({ d, z: "front", fill: "ink", ...o });
 
@@ -2360,6 +2373,72 @@ export function decoration(id) {
 // flag: does this decoration draw a disc around the face? A theme pack may set
 // --avatar-radius to a squircle, and app.css keeps the circle only for avatars
 // marked `.ringed` — a round band around a rounded square reads as a bug.
+//
+// It is also the rule Avatar.svelte uses to decide whether a `frame` names a
+// decoration at all. Exactly the twenty-one drawn rings ever travelled in that
+// field, and they all carry this flag; a decoration WITHOUT it never did, so
+// resolving one out of `frame` can only shadow a gradient ring of the same
+// name — which is what happened to the comet, a name both libraries had.
 export function wornRing(id) {
   return !!DECORATION_BY_ID[id]?.ring;
+}
+
+// ── COLOURWAYS ──────────────────────────────────────────────────────────────
+//
+// The wearer's choice of what colour to have their decoration IN. A piece is
+// drawn from five steps derived from one base (AvatarDecoration.svelte mixes
+// them in oklab), so a colourway only has to name that base and the ramp does
+// the rest — which is exactly why this is a table of curated presets and not a
+// hex field. A preset id is bounded, so it costs a handful of bytes on the
+// wire and can be validated by validID like every other cosmetic id; an
+// arbitrary hex is neither, and it also loses more often than it wins, because
+// a base picked without regard for where the ramp will take it produces mud.
+//
+// Twelve, spanning the axes a wearer actually reaches for: three metals, black
+// and white, two blues, a green, and the warm end from orange through red to
+// pink, plus a purple. Each pairs a mid-lightness base with a lighter partner
+// for `c2`, because a piece that uses both wants contrast between them, not a
+// second copy of the first.
+//
+// Two choices are NOT colourways and so are not in this table:
+//
+//   ""     match my profile colour — today's behaviour, and the DEFAULT. An
+//          absent field has to render exactly as it did before this existed,
+//          or every profile in the world quietly changes appearance.
+//   "own"  as designed — the piece's own `own: [c1, c2]` colourway, so a gold
+//          crown stays gold. Only meaningful on a piece that declares one;
+//          asked of a piece that does not, it falls back to the default.
+export const CW_OWN = "own";
+
+export const COLORWAYS = [
+  { id: "gold", name: "Gold", c: ["#d4a12e", "#f3d98d"] },
+  { id: "silver", name: "Silver", c: ["#a9b3c1", "#e4ebf4"] },
+  { id: "copper", name: "Copper", c: ["#b8672f", "#e39a5e"] },
+  { id: "obsidian", name: "Obsidian", c: ["#2e3340", "#5b6478"] },
+  { id: "bone", name: "Bone", c: ["#e2dccb", "#fbf7ec"] },
+  { id: "azure", name: "Azure", c: ["#3a7fd5", "#8ec5f7"] },
+  { id: "frost", name: "Frost", c: ["#79c6e2", "#d5f0fb"] },
+  { id: "jade", name: "Jade", c: ["#2ea27c", "#7fd9b6"] },
+  { id: "ember", name: "Ember", c: ["#e0561f", "#f79a3a"] },
+  { id: "crimson", name: "Crimson", c: ["#c22f43", "#ea7381"] },
+  { id: "rose", name: "Rose", c: ["#d9648f", "#f5a8c2"] },
+  { id: "amethyst", name: "Amethyst", c: ["#8a5cd8", "#c4a5f3"] },
+];
+
+export const COLORWAY_BY_ID = Object.fromEntries(COLORWAYS.map((c) => [c.id, c]));
+
+// decorColors resolves what a decoration is actually painted in: the pair of
+// base colours the ramp expands. Fails CLOSED in the only direction that is
+// safe — an id this build does not know falls back to the wearer's profile
+// colour, which is what every profile saved before this field existed already
+// gets. It can never return nothing, and it never returns a colour a peer sent
+// us, only one out of this file.
+export function decorColors(id, cw, c1 = "", c2 = "") {
+  const w = COLORWAY_BY_ID[cw];
+  if (w) return [w.c[0], w.c[1] || w.c[0]];
+  if (cw === CW_OWN) {
+    const own = DECORATION_BY_ID[id]?.own;
+    if (own) return [own[0], own[1] || own[0]];
+  }
+  return [c1, c2];
 }

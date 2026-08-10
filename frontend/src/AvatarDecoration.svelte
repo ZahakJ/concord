@@ -28,13 +28,18 @@
   // avatar itself is a DOM element between them. One overlay could not do that
   // without compositing the avatar into the SVG, which would lose the image
   // element, the presence dot and the text fallback.
-  import { decoration } from "./lib/decorations.js";
+  import { decoration, decorColors } from "./lib/decorations.js";
 
   // `preview` overrides the small-size freeze below. A picker is the ONE place
   // motion has to be visible — it is the whole reason to choose one decoration
   // over another — and it shows tens of tiles, not the forty rows of a member
   // list that the freeze exists to protect.
-  let { id = "", size = 32, color = "", color2 = "", preview = false } = $props();
+  //
+  // `cw` is the wearer's chosen colourway id (lib/decorations.js COLORWAYS).
+  // Empty — and anything this build does not recognise — means their profile
+  // colour, which is what every decoration was painted in before the choice
+  // existed.
+  let { id = "", size = 32, color = "", color2 = "", cw = "", preview = false } = $props();
 
   const uid = `dc${++seq}`;
   const d = $derived(decoration(id));
@@ -91,9 +96,14 @@
   // The steps are mixed in oklab so hue survives: mixing a saturated red
   // toward white in sRGB slides it pink, and a crown that goes pink in the
   // highlight is not made of anything.
+  //
+  // A colourway replaces the base pair outright; with none chosen the pair is
+  // the wearer's own profile colours and the chain below is untouched, so a
+  // profile saved before any of this renders byte for byte as it did.
+  const base = $derived(decorColors(id, cw, color, color2));
   const vars = $derived(
-    `--d-c1:${color || d?.own?.[0] || "var(--accent)"};` +
-      `--d-c2:${color2 || color || d?.own?.[1] || d?.own?.[0] || "var(--accent)"};`,
+    `--d-c1:${base[0] || d?.own?.[0] || "var(--accent)"};` +
+      `--d-c2:${base[1] || base[0] || d?.own?.[1] || d?.own?.[0] || "var(--accent)"};`,
   );
 
   // Colour tokens resolve here so a decoration never carries a raw colour it

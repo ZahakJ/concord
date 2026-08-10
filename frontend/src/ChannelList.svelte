@@ -964,6 +964,7 @@
         presence={S.identity.presence || ""}
         frame={S.identity.frame || ""}
         decoration={S.identity.style?.dec || ""}
+        dc={S.identity.style?.dc || ""}
       />
     </button>
     <button

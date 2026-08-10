@@ -4,11 +4,10 @@
   import Avatar from "../Avatar.svelte";
   import Banner from "../Banner.svelte";
   import BannerStudio from "../BannerStudio.svelte";
-  import RingStudio from "../RingStudio.svelte";
   import DecorStudio from "../DecorStudio.svelte";
   import EffectStudio from "../EffectStudio.svelte";
   import CardFrameStudio from "../CardFrameStudio.svelte";
-  import { DECORATION_BY_ID, DECORATIONS } from "../lib/decorations.js";
+  import { DECORATION_BY_ID, DECORATIONS, COLORWAYS } from "../lib/decorations.js";
   import { CARD_EFFECT_BY_ID, CARD_EFFECTS } from "../lib/cardfx.js";
   import { CARD_FRAME_BY_ID, CARD_FRAMES } from "../lib/cardframes.js";
   import { CARD_SCENE_BY_ID, CARD_SCENES } from "../lib/cardscenes.js";
@@ -45,6 +44,7 @@
   let color2 = $state(identity.color2 || "");
   let frame = $state(identity.frame || "");
   let dec = $state(identity.style?.dec || "");
+  let dc = $state(identity.style?.dc || ""); // the decoration's colourway
   let cf = $state(identity.style?.cf || "");
   let decorStudio = $state(false);
   let cfStudio = $state(false);
@@ -77,7 +77,7 @@
       await api.setGames(next);
     } catch {}
   }
-  // Fine-grained dials (RingStudio/BannerStudio own the UI for these).
+  // Fine-grained dials (DecorStudio/BannerStudio own the UI for these).
   const st0 = identity.style || {};
   let speed = $state(st0.speed || "normal");
   let dir = $state(st0.dir || "cw");
@@ -88,10 +88,9 @@
   let sat = $state(st0.sat || ""); // your rider: an emoji or an uploaded picture
   let pal = $state(st0.pal || ""); // the Gradient ring's colorway
   let bannerStudio = $state(false);
-  let ringStudio = $state(false);
   // Every style field has to be listed here or its value is silently dropped
   // on save — `dec` went missing that way once.
-  const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal, dec, cf });
+  const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal, dec, dc, cf });
   let fileInput;
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
@@ -445,30 +444,37 @@
     </div>
   </div>
 
-  <!-- Three named things rather than one bundled "ring": the gradient ring
-       around your avatar, everything worn ON it, and what plays across your
-       card. They stack, so they are three questions and not one list. -->
-  <div class="field">
-    <span class="muted">Avatar ring</span>
-    <button type="button" class="ring-entry" onclick={() => (ringStudio = true)}>
-      <Avatar name={name || "You"} {emoji} {color} image={avatar} size={30} {frame} style={styleObj} {color2} />
-      <span class="re-text">
-        <!-- A ring saved before the drawn ones became decorations still lives
-             in `frame`, so it is named out of the decoration table too. -->
-        <strong>{RING_BY_ID[frame]?.name || DECORATION_BY_ID[frame]?.name || "None"}</strong>
-        <span class="tiny muted">{RINGS.length - 1} animated rings, tunable</span>
-      </span>
-      <span class="chev">›</span>
-    </button>
-  </div>
-
+  <!-- Three named things: what you wear on your avatar, the art drawn around
+       your card, and what plays across it. Those are three different objects
+       on three different surfaces, so they are three rows. What you WEAR is
+       one row and not two — a gradient ring and a drawn crown are the same
+       choice, and offering them separately only ever produced people wearing
+       both. -->
   <div class="field">
     <span class="muted">Avatar decoration</span>
     <button type="button" class="ring-entry" onclick={() => (decorStudio = true)}>
-      <Avatar name={name || "You"} {emoji} {color} image={avatar} size={30} decoration={dec} {color2} />
+      <Avatar
+        name={name || "You"}
+        {emoji}
+        {color}
+        image={avatar}
+        size={30}
+        decoration={dec}
+        {frame}
+        style={styleObj}
+        {color2}
+      />
       <span class="re-text">
-        <strong>{DECORATION_BY_ID[dec]?.name || "None"}</strong>
-        <span class="tiny muted">{DECORATIONS.length} drawn — ears, crowns, wings, bands. Stacks with the ring</span>
+        <!-- A gradient ring lives in `frame`, and so does a drawn ring saved
+             before the two libraries became one, so the name is looked for in
+             both tables. -->
+        <strong>
+          {DECORATION_BY_ID[dec]?.name || RING_BY_ID[frame]?.name || DECORATION_BY_ID[frame]?.name || "None"}
+        </strong>
+        <span class="tiny muted"
+          >{DECORATIONS.length} drawn pieces and {RINGS.length - 1} gradient rings — one slot, {COLORWAYS.length}
+          colours</span
+        >
       </span>
       <span class="chev">›</span>
     </button>
@@ -519,12 +525,14 @@
     <button onclick={save} disabled={!name.trim()}>Save</button>
   </div>
 
-  {#if ringStudio}
-    <RingStudio
+  {#if decorStudio}
+    <DecorStudio
+      decoration={dec}
       ring={frame}
-      speed={speed}
-      dir={dir}
-      glow={glow}
+      {dc}
+      {speed}
+      {dir}
+      {glow}
       width={ringW}
       {sat}
       {pal}
@@ -534,29 +542,20 @@
       {emoji}
       name={name || "You"}
       onApply={(r) => {
+        // One slot, two fields. The picker never returns both, so assigning
+        // both is what CLEARS the one you did not pick — and it is also what
+        // leaves an old profile wearing a ring and a figure alone until the
+        // moment its owner chooses, because until then the picker hands back
+        // exactly what it was given.
+        dec = r.decoration;
         frame = r.ring;
+        dc = r.dc;
         speed = r.speed;
         dir = r.dir;
         glow = r.glow;
         ringW = r.width;
         sat = r.sat;
         pal = r.pal;
-        ringStudio = false;
-      }}
-      onClose={() => (ringStudio = false)}
-    />
-  {/if}
-
-  {#if decorStudio}
-    <DecorStudio
-      decoration={dec}
-      {color}
-      {color2}
-      {avatar}
-      {emoji}
-      name={name || "You"}
-      onApply={(r) => {
-        dec = r.decoration;
         decorStudio = false;
       }}
       onClose={() => (decorStudio = false)}

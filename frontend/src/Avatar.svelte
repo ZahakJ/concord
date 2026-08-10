@@ -1,8 +1,7 @@
 <script>
   import AvatarRing from "./AvatarRing.svelte";
   import AvatarDecoration from "./AvatarDecoration.svelte";
-  // Aliased: `decoration` is also a prop of this component.
-  import { decoration as wornDec, wornRing } from "./lib/decorations.js";
+  import { wornRing } from "./lib/decorations.js";
   // The one avatar. Renders, in priority order: uploaded image, profile emoji,
   // name/fingerprint initials — tinted by the member's accent color, with an
   // optional presence dot. Replaces five copy-pasted implementations.
@@ -21,19 +20,30 @@
     // See lib/decorations.js. Independent of `frame`: a decoration composes
     // WITH a gradient ring rather than replacing it.
     decoration = "",
+    // The colourway the decoration is painted in — a bounded id out of
+    // lib/decorations.js COLORWAYS. Given as a prop for the call sites that
+    // hand this component nothing but a member row, and read off `style`
+    // otherwise, which is where it travels.
+    dc = "",
     // Passed straight through to the decoration painter: let a picker tile
     // animate even at thumbnail size.
     preview = false,
   } = $props();
 
   const glyph = $derived(emoji || (name || "?").slice(0, 2));
+  const cw = $derived(dc || style?.dc || "");
 
-  // The drawn rings used to be their own library and used to travel in `frame`.
-  // They are decorations now, but the ids never changed, so a `frame` is
-  // resolved against the decoration table first and painted through the
-  // decoration painter when it hits. Anyone already wearing one keeps it, with
-  // no migration and no rewrite of what they broadcast.
-  const legacy = $derived(frame ? wornDec(frame) : null);
+  // The drawn RINGS used to be their own library and used to travel in `frame`.
+  // They are decorations now, but the ids never changed, so a `frame` naming
+  // one is painted through the decoration painter. Anyone already wearing one
+  // keeps it, with no migration and no rewrite of what they broadcast.
+  //
+  // `wornRing` and not a plain lookup, because only those twenty-one were ever
+  // reachable from `frame`. Matching the whole decoration table here means a
+  // figure that happens to share a name with a gradient ring takes that ring's
+  // wearers with it — "comet" is in both libraries, and for a while the
+  // gradient one could not be worn at all.
+  const legacy = $derived(!!frame && wornRing(frame));
 
   // A circle around a squircle reads as a rendering bug, so app.css keeps the
   // circular silhouette for `.ringed` avatars only. That has to hold however
@@ -69,12 +79,12 @@
        ring (lib/rings.js). Both may be on at once — someone who set a drawn
        ring AND a decoration chose to wear two, and wears two. -->
   {#if legacy}
-    <AvatarDecoration id={frame} {size} {color} {color2} {preview} />
+    <AvatarDecoration id={frame} {size} {color} {color2} {cw} {preview} />
   {:else if frame}
     <AvatarRing ring={frame} {size} {style} {color} {color2} />
   {/if}
   {#if decoration}
-    <AvatarDecoration id={decoration} {size} {color} {color2} {preview} />
+    <AvatarDecoration id={decoration} {size} {color} {color2} {cw} {preview} />
   {/if}
   {#if image}
     <img src={image} alt="" />

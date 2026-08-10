@@ -420,6 +420,7 @@
           presence={mem.presence}
           frame={mem.frame}
           decoration={mem.style?.dec || ""}
+          dc={mem.style?.dc || ""}
         />
         <span class="member-text">
           <span class="member-name" title={mem.fingerprint}>

@@ -32,14 +32,26 @@
 //      resolves to `url(#…)` against nothing at all. SVG's answer to a dangling
 //      paint reference is to draw the shape in BLACK, silently, so a typo in a
 //      gradient name is a black crown rather than an error.
+//   8. THE COLOURWAY. What the wearer chose to have the piece IN is another
+//      bounded id on the wire (Style.Dc), resolved against COLORWAYS. The two
+//      choices that are NOT colourways — "" for the wearer's profile colour and
+//      "own" for the piece's own — are the ones a table entry could quietly
+//      eat by taking one of those names, and the fallback for an id this build
+//      does not know has to be the DEFAULT, not nothing: a decoration painted
+//      in no colour at all is a black silhouette.
 import { readFileSync } from "node:fs";
 import {
   DECORATIONS,
   DECORATION_BY_ID,
   DECORATION_GROUPS,
+  COLORWAYS,
+  COLORWAY_BY_ID,
+  CW_OWN,
   decoration,
+  decorColors,
   wornRing,
 } from "./decorations.js";
+import { RINGS } from "./rings.js";
 
 let failures = 0;
 const fail = (msg) => {
@@ -276,6 +288,76 @@ ok(
   "every decoration must appear in exactly one group",
 );
 
+// A drawn RING is the only kind of decoration ever reachable from a profile's
+// `frame` field, and Avatar.svelte resolves it there before falling through to
+// lib/rings.js. So a ring-flagged id that also names a gradient ring makes that
+// gradient ring unwearable — which is not hypothetical: both libraries picked
+// "comet", and the merge made the drawn one shadow the gradient one until the
+// resolution was narrowed to the ring flag. A figure may share a name freely,
+// because a figure travels in `dec` and is never looked for in `frame`.
+{
+  const gradient = new Set(RINGS.map((r) => r.id).filter(Boolean));
+  for (const d of DECORATIONS)
+    if (d.ring)
+      ok(
+        !gradient.has(d.id),
+        `${d.id}: a drawn ring may not share an id with a gradient ring — it would shadow it in \`frame\``,
+      );
+}
+
+// ── 8. the colourways ───────────────────────────────────────────────────────
+ok(
+  COLORWAYS.length >= 10 && COLORWAYS.length <= 14,
+  `the colourway table is meant to be curated and bounded, not ${COLORWAYS.length} long`,
+);
+ok(Object.keys(COLORWAY_BY_ID).length === COLORWAYS.length, "colourway index size mismatch");
+{
+  const cseen = new Set();
+  for (const c of COLORWAYS) {
+    const where = c.id || "(no id)";
+    ok(/^[a-z0-9-]{1,32}$/.test(c.id || ""), `${where}: colourway id must match validID`);
+    ok(!cseen.has(c.id), `${where}: duplicate colourway id`);
+    cseen.add(c.id);
+    ok(!!c.name, `${where}: a colourway needs a name to appear in the picker`);
+    ok(c.id !== CW_OWN, `${where}: "${CW_OWN}" is the as-designed choice, not a colourway`);
+    ok(
+      Array.isArray(c.c) && c.c.length >= 1 && c.c.length <= 2,
+      `${where}: a colourway is one or two base colours — the ramp derives the rest`,
+    );
+    for (const v of c.c || []) ok(hex.test(v), `${where}: base "${v}" is not a hex colour`);
+    // Every entry has to actually resolve, or a swatch in the picker paints
+    // something the wearer can never get.
+    const [r1, r2] = decorColors("cat-ears", c.id, "#ff0000", "#00ff00");
+    ok(r1 === c.c[0] && !!r2, `${where}: does not resolve to its own base colours`);
+  }
+}
+// The default, and the fail-closed direction. "" is what every profile saved
+// before this field existed carries, and an id from a peer's newer build has to
+// land on the same thing rather than on nothing at all.
+ok(
+  decorColors("cat-ears", "", "#123456", "#654321").join() === "#123456,#654321",
+  "no colourway must resolve to the wearer's own profile colours",
+);
+ok(
+  decorColors("cat-ears", "no-such-colourway", "#123456", "#654321").join() === "#123456,#654321",
+  "an unknown colourway must fail closed to the wearer's profile colours, not to nothing",
+);
+// "As designed" only means something on a piece that declares one; anywhere
+// else it is another unknown id and falls back the same way.
+{
+  const own = DECORATIONS.find((d) => d.own);
+  ok(!!own, "no decoration declares `own` any more — the as-designed choice has nothing to pick");
+  ok(
+    decorColors(own.id, CW_OWN, "#123456", "#654321")[0] === own.own[0],
+    `${own.id}: "${CW_OWN}" must paint the piece in its own colourway`,
+  );
+  const plain = DECORATIONS.find((d) => !d.own);
+  ok(
+    decorColors(plain.id, CW_OWN, "#123456", "#654321").join() === "#123456,#654321",
+    `${plain.id}: "${CW_OWN}" on a piece with no colourway of its own must fall back`,
+  );
+}
+
 /**
  * pathPoints: every point a path actually reaches. Curve control points are
  * included (they bound the curve) and arcs are sampled, because the shape that
@@ -360,5 +442,5 @@ if (failures) {
   process.exit(1);
 }
 console.log(
-  `decorations.js: all passed (${DECORATIONS.length} decorations, ${DECORATIONS.filter((d) => d.ring).length} of them rings, ${DECORATIONS.reduce((n, d) => n + d.parts.length, 0)} parts, ${animClasses.size} animations)`,
+  `decorations.js: all passed (${DECORATIONS.length} decorations, ${DECORATIONS.filter((d) => d.ring).length} of them rings, ${DECORATIONS.reduce((n, d) => n + d.parts.length, 0)} parts, ${animClasses.size} animations, ${COLORWAYS.length} colourways)`,
 );
