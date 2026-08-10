@@ -6,6 +6,8 @@
   import { slide } from "svelte/transition";
   import Modal from "./Modal.svelte";
   import SettingRow from "./SettingRow.svelte";
+  import FxOverlay from "../FxOverlay.svelte";
+  import { THEME_FX } from "../lib/themefx.js";
   import { S, setAppearance } from "../lib/state.svelte.js";
 
   let { onClose } = $props();
@@ -39,6 +41,7 @@
   const uiScale = $derived(Number(S.prefs.uiScale) || 1);
   const profileColor = $derived(S.identity.color || "#14a394");
   const themePack = $derived(S.prefs.themePack || "");
+  const themeFx = $derived(S.prefs.themeFx || "");
   const shape = $derived(S.prefs.shape || "");
   const font = $derived(S.prefs.font || "");
 
@@ -114,6 +117,19 @@
     { id: "porcelain", label: "Porcelain", bg: "#f4f5f9", hi: "#dde2ec", ac: "#5661d8", font: INTER, r: 12, av: "50%", day: true, still: true, grad: "radial-gradient(circle at 18% 18%,#ffb8d2,transparent 55%),radial-gradient(circle at 82% 75%,#a4c6ff,#eef1f6)", note: "Pastel glass" },
   ];
 
+  // Effect-paired packs: flat, opaque palettes designed as the ground for one
+  // of the Effects below. `note` names the effect rather than describing the
+  // colours, because the pairing is the reason each of these exists — but
+  // selecting one only changes the pack. Nothing here turns an effect on.
+  const PAIR_PACKS = [
+    { id: "tundra", label: "Tundra", bg: "#131c25", hi: "#25333f", ac: "#8fd3f4", font: INTER, r: 10, av: "40%", rule: true, note: "Built for Snow" },
+    { id: "harbor", label: "Harbor", bg: "#171e23", hi: "#2a343c", ac: "#e0a458", font: GROTESK, r: 3, av: "5px", rule: true, note: "Built for Rain" },
+    { id: "observatory", label: "Observatory", bg: "#0b0d17", hi: "#1b1f2e", ac: "#e8c46a", font: INTER, r: 12, av: "50%", note: "Built for Starfield" },
+    { id: "hearth", label: "Hearth", bg: "#1a1613", hi: "#2e2721", ac: "#e59b4d", font: NUNITO, r: 14, av: "50%", card: true, note: "Built for Embers" },
+    { id: "phosphor", label: "Phosphor", bg: "#060c08", hi: "#132119", ac: "#3ef08c", font: MONO, r: 0, av: "0px", note: "Built for CRT" },
+    { id: "harvest", label: "Harvest", bg: "#1c1a11", hi: "#322e1f", ac: "#cf7b3f", font: SERIF, r: 5, av: "8px", rule: true, note: "Built for Leaves" },
+  ];
+
   // Textured packs: a static coloured mesh glows through translucent surfaces —
   // richer than a flat palette, but zero animation cost. `grad` drives the card.
   const TEXTURE_PACKS = [
@@ -133,6 +149,21 @@
     { id: "molten", label: "Molten", bg: "#1c0e08", hi: "#2e180e", ac: "#ff7a2f", font: SERIF, r: 4, av: "8px", motion: "heat", grad: "linear-gradient(0deg,transparent 30%,#ff7a2f 42%,#ffc46e 50%,transparent 66%)", base: "radial-gradient(120% 100% at 50% 110%,#7a2708,#0e0704)", note: "Rising heat, serif" },
     { id: "prism", label: "Prism", bg: "#12141a", hi: "#20232c", ac: "#8de0ff", font: GROTESK, r: 14, av: "50%", motion: "sweep", grad: "linear-gradient(100deg,transparent 36%,#ff5c9e 41%,#ffc454 45%,#60f0aa 49%,#60c8ff 53%,#9682ff 57%,transparent 63%)", base: "linear-gradient(180deg,#23262f,#0a0b0e)", note: "Iridescent sweep" },
     { id: "monsoon", label: "Monsoon", bg: "#0b1722", hi: "#162838", ac: "#56b7e8", font: INTER, r: 5, av: "8px", motion: "rain", grad: "repeating-linear-gradient(14deg,rgba(186,226,255,0.55) 0 1.5px,rgba(186,226,255,0.14) 1.5px 3px,transparent 3px 13px)", base: "linear-gradient(178deg,#17384f,#06141f)", note: "Falling rain" },
+    { id: "fathom", label: "Fathom", bg: "#04202c", hi: "#0c2d3a", ac: "#35d0e8", font: NUNITO, r: 12, av: "50%", card: true, motion: "bubbles", grad: "radial-gradient(circle at 30% 22%,rgba(200,248,255,0.85) 0 1.6px,transparent 2px),radial-gradient(circle at 74% 70%,rgba(180,240,255,0.7) 0 1.2px,transparent 1.8px) 0 0/26px 26px repeat", base: "radial-gradient(120% 100% at 50% -10%,#0e5468,#01131c)", note: "Light shafts, bubbles" },
+    { id: "skyline", label: "Skyline", bg: "#0e0a1e", hi: "#1e1436", ac: "#35e0ff", font: GROTESK, r: 0, av: "2px", motion: "city", grad: "linear-gradient(90deg,#2c1c52 0 8px,transparent 8px) 0 100%/28px 58% repeat-x,linear-gradient(90deg,transparent 0 13px,#08040f 13px 21px,transparent 21px) 0 100%/28px 100% repeat-x", base: "linear-gradient(180deg,#150c33 0%,#4b1550 58%,#7d1f4e 68%,#07040f 74%)", note: "Neon city, parallax" },
+    { id: "eclipse", label: "Eclipse", bg: "#120a20", hi: "#241638", ac: "#f0d68a", font: SERIF, r: 14, av: "50%", motion: "rays", grad: "repeating-conic-gradient(from 0deg,transparent 0 5deg,rgba(255,236,190,0.55) 6deg 8deg,transparent 9deg 15deg)", base: "radial-gradient(120% 110% at 50% 36%,#2a1746,#05030c)", note: "Turning corona" },
+    { id: "daybreak", label: "Daybreak", bg: "#dceaf6", hi: "#c4d5e8", ac: "#1d6fbf", font: NUNITO, r: 10, av: "50%", day: true, motion: "clouds", grad: "radial-gradient(24% 15% at 18% 28%,rgba(255,255,255,0.95),transparent 72%),radial-gradient(18% 11% at 62% 60%,rgba(255,255,255,0.85),transparent 72%) 0 0/64px 40px repeat", base: "linear-gradient(180deg,#7cbdec,#b7dcf6 45%,#ffe9c9 80%,#ffd6a0)", note: "Morning sky, clouds" },
+    { id: "dunes", label: "Dunes", bg: "#261609", hi: "#3e2714", ac: "#e8a33f", font: SERIF, r: 4, av: "7px", rule: true, motion: "heat", grad: "linear-gradient(0deg,transparent 26%,#ffbe6e 40%,#ffe0aa 48%,transparent 68%)", base: "linear-gradient(180deg,#9c531a 0%,#d98b33 28%,#7a4416 40%,#150b04 78%)", note: "Desert heat, dust" },
+    { id: "canopy", label: "Canopy", bg: "#0a1a0f", hi: "#17321e", ac: "#62c46a", font: INTER, r: 9, av: "40%", motion: "bubbles", grad: "radial-gradient(circle at 32% 26%,rgba(255,246,190,0.9) 0 1.8px,transparent 2.4px),radial-gradient(circle at 76% 66%,rgba(210,250,170,0.8) 0 1.3px,transparent 1.9px) 0 0/26px 26px repeat", base: "radial-gradient(120% 100% at 50% -10%,#2f6b33,#050f08 75%)", note: "Dappled light, pollen" },
+    { id: "datastream", label: "Datastream", bg: "#020c06", hi: "#092011", ac: "#35f08a", font: MONO, r: 0, av: "0px", motion: "code", grad: "radial-gradient(2px 20px at 22% 30%,rgba(60,255,150,0.75),transparent),radial-gradient(2px 14px at 68% 70%,rgba(120,255,190,0.6),transparent) 0 0/30px 44px repeat", base: "linear-gradient(180deg,#04160b,#000402)", note: "Falling code" },
+    { id: "sonar", label: "Sonar", bg: "#041414", hi: "#0b2826", ac: "#ffb347", font: MONO, r: 2, av: "50%", rule: true, motion: "scope", grad: "conic-gradient(from 0deg,rgba(255,179,71,0.55) 0deg,rgba(255,179,71,0.16) 26deg,transparent 62deg)", base: "radial-gradient(90% 90% at 50% 50%,#073030,#010a0a)", note: "Turning scope" },
+    { id: "lantern", label: "Lantern", bg: "#081422", hi: "#13283e", ac: "#ff9d4d", font: NUNITO, r: 13, av: "50%", card: true, motion: "bubbles", grad: "radial-gradient(circle at 34% 30%,rgba(255,186,110,0.95) 0 2.6px,transparent 3.4px),radial-gradient(circle at 74% 72%,rgba(255,210,150,0.8) 0 1.8px,transparent 2.6px) 0 0/28px 28px repeat", base: "linear-gradient(180deg,#0a1e35,#14304c 70%,#060e18)", note: "Lanterns rising" },
+    { id: "glacier", label: "Glacier", bg: "#102230", hi: "#1f3c50", ac: "#9fe0ff", font: GROTESK, r: 2, av: "4px", rule: true, motion: "facets", grad: "repeating-linear-gradient(64deg,transparent 0 9px,rgba(215,245,255,0.5) 11px,#ffffff 12px,transparent 14px 22px)", base: "linear-gradient(158deg,#2b5f7d,#0a2130 72%,#050f17)", note: "Ice, hard glint" },
+    { id: "vinyl", label: "Vinyl", bg: "#20160e", hi: "#362719", ac: "#d9a05b", font: SERIF, r: 8, av: "50%", motion: "scope", grad: "repeating-radial-gradient(circle at 50% 50%,rgba(0,0,0,0.5) 0 2px,rgba(255,214,160,0.16) 2px 4px)", base: "radial-gradient(110% 100% at 26% 34%,#4a3520,#100a05)", note: "A record, turning" },
+    { id: "storm", label: "Storm", bg: "#14171b", hi: "#272b31", ac: "#9fb4c9", font: INTER, r: 3, av: "5px", rule: true, motion: "clouds", grad: "radial-gradient(30% 20% at 22% 26%,rgba(226,234,244,0.65),transparent 74%),radial-gradient(22% 14% at 66% 58%,rgba(190,202,214,0.5),transparent 74%) 0 0/70px 44px repeat", base: "linear-gradient(180deg,#2b3238,#0c0f12 80%)", note: "Cloud, distant strike" },
+    { id: "blossom", label: "Blossom", bg: "#241016", hi: "#3b1b25", ac: "#ff7aa2", font: NUNITO, r: 14, av: "50%", card: true, motion: "petals", grad: "radial-gradient(4px 2.6px at 30% 24%,rgba(255,190,210,0.95),transparent),radial-gradient(3px 2px at 72% 66%,rgba(255,160,190,0.85),transparent) 0 0/30px 38px repeat", base: "linear-gradient(180deg,#7a2437 0%,#b8455c 34%,#3a1220 58%,#150609)", note: "Petals at dusk" },
+    { id: "meridian", label: "Meridian", bg: "#081a20", hi: "#112f37", ac: "#ff9a63", font: SERIF, r: 6, av: "50%", rule: true, motion: "path", grad: "repeating-linear-gradient(0deg,rgba(255,186,118,0.7) 0 2px,transparent 2px 7px)", base: "linear-gradient(180deg,#d9673a 0%,#f0a05a 20%,#123039 34%,#040c10)", note: "Sun on the water" },
+    { id: "bloom", label: "Bloom", bg: "#101408", hi: "#1f270f", ac: "#b6e830", font: GROTESK, r: 16, av: "50%", motion: "heat", grad: "radial-gradient(38% 26% at 40% 50%,rgba(182,232,48,0.75),transparent 70%),radial-gradient(30% 20% at 72% 50%,rgba(255,176,60,0.55),transparent 72%)", base: "radial-gradient(120% 100% at 50% 110%,#3d4a10,#080a03 70%)", note: "Slow rising blobs" },
   ];
 </script>
 
@@ -230,6 +261,54 @@
     <div class="pack-row" role="radiogroup" aria-label="Textured theme pack">
       {#each TEXTURE_PACKS as p (p.id)}{@render packCard(p, true)}{/each}
     </div>
+
+    <div class="live-head">
+      <span class="live-tag">❄ Effect-paired</span>
+      <span class="muted tiny">Flat palettes drawn as the ground for one effect.</span>
+    </div>
+    <div class="pack-row" role="radiogroup" aria-label="Effect-paired theme pack">
+      {#each PAIR_PACKS as p (p.id)}{@render packCard(p)}{/each}
+    </div>
+    <p class="muted tiny">
+      Each of these was designed around one of the effects below, and each also
+      stands on its own with effects off. Picking the pack does not switch the
+      effect on — the two are separate choices.
+    </p>
+  </section>
+
+  <hr />
+  <section>
+    <strong class="label">Effects</strong>
+    <div class="pack-row fx-row" role="radiogroup" aria-label="Visual effect">
+      {#each THEME_FX as f (f.id)}
+        <button
+          class="pack-card"
+          class:sel={themeFx === f.id}
+          role="radio"
+          aria-checked={themeFx === f.id}
+          onclick={() => setAppearance("themeFx", f.id)}
+        >
+          <!-- The card runs the real effect, scaled down — same component and
+               same CSS the app mounts, so nothing here can drift out of sync
+               with what picking it actually does. The window is painted from
+               the LIVE palette, so you are previewing the effect over the pack
+               you are on. -->
+          <span class="fxpv" aria-hidden="true">
+            <FxOverlay fx={f.id} mini s={0.18} scale={0.3} />
+            <span class="fxpv-ink"></span>
+            <span class="fxpv-ink short"></span>
+          </span>
+          <span class="pk-name">{f.label}</span>
+          <span class="pk-note">{f.note}</span>
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">
+      An effect layers over whatever theme pack you picked — all of them work
+      with all of them. Drawn with gradients and shapes, never downloaded, and
+      turned off entirely if your system asks for reduced motion. Leaving one
+      running costs battery, so it starts off on each device.
+    </p>
   </section>
 
   <hr />
@@ -739,6 +818,45 @@
     max-width: 60%;
   }
 
+  /* Effect cards. The mini window is deliberately NOT painted from a fixed
+     palette the way the pack cards are: an effect has no colours of its own,
+     it inherits the ground it falls on, and --fx-ink flips with that ground.
+     Painting these from the live tokens is therefore the only honest preview —
+     and it makes the row re-skin itself the moment you pick a pack above. */
+  /* Seven options into a three-wide grid leaves an orphan on its own line, so
+     "None" — the default, and the only card with nothing to show — takes a
+     full-width row and the six real effects fall into 3x2 beneath it. Same
+     move the typeface list makes for the same reason. */
+  .fx-row > button:first-child {
+    grid-column: 1 / -1;
+  }
+  .fxpv {
+    position: relative;
+    width: 100%;
+    height: 58px;
+    border-radius: 7px;
+    border: 1px solid var(--border);
+    background: linear-gradient(160deg, var(--bg-1), var(--bg-0));
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 10px;
+    overflow: hidden;
+    isolation: isolate;
+  }
+  /* Two bars of body text under the weather — the thing the effect must not
+     make harder to read. If a card looks busy here, it will look busy over the
+     feed. */
+  .fxpv-ink {
+    height: 5px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--text) 55%, transparent);
+  }
+  .fxpv-ink.short {
+    width: 58%;
+  }
+
   /* Animated-pack subsection heading. */
   .live-head {
     display: flex;
@@ -777,6 +895,110 @@
     inset: -60%;
     opacity: 0.9;
     animation: pk-rain 0.7s linear infinite;
+  }
+  /* Fathom's bubbles rise one tile per loop, the same construction the real
+     backdrop uses. */
+  .pk[data-motion="bubbles"] .pk-glow {
+    inset: -30%;
+    animation: pk-rise 2.6s linear infinite;
+  }
+  /* Skyline: silhouettes stand on the bottom edge and slide one tile sideways,
+     so the card shows the parallax rather than a coloured wash. */
+  .pk[data-motion="city"] .pk-glow {
+    inset: auto -20% 0 -20%;
+    height: 62%;
+    opacity: 1;
+    animation: pk-city 9s linear infinite;
+  }
+  /* Eclipse: the corona, turning. The disc is drawn by the ring on top of it. */
+  .pk[data-motion="rays"] .pk-glow {
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: 42px;
+    height: 42px;
+    margin: -21px 0 0 -21px;
+    border-radius: 50%;
+    mask-image: radial-gradient(closest-side, transparent 0 38%, #000 46%, #000 64%, transparent 96%);
+    animation: pk-spin 26s linear infinite;
+  }
+  /* Daybreak and Storm: cloud masses drifting one tile sideways. */
+  .pk[data-motion="clouds"] .pk-glow {
+    inset: -30%;
+    animation: pk-clouds 7s linear infinite;
+  }
+  /* Glacier: facets shearing along their own normal. */
+  .pk[data-motion="facets"] .pk-glow {
+    inset: -40%;
+    animation: pk-facets 4.4s linear infinite;
+  }
+  @keyframes pk-clouds {
+    to {
+      transform: translate3d(-64px, 0, 0);
+    }
+  }
+  @keyframes pk-facets {
+    to {
+      transform: translate3d(-19.8px, 9.6px, 0);
+    }
+  }
+  /* Blossom: petals down-and-across, one tile per loop. */
+  .pk[data-motion="petals"] .pk-glow {
+    inset: -40%;
+    animation: pk-petals 4.2s linear infinite;
+  }
+  /* Meridian: only the sun's path on the water moves, so the card shows just
+     that band rather than tinting the whole window. */
+  .pk[data-motion="path"] .pk-glow {
+    inset: 46% 34% 0 34%;
+    animation: pk-path 1.4s linear infinite;
+  }
+  @keyframes pk-petals {
+    to {
+      transform: translate3d(-30px, 38px, 0);
+    }
+  }
+  @keyframes pk-path {
+    to {
+      transform: translate3d(0, 7px, 0);
+    }
+  }
+  /* Datastream: columns falling straight down, one tile per loop. */
+  .pk[data-motion="code"] .pk-glow {
+    inset: -40%;
+    animation: pk-code 1.6s linear infinite;
+  }
+  /* Sonar and Vinyl: a full disc that turns, rather than the masked ring the
+     eclipse card uses. */
+  .pk[data-motion="scope"] .pk-glow {
+    inset: auto;
+    left: 50%;
+    top: 50%;
+    width: 46px;
+    height: 46px;
+    margin: -23px 0 0 -23px;
+    border-radius: 50%;
+    animation: pk-spin 5.5s linear infinite;
+  }
+  @keyframes pk-code {
+    to {
+      transform: translate3d(0, 44px, 0);
+    }
+  }
+  @keyframes pk-rise {
+    to {
+      transform: translate3d(0, -26px, 0);
+    }
+  }
+  @keyframes pk-city {
+    to {
+      transform: translate3d(-28px, 0, 0);
+    }
+  }
+  @keyframes pk-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
   /* Synthwave's is a sun, not a band: a disc low on the left, breathing. */
   .pk[data-motion="sun"] .pk-glow {

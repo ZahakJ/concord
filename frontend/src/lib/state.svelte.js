@@ -119,6 +119,13 @@ export const S = $state({
     theme: "dark",
     accent: "",
     themePack: "", // curated full-palette skin ("" = default palette)
+    // Stackable visual effect, drawn over the app on top of whatever pack is
+    // active (lib/themefx.js for the catalogue, FxOverlay.svelte for the
+    // layer). A separate axis from themePack on purpose: any effect composes
+    // with any pack. "" = none, which is also what it stays as on a phone
+    // until someone turns it on THERE — prefs are device-local, so a laptop
+    // running snow never starts a phone animating on battery.
+    themeFx: "",
     // Shape/typeface overrides. "" = follow the active theme pack, which now
     // carries a corner radius and a UI face of its own, not just colors.
     shape: "",
@@ -1295,7 +1302,29 @@ export function applyAccent(color) {
 const sysDark = window.matchMedia?.("(prefers-color-scheme: dark)");
 
 // Packs whose backdrop animates (see app.css .theme-bg + [data-anim-bg]).
-export const ANIMATED_PACKS = new Set(["aurora", "synthwave", "cosmos", "molten", "prism", "monsoon"]);
+export const ANIMATED_PACKS = new Set([
+  "aurora",
+  "synthwave",
+  "cosmos",
+  "molten",
+  "prism",
+  "monsoon",
+  "fathom",
+  "skyline",
+  "eclipse",
+  "daybreak",
+  "dunes",
+  "canopy",
+  "datastream",
+  "sonar",
+  "lantern",
+  "glacier",
+  "vinyl",
+  "storm",
+  "bloom",
+  "blossom",
+  "meridian",
+]);
 // Packs with a STATIC coloured mesh behind translucent surfaces ([data-textured]).
 export const TEXTURED_PACKS = new Set(["frost", "dusk", "grape"]);
 

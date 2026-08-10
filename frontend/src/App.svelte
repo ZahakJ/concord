@@ -61,6 +61,8 @@
   import ContextMenu from "./ContextMenu.svelte";
   import FloatingCall from "./FloatingCall.svelte";
   import Toasts from "./Toasts.svelte";
+  import FxOverlay from "./FxOverlay.svelte";
+  import { validFx } from "./lib/themefx.js";
   import ModalCreate from "./modals/ModalCreate.svelte";
   import ModalCreateChannel from "./modals/ModalCreateChannel.svelte";
   import ModalEmoji from "./modals/ModalEmoji.svelte";
@@ -1050,6 +1052,11 @@
     <span class="tb-b"></span>
     <span class="tb-c"></span>
   </div>
+  <!-- Stackable effect, over the app rather than behind it, so it composes
+       with the opaque packs too. On a phone the particle field gets a smaller
+       `scale`, which is the engine's own signal to cut the particle count
+       (lib/fx.js); the gradient effects drop a layer in CSS. -->
+  <FxOverlay fx={validFx(S.prefs.themeFx)} scale={S.isMobile ? 0.55 : 1} />
 {/if}
 
 {#if booting}
