@@ -36,6 +36,8 @@
   import Banner from "./Banner.svelte";
   import FxLayer from "./FxLayer.svelte";
   import { cardEffect } from "./lib/cardfx.js";
+  import CardFrame from "./CardFrame.svelte";
+  import { cardFrame } from "./lib/cardframes.js";
 
   let dmText = $state("");
   let dmBusy = $state(false);
@@ -94,6 +96,10 @@
   }
 
   const mem = $derived(S.profilePopover ? memberByFpr(S.profilePopover.fingerprint) : null);
+  // The scenic frame around the card. Resolved here, failing CLOSED: the id
+  // arrives on a peer's broadcast profile, so one this build has never heard of
+  // must draw nothing rather than anything at all.
+  const cf = $derived(mem?.style?.cf && cardFrame(mem.style.cf) ? mem.style.cf : "");
   // Clear per-person editor state when the card switches to a different person.
   $effect(() => {
     S.profilePopover?.fingerprint;
@@ -483,7 +489,7 @@
   onkeydown={(e) => e.key === "Escape" && !S.contextMenu && closeProfilePopover()}
   onpointerdown={(e) => {
     if (!S.profilePopover || popoverJustOpened()) return;
-    if (e.target.closest(".pop, .cm, .cm-backdrop, .bs-sheet, .bs-scrim")) return;
+    if (e.target.closest(".pop-wrap, .cm, .cm-backdrop, .bs-sheet, .bs-scrim")) return;
     closeProfilePopover();
   }}
 />
@@ -493,9 +499,15 @@
     <!-- Sheet presentation gets a dimming scrim; tap it to dismiss. -->
     <button class="pp-scrim" onclick={closeProfilePopover} aria-label="Close profile"></button>
   {/if}
+  <!-- The card and its frame share one positioned wrapper. The card itself has
+       to keep `overflow: hidden` (rounded corners, an internal scroll when the
+       safety number is revealed), and a scenic frame is mostly the art that
+       leaves the card — towers above the top edge, branches past the corners.
+       So the frame is a sibling of .pop, not a child of it, and the wrapper is
+       what gets measured and placed. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
-    class="pop {mem.effect && !cardEffect(mem.effect) ? `card-effect-${mem.effect}` : ''}"
+    class="pop-wrap"
     class:sheet={S.isMobile}
     bind:this={card}
     style={S.isMobile ? "" : pos ? `left:${pos.left}px;top:${pos.top}px` : "opacity:0;pointer-events:none"}
@@ -503,6 +515,14 @@
     aria-label="{mem.name || 'Member'} profile"
     onmouseenter={holdProfilePopover}
     onmouseleave={() => !S.contextMenu && scheduleCloseProfilePopover()}
+  >
+    {#if cf}
+      <CardFrame id={cf} color={mem.color} color2={mem.color2} />
+    {/if}
+  <div
+    class="pop {mem.effect && !cardEffect(mem.effect) ? `card-effect-${mem.effect}` : ''}"
+    class:sheet={S.isMobile}
+    class:framed={!!cf}
   >
     <!-- The card effect, painted by the shared particle engine (lib/fx.js)
          rather than one bespoke CSS class per effect. The four original ids
@@ -520,22 +540,6 @@
       style={mem.style}
       class="banner"
     />
-    {#if S.isMobile}
-      <!-- Every other sheet in the app has a grip; without one this card read
-           as a stuck panel whose only exit was a blind tap outside it. Tapping
-           it closes, so the affordance is real and not just decoration. It
-           rides on the banner art, so it's over-image chrome (light pill, dark
-           shadow) rather than a themed surface. -->
-      <button class="grip" onclick={closeProfilePopover} aria-label="Close profile"></button>
-    {/if}
-    {#if hasOverflow}
-      <!-- Discord-style overflow: moderation, nickname and block live here so
-           the resting card stays about the person. Rides the banner art, so
-           over-image chrome like the grip, not a themed surface. -->
-      <button class="more-btn" onclick={openOverflow} aria-label="More options" title="More options">
-        <Icon name="dots" size={16} />
-      </button>
-    {/if}
     <div class="head">
       <div class="av-wrap">
         {#if mem.color}
@@ -777,6 +781,28 @@
 
     </div>
   </div>
+    <!-- The two over-image controls are siblings of .pop, not children of it.
+         A card frame's front layer draws over the card, and .pop is its own
+         stacking context — leaving these inside it put a proscenium's valance
+         on top of the sheet's grip, which is the only visible way off the
+         card on a phone. Out here they can sit above the art. -->
+    {#if S.isMobile}
+      <!-- Every other sheet in the app has a grip; without one this card read
+           as a stuck panel whose only exit was a blind tap outside it. Tapping
+           it closes, so the affordance is real and not just decoration. It
+           rides on the banner art, so it's over-image chrome (light pill, dark
+           shadow) rather than a themed surface. -->
+      <button class="grip" onclick={closeProfilePopover} aria-label="Close profile"></button>
+    {/if}
+    {#if hasOverflow}
+      <!-- Discord-style overflow: moderation, nickname and block live here so
+           the resting card stays about the person. Rides the banner art, so
+           over-image chrome like the grip, not a themed surface. -->
+      <button class="more-btn" onclick={openOverflow} aria-label="More options" title="More options">
+        <Icon name="dots" size={16} />
+      </button>
+    {/if}
+  </div>
 {/if}
 
 <style>
@@ -792,10 +818,21 @@
     pointer-events: none;
   }
 
-  .pop {
+  /* The wrapper carries the placement; the card carries the surface. Splitting
+     them is what lets a card frame overhang: .pop still clips its own content
+     to its rounded corners, while the frame's SVGs are siblings that nothing
+     clips. The wrapper shrink-wraps the card, so the measurement the placement
+     effect does is unchanged. */
+  .pop-wrap {
     position: fixed;
     z-index: 250;
     width: 272px;
+    animation: pop-in 0.12s ease;
+  }
+  .pop {
+    position: relative;
+    z-index: 1;
+    width: 100%;
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -806,7 +843,6 @@
     max-height: calc(100dvh - 16px);
     overflow-y: auto;
     overscroll-behavior: contain;
-    animation: pop-in 0.12s ease;
   }
   @keyframes pop-in {
     from {
@@ -815,7 +851,7 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .pop {
+    .pop-wrap {
       animation: none;
     }
   }
@@ -833,12 +869,16 @@
       opacity: 0;
     }
   }
-  .pop.sheet {
+  .pop-wrap.sheet {
     left: 0;
     right: 0;
     top: auto;
     bottom: 0;
     width: auto;
+    z-index: 401;
+    animation: pp-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  .pop.sheet {
     /* dvh: the nickname and DM fields open the keyboard, and vh does not shrink
        for it in an Android WebView — the card kept sizing to the whole screen
        and put its own input underneath. */
@@ -846,11 +886,9 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
-    z-index: 401;
     border: none;
     border-radius: 16px 16px 0 0;
     padding-bottom: var(--safe-bottom);
-    animation: pp-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
   }
   @keyframes pp-up {
     from {
@@ -871,7 +909,7 @@
     padding: 0;
     background: transparent;
     border: none;
-    z-index: 1;
+    z-index: 4;
   }
   .grip::before {
     content: "";
@@ -887,6 +925,16 @@
   .pop.sheet .body {
     padding: 8px 18px 18px;
     gap: 6px;
+  }
+  /* A frame's side rails are ~16 of its 272 authoring units. On a phone the
+     sheet is the full screen width, so those rails scale up with it and start
+     eating the first letter of every line. Give the body the difference back. */
+  .pop.sheet.framed .body {
+    padding-left: 28px;
+    padding-right: 28px;
+  }
+  .pop.sheet.framed .head {
+    padding: 0 24px;
   }
   .pop.sheet .name-row strong {
     font-size: var(--fs-title);
@@ -931,7 +979,7 @@
     position: absolute;
     top: 10px;
     right: 10px;
-    z-index: 1;
+    z-index: 4;
     display: grid;
     place-items: center;
     width: 30px;
@@ -1004,6 +1052,16 @@
     color: var(--ok-text);
     background: color-mix(in srgb, var(--ok) 14%, transparent);
     border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
+  }
+  /* Side rails are up to 16 of the frame's 272 authoring units, which is wider
+     than the card's own 14px gutter — enough to nibble the first letter of
+     every line. Framed cards get their gutter back. */
+  .pop.framed .head {
+    padding: 0 19px;
+  }
+  .pop.framed .body {
+    padding-left: 19px;
+    padding-right: 19px;
   }
   .body {
     padding: 6px 14px 14px;

@@ -7,8 +7,10 @@
   import RingStudio from "../RingStudio.svelte";
   import DecorStudio from "../DecorStudio.svelte";
   import EffectStudio from "../EffectStudio.svelte";
+  import CardFrameStudio from "../CardFrameStudio.svelte";
   import { DECORATION_BY_ID } from "../lib/decorations.js";
   import { CARD_EFFECT_BY_ID, CARD_EFFECTS } from "../lib/cardfx.js";
+  import { CARD_FRAME_BY_ID, CARD_FRAMES } from "../lib/cardframes.js";
   import { FRAME_BY_ID, FRAMES } from "../lib/frames.js";
   import GameShelf from "../GameShelf.svelte";
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
@@ -43,7 +45,9 @@
   let color2 = $state(identity.color2 || "");
   let frame = $state(identity.frame || "");
   let dec = $state(identity.style?.dec || "");
+  let cf = $state(identity.style?.cf || "");
   let decorStudio = $state(false);
+  let cfStudio = $state(false);
   let effectStudio = $state(false);
   let effect = $state(identity.effect || "");
   let games = $state(identity.games || []);
@@ -85,7 +89,9 @@
   let pal = $state(st0.pal || ""); // the Gradient ring's colorway
   let bannerStudio = $state(false);
   let ringStudio = $state(false);
-  const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal, dec });
+  // Every style field has to be listed here or its value is silently dropped
+  // on save — `dec` went missing that way once.
+  const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal, dec, cf });
   let fileInput;
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
@@ -461,6 +467,18 @@
   </div>
 
   <div class="field">
+    <span class="muted">Card frame</span>
+    <button type="button" class="ring-entry" onclick={() => (cfStudio = true)}>
+      <span class="cf-chip" class:on={!!cf}></span>
+      <span class="re-text">
+        <strong>{CARD_FRAME_BY_ID[cf]?.name || "None"}</strong>
+        <span class="tiny muted">{CARD_FRAMES.length} scenes drawn around your whole card</span>
+      </span>
+      <span class="chev">›</span>
+    </button>
+  </div>
+
+  <div class="field">
     <span class="muted">Profile effect</span>
     <button type="button" class="ring-entry" onclick={() => (effectStudio = true)}>
       <span class="fx-chip" style="--c1:{color};--c2:{color2 || color}"></span>
@@ -548,6 +566,19 @@
     />
   {/if}
 
+  {#if cfStudio}
+    <CardFrameStudio
+      current={cf}
+      {color}
+      {color2}
+      onApply={(r) => {
+        cf = r.cf;
+        cfStudio = false;
+      }}
+      onClose={() => (cfStudio = false)}
+    />
+  {/if}
+
   {#if bannerStudio}
     <BannerStudio
       {banner}
@@ -575,6 +606,20 @@
     flex: none;
     border-radius: var(--radius-sm);
     background: linear-gradient(140deg, var(--c1), var(--c2));
+  }
+
+  /* The card-frame row previews a frame, not a colour: a little card with a
+     border drawn around it, filled in when one is chosen. */
+  .cf-chip {
+    width: 24px;
+    height: 32px;
+    flex: none;
+    border-radius: 3px;
+    background: var(--bg-1);
+    box-shadow: 0 0 0 3px var(--bg-3);
+  }
+  .cf-chip.on {
+    box-shadow: 0 0 0 3px var(--accent);
   }
 
   .small-btn {

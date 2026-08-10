@@ -388,6 +388,14 @@ type Style struct {
 	// thirteen, and it is bounded and resolved against a table that fails
 	// closed exactly like Pal.
 	Dec string `json:"dec,omitempty"`
+	// Cf is the profile-card frame's id (see frontend lib/cardframes.js): the
+	// scenic art drawn AROUND someone's profile card — battlements over the top
+	// edge, branches reaching in over the corners. A peer of Dec, not a dial on
+	// it: a card frame and a worn decoration are different objects on different
+	// things, and they compose. It rides here for the same reason Dec does —
+	// SetProfile already carries thirteen positional arguments — and it is
+	// bounded by validID and resolved against a table that fails closed.
+	Cf string `json:"cf,omitempty"`
 }
 
 // maxSatBytes caps the orbiting sprite. The frontend bakes it to 64×64 PNG
@@ -449,6 +457,9 @@ func sanitizeStyle(st *Style) *Style {
 	}
 	if validID(st.Dec) {
 		out.Dec = st.Dec
+	}
+	if validID(st.Cf) {
+		out.Cf = st.Cf
 	}
 	if out == (Style{}) {
 		return nil
