@@ -313,6 +313,16 @@
   <section class="grp">
     <div class="sec-label">Security</div>
     <div class="card warn">
+      <button class="row" onclick={() => openPanel("backup")}>
+        <span class="chip warn-chip"><Icon name="download" size={16} /></span>
+        <span class="row-text">
+          <span class="row-title">Backup &amp; restore</span>
+          <span class="row-sub">
+            History lives only on your devices. This is the copy you keep.
+          </span>
+        </span>
+        <span class="chev">›</span>
+      </button>
       <button class="row" onclick={togglePhrase} aria-expanded={phraseOpen}>
         <span class="chip warn-chip"><Icon name="alert" size={16} /></span>
         <span class="row-text">

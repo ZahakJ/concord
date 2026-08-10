@@ -103,6 +103,7 @@
   import ModalDisappear from "./modals/ModalDisappear.svelte";
   import ModalStats from "./modals/ModalStats.svelte";
   import ModalRetention from "./modals/ModalRetention.svelte";
+  import ModalBackup from "./modals/ModalBackup.svelte";
   import ModalBlocked from "./modals/ModalBlocked.svelte";
   import ModalRequests from "./modals/ModalRequests.svelte";
   import ModalEvents from "./modals/ModalEvents.svelte";
@@ -1341,6 +1342,8 @@
     />
   {:else if S.modal?.kind === "disappear"}
     <ModalDisappear onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "backup"}
+    <ModalBackup onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "retention"}
     <ModalRetention onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "stats"}

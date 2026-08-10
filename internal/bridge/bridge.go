@@ -1942,6 +1942,17 @@ func (b *Bridge) MuteMember(guildID, fingerprint string, minutes int) error {
 	return svc.MuteMember(guildID, fingerprint, minutes)
 }
 
+// ExportMarkdown renders a readable transcript of one channel, or of the whole
+// guild when channelID is empty. Reads the store, so it covers the entire
+// history rather than the page the UI has loaded.
+func (b *Bridge) ExportMarkdown(guildID, channelID string) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.ExportMarkdown(guildID, channelID)
+}
+
 // ExportArchive returns a sealed history archive as base64, plus a count of
 // what went in. Base64 because the RPC surface is JSON — the caller writes it
 // to a file. withAttachments carries the cached blobs too (large, and complete
@@ -2889,6 +2900,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
 	case "UnbanMember":
 		return nil, b.UnbanMember(argStr(args, 0), argStr(args, 1))
+	case "ExportMarkdown":
+		return b.ExportMarkdown(argStr(args, 0), argStr(args, 1))
 	case "ExportArchive":
 		return b.ExportArchive(argStr(args, 0), argBool(args, 1))
 	case "ImportArchive":

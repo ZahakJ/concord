@@ -301,6 +301,11 @@ export const api = {
   setSlowMode: (guildID, channelID, seconds) => call("SetSlowMode", guildID, channelID, seconds),
   // Retention: "" as channelID sets the guild-wide policy; 0 seconds = keep
   // everything. Enforced locally by each client (see ModalRetention).
+  // Empty channelID exports the whole guild. Reads the store, so it is the
+  // entire history rather than what the view has loaded.
+  exportMarkdown: (guildID, channelID) => call("ExportMarkdown", guildID, channelID),
+  exportArchive: (passphrase, withAttachments) => call("ExportArchive", passphrase, withAttachments),
+  importArchive: (dataB64, passphrase) => call("ImportArchive", dataB64, passphrase),
   setRetention: (guildID, channelID, seconds) => call("SetRetention", guildID, channelID, seconds),
   guildRetention: (guildID) => call("GuildRetention", guildID),
   unmuteMember: (guildID, fingerprint) => call("UnmuteMember", guildID, fingerprint),

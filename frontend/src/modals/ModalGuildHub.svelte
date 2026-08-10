@@ -33,6 +33,22 @@
   // The invite modal needs the code as a prop, and openPanel only carries
   // {kind, from} — so push the hub onto the stack the same way openPanel does
   // and hand the code along ourselves. Back still returns here.
+  // Guild-wide transcript. The backend reads the store, so this is the whole
+  // history rather than the pages the reader happens to have open.
+  async function exportGuild() {
+    try {
+      const md = await api.exportMarkdown(S.activeGuildId, "");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
+      a.download = `${(g?.name || "guild").replace(/[^\w.-]+/g, "-")}-history.md`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      flash("Guild history exported", "success");
+    } catch (err) {
+      flash(err);
+    }
+  }
+
   async function showInvite() {
     let code;
     try {
@@ -178,10 +194,18 @@
     </section>
 
     <!-- DATA -->
-    {#if g.canManage}
-      <section class="grp">
+    <section class="grp">
         <div class="sec-label">Data</div>
         <div class="card">
+          <button class="row" onclick={exportGuild}>
+            <span class="chip"><Icon name="download" size={17} /></span>
+            <span class="row-text">
+              <span class="row-title">Export this guild</span>
+              <span class="row-sub">Every channel's full history as a Markdown transcript</span>
+            </span>
+            <span class="chev">›</span>
+          </button>
+          {#if g.canManage}
           <button class="row" onclick={() => openPanel("retention")}>
             <span class="chip"><Icon name="clock" size={17} /></span>
             <span class="row-text">
@@ -190,9 +214,9 @@
             </span>
             <span class="chev">›</span>
           </button>
+          {/if}
         </div>
       </section>
-    {/if}
 
     <!-- DANGER -->
     <section class="grp">

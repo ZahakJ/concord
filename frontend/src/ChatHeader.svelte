@@ -67,25 +67,29 @@
     };
   }
 
-  function exportChannel() {
+  // The transcript comes from the backend, which reads the store. Building it
+  // here from S.messages meant exporting only the page the reader had loaded —
+  // the last 200 plus whatever they scrolled through — which looked like a full
+  // history right up until someone needed the rest of it.
+  async function exportChannel() {
     if (!ch) return;
-    const lines = S.messages
-      .filter((m) => !m.deleted)
-      .map((m) =>
-        m.kind === "system"
-          ? `> ✨ ${m.senderName || m.sender} ${m.content}`
-          : `**${m.senderName || m.sender}** (${new Date(m.sent).toISOString()}):\n${m.content}\n`,
-      );
-    const blob = new Blob([`# ${channelName(S.activeChannelId)}\n\n` + lines.join("\n")], {
-      type: "text/markdown",
-    });
+    try {
+      const md = await api.exportMarkdown(S.activeGuildId, S.activeChannelId);
+      downloadText(`${ch.name}-history.md`, md);
+      flash("History exported", "success");
+    } catch (err) {
+      flash(err);
+    }
+  }
+
+  function downloadText(filename, text) {
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${ch.name}-history.md`;
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(a.href);
-    flash("History exported", "success");
   }
+
 </script>
 
 <header class="chat-head">

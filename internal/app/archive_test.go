@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -199,4 +200,55 @@ func decompressForTest(t *testing.T, gz []byte) string {
 		t.Fatalf("read: %v", err)
 	}
 	return string(raw)
+}
+
+// The Markdown export must read the store, not the loaded page. The version
+// this replaces walked the UI's in-memory list, so it silently exported only
+// what the reader had scrolled through — fine until the day you need the rest.
+func TestExportMarkdownCoversWholeHistoryNotAPage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc := startServiceInDir(t, ctx, t.TempDir())
+	g, err := svc.CreateGuild("Night Owls")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := g.Channels[0].ID
+	// More than the 200 the UI loads up front, so a page-bound export shows.
+	const n = 260
+	for i := 0; i < n; i++ {
+		if _, err := svc.SendMessage(ch, fmt.Sprintf("line-%03d", i), ""); err != nil {
+			t.Fatalf("send %d: %v", i, err)
+		}
+	}
+
+	md, err := svc.ExportMarkdown(g.ID, ch)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	for _, want := range []string{"line-000", "line-137", "line-259"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("%s missing from the export — it did not read the whole channel", want)
+		}
+	}
+	// Oldest first: a transcript reads forwards.
+	if strings.Index(md, "line-000") > strings.Index(md, "line-259") {
+		t.Error("transcript is newest-first; it should read oldest to newest")
+	}
+
+	// Guild-wide export names the guild and the channel.
+	all, err := svc.ExportMarkdown(g.ID, "")
+	if err != nil {
+		t.Fatalf("guild export: %v", err)
+	}
+	if !strings.Contains(all, "# Night Owls") || !strings.Contains(all, "## #") {
+		t.Errorf("guild export missing guild or channel headings:\n%s", all[:min(300, len(all))])
+	}
+	if !strings.Contains(all, "line-259") {
+		t.Error("guild-wide export lost the newest message")
+	}
 }
