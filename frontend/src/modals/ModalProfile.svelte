@@ -5,6 +5,11 @@
   import Banner from "../Banner.svelte";
   import BannerStudio from "../BannerStudio.svelte";
   import RingStudio from "../RingStudio.svelte";
+  import DecorStudio from "../DecorStudio.svelte";
+  import EffectStudio from "../EffectStudio.svelte";
+  import { DECORATION_BY_ID } from "../lib/decorations.js";
+  import { CARD_EFFECT_BY_ID, CARD_EFFECTS } from "../lib/cardfx.js";
+  import { FRAME_BY_ID, FRAMES } from "../lib/frames.js";
   import GameShelf from "../GameShelf.svelte";
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
   import { api } from "../lib/api.js";
@@ -37,6 +42,9 @@
   const birthday = $derived(bMonth && bDay ? `${bMonth}-${bDay}` : "");
   let color2 = $state(identity.color2 || "");
   let frame = $state(identity.frame || "");
+  let dec = $state(identity.style?.dec || "");
+  let decorStudio = $state(false);
+  let effectStudio = $state(false);
   let effect = $state(identity.effect || "");
   let games = $state(identity.games || []);
 
@@ -77,7 +85,7 @@
   let pal = $state(st0.pal || ""); // the Gradient ring's colorway
   let bannerStudio = $state(false);
   let ringStudio = $state(false);
-  const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal });
+  const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal, dec });
   let fileInput;
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
@@ -425,13 +433,40 @@
     </div>
   </div>
 
+  <!-- Three named things rather than one bundled "ring": what surrounds your
+       avatar, what is worn on it, and what plays across your card. They stack,
+       so they are three questions and not one list. -->
   <div class="field">
-    <span class="muted">Avatar ring</span>
+    <span class="muted">Avatar frame</span>
     <button type="button" class="ring-entry" onclick={() => (ringStudio = true)}>
       <Avatar name={name || "You"} {emoji} {color} image={avatar} size={30} {frame} style={styleObj} {color2} />
       <span class="re-text">
-        <strong>{RING_BY_ID[frame]?.name || "None"}</strong>
-        <span class="tiny muted">{RINGS.length - 1} effects · weather, orbits, riders, colorways</span>
+        <strong>{FRAME_BY_ID[frame]?.name || RING_BY_ID[frame]?.name || "None"}</strong>
+        <span class="tiny muted">{FRAMES.length} drawn · {RINGS.length - 1} animated rings</span>
+      </span>
+      <span class="chev">›</span>
+    </button>
+  </div>
+
+  <div class="field">
+    <span class="muted">Avatar decoration</span>
+    <button type="button" class="ring-entry" onclick={() => (decorStudio = true)}>
+      <Avatar name={name || "You"} {emoji} {color} image={avatar} size={30} decoration={dec} {color2} />
+      <span class="re-text">
+        <strong>{DECORATION_BY_ID[dec]?.name || "None"}</strong>
+        <span class="tiny muted">Worn on your avatar — stacks with the frame</span>
+      </span>
+      <span class="chev">›</span>
+    </button>
+  </div>
+
+  <div class="field">
+    <span class="muted">Profile effect</span>
+    <button type="button" class="ring-entry" onclick={() => (effectStudio = true)}>
+      <span class="fx-chip" style="--c1:{color};--c2:{color2 || color}"></span>
+      <span class="re-text">
+        <strong>{CARD_EFFECT_BY_ID[effect]?.name || (effect ? effect : "None")}</strong>
+        <span class="tiny muted">{CARD_EFFECTS.length} effects that play across your card</span>
       </span>
       <span class="chev">›</span>
     </button>
@@ -484,6 +519,35 @@
     />
   {/if}
 
+  {#if decorStudio}
+    <DecorStudio
+      decoration={dec}
+      {color}
+      {color2}
+      {avatar}
+      {emoji}
+      name={name || "You"}
+      onApply={(r) => {
+        dec = r.decoration;
+        decorStudio = false;
+      }}
+      onClose={() => (decorStudio = false)}
+    />
+  {/if}
+
+  {#if effectStudio}
+    <EffectStudio
+      current={effect}
+      {color}
+      {color2}
+      onApply={(r) => {
+        effect = r.effect;
+        effectStudio = false;
+      }}
+      onClose={() => (effectStudio = false)}
+    />
+  {/if}
+
   {#if bannerStudio}
     <BannerStudio
       {banner}
@@ -503,6 +567,16 @@
 </Modal>
 
 <style>
+  /* The profile-effect row has no avatar to preview against, so it shows the
+     card's own colours instead — enough to say "this is about the card". */
+  .fx-chip {
+    width: 30px;
+    height: 30px;
+    flex: none;
+    border-radius: var(--radius-sm);
+    background: linear-gradient(140deg, var(--c1), var(--c2));
+  }
+
   .small-btn {
     font-size: 12px;
     padding: 4px 10px;

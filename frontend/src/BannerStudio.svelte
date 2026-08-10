@@ -22,16 +22,12 @@
   } = $props();
   $effect(() => registerOverlay(() => onClose?.()));
 
-  // An overlay that plays ON TOP of whatever banner you chose — preset, image
-  // or colors. It lives here, with the banner, because that's the only thing it
-  // affects (it used to be a mystery field on the profile page).
-  const OVERLAYS = [
-    { id: "", label: "None" },
-    { id: "aurora", label: "Aurora" },
-    { id: "sheen", label: "Sheen" },
-    { id: "sparkle", label: "Sparkle" },
-    { id: "nebula", label: "Nebula" },
-  ];
+  // The card effect is chosen in its own picker now (EffectStudio), not here.
+  // It lived here on the reasoning that an overlay only affected the banner;
+  // that stopped being true once it played across the whole card, and keeping
+  // it here is why the choice stayed at five while the engine underneath had
+  // seventeen kinds. The value is still carried through untouched so applying
+  // a banner never clears it.
   let fx = $state(overlay);
 
   // The banner box the card actually shows: 3:1-ish.
@@ -227,15 +223,6 @@
         <p class="tiny muted">Uses the two profile colors you picked below the banner.</p>
       </div>
     {/if}
-
-    <div class="overlays">
-      <span class="tiny muted">Overlay</span>
-      <div class="ovs">
-        {#each OVERLAYS as o (o.id)}
-          <button class="ov" class:on={fx === o.id} onclick={() => (fx = o.id)}>{o.label}</button>
-        {/each}
-      </div>
-    </div>
 
     <div class="bs-foot">
       <button class="ghost" onclick={() => onApply({ banner: "", angle: ang, effect: fx })}>
