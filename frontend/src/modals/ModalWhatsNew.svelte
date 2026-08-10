@@ -14,24 +14,24 @@
   // 3-4 rows maximum: a changelog is a document, this is a wave hello.
   const HIGHLIGHTS = [
     {
-      icon: "bolt",
-      title: "Can people reach me?",
-      desc: "A new check in the Ctrl+K palette tells you whether friends can actually connect to you, and what to do when they cannot.",
-    },
-    {
-      icon: "lock",
-      title: "A tighter lock on your identity",
-      desc: "The local app now authenticates every request to itself, so nothing else running on your machine can read your recovery phrase.",
-    },
-    {
       icon: "crown",
-      title: "Guild ownership holds",
-      desc: "A former owner can no longer take a guild back by backdating a governance record.",
+      title: "Wear something, in a colour you pick",
+      desc: "Sixty-one drawn decorations and rings in one place, painted in any of twelve colourways — or in your own colour. Drawn rather than pictured, so they stay sharp at any size.",
+    },
+    {
+      icon: "diamond",
+      title: "Your profile card is scenery",
+      desc: "Twelve drawn animated scenes and twenty-nine particle fields to play across your card, twelve frames to put around it, and forty-four theme packs behind it all.",
     },
     {
       icon: "spark",
-      title: "Fixes",
-      desc: "A rare hang that could leave a node connected to nobody, DMs that now stay in recency order, and a single Enter finally sends /gif.",
+      title: "Arabic and Hebrew read properly",
+      desc: "Text now takes its direction line by line, so a sentence mixing scripts stops coming out reordered — and Arabic is set in a typeface chosen for it rather than whatever your system had.",
+    },
+    {
+      icon: "download",
+      title: "Your history is yours to carry",
+      desc: "An encrypted backup of every guild and direct message that you can restore onto another device, a full export in plain Markdown, and a guild can now agree how long it keeps anything.",
     },
   ];
 
