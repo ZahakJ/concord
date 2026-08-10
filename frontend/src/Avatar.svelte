@@ -1,5 +1,6 @@
 <script>
   import AvatarRing from "./AvatarRing.svelte";
+  import AvatarDecoration from "./AvatarDecoration.svelte";
   // The one avatar. Renders, in priority order: uploaded image, profile emoji,
   // name/fingerprint initials — tinted by the member's accent color, with an
   // optional presence dot. Replaces five copy-pasted implementations.
@@ -14,6 +15,10 @@
     frame = "", // decorative ring id — see lib/rings.js (snow, comet, orbit-cow…)
     style = null, // ring dials: { speed, dir, glow, width, sat } (lib/rings.js)
     color2 = "", // second theme color — the "theme" ring spins between the two
+    // A worn figure (ears, crown, wings) — see lib/decorations.js. Independent
+    // of `frame`: a decoration composes WITH a ring rather than replacing it,
+    // which is the point of splitting them.
+    decoration = "",
   } = $props();
 
   const glyph = $derived(emoji || (name || "?").slice(0, 2));
@@ -43,6 +48,9 @@
 >
   {#if frame}
     <AvatarRing ring={frame} {size} {style} {color} {color2} />
+  {/if}
+  {#if decoration}
+    <AvatarDecoration id={decoration} {size} {color} {color2} />
   {/if}
   {#if image}
     <img src={image} alt="" />

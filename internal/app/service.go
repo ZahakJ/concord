@@ -480,11 +480,14 @@ func validFrame(f string) bool {
 
 // validEffect admits the known profile-card effects.
 func validEffect(e string) bool {
-	switch e {
-	case "", "aurora", "sparkle", "sheen", "nebula":
-		return true
-	}
-	return false
+	// Was a closed list of four, which meant adding a card effect required a
+	// release on both sides — and a peer running a newer build could not show
+	// you an effect your build had never heard of without its whole profile
+	// being refused. The shape is now the same as validFrame: a bounded id,
+	// resolved against a table on the client, where an unknown one renders
+	// nothing. Safety comes from the lookup failing closed, not from this list
+	// being exhaustive, and the charset is what keeps the value out of CSS.
+	return validFrame(e)
 }
 
 // sanitizeProfileExtras bounds the newer decorative fields, for our own edits
