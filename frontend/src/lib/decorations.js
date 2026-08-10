@@ -13,70 +13,113 @@
 // a 96px profile card, animates procedurally rather than as a baked loop, and
 // costs a couple of hundred bytes.
 //
+// ── THE ARCH ────────────────────────────────────────────────────────────────
+//
+// Every decoration here is built on a BAND worn over the head, with everything
+// else attached to that band. That is not a style choice, it is the fix for the
+// two things wrong with the first library: nothing was centred convincingly and
+// nothing moved.
+//
+// The centring was structural. Objects placed at absolute coordinates each
+// invented their own idea of where the head was, so a crown floated, ears sat
+// too high, and horns read as stuck ON the avatar rather than WORN by it. A
+// band is a constant-radius arc around the avatar's own centre, and an ornament
+// rooted on that band at an angle cannot be off-centre — the geometry will not
+// let it. Everything below is therefore placed in POLAR terms: an angle in
+// degrees clockwise from the top of the head, and a radius.
+//
+// Motion is the other half. A decoration that does not move is a sticker, so
+// every entry here moves: the piece rocks on the head, or its ornaments swing
+// from where they are attached, or light travels along it.
+//
 // ── THE AUTHORING CONTRACT ──────────────────────────────────────────────────
 //
-// Geometry. Every decoration is authored in a `0 0 100 100` viewBox. The avatar
-// is the circle centred at (50,50) with r=36 — so its top edge is y=14, its
-// bottom y=86, and the corners of the box are free space for things that stick
-// out. Anything drawn outside the box is clipped; keep within 2..98.
+// Geometry. Authored in a `0 0 100 100` viewBox. The avatar is the circle at
+// (50,50) with r=36, so radius 36 is the wearer's edge and radius 48 is about
+// as far as anything can reach straight up before it leaves the box. Diagonals
+// have far more room than the vertical does — an ornament that wants to be tall
+// should lean out rather than climb.
 //
 // Layering. Each part declares `z`:
-//   "back"  — behind the avatar (wings, a glow, a tail curling out)
-//   "front" — over the avatar (ears overlapping the crown of the head, a jaw)
-// Parts render in array order within their layer.
+//   "back"  — behind the avatar (wings, a mantle, a halo's far side)
+//   "front" — over the avatar (a band crossing the crown, teeth, a jaw)
+// Parts render in array order within their layer. A "back" part is only visible
+// OUTSIDE radius 36; one drawn entirely inside is invisible by construction,
+// and that is the single most common way to author nothing at all.
 //
 // Colour. Never hardcode a colour that ought to be the wearer's. Use:
 //   "c1" / "c2"  the wearer's two profile colours
 //   "ink"        a near-black outline that reads on any background
 //   "light"      a soft highlight
 // or a literal hex ONLY where the object's identity IS its colour — gold on a
-// crown, red on a devil horn. A decoration that recolours is worth more than
-// one that does not, because it composes with every theme pack.
+// crown, red on a devil horn, bone on an antler.
 //
-// Motion. `anim` names a class from a fixed set, applied to parts carrying
-// `a: true`. Adding a new one means adding CSS in AvatarDecoration.svelte:
-//   twitch  small rotation, ears flicking
-//   float   slow vertical drift, haloes
-//   flap    wing beat
-//   flicker opacity + scale jitter, flame
-//   chomp   jaw open/close
-//   sway    lazy side-to-side, tails
+// Motion. `anim` names a class defined in AvatarDecoration.svelte. It may sit
+// on the decoration (the default for its parts) or on a single part, which is
+// how one piece rocks while the gems set into it pulse on their own clock:
+//   twitch  a flick, at rest most of the time — ears
+//   wag     a continuous swing from the root — ears, horns, leaves
+//   dangle  a swing from the top — pendants, drops
+//   float   slow vertical drift
+//   flap    a wing beat
+//   flicker opacity and scale jitter — flame
+//   pulse   a breath in scale and opacity — gems, beads, stars
+//   shimmer opacity alone — anything more light than object
+//   drift   a spark rising and fading out
+//   zap     hard electrical blink
+//   wave    a swell passing through — water, cloth
+//   chomp   a jaw closing (`o: "r"` gives the opposing jaw)
+//   spin    slow rotation about the head's centre
+//   whirl   the same, at orbit speed
+//   sway    lazy side-to-side about a part's own middle
+// Parts opt in with `a: true`. `o` places a part in the queue: "l"/"r" for the
+// two halves of a pair, or 1..8 to offset it into a cycle already running, so a
+// row moves as a wave. `pv: [x, y]` overrides the pivot with an explicit point,
+// which is what keeps an ear and its inner shell swinging as one object rather
+// than coming apart. `tilt: true` on the decoration rocks the whole piece on
+// the head, and composes with whatever the parts are doing.
+//
 // Motion must degrade: prefers-reduced-motion stops all of it, and small
 // avatars drop it too — forty animated decorations in a member list is forty
 // animation timers for something 20 pixels tall.
 //
-// Reactivity is the thing a baked image cannot do. `reactive: true` marks a
-// decoration whose animation is driven by what the wearer is doing rather than
-// a timer (see AvatarDecoration's `state` prop). Start with none and earn them.
-//
-// Ids are on the wire. They are validated as [a-z0-9-]{1,32} (validDecoration,
+// Ids are on the wire. They are validated as [a-z0-9-]{1,32} (validID,
 // service.go) and looked up here; an unknown id renders NOTHING rather than
 // failing, so a peer inventing one gets an ordinary avatar. Never make an id
-// carry data.
+// carry data, and never delete one: a peer who saved it would silently lose
+// their decoration, since lookup fails closed.
 
 const P = (d, o = {}) => ({ d, z: "front", fill: "ink", ...o });
 
-// ── polar helpers ───────────────────────────────────────────────────────────
-//
-// Absolute coordinates are why the first batch looked stuck on rather than
-// worn: every decoration invented its own idea of where the head was, so none
-// of them agreed and none of them sat right. Everything below is placed in
-// POLAR terms around the avatar's centre instead, which is the same geometry
-// the avatar itself has, so a decoration cannot be off-centre by construction.
+// ── polar geometry ──────────────────────────────────────────────────────────
 //
 // Angles are degrees clockwise from the TOP of the head, so -60 is over the
 // left brow and +60 over the right. Radius 36 is the avatar's own edge.
 
 const RAD = Math.PI / 180;
-const pt = (a, r) => [
-  +(50 + r * Math.sin(a * RAD)).toFixed(2),
-  +(50 - r * Math.cos(a * RAD)).toFixed(2),
-];
+// One decimal is a twentieth of a pixel on a 96px card and half that on a
+// member row, and the sampled bands below are long runs of coordinates: the
+// second decimal is pure payload.
+const n = (v) => +v.toFixed(1);
+const pt = (a, r) => [n(50 + r * Math.sin(a * RAD)), n(50 - r * Math.cos(a * RAD))];
+const xy = (a, r) => pt(a, r).join(" ");
 
-// arcBand: the ARCH — a band of thickness w centred on radius r, sweeping from
-// a1 to a2. This is the piece Discord builds most of its decorations on: a
-// crescent worn over the head that ornaments then hang from, rather than each
-// ornament floating on its own.
+// frame: a local coordinate system anchored at a polar point, with +x running
+// clockwise along the band and +y running straight out from the head. Every
+// ornament below is drawn in these terms, which is why none of them needs to
+// know where it is — the frame already leans it the right way.
+function frame(a, r) {
+  const s = Math.sin(a * RAD);
+  const c = Math.cos(a * RAD);
+  const [ox, oy] = pt(a, r);
+  return (lx, ly) => `${n(ox + lx * c + ly * s)} ${n(oy + lx * s - ly * c)}`;
+}
+
+// poly: a closed shape given in the local frame of a point on the band.
+const poly = (a, r, pts) => `M${pts.map(([x, y]) => frame(a, r)(x, y)).join("L")}Z`;
+
+// arcBand: the ARCH itself — a band of thickness w centred on radius r,
+// sweeping from a1 to a2. Everything else hangs off one of these.
 function arcBand(r, a1, a2, w) {
   const ro = r + w / 2;
   const ri = r - w / 2;
@@ -88,9 +131,66 @@ function arcBand(r, a1, a2, w) {
   return `M${x1} ${y1}A${ro} ${ro} 0 ${big} 1 ${x2} ${y2}L${x3} ${y3}A${ri} ${ri} 0 ${big} 0 ${x4} ${y4}Z`;
 }
 
-// spoke: a tapered shape rising outward from the band — an ear, a horn, a
-// petal, a spike. `spread` is its angular width at the base, `len` how far past
-// the band it reaches, `lean` tips it away from vertical so a pair can splay.
+// taperBand: an arch whose thickness changes along its sweep — a comet tail, a
+// cresting wave, a wisp. Give it a second radius and it spirals instead, which
+// is the difference between a gust of wind and a broken ring. Sampled rather
+// than arced, so it also handles sweeps past 180 degrees without the large-arc
+// bookkeeping.
+function taperBand(r, a1, a2, w1, w2, r2 = r, steps = 22) {
+  const out = [];
+  const inn = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const a = a1 + (a2 - a1) * t;
+    const w = w1 + (w2 - w1) * t;
+    const rr = r + (r2 - r) * t;
+    out.push(xy(a, rr + w / 2));
+    inn.push(xy(a, rr - w / 2));
+  }
+  return `M${out.join("L")}L${inn.reverse().join("L")}Z`;
+}
+
+// ovalBand: a ring seen in perspective, for anything that encircles the head
+// rather than crowning it. Split it into two calls — the far half behind the
+// avatar, the near half in front — and it reads as a ring the head is inside.
+function ovalBand(cy, rx, ry, t1, t2, w, rot = 0, steps = 24) {
+  const cr = Math.cos(rot * RAD);
+  const sr = Math.sin(rot * RAD);
+  const at = (t, k) => {
+    const x = (rx + k) * Math.cos(t * RAD);
+    const y = (ry + k) * Math.sin(t * RAD);
+    return `${n(50 + x * cr - y * sr)} ${n(cy + x * sr + y * cr)}`;
+  };
+  const out = [];
+  const inn = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = t1 + (t2 - t1) * (i / steps);
+    out.push(at(t, w / 2));
+    inn.push(at(t, -w / 2));
+  }
+  return `M${out.join("L")}L${inn.reverse().join("L")}Z`;
+}
+
+// annulus / ringAt: a full ring, as one path with two subpaths wound in
+// opposite directions so the middle cancels out and stays hollow.
+const donut = (x, y, r, w) => {
+  const ro = r + w / 2;
+  const ri = r - w / 2;
+  return (
+    `M${n(x - ro)} ${y}a${ro} ${ro} 0 1 0 ${n(ro * 2)} 0a${ro} ${ro} 0 1 0 ${n(-ro * 2)} 0Z` +
+    `M${n(x - ri)} ${y}a${ri} ${ri} 0 1 1 ${n(ri * 2)} 0a${ri} ${ri} 0 1 1 ${n(-ri * 2)} 0Z`
+  );
+};
+const annulus = (r, w) => donut(50, 50, r, w);
+const ringAt = (a, r, R, w) => {
+  const [x, y] = pt(a, r);
+  return donut(x, y, R, w);
+};
+
+// spoke: a tapered shape rising outward from the band — an ear, a spike, a
+// tooth. `spread` is its angular width at the base, `len` how far past the band
+// it reaches (negative points it inward, at the face), `lean` tips it away from
+// vertical so a pair can splay.
 function spoke(a, rBase, len, spread, lean = 0) {
   const [bx1, by1] = pt(a - spread / 2, rBase);
   const [bx2, by2] = pt(a + spread / 2, rBase);
@@ -100,28 +200,212 @@ function spoke(a, rBase, len, spread, lean = 0) {
   return `M${bx1} ${by1}Q${c1x} ${c1y} ${tx} ${ty}Q${c2x} ${c2y} ${bx2} ${by2}Z`;
 }
 
-// blob: a round ornament sitting ON the band at a given angle.
-function blob(a, r, size) {
-  const [x, y] = pt(a, r);
-  return `M${x} ${y}m${-size} 0a${size} ${size} 0 1 0 ${size * 2} 0a${size} ${size} 0 1 0 ${-size * 2} 0Z`;
+// leaf: a petal, a feather, a tongue of flame — rooted on the band, pointed at
+// the tip, and leaning by `lean` units sideways so a row of them can fan.
+const leaf = (a, r, len, w, lean = 0) => {
+  const f = frame(a, r);
+  return `M${f(0, 0)}Q${f(w, len * 0.45)} ${f(lean, len)}Q${f(-w, len * 0.45)} ${f(0, 0)}Z`;
+};
+
+// ray: a straight tapered spike along the radius, from r0 out to r1.
+const ray = (a, r0, r1, w0, w1 = 0) =>
+  `M${frame(a, r0)(-w0 / 2, 0)}L${frame(a, r1)(-w1 / 2, 0)}L${frame(a, r1)(w1 / 2, 0)}L${frame(a, r0)(w0 / 2, 0)}Z`;
+
+// blob: a round ornament — a bead, a berry, a bell, a pearl.
+const blobXY = (x, y, s) =>
+  `M${n(x)} ${n(y)}m${-s} 0a${s} ${s} 0 1 0 ${s * 2} 0a${s} ${s} 0 1 0 ${-s * 2} 0Z`;
+const blob = (a, r, s) => blobXY(...pt(a, r), s);
+
+// star / gem: the two shapes a jewel ever needs to be.
+function star(a, r, R, ri, points = 5, rot = 0) {
+  const p = [];
+  for (let k = 0; k < points * 2; k++) {
+    const th = (k * 180) / points + rot;
+    const rr = k % 2 ? ri : R;
+    p.push([rr * Math.sin(th * RAD), rr * Math.cos(th * RAD)]);
+  }
+  return poly(a, r, p);
 }
+const gem = (a, r, w, h) =>
+  poly(a, r, [
+    [0, h / 2],
+    [w / 2, h * 0.14],
+    [w * 0.3, -h / 2],
+    [-w * 0.3, -h / 2],
+    [-w / 2, h * 0.14],
+  ]);
+
+// flower: five petals and room for a centre, placed on the band.
+function flower(a, r, R, petals = 5) {
+  let d = "";
+  const f = frame(a, r);
+  for (let k = 0; k < petals; k++) {
+    const th = (k * 360) / petals;
+    const px = Math.cos(th * RAD) * R * 0.58;
+    const py = Math.sin(th * RAD) * R * 0.58;
+    const s = R * 0.5;
+    const [cx, cy] = f(px, py).split(" ").map(Number);
+    d += blobXY(cx, cy, s);
+  }
+  return d;
+}
+
+// horn: a tapered beam whose centreline is a circular arc, so it grows out of
+// the band and then curves. `R` sets how tight the curve is and `sweep` how far
+// round it goes; `dir` picks which way it bends.
+function horn(a, rBase, R, sweep, w0, dir = 1, steps = 13) {
+  const f = frame(a, rBase);
+  const out = [];
+  const inn = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const th = t * sweep * RAD;
+    const cx = dir * R * (1 - Math.cos(th));
+    const cy = R * Math.sin(th);
+    const nx = Math.cos(th);
+    const ny = -dir * Math.sin(th);
+    const w = (w0 * (1 - t) ** 1.1) / 2 + 0.2;
+    out.push(f(cx + nx * w, cy + ny * w));
+    inn.push(f(cx - nx * w, cy - ny * w));
+  }
+  return `M${out.join("L")}L${inn.reverse().join("L")}Z`;
+}
+
+// coil: a horn that keeps going — a spiral rooted on the band and winding in
+// on itself beside the head. A ram's horn, a nautilus, a fiddlehead.
+function coil(a, rBase, R, turns, w0, dir = 1, steps = 34) {
+  const f = frame(a, rBase);
+  const cx = dir * R;
+  const phi0 = dir > 0 ? 180 : 0;
+  const out = [];
+  const inn = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const phi = (phi0 - dir * turns * 360 * t) * RAD;
+    const rad = R * (1 - 0.6 * t);
+    const w = (w0 * (1 - 0.72 * t)) / 2;
+    out.push(f(cx + (rad + w) * Math.cos(phi), (rad + w) * Math.sin(phi)));
+    inn.push(f(cx + (rad - w) * Math.cos(phi), (rad - w) * Math.sin(phi)));
+  }
+  return `M${out.join("L")}L${inn.reverse().join("L")}Z`;
+}
+
+// bolt: lightning. Fixed silhouette, scaled into the local frame; a negative
+// length turns it round to strike inward, at the face.
+const BOLT = [
+  [0, 1],
+  [-0.5, 0.46],
+  [-0.13, 0.46],
+  [-0.38, 0],
+  [0.5, 0.62],
+  [0.13, 0.62],
+  [0.5, 1],
+];
+const bolt = (a, r, len, w) => poly(a, r, BOLT.map(([x, y]) => [x * w, y * len]));
+
+// chip: a rounded slab, for anything manufactured — an ear cup, a lens bezel,
+// a solder pad. An octagon is enough at this size.
+const chip = (a, r, w, h, k = 2) => {
+  const x = w / 2;
+  const y = h / 2;
+  return poly(a, r, [
+    [-x + k, -y],
+    [x - k, -y],
+    [x, -y + k],
+    [x, y - k],
+    [x - k, y],
+    [-x + k, y],
+    [-x, y - k],
+    [-x, -y + k],
+  ]);
+};
+
+// rubble: an irregular lump, deterministic from its seed so the same stone is
+// the same stone on every screen.
+function rubble(a, r, size, seed = 1) {
+  const p = [];
+  for (let k = 0; k < 7; k++) {
+    const th = (k * 360) / 7 + seed * 17;
+    const h = Math.sin(seed * 12.9898 + k * 78.233) * 43758.5453;
+    const j = 0.68 + 0.55 * (h - Math.floor(h));
+    p.push([size * j * Math.sin(th * RAD), size * j * Math.cos(th * RAD)]);
+  }
+  return poly(a, r, p);
+}
+
+// link: a straight strut between two polar points, for constellation lines and
+// circuit traces.
+function link(a1, r1, a2, r2, w) {
+  const [x1, y1] = pt(a1, r1);
+  const [x2, y2] = pt(a2, r2);
+  const L = Math.hypot(x2 - x1, y2 - y1) || 1;
+  const ox = ((y1 - y2) / L) * (w / 2);
+  const oy = ((x2 - x1) / L) * (w / 2);
+  return `M${n(x1 + ox)} ${n(y1 + oy)}L${n(x2 + ox)} ${n(y2 + oy)}L${n(x2 - ox)} ${n(y2 - oy)}L${n(x1 - ox)} ${n(y1 - oy)}Z`;
+}
+
+// drop: a pendant on a short stem, hanging straight down from a point on the
+// band. Stem and bead are one path so the whole thing swings together.
+const drop = (a, r, len, w, s) => {
+  const [x, y] = pt(a, r);
+  return (
+    `M${n(x - w / 2)} ${y}L${n(x + w / 2)} ${y}L${n(x + w / 2)} ${n(y + len)}L${n(x - w / 2)} ${n(y + len)}Z` +
+    blobXY(x, y + len + s * 0.6, s)
+  );
+};
+
+// mirror: the same ornament on both sides of the head, opposed rather than in
+// lockstep, which is what stops a pair reading as a machine. `make(angle, side)`
+// gets -1 on the left and +1 on the right, so a lean written as `k * side`
+// splays outward on both. A numeric `pv` means "pivot where this meets the
+// band" and is resolved per side.
+const mirror = (a, make, opts = {}) => {
+  const one = (s) => ({
+    ...opts,
+    o: s < 0 ? "l" : "r",
+    ...(typeof opts.pv === "number" ? { pv: pt(a * s, opts.pv) } : {}),
+  });
+  return [P(make(-a, -1), one(-1)), P(make(a, 1), one(1))];
+};
+
+// row: a run of ornaments along the band, each offset one step further into the
+// animation cycle so the row moves as a wave.
+const row = (angles, make, opts = {}) =>
+  angles.map((a, i) => P(make(a, i), { ...opts, o: (i % 8) + 1 }));
+
+// one: a run that does NOT need to move independently, merged into a single
+// path with many subpaths. A staggered row has to stay separate — the stagger
+// is the whole point — but a static row of twelve is twelve elements pretending
+// to be one shape, on every avatar in a member list.
+const one = (angles, make) => angles.map(make).join("");
 
 export const DECORATIONS = [
   // ---------- arch ----------
-  // Built on a band worn OVER the head with ornaments hanging from it, the way
-  // a hair circlet sits, rather than objects perched at absolute coordinates.
-  // Everything is placed in polar terms so it cannot drift off-centre.
+  // The plainest statement of the idea: a band worn over the head, ornaments
+  // hanging from it, the whole piece rocking as one. The band sits at a radius
+  // that straddles the avatar's own edge, so it rests ON the head rather than
+  // hovering above it — the difference between worn and stuck on.
   {
     id: "flower-circlet",
     name: "Flower circlet",
     group: "Arch",
-    anim: "sway",
+    anim: "pulse",
+    tilt: true,
     parts: [
-      P(arcBand(41, -78, 78, 3.4), { fill: "c1" }),
-      ...[-62, -34, 0, 34, 62].map((a, i) =>
-        P(blob(a, 41, i === 2 ? 5.2 : 4.2), { fill: i % 2 ? "light" : "c2", a: true }),
-      ),
-      ...[-62, -34, 0, 34, 62].map((a, i) => P(blob(a, 41, i === 2 ? 2 : 1.6), { fill: "c1" })),
+      P(arcBand(37.6, -88, 88, 2.4), { fill: "c1" }),
+      ...row([-78, -52, -26, 26, 52, 78], (a, i) => leaf(a, 37.6, 6.5, 2.4, i < 3 ? -2 : 2), {
+        fill: "c2",
+        anim: "wag",
+        a: true,
+      }),
+      ...row([-62, -34, 0, 34, 62], (a, i) => flower(a, 39.6, i === 2 ? 6 : 5), {
+        fill: "light",
+        a: true,
+      }),
+      ...row([-62, -34, 0, 34, 62], (a, i) => blob(a, 39.6, i === 2 ? 2.2 : 1.8), {
+        fill: "c2",
+        a: true,
+      }),
     ],
   },
   {
@@ -129,39 +413,46 @@ export const DECORATIONS = [
     name: "Cat circlet",
     group: "Arch",
     anim: "twitch",
+    tilt: true,
     parts: [
-      P(arcBand(40, -70, 70, 3), { fill: "c2" }),
-      P(spoke(-34, 40, 17, 26, -8), { fill: "c1", a: true, o: "l" }),
-      P(spoke(-34, 41, 11, 15, -8), { fill: "light", a: true, o: "l" }),
-      P(spoke(34, 40, 17, 26, 8), { fill: "c1", a: true, o: "r" }),
-      P(spoke(34, 41, 11, 15, 8), { fill: "light", a: true, o: "r" }),
+      P(arcBand(37.4, -76, 76, 2.6), { fill: "c2" }),
+      ...mirror(34, (a, s) => spoke(a, 37, 18, 26, 8 * s), { fill: "c1", a: true, pv: 37 }),
+      ...mirror(34, (a, s) => spoke(a, 38, 11.5, 15, 8 * s), { fill: "light", a: true, pv: 37 }),
+      P(blob(0, 38.8, 3), { fill: "#e6b23c", anim: "pulse", a: true }),
+      P(blob(0, 39.7, 1), { fill: "#7a5a12" }),
     ],
   },
   {
     id: "antler-circlet",
     name: "Antler circlet",
     group: "Arch",
-    anim: "sway",
+    anim: "pulse",
+    tilt: true,
     parts: [
-      P(arcBand(40, -72, 72, 2.8), { fill: "#7a5a3a" }),
-      P(spoke(-40, 40, 22, 12, -22), { fill: "#a87c4a", a: true, o: "l" }),
-      P(spoke(40, 40, 22, 12, 22), { fill: "#a87c4a", a: true, o: "r" }),
-      P(spoke(-27, 41, 12, 9, -30), { fill: "#a87c4a", a: true, o: "l" }),
-      P(spoke(27, 41, 12, 9, 30), { fill: "#a87c4a", a: true, o: "r" }),
-      ...[-52, -14, 14, 52].map((a) => P(blob(a, 40, 2), { fill: "light" })),
+      P(arcBand(37.4, -80, 80, 2.4), { fill: "#7a5a3a" }),
+      ...mirror(26, (a, s) => horn(a, 36.6, 40, 26, 6.2, s), { fill: "#c9a875" }),
+      ...mirror(14, (a, s) => horn(a, 37.4, 26, 26, 3.4, s), { fill: "#b08e5c" }),
+      ...mirror(40, (a, s) => horn(a, 37.2, 24, 40, 3.8, s), { fill: "#b08e5c" }),
+      ...mirror(54, (a, s) => horn(a, 37.2, 18, 44, 3.2, s), { fill: "#9c7f52" }),
+      ...row([-68, -4, 4, 68], (a) => blob(a, 37.4, 2.2), { fill: "c2", a: true }),
+      ...row([-33, 33], (a) => blob(a, 37.4, 1.5), { fill: "light", a: true }),
     ],
   },
   {
     id: "star-circlet",
     name: "Star circlet",
     group: "Arch",
-    anim: "float",
+    anim: "pulse",
+    tilt: true,
     parts: [
-      P(arcBand(41, -80, 80, 2.2), { fill: "light" }),
-      ...[-66, -40, -14, 14, 40, 66].map((a, i) =>
-        P(spoke(a, 41, 7 + (i % 2) * 4, 9), { fill: i % 2 ? "c2" : "light", a: true }),
-      ),
-      P(blob(0, 47, 3.4), { fill: "c2", a: true }),
+      P(arcBand(38.2, -86, 86, 1.6), { fill: "light" }),
+      ...row([-74, -50, -26, 26, 50, 74], (a, i) =>
+        star(a, 38.2 + (i % 2 ? 5.4 : 3.4), i % 2 ? 4.4 : 3.2, i % 2 ? 1.8 : 1.3, 5), {
+        fill: "c2",
+        a: true,
+      }),
+      P(star(0, 42.6, 5.2, 2.1, 5), { fill: "c1", a: true }),
+      P(star(0, 42.6, 2.6, 1, 5), { fill: "light", a: true, o: 4 }),
     ],
   },
   // ---------- creature ----------
@@ -170,26 +461,16 @@ export const DECORATIONS = [
     name: "Cat ears",
     group: "Creature",
     anim: "twitch",
+    tilt: true,
     parts: [
-      P("M18 32 C16 21 19 10 26 3 C32 11 38 18 43 24 C35 31 25 34 18 32 Z", {
-        fill: "c1",
+      P(arcBand(37.2, -80, 80, 4.6), { fill: "c1" }),
+      P(arcBand(39, -80, 80, 1), { fill: "light" }),
+      ...mirror(37, (a, s) => spoke(a, 36.8, 19, 30, 9 * s), { fill: "c1", a: true, pv: 37 }),
+      ...mirror(37, (a, s) => spoke(a, 37.8, 12, 18, 9 * s), { fill: "c2", a: true, pv: 37 }),
+      ...row([-58, -20, 20, 58], (a, i) => leaf(a, 39.2, 4.6, 1.7, i < 2 ? -1.6 : 1.6), {
+        fill: "light",
+        anim: "wag",
         a: true,
-        o: "l",
-      }),
-      P("M23 29 C22 21 24 14 27 9 C31 15 35 20 38 24 C33 29 27 30 23 29 Z", {
-        fill: "c2",
-        a: true,
-        o: "l",
-      }),
-      P("M82 32 C84 21 81 10 74 3 C68 11 62 18 57 24 C65 31 75 34 82 32 Z", {
-        fill: "c1",
-        a: true,
-        o: "r",
-      }),
-      P("M77 29 C78 21 76 14 73 9 C69 15 65 20 62 24 C67 29 73 30 77 29 Z", {
-        fill: "c2",
-        a: true,
-        o: "r",
       }),
     ],
   },
@@ -199,97 +480,77 @@ export const DECORATIONS = [
     group: "Creature",
     anim: "twitch",
     parts: [
-      P("M17 33 C14 20 15 8 21 -1 C27 8 35 16 41 23 C33 31 24 35 17 33 Z", {
-        fill: "c1",
+      P(coil(122, 37, 11, 0.62, 10.5, 1), {
+        z: "back",
+        fill: "#d97a34",
+        anim: "sway",
         a: true,
-        o: "l",
       }),
-      P("M24 29 C23 21 24 15 26 10 C29 15 32 20 35 23 C32 27 27 29 24 29 Z", {
-        fill: "light",
+      P(blobXY(71.3, 80.1, 2.8), { z: "back", fill: "light", anim: "sway", a: true }),
+      P(arcBand(37.4, -74, 74, 2.8), { fill: "#d97a34" }),
+      ...mirror(35, (a, s) => spoke(a, 37, 20, 24, 9 * s), {
+        fill: "#d97a34",
         a: true,
-        o: "l",
+        pv: 37,
       }),
-      P("M21 -1 C18 4 17 8 16 13 C20 14 25 13 29 10 C27 6 24 2 21 -1 Z", {
-        fill: "ink",
-        a: true,
-        o: "l",
-      }),
-      P("M83 33 C86 20 85 8 79 -1 C73 8 65 16 59 23 C67 31 76 35 83 33 Z", {
-        fill: "c1",
-        a: true,
-        o: "r",
-      }),
-      P("M76 29 C77 21 76 15 74 10 C71 15 68 20 65 23 C68 27 73 29 76 29 Z", {
-        fill: "light",
-        a: true,
-        o: "r",
-      }),
-      P("M79 -1 C82 4 83 8 84 13 C80 14 75 13 71 10 C73 6 76 2 79 -1 Z", {
-        fill: "ink",
-        a: true,
-        o: "r",
-      }),
+      ...mirror(35, (a, s) => spoke(a, 38, 13, 13, 9 * s), { fill: "light", a: true, pv: 37 }),
+      ...mirror(43, (a, s) => spoke(a, 50.5, 6.5, 8, 3 * s), { fill: "ink", a: true, pv: 37 }),
+      ...row([-58, 58], (a) => blob(a, 37.4, 1.6), { fill: "light", anim: "pulse", a: true }),
     ],
   },
   {
     id: "bunny-ears",
     name: "Bunny ears",
     group: "Creature",
-    anim: "sway",
+    anim: "wag",
     parts: [
-      P("M35 28 C26 20 19 7 25 -4 C33 0 40 14 41 24 C41 28 38 30 35 28 Z", {
-        fill: "c1",
-        a: true,
-        o: "l",
-      }),
-      P("M35 24 C30 18 26 8 28 1 C33 6 37 15 38 22 C38 25 37 26 35 24 Z", {
+      P(arcBand(37.2, -72, 72, 3), { fill: "c1" }),
+      ...mirror(18, (a, s) => leaf(a, 34.5, 17.5, 4.2, 6 * s), { fill: "c1", a: true, pv: 36 }),
+      ...mirror(18, (a, s) => leaf(a, 35.6, 13.5, 2.3, 5 * s), { fill: "c2", a: true, pv: 36 }),
+      P(poly(-46, 39, [[-0.9, 0], [-4.6, 2.6], [-4.6, -2.6]]), {
         fill: "c2",
+        anim: "pulse",
         a: true,
-        o: "l",
       }),
-      P("M65 28 C74 20 81 7 75 -4 C67 0 60 14 59 24 C59 28 62 30 65 28 Z", {
-        fill: "c1",
-        a: true,
-        o: "r",
-      }),
-      P("M65 24 C70 18 74 8 72 1 C67 6 63 15 62 22 C62 25 63 26 65 24 Z", {
+      P(poly(-46, 39, [[0.9, 0], [4.6, 2.6], [4.6, -2.6]]), {
         fill: "c2",
+        anim: "pulse",
         a: true,
-        o: "r",
+        o: 2,
       }),
+      P(blob(-46, 39, 1.5), { fill: "light", anim: "pulse", a: true, o: 1 }),
+      ...row([-52, 52], (a) => blob(a, 37.2, 1.5), { fill: "light", anim: "pulse", a: true }),
     ],
   },
   {
     id: "ram-horns",
     name: "Ram horns",
     group: "Creature",
-    anim: "sway",
+    anim: "pulse",
+    tilt: true,
     parts: [
-      P(
-        "M41.1 13.5L35.4 12.2L29.9 11.5L24.5 11.7L19.4 12.6L14.7 14.3L10.4 16.7L6.6 19.6L3.5 23.0L1.0 26.7L-0.8 30.7L-1.9 34.7L-2.3 38.8L-2.1 42.8L-1.2 46.6L0.2 50.0L2.1 53.1L4.4 55.8L7.0 58.0L9.9 59.6L12.9 60.7L15.9 61.3L18.8 61.4L21.7 61.0L24.3 60.2L26.6 58.9L28.6 57.4L30.3 55.7L31.6 53.7L32.5 51.7L33.0 49.6L33.1 47.6L32.9 45.7L32.4 43.9L31.6 42.4L30.6 41.1L29.5 40.0L26.9 41.4L27.6 42.1L28.3 42.9L28.9 43.9L29.3 45.1L29.4 46.4L29.4 47.8L29.0 49.2L28.5 50.5L27.6 51.9L26.5 53.1L25.1 54.1L23.5 55.0L21.8 55.6L19.8 55.9L17.8 55.8L15.8 55.4L13.7 54.7L11.8 53.6L10.0 52.1L8.4 50.3L7.1 48.1L6.1 45.8L5.5 43.2L5.3 40.5L5.6 37.7L6.4 34.9L7.6 32.2L9.3 29.6L11.5 27.3L14.1 25.3L17.0 23.8L20.3 22.7L23.7 22.1L27.3 22.0L31.0 22.6L34.7 23.6Z",
-        { fill: "c1", a: true, o: "l" },
-      ),
-      P(
-        "M42.4 15.9L37.0 14.1L31.6 13.1L26.3 12.9L21.2 13.5L16.5 15.0L12.1 17.0L8.3 19.7L5.1 22.9L2.5 26.5L0.6 30.4L-0.6 34.3L-1.2 38.3L-1.0 42.2L-0.2 45.9L1.1 49.3L3.0 52.3L5.2 54.9L7.7 57.0L10.5 58.6L13.4 59.6L16.3 60.1L19.1 60.2L21.8 59.7L24.2 58.8L26.4 57.6L28.2 56.1L29.7 54.4L30.8 52.5L31.5 50.6L31.8 48.6L31.7 46.8L31.4 45.1L30.8 43.6L29.9 42.3L28.9 42.5L29.7 43.6L30.3 45.0L30.7 46.5L30.7 48.2L30.5 49.9L29.9 51.7L28.9 53.4L27.6 55.0L26.0 56.4L24.0 57.5L21.8 58.3L19.3 58.8L16.7 58.8L14.1 58.3L11.4 57.4L8.9 55.9L6.5 54.0L4.5 51.7L2.8 48.9L1.5 45.8L0.8 42.4L0.6 38.8L1.1 35.1L2.2 31.4L3.9 27.8L6.3 24.5L9.3 21.6L12.9 19.0L16.9 17.1L21.3 15.8L26.0 15.2L30.9 15.4L35.9 16.3L40.9 18.0Z",
-        { fill: "light", a: true, o: "l" },
-      ),
-      P(
-        "M58.9 13.5L64.6 12.2L70.1 11.5L75.5 11.7L80.6 12.6L85.3 14.3L89.6 16.7L93.4 19.6L96.5 23.0L99.0 26.7L100.8 30.7L101.9 34.7L102.3 38.8L102.1 42.8L101.2 46.6L99.8 50.0L97.9 53.1L95.6 55.8L93.0 58.0L90.1 59.6L87.1 60.7L84.1 61.3L81.2 61.4L78.3 61.0L75.7 60.2L73.4 58.9L71.4 57.4L69.7 55.7L68.4 53.7L67.5 51.7L67.0 49.6L66.9 47.6L67.1 45.7L67.6 43.9L68.4 42.4L69.4 41.1L70.5 40.0L73.1 41.4L72.4 42.1L71.7 42.9L71.1 43.9L70.7 45.1L70.6 46.4L70.6 47.8L71.0 49.2L71.5 50.5L72.4 51.9L73.5 53.1L74.9 54.1L76.5 55.0L78.2 55.6L80.2 55.9L82.2 55.8L84.2 55.4L86.3 54.7L88.2 53.6L90.0 52.1L91.6 50.3L92.9 48.1L93.9 45.8L94.5 43.2L94.7 40.5L94.4 37.7L93.6 34.9L92.4 32.2L90.7 29.6L88.5 27.3L85.9 25.3L83.0 23.8L79.7 22.7L76.3 22.1L72.7 22.0L69.0 22.6L65.3 23.6Z",
-        { fill: "c1", a: true, o: "r" },
-      ),
-      P(
-        "M57.6 15.9L63.0 14.1L68.4 13.1L73.7 12.9L78.8 13.5L83.5 15.0L87.9 17.0L91.7 19.7L94.9 22.9L97.5 26.5L99.4 30.4L100.6 34.3L101.2 38.3L101.0 42.2L100.2 45.9L98.9 49.3L97.0 52.3L94.8 54.9L92.3 57.0L89.5 58.6L86.6 59.6L83.7 60.1L80.9 60.2L78.2 59.7L75.8 58.8L73.6 57.6L71.8 56.1L70.3 54.4L69.2 52.5L68.5 50.6L68.2 48.6L68.3 46.8L68.6 45.1L69.2 43.6L70.1 42.3L71.1 42.5L70.3 43.6L69.7 45.0L69.3 46.5L69.3 48.2L69.5 49.9L70.1 51.7L71.1 53.4L72.4 55.0L74.0 56.4L76.0 57.5L78.2 58.3L80.7 58.8L83.3 58.8L85.9 58.3L88.6 57.4L91.1 55.9L93.5 54.0L95.5 51.7L97.2 48.9L98.5 45.8L99.2 42.4L99.4 38.8L98.9 35.1L97.8 31.4L96.1 27.8L93.7 24.5L90.7 21.6L87.1 19.0L83.1 17.1L78.7 15.8L74.0 15.2L69.1 15.4L64.1 16.3L59.1 18.0Z",
-        { fill: "light", a: true, o: "r" },
-      ),
+      P(arcBand(37.2, -86, 86, 3.6), { fill: "#5c4a33" }),
+      P(arcBand(38.8, -86, 86, 0.9), { fill: "#8a7050" }),
+      ...mirror(56, (a, s) => coil(a, 36.5, 9, 1.1, 8, s), { fill: "#cbb18a" }),
+      ...mirror(56, (a, s) => coil(a, 36.9, 8.6, 1, 2.6, s), { fill: "#9c8158" }),
+      ...row([-30, 0, 30], (a, i) => gem(a, 39, i === 1 ? 5 : 3.6, i === 1 ? 7 : 5), {
+        fill: "c2",
+        a: true,
+      }),
     ],
   },
   {
     id: "devil-horns",
     name: "Devil horns",
     group: "Creature",
+    anim: "flicker",
+    tilt: true,
     parts: [
-      P("M24 26 C18 16 20 6 27 3 C25 11 30 16 34 20 Z", { fill: "#c1362f" }),
-      P("M76 26 C82 16 80 6 73 3 C75 11 70 16 66 20 Z", { fill: "#c1362f" }),
+      P(arcBand(37.2, -74, 74, 3.4), { fill: "#3a1214" }),
+      ...mirror(32, (a, s) => horn(a, 36.4, 24, 54, 9.6, s), { fill: "#c1362f" }),
+      ...mirror(32, (a, s) => horn(a, 37.6, 23, 52, 3.8, s), { fill: "#e8674f" }),
+      ...row([-58, -44, 44, 58], (a) => blob(a, 37.2, 2), { fill: "#ff8a3d", a: true }),
+      P(gem(0, 39, 4.6, 6.2), { fill: "#ff8a3d", anim: "pulse", a: true }),
     ],
   },
   {
@@ -298,20 +559,19 @@ export const DECORATIONS = [
     group: "Creature",
     anim: "chomp",
     parts: [
-      P("M2 100 C2 78 20 64 50 64 C80 64 98 78 98 100 Z", {
-        fill: "#4a6f88",
+      P(arcBand(42, 112, 248, 9), { z: "back", fill: "#3f6379", a: true }),
+      P(arcBand(38.2, 112, 248, 3.4), { fill: "#e8f0f6", a: true }),
+      P(one([124, 138, 152, 166, 180, 194, 208, 222, 236], (a) => spoke(a, 37.2, -6.5, 8)), {
+        fill: "#ffffff",
         a: true,
-        o: "jaw",
       }),
-      P("M12 82 C12 72 28 66 50 66 C72 66 88 72 88 82 Z", {
-        fill: "#e8f0f6",
+      P(arcBand(42, -68, 68, 8), { z: "back", fill: "#4d7995", a: true, o: "r" }),
+      P(arcBand(38.2, -68, 68, 3.2), { fill: "#e8f0f6", a: true, o: "r" }),
+      P(one([-60, -45, -30, -15, 0, 15, 30, 45, 60], (a) => spoke(a, 37.2, -6, 8)), {
+        fill: "#ffffff",
         a: true,
-        o: "jaw",
+        o: "r",
       }),
-      P(
-        "M16 78 L22 66 L28 78 L34 66 L40 78 L46 66 L52 78 L58 66 L64 78 L70 66 L76 78 Z",
-        { fill: "#ffffff", a: true, o: "jaw" },
-      ),
     ],
   },
   // ---------- regalia ----------
@@ -319,193 +579,116 @@ export const DECORATIONS = [
     id: "royal-crown",
     name: "Royal crown",
     group: "Regalia",
-    anim: "float",
+    anim: "pulse",
+    tilt: true,
     parts: [
-      P(
-        "M26 30 L26 22 C26 16 26.5 10 28 5 C30.5 9.5 34 14.5 38.5 17 C41.5 12.5 46 6 50 1 C54 6 58.5 12.5 61.5 17 C66 14.5 69.5 9.5 72 5 C73.5 10 74 16 74 22 L74 30 Z",
-        { fill: "#e6b23c", a: true },
-      ),
-      P(
-        "M28 5 C29 11 30.5 15 32.5 19.5 L26.6 19.5 C26.4 14 27 9 28 5 Z M50 1 C51.6 7 52.6 13 53 19.5 L46.6 19.5 C47.4 13 48.6 7 50 1 Z",
-        { fill: "#ffe6a6", a: true },
-      ),
-      P("M72 5 C71 11 69.5 15 67.5 19.5 L73.4 19.5 C73.6 14 73 9 72 5 Z", {
-        fill: "#a9761b",
-        a: true,
-      }),
-      P("M25 21.5 C33 25 67 25 75 21.5 L75 28 C67 32 33 32 25 28 Z", {
-        fill: "#a9761b",
-        a: true,
-      }),
-      P("M25 21.5 C33 25 67 25 75 21.5 L75 23.8 C67 27.3 33 27.3 25 23.8 Z", {
+      P(arcBand(37.2, -84, 84, 5.4), { fill: "#e6b23c" }),
+      P(arcBand(39.3, -84, 84, 1.1), { fill: "#ffe6a6" }),
+      P(arcBand(35, -84, 84, 1.1), { fill: "#a9761b" }),
+      P(one([-70, -46, -22, 0, 22, 46, 70], (a, i) => spoke(a, 39.6, [5, 7.5, 8.5, 6, 8.5, 7.5, 5][i], 16)), {
         fill: "#e6b23c",
-        a: true,
       }),
-      {
-        el: "circle",
-        attrs: { cx: 50, cy: 27.4, r: 3.2 },
-        fill: "c1",
-        a: true,
-      },
-      {
-        el: "circle",
-        attrs: { cx: 37, cy: 26.6, r: 2.1 },
-        fill: "c2",
-        a: true,
-      },
-      {
-        el: "circle",
-        attrs: { cx: 63, cy: 26.6, r: 2.1 },
-        fill: "c2",
-        a: true,
-      },
+      P(one([-70, -46, -22, 0, 22, 46, 70], (a, i) => spoke(a, 39.6, [3.4, 5.4, 6.2, 4, 6.2, 5.4, 3.4][i], 7)), {
+        fill: "#ffe6a6",
+      }),
+      ...row(
+        [-70, -46, -22, 0, 22, 46, 70],
+        (a, i) => blob(a, 39.6 + [5, 7.5, 8.5, 6, 8.5, 7.5, 5][i], 2.1),
+        { fill: "c1", a: true },
+      ),
+      ...row([-58, -34, -11, 11, 34, 58], (a) => blob(a, 37.2, 1.6), { fill: "light", a: true }),
+      P(gem(0, 36.6, 5.4, 6.6), { fill: "c2", anim: "shimmer", a: true }),
     ],
   },
   {
     id: "laurel-wreath",
     name: "Laurel wreath",
     group: "Regalia",
-    anim: "sway",
+    anim: "wag",
     parts: [
-      P(
-        "M66.8 20.9L70.2 23.2L73.3 25.8L76.1 28.9L78.5 32.2L80.5 35.8L82 39.6L83 43.6L83.5 47.7L83.6 51.8L83.1 55.8L82.1 59.8L80.7 63.7L78.8 67.3L76.5 70.7L73.8 73.8L70.7 76.5L67.3 78.8L63.6 79.1L67 77.2L70.2 74.9L73.1 72.3L75.6 69.3L77.8 66.1L79.5 62.5L80.9 58.8L81.7 55L82.1 51.1L82 47.2L81.4 43.3L80.4 39.5L78.9 35.9L76.9 32.5L74.6 29.4L71.9 26.5L68.9 24Z M35.8 80.5L32.2 78.5L28.9 76.1L25.8 73.3L23.2 70.2L20.9 66.8L19.1 63.1L17.7 59.3L16.8 55.3L16.4 51.2L16.5 47.1L17.1 43L18.2 39.1L19.8 35.3L21.8 31.7L24.3 28.4L27.1 25.4L30.3 22.8L34 22.2L30.7 24.4L27.7 26.9L25.1 29.8L22.8 33L20.9 36.4L19.5 40.1L18.5 43.9L18 47.8L17.9 51.7L18.4 55.6L19.3 59.4L20.7 63.1L22.5 66.5L24.7 69.8L27.3 72.7L30.2 75.3L33.5 77.5Z",
-        { fill: "c2", a: true },
-      ),
-      P(
-        "M66.5 21.4 C68.4 16.6 65.4 13.1 60.8 11.5 C59.8 16.3 61.4 20.6 66.5 21.4 Z M33.5 21.4 C38.6 20.6 40.2 16.3 39.2 11.5 C34.6 13.1 31.6 16.6 33.5 21.4 Z M72.7 26.1 C75.6 21.7 73.5 17.4 69.3 14.6 C67.3 19.2 67.9 24 72.7 26.1 Z M27.3 26.1 C32.1 24 32.7 19.2 30.7 14.6 C26.5 17.4 24.4 21.7 27.3 26.1 Z M77.7 32 C81.5 28.4 80.4 23.5 77 19.7 C74 23.8 73.5 28.8 77.7 32 Z M22.3 32 C26.5 28.8 26 23.8 23 19.7 C19.6 23.5 18.5 28.4 22.3 32 Z M81.1 39 C85.7 36.2 85.8 31 83.4 26.4 C79.6 29.8 77.8 34.7 81.1 39 Z M18.9 39 C22.2 34.7 20.4 29.8 16.6 26.4 C14.2 31 14.3 36.2 18.9 39 Z M82.8 46.6 C88 44.8 89.4 39.6 88.2 34.4 C83.6 37 80.7 41.5 82.8 46.6 Z M17.2 46.6 C19.3 41.5 16.4 37 11.8 34.4 C10.6 39.6 12 44.8 17.2 46.6 Z M82.7 54.3 C88.2 53.8 90.8 49.1 90.8 43.8 C85.7 45.2 81.8 48.9 82.7 54.3 Z M17.3 54.3 C18.2 48.9 14.3 45.2 9.2 43.8 C9.2 49.1 11.8 53.8 17.3 54.3 Z M80.8 61.8 C86.1 62.7 89.6 58.8 90.8 53.8 C85.6 53.9 81.1 56.5 80.8 61.8 Z M19.2 61.8 C18.9 56.5 14.4 53.9 9.2 53.8 C10.4 58.8 13.9 62.7 19.2 61.8 Z M77.2 68.7 C82 70.8 86.2 68 88.4 63.4 C83.4 62.2 78.6 63.6 77.2 68.7 Z M22.8 68.7 C21.4 63.6 16.6 62.2 11.6 63.4 C13.8 68 18 70.8 22.8 68.7 Z M72.1 74.5 C76.2 77.7 80.7 76 83.7 72 C79.3 69.7 74.5 69.9 72.1 74.5 Z M27.9 74.5 C25.5 69.9 20.7 69.7 16.3 72 C19.3 76 23.8 77.7 27.9 74.5 Z M65.7 79 C68.9 83.1 73.5 82.4 77.2 79.3 C73.6 76 69.1 75.1 65.7 79 Z M34.3 79 C30.9 75.1 26.4 76 22.8 79.3 C26.5 82.4 31.1 83.1 34.3 79 Z",
-        { fill: "c1", a: true },
-      ),
-      P(
-        "M64.8 18.4 C65.2 16.5 63.9 14.9 62.2 14 C62.1 15.9 62.9 17.8 64.8 18.4 Z M35.2 18.4 C37.1 17.8 37.9 15.9 37.8 14 C36.1 14.9 34.8 16.5 35.2 18.4 Z M71.7 22.6 C72.5 20.8 71.7 18.8 70.2 17.5 C69.7 19.4 70 21.6 71.7 22.6 Z M28.3 22.6 C30 21.6 30.3 19.4 29.8 17.5 C28.3 18.8 27.5 20.8 28.3 22.6 Z M77.5 28.3 C78.7 26.7 78.3 24.5 77.2 22.8 C76.2 24.6 76.1 26.8 77.5 28.3 Z M22.5 28.3 C23.9 26.8 23.8 24.6 22.8 22.8 C21.7 24.5 21.3 26.7 22.5 28.3 Z M81.8 35.2 C83.4 33.8 83.5 31.5 82.9 29.5 C81.5 31.2 80.8 33.4 81.8 35.2 Z M18.2 35.2 C19.2 33.4 18.5 31.2 17.1 29.5 C16.5 31.5 16.6 33.8 18.2 35.2 Z M84.4 42.9 C86.3 41.9 87 39.6 86.9 37.5 C85.1 38.8 83.9 40.9 84.4 42.9 Z M15.6 42.9 C16.1 40.9 14.9 38.8 13.1 37.5 C13 39.6 13.7 41.9 15.6 42.9 Z M85.1 51.1 C87.2 50.6 88.4 48.6 88.8 46.4 C86.8 47.3 85.1 49 85.1 51.1 Z M14.9 51.1 C14.9 49 13.2 47.3 11.2 46.4 C11.6 48.6 12.8 50.6 14.9 51.1 Z M83.8 59.4 C85.9 59.4 87.5 57.7 88.3 55.8 C86.2 56.1 84.2 57.4 83.8 59.4 Z M16.2 59.4 C15.8 57.4 13.8 56.1 11.7 55.8 C12.5 57.7 14.1 59.4 16.2 59.4 Z M80.5 67.1 C82.5 67.6 84.4 66.4 85.6 64.7 C83.5 64.5 81.4 65.2 80.5 67.1 Z M19.5 67.1 C18.6 65.2 16.5 64.5 14.4 64.7 C15.6 66.4 17.5 67.6 19.5 67.1 Z M75.6 73.8 C77.3 74.7 79.4 74 80.8 72.7 C78.9 72 76.8 72.2 75.6 73.8 Z M24.4 73.8 C23.2 72.2 21.1 72 19.2 72.7 C20.6 74 22.7 74.7 24.4 73.8 Z M69.2 79.1 C70.6 80.4 72.7 80.2 74.3 79.2 C72.7 78.1 70.7 77.8 69.2 79.1 Z M30.8 79.1 C29.3 77.8 27.3 78.1 25.7 79.2 C27.3 80.2 29.4 80.4 30.8 79.1 Z",
-        { fill: "light", a: true },
-      ),
-      P("M50 6.5 C52.6 9 53.6 11.4 50 15.5 C46.4 11.4 47.4 9 50 6.5 Z", {
+      P(arcBand(37.4, -152, -26, 1.6), { fill: "#5b7f3a" }),
+      P(arcBand(37.4, 26, 152, 1.6), { fill: "#5b7f3a" }),
+      ...row([-140, -124, -108, -92, -76, -60, -44], (a) => leaf(a, 37.6, 9, 4.6, 5), {
+        fill: "c1",
+        a: true,
+      }),
+      ...row([140, 124, 108, 92, 76, 60, 44], (a) => leaf(a, 37.6, 9, 4.6, -5), {
+        fill: "c1",
+        a: true,
+      }),
+      ...row([-132, -116, -100, -84, -68, -52], (a) => leaf(a, 36.4, 6.5, 3.4, -4), {
         fill: "c2",
         a: true,
       }),
+      ...row([132, 116, 100, 84, 68, 52], (a) => leaf(a, 36.4, 6.5, 3.4, 4), {
+        fill: "c2",
+        a: true,
+      }),
+      ...row([-150, -34, 34, 150], (a) => blob(a, 38.4, 1.9), {
+        fill: "light",
+        anim: "pulse",
+        a: true,
+      }),
+      P(gem(180, 38.6, 5, 7), { fill: "c2", anim: "pulse", a: true }),
     ],
   },
   {
     id: "tiara",
     name: "Tiara",
     group: "Regalia",
-    anim: "flicker",
+    anim: "dangle",
+    tilt: true,
     parts: [
-      P(
-        "M50 2.4 C51.8 5 52.4 7.4 52.2 9.8 L47.8 9.8 C47.6 7.4 48.2 5 50 2.4 Z M65.6 9 C67 11 67.4 12.6 67.2 14 L63.8 14 C63.8 12.4 64.4 10.8 65.6 9 Z M34.4 9 C33 11 32.6 12.6 32.8 14 L36.2 14 C36.2 12.4 35.6 10.8 34.4 9 Z",
-        { fill: "#dfe6ef" },
-      ),
-      P(
-        "M50 3 C55.6 3 60.2 7.3 60.2 12.6 C60.2 17.9 55.6 22.2 50 22.2 C44.4 22.2 39.8 17.9 39.8 12.6 C39.8 7.3 44.4 3 50 3 Z M50 6 C46 6 42.8 9 42.8 12.6 C42.8 16.2 46 19.2 50 19.2 C54 19.2 57.2 16.2 57.2 12.6 C57.2 9 54 6 50 6 Z",
-        { fill: "#dfe6ef" },
-      ),
-      P(
-        "M65.6 12.2 C69.4 12.2 72.4 15 72.4 18.4 C72.4 21.8 69.4 24.6 65.6 24.6 C61.8 24.6 58.8 21.8 58.8 18.4 C58.8 15 61.8 12.2 65.6 12.2 Z M65.6 14.5 C63.1 14.5 61.1 16.2 61.1 18.4 C61.1 20.6 63.1 22.3 65.6 22.3 C68.1 22.3 70.1 20.6 70.1 18.4 C70.1 16.2 68.1 14.5 65.6 14.5 Z M34.4 12.2 C38.2 12.2 41.2 15 41.2 18.4 C41.2 21.8 38.2 24.6 34.4 24.6 C30.6 24.6 27.6 21.8 27.6 18.4 C27.6 15 30.6 12.2 34.4 12.2 Z M34.4 14.5 C31.9 14.5 29.9 16.2 29.9 18.4 C29.9 20.6 31.9 22.3 34.4 22.3 C36.9 22.3 38.9 20.6 38.9 18.4 C38.9 16.2 36.9 14.5 34.4 14.5 Z",
-        { fill: "#dfe6ef" },
-      ),
-      P(
-        "M23.1 25.8L25.3 23.5L27.7 21.5L30.3 19.6L33 18L35.9 16.7L38.8 15.6L41.9 14.7L45 14.2L48.1 13.8L51.3 13.8L54.4 14.1L57.5 14.6L60.6 15.4L63.6 16.4L66.4 17.7L69.2 19.3L71.8 21.1L74.2 23.1L76.5 25.3L75.6 27L73.3 25L70.8 23.3L68.3 21.8L65.6 20.6L62.9 19.6L60.1 18.8L57.3 18.3L54.5 18.1L51.7 18.1L48.9 18.1L46.1 18.1L43.3 18.3L40.4 18.7L37.6 19.4L34.9 20.4L32.2 21.6L29.7 23L27.2 24.7L24.9 26.6Z",
-        { fill: "#dfe6ef" },
-      ),
-      P(
-        "M23.1 25.8L25.3 23.5L27.7 21.5L30.3 19.6L33 18L35.9 16.7L38.8 15.6L41.9 14.7L45 14.2L48.1 13.8L51.3 13.8L54.4 14.1L57.5 14.6L60.6 15.4L63.6 16.4L66.4 17.7L69.2 19.3L71.8 21.1L74.2 23.1L76.5 25.3L76.4 26.2L74.1 24.1L71.7 22.2L69.2 20.5L66.5 19L63.7 17.8L60.8 16.8L57.8 16.1L54.8 15.7L51.8 15.5L48.8 15.5L45.8 15.6L42.8 16L39.8 16.7L36.9 17.6L34.1 18.8L31.4 20.2L28.8 21.8L26.3 23.7L24.1 25.8Z",
-        { fill: "light" },
-      ),
-      {
-        el: "circle",
-        attrs: { cx: 50, cy: 12.6, r: 3.6 },
-        fill: "c1",
+      P(arcBand(37.1, -76, 76, 2.2), { fill: "#dfe6ef" }),
+      P(arcBand(38.6, -76, 76, 0.8), { fill: "light" }),
+      P(ringAt(0, 42.4, 4.8, 1.5), { fill: "#dfe6ef" }),
+      ...mirror(28, (a) => ringAt(a, 41.4, 3.6, 1.3), { fill: "#dfe6ef" }),
+      ...mirror(52, (a) => ringAt(a, 40.4, 2.6, 1.1), { fill: "#dfe6ef" }),
+      P(gem(0, 42.4, 4.4, 6), { fill: "c1", anim: "pulse", a: true }),
+      ...mirror(28, (a) => blob(a, 41.4, 2), { fill: "c2", anim: "pulse", a: true }),
+      ...mirror(52, (a) => blob(a, 40.4, 1.4), { fill: "c2", anim: "pulse", a: true }),
+      ...row([-66, -42, 42, 66], (a, i) => drop(a, 36.4, 3.5 + (i % 2) * 2.4, 0.9, 1.8), {
+        fill: "light",
         a: true,
-      },
-      {
-        el: "circle",
-        attrs: { cx: 65.6, cy: 18.4, r: 2.3 },
-        fill: "c2",
-        a: true,
-        o: "r",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 34.4, cy: 18.4, r: 2.3 },
-        fill: "c2",
-        a: true,
-        o: "l",
-      },
+      }),
     ],
   },
   {
     id: "diadem",
     name: "Jewelled diadem",
     group: "Regalia",
-    anim: "flicker",
+    anim: "shimmer",
+    tilt: true,
     parts: [
-      P(
-        "M22.1 26.6L24.3 24.3L26.6 22.1L29.1 20.2L31.8 18.5L34.6 17L37.6 15.8L40.6 14.8L43.7 14.2L46.8 13.7L50 13.6L53.2 13.7L56.3 14.2L59.4 14.8L62.4 15.8L65.4 17L68.2 18.5L70.9 20.2L73.4 22.1L75.7 24.3L77.9 26.6L76 28.1L73.6 26.4L71.1 24.9L68.5 23.6L65.9 22.5L63.2 21.7L60.5 21L57.9 20.6L55.2 20.4L52.6 20.3L50 20.4L47.4 20.3L44.8 20.4L42.1 20.6L39.5 21L36.8 21.7L34.1 22.5L31.5 23.6L28.9 24.9L26.4 26.4L24 28.1Z",
-        { fill: "c1" },
-      ),
-      P(
-        "M22.1 26.6L24.3 24.3L26.6 22.1L29.1 20.2L31.8 18.5L34.6 17L37.6 15.8L40.6 14.8L43.7 14.2L46.8 13.7L50 13.6L53.2 13.7L56.3 14.2L59.4 14.8L62.4 15.8L65.4 17L68.2 18.5L70.9 20.2L73.4 22.1L75.7 24.3L77.9 26.6L77.3 27.1L75.1 24.9L72.7 22.9L70.2 21.2L67.5 19.7L64.7 18.4L61.9 17.3L59 16.5L56 16L53 15.7L50 15.6L47 15.7L44 16L41 16.5L38.1 17.3L35.3 18.4L32.5 19.7L29.8 21.2L27.3 22.9L24.9 24.9L22.7 27.1Z",
-        { fill: "light" },
-      ),
-      P("M50 8.6 L57.4 13.4 L58.4 21.4 L50 27.6 L41.6 21.4 L42.6 13.4 Z", {
+      P(arcBand(37.3, -90, 90, 3.4), { fill: "c1" }),
+      P(arcBand(38.8, -90, 90, 0.9), { fill: "light", a: true }),
+      P(gem(0, 42.4, 8, 10.4), { fill: "c2", anim: "pulse", a: true }),
+      P(gem(0, 42.4, 3.6, 5), { fill: "light", anim: "pulse", a: true, o: 2 }),
+      ...row([-58, -30, 30, 58], (a, i) => gem(a, 40.4, 4.6 - (i % 2), 6.6 - (i % 2)), {
         fill: "c2",
+        anim: "pulse",
         a: true,
       }),
-      P("M50 8.6 L57.4 13.4 L53.6 15.4 L46.4 15.4 L42.6 13.4 Z", {
-        fill: "light",
-      }),
-      P(
-        "M50 6 L58.6 11.6 L59.8 21.8 L50 29 L40.2 21.8 L41.4 11.6 Z M50 8.6 L42.6 13.4 L41.6 21.4 L50 27.6 L58.4 21.4 L57.4 13.4 Z",
-        { fill: "#e6b23c" },
-      ),
-      {
-        el: "circle",
-        attrs: { cx: 59.5, cy: 18.8, r: 2 },
-        fill: "c2",
-        a: true,
-        o: "r",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 40.5, cy: 18.8, r: 2 },
-        fill: "c2",
-        a: true,
-        o: "l",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 67.3, cy: 22.4, r: 2 },
-        fill: "c2",
-        a: true,
-        o: "r",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 32.7, cy: 22.4, r: 2 },
-        fill: "c2",
-        a: true,
-        o: "l",
-      },
+      ...row([-76, -44, -14, 14, 44, 76], (a) => blob(a, 37.3, 1.4), { fill: "light", a: true }),
     ],
   },
   {
     id: "royal-collar",
     name: "Royal collar",
     group: "Regalia",
-    anim: "sway",
+    anim: "wave",
     parts: [
-      P(
-        "M50 64 C31 63 18 52 11 20 C6 44 9 76 22 96 C34 101 66 101 78 96 C91 76 94 44 89 20 C82 52 69 63 50 64 Z",
-        { z: "back", fill: "c1", a: true },
-      ),
-      P(
-        "M11 20 C6 44 9 76 22 96 L26.6 94.4 C15 74 11.8 44 14.6 23 Z M89 20 C94 44 91 76 78 96 L73.4 94.4 C85 74 88.2 44 85.4 23 Z",
-        { z: "back", fill: "light", a: true },
-      ),
-      P(
-        "M22 96 C34 101 66 101 78 96 L75.6 92.4 C64.5 96.8 35.5 96.8 24.4 92.4 Z",
-        { z: "back", fill: "c2", a: true },
-      ),
+      P(arcBand(41.4, 116, 244, 9.6), { z: "back", fill: "c1", a: true }),
+      P(arcBand(45.4, 116, 244, 1.6), { z: "back", fill: "light", a: true }),
+      P(one([122, 136, 150, 164, 178, 192, 206, 220, 234], (a) => blob(a, 45.4, 2)), {
+        z: "back",
+        fill: "light",
+        a: true,
+      }),
+      ...mirror(118, (a, s) => spoke(a, 41.4, 8, 13, -5 * s), { z: "back", fill: "c1", a: true }),
+      P(arcBand(37.4, 116, 244, 1.4), { z: "back", fill: "c2", a: true }),
+      P(gem(180, 40, 5.6, 7.6), { fill: "c2", anim: "pulse", a: true }),
+      P(blob(180, 40, 1.6), { fill: "light", anim: "pulse", a: true, o: 2 }),
     ],
   },
   {
@@ -514,26 +697,22 @@ export const DECORATIONS = [
     group: "Regalia",
     anim: "sway",
     parts: [
-      P(
-        "M50 42 C28 42 13 56 7 71 C3 81 1 91 1.4 98.6 C1.6 102 5 104 9 104 L91 104 C95 104 98.4 102 98.6 98.6 C99 91 97 81 93 71 C87 56 72 42 50 42 Z",
-        { z: "back", fill: "#7d1439", a: true },
-      ),
-      P(
-        "M21 58 C13 71 8.6 88 8 104 L18.6 104 C19.6 88 23.4 71 29 61 Z M79 58 C87 71 91.4 88 92 104 L81.4 104 C80.4 88 76.6 71 71 61 Z M50 50 C47 70 46 88 46.4 104 L53.6 104 C54 88 53 70 50 50 Z",
-        { z: "back", fill: "#4c0a22", a: true },
-      ),
-      P(
-        "M50 42 C28 42 13 56 7 71 C4.4 78.2 2.6 85.4 1.8 91.6 L8.2 92.6 C9 86.8 10.6 80.4 12.7 74.6 C18.6 60.6 31.4 51.4 50 51.4 C68.6 51.4 81.4 60.6 87.3 74.6 C89.4 80.4 91 86.8 91.8 92.6 L98.2 91.6 C97.4 85.4 95.6 78.2 93 71 C87 56 72 42 50 42 Z",
-        { z: "back", fill: "c1", a: true },
-      ),
-      P(
-        "M2.2 90 C20 99.4 80 99.4 97.8 90 C98.5 93.2 98.7 96.2 98.6 98.6 C98.4 102 95 104 91 104 L9 104 C5 104 1.6 102 1.4 98.6 C1.3 96.2 1.5 93.2 2.2 90 Z",
-        { z: "back", fill: "#f4efe2", a: true },
-      ),
-      P(
-        "M13 96.2 L14.6 98.6 L13 101 L11.4 98.6 Z M31.5 98.6 L33.1 101 L31.5 103.4 L29.9 101 Z M50 99.2 L51.6 101.6 L50 104 L48.4 101.6 Z M68.5 98.6 L70.1 101 L68.5 103.4 L66.9 101 Z M87 96.2 L88.6 98.6 L87 101 L85.4 98.6 Z",
-        { z: "back", fill: "#33373f", a: true },
-      ),
+      P(taperBand(40.4, 100, 180, 6, 11), { z: "back", fill: "#7d1439", a: true }),
+      P(taperBand(40.4, 260, 180, 6, 11), { z: "back", fill: "#7d1439", a: true, o: "r" }),
+      P(taperBand(37.6, 108, 180, 1.4, 2.4), { z: "back", fill: "#4c0a22", a: true }),
+      P(taperBand(37.6, 252, 180, 1.4, 2.4), { z: "back", fill: "#4c0a22", a: true, o: "r" }),
+      P(arcBand(44.4, 104, 256, 2.4), { z: "back", fill: "#f4efe2", a: true }),
+      P(one([120, 144, 168, 192, 216, 240], (a) => blob(a, 44.4, 1.2)), {
+        z: "back",
+        fill: "#33373f",
+        a: true,
+      }),
+      ...mirror(102, (a, s) => spoke(a, 40.4, 9, 14, -6 * s), {
+        z: "back",
+        fill: "#7d1439",
+        a: true,
+      }),
+      P(gem(180, 39.4, 5.4, 7), { fill: "#e6b23c", anim: "pulse", a: true }),
     ],
   },
   // ---------- ethereal ----------
@@ -543,51 +722,29 @@ export const DECORATIONS = [
     group: "Ethereal",
     anim: "float",
     parts: [
-      {
-        el: "ellipse",
-        attrs: { cx: 50, cy: 16, rx: 26, ry: 7.5 },
-        stroke: "#b7761c",
-        width: 8.5,
-        z: "front",
+      P(ovalBand(13.5, 23, 6.2, 0, 360, 4.4), { fill: "#b7761c", a: true }),
+      P(ovalBand(13.1, 23, 6.2, 0, 360, 2.4), { fill: "#ffd24a", a: true }),
+      P(ovalBand(12.4, 22.4, 5.8, 190, 350, 1), { fill: "#fff3bd", a: true }),
+      ...row([-62, -38, 38, 62], (a, i) => star(a, 42 + (i % 2) * 3, 3.2, 1.2, 4), {
+        fill: "#ffe9a8",
+        anim: "pulse",
         a: true,
-      },
-      {
-        el: "ellipse",
-        attrs: { cx: 50, cy: 16, rx: 26, ry: 7.5 },
-        stroke: "#ffd24a",
-        width: 5.5,
-        z: "front",
-        a: true,
-      },
-      {
-        el: "ellipse",
-        attrs: { cx: 50, cy: 14.6, rx: 25.5, ry: 7.2 },
-        stroke: "#fff3bd",
-        width: 1.8,
-        z: "front",
-        a: true,
-      },
+      }),
     ],
   },
   {
     id: "orbit-ring",
     name: "Orbit ring",
     group: "Ethereal",
-    anim: "sway",
+    anim: "pulse",
     parts: [
-      P("M4 58C4 36.7 96 36.7 96 58L89.5 58C89.5 43.6 10.5 43.6 10.5 58Z", {
-        z: "back",
-        fill: "c2",
-        a: true,
-      }),
-      P("M4 58C4 79.3 96 79.3 96 58L89.5 58C89.5 72.4 10.5 72.4 10.5 58Z", {
-        fill: "c1",
-        a: true,
-      }),
-      P(
-        "M8.5 59.6C8.5 76.1 91.5 76.1 91.5 59.6L88.9 59.6C88.9 73.4 11.1 73.4 11.1 59.6Z",
-        { fill: "light", a: true },
-      ),
+      P(ovalBand(53, 42.6, 14.5, 180, 360, 4.6), { z: "back", fill: "c2" }),
+      P(ovalBand(53, 42.6, 14.5, 0, 180, 4.6), { fill: "c1" }),
+      P(ovalBand(53, 42.6, 14.5, 14, 166, 1.4), { fill: "light" }),
+      P(ovalBand(53, 42.6, 14.5, 194, 346, 1.4), { z: "back", fill: "light" }),
+      P(blobXY(7.4, 53, 4), { z: "back", fill: "c2", a: true }),
+      P(blobXY(92.6, 53, 4), { fill: "c1", a: true, o: 4 }),
+      P(blobXY(91.8, 51.6, 1.4), { fill: "light", a: true, o: 4 }),
     ],
   },
   {
@@ -596,54 +753,80 @@ export const DECORATIONS = [
     group: "Ethereal",
     anim: "flicker",
     parts: [
-      P(
-        "M25.4 32.8C21.1 36.8 15.7 34.1 12.3 31.6C16.1 30.2 21.8 28.7 25.4 32.8ZM33.7 24.8C26 24.9 22.3 17.7 20.4 12.2C25.6 14.2 32.9 17.7 33.7 24.8ZM44.3 20.6C36.9 15.8 37.2 6.1 38.3 -0.7C42.2 4.6 47.2 12.8 44.3 20.6ZM55.7 20.6C63.1 15.8 62.8 6.1 61.7 -0.7C57.8 4.6 52.8 12.8 55.7 20.6ZM66.3 24.8C74 24.9 77.7 17.7 79.6 12.2C74.4 14.2 67.1 17.7 66.3 24.8ZM74.6 32.8C78.9 36.8 84.3 34.1 87.7 31.6C83.9 30.2 78.2 28.7 74.6 32.8Z",
-        { fill: "c1", a: true, o: "l" },
+      P(arcBand(36.8, -98, 98, 1.8), { fill: "c1", a: true }),
+      ...row(
+        [-90, -74, -58, -42, -26, -10, 10, 26, 42, 58, 74, 90],
+        (a, i) => leaf(a, 36.8, [5, 8, 12, 15, 11, 8, 8, 11, 15, 12, 8, 5][i], 3, 0),
+        { fill: "c1", a: true },
       ),
-      P(
-        "M29.2 28.4C24.9 29.9 21.7 26.5 19.8 23.8C23 23.9 27.6 24.6 29.2 28.4ZM38.8 22.2C33.3 20.5 31.8 14.5 31.4 10.1C34.8 12.7 39.3 16.9 38.8 22.2ZM50 20C54 15.5 52 9.2 50 5C48.4 9.2 46.6 15.5 50 20ZM61.2 22.2C66.7 20.5 68.2 14.5 68.6 10.1C65.2 12.7 60.7 16.9 61.2 22.2ZM70.8 28.4C75.1 29.9 78.3 26.5 80.2 23.8C77 23.9 72.4 24.6 70.8 28.4Z",
-        { fill: "light", a: true, o: "r" },
+      ...row(
+        [-74, -42, -26, 26, 42, 74],
+        (a, i) => leaf(a, 36.8, [4, 9, 6, 6, 9, 4][i], 1.8, 0),
+        { fill: "light", a: true },
       ),
+      ...row([-58, 0, 58], (a) => blob(a, 45, 1.7), { fill: "light", anim: "drift", a: true }),
     ],
   },
   {
     id: "spectral-shroud",
     name: "Spectral shroud",
     group: "Ethereal",
-    anim: "float",
+    anim: "shimmer",
     parts: [
-      P(
-        "M6 42C6 12 94 12 94 42L94 80C94 102 72 102 72 80C72 98 50 98 50 80C50 102 28 102 28 80C28 98 6 98 6 80Z",
-        { z: "back", fill: "c1", a: true },
-      ),
-      P(
-        "M11.4 55.4Q10.4 49.8 11.8 44.3Q9.7 37.9 10.1 31.4Q12.7 25.5 17.4 21.1Q19.8 14.4 24.6 9.3Q30.2 5.5 36.9 4.3Q43.1 0.7 50 0Q56.9 0.7 63.1 4.3Q69.8 5.5 75.4 9.3Q80.2 14.4 82.6 21.1Q87.3 25.5 89.9 31.4Q90.3 37.9 88.2 44.3Q89.6 49.8 88.6 55.4L78.7 54L79 49.1L78.4 44.2L77 39.4L74.8 35L71.9 31L68.3 27.5L64.2 24.7L59.7 22.7L54.9 21.4L50 21L45.1 21.4L40.3 22.7L35.8 24.7L31.7 27.5L28.1 31L25.2 35L23 39.4L21.6 44.2L21 49.1L21.3 54Z",
-        { fill: "c1" },
-      ),
-      P(
-        "M17.3 54.6Q16.5 49.9 17.7 45.2Q17.9 40.3 20.1 36.1Q22 31.6 25.5 28.4Q28.4 24.4 32.5 22Q36.4 19.4 41 18.6Q45.3 16.8 50 17Q54.7 16.8 59 18.6Q63.6 19.4 67.5 22Q71.6 24.4 74.5 28.4Q78 31.6 79.9 36.1Q82.1 40.3 82.3 45.2Q83.5 49.9 82.7 54.6L78.7 54L79 49.1L78.4 44.2L77 39.4L74.8 35L71.9 31L68.3 27.5L64.2 24.7L59.7 22.7L54.9 21.4L50 21L45.1 21.4L40.3 22.7L35.8 24.7L31.7 27.5L28.1 31L25.2 35L23 39.4L21.6 44.2L21 49.1L21.3 54Z",
-        { fill: "light" },
-      ),
+      P(taperBand(39.6, 0, -152, 5, 13, 44.6), { z: "back", fill: "c1", a: true }),
+      P(taperBand(39.6, 0, 152, 5, 13, 44.6), { z: "back", fill: "c1", a: true, o: "r" }),
+      P(taperBand(37.2, 0, -152, 1.2, 2.6, 38.6), { z: "back", fill: "light", a: true }),
+      P(taperBand(37.2, 0, 152, 1.2, 2.6, 38.6), { z: "back", fill: "light", a: true, o: "r" }),
+      ...mirror(150, (a, s) => leaf(a, 44.6, 9.5, 5, 4 * s), {
+        z: "back",
+        fill: "c1",
+        anim: "dangle",
+        a: true,
+      }),
+      ...mirror(134, (a, s) => leaf(a, 44.4, 8, 4, 3 * s), {
+        z: "back",
+        fill: "c1",
+        anim: "dangle",
+        a: true,
+        o: 3,
+      }),
+      ...mirror(118, (a, s) => leaf(a, 42.8, 5, 3, 2 * s), {
+        z: "back",
+        fill: "c1",
+        anim: "dangle",
+        a: true,
+        o: 5,
+      }),
+      ...row([-104, -86, 86, 104], (a) => blob(a, 47, 1.8), {
+        z: "back",
+        fill: "light",
+        anim: "drift",
+        a: true,
+      }),
     ],
   },
   {
     id: "radiant-nimbus",
     name: "Radiant nimbus",
     group: "Ethereal",
-    anim: "flicker",
+    anim: "shimmer",
     parts: [
-      P(
-        "M82.2 39.2L80.4 34.8Q90.6 31.7 100.8 29Q91.6 34.3 82.2 39.2ZM65.2 19.6L60.8 17.8Q65.7 8.4 71 -0.8Q68.3 9.4 65.2 19.6ZM39.2 17.8L34.8 19.6Q31.7 9.4 29 -0.8Q34.3 8.4 39.2 17.8ZM19.6 34.8L17.8 39.2Q8.4 34.3 -0.8 29Q9.4 31.7 19.6 34.8ZM17.8 60.8L19.6 65.2Q9.4 68.3 -0.8 71Q8.4 65.7 17.8 60.8ZM34.8 80.4L39.2 82.2Q34.3 91.6 29 100.8Q31.7 90.6 34.8 80.4ZM60.8 82.2L65.2 80.4Q68.3 90.6 71 100.8Q65.7 91.6 60.8 82.2ZM80.4 65.2L82.2 60.8Q91.6 65.7 100.8 71Q90.6 68.3 80.4 65.2Z",
-        { z: "back", fill: "light", a: true, o: "r" },
+      ...Array.from({ length: 16 }, (_, i) =>
+        P(ray(i * 22.5, 38.5, i % 2 ? 46.8 : 43, 3.2, 0.6), {
+          z: "back",
+          fill: "light",
+          anim: "whirl",
+          a: true,
+        }),
       ),
-      P(
-        "M80 50Q84.7 50 93 50Q93.6 45.7 90.5 41.9Q92 37.3 89.7 33.5Q88.7 29.3 84.3 27.1Q83.9 22.2 80.4 19.6Q77.8 16.1 72.9 15.7Q70.7 11.3 66.5 10.3Q62.7 8 58.1 9.5Q54.3 6.4 50 7Q45.7 6.4 41.9 9.5Q37.3 8 33.5 10.3Q29.3 11.3 27.1 15.7Q22.2 16.1 19.6 19.6Q16.1 22.2 15.7 27.1Q11.3 29.3 10.3 33.5Q8 37.3 9.5 41.9Q6.4 45.7 7 50Q6.4 54.3 9.5 58.1Q8 62.7 10.3 66.5Q11.3 70.7 15.7 72.9Q16.1 77.8 19.6 80.4Q22.2 83.9 27.1 84.3Q29.3 88.7 33.5 89.7Q37.3 92 41.9 90.5Q45.7 93.6 50 93Q54.3 93.6 58.1 90.5Q62.7 92 66.5 89.7Q70.7 88.7 72.9 84.3Q77.8 83.9 80.4 80.4Q83.9 77.8 84.3 72.9Q88.7 70.7 89.7 66.5Q92 62.7 90.5 58.1Q93.6 54.3 93 50Q84.7 50 80 50Z",
-        { z: "back", fill: "c1", a: true, o: "l" },
-      ),
-      P(
-        "M88.5 50A38.5 38.5 0 1 0 11.5 50A38.5 38.5 0 1 0 88.5 50ZM86 50A36 36 0 1 1 14 50A36 36 0 1 1 86 50Z",
-        { z: "back", fill: "light" },
-      ),
+      P(annulus(39.8, 2.2), { z: "back", fill: "c1", a: true }),
+      P(annulus(43.6, 0.9), { z: "back", fill: "light", a: true, o: 3 }),
+      ...row([-40, 0, 40], (a) => star(a, 45.4, 3, 1.1, 4), {
+        z: "back",
+        fill: "light",
+        anim: "pulse",
+        a: true,
+      }),
     ],
   },
   // ---------- elemental ----------
@@ -653,36 +836,57 @@ export const DECORATIONS = [
     group: "Elemental",
     anim: "flicker",
     parts: [
-      P(
-        "M19 32C19.6 29.3 21.2 17.3 22.5 16C23.8 14.7 25.2 26.5 27 24C28.8 21.5 31.4 2.5 33.5 1C35.6 -0.5 37.4 16.2 39.5 15C41.6 13.8 43.9 -4.8 46 -6C48.1 -7.2 49.9 7.5 52 8C54.1 8.5 56.5 -4 58.5 -3C60.5 -2 62 12.8 64 14C66 15.2 68.6 3 70.5 4C72.4 5 74.1 18.5 75.5 20C76.9 21.5 78.1 11 79 13C79.9 15 80.7 28.8 81 32L75.7 27.7L71 23.2L65.5 19.8L59.6 17.4L53.2 16.2L46.8 16.2L40.4 17.4L34.5 19.8L29 23.2L24.3 27.7L20.6 32.9Z",
+      P(arcBand(36.8, -94, 94, 2.6), { fill: "#7a2a12" }),
+      ...row(
+        [-84, -66, -48, -30, -12, 12, 30, 48, 66, 84],
+        (a, i) => leaf(a, 36.8, [6, 9, 13, 16, 11, 11, 16, 13, 9, 6][i], 4, 0),
         { fill: "#e8431f", a: true },
       ),
-      P(
-        "M26.5 28.5C27.1 27.1 28.8 20.6 30 20C31.3 19.4 32.5 26.5 34 25C35.5 23.5 37.3 11.8 39 11C40.7 10.2 42.3 21.3 44 20C45.7 18.7 47.3 3.8 49 3C50.7 2.2 52.3 14.5 54 15C55.7 15.5 57.3 5.2 59 6C60.7 6.8 62.3 19 64 20C65.7 21 67.4 10.9 69 12C70.6 13.1 72.8 24.1 73.5 26.5L69.7 23.5L65.6 20.9L61.2 18.9L56.5 17.6L51.7 17L46.8 17.2L42.1 18L37.5 19.5L33.1 21.6L29.2 24.4L25.7 27.7Z",
+      ...row(
+        [-84, -66, -48, -30, -12, 12, 30, 48, 66, 84],
+        (a, i) => leaf(a, 36.8, [4, 6, 9, 11.5, 7.5, 7.5, 11.5, 9, 6, 4][i], 2.6, 0),
         { fill: "#ff922b", a: true },
       ),
-      P(
-        "M35 26C35.7 24.5 37.7 17.7 39 17C40.3 16.3 41.7 23 43 22C44.3 21 45.7 11.5 47 11C48.3 10.5 49.7 19.3 51 19C52.3 18.7 53.7 9.2 55 9C56.3 8.8 57.8 15.5 59 18C60.2 20.5 61.5 23 62 24L61.1 18.9L58.2 18L55.3 17.4L52.4 17.1L49.4 17L46.4 17.2L43.5 17.6L40.6 18.4L37.8 19.3L35.1 20.6L32.5 22Z",
+      ...row(
+        [-48, -30, -12, 12, 30, 48],
+        (a, i) => leaf(a, 36.8, [4.5, 6, 4, 4, 6, 4.5][i], 1.4, 0),
         { fill: "#ffe066", a: true },
       ),
+      ...row([-70, -20, 20, 70], (a) => blob(a, 48, 1.6), {
+        fill: "#ff922b",
+        anim: "drift",
+        a: true,
+      }),
     ],
   },
   {
     id: "frost-crown",
     name: "Frost crown",
     group: "Elemental",
-    anim: "float",
+    anim: "shimmer",
     parts: [
+      P(arcBand(36.8, -90, 90, 2.4), { fill: "#3d7ba8" }),
       P(
-        "M10 49L12.5 25L16 41.7ZM16 41.7L20 14L26 24.5ZM24.5 26L32 -2L39 16.8ZM37 17.5L50 -11L63 17.5ZM61 16.8L68 -2L75.5 26ZM74 24.5L80 14L84 41.7ZM84 41.7L87.5 25L90 49Z",
+        one([-76, -58, -40, -22, 0, 22, 40, 58, 76], (a, i) =>
+          ray(a, 36.8, 36.8 + [6, 9, 14, 11, 8.5, 11, 14, 9, 6][i], 5.4, 0),
+        ),
         { fill: "#3d7ba8" },
       ),
-      P(
-        "M10.4 49L12.5 25L13 49ZM16.6 41.7L20 14L21 30.4ZM25.4 26L32 -2L31.8 20.1ZM38.6 17.5L50 -11L50 15ZM61.9 16.8L68 -2L68.3 20.1ZM74.6 24.5L80 14L79 30.4ZM84.4 41.7L87.5 25L87 49Z",
-        { fill: "#b9e7ff" },
+      ...row(
+        [-76, -58, -40, -22, 0, 22, 40, 58, 76],
+        (a, i) => ray(a, 36.8, 36.8 + [4.8, 7.4, 12, 9, 7, 9, 12, 7.4, 4.8][i], 3.4, 0),
+        { fill: "#b9e7ff", a: true },
       ),
-      P("M44.5 17L50 -6L55.5 17ZM28.8 19L32 1L35.2 19ZM64.8 19L68 1L71.2 19Z", {
+      ...row(
+        [-40, 0, 40],
+        (a, i) => ray(a, 36.8, 36.8 + [8, 4.5, 8][i], 1.4, 0),
+        { fill: "#f0fbff", a: true },
+      ),
+      ...mirror(49, (a, s) => ray(a + 4 * s, 40, 45.5, 2.6, 0), { fill: "#b9e7ff", a: true }),
+      ...row([-66, -12, 12, 66], (a) => star(a, 44, 2.6, 1, 6), {
         fill: "#f0fbff",
+        anim: "pulse",
+        a: true,
       }),
     ],
   },
@@ -690,31 +894,23 @@ export const DECORATIONS = [
     id: "storm-bolts",
     name: "Storm bolts",
     group: "Elemental",
-    anim: "flicker",
+    anim: "zap",
     parts: [
-      P("M14 4L2 41L11 41L5 80L21 35L12 35Z", {
-        z: "back",
-        fill: "#e8a800",
-        a: true,
-        o: "l",
-      }),
-      P("M86 4L98 41L89 41L95 80L79 35L88 35Z", {
-        z: "back",
-        fill: "#e8a800",
-        a: true,
-        o: "r",
-      }),
-      P("M13.5 14L7 39L14 39L9 66L18 37L13 37Z", {
-        z: "back",
+      P(arcBand(40, -104, 104, 6), { z: "back", fill: "#414c5e" }),
+      P(
+        one([-98, -80, -62, -44, -26, -8, 8, 26, 44, 62, 80, 98], (a, i) =>
+          blob(a, 42.8, 3.6 - (i % 3) * 0.7),
+        ),
+        { z: "back", fill: "#54607a" },
+      ),
+      P(arcBand(37.6, -104, 104, 1.6), { z: "back", fill: "#242a36" }),
+      ...row([-62, -21, 21, 62], (a, i) => bolt(a, 37, i % 3 ? -19 : -14, i % 3 ? 9 : 7), {
         fill: "#ffe066",
         a: true,
-        o: "l",
       }),
-      P("M86.5 14L93 39L86 39L91 66L82 37L87 37Z", {
-        z: "back",
-        fill: "#ffe066",
+      ...row([-62, -21, 21, 62], (a, i) => bolt(a, 37, i % 3 ? -12 : -9, i % 3 ? 4.6 : 3.6), {
+        fill: "#fff6c2",
         a: true,
-        o: "r",
       }),
     ],
   },
@@ -722,87 +918,102 @@ export const DECORATIONS = [
     id: "tide-crest",
     name: "Tide crest",
     group: "Elemental",
-    anim: "float",
+    anim: "wave",
     parts: [
-      P(
-        "M9.2 47.1C8.2 45.7 8.6 41.6 8.6 38.7C8.6 35.9 8.8 32.8 9.4 29.8C9.9 26.8 10.7 23.7 12 20.7C13.3 17.8 14.9 14.8 16.9 12.2C18.9 9.5 21.3 7 24 5C26.7 3.1 29.9 1.4 33.1 0.3C36.3 -0.8 39.8 -1.4 43.1 -1.5C46.5 -1.5 50 -1 53.2 -0.2C56.3 0.7 59.5 2.1 62.3 3.6C65 5.2 67.6 7.2 69.9 9.2C72.2 11.2 74.2 13.5 76 15.8C77.7 18.1 79.2 20.5 80.6 22.9C81.9 25.2 83 27.7 83.9 30.1C84.9 32.5 85.6 35 86.2 37.4C86.8 39.8 87.5 43.5 87.3 44.8C87.1 46 85.8 46.1 85.2 45.1C84.5 44 84.3 40.5 83.5 38.3C82.8 36.2 81.8 34 80.6 32C79.5 30.1 78.1 28.1 76.5 26.4C75 24.7 73.3 23.1 71.5 21.7C69.6 20.3 67.6 19.1 65.6 18.1C63.5 17.1 61.3 16.3 59.1 15.7C56.8 15.1 54.5 14.7 52.2 14.6C49.9 14.4 47.6 14.5 45.3 14.8C43 15.1 40.7 15.7 38.6 16.4C36.4 17.1 34.2 18.1 32.3 19.3C30.3 20.4 28.3 21.8 26.6 23.3C24.9 24.8 23.3 26.5 21.9 28.3C20.5 30.2 19.2 32.2 18.2 34.2C17.2 36.3 16.3 38.5 15.7 40.7C15.1 42.9 15.7 46.4 14.6 47.5C13.5 48.6 10.2 48.6 9.2 47.1Z",
-        { fill: "c1" },
-      ),
-      P(
-        "M9.6 31.9C9.8 30.9 10.3 28 10.8 26.1C11.3 24.1 12 22.2 12.8 20.3C13.7 18.4 14.6 16.5 15.8 14.7C16.9 13 18.3 11.2 19.7 9.7C21.2 8.1 22.8 6.6 24.6 5.4C26.3 4.1 28.3 3 30.2 2.1C32.2 1.2 34.3 0.5 36.4 0C38.5 -0.5 40.7 -0.8 42.9 -0.9C45.1 -0.9 47.3 -0.8 49.4 -0.4C51.5 -0.1 53.6 0.5 55.6 1.2C57.6 1.9 59.5 2.8 61.3 3.8C63.1 4.8 64.9 5.9 66.5 7.1C68.1 8.3 70.2 10.4 70.9 11C71.7 11.7 71.8 11.5 70.9 11C70.1 10.6 67.7 9.2 66 8.3C64.3 7.4 62.7 6.4 60.9 5.6C59.1 4.8 57.2 4.1 55.3 3.5C53.4 3 51.4 2.5 49.4 2.3C47.4 2 45.3 1.9 43.3 2C41.3 2.1 39.2 2.4 37.2 2.9C35.2 3.3 33.2 4 31.4 4.8C29.5 5.7 27.7 6.7 26 7.9C24.3 9 22.8 10.4 21.3 11.8C19.9 13.2 18.6 14.8 17.4 16.4C16.2 18 15.2 19.7 14.3 21.5C13.4 23.2 12.7 25 11.9 26.7C11.1 28.5 10 31 9.6 31.9C9.2 32.7 9.4 32.9 9.6 31.9Z",
-        { fill: "light" },
-      ),
-      P(
-        "M88 34.6C92.1 42.2 91.5 46.6 88 46.8C84.6 46.6 83.9 42.2 88 34.6ZM94 58.9C96.9 64.2 96.4 67.2 94 67.4C91.6 67.2 91.1 64.2 94 58.9ZM12 52.2C15.2 58.2 14.7 61.6 12 61.8C9.3 61.6 8.8 58.2 12 52.2ZM80 75.8C82.3 80.1 82 82.6 80 82.7C78.1 82.6 77.7 80.1 80 75.8Z",
-        { fill: "c1", a: true },
-      ),
-      P(
-        "M87.2 37.4C88.9 40.5 88.6 42.3 87.2 42.4C85.8 42.3 85.5 40.5 87.2 37.4ZM11.2 54.2C12.5 56.7 12.3 58.1 11.2 58.2C10.1 58.1 9.9 56.7 11.2 54.2Z",
-        { fill: "light", a: true },
-      ),
+      P(taperBand(41, 208, 378, 11, 2.4), { z: "back", fill: "c1", a: true }),
+      P(taperBand(43.6, 230, 372, 2.2, 1), { z: "back", fill: "light", a: true }),
+      P(coil(22, 39, 5.4, 0.9, 5.4, 1), { fill: "c1", a: true }),
+      P(coil(22, 39.5, 5, 0.8, 2, 1), { fill: "light", a: true, o: 2 }),
+      ...row([250, 285, 320, 350], (a) => blob(a, 45.6, 2.2), {
+        z: "back",
+        fill: "light",
+        a: true,
+      }),
+      ...row([196, 214, 232], (a, i) => blob(a, 43 + i * 2, 1.6), {
+        z: "back",
+        fill: "c2",
+        anim: "drift",
+        a: true,
+      }),
+      P(gem(180, 39.4, 4.4, 6), { z: "back", fill: "c2", anim: "pulse", a: true }),
     ],
   },
   {
     id: "stone-mantle",
     name: "Stone mantle",
     group: "Elemental",
+    anim: "float",
     parts: [
-      P(
-        "M2 42.3L8.2 37.4L15.5 39.3L19.7 45.8L17.7 53.4L10.6 56.8L1.6 52ZM-3.2 69.5L-2 57.2L8 51.1L19.9 53.4L26.3 63.9L22.3 75.6L7.3 80.5ZM16.5 70L26.1 67.6L33.4 73.4L34.9 83L28.8 90.7L18.9 90.9L11.1 80.9ZM23 83.4L31.6 73.9L43.7 74.8L52.3 84L51.3 96.8L40.8 104.1L25.1 99.1ZM43.4 90L46.9 79.3L57 75.6L67.2 80L71 90.7L65.2 100.4L50.7 101.9ZM61.5 74.6L72.1 68.5L82.9 72.9L88.1 83.9L83.3 95.3L71.6 98.9L58.8 89.6ZM74.4 68.2L78.7 59.3L87.9 57.4L96.2 62.4L98.2 72.1L92 79.7L79.3 79.3ZM81 48.2L87.2 42.6L95 44L100 50.6L98.4 58.8L91.1 62.9L81.3 58.5Z",
-        { z: "back", fill: "#1d2126" },
+      ...row(
+        [-148, -118, -88, -58, 58, 88, 118, 148],
+        (a, i) => rubble(a, 42.4, 8 - (i % 2) * 1.6, i + 1),
+        { z: "back", fill: "#1d2126", a: true },
       ),
-      P(
-        "M3.1 43L8.5 38.8L14.7 40.4L18.4 46L16.7 52.6L10.5 55.4L2.8 51.4ZM-1.3 69L-0.2 58.4L8.4 53.1L18.7 55.1L24.2 64.2L20.8 74.2L7.8 78.4ZM17.4 71.3L25.7 69.3L32 74.3L33.3 82.5L28 89.2L19.5 89.3L12.8 80.8ZM25 84.2L32.4 76L42.8 76.8L50.2 84.7L49.3 95.7L40.3 102.1L26.8 97.7ZM45.2 89.9L48.2 80.7L57 77.5L65.8 81.3L69.1 90.5L64.1 98.9L51.6 100.2ZM63.1 75.9L72.3 70.6L81.6 74.4L86 83.9L81.9 93.7L71.8 96.8L60.7 88.8ZM76 68.3L79.8 60.7L87.6 59L94.8 63.3L96.5 71.7L91.2 78.3L80.3 77.9ZM82.2 48.8L87.6 44L94.3 45.2L98.6 50.9L97.3 58L90.9 61.5L82.5 57.7Z",
-        { z: "back", fill: "#576069" },
+      ...row(
+        [-148, -118, -88, -58, 58, 88, 118, 148],
+        (a, i) => rubble(a, 42.8, 6.8 - (i % 2) * 1.4, i + 1),
+        { z: "back", fill: "#576069", a: true },
       ),
-      P(
-        "M4.1 43.6L8.7 40L14.1 41.3L17.2 46.1L12.7 46.1L6.5 45.9ZM0.5 68.5L1.4 59.4L8.8 54.9L17.6 56.6L12.6 61.6L5.7 68.3ZM18.2 72.5L25.3 70.7L30.8 75L31.9 82.1L26.8 79.8L19.8 76.4ZM26.7 84.8L33.1 77.8L42 78.5L48.4 85.3L41.2 86.5L31.3 87.9ZM46.9 89.9L49.5 81.9L57 79.2L64.6 82.4L59.2 86L51.7 90.7ZM64.4 77L72.3 72.5L80.3 75.8L84.2 83.9L77.2 82.8L67.7 81.2ZM77.5 68.4L80.7 61.9L87.4 60.5L93.6 64.1L88.5 66.6L81.5 69.7ZM83.3 49.4L87.9 45.2L93.7 46.3L97.4 51.1L92.6 51.4L86 51.7Z",
-        { z: "back", fill: "#98a2ae" },
+      ...row(
+        [-148, -118, -88, -58, 58, 88, 118, 148],
+        (a, i) => rubble(a, 44.6, 3.2 - (i % 2) * 0.8, i + 1),
+        { z: "back", fill: "#98a2ae", a: true },
       ),
+      ...row([-170, 170, 180], (a, i) => rubble(a, 39.5 + i, 2.4 - i * 0.4, i + 4), {
+        z: "back",
+        fill: "#576069",
+        anim: "drift",
+        a: true,
+      }),
+      ...row([-32, 32], (a) => blob(a, 38.6, 2.4), { fill: "c2", anim: "pulse", a: true }),
     ],
   },
   {
     id: "ember-rise",
     name: "Ember rise",
     group: "Elemental",
-    anim: "flicker",
+    anim: "drift",
     parts: [
-      P(
-        "M7 90C7.8 87 10.5 73 12 72C13.5 71 14.5 86.5 16 84C17.5 81.5 19.3 58.7 21 57C22.7 55.3 24.3 72.7 26 74C27.7 75.3 29.5 64 31 65C32.5 66 33.5 82.5 35 80C36.5 77.5 38.3 51.7 40 50C41.7 48.3 43.3 68.5 45 70C46.7 71.5 48.5 58 50 59C51.5 60 52.5 78 54 76C55.5 74 57.3 48.3 59 47C60.7 45.7 62.3 66.3 64 68C65.7 69.7 67.5 55.3 69 57C70.5 58.7 71.5 77 73 78C74.5 79 76.5 62.3 78 63C79.5 63.7 80.5 80.3 82 82C83.5 83.7 85.5 71.7 87 73C88.5 74.3 90.3 87.2 91 90C85 99 66.4 102 50 102C32.8 102 13 99 7 90Z",
-        { fill: "c1", a: true },
+      P(arcBand(39.4, 96, 264, 5.6), { z: "back", fill: "#5e2a12" }),
+      P(arcBand(37.2, 96, 264, 1.4), { z: "back", fill: "#8c4a1e" }),
+      ...row(
+        [104, 122, 140, 158, 180, 202, 220, 238, 256],
+        (a, i) => blob(a, 40.4, 2.6 - (i % 3) * 0.5),
+        { z: "back", fill: "#e8431f", anim: "flicker", a: true },
       ),
-      P(
-        "M16 90C16.7 88 18.7 78.7 20 78C21.3 77.3 22.5 87.8 24 86C25.5 84.2 27.3 68 29 67C30.7 66 32.3 79 34 80C35.7 81 37.5 72.2 39 73C40.5 73.8 41.5 87 43 85C44.5 83 46.3 62.2 48 61C49.7 59.8 51.3 76.7 53 78C54.7 79.3 56.5 68 58 69C59.5 70 60.5 84.8 62 84C63.5 83.2 65.5 64.7 67 64C68.5 63.3 69.5 78.5 71 80C72.5 81.5 74.5 71.7 76 73C77.5 74.3 79.3 85.5 80 88C74 96 62 99 50 99C36.4 99 22 96 16 90Z",
-        { fill: "c2", a: true },
+      ...row(
+        [112, 132, 152, 172, 190, 210, 230, 250],
+        (a, i) => blob(a, 40.4, 1.4 - (i % 3) * 0.3),
+        { z: "back", fill: "#ffe066", anim: "flicker", a: true },
       ),
-      P(
-        "M35 92C35.7 90.5 37.7 83.5 39 83C40.3 82.5 41.5 90.3 43 89C44.5 87.7 46.3 75.3 48 75C49.7 74.7 51.5 86.2 53 87C54.5 87.8 55.5 79.5 57 80C58.5 80.5 61.2 88.3 62 90C56 93 54.8 96 50 96C44 96 41 93 35 92Z",
-        { fill: "light", a: true },
+      ...row(
+        [104, 120, 136, 224, 240, 256],
+        (a, i) => blob(a, 44.5 + (i % 3) * 2, 1.8 - (i % 3) * 0.4),
+        { z: "back", fill: "#ff922b", a: true },
       ),
-      P(
-        "M4.8 56a3.2 3.2 0 1 0 6.4 0a3.2 3.2 0 1 0 -6.4 0ZM13.9 37a2.1 2.1 0 1 0 4.2 0a2.1 2.1 0 1 0 -4.2 0ZM19.5 22a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0 -3 0Z",
-        { fill: "c1", a: true, o: "l" },
-      ),
-      P(
-        "M90.1 51a2.9 2.9 0 1 0 5.8 0a2.9 2.9 0 1 0 -5.8 0ZM83 33a2 2 0 1 0 4 0a2 2 0 1 0 -4 0ZM77.6 19a1.4 1.4 0 1 0 2.8 0a1.4 1.4 0 1 0 -2.8 0Z",
-        { fill: "c2", a: true, o: "r" },
-      ),
+      ...row([112, 134, 226, 248], (a, i) => blob(a, 48 + (i % 2) * 2.5, 1.3), {
+        z: "back",
+        fill: "#ffe066",
+        a: true,
+      }),
     ],
   },
   {
     id: "gale-swirl",
     name: "Gale swirl",
     group: "Elemental",
-    anim: "sway",
+    anim: "whirl",
     parts: [
-      P(
-        "M11.4 44.6C11.3 43.2 10.6 39.3 10.8 36.6C10.9 33.9 11.5 31.1 12.3 28.4C13.1 25.7 14.3 23 15.8 20.5C17.2 18 19 15.6 21 13.4C23 11.2 25.4 9.1 27.9 7.4C30.4 5.6 33.1 4.1 36 2.9C38.9 1.7 42 0.8 45.1 0.3C48.2 -0.3 51.5 -0.5 54.7 -0.4C57.8 -0.3 61.1 0.1 64.2 0.9C67.4 1.7 70.5 2.8 73.4 4.3C76.2 5.8 80.1 8.9 81.4 9.8C82.7 10.7 82.9 10.3 81.4 9.8C79.8 9.3 75.2 7.6 72.1 6.8C69 6.1 66 5.5 63 5.3C60 5.1 57 5.1 54.1 5.4C51.2 5.7 48.4 6.2 45.7 6.9C43.1 7.7 40.5 8.6 38 9.8C35.6 10.9 33.3 12.2 31.2 13.7C29 15.2 27 16.9 25.2 18.6C23.3 20.4 21.7 22.3 20.2 24.3C18.7 26.3 17.4 28.5 16.2 30.7C15.1 32.8 14.2 35.1 13.4 37.5C12.6 39.8 11.7 43.4 11.4 44.6C11 45.8 11.5 45.9 11.4 44.6ZM89.6 55.6C89.7 56.9 90.2 60.7 90 63.3C89.8 65.9 89.2 68.5 88.4 71.1C87.6 73.6 86.5 76.2 85.2 78.6C83.8 81 82.2 83.3 80.3 85.4C78.4 87.5 76.3 89.5 74 91.3C71.7 93 69.1 94.5 66.5 95.7C63.8 97 61 98 58.1 98.7C55.2 99.4 52.2 99.8 49.2 99.9C46.2 100 43.1 99.7 40.2 99.2C37.2 98.7 34.2 97.9 31.4 96.8C28.7 95.6 24.8 93.1 23.5 92.4C22.2 91.7 22 92.1 23.5 92.4C25 92.7 29.4 94 32.4 94.5C35.3 95 38.2 95.2 41 95.3C43.8 95.3 46.6 95.1 49.3 94.7C52 94.3 54.6 93.6 57.1 92.8C59.6 92 62.1 90.9 64.3 89.8C66.6 88.6 68.8 87.2 70.8 85.8C72.8 84.3 74.7 82.6 76.4 80.9C78.2 79.2 79.7 77.3 81.1 75.3C82.6 73.3 83.8 71.3 84.9 69.1C86 67 86.9 64.8 87.7 62.5C88.4 60.2 89.3 56.7 89.6 55.6C89.9 54.4 89.5 54.3 89.6 55.6Z",
-        { z: "back", fill: "c1", a: true, o: "l" },
-      ),
-      P(
-        "M6.7 62.4C6.3 61.6 4.7 59.3 4 57.7C3.2 56 2.6 54.2 2 52.4C1.5 50.6 1.1 48.8 0.9 46.9C0.6 45 0.5 43 0.5 41.1C0.5 39.2 0.6 37.2 0.9 35.2C1.2 33.3 1.6 31.3 2.1 29.4C2.7 27.5 3.4 25.6 4.2 23.8C5 21.9 6 20.1 7.1 18.4C8.1 16.7 9.3 15 10.6 13.4C11.9 11.8 13.3 10.3 14.9 8.9C16.4 7.6 19 5.9 19.8 5.2C20.6 4.6 20.4 4.4 19.8 5.2C19.2 6.1 17.2 8.6 16 10.2C14.8 11.9 13.7 13.6 12.7 15.3C11.7 17 10.7 18.7 9.9 20.5C9.1 22.2 8.4 24 7.8 25.8C7.1 27.6 6.6 29.4 6.2 31.1C5.7 32.9 5.4 34.7 5.1 36.5C4.8 38.3 4.6 40.1 4.5 41.8C4.4 43.6 4.4 45.4 4.4 47.1C4.5 48.8 4.6 50.6 4.8 52.3C5 54 5.3 55.7 5.6 57.4C6 59.1 6.6 61.6 6.7 62.4C6.9 63.2 7.2 63.2 6.7 62.4ZM91.3 35C89.6 31.9 85.8 21.6 81.1 16.6C76.3 11.5 69.6 7.1 62.8 4.8C56.1 2.4 47.8 1.6 40.6 2.7C33.3 3.8 25.4 6.9 19.4 11.3C13.3 15.7 7.7 22.3 4.3 29.1C0.9 35.9 -1.2 44.5 -1 52.3C-0.9 60 1.3 68.7 5 75.6C8.7 82.5 14.7 89.3 21.3 93.8C27.8 98.2 36.4 101.5 44.3 102.4C52.3 103.4 61.4 102.4 68.9 99.5C76.4 96.7 86 87.8 89.4 85.5C92.8 83.1 92.9 83.4 89.4 85.5C85.9 87.5 75.8 95.6 68.3 98C60.9 100.3 52.1 100.9 44.6 99.7C37.1 98.5 29.3 95.1 23.2 90.8C17.2 86.4 11.9 80 8.6 73.6C5.2 67.1 3.4 59.2 3.3 52.1C3.3 45 5.1 37.2 8.2 30.9C11.3 24.7 16.4 18.7 21.9 14.5C27.4 10.4 34.6 7.4 41.3 6.2C48 5 55.6 5.5 62.1 7.4C68.5 9.4 75.1 13.2 79.9 17.8C84.8 22.4 89.4 32.1 91.3 35C93.2 37.8 93.1 38 91.3 35ZM44.8 0.3C45.3 0 46.7 -0.8 47.7 -1.2C48.7 -1.7 49.8 -2 50.8 -2.3C51.9 -2.7 53 -2.9 54.1 -3.1C55.1 -3.3 56.3 -3.5 57.4 -3.6C58.5 -3.7 59.6 -3.8 60.7 -3.8C61.9 -3.8 63 -3.8 64.1 -3.7C65.2 -3.6 66.4 -3.4 67.5 -3.2C68.6 -3 69.7 -2.8 70.8 -2.5C71.9 -2.2 73 -1.8 74.1 -1.4C75.2 -1 76.2 -0.6 77.2 -0.1C78.3 0.4 79.7 1.4 80.2 1.7C80.7 2 80.8 1.8 80.2 1.7C79.6 1.6 77.8 1.3 76.6 1.1C75.4 0.9 74.3 0.7 73.2 0.5C72 0.3 70.9 0.2 69.8 0.1C68.7 -0.1 67.6 -0.1 66.5 -0.2C65.4 -0.3 64.3 -0.4 63.3 -0.4C62.2 -0.5 61.1 -0.5 60.1 -0.5C59 -0.5 58 -0.5 56.9 -0.5C55.9 -0.5 54.9 -0.4 53.8 -0.4C52.8 -0.3 51.8 -0.3 50.8 -0.2C49.8 -0.1 48.8 0 47.8 0.1C46.8 0.1 45.3 0.2 44.8 0.3C44.3 0.3 44.3 0.5 44.8 0.3Z",
-        { z: "back", fill: "light", a: true, o: "r" },
-      ),
+      P(taperBand(46.4, -50, 170, 5, 0.6, 37.4), { z: "back", fill: "c1", a: true }),
+      P(taperBand(38.4, 150, 380, 4.4, 0.5, 46.8), { z: "back", fill: "c1", a: true }),
+      P(taperBand(43.4, 70, 260, 2.6, 0.4, 37), { z: "back", fill: "light", a: true, o: "r" }),
+      P(taperBand(37.2, 250, 430, 2.4, 0.4, 44.4), { z: "back", fill: "light", a: true, o: "r" }),
+      ...row([-100, 20, 140, 260], (a) => leaf(a, 45, 5, 2, 2), {
+        z: "back",
+        fill: "c2",
+        anim: "drift",
+        a: true,
+      }),
     ],
   },
   // ---------- cosmic ----------
@@ -810,109 +1021,78 @@ export const DECORATIONS = [
     id: "ringed-world",
     name: "Ringed world",
     group: "Cosmic",
-    anim: "sway",
+    anim: "pulse",
     parts: [
-      P(
-        "M98 36.4 A50.5 18.5 -18 0 1 2 67.6 A50.5 18.5 -18 0 1 98 36.4 Z M91.4 38.6 A43.5 11.5 -18 0 0 8.6 65.4 A43.5 11.5 -18 0 0 91.4 38.6 Z",
-        { z: "back", fill: "c1" },
-      ),
-      P(
-        "M3.1 60.7 A50.3 18.3 -18 0 1 93 31.4 L91.3 32.8 A48.1 16.1 -18 0 0 5.3 60.7 Z",
-        { z: "back", fill: "light" },
-      ),
-      P(
-        "M98.6 38.3 A50.7 18.7 -18 0 1 2.6 69.4 L9.4 66.4 A43.3 11.3 -18 0 0 91.3 39.8 Z",
-        { fill: "c1", a: true },
-      ),
-      P(
-        "M97.3 42.6 A50.4 18.4 -18 0 1 6.2 72.2 L7.9 70.9 A48.2 16.2 -18 0 0 95.1 42.6 Z",
-        { fill: "light", a: true },
-      ),
-      P("M70.9 31.1 A6.4 6.4 0 1 1 83.7 31.1 A6.4 6.4 0 1 1 70.9 31.1 Z", {
-        fill: "c2",
-      }),
-      P("M73.2 29.2 A2.3 2.3 0 1 1 77.8 29.2 A2.3 2.3 0 1 1 73.2 29.2 Z", {
-        fill: "light",
-      }),
+      P(ovalBand(51, 43, 13, 178, 362, 6.4, -14), { z: "back", fill: "c1" }),
+      P(ovalBand(51, 43, 13, 178, 362, 2, -14), { z: "back", fill: "light" }),
+      P(ovalBand(51, 43, 13, -2, 182, 6.4, -14), { fill: "c1" }),
+      P(ovalBand(51, 43, 13, 6, 174, 1.8, -14), { fill: "light" }),
+      P(blob(64, 44, 5.6), { fill: "c2", a: true }),
+      P(blob(61, 45.4, 1.9), { fill: "light", a: true, o: 2 }),
+      ...row([-46, -20], (a) => star(a, 44, 2.8, 1, 4), { z: "back", fill: "light", a: true }),
     ],
   },
   {
     id: "comet",
     name: "Comet",
     group: "Cosmic",
-    anim: "float",
+    anim: "whirl",
     parts: [
-      P(
-        "M96.3 27.4 L92.6 22.3 L88.6 17.6 L84.1 13.4 L79.2 9.8 L74 6.7 L68.4 4.4 L62.7 2.8 L56.8 1.8 L50.8 1.6 L45 2.1 L39.2 3.3 L33.7 5.2 L28.4 7.7 L23.6 10.8 L19.1 14.5 L15.2 18.6 L11.8 23.2 L9 28.2 L6.8 33.4 L5.3 38.8 L4.4 44.4 L4.3 50 L4.8 55.5 L6 61 L7.8 66.2 L10.3 71.1 L10.3 71.1 L8.2 66.1 L6.7 60.8 L5.9 55.4 L5.7 50 L6.2 44.6 L7.4 39.4 L9.2 34.3 L11.6 29.6 L14.5 25.1 L18 21.1 L21.8 17.6 L26.1 14.6 L30.7 12.1 L35.5 10.3 L40.5 9 L45.6 8.4 L50.7 8.4 L55.8 9.1 L60.6 10.3 L65.3 12.1 L69.7 14.5 L73.7 17.4 L77.2 20.8 L80.3 24.6 L82.8 28.7 L84.6 33.1 Z",
-        { z: "back", fill: "c1" },
-      ),
-      P(
-        "M90.7 26.5 L87.5 22.5 L84.1 18.7 L80.4 15.3 L76.3 12.3 L72 9.8 L67.4 7.7 L62.6 6.2 L57.8 5.2 L52.8 4.7 L47.8 4.8 L42.9 5.4 L38.1 6.6 L33.5 8.2 L29.1 10.3 L24.9 12.9 L21.1 16 L17.6 19.4 L14.5 23.2 L11.8 27.2 L9.7 31.6 L8 36.1 L6.8 40.8 L6.8 40.8 L8.1 36.2 L9.9 31.7 L12.2 27.5 L15 23.5 L18.2 19.9 L21.7 16.7 L25.5 13.9 L29.7 11.5 L34 9.6 L38.6 8.2 L43.2 7.3 L47.9 6.9 L52.7 7 L57.3 7.7 L61.9 8.8 L66.3 10.5 L70.4 12.6 L74.3 15.2 L77.8 18.2 L81 21.5 L83.8 25.2 L85.9 29.3 Z",
-        { z: "back", fill: "light" },
-      ),
-      P("M82.1 30.2 A8.4 8.4 0 1 1 98.9 30.2 A8.4 8.4 0 1 1 82.1 30.2 Z", {
-        fill: "c2",
+      P(taperBand(43, -130, 14, 0.8, 7.6), { z: "back", fill: "c1", a: true }),
+      P(taperBand(43, -92, 12, 0.6, 4), { z: "back", fill: "light", a: true }),
+      P(blob(18, 42, 5.2), { fill: "c2", a: true }),
+      P(star(18, 42, 8.6, 2, 4, 0), { fill: "light", a: true }),
+      P(blob(17, 43.4, 1.7), { fill: "light", a: true }),
+      ...row([-150, -112], (a, i) => star(a, 43 + i * 2, 2.6, 0.9, 4), {
+        z: "back",
+        fill: "light",
+        a: true,
       }),
-      P(
-        "M89.6 22.2 C91 26.3 92.3 27.6 96.4 29 C92.3 30.4 91 31.7 89.6 35.8 C88.2 31.7 86.9 30.4 82.8 29 C86.9 27.6 88.2 26.3 89.6 22.2 Z",
-        { fill: "light", a: true },
-      ),
-      P(
-        "M24 7.6 C24.9 10.2 25.8 11.1 28.4 12 C25.8 12.9 24.9 13.8 24 16.4 C23.1 13.8 22.2 12.9 19.6 12 C22.2 11.1 23.1 10.2 24 7.6 Z M9 64.4 C9.7 66.6 10.4 67.3 12.6 68 C10.4 68.7 9.7 69.4 9 71.6 C8.3 69.4 7.6 68.7 5.4 68 C7.6 67.3 8.3 66.6 9 64.4 Z",
-        { z: "back", fill: "light", a: true, o: "r" },
-      ),
     ],
   },
   {
     id: "constellation",
     name: "Constellation",
     group: "Cosmic",
-    anim: "flicker",
+    anim: "pulse",
     parts: [
       P(
-        "M13.8 37.4 L21.8 20.4 L20.2 19.6 L12.2 36.6 Z M21.5 20.7 L37.5 10.7 L36.5 9.3 L20.5 19.3 Z M37.2 10.8 L56.2 6.8 L55.8 5.2 L36.8 9.2 Z M55.7 6.8 L72.7 13.8 L73.3 12.2 L56.3 5.2 Z M72.4 13.6 L87.4 27.6 L88.6 26.4 L73.6 12.4 Z M72.5 12.3 L60.5 22.3 L61.5 23.7 L73.5 13.7 Z",
-        { fill: "c1" },
+        [
+          link(-80, 39, -58, 43.5, 0.9),
+          link(-58, 43.5, -34, 38.5, 0.9),
+          link(-34, 38.5, -8, 44.5, 0.9),
+          link(-8, 44.5, 18, 39, 0.9),
+          link(18, 39, 44, 43.5, 0.9),
+          link(44, 43.5, 70, 38.5, 0.9),
+          link(-8, 44.5, 12, 47.5, 0.9),
+        ].join(""),
+        { fill: "c1", anim: "shimmer", a: true },
       ),
-      P(
-        "M13 32 C14 35 15 36 18 37 C15 38 14 39 13 42 C12 39 11 38 8 37 C11 36 12 35 13 32 Z M21 12.5 C22.5 17 24 18.5 28.5 20 C24 21.5 22.5 23 21 27.5 C19.5 23 18 21.5 13.5 20 C18 18.5 19.5 17 21 12.5 Z M37 4.5 C38.1 7.8 39.2 8.9 42.5 10 C39.2 11.1 38.1 12.2 37 15.5 C35.9 12.2 34.8 11.1 31.5 10 C34.8 8.9 35.9 7.8 37 4.5 Z M56 -3 C57.8 2.4 59.6 4.2 65 6 C59.6 7.8 57.8 9.6 56 15 C54.2 9.6 52.4 7.8 47 6 C52.4 4.2 54.2 2.4 56 -3 Z M73 7.5 C74.1 10.8 75.2 11.9 78.5 13 C75.2 14.1 74.1 15.2 73 18.5 C71.9 15.2 70.8 14.1 67.5 13 C70.8 11.9 71.9 10.8 73 7.5 Z M88 20.5 C89.3 24.4 90.6 25.7 94.5 27 C90.6 28.3 89.3 29.6 88 33.5 C86.7 29.6 85.4 28.3 81.5 27 C85.4 25.7 86.7 24.4 88 20.5 Z",
+      ...row(
+        [-80, -58, -34, -8, 18, 44, 70],
+        (a, i) => star(a, [39, 43.5, 38.5, 44.5, 39, 43.5, 38.5][i], i === 3 ? 5.4 : 3.8, 1.4, 4),
         { fill: "light", a: true },
       ),
-      P(
-        "M61 18.4 C61.9 21.2 62.8 22.1 65.6 23 C62.8 23.9 61.9 24.8 61 27.6 C60.1 24.8 59.2 23.9 56.4 23 C59.2 22.1 60.1 21.2 61 18.4 Z M31 26.6 C31.7 28.6 32.4 29.3 34.4 30 C32.4 30.7 31.7 31.4 31 33.4 C30.3 31.4 29.6 30.7 27.6 30 C29.6 29.3 30.3 28.6 31 26.6 Z",
-        { fill: "c2", a: true, o: "r" },
-      ),
+      P(star(12, 47.5, 3.2, 1.1, 4), { fill: "c2", anim: "pulse", a: true, o: 5 }),
+      ...row([-94, -20, 32, 88], (a, i) => blob(a, 42 + (i % 2) * 3, 1.2), {
+        fill: "c2",
+        a: true,
+      }),
     ],
   },
   {
     id: "orbits",
     name: "Orbits",
     group: "Cosmic",
-    anim: "sway",
+    anim: "shimmer",
     parts: [
-      P(
-        "M92.1 72.4 A47.7 21.7 28 0 1 7.9 27.6 A47.7 21.7 28 0 1 92.1 72.4 Z M89.1 70.8 A44.3 18.3 28 0 0 10.9 29.2 A44.3 18.3 28 0 0 89.1 70.8 Z",
-        { z: "back", fill: "c1" },
-      ),
-      P(
-        "M92.1 27.6 A47.7 21.7 -28 0 1 7.9 72.4 A47.7 21.7 -28 0 1 92.1 27.6 Z M89.1 29.2 A44.3 18.3 -28 0 0 10.9 70.8 A44.3 18.3 -28 0 0 89.1 29.2 Z",
-        { z: "back", fill: "c2" },
-      ),
-      P(
-        "M12.3 23.2 A47.7 21.7 28 0 1 93.3 66.2 L90 65.5 A44.3 18.3 28 0 0 14.8 25.6 Z",
-        { fill: "c1" },
-      ),
-      P(
-        "M6.7 66.2 A47.7 21.7 -28 0 1 87.7 23.2 L85.2 25.6 A44.3 18.3 -28 0 0 10 65.5 Z",
-        { fill: "c2" },
-      ),
-      P("M85.5 65.1 A6 6 0 1 1 97.5 65.1 A6 6 0 1 1 85.5 65.1 Z", {
-        fill: "c2",
-        a: true,
-      }),
-      P(
-        "M87.6 63.3 A2.3 2.3 0 1 1 92.2 63.3 A2.3 2.3 0 1 1 87.6 63.3 Z M8.8 75.4 A4.4 4.4 0 1 1 17.6 75.4 A4.4 4.4 0 1 1 8.8 75.4 Z",
-        { fill: "light", a: true },
-      ),
+      P(ovalBand(50, 43, 15, 180, 360, 2.4, 26), { z: "back", fill: "c1", a: true }),
+      P(ovalBand(50, 43, 15, 0, 180, 2.4, 26), { fill: "c1", a: true }),
+      P(ovalBand(50, 43, 15, 180, 360, 2.4, -26), { z: "back", fill: "c2", a: true, o: 3 }),
+      P(ovalBand(50, 43, 15, 0, 180, 2.4, -26), { fill: "c2", a: true, o: 3 }),
+      P(blob(72, 44, 3.6), { fill: "c1", anim: "whirl", a: true }),
+      P(blob(-108, 44, 3), { fill: "c2", anim: "whirl", a: true, o: "r" }),
+      P(blob(71, 45.2, 1.2), { fill: "light", anim: "whirl", a: true }),
     ],
   },
   {
@@ -921,18 +1101,24 @@ export const DECORATIONS = [
     group: "Cosmic",
     anim: "flicker",
     parts: [
-      P(
-        "M85 49.4 Q94.9 45.2 103 42.6 Q94.5 42.2 83.8 40.9 Z M78 28.9 Q80.5 22.5 83.1 18 Q78.5 20.5 72 22.8 Z M60.2 16.5 Q59.4 5.8 59.3 -2.7 Q56.3 5.3 51.8 15 Z M38.6 16.9 Q33.3 12.5 29.8 8.7 Q30.8 13.7 30.9 20.6 Z M21.3 29.9 Q10.9 27.4 2.8 24.9 Q9.4 30.2 17.3 37.5 Z M15 50.6 Q9.2 54.3 4.4 56.4 Q9.6 57.1 16.2 59.1 Z M22 71.1 Q16.4 80.3 11.5 87.2 Q18.6 82.5 28 77.2 Z M39.8 83.5 Q41.5 90.2 42 95.3 Q44.3 90.6 48.2 85 Z M61.4 83.1 Q68.4 91.3 73.5 98.1 Q71.2 89.9 69.1 79.4 Z M78.7 70.1 Q85.6 70.5 90.6 71.6 Q86.9 68 82.7 62.5 Z",
+      ...row(
+        Array.from({ length: 18 }, (_, i) => i * 20),
+        (a, i) => leaf(a, 38, [8, 5, 6.5][i % 3], 4.5, [2, -2, 0][i % 3]),
         { z: "back", fill: "c1", a: true },
       ),
-      P(
-        "M82.5 37 Q86.3 33.2 89.5 30.7 Q85.5 31.8 80.2 32.4 Z M47.7 15.1 Q45.3 10.3 43.9 6.4 Q43.6 10.6 42.6 15.8 Z M16.1 41.4 Q10.8 42.3 6.7 42.4 Q10.5 43.9 15.2 46.5 Z M31.3 79.6 Q30.5 84.9 29.3 88.8 Q32 85.7 35.9 82 Z M72.4 76.9 Q77.2 79.3 80.6 81.7 Q78.3 78.2 76.1 73.3 Z",
-        { z: "back", fill: "c2", a: true, o: "r" },
+      ...row(
+        Array.from({ length: 9 }, (_, i) => i * 40 + 10),
+        (a, i) => leaf(a, 38, [5, 3.5][i % 2], 2.6, 0),
+        { z: "back", fill: "c2", a: true },
       ),
-      P(
-        "M89.8 50 A39.8 39.8 0 0 1 10.2 50 A39.8 39.8 0 0 1 89.8 50 Z M86.6 50 A36.6 36.6 0 0 0 13.4 50 A36.6 36.6 0 0 0 86.6 50 Z",
-        { z: "back", fill: "light" },
-      ),
+      P(annulus(38.4, 2.6), { z: "back", fill: "c1" }),
+      P(annulus(39.6, 0.8), { z: "back", fill: "light", anim: "shimmer", a: true }),
+      ...row([-40, 30], (a, i) => leaf(a, 40, 7 + i, 3, 3), {
+        z: "back",
+        fill: "light",
+        anim: "drift",
+        a: true,
+      }),
     ],
   },
   // ---------- tech ----------
@@ -940,43 +1126,18 @@ export const DECORATIONS = [
     id: "headphones",
     name: "Headphones",
     group: "Tech",
+    anim: "pulse",
     parts: [
-      P(
-        "M3 51.6 A47 47 0 1 1 97 51.6 L86.5 51.3 A36.5 36.5 0 1 0 13.5 51.3 Z",
-        { fill: "ink" },
-      ),
-      P(
-        "M4.5 50.8 A45.5 45.5 0 1 1 95.5 50.8 L88.5 50.7 A38.5 38.5 0 1 0 11.5 50.7 Z",
-        { fill: "c1" },
-      ),
-      P(
-        "M9.6 30.3 A44.9 44.9 0 0 1 31.7 9 L32.3 10.4 A43.4 43.4 0 0 0 11 31 Z",
-        { fill: "light" },
-      ),
-      P(
-        "M10 34 H11 C16.5 34 21 38.5 21 44 V57 C21 62.5 16.5 67 11 67 H10 C4.5 67 0 62.5 0 57 V44 C0 38.5 4.5 34 10 34 Z",
-        { fill: "ink" },
-      ),
-      P(
-        "M89 34 H90 C95.5 34 100 38.5 100 44 V57 C100 62.5 95.5 67 90 67 H89 C83.5 67 79 62.5 79 57 V44 C79 38.5 83.5 34 89 34 Z",
-        { fill: "ink" },
-      ),
-      P(
-        "M11 36 H10 C15 36 19 40.1 19 45 V56 C19 61 15 65 10 65 H11 C6.1 65 2 61 2 56 V45 C2 40.1 6.1 36 11 36 Z",
-        { fill: "c1" },
-      ),
-      P(
-        "M90 36 H89 C94 36 98 40.1 98 45 V56 C98 61 94 65 89 65 H90 C85.1 65 81 61 81 56 V45 C81 40.1 85.1 36 90 36 Z",
-        { fill: "c1" },
-      ),
-      P(
-        "M10.5 42 H10.5 C13.3 42 15.5 44.3 15.5 47 V54 C15.5 56.8 13.3 59 10.5 59 H10.5 C7.8 59 5.5 56.8 5.5 54 V47 C5.5 44.3 7.8 42 10.5 42 Z",
-        { fill: "c2" },
-      ),
-      P(
-        "M89.5 42 H89.5 C92.3 42 94.5 44.3 94.5 47 V54 C94.5 56.8 92.3 59 89.5 59 H89.5 C86.8 59 84.5 56.8 84.5 54 V47 C84.5 44.3 86.8 42 89.5 42 Z",
-        { fill: "c2" },
-      ),
+      P(arcBand(41.6, -96, 96, 5.6), { fill: "ink" }),
+      P(arcBand(41.6, -96, 96, 3), { fill: "c1" }),
+      P(arcBand(43.2, -62, 62, 0.9), { fill: "light" }),
+      ...mirror(96, (a) => chip(a, 39.6, 10, 16, 3.2), { fill: "ink" }),
+      ...mirror(96, (a) => chip(a, 39.6, 7.4, 13, 2.6), { fill: "c1" }),
+      ...mirror(96, (a) => chip(a, 39.6, 4.6, 9, 1.8), { fill: "c2", anim: "shimmer", a: true }),
+      P(taperBand(36.4, 102, 146, 2.6, 2), { fill: "ink" }),
+      P(taperBand(36.4, 104, 144, 1, 0.8), { fill: "c1" }),
+      P(blob(148, 36.4, 3), { fill: "ink" }),
+      P(blob(148, 36.4, 1.7), { fill: "c2", anim: "pulse", a: true }),
     ],
   },
   {
@@ -985,292 +1146,140 @@ export const DECORATIONS = [
     group: "Tech",
     anim: "twitch",
     parts: [
-      P(
-        "M35.5 27 C33 18.5 30.5 11 26.8 4 L31.6 1.8 C35.4 9.5 40.2 18 43.5 26 Z",
-        { fill: "c1", a: true, o: "l" },
-      ),
-      {
-        el: "circle",
-        attrs: { cx: 29, cy: 3.2, r: 5.2 },
-        fill: "c2",
-        z: "front",
+      P(arcBand(37.2, -64, 64, 3.2), { fill: "c1" }),
+      P(arcBand(38.8, -64, 64, 0.9), { fill: "light" }),
+      ...mirror(27, (a, s) => ray(a, 36.8, 48, 2.6, 1.6) + blob(a + 1.6 * s, 50.4, 4), {
+        fill: "c1",
         a: true,
-        o: "l",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 27.3, cy: 1.7, r: 1.9 },
-        fill: "light",
-        z: "front",
-        a: true,
-        o: "l",
-      },
-      P(
-        "M64.5 27 C67 18.5 69.5 11 73.2 4 L68.4 1.8 C64.6 9.5 59.8 18 56.5 26 Z",
-        { fill: "c1", a: true, o: "r" },
-      ),
-      {
-        el: "circle",
-        attrs: { cx: 71, cy: 3.2, r: 5.2 },
-        fill: "c2",
-        z: "front",
-        a: true,
-        o: "r",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 69.3, cy: 1.7, r: 1.9 },
-        fill: "light",
-        z: "front",
-        a: true,
-        o: "r",
-      },
+        pv: 37,
+      }),
+      ...mirror(28.6, (a) => blob(a, 50.4, 2.2), { fill: "c2", anim: "pulse", a: true }),
+      ...row([-48, 0, 48], (a) => blob(a, 37.2, 1.5), { fill: "c2", anim: "shimmer", a: true }),
     ],
   },
   {
     id: "circuit-traces",
     name: "Circuit traces",
     group: "Tech",
-    anim: "flicker",
+    anim: "shimmer",
     parts: [
-      P("M27 22.2 L12 22.2 L12 26.8 L27 26.8 Z", { fill: "c1" }),
-      P("M14.3 26.5 L14.3 9 L9.7 9 L9.7 26.5 Z", { fill: "c1" }),
-      P("M11 13.2 L3.5 13.2 L3.5 16.8 L11 16.8 Z", { fill: "c1" }),
+      P(arcBand(38.6, -108, 108, 3.6), { fill: "#1c2733" }),
+      P(arcBand(38.6, -108, 108, 1.2), { fill: "c1" }),
       P(
-        "M10.2 2 H13.8 C15 2 16 3 16 4.2 V7.8 C16 9 15 10 13.8 10 H10.2 C9 10 8 9 8 7.8 V4.2 C8 3 9 2 10.2 2 Z",
-        { fill: "c2" },
+        one([-96, -72, -48, -24, 0, 24, 48, 72, 96], (a, i) =>
+          ray(a, 38.6, 38.6 + (i % 2 ? 5.4 : -4.6), 1.1, 1.1),
+        ),
+        { fill: "c1" },
       ),
-      {
-        el: "circle",
-        attrs: { cx: 2.5, cy: 15, r: 3 },
-        fill: "c2",
-        z: "front",
-      },
-      P("M73 77.8 L88 77.8 L88 73.2 L73 73.2 Z", { fill: "c1" }),
-      P("M85.7 73.5 L85.7 91 L90.3 91 L90.3 73.5 Z", { fill: "c1" }),
-      P("M89 86.8 L96.5 86.8 L96.5 83.2 L89 83.2 Z", { fill: "c1" }),
-      P(
-        "M86.2 90 H89.8 C91 90 92 91 92 92.2 V95.8 C92 97 91 98 89.8 98 H86.2 C85 98 84 97 84 95.8 V92.2 C84 91 85 90 86.2 90 Z",
-        { fill: "c2" },
+      ...row(
+        [-96, -72, -48, -24, 0, 24, 48, 72, 96],
+        (a, i) => chip(a, 38.6 + (i % 2 ? 7 : -6.2), 3.4, 3.4, 1),
+        { fill: "c2", a: true },
       ),
-      {
-        el: "circle",
-        attrs: { cx: 97.5, cy: 85, r: 3 },
-        fill: "c2",
-        z: "front",
-      },
-      P("M77.6 27 L77.6 13 L73.4 13 L73.4 27 Z", { fill: "c1" }),
-      P("M77 15.1 L88 15.1 L88 10.9 L77 10.9 Z", { fill: "c1" }),
-      P(
-        "M89 9.5 H92 C93.1 9.5 94 10.4 94 11.5 V14.5 C94 15.6 93.1 16.5 92 16.5 H89 C87.9 16.5 87 15.6 87 14.5 V11.5 C87 10.4 87.9 9.5 89 9.5 Z",
-        { fill: "c2" },
-      ),
-      P("M22.4 73 L22.4 87 L26.6 87 L26.6 73 Z", { fill: "c1" }),
-      P("M23 84.9 L12 84.9 L12 89.1 L23 89.1 Z", { fill: "c1" }),
-      P(
-        "M8 83.5 H11 C12.1 83.5 13 84.4 13 85.5 V88.5 C13 89.6 12.1 90.5 11 90.5 H8 C6.9 90.5 6 89.6 6 88.5 V85.5 C6 84.4 6.9 83.5 8 83.5 Z",
-        { fill: "c2" },
-      ),
+      ...row([-84, -60, -36, -12, 12, 36, 60, 84], (a) => blob(a, 38.6, 1.5), {
+        fill: "light",
+        a: true,
+      }),
+      P(arcBand(41.4, -108, -60, 0.8), { fill: "c2", anim: "pulse", a: true }),
+      P(arcBand(41.4, 60, 108, 0.8), { fill: "c2", anim: "pulse", a: true, o: 4 }),
     ],
   },
   {
     id: "holo-rim",
     name: "Holo rim",
     group: "Tech",
-    anim: "flicker",
+    anim: "shimmer",
     parts: [
-      {
-        el: "ellipse",
-        attrs: { cx: 50, cy: 50, rx: 40, ry: 40 },
-        stroke: "c1",
-        width: 4,
+      ...Array.from({ length: 12 }, (_, i) =>
+        P(arcBand(39.6, i * 30 - 10, i * 30 + 10, 2.2), {
+          z: "back",
+          fill: "c1",
+          anim: "whirl",
+          a: true,
+          o: (i % 8) + 1,
+        }),
+      ),
+      ...Array.from({ length: 6 }, (_, i) =>
+        P(arcBand(44.4, i * 60 + 14, i * 60 + 46, 1.2), {
+          z: "back",
+          fill: "c2",
+          anim: "whirl",
+          a: true,
+          o: "r",
+        }),
+      ),
+      ...row([-90, 0, 90, 180], (a) => chip(a, 39.6, 3, 3, 0.8), {
         z: "back",
-        a: true,
-      },
-      P(
-        "M95.4 63.9 A47.5 47.5 0 0 1 84.7 82.4 L81.8 79.7 A43.5 43.5 0 0 0 91.6 62.7 Z",
-        { z: "back", fill: "c2", a: true },
-      ),
-      P(
-        "M36.1 95.4 A47.5 47.5 0 0 1 17.6 84.7 L20.3 81.8 A43.5 43.5 0 0 0 37.3 91.6 Z",
-        { z: "back", fill: "c2", a: true },
-      ),
-      P(
-        "M4.6 36.1 A47.5 47.5 0 0 1 15.3 17.6 L18.2 20.3 A43.5 43.5 0 0 0 8.4 37.3 Z",
-        { z: "back", fill: "c2", a: true },
-      ),
-      P(
-        "M63.9 4.6 A47.5 47.5 0 0 1 82.4 15.3 L79.7 18.2 A43.5 43.5 0 0 0 62.7 8.4 Z",
-        { z: "back", fill: "c2", a: true },
-      ),
-      P(
-        "M65.7 93.2 A46 46 0 0 1 58 95.3 L57.6 92.8 A43.5 43.5 0 0 0 64.9 90.9 Z",
-        { z: "back", fill: "c1", a: true },
-      ),
-      P("M6.8 65.7 A46 46 0 0 1 4.7 58 L7.2 57.6 A43.5 43.5 0 0 0 9.1 64.9 Z", {
-        z: "back",
-        fill: "c1",
+        fill: "c2",
         a: true,
       }),
-      P("M34.3 6.8 A46 46 0 0 1 42 4.7 L42.4 7.2 A43.5 43.5 0 0 0 35.1 9.1 Z", {
-        z: "back",
-        fill: "c1",
-        a: true,
-      }),
-      P(
-        "M93.2 34.3 A46 46 0 0 1 95.3 42 L92.8 42.4 A43.5 43.5 0 0 0 90.9 35.1 Z",
-        { z: "back", fill: "c1", a: true },
-      ),
     ],
   },
   {
     id: "goggles-up",
     name: "Goggles up",
     group: "Tech",
+    anim: "shimmer",
     parts: [
-      P(
-        "M9.7 40 A41.5 41.5 0 0 1 90.3 40 L79.1 42.7 A30 30 0 0 0 20.9 42.7 Z",
-        { fill: "ink" },
-      ),
-      P(
-        "M12 39.1 A39.5 39.5 0 0 1 88 39.1 L80.8 41.2 A32 32 0 0 0 19.2 41.2 Z",
-        { fill: "c1" },
-      ),
-      P(
-        "M47 13 H53 C54.7 13 56 14.4 56 16 V17 C56 18.7 54.7 20 53 20 H47 C45.4 20 44 18.7 44 17 V16 C44 14.4 45.4 13 47 13 Z",
-        { fill: "c1" },
-      ),
-      {
-        el: "circle",
-        attrs: { cx: 33, cy: 17, r: 14 },
-        fill: "ink",
-        z: "front",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 67, cy: 17, r: 14 },
-        fill: "ink",
-        z: "front",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 33, cy: 17, r: 12.2 },
-        fill: "c1",
-        z: "front",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 67, cy: 17, r: 12.2 },
-        fill: "c1",
-        z: "front",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 33, cy: 17, r: 8.8 },
-        fill: "ink",
-        z: "front",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 67, cy: 17, r: 8.8 },
-        fill: "ink",
-        z: "front",
-      },
-      P(
-        "M20 12.5 H22 C23.4 12.5 24.5 13.6 24.5 15 V19 C24.5 20.4 23.4 21.5 22 21.5 H20 C18.6 21.5 17.5 20.4 17.5 19 V15 C17.5 13.6 18.6 12.5 20 12.5 Z",
-        { fill: "c2" },
-      ),
-      P(
-        "M78 12.5 H80 C81.4 12.5 82.5 13.6 82.5 15 V19 C82.5 20.4 81.4 21.5 80 21.5 H78 C76.6 21.5 75.5 20.4 75.5 19 V15 C75.5 13.6 76.6 12.5 78 12.5 Z",
-        { fill: "c2" },
-      ),
-      P(
-        "M27.5 13.8 C29.3 11 32.4 10 35 10.4 L31.6 15 C29.5 15.3 28 16.4 27.4 17.6 C26.7 16.3 26.9 14.8 27.5 13.8 Z",
-        { fill: "light" },
-      ),
-      P(
-        "M61.5 13.8 C63.3 11 66.4 10 69 10.4 L65.6 15 C63.5 15.3 62 16.4 61.4 17.6 C60.7 16.3 60.9 14.8 61.5 13.8 Z",
-        { fill: "light" },
-      ),
+      P(arcBand(36.2, -126, 126, 5), { fill: "#2a2f38" }),
+      P(arcBand(38, -126, 126, 1.8), { fill: "c1" }),
+      P(chip(0, 38.6, 9, 3.4, 1.2), { fill: "#2a2f38" }),
+      ...mirror(28, (a) => blob(a, 37.4, 10.4), { fill: "ink" }),
+      ...mirror(28, (a) => blob(a, 37.4, 8.8), { fill: "c1" }),
+      ...mirror(28, (a) => blob(a, 37.4, 7.2), { fill: "c2" }),
+      ...mirror(28, (a, s) => leaf(a - 6 * s, 34.6, 6.5, 2.2, 2.4 * s), { fill: "light", a: true }),
+      ...mirror(76, (a) => chip(a, 36.6, 4.4, 5.6, 1.4), { fill: "c2", anim: "pulse", a: true }),
     ],
   },
   {
     id: "signal",
     name: "Signal",
     group: "Tech",
-    anim: "flicker",
+    anim: "pulse",
     parts: [
-      P(
-        "M74.9 13.3 A14 14 0 0 1 85.7 24.1 L81.8 24.9 A10 10 0 0 0 74.1 17.2 Z",
-        { fill: "c1", a: true },
-      ),
-      P("M76.8 4.5 A23 23 0 0 1 94.5 22.2 L90.6 23 A19 19 0 0 0 76 8.4 Z", {
-        fill: "c1",
+      P(arcBand(37.2, -104, 104, 3.4), { fill: "#2a2f38" }),
+      P(arcBand(38.8, -104, 104, 0.9), { fill: "c1" }),
+      P(ray(0, 37.2, 44, 3.4, 1.8), { fill: "c1" }),
+      P(blob(0, 45.4, 2.4), { fill: "c2", a: true }),
+      ...row([1, 2, 3], (_a, i) => arcBand(40.4 + i * 2.4, -100, -48, 1.1 + i * 0.2), {
+        fill: "c2",
         a: true,
       }),
-      P(
-        "M78.4 -3.3 A31 31 0 0 1 102.3 20.6 L98.9 21.3 A27.5 27.5 0 0 0 77.7 0.1 Z",
-        { fill: "c2", a: true },
-      ),
-      {
-        el: "circle",
-        attrs: { cx: 72, cy: 27, r: 7.5 },
-        fill: "ink",
-        z: "front",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 72, cy: 27, r: 4.8 },
+      ...row([1, 2, 3], (_a, i) => arcBand(40.4 + i * 2.4, 48, 100, 1.1 + i * 0.2), {
         fill: "c2",
-        z: "front",
-      },
+        a: true,
+      }),
+      ...row([-88, 88], (a) => chip(a, 37.2, 3.4, 3.4, 1), { fill: "ink" }),
+      ...row([-24, 24], (a) => blob(a, 37.2, 1.4), { fill: "light", anim: "shimmer", a: true }),
     ],
   },
   {
     id: "circuit-crown",
     name: "Circuit crown",
     group: "Tech",
-    anim: "flicker",
+    anim: "pulse",
+    tilt: true,
     parts: [
-      P(
-        "M10.9 30.9 A43.5 43.5 0 0 1 89.1 30.9 L79.2 35.8 A32.5 32.5 0 0 0 20.8 35.8 Z",
-        { fill: "ink" },
-      ),
-      P("M39 17 L50 -8 L61 17 Z", { fill: "ink" }),
-      P("M21.5 23 L30 0.5 L41 18 Z", { fill: "ink" }),
-      P("M78.5 23 L70 0.5 L59 18 Z", { fill: "ink" }),
-      P("M12.9 30.3 A42 42 0 0 1 87.1 30.3 L80 34 A34 34 0 0 0 20 34 Z", {
-        fill: "c1",
+      P(arcBand(37.4, -92, 92, 4.6), { fill: "ink" }),
+      P(arcBand(37.4, -92, 92, 2.4), { fill: "c1" }),
+      P(one([-70, -42, -14, 14, 42, 70], (a, i) => ray(a, 37.4, 37.4 + [6, 10, 7, 7, 10, 6][i], 4.4, 3)), {
+        fill: "ink",
       }),
-      P("M41 15 L50 -5 L59 15 Z", { fill: "c1" }),
-      P("M24.5 21 L30.5 3 L38.5 16 Z", { fill: "c1" }),
-      P("M75.5 21 L69.5 3 L61.5 16 Z", { fill: "c1" }),
-      P("M50 -3.5 L54.3 6 L50 6.8 Z", { fill: "light" }),
-      P("M30.8 4.5 L34.4 10.5 L31.6 11.2 Z", { fill: "light" }),
-      P("M69.2 4.5 L65.6 10.5 L68.4 11.2 Z", { fill: "light" }),
-      {
-        el: "circle",
-        attrs: { cx: 50, cy: -4, r: 3.4 },
-        fill: "c2",
-        z: "front",
+      P(
+        one([-70, -42, -14, 14, 42, 70], (a, i) =>
+          ray(a, 37.4, 37.4 + [4.6, 8.4, 5.6, 5.6, 8.4, 4.6][i], 2.4, 1.6),
+        ),
+        { fill: "c1" },
+      ),
+      ...row(
+        [-70, -42, -14, 14, 42, 70],
+        (a, i) => chip(a, 37.4 + [7.4, 11.4, 8.4, 8.4, 11.4, 7.4][i], 3.6, 3, 1),
+        { fill: "c2", a: true },
+      ),
+      ...row([-84, -56, -28, 0, 28, 56, 84], (a) => blob(a, 37.4, 1.4), {
+        fill: "light",
         a: true,
-      },
-      {
-        el: "circle",
-        attrs: { cx: 30.5, cy: 3.5, r: 2.8 },
-        fill: "c2",
-        z: "front",
-        a: true,
-        o: "l",
-      },
-      {
-        el: "circle",
-        attrs: { cx: 69.5, cy: 3.5, r: 2.8 },
-        fill: "c2",
-        z: "front",
-        a: true,
-        o: "r",
-      },
+      }),
     ],
   },
 ];
