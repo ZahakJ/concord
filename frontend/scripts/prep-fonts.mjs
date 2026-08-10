@@ -37,10 +37,25 @@ const FONTS = [
   { id: "rounded", family: "Nunito", axis: "wght@400..800" },
   { id: "cyber", family: "Chakra Petch", axis: "wght@400;600;700" },
   { id: "comic", family: "Comic Neue", axis: "wght@400;700" },
+
+  // Arabic companions. None of the faces above carry Arabic glyphs, so an
+  // Arabic word inside a Latin sentence fell through to whatever the operating
+  // system happened to have — which is how one sentence ends up set in two
+  // unrelated typefaces, with different weight and a different x-height, on a
+  // screen where every other choice was made deliberately.
+  //
+  // Three rather than one, because Arabic has the same range of voice Latin
+  // does and pairing a naskh with a geometric sans looks as wrong in one script
+  // as it does in the other. Which Latin family maps to which is decided in
+  // app.css, next to the family it accompanies.
+  { id: "ar-sans", family: "Noto Sans Arabic", axis: "wght@400..700", keep: ["arabic"] },
+  { id: "ar-naskh", family: "Noto Naskh Arabic", axis: "wght@400..700", keep: ["arabic"] },
+  { id: "ar-kufi", family: "Noto Kufi Arabic", axis: "wght@400..700", keep: ["arabic"] },
 ];
 
-// Only these subsets are kept: everything else is weight the app never renders.
-const KEEP = new Set(["latin", "latin-ext"]);
+// Everything else the API offers is a script the app has no face for. A font
+// declares its own subsets when the default is wrong for it.
+const KEEP = ["latin", "latin-ext"];
 
 mkdirSync(OUT, { recursive: true });
 for (const f of readdirSync(OUT)) if (f.endsWith(".woff2")) rmSync(join(OUT, f));
@@ -52,10 +67,11 @@ for (const font of FONTS) {
   // Blocks arrive as "/* subset */ @font-face {...}" — the comment before each
   // one is the only place the subset name appears.
   const blocks = css.split("/*").slice(1);
+  const keep = new Set(font.keep || KEEP);
   let n = 0;
   for (const b of blocks) {
     const subset = b.slice(0, b.indexOf("*/")).trim();
-    if (!KEEP.has(subset)) continue;
+    if (!keep.has(subset)) continue;
     const src = b.match(/url\((https:\/\/[^)]+\.woff2)\)/);
     const weight = b.match(/font-weight:\s*([^;]+);/);
     const range = b.match(/unicode-range:\s*([^;]+);/);

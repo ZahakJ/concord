@@ -2203,7 +2203,10 @@
     background: var(--bg-3);
     padding: 1px 5px;
     border-radius: 4px;
-    font-family: ui-monospace, monospace;
+    /* An Arabic string literal or comment inside code has no glyph in a
+       monospace face and drops to whatever the system offers. Naming the
+       companion keeps it the same Arabic the rest of the app is set in. */
+    font-family: ui-monospace, "Noto Sans Arabic", monospace;
     font-size: var(--fs-compact);
   }
   .body :global(pre) {
