@@ -49,6 +49,21 @@ func Open(path string, dataKey []byte) (*Store, error) {
 	// SQLite handles one writer at a time; keep a single connection to avoid
 	// "database is locked" churn, and enable WAL for concurrent readers.
 	db.SetMaxOpenConns(1)
+	// A lock held by someone else is transient, not fatal, and without a busy
+	// timeout SQLite says so by failing the statement immediately. The window is
+	// real: a self-update relaunches while the outgoing process is still exiting
+	// (see internal/bridge/restart_unix.go), and switching to WAL below needs a
+	// brief exclusive lock of its own. Instantly-fatal turned that into "open
+	// store: database is locked" and a refusal to start. Five seconds is far
+	// longer than any legitimate handover and still short enough that a genuinely
+	// stuck lock surfaces as an error rather than a hang.
+	//
+	// This has to run first: it governs the statements that follow, including the
+	// journal_mode switch that is most likely to contend.
+	if _, err := db.Exec(`PRAGMA busy_timeout=5000;`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("store: set busy timeout: %w", err)
+	}
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;`); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: set pragmas: %w", err)

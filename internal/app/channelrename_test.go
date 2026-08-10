@@ -11,6 +11,9 @@ import (
 // receive side, because the receive half must gate exactly as the local half
 // does or the permission is decorative.
 func TestChannelRenamePropagates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

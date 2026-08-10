@@ -15,6 +15,9 @@ import (
 // side — a forged upsert or removal pushed as meta by a non-author without
 // ManageMessages must change nothing on honest peers.
 func TestEventPropagatesAndRSVP(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -106,6 +109,9 @@ func TestEventPropagatesAndRSVP(t *testing.T) {
 // never saw the event_upserted gossip, so the only road to convergence is the
 // history-sync snapshot — the same one that hands them the channel list.
 func TestEventFreshJoinerConverges(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -146,6 +152,9 @@ func TestEventFreshJoinerConverges(t *testing.T) {
 // the event's author — and a record pointing at another guild's channel
 // (whether a local typo or a doctored frame) posts nothing anywhere.
 func TestEventChannelAnnouncement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

@@ -64,6 +64,9 @@ func hasGame(games []Game, name string) bool {
 // (it presents as the same person), and it must still be there after the phone
 // restarts.
 func TestProfileEditReachesLinkedDeviceLive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -103,6 +106,9 @@ func TestProfileEditReachesLinkedDeviceLive(t *testing.T) {
 // the desktop edits. It must converge when it comes back — via the hello /
 // sync catch-up, since the gossip announce it missed is never replayed.
 func TestProfileEditReachesOfflineLinkedDeviceOnReconnect(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -128,6 +134,9 @@ func TestProfileEditReachesOfflineLinkedDeviceOnReconnect(t *testing.T) {
 // device must end up presenting it — without waiting for the user to edit
 // something first.
 func TestFreshlyLinkedDeviceInheritsAccountProfile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -178,6 +187,9 @@ func TestFreshlyLinkedDeviceInheritsAccountProfile(t *testing.T) {
 // covers a connected friend; a friend who was OFFLINE for the edit must pick
 // it up when they return (re-announce on connect + sync roster).
 func TestProfileEditReachesFriendWhoWasOffline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -229,6 +241,9 @@ func TestProfileEditReachesFriendWhoWasOffline(t *testing.T) {
 // MLS/certificate-authenticated identity, so a patched client convinces
 // nobody but itself.
 func TestProfileForgeriesAreRefused(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

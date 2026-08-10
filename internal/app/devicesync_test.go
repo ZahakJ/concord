@@ -82,6 +82,9 @@ func TestDesktopAndPhoneSeeEachOtherOnline(t *testing.T) {
 // still showed hundreds of rows and the bug looked fixed from the code alone.
 // The real test is whether the peer is somebody you know.
 func TestStrangersAreCountedNotListed(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

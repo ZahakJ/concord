@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -796,5 +797,50 @@ func TestStoriesRoundTripExpiryAndSeen(t *testing.T) {
 	}
 	if seen, _ := s.StoryIsSeen("st-fresh"); !seen {
 		t.Fatal("living story's seen marker must survive the sweep")
+	}
+}
+
+// Open must wait out a lock rather than fail on it. The failure this guards is
+// specific: switching a fresh database to WAL needs an exclusive lock, so an
+// Open that races another connection dies at "set pragmas: database is locked"
+// and the app refuses to start. That is the shape of a self-update relaunch,
+// where the incoming process opens the store while the outgoing one is still
+// closing (internal/bridge/restart_unix.go).
+func TestOpenWaitsOutALockInsteadOfFailing(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "concord.db")
+	key := bytes.Repeat([]byte{0x42}, 32)
+
+	// A rollback-mode database, so the Open below has to perform the WAL switch
+	// that needs exclusivity. Opening straight into WAL would make the switch a
+	// no-op and the race unreachable.
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	defer raw.Close()
+	raw.SetMaxOpenConns(1)
+	if _, err := raw.Exec(`PRAGMA journal_mode=DELETE; CREATE TABLE probe (x INTEGER);`); err != nil {
+		t.Fatalf("prepare rollback-mode db: %v", err)
+	}
+
+	// Hold it exclusively, then let go while Open is mid-flight.
+	if _, err := raw.Exec(`BEGIN EXCLUSIVE`); err != nil {
+		t.Fatalf("lock: %v", err)
+	}
+	released := make(chan struct{})
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		_, _ = raw.Exec(`COMMIT`)
+		close(released)
+	}()
+
+	s, err := Open(path, key)
+	if err != nil {
+		t.Fatalf("Open while the database was exclusively locked: %v", err)
+	}
+	<-released
+	if err := s.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 }
