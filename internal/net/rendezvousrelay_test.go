@@ -40,7 +40,7 @@ func rendezvousLike(t *testing.T, ctx context.Context, forcePublic bool) string 
 	if err != nil {
 		t.Fatalf("rendezvous: %v", err)
 	}
-	kdht, err := dht.New(ctx, h, dht.Mode(dht.ModeServer))
+	kdht, err := dht.New(h, dht.Mode(dht.ModeServer))
 	if err != nil {
 		t.Fatalf("dht: %v", err)
 	}

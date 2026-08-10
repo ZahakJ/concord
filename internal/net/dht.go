@@ -28,7 +28,7 @@ func (n *Host) startDHT(cfg Config) error {
 	}
 
 	boot := bootstrapSet(cfg)
-	kdht, err := dht.New(n.ctx, n.h,
+	kdht, err := dht.New(n.h,
 		dht.Mode(dht.ModeAuto),
 		dht.BootstrapPeers(boot...),
 	)

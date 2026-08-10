@@ -99,7 +99,7 @@ func run() error {
 	defer h.Close()
 
 	// Full DHT server so provider records (used for rendezvous) are stored here.
-	kdht, err := dht.New(ctx, h, dht.Mode(dht.ModeServer))
+	kdht, err := dht.New(h, dht.Mode(dht.ModeServer))
 	if err != nil {
 		return fmt.Errorf("start dht: %w", err)
 	}

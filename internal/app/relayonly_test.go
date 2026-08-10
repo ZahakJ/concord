@@ -70,7 +70,7 @@ func rendezvousWithRelay(t *testing.T, ctx context.Context, res relay.Resources)
 	if _, err := relay.New(h, relay.WithResources(res)); err != nil {
 		t.Fatalf("rendezvous relay: %v", err)
 	}
-	kdht, err := dht.New(ctx, h, dht.Mode(dht.ModeServer))
+	kdht, err := dht.New(h, dht.Mode(dht.ModeServer))
 	if err != nil {
 		t.Fatalf("rendezvous dht: %v", err)
 	}
