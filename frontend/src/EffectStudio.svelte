@@ -68,6 +68,15 @@
     <div class="stitle">
       Scenes <span class="tiny muted">drawn art, animated</span>
     </div>
+    <!-- A scene is painted over the banner, because a scene IS the art: its
+         subject sits in the top third, exactly where a banner would bury it.
+         That is the right call for the picture but a surprise for the person
+         who uploaded a banner and watched it vanish without being told why, so
+         the trade is stated here rather than discovered. -->
+    <p class="snote tiny muted">
+      A scene is painted over your banner image, so you'll see the scene instead
+      while one is on.
+    </p>
     {#each CARD_SCENE_GROUPS as g (g.title)}
       <div class="gtitle">{g.title}</div>
       <div class="grid">
@@ -203,6 +212,10 @@
     margin: 16px 0 2px;
     padding-bottom: 6px;
     border-bottom: 1px solid var(--border);
+  }
+  .snote {
+    margin: 8px 0 0;
+    line-height: 1.45;
   }
   .grid {
     display: grid;
