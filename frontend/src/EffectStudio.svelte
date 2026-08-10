@@ -10,10 +10,18 @@
   // so a tile cannot drift from what picking it does. That costs a lot of
   // simultaneous animation, which is what `content-visibility` on the tiles is
   // for: the ones you have not scrolled to do not composite.
+  //
+  // Two libraries feed one choice. A SCENE (lib/cardscenes.js) is drawn art —
+  // a ghost, a canopy, a planet with moons; a FIELD (lib/cardfx.js) is the
+  // particle engine. They share the `effect` id space and are shown in one
+  // gallery under two headings, exactly as drawn frames and gradient rings
+  // share `frame`.
   import { registerOverlay, S } from "./lib/state.svelte.js";
   import Icon from "./Icon.svelte";
   import FxLayer from "./FxLayer.svelte";
+  import CardScene from "./CardScene.svelte";
   import { CARD_EFFECT_BY_ID, CARD_EFFECT_GROUPS, cardEffect } from "./lib/cardfx.js";
+  import { CARD_SCENE_BY_ID, CARD_SCENE_GROUPS, cardScene } from "./lib/cardscenes.js";
 
   // `current`, NOT `effect`: a prop of that name shadows the $effect rune, and
   // the call below silently compiles to a store subscription instead
@@ -24,6 +32,8 @@
 
   let sel = $state(current);
   const cur = $derived(cardEffect(sel));
+  const curScene = $derived(cardScene(sel));
+  const selName = $derived(CARD_SCENE_BY_ID[sel]?.name || CARD_EFFECT_BY_ID[sel]?.name || "None");
   // Tiles are small, so the engine gets a smaller scale — its own signal to cut
   // the particle count rather than shrink a full field into a thumbnail.
   const tileScale = $derived(S.isMobile ? 0.3 : 0.45);
@@ -34,12 +44,14 @@
   <div class="es-head">
     <button class="icon-btn" onclick={onClose} aria-label="Back"><Icon name="chevron" size={16} /></button>
     <strong>Profile effect</strong>
-    <span class="tiny muted">{CARD_EFFECT_BY_ID[sel]?.name || "None"}</span>
+    <span class="tiny muted">{selName}</span>
   </div>
 
   <div class="preview" style="--c1:{color};--c2:{color2 || color}">
     <div class="card">
-      {#if cur}
+      {#if curScene}
+        <span class="cfx"><CardScene id={sel} {color} {color2} /></span>
+      {:else if cur}
         <span class="cfx"><FxLayer fx={cur.fx} seed={sel} /></span>
       {/if}
       <div class="who"><span class="av"></span><b>{S.displayName || "You"}</b></div>
@@ -52,6 +64,27 @@
 
   <div class="library">
     <button class="opt none" class:sel={sel === ""} onclick={() => (sel = "")}>None</button>
+
+    <div class="stitle">
+      Scenes <span class="tiny muted">drawn art, animated</span>
+    </div>
+    {#each CARD_SCENE_GROUPS as g (g.title)}
+      <div class="gtitle">{g.title}</div>
+      <div class="grid">
+        {#each g.ids as id (id)}
+          <button class="opt" class:sel={sel === id} onclick={() => (sel = id)}>
+            <span class="tile scene">
+              <CardScene {id} {color} {color2} scale={tileScale} />
+            </span>
+            <span class="oname">{CARD_SCENE_BY_ID[id].name}</span>
+          </button>
+        {/each}
+      </div>
+    {/each}
+
+    <div class="stitle">
+      Fields <span class="tiny muted">weather and particles</span>
+    </div>
     {#each CARD_EFFECT_GROUPS as g (g.title)}
       <div class="gtitle">{g.title}</div>
       <div class="grid">
@@ -157,6 +190,20 @@
     color: var(--text-muted);
     margin: 14px 0 8px;
   }
+  /* The two libraries are genuinely different kinds of thing, so the gallery
+     says so once rather than leaving you to work out why half the tiles are
+     drawings. */
+  .stitle {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    color: var(--text);
+    margin: 16px 0 2px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+  }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
@@ -196,6 +243,28 @@
     display: block;
     height: 50px;
     background: linear-gradient(140deg, #2a2f3a, #1b1f27);
+  }
+  /* A scene paints its own sky, and it needs the room to show a subject. */
+  .tile.scene {
+    height: 62px;
+    background: #0d1017;
+  }
+  /* Scene tiles hold their opening frame until you point at one or pick it —
+     the same bargain the ring picker already strikes with its orbits, and the
+     big preview above stays live regardless.
+
+     Measured, because the obvious lever was the wrong one: cutting the number
+     of ANIMATED elements per tile from 219 to 124 across the library barely
+     moved the picker at all. The cost is not per moving element — one running
+     animation repaints its ENTIRE tile, every one of its few hundred paths —
+     so it is per animated TILE. Twelve drawn scenes playing at once cost about
+     33 points of a core on top of the 21 the particle gallery already spends;
+     with this rule they cost about 1. Stopping the animation rather than
+     pausing it is safe here for the same reason prefers-reduced-motion is: no
+     scene is authored off-canvas or at zero opacity, so the frame you get with
+     the motion switched off is the picture. */
+  .opt:not(:hover):not(.sel) .tile.scene :global(.n) {
+    animation: none;
   }
   .oname {
     font-size: var(--fs-tiny);

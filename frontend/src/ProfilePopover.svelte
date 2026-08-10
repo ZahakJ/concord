@@ -38,6 +38,8 @@
   import { cardEffect } from "./lib/cardfx.js";
   import CardFrame from "./CardFrame.svelte";
   import { cardFrame } from "./lib/cardframes.js";
+  import CardScene from "./CardScene.svelte";
+  import { cardScene } from "./lib/cardscenes.js";
 
   let dmText = $state("");
   let dmBusy = $state(false);
@@ -520,13 +522,15 @@
       <CardFrame id={cf} color={mem.color} color2={mem.color2} />
     {/if}
   <div
-    class="pop {mem.effect && !cardEffect(mem.effect) ? `card-effect-${mem.effect}` : ''}"
+    class="pop {mem.effect && !cardEffect(mem.effect) && !cardScene(mem.effect) ? `card-effect-${mem.effect}` : ''}"
     class:sheet={S.isMobile}
     class:framed={!!cf}
   >
-    <!-- The card effect, painted by the shared particle engine (lib/fx.js)
-         rather than one bespoke CSS class per effect. The four original ids
-         keep the class above, so a profile saved before this still renders. -->
+    <!-- The card effect. One `effect` id, two libraries: a drawn scene
+         (lib/cardscenes.js) is painted as SVG, anything the particle engine
+         knows (lib/cardfx.js) is a field from lib/fx.js, and the four original
+         ids still fall through to the CSS class above so a profile saved
+         before any of this still renders. Both lookups fail closed. -->
     {#if cardEffect(mem.effect)}
       <span class="pop-fx"><FxLayer fx={cardEffect(mem.effect).fx} seed={mem.effect} /></span>
     {/if}
@@ -540,6 +544,18 @@
       style={mem.style}
       class="banner"
     />
+    <!-- A drawn scene renders AFTER the banner and a particle field before it,
+         and that ordering is the whole design. Both layers sit at z-index 0,
+         so DOM order alone decides which side of the banner they land on: a
+         field of specks wants to fall past the banner art, but a scene IS the
+         art — its subject lives in the top third, and behind a 112px banner
+         that subject is simply invisible. Painted here it covers the banner
+         and stops short of the avatar, which is z-index 1. -->
+    {#if cardScene(mem.effect)}
+      <span class="pop-fx">
+        <CardScene id={mem.effect} color={mem.color} color2={mem.color2} />
+      </span>
+    {/if}
     <div class="head">
       <div class="av-wrap">
         {#if mem.color}
