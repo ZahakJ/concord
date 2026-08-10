@@ -58,11 +58,40 @@
 // and that is the single most common way to author nothing at all.
 //
 // Colour. Never hardcode a colour that ought to be the wearer's. Use:
-//   "c1" / "c2"  the wearer's two profile colours
-//   "ink"        a near-black outline that reads on any background
-//   "light"      a soft highlight
-// or a literal hex ONLY where the object's identity IS its colour — gold on a
-// crown, red on a devil horn, bone on an antler.
+//   "c1" / "c2"                   the wearer's two profile colours
+//   "c1-glint" / "c1-lit"         two steps toward the light
+//   "c1-shade" / "c1-deep"        two steps away from it
+//   "ink"                         a near-black outline, reads on any backdrop
+//   "light"                       a soft highlight
+//   "@name"                       a gradient from this decoration's own `defs`
+// or a literal hex ONLY where the object's identity IS its colour — the black
+// on the tip of a fox's ear, bone on an antler.
+//
+// The four ramp steps are derived from the base with color-mix in oklab, in
+// AvatarDecoration.svelte, and they are the reason a wearer's colour can make
+// an OBJECT rather than a silhouette. Two flat tokens can only ever produce a
+// wash; five steps give the same shape a lit face, a body and a crease.
+//
+// `own: [c1, c2]` gives a piece its own colourway — gold for a crown, orange
+// for a fox — as the DEFAULT. A wearer who has set a profile colour overrides
+// it and gets the piece in their own colour, still shaded. Never bake a
+// colourway into the fills instead: that is exactly what made half the library
+// unchangeable and the other half the same teal.
+//
+// Material. `defs` carries gradients and filters, built by the helpers below
+// and referenced by name. `filter: "name"` puts a part through one.
+//   lg / rg / rgb   linear, radial, and object-fitted radial gradients
+//   blur            a gaussian, for anything that is more glow than edge
+//   turb            noise into a displacement map — fur, flame, frost, smoke.
+//                   A `flick` seed list re-seeds the noise in hard steps, which
+//                   is the only way to draw something that is genuinely a
+//                   different shape from frame to frame rather than a loop.
+// `op` sets a part's opacity outright, for the few marks that are pure light.
+//
+// TIERS. Filters cost an offscreen buffer whatever the element's size, so the
+// painter drops them below 40px and a decoration must still read without them
+// — everything structural has to be in the gradients. `hi: true` marks fine
+// detail (a stray ember, a hard glint) that is dropped at the same threshold.
 //
 // Motion. `anim` names a class defined in AvatarDecoration.svelte. It may sit
 // on the decoration (the default for its parts) or on a single part, which is
@@ -222,6 +251,22 @@ const leaf = (a, r, len, w, lean = 0) => {
   const f = frame(a, r);
   return `M${f(0, 0)}Q${f(w, len * 0.45)} ${f(lean, len)}Q${f(-w, len * 0.45)} ${f(0, 0)}Z`;
 };
+
+// tongue: a lick of flame, as distinct from `leaf`, which is a petal and looks
+// like one. Three things separate fire from foliage and this has all of them: a
+// base WIDER than the gap to its neighbour, so a row of them merges into one
+// sheet instead of standing apart like a wreath; a bulge that dips below the
+// root, so the join is never a straight cut; and a tip that curls to one side,
+// because a symmetric point is a leaf however you colour it.
+function tongue(a, r, len, w, curl = 0) {
+  const f = frame(a, r);
+  return (
+    `M${f(-w / 2, 0)}` +
+    `C${f(-w * 0.6, len * 0.36)} ${f(-w * 0.3 + curl * 0.5, len * 0.7)} ${f(curl, len)}` +
+    `C${f(w * 0.24 + curl * 0.3, len * 0.62)} ${f(w * 0.58, len * 0.3)} ${f(w / 2, 0)}` +
+    `Q${f(0, -w * 0.26)} ${f(-w / 2, 0)}Z`
+  );
+}
 
 // ray: a straight tapered spike along the radius, from r0 out to r1.
 const ray = (a, r0, r1, w0, w1 = 0) =>
@@ -395,6 +440,124 @@ const row = (angles, make, opts = {}) =>
 // to be one shape, on every avatar in a member list.
 const one = (angles, make) => angles.map(make).join("");
 
+// ── light and material ──────────────────────────────────────────────────────
+//
+// Flat fills can draw a SHAPE but not an OBJECT, and sixty flat shapes in one
+// wardrobe read as sixty stickers. A decoration may therefore carry `defs` —
+// gradients and filters, exactly as a card scene does — and reference them from
+// a part's `fill` as "@name" or from its `filter`. The builders are the scene
+// painter's, deliberately: same names, same argument order, same file style.
+//
+// ONE LIGHT FOR THE WHOLE LIBRARY, from the UPPER LEFT and slightly in front.
+// This is a rule, not a preference. Sixty objects each lit from wherever suited
+// them read as sixty objects; the same sixty lit from one place read as a
+// wardrobe, and the consistency does more for the set than any single piece
+// does. Concretely: highlights go on the upper-left face of a form, shadows
+// fall away to the lower right, and a contact shadow on the face sits under and
+// slightly right of whatever casts it.
+const LIGHT = [-0.6, -0.8];
+
+const LG = (id, x1, y1, x2, y2, stops) => ({ t: "lg", id, x1, y1, x2, y2, stops });
+const RG = (id, cx, cy, r, stops, o = {}) => ({ t: "rg", id, cx, cy, r, stops, ...o });
+// A radial that fits whatever shape it is painted on rather than a fixed place
+// in the box: one definition serves every pearl on a crown at every size. `fx`
+// and `fy` move the hot spot off centre — which is the entire difference
+// between a sphere and a disc.
+const RGB = (id, stops, o = {}) => ({ t: "rgb", id, stops, ...o });
+// feTurbulence into feDisplacementMap: material rather than shape. It is the
+// one thing SVG has that stops an outline reading as vector — fur that frays,
+// flame with a body. `flick` is a list of seeds; giving it one makes the noise
+// field JUMP between frames, which is a flame rather than a shape on a loop.
+const TURB = (id, freq, scale, o = {}) => ({ t: "turb", id, freq, scale, ...o });
+
+// section: a radial gradient in the AVATAR's coordinates, authored 0..1 across
+// a radius range. Because everything in this library is polar, that one
+// primitive shades both the thickness of a band and the length of a spoke
+// rising off it. It is the cheap way to round a flat shape off: a metal band
+// that is dark at both edges and bright a third of the way out reads as a bar
+// with a top on it, for the price of a gradient rather than a filter.
+const section = (id, r0, r1, stops) =>
+  RG(
+    id,
+    50,
+    50,
+    r1,
+    stops.map(([t, c, a]) => [n((r0 + (r1 - r0) * t) / r1), c, a]),
+  );
+
+// axis: a linear gradient laid along the light direction and spanning a circle
+// of radius r about the head. Stop 0 is the lit side. Authoring every
+// directional gradient through this rather than by picking two endpoints is
+// what makes the one-light rule hold without anyone having to remember it.
+const axis = (id, r, stops) =>
+  LG(
+    id,
+    n(50 + LIGHT[0] * r),
+    n(50 + LIGHT[1] * r),
+    n(50 - LIGHT[0] * r),
+    n(50 - LIGHT[1] * r),
+    stops,
+  );
+
+// sheen: the light direction itself, as a translucent black-to-white wash laid
+// OVER a form that has already been shaded by `section`. Cross-section gives an
+// object its roundness; this gives the whole piece one sun. Two cheap passes
+// beat one expensive light filter, and unlike feSpecularLighting they survive
+// into the tile tier, where the form is needed most.
+const sheen = (id, r = 46, k = 1) =>
+  axis(id, r, [
+    [0, "#ffffff", n(0.42 * k)],
+    [0.26, "#ffffff", n(0.1 * k)],
+    [0.48, "#ffffff", 0],
+    [0.6, "#000000", 0],
+    [1, "#000000", n(0.4 * k)],
+  ]);
+
+// cast: the darkening a worn thing throws on the face under it. The first
+// library had none, anywhere, and its absence is why every crown floated — a
+// contact shadow is the strongest single cue that an object is SITTING on
+// something rather than pasted over it.
+//
+// The gradient is offset down and right of centre, which is where the light
+// rule puts it, and the wedge that carries it stays inside radius 36 so the
+// shadow can never spill past the avatar's silhouette — themes are allowed to
+// square the avatar off, and a shadow escaping the corner would be a bug the
+// theme could not fix.
+// The wedge the shadow is painted on closes to NOTHING at both ends. A constant
+// -thickness band would finish on a straight chord across the wearer's cheek,
+// and a hard edge in the middle of a face is worse than no shadow at all —
+// that is what the first attempt at this looked like.
+function crescent(a1, a2, rOut, depth, steps = 26) {
+  const out = [];
+  const inn = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const a = a1 + (a2 - a1) * t;
+    out.push(xy(a, rOut));
+    inn.push(xy(a, rOut - depth * Math.sin(Math.PI * t) ** 0.6));
+  }
+  return `M${out.join("L")}L${inn.reverse().join("L")}Z`;
+}
+const castG = (id = "cast", k = 1) =>
+  RG(id, 51.6, 51.6, 36, [
+    [0, "#04060a", 0],
+    [0.74, "#04060a", 0],
+    [0.9, "#04060a", n(0.22 * k)],
+    [1, "#04060a", n(0.52 * k)],
+  ]);
+const cast = (a1, a2, depth = 11, ref = "@cast") =>
+  P(crescent(a1, a2, 36, depth), { fill: ref });
+
+// The flame crown's tongues, shared by its three layers so they stack in
+// register. Every layer is the SAME thirteen roots at different heights, which
+// is what makes it read as one fire seen through itself rather than three rows
+// of shapes. The heights are irregular on purpose — an even row is a fence —
+// and they are bounded by the box: straight up there are only about 14 units
+// clear of the viewBox, while a diagonal has twice that.
+const FLAME_A = [-86, -72, -58, -44, -30, -16, -2, 12, 26, 40, 54, 68, 82];
+const FLAME_L = [5.5, 8, 11.5, 15, 17, 13, 9.5, 12, 16.5, 14, 10.5, 7.5, 5];
+const FLAME_C = [2.2, -2.6, 1.8, -3, 2.4, -2, 2.8, -2.4, 3, -1.8, 2.2, -2.6, 1.6];
+
 export const DECORATIONS = [
   // ---------- arch ----------
   // The plainest statement of the idea: a band worn over the head, ornaments
@@ -495,23 +658,72 @@ export const DECORATIONS = [
     name: "Fox ears",
     group: "Creature",
     anim: "twitch",
+    own: ["#d9762e", "#ffd7b5"],
+    defs: [
+      castG("cast", 0.6),
+      section("band", 35.6, 38.4, [
+        [0, "c1-deep"],
+        [0.24, "c1-shade"],
+        [0.58, "c1"],
+        [0.86, "c1-lit"],
+        [1, "c1-shade"],
+      ]),
+      // A fox's ear is orange at the root and BLACK at the tip, and the whole
+      // animal is legible from that one fact. Shading along the radius is what
+      // lets the ear carry the wearer's colour and still end in a real tip.
+      section("ear", 36.5, 58, [
+        [0, "c1-deep"],
+        [0.12, "c1-shade"],
+        [0.32, "c1"],
+        [0.56, "c1"],
+        [0.8, "c1-shade"],
+        [1, "#231610"],
+      ]),
+      // The hot spot sits at the BOTTOM of the shape (fy 0.95), so the inner
+      // ear is dark where it folds into the head and opens toward the tip. A
+      // centred radial gave a flat pink lozenge.
+      RGB(
+        "inner",
+        [
+          [0, "c2-deep"],
+          [0.26, "c2-shade"],
+          [0.6, "c2"],
+          [1, "c2-lit"],
+        ],
+        { fx: 0.5, fy: 0.95 },
+      ),
+      sheen("sun", 54, 0.5),
+      // Fur. HIGH frequency and a SMALL displacement: the noise has to be finer
+      // than the shape it roughens, or the map stops fraying the outline and
+      // starts smearing whole limbs — the first pass at 0.09 turned both ears
+      // into thumbprints. No blur either; a blurred edge is felt, not fur.
+      // Static, too: fur that crawls is a caterpillar.
+      TURB("fur", "0.42 0.62", 1.1, { oct: 2, seed: 7 }),
+    ],
     parts: [
-      P(coil(122, 37, 11, 0.62, 10.5, 1), {
-        z: "back",
-        fill: "#d97a34",
-        anim: "sway",
+      // The tail is gone, deliberately. It hung off the wearer's jaw at four
+      // o'clock — over the presence dot — and every attempt to draw it well
+      // (spiral, brush, curl) read as a hook or a claw, because a tail seen
+      // from the front of a face has nowhere to be. The piece is called Fox
+      // ears and the ears are what carries it.
+      cast(-70, 70, 10, "@cast"),
+      ...mirror(33, (a, s) => spoke(a, 35.5, 22, 22, 7 * s), {
+        fill: "@ear",
+        filter: "fur",
         a: true,
+        pv: 36,
       }),
-      P(blobXY(71.3, 80.1, 2.8), { z: "back", fill: "light", anim: "sway", a: true }),
-      P(arcBand(37.4, -74, 74, 2.8), { fill: "#d97a34" }),
-      ...mirror(35, (a, s) => spoke(a, 37, 20, 24, 9 * s), {
-        fill: "#d97a34",
+      ...mirror(33, (a, s) => spoke(a, 35.5, 22, 22, 7 * s), { fill: "@sun", a: true, pv: 36 }),
+      ...mirror(33, (a, s) => spoke(a, 37.6, 14.5, 11.5, 7 * s), {
+        fill: "@inner",
         a: true,
-        pv: 37,
+        pv: 36,
       }),
-      ...mirror(35, (a, s) => spoke(a, 38, 13, 13, 9 * s), { fill: "light", a: true, pv: 37 }),
-      ...mirror(43, (a, s) => spoke(a, 50.5, 6.5, 8, 3 * s), { fill: "ink", a: true, pv: 37 }),
-      ...row([-58, 58], (a) => blob(a, 37.4, 1.6), { fill: "light", anim: "pulse", a: true }),
+      // `crescent` again, and not `arcBand`: a constant-width arch ends on two
+      // blunt stumps at the wearer's temples. This one thins away to nothing,
+      // so the fur runs out instead of being cut off.
+      P(crescent(-76, 76, 38.4, 2.8), { fill: "@band" }),
+      P(crescent(-76, 76, 38.4, 2.8), { fill: "@sun" }),
     ],
   },
   {
@@ -597,23 +809,104 @@ export const DECORATIONS = [
     group: "Regalia",
     anim: "pulse",
     tilt: true,
+    // Gold is the DEFAULT here, not the object. A wearer who has chosen a
+    // profile colour wears the crown in it, shaded through the same ramp — and
+    // that is the answer to the two complaints at once, because the pieces that
+    // used to look like metal were exactly the pieces nobody could recolour.
+    own: ["#e0a629", "#5ad2e6"],
+    defs: [
+      // Deeper than the house default. When a wearer takes the crown in their
+      // own colour it sits on an avatar of that colour, and the contact shadow
+      // is then the only thing separating the two — a red crown on a red face
+      // with no shadow is one red shape.
+      castG("cast", 1.25),
+      // The band in cross-section: dark where it seats on the head, a bright
+      // line a third of the way out, dark again over the outer lip. This single
+      // gradient is most of what makes it read as metal rather than a yellow
+      // arc, and it costs nothing that a filter would.
+      section("band", 34.5, 40, [
+        [0, "c1-deep"],
+        [0.16, "c1-shade"],
+        [0.34, "c1-lit"],
+        [0.44, "c1-glint"],
+        [0.6, "c1"],
+        [0.86, "c1-shade"],
+        [1, "c1-deep"],
+      ]),
+      // The points take the same treatment along their LENGTH, so light runs
+      // up them to the tips instead of stopping at the band.
+      section("point", 38.4, 48.6, [
+        [0, "c1-deep"],
+        [0.14, "c1-shade"],
+        [0.34, "c1"],
+        [0.72, "c1-lit"],
+        [1, "c1-glint"],
+      ]),
+      sheen("sun", 50, 0.7),
+      // The rim: one unit of the outer lip turned to face the sun. It carries
+      // only light, never shade — a dark wire laid over the far side of a band
+      // reads as a scratch, not as form.
+      axis("rim", 46, [
+        [0, "c1-glint", 0.95],
+        [0.34, "c1-lit", 0.45],
+        [0.62, "c1-lit", 0.08],
+        [1, "c1-lit", 0],
+      ]),
+      // An off-centre hot spot is the whole difference between a sphere and a
+      // disc, and a stone is a sphere with a dark rim.
+      RGB(
+        "gem",
+        [
+          [0, "c2-glint"],
+          [0.3, "c2"],
+          [0.72, "c2-shade"],
+          [1, "c2-deep"],
+        ],
+        { fx: 0.34, fy: 0.26 },
+      ),
+      RGB(
+        "pearl",
+        [
+          [0, "#ffffff"],
+          [0.34, "#eef3f9"],
+          [0.78, "#aebbca"],
+          [1, "#63718a"],
+        ],
+        { fx: 0.32, fy: 0.26 },
+      ),
+    ],
     parts: [
-      P(arcBand(37.2, -84, 84, 5.4), { fill: "#e6b23c" }),
-      P(arcBand(39.3, -84, 84, 1.1), { fill: "#ffe6a6" }),
-      P(arcBand(35, -84, 84, 1.1), { fill: "#a9761b" }),
-      P(one([-70, -46, -22, 0, 22, 46, 70], (a, i) => spoke(a, 39.6, [5, 7.5, 8.5, 6, 8.5, 7.5, 5][i], 16)), {
-        fill: "#e6b23c",
-      }),
-      P(one([-70, -46, -22, 0, 22, 46, 70], (a, i) => spoke(a, 39.6, [3.4, 5.4, 6.2, 4, 6.2, 5.4, 3.4][i], 7)), {
-        fill: "#ffe6a6",
-      }),
+      cast(-86, 86),
+      P(arcBand(34.7, -84, 84, 1), { fill: "c1-deep" }),
+      P(
+        one([-70, -46, -22, 0, 22, 46, 70], (a, i) =>
+          spoke(a, 38.4, [5.6, 8.2, 9.2, 6.6, 9.2, 8.2, 5.6][i] + 1.2, 16),
+        ),
+        { fill: "@point" },
+      ),
+      P(
+        one([-70, -46, -22, 0, 22, 46, 70], (a, i) =>
+          spoke(a, 38.4, [5.6, 8.2, 9.2, 6.6, 9.2, 8.2, 5.6][i] + 1.2, 16),
+        ),
+        { fill: "@sun" },
+      ),
+      P(arcBand(37.2, -84, 84, 5.4), { fill: "@band" }),
+      P(arcBand(37.2, -84, 84, 5.4), { fill: "@sun" }),
+      P(arcBand(39.5, -84, 84, 0.7), { fill: "@rim" }),
       ...row(
         [-70, -46, -22, 0, 22, 46, 70],
-        (a, i) => blob(a, 39.6 + [5, 7.5, 8.5, 6, 8.5, 7.5, 5][i], 2.1),
-        { fill: "c1", a: true },
+        (a, i) => blob(a, 38.9 + [5.6, 8.2, 9.2, 6.6, 9.2, 8.2, 5.6][i], 1.9),
+        { fill: "@gem", a: true },
       ),
-      ...row([-58, -34, -11, 11, 34, 58], (a) => blob(a, 37.2, 1.6), { fill: "light", a: true }),
-      P(gem(0, 36.6, 5.4, 6.6), { fill: "c2", anim: "shimmer", a: true }),
+      ...row([-58, -34, -11, 11, 34, 58], (a) => blob(a, 37.3, 1.35), {
+        fill: "@pearl",
+        op: 0.9,
+        a: true,
+      }),
+      P(gem(0, 36.6, 5.8, 7), { fill: "@gem", anim: "shimmer", a: true }),
+      // The one mark that is not shaded but LIT: a hard glint on the stone's
+      // upper-left facet, where the library's sun is.
+      P(blob(-9, 37.6, 1.1), { fill: "light", op: 0.85, anim: "shimmer", a: true, hi: true }),
     ],
   },
   {
@@ -851,27 +1144,93 @@ export const DECORATIONS = [
     name: "Flame crown",
     group: "Elemental",
     anim: "flicker",
+    own: ["#ff6a18", "#ffd23f"],
+    defs: [
+      // Fire is the one thing worn here that LIGHTS the face instead of
+      // shading it, so this is the one piece with no contact SHADOW at all —
+      // it has a contact HIGHLIGHT. Same wedge, same rule about where the light
+      // comes from, opposite sign.
+      //
+      // The gradient reaches zero WELL inside the wedge it is painted on. A
+      // glow that still has alpha where its shape stops draws a ruled line
+      // across the wearer's face, which is what the first two attempts did.
+      RG("hearth", 50, 50, 36, [
+        [0, "c1-lit", 0],
+        [0.82, "c1-lit", 0],
+        [0.94, "c1-lit", 0.1],
+        [1, "c1-glint", 0.3],
+      ]),
+      section("ember", 35.4, 38.4, [
+        [0, "c1-deep"],
+        [0.4, "c1-shade"],
+        [0.72, "c1-deep"],
+        [1, "c1-deep"],
+      ]),
+      // Three layers, each fading OUT at its own height. A flame is not a
+      // silhouette with a colour, it is a stack of transparencies that run out
+      // at different points, and stopping every layer at a hard edge is what
+      // made the first version read as a row of petals.
+      // Brightest LOW, dissolving at the tip. Fire is hottest where it is fed
+      // and it runs out of itself on the way up; a flame that ends in a white
+      // point is a highlight on a leaf, which is what the first version was.
+      section("outer", 36, 56, [
+        [0, "c1-shade", 0.92],
+        [0.16, "c1", 1],
+        [0.5, "c1", 0.88],
+        [0.8, "c1-shade", 0.42],
+        [1, "c1-deep", 0],
+      ]),
+      section("mid", 36, 51, [
+        [0, "c1-lit", 0.85],
+        [0.18, "c1", 0.95],
+        [0.55, "c1", 0.85],
+        [0.85, "c1-shade", 0.28],
+        [1, "c1-shade", 0],
+      ]),
+      section("core", 36, 46, [
+        [0, "c1-glint", 0.5],
+        [0.32, "c1-glint", 0.95],
+        [0.72, "c1-lit", 0.65],
+        [1, "c1-lit", 0],
+      ]),
+      // The one animated filter in the app. The noise field is re-seeded in
+      // hard steps rather than tweened, because a flame is a DIFFERENT flame
+      // from one instant to the next — it does not ease between two shapes.
+      // Stepping is also what keeps it affordable: the filter re-rasterises
+      // seven times in a second and a half, not sixty times a second.
+      TURB("lick", "0.035 0.07", 6, {
+        oct: 2,
+        seed: 3,
+        blur: 0.14,
+        flick: "1;5;2;9;4;7;3",
+        dur: 1.5,
+      }),
+    ],
     parts: [
-      P(arcBand(36.8, -94, 94, 2.6), { fill: "#7a2a12" }),
-      ...row(
-        [-84, -66, -48, -30, -12, 12, 30, 48, 66, 84],
-        (a, i) => leaf(a, 36.8, [6, 9, 13, 16, 11, 11, 16, 13, 9, 6][i], 4, 0),
-        { fill: "#e8431f", a: true },
+      P(crescent(-96, 96, 36, 11), { fill: "@hearth" }),
+      // ONE path for the outer wall of fire, not thirteen. A filter costs an
+      // offscreen buffer per ELEMENT it is applied to, and thirteen buffers to
+      // say what one says is how a decoration turns into a fan. The turbulence
+      // is what varies the tongues; it does not need them to be separate.
+      P(
+        one(FLAME_A, (a, i) => tongue(a, 36.4, FLAME_L[i], 9.6, FLAME_C[i])),
+        { fill: "@outer", filter: "lick" },
       ),
+      P(arcBand(36.8, -94, 94, 2.4), { fill: "@ember" }),
+      ...row(FLAME_A, (a, i) => tongue(a, 36.6, FLAME_L[i] * 0.7, 6.8, -FLAME_C[i] * 0.7), {
+        fill: "@mid",
+        a: true,
+      }),
       ...row(
-        [-84, -66, -48, -30, -12, 12, 30, 48, 66, 84],
-        (a, i) => leaf(a, 36.8, [4, 6, 9, 11.5, 7.5, 7.5, 11.5, 9, 6, 4][i], 2.6, 0),
-        { fill: "#ff922b", a: true },
+        [-58, -44, -30, -16, -2, 12, 26, 40],
+        (a, i) => tongue(a, 36.8, [5, 7.5, 8.5, 6.5, 5, 6, 8, 6][i], 2.8, [1, -1, 1, -1, 1, -1, 1, -1][i]),
+        { fill: "@core", a: true },
       ),
-      ...row(
-        [-48, -30, -12, 12, 30, 48],
-        (a, i) => leaf(a, 36.8, [4.5, 6, 4, 4, 6, 4.5][i], 1.4, 0),
-        { fill: "#ffe066", a: true },
-      ),
-      ...row([-70, -20, 20, 70], (a) => blob(a, 48, 1.6), {
-        fill: "#ff922b",
+      ...row([-70, -20, 20, 70], (a) => blob(a, 48, 1.5), {
+        fill: "c1-lit",
         anim: "drift",
         a: true,
+        hi: true,
       }),
     ],
   },

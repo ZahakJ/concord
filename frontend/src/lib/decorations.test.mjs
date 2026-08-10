@@ -27,6 +27,11 @@
 //      the face without the flag gets a disc drawn around a squircle; one that
 //      claims the flag without reaching past the avatar's own edge takes the
 //      circle away from a theme for nothing.
+//   7. THE DEFS. A gradient or filter is reached by name — `fill: "@band"`,
+//      `filter: "fur"` — and a name that is not in the decoration's own `defs`
+//      resolves to `url(#…)` against nothing at all. SVG's answer to a dangling
+//      paint reference is to draw the shape in BLACK, silently, so a typo in a
+//      gradient name is a black crown rather than an error.
 import { readFileSync } from "node:fs";
 import {
   DECORATIONS,
@@ -57,7 +62,24 @@ const animClasses = new Set(
 // the animations that define it, so both are legal on any part.
 const offsets = new Set([...painter.matchAll(/\.o-([a-z0-9]+)\b/g)].map((m) => m[1]));
 offsets.add("l").add("r");
+// The ramp. The painter derives four shades per wearer colour with color-mix;
+// a token naming a step it never declared resolves to an unset custom property,
+// which paints the shape BLACK rather than failing.
+const SHADES = ["glint", "lit", "shade", "deep"];
 const TOKENS = new Set(["c1", "c2", "ink", "light", "none"]);
+for (const c of ["c1", "c2"])
+  for (const sh of SHADES) {
+    TOKENS.add(`${c}-${sh}`);
+    ok(
+      painter.includes(`--d-${c}-${sh}:`),
+      `the painter no longer declares --d-${c}-${sh}, so that ramp step paints black`,
+    );
+  }
+// The def kinds the painter knows how to build, read off its own branches.
+const DEFKINDS = new Set([...painter.matchAll(/g\.t === "([a-z]+)"/g)].map((m) => m[1]));
+// …and of those, the ones that produce a <filter> rather than a paint server.
+const FILTERKINDS = new Set(["blur", "turb"]);
+ok(DEFKINDS.size >= 4, `only ${DEFKINDS.size} def kinds found — did the painter's <defs> move?`);
 const hex = /^#[0-9a-f]{3,8}$/i;
 
 ok(animClasses.size >= 8, `only ${animClasses.size} animation classes found — did the CSS move?`);
@@ -89,7 +111,47 @@ for (const d of DECORATIONS) {
 
   if (d.ring != null) ok(d.ring === true, `${where}: ring is a flag, not ${d.ring}`);
 
+  // A piece may carry its own colourway. It is a DEFAULT — the wearer's
+  // profile colour overrides it — so it may only ever be literal colour.
+  if (d.own != null) {
+    ok(
+      Array.isArray(d.own) && d.own.length >= 1 && d.own.length <= 2,
+      `${where}: own must be one or two colours`,
+    );
+    for (const c of d.own || []) ok(hex.test(c), `${where}: own colour "${c}" is not a hex colour`);
+  }
+
+  // 7. the defs
+  const paints = new Set();
+  const filters = new Set();
+  for (const [i, g] of (d.defs || []).entries()) {
+    const at = `${where}.defs[${i}]`;
+    ok(!!g.id && !paints.has(g.id) && !filters.has(g.id), `${at}: missing or duplicate def id`);
+    ok(DEFKINDS.has(g.t), `${at}: def kind "${g.t}" is not one the painter can build`);
+    (FILTERKINDS.has(g.t) ? filters : paints).add(g.id);
+    if (g.t === "lg" || g.t === "rg" || g.t === "rgb") {
+      ok(Array.isArray(g.stops) && g.stops.length >= 2, `${at}: a gradient needs two stops`);
+      let last = -1;
+      for (const [o, c, a] of g.stops || []) {
+        ok(o >= 0 && o <= 1 && o >= last, `${at}: stop offset ${o} is out of range or out of order`);
+        last = o;
+        ok(TOKENS.has(c) || hex.test(c), `${at}: stop colour "${c}" is neither a token nor hex`);
+        ok(a == null || (a >= 0 && a <= 1), `${at}: stop alpha ${a} is out of range`);
+      }
+    }
+    // A turbulence with a `flick` list is the only SMIL in the app, and the
+    // painter drops it under prefers-reduced-motion. Seeds are integers: a
+    // fractional seed is a different noise field on every browser.
+    if (g.flick != null)
+      ok(
+        /^\d+(;\d+)+$/.test(g.flick),
+        `${at}: flick must be a semicolon-separated list of integer seeds`,
+      );
+    if (g.t === "turb") ok(g.scale > 0, `${at}: a displacement map with no scale does nothing`);
+  }
+
   let animated = 0;
+  let animatedCoarse = 0;
   let backTotal = 0;
   let backOutside = 0;
   let lo = [Infinity, Infinity];
@@ -107,6 +169,7 @@ for (const d of DECORATIONS) {
       ok(!!name, `${at}: animated but neither the part nor the decoration names an animation`);
       if (name) ok(animClasses.has(name), `${at}: animation "${name}" is not defined`);
       animated++;
+      if (!p.hi) animatedCoarse++;
     } else {
       ok(p.anim == null, `${at}: names an animation but never opts in with a: true`);
     }
@@ -118,8 +181,15 @@ for (const d of DECORATIONS) {
       );
     for (const v of [p.fill, p.stroke]) {
       if (v == null) continue;
-      ok(TOKENS.has(v) || hex.test(v), `${at}: "${v}" is neither a colour token nor a hex colour`);
+      if (v[0] === "@")
+        ok(paints.has(v.slice(1)), `${at}: "${v}" names no gradient in this decoration's defs`);
+      else ok(TOKENS.has(v) || hex.test(v), `${at}: "${v}" is neither a colour token nor hex`);
     }
+    if (p.filter != null)
+      ok(filters.has(p.filter), `${at}: filter "${p.filter}" names no filter in this decoration`);
+    if (p.op != null)
+      ok(p.op > 0 && p.op <= 1, `${at}: op ${p.op} is out of range (0 draws nothing)`);
+    if (p.hi != null) ok(p.hi === true, `${at}: hi is a flag, not ${p.hi}`);
 
     // geometry
     let pts;
@@ -154,6 +224,13 @@ for (const d of DECORATIONS) {
 
   // 3. motion
   ok(animated > 0, `${where}: nothing moves — the library's whole premise is motion`);
+  // …and it has to survive the tile tier, where `hi` parts are not drawn at
+  // all. A piece whose only moving parts are fine detail is a still picture in
+  // the picker, which is the one place the motion is the information.
+  ok(
+    animatedCoarse > 0,
+    `${where}: everything that moves is flagged \`hi\`, so nothing moves below 40px`,
+  );
 
   if (backTotal)
     ok(
