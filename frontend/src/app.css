@@ -4507,3 +4507,26 @@ textarea {
   unicode-bidi: plaintext;
   text-align: start;
 }
+
+/* …and the same for prose once it has been RENDERED, so what you read back
+   matches what the draft box showed you. `.body` and `.md` between them cover
+   every surface that prints user-written text: messages, forum posts,
+   announcements, embed descriptions and fields, saved items, event details,
+   and the rich editor's preview. */
+.body,
+.md {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* Code is left-to-right in every language. Left to the paragraph heuristic an
+   Arabic comment or string would flip a whole snippet, moving the punctuation
+   that ends each line to the wrong side of it. */
+.body pre,
+.body code,
+.md pre,
+.md code {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: left;
+}
