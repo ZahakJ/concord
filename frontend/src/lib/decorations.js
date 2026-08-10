@@ -56,7 +56,114 @@
 
 const P = (d, o = {}) => ({ d, z: "front", fill: "ink", ...o });
 
+// ── polar helpers ───────────────────────────────────────────────────────────
+//
+// Absolute coordinates are why the first batch looked stuck on rather than
+// worn: every decoration invented its own idea of where the head was, so none
+// of them agreed and none of them sat right. Everything below is placed in
+// POLAR terms around the avatar's centre instead, which is the same geometry
+// the avatar itself has, so a decoration cannot be off-centre by construction.
+//
+// Angles are degrees clockwise from the TOP of the head, so -60 is over the
+// left brow and +60 over the right. Radius 36 is the avatar's own edge.
+
+const RAD = Math.PI / 180;
+const pt = (a, r) => [
+  +(50 + r * Math.sin(a * RAD)).toFixed(2),
+  +(50 - r * Math.cos(a * RAD)).toFixed(2),
+];
+
+// arcBand: the ARCH — a band of thickness w centred on radius r, sweeping from
+// a1 to a2. This is the piece Discord builds most of its decorations on: a
+// crescent worn over the head that ornaments then hang from, rather than each
+// ornament floating on its own.
+function arcBand(r, a1, a2, w) {
+  const ro = r + w / 2;
+  const ri = r - w / 2;
+  const [x1, y1] = pt(a1, ro);
+  const [x2, y2] = pt(a2, ro);
+  const [x3, y3] = pt(a2, ri);
+  const [x4, y4] = pt(a1, ri);
+  const big = Math.abs(a2 - a1) > 180 ? 1 : 0;
+  return `M${x1} ${y1}A${ro} ${ro} 0 ${big} 1 ${x2} ${y2}L${x3} ${y3}A${ri} ${ri} 0 ${big} 0 ${x4} ${y4}Z`;
+}
+
+// spoke: a tapered shape rising outward from the band — an ear, a horn, a
+// petal, a spike. `spread` is its angular width at the base, `len` how far past
+// the band it reaches, `lean` tips it away from vertical so a pair can splay.
+function spoke(a, rBase, len, spread, lean = 0) {
+  const [bx1, by1] = pt(a - spread / 2, rBase);
+  const [bx2, by2] = pt(a + spread / 2, rBase);
+  const [tx, ty] = pt(a + lean, rBase + len);
+  const [c1x, c1y] = pt(a - spread / 3, rBase + len * 0.6);
+  const [c2x, c2y] = pt(a + spread / 3, rBase + len * 0.6);
+  return `M${bx1} ${by1}Q${c1x} ${c1y} ${tx} ${ty}Q${c2x} ${c2y} ${bx2} ${by2}Z`;
+}
+
+// blob: a round ornament sitting ON the band at a given angle.
+function blob(a, r, size) {
+  const [x, y] = pt(a, r);
+  return `M${x} ${y}m${-size} 0a${size} ${size} 0 1 0 ${size * 2} 0a${size} ${size} 0 1 0 ${-size * 2} 0Z`;
+}
+
 export const DECORATIONS = [
+  // ---------- arch ----------
+  // Built on a band worn OVER the head with ornaments hanging from it, the way
+  // a hair circlet sits, rather than objects perched at absolute coordinates.
+  // Everything is placed in polar terms so it cannot drift off-centre.
+  {
+    id: "flower-circlet",
+    name: "Flower circlet",
+    group: "Arch",
+    anim: "sway",
+    parts: [
+      P(arcBand(41, -78, 78, 3.4), { fill: "c1" }),
+      ...[-62, -34, 0, 34, 62].map((a, i) =>
+        P(blob(a, 41, i === 2 ? 5.2 : 4.2), { fill: i % 2 ? "light" : "c2", a: true }),
+      ),
+      ...[-62, -34, 0, 34, 62].map((a, i) => P(blob(a, 41, i === 2 ? 2 : 1.6), { fill: "c1" })),
+    ],
+  },
+  {
+    id: "cat-circlet",
+    name: "Cat circlet",
+    group: "Arch",
+    anim: "twitch",
+    parts: [
+      P(arcBand(40, -70, 70, 3), { fill: "c2" }),
+      P(spoke(-34, 40, 17, 26, -8), { fill: "c1", a: true, o: "l" }),
+      P(spoke(-34, 41, 11, 15, -8), { fill: "light", a: true, o: "l" }),
+      P(spoke(34, 40, 17, 26, 8), { fill: "c1", a: true, o: "r" }),
+      P(spoke(34, 41, 11, 15, 8), { fill: "light", a: true, o: "r" }),
+    ],
+  },
+  {
+    id: "antler-circlet",
+    name: "Antler circlet",
+    group: "Arch",
+    anim: "sway",
+    parts: [
+      P(arcBand(40, -72, 72, 2.8), { fill: "#7a5a3a" }),
+      P(spoke(-40, 40, 22, 12, -22), { fill: "#a87c4a", a: true, o: "l" }),
+      P(spoke(40, 40, 22, 12, 22), { fill: "#a87c4a", a: true, o: "r" }),
+      P(spoke(-27, 41, 12, 9, -30), { fill: "#a87c4a", a: true, o: "l" }),
+      P(spoke(27, 41, 12, 9, 30), { fill: "#a87c4a", a: true, o: "r" }),
+      ...[-52, -14, 14, 52].map((a) => P(blob(a, 40, 2), { fill: "light" })),
+    ],
+  },
+  {
+    id: "star-circlet",
+    name: "Star circlet",
+    group: "Arch",
+    anim: "float",
+    parts: [
+      P(arcBand(41, -80, 80, 2.2), { fill: "light" }),
+      ...[-66, -40, -14, 14, 40, 66].map((a, i) =>
+        P(spoke(a, 41, 7 + (i % 2) * 4, 9), { fill: i % 2 ? "c2" : "light", a: true }),
+      ),
+      P(blob(0, 47, 3.4), { fill: "c2", a: true }),
+    ],
+  },
   // ---------- creature ----------
   {
     id: "cat-ears",
