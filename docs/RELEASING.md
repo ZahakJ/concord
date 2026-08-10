@@ -107,46 +107,24 @@ touches the wire format, the storage schema, or governance rules.
 
 ## Hosting a rendezvous node
 
-The node is untrusted infrastructure: it relays ciphertext, serves the DHT, and
-holds an offline mailbox in memory. What it can and cannot see is
+**How to run one is [docs/RENDEZVOUS.md](RENDEZVOUS.md)** — locally, in Docker,
+on a VPS, or on fly.io, with every option and the trade-offs of hosting one. It
+is written for anyone, not just maintainers, because the answer to "I installed
+it and cannot reach my friend" is usually that somebody in the group needs to run
+one. What the node can and cannot see is
 [§6 of DESIGN.md](DESIGN.md#6-the-rendezvous-node); what breaks when it dies is
 [§6.5](DESIGN.md#65-the-day-it-dies).
 
-`fly.rendezvous.toml` is a working deployment on a free fly.io account. Pick your
-own app name first, since fly app names are globally unique.
+Two things that only matter if you run the project's own node rather than your
+own:
 
-```sh
-fly launch --no-deploy -c fly.rendezvous.toml
-fly secrets set CONCORD_RELAY_SEED=$(openssl rand -hex 32) \
-                CONCORD_PUBLIC_HOST=<your-app-name>.fly.dev
-fly deploy -c fly.rendezvous.toml
-fly logs        # copy the ">>> SHARE THIS ADDRESS <<<" line
-```
-
-Paste that address on your own login screen under "Connect with friends". From
-then on your invite codes carry it, so a friend who pastes one configures their
-app from the code alone and never sees a setting.
-
-`CONCORD_RELAY_SEED` is the node's identity. Keep it stable forever: every invite
-code ever issued embeds the PeerID derived from it, and changing it makes all of
-them worthless.
-
-Two optional services, both off until configured:
-
-- **GIF search.** Set `CONCORD_GIF_KEY` as a fly secret (Giphy by default; see
-  the comments in `fly.rendezvous.toml` for the provider variables). With no key
-  the node reports the feature unavailable and the picker says so.
-- **Push wakes.** Only exists if platform credentials are configured. The
-  mailbox works the same without it.
-
-**Do not enable the TURN relay on fly.io.** The deployment file ships with that
-service commented out and the measurement recorded beside it: fly's edge does not
-hairpin UDP back to the advertised public IP, so a relay there authenticates,
-allocates, reports success and carries nothing. Re-enabling it without re-testing
-end-to-end media resurrects a silent failure where calls connect, report success,
-and carry no sound. If IP-private calls matter, host the relay on a machine that
-owns its public IP (any small VPS) and point `CONCORD_TURN_*` at it. The full
-account is [§9.2 of DESIGN.md](DESIGN.md#92-ip-privacy-the-state-of-it).
+- **Push wakes** (`CONCORD_PUSH_TOKENS`) exist only where platform credentials
+  are configured. The offline mailbox behaves the same without them; the phone
+  just learns about a message when it next opens rather than being woken.
+- **The address you publish is a promise.** `CONCORD_RELAY_SEED` is the node's
+  identity, and every invite code ever issued through it embeds the derived
+  PeerID. Rotating the seed silently invalidates all of them, so treat it as
+  permanent from the first code you hand out.
 
 ## Cutting a release
 

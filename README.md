@@ -96,6 +96,15 @@ Unlock with a passphrase (the first unlock creates your identity), then create a
 guild and share its invite code. `make gui` builds the native desktop window
 instead, and needs `webkit2gtk-4.1`. `make help` lists every target.
 
+> **Before you invite someone:** two peers on different networks usually cannot
+> reach each other without help, because home routers refuse incoming
+> connections. On the same Wi-Fi it just works; on a Tailscale or WireGuard mesh
+> it just works; otherwise somebody has to run a
+> [rendezvous](docs/RENDEZVOUS.md) — one small always-on node, and only one
+> person in the group needs to. **Can people reach me?** in the app (Ctrl+K)
+> tells you which of those you are in. The table below explains the trade in
+> each case.
+
 To run several isolated peers side by side, which is how most development
 happens: `make peers` starts two on `:8801` and `:8802`, and they find each
 other over mDNS.
@@ -132,7 +141,7 @@ decides what, if anything, you have to set up:
 |---|---|---|
 | The same Wi-Fi | Nothing. Concord asks the local network and dials whatever answers. | Nothing, but in practice this is desktop to desktop: Android's sandbox refuses the socket that mDNS needs, and many workplace networks drop the packets. |
 | Different networks, one side can forward a port | That side pins a port and adds one rule in its router. The invite code carries its own address, so the other side dials it directly. No server is involved. | The forwarding side's IP address is inside every invite code it hands out, whether or not the router rule works. |
-| Different networks, neither can forward | Somebody runs a rendezvous: a small always-on node that introduces the two and carries their traffic when neither can be dialled. | One machine has to exist somewhere. It does not have to be yours; a friend's works, and their invite code points your client at it automatically. |
+| Different networks, neither can forward | Somebody runs a rendezvous: a small always-on node that introduces the two and carries their traffic when neither can be dialled. **[How to run one](docs/RENDEZVOUS.md)** — Docker, a VPS, or fly.io, in about five minutes. | One machine has to exist somewhere. It does not have to be yours; a friend's works, and their invite code points your client at it automatically. |
 
 Inside the app, **Can people reach me?** (in the Ctrl+K palette, and beside every
 invite code) reports which of the three you are actually in and offers the one
@@ -183,6 +192,7 @@ tracked even though the images it describes are not.
 | | |
 |---|---|
 | [docs/DESIGN.md](docs/DESIGN.md) | How Concord works, end to end, and what it costs |
+| [docs/RENDEZVOUS.md](docs/RENDEZVOUS.md) | Running the one optional node, and how to avoid needing it |
 | [PRIVACY.md](PRIVACY.md) | What data exists and who can read it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, the multi-peer dev loop, code style |
 | [MAINTAINERS.md](MAINTAINERS.md) | Who decides what, and how a change gets merged |
