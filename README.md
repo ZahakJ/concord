@@ -14,6 +14,10 @@
   <a href="SECURITY.md"><img src="https://img.shields.io/badge/security-report%20privately-14a394" alt="Security policy"></a>
 </p>
 
+<p align="center">
+  <a href="https://zahakj.github.io/concord/"><b>zahakj.github.io/concord</b></a> — what it is, what it costs, and whether it will work for you
+</p>
+
 A peer-to-peer, end-to-end-encrypted alternative to Discord: guilds, channels,
 direct messages, voice, video and screen sharing, with nobody in the middle.
 There is no company, no account database, and no server that stores your
