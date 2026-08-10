@@ -196,6 +196,7 @@
     <div class="titlefield" class:full={fit.full}>
       <!-- svelte-ignore a11y_autofocus -->
       <input
+        dir="auto"
         class="titleinput"
         value={title}
         oninput={onTitle}

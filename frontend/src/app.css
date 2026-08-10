@@ -4454,3 +4454,56 @@ textarea:focus {
     opacity: 0;
   }
 }
+
+/* ── bidirectional text ───────────────────────────────────────────────────
+   Concord's chrome is left-to-right, but the text people put INTO it is not
+   always, and the two only conflict in one specific way: when a run of Arabic,
+   Hebrew, Persian or Urdu sits next to punctuation or next to a run going the
+   other way. The Unicode bidirectional algorithm then resolves the whole
+   paragraph as one unit, and the neutral characters at the boundary — commas,
+   full stops, brackets, the colon after a name — get pulled to whichever end
+   the paragraph direction says, which is very often the wrong one. The text is
+   not corrupted; it is reordered on screen, which is worse, because it looks
+   like the sender typed it that way.
+
+   Isolation is the fix: it tells the algorithm to resolve the contents of an
+   element on their own and treat the result as a single neutral object in the
+   line around it. On text that is entirely Latin it changes nothing at all,
+   which is why it is applied broadly here rather than guarded behind a locale.
+
+   Alignment is deliberately NOT set here. These are labels sitting in fixed
+   left-to-right furniture — a sidebar row, a message header — and flipping
+   their alignment would move the label away from the icon it belongs to.
+   Message BODIES are the opposite case and are handled in Message.svelte,
+   where each paragraph gets its own direction and its own alignment. */
+.sender,
+.reply-author,
+.reply-snippet,
+.ch-name,
+.g-name,
+.guest-name,
+.guild-name,
+.mention {
+  unicode-bidi: isolate;
+}
+
+/* Anything you TYPE prose into resolves direction per line, exactly the way a
+   sent message does — so the draft box is a real preview of the result rather
+   than a left-to-right approximation of it.
+
+   `plaintext` rather than dir="auto" on the element, for two reasons. It gives
+   each line its own direction, so an English line followed by an Arabic one
+   lays both out correctly instead of forcing the second to follow the first.
+   And it is recomputed at layout rather than cached on the element: dir="auto"
+   is a heuristic the browser runs over the value and remembers, and clearing a
+   draft after sending assigns that value programmatically, which does not
+   reliably re-run it — the composer stayed right-to-left, caret on the wrong
+   side, until you typed a Latin character into it.
+
+   Safe to apply to every textarea. On content that is entirely Latin — an
+   invite blob, a multiaddr, a recovery phrase — every line resolves
+   left-to-right and `start` resolves to `left`, which is what they already do. */
+textarea {
+  unicode-bidi: plaintext;
+  text-align: start;
+}

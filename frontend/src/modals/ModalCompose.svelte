@@ -329,7 +329,7 @@
             </label>
           </div>
         </div>
-        <input class="etitle" maxlength="200" placeholder="Embed title" bind:value={embed.title} oninput={persist} />
+        <input dir="auto" class="etitle" maxlength="200" placeholder="Embed title" bind:value={embed.title} oninput={persist} />
         <textarea class="edesc" rows="2" maxlength="2000" placeholder="Description — markdown works here too" bind:value={embed.desc} oninput={persist}
         ></textarea>
         {#if embed.fields.length}
@@ -356,8 +356,8 @@
                     }
                   }}
                   onkeydown={(e) => onHandleKey(i, e)}><Icon name="menu" size={12} /></button>
-                <input class="fname" maxlength="100" placeholder="Field name" bind:value={f.name} oninput={persist} />
-                <input class="fval" maxlength="400" placeholder="Field value" bind:value={f.value} oninput={persist} />
+                <input dir="auto" class="fname" maxlength="100" placeholder="Field name" bind:value={f.name} oninput={persist} />
+                <input dir="auto" class="fval" maxlength="400" placeholder="Field value" bind:value={f.value} oninput={persist} />
                 {#if S.isMobile}
                   <!-- Android's WebView synthesises no HTML5 drag events from
                        touch and a phone has no arrow keys, so the handle above

@@ -568,7 +568,7 @@
           {/if}
         </button>
         <div class="fields">
-          <input bind:value={newName} maxlength="64" placeholder="Name (e.g. cat vibing)" />
+          <input dir="auto" bind:value={newName} maxlength="64" placeholder="Name (e.g. cat vibing)" />
           <input bind:value={newTags} placeholder="Tags, space or comma separated" />
         </div>
         <button class="go" onclick={add} disabled={busy || !pending || !newName.trim()}>Add</button>

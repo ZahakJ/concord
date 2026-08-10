@@ -1533,8 +1533,35 @@
     white-space: pre-wrap;
     word-break: break-word;
     /* Comfortable reading measure for multi-line messages — matches Discord's
-       roomier line-height without stretching single-line rows noticeably. */
-    line-height: 1.45;
+       roomier line-height without stretching single-line rows noticeably.
+       Arabic and Persian sit taller than Latin at the same size: the diacritics
+       climb above the letterform and the descenders drop well below it, so 1.45
+       clipped them against the row above. */
+    line-height: 1.5;
+    /* Per-PARAGRAPH direction, which is why this is `plaintext` and not
+       dir="auto". dir="auto" reads the first strong character and applies that
+       one answer to the whole message, so an English first line would force a
+       following Arabic line to lay out left-to-right. `plaintext` runs the
+       heuristic per line, which is what a message that switches language
+       halfway actually needs. Alignment then follows each line's own
+       direction rather than the element's. */
+    unicode-bidi: plaintext;
+    text-align: start;
+  }
+  /* Code is left-to-right in every language. Left to the paragraph heuristic an
+     Arabic comment would flip the whole block, moving the punctuation that ends
+     each line to the wrong end and making the snippet uncopyable in practice. */
+  .body :global(pre),
+  .body :global(code) {
+    direction: ltr;
+    unicode-bidi: isolate;
+    text-align: left;
+  }
+  /* A mention carries someone else's display name, which may run the other way
+     to the sentence holding it. Isolation stops that name from dragging the
+     surrounding punctuation to the wrong side of the line. */
+  .body :global(.mention) {
+    unicode-bidi: isolate;
   }
   .reveal-btn {
     margin-left: 8px;

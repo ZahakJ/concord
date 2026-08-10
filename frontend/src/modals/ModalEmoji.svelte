@@ -134,7 +134,7 @@
       {/if}
     </button>
     <span class="colon">:</span>
-    <input class="name-in" bind:value={name} maxlength="32" placeholder="name" />
+    <input dir="auto" class="name-in" bind:value={name} maxlength="32" placeholder="name" />
     <span class="colon">:</span>
     <button onclick={add} disabled={busy || !pending || !name.trim()}>Add</button>
   </div>

@@ -347,7 +347,7 @@
 
   <label class="field">
     <span class="muted">Display name</span>
-    <input bind:value={name} maxlength="32" placeholder="Your name" />
+    <input dir="auto" bind:value={name} maxlength="32" placeholder="Your name" />
   </label>
   <div class="field">
     <span class="muted">Availability</span>

@@ -1118,6 +1118,14 @@
      copies mean two `bind:this`, and whichever mounted last silently owned the
      caret-restoring code. -->
 {#snippet draftBox()}
+  <!-- Direction is handled in CSS, not by a dir attribute here — see the bidi
+       section of app.css. dir="auto" was tried first and is subtly wrong for a
+       draft box: it resolves ONE direction for the whole control, so the second
+       line of a two-language message gets laid out by the first line's script,
+       and it caches that answer on the element. Clearing the draft after a send
+       assigns the value programmatically, which does not always re-run the
+       heuristic, so the box stayed right-to-left with the caret on the wrong
+       side of an empty composer. -->
   <textarea
     bind:this={composerEl}
     class="draft"
