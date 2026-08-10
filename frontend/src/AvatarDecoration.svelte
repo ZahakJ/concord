@@ -8,10 +8,14 @@
   // without compositing the avatar into the SVG, which would lose the image
   // element, the presence dot and the text fallback.
   import { decoration } from "./lib/decorations.js";
+  import { drawnFrame } from "./lib/frames.js";
 
-  let { id = "", size = 32, color = "", color2 = "" } = $props();
+  // kind picks which library the id is resolved against. Both are authored to
+  // the same contract and painted identically; only the picker distinguishes
+  // "worn on the avatar" from "encircling it".
+  let { id = "", kind = "decoration", size = 32, color = "", color2 = "" } = $props();
 
-  const d = $derived(decoration(id));
+  const d = $derived(kind === "frame" ? drawnFrame(id) : decoration(id));
   const back = $derived(d ? d.parts.filter((p) => p.z === "back") : []);
   const front = $derived(d ? d.parts.filter((p) => p.z !== "back") : []);
 
@@ -159,6 +163,26 @@
     0%, 70%, 100% { transform: translateY(0); }
     78% { transform: translateY(-9px); }
     86% { transform: translateY(-1px); }
+  }
+
+  /* Frames ask for this one: a slow rotation about the avatar's centre, for
+     rings of runes, orbiting gems and turning filigree. transform-origin is
+     overridden because the default (the part's own box) would spin each
+     fragment on the spot instead of carrying it around the circle. Linear, not
+     eased — an eased rotation reads as hesitant. */
+  .anim.spin {
+    transform-box: view-box;
+    transform-origin: 50px 50px;
+    animation: dec-spin 26s linear infinite;
+  }
+  .anim.spin.o-r {
+    animation-direction: reverse;
+    animation-duration: 34s;
+  }
+  @keyframes dec-spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .anim.sway {

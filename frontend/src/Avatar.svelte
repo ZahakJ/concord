@@ -1,6 +1,7 @@
 <script>
   import AvatarRing from "./AvatarRing.svelte";
   import AvatarDecoration from "./AvatarDecoration.svelte";
+  import { drawnFrame } from "./lib/frames.js";
   // The one avatar. Renders, in priority order: uploaded image, profile emoji,
   // name/fingerprint initials — tinted by the member's accent color, with an
   // optional presence dot. Replaces five copy-pasted implementations.
@@ -46,7 +47,12 @@
     ? `background:${color};`
     : ''}"
 >
-  {#if frame}
+  <!-- One `frame` value, two libraries: a drawn frame (lib/frames.js) renders
+       through the decoration painter, anything else is a gradient ring
+       (lib/rings.js). Old ring ids keep working untouched. -->
+  {#if frame && drawnFrame(frame)}
+    <AvatarDecoration id={frame} kind="frame" {size} {color} {color2} />
+  {:else if frame}
     <AvatarRing ring={frame} {size} {style} {color} {color2} />
   {/if}
   {#if decoration}
