@@ -860,6 +860,34 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
+  /* The scrim, between the art and the words.
+     Putting the text above the effect fixes what covers what, and that is only
+     half of it: a pale name over a pale scene is still unreadable with nothing
+     on top of it at all. A display name is a colour its owner picked and a
+     scene is a colour someone else picked, and no rule about either can stop
+     the two matching.
+     So the card stops relying on them not to. This lays the card's own
+     background back under the text band, at enough strength that contrast is
+     the card's property rather than a coincidence between two people's
+     choices. It starts below the banner — the art keeps that whole band, which
+     is where its subject lives and where there is nothing to read — and it is
+     inert to the pointer, so nothing below it stops being clickable. */
+  .pop::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 26%,
+      color-mix(in srgb, var(--bg-1) 72%, transparent) 34%,
+      color-mix(in srgb, var(--bg-1) 88%, transparent) 44%,
+      color-mix(in srgb, var(--bg-1) 88%, transparent) 100%
+    );
+  }
   @keyframes pop-in {
     from {
       opacity: 0;
@@ -1013,6 +1041,23 @@
   }
   .more-btn:hover {
     background: rgba(0, 0, 0, 0.6);
+  }
+  /* ── the text sits ABOVE the art ──────────────────────────────────────────
+     A card effect is a positioned layer and the name, status and bio were
+     not, which in CSS means the art paints over the words — not beside them,
+     over them. The scene library compensates by holding everything below
+     y=150 to a whisper, and that is a rule art has to remember rather than a
+     guarantee the card makes. It was not enough: a warm scene washed the name
+     out completely and a grid drew straight through it.
+
+     Positioning these is the guarantee. The art keeps the whole banner, where
+     its subject lives and where there is nothing to read; the words keep
+     themselves. Nothing is lost, because a scene reaching into the text band
+     was only ever atmosphere down there. */
+  .head,
+  .body {
+    position: relative;
+    z-index: 2;
   }
   .head {
     display: flex;

@@ -7,8 +7,11 @@
   import DecorStudio from "../DecorStudio.svelte";
   import EffectStudio from "../EffectStudio.svelte";
   import CardFrameStudio from "../CardFrameStudio.svelte";
+  import CardScene from "../CardScene.svelte";
+  import CardFrame from "../CardFrame.svelte";
+  import FxLayer from "../FxLayer.svelte";
   import { DECORATION_BY_ID, DECORATIONS, COLORWAYS } from "../lib/decorations.js";
-  import { CARD_EFFECT_BY_ID } from "../lib/cardfx.js";
+  import { CARD_EFFECT_BY_ID, CARD_EFFECTS } from "../lib/cardfx.js";
   import { CARD_FRAME_BY_ID, CARD_FRAMES } from "../lib/cardframes.js";
   import { CARD_SCENE_BY_ID, CARD_SCENES } from "../lib/cardscenes.js";
   import GameShelf from "../GameShelf.svelte";
@@ -477,7 +480,11 @@
   <div class="field">
     <span class="muted">Card frame</span>
     <button type="button" class="ring-entry" onclick={() => (cfStudio = true)}>
-      <span class="cf-chip" class:on={!!cf}></span>
+      <span class="cf-chip" class:on={!!cf}>
+        {#if cf}
+          <CardFrame id={cf} {color} color2={color2 || color} />
+        {/if}
+      </span>
       <span class="re-text">
         <strong>{CARD_FRAME_BY_ID[cf]?.name || "None"}</strong>
         <span class="tiny muted">{CARD_FRAMES.length} scenes</span>
@@ -489,10 +496,22 @@
   <div class="field">
     <span class="muted">Profile effect</span>
     <button type="button" class="ring-entry" onclick={() => (effectStudio = true)}>
-      <span class="fx-chip" style="--c1:{color};--c2:{color2 || color}"></span>
+      <!-- A chip in the shape of a preview slot has to BE one. This was a
+           gradient of the wearer's two colours, which changed when they picked
+           a colour and never when they picked an effect — so the one row whose
+           whole job is to say what is on said nothing about it. It runs the
+           real components now, the same ones the picker and the card use, so
+           it cannot drift from what it claims. -->
+      <span class="fx-chip" style="--c1:{color};--c2:{color2 || color}">
+        {#if CARD_SCENE_BY_ID[effect]}
+          <CardScene id={effect} {color} color2={color2 || color} scale={0.28} />
+        {:else if CARD_EFFECT_BY_ID[effect]}
+          <FxLayer fx={CARD_EFFECT_BY_ID[effect].fx} seed={effect} scale={0.28} />
+        {/if}
+      </span>
       <span class="re-text">
         <strong>{CARD_SCENE_BY_ID[effect]?.name || CARD_EFFECT_BY_ID[effect]?.name || (effect ? effect : "None")}</strong>
-        <span class="tiny muted">{CARD_SCENES.length} scenes</span>
+        <span class="tiny muted">{CARD_SCENES.length} scenes · {CARD_EFFECTS.length} fields</span>
       </span>
       <span class="chev">›</span>
     </button>
@@ -602,22 +621,31 @@
   /* The profile-effect row has no avatar to preview against, so it shows the
      card's own colours instead — enough to say "this is about the card". */
   .fx-chip {
+    position: relative;
     width: 30px;
     height: 30px;
     flex: none;
     border-radius: var(--radius-sm);
+    overflow: hidden;
     background: linear-gradient(140deg, var(--c1), var(--c2));
   }
 
   /* The card-frame row previews a frame, not a colour: a little card with a
      border drawn around it, filled in when one is chosen. */
   .cf-chip {
+    position: relative;
     width: 24px;
     height: 32px;
     flex: none;
     border-radius: 3px;
     background: var(--bg-1);
     box-shadow: 0 0 0 3px var(--bg-3);
+  }
+  /* The frame paints outside its card by design, and this chip is 24px wide —
+     the overhang would land in the row's text. Clipped to the chip: what is
+     wanted here is "which frame", not a faithful miniature. */
+  .cf-chip :global(svg) {
+    clip-path: inset(0 round 3px);
   }
   .cf-chip.on {
     box-shadow: 0 0 0 3px var(--accent);
