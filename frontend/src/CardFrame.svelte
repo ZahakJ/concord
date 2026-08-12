@@ -77,9 +77,16 @@
                   {/each}
                 </radialGradient>
               {:else}
+                <!-- `bb` fits the gradient to the SHAPE rather than to the
+                     box, which is the only way to shade a cylinder: one
+                     definition then rounds off every column, trunk, pillar and
+                     curtain fold in the frame, wherever each one stands. A
+                     user-space gradient can only ever light one place
+                     correctly, so the second column got the first one's
+                     shading and both read flat. -->
                 <linearGradient
                   id="cf-{id}-{g.id}"
-                  gradientUnits="userSpaceOnUse"
+                  gradientUnits={g.bb ? "objectBoundingBox" : "userSpaceOnUse"}
                   x1={g.x1}
                   y1={g.y1}
                   x2={g.x2}

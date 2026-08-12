@@ -272,6 +272,95 @@ const lin = (id, x1, y1, x2, y2, stops) => ({ id, x1, y1, x2, y2, stops });
 const radial = (id, cx, cy, r, stops) => ({ id, cx, cy, r, stops });
 const glow = (id, stops) => ({ id, bb: true, cx: 0.5, cy: 0.5, r: 0.5, stops });
 
+// ── MATERIALS ───────────────────────────────────────────────────────────────
+//
+// These frames were built as SHAPES: a tower was one grey, a trunk one brown,
+// a column one tan. The silhouettes were right and the whole set still read as
+// flat cartoon vector, for the same reason the worn decorations did — a shape
+// with no light in it is a sticker whatever its outline says.
+//
+// The fix is the same fix, and it starts with one rule: ONE LIGHT FOR EVERY
+// FRAME, from the upper left. Twelve frames each lit from wherever suited them
+// are twelve unrelated pictures; the same twelve lit from one place are a set.
+//
+// `tube` is where most of the work happens. It fits the gradient to the SHAPE
+// instead of the box, so a single definition rounds off every column, trunk,
+// pillar and curtain fold in a frame no matter where each one stands — dark on
+// the shaded flank, bright a third of the way across, dark again at the far
+// edge. That cross-section is the whole difference between a brown rectangle
+// and a tree. A user-space gradient cannot do it: it lights one position, so
+// the second column of a pair inherits the first one's shading and both go
+// flat, which is exactly how these frames were failing.
+//
+// `plane` is the other half — a face turned toward or away from the light, for
+// walls, floors, canopies and water, where there is no roundness to express,
+// only orientation.
+const tube = (id, stops) => ({ id, bb: true, x1: 0, y1: 0, x2: 1, y2: 0, stops });
+const plane = (id, stops) => ({ id, bb: true, x1: 0, y1: 0, x2: 1, y2: 1, stops });
+
+// The ramps. Each takes the object's own three tones — deep, body, lit — and
+// spends them the way that material spends light:
+//
+//   rock    two hard planes and a crease, because stone is faceted, not round
+//   bark    a wide dark flank and a narrow highlight, set off-centre so a
+//           trunk reads as turning away rather than as a striped cylinder
+//   drape   a slow wide falloff with a second dimmer highlight behind the
+//           first — the thing that makes a curtain read as heavy cloth
+//   leafy   lit from above-left, dark underneath, because a leaf mass is a
+//           canopy and the light lands on its top
+//   forged  a hard narrow specular, the tell that separates iron from stone
+//   frozen  bright at both edges and dim between, so it looks see-through
+const rock = (id, deep, body, lit) =>
+  tube(id, [
+    [0, lit],
+    [0.3, body],
+    [0.34, body],
+    [0.37, deep],
+    [1, deep],
+  ]);
+const bark = (id, deep, body, lit) =>
+  tube(id, [
+    [0, deep],
+    [0.22, body],
+    [0.38, lit],
+    [0.54, body],
+    [1, deep],
+  ]);
+const drape = (id, deep, body, lit) =>
+  tube(id, [
+    [0, deep],
+    [0.16, body],
+    [0.3, lit],
+    [0.46, body],
+    [0.62, lit],
+    [0.8, body],
+    [1, deep],
+  ]);
+const leafy = (id, deep, body, lit) =>
+  plane(id, [
+    [0, lit],
+    [0.34, body],
+    [0.7, body],
+    [1, deep],
+  ]);
+const forged = (id, deep, body, lit) =>
+  tube(id, [
+    [0, deep],
+    [0.2, body],
+    [0.3, lit],
+    [0.42, body],
+    [0.74, body],
+    [1, deep],
+  ]);
+const frozen = (id, deep, body, lit) =>
+  tube(id, [
+    [0, lit],
+    [0.26, body],
+    [0.5, deep],
+    [0.74, body],
+    [1, lit],
+  ]);
+
 // ── the frames ────────────────────────────────────────────────────────────
 
 const castleKeep = (() => {
@@ -292,9 +381,9 @@ const castleKeep = (() => {
     [4, 1],
     [268, -1],
   ]) {
-    parts.push(BK(rect(cx - 26, -46, 52, 210), { fill: BACK_STONE }));
+    parts.push(BK(rect(cx - 26, -46, 52, 210), { fill: "@tower" }));
     parts.push(BK(rect(cx - 26, -46, 52, 7), { fill: BACK_DARK }));
-    parts.push(BK(crenel(cx - 29, cx + 29, -62, -78, -44, 10, 9), { fill: "#6d747f" }));
+    parts.push(BK(crenel(cx - 29, cx + 29, -62, -78, -44, 10, 9), { fill: "@crown" }));
     parts.push(BK(tri([cx - 34, -78], [cx + 34, -78], [cx, -132]), { fill: "c1" }));
     parts.push(BK(tri([cx, -78], [cx + 34 * flip, -78], [cx, -132]), { fill: "ink", op: 0.28 }));
     parts.push(BK(rect(cx - 1.5, -158, 3, 28), { fill: BACK_DARK }));
@@ -313,7 +402,7 @@ const castleKeep = (() => {
   }
 
   // The wall across the top edge, in front of the card.
-  parts.push(P(crenel(-6, 278, -6, -22, 26, 16, 12), { fill: STONE }));
+  parts.push(P(crenel(-6, 278, -6, -22, 26, 16, 12), { fill: "@wall" }));
   parts.push(P(rect(-6, 20, 284, 6), { fill: DARK }));
   const courses = [];
   for (let x = -6; x < 278; x += 22) courses.push(rect(x, -6, 1.6, 26));
@@ -329,7 +418,7 @@ const castleKeep = (() => {
     blocks.push(rect(off, y + 6, 8, 1.4));
     blocks.push(rect(257 + off, y + 6, 8, 1.4));
   }
-  parts.push(P(blocks.join(""), { fill: MID }));
+  parts.push(P(blocks.join(""), { fill: "@rail" }));
   parts.push(
     P(
       Array.from({ length: 17 }, (_, i) => rect(0, 26 + i * 20 + 18, 15, 2) + rect(257, 26 + i * 20 + 18, 15, 2)).join(""),
@@ -384,6 +473,15 @@ const castleKeep = (() => {
         [0, "#ffb347", 0.7],
         [1, "#ffb347", 0],
       ]),
+      // The towers stand BEHIND the card, so only a strip of each is ever
+      // seen — and a strip of flat grey is the least convincing masonry there
+      // is. `rock` gives it a lit face and a hard crease instead.
+      rock("tower", "#3f454e", "#5b626c", "#79808b"),
+      rock("crown", "#4a515b", "#6d747f", "#8b929d"),
+      // The wall across the brow catches the most light: it faces the viewer
+      // and stands above everything else.
+      rock("wall", "#5a6069", STONE, "#a7adb6"),
+      rock("rail", "#41474f", MID, "#848b95"),
     ],
     parts,
   };
@@ -411,7 +509,7 @@ const hallowsEve = (() => {
   ];
   for (const [x, y, a, len, w0, w1, curve] of boughs) {
     const b = limb(x, y, a, len, w0, w1, curve, 10);
-    parts.push(BK(b.d, { fill: BARK2 }));
+    parts.push(BK(b.d, { fill: "@bough" }));
     let t = b.spine[Math.round(b.spine.length * 0.55)];
     twigs.push(limb(t[0], t[1], a + curve * 0.4 + (a < -90 ? 40 : -40), 26, 1.7, 0.5, a < -90 ? -30 : 30, 5).d);
     t = b.tip;
@@ -516,6 +614,7 @@ const hallowsEve = (() => {
         [0, "#ff9f2e", 0.55],
         [1, "#ff9f2e", 0],
       ]),
+      bark("bough", "#140f1a", "#2c2235", "#4a3c58"),
     ],
     parts,
   };
@@ -563,7 +662,7 @@ const deepWoods = (() => {
     // that walked the trunk 19 units sideways, off its own texture and onto the
     // card's text.
     const t = limb(x, 406, -90, 434, 7.4, 7, 0, 8);
-    parts.push(P(t.d, { fill: BARK }));
+    parts.push(P(t.d, { fill: "@trunk" }));
     const bark = [];
     t.spine.forEach((p, i) => {
       bark.push(`M${r2(p[0] - 3.4 * dir)} ${r2(p[1])}q${r2(2.6 * dir)} 14 0 28`);
@@ -572,7 +671,7 @@ const deepWoods = (() => {
     parts.push(SK(bark.join(""), { stroke: BARK2, sw: 1.3, op: 0.8 }));
     // One low bough per side, reaching in over the banner with a leaf cluster.
     const b = limb(x, 40, dir > 0 ? -22 : -158, 46, 3.6, 1.6, dir * 34, 6);
-    parts.push(P(b.d, { fill: BARK }));
+    parts.push(P(b.d, { fill: "@bough" }));
     parts.push(
       P(
         blob(b.tip[0], b.tip[1], 15, { squash: 0.68, seed: 40 + x }) +
@@ -623,6 +722,8 @@ const deepWoods = (() => {
         [0, "#ffe98a", 0.85],
         [1, "#ffe98a", 0],
       ]),
+      bark("trunk", "#1f1710", "#4b3a2a", "#7a6144"),
+      bark("bough", "#241b13", "#3d2f22", "#63503a"),
     ],
     parts,
   };
@@ -645,7 +746,7 @@ const palmShore = (() => {
     [263, -1],
   ]) {
     const t = limb(x0 + 3 * dir, 404, -90, 412, 6.5, 4, -dir * 9, 10);
-    parts.push(P(t.d, { fill: TRUNK }));
+    parts.push(P(t.d, { fill: "@trunk" }));
     const rings = [];
     for (let i = 0; i < 20; i++) {
       const p = t.spine[Math.min(t.spine.length - 1, Math.floor((i / 20) * t.spine.length))];
@@ -742,6 +843,7 @@ const palmShore = (() => {
         [0, "#ffe9a8", 0.7],
         [1, "#ffe9a8", 0],
       ]),
+      bark("trunk", "#4a3720", "#8a6a44", "#c2a071"),
     ],
     parts,
   };
@@ -872,7 +974,7 @@ const coralReef = (() => {
     [266, -1],
   ]) {
     [0, 1, 2].forEach((k) => {
-      const s = limb(x + k * 3 * dir, 406, -90 - dir * 3, 300 + k * 44, 3.4 - k * 0.6, 1.2, dir * (10 + k * 8), 9);
+      const s = limb(x + k * 3 * dir, 406, -90 - dir * 3, 300 + k * 44, 3.4 - k * 0.6, 1.2, dir * (2 + k * 2), 9);
       parts.push(
         P(s.d, {
           fill: KELP[k],
@@ -989,7 +1091,7 @@ const cathedral = (() => {
 
   // Twin spires standing behind the card, set outside the arch.
   for (const cx of [-8, 280]) {
-    parts.push(BK(rect(cx - 17, -78, 34, 150), { fill: MID }));
+    parts.push(BK(rect(cx - 17, -78, 34, 150), { fill: "@tower" }));
     parts.push(BK(rect(cx - 21, -86, 42, 10), { fill: STONE }));
     parts.push(BK(tri([cx - 21, -86], [cx + 21, -86], [cx, -178]), { fill: MID }));
     parts.push(BK(tri([cx - 21, -86], [cx, -86], [cx, -178]), { fill: DARK }));
@@ -1030,7 +1132,7 @@ const cathedral = (() => {
     [18, 66],
     [18, 200],
   ];
-  parts.push(P(smooth(outer) + smooth(inner).replace(/^M/, "L") + "Z", { fill: STONE }));
+  parts.push(P(smooth(outer) + smooth(inner).replace(/^M/, "L") + "Z", { fill: "@arch" }));
   // The lit half. `inner` already runs apex-to-base on this side, so it is NOT
   // reversed — reversing it closes the path across the opening and floods the
   // whole arch head with a translucent slab.
@@ -1069,14 +1171,14 @@ const cathedral = (() => {
   // Columns down the rails, with capitals under the arch's springing and bases
   // on the altar step.
   for (const x of [0, 256]) {
-    parts.push(P(rect(x, 96, 16, 290), { fill: STONE }));
+    parts.push(P(rect(x, 96, 16, 290), { fill: "@column" }));
     parts.push(P(rect(x + (x ? 0 : 12), 96, 4, 290), { fill: MID, op: 0.55 }));
     const flutes = [];
     for (let i = 0; i < 3; i++) flutes.push(rect(x + 4 + i * 3.5, 118, 1.4, 248));
     parts.push(P(flutes.join(""), { fill: DARK, op: 0.35 }));
-    parts.push(P(rect(x - 5, 100, 26, 12), { fill: MID }));
+    parts.push(P(rect(x - 5, 100, 26, 12), { fill: "@cap" }));
     parts.push(P(rect(x - 5, 96, 26, 5), { fill: STONE }));
-    parts.push(P(rect(x - 5, 374, 26, 14), { fill: MID }));
+    parts.push(P(rect(x - 5, 374, 26, 14), { fill: "@cap" }));
     parts.push(P(rect(x - 3, 368, 22, 7), { fill: STONE }));
   }
 
@@ -1119,6 +1221,13 @@ const cathedral = (() => {
         [0, "#ffcf7a", 0.6],
         [1, "#ffcf7a", 0],
       ]),
+      // A column is a cylinder and was drawn as a tan rectangle. `bark` rather
+      // than `rock` here on purpose: a fluted column is turned, not faceted,
+      // so it wants a rolled highlight instead of two hard planes.
+      bark("column", "#4c463b", STONE, "#c0b7a2"),
+      rock("cap", "#443f35", MID, "#a9a08d"),
+      rock("tower", "#3f3a31", MID, "#9b9280"),
+      rock("arch", "#59533f", STONE, "#bdb49f"),
     ],
     parts,
   };
@@ -1153,7 +1262,7 @@ const sakura = (() => {
     [288, 66, 170, 78, -1, 3],
   ].forEach(([x, y, a, len, dir, i]) => {
     const b = limb(x, y, a, len, 4.4, 1.4, dir * 30, 9);
-    parts.push(P(b.d, { fill: BARK, a: "sway-slow", or: `${x}px ${y}px`, dl: -i * 1.1 }));
+    parts.push(P(b.d, { fill: "@bough", a: "sway-slow", or: `${x}px ${y}px`, dl: -i * 1.1 }));
     const twigs = [];
     b.spine.forEach((p, k) => {
       if (k < 2 || k % 2) return;
@@ -1181,7 +1290,7 @@ const sakura = (() => {
 
   // A low branch across the foot, and petals coming down the margins.
   const low = limb(-16, 404, -8, 150, 4, 1.6, 16, 8);
-  parts.push(P(low.d, { fill: BARK }));
+  parts.push(P(low.d, { fill: "@bough" }));
   const lowBlooms = [];
   low.spine.forEach((p, k) => {
     if (k % 2) return;
@@ -1189,7 +1298,7 @@ const sakura = (() => {
   });
   parts.push(P(lowBlooms.join(""), { fill: PETAL[0] }));
   const low2 = limb(288, 408, -172, 120, 3.6, 1.4, -16, 8);
-  parts.push(P(low2.d, { fill: BARK }));
+  parts.push(P(low2.d, { fill: "@bough" }));
   const lowBlooms2 = [];
   low2.spine.forEach((p, k) => {
     if (k % 2) return;
@@ -1222,6 +1331,7 @@ const sakura = (() => {
         [0, "#ffe6a8", 0.85],
         [1, "#ffe6a8", 0],
       ]),
+      bark("bough", "#2c2018", "#5a4231", "#8b6b51"),
     ],
     parts,
   };
@@ -1278,8 +1388,8 @@ const velvetStage = (() => {
   // Valance: three swags with a gold band and tassels, breaking the top edge.
   const swag = (x0, x1, dip) =>
     `M${x0} -18Q${r2((x0 + x1) / 2)} ${r2(dip)} ${x1} -18L${x1} -30L${x0} -30Z`;
-  parts.push(P(rect(-24, -34, 320, 20), { fill: VEL_D }));
-  parts.push(P(swag(-24, 92, 52) + swag(84, 188, 60) + swag(180, 296, 52), { fill: VEL }));
+  parts.push(P(rect(-24, -34, 320, 20), { fill: "@pelmet" }));
+  parts.push(P(swag(-24, 92, 52) + swag(84, 188, 60) + swag(180, 296, 52), { fill: "@swag" }));
   parts.push(P(swag(-24, 92, 40) + swag(84, 188, 48) + swag(180, 296, 40), { fill: VEL_L, op: 0.55 }));
   parts.push(SK("M-24 -14Q34 54 92 -14M84 -14Q136 62 188 -14M180 -14Q238 54 296 -14", { stroke: GOLD, sw: 2.2 }));
   for (const [x, y, dl] of [
@@ -1318,6 +1428,8 @@ const velvetStage = (() => {
         [0, "#ffdf9b", 0.75],
         [1, "#ffdf9b", 0],
       ]),
+      drape("swag", VEL_D, VEL, VEL_L),
+      drape("pelmet", "#3d0a13", VEL_D, VEL),
     ],
     parts,
   };
@@ -1499,7 +1611,7 @@ const mushroomHollow = (() => {
     [136, 412, 8, 1],
   ];
   for (const [x, y, r, tone] of shrooms) {
-    parts.push(P(rect(x - r * 0.24, y - r * 0.7, r * 0.48, r + 8), { fill: STEM }));
+    parts.push(P(rect(x - r * 0.24, y - r * 0.7, r * 0.48, r + 8), { fill: "@stem" }));
     parts.push(P(poly([...arcPts(x, y - r * 0.5, r, 180, 360, 12)]), { fill: CAP[tone] }));
     const sp = [];
     const gg = rnd(x + r);
@@ -1530,6 +1642,7 @@ const mushroomHollow = (() => {
         [0, "#fff3c4", 0.8],
         [1, "#fff3c4", 0],
       ]),
+      bark("stem", "#b9ad93", STEM, "#fffaf0"),
     ],
     parts,
   };
@@ -1541,10 +1654,10 @@ const emberForge = (() => {
   const parts = [];
 
   // A riveted lintel over the brow, standing proud of the card, on two rails.
-  parts.push(P(rect(-16, -40, 304, 56), { fill: IRON }));
+  parts.push(P(rect(-16, -40, 304, 56), { fill: "@lintel" }));
   parts.push(P(rect(-16, -46, 304, 8), { fill: "#4d525b" }));
   parts.push(P(rect(-16, 8, 304, 8), { fill: IRON2 }));
-  parts.push(P(rect(0, 16, 18, 378) + rect(254, 16, 18, 378), { fill: IRON }));
+  parts.push(P(rect(0, 16, 18, 378) + rect(254, 16, 18, 378), { fill: "@post" }));
   parts.push(P(rect(0, 16, 5, 378) + rect(267, 16, 5, 378), { fill: IRON2, op: 0.7 }));
   // Corner brackets, where a real frame would carry the load.
   parts.push(
@@ -1640,6 +1753,8 @@ const emberForge = (() => {
         [0, "#ff7a1e", 0],
         [1, "#ff7a1e", 0.85],
       ]),
+      forged("post", IRON2, IRON, "#6d7382"),
+      forged("lintel", "#191c21", IRON, "#5f6573"),
     ],
     parts,
   };
