@@ -351,10 +351,36 @@ ok(
     decorColors(own.id, CW_OWN, "#123456", "#654321")[0] === own.own[0],
     `${own.id}: "${CW_OWN}" must paint the piece in its own colourway`,
   );
-  const plain = DECORATIONS.find((d) => !d.own);
+  // Every piece in the library now declares a colourway, so the fallback is
+  // only reachable through an id this build does not know — which is the case
+  // that actually matters, since the id arrives on someone else's profile.
   ok(
-    decorColors(plain.id, CW_OWN, "#123456", "#654321").join() === "#123456,#654321",
-    `${plain.id}: "${CW_OWN}" on a piece with no colourway of its own must fall back`,
+    decorColors("no-such-decoration", CW_OWN, "#123456", "#654321").join() === "#123456,#654321",
+    `"${CW_OWN}" on an id with no colourway of its own must fall back to the wearer's colours`,
+  );
+}
+
+// ── the standard every piece is held to ─────────────────────────────────────
+//
+// Both of these were true of three decorations out of sixty-one once. The
+// library read as sixty-one flat stickers in the same accent colour, and the
+// reason was not that anyone chose flatness — it was that nothing stopped a
+// new piece shipping without either, so nothing ever had them.
+//
+// `defs` is the material: the gradients that give a shape a lit face and a
+// shaded crease. Without one a piece is a silhouette, whatever it is drawn as.
+// `own` is the colourway it was DESIGNED in, and it is a default rather than a
+// lock — a wearer who has set a profile colour still overrides it. Without one
+// a piece can only ever be the viewer's accent, which is what made a laurel
+// wreath and a circuit ring the same object in two shapes.
+for (const d of DECORATIONS) {
+  ok(
+    (d.defs || []).length > 0,
+    `${d.id}: no defs, so it has no material — every piece is shaded, see the MATERIALS block`,
+  );
+  ok(
+    Array.isArray(d.own) && d.own.length > 0,
+    `${d.id}: no \`own\` colourway, so it can only ever be painted in the viewer's accent`,
   );
 }
 
