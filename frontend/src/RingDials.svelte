@@ -74,7 +74,7 @@
 
 {#if rider}
   <div class="pane">
-    <span class="tiny muted">Rider — who goes around with you?</span>
+    <span class="tiny muted">Rider</span>
     <div class="shelf">
       <button type="button" class="sat-btn" class:on={sat === ""} onclick={() => (sat = "")} title="Just a dot">
         <span class="dot-sat"></span>

@@ -56,10 +56,6 @@
       {/if}
       <div class="who"><span class="av"></span><b>{S.displayName || "You"}</b></div>
     </div>
-    <p class="tiny muted">
-      Plays behind your name on your profile card. Chosen to stay out of the way
-      of the text — this is decoration, not weather you have to read through.
-    </p>
   </div>
 
   <div class="library">

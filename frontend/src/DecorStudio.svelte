@@ -124,11 +124,6 @@
       {color2}
       preview
     />
-    <p class="tiny muted">
-      One slot: a gradient ring or a drawn piece, not both. Drawn pieces are
-      paths, not pictures — they take the colour you pick and stay sharp at any
-      size.
-    </p>
   </div>
 
   <!-- The tune pane. Whichever kind is selected brings its own controls with

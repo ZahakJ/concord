@@ -44,11 +44,6 @@
         <div class="pv-input"></div>
       </div>
     </div>
-    <p class="tiny muted">
-      Scenery around your profile card — it stands above the top edge and reaches
-      past the corners. The middle stays clear so what the card actually says is
-      still readable.
-    </p>
   </div>
 
   <div class="library">
@@ -70,7 +65,6 @@
         {/each}
       </div>
     {/each}
-    <p class="tiny muted foot-note">{CARD_FRAMES.length} frames. Nothing is downloaded — every one of these is drawn.</p>
   </div>
 
   <div class="cfs-foot">
@@ -286,9 +280,6 @@
     color: var(--text-muted);
     padding: 0 6px;
     line-height: 1.25;
-  }
-  .foot-note {
-    margin: 14px 0 4px;
   }
   .cfs-foot {
     display: flex;

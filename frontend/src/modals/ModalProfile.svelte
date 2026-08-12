@@ -306,9 +306,6 @@
         </div>
       </div>
     </div>
-    <p class="tiny muted pv-note">
-      Live preview — click the avatar to change your picture (or paste an image).
-    </p>
   </div>
 
   <!-- Hidden picker: clicking the avatar (or "Change picture") opens it, and a
@@ -403,9 +400,7 @@
         >
       {/if}
     </div>
-    <p class="tiny muted">
-      Just the day — Concord never asks for the year. People in your guilds see a 🎂 on the day.
-    </p>
+    <p class="tiny muted">No year, ever. Your guilds see a 🎂 on the day.</p>
   </div>
   <div class="field">
     <span class="muted">Fallback emoji (used when no picture)</span>
@@ -472,8 +467,7 @@
           {DECORATION_BY_ID[dec]?.name || RING_BY_ID[frame]?.name || DECORATION_BY_ID[frame]?.name || "None"}
         </strong>
         <span class="tiny muted"
-          >{DECORATIONS.length} drawn pieces and {RINGS.length - 1} gradient rings — one slot, {COLORWAYS.length}
-          colours</span
+          >{DECORATIONS.length} drawn · {RINGS.length - 1} gradient · {COLORWAYS.length} colours</span
         >
       </span>
       <span class="chev">›</span>
@@ -486,7 +480,7 @@
       <span class="cf-chip" class:on={!!cf}></span>
       <span class="re-text">
         <strong>{CARD_FRAME_BY_ID[cf]?.name || "None"}</strong>
-        <span class="tiny muted">{CARD_FRAMES.length} scenes drawn around your whole card</span>
+        <span class="tiny muted">{CARD_FRAMES.length} scenes</span>
       </span>
       <span class="chev">›</span>
     </button>
@@ -498,9 +492,7 @@
       <span class="fx-chip" style="--c1:{color};--c2:{color2 || color}"></span>
       <span class="re-text">
         <strong>{CARD_SCENE_BY_ID[effect]?.name || CARD_EFFECT_BY_ID[effect]?.name || (effect ? effect : "None")}</strong>
-        <span class="tiny muted"
-          >{CARD_SCENES.length} drawn scenes and {CARD_EFFECTS.length} particle fields</span
-        >
+        <span class="tiny muted">{CARD_SCENES.length} scenes · {CARD_EFFECTS.length} fields</span>
       </span>
       <span class="chev">›</span>
     </button>
