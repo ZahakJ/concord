@@ -8,7 +8,7 @@
   import EffectStudio from "../EffectStudio.svelte";
   import CardFrameStudio from "../CardFrameStudio.svelte";
   import { DECORATION_BY_ID, DECORATIONS, COLORWAYS } from "../lib/decorations.js";
-  import { CARD_EFFECT_BY_ID, CARD_EFFECTS } from "../lib/cardfx.js";
+  import { CARD_EFFECT_BY_ID } from "../lib/cardfx.js";
   import { CARD_FRAME_BY_ID, CARD_FRAMES } from "../lib/cardframes.js";
   import { CARD_SCENE_BY_ID, CARD_SCENES } from "../lib/cardscenes.js";
   import GameShelf from "../GameShelf.svelte";
@@ -492,7 +492,7 @@
       <span class="fx-chip" style="--c1:{color};--c2:{color2 || color}"></span>
       <span class="re-text">
         <strong>{CARD_SCENE_BY_ID[effect]?.name || CARD_EFFECT_BY_ID[effect]?.name || (effect ? effect : "None")}</strong>
-        <span class="tiny muted">{CARD_SCENES.length} scenes · {CARD_EFFECTS.length} fields</span>
+        <span class="tiny muted">{CARD_SCENES.length} scenes</span>
       </span>
       <span class="chev">›</span>
     </button>

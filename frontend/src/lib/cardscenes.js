@@ -1136,6 +1136,262 @@ function lighthouseScene() {
   return parts;
 }
 
+// ── the six that replace the particle fields ────────────────────────────────
+//
+// Retiring twenty-nine fields from the picker would have left twelve scenes
+// against forty-one options, so these fill the themes the fields held and the
+// scenes did not: a synthwave grid, a storm, a coal bank, drifting lanterns,
+// deep space, and a warm evening. Each is drawn for the same reason the
+// library exists — a field of specks can suggest rain, but it cannot be a
+// horizon, and the horizon is what makes a card look composed rather than
+// dusted.
+
+function neonGridScene() {
+  const r = rng("neon-grid");
+  const parts = [RECT(0, 0, 272, 400, "@sky")];
+  // The sun: a disc cut by horizontal bands, which is the entire idiom. The
+  // bands widen downward so the cuts read as distance rather than as stripes.
+  parts.push(CIRC(136, 96, 46, "@sun"));
+  for (let i = 0; i < 7; i++) {
+    const y = 74 + i * 9.5;
+    parts.push(RECT(84, y, 104, r2(1.1 + i * 0.85), "#1b0b2a", { o: 0.9 }));
+  }
+  parts.push(CIRC(136, 96, 46, "@sunrim", { o: 0.5, cls: "breathe", dur: 7 }));
+  // Mountains between the sun and the grid, dark enough to separate them.
+  parts.push(ridgeBand("@range", "ng-range", { y: 128, amp: 26, floor: 200, steps: 8, jag: 1.6 }));
+  // The grid. Verticals converge on the vanishing point; horizontals bunch
+  // toward it. Both fade out before the name — the perspective is the effect,
+  // and it has done its work by y=150.
+  const vp = 136;
+  for (let i = -9; i <= 9; i++) {
+    const x0 = vp + i * 3.2;
+    const x1 = vp + i * 46;
+    parts.push(LINE(`M${x0} 142L${r2(x1)} 260`, "@grid", 1, { o: 0.55 }));
+  }
+  for (let i = 1; i <= 7; i++) {
+    const t = i / 7;
+    const y = r2(142 + Math.pow(t, 2.1) * 118);
+    parts.push(LINE(`M-40 ${y}L312 ${y}`, "@grid", 1, { o: r2(0.5 - t * 0.34) }));
+  }
+  // Stars above, sparse, so the top band is not empty sky.
+  for (let i = 0; i < 14; i++) {
+    parts.push(
+      CIRC(r2(r() * 272), r2(4 + r() * 56), r2(0.6 + r() * 0.9), "#ffd9f2", {
+        cls: "twinkle",
+        dur: r2(3 + r() * 4),
+        dl: r2(-r() * 6),
+        a: r2(0.3 + r() * 0.5),
+        o: 0.7,
+        hi: i > 5,
+      }),
+    );
+  }
+  return parts;
+}
+
+function stormFrontScene() {
+  const r = rng("storm-front");
+  const parts = [RECT(0, 0, 272, 400, "@sky")];
+  // A bank of cloud built from overlapping ellipses at three depths. Cloud is
+  // the one subject where stacking soft shapes beats drawing an outline.
+  const bank = (fill, y, rx, ry, n, seed, o) => {
+    const g = rng(seed);
+    const kids = [];
+    for (let i = 0; i < n; i++) {
+      kids.push(ELL(r2(g() * 300 - 14), r2(y + g() * 16), r2(rx * (0.6 + g() * 0.7)), r2(ry * (0.7 + g() * 0.6)), fill));
+    }
+    return G(kids, { cls: "shift", tx: 18, dur: 52, o });
+  };
+  parts.push(bank("@cloudfar", 52, 46, 15, 7, "sf-far", 0.55));
+  parts.push(bank("@cloudmid", 74, 40, 14, 7, "sf-mid", 0.8));
+  parts.push(bank("@cloudnear", 96, 34, 12, 6, "sf-near", 1));
+  // The flash. Two nodes on the same clock: a wash over the whole bank and the
+  // bolt itself, so the sky lights up rather than a line appearing in it.
+  parts.push(RECT(0, 0, 272, 150, "@flash", { cls: "flicker", dur: 9, dl: -2, o: 0.9 }));
+  parts.push(
+    PATH("M150 74L128 116L146 116L120 152L166 108L146 108L168 74Z", "@bolt", {
+      cls: "flicker",
+      dur: 9,
+      dl: -2,
+      o: 0.9,
+    }),
+  );
+  // Rain: long thin streaks, all on the same slant, thinning as they fall so
+  // none of them arrives at the name as a hard line.
+  for (let i = 0; i < 26; i++) {
+    const x = r2(-20 + r() * 320);
+    const y = r2(60 + r() * 60);
+    parts.push(
+      LINE(`M${x} ${y}L${r2(x - 7)} ${r2(y + 26)}`, "@rain", r2(0.7 + r() * 0.7), {
+        cls: "fall",
+        tx: -22,
+        ty: r2(90 + r() * 60),
+        a: r2(0.3 + r() * 0.4),
+        dur: r2(2.2 + r() * 2.2),
+        dl: r2(-r() * 4),
+        o: 0.5,
+        hi: i > 9,
+      }),
+    );
+  }
+  parts.push(RECT(0, 300, 272, 100, "@wet"));
+  return parts;
+}
+
+function emberDriftScene() {
+  const r = rng("ember-drift");
+  const parts = [RECT(0, 0, 272, 400, "@sky")];
+  // A bank of coals along the bottom of the banner, breathing on two clocks so
+  // the heat is uneven — coals that pulse together are a light bulb.
+  parts.push(ELL(136, 150, 150, 34, "@heat", { cls: "breathe", dur: 6, o: 0.85 }));
+  const coals = [];
+  for (let i = 0; i < 22; i++) {
+    const x = r2(-10 + r() * 292);
+    const y = r2(126 + r() * 22);
+    coals.push(
+      ELL(x, y, r2(7 + r() * 13), r2(4 + r() * 6), i % 3 ? "@coal" : "@coalhot", {
+        cls: "breathe",
+        dur: r2(4 + r() * 4),
+        dl: r2(-r() * 6),
+        o: r2(0.6 + r() * 0.4),
+      }),
+    );
+  }
+  parts.push(G(coals));
+  // Embers leaving the bank. They rise and go out — nothing reaches the name,
+  // because a spark over a word is a typo you cannot fix.
+  for (let i = 0; i < 24; i++) {
+    const x = r2(r() * 272);
+    parts.push(
+      CIRC(x, r2(120 + r() * 26), r2(0.8 + r() * 1.6), i % 4 ? "@spark" : "#fff1c2", {
+        cls: "rise",
+        tx: r2(-26 + r() * 52),
+        ty: r2(-70 - r() * 70),
+        a: r2(0.4 + r() * 0.5),
+        dur: r2(5 + r() * 6),
+        dl: r2(-r() * 10),
+        o: 0.5,
+        hi: i > 8,
+      }),
+    );
+  }
+  parts.push(RECT(0, 300, 272, 100, "@ash"));
+  return parts;
+}
+
+function lanternDriftScene() {
+  const r = rng("lantern-drift");
+  const parts = [RECT(0, 0, 272, 400, "@sky")];
+  parts.push(ridgeBand("@hill", "ld-hill", { y: 150, amp: 14, floor: 260, steps: 9, jag: 0.7 }, { o: 0.9 }));
+  // Lanterns at three sizes for depth, each bobbing on its own clock. The
+  // small ones ride highest and dimmest, which is the only depth cue a flat
+  // scene of identical objects has.
+  //
+  // Drawn at absolute coordinates rather than translated into place: `tx`/`ty`
+  // are the ANIMATION's parameters, not a position, so building each lantern
+  // about the origin and hoping to move it there stacks all eight in the top
+  // left corner. It did exactly that.
+  const lantern = (x, y, sc, o, dur, dl, hi) =>
+    G(
+      [
+        ELL(x, y, r2(9 * sc), r2(11 * sc), "@glow", { o: 0.8 }),
+        PATH(
+          `M${r2(x - 4.6 * sc)} ${r2(y - 5.4 * sc)}L${r2(x + 4.6 * sc)} ${r2(y - 5.4 * sc)}` +
+            `L${r2(x + 5.4 * sc)} ${r2(y + 3.4 * sc)}L${r2(x - 5.4 * sc)} ${r2(y + 3.4 * sc)}Z`,
+          "@paper",
+        ),
+        RECT(r2(x - 5.4 * sc), r2(y + 3.4 * sc), r2(10.8 * sc), r2(1.4 * sc), "@rim"),
+        CIRC(x, r2(y + 0.4 * sc), r2(1.8 * sc), "#fff3c8", { o: 0.9 }),
+      ],
+      { cls: "bob", amp: r2(4 + r() * 5), dur, dl, o, hi },
+    );
+  const set = [
+    [40, 62, 1, 1, 7.5, 0],
+    [96, 34, 0.72, 0.85, 9, -2.4],
+    [162, 70, 0.9, 0.95, 8.2, -4.1],
+    [214, 40, 0.66, 0.8, 10, -1.2],
+    [246, 86, 0.82, 0.9, 8.8, -6],
+    [16, 108, 0.6, 0.7, 11, -3.3],
+    [126, 104, 0.55, 0.65, 12, -5.5],
+    [190, 116, 0.5, 0.55, 13, -7.7],
+  ];
+  set.forEach(([x, y, sc, o, dur, dl], i) => parts.push(lantern(x, y, sc, o, dur, dl, i > 4)));
+  parts.push(RECT(0, 300, 272, 100, "@dusk"));
+  return parts;
+}
+
+function deepSpaceScene() {
+  const r = rng("deep-space");
+  const parts = [RECT(0, 0, 272, 400, "@sky")];
+  // The nebula: three overlapping clouds at low alpha. Colour separation does
+  // the work, not shape — a nebula with an outline is a balloon.
+  parts.push(ELL(92, 74, 88, 52, "@neb1", { cls: "breathe", dur: 26, o: 0.85 }));
+  parts.push(ELL(178, 58, 74, 44, "@neb2", { cls: "breathe", dur: 32, dl: -9, o: 0.8 }));
+  parts.push(ELL(140, 106, 104, 40, "@neb3", { cls: "breathe", dur: 38, dl: -17, o: 0.7 }));
+  // Star field: mostly pinpricks, a handful large enough to have a cross.
+  for (let i = 0; i < 46; i++) {
+    const x = r2(r() * 272);
+    const y = r2(r() * 150);
+    const big = i % 11 === 0;
+    parts.push(
+      CIRC(x, y, big ? r2(1.4 + r()) : r2(0.5 + r() * 0.8), "#ffffff", {
+        cls: "twinkle",
+        dur: r2(2.6 + r() * 5),
+        dl: r2(-r() * 8),
+        a: r2(0.35 + r() * 0.55),
+        o: r2(0.5 + r() * 0.5),
+        hi: i > 16,
+      }),
+    );
+    if (big) {
+      parts.push(
+        LINE(`M${r2(x - 5)} ${y}L${r2(x + 5)} ${y}M${x} ${r2(y - 5)}L${x} ${r2(y + 5)}`, "#dbe8ff", 0.7, {
+          cls: "twinkle",
+          dur: 4,
+          dl: r2(-r() * 4),
+          o: 0.5,
+          hi: true,
+        }),
+      );
+    }
+  }
+  parts.push(RECT(0, 300, 272, 100, "@void"));
+  return parts;
+}
+
+function sunfallScene() {
+  const r = rng("sunfall");
+  const parts = [RECT(0, 0, 272, 400, "@sky")];
+  parts.push(CIRC(180, 104, 30, "@sun", { cls: "breathe", dur: 11 }));
+  // Two headlands and the water between them. The sun's column on the water is
+  // the whole picture, so it gets its own gradient rather than an opacity.
+  parts.push(ridgeBand("@far", "sf-far", { y: 116, amp: 16, floor: 190, steps: 8, jag: 0.8, skew: 0.3 }, { o: 0.55 }));
+  parts.push(RECT(0, 132, 272, 120, "@sea"));
+  const cols = [];
+  for (let i = 0; i < 11; i++) {
+    const y = r2(134 + i * 4.6);
+    const w = r2(9 + i * 3.4);
+    cols.push(RECT(r2(180 - w / 2), y, w, r2(1.4 + i * 0.16), "@col"));
+  }
+  parts.push(G(cols, { cls: "shimmer", dur: 6 }));
+  parts.push(ridgeBand("@near", "sf-near", { y: 150, amp: 12, floor: 300, steps: 6, jag: 1.2, skew: 0.8 }));
+  // Birds, because an empty warm sky reads as a gradient rather than a place.
+  for (let i = 0; i < 5; i++) {
+    const x = r2(30 + r() * 200);
+    const y = r2(38 + r() * 40);
+    const s = r2(0.7 + r() * 0.6);
+    parts.push(
+      PATH(
+        `M${r2(x - 5 * s)} ${y}Q${r2(x - 2.4 * s)} ${r2(y - 2.6 * s)} ${x} ${y}Q${r2(x + 2.4 * s)} ${r2(y - 2.6 * s)} ${r2(x + 5 * s)} ${y}`,
+        "none",
+        { stroke: "@bird", sw: r2(0.9 * s), cls: "bob", amp: 3, dur: r2(5 + r() * 4), dl: r2(-r() * 6), o: 0.5, hi: i > 1 },
+      ),
+    );
+  }
+  parts.push(RECT(0, 300, 272, 100, "@warm"));
+  return parts;
+}
+
 export const CARD_SCENES = [
   // ---------- haunting ----------
   {
@@ -1508,6 +1764,144 @@ export const CARD_SCENES = [
       fade("deep", "#050b16", 300, 400, 0, 0.22),
     ],
     parts: lighthouseScene(),
+  },
+  // ---------- the six that replace the retired particle fields ----------
+  {
+    id: "neon-grid",
+    name: "Neon grid",
+    group: "Cyber",
+    // A sun cut by widening bands over a grid running to a vanishing point.
+    // The perspective has done its work by y=150, which is what lets a scene
+    // this bright sit above someone's name without shouting over it.
+    defs: [
+      veil("sky", "#1b0b2a", "#2a1140", 0.5),
+      RG("sun", 136, 96, 48, [
+        [0, "#fff2a8", 1],
+        [0.45, "#ff7ac0", 1],
+        [1, "#c4359b", 0.9],
+      ]),
+      RG("sunrim", 136, 96, 50, [
+        [0.7, "#ff9ad4", 0],
+        [1, "#ff9ad4", 0.55],
+      ]),
+      fade("range", "#2a0f42", 118, 210, 0.95, 0.2),
+      fade("grid", "#4ef0ff", 142, 262, 0.85, 0),
+    ],
+    parts: neonGridScene(),
+  },
+  {
+    id: "storm-front",
+    name: "Storm front",
+    group: "Weather",
+    // Three banks of cloud, a flash that lights the whole sky rather than a
+    // line appearing in it, and rain that thins out well above the text.
+    defs: [
+      veil("sky", "#2b3444", "#414d61", 0.42),
+      fade("cloudfar", "#55617a", 30, 130, 0.6, 0.15),
+      fade("cloudmid", "#3c465c", 50, 140, 0.8, 0.2),
+      fade("cloudnear", "#252d3d", 70, 150, 0.95, 0.25),
+      LG("flash", 0, 0, 0, 150, [
+        [0, "#dce8ff", 0.5],
+        [1, "#dce8ff", 0],
+      ]),
+      fade("bolt", "#fff6d0", 70, 156, 1, 0.4),
+      fade("rain", "#c8d8ee", 60, 210, 0.7, 0),
+      fade("wet", "#1d2431", 300, 400, 0, 0.2),
+    ],
+    parts: stormFrontScene(),
+  },
+  {
+    id: "ember-drift",
+    name: "Ember drift",
+    group: "Elemental",
+    // A bank of coals breathing on two clocks, throwing sparks that go out
+    // before they reach anything anyone has to read.
+    defs: [
+      veil("sky", "#1a0d0a", "#2c1611", 0.44),
+      RG("heat", 136, 150, 150, [
+        [0, "#ff8a2a", 0.5],
+        [0.55, "#c9401a", 0.2],
+        [1, "#7a1f0c", 0],
+      ]),
+      fade("coal", "#8c2d12", 118, 170, 0.95, 0.35),
+      fade("coalhot", "#ff6a1e", 118, 170, 1, 0.4),
+      fade("spark", "#ffb347", 40, 160, 0.95, 0.5),
+      fade("ash", "#150a07", 300, 400, 0, 0.22),
+    ],
+    parts: emberDriftScene(),
+  },
+  {
+    id: "lantern-drift",
+    name: "Lantern drift",
+    group: "Whimsy",
+    // Paper lanterns going up over a dark hill, three sizes for depth, each
+    // bobbing on a clock of its own so the sky never pulses as one thing.
+    defs: [
+      veil("sky", "#241a3a", "#3b2b55", 0.42),
+      RGB("glow", [
+        [0, "#ffd98a", 0.75],
+        [0.5, "#ffab4a", 0.28],
+        [1, "#ff8a2a", 0],
+      ]),
+      fade("paper", "#ffcf7a", 20, 130, 1, 0.55),
+      fade("rim", "#c2662a", 20, 130, 0.95, 0.5),
+      fade("hill", "#17102a", 140, 250, 0.95, 0.3),
+      fade("dusk", "#150f22", 300, 400, 0, 0.2),
+    ],
+    parts: lanternDriftScene(),
+  },
+  {
+    id: "deep-space",
+    name: "Deep space",
+    group: "Night",
+    // Three nebula clouds separated by colour rather than by outline, and a
+    // star field where a handful are bright enough to earn a cross.
+    defs: [
+      veil("sky", "#070a18", "#0d1226", 0.4),
+      RGB("neb1", [
+        [0, "#7a4fd8", 0.42],
+        [0.55, "#4a2f9a", 0.16],
+        [1, "#2a1a5c", 0],
+      ]),
+      RGB("neb2", [
+        [0, "#d84f9a", 0.34],
+        [0.55, "#8a2f6a", 0.13],
+        [1, "#4a1a3c", 0],
+      ]),
+      RGB("neb3", [
+        [0, "#3fa9d8", 0.3],
+        [0.55, "#2a6a9a", 0.11],
+        [1, "#16324c", 0],
+      ]),
+      fade("void", "#050810", 300, 400, 0, 0.24),
+    ],
+    parts: deepSpaceScene(),
+  },
+  {
+    id: "sunfall",
+    name: "Sunfall",
+    group: "Calm",
+    // Low sun, two headlands, and the column it lays on the water — which is
+    // the picture, so it gets a gradient of its own rather than an opacity.
+    defs: [
+      veil("sky", "#f0a45c", "#f7c98a", 0.36),
+      RG("sun", 180, 104, 32, [
+        [0, "#fff6d8", 1],
+        [0.6, "#ffcf6a", 0.9],
+        [1, "#ff9a3c", 0.4],
+      ]),
+      fade("far", "#8a5a4a", 108, 200, 0.7, 0.15),
+      LG("sea", 0, 132, 0, 252, [
+        [0, "#c97a4a", 0.85],
+        [0.4, "#8a4a3c", 0.5],
+        [1, "#5a2f2a", 0],
+      ]),
+      fade("col", "#fff0c0", 132, 200, 0.85, 0.1),
+      fade("near", "#3a201c", 140, 300, 0.95, 0.2),
+      fade("bird", "#3a201c", 30, 90, 0.8, 0.4),
+      fade("warm", "#2a1512", 300, 400, 0, 0.2),
+    ],
+    parts: sunfallScene(),
   },
 ];
 

@@ -11,11 +11,18 @@
   // simultaneous animation, which is what `content-visibility` on the tiles is
   // for: the ones you have not scrolled to do not composite.
   //
-  // Two libraries feed one choice. A SCENE (lib/cardscenes.js) is drawn art —
-  // a ghost, a canopy, a planet with moons; a FIELD (lib/cardfx.js) is the
-  // particle engine. They share the `effect` id space and are shown in one
-  // gallery under two headings, because a person choosing what plays across
-  // their card is not thinking about which file the art came out of.
+  // Two libraries feed one choice, and only one of them is still OFFERED. A
+  // SCENE (lib/cardscenes.js) is drawn art — a ghost, a canopy, a planet with
+  // moons. A FIELD (lib/cardfx.js) is the particle engine, and a field of
+  // specks cannot be a horizon however it is tuned; the scenes are what people
+  // actually wanted from the choice, so the fields are retired from the
+  // gallery.
+  //
+  // Retired, NOT removed. Every field id still resolves and still paints, on
+  // this build and every other, because deleting one would blank the card of
+  // everyone who saved it — lookup fails closed. So the Fields shelf appears
+  // for exactly one person: someone already wearing a field. They can see what
+  // is on and change it; nobody else is offered one in the first place.
   import { registerOverlay, S } from "./lib/state.svelte.js";
   import Icon from "./Icon.svelte";
   import FxLayer from "./FxLayer.svelte";
@@ -37,6 +44,12 @@
   // Tiles are small, so the engine gets a smaller scale — its own signal to cut
   // the particle count rather than shrink a full field into a thumbnail.
   const tileScale = $derived(S.isMobile ? 0.3 : 0.45);
+  // Only the wearer of a field ever sees the shelf it came from, and only the
+  // group theirs belongs to — the other five are gone for good.
+  const wornField = $derived(CARD_EFFECT_BY_ID[sel] ? sel : "");
+  const fieldGroups = $derived(
+    wornField ? CARD_EFFECT_GROUPS.filter((g) => g.ids.includes(wornField)) : [],
+  );
 </script>
 
 <div class="es-scrim" role="presentation" onclick={onClose}></div>
@@ -69,10 +82,7 @@
          That is the right call for the picture but a surprise for the person
          who uploaded a banner and watched it vanish without being told why, so
          the trade is stated here rather than discovered. -->
-    <p class="snote tiny muted">
-      A scene is painted over your banner image, so you'll see the scene instead
-      while one is on.
-    </p>
+    <p class="snote tiny muted">A scene replaces your banner while it's on.</p>
     {#each CARD_SCENE_GROUPS as g (g.title)}
       <div class="gtitle">{g.title}</div>
       <div class="grid">
@@ -87,22 +97,24 @@
       </div>
     {/each}
 
-    <div class="stitle">
-      Fields <span class="tiny muted">weather and particles</span>
-    </div>
-    {#each CARD_EFFECT_GROUPS as g (g.title)}
-      <div class="gtitle">{g.title}</div>
-      <div class="grid">
-        {#each g.ids as id (id)}
-          <button class="opt" class:sel={sel === id} onclick={() => (sel = id)}>
-            <span class="tile">
-              <FxLayer fx={CARD_EFFECT_BY_ID[id].fx} seed={id} scale={tileScale} />
-            </span>
-            <span class="oname">{CARD_EFFECT_BY_ID[id].name}</span>
-          </button>
-        {/each}
+    <!-- Only ever rendered for someone already wearing a field. -->
+    {#if wornField}
+      <div class="stitle">
+        Fields <span class="tiny muted">no longer offered — yours still works</span>
       </div>
-    {/each}
+      {#each fieldGroups as g (g.title)}
+        <div class="grid">
+          {#each g.ids.filter((id) => id === wornField) as id (id)}
+            <button class="opt" class:sel={sel === id} onclick={() => (sel = id)}>
+              <span class="tile">
+                <FxLayer fx={CARD_EFFECT_BY_ID[id].fx} seed={id} scale={tileScale} />
+              </span>
+              <span class="oname">{CARD_EFFECT_BY_ID[id].name}</span>
+            </button>
+          {/each}
+        </div>
+      {/each}
+    {/if}
   </div>
 
   <div class="es-foot">
