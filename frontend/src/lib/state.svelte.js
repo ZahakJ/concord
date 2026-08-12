@@ -126,6 +126,16 @@ export const S = $state({
     // until someone turns it on THERE — prefs are device-local, so a laptop
     // running snow never starts a phone animating on battery.
     themeFx: "",
+    // The specular pass on an animated pack — the band of light that crosses
+    // the window on top of everything else (aurora's curtain, prism's bar, the
+    // CRT roll, a heat wave, ice glinting). It is the part of a live backdrop
+    // that travels OVER your text rather than sitting behind it, and it is the
+    // one part some people want gone while keeping the pack's colour and its
+    // scenery moving. On by default: it is what the packs were drawn and
+    // contrast-measured with, and turning it off silently would change the
+    // appearance of every install that never asked. See applyAppearance for
+    // the stamp and the "shine off" block in app.css for what each pack drops.
+    themeShine: true,
     // Shape/typeface overrides. "" = follow the active theme pack, which now
     // carries a corner radius and a UI face of its own, not just colors.
     shape: "",
@@ -1324,6 +1334,12 @@ export const ANIMATED_PACKS = new Set([
   "bloom",
   "blossom",
   "meridian",
+  "orbit",
+  "radiant",
+  "silicon",
+  "uptime",
+  "zellige",
+  "atrium",
 ]);
 // Packs with a STATIC coloured mesh behind translucent surfaces ([data-textured]).
 export const TEXTURED_PACKS = new Set(["frost", "dusk", "grape"]);
@@ -1342,6 +1358,14 @@ export function applyAppearance() {
   // Textured packs use the same translucent-surface trick over a STATIC mesh.
   if (TEXTURED_PACKS.has(S.prefs.themePack)) el.dataset.textured = "1";
   else delete el.dataset.textured;
+  // The shine pref, stamped as ONE attribute the pack CSS keys off, so a pack
+  // that has a specular pass needs a single extra rule and every pack that
+  // doesn't needs none. Only the literal `false` turns it off — a value from a
+  // newer build or a hand-edited prefs file can never stamp an attribute no
+  // stylesheet matches, so an unrecognised pref reads as the default look
+  // rather than as some half-painted third state (same contract as validFx).
+  if (S.prefs.themeShine === false) el.dataset.themeShine = "off";
+  else delete el.dataset.themeShine;
   // Shape and typeface: stamped ONLY when explicitly chosen, so the empty
   // value means "whatever this pack asked for" rather than "override it with
   // the base look" (app.css puts these last so they win when present).

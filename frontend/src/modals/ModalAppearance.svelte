@@ -42,6 +42,10 @@
   const profileColor = $derived(S.identity.color || "#14a394");
   const themePack = $derived(S.prefs.themePack || "");
   const themeFx = $derived(S.prefs.themeFx || "");
+  // The specular pass on a live backdrop (see app.css, "Shine off"). Only the
+  // literal false is off, so a pref written by a newer build reads as the
+  // default look rather than as some third state.
+  const shine = $derived(S.prefs.themeShine !== false);
   const shape = $derived(S.prefs.shape || "");
   const font = $derived(S.prefs.font || "");
 
@@ -143,27 +147,33 @@
   // `motion` picks which one, so the card sells the effect instead of describing
   // it. Keep in sync with ANIMATED_PACKS in state.svelte.js.
   const LIVE_PACKS = [
-    { id: "aurora", label: "Aurora", bg: "#061b21", hi: "#112e34", ac: "#39d9b0", font: GROTESK, r: 10, av: "40%", motion: "sweep", grad: "linear-gradient(103deg,transparent 34%,#29d69e 42%,#7af6d6 48%,#46e2ff 54%,transparent 64%)", base: "linear-gradient(180deg,#16505a,#04161d)", note: "Sweeping curtain" },
+    { id: "aurora", label: "Aurora", bg: "#061b21", hi: "#112e34", ac: "#39d9b0", font: GROTESK, r: 10, av: "40%", motion: "sweep", grad: "linear-gradient(103deg,transparent 34%,#29d69e 42%,#7af6d6 48%,#46e2ff 54%,transparent 64%)", base: "linear-gradient(180deg,#16505a,#04161d)", shine: true, note: "Sweeping curtain" },
     { id: "synthwave", label: "Synthwave", bg: "#16072a", hi: "#260f3e", ac: "#ff4fd8", font: GROTESK, r: 0, av: "2px", motion: "sun", grad: "linear-gradient(180deg,#ffd873,#ff7ec9 55%,#b3379b)", base: "linear-gradient(180deg,#300a50 0%,#4a1069 54%,#12021f 58%)", note: "Sun + rushing grid" },
     { id: "cosmos", label: "Cosmos", bg: "#0a0c1b", hi: "#151930", ac: "#7c8bff", font: INTER, r: 13, av: "50%", motion: "star", grad: "linear-gradient(120deg,transparent 44%,#d6ecff 49.4%,transparent 55%)", base: "radial-gradient(120% 110% at 50% 20%,#1b2059,#04040c)", note: "Shooting stars" },
-    { id: "molten", label: "Molten", bg: "#1c0e08", hi: "#2e180e", ac: "#ff7a2f", font: SERIF, r: 4, av: "8px", motion: "heat", grad: "linear-gradient(0deg,transparent 30%,#ff7a2f 42%,#ffc46e 50%,transparent 66%)", base: "radial-gradient(120% 100% at 50% 110%,#7a2708,#0e0704)", note: "Rising heat, serif" },
-    { id: "prism", label: "Prism", bg: "#12141a", hi: "#20232c", ac: "#8de0ff", font: GROTESK, r: 14, av: "50%", motion: "sweep", grad: "linear-gradient(100deg,transparent 36%,#ff5c9e 41%,#ffc454 45%,#60f0aa 49%,#60c8ff 53%,#9682ff 57%,transparent 63%)", base: "linear-gradient(180deg,#23262f,#0a0b0e)", note: "Iridescent sweep" },
+    { id: "molten", label: "Molten", bg: "#1c0e08", hi: "#2e180e", ac: "#ff7a2f", font: SERIF, r: 4, av: "8px", motion: "heat", grad: "linear-gradient(0deg,transparent 30%,#ff7a2f 42%,#ffc46e 50%,transparent 66%)", base: "radial-gradient(120% 100% at 50% 110%,#7a2708,#0e0704)", shine: true, note: "Rising heat, serif" },
+    { id: "prism", label: "Prism", bg: "#12141a", hi: "#20232c", ac: "#8de0ff", font: GROTESK, r: 14, av: "50%", motion: "sweep", grad: "linear-gradient(100deg,transparent 36%,#ff5c9e 41%,#ffc454 45%,#60f0aa 49%,#60c8ff 53%,#9682ff 57%,transparent 63%)", base: "linear-gradient(180deg,#23262f,#0a0b0e)", shine: true, note: "Iridescent sweep" },
     { id: "monsoon", label: "Monsoon", bg: "#0b1722", hi: "#162838", ac: "#56b7e8", font: INTER, r: 5, av: "8px", motion: "rain", grad: "repeating-linear-gradient(14deg,rgba(186,226,255,0.55) 0 1.5px,rgba(186,226,255,0.14) 1.5px 3px,transparent 3px 13px)", base: "linear-gradient(178deg,#17384f,#06141f)", note: "Falling rain" },
     { id: "fathom", label: "Fathom", bg: "#04202c", hi: "#0c2d3a", ac: "#35d0e8", font: NUNITO, r: 12, av: "50%", card: true, motion: "bubbles", grad: "radial-gradient(circle at 30% 22%,rgba(200,248,255,0.85) 0 1.6px,transparent 2px),radial-gradient(circle at 74% 70%,rgba(180,240,255,0.7) 0 1.2px,transparent 1.8px) 0 0/26px 26px repeat", base: "radial-gradient(120% 100% at 50% -10%,#0e5468,#01131c)", note: "Light shafts, bubbles" },
     { id: "skyline", label: "Skyline", bg: "#0e0a1e", hi: "#1e1436", ac: "#35e0ff", font: GROTESK, r: 0, av: "2px", motion: "city", grad: "linear-gradient(90deg,#2c1c52 0 8px,transparent 8px) 0 100%/28px 58% repeat-x,linear-gradient(90deg,transparent 0 13px,#08040f 13px 21px,transparent 21px) 0 100%/28px 100% repeat-x", base: "linear-gradient(180deg,#150c33 0%,#4b1550 58%,#7d1f4e 68%,#07040f 74%)", note: "Neon city, parallax" },
     { id: "eclipse", label: "Eclipse", bg: "#120a20", hi: "#241638", ac: "#f0d68a", font: SERIF, r: 14, av: "50%", motion: "rays", grad: "repeating-conic-gradient(from 0deg,transparent 0 5deg,rgba(255,236,190,0.55) 6deg 8deg,transparent 9deg 15deg)", base: "radial-gradient(120% 110% at 50% 36%,#2a1746,#05030c)", note: "Turning corona" },
     { id: "daybreak", label: "Daybreak", bg: "#dceaf6", hi: "#c4d5e8", ac: "#1d6fbf", font: NUNITO, r: 10, av: "50%", day: true, motion: "clouds", grad: "radial-gradient(24% 15% at 18% 28%,rgba(255,255,255,0.95),transparent 72%),radial-gradient(18% 11% at 62% 60%,rgba(255,255,255,0.85),transparent 72%) 0 0/64px 40px repeat", base: "linear-gradient(180deg,#7cbdec,#b7dcf6 45%,#ffe9c9 80%,#ffd6a0)", note: "Morning sky, clouds" },
-    { id: "dunes", label: "Dunes", bg: "#261609", hi: "#3e2714", ac: "#e8a33f", font: SERIF, r: 4, av: "7px", rule: true, motion: "heat", grad: "linear-gradient(0deg,transparent 26%,#ffbe6e 40%,#ffe0aa 48%,transparent 68%)", base: "linear-gradient(180deg,#9c531a 0%,#d98b33 28%,#7a4416 40%,#150b04 78%)", note: "Desert heat, dust" },
+    { id: "dunes", label: "Dunes", bg: "#261609", hi: "#3e2714", ac: "#e8a33f", font: SERIF, r: 4, av: "7px", rule: true, motion: "heat", grad: "linear-gradient(0deg,transparent 26%,#ffbe6e 40%,#ffe0aa 48%,transparent 68%)", base: "linear-gradient(180deg,#9c531a 0%,#d98b33 28%,#7a4416 40%,#150b04 78%)", shine: true, note: "Desert heat, dust" },
     { id: "canopy", label: "Canopy", bg: "#0a1a0f", hi: "#17321e", ac: "#62c46a", font: INTER, r: 9, av: "40%", motion: "bubbles", grad: "radial-gradient(circle at 32% 26%,rgba(255,246,190,0.9) 0 1.8px,transparent 2.4px),radial-gradient(circle at 76% 66%,rgba(210,250,170,0.8) 0 1.3px,transparent 1.9px) 0 0/26px 26px repeat", base: "radial-gradient(120% 100% at 50% -10%,#2f6b33,#050f08 75%)", note: "Dappled light, pollen" },
     { id: "datastream", label: "Datastream", bg: "#020c06", hi: "#092011", ac: "#35f08a", font: MONO, r: 0, av: "0px", motion: "code", grad: "radial-gradient(2px 20px at 22% 30%,rgba(60,255,150,0.75),transparent),radial-gradient(2px 14px at 68% 70%,rgba(120,255,190,0.6),transparent) 0 0/30px 44px repeat", base: "linear-gradient(180deg,#04160b,#000402)", note: "Falling code" },
-    { id: "sonar", label: "Sonar", bg: "#041414", hi: "#0b2826", ac: "#ffb347", font: MONO, r: 2, av: "50%", rule: true, motion: "scope", grad: "conic-gradient(from 0deg,rgba(255,179,71,0.55) 0deg,rgba(255,179,71,0.16) 26deg,transparent 62deg)", base: "radial-gradient(90% 90% at 50% 50%,#073030,#010a0a)", note: "Turning scope" },
+    { id: "sonar", label: "Sonar", bg: "#041414", hi: "#0b2826", ac: "#ffb347", font: MONO, r: 2, av: "50%", rule: true, motion: "scope", grad: "conic-gradient(from 0deg,rgba(255,179,71,0.55) 0deg,rgba(255,179,71,0.16) 26deg,transparent 62deg)", base: "radial-gradient(90% 90% at 50% 50%,#073030,#010a0a)", shine: true, note: "Turning scope" },
     { id: "lantern", label: "Lantern", bg: "#081422", hi: "#13283e", ac: "#ff9d4d", font: NUNITO, r: 13, av: "50%", card: true, motion: "bubbles", grad: "radial-gradient(circle at 34% 30%,rgba(255,186,110,0.95) 0 2.6px,transparent 3.4px),radial-gradient(circle at 74% 72%,rgba(255,210,150,0.8) 0 1.8px,transparent 2.6px) 0 0/28px 28px repeat", base: "linear-gradient(180deg,#0a1e35,#14304c 70%,#060e18)", note: "Lanterns rising" },
-    { id: "glacier", label: "Glacier", bg: "#102230", hi: "#1f3c50", ac: "#9fe0ff", font: GROTESK, r: 2, av: "4px", rule: true, motion: "facets", grad: "repeating-linear-gradient(64deg,transparent 0 9px,rgba(215,245,255,0.5) 11px,#ffffff 12px,transparent 14px 22px)", base: "linear-gradient(158deg,#2b5f7d,#0a2130 72%,#050f17)", note: "Ice, hard glint" },
+    { id: "glacier", label: "Glacier", bg: "#102230", hi: "#1f3c50", ac: "#9fe0ff", font: GROTESK, r: 2, av: "4px", rule: true, motion: "facets", grad: "repeating-linear-gradient(64deg,transparent 0 9px,rgba(215,245,255,0.5) 11px,#ffffff 12px,transparent 14px 22px)", base: "linear-gradient(158deg,#2b5f7d,#0a2130 72%,#050f17)", shine: true, note: "Ice, hard glint" },
     { id: "vinyl", label: "Vinyl", bg: "#20160e", hi: "#362719", ac: "#d9a05b", font: SERIF, r: 8, av: "50%", motion: "scope", grad: "repeating-radial-gradient(circle at 50% 50%,rgba(0,0,0,0.5) 0 2px,rgba(255,214,160,0.16) 2px 4px)", base: "radial-gradient(110% 100% at 26% 34%,#4a3520,#100a05)", note: "A record, turning" },
     { id: "storm", label: "Storm", bg: "#14171b", hi: "#272b31", ac: "#9fb4c9", font: INTER, r: 3, av: "5px", rule: true, motion: "clouds", grad: "radial-gradient(30% 20% at 22% 26%,rgba(226,234,244,0.65),transparent 74%),radial-gradient(22% 14% at 66% 58%,rgba(190,202,214,0.5),transparent 74%) 0 0/70px 44px repeat", base: "linear-gradient(180deg,#2b3238,#0c0f12 80%)", note: "Cloud, distant strike" },
     { id: "blossom", label: "Blossom", bg: "#241016", hi: "#3b1b25", ac: "#ff7aa2", font: NUNITO, r: 14, av: "50%", card: true, motion: "petals", grad: "radial-gradient(4px 2.6px at 30% 24%,rgba(255,190,210,0.95),transparent),radial-gradient(3px 2px at 72% 66%,rgba(255,160,190,0.85),transparent) 0 0/30px 38px repeat", base: "linear-gradient(180deg,#7a2437 0%,#b8455c 34%,#3a1220 58%,#150609)", note: "Petals at dusk" },
     { id: "meridian", label: "Meridian", bg: "#081a20", hi: "#112f37", ac: "#ff9a63", font: SERIF, r: 6, av: "50%", rule: true, motion: "path", grad: "repeating-linear-gradient(0deg,rgba(255,186,118,0.7) 0 2px,transparent 2px 7px)", base: "linear-gradient(180deg,#d9673a 0%,#f0a05a 20%,#123039 34%,#040c10)", note: "Sun on the water" },
     { id: "bloom", label: "Bloom", bg: "#101408", hi: "#1f270f", ac: "#b6e830", font: GROTESK, r: 16, av: "50%", motion: "heat", grad: "radial-gradient(38% 26% at 40% 50%,rgba(182,232,48,0.75),transparent 70%),radial-gradient(30% 20% at 72% 50%,rgba(255,176,60,0.55),transparent 72%)", base: "radial-gradient(120% 100% at 50% 110%,#3d4a10,#080a03 70%)", note: "Slow rising blobs" },
+    { id: "orbit", label: "Orbit", bg: "#0a1120", hi: "#1a2440", ac: "#e2ecff", font: INTER, r: 10, av: "50%", rule: true, motion: "limb", grad: "radial-gradient(1.6px 1.6px at 8px 5px,rgba(255,200,140,0.95),transparent) 0 0/34px 26px repeat,radial-gradient(1.3px 1.3px at 22px 14px,rgba(255,186,120,0.8),transparent) 0 0/34px 26px repeat", base: "radial-gradient(150% 96% at 50% 152%,#12365c 0 96%,rgba(130,210,255,0.9) 98.5%,transparent 100%),radial-gradient(120% 90% at 50% 4%,#0c1330,#01030a 78%)", note: "The night side, turning" },
+    { id: "radiant", label: "Radiant", bg: "#080e20", hi: "#161f3c", ac: "#5b9dff", font: MONO, r: 16, av: "40%", motion: "fly", grad: "radial-gradient(circle at 24% 30%,rgba(226,240,255,0.95) 0 1.3px,transparent 1.9px) 0 0/34px 34px repeat,radial-gradient(circle at 68% 62%,rgba(180,214,255,0.85) 0 1px,transparent 1.6px) 0 0/34px 34px repeat,radial-gradient(circle at 82% 22%,#fff 0 1.2px,transparent 1.8px) 0 0/34px 34px repeat", base: "radial-gradient(110% 110% at 62% 26%,#0d1a3c,#010206 72%)", note: "Meteors, coming at you" },
+    { id: "silicon", label: "Silicon", bg: "#0d1728", hi: "#1a2c44", ac: "#7cf3e0", font: GROTESK, r: 3, av: "3px", card: true, motion: "bus", grad: "radial-gradient(9px 1.2px at 10px 23px,rgba(170,255,246,0.95),transparent) 0 0/46px 69px repeat,radial-gradient(7px 1.2px at 34px 46px,rgba(130,240,255,0.8),transparent) 0 0/46px 69px repeat", base: "repeating-linear-gradient(90deg,transparent 0 22px,rgba(124,243,224,0.14) 22px 23px),repeating-linear-gradient(0deg,transparent 0 22px,rgba(124,243,224,0.12) 22px 23px),radial-gradient(120% 100% at 28% 8%,#17253f,#05080f 76%)", note: "Traffic on a die" },
+    { id: "uptime", label: "Uptime", bg: "#0e151c", hi: "#1d2833", ac: "#2fd18b", font: NUNITO, r: 6, av: "4px", rule: true, motion: "blink", grad: "radial-gradient(4px 4px at 7px 7px,rgba(80,255,176,0.95) 0 26%,rgba(60,230,160,0.2) 48%,transparent 78%) 0 0/38px 39px repeat,radial-gradient(4px 4px at 7px 20px,rgba(80,255,176,0.8) 0 26%,rgba(60,230,160,0.18) 48%,transparent 78%) 0 0/38px 39px repeat,radial-gradient(3.6px 3.6px at 13px 33px,rgba(255,200,104,0.9) 0 26%,rgba(255,170,60,0.18) 48%,transparent 78%) 0 0/38px 39px repeat", base: "repeating-linear-gradient(90deg,rgba(0,0,0,0.5) 0 3px,transparent 3px 38px),linear-gradient(180deg,#121a21,#05080c 82%)", note: "A wall of status lights" },
+    { id: "zellige", label: "Zellige", bg: "#082426", hi: "#103436", ac: "#2ec4b6", font: INTER, r: 18, av: "50%", card: true, motion: "swing", grad: "radial-gradient(48% 46% at 50% 4%,rgba(255,206,130,0.55),transparent 72%)", base: "repeating-linear-gradient(45deg,rgba(226,200,140,0.18) 0 1px,transparent 1px 22px),repeating-linear-gradient(-45deg,rgba(226,200,140,0.18) 0 1px,transparent 1px 22px),repeating-conic-gradient(rgba(30,140,132,0.22) 0 25%,transparent 0 50%) 0 0/44px 44px,linear-gradient(180deg,#0e403c,#030f11 88%)", note: "Tilework, a swinging lamp" },
+    { id: "atrium", label: "Atrium", bg: "#f2efe6", hi: "#ded8c8", ac: "#0f8a86", font: SERIF, r: 24, av: "50%", card: true, day: true, motion: "bars", grad: "repeating-linear-gradient(76deg,rgba(64,84,116,0.16) 0 1.5px,transparent 1.5px 19.5px),repeating-linear-gradient(166deg,rgba(64,84,116,0.1) 0 1.5px,transparent 1.5px 33px)", base: "linear-gradient(180deg,#eef4f8,#f7f3ea 46%,#e6ddcc)", note: "Noon under glass" },
   ];
 </script>
 
@@ -208,6 +218,7 @@
         class="pk"
         class:still
         class:day={p.day}
+        class:dimshine={p.shine && !shine}
         data-motion={p.motion || null}
         style="--pk-bg:{p.bg};--pk-hi:{p.hi};--pk-ac:{p.ac};--pk-r:{p.r}px;--pk-av:{p.av};--pk-font:{p.font};{p.grad
           ? `--pk-grad:${p.grad};`
@@ -253,6 +264,14 @@
     <div class="pack-row" role="radiogroup" aria-label="Animated theme pack">
       {#each LIVE_PACKS as p (p.id)}{@render packCard(p)}{/each}
     </div>
+    <SettingRow
+      icon="spark"
+      title="Sweeping highlights"
+      sub="The band of light that crosses the window on a live pack"
+      info="Most animated packs carry one bright layer that travels over the whole window — a curtain, an iridescent bar, a rolling scanline, a wave of heat, ice catching the light. Turning this off leaves every pack its colour, its scenery and the rest of its motion, and takes away only the highlight that passes over what you are reading. Packs without one are unaffected."
+      checked={shine}
+      onclick={() => setAppearance("themeShine", !shine)}
+    />
 
     <div class="live-head">
       <span class="live-tag texture-tag">▦ Textured</span>
@@ -1060,6 +1079,109 @@
       transform: scale(1.12);
       opacity: 1;
     }
+  }
+  /* Orbit: the planet, hung off the bottom edge so the card shows the limb and
+     nothing else, turning under you. */
+  /* Orbit. The limb itself is painted in `base`, on the card's own box: a disc
+     big enough to curve across a 112px card is also big enough that rotating
+     it as a CHILD threw the mini-window's own layout 70px off its box in
+     Chromium. What moves here is what you actually watch move in the app —
+     the city lights sliding along the horizon — confined to the band below
+     it. */
+  .pk[data-motion="limb"] .pk-glow {
+    inset: 74% -20% 0 -20%;
+    opacity: 1;
+    animation: pk-limb 9s linear infinite;
+  }
+  @keyframes pk-limb {
+    to {
+      transform: translate3d(-34px, 0, 0);
+    }
+  }
+  /* Radiant: the field expanding out of the radiant point. */
+  .pk[data-motion="fly"] .pk-glow {
+    inset: -40%;
+    transform-origin: 55% 38%;
+    animation: pk-fly 3.2s linear infinite;
+  }
+  /* Silicon: pulses running one cell along the bus. The lattice they run on is
+     in `base`, held still, exactly as it is in the app. */
+  .pk[data-motion="bus"] .pk-glow {
+    inset: -30%;
+    animation: pk-bus 2.2s linear infinite;
+  }
+  /* Uptime: indicator lights, blinking rather than fading. */
+  .pk[data-motion="blink"] .pk-glow {
+    inset: 0;
+    opacity: 1;
+    animation: pk-blink 1.1s linear infinite;
+  }
+  /* Zellige: the lamp swinging over the tiles (which are in `base`). */
+  .pk[data-motion="swing"] .pk-glow {
+    inset: -20%;
+    animation: pk-swing 4.6s ease-in-out infinite alternate;
+  }
+  /* Atrium: the glazing shadows, moving because the sun does. One period along
+     the first family's normal, which is the vector the real pack uses scaled
+     to the card's smaller pitch. */
+  .pk[data-motion="bars"] .pk-glow {
+    inset: -40%;
+    opacity: 1;
+    animation: pk-bars 26s linear infinite;
+  }
+  @keyframes pk-fly {
+    0% {
+      transform: scale(0.5);
+      opacity: 0;
+    }
+    20% {
+      opacity: 0.95;
+    }
+    70% {
+      opacity: 0.9;
+    }
+    100% {
+      transform: scale(3);
+      opacity: 0;
+    }
+  }
+  @keyframes pk-bus {
+    to {
+      transform: translate3d(46px, 0, 0);
+    }
+  }
+  @keyframes pk-blink {
+    0%,
+    48% {
+      opacity: 0.95;
+    }
+    49%,
+    100% {
+      opacity: 0.3;
+    }
+  }
+  @keyframes pk-swing {
+    0% {
+      transform: translate3d(-15%, 2.4%, 0);
+    }
+    50% {
+      transform: translate3d(0, 0, 0);
+    }
+    100% {
+      transform: translate3d(15%, 2.4%, 0);
+    }
+  }
+  @keyframes pk-bars {
+    to {
+      transform: translate3d(-18.9px, 4.7px, 0);
+    }
+  }
+  /* With sweeping highlights turned off, the cards whose motion IS that
+     highlight say so. It damps rather than deletes, because that is what the
+     packs themselves do — aurora keeps its curtain, prism keeps its bar, both
+     without the hot core. */
+  .pk.dimshine .pk-glow {
+    opacity: 0.28;
   }
   /* Textured previews: the same mesh, held still — which is what the real
      textured packs do. */
