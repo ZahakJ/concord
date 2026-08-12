@@ -587,19 +587,43 @@
     50% { transform: rotate(3deg); }
   }
 
-  /* Small avatars and anyone who asked for less motion get the drawing, still.
-     The decoration is the point; the movement is the garnish. */
+  /* Small avatars get the drawing, still — until you point at one.
+     The decoration is the point; the movement is the garnish.
+
+     PAUSED rather than removed, which is the whole trick. `animation: none`
+     tears the animation down, so there is nothing left to start again when a
+     row is hovered and the only way back was to re-render the subtree. A
+     paused animation costs what the freeze was protecting against anyway:
+     nothing. It generates no frames, so it drags no style recalculation per
+     row per frame — the forty-row member list pays for forty animations that
+     are not running, which is not a measurable thing.
+
+     What that buys is the behaviour people expect from a decoration: it sits
+     quietly in a list of forty and comes alive under the pointer, one at a
+     time, which is also the only moment the movement carries any information.
+     `.avatar` is Avatar.svelte's own root — :global because the hover happens
+     on an element this component does not own. */
   .dec.still .p,
   .p {
     will-change: transform;
   }
   .dec.still,
   .dec.still .anim {
-    animation: none !important;
+    animation-play-state: paused;
   }
+  :global(.avatar:hover) .dec.still,
+  :global(.avatar:hover) .dec.still .anim {
+    animation-play-state: running;
+  }
+
+  /* Asked for less motion means less motion, hover or not. This has to stay
+     `animation: none` rather than a pause: reduced-motion is a statement about
+     what may move at all, not about what may move right now. */
   @media (prefers-reduced-motion: reduce) {
     .dec,
-    .anim {
+    .anim,
+    :global(.avatar:hover) .dec.still,
+    :global(.avatar:hover) .dec.still .anim {
       animation: none !important;
     }
   }

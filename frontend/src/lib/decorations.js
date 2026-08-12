@@ -347,14 +347,20 @@ function horn(a, rBase, R, sweep, w0, dir = 1, steps = 13) {
 
 // coil: a horn that keeps going — a spiral rooted on the band and winding in
 // on itself beside the head. A ram's horn, a nautilus, a fiddlehead.
-function coil(a, rBase, R, turns, w0, dir = 1, steps = 34) {
+// `t0`/`t1` take a SLICE of the spiral rather than all of it, which is what
+// lets one coil be drawn twice at two depths: the stretch that has swung
+// behind the head in the back layer, the stretch still in front of it over the
+// top. Without that a horn is painted flat onto the face — the shape says it
+// wraps and the compositing says it does not, and the eye believes the
+// compositing every time.
+function coil(a, rBase, R, turns, w0, dir = 1, steps = 34, t0 = 0, t1 = 1) {
   const f = frame(a, rBase);
   const cx = dir * R;
   const phi0 = dir > 0 ? 180 : 0;
   const out = [];
   const inn = [];
   for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
+    const t = t0 + ((t1 - t0) * i) / steps;
     const phi = (phi0 - dir * turns * 360 * t) * RAD;
     const rad = R * (1 - 0.6 * t);
     const w = (w0 * (1 - 0.72 * t)) / 2;
@@ -1139,11 +1145,31 @@ export const DECORATIONS = [
     ],
     parts: [
       cast(-90, 90, 10),
-      ...mirror(66, (a, s) => coil(a, 35.8, 10, 0.52, 11, s), { fill: "c1-deep" }),
-      ...mirror(66, (a, s) => coil(a, 36.2, 9.7, 0.52, 9, s), { fill: "@horn" }),
+      // The horn is drawn TWICE at two depths, and the second half of the
+      // spiral is the half that goes behind. A ram's horn sweeps out from the
+      // brow, past the ear, and curls back IN toward the jaw — and that last
+      // stretch is on the far side of the head. Drawn in one pass at one
+      // depth it lies flat across the face instead, which reads as a sticker
+      // of a horn rather than a horn being worn, however well it is shaded.
+      //
+      // The two slices overlap by a tenth of a turn so the seam between them
+      // falls inside the avatar's silhouette, where nothing can show through.
+      ...mirror(66, (a, s) => coil(a, 35.8, 10, 0.52, 11, s, 34, 0.45, 1), {
+        z: "back",
+        fill: "c1-deep",
+      }),
+      ...mirror(66, (a, s) => coil(a, 36.2, 9.7, 0.52, 9, s, 34, 0.45, 1), {
+        z: "back",
+        fill: "@horn",
+      }),
+      ...mirror(66, (a, s) => coil(a, 35.8, 10, 0.52, 11, s, 34, 0, 0.55), { fill: "c1-deep" }),
+      ...mirror(66, (a, s) => coil(a, 36.2, 9.7, 0.52, 9, s, 34, 0, 0.55), { fill: "@horn" }),
       // The ridges a ram's horn is banded with, as a narrow pass riding the
       // upper edge of the main coil. Without them the horn is a smooth tusk.
-      ...mirror(66, (a, s) => coil(a, 38.4, 9, 0.5, 2.4, s), { fill: "c1-glint", op: 0.5 }),
+      ...mirror(66, (a, s) => coil(a, 38.4, 9, 0.5, 2.4, s, 34, 0, 0.55), {
+        fill: "c1-glint",
+        op: 0.5,
+      }),
       P(arcBand(37.2, -86, 86, 3.6), { fill: "@band" }),
       P(arcBand(38.8, -86, 86, 0.9), { fill: "c1-glint", op: 0.6 }),
       ...row([-30, 0, 30], (a, i) => gem(a, 39.4, i === 1 ? 5 : 3.6, i === 1 ? 7 : 5), {

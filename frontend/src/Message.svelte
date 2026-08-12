@@ -916,12 +916,22 @@
         title="View profile"
         onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
       >
+        <!-- What someone is wearing belongs HERE above anywhere else: the
+             message list is where you actually see people, and a decoration
+             that only shows in the member panel and on a profile card is one
+             almost nobody looks at. Same fields the member panel passes, so
+             the two surfaces cannot drift. -->
         <Avatar
           name={nameFor(m.sender, m.senderName)}
           emoji={mem?.emoji}
           color={mem?.color}
+          color2={mem?.color2}
           image={mem?.avatar}
           size={38}
+          frame={mem?.frame}
+          decoration={mem?.style?.dec || ""}
+          dc={mem?.style?.dc || ""}
+          style={mem?.style}
         />
       </button>
     {/if}
