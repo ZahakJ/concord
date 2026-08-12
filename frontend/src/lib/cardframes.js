@@ -180,6 +180,25 @@ function waveTop(x0, x1, y, amp, wl, phase, bottom) {
   );
 }
 
+/**
+ * band: the strip between two DIFFERENT sine curves.
+ *
+ * waveTop only waves one of its two edges, and the straight one is a straight
+ * line drawn across the whole card — a cloud bar, a rime ledge or a drift built
+ * that way reads as a painted plank however good its crest is. This has no flat
+ * side, so it can be used where both edges show.
+ */
+function band(x0, x1, yT, aT, wT, pT, yB, aB, wB, pB, n = 48) {
+  const top = [];
+  const bot = [];
+  for (let i = 0; i <= n; i++) {
+    const x = x0 + ((x1 - x0) * i) / n;
+    top.push([x, yT + Math.sin((x / wT) * Math.PI * 2 + pT) * aT]);
+    bot.push([x, yB + Math.sin((x / wB) * Math.PI * 2 + pB) * aB]);
+  }
+  return smooth(top) + smooth(bot.reverse()).replace(/^M/, "L") + "Z";
+}
+
 /** crenel: a battlemented wall top — merlons up, embrasures between. */
 function crenel(x0, x1, yTop, yMerlon, yBase, merlon, gap) {
   const pts = [[x0, yBase]];
@@ -1431,230 +1450,884 @@ const hallowsEve = (() => {
 })();
 
 const deepWoods = (() => {
-  const BARK = "#4b3a2a";
-  const BARK2 = "#33261b";
-  const LEAF = ["#20502f", "#2d6b39", "#3f8a44"];
+  // Old growth with the last of the sun coming in low from the left. The frame
+  // used to be three flat greens and two sticks, and flat green is exactly what
+  // makes a wood read as a cartoon: a canopy is lit from ABOVE, so every leaf
+  // mass has a gold-green top and a blue-green underside, and every trunk
+  // standing further back is paler, bluer and lower in contrast than the one in
+  // front of it. Down at the floor the only warm thing is what the shaft
+  // reaches; everything it misses goes blue.
   const parts = [];
+  const g = rnd(29);
 
-  // Canopy: three depths of leaf mass overhanging the top edge, behind the
-  // card so the lowest lobes are cut by it. The lobes are deliberately uneven
-  // — a row of equal blobs at one height is a green slab, not a canopy.
-  const gc = rnd(21);
-  for (let layer = 0; layer < 3; layer++) {
+  // ── plane 4: haze, and the trunks dissolving into it ────────────────────
+  // Ellipses rather than a panel of sky. The frame has no outer boundary, so a
+  // rectangle would draw its own edges and read as a poster behind the card.
+  parts.push(BK(oval(126, -54, 236, 172), { fill: "@haze" }));
+  parts.push(BK(oval(58, -4, 148, 108), { fill: "@sunhaze" }));
+
+  // Two ranks of trunks going back into it. Both fills die out before the card's
+  // top edge: a rank filled down to a fixed baseline rules a straight line
+  // across the whole frame, and that line is the thing that gives it away.
+  const rank = (n, base, h, w, fill, seed) => {
+    const gg = rnd(seed);
     const d = [];
-    for (let x = -40; x <= 312; x += 26) {
-      const lift = gc() * 26;
-      d.push(
-        blob(x + layer * 7 + gc() * 8, -46 + layer * 20 + lift, 17 + gc() * 13 - layer * 1.5, {
-          squash: 0.78,
-          wob: 0.3,
-          seed: Math.round(x + layer * 97),
-        }),
-      );
+    for (let i = 0; i < n; i++) {
+      const x = -54 + (382 * i) / n + gg() * 17;
+      const ww = w * (0.55 + gg() * 0.9);
+      const top = -h * (0.72 + gg() * 0.6);
+      d.push(poly([[x - ww, base], [x - ww * 0.6, top], [x + ww * 0.6, top], [x + ww, base]]));
     }
+    parts.push(BK(d.join(""), { fill }));
+  };
+  rank(16, 26, 150, 3.1, "@trunk-far", 3);
+  rank(9, 34, 172, 5.4, "@trunk-mid", 11);
+
+  // The shafts, leaning the way the light does and fading out at both ends.
+  for (const [x, w, dl] of [
+    [-6, 19, 0],
+    [64, 12, -3.4],
+    [154, 24, -6.2],
+  ]) {
     parts.push(
-      BK(d.join(""), {
-        fill: LEAF[layer],
-        a: layer ? "breeze" : "breeze-slow",
-        or: "136px -60px",
-        dl: -layer * 1.7,
+      BK(poly([[x, -176], [x + w, -176], [x + w + 42, 54], [x + 26, 54]]), {
+        fill: "@shaft",
+        op: 0.5,
+        a: "shimmer",
+        or: `${x}px -176px`,
+        dl,
       }),
     );
   }
 
-  // Two trunks holding the sides up, in front of the card.
-  for (const [x, dir] of [
-    [7, 1],
-    [265, -1],
+  // ── planes 3-2: the canopy ──────────────────────────────────────────────
+  // Three depths. Each lobe gets a lit cap offset up and left and a shaded
+  // belly offset down and right, because one gradient fitted to the whole rank
+  // says "this band is lit from above" and nothing at all about the lobes in it.
+  [
+    ["@leaf-far", "@leaf-far-lit", -100, 15, 31],
+    ["@leaf-mid", "@leaf-mid-lit", -76, 19, 27],
+    ["@leaf-near", "@leaf-near-lit", -48, 22, 24],
+  ].forEach(([fill, litFill, y0, r, step], layer) => {
+    const body = [];
+    const lit = [];
+    const edge = [];
+    const cls = layer ? "breeze" : "breeze-slow";
+    for (let x = -48; x <= 322; x += step) {
+      const cx = x + g() * 12;
+      // Squared, so most lobes hang low and a few reach well above the rest.
+      // An even scatter of heights is still a level hedge, just a noisy one.
+      const u = g();
+      const cy = y0 + 22 - u * u * 56;
+      const rr = r * (0.5 + g() * 1.25);
+      const seed = Math.round(x + layer * 91);
+      body.push(blob(cx, cy, rr, { squash: 0.72, wob: 0.32, seed }));
+      lit.push(blob(cx - rr * 0.24, cy - rr * 0.3, rr * 0.62, { squash: 0.66, wob: 0.3, seed: seed + 7 }));
+      // A few individual leaves along the lower silhouette, so the mass ends in
+      // leaves instead of ending in a lump.
+      if (layer === 2) {
+        for (let k = 0; k < 3; k++) {
+          const a = 34 + g() * 112;
+          edge.push(oval(cx + Math.cos(rad(a)) * rr, cy + Math.sin(rad(a)) * rr * 0.74, 5.6, 2.7, a));
+        }
+      }
+    }
+    parts.push(BK(body.join("") + edge.join(""), { fill, a: cls, or: "136px -78px", dl: -layer * 1.7 }));
+    parts.push(BK(lit.join(""), { fill: litFill, op: 0.55, a: cls, or: "136px -78px", dl: -layer * 1.7 }));
+  });
+
+  // Pollen going up through the shaft, and one bird crossing behind the leaves.
+  for (let i = 0; i < 9; i++) {
+    const x = -10 + g() * 190;
+    parts.push(BK(dot(x, -20 + g() * 60, 0.9 + g() * 1.4), { fill: "@mote", a: "float-up", dl: -g() * 8, op: 0.5 + g() * 0.4 }));
+  }
+  parts.push(BK(birdMark(0.8), { fill: "none", stroke: "#1d2a22", sw: 1.4, a: "cross", or: "0px 0px", op: 0.55, dl: -4 }));
+
+  // ── plane 1: the two trunks ─────────────────────────────────────────────
+  // Not a mirrored pair. The left is the old one — buttressed at the foot,
+  // mossed on the flank the light never reaches, carrying three shelves of
+  // bracket fungus and a woodpecker's hole. The right is younger, its bark
+  // coming away in strips, one limb snapped off short and ivy taking the rest.
+  const trunkBody = (cx, hw, seed) => {
+    const L = [];
+    const R = [];
+    for (let y = -160; y <= 432; y += 18) {
+      const t = (y + 160) / 592;
+      const flare = y > 336 ? ((y - 336) / 96) ** 2 * 20 : 0;
+      const wob = Math.sin(y / 63 + seed) * 1.5;
+      const w = hw * (0.86 + t * 0.26) + flare + wob;
+      L.push([cx - w, y]);
+      R.push([cx + w, y]);
+    }
+    return smooth(L) + smooth(R.reverse()).replace(/^M/, "L") + "Z";
+  };
+  // Bark as furrows running the length: deep dark grooves with a lit ridge
+  // beside each. That, and not a colour, is what separates bark from a dowel.
+  const furrows = (cx, hw, seed, n) => {
+    const gg = rnd(seed);
+    const dark = [];
+    const light = [];
+    for (let i = 0; i < n; i++) {
+      const fx = cx - hw * 0.9 + (hw * 1.8 * i) / n + gg() * 2.4;
+      const d0 = [];
+      const l0 = [];
+      for (let y = -160; y <= 432; y += 30) {
+        const w = Math.sin(y / 51 + i * 1.9) * 2.2;
+        d0.push([fx + w, y]);
+        l0.push([fx + w - 1.7, y]);
+      }
+      dark.push(smooth(d0));
+      light.push(smooth(l0));
+      if (gg() > 0.6) {
+        // A short cross-check where the bark has split around the grain.
+        const y = -120 + gg() * 500;
+        dark.push(`M${r2(fx - 3)} ${r2(y)}q3 ${r2(2 + gg() * 3)} 6 0`);
+      }
+    }
+    return { dark: dark.join(""), light: light.join("") };
+  };
+
+  const LX = 9.5;
+  const LHW = 9;
+  parts.push(P(trunkBody(LX, LHW, 2), { fill: "@bark-l" }));
+  parts.push(P(trunkBody(LX, LHW, 2), { fill: "@bark-l", f: "woodgrain", op: 0.55 }));
+  const lf = furrows(LX, LHW, 41, 6);
+  parts.push({ d: lf.light, z: "front", stroke: "@bark-rim", sw: 1.1, op: 0.5 });
+  parts.push({ d: lf.dark, z: "front", stroke: "#140f07", sw: 1.5, op: 0.75 });
+  // The warm sliver down the lit edge. One thin line does more for "a solid
+  // thing standing in light" than any amount of interior modelling.
+  parts.push(P(trunkBody(LX - 6.4, 2.2, 2), { fill: "@bark-rim", op: 0.5 }));
+  // Moss on the shaded flank only, thickening toward the damp at the foot.
+  const moss = [];
+  for (let i = 0; i < 26; i++) {
+    const t = i / 26;
+    moss.push(blob(LX + 3 + g() * 6, 40 + t * 380 + g() * 14, 2.2 + t * 4.4 + g() * 2, { squash: 0.5, wob: 0.5, seed: 200 + i }));
+  }
+  parts.push(P(moss.join(""), { fill: "@moss", op: 0.7 }));
+  // Bracket fungus: a shelf is a half-disc seen edge on, and the underside is
+  // paler than the top — the one thing that stops it reading as a sticker.
+  for (const [by, br] of [
+    [92, 13],
+    [116, 8],
+    [214, 10],
   ]) {
-    // Straight, and the bark is placed FROM THE SPINE. The first version gave
-    // the trunk a 5° bend and then drew its bark at fixed x — over 430 units
-    // that walked the trunk 19 units sideways, off its own texture and onto the
-    // card's text.
-    const t = limb(x, 406, -90, 434, 7.4, 7, 0, 8);
-    parts.push(P(t.d, { fill: "@trunk" }));
-    const bark = [];
-    t.spine.forEach((p, i) => {
-      bark.push(`M${r2(p[0] - 3.4 * dir)} ${r2(p[1])}q${r2(2.6 * dir)} 14 0 28`);
-      if (i % 2) bark.push(`M${r2(p[0] + 2.6 * dir)} ${r2(p[1] + 14)}q${r2(-2 * dir)} 11 0 22`);
+    parts.push(P(poly([[LX + 6, by], ...arcPts(LX + 6, by, br, -6, -170, 12)]), { fill: "@shelf" }));
+    parts.push(P(poly([...arcPts(LX + 6, by, br, -6, -170, 12).slice(0, 2), [LX + 6 + br * 0.7, by + 3.4], [LX + 6, by + 2.6]]), { fill: "@shelf-lip", op: 0.9 }));
+    const bands = [];
+    for (let k = 1; k < 4; k++) bands.push(smooth(arcPts(LX + 6, by, (br * k) / 4, -10, -168, 9)));
+    parts.push({ d: bands.join(""), z: "front", stroke: "#3a2a16", sw: 0.8, op: 0.6 });
+  }
+  // A woodpecker's hole, with the pale sapwood showing under its lip.
+  parts.push(P(oval(LX + 1, 268, 4.4, 5.6), { fill: "#0a0805" }));
+  parts.push(P(poly([[LX - 3.4, 273], [LX + 5.4, 273], [LX + 4.6, 276], [LX - 2.6, 276]]), { fill: "@sapwood", op: 0.75 }));
+
+  const RX = 262;
+  const RHW = 7.2;
+  parts.push(P(trunkBody(RX, RHW, 5), { fill: "@bark-r" }));
+  parts.push(P(trunkBody(RX, RHW, 5), { fill: "@bark-r", f: "woodgrain", op: 0.55 }));
+  const rf = furrows(RX, RHW, 67, 5);
+  parts.push({ d: rf.light, z: "front", stroke: "@bark-rim", sw: 1, op: 0.35 });
+  parts.push({ d: rf.dark, z: "front", stroke: "#140f07", sw: 1.4, op: 0.7 });
+  parts.push(P(trunkBody(RX - 5.6, 1.8, 5), { fill: "@bark-rim", op: 0.32 }));
+  // Bark peeling away in strips: the strip curls, so its inner face catches the
+  // light while the trunk behind it goes dark.
+  for (const [py, ph] of [
+    [130, 34],
+    [196, 22],
+    [312, 40],
+  ]) {
+    parts.push(P(poly([[RX + 2, py], [RX + 7.4, py + 3], [RX + 8.6, py + ph], [RX + 1, py + ph - 4]]), { fill: "#0d0a06", op: 0.8 }));
+    parts.push(P(poly([[RX + 4, py + 1], [RX + 9.6, py + 5], [RX + 10.4, py + ph - 2], [RX + 4.4, py + ph - 6]]), { fill: "@peel" }));
+  }
+  // A limb snapped off short. Fresh break, so the wood inside is pale.
+  parts.push(P(limb(RX + 2, 232, -32, 26, 4.2, 2.6, 8, 4).d, { fill: "@bark-r" }));
+  parts.push(P(oval(RX + 23, 219, 2.8, 3.4, -30), { fill: "@sapwood" }));
+  // Ivy, hugging the stone rather than floating off it.
+  const ivy = [];
+  const ivyLeaf = [];
+  for (let k = 0; k < 2; k++) {
+    const pts = [];
+    for (let y = 400; y > 20; y -= 18) pts.push([RX - 2 + k * 5 + Math.sin(y / 27 + k * 1.7) * 3.4, y]);
+    ivy.push(smooth(pts));
+    pts.forEach((p, i) => {
+      if (i % 2) return;
+      ivyLeaf.push(oval(p[0] + (i % 4 ? 4.4 : -4.4), p[1], 4.2, 3, (i % 4 ? 1 : -1) * 28));
     });
-    parts.push(SK(bark.join(""), { stroke: BARK2, sw: 1.3, op: 0.8 }));
-    // One low bough per side, reaching in over the banner with a leaf cluster.
-    const b = limb(x, 40, dir > 0 ? -22 : -158, 46, 3.6, 1.6, dir * 34, 6);
-    parts.push(P(b.d, { fill: "@bough" }));
-    parts.push(
-      P(
-        blob(b.tip[0], b.tip[1], 15, { squash: 0.68, seed: 40 + x }) +
-          blob(b.tip[0] + 11 * dir, b.tip[1] + 7, 10, { squash: 0.7, seed: 60 + x }),
-        { fill: LEAF[2], a: "sway", or: `${x}px 40px`, dl: dir > 0 ? 0 : -2.4 },
-      ),
-    );
   }
+  parts.push({ d: ivy.join(""), z: "front", stroke: "#1c2f18", sw: 1.3, op: 0.9 });
+  parts.push(P(ivyLeaf.join(""), { fill: "@ivy" }));
 
-  // Roots and moss along the foot, with a couple of toadstools.
+  // ── the boughs over the brow ────────────────────────────────────────────
+  // Weighted to the left, where the light is: the left trunk throws a long limb
+  // right across the top band, the right one only a short one.
+  [
+    [LX + 4, -16, -12, 128, 26, 0, 17],
+    [LX + 2, 24, 6, 74, 20, -1.4, 12],
+    [RX - 2, 4, -170, 86, -22, -2.6, 15],
+  ].forEach(([bx, by, a, len, curve, dl, tw], i) => {
+    const b = limb(bx, by, a, len, 4.4, 1.2, curve, 7);
+    const cls = i % 2 ? "bough" : "bough-slow";
+    parts.push(P(b.d, { fill: "@bough", a: cls, or: `${bx}px ${by}px`, dl }));
+    const twigs = [];
+    const cluster = [];
+    const clusterLit = [];
+    b.spine.forEach((p, k) => {
+      if (k < 2 || k % 2) return;
+      const t = limb(p[0], p[1], a + (curve > 0 ? 1 : -1) * (30 + k * 4), tw - k, 1.3, 0.5, curve > 0 ? -18 : 18, 4);
+      twigs.push(t.d);
+      cluster.push(blob(t.tip[0], t.tip[1], 12 - k * 0.6, { squash: 0.7, wob: 0.3, seed: 300 + k + i * 9 }));
+      clusterLit.push(blob(t.tip[0] - 3, t.tip[1] - 3.4, (12 - k * 0.6) * 0.6, { squash: 0.66, wob: 0.3, seed: 340 + k + i * 9 }));
+    });
+    parts.push(P(twigs.join(""), { fill: "@bough", a: cls, or: `${bx}px ${by}px`, dl }));
+    parts.push(P(cluster.join(""), { fill: "@leaf-near", a: cls, or: `${bx}px ${by}px`, dl }));
+    parts.push(P(clusterLit.join(""), { fill: "@leaf-near-lit", op: 0.6, a: cls, or: `${bx}px ${by}px`, dl }));
+  });
+  // A spider let down out of the left-hand cluster on its own thread.
+  parts.push({ d: "M64 26L64 62", z: "front", stroke: "#6b6a58", sw: 0.7, op: 0.6, a: "abseil-line", or: "64px 26px" });
+  parts.push(P(oval(64, 63, 3, 2.4) + oval(64, 59.4, 1.7, 1.5), { fill: "#171310", a: "abseil", or: "64px 26px" }));
+
+  // ── the floor ───────────────────────────────────────────────────────────
+  // Three bands, each nearer one darker and warmer, and none of them ruled: the
+  // bottom edge of every band is off the card, so no straight line shows.
+  parts.push(P(waveTop(-40, 314, 372, 7, 148, 0.4, 434), { fill: "@floor-far" }));
+  parts.push(P(waveTop(-40, 314, 388, 6, 104, 2.4, 434), { fill: "@floor" }));
+  parts.push(P(waveTop(-40, 314, 402, 5, 76, 4.3, 434), { fill: "@floor-near" }));
+  // Roots breaking the surface out of both trunks, more on the left.
   const roots = [];
-  for (let i = 0; i < 7; i++) {
-    const x = -10 + i * 48;
-    roots.push(limb(x, 414, i % 2 ? -18 : -162, 30, 5, 1.6, i % 2 ? 30 : -30, 5).d);
-  }
-  parts.push(P(roots.join(""), { fill: BARK2 }));
-  parts.push(P(waveTop(-14, 286, 396, 5, 96, 0.6, 418), { fill: "#2b4a2a" }));
-  parts.push(P(waveTop(-14, 286, 403, 4, 74, 2.1, 418), { fill: "#3c6335" }));
-  for (const [x, r] of [
-    [40, 8],
-    [52, 5],
-    [228, 7],
+  for (const [rx, ang, len, cv] of [
+    [LX, 172, 42, 14],
+    [LX, 12, 30, -12],
+    [LX, 158, 26, 20],
+    [RX, 6, 34, -14],
+    [RX, 168, 24, 12],
   ]) {
-    parts.push(P(rect(x - r * 0.28, 400 - r, r * 0.56, r + 8), { fill: "#efe6d0" }));
-    parts.push(P(oval(x, 400 - r, r, r * 0.66), { fill: "#c8534d" }));
-    parts.push(P(dot(x - r * 0.4, 400 - r * 1.2, r * 0.17) + dot(x + r * 0.45, 400 - r * 0.95, r * 0.14), { fill: "#f6efe0" }));
+    roots.push(limb(rx, 384, ang, len, 5.4, 1.4, cv, 6).d);
   }
+  parts.push(P(roots.join(""), { fill: "@root" }));
+  parts.push(P(roots.join(""), { fill: "@root", f: "woodgrain", op: 0.5 }));
+  // A fallen log across the right corner, well rotted, with its own shelves.
+  parts.push(P(poly([[196, 400], [292, 388], [296, 402], [200, 414]]), { fill: "@log" }));
+  parts.push(P(poly([[196, 400], [292, 388], [293, 393], [197, 405]]), { fill: "@bark-rim", op: 0.45 }));
+  parts.push(P(oval(198, 407, 5.4, 7, -8), { fill: "#120e08" }));
+  parts.push(P(oval(198, 407, 3.4, 4.4, -8), { fill: "@sapwood", op: 0.6 }));
+  for (const [sx, sy, sr] of [
+    [228, 391, 9],
+    [246, 389, 6],
+    [268, 388, 7],
+  ]) {
+    parts.push(P(poly([[sx, sy], ...arcPts(sx, sy, sr, -8, -172, 10)]), { fill: "@shelf" }));
+    parts.push(P(poly([[sx - sr, sy], [sx + sr, sy], [sx + sr * 0.8, sy + 2.6], [sx - sr * 0.8, sy + 2.6]]), { fill: "@shelf-lip", op: 0.8 }));
+  }
+  // Leaf litter: warm rust where the shaft finds it, blue-brown where it does
+  // not. The two together are the only reason the floor reads as lit at all.
+  const litter = [];
+  const litterLit = [];
+  for (let i = 0; i < 54; i++) {
+    const x = -30 + g() * 340;
+    const y = 380 + g() * 44;
+    const l = oval(x, y, 4 + g() * 3.4, 2 + g() * 1.6, (g() - 0.5) * 90);
+    (x < 150 && g() > 0.35 ? litterLit : litter).push(l);
+  }
+  parts.push(P(litter.join(""), { fill: "@litter" }));
+  parts.push(P(litterLit.join(""), { fill: "@litter-lit" }));
+  // Ferns, a couple of toadstools with real gills, and grass out of the litter.
+  for (const [fx, fa, fl] of [
+    [40, -104, 34],
+    [58, -74, 26],
+    [232, -84, 28],
+    [110, -96, 20],
+  ]) {
+    parts.push(P(spray(fx, 400, fa, fl, 7, 9, 44), { fill: "@fern", a: "sway", or: `${fx}px 400px`, dl: -fx / 40 }));
+  }
+  for (const [x, y, r, tone] of [
+    [76, 396, 9, 0],
+    [92, 402, 6, 1],
+    [162, 406, 7, 1],
+  ]) {
+    parts.push(P(poly([[x - r * 0.24, y - r * 0.5], [x + r * 0.24, y - r * 0.5], [x + r * 0.3, y + r + 8], [x - r * 0.3, y + r + 8]]), { fill: "@stalk" }));
+    parts.push(P(poly([...arcPts(x, y, r, 180, 360, 12)]), { fill: tone ? "@cap-2" : "@cap-1" }));
+    const gills = [];
+    for (let k = -3; k <= 3; k++) gills.push(`M${r2(x)} ${r2(y)}L${r2(x + (k * r) / 3.4)} ${r2(y + 2.4)}`);
+    parts.push({ d: gills.join(""), z: "front", stroke: "#8a6a58", sw: 0.7, op: 0.7 });
+    parts.push(P(dot(x - r * 0.4, y - r * 0.5, r * 0.14) + dot(x + r * 0.42, y - r * 0.4, r * 0.12), { fill: "#f4ead2", op: 0.85 }));
+  }
+  parts.push({
+    d: tuft(24, 400, 15, 8, 61) + tuft(126, 404, 12, 6, 67) + tuft(206, 400, 11, 5, 73) + tuft(252, 406, 13, 6, 79),
+    z: "front",
+    stroke: "@fern-stroke",
+    sw: 1.2,
+    op: 0.85,
+    a: "sway",
+    or: "136px 404px",
+  });
 
-  // Fireflies: slow glowing drifts along the rails.
+  // Fireflies down the margins: the frame's small warm lights, and the reason
+  // the blue in the shade reads as cold rather than as a colour cast.
   for (const [x, y, dl] of [
-    [22, 250, 0],
+    [24, 250, 0],
     [250, 190, -3.4],
     [30, 330, -6.1],
-    [244, 300, -8.8],
+    [246, 300, -8.8],
+    [16, 148, -4.7],
   ]) {
-    parts.push(P(dot(x, y, 6), { fill: "@spark", a: "hover", or: `${x}px ${y}px`, dl, op: 0.85 }));
+    parts.push(P(dot(x, y, 6.4), { fill: "@spark", a: "hover", or: `${x}px ${y}px`, dl, op: 0.85 }));
     parts.push(P(dot(x, y, 1.8), { fill: "#fff6c2", a: "hover", or: `${x}px ${y}px`, dl }));
   }
+
+  parts.push(...occlusion(0.9));
 
   return {
     id: "deep-woods",
     name: "Deep woods",
     group: "Woodland",
-    // Trunks either side, a canopy breathing over the top edge, roots and
-    // toadstools underfoot, fireflies wandering the margins.
+    // Ranks of trunks fading into haze, a canopy breathing over the brow, two
+    // very different trees holding the sides and a lit litter floor underfoot.
     grads: [
+      glow("haze", [
+        [0, "#4d6146", 0.6],
+        [0.5, "#33453a", 0.3],
+        [1, "#20302c", 0],
+      ]),
+      glow("sunhaze", [
+        [0, "#e6c377", 0.5],
+        [0.42, "#a98a48", 0.22],
+        [1, "#6a5a2e", 0],
+      ]),
+      // Both ends fade. A rank that stops at a fixed line rules a straight edge
+      // across the frame, and a trunk with a flat TOP is just as loud — these
+      // dissolve into the haze at the crown and into the card at the foot.
+      lin("trunk-far", 0, -150, 0, 26, [
+        [0, "#8b9a94", 0],
+        [0.3, "#8b9a94", 0.6],
+        [0.74, "#7a8a88", 0.42],
+        [1, "#7a8a88", 0],
+      ]),
+      lin("trunk-mid", 0, -150, 0, 34, [
+        [0, "#4f6360", 0],
+        [0.26, "#4f6360", 0.85],
+        [0.78, "#42544f", 0.7],
+        [1, "#42544f", 0],
+      ]),
+      lin("shaft", 0, -176, 0, 54, [
+        [0, "#ffe6a8", 0],
+        [0.3, "#ffe6a8", 0.6],
+        [1, "#ffe6a8", 0],
+      ]),
+      // Three canopies. The far one is bluer, paler and barely separated from
+      // its own highlight; the near one keeps the whole range.
+      leafy("leaf-far", "#4b6462", "#5b7570", "#6e8578"),
+      leafy("leaf-far-lit", "#6e8578", "#7c9080", "#8a9b86"),
+      leafy("leaf-mid", "#1f3830", "#2f4d38", "#4a6a41"),
+      leafy("leaf-mid-lit", "#40603c", "#587548", "#748a4c"),
+      leafy("leaf-near", "#0e1f18", "#20402a", "#3d6435"),
+      leafy("leaf-near-lit", "#3a6033", "#628a3c", "#a8b64c"),
+      bark("bark-l", "#150f07", "#3d2f20", "#9c7c4b"),
+      bark("bark-r", "#130e08", "#372a1e", "#836a44"),
+      bark("bough", "#120d07", "#332619", "#7a6039"),
+      bark("root", "#0f0b06", "#2c2117", "#6b5636"),
+      bark("log", "#100c07", "#31261a", "#7d6740"),
+      lin("bark-rim", 0, -160, 0, 430, [
+        [0, "#f0d79a", 0.95],
+        [0.5, "#c8a86e", 0.85],
+        [1, "#8f7b52", 0.7],
+      ]),
+      lin("peel", 0, 100, 0, 360, [
+        [0, "#b39160"],
+        [1, "#7e6540"],
+      ]),
+      lin("sapwood", 0, 200, 0, 420, [
+        [0, "#e2cfa4"],
+        [1, "#b9a67e"],
+      ]),
+      lin("moss", 0, 40, 0, 424, [
+        [0, "#3f5c2e"],
+        [1, "#22381f"],
+      ]),
+      lin("ivy", 0, 20, 0, 400, [
+        [0, "#2c4726"],
+        [1, "#182514"],
+      ]),
+      plane("shelf", [
+        [0, "#d8b268"],
+        [0.4, "#a07b3c"],
+        [1, "#4e3a1c"],
+      ]),
+      lin("shelf-lip", 0, 80, 0, 400, [
+        [0, "#f3e3bc"],
+        [1, "#cbb689"],
+      ]),
+      plane("floor-far", [
+        [0, "#4a5548"],
+        [0.5, "#37423c"],
+        [1, "#28312f"],
+      ]),
+      plane("floor", [
+        [0, "#4b4a33"],
+        [0.5, "#343526"],
+        [1, "#22261f"],
+      ]),
+      plane("floor-near", [
+        [0, "#413a26"],
+        [0.5, "#2b281b"],
+        [1, "#191a14"],
+      ]),
+      lin("litter", -30, 0, 310, 0, [
+        [0, "#6e5c38"],
+        [0.5, "#4c4630"],
+        [1, "#343b34"],
+      ]),
+      lin("litter-lit", -30, 0, 200, 0, [
+        [0, "#c99a4e"],
+        [0.5, "#a87f3f"],
+        [1, "#7a6435"],
+      ]),
+      leafy("fern", "#16301c", "#26502a", "#5c8437"),
+      lin("fern-stroke", 0, 380, 0, 424, [
+        [0, "#5f7a38"],
+        [1, "#33461f"],
+      ]),
+      bark("stalk", "#9b906f", "#ddd2ae", "#f6efd6"),
+      plane("cap-1", [
+        [0, "#e8825c"],
+        [0.42, "#c25248"],
+        [1, "#6d2a2e"],
+      ]),
+      plane("cap-2", [
+        [0, "#e3b869"],
+        [0.42, "#b8823c"],
+        [1, "#5d4020"],
+      ]),
       glow("spark", [
         [0, "#ffe98a", 0.85],
         [1, "#ffe98a", 0],
       ]),
-      bark("trunk", "#1f1710", "#4b3a2a", "#7a6144"),
-      bark("bough", "#241b13", "#3d2f22", "#63503a"),
+      lin("mote", 0, -40, 0, 60, [
+        [0, "#ffedb4", 0.9],
+        [1, "#d8c07e", 0.6],
+      ]),
+      ...occlusionGrads("#07110c"),
     ],
+    filters: [grain("woodgrain", "0.5 2.4", { oct: 3, seed: 19, k: 0.85 })],
     parts,
   };
 })();
 
 const palmShore = (() => {
-  const TRUNK = "#8a6a44";
-  const TRUNK2 = "#6d5133";
-  const FROND = ["#1f6f45", "#2d8d55", "#46ab68"];
+  // A shore with the sun already touching the water. The old frame was a yellow
+  // disc, two tan poles and three flat bands of cyan, and flat cyan is the tell:
+  // sea takes its colour from the sky above it, so it is warm where the sun's
+  // road crosses it and blue-violet everywhere else, and each band further out
+  // is paler, bluer and lower in contrast than the one lapping your feet.
   const parts = [];
+  const g = rnd(47);
 
-  // A low sun behind the card's brow.
-  parts.push(BK(dot(136, -18, 56), { fill: "@sun", op: 0.85 }));
-  parts.push(BK(dot(136, -18, 32), { fill: "#ffd98a" }));
+  // ── plane 4: sky, sun, cloud ────────────────────────────────────────────
+  parts.push(BK(oval(136, -84, 250, 176), { fill: "@sky" }));
+  parts.push(BK(oval(150, -6, 200, 96), { fill: "@lowsky" }));
+  parts.push(BK(oval(148, 4, 96, 62), { fill: "@sunhalo", a: "glow", op: 0.9 }));
+  parts.push(BK(dot(148, 4, 34), { fill: "@sun" }));
+  // Cloud, lit from underneath because the sun is under it. Both edges wave,
+  // so neither side of the bar is a ruled line.
+  parts.push(BK(band(-70, 350, -76, 6, 158, 0.3, -62, 8, 116, 2.2), { fill: "@cloud-hi" }));
+  parts.push(BK(band(-70, 350, -44, 5, 124, 1.7, -33, 7, 92, 3.3), { fill: "@cloud" }));
+  parts.push(BK(band(-70, 350, -34, 4, 104, 2.4, -28, 5, 88, 3.6), { fill: "@cloud-lit", op: 0.7 }));
+  parts.push(BK(band(-70, 350, -10, 3, 82, 4.1, -5, 4, 70, 5.2), { fill: "@cloud-lit", op: 0.5 }));
 
-  // Two palms rising from the bottom corners, hugging the edges, opening into
-  // fronds that arch over the banner.
-  for (const [x0, dir] of [
-    [9, 1],
-    [263, -1],
+  // ── plane 3: a headland out beyond it, on one side only ────────────────
+  const head = smooth([
+    [-80, 26],
+    [-40, 8],
+    [-6, 14],
+    [22, 2],
+    [54, 16],
+    [78, 26],
+  ]) + "L78 40L-80 40Z";
+  parts.push(BK(head, { fill: "@headland" }));
+  for (const [hx, hy, hs] of [
+    [-4, 12, 0.42],
+    [18, 4, 0.32],
   ]) {
-    const t = limb(x0 + 3 * dir, 404, -90, 412, 6.5, 4, -dir * 9, 10);
-    parts.push(P(t.d, { fill: "@trunk" }));
-    const rings = [];
-    for (let i = 0; i < 20; i++) {
-      const p = t.spine[Math.min(t.spine.length - 1, Math.floor((i / 20) * t.spine.length))];
-      rings.push(`M${r2(p[0] - 6)} ${r2(p[1])}q6 3 12 0`);
+    parts.push(BK(poly([[hx - 1, hy], [hx + 1, hy], [hx + 1.6, hy + 16], [hx - 1.6, hy + 16]]), { fill: "@headland-dk" }));
+    const fr = [];
+    for (let i = 0; i < 5; i++) {
+      const a = -160 + i * 32;
+      fr.push(limb(hx, hy, a, 26 * hs * 2.4, 1.4, 0.4, a < -90 ? -46 : 46, 4).d);
     }
-    parts.push(SK(rings.join(""), { stroke: TRUNK2, sw: 1.1, op: 0.75 }));
+    parts.push(BK(fr.join(""), { fill: "@headland-dk" }));
+  }
+  // Birds, high and small, on a long clock.
+  for (const [s, cls, dl, op] of [
+    [0.9, "cross-high", 0, 0.5],
+    [0.66, "cross", -7.5, 0.42],
+    [0.5, "cross-high", -14.5, 0.34],
+  ]) {
+    parts.push(BK(birdMark(s), { fill: "none", stroke: "@bird", sw: 1.5 * s, a: cls, or: "0px 0px", op, dl }));
+  }
 
-    // Fronds: long, and bending back down under their own weight — a frond
-    // that only points upward reads as a fern. The bend is what makes the pair
-    // of palms into an arch over the card's brow.
-    const crown = t.tip;
-    const fronds =
-      dir > 0
-        ? [
-            [-128, 96, 74],
-            [-100, 116, 96],
-            [-66, 122, 104],
-            [-30, 108, 92],
-            [4, 88, 74],
-          ]
-        : [
-            [-52, 96, -74],
-            [-80, 116, -96],
-            [-114, 122, -104],
-            [-150, 108, -92],
-            [-184, 88, -74],
-          ];
-    fronds.forEach(([a, len, curve], i) => {
-      const f = limb(crown[0], crown[1], a, len, 2.6, 0.7, curve, 9);
-      const leaflets = [];
-      f.spine.forEach((p, k) => {
-        if (!k) return;
-        const j = Math.min(k + 1, f.spine.length - 1);
-        const dirAng = (Math.atan2(f.spine[j][1] - f.spine[k - 1][1], f.spine[j][0] - f.spine[k - 1][0]) * 180) / Math.PI;
-        const s = 21 * (1 - k / (f.spine.length + 1)) + 6;
-        for (const side of [-1, 1]) {
-          leaflets.push(
-            poly([
-              [p[0], p[1]],
-              [p[0] + Math.cos(rad(dirAng + side * 74)) * s, p[1] + Math.sin(rad(dirAng + side * 74)) * s],
-              [p[0] + Math.cos(rad(dirAng + side * 30)) * s * 0.85, p[1] + Math.sin(rad(dirAng + side * 30)) * s * 0.85],
-            ]),
-          );
-        }
-      });
+  // ── the palms ───────────────────────────────────────────────────────────
+  // A frond is a rachis with leaflets swept BACK along it, longest in the
+  // middle and torn at the tip; a comb of equal blades pointing outward is what
+  // made the old crowns read as ferns.
+  const frond = (x, y, ang, len, curve, seed, torn) => {
+    const f = limb(x, y, ang, len, 2.6, 0.5, curve, 15);
+    const gg = rnd(seed);
+    const blades = [];
+    f.spine.forEach((p, k) => {
+      if (!k) return;
+      const j = Math.min(k + 1, f.spine.length - 1);
+      const dirAng = (Math.atan2(f.spine[j][1] - f.spine[k - 1][1], f.spine[j][0] - f.spine[k - 1][0]) * 180) / Math.PI;
+      const t = k / f.spine.length;
+      // Longest a third of the way out, shortest at both ends.
+      let s = len * 0.24 * Math.sin(Math.PI * Math.min(1, t * 1.15)) + 3;
+      if (torn && gg() > 0.72) s *= 0.45;
+      // A leaflet is a blade, not a wedge: two points on the rachis and one at
+      // the tip. The wedge is what made the old crowns read as conifers.
+      const wx = Math.cos(rad(dirAng)) * 1.5;
+      const wy = Math.sin(rad(dirAng)) * 1.5;
+      for (const side of [-1, 1]) {
+        const sweep = 58 + t * 26;
+        blades.push(
+          poly([
+            [p[0] + wx, p[1] + wy],
+            [p[0] + Math.cos(rad(dirAng + side * sweep)) * s, p[1] + Math.sin(rad(dirAng + side * sweep)) * s],
+            [p[0] - wx, p[1] - wy],
+          ]),
+        );
+      }
+    });
+    return { d: f.d + blades.join(""), tip: f.tip };
+  };
+
+  [
+    // x0, lean, height, crown fronds, dead fronds, seed
+    [9, 2, 470, 0, 47],
+    [264, -3, 396, 1, 83],
+  ].forEach(([x0, lean, h, dead, seed], side) => {
+    const dir = side ? -1 : 1;
+    const L = [];
+    const R = [];
+    const foot = 424;
+    for (let i = 0; i <= 22; i++) {
+      const t = i / 22;
+      const y = foot - h * t;
+      // A palm is not straight and not an arc: it bows, then stands up again.
+      const x = x0 + lean * Math.sin(t * 2.2) * 1.4 + (t > 0.84 ? (t - 0.84) * 46 * dir : 0);
+      const w = 7.4 - t * 3.2 + (t < 0.1 ? (0.1 - t) * 62 : 0);
+      L.push([x - w, y]);
+      R.push([x + w, y]);
+    }
+    parts.push(P(smooth(L) + smooth(R.slice().reverse()).replace(/^M/, "L") + "Z", { fill: "@trunk" }));
+    parts.push(P(smooth(L) + smooth(R.slice().reverse()).replace(/^M/, "L") + "Z", { fill: "@trunk", f: "fibrous", op: 0.5 }));
+    // Leaf scars: a palm's whole surface is the ring left by every frond it has
+    // dropped, and they get closer together toward the crown.
+    const scars = [];
+    const scarLit = [];
+    for (let i = 1; i < 22; i++) {
+      const t = i / 22;
+      const y = foot - h * t;
+      const x = x0 + lean * Math.sin(t * 2.2) * 1.4 + (t > 0.84 ? (t - 0.84) * 46 * dir : 0);
+      const w = 7.4 - t * 3.2;
+      scars.push(smooth([[x - w, y + 2.6], [x, y - 2], [x + w, y + 2.6]]));
+      scarLit.push(smooth([[x - w, y + 0.6], [x, y - 4], [x + w, y + 0.6]]));
+    }
+    parts.push({ d: scars.join(""), z: "front", stroke: "@scar", sw: 1.5, op: 0.7 });
+    parts.push({ d: scarLit.join(""), z: "front", stroke: "@scar-lit", sw: 0.9, op: 0.35 });
+    const crown = [x0 + lean * 1.4 * Math.sin(2.2) + 0.16 * 46 * dir, foot - h];
+
+    // The crown. Six live fronds, plus however many dead ones this tree has.
+    const angs = side
+      ? [-40, -66, -96, -126, -156, -176]
+      : [-140, -114, -84, -54, -24, -4];
+    angs.forEach((a, i) => {
+      const f = frond(crown[0], crown[1], a, 66 + (i % 3) * 18, (a < -90 ? -1 : 1) * (78 + i * 6), seed + i * 7, i === 2);
       parts.push(
-        P(f.d + leaflets.join(""), {
-          fill: FROND[i % 3],
+        P(f.d, {
+          fill: i % 2 ? "@frond" : "@frond-lit",
+          a: i % 2 ? "sway" : "sway-slow",
+          or: `${r2(crown[0])}px ${r2(crown[1])}px`,
+          dl: -i * 0.7,
+        }),
+      );
+      // The underside of the frond in front of it, one tone down.
+      parts.push(
+        P(frond(crown[0], crown[1] + 3, a, 60 + (i % 3) * 16, (a < -90 ? -1 : 1) * (84 + i * 6), seed + 100 + i, false).d, {
+          fill: "@frond-dk",
+          op: 0.5,
           a: i % 2 ? "sway" : "sway-slow",
           or: `${r2(crown[0])}px ${r2(crown[1])}px`,
           dl: -i * 0.7,
         }),
       );
     });
-    // Coconuts under the crown.
-    parts.push(P(dot(crown[0] + 5 * dir, crown[1] + 7, 4) + dot(crown[0] - 3 * dir, crown[1] + 9, 3.4), { fill: "#5d4327" }));
+    for (let i = 0; i < dead; i++) {
+      const f = frond(crown[0], crown[1] + 4, 78 + i * 26 * dir, 50, dir * 24, seed + 200 + i, true);
+      parts.push(P(f.d, { fill: "@frond-dead", a: "sway-slow", or: `${r2(crown[0])}px ${r2(crown[1] + 4)}px`, dl: -i }));
+    }
+    // Coconuts, tucked under the crown where they actually grow.
+    const nuts = [];
+    for (let i = 0; i < (side ? 2 : 4); i++) {
+      nuts.push(dot(crown[0] + (i - 1.4) * 6 * dir, crown[1] + 7 + (i % 2) * 5, 4.4 - (i % 2) * 0.8));
+    }
+    parts.push(P(nuts.join(""), { fill: "@nut" }));
+    parts.push(P(nuts.join(""), { fill: "@nut-lit", op: 0.35 }));
+  });
+  // A bird sitting in the right-hand crown, where the dead fronds are.
+  parts.push(P(oval(252, -32, 6, 4, -12) + oval(257, -37, 2.6, 2.4) + poly([[259, -37.6], [263, -36.6], [259, -35.8]]) + poly([[247, -32.6], [240, -28], [247, -30]]), { fill: "@bird-dk" }));
+
+  // ── the shore ───────────────────────────────────────────────────────────
+  // Four bands out to the horizon and two of sand. Every band's own gradient
+  // runs ACROSS it, not down it: what changes along a strip of water is how
+  // much of the sun's road it is carrying.
+  parts.push(P(band(-40, 314, 366, 2.4, 190, 0.2, 434, 0, 100, 0), { fill: "@sea-far" }));
+  parts.push(P(band(-40, 314, 376, 3.4, 132, 1.4, 434, 0, 100, 0), { fill: "@sea-mid", a: "lap-far" }));
+  parts.push(P(band(-40, 314, 386, 4.4, 96, 3.1, 434, 0, 100, 0), { fill: "@sea-near", a: "lap", dl: -1.4 }));
+  // The sun's road: bright dashes, widest near the horizon and breaking up as
+  // the water gets closer and rougher.
+  const road = [];
+  for (let i = 0; i < 26; i++) {
+    const t = i / 26;
+    const y = 368 + t * 30;
+    const w = 4 + t * 16 + g() * 6;
+    road.push(oval(148 + (g() - 0.5) * (10 + t * 40), y, w * 0.5, 0.9 + t * 0.7));
   }
-
-  // Sea and sand along the foot: three crests, each lapping at its own pace.
-  parts.push(P(rect(-30, 396, 332, 22), { fill: "#e6d2a4" }));
-  parts.push(P(waveTop(-40, 312, 384, 4.5, 108, 0, 416), { fill: "#16708c" }));
-  parts.push(P(waveTop(-40, 312, 391, 4, 78, 1.9, 416), { fill: "#2196ab", a: "lap", dl: -1.4 }));
-  parts.push(P(waveTop(-40, 312, 398, 3.2, 58, 3.4, 416), { fill: "#5cc2cd", a: "lap-far" }));
+  parts.push(P(road.join(""), { fill: "@road", op: 0.85, a: "shimmer", or: "148px 380px" }));
   parts.push(
-    SK(waveTopStroke(-40, 312, 402, 2.6, 46, 1.2), {
-      stroke: "#f2f7f8",
-      sw: 1.6,
-      op: 0.8,
-      a: "lap",
-    }),
+    SK(waveTopStroke(-40, 314, 390, 3, 74, 1.2), { stroke: "@foam", sw: 1.6, op: 0.7, a: "lap", dl: -0.6 }),
   );
-  parts.push(P(oval(196, 407, 7, 4.6, -14) + oval(60, 409, 5, 3.4, 10), { fill: "#f4e6cd" }));
+  // The swash: foam running up the sand and dying out, which is the one shape
+  // that says this is a beach and not a painted stripe.
+  parts.push(P(band(-40, 314, 396, 5, 88, 4.2, 434, 0, 100, 0), { fill: "@wet" }));
+  parts.push(P(band(-40, 314, 398, 4.6, 84, 4.4, 405, 5.4, 62, 2.1), { fill: "@foam-wash", op: 0.85, a: "foam" }));
+  parts.push(P(band(-40, 314, 408, 4, 66, 5.6, 434, 0, 100, 0), { fill: "@sand" }));
+  parts.push(P(band(-40, 314, 408, 4, 66, 5.6, 412, 3.4, 58, 5.9), { fill: "@sand-lit", op: 0.7 }));
+  // Ripples in the wet sand, then the things left lying on the dry sand: shells
+  // and weed on one side, a driftwood spar and crab tracks on the other.
+  const ripple = [];
+  for (let i = 0; i < 7; i++) ripple.push(waveTopStroke(-30, 306, 399 + i * 1.6, 1.6, 54 + i * 9, i * 1.3));
+  parts.push({ d: ripple.join(""), z: "front", stroke: "@ripple", sw: 0.8, op: 0.4 });
+  const grit = [];
+  for (let i = 0; i < 44; i++) grit.push(dot(-24 + g() * 330, 406 + g() * 26, 0.7 + g() * 1.1));
+  parts.push(P(grit.join(""), { fill: "@grit", op: 0.5 }));
+  parts.push(P(poly([[186, 418], [246, 410], [252, 415], [190, 423]]), { fill: "@drift" }));
+  parts.push(P(poly([[186, 418], [246, 410], [247, 412.4], [187, 420.4]]), { fill: "@drift-lit", op: 0.7 }));
+  parts.push(P(poly([[240, 411], [258, 404], [256, 409]]), { fill: "@drift" }));
+  const shells = [];
+  for (const [sx, sy, sr, rot] of [
+    [44, 412, 5.4, -18],
+    [72, 420, 3.6, 24],
+    [110, 414, 3, -8],
+    [268, 418, 4.4, 14],
+  ]) {
+    shells.push(poly([...arcPts(sx, sy, sr, 180, 360, 10), [sx - sr, sy]]));
+    for (let k = -2; k <= 2; k++) {
+      shells.push(`M${r2(sx)} ${r2(sy)}L${r2(sx + Math.cos(rad(250 + k * 20 + rot)) * sr)} ${r2(sy + Math.sin(rad(250 + k * 20 + rot)) * sr)}`);
+    }
+  }
+  parts.push(P(shells.join(""), { fill: "@shell" }));
+  // A starfish, and a clump of sea grass leaning away from the water.
+  const star = [];
+  for (let i = 0; i < 5; i++) {
+    const a = -90 + i * 72;
+    star.push(limb(24, 424, a, 11, 3, 1.2, 0, 3).d);
+  }
+  parts.push(P(star.join(""), { fill: "@star" }));
+  parts.push({ d: tuft(288, 418, 20, 9, 61, 26) + tuft(4, 430, 15, 6, 67, 22), z: "front", stroke: "@grass", sw: 1.2, op: 0.8, a: "sway", or: "288px 418px" });
+  const tracks = [];
+  for (let i = 0; i < 10; i++) tracks.push(oval(122 + i * 9, 420 + (i % 2 ? 5 : 0), 1.8, 1.1, -14));
+  parts.push(P(tracks.join(""), { fill: "@track", op: 0.5 }));
 
-  // A gull crossing high above the card.
-  parts.push(
-    BK("M-10 0q7-7 12 0q5-7 12 0", {
-      fill: "none",
-      stroke: "#f2f7f8",
-      sw: 2,
-      a: "cross-high",
-      or: "0px 0px",
-      op: 0.85,
-    }),
-  );
+  parts.push(...occlusion(0.85));
 
   return {
     id: "palm-shore",
     name: "Palm shore",
     group: "Water",
-    // Two palms holding the card up, fronds arching over the banner, three
-    // crests lapping along the foot.
+    // Two very different palms holding the sides up, the sun going into the sea
+    // behind the brow, and a swash running up the sand along the foot.
     grads: [
-      radial("sun", 136, -18, 56, [
-        [0, "#ffe9a8", 0.7],
-        [1, "#ffe9a8", 0],
+      glow("sky", [
+        [0, "#4a5a86", 0.6],
+        [0.5, "#3d4a72", 0.3],
+        [1, "#2c3556", 0],
       ]),
-      bark("trunk", "#4a3720", "#8a6a44", "#c2a071"),
+      glow("lowsky", [
+        [0, "#f0a55e", 0.55],
+        [0.45, "#c46b3e", 0.26],
+        [1, "#7d3f2c", 0],
+      ]),
+      glow("sunhalo", [
+        [0, "#fff0c0", 0.85],
+        [0.4, "#ffbe63", 0.35],
+        [1, "#e07a33", 0],
+      ]),
+      radial("sun", 148, 4, 34, [
+        [0, "#fffdf0"],
+        [0.6, "#ffe9a0"],
+        [1, "#ffc158"],
+      ]),
+      lin("cloud-hi", -70, 0, 350, 0, [
+        [0, "#6f7aa4", 0],
+        [0.5, "#67719a", 0.45],
+        [1, "#57638c", 0],
+      ]),
+      lin("cloud", -70, 0, 350, 0, [
+        [0, "#8a7c9c", 0],
+        [0.5, "#7d6f92", 0.5],
+        [1, "#6b5f80", 0],
+      ]),
+      lin("cloud-lit", -70, 0, 350, 0, [
+        [0, "#c98a6a", 0],
+        [0.32, "#e0a071", 0.5],
+        [0.52, "#ffc98c", 0.95],
+        [0.74, "#c98a6a", 0.4],
+        [1, "#a8724e", 0],
+      ]),
+      // Plane 3: paler, bluer, lower in contrast. It is the only thing saying
+      // the palms are three metres away and the headland is a mile.
+      lin("headland", 0, -4, 0, 40, [
+        [0, "#6a6e96", 0.75],
+        [0.7, "#585c82", 0.6],
+        [1, "#585c82", 0],
+      ]),
+      lin("headland-dk", 0, -8, 0, 30, [
+        [0, "#4e5278"],
+        [1, "#414565"],
+      ]),
+      lin("bird", 0, -120, 0, 20, [
+        [0, "#c6bccc"],
+        [1, "#9e93ab"],
+      ]),
+      lin("bird-dk", 0, -50, 0, -20, [
+        [0, "#2a2438"],
+        [1, "#1a1626"],
+      ]),
+      // The trunk: warm where the low sun rakes it, blue-violet where it does
+      // not, and never the single tan it used to be.
+      bark("trunk", "#3a2b3e", "#7a5f48", "#e8bd77"),
+      lin("scar", 0, -60, 0, 424, [
+        [0, "#3f2f38"],
+        [1, "#2a2028"],
+      ]),
+      lin("scar-lit", 0, -60, 0, 424, [
+        [0, "#f4d69a"],
+        [1, "#c0a276"],
+      ]),
+      leafy("frond", "#0e2a30", "#16413e", "#356848"),
+      leafy("frond-lit", "#13383a", "#2a5c44", "#8a9c4e"),
+      leafy("frond-dk", "#091d26", "#0e2c30", "#153f38"),
+      leafy("frond-dead", "#3a2a1a", "#6b4e2c", "#b58a4a"),
+      plane("nut", [
+        [0, "#8a6a3e"],
+        [0.5, "#5d4526"],
+        [1, "#2e2116"],
+      ]),
+      glow("nut-lit", [
+        [0, "#e8bd77", 0.6],
+        [1, "#e8bd77", 0],
+      ]),
+      // Each band runs its gradient ACROSS, because what changes along a strip
+      // of water is how much of the sun's road it carries.
+      // Every band across the foot fades out at BOTH ends. A strip of water
+      // that stops dead beyond the card's corner is a poster laid behind it;
+      // one that dissolves is weather.
+      lin("sea-far", -40, 0, 314, 0, [
+        [0, "#7e8fb4", 0],
+        [0.12, "#7e8fb4", 1],
+        [0.42, "#b9a8a8", 1],
+        [0.56, "#d8b48c", 1],
+        [0.88, "#6e82ab", 1],
+        [1, "#6e82ab", 0],
+      ]),
+      lin("sea-mid", -40, 0, 314, 0, [
+        [0, "#4a6a94", 0],
+        [0.12, "#4a6a94", 1],
+        [0.44, "#8c7f96", 1],
+        [0.58, "#c99263", 1],
+        [0.88, "#3f5f8c", 1],
+        [1, "#3f5f8c", 0],
+      ]),
+      lin("sea-near", -40, 0, 314, 0, [
+        [0, "#25446e", 0],
+        [0.12, "#25446e", 1],
+        [0.46, "#4c5478", 1],
+        [0.58, "#9c6640", 1],
+        [0.88, "#1e3a63", 1],
+        [1, "#1e3a63", 0],
+      ]),
+      lin("road", 0, 366, 0, 400, [
+        [0, "#fff4cc", 0.95],
+        [1, "#ffb862", 0.7],
+      ]),
+      lin("foam", -40, 0, 314, 0, [
+        [0, "#cfd8e4", 0],
+        [0.14, "#cfd8e4", 1],
+        [0.5, "#fff0d8", 1],
+        [0.86, "#c2cee0", 1],
+        [1, "#c2cee0", 0],
+      ]),
+      lin("wet", -40, 0, 314, 0, [
+        [0, "#4d5470", 0],
+        [0.12, "#4d5470", 1],
+        [0.48, "#8b7566", 1],
+        [0.88, "#42496a", 1],
+        [1, "#42496a", 0],
+      ]),
+      lin("foam-wash", -40, 0, 314, 0, [
+        [0, "#d6dde8", 0],
+        [0.14, "#d6dde8", 0.85],
+        [0.5, "#fff3de", 0.95],
+        [0.86, "#cbd4e2", 0.8],
+        [1, "#cbd4e2", 0],
+      ]),
+      lin("sand", -40, 0, 314, 0, [
+        [0, "#6a5c58", 0],
+        [0.12, "#6a5c58", 1],
+        [0.45, "#9c7f5e", 1],
+        [0.88, "#5e5464", 1],
+        [1, "#5e5464", 0],
+      ]),
+      lin("sand-lit", -40, 0, 314, 0, [
+        [0, "#b39c78", 0],
+        [0.14, "#b39c78", 0.9],
+        [0.45, "#e8c48a", 1],
+        [0.86, "#a08e84", 0.85],
+        [1, "#a08e84", 0],
+      ]),
+      lin("ripple", -40, 0, 314, 0, [
+        [0, "#8e97ad"],
+        [0.5, "#d6c2a0"],
+        [1, "#848da8"],
+      ]),
+      lin("grit", 0, 400, 0, 434, [
+        [0, "#e0c99e"],
+        [1, "#8a7c72"],
+      ]),
+      bark("drift", "#241a16", "#5c4a3c", "#c2a880"),
+      lin("drift-lit", 0, 404, 0, 424, [
+        [0, "#e8d3a8"],
+        [1, "#b09a78"],
+      ]),
+      plane("shell", [
+        [0, "#fff0dc"],
+        [0.5, "#dcbfa0"],
+        [1, "#8e7a76"],
+      ]),
+      plane("star", [
+        [0, "#f2a05c"],
+        [0.5, "#c96c48"],
+        [1, "#7a3f3c"],
+      ]),
+      lin("grass", 0, 400, 0, 434, [
+        [0, "#8a9a5e"],
+        [1, "#4a5638"],
+      ]),
+      lin("track", 0, 414, 0, 428, [
+        [0, "#6e5f52"],
+        [1, "#4e4448"],
+      ]),
+      ...occlusionGrads("#0d0a14"),
     ],
+    filters: [grain("fibrous", "0.6 2.2", { oct: 3, seed: 37, k: 0.85 })],
     parts,
   };
 })();
@@ -1975,139 +2648,442 @@ const frostwood = (() => {
 })();
 
 const coralReef = (() => {
-  const KELP = ["#1f7a58", "#2b9a6a", "#3fb47d"];
+  // Shallow reef with the sun on the surface overhead. Water does the layering
+  // argument for you and the old frame ignored it: everything further off is
+  // paler, bluer and lower in contrast, up to the point where a coral head
+  // twenty metres out is barely a shape at all. The split is the light — cream
+  // and gold where the caustics land, indigo everywhere they do not — and the
+  // only warm object down here is the kelp, which is amber, not green.
   const parts = [];
+  const g = rnd(59);
 
-  // Light shafts coming down through the water. They stop at the banner's
-  // lower edge and fade out before they get there — a shaft with a hard end is
-  // a grey rectangle sitting on someone's face.
+  // ── plane 4: the water column and its ceiling ───────────────────────────
+  parts.push(BK(oval(136, -70, 250, 176), { fill: "@column" }));
+  parts.push(BK(oval(96, -96, 150, 108), { fill: "@sunwater" }));
+  // The surface, seen from underneath: a strip between two different curves,
+  // with the light broken up along it.
+  parts.push(BK(band(-70, 350, -128, 6, 122, 0.4, -104, 8, 88, 2.3), { fill: "@surface" }));
+  parts.push(BK(band(-70, 350, -122, 5, 96, 1.2, -112, 6, 74, 3.1), { fill: "@surface-lit", op: 0.85 }));
+  const glint = [];
+  for (let i = 0; i < 26; i++) {
+    const x = -60 + g() * 400;
+    glint.push(oval(x, -118 + g() * 12, 3 + g() * 7, 0.9 + g() * 0.8, (g() - 0.5) * 24));
+  }
+  parts.push(BK(glint.join(""), { fill: "@glint", op: 0.8, a: "shimmer", or: "136px -118px" }));
+
+  // Shafts coming down off it. They stay behind the card, so nothing they do
+  // can land as a grey bar across somebody's banner.
   for (const [x, w, dl] of [
-    [34, 16, 0],
-    [148, 22, -3.1],
-    [226, 13, -5.4],
+    [-12, 20, 0],
+    [58, 13, -3.1],
+    [154, 26, -5.4],
+    [232, 11, -7.9],
   ]) {
     parts.push(
-      P(poly([[x, -60], [x + w, -60], [x + w + 18, 108], [x + 15, 108]]), {
+      BK(poly([[x, -120], [x + w, -120], [x + w + 26, 40], [x + 14, 40]]), {
         fill: "@shaft",
-        op: 0.3,
+        op: 0.55,
         a: "shimmer",
-        or: `${x}px -60px`,
+        or: `${x}px -120px`,
         dl,
       }),
     );
   }
 
-  // Kelp climbing both rails, each strand swaying on its own clock.
-  for (const [x, dir] of [
-    [6, 1],
-    [266, -1],
-  ]) {
-    [0, 1, 2].forEach((k) => {
-      const s = limb(x + k * 3 * dir, 406, -90 - dir * 3, 300 + k * 44, 3.4 - k * 0.6, 1.2, dir * (2 + k * 2), 9);
-      parts.push(
-        P(s.d, {
-          fill: KELP[k],
-          a: k % 2 ? "kelp" : "kelp-slow",
-          or: `${r2(x + k * 3 * dir)}px 406px`,
-          dl: -k * 1.6,
-        }),
-      );
-      const blades = [];
-      s.spine.forEach((p, i) => {
-        if (i % 2) return;
-        blades.push(oval(p[0] + 6 * dir, p[1], 7, 2.6, dir * 18));
-      });
-      parts.push(
-        P(blades.join(""), {
-          fill: KELP[k],
-          op: 0.85,
-          a: k % 2 ? "kelp" : "kelp-slow",
-          or: `${r2(x + k * 3 * dir)}px 406px`,
-          dl: -k * 1.6,
-        }),
-      );
-    });
-  }
-
-  // Sea fans rooted in the top corners and opening upward, out of the card.
-  for (const [x, dir] of [
-    [-2, 1],
-    [274, -1],
-  ]) {
-    // A fan is a solid blade with ribs on it, not a lattice: the first version
-    // drew radial strands crossed by arcs and came out looking like a cobweb.
-    const rim = arcPts(x, 30, 52, dir > 0 ? -98 : -82, dir > 0 ? -6 : -174, 12);
-    parts.push(
-      P(poly([[x, 30], ...rim]), { fill: "#c65f66", op: 0.85, a: "kelp-slow", or: `${x}px 30px` }),
-    );
-    const ribs = [];
-    for (let i = 0; i < 7; i++) {
-      const a = (dir > 0 ? -96 : -84) + i * 15 * dir;
-      ribs.push(
-        `M${x} 30L${r2(x + Math.cos(rad(a)) * 50)} ${r2(30 + Math.sin(rad(a)) * 50)}`,
-      );
+  // ── plane 3: the reef going out ─────────────────────────────────────────
+  // Two ranks of heads, each paler and bluer, both dying out before the card's
+  // edge rather than stopping on a ruled line.
+  const reefRank = (n, base, r, fill, seed) => {
+    const gg = rnd(seed);
+    const d = [];
+    for (let i = 0; i < n; i++) {
+      const x = -56 + (384 * i) / n + gg() * 18;
+      const rr = r * (0.5 + gg() * 1.1);
+      d.push(blob(x, base - rr * 0.3, rr, { squash: 0.72, wob: 0.3, seed: seed + i * 3 }));
     }
-    parts.push(SK(ribs.join(""), { stroke: "#8f3b46", sw: 1.4, op: 0.7, a: "kelp-slow", or: `${x}px 30px` }));
+    // Filled down to just under the card's brow, not to a fixed baseline out in
+    // the open: the wings either side of the card are where a ruled line shows.
+    parts.push(BK(d.join("") + rect(-56, base - 2, 384, 10 - base), { fill }));
+  };
+  reefRank(15, -34, 15, "@reef-far", 7);
+  reefRank(10, -8, 21, "@reef-mid", 23);
+  // A shoal out there, and one turtle coming across on a long clock.
+  const shoal = [];
+  for (let i = 0; i < 22; i++) {
+    const x = -30 + g() * 300;
+    const y = -100 + g() * 70;
+    shoal.push(poly([[x, y], [x + 5, y - 2], [x + 8, y], [x + 5, y + 2]]));
   }
-
-  // Coral heads, anemones and sand along the foot.
-  parts.push(P(waveTop(-30, 302, 398, 5, 120, 0.8, 418), { fill: "#e6dcbc" }));
-  const heads = [
-    [18, 386, 20, "#e0685f"],
-    [44, 396, 12, "#f0916a"],
-    [240, 388, 17, "#d95f7c"],
-    [216, 398, 11, "#e8a05f"],
-    [136, 404, 13, "#c8607a"],
-  ];
-  for (const [x, y, r, c] of heads) {
-    parts.push(P(blob(x, y, r, { squash: 0.75, wob: 0.28, seed: x }), { fill: c }));
-    const pores = [];
-    const gg = rnd(x);
-    for (let i = 0; i < 8; i++) pores.push(dot(x - r * 0.7 + gg() * r * 1.4, y - r * 0.5 + gg() * r, 1.2));
-    parts.push(P(pores.join(""), { fill: "#ffffff", op: 0.35 }));
-  }
-  for (const [x, dl] of [
-    [72, 0],
-    [190, -1.6],
-  ]) {
-    const arms = [];
-    for (let i = 0; i < 9; i++) {
-      const a = -160 + i * 20;
-      arms.push(limb(x, 410, a, 20, 1.8, 0.6, a < -90 ? -22 : 22, 4).d);
-    }
-    parts.push(P(arms.join(""), { fill: "c2", a: "anemone", or: `${x}px 410px`, dl }));
-  }
-
-  // Bubbles rising along both rails, and one fish crossing the top.
-  for (const [x, r, dl] of [
-    [16, 3.4, 0],
-    [22, 2.2, -2.6],
-    [254, 3, -1.3],
-    [260, 2, -4.2],
-    [14, 2.6, -5.5],
-  ]) {
-    parts.push(P(dot(x, 340, r), { fill: "#dff4fb", op: 0.5, a: "bubble", dl }));
-  }
+  parts.push(BK(shoal.join(""), { fill: "@shoal", op: 0.5, a: "shimmer", or: "136px -70px", dl: -4 }));
   parts.push(
-    P(
-      poly([[0, 0], [16, -7], [26, 0], [16, 7]]) + poly([[0, 0], [-9, -7], [-7, 0], [-9, 7]]),
-      { fill: "c1", a: "cross-low", or: "0px 0px", op: 0.9 },
+    BK(
+      oval(0, 0, 13, 10) + oval(-13, -3, 4.4, 3.4) + poly([[-6, -8], [-16, -16], [-4, -10]]) + poly([[-6, 8], [-16, 16], [-4, 10]]) + poly([[8, -7], [16, -12], [10, -4]]) + poly([[8, 7], [16, 12], [10, 4]]),
+      { fill: "@turtle", a: "cross", or: "0px 0px", op: 0.75, dl: -3 },
     ),
   );
+
+  // ── the rails ───────────────────────────────────────────────────────────
+  // Not a mirrored pair. The left is kelp — a stipe out of a holdfast, blades
+  // with gas bladders at their feet, the one thing on the reef that is amber.
+  // The right is a gorgonian, which is a flat branching mesh and looks nothing
+  // like it.
+  for (let k = 0; k < 3; k++) {
+    const x0 = 4 + k * 2.4;
+    const s = limb(x0, 412, -90, 420 + k * 46, 3 - k * 0.5, 1, (1 - k) * 4, 13);
+    // Drift, not pivot. A strand rooted at the foot and rotated even two
+    // degrees sweeps twenty units across the card's text by the time it is
+    // level with the banner; a translation is bounded wherever it is applied.
+    const cls = k % 2 ? "breeze" : "breeze-slow";
+    const or = `${r2(x0)}px 412px`;
+    parts.push(P(s.d, { fill: "@stipe", a: cls, or, dl: -k * 1.6 }));
+    const blades = [];
+    const bladeLit = [];
+    const bladder = [];
+    s.spine.forEach((p, i) => {
+      if (i % 2 || i < 2) return;
+      // A blade is long, wavy-edged and hangs: an even oval is a leaf.
+      const bl = [];
+      const bu = [];
+      const len = 20 - k * 2;
+      // Outward, over the card's edge. Hung on the inside they cross the first
+      // letter of somebody's name, which is the whole reason for the 19-unit
+      // margin in the authoring contract.
+      for (let j = 0; j <= 6; j++) {
+        const t = j / 6;
+        const bx = p[0] - 3 - len * t;
+        bl.push([bx, p[1] - 2.4 + Math.sin(t * 6 + i) * 1.8]);
+        bu.push([bx, p[1] + 3 + Math.sin(t * 5.4 + i + 2) * 2.2]);
+      }
+      blades.push(smooth(bl) + smooth(bu.reverse()).replace(/^M/, "L") + "Z");
+      bladeLit.push(smooth(bl.map(([bx, by]) => [bx, by + 0.4])) + smooth(bl.map(([bx, by]) => [bx, by + 2.2]).reverse()).replace(/^M/, "L") + "Z");
+      bladder.push(oval(p[0] - 3.4, p[1], 2.4, 1.7));
+    });
+    parts.push(P(blades.join(""), { fill: "@blade", a: cls, or, dl: -k * 1.6 }));
+    parts.push(P(bladeLit.join(""), { fill: "@blade-lit", op: 0.5, a: cls, or, dl: -k * 1.6 }));
+    parts.push(P(bladder.join(""), { fill: "@bladder", a: cls, or, dl: -k * 1.6 }));
+  }
+  parts.push(P(blob(9, 412, 11, { squash: 0.6, wob: 0.4, seed: 3 }), { fill: "@holdfast" }));
+
+  // Sea whips up the right rail: unbranched, so they are narrow by
+  // construction, which is what the long sides of a card can actually take.
+  for (let k = 0; k < 4; k++) {
+    const x0 = 257 + k * 4;
+    const w = limb(x0, 416, -90, 300 + k * 52, 2.2 - k * 0.3, 0.8, (k - 1.5) * 2, 12);
+    const cls = k % 2 ? "breeze" : "breeze-slow";
+    const or = `${r2(x0)}px 416px`;
+    parts.push(P(w.d, { fill: "@whip", a: cls, or, dl: -k * 1.3 }));
+    const pol = [];
+    w.spine.forEach((p, i) => {
+      if (!i) return;
+      for (const side of [-1, 1]) pol.push(dot(p[0] + side * 2.4, p[1] - 4, 1.3));
+    });
+    parts.push(P(pol.join(""), { fill: "@polyp", op: 0.8, a: cls, or, dl: -k * 1.3 }));
+  }
+  // The gorgonian is a fan, so it wants width, and the only place with width to
+  // spare is down on the floor where the card's text has already ended.
+  const fanD = [];
+  const fanBranch = (x, y, ang, len, w, depth) => {
+    const b = limb(x, y, ang, len, w, w * 0.66, ang < -90 ? 8 : -8, 4);
+    fanD.push(b.d);
+    if (depth <= 0) return;
+    fanBranch(b.tip[0], b.tip[1], ang - 20 - depth * 3, len * 0.72, w * 0.66, depth - 1);
+    fanBranch(b.tip[0], b.tip[1], ang + 21 + depth * 3, len * 0.7, w * 0.66, depth - 1);
+  };
+  fanBranch(244, 430, -92, 26, 3, 3);
+  fanBranch(276, 434, -84, 20, 2.4, 2);
+  parts.push(P(fanD.join(""), { fill: "@fan", a: "anemone", or: "244px 430px" }));
+  const polyps = [];
+  for (let i = 0; i < 26; i++) polyps.push(dot(216 + g() * 76, 376 + g() * 52, 0.8 + g() * 0.6));
+  parts.push(P(polyps.join(""), { fill: "@polyp", op: 0.7, a: "anemone", or: "244px 430px" }));
+
+  // ── the reef floor ──────────────────────────────────────────────────────
+  parts.push(P(band(-40, 314, 372, 6, 148, 0.6, 434, 0, 100, 0), { fill: "@sand-far" }));
+  parts.push(P(band(-40, 314, 392, 5, 104, 2.4, 434, 0, 100, 0), { fill: "@sand" }));
+  // Caustics on the sand: the net of light the surface throws down, and the
+  // single strongest cue that all this is underwater.
+  const net = [];
+  for (let i = 0; i < 9; i++) {
+    net.push(waveTopStroke(-30, 306, 380 + i * 5.4, 2.6 + (i % 3), 40 + i * 7, i * 1.7));
+  }
+  parts.push({ d: net.join(""), z: "front", stroke: "@caustic", sw: 1.6, op: 0.35, a: "shimmer", or: "136px 396px" });
+  const ripple = [];
+  for (let i = 0; i < 6; i++) ripple.push(waveTopStroke(-30, 306, 402 + i * 4.4, 1.8, 52 + i * 8, i * 1.2));
+  parts.push({ d: ripple.join(""), z: "front", stroke: "@sand-line", sw: 0.9, op: 0.4 });
+
+  // A brain coral: the grooves are the whole animal, and they wander.
+  parts.push(P(blob(40, 400, 22, { squash: 0.78, wob: 0.2, seed: 11 }), { fill: "@brain" }));
+  const groove = [];
+  for (let i = 1; i < 8; i++) {
+    const pts = [];
+    for (let a = 200; a <= 340; a += 12) {
+      const rr = 22 * (i / 8) + Math.sin(a / 11 + i * 2) * 2.2;
+      pts.push([40 + Math.cos(rad(a)) * rr, 400 + Math.sin(rad(a)) * rr * 0.78]);
+    }
+    groove.push(smooth(pts));
+  }
+  parts.push({ d: groove.join(""), z: "front", stroke: "@brain-groove", sw: 1.5, op: 0.75 });
+  parts.push(P(poly(arcPts(36, 396, 17, 196, 300, 12).concat([[36, 396]])), { fill: "@brain-lit", op: 0.35 }));
+
+  // Staghorn, branching out of the other corner.
+  const stag = [];
+  const stagBranch = (x, y, ang, len, w, depth) => {
+    const b = limb(x, y, ang, len, w, w * 0.7, 0, 3);
+    stag.push(b.d);
+    stag.push(dot(b.tip[0], b.tip[1], w * 0.75));
+    if (depth <= 0) return;
+    stagBranch(b.tip[0], b.tip[1], ang - 26, len * 0.7, w * 0.7, depth - 1);
+    stagBranch(b.tip[0], b.tip[1], ang + 24, len * 0.68, w * 0.7, depth - 1);
+  };
+  stagBranch(214, 416, -86, 20, 3.4, 2);
+  stagBranch(238, 420, -94, 16, 2.8, 2);
+  parts.push(P(stag.join(""), { fill: "@stag" }));
+  parts.push(P(stag.join(""), { fill: "@stag-lit", f: "reefgrain", op: 0.4 }));
+
+  // A giant clam with a wavy lip, and urchins with real spines.
+  parts.push(P(poly([...arcPts(160, 418, 15, 180, 360, 12)]), { fill: "@clam" }));
+  const lipPts = [];
+  for (let i = 0; i <= 14; i++) {
+    const a = 180 + i * (180 / 14);
+    const rr = 13 + Math.sin(i * 2.1) * 2.6;
+    lipPts.push([160 + Math.cos(rad(a)) * rr, 418 + Math.sin(rad(a)) * rr * 0.5]);
+  }
+  parts.push(P(smooth(lipPts) + `L${r2(160 + 13)} 418L${r2(160 - 13)} 418Z`, { fill: "@mantle", a: "breathe", or: "160px 418px" }));
+  const ribs = [];
+  for (let i = 0; i < 7; i++) {
+    const a = 186 + i * 24;
+    ribs.push(`M160 418L${r2(160 + Math.cos(rad(a)) * 15)} ${r2(418 + Math.sin(rad(a)) * 15)}`);
+  }
+  parts.push({ d: ribs.join(""), z: "front", stroke: "@clam-rib", sw: 1, op: 0.6 });
+  for (const [ux, uy, ur] of [
+    [96, 416, 6],
+    [280, 410, 5],
+  ]) {
+    const sp = [];
+    for (let i = 0; i < 16; i++) {
+      const a = 180 + i * 12;
+      sp.push(poly([[ux + Math.cos(rad(a)) * ur, uy + Math.sin(rad(a)) * ur * 0.9], [ux + Math.cos(rad(a + 4)) * (ur + 9), uy + Math.sin(rad(a + 4)) * (ur + 9) * 0.9], [ux + Math.cos(rad(a + 8)) * ur, uy + Math.sin(rad(a + 8)) * ur * 0.9]]));
+    }
+    parts.push(P(sp.join(""), { fill: "@urchin-spine" }));
+    parts.push(P(oval(ux, uy, ur, ur * 0.86), { fill: "@urchin" }));
+  }
+
+  // Two anemones in the wearer's own colours, and a clownfish living in one.
+  for (const [x, dl] of [
+    [128, 0],
+    [196, -1.6],
+  ]) {
+    const arms = [];
+    const tips = [];
+    for (let i = 0; i < 11; i++) {
+      const a = -164 + i * 16.4;
+      const t = limb(x, 414, a, 18, 1.7, 0.6, a < -90 ? -22 : 22, 4);
+      arms.push(t.d);
+      tips.push(dot(t.tip[0], t.tip[1], 1.5));
+    }
+    parts.push(P(arms.join(""), { fill: "c2", a: "anemone", or: `${x}px 414px`, dl }));
+    parts.push(P(tips.join(""), { fill: "@tip", op: 0.8, a: "anemone", or: `${x}px 414px`, dl }));
+  }
+  parts.push(P(oval(126, 400, 8, 5, -8) + poly([[118, 400], [110, 394], [112, 400], [110, 406]]), { fill: "@clown", a: "anemone", or: "128px 414px" }));
+  parts.push(P(rect(122, 395, 2.2, 10) + rect(129, 396, 2, 9), { fill: "#f6f2e6", op: 0.85, a: "anemone", or: "128px 414px" }));
+
+  // Bubbles up both rails, and one fish crossing low in the wearer's colour.
+  for (const [x, r, dl] of [
+    [16, 3.4, 0],
+    [23, 2.2, -2.6],
+    [256, 3, -1.3],
+    [263, 2, -4.2],
+    [13, 2.6, -5.5],
+    [251, 1.6, -7.1],
+  ]) {
+    parts.push(P(dot(x, 350, r), { fill: "@bubble", op: 0.55, a: "bubble", dl }));
+    parts.push(P(dot(x - r * 0.3, 350 - r * 0.34, r * 0.34), { fill: "#eafaff", op: 0.7, a: "bubble", dl }));
+  }
+  parts.push(
+    P(poly([[0, 0], [16, -7], [26, 0], [16, 7]]) + poly([[0, 0], [-9, -7], [-7, 0], [-9, 7]]), { fill: "c1", a: "cross-low", or: "0px 0px", op: 0.9 }),
+  );
+  parts.push(P(oval(6, -2, 1.6, 1.6), { fill: "#0d1a24", a: "cross-low", or: "0px 0px", op: 0.9 }));
+
+  parts.push(...occlusion(0.9));
 
   return {
     id: "coral-reef",
     name: "Coral reef",
     group: "Water",
-    // Kelp climbing both rails, fans in the corners, coral and anemones along
-    // the foot, bubbles going up and a fish going across.
+    // The surface breaking up overhead, kelp on one rail and a gorgonian on the
+    // other, brain coral and staghorn along the foot with the caustics moving
+    // over the sand between them.
     grads: [
-      lin("shaft", 0, -60, 0, 108, [
-        [0, "#cdf3ff", 0],
-        [0.25, "#cdf3ff", 0.55],
-        [1, "#cdf3ff", 0],
+      glow("column", [
+        [0, "#2e6e86", 0.6],
+        [0.5, "#1d4a6a", 0.3],
+        [1, "#132f4e", 0],
       ]),
+      glow("sunwater", [
+        [0, "#b6f2dc", 0.5],
+        [0.42, "#5ab8b0", 0.22],
+        [1, "#2a6a72", 0],
+      ]),
+      lin("surface", 0, -132, 0, -100, [
+        [0, "#8fe6d8", 0.55],
+        [1, "#3f9aa4", 0.25],
+      ]),
+      lin("surface-lit", -70, 0, 350, 0, [
+        [0, "#cdf6ea", 0],
+        [0.3, "#e6fff4", 0.7],
+        [0.6, "#a8ead8", 0.5],
+        [1, "#7ad0c8", 0],
+      ]),
+      lin("glint", 0, -126, 0, -104, [
+        [0, "#ffffff", 0.9],
+        [1, "#c6f4ec", 0.5],
+      ]),
+      lin("shaft", 0, -120, 0, 40, [
+        [0, "#d8fff2", 0],
+        [0.24, "#d8fff2", 0.5],
+        [1, "#d8fff2", 0],
+      ]),
+      // Aerial perspective, underwater: the further rank is barely separated
+      // from the water it stands in.
+      lin("reef-far", 0, -54, 0, 10, [
+        [0, "#5f8fae", 0.6],
+        [0.55, "#4e7c9e", 0.42],
+        [1, "#4e7c9e", 0],
+      ]),
+      lin("reef-mid", 0, -34, 0, 10, [
+        [0, "#3e6a8e", 0.9],
+        [0.5, "#2f587c", 0.72],
+        [1, "#2f587c", 0],
+      ]),
+      lin("shoal", 0, -110, 0, -20, [
+        [0, "#cfeef2"],
+        [1, "#8fc4d4"],
+      ]),
+      lin("turtle", 0, -20, 0, 20, [
+        [0, "#1d3a44"],
+        [1, "#122630"],
+      ]),
+      // Kelp is amber. It is the only warm thing on the reef, and putting it in
+      // the same green as everything else was most of why the frame read flat.
+      bark("stipe", "#2a2410", "#6b5a22", "#c2a844"),
+      leafy("blade", "#2e2a10", "#6e5f22", "#b09a3a"),
+      leafy("blade-lit", "#7a6a26", "#a8963a", "#e6d068"),
+      plane("bladder", [
+        [0, "#f2e2a0"],
+        [0.5, "#c4a848"],
+        [1, "#6e5c22"],
+      ]),
+      plane("holdfast", [
+        [0, "#6e5c26"],
+        [0.5, "#453a18"],
+        [1, "#231d0e"],
+      ]),
+      plane("fan", [
+        [0, "#f08a9c"],
+        [0.34, "#c9526e"],
+        [0.7, "#8a3060"],
+        [1, "#3f1c46"],
+      ]),
+      plane("whip", [
+        [0, "#e8a0a8"],
+        [0.34, "#c26a80"],
+        [0.7, "#7e3a66"],
+        [1, "#38204a"],
+      ]),
+      lin("polyp", 0, 140, 0, 410, [
+        [0, "#ffd2d8", 0.9],
+        [1, "#d89aae", 0.6],
+      ]),
+      lin("sand-far", -40, 0, 314, 0, [
+        [0, "#6b8a9e", 0],
+        [0.12, "#6b8a9e", 1],
+        [0.5, "#7e9aa8", 1],
+        [0.88, "#4e6c86", 1],
+        [1, "#4e6c86", 0],
+      ]),
+      lin("sand", -40, 0, 314, 0, [
+        [0, "#8e9490", 0],
+        [0.12, "#8e9490", 1],
+        [0.46, "#c9c2a2", 1],
+        [0.88, "#5e7288", 1],
+        [1, "#5e7288", 0],
+      ]),
+      lin("sand-line", -30, 0, 306, 0, [
+        [0, "#8fa2a8"],
+        [0.5, "#d8d2b2"],
+        [1, "#7e93a4"],
+      ]),
+      lin("caustic", -30, 0, 306, 0, [
+        [0, "#c8fff0", 0],
+        [0.2, "#e6fff6", 0.9],
+        [0.6, "#b6f0e2", 0.7],
+        [1, "#8fd8d0", 0],
+      ]),
+      plane("brain", [
+        [0, "#e0c48e"],
+        [0.36, "#b08a62"],
+        [0.7, "#6e5462"],
+        [1, "#33344e"],
+      ]),
+      lin("brain-groove", 0, 380, 0, 420, [
+        [0, "#6a5346"],
+        [1, "#3a3648"],
+      ]),
+      glow("brain-lit", [
+        [0, "#fff0c4", 0.7],
+        [1, "#fff0c4", 0],
+      ]),
+      plane("stag", [
+        [0, "#f2b48e"],
+        [0.35, "#c9736a"],
+        [0.72, "#8a4260"],
+        [1, "#3c2448"],
+      ]),
+      plane("stag-lit", [
+        [0, "#ffd8b4"],
+        [1, "#c98a76"],
+      ]),
+      plane("clam", [
+        [0, "#e8dcc0"],
+        [0.45, "#b0a68e"],
+        [1, "#56607a"],
+      ]),
+      tube("mantle", [
+        [0, "#2e3f7a"],
+        [0.28, "#5f7fd0"],
+        [0.5, "#8fd8e8"],
+        [0.74, "#4f76c4"],
+        [1, "#26346a"],
+      ]),
+      lin("clam-rib", 0, 404, 0, 424, [
+        [0, "#8e8470"],
+        [1, "#5a5f74"],
+      ]),
+      plane("urchin", [
+        [0, "#5c3a62"],
+        [0.5, "#3a2448"],
+        [1, "#1c1430"],
+      ]),
+      lin("urchin-spine", 0, 396, 0, 424, [
+        [0, "#7a4e78"],
+        [1, "#33224a"],
+      ]),
+      lin("tip", 0, 392, 0, 416, [
+        [0, "#fff0e6"],
+        [1, "#e0b0a8"],
+      ]),
+      plane("clown", [
+        [0, "#ffb45c"],
+        [0.5, "#e8752c"],
+        [1, "#a03e1c"],
+      ]),
+      glow("bubble", [
+        [0, "#eafcff", 0.3],
+        [0.62, "#cdeefb", 0.45],
+        [1, "#ffffff", 0.85],
+      ]),
+      ...occlusionGrads("#04121e"),
     ],
+    filters: [grain("reefgrain", "1.6 1.6", { oct: 3, seed: 43, k: 0.8 })],
     parts,
   };
 })();
@@ -2547,105 +3523,403 @@ const cathedral = (() => {
 })();
 
 const sakura = (() => {
-  const BARK = "#5a4231";
-  const PETAL = ["#ffd6e4", "#f7b4cd", "#e58fb2"];
+  // Blossom at night, under a full moon. Pink on its own is what made this
+  // frame read as a sticker sheet: blossom seen by moonlight is nearly white
+  // where the moon lands on it and mauve-blue underneath, and the pink only
+  // comes back where a lantern is close enough to warm it. One cold light
+  // overhead, two warm ones hanging in the branches, and everything further
+  // away paler, bluer and softer than the branch in front of it.
   const parts = [];
+  const g = rnd(37);
 
-  // A pale moon behind the card's brow.
-  parts.push(BK(dot(58, -24, 42), { fill: "@moonglow", op: 0.8 }));
-  parts.push(BK(dot(58, -24, 26), { fill: "#fdf6e4" }));
+  // ── plane 4: the sky, the moon, and the cloud crossing it ──────────────
+  parts.push(BK(oval(120, -62, 240, 164), { fill: "@night" }));
+  parts.push(BK(oval(54, -46, 132, 108), { fill: "@moonglow" }));
+  parts.push(BK(dot(54, -46, 27), { fill: "@moon" }));
+  // Maria: three soft grey patches, or the moon is a hole punched in the sky.
+  parts.push(
+    BK(blob(46, -54, 9, { squash: 0.8, wob: 0.4, seed: 2 }) + blob(62, -38, 6.4, { squash: 0.9, wob: 0.4, seed: 5 }) + blob(58, -57, 4.4, { squash: 0.8, wob: 0.4, seed: 8 }), {
+      fill: "@mare",
+      op: 0.5,
+    }),
+  );
+  // Two thin clouds drawn as strips between different curves, so neither edge
+  // is straight, drifting across on a very long clock.
+  parts.push(BK(band(-70, 350, -66, 5, 150, 0.4, -50, 7, 118, 2.1), { fill: "@cloud", a: "aurora-slow", or: "136px -60px" }));
+  parts.push(BK(band(-70, 350, -30, 4, 122, 1.6, -18, 5, 96, 3.4), { fill: "@cloud", op: 0.7, a: "aurora", or: "136px -30px", dl: -6 }));
+  for (let i = 0; i < 22; i++) {
+    const x = -44 + g() * 362;
+    parts.push(BK(dot(x, -140 + g() * 116, 0.6 + g() * 1.3), { fill: "#e8eaff", a: "twinkle", dl: -g() * 5, op: 0.8 }));
+  }
 
-  const bloom = (x, y, r, tone, seed) => {
-    const g = rnd(seed);
+  // ── plane 3: the far grove, and a roof over it ─────────────────────────
+  // Pale, blue and low in contrast. It is what tells you the branch overhead is
+  // three metres away and not three hundred.
+  const far = [];
+  const farStem = [];
+  // Six clumps with real gaps between them. Filled edge to edge it is a hedge,
+  // and a hedge across the whole width is the poster-behind-the-card again.
+  for (const [x, y, r] of [
+    [-34, -16, 13],
+    [42, -52, 10],
+    [104, -12, 8],
+    [178, -44, 12],
+    [236, -20, 9],
+    [306, -50, 13],
+  ]) {
+    for (let k = 0; k < 4; k++) {
+      far.push(blob(x + (g() - 0.5) * r * 2.2, y + (g() - 0.5) * r * 1.3, r * (0.45 + g() * 0.6), { squash: 0.7, wob: 0.42, seed: 400 + x + k }));
+    }
+    farStem.push(poly([[x - 1.4, y], [x + 1.4, y], [x + 2.4, 34], [x - 2.4, 34]]));
+  }
+  parts.push(BK(farStem.join(""), { fill: "@far-roof", op: 0.55 }));
+  parts.push(BK(far.join(""), { fill: "@far-grove" }));
+  // A tiled roof out beyond them, on one side only.
+  const roof = (cx, cy, w, h) =>
+    smooth([
+      [cx - w, cy],
+      [cx - w * 0.52, cy - h * 0.5],
+      [cx, cy - h],
+      [cx + w * 0.52, cy - h * 0.5],
+      [cx + w, cy],
+    ]) + `L${r2(cx + w * 0.72)} ${r2(cy + 4)}L${r2(cx - w * 0.72)} ${r2(cy + 4)}Z`;
+  parts.push(BK(roof(228, -30, 44, 17) + roof(228, -6, 34, 13) + rect(224, -8, 9, 34), { fill: "@far-roof" }));
+  parts.push(BK(rect(226, -12, 5, 5), { fill: "#ffbf72", op: 0.7, a: "glow", dl: -1.4 }));
+
+  // ── the blossom ────────────────────────────────────────────────────────
+  // A cluster is a handful of five-petalled flowers with a dark core mass under
+  // them, not a lump of pink: without the mass the flowers float, and without
+  // the flowers the mass is a cloud.
+  const bloom = (x, y, r, seed) => {
+    const gg = rnd(seed);
     let d = "";
     for (let i = 0; i < 5; i++) {
-      const a = i * 72 + g() * 20;
-      d += oval(x + Math.cos(rad(a)) * r * 0.62, y + Math.sin(rad(a)) * r * 0.62, r * 0.5, r * 0.42, a);
+      const a = i * 72 + gg() * 22;
+      d += oval(x + Math.cos(rad(a)) * r * 0.6, y + Math.sin(rad(a)) * r * 0.6, r * 0.52, r * 0.4, a);
     }
-    return { d, tone };
+    return d;
+  };
+  const cluster = (x, y, r, seed, dense = 4) => {
+    const gg = rnd(seed);
+    const shade = [];
+    const body = [];
+    const lit = [];
+    const eye = [];
+    shade.push(blob(x + r * 0.2, y + r * 0.28, r, { squash: 0.74, wob: 0.36, seed }));
+    for (let i = 0; i < dense; i++) {
+      const bx = x + (gg() - 0.5) * r * 1.7;
+      const by = y + (gg() - 0.5) * r * 1.5;
+      const br = r * (0.36 + gg() * 0.3);
+      body.push(bloom(bx, by, br, seed + i * 3));
+      if (bx < x + r * 0.2) lit.push(bloom(bx, by, br * 0.86, seed + i * 3));
+      eye.push(dot(bx, by, br * 0.16));
+    }
+    return { shade: shade.join(""), body: body.join(""), lit: lit.join(""), eye: eye.join("") };
   };
 
-  // Branches entering from both top corners and arching in over the banner.
-  const clusters = [];
-  const specks = [];
-  [
-    [-20, 18, -18, 128, 1, 0],
-    [292, 16, -162, 132, -1, 1],
-    [-16, 62, 10, 78, 1, 2],
-    [288, 66, 170, 78, -1, 3],
-  ].forEach(([x, y, a, len, dir, i]) => {
-    const b = limb(x, y, a, len, 4.4, 1.4, dir * 30, 9);
-    parts.push(P(b.d, { fill: "@bough", a: "sway-slow", or: `${x}px ${y}px`, dl: -i * 1.1 }));
-    const twigs = [];
-    b.spine.forEach((p, k) => {
-      if (k < 2 || k % 2) return;
-      const t = limb(p[0], p[1], a + dir * (36 + k * 3), 20 - k, 1.4, 0.5, -dir * 20, 4);
-      twigs.push(t.d);
-      const bl = bloom(t.tip[0], t.tip[1], 7 - k * 0.4, k % 3, k);
-      clusters.push(bl);
-      specks.push(dot(t.tip[0], t.tip[1], 1.7));
+  // ── plane 2: the weeping sprays down the right rail ────────────────────
+  // The two sides are not the same tree. This one hangs — and hanging is the
+  // one thing that does not care how tall the card turns out to be.
+  const weep = { stem: [], shade: [], body: [], lit: [], eye: [] };
+  for (let k = 0; k < 7; k++) {
+    const x0 = 270 - k * 2.6;
+    const y0 = -14 + k * 11;
+    const len = 110 + k * 44;
+    const pts = [];
+    for (let i = 0; i <= 11; i++) {
+      const t = i / 11;
+      pts.push([x0 - Math.sin(t * 1.5) * (5 + k * 1.6), y0 + len * t]);
+    }
+    weep.stem.push(smooth(pts));
+    pts.forEach((p, i) => {
+      if (i === 0) return;
+      const c = cluster(p[0] - 2, p[1], 7 - k * 0.3, 500 + k * 17 + i, 4);
+      weep.shade.push(c.shade);
+      weep.body.push(c.body);
+      weep.lit.push(c.lit);
+      weep.eye.push(c.eye);
     });
-    parts.push(P(twigs.join(""), { fill: BARK, a: "sway-slow", or: `${x}px ${y}px`, dl: -i * 1.1 }));
-    const byTone = [0, 1, 2].map((t) => clusters.filter((c) => c.tone === t).map((c) => c.d).join(""));
-    byTone.forEach((d, t) => {
-      if (d) parts.push(P(d, { fill: PETAL[t], a: "sway-slow", or: `${x}px ${y}px`, dl: -i * 1.1 }));
-    });
-    parts.push(P(specks.join(""), { fill: "#c9705a", a: "sway-slow", or: `${x}px ${y}px`, dl: -i * 1.1 }));
-    clusters.length = 0;
-    specks.length = 0;
-  });
-
-  // A paper lantern hung from the right-hand branch.
-  parts.push(SK("M232 40L232 62", { stroke: BARK, sw: 1.6, a: "swing", or: "232px 40px" }));
-  parts.push(P(oval(232, 78, 15, 17), { fill: "#d94f4c", a: "swing", or: "232px 40px" }));
-  parts.push(P(rect(224, 60, 16, 4) + rect(224, 92, 16, 4), { fill: "#6b3a2a", a: "swing", or: "232px 40px" }));
-  parts.push(P(oval(232, 78, 15, 17), { fill: "@lantern", a: "swing", or: "232px 40px", op: 0.7 }));
-
-  // A low branch across the foot, and petals coming down the margins.
-  const low = limb(-16, 404, -8, 150, 4, 1.6, 16, 8);
-  parts.push(P(low.d, { fill: "@bough" }));
-  const lowBlooms = [];
-  low.spine.forEach((p, k) => {
-    if (k % 2) return;
-    lowBlooms.push(bloom(p[0], p[1] - 8, 7, 0, k + 30).d);
-  });
-  parts.push(P(lowBlooms.join(""), { fill: PETAL[0] }));
-  const low2 = limb(288, 408, -172, 120, 3.6, 1.4, -16, 8);
-  parts.push(P(low2.d, { fill: "@bough" }));
-  const lowBlooms2 = [];
-  low2.spine.forEach((p, k) => {
-    if (k % 2) return;
-    lowBlooms2.push(bloom(p[0], p[1] - 7, 6, 1, k + 60).d);
-  });
-  parts.push(P(lowBlooms2.join(""), { fill: PETAL[1] }));
-
-  for (const [x, dl, tone] of [
-    [16, 0, 0],
-    [30, -2.9, 1],
-    [246, -1.5, 0],
-    [258, -4.4, 2],
-    [8, -6.2, 1],
-  ]) {
-    parts.push(P(oval(x, 60, 4.6, 2.8, 24), { fill: PETAL[tone], a: "petal", or: `${x}px 60px`, dl }));
   }
+  parts.push({ d: weep.stem.join(""), z: "front", stroke: "@twigline", sw: 1.4, op: 0.9, a: "sway-slow", or: "268px 8px" });
+  parts.push(P(weep.shade.join(""), { fill: "@bloom-dk", op: 0.9, a: "sway-slow", or: "268px 8px" }));
+  parts.push(P(weep.body.join(""), { fill: "@bloom", a: "sway-slow", or: "268px 8px" }));
+  parts.push(P(weep.lit.join(""), { fill: "@bloom-lit", op: 0.75, a: "sway-slow", or: "268px 8px" }));
+  parts.push(P(weep.eye.join(""), { fill: "@eye", op: 0.8, a: "sway-slow", or: "268px 8px" }));
+
+  // ── plane 1: the old trunk up the left rail ────────────────────────────
+  // Cherry bark is the giveaway and the old frame had none of it: horizontal
+  // lenticels, in bands, never the same length twice, on a bark that is closer
+  // to purple than to brown.
+  const trunk = [];
+  const tL = [];
+  const tR = [];
+  for (let y = -30; y <= 432; y += 22) {
+    const t = (y + 30) / 462;
+    const w = 7.6 + t * 3.6 + Math.sin(y / 58) * 1.4 + (y > 352 ? ((y - 352) / 80) ** 2 * 14 : 0);
+    tL.push([10 - w, y]);
+    tR.push([10 + w, y]);
+  }
+  trunk.push(smooth(tL) + smooth(tR.reverse()).replace(/^M/, "L") + "Z");
+  parts.push(P(trunk.join(""), { fill: "@cherry" }));
+  parts.push(P(trunk.join(""), { fill: "@cherry", f: "barkgrain", op: 0.55 }));
+  const lent = [];
+  for (let i = 0; i < 44; i++) {
+    const y = -20 + i * 10.6 + g() * 5;
+    const w = 2.4 + g() * 8;
+    const px = 2 + g() * 12;
+    lent.push(poly([[px, y], [px + w, y - 0.5], [px + w, y + 1.8], [px, y + 2.3]]));
+  }
+  parts.push(P(lent.join(""), { fill: "@lenticel", op: 0.85 }));
+  parts.push(P(poly([[1.4, -30], [4, -30], [3, 432], [0.4, 432]]), { fill: "@moonrim", op: 0.45 }));
+  // Moss up the damp side, and one burl.
+  const bmoss = [];
+  for (let i = 0; i < 16; i++) {
+    const t = i / 16;
+    bmoss.push(blob(13 + g() * 5, 200 + t * 216 + g() * 12, 2 + t * 3.6 + g() * 2, { squash: 0.5, wob: 0.5, seed: 600 + i }));
+  }
+  parts.push(P(bmoss.join(""), { fill: "@moss", op: 0.6 }));
+  parts.push(P(blob(16, 168, 7.4, { squash: 1.2, wob: 0.2, seed: 12 }), { fill: "@cherry" }));
+  parts.push(P(blob(14, 165, 3.4, { squash: 1.1, wob: 0.25, seed: 15 }), { fill: "@moonrim", op: 0.3 }));
+
+  // ── plane 1: the boughs over the brow ──────────────────────────────────
+  // Loaded on the left, where the light is, and nearly bare on the right, where
+  // the wind takes it: a matched pair of flowering branches is the loudest
+  // possible sign that nobody drew them.
+  const lantern = [];
+  [
+    [8, -34, -8, 150, 22, 0, 20, 6, 0],
+    [4, 22, 8, 96, 18, -1.6, 15, 5, 0],
+    [292, -6, -168, 128, -24, -3.1, 16, 1, 1],
+  ].forEach(([bx, by, a, len, curve, dl, tw, dense, bare], i) => {
+    const b = limb(bx, by, a, len, 5.4, 1.3, curve, 8);
+    const cls = i === 1 ? "sway" : "sway-slow";
+    const or = `${bx}px ${by}px`;
+    parts.push(P(b.d, { fill: "@bough", a: cls, or, dl }));
+    parts.push(P(b.d, { fill: "@bough", f: "barkgrain", op: 0.5, a: cls, or, dl }));
+    const twigs = [];
+    const sh = [];
+    const bd = [];
+    const lt = [];
+    const ey = [];
+    b.spine.forEach((p, k) => {
+      if (k < 1) return;
+      const dir = (curve > 0 ? 1 : -1) * (k % 2 ? 1 : -0.55);
+      const t = limb(p[0], p[1], a + dir * (28 + k * 5), tw - k * 0.5, 1.4, 0.4, -dir * 22, 4);
+      twigs.push(t.d);
+      if (bare && k % 2) {
+        // Buds, not flowers: this side has not come out yet.
+        ey.push(dot(t.tip[0], t.tip[1], 1.9));
+        return;
+      }
+      const c = cluster(t.tip[0], t.tip[1], 10 - k * 0.4, 700 + i * 31 + k, dense);
+      sh.push(c.shade);
+      bd.push(c.body);
+      lt.push(c.lit);
+      ey.push(c.eye);
+    });
+    parts.push(P(twigs.join(""), { fill: "@twig", a: cls, or, dl }));
+    parts.push(P(sh.join(""), { fill: "@bloom-dk", op: 0.9, a: cls, or, dl }));
+    parts.push(P(bd.join(""), { fill: "@bloom", a: cls, or, dl }));
+    if (lt.length) parts.push(P(lt.join(""), { fill: "@bloom-lit", op: 0.8, a: cls, or, dl }));
+    parts.push(P(ey.join(""), { fill: "@eye", op: 0.85, a: cls, or, dl }));
+    if (!bare) lantern.push(b.spine[Math.round(b.spine.length * 0.62)]);
+  });
+
+  // Two paper lanterns off the left bough, at different heights because a
+  // matched pair reads as pattern. They are the only warm light in the frame,
+  // and the pink in the blossom nearest them is the proof.
+  lantern.forEach(([lx, ly], i) => {
+    const drop = 26 + i * 16;
+    const cy = ly + drop + 16;
+    const or = `${r2(lx)}px ${r2(ly)}px`;
+    parts.push(P(oval(lx, cy, 46, 44), { fill: "@lanternglow", a: "glow", dl: -i * 0.9, op: 0.9 }));
+    parts.push({ d: `M${r2(lx)} ${r2(ly)}L${r2(lx)} ${r2(ly + drop)}`, z: "front", stroke: "@twig", sw: 1.4, a: "swing", or, dl: -i });
+    parts.push(P(oval(lx, cy, 13 - i * 2, 15 - i * 2), { fill: "@paper", a: "swing", or, dl: -i }));
+    const ribs = [];
+    for (let k = -2; k <= 2; k++) ribs.push(smooth(arcPts(lx, cy, (13 - i * 2) * 0.98, 92 + k * 22, 268 - k * 22, 8)));
+    parts.push({ d: ribs.join(""), z: "front", stroke: "#a8402f", sw: 0.7, op: 0.45, a: "swing", or, dl: -i });
+    parts.push(P(rect(lx - 8 + i, cy - 16 + i * 2, 16 - i * 2, 3.4) + rect(lx - 8 + i, cy + 13 - i * 2, 16 - i * 2, 3.4), { fill: "@lanterniron", a: "swing", or, dl: -i }));
+    parts.push(P(flame(lx, cy + 5, 9, 2.4, 5 + i), { fill: "#ffce6a", op: 0.9, a: "flick", or: `${r2(lx)}px ${r2(cy)}px`, dl: -i * 0.4 }));
+  });
+
+  // ── the foot ───────────────────────────────────────────────────────────
+  // Petals do not lie in a flat carpet; they bank against whatever stops them.
+  parts.push(P(band(-40, 314, 374, 8, 132, 0.6, 434, 0, 100, 0), { fill: "@ground" }));
+  parts.push(P(band(-40, 314, 386, 7, 96, 2.3, 434, 0, 100, 0), { fill: "@drift" }));
+  parts.push(P(band(-40, 314, 384, 6, 88, 2.6, 392, 5, 76, 3.9), { fill: "@drift-lit", op: 0.8 }));
+  parts.push(P(band(-40, 314, 402, 5, 66, 4.4, 434, 0, 100, 0), { fill: "@drift-near" }));
+  // Loose petals lying on it, denser where the drift is deepest.
+  const fallen = [];
+  for (let i = 0; i < 46; i++) {
+    const x = -24 + g() * 330;
+    const y = 384 + g() * 42;
+    fallen.push(oval(x, y, 2.4 + g() * 1.4, 1.2 + g() * 0.7, (g() - 0.5) * 120));
+  }
+  parts.push(P(fallen.join(""), { fill: "@petal-lit", op: 0.85 }));
+  // A stone lantern standing in the drift on one side, with a candle in it.
+  const SLX = 216;
+  parts.push(P(oval(SLX, 372, 30, 22), { fill: "@lanternglow", a: "glow", op: 0.8, dl: -2.2 }));
+  parts.push(P(poly([[SLX - 13, 400], [SLX + 13, 400], [SLX + 10, 386], [SLX - 10, 386]]), { fill: "@stone" }));
+  parts.push(P(rect(SLX - 5, 372, 10, 14), { fill: "@stone" }));
+  parts.push(P(rect(SLX - 8, 362, 16, 11), { fill: "@stone-lit" }));
+  parts.push(P(rect(SLX - 6, 364, 12, 8), { fill: "#ffd489", a: "glow", dl: -0.6 }));
+  parts.push(P(poly([[SLX - 15, 362], [SLX + 15, 362], [SLX + 9, 350], [SLX - 9, 350]]), { fill: "@stone" }));
+  parts.push(P(poly([[SLX - 15, 362], [SLX + 15, 362], [SLX + 13, 359], [SLX - 13, 359]]), { fill: "@stone-lit", op: 0.8 }));
+  parts.push(P(dot(SLX, 347, 3), { fill: "@stone-lit" }));
+  parts.push(P(blob(SLX - 11, 393, 5, { squash: 0.5, wob: 0.5, seed: 21 }) + blob(SLX + 12, 396, 4, { squash: 0.5, wob: 0.5, seed: 24 }), { fill: "@moss", op: 0.7 }));
+  parts.push({ d: tuft(46, 400, 14, 7, 61) + tuft(122, 406, 11, 5, 67) + tuft(258, 400, 12, 6, 73), z: "front", stroke: "@grass", sw: 1.2, op: 0.8, a: "sway", or: "136px 404px" });
+
+  // Petals coming down both margins, and two blowing right across.
+  for (const [x, y, dl, tone] of [
+    [18, 60, 0, 0],
+    [32, 20, -2.9, 1],
+    [246, 90, -1.5, 0],
+    [258, 40, -4.4, 2],
+    [8, 140, -6.2, 1],
+    [264, 160, -7.8, 0],
+  ]) {
+    parts.push(P(oval(x, y, 4.6, 2.6, 24), { fill: tone === 2 ? "@petal-dk" : tone ? "@bloom" : "@petal-lit", a: "petal", or: `${x}px ${y}px`, dl }));
+  }
+
+  parts.push(...occlusion(0.95));
 
   return {
     id: "sakura",
     name: "Sakura",
     group: "Woodland",
-    // Blossom branches leaning in from both corners, a paper lantern swinging
-    // under one of them and petals coming down the margins.
+    // A full moon over an old cherry, blossom loaded on one side and weeping
+    // down the other, two paper lanterns burning in it and petals banked along
+    // the foot around a stone lantern.
     grads: [
-      radial("moonglow", 58, -24, 42, [
-        [0, "#fdf6e4", 0.45],
-        [1, "#fdf6e4", 0],
+      glow("night", [
+        [0, "#2a2947", 0.62],
+        [0.5, "#1e1e35", 0.32],
+        [1, "#161626", 0],
       ]),
-      radial("lantern", 232, 74, 17, [
-        [0, "#ffe6a8", 0.85],
-        [1, "#ffe6a8", 0],
+      glow("moonglow", [
+        [0, "#f6f0dc", 0.5],
+        [0.4, "#c9c3ba", 0.2],
+        [1, "#8f8b92", 0],
       ]),
-      bark("bough", "#2c2018", "#5a4231", "#8b6b51"),
+      radial("moon", 48, -54, 30, [
+        [0, "#fffdf2"],
+        [0.72, "#f4ecd6"],
+        [1, "#d9cfbe"],
+      ]),
+      lin("mare", 0, -70, 0, -30, [
+        [0, "#d8cfbc"],
+        [1, "#bdb4a8"],
+      ]),
+      lin("cloud", 0, -80, 0, -10, [
+        [0, "#6a6a8f", 0.5],
+        [0.5, "#4e4e72", 0.34],
+        [1, "#3a3a58", 0.1],
+      ]),
+      // Plane 3: paler, bluer, and barely separated from the sky it sits in.
+      lin("far-grove", 0, -60, 0, 30, [
+        [0, "#8b86ab", 0.7],
+        [0.7, "#6e6a92", 0.5],
+        [1, "#6e6a92", 0],
+      ]),
+      lin("far-roof", 0, -48, 0, 26, [
+        [0, "#5c5878", 0.9],
+        [0.8, "#494566", 0.75],
+        [1, "#494566", 0],
+      ]),
+      // The blossom, three ways: what the moon reaches, the body of it, and the
+      // mass underneath that everything else is sitting on.
+      plane("bloom-lit", [
+        [0, "#fffaf6"],
+        [0.45, "#fbe4ec"],
+        [1, "#e5c2d6"],
+      ]),
+      plane("bloom", [
+        [0, "#f9dbe6"],
+        [0.42, "#e5b6ce"],
+        [1, "#a98bb4"],
+      ]),
+      plane("bloom-dk", [
+        [0, "#8f7aa8"],
+        [0.5, "#6b5c8c"],
+        [1, "#443c66"],
+      ]),
+      plane("petal-lit", [
+        [0, "#fff4f6"],
+        [1, "#e3c3d4"],
+      ]),
+      plane("petal-dk", [
+        [0, "#c9a6c2"],
+        [1, "#8a76a4"],
+      ]),
+      lin("eye", 0, -60, 0, 400, [
+        [0, "#d4736a"],
+        [1, "#a05a58"],
+      ]),
+      bark("cherry", "#170f16", "#3a2830", "#9c7b74"),
+      bark("bough", "#150e14", "#35242c", "#8c6e6a"),
+      bark("twig", "#1a1119", "#3d2b33", "#7a5f60"),
+      lin("twigline", 0, -30, 0, 400, [
+        [0, "#4a3540"],
+        [1, "#2a1d26"],
+      ]),
+      lin("lenticel", 0, -30, 0, 430, [
+        [0, "#5a4048"],
+        [1, "#2e2028"],
+      ]),
+      lin("moonrim", 0, -60, 0, 430, [
+        [0, "#f2ecd8", 0.95],
+        [0.5, "#cdc7be", 0.8],
+        [1, "#9a97a4", 0.6],
+      ]),
+      lin("moss", 0, 160, 0, 424, [
+        [0, "#3d5540"],
+        [1, "#22331f"],
+      ]),
+      glow("lanternglow", [
+        [0, "#ffbc63", 0.55],
+        [0.45, "#d9782f", 0.22],
+        [1, "#8f4a1c", 0],
+      ]),
+      tube("paper", [
+        [0, "#b03a2c"],
+        [0.24, "#e8613f"],
+        [0.4, "#ffb463"],
+        [0.62, "#e05a37"],
+        [1, "#8f2c22"],
+      ]),
+      forged("lanterniron", "#171219", "#2e2630", "#6d5f6b"),
+      plane("ground", [
+        [0, "#332c40"],
+        [0.5, "#221d31"],
+        [1, "#151220"],
+      ]),
+      plane("drift", [
+        [0, "#7f6c90"],
+        [0.5, "#5c4e74"],
+        [1, "#3c3358"],
+      ]),
+      plane("drift-lit", [
+        [0, "#fbe8ee"],
+        [0.45, "#e8c9d8"],
+        [1, "#b79ec0"],
+      ]),
+      plane("drift-near", [
+        [0, "#9d86a9"],
+        [0.5, "#6f5e8b"],
+        [1, "#443a62"],
+      ]),
+      rock("stone", "#241f2e", "#4a4356", "#a89a8e"),
+      lin("stone-lit", 0, 340, 0, 402, [
+        [0, "#c4b6a4"],
+        [1, "#7d7383"],
+      ]),
+      lin("grass", 0, 380, 0, 424, [
+        [0, "#6a7a52"],
+        [1, "#39442f"],
+      ]),
+      ...occlusionGrads("#0a0812"),
     ],
+    filters: [grain("barkgrain", "0.55 2.2", { oct: 3, seed: 23, k: 0.85 })],
     parts,
   };
 })();
@@ -2983,214 +4257,847 @@ const velvetStage = (() => {
 })();
 
 const auroraRidge = (() => {
+  // Aurora over a ridge, and the aurora IS the light: it comes from above, it
+  // is cold, and everything it lands on goes green on top and indigo-violet
+  // underneath. The old frame drew the ribbons in the FRONT layer, so a wash of
+  // teal was laid straight over the card's banner and tinted it — a coloured
+  // wash drawn after the thing it should sit behind is the one draw-order
+  // mistake that cannot be fixed with a better colour. All of it is behind the
+  // card now, and the only warm thing in the frame is the tent.
   const parts = [];
+  const g = rnd(71);
 
-  // Ribbons of light over the brow. Each is filled with its own top-to-bottom
-  // fade so the lower edge dissolves instead of ending in a straight line
-  // across somebody's banner.
+  // ── plane 4: sky, and the band of the galaxy across it ──────────────────
+  parts.push(BK(oval(136, -78, 250, 178), { fill: "@sky" }));
+  parts.push(BK(band(-210, 490, -146, 12, 210, 0.4, -66, 16, 240, 1.9), { fill: "@milkyway", op: 0.55 }));
+  const dust = [];
+  for (let i = 0; i < 90; i++) {
+    const x = -60 + g() * 396;
+    dust.push(dot(x, -150 + g() * 96, 0.4 + g() * 0.7));
+  }
+  parts.push(BK(dust.join(""), { fill: "@star-far", op: 0.55 }));
+  for (let i = 0; i < 34; i++) {
+    const x = -50 + g() * 376;
+    const y = -156 + g() * 150;
+    parts.push(BK(dot(x, y, 0.7 + g() * 1.4), { fill: "@star", a: "twinkle", dl: -g() * 5, op: 0.5 + g() * 0.45 }));
+  }
+  // Three that are worth looking at, with a cross of light on them.
+  for (const [x, y, r] of [
+    [58, -122, 2.2],
+    [206, -96, 1.9],
+    [148, -142, 1.6],
+  ]) {
+    parts.push(BK(dot(x, y, r * 2.6), { fill: "@starglow", a: "twinkle", dl: -x / 90, op: 0.7 }));
+    parts.push(BK(poly([[x - r * 4, y], [x, y - r * 1.1], [x + r * 4, y], [x, y + r * 1.1]]) + poly([[x, y - r * 4], [x - r * 1.1, y], [x, y + r * 4], [x + r * 1.1, y]]), { fill: "@star", a: "twinkle", dl: -x / 90 }));
+  }
+
+  // ── the curtains ────────────────────────────────────────────────────────
+  // A curtain is not a coloured ribbon: it is a sheet of vertical rays, it is
+  // brightest at its lower hem where the ray ends, and it goes violet at the
+  // top where the air is thinner. Both edges have to dissolve — the old one
+  // ended on a straight line across somebody's banner.
   [
-    ["@rib1", -78, 26, 0],
-    ["@rib2", -54, 34, -4.2],
-    ["@rib3", -30, 22, -8.6],
-  ].forEach(([c, y, amp, dl], i) => {
+    ["@rib1", "@ray1", -158, 30, 76, 0, 0.9],
+    ["@rib2", "@ray2", -132, 24, 66, -4.2, 1.7],
+    ["@rib3", "@ray3", -104, 30, 58, -8.6, 2.8],
+    ["@rib4", "@ray4", -78, 20, 46, -12.4, 3.9],
+  ].forEach(([fill, rayFill, y0, amp, h, dl, phase], i) => {
     const top = [];
     const bot = [];
-    for (let x = -60; x <= 336; x += 22) {
-      const w = Math.sin(x / 46 + i * 1.7) * amp;
-      top.push([x, y + w]);
-      bot.push([x, y + w + 62 + Math.cos(x / 60 + i) * 18]);
+    const rays = [];
+    for (let x = -216; x <= 496; x += 16) {
+      const w = Math.sin(x / 52 + phase) * amp + Math.sin(x / 23 + phase * 2) * amp * 0.3;
+      top.push([x, y0 + w]);
+      bot.push([x, y0 + w + h + Math.cos(x / 61 + phase) * h * 0.24]);
     }
-    parts.push(
-      P(smooth(top) + smooth(bot.reverse()).replace(/^M/, "L") + "Z", {
-        fill: c,
-        a: i % 2 ? "aurora" : "aurora-slow",
-        or: "136px -60px",
-        dl,
-      }),
-    );
+    const cls = i % 2 ? "aurora" : "aurora-slow";
+    parts.push(BK(smooth(top) + smooth(bot.slice().reverse()).replace(/^M/, "L") + "Z", { fill, a: cls, or: "136px -110px", dl }));
+    // The rays themselves, at low opacity: the striation is what separates an
+    // aurora from a smear of green.
+    for (let k = 0; k < top.length; k++) {
+      if (k % 2) continue;
+      const w = 2.6 + g() * 4;
+      rays.push(poly([[top[k][0] - w, top[k][1]], [top[k][0] + w, top[k][1]], [bot[k][0] + w * 0.5, bot[k][1]], [bot[k][0] - w * 0.5, bot[k][1]]]));
+    }
+    parts.push(BK(rays.join(""), { fill: rayFill, op: 0.4, a: cls, or: "136px -110px", dl }));
   });
 
-  // Stars, twinkling above the card.
-  const g = rnd(17);
-  for (let i = 0; i < 26; i++) {
-    const x = -40 + g() * 356;
-    const y = -76 + g() * 66;
-    parts.push(BK(dot(x, y, 0.7 + g() * 1.5), { fill: "#eaf3ff", a: "twinkle", dl: -g() * 4, op: 0.9 }));
+  // ── plane 3: the range on the horizon ──────────────────────────────────
+  // Two ranks, the further one paler, bluer and lower in contrast, both fading
+  // out before they reach the card's edge.
+  const range = (pts, fill, snow) => {
+    parts.push(BK(smooth(pts) + `L496 48L-216 48Z`, { fill }));
+    if (snow) {
+      const caps = [];
+      for (let i = 1; i < pts.length - 1; i++) {
+        const [x, y] = pts[i];
+        if (y > pts[i - 1][1] || y > pts[i + 1][1]) continue;
+        caps.push(poly([[x - 11, y + 13], [x - 4, y + 6], [x, y], [x + 5, y + 7], [x + 12, y + 14], [x + 4, y + 10], [x - 2, y + 15], [x - 6, y + 9]]));
+      }
+      parts.push(BK(caps.join(""), { fill: snow }));
+    }
+  };
+  range(
+    [
+      [-216, 22],
+    [-140, -8],
+    [-76, 12],
+      [-30, -18],
+      [4, 4],
+      [46, -26],
+      [92, 2],
+      [140, -20],
+      [186, 6],
+      [232, -30],
+      [286, -4],
+      [352, 10],
+    ],
+    "@range-far",
+    "@snow-far",
+  );
+  range(
+    [
+      [-216, 30],
+    [-150, 8],
+    [-76, 26],
+      [-24, 2],
+      [26, 22],
+      [78, -6],
+      [128, 18],
+      [178, 4],
+      [230, -12],
+      [292, 14],
+      [352, 24],
+    ],
+    "@range-near",
+    "@snow-near",
+  );
+  // A rank of firs standing on the near range, dissolving into it.
+  const firs = [];
+  for (let i = 0; i < 44; i++) {
+    const x = -200 + i * 17 + g() * 8;
+    const h = 9 + g() * 13;
+    firs.push(poly([[x - h * 0.3, 40], [x, 30 - h], [x + h * 0.3, 40]]));
   }
+  parts.push(BK(firs.join(""), { fill: "@fir-far" }));
 
-  // Ridge lines: two layers of peaks that only rise at the corners, so the
-  // middle of the foot stays clear.
-  const ridge = (pts, fill, op) => parts.push(P(poly([[-30, 424], ...pts, [302, 424]]), { fill, op }));
-  // Ridge lines, two layers deep. They are lit, not black: a silhouette in
-  // #16233f on a dark card is a silhouette nobody can see.
-  ridge(
-    [
-      [-30, 380],
-      [-4, 346],
-      [24, 380],
-      [56, 364],
-      [92, 396],
-      [180, 398],
-      [214, 368],
-      [248, 342],
-      [278, 380],
-      [302, 366],
-    ],
-    "#33507f",
-    1,
-  );
-  parts.push(
-    P(
-      poly([[-11, 352], [-4, 346], [10, 366], [3, 362], [-3, 367]]) +
-        poly([[241, 350], [248, 342], [262, 366], [254, 361], [248, 366]]),
-      { fill: "#eef5fd", op: 0.95 },
-    ),
-  );
-  ridge(
-    [
-      [-30, 402],
-      [10, 380],
-      [44, 402],
-      [120, 410],
-      [206, 402],
-      [238, 380],
-      [272, 402],
-      [302, 394],
-    ],
-    "#1c2b4d",
-    1,
-  );
-  // Conifers picked out on the near ridge.
-  for (const [x, h] of [
-    [14, 24],
-    [27, 16],
-    [248, 22],
-    [235, 14],
-    [60, 12],
-    [222, 11],
+  // ── plane 1: the ribs up both sides ────────────────────────────────────
+  // Rock, not more conifer: the sides want a material the top band does not
+  // have, and rime-crusted stone takes the green off the sky on its upper edges
+  // and gives back nothing anywhere else. The two are not the same rib — the
+  // left is broken and stepped, the right is one smooth buttress with a wind
+  // cornice hanging off its inner edge.
+  const rib = (pts, fill) => parts.push(P(poly(pts), { fill }));
+  const LEFT = [
+    [-28, 436],
+    [-22, 300],
+    [-18, 120],
+    [-15, -58],
+    [-8, -96],
+    [-1, -60],
+    [6, -80],
+    [11, -34],
+    [17, -50],
+    [19, 6],
+    [14, 62],
+    [18, 140],
+    [12, 236],
+    [17, 318],
+    [12, 436],
+  ];
+  rib(LEFT, "@rock");
+  parts.push(P(poly(LEFT), { fill: "@rock", f: "rime", op: 0.5 }));
+  const RIGHT = [
+    [298, 436],
+    [292, 300],
+    [288, 120],
+    [285, -30],
+    [278, -66],
+    [270, -22],
+    [264, -44],
+    [255, 10],
+    [258, 96],
+    [253, 190],
+    [259, 300],
+    [254, 436],
+  ];
+  rib(RIGHT, "@rock-r");
+  parts.push(P(poly(RIGHT), { fill: "@rock-r", f: "rime", op: 0.5 }));
+  // Bedding: rock is laid down in courses and it dips. Nothing else on this
+  // frame is horizontal, so the strata are what say stone rather than trunk —
+  // without them a pale mark on a dark upright reads as a birch lenticel.
+  const bedL = [];
+  const bedR = [];
+  for (let y = -90; y < 436; y += 23) {
+    const dip = 4 + Math.sin(y / 70) * 2;
+    bedL.push(`M-26 ${r2(y)}L9 ${r2(y + dip)}`);
+    bedR.push(`M296 ${r2(y + 7)}L262 ${r2(y + 7 + dip * 0.7)}`);
+  }
+  parts.push({ d: bedL.join("") + bedR.join(""), z: "front", stroke: "@bed", sw: 1.2, op: 0.45 });
+  // The lit edge of each: one line of aurora green down the inner face.
+  parts.push(P(poly([[19, 6], [14, 62], [18, 140], [12, 236], [17, 318], [12, 436], [8, 436], [13, 318], [8, 236], [14, 140], [10, 62], [15, 6]]), { fill: "@rimlight", op: 0.9 }));
+  parts.push(P(poly([[255, 10], [258, 96], [253, 190], [259, 300], [254, 436], [258, 436], [263, 300], [257, 190], [262, 96], [259, 10]]), { fill: "@rimlight", op: 0.6 }));
+  // Rime, packed into the ledges on the windward side and nowhere else: a strip
+  // down the outer edge of each rib, and a cap on every step it can lodge on.
+  const rimeStrip = (xs, sign) => {
+    const outer = [];
+    const inner = [];
+    for (let y = -80; y <= 436; y += 26) {
+      const w = 3.4 + Math.abs(Math.sin(y / 47)) * 4.4;
+      outer.push([xs + sign * 1.5, y]);
+      inner.push([xs - sign * w, y]);
+    }
+    return smooth(outer) + smooth(inner.reverse()).replace(/^M/, "L") + "Z";
+  };
+  parts.push(P(rimeStrip(-22, -1), { fill: "@rime-snow", op: 0.8 }));
+  parts.push(P(rimeStrip(294, 1), { fill: "@rime-snow", op: 0.6 }));
+  const ledge = [];
+  for (const [lx, ly, lr] of [
+    [2, -58, 8],
+    [14, -46, 6],
+    [-6, -74, 7],
+    [274, -24, 7],
+    [266, -42, 6],
   ]) {
-    parts.push(P(tri([x - h * 0.34, 404], [x + h * 0.34, 404], [x, 404 - h]), { fill: "#0d1526" }));
+    ledge.push(blob(lx, ly, lr, { squash: 0.34, wob: 0.4, seed: 800 + lx }));
+  }
+  parts.push(P(ledge.join(""), { fill: "@snow-lit", op: 0.9 }));
+  // The cornice: a wind-built lip clinging to the inner face, on one side only.
+  parts.push(P(smooth([[257, 108], [252, 132], [250, 162], [255, 184], [261, 186], [262, 150], [263, 122]], true), { fill: "@rime-snow" }));
+  parts.push(P(smooth([[257, 108], [252, 132], [250, 162], [253, 165], [255, 134], [260, 112]], true), { fill: "@snow-lit", op: 0.8 }));
+  // Cracks, on the broken side only.
+  parts.push({ d: crack(6, 60, 210, 91, { spread: 26, segs: 12 }), z: "front", stroke: "@crack", sw: 1.4, op: 0.8 });
+  parts.push({ d: crack(14, 300, 84, 97, { spread: 22, segs: 6 }), z: "front", stroke: "@crack", sw: 1.1, op: 0.55 });
+
+  // ── the drift along the foot ───────────────────────────────────────────
+  // Wind-sculpted, so the lit lip does not follow the same line as the body it
+  // sits on, and green on top because the only thing lighting it is the sky.
+  parts.push(P(band(-40, 314, 372, 8, 152, 0.5, 434, 0, 100, 0), { fill: "@drift-far" }));
+  parts.push(P(band(-40, 314, 386, 6, 108, 2.6, 434, 0, 100, 0), { fill: "@drift" }));
+  parts.push(P(band(-40, 314, 384, 5, 100, 2.9, 392, 5, 82, 3.6), { fill: "@snow-lit", op: 0.85 }));
+  parts.push(P(band(-40, 314, 402, 5, 76, 4.4, 434, 0, 100, 0), { fill: "@drift-near" }));
+  parts.push(P(band(-40, 314, 400, 4, 72, 4.7, 407, 4, 62, 5.4), { fill: "@snow-lit", op: 0.7 }));
+  // Sastrugi: the grain the wind cuts into old snow, all running one way.
+  const sast = [];
+  for (let i = 0; i < 13; i++) {
+    sast.push(waveTopStroke(-30, 306, 392 + i * 3.2, 1.6 + (i % 3) * 0.6, 46 + i * 6, i * 1.4));
+  }
+  parts.push({ d: sast.join(""), z: "front", stroke: "@sastrugi", sw: 0.9, op: 0.4 });
+  // Three firs on the drift, in front of everything and the darkest thing here.
+  for (const [x, h] of [
+    [40, 42],
+    [232, 32],
+    [62, 24],
+    [252, 20],
+  ]) {
+    parts.push(P(tri([x - h * 0.34, 406], [x + h * 0.34, 406], [x, 406 - h]), { fill: "@fir" }));
+    parts.push(P(tri([x - h * 0.28, 400], [x + h * 0.28, 400], [x, 404 - h]), { fill: "@snow-shade", op: 0.85 }));
+    parts.push(P(poly([[x, 404 - h], [x - h * 0.28, 400], [x - h * 0.16, 400]]), { fill: "@snow-lit" }));
+  }
+  // The tent: the one warm light in the frame, and the reason the green
+  // everywhere else reads as cold rather than as a colour cast.
+  const TX = 150;
+  parts.push(P(oval(TX, 400, 48, 30), { fill: "@tentglow", a: "glow", op: 0.9 }));
+  parts.push(P(poly([[TX - 21, 414], [TX, 384], [TX + 21, 414]]), { fill: "@tent" }));
+  parts.push(P(poly([[TX, 384], [TX + 21, 414], [TX + 13, 414], [TX, 392]]), { fill: "@tent-dk", op: 0.7 }));
+  parts.push(P(poly([[TX - 9, 414], [TX, 392], [TX + 9, 414]]), { fill: "@tentmouth", a: "glow", dl: -0.7 }));
+  parts.push({ d: `M${TX} 384L${TX} 374M${TX - 21} 414L${TX - 27} 418M${TX + 21} 414L${TX + 27} 418`, z: "front", stroke: "@guy", sw: 1, op: 0.7 });
+  parts.push(P(dot(TX, 373, 1.6), { fill: "@snow-lit" }));
+  // Tracks coming up to it out of the dark, and only from one side.
+  const tracks = [];
+  for (let i = 0; i < 11; i++) {
+    const x = 178 + i * 12;
+    tracks.push(oval(x, 410 + (i % 2 ? 5 : 0), 3.2, 2, -12));
+  }
+  parts.push(P(tracks.join(""), { fill: "@track", op: 0.5 }));
+  // Snow lifting off the drift in the wind.
+  for (const [x, dl] of [
+    [56, 0],
+    [198, -2.9],
+    [24, -5.1],
+    [258, -7.4],
+    [120, -3.8],
+  ]) {
+    parts.push(P(dot(x, 394, 1.4), { fill: "@snow-lit", a: "float-up", dl, op: 0.75 }));
   }
 
-  // Cold rails: a thin fade down each edge keeps the frame continuous.
-  parts.push(P(rect(0, 30, 7, 360), { fill: "@edge", op: 0.75 }));
-  parts.push(P(rect(265, 30, 7, 360), { fill: "@edge", op: 0.75 }));
+  parts.push(...occlusion(0.9));
 
   return {
     id: "aurora-ridge",
     name: "Aurora ridge",
     group: "After dark",
-    // Ribbons of light shifting above the brow, stars going in and out and a
-    // snow-capped ridge along the foot.
+    // Four curtains striated with their own rays over a range on the horizon,
+    // rime-crusted rock holding both sides, and a tent burning in the drift.
     grads: [
-      lin("rib1", 0, -78, 0, 20, [
-        [0, "c1", 0],
-        [0.3, "c1", 0.7],
+      glow("sky", [
+        [0, "#1b2748", 0.7],
+        [0.5, "#141c36", 0.4],
+        [1, "#0d1224", 0],
+      ]),
+      lin("milkyway", 0, -150, 0, -50, [
+        [0, "#6a7ba8", 0],
+        [0.45, "#8493c4", 0.35],
+        [1, "#5a6a96", 0],
+      ]),
+      lin("star-far", 0, -160, 0, -40, [
+        [0, "#dbe6ff"],
+        [1, "#9fb0d8"],
+      ]),
+      lin("star", 0, -170, 0, -10, [
+        [0, "#ffffff"],
+        [1, "#cfe0ff"],
+      ]),
+      glow("starglow", [
+        [0, "#dfeaff", 0.7],
+        [1, "#dfeaff", 0],
+      ]),
+      // Each curtain dies out at BOTH edges: violet at the crown where the air
+      // is thin, brightest at the hem where the ray ends, nothing beyond either.
+      lin("rib1", 0, -158, 0, -52, [
+        [0, "#a86ff2", 0],
+        [0.22, "#a86ff2", 0.34],
+        [0.66, "c1", 0.5],
         [1, "c1", 0],
       ]),
-      lin("rib2", 0, -54, 0, 44, [
-        [0, "c2", 0],
-        [0.3, "c2", 0.6],
+      lin("rib2", 0, -132, 0, -42, [
+        [0, "#8f6fe2", 0],
+        [0.24, "#8f6fe2", 0.3],
+        [0.68, "c2", 0.55],
         [1, "c2", 0],
       ]),
-      lin("rib3", 0, -30, 0, 68, [
-        [0, "#6ef2c0", 0],
-        [0.3, "#6ef2c0", 0.5],
+      lin("rib3", 0, -104, 0, -16, [
+        [0, "#7fd8e6", 0],
+        [0.24, "#7fd8e6", 0.28],
+        [0.66, "#6ef2c0", 0.6],
         [1, "#6ef2c0", 0],
       ]),
-      lin("edge", 0, 30, 0, 378, [
-        [0, "#6ef2c0", 0.55],
-        [0.5, "#2a3f6b", 0.35],
-        [1, "#1c2b4d", 0.7],
+      lin("rib4", 0, -78, 0, -12, [
+        [0, "#6ef2c0", 0],
+        [0.28, "#6ef2c0", 0.34],
+        [0.7, "#a8ffd8", 0.5],
+        [1, "#a8ffd8", 0],
       ]),
+      lin("ray1", 0, -158, 0, -52, [
+        [0, "#e0c4ff", 0],
+        [0.5, "#e0c4ff", 0.5],
+        [1, "#e0c4ff", 0],
+      ]),
+      lin("ray2", 0, -132, 0, -42, [
+        [0, "#d8d0ff", 0],
+        [0.5, "#d8d0ff", 0.45],
+        [1, "#d8d0ff", 0],
+      ]),
+      lin("ray3", 0, -104, 0, -16, [
+        [0, "#d2fff0", 0],
+        [0.5, "#d2fff0", 0.5],
+        [1, "#d2fff0", 0],
+      ]),
+      lin("ray4", 0, -78, 0, -12, [
+        [0, "#eafff6", 0],
+        [0.5, "#eafff6", 0.45],
+        [1, "#eafff6", 0],
+      ]),
+      lin("range-far", 0, -34, 0, 48, [
+        [0, "#4d5c86", 0.85],
+        [0.5, "#3f4c72", 0.6],
+        [1, "#3f4c72", 0],
+      ]),
+      lin("snow-far", 0, -34, 0, 20, [
+        [0, "#9fb4d8", 0.9],
+        [1, "#7d92ba", 0.45],
+      ]),
+      lin("range-near", 0, -16, 0, 48, [
+        [0, "#2c3760", 0.95],
+        [0.5, "#232c4e", 0.85],
+        [1, "#232c4e", 0],
+      ]),
+      lin("snow-near", 0, -16, 0, 26, [
+        [0, "#8fa8cc", 0.95],
+        [1, "#6d84ac", 0.5],
+      ]),
+      lin("fir-far", 0, 4, 0, 44, [
+        [0, "#1b2440", 0.95],
+        [0.5, "#161e36", 0.8],
+        [1, "#161e36", 0],
+      ]),
+      // Rock: green off the sky on the edges that face it, and nothing at all
+      // anywhere else. Never neutral grey.
+      rock("rock", "#1e2740", "#3a4762", "#9fb4bc"),
+      rock("rock-r", "#1a2238", "#333f58", "#8ba2ac"),
+      lin("rimlight", 0, -60, 0, 430, [
+        [0, "#b6ffe0", 0.9],
+        [0.4, "#78c8b4", 0.7],
+        [1, "#4e7e84", 0.5],
+      ]),
+      lin("bed", 0, -90, 0, 436, [
+        [0, "#0e1526"],
+        [1, "#141c2e"],
+      ]),
+      lin("crack", 0, 40, 0, 400, [
+        [0, "#080c18"],
+        [1, "#0d1424"],
+      ]),
+      plane("rime-snow", [
+        [0, "#cfe4e8"],
+        [0.45, "#9fb6cc"],
+        [1, "#63789c"],
+      ]),
+      plane("snow-lit", [
+        [0, "#e6fff4"],
+        [0.4, "#c2dde4"],
+        [1, "#8fa4c8"],
+      ]),
+      plane("snow-shade", [
+        [0, "#9fb8d2"],
+        [0.5, "#7d94bc"],
+        [1, "#57699a"],
+      ]),
+      plane("drift-far", [
+        [0, "#8fa8bc"],
+        [0.5, "#6d84a8"],
+        [1, "#4e6390"],
+      ]),
+      plane("drift", [
+        [0, "#a2bcc6"],
+        [0.5, "#7b93b6"],
+        [1, "#56699c"],
+      ]),
+      plane("drift-near", [
+        [0, "#b6cdd2"],
+        [0.5, "#8ba1bf"],
+        [1, "#5f72a2"],
+      ]),
+      lin("sastrugi", -30, 0, 306, 0, [
+        [0, "#6f86ab"],
+        [0.5, "#cfe4e8"],
+        [1, "#6f86ab"],
+      ]),
+      leafy("fir", "#08121e", "#0e2028", "#1a3a38"),
+      lin("track", 0, 400, 0, 420, [
+        [0, "#5f74a0"],
+        [1, "#485a86"],
+      ]),
+      glow("tentglow", [
+        [0, "#ffc06a", 0.5],
+        [0.45, "#d07e34", 0.2],
+        [1, "#7d4418", 0],
+      ]),
+      plane("tent", [
+        [0, "#e8b45c"],
+        [0.34, "#c07a38"],
+        [0.72, "#7a4a3c"],
+        [1, "#33304e"],
+      ]),
+      lin("tent-dk", 0, 384, 0, 416, [
+        [0, "#5e4a54"],
+        [1, "#33304e"],
+      ]),
+      lin("tentmouth", 0, 388, 0, 416, [
+        [0, "#fff0c0"],
+        [1, "#e0913a"],
+      ]),
+      lin("guy", 0, 370, 0, 420, [
+        [0, "#9fb2cc"],
+        [1, "#6d80a4"],
+      ]),
+      ...occlusionGrads("#05081a"),
     ],
+    filters: [grain("rime", "1.1 1.3", { oct: 4, seed: 53, k: 0.85 })],
     parts,
   };
 })();
 
 const mushroomHollow = (() => {
-  const CAP = ["#c94f5a", "#e0737c", "#a63a49"];
-  const STEM = "#f0e6d2";
-  const VINE = "#3f6b32";
+  // A hollow at dusk, and the one frame in the set with two lights of opposite
+  // temperature: the last of the sun coming in low and warm from the left, and
+  // the cold blue-green the fungus makes for itself underneath. The old frame
+  // was two flat red discs on two white sticks, which is the whole problem — a
+  // cap is a dome with warts sitting ON its curve, gills under its lip and a
+  // ring where the veil tore, and none of that is expressible in one fill.
   const parts = [];
+  const g = rnd(13);
 
-  // A big cap arching over one corner from behind the card.
-  parts.push(BK(rect(212, -40, 12, 90), { fill: STEM }));
-  parts.push(BK(poly([...arcPts(218, -34, 56, 180, 360, 18)]), { fill: CAP[0] }));
-  parts.push(BK(poly([...arcPts(218, -34, 56, 180, 270, 10), [218, -34]]), { fill: CAP[1], op: 0.5 }));
-  const spots = [];
-  const g = rnd(5);
-  for (let i = 0; i < 9; i++) {
-    const a = 188 + g() * 164;
-    const r = 20 + g() * 30;
-    spots.push(dot(218 + Math.cos(rad(a)) * r, -34 + Math.sin(rad(a)) * r * 0.9, 3 + g() * 4));
-  }
-  parts.push(BK(spots.join(""), { fill: "#f6efe0", op: 0.9 }));
-  parts.push(BK(rect(106, -44, 8, 60) + poly([...arcPts(110, -40, 30, 180, 360, 12)]), { fill: CAP[2] }));
-  parts.push(BK(dot(96, -52, 4) + dot(118, -58, 3.4) + dot(110, -44, 3), { fill: "#f6efe0", op: 0.8 }));
-
-  // Vines climbing both rails, with leaves turning inward.
-  for (const [x, dir, dl] of [
-    [7, 1, 0],
-    [265, -1, -2.6],
-  ]) {
+  // Points on an ellipse, optionally spun about its own centre: a cap that is
+  // not tilted reads as a diagram, and every mushroom in this frame leans.
+  const earc = (cx, cy, rx, ry, a0, a1, tilt, n = 22) => {
+    const c = Math.cos(rad(tilt));
+    const s = Math.sin(rad(tilt));
     const pts = [];
-    for (let y = -10; y <= 410; y += 16) pts.push([x + Math.sin(y / 34) * 5 * dir, y]);
-    parts.push(SK(smooth(pts), { stroke: VINE, sw: 2.6, a: "sway-slow", or: `${x}px 200px`, dl }));
-    const leaves = [];
-    pts.forEach((p, i) => {
-      if (i % 2) return;
-      leaves.push(oval(p[0] + 8 * dir, p[1], 8, 4.2, dir * 26));
-      leaves.push(oval(p[0] - 3 * dir, p[1] + 8, 5.5, 3, -dir * 30));
-    });
-    parts.push(P(leaves.join(""), { fill: "#4f8a3c", a: "sway-slow", or: `${x}px 200px`, dl }));
-  }
+    for (let i = 0; i <= n; i++) {
+      const a = rad(n ? a0 + ((a1 - a0) * i) / n : a0);
+      const x = Math.cos(a) * rx;
+      const y = Math.sin(a) * ry;
+      pts.push([cx + x * c - y * s, cy + x * s + y * c]);
+    }
+    return pts;
+  };
 
-  // A ring of toadstools along the foot, largest in the corners.
-  parts.push(P(waveTop(-30, 302, 398, 4, 96, 1.4, 420), { fill: "#3f5c33" }));
-  const shrooms = [
-    [18, 404, 17, 0],
-    [40, 408, 10, 1],
-    [58, 410, 7, 2],
-    [252, 402, 15, 0],
-    [232, 408, 9, 2],
-    [214, 411, 6, 1],
-    [136, 412, 8, 1],
+  // ── plane 4: the light in the air ───────────────────────────────────────
+  parts.push(BK(oval(130, -58, 234, 162), { fill: "@dusk" }));
+  parts.push(BK(oval(34, -18, 138, 96), { fill: "@lastlight" }));
+
+  // ── plane 3: the hollow going back ──────────────────────────────────────
+  // Stumps and small caps, paler and bluer the further off they are, every fill
+  // dying out before the card's edge.
+  const farStump = [];
+  const farCap = [];
+  for (let i = 0; i < 14; i++) {
+    const x = -46 + i * 27 + g() * 12;
+    const y = 4 - g() * 30;
+    const r = 4 + g() * 7;
+    farStump.push(poly([[x - r * 0.22, y], [x + r * 0.22, y], [x + r * 0.3, 32], [x - r * 0.3, 32]]));
+    farCap.push(poly(earc(x, y, r, r * 0.62, 180, 360, (g() - 0.5) * 24, 12)));
+  }
+  parts.push(BK(farStump.join(""), { fill: "@far" }));
+  parts.push(BK(farCap.join(""), { fill: "@far-cap" }));
+  // A rank of trunks behind them, dissolving at both ends.
+  const trunks = [];
+  for (let i = 0; i < 7; i++) {
+    const x = -46 + i * 56 + g() * 22;
+    const w = 3 + g() * 5;
+    trunks.push(poly([[x - w, 26], [x - w * 0.6, -170], [x + w * 0.6, -170], [x + w, 26]]));
+  }
+  parts.push(BK(trunks.join(""), { fill: "@far-trunk", op: 0.6 }));
+
+  // ── the mushrooms ───────────────────────────────────────────────────────
+  // One shape, built four times at four scales: dome, then the warts lying on
+  // the dome's curve, then the lip, then the gills radiating under it.
+  const shroom = (cx, cy, rx, ry, tilt, seed, opts = {}) => {
+    const { warts = 9, gills = 13, capFill = "@cap", litFill = "@cap-lit", z = "front", a, or, dl } = opts;
+    const gg = rnd(seed);
+    const dome = earc(cx, cy, rx, ry, 180, 360, tilt);
+    const lip = earc(cx, cy, rx, ry * 0.34, 0, 180, tilt, 16);
+    const mk = (d, o) => parts.push({ d, z, fill: "ink", ...o, ...(a ? { a, or, dl } : {}) });
+    // The gill face first, so the dome lands on top of it.
+    mk(poly([...earc(cx, cy, rx * 0.99, ry * 0.4, 0, 180, tilt, 16), ...dome.slice().reverse()]), { fill: "@gill" });
+    const gl = [];
+    for (let i = 1; i < gills; i++) {
+      const a0 = 180 + (180 * i) / gills;
+      const p = earc(cx, cy, rx, ry * 0.36, a0 - 180, a0 - 180, tilt, 0)[0];
+      const q = earc(cx, cy, rx * 0.12, ry * 0.12, a0 - 180, a0 - 180, tilt, 0)[0];
+      gl.push(`M${r2(q[0])} ${r2(q[1])}L${r2(p[0])} ${r2(p[1])}`);
+    }
+    parts.push({ d: gl.join(""), z, stroke: "@gill-dk", sw: 0.9, op: 0.7, ...(a ? { a, or, dl } : {}) });
+    mk(poly(dome), { fill: capFill });
+    // The lit half of the dome, offset up and to the left: the cap is a dome,
+    // and a dome has a terminator on it.
+    mk(poly(earc(cx - rx * 0.16, cy - ry * 0.12, rx * 0.8, ry * 0.82, 182, 300, tilt)), { fill: litFill, op: 0.55 });
+    const w = [];
+    const ws = [];
+    for (let i = 0; i < warts; i++) {
+      const a0 = 186 + (168 * i) / warts + gg() * 8;
+      const t = 0.42 + gg() * 0.55;
+      const p = earc(cx, cy, rx * t, ry * t, a0, a0, tilt, 0)[0];
+      const wr = rx * (0.045 + gg() * 0.05);
+      w.push(blob(p[0], p[1], wr, { squash: 0.72, wob: 0.28, seed: seed + i }));
+      ws.push(blob(p[0] + wr * 0.3, p[1] + wr * 0.42, wr * 0.7, { squash: 0.7, wob: 0.28, seed: seed + i + 40 }));
+    }
+    mk(ws.join(""), { fill: "@wart-dk", op: 0.6 });
+    mk(w.join(""), { fill: "@wart" });
+    mk(smooth(lip) + "Z", { fill: "@lip", op: 0.55 });
+    return lip;
+  };
+
+  // The small ones first, so the big one stands in front of them.
+  shroom(114, -104, 23, 15, 14, 91, { warts: 6, gills: 9, z: "back", capFill: "@cap-far", litFill: "@cap-far-lit" });
+  parts.push(BK(poly([[110, -104], [119, -104], [121, 26], [109, 26]]), { fill: "@stalk-far" }));
+
+  // RIGHT: a clump, because a clump reads nothing like a single fat stem and a
+  // matched pair either side of the card is the machine-made tell.
+  const clump = [
+    [263, -66, 34, 22, 12, 5.4, 424],
+    [270, -34, 24, 16, -14, 4, 424],
+    [257, -12, 15, 10, 18, 2.6, 420],
   ];
-  for (const [x, y, r, tone] of shrooms) {
-    parts.push(P(rect(x - r * 0.24, y - r * 0.7, r * 0.48, r + 8), { fill: "@stem" }));
-    parts.push(P(poly([...arcPts(x, y - r * 0.5, r, 180, 360, 12)]), { fill: CAP[tone] }));
-    const sp = [];
-    const gg = rnd(x + r);
-    for (let i = 0; i < 5; i++) sp.push(dot(x - r * 0.7 + gg() * r * 1.4, y - r * 0.5 - gg() * r * 0.7, 1.2 + gg() * 1.6));
-    parts.push(P(sp.join(""), { fill: "#f6efe0", op: 0.9 }));
+  clump.forEach(([sx, sy, rx, ry, tl, hw, foot], i) => {
+    const st = [];
+    for (let y = sy; y <= foot; y += 24) {
+      const t = (y - sy) / (foot - sy);
+      const bend = Math.sin(t * 2.1 + i) * 1.6;
+      st.push([sx + bend - hw * (1 + t * 0.35), y, sx + bend + hw * (1 + t * 0.35)]);
+    }
+    parts.push(
+      P(smooth(st.map((q) => [q[0], q[1]])) + smooth(st.map((q) => [q[2], q[1]]).reverse()).replace(/^M/, "L") + "Z", { fill: "@stalk" }),
+    );
+    parts.push(P(smooth(st.map((q) => [q[0] + 1.2, q[1]])) + smooth(st.map((q) => [q[0] + 3, q[1]]).reverse()).replace(/^M/, "L") + "Z", { fill: "@stalk-lit", op: 0.5 }));
+    shroom(sx, sy, rx, ry, tl, 200 + i * 9, { warts: 6 + i, gills: 10, capFill: i ? "@cap-2" : "@cap", litFill: "@cap-lit" });
+  });
+
+  // LEFT: the big one. Its stem IS the left rail — a stem does not care how
+  // tall the card turns out to be, which is exactly what the long sides want.
+  const BX = 10;
+  const stemL = [];
+  const stemR = [];
+  for (let y = -46; y <= 428; y += 20) {
+    const t = (y + 46) / 474;
+    const bulb = y > 372 ? ((y - 372) / 60) ** 2 * 9 : 0;
+    const w = 7.2 + t * 1.1 + Math.sin(y / 74) * 0.8 + bulb;
+    stemL.push([BX - w, y]);
+    stemR.push([BX + w, y]);
+  }
+  parts.push(P(smooth(stemL) + smooth(stemR.reverse()).replace(/^M/, "L") + "Z", { fill: "@stalk" }));
+  parts.push(P(smooth(stemL) + smooth(stemR.slice().reverse()).replace(/^M/, "L") + "Z", { fill: "@stalk", f: "fibre", op: 0.5 }));
+  // The fibres running the length of it, and the ring where the veil tore.
+  const fib = [];
+  for (let i = 0; i < 7; i++) {
+    const fx = BX - 6 + i * 2 + g() * 1.4;
+    const pts = [];
+    for (let y = -40; y <= 424; y += 58) pts.push([fx + Math.sin(y / 91 + i) * 1.4, y]);
+    fib.push(smooth(pts));
+  }
+  parts.push({ d: fib.join(""), z: "front", stroke: "@fibre-line", sw: 0.8, op: 0.4 });
+  parts.push(P(poly([[BX - 13, 44], [BX + 13, 44], [BX + 15, 51], [BX + 11, 58], [BX - 11, 58], [BX - 15, 51]]), { fill: "@ring" }));
+  parts.push(P(poly([[BX - 13, 44], [BX + 13, 44], [BX + 15, 47], [BX - 15, 47]]), { fill: "@stalk-lit", op: 0.7 }));
+  // A volva at the foot, split the way it is when the mushroom pushed through.
+  parts.push(P(blob(BX, 400, 17, { squash: 0.86, wob: 0.18, seed: 3 }), { fill: "@volva" }));
+  parts.push(P(poly([[BX - 15, 392], [BX - 6, 372], [BX - 1, 392]]) + poly([[BX + 3, 390], [BX + 10, 370], [BX + 15, 390]]), { fill: "@volva" }));
+  // A snail on the way up, and a beetle on the way down.
+  parts.push(P(oval(BX + 12, 208, 6.4, 5.4, -12), { fill: "@shell" }));
+  parts.push({ d: spiral(BX + 12, 208, 0.8, 5.2, 1.6, 40), z: "front", stroke: "#6b4a2c", sw: 1, op: 0.8 });
+  parts.push(P(poly([[BX + 6, 212], [BX + 16, 213], [BX + 15, 216], [BX + 4, 215]]), { fill: "@shell-foot" }));
+  parts.push(P(oval(BX - 8, 296, 3, 4.4, 12) + oval(BX - 8, 292, 1.8, 1.6), { fill: "#1c1610" }));
+  shroom(14, -54, 63, 40, -7, 5, { warts: 11, gills: 15, a: "breathe", or: "14px -14px" });
+
+  // ── the floor ───────────────────────────────────────────────────────────
+  parts.push(P(band(-40, 314, 370, 8, 140, 0.5, 434, 0, 100, 0), { fill: "@floor-far" }));
+  parts.push(P(band(-40, 314, 386, 6, 98, 2.4, 434, 0, 100, 0), { fill: "@floor" }));
+  parts.push(P(band(-40, 314, 402, 5, 72, 4.2, 434, 0, 100, 0), { fill: "@floor-near" }));
+  // A mossy log across one corner, with a rank of little caps along its top and
+  // the cold light they make pooling under it.
+  parts.push(P(oval(196, 394, 62, 16, -4), { fill: "@bioglow", a: "glow", op: 0.8 }));
+  parts.push(P(poly([[142, 402], [258, 386], [262, 400], [146, 416]]), { fill: "@log" }));
+  parts.push(P(poly([[142, 402], [258, 386], [259, 391], [143, 407]]), { fill: "@log-lit", op: 0.55 }));
+  parts.push(P(oval(144, 409, 5, 7.4, -8), { fill: "#120e0a" }));
+  const logMoss = [];
+  for (let i = 0; i < 14; i++) logMoss.push(blob(148 + g() * 110, 390 + g() * 9, 3 + g() * 4, { squash: 0.5, wob: 0.5, seed: 300 + i }));
+  parts.push(P(logMoss.join(""), { fill: "@moss", op: 0.8 }));
+  for (let i = 0; i < 9; i++) {
+    const x = 150 + i * 12 + g() * 4;
+    const y = 392 - g() * 5;
+    const r = 2.6 + g() * 2.8;
+    parts.push(P(poly([[x - r * 0.2, y - r * 0.4], [x + r * 0.2, y - r * 0.4], [x + r * 0.26, y + r + 4], [x - r * 0.26, y + r + 4]]), { fill: "@stalk" }));
+    parts.push(P(poly(earc(x, y, r, r * 0.72, 180, 360, (g() - 0.5) * 30, 10)), { fill: "@glowcap", a: "glow", dl: -i * 0.4 }));
+  }
+  // The ring itself: biggest at the corners, receding toward the middle, and
+  // every one of them tilted differently.
+  for (const [x, y, r, tone] of [
+    [40, 404, 13, 0],
+    [62, 410, 8, 1],
+    [80, 413, 5, 0],
+    [104, 415, 4, 1],
+    [286, 400, 11, 1],
+    [268, 409, 7, 0],
+    [122, 417, 3, 1],
+  ]) {
+    parts.push(P(poly([[x - r * 0.2, y - r * 0.5], [x + r * 0.2, y - r * 0.5], [x + r * 0.3, y + r + 10], [x - r * 0.3, y + r + 10]]), { fill: "@stalk" }));
+    shroom(x, y, r, r * 0.66, (g() - 0.5) * 34, 400 + x, { warts: 4, gills: 7, capFill: tone ? "@cap-2" : "@cap" });
+  }
+  // Litter, and ferns out of it.
+  const litter = [];
+  for (let i = 0; i < 40; i++) {
+    litter.push(oval(-24 + g() * 330, 386 + g() * 40, 3.4 + g() * 2.4, 1.6 + g(), (g() - 0.5) * 110));
+  }
+  parts.push(P(litter.join(""), { fill: "@litter" }));
+  for (const [fx, fa, fl] of [
+    [96, -98, 30],
+    [178, -78, 22],
+    [232, -104, 26],
+  ]) {
+    parts.push(P(spray(fx, 404, fa, fl, 7, 8, 44), { fill: "@fern", a: "sway", or: `${fx}px 404px`, dl: -fx / 50 }));
   }
 
-  // Spores drifting up the margins.
-  for (const [x, dl, r] of [
-    [26, 0, 2.4],
-    [16, -3.3, 1.6],
-    [248, -1.7, 2.2],
-    [258, -5.1, 1.4],
-    [34, -6.8, 1.8],
+  // Spores going up through both margins, cold against the warm rot.
+  for (const [x, y, dl, r] of [
+    [26, 348, 0, 2.4],
+    [18, 300, -3.3, 1.6],
+    [250, 320, -1.7, 2.2],
+    [260, 260, -5.1, 1.4],
+    [34, 220, -6.8, 1.8],
+    [244, 190, -2.4, 1.9],
   ]) {
-    parts.push(P(dot(x, 350, r * 3), { fill: "@spore", a: "float-up", dl, op: 0.6 }));
-    parts.push(P(dot(x, 350, r), { fill: "#fff3c4", a: "float-up", dl, op: 0.9 }));
+    parts.push(P(dot(x, y, r * 3.2), { fill: "@spore", a: "float-up", dl, op: 0.55 }));
+    parts.push(P(dot(x, y, r), { fill: "#dcfff0", a: "float-up", dl, op: 0.9 }));
   }
+
+  parts.push(...occlusion(0.95));
 
   return {
     id: "mushroom-hollow",
     name: "Mushroom hollow",
     group: "Woodland",
-    // A giant cap leaning over one corner, vines up both rails and a fairy ring
-    // of toadstools along the foot, with spores drifting up through it.
+    // A giant cap leaning over the top corner on a stem that holds the whole
+    // left side up, a clump on the right, a fairy ring receding along the foot
+    // and a mossy log lit from underneath by what is growing on it.
     grads: [
-      glow("spore", [
-        [0, "#fff3c4", 0.8],
-        [1, "#fff3c4", 0],
+      glow("dusk", [
+        [0, "#3c3350", 0.6],
+        [0.5, "#2b2740", 0.3],
+        [1, "#1e1c2e", 0],
       ]),
-      bark("stem", "#b9ad93", STEM, "#fffaf0"),
+      glow("lastlight", [
+        [0, "#eaa95c", 0.5],
+        [0.42, "#a97440", 0.22],
+        [1, "#6a4a30", 0],
+      ]),
+      lin("far", 0, -30, 0, 32, [
+        [0, "#7f7d9c", 0.6],
+        [0.7, "#6a6889", 0.4],
+        [1, "#6a6889", 0],
+      ]),
+      lin("far-cap", 0, -34, 0, 10, [
+        [0, "#a08ba6", 0.75],
+        [1, "#7e6f92", 0.5],
+      ]),
+      lin("far-trunk", 0, -170, 0, 26, [
+        [0, "#57536f", 0],
+        [0.3, "#57536f", 0.6],
+        [0.8, "#464360", 0.45],
+        [1, "#464360", 0],
+      ]),
+      lin("stalk-far", 0, -104, 0, 26, [
+        [0, "#a49bab", 0.7],
+        [1, "#7d7590", 0],
+      ]),
+      // The cap. Warm where the sun still lands, plum where it does not: a red
+      // that is the same red all over is a disc, whatever is drawn on it.
+      plane("cap", [
+        [0, "#ffb264"],
+        [0.26, "#e8663a"],
+        [0.62, "#a63145"],
+        [1, "#4a1c38"],
+      ]),
+      plane("cap-2", [
+        [0, "#f3c777"],
+        [0.3, "#cf7a3c"],
+        [0.66, "#8c4238"],
+        [1, "#40202e"],
+      ]),
+      plane("cap-lit", [
+        [0, "#ffd9a0"],
+        [0.5, "#ff9b56"],
+        [1, "#e0663a"],
+      ]),
+      plane("cap-far", [
+        [0, "#b78ea0"],
+        [0.5, "#95697f"],
+        [1, "#6b4a63"],
+      ]),
+      plane("cap-far-lit", [
+        [0, "#cfa8b4"],
+        [1, "#a3808f"],
+      ]),
+      plane("gill", [
+        [0, "#c9a68f"],
+        [0.4, "#9a7a72"],
+        [1, "#4e3a44"],
+      ]),
+      lin("gill-dk", 0, -120, 0, 424, [
+        [0, "#5c4048"],
+        [1, "#3a2a34"],
+      ]),
+      plane("wart", [
+        [0, "#fff6e0"],
+        [0.5, "#e8d8b8"],
+        [1, "#b09a8e"],
+      ]),
+      lin("wart-dk", 0, -120, 0, 424, [
+        [0, "#8a6a5e"],
+        [1, "#5e4650"],
+      ]),
+      wash("lip", [
+        [0, "#2a1520", 0],
+        [1, "#2a1520", 0.8],
+      ]),
+      // The stem: a pale thing lit from the left, so it is cream on one flank
+      // and blue-violet on the other. Never a white stick.
+      tube("stalk", [
+        [0, "#4c4159"],
+        [0.18, "#a99a8c"],
+        [0.36, "#eadcbe"],
+        [0.6, "#bfae95"],
+        [0.82, "#736985"],
+        [1, "#443b57"],
+      ]),
+      lin("stalk-lit", 0, -60, 0, 424, [
+        [0, "#f6ead0"],
+        [1, "#c4b69c"],
+      ]),
+      lin("fibre-line", 0, -40, 0, 424, [
+        [0, "#9d8f92"],
+        [1, "#6e6274"],
+      ]),
+      tube("ring", [
+        [0, "#7a6a80"],
+        [0.3, "#e8d8bc"],
+        [0.6, "#c4b29c"],
+        [1, "#6e6076"],
+      ]),
+      tube("volva", [
+        [0, "#6a5b72"],
+        [0.3, "#ddcdb4"],
+        [0.62, "#b6a691"],
+        [1, "#5e5268"],
+      ]),
+      plane("shell", [
+        [0, "#e0b877"],
+        [0.5, "#b08447"],
+        [1, "#5e4226"],
+      ]),
+      lin("shell-foot", 0, 208, 0, 220, [
+        [0, "#cbb9a8"],
+        [1, "#9c8a80"],
+      ]),
+      plane("floor-far", [
+        [0, "#413a4a"],
+        [0.5, "#2f2b3a"],
+        [1, "#231f2e"],
+      ]),
+      plane("floor", [
+        [0, "#4a3d38"],
+        [0.5, "#332b2c"],
+        [1, "#211d24"],
+      ]),
+      plane("floor-near", [
+        [0, "#3a2e26"],
+        [0.5, "#28211e"],
+        [1, "#171418"],
+      ]),
+      lin("litter", -30, 0, 310, 0, [
+        [0, "#a5763c"],
+        [0.45, "#6d5433"],
+        [1, "#3e3a3e"],
+      ]),
+      bark("log", "#191308", "#453522", "#9c7c4c"),
+      lin("log-lit", 0, 384, 0, 402, [
+        [0, "#c9a86a"],
+        [1, "#8d7448"],
+      ]),
+      lin("moss", 0, 384, 0, 402, [
+        [0, "#4c6b38"],
+        [1, "#27391f"],
+      ]),
+      leafy("fern", "#152c1c", "#254a28", "#5a8036"),
+      // The cold half of the split. Everything above is warm; this is the only
+      // thing in the frame that is not, and that is what makes it read as light
+      // the fungus is making rather than as a colour cast.
+      glow("bioglow", [
+        [0, "#7ff2c8", 0.5],
+        [0.5, "#3fae9a", 0.2],
+        [1, "#1d5e60", 0],
+      ]),
+      plane("glowcap", [
+        [0, "#eafff2"],
+        [0.5, "#9ceccd"],
+        [1, "#3f8f86"],
+      ]),
+      glow("spore", [
+        [0, "#b6ffe2", 0.8],
+        [1, "#b6ffe2", 0],
+      ]),
+      ...occlusionGrads("#080611"),
     ],
+    filters: [grain("fibre", "0.35 2.6", { oct: 3, seed: 31, k: 0.8 })],
     parts,
   };
 })();
