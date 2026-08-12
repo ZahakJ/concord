@@ -860,33 +860,33 @@
     overflow-y: auto;
     overscroll-behavior: contain;
   }
-  /* The scrim, between the art and the words.
-     Putting the text above the effect fixes what covers what, and that is only
-     half of it: a pale name over a pale scene is still unreadable with nothing
-     on top of it at all. A display name is a colour its owner picked and a
-     scene is a colour someone else picked, and no rule about either can stop
-     the two matching.
-     So the card stops relying on them not to. This lays the card's own
-     background back under the text band, at enough strength that contrast is
-     the card's property rather than a coincidence between two people's
-     choices. It starts below the banner — the art keeps that whole band, which
-     is where its subject lives and where there is nothing to read — and it is
-     inert to the pointer, so nothing below it stops being clickable. */
-  .pop::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    pointer-events: none;
-    border-radius: inherit;
-    background: linear-gradient(
-      to bottom,
-      transparent 0,
-      transparent 26%,
-      color-mix(in srgb, var(--bg-1) 72%, transparent) 34%,
-      color-mix(in srgb, var(--bg-1) 88%, transparent) 44%,
-      color-mix(in srgb, var(--bg-1) 88%, transparent) 100%
-    );
+  /* Legibility is the TEXT's problem to solve, not the art's.
+     The first attempt laid the card's background back over the lower two
+     thirds at nearly full strength. It worked, and it turned a whole-card
+     effect into a banner with a lid on it — which is not what an effect is
+     for. Dimming the picture to protect the words gives up the thing being
+     paid for.
+     So the words carry their own contrast instead. A soft dark halo, drawn
+     around every glyph, separates any text colour from any backdrop without
+     touching a pixel of what is behind it: it is the reason white subtitles
+     are readable over a bright sky. Two shadows rather than one — a tight
+     dark one for the edge and a wider soft one for the halo — because a
+     single tight shadow is invisible against a busy background and a single
+     wide one just makes the text look smudged.
+     The `--fx-lift` custom property carries it so every text surface on the
+     card opts in by name and none of them can drift apart. */
+  .pop {
+    --fx-lift:
+      0 1px 1px rgba(4, 6, 10, 0.92),
+      0 0 3px rgba(4, 6, 10, 0.85),
+      0 0 9px rgba(4, 6, 10, 0.6);
+  }
+  .pop .name-row,
+  .pop .status-text,
+  .pop .bio,
+  .pop .sub-line,
+  .pop .roles-row {
+    text-shadow: var(--fx-lift);
   }
   @keyframes pop-in {
     from {

@@ -481,9 +481,11 @@
     <span class="muted">Card frame</span>
     <button type="button" class="ring-entry" onclick={() => (cfStudio = true)}>
       <span class="cf-chip" class:on={!!cf}>
-        {#if cf}
-          <CardFrame id={cf} {color} color2={color2 || color} />
-        {/if}
+        <span class="cf-mini">
+          {#if cf}
+            <CardFrame id={cf} {color} color2={color2 || color} />
+          {/if}
+        </span>
       </span>
       <span class="re-text">
         <strong>{CARD_FRAME_BY_ID[cf]?.name || "None"}</strong>
@@ -632,20 +634,34 @@
 
   /* The card-frame row previews a frame, not a colour: a little card with a
      border drawn around it, filled in when one is chosen. */
+  /* A frame's identity is its OVERHANG — the battlements above the card, the
+     arch over it, the curtain either side. The first version of this chip was
+     24×32 with the art squashed into it and clipped to the box, which threw
+     away the only part that identifies anything: twelve frames rendered as
+     twelve thin coloured outlines, and castle keep was indistinguishable from
+     cathedral.
+     So the chip is a BOX around a miniature card rather than a card itself.
+     The mini keeps the 272×400 proportion the art is authored in, so nothing
+     is squashed, and the box around it is the room the overhang needs. */
   .cf-chip {
     position: relative;
-    width: 24px;
-    height: 32px;
+    width: 40px;
+    height: 40px;
     flex: none;
-    border-radius: 3px;
-    background: var(--bg-1);
-    box-shadow: 0 0 0 3px var(--bg-3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
-  /* The frame paints outside its card by design, and this chip is 24px wide —
-     the overhang would land in the row's text. Clipped to the chip: what is
-     wanted here is "which frame", not a faithful miniature. */
-  .cf-chip :global(svg) {
-    clip-path: inset(0 round 3px);
+  .cf-mini {
+    position: relative;
+    width: 21px;
+    height: 31px;
+    border-radius: 2px;
+    background: var(--bg-1);
+    box-shadow: 0 0 0 1.5px var(--bg-3);
+  }
+  .cf-chip.on .cf-mini {
+    box-shadow: 0 0 0 1.5px var(--accent);
   }
   .cf-chip.on {
     box-shadow: 0 0 0 3px var(--accent);
