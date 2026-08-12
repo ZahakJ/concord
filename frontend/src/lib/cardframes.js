@@ -361,6 +361,53 @@ const frozen = (id, deep, body, lit) =>
     [1, lit],
   ]);
 
+// ── surface and depth ───────────────────────────────────────────────────────
+//
+// Materials round a shape off. These three are what stop it looking DRAWN, and
+// the frames had none of them:
+//
+//   grain      noise multiplied into a surface. A gradient can say "this is
+//              curved"; only texture says "this is made of something". Stone
+//              gets a coarse, low-frequency grain and wood a fine one running
+//              along it, and the difference between the two is most of the
+//              difference between a wall and a plank.
+//   occlusion  the shadow a frame casts ON the card it surrounds. This is the
+//              single strongest cue that the frame is an object in front of
+//              something rather than a picture printed at the same depth, and
+//              its absence is why every one of these read as a sticker border.
+//              Drawn last, over the card's own edge, at both sides and the top.
+//   rim        the thin bright edge where light grazes a silhouette. Cheap,
+//              and it does more for "solid" than another hundred marks would.
+const grain = (id, freq, o = {}) => ({ t: "grain", id, freq, ...o });
+const soft = (id, std) => ({ t: "soft", id, std });
+
+// The contact shadow, as parts rather than a gradient, because it has to sit
+// at a known place on the card regardless of what the frame above it is doing.
+// Left, right and top: the bottom of a card is usually clear of its frame and
+// a shadow there reads as dirt.
+const occlusion = (k = 1) => [
+  P(rect(0, 0, 26, 400), { fill: "@occl", op: r2(0.9 * k) }),
+  P(rect(246, 0, 26, 400), { fill: "@occr", op: r2(0.9 * k) }),
+  P(rect(0, 0, 272, 30), { fill: "@occt", op: r2(0.85 * k) }),
+];
+const occlusionGrads = (tint = "#05070c") => [
+  lin("occl", 0, 0, 26, 0, [
+    [0, tint, 0.55],
+    [0.5, tint, 0.18],
+    [1, tint, 0],
+  ]),
+  lin("occr", 272, 0, 246, 0, [
+    [0, tint, 0.55],
+    [0.5, tint, 0.18],
+    [1, tint, 0],
+  ]),
+  lin("occt", 0, 0, 0, 30, [
+    [0, tint, 0.5],
+    [0.6, tint, 0.14],
+    [1, tint, 0],
+  ]),
+];
+
 // ── the frames ────────────────────────────────────────────────────────────
 
 const castleKeep = (() => {
@@ -403,22 +450,58 @@ const castleKeep = (() => {
 
   // The wall across the top edge, in front of the card.
   parts.push(P(crenel(-6, 278, -6, -22, 26, 16, 12), { fill: "@wall" }));
+  parts.push(P(crenel(-6, 278, -6, -22, 26, 16, 12), { fill: "@wall", f: "stone", op: 0.6 }));
+  // The lit top edge of the merlons — a rim light, which does more for "solid"
+  // than another hundred marks would.
+  parts.push(P(crenel(-6, 278, -6, -20, -18, 16, 12), { fill: "@rim", op: 0.85 }));
   parts.push(P(rect(-6, 20, 284, 6), { fill: DARK }));
+  // The wall's own shadow on the course below it.
+  parts.push(P(rect(-6, 20, 284, 3), { fill: "#05070c", op: 0.4 }));
   const courses = [];
-  for (let x = -6; x < 278; x += 22) courses.push(rect(x, -6, 1.6, 26));
-  parts.push(P(courses.join(""), { fill: MID, op: 0.55 }));
+  for (let x = -6; x < 278; x += 22) courses.push(rect(x, -6, 1.4, 26));
+  parts.push(P(courses.join(""), { fill: "@mortar" }));
 
-  // Masonry rails: staggered blocks down both edges.
+  // Masonry rails, as individual BLOCKS rather than a striped panel. A wall
+  // built from one rectangle with lines ruled across it is the thing that most
+  // says "drawn": real coursing has blocks of different lengths, joints that
+  // do not line up between courses, and corners that have lost a chip.
+  const g = rnd(7);
   const blocks = [];
+  const mortar = [];
+  const chips = [];
   for (let i = 0; i < 17; i++) {
     const y = 26 + i * 20;
-    const off = i % 2 ? 0 : 7;
-    blocks.push(rect(0, y, 15, 18));
-    blocks.push(rect(257, y, 15, 18));
-    blocks.push(rect(off, y + 6, 8, 1.4));
-    blocks.push(rect(257 + off, y + 6, 8, 1.4));
+    // Each course is split into two or three blocks at a different place, so
+    // no two courses share a vertical joint.
+    for (const side of [0, 257]) {
+      const cut = 5 + Math.round(g() * 6);
+      blocks.push(rect(side, y, cut, 18.6));
+      blocks.push(rect(side + cut + 0.9, y, 15 - cut - 0.9, 18.6));
+      mortar.push(rect(side + cut, y, 0.9, 18.6));
+      mortar.push(rect(side, y + 18.6, 15, 1.4));
+      // A chipped corner every few blocks, alternating which corner.
+      if (g() > 0.62) {
+        const cx = side + (g() > 0.5 ? 0 : 11);
+        chips.push(tri([cx, y], [cx + 4, y], [cx, y + 4]));
+      }
+    }
   }
   parts.push(P(blocks.join(""), { fill: "@rail" }));
+  parts.push(P(blocks.join(""), { fill: "@rail", f: "stone", op: 0.55 }));
+  parts.push(P(mortar.join(""), { fill: "@mortar" }));
+  parts.push(P(chips.join(""), { fill: "@chip", op: 0.75 }));
+  // Moss gathering in the lower courses, where water sits. Only on one side —
+  // a wall weathered identically on both is a wall nobody stood next to.
+  const moss = [];
+  for (let i = 0; i < 9; i++) {
+    const y = 236 + i * 20 + g() * 8;
+    moss.push(blob(2 + g() * 11, y, 3 + g() * 4, { squash: 0.55, wob: 0.4, seed: i + 3 }));
+  }
+  for (let i = 0; i < 4; i++) {
+    const y = 300 + i * 26 + g() * 8;
+    moss.push(blob(259 + g() * 10, y, 2.5 + g() * 3, { squash: 0.5, wob: 0.4, seed: i + 21 }));
+  }
+  parts.push(P(moss.join(""), { fill: "@moss", op: 0.5 }));
   parts.push(
     P(
       Array.from({ length: 17 }, (_, i) => rect(0, 26 + i * 20 + 18, 15, 2) + rect(257, 26 + i * 20 + 18, 15, 2)).join(""),
@@ -454,13 +537,19 @@ const castleKeep = (() => {
 
   // Plinth along the foot, with a sloped batter at each corner.
   parts.push(P(rect(-6, 392, 284, 26), { fill: MID }));
-  parts.push(P(rect(-6, 390, 284, 4), { fill: STONE }));
+  parts.push(P(rect(-6, 392, 284, 26), { fill: MID, f: "stone", op: 0.5 }));
+  parts.push(P(rect(-6, 390, 284, 4), { fill: "@rim", op: 0.8 }));
   const joints = [];
   for (let x = -6; x < 278; x += 26) joints.push(rect(x, 394, 1.6, 16));
   parts.push(P(joints.join(""), { fill: DARK, op: 0.6 }));
   parts.push(P(poly([[0, 416], [0, 358], [15, 358], [30, 394], [30, 416]]), { fill: MID }));
   parts.push(P(poly([[272, 416], [272, 358], [257, 358], [242, 394], [242, 416]]), { fill: MID }));
   parts.push(P(poly([[0, 360], [15, 360], [17, 366], [0, 366]]) + poly([[272, 360], [257, 360], [255, 366], [272, 366]]), { fill: STONE }));
+
+  // The shadow the keep throws onto the card it stands around. Last, so it
+  // falls across everything, and the reason the frame reads as an object in
+  // front of something rather than a border printed at the same depth.
+  parts.push(...occlusion());
 
   return {
     id: "castle-keep",
@@ -482,7 +571,28 @@ const castleKeep = (() => {
       // and stands above everything else.
       rock("wall", "#5a6069", STONE, "#a7adb6"),
       rock("rail", "#41474f", MID, "#848b95"),
+      lin("mortar", 0, 0, 0, 400, [
+        [0, "#2b3038", 0.85],
+        [1, "#22262d", 0.9],
+      ]),
+      lin("chip", 0, 0, 0, 400, [
+        [0, "#aeb5bf", 0.9],
+        [1, "#8c939d", 0.9],
+      ]),
+      lin("rim", 0, 0, 0, 400, [
+        [0, "#d6dce4", 0.9],
+        [1, "#b9c0c9", 0.7],
+      ]),
+      lin("moss", 0, 200, 0, 400, [
+        [0, "#4a6b3a", 0.8],
+        [1, "#38512c", 0.9],
+      ]),
+      ...occlusionGrads(),
     ],
+    // Coarse and low-frequency: masonry is a rough surface at arm's length,
+    // not sandpaper. A fine grain here reads as noise on a screen rather than
+    // as stone.
+    filters: [grain("stone", "0.9 1.1", { oct: 4, seed: 11, k: 0.9 })],
     parts,
   };
 })();

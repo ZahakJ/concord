@@ -48,6 +48,10 @@
     if (p.op != null) s += `opacity:${p.op};`;
     return s;
   }
+
+  // `f` names one of this frame's filters. Kept off `style` and on the
+  // attribute so a part can carry both a filter and an animation delay.
+  const filterOf = (p) => (p.f ? `url(#cf-${id}-${p.f})` : undefined);
 </script>
 
 {#if f}
@@ -98,6 +102,57 @@
                 </linearGradient>
               {/if}
             {/each}
+            <!-- Filters. The frames had none, and it was the ceiling on all of
+                 them: gradients can round a shape off, but nothing built from
+                 gradients alone stops reading as vector. Stone needs grain,
+                 wood needs grain running the other way, and a glow needs to be
+                 a glow rather than a soft-edged ellipse pretending.
+
+                 `grain` is noise composited INSIDE the shape it fills, so it
+                 roughens a surface without touching its silhouette — an
+                 outline that frays is right for fur and wrong for masonry.
+                 `soft` is an ordinary gaussian, for the things that are light
+                 rather than objects. -->
+            {#each f.filters || [] as fl (fl.id)}
+              {#if fl.t === "grain"}
+                <filter
+                  id="cf-{id}-{fl.id}"
+                  x="0"
+                  y="0"
+                  width="100%"
+                  height="100%"
+                  color-interpolation-filters="sRGB"
+                >
+                  <feTurbulence
+                    type="fractalNoise"
+                    baseFrequency={fl.freq}
+                    numOctaves={fl.oct || 3}
+                    seed={fl.seed || 1}
+                    result="n"
+                  />
+                  <feColorMatrix in="n" type="saturate" values="0" result="g" />
+                  <!-- Multiply the noise into the source and keep the source's
+                       own alpha, so the texture lands on the shape and stops
+                       exactly at its edge. -->
+                  <feBlend in="SourceGraphic" in2="g" mode={fl.mode || "multiply"} result="b" />
+                  <feComposite in="b" in2="SourceGraphic" operator="in" result="c" />
+                  <feComponentTransfer in="c">
+                    <feFuncA type="linear" slope={fl.k ?? 1} />
+                  </feComponentTransfer>
+                </filter>
+              {:else if fl.t === "soft"}
+                <filter
+                  id="cf-{id}-{fl.id}"
+                  x="-40%"
+                  y="-40%"
+                  width="180%"
+                  height="180%"
+                  color-interpolation-filters="sRGB"
+                >
+                  <feGaussianBlur stdDeviation={fl.std} />
+                </filter>
+              {/if}
+            {/each}
           </defs>
         {/if}
         {#each parts as p, i (i)}
@@ -111,9 +166,16 @@
               stroke-linecap="round"
               stroke-linejoin="round"
               style={partStyle(p)}
+              filter={filterOf(p)}
             />
           {:else}
-            <path class="cfp {p.a || ''}" d={p.d} fill={paint(p.fill)} style={partStyle(p)} />
+            <path
+              class="cfp {p.a || ''}"
+              d={p.d}
+              fill={paint(p.fill)}
+              style={partStyle(p)}
+              filter={filterOf(p)}
+            />
           {/if}
         {/each}
       </svg>
