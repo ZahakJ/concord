@@ -228,19 +228,25 @@ type DMFace struct {
 }
 
 type MessageView struct {
-	ID         string              `json:"id"`
-	ChannelID  string              `json:"channelId"`
-	Sender     string              `json:"sender"`     // authenticated fingerprint
-	SenderName string              `json:"senderName"` // self-asserted display name
-	Kind       string              `json:"kind"`       // "" normal chat, "system" join/create notice, "app" machine payload (never rendered as chat)
-	ReplyTo    string              `json:"replyTo"`    // ID of the replied-to message, or ""
-	Content    string              `json:"content"`
-	Deleted    bool                `json:"deleted"`
-	Expired    bool                `json:"expired"` // disappeared via a timer (not a manual delete)
-	Edited     bool                `json:"edited"`
-	Pinned     bool                `json:"pinned"`
-	Reactions  map[string][]string `json:"reactions"` // emoji -> fingerprints
-	Sent       string              `json:"sent"`
+	ID         string `json:"id"`
+	ChannelID  string `json:"channelId"`
+	Sender     string `json:"sender"`     // authenticated fingerprint
+	SenderName string `json:"senderName"` // self-asserted display name
+	Kind       string `json:"kind"`       // "" normal chat, "system" join/create notice, "app" machine payload (never rendered as chat)
+	ReplyTo    string `json:"replyTo"`    // ID of the replied-to message, or ""
+	Content    string `json:"content"`
+	// Dir is the base direction the AUTHOR laid the message out in: "rtl",
+	// "ltr", or "" for the per-line heuristic. It has to reach the view layer
+	// because the reader cannot derive it — the heuristic is precisely what
+	// the author overrode. Omitted when empty so the overwhelming majority of
+	// messages, which never set one, cost nothing on this wire either.
+	Dir       string              `json:"dir,omitempty"`
+	Deleted   bool                `json:"deleted"`
+	Expired   bool                `json:"expired"` // disappeared via a timer (not a manual delete)
+	Edited    bool                `json:"edited"`
+	Pinned    bool                `json:"pinned"`
+	Reactions map[string][]string `json:"reactions"` // emoji -> fingerprints
+	Sent      string              `json:"sent"`
 }
 
 type MemberView struct {
@@ -1498,12 +1504,16 @@ func (b *Bridge) UnreadCounts(sinceISO map[string]string) (map[string]int, error
 	return svc.UnreadCounts(sinceNano)
 }
 
-func (b *Bridge) SendMessage(channelID, content, replyTo string) error {
+// dir is the author's explicit base direction — "rtl", "ltr", or "" for the
+// per-line heuristic. Absent from an older caller's argument list it arrives as
+// "", which is exactly the behaviour every message had before the field
+// existed, so the extra argument is additive rather than breaking.
+func (b *Bridge) SendMessage(channelID, content, replyTo, dir string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.SendMessage(channelID, content, replyTo)
+	_, err = svc.SendMessage(channelID, content, replyTo, dir)
 	return err
 }
 
@@ -2699,6 +2709,7 @@ func messageView(m domain.Message) MessageView {
 		Kind:       m.Kind,
 		ReplyTo:    m.ReplyTo,
 		Content:    m.Content,
+		Dir:        domain.ValidDir(m.Dir),
 		Deleted:    m.Deleted,
 		Expired:    m.Expired,
 		Edited:     m.Edited,
@@ -2828,7 +2839,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		}
 		return b.UnreadCounts(since)
 	case "SendMessage":
-		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+		return nil, b.SendMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "SendCallNotice":
 		return nil, b.SendCallNotice(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "ScheduleSend":

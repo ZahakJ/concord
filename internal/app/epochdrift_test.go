@@ -61,7 +61,7 @@ func sees(svc *Service, channelID, content string) bool {
 func deliverAll(t *testing.T, from *Service, channelID, body string, timeout time.Duration, to ...*Service) time.Duration {
 	t.Helper()
 	t0 := time.Now()
-	if _, err := from.SendMessage(channelID, body, ""); err != nil {
+	if _, err := from.SendMessage(channelID, body, "", ""); err != nil {
 		t.Fatalf("SendMessage(%q): %v", body, err)
 	}
 	waitUntil(t, timeout, func() bool {

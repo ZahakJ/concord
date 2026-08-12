@@ -1100,7 +1100,16 @@
     {:else}
       {#if bodyText}
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="body" class:jumbo={jumbo} use:animateInView={jumbo} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
+        <!-- dir comes from the AUTHOR when they overrode the per-line rule
+             (domain.Message.Dir). Absent — which is every message written
+             before the composer could set it, and most written since — the
+             `.body` rule in app.css resolves each line on its own exactly as
+             before. Where it IS present the inline style has to put
+             unicode-bidi back to `isolate`, because `plaintext` ignores the
+             element's own direction by definition and dir alone would be
+             silently inert. Bounded to two values on the way in
+             (domain.ValidDir), so this is never a string a stranger chose. -->
+        <div class="body" class:jumbo={jumbo} dir={m.dir || null} style={m.dir ? "unicode-bidi:isolate" : null} use:animateInView={jumbo} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
           {#if sealMs}
             <!-- Tap AND hover, deliberately — but the hover pair must be gated
                  on a device that HAS hover: a tap synthesizes mouseenter first

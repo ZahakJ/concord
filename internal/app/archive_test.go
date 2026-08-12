@@ -29,7 +29,7 @@ func TestArchiveRoundTripRestoresHistory(t *testing.T) {
 	}
 	ch := g.Channels[0].ID
 	for _, body := range []string{"first", "second", "third"} {
-		if _, err := svc.SendMessage(ch, body, ""); err != nil {
+		if _, err := svc.SendMessage(ch, body, "", ""); err != nil {
 			t.Fatalf("send %q: %v", body, err)
 		}
 	}
@@ -91,7 +91,7 @@ func TestArchiveImportIsAdditiveAndIdempotent(t *testing.T) {
 	svc := startServiceInDir(t, ctx, t.TempDir())
 	g, _ := svc.CreateGuild("Night Owls")
 	ch := g.Channels[0].ID
-	if _, err := svc.SendMessage(ch, "in the archive", ""); err != nil {
+	if _, err := svc.SendMessage(ch, "in the archive", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	sealed, _, err := svc.ExportArchive("archive-pass", false)
@@ -99,7 +99,7 @@ func TestArchiveImportIsAdditiveAndIdempotent(t *testing.T) {
 		t.Fatalf("export: %v", err)
 	}
 	// Said AFTER the archive was taken — a stale restore must not disturb it.
-	if _, err := svc.SendMessage(ch, "said afterwards", ""); err != nil {
+	if _, err := svc.SendMessage(ch, "said afterwards", "", ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -143,7 +143,7 @@ func TestArchiveWrongPassphraseRestoresNothing(t *testing.T) {
 
 	svc := startServiceInDir(t, ctx, t.TempDir())
 	g, _ := svc.CreateGuild("Night Owls")
-	if _, err := svc.SendMessage(g.Channels[0].ID, "secret", ""); err != nil {
+	if _, err := svc.SendMessage(g.Channels[0].ID, "secret", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	sealed, _, err := svc.ExportArchive("right", false)
@@ -221,7 +221,7 @@ func TestExportMarkdownCoversWholeHistoryNotAPage(t *testing.T) {
 	// More than the 200 the UI loads up front, so a page-bound export shows.
 	const n = 260
 	for i := 0; i < n; i++ {
-		if _, err := svc.SendMessage(ch, fmt.Sprintf("line-%03d", i), ""); err != nil {
+		if _, err := svc.SendMessage(ch, fmt.Sprintf("line-%03d", i), "", ""); err != nil {
 			t.Fatalf("send %d: %v", i, err)
 		}
 	}

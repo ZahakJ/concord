@@ -215,7 +215,7 @@ func TestUnplaceableDeviceStillGetsRecognised(t *testing.T) {
 	})
 
 	// The phone speaks while the two are apart, then they meet.
-	if _, err := phone.SendMessage(channel, "from my phone", ""); err != nil {
+	if _, err := phone.SendMessage(channel, "from my phone", "", ""); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
 	if err := phone.host.Connect(ctx, desk.host.AddrInfo()); err != nil {

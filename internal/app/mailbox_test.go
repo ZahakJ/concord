@@ -90,7 +90,7 @@ func TestMailboxOfflineDelivery(t *testing.T) {
 	}, "A still sees B as connected")
 
 	// A sends while B is away — this should deposit into B's mailbox.
-	if _, err := a.SendMessage(channel, "message while B was offline", ""); err != nil {
+	if _, err := a.SendMessage(channel, "message while B was offline", "", ""); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
 	time.Sleep(2 * time.Second) // let the async deposit complete

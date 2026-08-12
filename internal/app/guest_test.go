@@ -149,7 +149,7 @@ func TestGuestKnocksAtLockedMeeting(t *testing.T) {
 	// A knocking guest is inert. Nothing said in the room reaches them, and the
 	// mesh cannot be talked into signalling them (which is what would hand a
 	// stranger a media path).
-	if _, err := s.SendMessage(channelID, "members-only chatter", ""); err != nil {
+	if _, err := s.SendMessage(channelID, "members-only chatter", "", ""); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
 	if err := s.RelaySignal(peerIDForFpr(t, s, fpr), []byte(`{"x":1}`)); err == nil {
@@ -181,7 +181,7 @@ func TestGuestKnocksAtLockedMeeting(t *testing.T) {
 	// And now that they are inside, the room reaches them. (The history they get
 	// on admission includes what was said while they knocked — they are a guest
 	// arriving now, and history is what every guest is shown.)
-	if _, err := s.SendMessage(channelID, "now-you-can-hear-us", ""); err != nil {
+	if _, err := s.SendMessage(channelID, "now-you-can-hear-us", "", ""); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
 	live := false

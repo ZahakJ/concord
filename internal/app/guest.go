@@ -804,7 +804,7 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 		// Relayed under our signature, but authored by THEM: kind "guest" + their
 		// name, so clients give them their own bubble instead of tucking their
 		// words under the host's like a subheading.
-		if _, err := s.sendAs(tok.ChannelID, content, "guest", "", sess.name); err != nil {
+		if _, err := s.sendAs(tok.ChannelID, content, "guest", "", sess.name, ""); err != nil {
 			_ = sess.write(guestFrame{Type: "info", Reason: "Message didn't send — try again."})
 		}
 	}

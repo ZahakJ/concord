@@ -188,7 +188,7 @@ func TestMessagesCrossWhenOnlyTheRelayConnects(t *testing.T) {
 	desk, phone, textCh, _ := relayOnlyPair(t, ctx, boot)
 
 	const fromPhone = "sent from the phone behind its NAT"
-	if _, err := phone.SendMessage(textCh, fromPhone, ""); err != nil {
+	if _, err := phone.SendMessage(textCh, fromPhone, "", ""); err != nil {
 		t.Fatalf("phone SendMessage: %v", err)
 	}
 	waitUntil(t, 90*time.Second, func() bool {
@@ -197,7 +197,7 @@ func TestMessagesCrossWhenOnlyTheRelayConnects(t *testing.T) {
 	dumpConns(t, "after phone->desk", desk, phone)
 
 	const fromDesk = "sent from the desktop behind its NAT"
-	if _, err := desk.SendMessage(textCh, fromDesk, ""); err != nil {
+	if _, err := desk.SendMessage(textCh, fromDesk, "", ""); err != nil {
 		t.Fatalf("desk SendMessage: %v", err)
 	}
 	waitUntil(t, 90*time.Second, func() bool {
@@ -229,7 +229,7 @@ func TestMessagesSurviveALimitMeteredRelay(t *testing.T) {
 	desk, phone, textCh, _ := relayOnlyPair(t, ctx, boot)
 
 	const fromPhone = "metered relay: phone to desktop"
-	if _, err := phone.SendMessage(textCh, fromPhone, ""); err != nil {
+	if _, err := phone.SendMessage(textCh, fromPhone, "", ""); err != nil {
 		t.Fatalf("phone SendMessage: %v", err)
 	}
 	waitUntil(t, 3*time.Minute, func() bool {
@@ -238,7 +238,7 @@ func TestMessagesSurviveALimitMeteredRelay(t *testing.T) {
 	dumpConns(t, "metered after phone->desk", desk, phone)
 
 	const fromDesk = "metered relay: desktop to phone"
-	if _, err := desk.SendMessage(textCh, fromDesk, ""); err != nil {
+	if _, err := desk.SendMessage(textCh, fromDesk, "", ""); err != nil {
 		t.Fatalf("desk SendMessage: %v", err)
 	}
 	waitUntil(t, 3*time.Minute, func() bool {

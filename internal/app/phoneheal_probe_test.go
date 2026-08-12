@@ -64,7 +64,7 @@ func TestDriftRecoveryWithDeskOffline(t *testing.T) {
 
 	// The phone speaks. This is the fix's headline scenario minus the desk.
 	t0 := time.Now()
-	if _, err := phone.SendMessage(textCh, "phone speaks while the desk sleeps", ""); err != nil {
+	if _, err := phone.SendMessage(textCh, "phone speaks while the desk sleeps", "", ""); err != nil {
 		t.Fatalf("phone SendMessage: %v", err)
 	}
 	deadline := time.Now().Add(3 * time.Minute)

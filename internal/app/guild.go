@@ -986,8 +986,14 @@ func (s *Service) logCommit(groupID, commit []byte) {
 
 // SendMessage encrypts and publishes a normal chat message to a channel.
 // replyTo is the ID of a message being replied to, or "".
-func (s *Service) SendMessage(channelID, content, replyTo string) (domain.Message, error) {
-	return s.send(channelID, content, "", replyTo)
+//
+// dir is the base direction the author laid the message out in — "rtl", "ltr",
+// or "" for the per-line heuristic, which is what every message used before
+// the composer could override it. It travels with the message because a
+// message laid out one way as it was written and the other way as it is read
+// is not the message anyone wrote; see domain.Message.Dir.
+func (s *Service) SendMessage(channelID, content, replyTo, dir string) (domain.Message, error) {
+	return s.sendAs(channelID, content, "", replyTo, "", dir)
 }
 
 // sendSystem posts a system notice (join/create) to a channel. Errors are
@@ -1008,12 +1014,12 @@ func (s *Service) SendCallNotice(channelID, kind, content string) (domain.Messag
 }
 
 func (s *Service) send(channelID, content, kind, replyTo string) (domain.Message, error) {
-	return s.sendAs(channelID, content, kind, replyTo, "")
+	return s.sendAs(channelID, content, kind, replyTo, "", "")
 }
 
 // sendAs is send() with an explicit author name — used only for relayed guest
 // messages, which are signed by the host but spoken by someone else.
-func (s *Service) sendAs(channelID, content, kind, replyTo, guestName string) (domain.Message, error) {
+func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir string) (domain.Message, error) {
 	s.mu.RLock()
 	guildID, ok := s.channelToGuild[channelID]
 	var groupID []byte
@@ -1068,6 +1074,10 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName string) (d
 	}
 	msg.Kind = kind
 	msg.ReplyTo = replyTo
+	// Bounded on the way OUT as well as on the way in. The value reaches a dir
+	// attribute in every recipient's DOM, and this node is the last place able
+	// to guarantee it is one of the two things that means anything.
+	msg.Dir = domain.ValidDir(dir)
 	payload, _ := json.Marshal(msg)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
 	if err != nil {
@@ -2065,7 +2075,7 @@ func (s *Service) CreateThread(guildID, forumID, title, firstMessage string, tag
 		return domain.Channel{}, err
 	}
 	if strings.TrimSpace(firstMessage) != "" {
-		if _, err := s.SendMessage(ch.ID, firstMessage, ""); err != nil {
+		if _, err := s.SendMessage(ch.ID, firstMessage, "", ""); err != nil {
 			return ch, nil // the post exists; the body can be retyped
 		}
 	}

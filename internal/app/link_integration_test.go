@@ -30,7 +30,7 @@ func TestDeviceLinkingEndToEnd(t *testing.T) {
 		t.Fatalf("CreateGuild: %v", err)
 	}
 	channel := g.Channels[0].ID
-	if _, err := issuer.SendMessage(channel, "before linking", ""); err != nil {
+	if _, err := issuer.SendMessage(channel, "before linking", "", ""); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
 
@@ -84,7 +84,7 @@ func TestDeviceLinkingEndToEnd(t *testing.T) {
 	time.Sleep(3 * time.Second)
 
 	// …and a fresh message from the issuer reaches the linked device.
-	if _, err := issuer.SendMessage(channel, "hello linked device", ""); err != nil {
+	if _, err := issuer.SendMessage(channel, "hello linked device", "", ""); err != nil {
 		t.Fatalf("SendMessage after link: %v", err)
 	}
 	waitUntil(t, 30*time.Second, func() bool {

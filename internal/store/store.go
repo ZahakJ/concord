@@ -128,6 +128,7 @@ CREATE TABLE IF NOT EXISTS messages (
   name        TEXT NOT NULL DEFAULT '',
   kind        TEXT NOT NULL DEFAULT '',
   reply_to    TEXT NOT NULL DEFAULT '',
+  dir         TEXT NOT NULL DEFAULT '',
   deleted     INTEGER NOT NULL DEFAULT 0,
   edited      INTEGER NOT NULL DEFAULT 0,
   pinned      INTEGER NOT NULL DEFAULT 0,
@@ -284,6 +285,7 @@ CREATE TABLE IF NOT EXISTS story_tombstones (
 		`ALTER TABLE messages ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN updated INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN expired INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE messages ADD COLUMN dir TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
@@ -1167,10 +1169,10 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
 	res, err := s.db.Exec(
-		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, content_enc, nonce, sent)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
-		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, sealed, nonce[:], m.Sent.UnixNano(),
+		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir), sealed, nonce[:], m.Sent.UnixNano(),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
@@ -1221,7 +1223,7 @@ func (s *Store) UnreadCounts(sinceNano map[string]int64) (map[string]int, error)
 // Messages returns up to limit most-recent messages for a channel, oldest
 // first, decrypting bodies. A limit <= 0 returns all messages.
 func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) {
-	q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, expired, content_enc, nonce, sent
+	q := `SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent
 	      FROM messages WHERE channel_id = ? ORDER BY sent DESC`
 	args := []any{channelID}
 	if limit > 0 {
@@ -1240,7 +1242,7 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		var enc, nonceB []byte
 		var sent int64
 		var deleted, edited, pinned, expired int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
 			return nil, err
 		}
 		m.Edited = edited != 0
@@ -1286,7 +1288,7 @@ func (s *Store) MessagesBefore(channelID string, beforeNano int64, limit int) ([
 		limit = 200
 	}
 	rows, err := s.db.Query(
-		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, expired, content_enc, nonce, sent
+		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent
 		 FROM messages WHERE channel_id = ? AND sent < ? ORDER BY sent DESC LIMIT ?`,
 		channelID, beforeNano, limit)
 	if err != nil {
@@ -1300,7 +1302,7 @@ func (s *Store) MessagesBefore(channelID string, beforeNano int64, limit int) ([
 		var enc, nonceB []byte
 		var sent int64
 		var deleted, edited, pinned, expired int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
 			return nil, err
 		}
 		m.Edited = edited != 0
@@ -1466,9 +1468,9 @@ func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
 	var deleted int
 	var edited, pinned int
 	err := s.db.QueryRow(
-		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
+		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent
 		 FROM messages WHERE id = ?`, id,
-	).Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent)
+	).Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent)
 	if err == sql.ErrNoRows {
 		return domain.Message{}, false, nil
 	}
@@ -1539,7 +1541,7 @@ func (s *Store) MessageIsBookmarked(messageID string) bool {
 // user left) simply doesn't join — stale rows are pruned as they're noticed.
 func (s *Store) BookmarkedMessages() ([]domain.Message, error) {
 	rows, err := s.db.Query(
-		`SELECT m.id, m.channel_id, m.sender, m.name, m.kind, m.reply_to, m.edited, m.pinned, m.content_enc, m.nonce, m.sent
+		`SELECT m.id, m.channel_id, m.sender, m.name, m.kind, m.reply_to, m.dir, m.edited, m.pinned, m.content_enc, m.nonce, m.sent
 		 FROM saved_messages sv JOIN messages m ON m.id = sv.message_id
 		 WHERE m.deleted = 0 ORDER BY sv.at DESC LIMIT 200`)
 	if err != nil {
@@ -1553,7 +1555,7 @@ func (s *Store) BookmarkedMessages() ([]domain.Message, error) {
 		var enc, nonceB []byte
 		var sent int64
 		var edited, pinned int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
 			return nil, err
 		}
 		content, err := s.open(enc, nonceB)
@@ -1646,7 +1648,7 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 	const batch = 256     // rows fetched and decrypted per page
 	const maxScan = 20000 // decryption budget per call
 	for scanned := 0; len(out) < limit && scanned < maxScan; {
-		q := `SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent
+		q := `SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent
 		 FROM messages WHERE ` + where
 		pageArgs := append([]any{}, args...)
 		if curSent > 0 {
@@ -1675,7 +1677,7 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 			var enc, nonceB []byte
 			var sent int64
 			var deleted, edited, pinned int
-			if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
+			if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent); err != nil {
 				rows.Close()
 				return nil, err
 			}
@@ -2170,7 +2172,7 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 	// 'app' is included so app-plane payloads sync like any other message: a
 	// member who was offline still receives the machine traffic they missed.
 	rows, err := s.db.Query(
-		`SELECT id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent, updated
+		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated
 		 FROM messages WHERE channel_id = ? AND (sent > ? OR updated > ?) AND kind IN ('', 'system', 'app')
 		 ORDER BY sent ASC LIMIT ?`, channelID, sinceNano, sinceNano, limit)
 	if err != nil {
@@ -2184,7 +2186,7 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 		var enc, nonceB []byte
 		var sent, updated int64
 		var deleted, edited, pinned int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &deleted, &edited, &pinned, &enc, &nonceB, &sent, &updated); err != nil {
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent, &updated); err != nil {
 			return nil, err
 		}
 		if deleted != 0 {
@@ -2254,9 +2256,9 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 		}
 		sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 		if _, err := s.db.Exec(
-			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, deleted, edited, pinned, content_enc, nonce, sent, updated)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo,
+			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir),
 			boolToInt(m.Deleted), boolToInt(m.Edited), boolToInt(m.Pinned),
 			sealed, nonce[:], m.Sent.UnixNano(), remoteUpdated,
 		); err != nil {

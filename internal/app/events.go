@@ -648,7 +648,7 @@ func (s *Service) announceEventStart(ev domain.Event) {
 	// reminds people". Name is the same self-asserted, decorative display field
 	// every message carries — this changes who the line READS as, not any
 	// authenticated fact (the signature is still this node's).
-	if _, err := s.sendAs(ev.LocationChannelID, content, "system", "", guildName); err != nil {
+	if _, err := s.sendAs(ev.LocationChannelID, content, "system", "", guildName, ""); err != nil {
 		return // transient send failure: leave unmarked so the next tick retries
 	}
 	_ = s.store.MarkEventAnnounced(ev.ID)

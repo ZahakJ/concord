@@ -1862,8 +1862,8 @@ export function channelShort(chId) {
 
 // ---- messaging actions ----
 
-export async function sendMessage(text, replyToId) {
-  await api.sendMessage(S.activeChannelId, text, replyToId || "");
+export async function sendMessage(text, replyToId, dir = "") {
+  await api.sendMessage(S.activeChannelId, text, replyToId || "", dir);
 }
 
 export async function react(m, emoji) {

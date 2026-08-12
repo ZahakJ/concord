@@ -113,7 +113,7 @@ func TestOfflineCatchUp(t *testing.T) {
 	rc := &recorder{}
 	c.OnMessage(rc.add)
 	sendUntilReceived(t, a, channel, "before-offline", rb, rc)
-	bMsg, err := b.SendMessage(channel, "b-original", "")
+	bMsg, err := b.SendMessage(channel, "b-original", "", "")
 	if err != nil {
 		t.Fatalf("B SendMessage: %v", err)
 	}

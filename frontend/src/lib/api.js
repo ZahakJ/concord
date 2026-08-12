@@ -250,8 +250,12 @@ export const api = {
   messages: (channelID) => call("Messages", channelID),
   messagesBefore: (channelID, beforeISO, limit) => call("MessagesBefore", channelID, beforeISO, limit),
   unreadCounts: (sinceISO) => call("UnreadCounts", sinceISO),
-  sendMessage: (channelID, content, replyTo = "") =>
-    call("SendMessage", channelID, content, replyTo),
+  // dir is the author's explicit base direction: "rtl", "ltr", or "" for the
+  // per-line heuristic every message used before the composer could override
+  // it. Bounded again on the Go side (domain.ValidDir), so this is a hint, not
+  // a trust boundary.
+  sendMessage: (channelID, content, replyTo = "", dir = "") =>
+    call("SendMessage", channelID, content, replyTo, dir),
   sendCallNotice: (channelID, kind, content) =>
     call("SendCallNotice", channelID, kind, content),
   // Send-later queue, held by the Go service so it fires without this window.

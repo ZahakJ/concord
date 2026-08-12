@@ -161,7 +161,7 @@ func (s *Service) fireDueScheduledSends(now int64) {
 			_ = s.store.DeleteScheduledSend(ss.ID)
 			continue
 		}
-		if _, err := s.SendMessage(ss.ChannelID, ss.Content, ss.ReplyTo); err != nil {
+		if _, err := s.SendMessage(ss.ChannelID, ss.Content, ss.ReplyTo, ""); err != nil {
 			log.Printf("concord/app: scheduled send %s failed (will retry): %v", ss.ID, err)
 			continue
 		}

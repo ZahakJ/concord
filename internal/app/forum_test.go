@@ -268,10 +268,10 @@ func TestForumBoardDerivesAuthorRepliesAndExcerpt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateThread: %v", err)
 	}
-	if _, err := svc.SendMessage(post.ID, "Have you tried the recovery phrase?", ""); err != nil {
+	if _, err := svc.SendMessage(post.ID, "Have you tried the recovery phrase?", "", ""); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
-	if _, err := svc.SendMessage(post.ID, "That worked, thanks.", ""); err != nil {
+	if _, err := svc.SendMessage(post.ID, "That worked, thanks.", "", ""); err != nil {
 		t.Fatalf("SendMessage: %v", err)
 	}
 

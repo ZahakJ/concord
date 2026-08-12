@@ -22,6 +22,26 @@
   import { stagedImage } from "./lib/attachopts.js";
 
   let draft = $state("");
+  // The draft's BASE DIRECTION, when the writer has asked for one: "" (decide
+  // per line, the default and almost always right), "rtl", or "ltr".
+  //
+  // It exists because the per-line rule cannot be argued with. `unicode-bidi:
+  // plaintext` reads the first strong character of each line and fixes that
+  // line's direction from it, so a line begun in English is left-to-right for
+  // good — and an Arabic phrase added afterwards lands to the RIGHT of the
+  // English, where a writer of Arabic does not want it. There is no key that
+  // moves it: the only way to change a line's base direction today is to
+  // delete back to its start and type it the other way round.
+  //
+  // What this does NOT fix, and cannot: which arrow key extends a selection
+  // which way. Chrome moves the caret VISUALLY for a bare arrow key and
+  // LOGICALLY for a word-wise Ctrl+arrow, so in a right-to-left line
+  // Ctrl+Shift+Left selects the run sitting on the right. That is the
+  // browser's text-editing layer, below anything a page can reach; the only
+  // way past it is to give up <textarea> for a contenteditable with
+  // hand-written caret handling, which costs IME, mobile keyboards,
+  // spellcheck, native undo and accessibility. Not a trade worth making.
+  let dirMode = $state("");
   let uploading = $state(0); // files being read into `pending` (brief)
   // Staged attachments: pasting/dropping/picking a file adds a PREVIEW to the
   // composer (Discord-style), sent together with the text on submit.
@@ -583,6 +603,18 @@
         applyFormat(kind);
         return;
       }
+      // Ctrl/Cmd+Shift+D cycles the draft's base direction: per-line → RTL →
+      // LTR → per-line. A cycle rather than two bindings because the third
+      // state is the one people want back, and a single key that returns to
+      // the default is easier to trust than remembering which of two undoes
+      // the other. `e.code` alongside `k` so a non-Latin keyboard layout —
+      // exactly the layout someone writing Arabic is on — still matches.
+      if (e.shiftKey && (k === "d" || e.code === "KeyD")) {
+        e.preventDefault();
+        dirMode = dirMode === "" ? "rtl" : dirMode === "rtl" ? "ltr" : "";
+        composerEl?.focus();
+        return;
+      }
     }
     if (suggest) {
       // Tab cycles for emoji/mentions (long-standing behavior) but accepts for
@@ -694,7 +726,11 @@
         // Seal before the ephemeral stamp so both tokens sit at the front in a
         // stable order; each strips independently at render.
         const body = sealNext ? stampTimestamp(text) : text;
-        await sendMessage(stampEphemeral(chId, body), nextReply());
+        // The direction travels with the message. Laid out one way as it was
+        // written and the other way as it is read is not the message anyone
+        // wrote — and the reader's client has no way to recover the intent,
+        // because the per-line rule is exactly what the writer overrode.
+        await sendMessage(stampEphemeral(chId, body), nextReply(), dirMode);
         sealNext = false;
         if (chId === S.activeChannelId) armSlowMode();
       }
@@ -1126,9 +1162,17 @@
        assigns the value programmatically, which does not always re-run the
        heuristic, so the box stayed right-to-left with the caret on the wrong
        side of an empty composer. -->
+  <!-- dir is set only when the writer asked for one. Left off, the textarea
+       keeps `unicode-bidi: plaintext` from app.css and resolves each line on
+       its own, which is what every draft did before this existed. The style
+       override has to switch unicode-bidi back to `isolate` as well: plaintext
+       ignores the element's direction by definition, so setting dir alone
+       would do exactly nothing. -->
   <textarea
     bind:this={composerEl}
     class="draft"
+    dir={dirMode || null}
+    style={dirMode ? "unicode-bidi:isolate" : null}
     rows="1"
     placeholder={composerPlaceholder}
     bind:value={draft}
@@ -1138,6 +1182,27 @@
     onpaste={onPaste}
     onblur={() => setTimeout(() => (suggest = null), 150)}
   ></textarea>
+  <!-- Shown only while an override is in force. Off by default it costs the
+       people who never write bidirectional text nothing at all, and the ones
+       who do need to be able to see which way the next line will start
+       WITHOUT typing a character to find out — that guess is the whole
+       problem this fixes. Clicking it cycles, so the feature is reachable
+       once it has been found, and the title carries the shortcut for getting
+       back to it. -->
+  {#if dirMode}
+    <button
+      type="button"
+      class="dir-pill"
+      title="Text direction: {dirMode === 'rtl' ? 'right to left' : 'left to right'} — Ctrl+Shift+D to change"
+      aria-label="Text direction: {dirMode === 'rtl' ? 'right to left' : 'left to right'}. Activate to change."
+      onclick={() => {
+        dirMode = dirMode === "rtl" ? "ltr" : "";
+        composerEl?.focus();
+      }}
+    >
+      {dirMode === "rtl" ? "رل" : "LR"}
+    </button>
+  {/if}
 {/snippet}
 
 <div class="composer-wrap" class:mobile style="--ep-h:{pickerH}px">
@@ -2238,6 +2303,30 @@
     }
   }
   /* (Focus ring moved up to .input-shell — the whole well glows as one.) */
+  /* The base-direction indicator. Deliberately small and quiet: it is a mode
+     marker, not an action, and it only exists at all while a mode is on.
+     `align-self: end` keeps it on the last line of a draft that has grown to
+     several, next to where the next character will actually land. */
+  .dir-pill {
+    flex: none;
+    align-self: end;
+    margin-bottom: 4px;
+    padding: 1px 5px;
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    background: var(--bg-3, transparent);
+    color: var(--text-dim);
+    font-size: 10px;
+    line-height: 1.5;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+  }
+  .dir-pill:hover {
+    color: var(--text);
+    border-color: var(--text-dim);
+  }
+
   .draft {
     flex: 1;
     min-width: 0;

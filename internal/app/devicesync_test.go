@@ -27,7 +27,7 @@ func TestMessageFromPhoneReachesTheDesktop(t *testing.T) {
 	desk, phone, textCh, _ := linkedPair(t, ctx, t.TempDir(), t.TempDir(), boot)
 
 	const body = "sent from the phone"
-	if _, err := phone.SendMessage(textCh, body, ""); err != nil {
+	if _, err := phone.SendMessage(textCh, body, "", ""); err != nil {
 		t.Fatalf("phone SendMessage: %v", err)
 	}
 

@@ -138,18 +138,38 @@ type CustomEmoji struct {
 // what gets MLS-encrypted before transport and encrypted again at rest. Sender
 // is the author's Ed25519 account public key, authenticated by MLS on receipt.
 type Message struct {
-	ID        string    `json:"id"`
-	ChannelID string    `json:"channelId"`
-	Sender    []byte    `json:"sender"`
-	Name      string    `json:"name"`    // sender's self-asserted display name (decorative)
-	Kind      string    `json:"kind"`    // "" = normal chat, "system" notice, "delete" action
-	ReplyTo   string    `json:"replyTo"` // ID of the message this replies to / acts on
-	Content   string    `json:"content"`
-	Deleted   bool      `json:"deleted"`
-	Expired   bool      `json:"expired"` // erased by a disappearing-message timer (not a normal delete)
-	Edited    bool      `json:"edited"`
-	Pinned    bool      `json:"pinned"`
-	Sent      time.Time `json:"sent"`
+	ID        string `json:"id"`
+	ChannelID string `json:"channelId"`
+	Sender    []byte `json:"sender"`
+	Name      string `json:"name"`    // sender's self-asserted display name (decorative)
+	Kind      string `json:"kind"`    // "" = normal chat, "system" notice, "delete" action
+	ReplyTo   string `json:"replyTo"` // ID of the message this replies to / acts on
+	Content   string `json:"content"`
+	// Dir is the base direction the author laid this message out in: "rtl",
+	// "ltr", or "" for the per-line heuristic every message used before this
+	// field existed (and which is still the right answer almost always).
+	//
+	// It exists because that heuristic reads the FIRST strong character of a
+	// line and there is no way to argue with it. Start a line in English and
+	// its base direction is left-to-right for good, so an Arabic phrase added
+	// afterwards lands to the right of the English and cannot be moved without
+	// deleting back to the start and retyping it the other way round. Setting
+	// the base direction explicitly is the only fix, and it has to travel with
+	// the message: laid out one way as it was written and the other way as it
+	// is read is not a message anyone wrote.
+	//
+	// Optional on the wire in both directions. A peer that predates the field
+	// drops it on decode and renders by the heuristic, which is exactly what
+	// it does today — so this degrades to the current behaviour rather than to
+	// a broken one. Bounded to two values on receive (ValidDir): it reaches a
+	// dir attribute in every client's DOM, and an unknown value there is a
+	// string a stranger chose appearing in markup.
+	Dir     string    `json:"dir,omitempty"`
+	Deleted bool      `json:"deleted"`
+	Expired bool      `json:"expired"` // erased by a disappearing-message timer (not a normal delete)
+	Edited  bool      `json:"edited"`
+	Pinned  bool      `json:"pinned"`
+	Sent    time.Time `json:"sent"`
 
 	// Updated is when the message's state (edit/delete/pin/reactions) last
 	// changed, zero if never. Carried by history sync so receivers can prefer
@@ -291,6 +311,21 @@ func NewMessage(channelID string, sender []byte, content string) (Message, error
 		Content:   content,
 		Sent:      time.Now().UTC(),
 	}, nil
+}
+
+// ValidDir bounds a message's base direction to the two values that mean
+// anything, mapping everything else — including the empty string — to "".
+//
+// It fails CLOSED, and it has to: Dir arrives inside a decrypted message from
+// another member and ends up as a `dir` attribute in the DOM of every client
+// that renders the channel. "" is not a degraded result there, it is the
+// behaviour every message had before the field existed, so a peer sending
+// nonsense gets the per-line heuristic rather than an argument.
+func ValidDir(d string) string {
+	if d == "rtl" || d == "ltr" {
+		return d
+	}
+	return ""
 }
 
 // topicPrefix namespaces all Concord gossipsub topics.

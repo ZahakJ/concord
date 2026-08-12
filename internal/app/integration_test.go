@@ -142,7 +142,7 @@ func sendUntilReceived(t *testing.T, sender *Service, channel, content string, r
 	first := true
 	for time.Now().Before(deadline) {
 		if first {
-			if _, err := sender.SendMessage(channel, content, ""); err != nil {
+			if _, err := sender.SendMessage(channel, content, "", ""); err != nil {
 				t.Fatalf("SendMessage: %v", err)
 			}
 			first = false
@@ -158,7 +158,7 @@ func sendUntilReceived(t *testing.T, sender *Service, channel, content string, r
 			return
 		}
 		// Resend periodically in case an early copy was dropped mid-warmup.
-		if _, err := sender.SendMessage(channel, content, ""); err != nil {
+		if _, err := sender.SendMessage(channel, content, "", ""); err != nil {
 			t.Fatalf("SendMessage (retry): %v", err)
 		}
 		time.Sleep(500 * time.Millisecond)
