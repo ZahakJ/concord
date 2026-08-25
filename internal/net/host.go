@@ -344,9 +344,18 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		libp2p.Identity(priv),
 		// Encrypt every connection with the Noise protocol.
 		libp2p.Security(noise.ID, noise.New),
-		libp2p.EnableNATService(),
 		// Meter traffic so the Stats panel can show live bandwidth.
 		libp2p.BandwidthReporter(bwc),
+	}
+	if !onMobile {
+		// Answering other people's reachability probes is a service to the
+		// network, and on a desktop it is nearly free. On a phone it is not:
+		// the option builds a SECOND swarm — its own key, peerstore and full
+		// transport stack — at startup, held for the life of the process, and
+		// then either sits there unused (the usual case: ForceReachabilityPrivate
+		// below disables the service outright) or spends uplink dialling
+		// strangers back. Neither is worth a phone's memory or radio.
+		opts = append(opts, libp2p.EnableNATService())
 	}
 	// A simulated NAT, for tests only — see Config.BlockedIPs.
 	if len(cfg.BlockedIPs) > 0 {
@@ -464,8 +473,11 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 			cancel()
 			return nil, err
 		}
-		node.serveRelay()
-		node.syncRelayService()
+		// Relaying for other people is a desktop's job — see relayServiceWanted.
+		if !onMobile {
+			node.serveRelay()
+			node.syncRelayService()
+		}
 	}
 	return node, nil
 }

@@ -217,7 +217,10 @@ func (n *Host) serveRelay() {
 }
 
 func (n *Host) syncRelayService() {
-	public := n.DirectlyReachable()
+	// Not simply DirectlyReachable: a phone on cellular satisfies that test on
+	// its carrier-issued IPv6 address and is the last machine that should be
+	// carrying anybody's traffic. See relayServiceWanted.
+	public := relayServiceWanted(n.DirectlyReachable(), onMobile)
 
 	n.relayMu.Lock()
 	defer n.relayMu.Unlock()
