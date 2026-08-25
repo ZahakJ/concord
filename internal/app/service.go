@@ -1323,6 +1323,21 @@ type ReachStatus struct {
 	// only" is a much weaker claim than "reachable", and the UI states it as one.
 	PublicIPv4 bool `json:"publicIPv4"`
 	PublicIPv6 bool `json:"publicIPv6"`
+	// InboundIPv4 / InboundIPv6: somebody on the internet opened a connection
+	// straight to this machine over that family, unprompted, since its addresses
+	// last changed. This is the only field here that is a measurement of inbound
+	// connectivity rather than a reading of our own configuration, and it is what
+	// the peer-relay service is gated on.
+	//
+	// It settles the two cases the address fields get backwards. A desktop with
+	// a filtered global IPv6 address reports Reachable with nothing ever coming
+	// in; a home server behind a port-forward reports the opposite while packets
+	// arrive on its private 192.168 address all day. Absence is not proof of the
+	// negative — a node nobody has dialled yet has none — so the UI leads with
+	// this when it is present and falls back to the address reading when it is
+	// not.
+	InboundIPv4 bool `json:"inboundIPv4"`
+	InboundIPv6 bool `json:"inboundIPv6"`
 	// HasRendezvous: at least one rendezvous address is configured;
 	// RendezvousReached: one of them is answering right now.
 	HasRendezvous     bool `json:"hasRendezvous"`
@@ -1347,10 +1362,13 @@ type ReachStatus struct {
 func (s *Service) Reachability() ReachStatus {
 	cfg := LoadNetConfig(s.dataDir)
 	v4, v6 := s.host.PublicAddrFamilies()
+	in4, in6 := s.host.InboundProven()
 	return ReachStatus{
 		Reachable:         v4 || v6,
 		PublicIPv4:        v4,
 		PublicIPv6:        v6,
+		InboundIPv4:       in4,
+		InboundIPv6:       in6,
 		HasRendezvous:     len(s.bootstrapPeers()) > 0,
 		RendezvousReached: len(s.mailboxNodes()) > 0,
 		PinnedPort:        cfg.ListenPort,
