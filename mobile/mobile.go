@@ -212,6 +212,17 @@ func (n *Node) SetForeground(fg bool) {
 	_ = n.srv.Bridge().SetForeground(fg)
 }
 
+// SetMetered reports whether the OS says this connection is billed by the byte
+// (ConnectivityManager's default network without NET_CAPABILITY_NOT_METERED on
+// Android). On a metered link the core holds its periodic peer-discovery loops
+// to a gentler floor even with the app on screen; connections, message
+// delivery, mailbox drains and sync are untouched. Call it once with the
+// current answer at startup and again on every change. Safe to call whether or
+// not the identity is unlocked.
+func (n *Node) SetMetered(metered bool) {
+	_ = n.srv.Bridge().SetMetered(metered)
+}
+
 // Stop shuts the API server and the core down. The Node cannot be restarted;
 // call Start again for a fresh one.
 func (n *Node) Stop() {

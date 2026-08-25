@@ -303,6 +303,10 @@ type Host struct {
 	// discovery loops stretch to backgroundBeat (see SetBackground in dht.go).
 	// Guarded by mu.
 	background bool
+	// metered: the OS says this connection is billed by the byte (cellular, or
+	// a hotspot the user has flagged). Holds the periodic loops to a gentler
+	// floor even on screen — see SetMetered and paceWait in dht.go. Guarded by mu.
+	metered bool
 	// peerDemand is the app layer's "I am still missing somebody I expect to
 	// see", which holds the discovery backoff at discoverWanted rather than
 	// letting it run out to discoverMax. See SetPeerDemand.

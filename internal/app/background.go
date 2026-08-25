@@ -61,6 +61,21 @@ func (s *Service) backgrounded() bool {
 	return s.bg
 }
 
+// SetMetered passes the OS's "these bytes are billed" answer down to the host,
+// where it holds the DHT loops to a gentler floor even with the app on screen
+// (see meteredFloor in internal/net/dht.go).
+//
+// Deliberately not plumbed into bgPace. The loops paced here are the ones that
+// carry correctness — the heal/anti-entropy tick, the mailbox sweep, the
+// scheduled-send queue, reaching this account's own other devices — and a data
+// plan is not a reason to deliver a message late or let two peers stay diverged.
+// What metered buys is the search for peers we do not have, which is where the
+// packets actually are: a Kademlia walk is many small datagrams to many hosts,
+// the worst possible shape for a cellular radio trying to sleep.
+func (s *Service) SetMetered(m bool) {
+	s.host.SetMetered(m)
+}
+
 // bgPace stretches a foreground interval to the background beat while the app
 // is backgrounded. Intervals already slower than the beat are left alone.
 func (s *Service) bgPace(fg time.Duration) time.Duration {

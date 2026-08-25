@@ -76,6 +76,11 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Wi-Fi vs cellular, so peer discovery can run at a gentler cadence on a
+         data plan (NetworkWatch -> Node.setMetered). Install-time and
+         non-dangerous: no runtime prompt, and it reveals nothing about the
+         network beyond whether the OS bills for it. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- No CHANGE_WIFI_MULTICAST_STATE. It exists for mDNS, and mDNS cannot run
          on Android at all: SELinux denies the netlink socket bind zeroconf
          needs, so Host.startMDNS fails and the node discovers over DHT + relay

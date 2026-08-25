@@ -37,6 +37,11 @@ type Bridge struct {
 	// identity unlocked while the app is off screen (biometric relock, a
 	// notification-triggered cold start) begins life already throttled.
 	wantBackground bool
+	// wantMetered remembers the shell's last SetMetered call for the same
+	// reason: the network callback fires as soon as the process starts, long
+	// before anybody types a passphrase, and a service born after that must not
+	// spend its first minutes walking the DHT on a data plan.
+	wantMetered bool
 
 	// Event sinks, set by whichever transport owns the bridge.
 	OnMessage       func(MessageView)
@@ -592,6 +597,10 @@ func (b *Bridge) Login(passphrase string) error {
 	// foreground cadence.
 	if b.wantBackground {
 		svc.SetBackground(true)
+	}
+	// Likewise the connection the shell told us about before the unlock.
+	if b.wantMetered {
+		svc.SetMetered(true)
 	}
 	// Learn (once per version) that our own binary is a published release, so
 	// peers running an older one can pull it from us. Off the critical path:
@@ -2148,6 +2157,24 @@ func (b *Bridge) SetForeground(fg bool) error {
 	return nil
 }
 
+// SetMetered is the shell reporting whether the OS considers this connection
+// metered — cellular, or a hotspot the user has flagged as billed. On a metered
+// link the periodic DHT loops (advertise, bootstrap redial, peer discovery) are
+// held to a gentler floor even with the app on screen; message delivery, mailbox
+// drains and sync are untouched, because a data plan is not a reason to be
+// late or to be wrong. Safe to call while locked — the answer is remembered and
+// applied when the service starts.
+func (b *Bridge) SetMetered(metered bool) error {
+	b.mu.Lock()
+	b.wantMetered = metered
+	svc := b.svc
+	b.mu.Unlock()
+	if svc != nil {
+		svc.SetMetered(metered)
+	}
+	return nil
+}
+
 // RegisterPush binds a device push token (platform "apns"/"fcm") to our mailbox
 // on the rendezvous nodes, so offline deposits trigger a wake. The mobile shell
 // calls it with the token from APNs/FCM after login. No-op when locked.
@@ -2772,6 +2799,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.Nudge()
 	case "SetForeground":
 		return nil, b.SetForeground(argBool(args, 0))
+	case "SetMetered":
+		return nil, b.SetMetered(argBool(args, 0))
 	case "RegisterPush":
 		return nil, b.RegisterPush(argStr(args, 0), argStr(args, 1))
 	case "LinkOffer":

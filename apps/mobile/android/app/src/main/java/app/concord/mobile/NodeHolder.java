@@ -30,6 +30,11 @@ final class NodeHolder {
             File dataDir = new File(app.getFilesDir(), "concord");
             node = Concord.start(dataDir.getAbsolutePath());
             NativeNotifier.attach(app, node);
+            // Tell the core straight away whether these bytes are billed, and
+            // keep telling it. Here rather than in the Activity or the
+            // foreground service because this is the one place whose lifetime
+            // is the core's own — see NetworkWatch.
+            NetworkWatch.attach(app, node);
         }
         return node;
     }

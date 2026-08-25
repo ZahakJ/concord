@@ -152,11 +152,67 @@ func (n *Host) backgrounded() bool {
 	return n.background
 }
 
-// pace stretches a foreground wait to the background beat while backgrounded;
-// waits already slower than the beat are left alone.
+// meteredFloor is the fastest any periodic loop in this file runs while the OS
+// reports the connection metered, even with the app on screen.
+//
+// A minute rather than the background beat on purpose. Background mode says
+// nobody is looking, so three minutes of latency costs nothing; metered says
+// somebody IS looking and the bytes are billed, and the two are independent —
+// a phone on cellular with the app open is the case this exists for. Fifteen
+// seconds of Kademlia walks is the shape of traffic a cellular modem is worst
+// at (many small packets to many hosts, so the radio never leaves its
+// high-power state), and a minute is still eager enough that nobody watching
+// the member list notices.
+//
+// What this does NOT touch is the part that matters: connections, the gossip
+// mesh, message delivery, mailbox drains and sync all run exactly as they do on
+// Wi-Fi. Metered slows the search for peers we do not have; it never delays a
+// byte somebody sent us.
+const meteredFloor = time.Minute
+
+// SetMetered tells the host whether the OS says this connection is billed by
+// the byte. The unmetered edge kicks every loop awake: walking back onto Wi-Fi
+// is exactly when the round we have been holding back becomes free.
+func (n *Host) SetMetered(m bool) {
+	n.mu.Lock()
+	changed := n.metered != m
+	n.metered = m
+	n.mu.Unlock()
+	if changed && !m {
+		n.kickNetwork()
+	}
+}
+
+func (n *Host) meteredNet() bool {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.metered
+}
+
+// pace stretches a wait to whichever floor the current conditions impose.
 func (n *Host) pace(wait time.Duration) time.Duration {
-	if wait < backgroundBeat && n.backgrounded() {
-		return backgroundBeat
+	return paceWait(wait, n.backgrounded(), n.meteredNet())
+}
+
+// paceWait composes the two floors a periodic loop can be held to: the
+// background beat while the app is off screen, and meteredFloor while the bytes
+// are billed. They compose rather than replace — a backgrounded phone on
+// cellular gets the slower of the two, not the more recent of the two — and a
+// wait already longer than both is left alone, so an advertise loop parked on
+// 7/8 of a DHT TTL is never dragged FASTER by either.
+//
+// Pure so the composition can be asserted directly; the alternative is
+// discovering on a battery graph that one flag quietly cancelled the other.
+func paceWait(wait time.Duration, background, metered bool) time.Duration {
+	var floor time.Duration
+	if metered {
+		floor = meteredFloor
+	}
+	if background && backgroundBeat > floor {
+		floor = backgroundBeat
+	}
+	if wait < floor {
+		return floor
 	}
 	return wait
 }
@@ -452,8 +508,11 @@ func (n *Host) peerWanted() bool {
 // is many small packets to many hosts and that is the worst possible shape of
 // traffic for a cellular radio trying to go back to sleep.
 //
-// Backgrounded, pace still stretches whatever this decides to backgroundBeat;
-// the two compose rather than competing.
+// Backgrounded, pace still stretches whatever this decides to backgroundBeat,
+// and on a metered connection to meteredFloor; all of them compose rather than
+// competing. None of them touches the kick, which sets wait back to zero and
+// runs a round immediately — so joining a guild, or walking back into range,
+// still looks instant on cellular.
 func (n *Host) discoverLoop(disc peerFinder, rendezvous string) {
 	var wait time.Duration
 	seen := map[peer.ID]bool{}
