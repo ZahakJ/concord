@@ -801,6 +801,11 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	// We are members now, which is what makes these peers worth caching — the
 	// connection callback ran before that was true. See rememberMembers.
 	s.rememberMembers()
+	// There is a room full of people we have never met and a discovery loop
+	// that may have spent the last idle hour backing off to its slowest
+	// cadence. Nothing about that backoff was wrong, and none of it applies any
+	// more: joining is the moment a search is most likely to find somebody.
+	s.host.KickDiscovery()
 	// Pull channel history from the owner right away (the peer-connect sync
 	// trigger fired before we joined, so it skipped this guild).
 	go s.syncGuildFromPeer(g.ID, owner.ID)

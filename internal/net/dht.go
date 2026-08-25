@@ -363,22 +363,119 @@ func (n *Host) dialRemembered(peers []peer.AddrInfo) bool {
 	return reached
 }
 
+// The discovery schedule. Fast while rounds are still turning up peers we had
+// not seen, slower and slower once they stop.
+//
+// discoverWanted is the floor the backoff cannot pass while the app layer says
+// it is still short of a peer it expects (SetPeerDemand): a desktop of yours
+// that is not here yet is worth a lookup a minute, and is not worth one every
+// fifteen seconds forever.
+const (
+	discoverMin    = 15 * time.Second
+	discoverWanted = time.Minute
+	discoverMax    = 4 * time.Minute
+)
+
+// discoverPace returns how long to wait before the next discovery round, given
+// the wait just served, whether that round turned up a peer the round before it
+// had not, and whether the app is still missing a peer it wants.
+//
+// Kept pure so the schedule can be asserted without waiting minutes of wall
+// clock for it — the previous behaviour was a flat constant, which is exactly
+// the kind of thing that is only ever noticed on a battery graph.
+func discoverPace(prev time.Duration, foundNew, wanted bool) time.Duration {
+	if foundNew {
+		return discoverMin
+	}
+	ceiling := discoverMax
+	if wanted {
+		ceiling = discoverWanted
+	}
+	next := prev * 2
+	if next < discoverMin {
+		next = discoverMin
+	}
+	if next > ceiling {
+		next = ceiling
+	}
+	return next
+}
+
+// newCandidate reports whether a round produced a peer the previous round had
+// not. Comparing against the previous round rather than against "are we
+// connected" is what stops a peer we can see and can never reach — a friend
+// behind a firewall that eats our dials — from holding the loop at its fastest
+// cadence forever.
+func newCandidate(prev map[peer.ID]bool, now []peer.ID) bool {
+	for _, p := range now {
+		if !prev[p] {
+			return true
+		}
+	}
+	return false
+}
+
+// SetPeerDemand registers the app layer's answer to "are you still waiting on
+// somebody?". Discovery stays eager while it says yes. nil (the default) means
+// no demand, i.e. the backoff runs to its full length.
+func (n *Host) SetPeerDemand(f func() bool) {
+	n.mu.Lock()
+	n.peerDemand = f
+	n.mu.Unlock()
+}
+
+func (n *Host) peerWanted() bool {
+	n.mu.RLock()
+	f := n.peerDemand
+	n.mu.RUnlock()
+	return f != nil && f()
+}
+
+// discoverLoop looks for peers advertising the rendezvous key, on a cadence
+// that follows whether looking is achieving anything.
+//
+// It used to be a flat 15 seconds, forever. That is right for the first minute
+// after launch, when the mesh is warming and every round finds somebody, and
+// wrong for every minute after: an idle node — everyone it knows already
+// connected, or no network at all — still paid a full Kademlia walk, plus up to
+// addrlessLookups more walks and an unbounded fan of dials, four times a
+// minute, all night. advertiseLoop and keepBootstrapped in this same file had
+// both had proper backoff for a long time; this loop was the one that never
+// got it, and on a phone it is the one that costs the most, because a DHT walk
+// is many small packets to many hosts and that is the worst possible shape of
+// traffic for a cellular radio trying to go back to sleep.
+//
+// Backgrounded, pace still stretches whatever this decides to backgroundBeat;
+// the two compose rather than competing.
 func (n *Host) discoverLoop(disc peerFinder, rendezvous string) {
-	// Poll fairly often (mesh is small and warming) — except backgrounded on a
-	// phone, where each FindPeers is a full DHT walk through the radio and the
-	// mesh we already have delivers messages without it; there the wait is
-	// paced to backgroundBeat and the netKick fires on return to foreground.
-	const discoverInterval = 15 * time.Second
+	var wait time.Duration
+	seen := map[peer.ID]bool{}
 	for {
-		n.findAndConnect(disc, rendezvous)
+		found := n.findAndConnect(disc, rendezvous)
+		wait = discoverPace(wait, newCandidate(seen, found), n.peerWanted())
+		seen = make(map[peer.ID]bool, len(found))
+		for _, p := range found {
+			seen[p] = true
+		}
 		select {
 		case <-n.ctx.Done():
 			return
-		case <-n.netKick(): // back on the network / foregrounded: look now
-		case <-time.After(n.pace(discoverInterval)):
+		case <-n.netKick():
+			// Back on the network, foregrounded, or the app just joined
+			// something. Whatever we had backed off to is about a world that no
+			// longer applies: start over at the eager cadence.
+			wait = 0
+			seen = map[peer.ID]bool{}
+		case <-time.After(n.pace(wait)):
 		}
 	}
 }
+
+// KickDiscovery restarts the eager discovery cadence. The app layer calls it
+// when it has just given itself a reason to look — joining a guild, accepting
+// an invite — where waiting out a backoff that was earned while idle would show
+// up as "I joined and nobody was there".
+func (n *Host) KickDiscovery() { n.kickNetwork() }
 
 // peerFinder is the discovery half of RoutingDiscovery, named as an interface
 // so a test can hand findAndConnect the address-less provider record that a
@@ -392,13 +489,18 @@ type peerFinder interface {
 // and a large mesh can hand us dozens at once.
 const addrlessLookups = 8
 
-func (n *Host) findAndConnect(disc peerFinder, rendezvous string) {
+// findAndConnect runs one discovery round and returns the peers it acted on —
+// everyone the rendezvous key offered that we were not already connected to.
+// The caller uses that to decide how soon to run the next one; a round whose
+// every answer we already had is a round that bought nothing.
+func (n *Host) findAndConnect(disc peerFinder, rendezvous string) []peer.ID {
 	ctx, cancel := context.WithTimeout(n.ctx, 20*time.Second)
 	defer cancel()
 	peers, err := disc.FindPeers(ctx, rendezvous)
 	if err != nil {
-		return
+		return nil
 	}
+	var acted []peer.ID
 	// A provider record frequently arrives with the peer id and NO addresses —
 	// the record is in the DHT but the addresses were never cached, or expired.
 	// Skipping those outright (which this did) is survivable on a desktop, which
@@ -420,6 +522,7 @@ func (n *Host) findAndConnect(disc peerFinder, rendezvous string) {
 		if n.h.Network().Connectedness(p.ID) == network.Connected {
 			continue
 		}
+		acted = append(acted, p.ID)
 		if len(p.Addrs) > 0 {
 			go func(pi peer.AddrInfo) { _ = n.h.Connect(n.ctx, pi) }(p)
 			continue
@@ -450,4 +553,5 @@ func (n *Host) findAndConnect(disc peerFinder, rendezvous string) {
 			_ = n.h.Connect(n.ctx, pi)
 		}(p.ID)
 	}
+	return acted
 }

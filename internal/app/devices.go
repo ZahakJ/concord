@@ -288,9 +288,17 @@ const (
 // and the device key IS the PeerID. So we ask the DHT for that exact peer and
 // dial it, which needs no advertisement from them and no luck from us.
 func (s *Service) keepDevicesClose() {
+	// Discovery's backoff (cnet.discoverPace) stays eager while this says yes.
+	// Our own devices are the right demand signal to give it: the set is small,
+	// it is exactly the set whose absence a user notices immediately, and it
+	// empties, so the backoff still terminates — unlike "a friend is offline",
+	// which would hold a phone at the fast cadence for as long as the friend
+	// stayed away.
+	s.host.SetPeerDemand(s.devicesAway.Load)
 	wait, wasComplete := deviceReachMin, false
 	for {
 		missing := s.reachOwnDevices()
+		s.devicesAway.Store(missing > 0)
 		switch {
 		case missing == 0:
 			wait, wasComplete = deviceReachIdle, true

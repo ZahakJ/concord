@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -299,6 +300,13 @@ type Service struct {
 	// for (devices.go), so an unreachable phone costs one attempt at a time
 	// rather than one per beat.
 	reaching greetSet
+
+	// devicesAway is "a device of this account is not here", recomputed by the
+	// reach loop and read by the network layer's discovery backoff (see
+	// cnet.Host.SetPeerDemand). An atomic rather than a call back into the
+	// device registry: the reader is a network goroutine on a timer, and the
+	// answer is already computed once a beat on the other side.
+	devicesAway atomic.Bool
 
 	// onPeerUp/onPeerDown are the UI's presence feed. They are held here, rather
 	// than handed straight to the host, because a peer can be placed LATE — a

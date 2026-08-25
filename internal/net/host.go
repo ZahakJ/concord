@@ -294,6 +294,10 @@ type Host struct {
 	// discovery loops stretch to backgroundBeat (see SetBackground in dht.go).
 	// Guarded by mu.
 	background bool
+	// peerDemand is the app layer's "I am still missing somebody I expect to
+	// see", which holds the discovery backoff at discoverWanted rather than
+	// letting it run out to discoverMax. See SetPeerDemand.
+	peerDemand func() bool
 }
 
 // New brings up a libp2p host bound to cfg.Identity. The caller owns shutdown
