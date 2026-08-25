@@ -38,10 +38,21 @@ package bridge
 
 // maxVisibilityClients bounds the vote. The RPC surface is loopback plus a
 // bearer token, and the ids come from our own frontend, so this is not a threat
-// model so much as a refusal to let a reconnect loop with a fresh id each time
-// grow a map for the life of the process. Sixty-four simultaneously attached
-// UIs is already far past absurd; past the cap, unknown ids are ignored and the
-// clients already in the vote keep deciding.
+// model so much as a refusal to let a map grow for the life of the process.
+// Sixty-four simultaneously attached UIs is already far past absurd.
+//
+// It can be reached honestly, by one shell: the Wails desktop takes its events
+// over the native runtime rather than /events, so it has no stream whose
+// closing would drop it, and every reload of that webview mints a fresh id.
+// The outgoing document's pagehide leaves the old id behind reporting hidden,
+// which is harmless to the verdict but still occupies a slot.
+//
+// So a full vote evicts a client that is reporting hidden rather than refusing
+// the newcomer. Only ever a hidden one: dropping a voter that says nobody is
+// looking cannot change any-visible-wins, whereas turning away a new client
+// could leave a node throttled while somebody is staring at it — the worst
+// failure this feature has available. With no hidden client to evict the vote
+// is genuinely full of people looking at it, and one more makes no difference.
 const maxVisibilityClients = 64
 
 // maxClientIDLen bounds one id. A UUID is 36 characters.
@@ -83,11 +94,10 @@ func (b *Bridge) SetClientVisible(clientID string, visible bool) error {
 	if b.clientVisible == nil {
 		b.clientVisible = map[string]bool{}
 	}
-	_, known := b.clientVisible[clientID]
-	if known || len(b.clientVisible) < maxVisibilityClients {
+	if _, known := b.clientVisible[clientID]; known || b.roomInVoteLocked() {
 		b.clientVisible[clientID] = visible
-		b.heardClient = true
 	}
+	b.heardClient = true
 	b.mu.Unlock()
 	b.applyVisibility()
 	return nil
@@ -110,7 +120,7 @@ func (b *Bridge) AttachClient(clientID string) {
 	if b.clientVisible == nil {
 		b.clientVisible = map[string]bool{}
 	}
-	if _, known := b.clientVisible[clientID]; !known && len(b.clientVisible) < maxVisibilityClients {
+	if _, known := b.clientVisible[clientID]; !known && b.roomInVoteLocked() {
 		b.clientVisible[clientID] = true
 	}
 	b.heardClient = true
@@ -133,6 +143,21 @@ func (b *Bridge) DropClient(clientID string) {
 	if known {
 		b.applyVisibility()
 	}
+}
+
+// roomInVoteLocked makes space for one more client if it can, evicting a hidden
+// voter when the map is full. Caller holds b.mu.
+func (b *Bridge) roomInVoteLocked() bool {
+	if len(b.clientVisible) < maxVisibilityClients {
+		return true
+	}
+	for id, visible := range b.clientVisible {
+		if !visible {
+			delete(b.clientVisible, id)
+			return true
+		}
+	}
+	return false
 }
 
 // applyVisibility recomputes the verdict and hands it to the service. Cheap to

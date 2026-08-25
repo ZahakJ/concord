@@ -1,6 +1,9 @@
 package bridge
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 // Before anybody has said anything the answer is "foreground", and it has to
 // be. Two live cases depend on it: a node booting with no UI attached yet, and
@@ -113,13 +116,60 @@ func TestAnUnnameableClientIsNotLetIntoTheVote(t *testing.T) {
 func TestTheVoteIsBounded(t *testing.T) {
 	b := &Bridge{}
 	for i := 0; i < maxVisibilityClients*3; i++ {
-		b.AttachClient(string(rune('a'+i%26)) + string(rune('a'+i/26)) + "-client")
+		b.AttachClient(fmt.Sprintf("client-%d", i))
 	}
 	b.mu.Lock()
 	n := len(b.clientVisible)
 	b.mu.Unlock()
 	if n > maxVisibilityClients {
 		t.Errorf("the vote grew to %d clients, past the %d cap", n, maxVisibilityClients)
+	}
+}
+
+// The Wails desktop leaves a hidden entry behind on every reload — it has no
+// /events stream to drop it — so a full vote must make room by evicting one of
+// those rather than turning the live client away. Turning it away would leave
+// the node throttled while somebody is looking straight at it.
+func TestAFullVoteEvictsAHiddenClientRatherThanRefuseANewOne(t *testing.T) {
+	b := &Bridge{}
+	for i := 0; i < maxVisibilityClients; i++ {
+		id := fmt.Sprintf("stale-%d", i)
+		b.AttachClient(id)
+		_ = b.SetClientVisible(id, false) // what pagehide leaves behind
+	}
+	if !b.background() {
+		t.Fatal("a vote of nothing but hidden clients should have settled the node")
+	}
+	_ = b.SetClientVisible("the-live-one", true)
+	if b.background() {
+		t.Error("a full vote turned away the one client actually on screen")
+	}
+	b.mu.Lock()
+	n := len(b.clientVisible)
+	b.mu.Unlock()
+	if n > maxVisibilityClients {
+		t.Errorf("the vote grew to %d, past the %d cap", n, maxVisibilityClients)
+	}
+}
+
+// Eviction must never drop a client that says it IS looking: that is the one
+// vote that can change the verdict.
+func TestAFullVoteOfVisibleClientsEvictsNobody(t *testing.T) {
+	b := &Bridge{}
+	for i := 0; i < maxVisibilityClients; i++ {
+		b.AttachClient(fmt.Sprintf("watcher-%d", i))
+	}
+	_ = b.SetClientVisible("one-more", true)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.clientVisible) != maxVisibilityClients {
+		t.Errorf("the vote holds %d clients, want the %d cap unchanged",
+			len(b.clientVisible), maxVisibilityClients)
+	}
+	for id, visible := range b.clientVisible {
+		if !visible {
+			t.Errorf("client %s was left hidden; a visible client was evicted for it", id)
+		}
 	}
 }
 
