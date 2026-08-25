@@ -123,7 +123,13 @@ func TestReturningDeviceIsFoundQuickly(t *testing.T) {
 	// A phone that changed networks: neither side's cached address is any use.
 	_ = os.Remove(filepath.Join(phoneDir, "peers.json"))
 	_ = os.Remove(filepath.Join(deskDir, "peers.json"))
-	desk.peers = LoadPeerCache(deskDir)
+	// Empty the desktop's live cache in place, under the cache's own lock.
+	// Swapping the Service's pointer for a freshly loaded cache is the obvious
+	// way to write this and it races: the desktop is still running, and its
+	// connection callbacks read s.peers on libp2p's goroutines the whole time.
+	desk.peers.mu.Lock()
+	desk.peers.peers = nil
+	desk.peers.mu.Unlock()
 	waitUntil(t, 30*time.Second, func() bool {
 		for _, p := range desk.host.Peers() {
 			if p.String() == phoneID {
