@@ -179,6 +179,11 @@ func (s *Service) UnlinkDevice(deviceKeyHex string) error {
 	// And tell it, if it happens to be here right now. If it isn't, the hello
 	// reply catches it whenever it next connects.
 	if id, ok := devicePeerID(raw); ok {
+		// It is no longer ours, so it stops being exempt from the trim. Left
+		// protected it would outlive a real peer on a phone at its high water
+		// mark — a device the user just revoked holding a connection open
+		// against the friend they revoked it to protect.
+		s.host.UnprotectDevice(id)
 		go s.pushRevocation(id, rev)
 	}
 	if len(failed) > 0 {

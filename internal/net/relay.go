@@ -19,6 +19,16 @@ import (
 // we already share a guild with, and for nobody else.
 const relayTag = "concord-member"
 
+// bootstrapTag and deviceTag exempt connections from the connection manager
+// without granting anything else. Only relayTag is consulted by memberACL, so
+// a rendezvous node and our own phone are kept alive without either of them
+// gaining the right to reserve a circuit on us. See Host.protectBootstrap and
+// Host.ProtectDevice.
+const (
+	bootstrapTag = "concord-rendezvous"
+	deviceTag    = "concord-own-device"
+)
+
 // relaySource feeds AutoRelay the peers that could carry our inbound traffic.
 //
 // The rendezvous nodes come first: they are dedicated, always public, and they
@@ -53,8 +63,23 @@ func (n *Host) SetBootstrapPeers(peers []peer.AddrInfo) {
 		return
 	}
 	n.relays.mu.Lock()
+	old := n.relays.boot
 	n.relays.boot = append([]peer.AddrInfo{}, peers...)
 	n.relays.mu.Unlock()
+
+	// The trim exemption follows the rendezvous the user actually configured.
+	// Without the unprotect, a node they replaced would keep its connection for
+	// the life of the process while a phone trimmed a real friend instead.
+	keep := make(map[peer.ID]bool, len(peers))
+	for _, p := range peers {
+		keep[p.ID] = true
+	}
+	for _, p := range old {
+		if !keep[p.ID] {
+			n.h.ConnManager().Unprotect(p.ID, bootstrapTag)
+		}
+	}
+	n.protectBootstrap(peers)
 }
 
 // candidates implements autorelay.PeerSource. It must send at most num peers

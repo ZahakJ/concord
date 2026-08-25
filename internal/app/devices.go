@@ -328,6 +328,12 @@ func (s *Service) reachOwnDevices() int {
 	}
 	missing := 0
 	for _, id := range want {
+		// Exempt from the connection manager's trim, whether it is here now or
+		// not: protection is keyed on the peer id, so doing it here covers
+		// every future reconnect too, and a phone with a low water mark must
+		// never shed the desktop it is syncing with in favour of a stranger the
+		// rendezvous introduced.
+		s.host.ProtectDevice(id)
 		if connected[id] {
 			continue
 		}

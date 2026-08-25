@@ -29,6 +29,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/host/autorelay"
 	"github.com/libp2p/go-libp2p/p2p/net/conngater"
+	"github.com/libp2p/go-libp2p/p2p/net/connmgr"
 	"github.com/libp2p/go-libp2p/p2p/protocol/ping"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"github.com/multiformats/go-multiaddr"
@@ -339,11 +340,20 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		known: append([]peer.AddrInfo{}, cfg.RememberedPeers...),
 	}
 
+	limits := peerConnLimits(onMobile)
+	cm, err := connmgr.NewConnManager(limits.low, limits.high, connmgr.WithGracePeriod(limits.grace))
+	if err != nil {
+		return nil, fmt.Errorf("net: connection manager: %w", err)
+	}
+
 	bwc := metrics.NewBandwidthCounter()
 	opts := []libp2p.Option{
 		libp2p.Identity(priv),
 		// Encrypt every connection with the Noise protocol.
 		libp2p.Security(noise.ID, noise.New),
+		// Spelled out rather than inherited — see peerConnLimits. The host owns
+		// it from here: basic host closes the manager as part of Close.
+		libp2p.ConnectionManager(cm),
 		// Meter traffic so the Stats panel can show live bandwidth.
 		libp2p.BandwidthReporter(bwc),
 	}
@@ -467,6 +477,14 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 			log.Printf("concord/net: mDNS discovery unavailable, continuing without LAN discovery: %v", err)
 		}
 	}
+	// The rendezvous is how offline messages arrive (the mailbox lives on it)
+	// and how a NAT'd node is reachable at all, so its connection must outlast
+	// any trim. Protection is keyed on peer id, not on a live connection, so
+	// this holds across every reconnect too, and it is not gated on the DHT:
+	// the mailbox is dialled on any configured rendezvous that happens to be
+	// connected, DHT or no DHT.
+	node.protectBootstrap(cfg.BootstrapPeers)
+
 	if cfg.EnableDHT {
 		if err := node.startDHT(cfg); err != nil {
 			_ = h.Close()
@@ -558,6 +576,39 @@ func (n *Host) newStream(ctx context.Context, p peer.ID, proto protocol.ID) (net
 // prune it — used to keep guild members (esp. over a relay) reachable.
 func (n *Host) Protect(p peer.ID) {
 	n.h.ConnManager().Protect(p, relayTag)
+}
+
+// ProtectDevice exempts one of this account's own linked devices from trimming.
+//
+// A separate tag from Protect's, deliberately. relayTag doubles as the relay
+// ACL (memberACL), so protecting under it grants the right to reserve a circuit
+// on us; that is the correct grant for a guild member and beside the point for
+// our own phone, which we protect because losing the connection to it breaks
+// the one thing users notice fastest — a message typed here not appearing
+// there. The connection manager treats a peer held under any tag as protected,
+// so the narrower grant costs nothing.
+func (n *Host) ProtectDevice(p peer.ID) {
+	n.h.ConnManager().Protect(p, deviceTag)
+}
+
+// UnprotectDevice drops that exemption, for a device that has been unlinked.
+func (n *Host) UnprotectDevice(p peer.ID) {
+	n.h.ConnManager().Unprotect(p, deviceTag)
+}
+
+// protectBootstrap exempts the rendezvous nodes from trimming.
+//
+// They are not friends and they are not many, but they are load-bearing in a
+// way no other connection is: the mailbox that holds messages for us while we
+// are offline lives on them (internal/app/mailbox.go dials whichever bootstrap
+// peers are connected, and only those), AutoRelay reserves on them, and they
+// are the way back into the DHT after a network change. A connection manager
+// that trimmed one would take offline delivery down with it, silently, on the
+// device most likely to hit the high-water mark.
+func (n *Host) protectBootstrap(peers []peer.AddrInfo) {
+	for _, p := range peers {
+		n.h.ConnManager().Protect(p.ID, bootstrapTag)
+	}
 }
 
 // PeerID returns this node's libp2p peer ID.
