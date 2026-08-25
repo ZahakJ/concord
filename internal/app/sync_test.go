@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -68,6 +70,106 @@ func TestJoinerProfileKnownToHost(t *testing.T) {
 	a2 := startServiceInDir(t, ctx, aDir)
 	if got := a2.ProfileName(b.Fingerprint()); got != "euclid" {
 		t.Fatalf("host restart forgot joiner profile: got %q, want \"euclid\"", got)
+	}
+}
+
+// TestIdleSyncOverTheWireIsSmall measures the real thing: two peers that hold
+// identical state, one asking the other over the actual sync stream.
+//
+// It asks TWICE, and the comparison is the point. The first request is shaped
+// the way every build before digests shaped it — an epoch and a per-channel
+// cursor, no inventory — and the responder must answer it exactly as it always
+// did, which is both the backward-compatibility guarantee and a live
+// measurement of what this cost before. The second carries the inventory. The
+// same guild, the same peer, the same second: one answer is hundreds of
+// kilobytes, the other is a rounding error.
+func TestIdleSyncOverTheWireIsSmall(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	a := startService(t, ctx)
+	b := startService(t, ctx)
+
+	big := func(n int) string {
+		return "data:image/png;base64," + strings.Repeat("A", n-22)
+	}
+	if err := a.SetProfile(Profile{Name: "host", Avatar: big(60 << 10), Banner: big(200 << 10)}); err != nil {
+		t.Fatalf("A SetProfile: %v", err)
+	}
+	g, err := a.CreateGuild("heavy")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	if err := a.SetGuildProfile(g.ID, "heavy", big(300<<10), big(400<<10), "a guild with art"); err != nil {
+		t.Fatalf("SetGuildProfile: %v", err)
+	}
+	if err := a.AddCustomEmoji(g.ID, "blob", big(200<<10)); err != nil {
+		t.Fatalf("AddCustomEmoji: %v", err)
+	}
+	code, err := a.InviteCode(g.ID)
+	if err != nil {
+		t.Fatalf("InviteCode: %v", err)
+	}
+	if _, err := b.JoinViaInvite(code); err != nil {
+		t.Fatalf("B JoinViaInvite: %v", err)
+	}
+	waitMembers(t, 30*time.Second, 2, a, b)
+	// Converge B fully, so what follows is a genuinely idle re-sync.
+	b.syncGuildFromPeer(g.ID, a.host.PeerID())
+	b.syncGuildFromPeer(g.ID, a.host.PeerID())
+
+	ask := func(withDigests bool) int {
+		t.Helper()
+		b.mu.RLock()
+		guild := b.guilds[g.ID].Clone()
+		b.mu.RUnlock()
+		epoch, err := b.mls.Epoch(ctx, guild.GroupID)
+		if err != nil {
+			t.Fatalf("epoch: %v", err)
+		}
+		req := syncRequest{GuildID: g.ID, Epoch: epoch, Since: map[string]int64{}}
+		for _, ch := range guild.Channels {
+			if latest, err := b.store.LatestTimestamp(ch.ID); err == nil {
+				if cursor := latest - syncOverlap.Nanoseconds(); cursor > 0 {
+					req.Since[ch.ID] = cursor
+				}
+			}
+		}
+		if withDigests {
+			req.Have = b.syncDigestFor(g.ID, guild, time.Now().Unix())
+		}
+		raw, err := json.Marshal(req)
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		rctx, rcancel := context.WithTimeout(ctx, 20*time.Second)
+		defer rcancel()
+		respBytes, err := b.host.RequestSync(rctx, a.host.PeerID(), raw)
+		if err != nil {
+			t.Fatalf("RequestSync: %v", err)
+		}
+		var resp syncResponse
+		if err := json.Unmarshal(respBytes, &resp); err != nil {
+			t.Fatalf("unmarshal response: %v", err)
+		}
+		t.Logf("idle sync, digests=%v: request %d bytes, response payload %d bytes",
+			withDigests, len(raw), len(resp.Payload))
+		return len(resp.Payload)
+	}
+
+	legacy := ask(false)
+	current := ask(true)
+	// The legacy answer is now ALSO capped by the byte budget (before this
+	// change it would simply have been the whole ~1.2 MiB), so the floor here
+	// is well under what the fixture puts in.
+	if legacy < 400<<10 {
+		t.Fatalf("the legacy-shaped answer was only %d bytes — the fixture no longer carries the weight it is meant to", legacy)
+	}
+	if current > 16<<10 {
+		t.Fatalf("an idle sync of an unchanged guild still costs %d bytes (legacy shape: %d)", current, legacy)
 	}
 }
 

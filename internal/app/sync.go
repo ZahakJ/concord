@@ -39,22 +39,45 @@ var errSyncDeclined = errors.New("app: peer declined to sync")
 // Message saves are idempotent by ID and state adoption is newest-wins, so
 // overlapping syncs against several members are harmless.
 
-// syncOverlap is subtracted from the per-channel cursor so sender clock skew
-// up to this much can't hide a message; idempotent saves make overlap free.
-const syncOverlap = 5 * time.Minute
+// syncOverlap is subtracted from the per-channel cursor. Its ONLY job is sender
+// clock skew: the cursor is our own newest stamp for the channel, so a message
+// we never received from a peer whose clock runs behind ours would otherwise
+// fall below it and stay invisible forever. Everything else is already covered —
+// a gap in one sender's own stream is above their previous stamp, and an edit
+// carries a fresh `updated` that MessagesChangedSince matches on.
+//
+// It was five minutes, which meant every reconcile re-shipped the last five
+// minutes of every active channel — and a chat message can carry an inline
+// base64 image, so on a busy channel that was megabytes an hour to re-send rows
+// the peer already had. A minute absorbs any clock a phone or laptop keeps
+// (NTP-disciplined devices sit inside a second, and a device further out than a
+// minute is not saved by five either — that just moves the cliff), while
+// costing a fifth of the traffic.
+const syncOverlap = time.Minute
 
 // maxSyncPayload caps the marshalled payload well below the transport's 1 MiB
 // frame limit (inline base64 images make single messages large). Truncation is
-// safe: whatever was saved advances the cursor, and the next sync continues.
+// safe: whatever was saved advances the cursor and the requester's digests, so
+// the next round continues where this one stopped — and syncResponse.More asks
+// for that round now rather than on the next beat.
 const maxSyncPayload = 700 * 1024
 
 // syncMessagesPerChannel bounds one channel's contribution to a single response.
 const syncMessagesPerChannel = 200
 
+// maxSyncRounds bounds one peer's catch-up. Two rounds were always needed when
+// applied commits moved our epoch (history encrypted beyond our old reach
+// becomes readable); the third covers a payload the budget truncated.
+const maxSyncRounds = 3
+
 type syncRequest struct {
 	GuildID string           `json:"guildId"`
 	Epoch   uint64           `json:"epoch"`           // requester's current MLS epoch
 	Since   map[string]int64 `json:"since,omitempty"` // channelID -> UnixNano cursor (overlap already applied)
+	// Have is what the requester already holds, as content hashes (syncdigest.go).
+	// Absent from older peers, which reads as nil: serve the full snapshot, as
+	// this protocol always did.
+	Have *syncDigest `json:"have,omitempty"`
 }
 
 type syncResponse struct {
@@ -74,6 +97,13 @@ type syncResponse struct {
 	Epoch uint64 `json:"myEpoch,omitempty"`
 	// Payload is an MLS ciphertext (our current epoch) of syncPayload.
 	Payload []byte `json:"payload,omitempty"`
+	// More says the byte budget cut the payload short and there is more to
+	// serve. The requester asks again straight away instead of waiting out the
+	// reconcile beat; its own cursor and digests, which advanced over whatever
+	// it just ingested, are what make the next answer a continuation rather
+	// than a repeat. Absent from older peers, which reads as false — exactly
+	// the old behaviour, one round and wait.
+	More bool `json:"more,omitempty"`
 }
 
 type syncPayload struct {
@@ -139,45 +169,28 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	// tolerates decrypting a few epochs back, and the mirror-image sync running
 	// in the other direction lifts us to their epoch.
 
-	payload := syncPayload{
-		Guild:    guild,
-		Profiles: s.profileRoster(),
-		Messages: map[string][]domain.Message{},
-	}
-	if cats, err := s.store.Categories(guild.ID); err == nil {
-		for _, c := range cats {
-			payload.Categories = append(payload.Categories, c)
-		}
-	}
-	if emoji, err := s.CustomEmoji(guild.ID); err == nil {
-		payload.Emoji = emoji
-	}
-	if gifs, err := s.GuildGifs(guild.ID); err == nil {
-		payload.Gifs = gifs
-	}
-	if evs, err := s.store.Events(guild.ID); err == nil {
-		payload.Events = evs
-	}
-	payload.GovOps = s.govOpsFor(guild.ID)
-	// Stories: unexpired only (filtered here on the RESPONDER, so a dead record
-	// never spends payload budget), newest first, capped per guild.
-	payload.Stories = s.storiesForSync(guild.ID, time.Now().Unix())
-	payload.StoryDels = s.storyDelsForSync(guild.ID, time.Now().Unix())
-	budget := maxSyncPayload
+	// Gather everything this guild could contribute, then let the requester's
+	// digests and the byte budget decide what actually travels (syncdigest.go).
+	// Gathering is cheap next to serving: the expensive part of the old
+	// behaviour was not reading the icon, it was encrypting and shipping it to
+	// somebody who already had it.
+	src := s.syncSourceFor(guild.ID, guild, time.Now().Unix())
+	src.reqFpr = s.presence(from).Fingerprint
+	// Whether WE are a trusted history source for this guild, judged by our own
+	// governance state. The requester judges the same question on its own state
+	// when it applies what we send; if the two ever disagree the cost is a
+	// profile refresh withheld (it still reaches them from the owner, a
+	// SyncHost, or its author), never a wrong write.
+	src.selfTrusted = s.trustedSyncSource(guild.ID, src.selfFpr)
 	for _, ch := range guild.Channels {
 		msgs, err := s.store.MessagesChangedSince(ch.ID, req.Since[ch.ID], syncMessagesPerChannel)
-		if err != nil {
+		if err != nil || len(msgs) == 0 {
 			continue
 		}
-		for _, m := range msgs {
-			cost := len(m.Content) + 256 // rough per-row JSON overhead
-			if budget < cost {
-				break
-			}
-			budget -= cost
-			payload.Messages[ch.ID] = append(payload.Messages[ch.ID], m)
-		}
+		src.channels = append(src.channels, syncChannelRows{id: ch.ID, rows: msgs})
 	}
+	payload, truncated := buildSyncPayload(src, req.Have)
+	resp.More = truncated
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return json.Marshal(resp)
@@ -356,7 +369,7 @@ func (s *Service) sharesGuild(fingerprint string) bool {
 // history that was encrypted beyond our old reach. The returned error reflects
 // transport failure only (no response) — content problems are best-effort.
 func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
-	for round := 0; round < 2; round++ {
+	for round := 0; round < maxSyncRounds; round++ {
 		s.mu.RLock()
 		g, ok := s.guilds[guildID]
 		var guild domain.Guild
@@ -383,7 +396,14 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 			}
 		}
 
-		reqBytes, _ := json.Marshal(syncRequest{GuildID: guildID, Epoch: epoch, Since: since})
+		// Say what we already hold, so the responder can answer with the
+		// difference instead of rebuilding the whole guild (syncdigest.go).
+		// Recomputed each round: the last round's answer is exactly what must
+		// not come back again.
+		reqBytes, _ := json.Marshal(syncRequest{
+			GuildID: guildID, Epoch: epoch, Since: since,
+			Have: s.syncDigestFor(guildID, guild, time.Now().Unix()),
+		})
 		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
 		respBytes, err := s.host.RequestSync(ctx, p, reqBytes)
 		cancel()
@@ -455,8 +475,10 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 			// re-add heal.
 			s.setOutOfSync(guildID, true)
 		}
-		if applied == 0 {
-			return nil // epoch didn't move; a second round would repeat the first
+		if applied == 0 && !resp.More {
+			// The epoch didn't move and the responder served everything it had
+			// for us: another round would repeat this one.
+			return nil
 		}
 	}
 	return nil
