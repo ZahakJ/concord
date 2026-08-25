@@ -102,6 +102,10 @@ type Service struct {
 	bgMu   sync.Mutex
 	bg     bool
 	bgWake chan struct{}
+	// typingMu serialises the typing-topic join/leave sweep (see typing.go), so
+	// two rapid screen transitions converge on the current flag instead of
+	// racing to opposite answers. Never held across s.mu.
+	typingMu sync.Mutex
 
 	voiceMu    sync.Mutex
 	voiceRooms map[string]context.CancelFunc // channel ID -> heartbeat stop (rooms we're IN)

@@ -45,6 +45,11 @@ func (s *Service) SetBackground(bg bool) {
 		return
 	}
 	s.host.SetBackground(bg)
+	// Typing topics are meshed only while somebody is looking at a screen; see
+	// typing.go. This is the one thing background mode drops outright rather
+	// than slowing down, and it is safe to drop precisely because the feature
+	// has no meaning in this state.
+	s.syncTypingTopics()
 	if wake != nil {
 		close(wake) // foreground again: run the throttled loops now
 	}

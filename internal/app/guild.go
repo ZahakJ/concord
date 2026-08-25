@@ -1438,10 +1438,9 @@ func (s *Service) trackGuild(g *domain.Guild) {
 		})
 		// Ephemeral typing signals, attributed to a member ACCOUNT — your own
 		// included — or dropped (see receiveTyping: an unlearned device key
-		// must never surface as an encoded stranger).
-		_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(groupID, channelID), func(from peer.ID, _ []byte) {
-			s.receiveTyping(guildID, groupID, channelID, from)
-		})
+		// must never surface as an encoded stranger). Skipped entirely while the
+		// app is off screen, and joined on the way back.
+		s.subscribeTyping(guildID, groupID, channelID)
 		// Watch voice presence for every voice channel so the sidebar shows who's
 		// in a call without us having to join it. In a DM (and an instant
 		// meeting) there's no dedicated voice channel — the single channel
@@ -2252,9 +2251,7 @@ func (s *Service) addChannel(guildID string, ch domain.Channel) {
 	_ = s.ps.Subscribe(s.ctx, domain.TopicID(groupID, channelID), func(_ peer.ID, ct []byte) {
 		s.receiveCiphertext(groupID, ct)
 	})
-	_ = s.ps.Subscribe(s.ctx, domain.TypingTopicID(groupID, channelID), func(from peer.ID, _ []byte) {
-		s.receiveTyping(guildID, groupID, channelID, from)
-	})
+	s.subscribeTyping(guildID, groupID, channelID)
 	if ch.ChannelType() == "voice" {
 		s.watchVoice(groupID, channelID)
 	}
@@ -2281,8 +2278,15 @@ func (s *Service) emitGuildUpdate() {
 // indicator switched off (see typing.go) nothing is published at all — the
 // setting is enforced by not sending, which is the only enforcement a
 // serverless design can offer and the only one worth trusting.
+//
+// Off screen, nothing is published either. Nobody types into a backgrounded
+// app, so in practice this fires on a shell that has queued a call across the
+// transition — but it has to be here, because a publish is not a no-op on a
+// topic we have just left. gossipsub's flood-publish sends it to every peer
+// subscribed to the topic and opens a fanout set for the next minute, which is
+// the whole saving the leave just bought, spent by a stray keystroke.
 func (s *Service) SendTyping(channelID string) error {
-	if !s.TypingEnabled() {
+	if !s.TypingEnabled() || s.backgrounded() {
 		return nil
 	}
 	groupID, err := s.groupForChannel(channelID)

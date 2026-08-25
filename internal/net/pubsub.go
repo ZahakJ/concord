@@ -138,11 +138,26 @@ func (p *PubSub) Subscribe(ctx context.Context, topic string, handler TopicHandl
 	return nil
 }
 
-// Unsubscribe stops delivery for a topic: the subscription is cancelled (which
-// also announces our disinterest to the mesh) and the reader goroutine exits on
-// its next Next. The Topic handle stays cached on purpose — gossipsub refuses a
-// second Join of the same name, so dropping the handle would complicate a later
-// re-Subscribe (a user re-joining a guild they left); an idle cached handle
+// Subscribed reports whether this node currently holds a subscription to a
+// topic — i.e. whether it is meshed and listening, as opposed to merely having
+// a Topic handle cached.
+func (p *PubSub) Subscribed(topic string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.subs[topic]
+	return ok
+}
+
+// Unsubscribe stops delivery for a topic: the subscription is cancelled and the
+// reader goroutine exits on its next Next.
+//
+// Cancelling the last subscription is also the mesh LEAVE. gossipsub announces
+// our disinterest to every peer and tears down the mesh for that topic, which
+// is what makes this the right lever for a topic we want to stop paying for
+// (see the typing topics, dropped while the app is off screen) rather than
+// merely stop reading. The Topic handle stays cached on purpose — gossipsub
+// refuses a second Join of the same name, so dropping the handle would
+// complicate a later re-Subscribe; an idle cached handle is not in any mesh and
 // costs nothing. Unsubscribing an unknown topic is a no-op.
 func (p *PubSub) Unsubscribe(topic string) {
 	p.mu.Lock()
