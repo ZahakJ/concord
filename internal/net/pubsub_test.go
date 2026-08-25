@@ -3,10 +3,12 @@ package net
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/ZahakJ/concord/internal/identity"
@@ -82,5 +84,66 @@ func TestUnsubscribeStopsDeliveryAndAllowsResubscribe(t *testing.T) {
 	before := got.Load()
 	if !publishUntil(before + 1) {
 		t.Fatal("no delivery after re-subscribe — Unsubscribe poisoned the topic")
+	}
+}
+
+// TestDesktopKeepsStockGossipsubParams: the desktop path must be the library's
+// own configuration, not a copy of it that drifts. Asserted as a whole-struct
+// comparison so a field added upstream cannot quietly become a Concord opinion.
+func TestDesktopKeepsStockGossipsubParams(t *testing.T) {
+	got, tuned := gossipsubParams(false)
+	if tuned {
+		t.Fatal("the desktop path reported itself as tuned; it must pass no options at all")
+	}
+	if !reflect.DeepEqual(got, pubsub.DefaultGossipSubParams()) {
+		t.Fatal("desktop gossipsub params have drifted from the library defaults")
+	}
+}
+
+// TestPhonesRunACalmerGossipsub pins the two mobile changes and, just as
+// importantly, everything left alone. D and the mesh bounds are the message
+// delivery path; the history length is what a peer that missed a message can
+// still be sent. Trimming either of those would be trading reliability for
+// battery, which is not the trade being made here.
+func TestPhonesRunACalmerGossipsub(t *testing.T) {
+	stock := pubsub.DefaultGossipSubParams()
+	got, tuned := gossipsubParams(true)
+	if !tuned {
+		t.Fatal("the phone path did not report itself as tuned, so no options would be passed")
+	}
+	if got.HeartbeatInterval <= stock.HeartbeatInterval {
+		t.Fatalf("HeartbeatInterval = %v, want longer than the stock %v", got.HeartbeatInterval, stock.HeartbeatInterval)
+	}
+	if got.HeartbeatInterval != 2*time.Second {
+		t.Fatalf("HeartbeatInterval = %v, want 2s — see gossipsubParams for why not longer", got.HeartbeatInterval)
+	}
+	if got.Dlazy >= stock.Dlazy {
+		t.Fatalf("Dlazy = %d, want fewer than the stock %d", got.Dlazy, stock.Dlazy)
+	}
+	if got.D != stock.D || got.Dlo != stock.Dlo || got.Dhi != stock.Dhi {
+		t.Fatalf("the mesh degree moved (D=%d Dlo=%d Dhi=%d); that is the delivery path, not the idle floor",
+			got.D, got.Dlo, got.Dhi)
+	}
+	if got.HistoryLength != stock.HistoryLength || got.HistoryGossip != stock.HistoryGossip {
+		t.Fatal("the message cache was trimmed; that is what serves a peer who missed a message")
+	}
+	if got.GossipFactor != stock.GossipFactor {
+		t.Fatal("GossipFactor moved; it never applies below 24 non-mesh peers on one topic, which a phone never reaches")
+	}
+}
+
+// TestMobileGossipsubParamsAreAcceptedByTheRouter: GossipSubParams is validated
+// on the way in, and a rejected option means NewPubSub returns an error on
+// every phone while every desktop test in this package stays green. Building a
+// real router with them is the only thing that catches that.
+func TestMobileGossipsubParamsAreAcceptedByTheRouter(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	id, _ := identity.Generate()
+	h := newTestHost(t, id)
+	params, _ := gossipsubParams(true)
+	if _, err := pubsub.NewGossipSub(ctx, h.h, pubsub.WithGossipSubParams(params)); err != nil {
+		t.Fatalf("gossipsub refused the phone parameters: %v", err)
 	}
 }

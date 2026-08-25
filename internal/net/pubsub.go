@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -27,9 +28,68 @@ type PubSub struct {
 // along with the peer that authored it.
 type TopicHandler func(from peer.ID, data []byte)
 
+// gossipsubParams returns the router configuration for this platform, and
+// whether it differs from the library's.
+//
+// Desktop runs stock gossipsub — D=6 mesh per topic, a 1s heartbeat, Dlazy=6
+// gossip — and that is a decision, not an omission: the defaults are what the
+// protocol was measured against, and a machine on mains power has no reason to
+// trade any of it away.
+//
+// A phone does. Concord meshes a topic per guild control channel, a topic per
+// guild's metadata, and TWO per channel (messages and typing), so a member of
+// one twenty-channel guild is holding forty-two permanently-meshed topics. Each
+// of them wakes on every heartbeat to maintain its mesh and emit gossip, and on
+// a phone the cost of that is not CPU, it is the radio: a steady dribble of
+// small packets is the one traffic shape that keeps a cellular modem out of its
+// low-power state and a Wi-Fi chip out of power-save.
+//
+// Two changes, both off the message-delivery path:
+//
+//   - HeartbeatInterval 1s → 2s. The heartbeat drives mesh maintenance, gossip
+//     emission and the message cache's shift; it does NOT drive forwarding,
+//     which happens the instant a message arrives. So delivery latency for a
+//     message riding the mesh is unchanged, and what halves is the idle floor.
+//     The cost is that repairing a mesh whose peer just vanished can take up to
+//     2s instead of 1s. Longer was considered and declined: mesh repair IS on
+//     the reliability path, and 3s+ starts trading real recovery time for a
+//     saving that is already mostly banked at 2s.
+//
+//   - Dlazy 6 → 3. Dlazy is how many peers OUTSIDE the mesh get an IHAVE each
+//     heartbeat. An IHAVE carries no message, only an offer to resend one, and
+//     every peer in the mesh already received the message itself. Halving it,
+//     on top of the doubled heartbeat, cuts idle gossip per topic to a quarter.
+//     What it costs is recovery breadth in a partitioned mesh — fewer peers
+//     hear that we have something they missed — and in a Concord guild, where
+//     the whole membership usually fits inside D, the mesh is complete and
+//     gossip is redundant anyway.
+//
+// GossipFactor is deliberately left at 0.25: it only overrides Dlazy above
+// twenty-four non-mesh peers on a single topic, and the mobile connection
+// manager caps the whole node at forty-eight connections, so changing it would
+// be a number that never applies.
+//
+// None of this is negotiated. GossipSubParams is node-local — the protocol IDs
+// the router speaks come from GossipSubDefaultProtocols and are untouched — so
+// a phone and a desktop on these two configurations interoperate exactly as two
+// desktops do.
+func gossipsubParams(mobile bool) (pubsub.GossipSubParams, bool) {
+	p := pubsub.DefaultGossipSubParams()
+	if !mobile {
+		return p, false
+	}
+	p.HeartbeatInterval = 2 * time.Second
+	p.Dlazy = 3
+	return p, true
+}
+
 // NewPubSub starts a gossipsub instance on the node's libp2p host.
 func (n *Host) NewPubSub(ctx context.Context) (*PubSub, error) {
-	ps, err := pubsub.NewGossipSub(ctx, n.h)
+	var opts []pubsub.Option
+	if params, tuned := gossipsubParams(onMobile); tuned {
+		opts = append(opts, pubsub.WithGossipSubParams(params))
+	}
+	ps, err := pubsub.NewGossipSub(ctx, n.h, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("net: start gossipsub: %w", err)
 	}
