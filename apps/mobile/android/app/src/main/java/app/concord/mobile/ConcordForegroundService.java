@@ -7,7 +7,6 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
-import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.IBinder;
 
@@ -22,12 +21,6 @@ import android.os.IBinder;
 public class ConcordForegroundService extends Service {
     private static final String CHANNEL_ID = "concord_connection";
     private static final int NOTIF_ID = 1;
-
-    // Android filters inbound multicast at the Wi-Fi driver unless something
-    // holds this lock, which makes libp2p's mDNS deaf: a phone on the same
-    // network as the desktop never discovers it and has to go out through the
-    // rendezvous instead. Held for as long as we keep the node alive.
-    private WifiManager.MulticastLock multicastLock;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -47,54 +40,19 @@ public class ConcordForegroundService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
-        // NOT acquiring a multicast lock. See acquireMulticastLock below.
+        // No multicast lock is taken. It would only be of use to mDNS, and mDNS
+        // cannot start on Android: SELinux denies the netlink socket bind
+        // zeroconf needs, so Host.startMDNS fails and the node discovers over
+        // DHT + relay (see internal/net/host.go, "mDNS discovery unavailable").
+        // Holding one would switch OFF the Wi-Fi chip's multicast filtering for
+        // the entire life of the service, waking the CPU for every broadcast on
+        // the network, in exchange for nothing. If mDNS ever does work here,
+        // acquire the lock THEN — gated on the discovery having actually
+        // started, not on hope.
+        //
         // STICKY: if the OS reclaims us under heavy memory pressure, restart when
         // it can — the node re-establishes and drains the mailbox on restart.
         return START_STICKY;
-    }
-
-    // DELIBERATELY UNUSED — kept so the reasoning survives the next person who
-    // notices mDNS is off on Android and reaches for this.
-    //
-    // A Wi-Fi multicast lock switches OFF the chip's multicast filtering, so the
-    // radio wakes the CPU for every broadcast and multicast packet on the
-    // network — on a busy home or office LAN that is a constant, and it was held
-    // for the entire life of the service, which is the entire time Concord is
-    // running.
-    //
-    // It bought nothing. It exists for mDNS, and mDNS never starts on Android at
-    // all: SELinux denies the netlink socket bind zeroconf needs, so
-    // Host.startMDNS fails and the node logs and carries on over DHT + relay
-    // (see internal/net/host.go, "mDNS discovery unavailable"). So this was pure
-    // radio cost for a feature the platform does not permit.
-    //
-    // If mDNS ever does work on Android, acquire it THEN — gated on the discovery
-    // actually having started, not on hope.
-    @SuppressWarnings("unused")
-    private void acquireMulticastLock() {
-        if (multicastLock != null && multicastLock.isHeld()) return;
-        try {
-            WifiManager wm = (WifiManager)
-                getApplicationContext().getSystemService(Context.WIFI_SERVICE);
-            if (wm == null) return;
-            multicastLock = wm.createMulticastLock("concord-mdns");
-            multicastLock.setReferenceCounted(false);
-            multicastLock.acquire();
-        } catch (Exception e) {
-            // Best effort: without it we simply fall back to the rendezvous,
-            // which is how this behaved before. Not worth failing the service.
-        }
-    }
-
-    @Override
-    public void onDestroy() {
-        if (multicastLock != null && multicastLock.isHeld()) {
-            try {
-                multicastLock.release();
-            } catch (Exception ignored) {
-            }
-        }
-        super.onDestroy();
     }
 
     private Notification buildNotification() {

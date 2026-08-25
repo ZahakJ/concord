@@ -76,11 +76,12 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- Android's Wi-Fi driver drops inbound multicast unless an app holds a
-         multicast lock, so without this libp2p's mDNS never sees a peer on the
-         same network — the phone can be sitting next to the desktop and still
-         have to reach it the long way round, via the rendezvous. -->
-    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <!-- No CHANGE_WIFI_MULTICAST_STATE. It exists for mDNS, and mDNS cannot run
+         on Android at all: SELinux denies the netlink socket bind zeroconf
+         needs, so Host.startMDNS fails and the node discovers over DHT + relay
+         instead. The permission was declared, its comment described a benefit
+         nobody was getting, and the code that would have used it has been
+         unreachable for as long as it has existed. -->
     <!-- Foreground service to keep the P2P node connected in the background. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
