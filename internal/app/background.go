@@ -44,6 +44,15 @@ func (s *Service) SetBackground(bg bool) {
 	if !changed {
 		return
 	}
+	// One line per real transition, because "why is this node quiet" and "why is
+	// this node still chattering" are both questions that have been asked of a
+	// log with nothing in it to answer them. Only on a change: the shells report
+	// visibility on every tab switch.
+	if bg {
+		log.Printf("concord/app: nobody is looking, periodic loops slow to %s", backgroundBeat)
+	} else {
+		log.Printf("concord/app: back on screen, periodic loops resume their eager cadence")
+	}
 	s.host.SetBackground(bg)
 	// Typing topics are meshed only while somebody is looking at a screen; see
 	// typing.go. This is the one thing background mode drops outright rather

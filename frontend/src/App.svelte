@@ -4,6 +4,7 @@
   // backend event wiring live in lib/state.svelte.js.
   import { onMount } from "svelte";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
+  import { createVisibilityReporter } from "./lib/visibility.js";
   import { VoiceMesh } from "./lib/voice.js";
   import { requestPermission } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
@@ -355,6 +356,7 @@
     // blank window otherwise.
     window.Capacitor?.Plugins?.ConcordCore?.appReady?.().catch(() => {});
     watchSystemBars();
+    watchVisibility();
     // Closing or reloading the tab while in a call: tell the node to leave, so
     // it stops announcing us to a room we're no longer in. "pagehide" is the
     // one that also fires when a mobile browser backgrounds the page.
@@ -447,6 +449,40 @@
       attributeFilter: ["data-theme", "data-theme-pack"],
     });
     return () => mo.disconnect();
+  }
+
+  // ---- is anyone looking? ----
+  // The Go core drops every periodic loop to one slow shared beat when the app
+  // is off screen. Android drives that natively from the Activity lifecycle;
+  // until now nothing drove it anywhere else, so a minimised desktop window and
+  // a browser tab buried behind forty others kept walking the DHT every fifteen
+  // seconds for a UI nobody had looked at in hours.
+  //
+  // This reports only for THIS page. The backend takes a vote across every
+  // attached client and settles only when all of them are hidden, so a second
+  // tab (or the phone) does not put the window you are typing in to sleep. On
+  // Android the native signal still has the final say — see
+  // internal/bridge/visibility.go — because a WebView considers itself visible
+  // in situations where the OS has stopped drawing it.
+  function watchVisibility() {
+    const reporter = createVisibilityReporter({
+      send: (visible) => api.setClientVisible(visible).catch(() => {}),
+    });
+    const onVis = () => reporter.update(!document.hidden);
+    const onLeave = () => reporter.leave();
+    document.addEventListener("visibilitychange", onVis);
+    // pageshow/pagehide cover the back-forward cache, where a restored page
+    // never fires visibilitychange — and pagehide is the only one a mobile
+    // browser reliably fires on the way out.
+    addEventListener("pageshow", onVis);
+    addEventListener("pagehide", onLeave);
+    onVis(); // the state at mount, not just the first change
+    return () => {
+      reporter.stop();
+      document.removeEventListener("visibilitychange", onVis);
+      removeEventListener("pageshow", onVis);
+      removeEventListener("pagehide", onLeave);
+    };
   }
 
   // ---- app lock (biometric re-entry gate) ----

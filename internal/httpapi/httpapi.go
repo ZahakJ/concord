@@ -196,6 +196,19 @@ func (s *Server) HandleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
+	// This stream's lifetime IS the client's lifetime, which is what the
+	// background-pacing vote needs and cannot get from /rpc: an RPC call is
+	// over the moment it answers, so nothing about it says whether the page
+	// that made it still exists. A tab that hides reports itself hidden and
+	// keeps voting; a tab that is closed — or a laptop whose lid came down —
+	// simply stops, and the deferred DropClient takes it out of the vote so it
+	// cannot pin the node to the foreground cadence forever. See
+	// bridge/visibility.go.
+	if id := r.URL.Query().Get("client"); id != "" {
+		s.b.AttachClient(id)
+		defer s.b.DropClient(id)
+	}
+
 	ch := make(chan sseEvent, 16)
 	s.addClient(ch)
 	defer s.removeClient(ch)

@@ -33,10 +33,14 @@ type Bridge struct {
 
 	mu  sync.Mutex
 	svc *appsvc.Service
-	// wantBackground remembers the shell's last SetForeground call, so an
-	// identity unlocked while the app is off screen (biometric relock, a
-	// notification-triggered cold start) begins life already throttled.
-	wantBackground bool
+	// The visibility vote. See visibility.go: shellBackground is the native
+	// mobile lifecycle's answer, clientVisible is what each attached UI says
+	// about itself, and the two are ANDed. All three are remembered across a
+	// locked service so an identity unlocked while nobody is looking begins
+	// life already throttled.
+	shellBackground bool
+	heardClient     bool
+	clientVisible   map[string]bool
 	// wantMetered remembers the shell's last SetMetered call for the same
 	// reason: the network callback fires as soon as the process starts, long
 	// before anybody types a passphrase, and a service born after that must not
@@ -595,7 +599,7 @@ func (b *Bridge) Login(passphrase string) error {
 	// The shell may have declared the app backgrounded before the unlock
 	// happened; a service born after that call must not start on the eager
 	// foreground cadence.
-	if b.wantBackground {
+	if backgroundNow(b.shellBackground, b.heardClient, b.clientVisible) {
 		svc.SetBackground(true)
 	}
 	// Likewise the connection the shell told us about before the unlock.
@@ -2139,24 +2143,6 @@ func (b *Bridge) Nudge() error {
 	return nil
 }
 
-// SetForeground is the mobile shell reporting whether the app is on screen
-// (Activity onStart/onStop — which covers backgrounding AND the screen turning
-// off). Off screen, the core's periodic loops slow to one shared beat so the
-// radio can sleep; connections, gossip delivery and the relay reservation are
-// untouched, and returning to the foreground restores the eager cadence
-// immediately. Safe to call while locked — the choice is remembered and
-// applied when the service starts.
-func (b *Bridge) SetForeground(fg bool) error {
-	b.mu.Lock()
-	b.wantBackground = !fg
-	svc := b.svc
-	b.mu.Unlock()
-	if svc != nil {
-		svc.SetBackground(!fg)
-	}
-	return nil
-}
-
 // SetMetered is the shell reporting whether the OS considers this connection
 // metered — cellular, or a hotspot the user has flagged as billed. On a metered
 // link the periodic DHT loops (advertise, bootstrap redial, peer discovery) are
@@ -2799,6 +2785,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.Nudge()
 	case "SetForeground":
 		return nil, b.SetForeground(argBool(args, 0))
+	case "SetClientVisible":
+		return nil, b.SetClientVisible(argStr(args, 0), argBool(args, 1))
 	case "SetMetered":
 		return nil, b.SetMetered(argBool(args, 0))
 	case "RegisterPush":

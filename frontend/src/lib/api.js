@@ -15,6 +15,19 @@
 let apiBase = "";
 let apiToken = "";
 
+// clientID names this page in the backend's background-pacing vote. One node
+// can have several UIs attached — two browser tabs, a phone, the desktop
+// window — and the core must only settle to its slow cadence when ALL of them
+// are hidden, so each has to be distinguishable. The same id rides the /events
+// query string, which is what gives the backend a lifetime to hang it on: the
+// stream ending is how a CLOSED client is told apart from a merely hidden one.
+// Per page load, not persisted — a reloaded tab is a new client, and the old
+// one's stream has already ended.
+export const clientID =
+  typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+
 // configureTransport points the HTTP/SSE transport at the mobile core's
 // loopback server. Must be called before the first api.* call.
 export function configureTransport({ baseURL, authToken }) {
@@ -77,6 +90,9 @@ export const api = {
   networkStatus: () => call("NetworkStatus"),
   reachability: () => call("ReachabilityStatus"),
   nudge: () => call("Nudge"),
+  // Whether anyone is looking at THIS page; the backend votes across every
+  // attached client. See lib/visibility.js and internal/bridge/visibility.go.
+  setClientVisible: (visible) => call("SetClientVisible", clientID, visible),
   registerPush: (platform, token) => call("RegisterPush", platform, token),
   linkOffer: () => call("LinkOffer"),
   cancelLinkOffer: () => call("CancelLinkOffer"),
@@ -351,8 +367,21 @@ export const api = {
 let eventSource = null;
 function sse() {
   if (!eventSource) {
-    const qs = apiToken ? `?token=${apiToken}` : "";
-    eventSource = new EventSource(`${apiBase}/events${qs}`);
+    const qs = new URLSearchParams();
+    if (apiToken) qs.set("token", apiToken);
+    qs.set("client", clientID);
+    eventSource = new EventSource(`${apiBase}/events?${qs}`);
+    // An EventSource redials on its own after a dropped connection, and the
+    // backend enters a reconnecting client into the visibility vote as
+    // VISIBLE — the fail-safe direction, since being wrong there only costs a
+    // node that stays eager slightly too long. Correct it straight away if
+    // this page is in fact hidden; a visible page needs no call, because
+    // visible is already what the backend assumed.
+    eventSource.addEventListener("open", () => {
+      if (typeof document !== "undefined" && document.hidden) {
+        call("SetClientVisible", clientID, false).catch(() => {});
+      }
+    });
   }
   return eventSource;
 }
