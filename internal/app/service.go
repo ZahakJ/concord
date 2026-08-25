@@ -87,10 +87,13 @@ type Service struct {
 
 	// Rich presence: an auto-detected "now playing" line that overlays the manual
 	// status while something is playing. activity is the current overlay (empty =
-	// use the manual status); richPresenceStop cancels the poller when disabled.
+	// use the manual status); lastActivitySay is when we last put it on the wire,
+	// which is what calms a scrubbed seek (see activitySeekCalm);
+	// richPresenceStop cancels the poller when disabled.
 	activityMu       sync.Mutex
 	activity         string
 	activityInfo     *Activity
+	lastActivitySay  time.Time
 	richPresenceStop context.CancelFunc
 
 	// Background mode (see background.go): bg is whether the mobile shell says
@@ -350,8 +353,10 @@ type Profile struct {
 	// offline envelopes to them (see mailbox.go). Not user-facing.
 	MailboxPub []byte `json:"mbx,omitempty"`
 	// Activity is the structured rich-presence payload (now playing: art,
-	// duration, position snapshot). Ephemeral — never persisted; old clients
-	// ignore it and fall back to the 🎵 status string.
+	// duration, position snapshot). Ephemeral — never persisted, never hashed
+	// into the sync inventory, and on the wire it is the ONLY thing a change of
+	// song moves. Clients render the line from it; the 🎵 status substitution
+	// is local to the device doing the playing (see selfWireProfile).
 	Activity *Activity `json:"activity,omitempty"`
 	// Games is the member's curated game collection (Discord-style), shown on
 	// the profile card. A name plus an optional cover URL (validated against
@@ -1577,8 +1582,9 @@ func (s *Service) SelfProfile() Profile {
 	bio, _ := s.store.GetSetting("bio")
 	birthday, _ := s.store.GetSetting("birthday")
 	// Rich presence travels as structured Activity alongside the manual status
-	// — it does NOT replace a status the user chose. The 🎵 string only stands
-	// in when there's no manual status (also what pre-activity clients show).
+	// — it does NOT replace a status the user chose. The 🎵 substitution for an
+	// empty status is this device's own view of itself; selfWireProfile is what
+	// goes to peers, and it leaves the status alone.
 	s.activityMu.Lock()
 	var act *Activity
 	if s.activity != "" {
@@ -1614,13 +1620,35 @@ func (s *Service) SelfProfile() Profile {
 // selfStoredProfile is the profile as STORED, for the account's own devices:
 // link handover, device hello, sync roster. It differs from SelfProfile in one
 // deliberate way — no rich-presence substitution. SelfProfile stands the 🎵
-// now-playing line in for an empty status because that's what peers should
-// SEE; writing that presentation copy into another device's settings would
-// make a passing song a permanent manual status.
+// now-playing line in for an empty status because that is what THIS device's
+// own card should show; writing that presentation copy into another device's
+// settings would make a passing song a permanent manual status.
 func (s *Service) selfStoredProfile() Profile {
 	p := s.SelfProfile()
 	p.Activity = nil
 	p.Status, _ = s.store.GetSetting("status_text")
+	return p
+}
+
+// selfWireProfile is what we BROADCAST: the stored profile plus the structured
+// now-playing activity. The status line stays the one the user typed — the 🎵
+// substitution is a rendering decision, and a receiver that has the activity
+// can make it for itself (clients already prefer the activity over the status
+// line, and suppressed the duplicate when both arrived).
+//
+// Keeping the substitution off the wire is what makes a track change cheap.
+// A profile's sync inventory hash is taken over its content with Activity
+// stripped, precisely so that a change of song cannot re-ship everybody's
+// avatars — but while the song was ALSO the status line, it moved that hash
+// anyway, and every anti-entropy beat found a difference and served the whole
+// profile to settle it. Now nothing a song touches is hashed at all.
+func (s *Service) selfWireProfile() Profile {
+	p := s.selfStoredProfile()
+	s.activityMu.Lock()
+	if s.activity != "" {
+		p.Activity = s.activityInfo
+	}
+	s.activityMu.Unlock()
 	return p
 }
 
@@ -1830,15 +1858,7 @@ func (s *Service) learnProfile(fingerprint string, p Profile) bool {
 	if len(p.Banner) > maxProfileBannerBytes || !validBanner(p.Banner) {
 		p.Banner = "" // reject oversized / malformed banners from peers
 	}
-	if a := p.Activity; a != nil {
-		// Peers only get to broadcast plausible activity: web art URLs (no
-		// file:///javascript: junk that a client might render), bounded sizes.
-		if len(a.Title) > maxActivityBytes || len(a.Artist) > maxActivityBytes {
-			p.Activity = nil
-		} else if !validArtURL(a.ArtURL) {
-			a.ArtURL = ""
-		}
-	}
+	p.Activity = sanitizeActivity(p.Activity)
 	p.Games = sanitizeGames(p.Games) // bound peers' collections like our own
 	sanitizeProfileExtras(&p)        // and their decorative extras
 	// Don't let a partial update wipe fields we already learned. Peers relay each

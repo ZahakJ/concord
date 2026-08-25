@@ -113,6 +113,14 @@ const maxDigestOps = 4096
 // is stripped first: it is ephemeral, never persisted, and travels on live
 // announces, so letting it into the hash would make every member's avatar and
 // profile banner re-sync each time somebody's music changed track.
+//
+// Stripping it is only worth anything because nothing ELSE in the profile moves
+// with the music either. It used to: the status line a listener broadcast was
+// the track title, so their peers hashed a different profile with every song
+// while the listener hashed their own stored one, the two never agreed, and
+// every anti-entropy beat served the whole profile to settle a difference that
+// was already on its way by gossip. The wire status is the user's own now (see
+// selfWireProfile), which is what makes this hash stand still.
 func digestProfile(p Profile) string {
 	p.Activity = nil
 	return digestOf(p)

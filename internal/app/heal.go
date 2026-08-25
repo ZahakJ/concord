@@ -182,7 +182,7 @@ func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 	// responder's credentialBoundToPeer check rejects the bare key, so every heal
 	// attempt fails and the guild stays stranded. Mirrors JoinViaInvite.
 	req, _ := json.Marshal(inviteRequest{
-		GuildID: guildID, KeyPackage: kp, Credential: s.myCredential, Profile: s.SelfProfile(),
+		GuildID: guildID, KeyPackage: kp, Credential: s.myCredential, Profile: s.selfWireProfile(),
 	})
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()

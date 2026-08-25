@@ -329,8 +329,9 @@
     return hit?.cover || "";
   });
 
-  // When the member has no manual status, the backend fills status with the
-  // "Artist — Title" line for old clients — don't render that twice here.
+  // A peer on an older build fills its status with the "Artist — Title" line
+  // when it has no manual status — don't render that twice here. Current
+  // builds send the track in `activity` alone and leave the status to the user.
   const activityLine = $derived.by(() => {
     const a = mem?.activity;
     if (!a) return "";

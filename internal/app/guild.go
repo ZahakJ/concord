@@ -764,7 +764,7 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	}
 	reqBytes, _ := json.Marshal(inviteRequest{
 		GuildID: ic.GuildID, KeyPackage: kp, Credential: s.myCredential,
-		Profile: s.SelfProfile(),
+		Profile: s.selfWireProfile(),
 	})
 
 	// Generous timeout: a relayed/hole-punched dial to a NAT'd owner can take a
@@ -1456,7 +1456,7 @@ func (s *Service) trackGuild(g *domain.Guild) {
 // topic so all members converge on shared state (channels, member display
 // names). Only the fields relevant to Type are populated.
 type guildMeta struct {
-	Type        string             `json:"type"` // channel_added | channel_updated | category_added | profile | nickname | guild_renamed
+	Type        string             `json:"type"` // channel_added | channel_updated | category_added | profile | activity | nickname | guild_renamed
 	Channel     domain.Channel     `json:"channel,omitempty"`
 	Category    domain.Category    `json:"category,omitempty"`
 	Fingerprint string             `json:"fingerprint,omitempty"`
@@ -1469,7 +1469,7 @@ type guildMeta struct {
 	Presence    string             `json:"presence,omitempty"`
 	Bio         string             `json:"bio,omitempty"`
 	MailboxPub  []byte             `json:"mbx,omitempty"`
-	Activity    *Activity          `json:"activity,omitempty"`  // structured now-playing (rich presence)
+	Activity    *Activity          `json:"activity,omitempty"`  // profile + activity: structured now-playing
 	Games       []Game             `json:"games,omitempty"`     // profile: curated game collection
 	Color2      string             `json:"color2,omitempty"`    // profile: gradient partner color
 	Frame       string             `json:"frame,omitempty"`     // profile: avatar frame enum id
@@ -1556,8 +1556,33 @@ func (s *Service) applyProfileMeta(guildID, actor string, m guildMeta) {
 	// Forced, because the newcomer was not there for our last announce and the
 	// skip-if-unchanged rule would otherwise leave them with nothing. Bounded:
 	// learnProfile reports true only for a member we had never seen.
-	if s.learnProfile(actor, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games, Color2: m.Color2, Frame: m.Frame, Effect: m.Effect, Style: m.Style, UpdatedAt: m.UpdatedAt}) {
+	if s.learnProfile(actor, profileFromFrame(m)) {
 		s.announceProfileForce(guildID)
+	}
+}
+
+// profileFrame and profileFromFrame are the profile announce's encoder and its
+// decoder. They sit together because they are one list read twice, and a field
+// added to the struct but only to one of them is a field that travels and never
+// arrives — or arrives as a blank and clears what the receiver had.
+func profileFrame(p Profile, fingerprint string) guildMeta {
+	return guildMeta{
+		Type: "profile", Fingerprint: fingerprint,
+		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
+		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
+		Activity: p.Activity, Games: p.Games,
+		Color2: p.Color2, Frame: p.Frame, Effect: p.Effect, Style: p.Style,
+		UpdatedAt: p.UpdatedAt,
+	}
+}
+
+func profileFromFrame(m guildMeta) Profile {
+	return Profile{
+		Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar,
+		Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub,
+		Activity: m.Activity, Games: m.Games,
+		Color2: m.Color2, Frame: m.Frame, Effect: m.Effect, Style: m.Style,
+		UpdatedAt: m.UpdatedAt,
 	}
 }
 
@@ -1646,15 +1671,7 @@ func (s *Service) publishProfile(guildID string, force bool) bool {
 	if !ok {
 		return false
 	}
-	p := s.SelfProfile()
-	meta := guildMeta{
-		Type: "profile", Fingerprint: s.id.Fingerprint(),
-		Name: p.Name, Status: p.Status, Emoji: p.Emoji, Color: p.Color, Avatar: p.Avatar,
-		Banner: p.Banner, Presence: p.Presence, Bio: p.Bio, MailboxPub: p.MailboxPub,
-		Activity: p.Activity, Games: p.Games,
-		Color2: p.Color2, Frame: p.Frame, Effect: p.Effect, Style: p.Style,
-		UpdatedAt: p.UpdatedAt,
-	}
+	meta := profileFrame(s.selfWireProfile(), s.id.Fingerprint())
 	payload, _ := json.Marshal(meta)
 	// The nickname rides along, so it is part of what "unchanged" means.
 	nick := s.NickOf(guildID, s.id.Fingerprint())
@@ -2525,6 +2542,15 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		s.emitGuildUpdate()
 	case "profile":
 		s.applyProfileMeta(guildID, actor, m)
+	case "activity":
+		// The now-playing overlay on its own (richpresence.go). Its own type
+		// rather than a thinner "profile", because the profile applier reads an
+		// absent field as a cleared one for everything except a name and a
+		// mailbox key — a slim profile would have blanked the sender's avatar on
+		// every peer. A build that predates this type falls through the switch
+		// and ignores the frame, which costs it live track updates and nothing
+		// else: the full announce it does understand still carries the activity.
+		s.applyActivityMeta(actor, m)
 	case "story":
 		// Actor binding, signature verification and expiry all live in
 		// applyStoryMeta (story.go) so this path and history sync share one
