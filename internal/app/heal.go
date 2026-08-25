@@ -99,6 +99,10 @@ func (s *Service) recoverOutOfSync(guildID string) {
 	if !ok {
 		return
 	}
+	// Evidence first: a fork verdict against a peer that has since gone offline
+	// is not something this pass can act on, and left standing it would keep the
+	// guild flagged for as long as the peer stayed away.
+	s.pruneForkEvidence(guildID)
 
 	healthy := func() bool {
 		return s.pendingCiphertexts(groupID) == 0 && !s.OutOfSync(guildID)
@@ -163,11 +167,80 @@ func (s *Service) healOutOfSync(guildID string) {
 	if !s.OutOfSync(guildID) {
 		return
 	}
-	for _, pid := range s.authorizedCommittersOnline(guildID) {
+	for _, pid := range s.healCandidates(guildID) {
 		if s.healViaCommitter(guildID, pid) {
+			s.noteHealed(guildID)
 			return
 		}
 	}
+}
+
+// forkEvidenceCooldown is how long a completed re-add suppresses the NEXT fork
+// verdict for the same guild.
+//
+// A re-add is the most expensive thing this file can decide to do — two commits
+// every other member has to apply gaplessly — and the evidence that routes us
+// to one is, in the end, a member's own word about its epoch plus a payload we
+// could not read. An ordinary member with no permissions at all can produce
+// both. Without a floor, a member that keeps claiming to be far ahead and
+// keeps sending unreadable traffic can make this device re-add itself on every
+// beat, and the guild pays for it; the old any-peer-clears verdict happened to
+// stop that, and a verdict that latches must not lose the property. Suspicion
+// during the window still flags the guild and still runs the sync-everyone
+// recovery, which is what fixes a real gap anyway. A genuine second fork inside
+// the window is delayed, not dropped — and it takes two authorized committers
+// to make one, so two inside two minutes is churn that has its own problem.
+const forkEvidenceCooldown = 2 * time.Minute
+
+// noteHealed records that an automatic re-add just completed for a guild. Only
+// the automatic lane arms it — healViaCommitter is also called directly, and a
+// single deliberate re-add is not the loop worth damping.
+func (s *Service) noteHealed(guildID string) {
+	s.mu.Lock()
+	if s.lastHealed == nil {
+		s.lastHealed = map[string]time.Time{}
+	}
+	s.lastHealed[guildID] = time.Now()
+	s.mu.Unlock()
+}
+
+// healedRecently reports whether a re-add landed inside forkEvidenceCooldown.
+func (s *Service) healedRecently(guildID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t, ok := s.lastHealed[guildID]
+	return ok && time.Since(t) < forkEvidenceCooldown
+}
+
+// healCandidates orders the online authorized committers so that anyone we hold
+// FORK evidence against comes first.
+//
+// Ordering is not a preference here, it is the difference between a repair and
+// a treadmill. Only committers mint commits, so a fork always has one on each
+// side; a re-add served by a committer on our OWN branch is a Remove and an Add
+// that put us back exactly where we started, still unable to read the other
+// half — and repeated on the heal beat that is the re-add storm this module
+// exists to avoid, not a cure. The peer whose payload we could not read is, by
+// construction, standing on the branch we need to be moved to.
+func (s *Service) healCandidates(guildID string) []peer.ID {
+	all := s.authorizedCommittersOnline(guildID)
+	forked := s.forkedWith(guildID)
+	if len(forked) == 0 || len(all) < 2 {
+		return all
+	}
+	set := make(map[peer.ID]bool, len(forked))
+	for _, p := range forked {
+		set[p] = true
+	}
+	var first, rest []peer.ID
+	for _, p := range all {
+		if set[p] {
+			first = append(first, p)
+		} else {
+			rest = append(rest, p)
+		}
+	}
+	return append(first, rest...)
 }
 
 // healViaCommitter asks one authorized committer to re-add us, reporting
@@ -199,6 +272,10 @@ func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
 		return false
 	}
+	// The Join replaced our group state outright, so nothing we had concluded
+	// about our old tree survives it: drop the fork evidence before clearing the
+	// flag, or the verdict that routed us here would keep the flag up forever.
+	s.clearForkEvidence(guildID)
 	s.setOutOfSync(guildID, false)
 	for fpr, p := range resp.Profiles {
 		s.learnProfile(fpr, p)
@@ -233,7 +310,25 @@ func (s *Service) healStrandedGuilds() {
 	for id := range s.outOfSync {
 		ids = append(ids, id)
 	}
+	quiet := make(map[string][]byte, len(s.guilds))
+	for id, g := range s.guilds {
+		if !s.outOfSync[id] {
+			quiet[id] = g.GroupID
+		}
+	}
 	s.mu.RUnlock()
+	// A guild sitting on messages it could not read is not healthy either,
+	// whatever the flag says — and nothing else was going back for it. Recovery
+	// is kicked when an unreadable message ARRIVES, so a member on the wrong
+	// side of a split that then goes quiet keeps the words it already failed to
+	// read and never asks about them again. Ask once a beat until the stash
+	// drains (it expires on its own after pendingCipherTTL, so this cannot run
+	// forever on junk).
+	for id, groupID := range quiet {
+		if s.pendingCiphertexts(groupID) > 0 {
+			ids = append(ids, id)
+		}
+	}
 	for _, id := range ids {
 		s.recoverOutOfSync(id)
 	}

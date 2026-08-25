@@ -190,6 +190,22 @@ type Service struct {
 	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
 	outOfSync map[string]bool
+	// forkedPeers names, per guild, the members that stood strictly AHEAD of our
+	// epoch and served a payload our group state could not read — the signature
+	// of a fork (two divergent trees) rather than of us merely lagging. Guarded
+	// by mu. The verdict is kept per PEER because as a single boolean it was
+	// last-writer-wins: a member on our own branch always answers readably, so
+	// it erased the verdict a member on the other branch had just set, and the
+	// two halves sat apart with nobody flagged. See sync.go and heal.go.
+	forkedPeers map[string]map[peer.ID]bool
+	// lastReciprocal throttles the catch-up we start when a member tells us, in
+	// its own sync request, that it stands ahead of us (see handleSyncRequest),
+	// keyed guildID|peerID.
+	lastReciprocal map[string]time.Time
+	// lastHealed is when an automatic re-add last completed for a guild; a fresh
+	// fork verdict inside forkEvidenceCooldown of it cannot route another one.
+	// Guarded by mu. See heal.go.
+	lastHealed map[string]time.Time
 	// Last time an undecryptable message flagged a group, so a channel full of
 	// unreadable traffic raises the alarm once per heal cycle rather than on
 	// every packet. See flagUndecryptable.
@@ -968,6 +984,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		govHashes:        map[string]map[string]bool{},
 		meetingLife:      map[string]time.Time{},
 		outOfSync:        map[string]bool{},
+		forkedPeers:      map[string]map[peer.ID]bool{},
+		lastReciprocal:   map[string]time.Time{},
+		lastHealed:       map[string]time.Time{},
 		blocked:          map[string]bool{},
 		pendingMembers:   map[string]map[string]bool{},
 		announcedProfile: map[string]profileAnnounce{},

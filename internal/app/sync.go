@@ -155,6 +155,19 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 		return []byte{}, nil
 	}
 	resp.Epoch = myEpoch
+	// A member that stands AHEAD of us just asked for catch-up. That request is
+	// the one moment we are told, on the record, that our own ratchet is behind,
+	// and nothing used to act on it: the stale side of a split kept serving
+	// happily and re-examined itself only on the 60-second anti-entropy beat,
+	// against whichever single member answered first — which on a fork is very
+	// often somebody on our own dead branch, who answers readably and teaches us
+	// nothing. Pull from the peer that just told us. In the ordinary case it is
+	// the missed-commit backfill we needed anyway; on a fork it is how the
+	// stranded half finally gets a verdict. Only the behind side reciprocates,
+	// so this cannot ping-pong.
+	if req.Epoch > myEpoch && s.claimReciprocalSync(req.GuildID, from) {
+		go s.syncGuildFromPeer(req.GuildID, from)
+	}
 	if req.Epoch < myEpoch {
 		rows, err := s.store.CommitsAfter(guild.GroupID, req.Epoch)
 		if err != nil || !bridges(rows, req.Epoch, myEpoch) {
@@ -262,6 +275,109 @@ func (s *Service) syncGuildFromAnyPeer(guildID string) {
 	if declined > 0 && declined == len(peers) {
 		log.Printf("concord/app: guild %s: every peer declined to sync with us (%d asked)", guildID, declined)
 	}
+}
+
+// noteForkedPeer records that p served a payload we could not read while
+// standing strictly ahead of our epoch, and flags the guild. See the call site
+// for why "strictly ahead" is the whole of the evidence.
+func (s *Service) noteForkedPeer(guildID string, p peer.ID) {
+	if s.healedRecently(guildID) {
+		// A re-add landed moments ago, so this verdict cannot route another one:
+		// flag the guild the way an unproven suspicion always has, and let the
+		// ordinary sync-everyone recovery run. See forkEvidenceCooldown.
+		s.setOutOfSync(guildID, true)
+		return
+	}
+	s.mu.Lock()
+	if s.forkedPeers[guildID] == nil {
+		s.forkedPeers[guildID] = map[peer.ID]bool{}
+	}
+	s.forkedPeers[guildID][p] = true
+	s.mu.Unlock()
+	s.setOutOfSync(guildID, true)
+}
+
+// clearForkedPeer withdraws the fork evidence against one peer — its payload
+// just decrypted, so whatever divergence we suspected between the two of us is
+// over. It reports whether any evidence still stands for the guild.
+func (s *Service) clearForkedPeer(guildID string, p peer.ID) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := s.forkedPeers[guildID]
+	if m == nil {
+		return false
+	}
+	delete(m, p)
+	if len(m) == 0 {
+		delete(s.forkedPeers, guildID)
+		return false
+	}
+	return true
+}
+
+// clearForkEvidence drops every fork verdict for a guild. Used after a re-add
+// heal, whose Join replaces our group state outright: nothing we believed about
+// our old tree survives it.
+func (s *Service) clearForkEvidence(guildID string) {
+	s.mu.Lock()
+	delete(s.forkedPeers, guildID)
+	s.mu.Unlock()
+}
+
+// forkedWith lists the peers a guild's fork verdict currently rests on.
+func (s *Service) forkedWith(guildID string) []peer.ID {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]peer.ID, 0, len(s.forkedPeers[guildID]))
+	for p := range s.forkedPeers[guildID] {
+		out = append(out, p)
+	}
+	return out
+}
+
+// pruneForkEvidence forgets fork verdicts against peers that are no longer
+// connected members. The verdict's only use is routing a heal at the branch we
+// cannot read, and a peer that has gone offline can neither serve one nor be
+// re-examined — leaving its verdict standing would keep the "catching up"
+// banner lit with nothing able to clear it, and keep this device refusing to
+// admit members for a split that may no longer exist.
+func (s *Service) pruneForkEvidence(guildID string) {
+	live := map[peer.ID]bool{}
+	for _, p := range s.memberPeers(guildID) {
+		live[p] = true
+	}
+	s.mu.Lock()
+	m := s.forkedPeers[guildID]
+	for p := range m {
+		if !live[p] {
+			delete(m, p)
+		}
+	}
+	if len(m) == 0 {
+		delete(s.forkedPeers, guildID)
+	}
+	s.mu.Unlock()
+}
+
+// reciprocalSyncWindow bounds how often one member's request may make us sync
+// back to it. A guild in mid-repair asks constantly; without a floor we would
+// answer each of those asks with a catch-up of our own.
+const reciprocalSyncWindow = healRetryInterval
+
+// claimReciprocalSync reports whether enough time has passed to pull from this
+// peer again on the strength of its own request.
+func (s *Service) claimReciprocalSync(guildID string, p peer.ID) bool {
+	key := guildID + "|" + p.String()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lastReciprocal == nil {
+		s.lastReciprocal = map[string]time.Time{}
+	}
+	if t, ok := s.lastReciprocal[key]; ok && time.Since(t) < reciprocalSyncWindow {
+		return false
+	}
+	s.lastReciprocal[key] = time.Now()
+	return true
 }
 
 // trustedSyncSource reports whether a backfill served by this member may perform
@@ -467,13 +583,40 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 		// group: both sides at epoch N, different trees, nothing decryptable,
 		// banner gone.
 		if payloadOK {
-			s.setOutOfSync(guildID, false)
+			// It proves it about THIS peer, though, and nothing more. Clearing
+			// the guild's verdict on any readable answer is what let a fork live
+			// forever: both halves of a split are full of members that answer
+			// their own side readably, so a verdict set by the far branch was
+			// wiped seconds later by somebody on ours, the flag never latched,
+			// and no heal was ever attempted. Withdraw the evidence against this
+			// peer, and clear the guild only when none stands.
+			if !s.clearForkedPeer(guildID, p) {
+				s.setOutOfSync(guildID, false)
+			}
 		} else if cur, err := s.mls.Epoch(s.ctx, guild.GroupID); err == nil && resp.Epoch >= cur {
 			// We stand at (or past) the responder's epoch and still cannot read
 			// what they encrypt: no amount of commit bridging fixes that. Forked
 			// or corrupted local state — flag it, which is what routes us to the
 			// re-add heal.
-			s.setOutOfSync(guildID, true)
+			if resp.Epoch > cur {
+				// Strictly ahead of us, handed us the very commits meant to
+				// bridge the gap, and we still cannot read a word: the trees
+				// diverged. That is remembered against this peer until its
+				// payload decrypts (which is what a repair looks like) or a heal
+				// re-joins us, rather than until the next member answers.
+				//
+				// The strictness matters. At EQUAL epochs both halves of a fork
+				// would hold evidence against each other, both would fly the
+				// banner, and handleInviteRequest's refuse-while-stranded rule
+				// would make each decline the re-add that is the only cure —
+				// two committers deadlocked. Only a peer we are demonstrably
+				// BEHIND can strand us, so only that verdict is kept; the equal
+				// case stays the transient flag it has always been, and the next
+				// commit on either branch breaks the tie.
+				s.noteForkedPeer(guildID, p)
+			} else {
+				s.setOutOfSync(guildID, true)
+			}
 		}
 		if applied == 0 && !resp.More {
 			// The epoch didn't move and the responder served everything it had
