@@ -14,24 +14,24 @@
   // 3-4 rows maximum: a changelog is a document, this is a wave hello.
   const HIGHLIGHTS = [
     {
-      icon: "crown",
-      title: "Wear something, in a colour you pick",
-      desc: "Sixty-one drawn decorations and rings in one place, painted in any of twelve colourways — or in your own colour. Drawn rather than pictured, so they stay sharp at any size.",
+      icon: "bolt",
+      title: "Guilds sync in bytes, not megabytes",
+      desc: "Peers now send only what has actually changed, so a guild where nothing is happening costs a few hundred bytes a minute instead of most of a megabyte — and a guild carrying enough art that it could never finish syncing at all now catches up.",
+    },
+    {
+      icon: "phone",
+      title: "Your phone stops working for everyone else",
+      desc: "It no longer carries other people's traffic over your data plan, holds far fewer connections, and slows its search for peers while you are on cellular. A minimised window or a hidden tab now goes quiet the same way a pocketed phone does.",
+    },
+    {
+      icon: "check",
+      title: "A guild that split in two finds its way back",
+      desc: "Two owners changing who is in a guild at the same moment could leave it quietly divided, each half unable to read a word from the other and nothing saying so. That is now noticed and repaired within seconds.",
     },
     {
       icon: "diamond",
-      title: "Your profile card is scenery",
-      desc: "Twelve drawn animated scenes and twenty-nine particle fields to play across your card, twelve frames to put around it, and forty-four theme packs behind it all.",
-    },
-    {
-      icon: "spark",
-      title: "Arabic and Hebrew read properly",
-      desc: "Text now takes its direction line by line, so a sentence mixing scripts stops coming out reordered — and Arabic is set in a typeface chosen for it rather than whatever your system had.",
-    },
-    {
-      icon: "download",
-      title: "Your history is yours to carry",
-      desc: "An encrypted backup of every guild and direct message that you can restore onto another device, a full export in plain Markdown, and a guild can now agree how long it keeps anything.",
+      title: "The frames around your card are places now",
+      desc: "All twelve are redrawn with real light, depth and texture — a keep, a cathedral, deep woods, a reef — and the scenes behind them reach the whole card again, with your name given its own edge so it stays readable over any of them.",
     },
   ];
 
