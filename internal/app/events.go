@@ -561,12 +561,20 @@ const (
 
 // runEventAnnounceLoop sweeps for channel-located events entering their start
 // window. Started once at service start; lives until shutdown.
+//
+// Paced (bgPace) like every other periodic loop: this one was missed by the
+// background-pacing sweep and kept waking a backgrounded phone every thirty
+// seconds forever. The work is a store read, so the cost is not the query — it
+// is the wake-up. A backgrounded announcement lands within one beat of its
+// time, and the bgWake case fires the sweep the moment the app is back.
 func (s *Service) runEventAnnounceLoop() {
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-time.After(eventAnnounceTick):
+		case <-s.bgWakeCh():
+			// Foregrounded: announce anything that came due during the beat.
+		case <-time.After(s.bgPace(eventAnnounceTick)):
 		}
 		s.announceDueEvents(time.Now().Unix())
 	}

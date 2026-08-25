@@ -218,7 +218,9 @@ func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 		s.pendingCTMu.Unlock()
 	}
 	go s.syncGuildFromPeer(guildID, pid) // pull any channel history we missed
-	s.announceProfile(guildID)
+	// Forced: the re-add re-keyed the group and replaced our leaf, so what the
+	// other members last heard from us is not something we can reason about.
+	s.announceProfileForce(guildID)
 	s.emitGuildUpdate()
 	return true
 }
@@ -266,11 +268,14 @@ func (s *Service) runHealLoop() {
 		tick++
 		s.healStrandedGuilds()
 		s.retryPendingDMInvites()
-		s.reconcilePendingMembers()
 		s.noteDeviceLeaves()
 		// Backgrounded the tick itself is one slow beat, so reconcile rides
-		// every tick; foreground it runs on the polite cadence.
+		// every tick; foreground it runs on the polite cadence. The pending
+		// invite re-push rides the same cadence: it is anti-entropy too (an
+		// invite the other side never received), not something that has to
+		// happen three times a minute.
 		if s.backgrounded() || tick%reconcileEvery == 0 {
+			s.reconcilePendingMembers()
 			s.reconcileGuilds()
 		}
 		s.sweepMailbox()

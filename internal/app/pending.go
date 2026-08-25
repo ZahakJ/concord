@@ -1,6 +1,9 @@
 package app
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // pending.go — "pending" guild members: people you've added who haven't joined
 // yet. Like a DM you opened before the other side replied, they show in the
@@ -83,9 +86,32 @@ func (s *Service) CancelPendingMember(guildID, fpr string) error {
 	return nil
 }
 
+// pendingRepushEvery is the floor between two invite pushes to the same pending
+// member. This used to run on every heal tick: an invite code, an encrypted
+// stream and a wake-up for the other end, every twenty seconds, for as long as
+// somebody stayed in the pending list — and a person who never accepts stays
+// there forever. The push exists to catch the moment they come back online, and
+// five minutes catches that just as well as twenty seconds does.
+const pendingRepushEvery = 5 * time.Minute
+
+// pendingPushDue reports whether this pending member is due another invite
+// push, recording the push when it says yes. Recorded on the decision rather
+// than on the send, so a guild whose invite code cannot be minted right now
+// backs off too instead of retrying at full speed.
+func (s *Service) pendingPushDue(guildID, fpr string, now time.Time) bool {
+	key := guildID + "|" + fpr
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if last, ok := s.pendingPushed[key]; ok && now.Sub(last) < pendingRepushEvery {
+		return false
+	}
+	s.pendingPushed[key] = now
+	return true
+}
+
 // reconcilePendingMembers re-pushes the invite to every reachable pending member
-// (and clears any who joined). Called on the heal tick, so an add made while the
-// other person was offline lands automatically once they reconnect.
+// (and clears any who joined). Called on the reconcile tick, so an add made
+// while the other person was offline lands automatically once they reconnect.
 func (s *Service) reconcilePendingMembers() {
 	s.mu.RLock()
 	guildIDs := make([]string, 0, len(s.pendingMembers))
@@ -94,11 +120,15 @@ func (s *Service) reconcilePendingMembers() {
 	}
 	s.mu.RUnlock()
 
+	now := time.Now()
 	for _, guildID := range guildIDs {
 		for _, fpr := range s.PendingMembersFor(guildID) {
 			pid, ok := s.peerForFingerprint(fpr)
 			if !ok {
 				continue // still offline — try again next tick
+			}
+			if !s.pendingPushDue(guildID, fpr, now) {
+				continue
 			}
 			s.mu.RLock()
 			name := ""

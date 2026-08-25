@@ -805,7 +805,9 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	// trigger fired before we joined, so it skipped this guild).
 	go s.syncGuildFromPeer(g.ID, owner.ID)
 	// Tell existing members our display name (and learn theirs in reply).
-	s.announceProfile(g.ID)
+	// Forced: on a REJOIN this process may still remember announcing to this
+	// guild before we left, and the members who are here now have heard nothing.
+	s.announceProfileForce(g.ID)
 	// Announce arrival with a system message — but only for a genuine first join.
 	// When this is an additional DEVICE of an account already in the guild (device
 	// linking), the account has another leaf here already, so stay quiet rather
@@ -1546,8 +1548,11 @@ func (s *Service) applyProfileMeta(guildID, actor string, m guildMeta) {
 	// no-op here: learnProfile never binds our own fingerprint, and devices
 	// converge over the device hello, which carries the STORED profile rather
 	// than this presentation copy (see selfStoredProfile).
+	// Forced, because the newcomer was not there for our last announce and the
+	// skip-if-unchanged rule would otherwise leave them with nothing. Bounded:
+	// learnProfile reports true only for a member we had never seen.
 	if s.learnProfile(actor, Profile{Name: m.Name, Status: m.Status, Emoji: m.Emoji, Color: m.Color, Avatar: m.Avatar, Banner: m.Banner, Presence: m.Presence, Bio: m.Bio, MailboxPub: m.MailboxPub, Activity: m.Activity, Games: m.Games, Color2: m.Color2, Frame: m.Frame, Effect: m.Effect, Style: m.Style, UpdatedAt: m.UpdatedAt}) {
-		s.announceProfile(guildID)
+		s.announceProfileForce(guildID)
 	}
 }
 
@@ -1564,8 +1569,68 @@ func (s *Service) announceProfileAll() {
 	}
 }
 
-// announceProfile publishes this peer's fingerprint→name mapping to one guild.
-func (s *Service) announceProfile(guildID string) {
+// profileAnnounce is what we last said about ourselves in one guild, and which
+// of that guild's connected members were there to hear it.
+type profileAnnounce struct {
+	stamp string
+	heard map[peer.ID]bool
+}
+
+func heardAll(heard map[peer.ID]bool, audience []peer.ID) bool {
+	for _, p := range audience {
+		if !heard[p] {
+			return false
+		}
+	}
+	return true
+}
+
+// connectedMembers lists the connected peers that belong to a guild. Unlike
+// memberPeers it resolves the roster ONCE and matches presence against it,
+// rather than asking the MLS engine per peer — this runs per guild on every
+// connect, so a dozen guilds and twenty peers must not mean 240 group reads.
+func (s *Service) connectedMembers(guildID string) []peer.ID {
+	fprs := s.guildMemberFingerprints(guildID)
+	if len(fprs) == 0 {
+		return nil
+	}
+	member := make(map[string]bool, len(fprs))
+	for _, f := range fprs {
+		member[f] = true
+	}
+	var out []peer.ID
+	for _, p := range s.host.Peers() {
+		if member[s.presence(p).Fingerprint] {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// announceProfile publishes this peer's profile to one guild — unless every
+// member currently connected there has already heard these exact bytes.
+//
+// The skip is the point. An announce carries the whole profile (an avatar up to
+// 64 KiB, a profile banner up to 256 KiB), MLS-encrypted and flooded to the
+// guild's mesh, and it fires on every peer CONNECT: one reconnect re-announced
+// to EVERY guild, and a member who drops and redials cost every other member a
+// quarter-megabyte of something they already had.
+//
+// What it deliberately does NOT do is skip on the content alone. A publish is a
+// broadcast, so it only reaches whoever is subscribed at the time, and a member
+// who was offline for the change hears nothing. Tracking who was connected for
+// it makes the cost proportional to genuine ignorance rather than to churn: a
+// returning member's connect still produces exactly one announce, and their
+// tenth reconnect produces none.
+func (s *Service) announceProfile(guildID string) { s.publishProfile(guildID, false) }
+
+// announceProfileForce publishes regardless. Callers that need it: a member we
+// have just met for the first time, a (re)join, and a re-add heal — cases where
+// the group's membership or our own leaf moved under us.
+func (s *Service) announceProfileForce(guildID string) { s.publishProfile(guildID, true) }
+
+// publishProfile does the work and reports whether anything went on the wire.
+func (s *Service) publishProfile(guildID string, force bool) bool {
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
@@ -1574,7 +1639,7 @@ func (s *Service) announceProfile(guildID string) {
 	}
 	s.mu.RUnlock()
 	if !ok {
-		return
+		return false
 	}
 	p := s.SelfProfile()
 	meta := guildMeta{
@@ -1586,17 +1651,42 @@ func (s *Service) announceProfile(guildID string) {
 		UpdatedAt: p.UpdatedAt,
 	}
 	payload, _ := json.Marshal(meta)
+	// The nickname rides along, so it is part of what "unchanged" means.
+	nick := s.NickOf(guildID, s.id.Fingerprint())
+	stamp := digestRaw([]byte(string(payload) + nick))
+	// Whose ears are actually in the room. Strangers (rendezvous, DHT, relay
+	// candidates) are excluded deliberately: they cannot read this topic, and
+	// counting them would put us back to announcing on every stray dial.
+	audience := s.connectedMembers(guildID)
+	if !force {
+		s.mu.RLock()
+		prev, ok := s.announcedProfile[guildID]
+		s.mu.RUnlock()
+		if ok && prev.stamp == stamp && heardAll(prev.heard, audience) {
+			return false
+		}
+	}
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
 	if err != nil {
-		return
+		return false
 	}
-	_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct)
+	if err := s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct); err != nil {
+		return false // not published: don't record it as said
+	}
+	heard := make(map[peer.ID]bool, len(audience))
+	for _, p := range audience {
+		heard[p] = true
+	}
+	s.mu.Lock()
+	s.announcedProfile[guildID] = profileAnnounce{stamp: stamp, heard: heard}
+	s.mu.Unlock()
 
 	// Piggyback our own per-guild nickname (if any) so new members learn it at
 	// the same time they learn our profile.
-	if nick := s.NickOf(guildID, s.id.Fingerprint()); nick != "" {
+	if nick != "" {
 		s.publishMeta(groupID, guildMeta{Type: "nickname", Fingerprint: s.id.Fingerprint(), Name: nick})
 	}
+	return true
 }
 
 // SetNickname sets (or, with an empty nick, clears) this member's own display

@@ -219,6 +219,20 @@ type Service struct {
 	// haven't joined yet — shown as "pending" in the roster (like a DM you've
 	// opened). Guarded by mu; persisted; cleared once they actually join.
 	pendingMembers map[string]map[string]bool
+	// pendingPushed is the last time we re-pushed an invite to each pending
+	// member ("guildID|fingerprint"), so a peer who flaps in and out of reach
+	// is not handed the same code on every heal tick. Guarded by mu; in-memory
+	// on purpose — forgetting it across a restart costs one extra push.
+	pendingPushed map[string]time.Time
+
+	// announcedProfile records what we last published to each guild's meta
+	// topic and which of that guild's connected members were there to hear it.
+	// It exists because the announce fires on peer CONNECT and carries the
+	// whole profile — an avatar and a profile banner, up to 320 KiB — so an
+	// install in a dozen guilds re-broadcast the same images to every mesh on
+	// every reconnect. Guarded by mu; in-memory, so a restart announces once
+	// per guild, which is right.
+	announcedProfile map[string]profileAnnounce
 
 	// attachFlight collapses concurrent fetches of one attachment blob (e.g.
 	// the same image rendered several times) into a single network request.
@@ -939,6 +953,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		outOfSync:        map[string]bool{},
 		blocked:          map[string]bool{},
 		pendingMembers:   map[string]map[string]bool{},
+		announcedProfile: map[string]profileAnnounce{},
+		pendingPushed:    map[string]time.Time{},
 		previews:         newPreviewCache(),
 		bootstrap:        bootstrap,
 	}
