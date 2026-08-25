@@ -539,19 +539,38 @@
     else core.startBackground().catch(() => {});
   }
 
+  // Whether this build can register for push at all.
+  //
+  // It has to be asked, not assumed: PushNotifications.register() reaches
+  // FirebaseMessaging, which throws a NATIVE exception on a device with no
+  // google-services.json — on a background handler thread, where a JS
+  // try/catch cannot stop it, so the app dies. This used to be gated on a
+  // window.__CONCORD_PUSH global somebody had to remember to set at build
+  // time, in a second place, in step with dropping the file in. The Android
+  // shell now reports whether Firebase is actually configured, so the gate
+  // follows the build instead of a promise about it.
+  //
+  // Every failure path answers "no", which is exactly today's behaviour: no
+  // registration, no crash, and delivery still working over live sockets and
+  // mailbox-drain-on-open. __CONCORD_PUSH is still honoured as an explicit
+  // override for iOS, whose APNs entitlement has no equivalent to probe.
+  // See docs/PUSH.md.
+  async function pushConfigured() {
+    if (window.__CONCORD_PUSH) return true;
+    const core = window.Capacitor?.Plugins?.ConcordCore;
+    if (!core?.pushAvailable) return false;
+    try {
+      return (await core.pushAvailable())?.available === true;
+    } catch {
+      return false;
+    }
+  }
+
   // Acquire the platform push token (FCM on Android, APNs on iOS) and register
   // it with the rendezvous mailbox, so deposits that land while the app is
   // backgrounded trigger a contentless wake.
-  //
-  // DISABLED until push credentials are configured: PushNotifications.register()
-  // calls FirebaseMessaging, which throws a NATIVE exception on a real device
-  // when there's no google-services.json — and that exception crashes the app
-  // (it's on a background handler thread, so a JS try/catch can't stop it).
-  // Foreground delivery + mailbox-drain-on-open work fine without this. To
-  // enable: add google-services.json (Android) / APNs entitlement (iOS), then
-  // set window.__CONCORD_PUSH = true at build time.
   async function registerPushToken() {
-    if (!window.__CONCORD_PUSH) return; // push not provisioned — do NOT call register()
+    if (!(await pushConfigured())) return; // do NOT call register() — see above
     const cap = typeof window !== "undefined" ? window.Capacitor : null;
     const Push = cap?.Plugins?.PushNotifications;
     if (!Push) return;

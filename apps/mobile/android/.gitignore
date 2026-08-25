@@ -66,8 +66,10 @@ captures/
 .externalNativeBuild
 .cxx/
 
-# Google Services (e.g. APIs or Firebase)
-# google-services.json
+# Google Services (e.g. APIs or Firebase). Uncommented, unlike the template
+# this file came from: the file identifies a Firebase project and belongs with
+# the signing keys, not in a public repository. See docs/PUSH.md.
+google-services.json
 
 # Freeline
 freeline.py

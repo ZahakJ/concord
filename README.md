@@ -197,6 +197,7 @@ tracked even though the images it describes are not.
 |---|---|
 | [docs/DESIGN.md](docs/DESIGN.md) | How Concord works, end to end, and what it costs |
 | [docs/RENDEZVOUS.md](docs/RENDEZVOUS.md) | Running the one optional node, and how to avoid needing it |
+| [docs/PUSH.md](docs/PUSH.md) | Optional push wakes: what they cost in privacy, and how to switch them on |
 | [PRIVACY.md](PRIVACY.md) | What data exists and who can read it |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, the multi-peer dev loop, code style |
 | [MAINTAINERS.md](MAINTAINERS.md) | Who decides what, and how a change gets merged |

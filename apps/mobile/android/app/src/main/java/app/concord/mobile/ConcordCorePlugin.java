@@ -139,6 +139,48 @@ public class ConcordCorePlugin extends Plugin {
         call.resolve();
     }
 
+    /**
+     * Whether this build can actually talk to Firebase Cloud Messaging.
+     *
+     * The frontend must know, because registering for push without a
+     * configuration is not a recoverable error: PushNotifications.register()
+     * reaches FirebaseMessaging, which throws on a handler thread where no JS
+     * try/catch can reach it, and the app dies. That is why the registration
+     * path was gated behind a hand-set window.__CONCORD_PUSH global — a switch
+     * somebody had to remember to flip, in a second place, at build time.
+     *
+     * This asks the build itself instead. The google-services Gradle plugin is
+     * applied only when app/google-services.json exists (see app/build.gradle)
+     * and its whole job is to turn that file into string resources, of which
+     * google_app_id is the one FirebaseApp's own default initialisation looks
+     * for. Present and non-empty means Firebase can start; absent means the
+     * plugin never ran. Reading the resource rather than calling into Firebase
+     * keeps this free of a compile-time dependency on a library that is only
+     * present transitively, and cannot itself be the thing that throws.
+     *
+     * Fail-safe in both directions: any doubt resolves to false, which is
+     * precisely today's behaviour — no registration, no crash, and delivery
+     * still working over live sockets and drain-on-open.
+     *
+     * See docs/PUSH.md for what dropping the file in switches on.
+     */
+    @PluginMethod
+    public void pushAvailable(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("available", firebaseConfigured());
+        call.resolve(ret);
+    }
+
+    private boolean firebaseConfigured() {
+        try {
+            Context ctx = getContext();
+            int id = ctx.getResources().getIdentifier("google_app_id", "string", ctx.getPackageName());
+            return id != 0 && !ctx.getString(id).trim().isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     // ---- call-scoped microphone service ----
     // Android 14+ blocks background mic capture without a microphone-type
     // foreground service; the voice lifecycle brackets every call with these.
