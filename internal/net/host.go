@@ -17,6 +17,7 @@ import (
 	stdnet "net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/libp2p/go-libp2p"
@@ -268,9 +269,17 @@ type Host struct {
 	// for good: notifications stop firing, so gossipsub never learns about new
 	// peers and the app never hears anyone connect.
 	relayMu sync.Mutex
-	// relaySvc is the circuit relay we run for guild members while publicly
-	// reachable; nil otherwise.
+	// relaySvc is the circuit relay we run for guild members once something has
+	// reached us from the internet; nil otherwise.
 	relaySvc interface{ Close() error }
+	// inbound is the evidence that anything out there can reach us: see
+	// reachproof.go. Recorded on every node, because the reachability panel
+	// reads it, and acted on only where relayWatching is set.
+	inbound inboundProof
+	// relayWatching says serveRelay is running, i.e. this node is eligible to
+	// relay at all — a desktop with the DHT on. Atomic because it is set during
+	// New, after registerConnEvents has already armed the notifier that reads it.
+	relayWatching atomic.Bool
 
 	mu             sync.RWMutex
 	onConnected    []func(peer.ID)
@@ -470,6 +479,11 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 		node.serviceTag = DefaultServiceTag
 	}
 
+	// Scope the (empty) reachability evidence to the addresses we came up on,
+	// before anything can connect and file some. Without this the first
+	// EvtLocalAddressesUpdated — which arrives immediately, the event is
+	// stateful — would discard a visitor who beat it.
+	node.rebindInboundProof()
 	node.registerConnEvents()
 
 	if cfg.EnableMDNS {
@@ -518,7 +532,13 @@ func (n *Host) registerConnEvents() {
 			// connects with nobody upstream ever hearing about it — the app
 			// layer records its contact here, so that peer becomes invisible.
 			// Our own seen-set has no such window.
-			if n.markConnected(p) {
+			first := n.markConnected(p)
+			// The same answer does double duty as the hole-punch exclusion for
+			// reachability evidence: a punched connection is by construction
+			// never the first one to its peer, because DCUtR runs over a relayed
+			// connection we already hold. See countsAsInbound.
+			n.noteInbound(c.Stat().Direction, c.LocalMultiaddr(), c.RemoteMultiaddr(), first)
+			if first {
 				n.fire(n.connectedCallbacks(), p)
 			}
 		},

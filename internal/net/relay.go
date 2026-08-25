@@ -7,6 +7,7 @@ import (
 
 	"github.com/libp2p/go-libp2p/core/event"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/host/eventbus"
 	relayv2 "github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
@@ -205,22 +206,30 @@ func peerRelayResources() relayv2.Resources {
 	return r
 }
 
-// serveRelay runs a circuit-v2 relay on this node whenever it looks publicly
-// reachable, so a friend stuck behind a NAT can be reached through us when the
-// rendezvous is down. It is the other half of relaySource: without somebody
-// willing to relay, "friends as relays" is a list of candidates that all refuse.
+// serveRelay runs a circuit-v2 relay on this node once something has actually
+// reached it from the internet, so a friend stuck behind a NAT can be reached
+// through us when the rendezvous is down. It is the other half of relaySource:
+// without somebody willing to relay, "friends as relays" is a list of
+// candidates that all refuse.
 //
-// Two guards keep the cost honest. We only start when an interface we listen on
-// carries a routable address — the machines this fires on are VPSes and
-// unfiltered connections, not the usual laptop behind a home NAT — and the ACL
-// only admits peers Protect has tagged, i.e. members of a guild we share. This
-// is not an open relay for the internet.
+// Two guards keep the cost honest. We only start on proof of inbound
+// reachability — an unsolicited direct connection from the public internet, see
+// inboundProof — and the ACL only admits peers Protect has tagged, i.e. members
+// of a guild we share. This is not an open relay for the internet.
+//
+// Two triggers, because proof and address set both move. EvtLocalAddressesUpdated
+// says the addresses changed, which is when old evidence stops applying; the
+// connection notifier says a visitor arrived, which is when new evidence starts.
+// Startup alone is not enough for either: a VPS boots with nobody connected and
+// earns its proof from the first guild member who dials in, seconds later.
 //
 // This cannot use libp2p.EnableRelayService(): that starts the relay on an
 // EvtLocalReachabilityChanged of Public, and we deliberately pin reachability to
-// Private above so AutoRelay reserves immediately. Watching the address set is
-// the equivalent signal for the half we control.
+// Private above so AutoRelay reserves immediately, so the event never fires.
+// cmd/rendezvous, which is a real server and knows it, uses that option directly
+// and is untouched by any of this.
 func (n *Host) serveRelay() {
+	n.relayWatching.Store(true)
 	sub, err := n.h.EventBus().Subscribe(new(event.EvtLocalAddressesUpdated), eventbus.Name("concord-relay"))
 	if err != nil {
 		return
@@ -235,17 +244,70 @@ func (n *Host) serveRelay() {
 				if !ok {
 					return
 				}
+				// The addresses moved under us, so anything that reached us at
+				// the old ones proves nothing about the new ones.
+				if n.rebindInboundProof() {
+					log.Printf("concord/net: listen addresses changed, waiting to be reached again before relaying")
+				}
 				n.syncRelayService()
 			}
 		}
 	}()
 }
 
+// noteInbound files one connection as evidence, and re-evaluates the relay if
+// it told us something new.
+//
+// The re-evaluation is deliberately on its own goroutine. This runs inside the
+// swarm's Connected notification, which is called with the notifiee lock held,
+// and syncRelayService registers or unregisters a notifiee of its own — doing
+// that inline deadlocks the swarm permanently. It is the same hazard relayMu
+// exists to avoid, arriving from the other side.
+func (n *Host) noteInbound(dir network.Direction, local, remote multiaddr.Multiaddr, firstToPeer bool) {
+	v4, v6 := countsAsInbound(dir, local, remote, firstToPeer, n.inbound.attached())
+	if !v4 && !v6 {
+		return
+	}
+	if !n.inbound.note(v4, v6) {
+		return
+	}
+	fam := "IPv6"
+	if v4 {
+		fam = "IPv4"
+	}
+	log.Printf("concord/net: reached directly from the internet over %s", fam)
+	if n.relayWatching.Load() {
+		go n.syncRelayService()
+	}
+}
+
+// rebindInboundProof re-scopes the evidence to the addresses we listen on now,
+// reporting whether that discarded anything.
+func (n *Host) rebindInboundProof() bool {
+	listen, err := n.h.Network().InterfaceListenAddresses()
+	if err != nil {
+		return false
+	}
+	return n.inbound.rebind(listenFingerprint(listen), attachedNetworks())
+}
+
+// forgetInboundProof drops the evidence and re-evaluates. Called when the node
+// has been off the network entirely and found its way back on: what reached us
+// before belonged to a stretch of connectivity that has ended, and on the far
+// side of it we may be somewhere else.
+func (n *Host) forgetInboundProof() {
+	if n.inbound.forget() && n.relayWatching.Load() {
+		go n.syncRelayService()
+	}
+}
+
 func (n *Host) syncRelayService() {
-	// Not simply DirectlyReachable: a phone on cellular satisfies that test on
-	// its carrier-issued IPv6 address and is the last machine that should be
-	// carrying anybody's traffic. See relayServiceWanted.
-	public := relayServiceWanted(n.DirectlyReachable(), onMobile)
+	// Not DirectlyReachable. That asks what our address looks like, and a
+	// filtered global IPv6 address — the default on home routers — looks
+	// exactly like a reachable one. See inboundProof. The mobile arm is belt
+	// and braces: New never starts serveRelay on a phone at all.
+	v4, v6 := n.inbound.families()
+	public := relayServiceWanted(v4 || v6, onMobile)
 
 	n.relayMu.Lock()
 	defer n.relayMu.Unlock()
@@ -258,26 +320,35 @@ func (n *Host) syncRelayService() {
 			return
 		}
 		n.relaySvc = svc
-		log.Printf("concord/net: publicly reachable, relaying for guild members")
+		log.Printf("concord/net: reachable from the internet, relaying for guild members")
 	case !public && n.relaySvc != nil:
 		_ = n.relaySvc.Close()
 		n.relaySvc = nil
+		log.Printf("concord/net: no longer known to be reachable, stopped relaying")
 	}
 }
 
-// DirectlyReachable reports whether this node has a routable public address —
-// the same condition under which it runs the peer-relay service. When true it
-// needs no relay reservation of its own (peers can dial it straight), so a
-// missing reservation is expected rather than a fault.
+// InboundProven reports which address families this node has been reached on
+// from the public internet since its listen addresses last changed. Unlike
+// PublicAddrFamilies this is a measurement, not a reading of our own address:
+// false means nothing has come in that way yet, not that nothing can.
+//
+// It is what gates the relay service, and what lets the reachability panel say
+// "people are reaching you" instead of "your address suggests they could".
+func (n *Host) InboundProven() (v4, v6 bool) { return n.inbound.families() }
+
+// DirectlyReachable reports whether this node has a routable public address.
+// When true it PROBABLY needs no relay reservation of its own (peers can dial it
+// straight), so a missing reservation is expected rather than a fault. Probably,
+// not certainly: see InboundProven for the measured answer, and note that this
+// one is no longer what decides whether we relay for anybody.
 //
 // Listen addresses, not h.Addrs(): the latter grows to include the external
 // address identify observed for us, which a NAT'd node has too. Only an address
 // on one of our own interfaces means traffic can actually arrive.
 //
-// Measured here rather than read off relaySvc, which is the same answer only
-// while the DHT is on: serveRelay never runs without it, so a node that pinned
-// a forwarded port and configured no rendezvous would have reported itself
-// unreachable while strangers were dialling it.
+// Measured here rather than read off relaySvc, which is a different question
+// now and was never the same one for a node with the DHT off.
 func (n *Host) DirectlyReachable() bool {
 	v4, v6 := n.PublicAddrFamilies()
 	return v4 || v6

@@ -40,18 +40,19 @@ var onMobile = mobilePlatform(runtime.GOOS)
 // relayServiceWanted reports whether this node should run a circuit-relay v2
 // service for guild members.
 //
-// Being directly reachable is necessary and, on a phone, not sufficient. Every
-// carrier hands a phone a globally routable IPv6 address, and listenAddrs binds
-// /ip6/::, so DirectlyReachable is TRUE on cellular — which is precisely the
-// connection where relaying is least affordable. peerRelayResources allows 32
-// reservations and 8 concurrent circuits with no per-circuit byte or duration
-// limit (nil Limit is load-bearing; see the comment there), so one guild member
-// stuck behind CGNAT can route an entire evening's session — ingress and egress
-// both — through the phone owner's data plan and radio.
+// proven is evidence that the internet can get in — an unsolicited direct
+// connection has actually arrived, see inboundProof — and not merely that our
+// address parses as routable. It is necessary and, on a phone, not sufficient.
+// A phone on Wi-Fi behind a permissive router can be genuinely reachable and is
+// still the wrong machine for the job: peerRelayResources allows 32 reservations
+// and 8 concurrent circuits with no per-circuit byte or duration limit (nil
+// Limit is load-bearing; see the comment there), so one guild member stuck
+// behind CGNAT can route an entire evening's session — ingress and egress both —
+// through the phone owner's data plan and radio.
 //
-// The gate sits here and not in DirectlyReachable on purpose: that answer is
-// also what the reachability panel shows the user, and "can people reach you"
-// must keep meaning what it says on every platform.
-func relayServiceWanted(reachable, mobile bool) bool {
-	return reachable && !mobile
+// The mobile gate sits here and not in the evidence on purpose: what reached the
+// phone reached it, and the reachability panel reads that answer directly, so
+// "can people reach you" must keep meaning what it says on every platform.
+func relayServiceWanted(proven, mobile bool) bool {
+	return proven && !mobile
 }

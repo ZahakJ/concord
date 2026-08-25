@@ -270,6 +270,13 @@ func (n *Host) keepBootstrapped(kdht *dht.IpfsDHT, peers, remembered []peer.Addr
 			// …and tell the advertise/discover loops, which are otherwise parked on
 			// a timer that was scheduled while there was no network to use.
 			n.kickNetwork()
+			// We had no route out at all and now we do, which usually means the
+			// machine woke up, or moved. Whoever reached us before reached us on
+			// the far side of that, so the relay stops claiming to be reachable
+			// until somebody reaches it again. Not folded into kickNetwork:
+			// that also fires when the user hits reconnect and when the app
+			// joins a guild, neither of which says anything about who can get in.
+			n.forgetInboundProof()
 			if failed {
 				log.Printf("concord/net: back on the network, discovery resumed")
 			}

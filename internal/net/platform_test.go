@@ -23,14 +23,19 @@ func TestMobilePlatformRecognisesPhones(t *testing.T) {
 // cellular — and peerRelayResources allows 8 concurrent circuits with no byte
 // or duration cap, so one guild member behind CGNAT could route an entire
 // session through the phone owner's data plan, both directions.
+//
+// The first argument is now proof of inbound reach rather than the address
+// reading, but the phone gate is unchanged and independent: a phone on home
+// Wi-Fi behind a permissive router can genuinely be reachable and must still
+// not carry anyone's circuits.
 func TestPhonesDoNotRelayForOtherPeers(t *testing.T) {
 	if !relayServiceWanted(true, false) {
-		t.Error("a directly reachable desktop must still relay for guild members")
+		t.Error("a desktop the internet has demonstrably reached must still relay for guild members")
 	}
 	if relayServiceWanted(true, true) {
-		t.Error("a phone with a routable address relayed for other peers")
+		t.Error("a phone the internet can reach relayed for other peers")
 	}
 	if relayServiceWanted(false, false) || relayServiceWanted(false, true) {
-		t.Error("a node with no routable address advertised itself as a relay")
+		t.Error("a node nothing has ever reached advertised itself as a relay")
 	}
 }
