@@ -10,6 +10,10 @@
     "backgroundColor": "#FF16181C"
   },
   "plugins": {
+    "App": {
+      "_comment": "Concord owns back itself (ConcordCorePlugin.setBackDepth), enabling its callback only while the web navigation stack has something to pop. Capacitor's handler intercepts unconditionally, which stops the system ever drawing the predictive back-to-home animation.",
+      "disableBackButtonHandler": true
+    },
     "Keyboard": {
       "resizeOnFullScreen": false
     },

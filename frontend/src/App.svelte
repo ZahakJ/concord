@@ -44,7 +44,7 @@
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
   import { initDeepLinks, consumePendingChannel } from "./lib/deeplink.js";
   import { closeSearch } from "./lib/search.js";
-  import { popLayer, syncLayer } from "./lib/navstack.svelte.js";
+  import { popLayer, navDepth, syncLayer } from "./lib/navstack.svelte.js";
   import { haptic, hapticNotify } from "./lib/touch.js";
   import Icon from "./Icon.svelte";
   import Login from "./Login.svelte";
@@ -687,7 +687,18 @@
   syncLayer("call-invite", () => !!S.callInvite, () => (S.callInvite = null));
   syncLayer("knock", () => !!S.knocking, () => (S.knocking = ""));
 
-  let exitArmed = 0;
+  let exitArmed = $state(0);
+  let exitTimer;
+  // How many presses this app still has an answer for: one per open layer, one
+  // per place left to walk out of, and one for the "press back again" ask. The
+  // drawer standing open IS the outermost place, however it was opened.
+  const backSteps = $derived(
+    navDepth() +
+      (activeChannelObj?.parent ? 1 : 0) +
+      (S.isMobile && S.activeChannelId && !S.drawerOpen ? 1 : 0) +
+      1,
+  );
+
   function confirmExit(App) {
     // Double-tap to leave. A single press dropping the user on the launcher
     // mid-conversation is the thing that made back feel dangerous.
@@ -696,6 +707,11 @@
       return;
     }
     exitArmed = Date.now() + 2000;
+    // Arming hands the NEXT press to the OS (see reportBackDepth): on Android
+    // 13+ that is what lets the system draw its own predictive back-to-home
+    // animation for the press that actually leaves.
+    clearTimeout(exitTimer);
+    exitTimer = setTimeout(() => (exitArmed = 0), 2000);
     flash("Press back again to exit");
   }
 
@@ -731,7 +747,14 @@
     const cap = typeof window !== "undefined" ? window.Capacitor : null;
     const App = cap?.Plugins?.App;
     if (!App) return;
-    App.addListener("backButton", ({ canGoBack }) => handleBack(App, canGoBack));
+    const core = cap?.Plugins?.ConcordCore;
+    // Predictive back (Android 13+): the native side owns an
+    // OnBackInvokedCallback whose registration follows reportBackDepth below,
+    // and hands each intercepted press back through this event. A shell too old
+    // to have it falls back to Capacitor's legacy backButton event, which
+    // cannot drive a predictive preview but does still call the same handler.
+    if (core?.setBackDepth) core.addListener?.("backPressed", () => handleBack(App, false));
+    else App.addListener("backButton", ({ canGoBack }) => handleBack(App, canGoBack));
     App.addListener("resume", () => {
       nudge();
       if (appLocked) tryBioGate();
@@ -750,6 +773,23 @@
     cap?.Plugins?.ConcordCore?.addListener?.("shareIn", (ev) => handleShareIn(ev?.text));
   }
 
+  // ---- how much back the web side wants ----
+  //
+  // The number is not the layer count: it is "how many more presses does this
+  // app have an answer for", and the only distinction the OS cares about is
+  // zero versus not. At zero the native callback unregisters and Android owns
+  // the gesture — which is what draws the predictive back-to-home preview and
+  // performs a real task exit, neither of which a WebView can fake.
+  //
+  // That is also why arming the exit toast counts as zero. The press that
+  // actually leaves is the system's, animation and all; ours is only the one
+  // that asks first.
+  $effect(() => {
+    const core = window.Capacitor?.Plugins?.ConcordCore;
+    if (!core?.setBackDepth) return;
+    const armed = Date.now() < exitArmed;
+    core.setBackDepth({ depth: armed ? 0 : backSteps }).catch(() => {});
+  });
 
   // ---- share-sheet intake (Android) ----
   // v1 is text/links into the ACTIVE conversation's composer draft. A proper

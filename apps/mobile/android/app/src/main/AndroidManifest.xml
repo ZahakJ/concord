@@ -4,8 +4,17 @@
     <!-- allowBackup MUST stay false: an OS backup restored onto another install
          would resurrect stale MLS ratchet state and fork every group the
          account is in. The 24-word mnemonic is the only supported migration. -->
+    <!-- enableOnBackInvokedCallback: opt in to the ahead-of-time back API, so
+         the system knows BEFORE a gesture completes whether the app will handle
+         it. That is what draws the predictive preview — the home screen or the
+         previous activity sliding in under the thumb — and it is why every
+         launch until now logged "OnBackInvokedCallback is not enabled for the
+         application". The app-side half is in ConcordCorePlugin.setBackDepth,
+         which enables an OnBackPressedCallback only while the web navigation
+         stack has something left to pop. -->
     <application
         android:allowBackup="false"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"

@@ -18,6 +18,7 @@ import android.provider.Settings;
 import android.util.Base64;
 import android.view.WindowManager;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResult;
 import androidx.core.app.NotificationManagerCompat;
 
@@ -64,6 +65,7 @@ public class ConcordCorePlugin extends Plugin {
     @Override
     public void load() {
         instance = this;
+        installBackCallback();
         // A share that arrived before the bridge existed (cold start straight
         // from another app's share sheet) waits here for the first listener.
         String stashed = pendingShare;
@@ -71,6 +73,57 @@ public class ConcordCorePlugin extends Plugin {
             pendingShare = null;
             emitShareIn(stashed);
         }
+    }
+
+    // ---- back, and who owns it ----
+    //
+    // Android 13 replaced "the activity is told a press happened" with "the app
+    // registers ahead of time for the presses it wants". The difference is not
+    // cosmetic: knowing in advance that the app will NOT handle a press is what
+    // lets the system draw the home screen sliding in under the user's thumb
+    // while the gesture is still in progress, and finish it as a real task
+    // exit. An app that intercepts every press can never show that, which is
+    // why the launcher logged "OnBackInvokedCallback is not enabled" on every
+    // launch and the predictive animation never appeared.
+    //
+    // So the callback here is enabled exactly while the web side has somewhere
+    // to go — a sheet to close, a conversation to leave, a question to ask —
+    // and disabled the moment it does not. See reportBackDepth in App.svelte
+    // for what counts. androidx's OnBackPressedDispatcher is the right level to
+    // do this at: with android:enableOnBackInvokedCallback set it registers a
+    // real OnBackInvokedCallback with the system on API 33+, and keeps working
+    // through the old path below that, so there is one implementation and not
+    // two. Capacitor's own back handler is switched off in capacitor.config.json
+    // — it intercepted unconditionally, which is precisely the thing that has
+    // to stop.
+    private OnBackPressedCallback backCallback;
+
+    private void installBackCallback() {
+        final androidx.activity.ComponentActivity act =
+            (getActivity() instanceof androidx.activity.ComponentActivity)
+                ? (androidx.activity.ComponentActivity) getActivity()
+                : null;
+        if (act == null) return;
+        // Starts enabled: the web side reports its real depth within a frame of
+        // mounting, and a press in that window belongs to the app, not the
+        // launcher.
+        backCallback = new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                notifyListeners("backPressed", new JSObject());
+            }
+        };
+        act.runOnUiThread(() -> act.getOnBackPressedDispatcher().addCallback(act, backCallback));
+    }
+
+    /** How many more presses the web side has an answer for. 0 hands back to the OS. */
+    @PluginMethod
+    public void setBackDepth(PluginCall call) {
+        final int depth = call.getInt("depth", 0);
+        final OnBackPressedCallback cb = backCallback;
+        android.app.Activity act = getActivity();
+        if (cb != null && act != null) act.runOnUiThread(() -> cb.setEnabled(depth > 0));
+        call.resolve();
     }
 
     // ---- share-sheet intake ----
