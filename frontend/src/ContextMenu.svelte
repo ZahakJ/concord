@@ -22,17 +22,23 @@
   syncLayer("menu", () => !!S.contextMenu, closeContextMenu);
 
   let el = $state(null);
+  let sheetEl = $state(null);
   let pos = $state({ x: 0, y: 0 });
   let prevFocus = null;
 
-  // The popover claims role="menu", so it has to honour the contract: focus
-  // moves into it on open and returns whence it came on close. Reads only the
-  // menu's presence — a keepOpen relabel that swaps `items` must not yank
-  // focus back to the first row mid-interaction.
+  // Both presentations claim role="menu", so both have to honour the contract:
+  // focus moves in on open and returns whence it came on close. The sheet used
+  // to be exempt on the grounds that a finger does not tab — but S.isMobile is
+  // width-based, so a desktop window dragged under 768px gets the sheet with a
+  // real keyboard behind it, and that was the only path to a message's actions
+  // once the hover toolbar stopped rendering there. Reads only the menu's
+  // presence — a keepOpen relabel that swaps `items` must not yank focus back
+  // to the first row mid-interaction.
   $effect(() => {
-    if (!S.contextMenu || S.isMobile || !el) return;
+    const box = S.isMobile ? sheetEl : el;
+    if (!S.contextMenu || !box) return;
     prevFocus = document.activeElement;
-    el.querySelector(".cm-item:not(:disabled)")?.focus();
+    box.querySelector(".cm-item:not(:disabled), .as-item:not(:disabled)")?.focus();
     return () => {
       if (prevFocus?.isConnected) prevFocus.focus();
       prevFocus = null;
@@ -42,9 +48,12 @@
   // Roving focus over the item buttons; separators/headers/disabled rows fall
   // out of the query. Enter/Space need no handling — a focused <button>
   // activates natively. preventDefault keeps the arrows from scrolling a
-  // menu tall enough to overflow.
+  // menu tall enough to overflow. Reads its container from the event so the
+  // popover and the sheet share one implementation.
   function onMenuKey(e) {
-    const items = [...el.querySelectorAll(".cm-item:not(:disabled)")];
+    const items = [
+      ...e.currentTarget.querySelectorAll(".cm-item:not(:disabled), .as-item:not(:disabled)"),
+    ];
     if (!items.length) return;
     const n = items.length;
     const i = items.indexOf(document.activeElement);
@@ -113,7 +122,7 @@
           {/if}
         </div>
       {/if}
-      <div class="as-list" role="menu">
+      <div class="as-list" role="menu" tabindex="-1" bind:this={sheetEl} onkeydown={onMenuKey}>
         {#each S.contextMenu.items as item (item)}
           {#if item.sep}
             <div class="as-sep"></div>

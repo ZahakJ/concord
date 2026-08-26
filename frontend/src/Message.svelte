@@ -57,9 +57,11 @@
     refreshGuilds,
     mentionRefs,
     clockOpts,
+    isMentionOfSelf,
   } from "./lib/state.svelte.js";
   import { clampToBytes, TITLE_MAX_BYTES } from "./lib/postdraft.js";
   import { api } from "./lib/api.js";
+  import { tooltip } from "./lib/tooltip.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
   import { longpress, haptic } from "./lib/touch.js";
   import { PERM, has } from "./lib/perms.js";
@@ -73,7 +75,12 @@
 
   // `entering` is set by MessageList for the newest appended message only, so
   // it fades/slides in once — history rows never animate.
-  let { m, compact = false, replyRef = null, entering = false } = $props();
+  //
+  // `tabbable` is the feed's single roving tab stop: exactly one row in the list
+  // carries it, so Tab enters the thread once instead of walking through every
+  // link, avatar and reaction pill of every row. ↑/↓ move it — the handler lives
+  // in MessageList, which is the only thing that knows the row order.
+  let { m, compact = false, replyRef = null, entering = false, tabbable = false } = $props();
 
   // Moderators (Manage Messages) can delete anyone's message.
   const canDeleteOthers = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
@@ -172,6 +179,12 @@
   ]);
   // @role and #channel, resolved against the guild on screen.
   const refs = $derived(mentionRefs());
+  // A message addressed to you gets the whole row, not just the pill inside it.
+  // Scrolling past your own name in a busy channel is the failure this fixes,
+  // and a highlighted pill three words into a paragraph is easy to miss when
+  // the eye is moving. Deliberately the same predicate the notification uses,
+  // so what pinged you and what is tinted can never disagree.
+  const mentionsMe = $derived(!m.deleted && isMentionOfSelf(m));
 
   // @mentions open a floating profile card — on hover (with intent delay) and
   // immediately on click.
@@ -902,28 +915,47 @@
 
 <!-- Touch: only the longpress action opens the menu (Android's WebView also
      synthesizes contextmenu on long-press — letting both run opens the sheet
-     twice: double haptic + re-keyed rows). Mouse right-click keeps contextmenu. -->
+     twice: double haptic + re-keyed rows). Mouse right-click keeps contextmenu.
+
+     role=article + a nonnegative tabindex on exactly one row is the ARIA feed
+     pattern, not an accident: the rows ARE the navigable units, and the roving
+     tab stop is what lets a keyboard reach a message's actions without walking
+     every link and reaction pill above it. The rule this suppresses is the
+     general "don't make static content focusable", which is the opposite of
+     what a feed wants. -->
+<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
   class="msg"
+  role="article"
   class:compact
   class:enter={entering}
+  class:mentions-me={mentionsMe}
   data-msg-id={m.id}
+  tabindex={tabbable ? 0 : -1}
   oncontextmenu={coarse ? (e) => e.preventDefault() : messageMenu}
   use:longpress={{ handler: messageMenu }}
   use:fxOnView
   use:swipeReply
 >
   {#if compact}
-    <span class="gutter-time muted" title={new Date(m.sent).toLocaleString()}>{fmtTime(m.sent)}</span>
+    <span
+      class="gutter-time muted"
+      use:tooltip={{ text: new Date(m.sent).toLocaleString() }}>{fmtTime(m.sent)}</span
+    >
   {:else}
     {#if guest}
-      <span class="av-btn guest-av" title="A guest in this meeting">
+      <span class="av-btn guest-av" role="img" use:tooltip={"A guest in this meeting"} aria-label="A guest in this meeting">
         <Avatar name={guestName} emoji="👤" color="#5b6270" size={38} />
       </span>
     {:else if announce}
       <!-- A published announcement is the guild talking, so it wears the
            guild's face rather than the face of whoever pressed Publish. -->
-      <span class="av-btn" title={announceGuild?.name || "Announcement"}>
+      <span
+        class="av-btn"
+        role="img"
+        use:tooltip={{ text: announceGuild?.name || "Announcement" }}
+        aria-label={announceGuild?.name || "Announcement"}
+      >
         <Avatar
           name={announceGuild?.name || "Guild"}
           image={announceGuild?.icon || ""}
@@ -933,7 +965,8 @@
     {:else}
       <button
         class="av-btn"
-        title="View profile"
+        use:tooltip={"View profile"}
+        aria-label="View profile"
         onclick={(e) => openProfilePopover(m.sender, e.currentTarget)}
       >
         <!-- What someone is wearing belongs HERE above anywhere else: the
@@ -959,7 +992,12 @@
 
   <div class="msg-main">
     {#if m.replyTo && !compact}
-      <button class="reply-ref" title="Jump to original message" onclick={jumpToReply}>
+      <button
+        class="reply-ref"
+        use:tooltip={"Jump to original message"}
+        aria-label="Jump to original message"
+        onclick={jumpToReply}
+      >
         <span class="reply-icon"><Icon name="reply" size={11} /></span>
         {#if replyRef}
           <span
@@ -981,12 +1019,17 @@
       <div class="msg-head">
         {#if guest}
           <span class="sender guest-name">{guestName}</span>
-          <span class="guest-badge" title="Joined from a meeting link — no account, unverified"
+          <span
+            class="guest-badge"
+            use:tooltip={"Joined from a meeting link — no account, unverified"}
             >guest</span
           >
         {:else if announce}
           <span class="sender guild-name">{announceGuild?.name || "Guild"}</span>
-          <span class="ann-badge" title={announce.from ? `Published from #${announce.from}` : "Announcement"}>
+          <span
+            class="ann-badge"
+            use:tooltip={{ text: announce.from ? `Published from #${announce.from}` : "Announcement" }}
+          >
             <Icon name="megaphone" size={10} /> announcement
           </span>
         {:else}
@@ -1001,14 +1044,23 @@
                profile card now; here we show only a small check for a verified
                sender. -->
           {#if !isOwn && memberByFpr(m.sender)?.verified}
-            <span class="verify-check" title="Identity verified"><Icon name="check" size={11} /></span>
+            <span class="verify-check" role="img" use:tooltip={"Identity verified"} aria-label="Identity verified"
+              ><Icon name="check" size={11} /></span
+            >
           {/if}
         {/if}
-        <span class="muted time" title={new Date(m.sent).toLocaleString()}>{fmtTime(m.sent)}</span>
-        {#if m.pinned}<span class="pin-mark" title="Pinned"><Icon name="pin" size={11} /></span>{/if}
+        <span
+          class="muted time"
+          use:tooltip={{ text: new Date(m.sent).toLocaleString() }}>{fmtTime(m.sent)}</span
+        >
+        {#if m.pinned}<span class="pin-mark" role="img" use:tooltip={"Pinned"} aria-label="Pinned"
+            ><Icon name="pin" size={11} /></span
+          >{/if}
       </div>
     {:else if m.pinned}
-      <span class="pin-mark inline" title="Pinned"><Icon name="pin" size={11} /></span>
+      <span class="pin-mark inline" role="img" use:tooltip={"Pinned"} aria-label="Pinned"
+        ><Icon name="pin" size={11} /></span
+      >
     {/if}
 
     {#if m.deleted}
@@ -1019,7 +1071,10 @@
         onmouseenter={hoverReveal}
       >
         {#if revealed !== null}
-          <span class="revealed-tag" title="Deleted — shown to you as a moderator">
+          <span
+            class="revealed-tag"
+            use:tooltip={"Deleted — shown to you as a moderator"}
+          >
             <Icon name="lock" size={10} /> deleted · original
           </span>
           <span class="revealed-text">{revealDisplay || revealed}</span>
@@ -1048,16 +1103,19 @@
           autofocus
           onkeydown={onEditKeydown}
           onblur={(e) => {
-            // Focus moving WITHIN the edit UI (the emoji button/picker) must
-            // not commit-and-close — that's what made inserting emoji into an
-            // edit impossible.
-            if (!e.relatedTarget?.closest?.(".edit-wrap")) commitEdit();
+            // Focus moving WITHIN the edit UI must not commit-and-close. That
+            // is the emoji button and its picker (.edit-wrap) — and Cancel and
+            // Save, which live in a SIBLING .edit-actions row. A mouse never
+            // noticed the gap because those buttons swallow mousedown, but Tab
+            // does not, so tabbing to Cancel saved the edit on the way there
+            // and then cancelled nothing.
+            if (!e.relatedTarget?.closest?.(".edit-wrap, .edit-actions")) commitEdit();
           }}
         ></textarea>
         <button
           type="button"
           class="edit-emoji"
-          title="Insert emoji"
+          use:tooltip
           aria-label="Insert emoji"
           onclick={toggleEditPicker}
         >
@@ -1100,7 +1158,16 @@
            Escape key at all. onmousedown/preventDefault matters: the textarea's
            blur handler commits, so a plain click on Cancel would save the edit
            on the way down and then cancel nothing. -->
-      <div class="edit-actions">
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div
+        class="edit-actions"
+        onfocusout={(e) => {
+          // The textarea hands the edit to these buttons rather than committing;
+          // leaving THEM for somewhere else outside the edit is the real "you
+          // walked away", and still commits, exactly as before.
+          if (!e.relatedTarget?.closest?.(".edit-wrap, .edit-actions")) commitEdit();
+        }}
+      >
         <button
           type="button"
           class="edit-btn"
@@ -1150,7 +1217,7 @@
               type="button"
               class="seal"
               class:open={sealOpen}
-              title={sealFull(sealMs, clockOpts())}
+              use:tooltip={{ text: sealFull(sealMs, clockOpts()) }}
               aria-label="Sealed at {sealFull(sealMs, clockOpts())}"
               aria-expanded={sealOpen}
               onclick={(e) => { e.stopPropagation(); sealOpen = !sealOpen; if (sealOpen) { sealNow = Date.now(); haptic("light"); } }}
@@ -1172,9 +1239,21 @@
             >{/if}
         </div>
       {/if}
-      {#each atts as tok (tok.blobId)}
-        <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} />
-      {/each}
+      <!-- One image sizes itself, as it always has. Two or more become a grid:
+           stacked at their own sizes they were a ragged column — a portrait
+           photo, then a 60px-tall panorama, then a screenshot — and reading
+           four of those meant scrolling past three. -->
+      {#if atts.length > 1}
+        <div class="att-grid">
+          {#each atts as tok (tok.blobId)}
+            <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} tile />
+          {/each}
+        </div>
+      {:else}
+        {#each atts as tok (tok.blobId)}
+          <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} />
+        {/each}
+      {/if}
       {#each files as tok (tok.blobId)}
         {#if tok.mime?.startsWith("audio/")}
           <VoiceMessage channelId={m.channelId} {tok} />
@@ -1202,7 +1281,10 @@
         {/key}
       {/if}
       {#if ephExp}
-        <span class="eph-hint" title="Disappears {new Date(ephExp).toLocaleString()}">
+        <span
+          class="eph-hint"
+          use:tooltip={{ text: `Disappears ${new Date(ephExp).toLocaleString()}` }}
+        >
           <Icon name="clock" size={10} /> disappearing
         </span>
       {/if}
@@ -1303,24 +1385,24 @@
     <div class="msg-actions" role="toolbar" aria-label="Message actions">
       <div class="grp">
         {#each quickEmojis as e (e)}
-          <button class="emoji-btn" class:bounce={bounced === e} title="React {e}" aria-label="React {e}" onclick={(ev) => reactWithBounce(e, ev)}>{e}</button>
+          <button class="emoji-btn" class:bounce={bounced === e} use:tooltip aria-label="React {e}" onclick={(ev) => reactWithBounce(e, ev)}>{e}</button>
         {/each}
-        <button class="add-react" title="More reactions" aria-label="More reactions" onclick={() => (S.pickerTarget = m)}>
+        <button class="add-react" use:tooltip aria-label="More reactions" onclick={() => (S.pickerTarget = m)}>
           <Icon name="smile" size={15} />
           <span class="plus" aria-hidden="true">+</span>
         </button>
       </div>
       <span class="sep"></span>
       <div class="grp">
-        <button title="Reply" aria-label="Reply" onclick={() => (S.replyingTo = m)}>
+        <button use:tooltip aria-label="Reply" onclick={() => (S.replyingTo = m)}>
           <Icon name="reply" size={15} />
         </button>
-        <button title="Forward" aria-label="Forward" onclick={() => (S.modal = { kind: "forward", message: m })}>
+        <button use:tooltip aria-label="Forward" onclick={() => (S.modal = { kind: "forward", message: m })}>
           <Icon name="forward" size={15} />
         </button>
         <button
           class:on={m.pinned}
-          title={m.pinned ? "Unpin" : "Pin"}
+          use:tooltip
           aria-label={m.pinned ? "Unpin" : "Pin"}
           onclick={() => api.pinMessage(m.channelId, m.id)}
         >
@@ -1330,22 +1412,27 @@
       {#if m.sender === S.identity.fingerprint}
         <span class="sep"></span>
         <div class="grp">
-          <button title="Edit" aria-label="Edit" onclick={startEdit}><Icon name="edit" size={15} /></button>
-          <button class="danger" title="Delete" aria-label="Delete" onclick={() => deleteMsg(m)}>
+          <button use:tooltip aria-label="Edit" onclick={startEdit}><Icon name="edit" size={15} /></button>
+          <button class="danger" use:tooltip aria-label="Delete" onclick={() => deleteMsg(m)}>
             <Icon name="trash" size={15} />
           </button>
         </div>
       {:else if canDeleteOthers}
         <span class="sep"></span>
         <div class="grp">
-          <button class="danger" title="Delete (moderator)" aria-label="Delete message" onclick={() => deleteMsg(m)}>
+          <button
+            class="danger"
+            use:tooltip={"Delete (moderator)"}
+            aria-label="Delete message"
+            onclick={() => deleteMsg(m)}
+          >
             <Icon name="trash" size={15} />
           </button>
         </div>
       {/if}
       <span class="sep"></span>
       <div class="grp">
-        <button title="More" aria-label="More" onclick={moreMenu}>
+        <button use:tooltip aria-label="More" onclick={moreMenu}>
           <Icon name="dots" size={15} />
         </button>
       </div>
@@ -1371,6 +1458,45 @@
       background: color-mix(in srgb, var(--bg-3) 40%, transparent);
     }
   }
+  /* ---- @you ----
+     Warm, not red: --danger is the rail's mention colour because a rail badge
+     is a dot with no room to say anything, but a whole row painted in the alarm
+     colour reads as "this message is broken". Amber carries the same "look
+     here" without the alarm, and both --warn and the tint derived from it flip
+     with the theme, so this is one declaration for all fifty packs. The bar sits
+     in the gutter the same way the unread bar does in the channel list. */
+  .msg.mentions-me {
+    background: var(--warn-soft);
+    /* The margin and the padding cancel, so the tint reaches into the feed's
+       gutter without moving a single pixel of the row's content. */
+    margin-left: -8px;
+    padding-left: 8px;
+    margin-right: -8px;
+    padding-right: 8px;
+  }
+  @media (pointer: fine) {
+    .msg.mentions-me:hover {
+      background: color-mix(in srgb, var(--warn) 22%, transparent);
+    }
+  }
+  .msg.mentions-me::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--warn);
+  }
+  /* The row is the feed's roving tab stop (see the `tabbable` prop). The ring
+     is drawn INSIDE it: the row runs the full width of the feed, and the app's
+     2px outward offset would land in the column's overflow-x:hidden and be
+     sliced off on both sides. */
+  .msg:focus-visible {
+    outline: 2px solid var(--accent-hover);
+    outline-offset: -2px;
+  }
   .msg.compact {
     margin-top: var(--msg-group-pull, -10px);
   }
@@ -1389,9 +1515,18 @@
      which is why it survives on touch even with nothing rendered in it — the
      send time moves to the long-press sheet's title there. */
   .gutter-time {
+    /* 38px is the avatar's width, not a guess — it is what keeps a grouped
+       row's text under the text of the row that names its author, so it cannot
+       simply grow. The 12-hour clock used to wrap its meridiem onto a second
+       line inside it and make the row taller on hover; dropping the leading
+       zero (see fmtClock) is what makes "7:28 PM" fit, and nowrap is what makes
+       any remaining overhang hang into the feed's own gutter instead. */
     width: 38px;
     font-size: var(--fs-micro);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
     text-align: right;
+    white-space: nowrap;
     opacity: 0;
     flex-shrink: 0;
     padding-top: 4px;
@@ -1825,6 +1960,13 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     max-width: 440px;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .thread-prompt:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .tp-icon {
     display: inline-flex;
@@ -2268,6 +2410,29 @@
        companion keeps it the same Arabic the rest of the app is set in. */
     font-family: ui-monospace, "Noto Sans Arabic", monospace;
     font-size: var(--fs-compact);
+  }
+  /* Two columns, 4:3 cells, capped so a grid of eight does not take over the
+     window. minmax(0,…) is load-bearing: a grid track's automatic minimum is
+     its content, so without it a wide image widens its own column and the two
+     stop matching — which is the ragged stack again, in a grid. */
+  .att-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    margin-top: 4px;
+    max-width: 380px;
+  }
+  .att-grid > :global(*) {
+    aspect-ratio: 4 / 3;
+    min-width: 0;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+  /* An odd count would leave a half-width orphan on the last row; let it take
+     the full width instead, which is also the more useful shape for it. */
+  .att-grid > :global(*:last-child:nth-child(odd)) {
+    grid-column: 1 / -1;
+    aspect-ratio: 16 / 9;
   }
   .body :global(pre) {
     background: var(--bg-0);

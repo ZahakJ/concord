@@ -610,11 +610,17 @@ export function clockOpts() {
   return {};
 }
 
-// fmtClock formats an ISO timestamp as HH:MM honoring the clock pref. Shared by
+// fmtClock formats an ISO timestamp as H:MM honoring the clock pref. Shared by
 // the feed, search, and scheduled views so the 12/24h choice is global.
+//
+// hour:"numeric" rather than "2-digit": a 24-hour clock pads itself anyway
+// ("19:28"), while a 12-hour one loses a leading zero nobody writes — "7:28 PM",
+// not "07:28 PM". That one character is also the difference between fitting the
+// feed's hover gutter and wrapping the meridiem onto a second line, which made
+// grouped rows change height under the cursor.
 export function fmtClock(iso) {
   try {
-    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clockOpts() });
+    return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...clockOpts() });
   } catch {
     return "";
   }
@@ -1178,7 +1184,12 @@ export async function loadArchiveOlder(allowMetered = false) {
   return prepended;
 }
 
-function isMentionOfSelf(m) {
+// isMentionOfSelf answers "does this message address me?" — the same question
+// the unread counter, the alert sound and the row highlight all ask, so they had
+// better agree. Exported for the last of those: the renderer's own
+// `.mention-self` class is close but not the same thing, since it also fires on
+// an @everyone you typed yourself.
+export function isMentionOfSelf(m) {
   if (m.kind !== "" && m.kind !== "guest") return false;
   // @everyone / @here ping every member — but ONLY a real member may wield them.
   // A guest is chat-scoped; their message is relayed under the host's key, so
@@ -1432,6 +1443,26 @@ function landOn(el, instant = false) {
     if (flashEl === el) flashEl = null;
   }, 1200);
 }
+// flashChannel: the same land-and-flash treatment, aimed at a row in the
+// channel list. Creating a channel now says so with a toast, but a toast in
+// the corner does not answer "where did it go?" — the new row appears
+// somewhere in a list of thirty, as often as not below the fold. This walks
+// the eye from the toast to the row.
+//
+// Its own querySelector rather than landOn's, because landOn only ever looks
+// inside the feed; the channel list is a different scroller entirely.
+export function flashChannel(id) {
+  if (!id) return false;
+  const sel = `[data-ch-id="${CSS.escape(id)}"]`;
+  afterRender(() => {
+    const el = document.querySelector(sel);
+    if (!el) return false;
+    landOn(el);
+    return true;
+  });
+  return true;
+}
+
 export function scrollToMessage(id) {
   const sel = `[data-msg-id="${CSS.escape(id)}"]`;
   const el = feedEl?.querySelector(sel);

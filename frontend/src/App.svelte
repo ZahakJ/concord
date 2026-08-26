@@ -31,6 +31,7 @@
     setChannelTopic,
     nudge,
     selectChannel,
+    flashChannel,
     isCallLocked,
     nameFor,
     forgetLock,
@@ -1104,7 +1105,13 @@
     // the new row appeared somewhere in a list of thirty, below the fold as
     // often as not. Say so, and go there.
     const made = activeGuild()?.channels.find((c) => c.name === name.trim());
-    if (made) selectChannel(made.id);
+    if (made) {
+      selectChannel(made.id);
+      // …and point at it. A toast in the corner says it worked; it does not
+      // answer "where did it go?", and the answer is a row somewhere in a list
+      // of thirty, below the fold as often as not.
+      flashChannel(made.id);
+    }
     flash(`#${name.trim()} created`, "success");
   }
 
@@ -1156,6 +1163,7 @@
     navigator.clipboard?.writeText(text);
     flash("Copied to clipboard", "success");
   }
+
   // Every fenced code block the markdown renderer emits carries a Copy button.
   // The blocks arrive as {@html}, in the feed, the archive, forum posts and the
   // preview pane alike, so no component owns them — one delegated listener at

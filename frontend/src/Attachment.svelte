@@ -13,7 +13,11 @@
 
   // `messageId`/`own` exist only for "Edit meme": editing a picture in place
   // means editing the message that carries it, and only its author may.
-  let { channelId, tok, messageId = "", own = false } = $props();
+  // `tile` says this image is one cell of a multi-image grid rather than a
+  // standalone attachment: it fills the cell its parent sized instead of
+  // sizing itself, and the cell is what keeps four photos looking like four
+  // photos rather than a ragged stack of four different shapes.
+  let { channelId, tok, messageId = "", own = false, tile = false } = $props();
 
   // Right-click on the image (thumbnail or lightbox): copy to the system
   // clipboard as a real image (paste it anywhere — in Concord or outside),
@@ -335,6 +339,7 @@
 {#if state === "done"}
   <button
     class="frame done"
+    class:tile
     class:hidden={hidden}
     onclick={hidden ? reveal : openLightbox}
     oncontextmenu={hidden ? undefined : imageMenu}
@@ -349,7 +354,9 @@
       {src}
       alt={tok.desc || "attachment"}
       class:blur={hidden}
-      style="max-width:min({MAXW}px, 100%);max-height:{MAXH}px"
+      style={tile
+        ? "width:100%;height:100%;object-fit:contain"
+        : `max-width:min(${MAXW}px, 100%);max-height:${MAXH}px`}
     />
     {#if hidden}<span class="spoiler-tag">SPOILER</span>{/if}
   </button>
@@ -396,7 +403,8 @@
 {:else}
   <div
     class="frame placeholder"
-    style="width:{dims.w}px;aspect-ratio:{dims.w} / {dims.h}"
+    class:tile
+    style={tile ? "" : `width:${dims.w}px;aspect-ratio:${dims.w} / ${dims.h}`}
   >
     {#if state === "loading"}
       <span class="spin"></span>
@@ -459,6 +467,20 @@
   }
   .frame.done:hover {
     background: transparent;
+  }
+  /* One cell of a grid: the cell owns the box, the image fills it. `contain`
+     rather than `cover` on purpose — a cropped thumbnail of a screenshot is
+     a picture of the middle of a screenshot, and the whole reason to send four
+     at once is usually that each one shows something different. */
+  .frame.tile {
+    width: 100%;
+    height: 100%;
+    margin-top: 0;
+    background: var(--bg-0);
+    border: 1px solid var(--border);
+  }
+  .frame.done.tile img {
+    border-radius: 0;
   }
   .frame.done img {
     display: block;

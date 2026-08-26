@@ -16,6 +16,7 @@
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
+  import { tooltip } from "./lib/tooltip.js";
   import { scheduleMessage } from "./lib/scheduled.svelte.js";
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
   import { stampTimestamp } from "./lib/timestamp.js";
@@ -1243,6 +1244,7 @@
     style={dirMode ? "unicode-bidi:isolate" : null}
     rows="1"
     placeholder={composerPlaceholder}
+    aria-label={composerPlaceholder}
     bind:value={draft}
     disabled={!ch}
     oninput={onInput}
@@ -1255,13 +1257,15 @@
        who do need to be able to see which way the next line will start
        WITHOUT typing a character to find out — that guess is the whole
        problem this fixes. Clicking it cycles, so the feature is reachable
-       once it has been found, and the title carries the shortcut for getting
+       once it has been found, and the tooltip carries the shortcut for getting
        back to it. -->
   {#if dirMode}
     <button
       type="button"
       class="dir-pill"
-      title="Text direction: {dirMode === 'rtl' ? 'right to left' : 'left to right'} — Ctrl+Shift+D to change"
+      use:tooltip={{
+        text: `Text direction: ${dirMode === "rtl" ? "right to left" : "left to right"} — Ctrl+Shift+D to change`,
+      }}
       aria-label="Text direction: {dirMode === 'rtl' ? 'right to left' : 'left to right'}. Activate to change."
       onclick={() => {
         dirMode = dirMode === "rtl" ? "ltr" : "";
@@ -1379,7 +1383,7 @@
                   class:on={p.spoiler}
                   aria-label={p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
                   aria-pressed={!!p.spoiler}
-                  title={p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
+                  use:tooltip
                   onclick={() => toggleSpoiler(p.id)}
                 >
                   <Icon name="spoiler" size={13} />
@@ -1390,7 +1394,7 @@
                 class="att-tool"
                 class:on={editingAtt === p.id}
                 aria-label="Edit name and description"
-                title="Edit"
+                use:tooltip={"Edit"}
                 onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}
               >
                 <Icon name="edit" size={13} />
@@ -1399,7 +1403,7 @@
                 type="button"
                 class="att-tool danger"
                 aria-label="Remove attachment"
-                title="Remove"
+                use:tooltip={"Remove"}
                 onclick={() => removePending(p.id)}
               >
                 <Icon name="trash" size={13} />
@@ -1460,7 +1464,7 @@
           <button
             type="button"
             class="fmtbtn"
-            title={fmtTitle(b)}
+            use:tooltip={{ text: fmtTitle(b) }}
             aria-label={b.label}
             disabled={!ch}
             onmousedown={(e) => e.preventDefault()}
@@ -1480,7 +1484,7 @@
         <button
           type="button"
           class="iconbtn rec-cancel"
-          title="Discard"
+          use:tooltip={"Discard"}
           aria-label="Discard recording"
           onclick={() => stopRecording(false)}
         >
@@ -1489,7 +1493,7 @@
         <button
           type="button"
           class="sendbtn"
-          title="Send voice message"
+          use:tooltip
           aria-label="Send voice message"
           onclick={() => stopRecording(true)}
         >
@@ -1503,7 +1507,7 @@
         <button
           type="button"
           class="iconbtn morebtn"
-          title="More"
+          use:tooltip={"More"}
           aria-label="Attach a file, GIF, poll, or more"
           aria-expanded={moreOpen}
           disabled={!ch}
@@ -1515,7 +1519,7 @@
         <button
           type="button"
           class="iconbtn"
-          title="Emoji"
+          use:tooltip={"Emoji"}
           aria-label="Emoji picker"
           disabled={!ch}
           onclick={toggleEmojiPicker}
@@ -1528,7 +1532,7 @@
           <button
             type="button"
             class="iconbtn"
-            title="Record a voice message"
+            use:tooltip
             aria-label="Record a voice message"
             disabled={!ch}
             onclick={startRecording}
@@ -1537,7 +1541,15 @@
           </button>
         {:else}
           {#if slowLeft > 0}
-            <span class="slow-chip" title="Slow mode — one message per {slowSecs}s">
+            <!-- role=img so the label is actually exposed: aria-label on a bare
+                 span is prohibited and ignored, and the visible text here is a
+                 bare countdown that names nothing on its own. -->
+            <span
+              class="slow-chip"
+              role="img"
+              use:tooltip={{ text: `Slow mode — one message per ${slowSecs}s` }}
+              aria-label="Slow mode — one message per {slowSecs}s"
+            >
               <Icon name="clock" size={11} /> {slowLeft}s
             </span>
           {/if}
@@ -1549,7 +1561,7 @@
         <button
           type="button"
           class="iconbtn"
-          title="Attach a file or image (or paste / drop one)"
+          use:tooltip={"Attach a file or image (or paste / drop one)"}
           aria-label="Attach a file"
           disabled={!ch || uploading > 0}
           onclick={() => fileInput.click()}
@@ -1563,7 +1575,7 @@
           <button
             type="button"
             class="iconbtn"
-            title="Record a voice message"
+            use:tooltip
             aria-label="Record a voice message"
             disabled={!ch}
             onclick={startRecording}
@@ -1609,7 +1621,7 @@
           <button
             type="button"
             class="iconbtn gifbtn"
-            title="GIFs — this guild's pack, or a web search via your rendezvous"
+            use:tooltip={"GIFs — this guild's pack, or a web search via your rendezvous"}
             aria-label="Open the GIF picker"
             disabled={!ch}
             onclick={() => (S.modal = { kind: "gifs" })}
@@ -1617,7 +1629,7 @@
           <button
             type="button"
             class="iconbtn"
-            title="Create a poll"
+            use:tooltip
             aria-label="Create a poll"
             disabled={!ch}
             onclick={() => (S.modal = { kind: "poll" })}
@@ -1627,7 +1639,7 @@
           <button
             type="button"
             class="iconbtn"
-            title="Advanced composer (colors, rich embeds, preview)"
+            use:tooltip={"Advanced composer (colors, rich embeds, preview)"}
             aria-label="Advanced composer"
             disabled={!ch}
             onclick={openAdvanced}
@@ -1641,7 +1653,11 @@
             type="button"
             class="iconbtn sealbtn"
             class:armed={sealNext}
-            title={sealNext ? "Sealing the send time onto this message — click to cancel" : "Seal the exact send time onto this message"}
+            use:tooltip={{
+              text: sealNext
+                ? "Sealing the send time onto this message — click to cancel"
+                : "Seal the exact send time onto this message",
+            }}
             aria-label="Seal timestamp"
             aria-pressed={sealNext}
             disabled={!ch}
@@ -1652,7 +1668,7 @@
           <button
             type="button"
             class="iconbtn"
-            title={draft.trim() ? "Schedule this message" : "Scheduled messages & reminders"}
+            use:tooltip={{ text: draft.trim() ? "Schedule this message" : "Scheduled messages & reminders" }}
             aria-label="Schedule message"
             disabled={!ch}
             onclick={scheduleSend}
@@ -1663,7 +1679,7 @@
         <button
           type="button"
           class="iconbtn"
-          title="Emoji"
+          use:tooltip={"Emoji"}
           aria-label="Emoji picker"
           disabled={!ch}
           onclick={toggleEmojiPicker}
@@ -2090,11 +2106,17 @@
     background: color-mix(in srgb, var(--border) 30%, var(--bg-input));
     border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   }
+  /* Fixed height, free width: a 64x64 cover-crop showed the middle of every
+     staged picture, which is the one thing that cannot tell you whether you
+     picked the right file. The row still lines up — every chip is the same
+     height — and each preview is now recognisably its own image. */
   .att-chip img {
     display: block;
-    width: 64px;
     height: 64px;
-    object-fit: cover;
+    width: auto;
+    max-width: 148px;
+    min-width: 40px;
+    object-fit: contain;
     transition: filter 0.18s ease;
   }
   /* The staged preview blurs too, so "spoiler" is a state you can see before
@@ -2125,11 +2147,26 @@
     right: 3px;
     display: flex;
     gap: 2px;
-    opacity: 0;
     transition: opacity 0.14s ease;
   }
-  .att-chip:hover .att-tools,
-  .att-chip:focus-within .att-tools {
+  /* Spoiler and Edit stay hover-only — they are refinements, and three 19px
+     buttons permanently over a 64px thumbnail is more chrome than picture.
+     Remove does not: "how do I take this one back off?" is the question a
+     staged attachment actually raises, and answering it only on hover means a
+     keyboard user tabs through the tray looking for a control that is drawn at
+     zero opacity. */
+  .att-tool:not(.danger) {
+    opacity: 0;
+  }
+  .att-chip:hover .att-tool,
+  .att-chip:focus-within .att-tool {
+    opacity: 1;
+  }
+  .att-tools .att-tool.danger {
+    opacity: 0.75;
+  }
+  .att-chip:hover .att-tool.danger,
+  .att-tool.danger:focus-visible {
     opacity: 1;
   }
   /* Scoped to the layout class, not the media query: whether .att-open exists at

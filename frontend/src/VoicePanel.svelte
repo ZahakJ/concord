@@ -24,6 +24,7 @@
     flash,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { tooltip } from "./lib/tooltip.js";
   import { bindLabel } from "./lib/keybind.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { haptic, longpress } from "./lib/touch.js";
@@ -588,18 +589,18 @@
           <span class="eq" aria-hidden="true"><span></span><span></span><span></span></span>
         {/if}
         {#if t.deafened}
-          <span class="mute-badge" title="Deafened — can't hear the call" aria-label="Deafened">
+          <span class="mute-badge" use:tooltip={"Deafened — can't hear the call"} aria-label="Deafened">
             <Icon name="deafened" size={11} />
           </span>
         {:else if t.muted}
-          <span class="mute-badge" title="Muted" aria-label="Muted"><Icon name="micOff" size={11} /></span>
+          <span class="mute-badge" use:tooltip aria-label="Muted"><Icon name="micOff" size={11} /></span>
         {/if}
       {/if}
       <div class="focus-actions">
-        <button class="fbtn" title="Fullscreen" aria-label="Fullscreen" onclick={toggleFullscreen}>
+        <button class="fbtn" use:tooltip aria-label="Fullscreen" onclick={toggleFullscreen}>
           <Icon name="screen" size={14} />
         </button>
-        <button class="fbtn" title="Exit full view" aria-label="Exit full view" onclick={() => (focusedKey = null)}>
+        <button class="fbtn" use:tooltip aria-label="Exit full view" onclick={() => (focusedKey = null)}>
           <Icon name="close" size={14} />
         </button>
       </div>
@@ -607,7 +608,12 @@
     <div class="strip">
       {#each screens as tile (tile.key)}
         {#if tile.key !== focusedKey}
-          <button class="thumb" title="{screenLabel(tile)}'s screen" onclick={() => toggleFocus(tile.key)}>
+          <button
+            class="thumb"
+            use:tooltip={{ text: `${screenLabel(tile)}'s screen` }}
+            aria-label="{screenLabel(tile)}'s screen"
+            onclick={() => toggleFocus(tile.key)}
+          >
             <!-- svelte-ignore a11y_media_has_caption -->
             <video use:srcObject={tile.key} autoplay playsinline muted></video>
             <span class="thumb-badge"><Icon name="screen" size={10} /></span>
@@ -621,7 +627,8 @@
             class="bubble"
             class:speaking={t.speaking}
             transition:scale={pop}
-            title={t.self ? `${t.name} (you)` : t.name}
+            use:tooltip={{ text: t.self ? `${t.name} (you)` : t.name }}
+            aria-label={t.self ? `${t.name} (you)` : t.name}
             onclick={() => toggleFocus(pid)}
           >
             <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={34} />
@@ -642,7 +649,8 @@
           onclick={() => toggleFocus(pid)}
           oncontextmenu={(e) => tileMenu(e, pid, t)}
           use:longpress={{ handler: (e) => tileMenu(e, pid, t) }}
-          title="Click to focus {t.self ? 'yourself' : t.name}"
+          use:tooltip={{ text: `Click to focus ${t.self ? "yourself" : t.name}` }}
+          aria-label="Click to focus {t.self ? 'yourself' : t.name}"
         >
           {#if cam}
             <!-- svelte-ignore a11y_media_has_caption -->
@@ -669,18 +677,18 @@
             <span class="eq" aria-hidden="true"><span></span><span></span><span></span></span>
           {/if}
           {#if t.deafened}
-            <span class="mute-badge" title="Deafened — can't hear the call" aria-label="Deafened">
+            <span class="mute-badge" use:tooltip={"Deafened — can't hear the call"} aria-label="Deafened">
               <Icon name="deafened" size={11} />
             </span>
           {:else if t.muted}
-            <span class="mute-badge" title="Muted" aria-label="Muted"><Icon name="micOff" size={11} /></span>
+            <span class="mute-badge" use:tooltip aria-label="Muted"><Icon name="micOff" size={11} /></span>
           {/if}
           {#if t.guest}
             <!-- Removing a guest acts on the WIRE, unlike the local mute beside
                  it which only affects this device. -->
             <button
               class="evict"
-              title="Remove {t.name} from the meeting"
+              use:tooltip
               aria-label="Remove {t.name} from the meeting"
               onclick={(e) => {
                 e.stopPropagation();
@@ -696,7 +704,7 @@
             <button
               class="local-mute"
               class:on={t.localMuted}
-              title={t.localMuted ? `Unmute ${t.name} (for you)` : `Mute ${t.name} (for you)`}
+              use:tooltip={{ text: t.localMuted ? `Unmute ${t.name} (for you)` : `Mute ${t.name} (for you)` }}
               aria-label={t.localMuted ? `Unmute ${t.name} for yourself` : `Mute ${t.name} for yourself`}
               aria-pressed={t.localMuted}
               onclick={(e) => {
@@ -715,9 +723,11 @@
     {#if screens.length}
       <div class="screens">
         {#each screens as tile (tile.key)}
+          <!-- The touch wording is dropped deliberately: use:tooltip bails out on
+               coarse pointers, so a "Tap to zoom" branch could never render. -->
           <button
             class="screen-tile"
-            title={S.isMobile ? "Tap to zoom" : "Click to zoom"}
+            use:tooltip={"Click to zoom"}
             onclick={() => toggleFocus(tile.key)}
           >
             <!-- svelte-ignore a11y_media_has_caption -->
@@ -735,7 +745,7 @@
   {#if sfxOpen}
     <div class="sfx-row" role="toolbar" aria-label="Soundboard">
       {#each SOUNDBOARD as s (s.id)}
-        <button class="sfx" title={s.name} aria-label={s.name} onclick={() => pressSfx(s.id)}>{s.emoji}</button>
+        <button class="sfx" use:tooltip aria-label={s.name} onclick={() => pressSfx(s.id)}>{s.emoji}</button>
       {/each}
     </div>
   {/if}
@@ -745,7 +755,9 @@
       class:danger={S.muted}
       class:keyed={pttOn && !S.muted}
       class:talking={S.talking && !S.muted}
-      title={S.muted ? "Unmute" : pttOn ? `Hold ${pttKey || "your push-to-talk key"} to talk` : "Mute"}
+      use:tooltip={{
+        text: S.muted ? "Unmute" : pttOn ? `Hold ${pttKey || "your push-to-talk key"} to talk` : "Mute",
+      }}
       aria-label={S.muted ? "Unmute" : "Mute"}
       aria-pressed={S.muted}
       onclick={withHaptic(onToggleMute)}
@@ -755,7 +767,7 @@
     <button
       class="ctl"
       class:danger={S.deafened}
-      title={S.deafened ? "Undeafen" : "Deafen"}
+      use:tooltip
       aria-label={S.deafened ? "Undeafen" : "Deafen"}
       aria-pressed={S.deafened}
       onclick={withHaptic(onToggleDeafen)}
@@ -765,7 +777,7 @@
     <button
       class="ctl"
       class:active={sfxOpen}
-      title="Soundboard"
+      use:tooltip
       aria-label="Soundboard"
       aria-expanded={sfxOpen}
       onclick={() => (sfxOpen = !sfxOpen)}
@@ -776,7 +788,7 @@
       <button
         class="ctl"
         class:active={route !== "earpiece"}
-        title="Audio out: {routeInfo.label} — tap to change"
+        use:tooltip={{ text: `Audio out: ${routeInfo.label} — tap to change` }}
         aria-label="Audio output: {routeInfo.label}"
         onclick={cycleRoute}
       >
@@ -786,7 +798,7 @@
     <button
       class="ctl"
       class:active={S.cameraOn}
-      title={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+      use:tooltip
       aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
       onclick={withHaptic(onToggleCamera)}
     >
@@ -795,7 +807,7 @@
     {#if S.cameraOn && cameras > 1}
       <button
         class="ctl"
-        title="Switch camera"
+        use:tooltip={"Switch camera"}
         aria-label="Switch to the {facing === 'environment' ? 'front' : 'back'} camera"
         onclick={flipCamera}
       >
@@ -806,7 +818,7 @@
       <button
         class="ctl"
         class:active={S.sharing}
-        title={S.sharing ? "Stop sharing" : "Share screen"}
+        use:tooltip
         aria-label={S.sharing ? "Stop sharing" : "Share screen"}
         onclick={withHaptic(onToggleShare)}
       >
@@ -817,7 +829,7 @@
       <button
         class="ctl"
         class:active={locked}
-        title={locked ? "Unlock call (anyone can join)" : "Lock call (people must knock)"}
+        use:tooltip={{ text: locked ? "Unlock call (anyone can join)" : "Lock call (people must knock)" }}
         aria-label={locked ? "Unlock call" : "Lock call"}
         onclick={withHaptic(toggleCallLock)}
       >
@@ -826,7 +838,7 @@
     {/if}
     <button
       class="ctl"
-      title="Audio & video settings"
+      use:tooltip={"Audio & video settings"}
       aria-label="Audio and video settings"
       onclick={() => (S.modal = { kind: "devices" })}
     >
@@ -834,7 +846,7 @@
     </button>
     <button
       class="ctl hangup"
-      title="Leave call"
+      use:tooltip
       aria-label="Leave call"
       onclick={withHaptic(onLeaveVoice, "heavy")}
     >
@@ -886,7 +898,7 @@
             <button
               class="knock-deny"
               onclick={withHaptic(() => denyKnocker(chId, fpr), "medium")}
-              title={isGuestFpr(fpr) ? "Refuse" : "Ignore"}
+              use:tooltip
               aria-label={isGuestFpr(fpr) ? "Refuse" : "Ignore"}
             >
               <Icon name="close" size={14} />

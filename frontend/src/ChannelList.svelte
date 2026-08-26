@@ -47,6 +47,7 @@
     disconnectVoiceMember,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { tooltip } from "./lib/tooltip.js";
   import { RADAR, liveChannelSet } from "./lib/radar.svelte.js";
   import { PERM, has } from "./lib/perms.js";
   import { LEVELS, levelLabel } from "./lib/notifs.js";
@@ -556,7 +557,8 @@
       class="guild-name guild-header"
       class:has-banner={!!art}
       class:ink-dark={art?.ink === "dark"}
-      title={g.description || g.name}
+      use:tooltip={{ text: g.description || g.name }}
+      aria-label={g.description || g.name}
       onclick={() => (S.modal = { kind: "guildHub" })}
       oncontextmenu={(e) => openContextMenu(e, guildMenuItems(g), { title: g.name })}
     >
@@ -578,7 +580,7 @@
     <header class="guild-name" class:dm-head={g?.kind === "dm"}>
       <strong>{g?.kind === "dm" ? "Direct messages" : "Concord"}</strong>
       {#if g?.kind === "dm"}
-        <button class="cat-add always" title="New message" aria-label="New message" onclick={newMessage}>
+        <button class="cat-add always" use:tooltip aria-label="New message" onclick={newMessage}>
           <Icon name="plus" size={13} />
         </button>
       {/if}
@@ -627,7 +629,10 @@
           <span class="dm-name">{dm.dmNotes ? "Notes (you)" : dm.name}</span>
           {#if !dm.dmNotes && liveChannels.has(dm.channels?.[0]?.id)}
             <!-- A DM-located event is live: the conversation IS the meeting. -->
-            <span class="ch-live" title="A scheduled event is live in this conversation">
+            <span
+              class="ch-live"
+              use:tooltip={"A scheduled event is live in this conversation"}
+            >
               <i class="ch-live-dot"></i>LIVE
             </span>
           {:else if !dm.dmNotes && RADAR.unseen[dm.id]}
@@ -635,7 +640,8 @@
                  guild pill wears in the rail. Cleared by opening the calendar. -->
             <span
               class="ev-dot"
-              title="New event on this conversation's calendar"
+              role="img"
+              use:tooltip
               aria-label="New event on this conversation's calendar"
             ></span>
           {/if}
@@ -665,7 +671,8 @@
         <button
           class="unread-jump"
           class:mention={unreadMentions > 0}
-          title="Jump to the next unread channel (mentions first) · Alt+Shift+↓"
+          use:tooltip={"Jump to the next unread channel (mentions first) · Alt+Shift+↓"}
+          aria-label="Jump to the next unread channel (mentions first) · Alt+Shift+↓"
           onclick={jumpToNextUnread}
         >
           <span class="uj-dot"></span>
@@ -683,7 +690,7 @@
           <!-- No silent nothing: members without Manage Channels see WHY. -->
           <button
             class="add-locked tap-hit"
-            title="You need the Manage Channels permission to add channels"
+            use:tooltip={"You need the Manage Channels permission to add channels"}
             aria-label="Adding channels requires the Manage Channels permission"
             onclick={() => flash("You need the Manage Channels permission to add channels here — ask an admin for a role that grants it.")}
           >
@@ -715,7 +722,7 @@
               <span class="cat-actions">
                 <button
                   class="cat-add"
-                  title="Create channel in {grp.name}"
+                  use:tooltip
                   aria-label="Create channel in {grp.name}"
                   onclick={() => (S.modal = { kind: "channel", category: grp.id })}
                 >
@@ -723,7 +730,7 @@
                 </button>
                 <button
                   class="cat-add"
-                  title="Delete category {grp.name}"
+                  use:tooltip
                   aria-label="Delete category {grp.name}"
                   onclick={() => deleteCategory({ id: grp.id, name: grp.name })}
                 >
@@ -741,6 +748,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="channel-row"
+            data-ch-id={c.id}
             class:active
             class:unread={!!u && !active && !isMuted(c.id, g?.id)}
             class:mentioned={!!u?.mentions && !active && !isMuted(c.id, g?.id)}
@@ -766,13 +774,18 @@
               <Icon name={typeIcon(c.type)} size={13} />
               <span class="ch-name">{c.name}</span>
               {#if c.type === "voice" && isCallLocked(c.id)}
-                <span class="ch-lock" title="Call locked — knock to join"><Icon name="lock" size={11} /></span>
+                <span class="ch-lock" role="img" use:tooltip={"Call locked — knock to join"} aria-label="Call locked — knock to join"
+                  ><Icon name="lock" size={11} /></span
+                >
               {/if}
               {#if liveChannels.has(c.id)}
                 <!-- A scheduled event is happening IN here right now — the
                      channel wears it, so the meeting is findable even after
                      the go-live banner is gone. -->
-                <span class="ch-live" title="A scheduled event is live in here — join in">
+                <span
+                  class="ch-live"
+                  use:tooltip={"A scheduled event is live in here — join in"}
+                >
                   <i class="ch-live-dot"></i>LIVE
                 </span>
               {/if}
@@ -816,7 +829,7 @@
             {#if c.type !== "voice"}
               <button
                 class="mute-btn"
-                title={isMuted(c.id, g?.id) ? "Unmute channel" : "Mute channel"}
+                use:tooltip
                 aria-label={isMuted(c.id, g?.id) ? "Unmute channel" : "Mute channel"}
                 onclick={() => {
                   toggleMute(c.id);
@@ -835,6 +848,9 @@
           {#if c.type === "voice"}
             {#each voiceMembersFor(c.id) as vm (vm.peerId)}
               {@const vmem = memberByFpr(vm.fingerprint)}
+              {@const vcTip = canDragPerson(vm)
+                ? `${nameFor(vm.fingerprint)} — drag to another voice channel`
+                : nameFor(vm.fingerprint)}
               <button
                 class="vc-member"
                 class:draggable={canDragPerson(vm)}
@@ -845,9 +861,8 @@
                 oncontextmenu={(e) => personMenu(e, vm, c.id)}
                 use:longpress={{ handler: (e) => personMenu(e, vm, c.id) }}
                 onclick={() => clickChannel(c)}
-                title={canDragPerson(vm)
-                  ? `${nameFor(vm.fingerprint)} — drag to another voice channel`
-                  : nameFor(vm.fingerprint)}
+                use:tooltip={{ text: vcTip }}
+                aria-label={vcTip}
               >
                 <span class="vc-av" class:speaking={vm.speaking}>
                   <Avatar
@@ -866,12 +881,21 @@
                       : ""}
                 </span>
                 {#if vm.deafened}
-                  <span class="vc-mark" title="Deafened"><Icon name="deafened" size={11} /></span>
+                  <span class="vc-mark" role="img" use:tooltip={"Deafened"} aria-label="Deafened"
+                    ><Icon name="deafened" size={11} /></span
+                  >
                 {:else if vm.muted}
-                  <span class="vc-mark" title="Muted"><Icon name="micOff" size={11} /></span>
+                  <span class="vc-mark" role="img" use:tooltip={"Muted"} aria-label="Muted"
+                    ><Icon name="micOff" size={11} /></span
+                  >
                 {/if}
                 {#if vm.sharing}
-                  <span class="vc-live" title={vm.self ? "You're sharing" : "Live — click to watch"}>
+                  <span
+                    class="vc-live"
+                    role="img"
+                    use:tooltip={{ text: vm.self ? "You're sharing" : "Live — click to watch" }}
+                    aria-label={vm.self ? "You're sharing" : "Live — click to watch"}
+                  >
                     <span class="live-dot"></span>LIVE
                   </span>
                 {/if}
@@ -903,7 +927,7 @@
     <div class="voice-bar">
       <button
         class="vb-info"
-        title="Return to call"
+        use:tooltip
         aria-label="Return to call"
         onclick={() => jumpToChannel(S.voice.channelId)}
       >
@@ -914,13 +938,13 @@
         </span>
       </button>
       <span class="vb-actions">
-        <button class="vb-btn" title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} onclick={onToggleMute}>
+        <button class="vb-btn" use:tooltip aria-label={S.muted ? "Unmute" : "Mute"} onclick={onToggleMute}>
           <Icon name={S.muted ? "micOff" : "mic"} size={14} />
         </button>
         <button
           class="vb-btn"
           class:on={S.cameraOn}
-          title={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+          use:tooltip
           aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
           onclick={onToggleCamera}
         >
@@ -930,14 +954,14 @@
           <button
             class="vb-btn"
             class:on={S.sharing}
-            title={S.sharing ? "Stop sharing" : "Share screen"}
+            use:tooltip
             aria-label={S.sharing ? "Stop sharing" : "Share screen"}
             onclick={onToggleShare}
           >
             <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
           </button>
         {/if}
-        <button class="vb-btn leave" title="Disconnect" aria-label="Disconnect" onclick={onLeaveVoice}>
+        <button class="vb-btn leave" use:tooltip aria-label="Disconnect" onclick={onLeaveVoice}>
           <Icon name="door" size={14} />
         </button>
       </span>
@@ -948,7 +972,7 @@
     <button
       bind:this={statusTrigger}
       class="me-status-trigger"
-      title="Set status"
+      use:tooltip
       aria-label="Set status"
       aria-haspopup="dialog"
       aria-expanded={!!statusPop}
@@ -971,7 +995,8 @@
       bind:this={meTrigger}
       class="me"
       onclick={() => openProfilePopover(S.identity.fingerprint, meTrigger)}
-      title="Your profile"
+      use:tooltip={"Your profile"}
+      aria-label="Your profile"
     >
       <span class="me-text">
         <strong>{S.displayName || "Set your name"}</strong>
@@ -986,7 +1011,7 @@
         </span>
       </span>
     </button>
-    <button class="me-gear ghost" title="Settings" aria-label="Settings" onclick={() => (S.modal = { kind: "settings" })}>
+    <button class="me-gear ghost" use:tooltip aria-label="Settings" onclick={() => (S.modal = { kind: "settings" })}>
       <Icon name="gear" />
     </button>
   </div>
@@ -1547,6 +1572,43 @@
   .channel-row:hover .ch-menu {
     opacity: 1;
   }
+  /* ---- reclaiming the hover gutter (mouse only) ----
+     The chevron and the bell are hover affordances, but they were laid out all
+     the time: two controls holding ~47px of a 240px rail open for a moment that
+     may never come, and the channel's own NAME paying for it in ellipsis. Names
+     are the thing this list is FOR.
+     Out of flow they cost nothing until they appear, and when they do they are
+     drawn over the tail of a name that is being truncated anyway. The count
+     pill steps aside for the same reason — the row is under the cursor, so the
+     thing being read right now is the control, not the badge.
+     Mouse only, deliberately: on touch these are permanently visible (see the
+     coarse block below) and out of flow they would sit on top of the name for
+     good. */
+  @media (pointer: fine) {
+    .ch-menu,
+    .mute-btn {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    /* Bell outermost, chevron inside it — the order they sit in while in flow,
+       so the two layouts do not swap places at the moment of hover. */
+    .mute-btn {
+      right: 2px;
+    }
+    .ch-menu {
+      right: 26px;
+    }
+    .mute-slot {
+      display: none;
+    }
+    .channel-row:hover .count {
+      opacity: 0;
+    }
+    .count {
+      transition: opacity 0.12s ease;
+    }
+  }
   .menu-head {
     font-size: var(--fs-tiny);
     text-transform: uppercase;
@@ -1725,6 +1787,11 @@
   }
   .vb-text strong {
     font-size: var(--fs-compact);
+    /* "Voice connected" is two words, and a rail dragged narrow will break it
+       across two lines and push the mic button off its own row. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .vb-ch {
     font-size: var(--fs-small);

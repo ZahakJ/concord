@@ -574,36 +574,216 @@
   // Bring a row that is loaded but outside the window back into it, so the
   // jump-to-message paths (reply refs, pin jumps, search hits, the reading-
   // position stash, the unread divider) still have an element to aim at.
-  $effect(() =>
-    registerFeedReveal((key) => {
-      // "follow the newest message again" — the jump-to-latest buttons, a
-      // channel switch, a message you just sent. Said out loud rather than
-      // inferred from geometry a frame later, because the window is still
-      // settling its measurements at that point and the geometry lies.
-      if (key === "bottom") {
-        atBottom = true;
-        lastScrollTop = feedEl?.scrollTop ?? 0;
-        scheduleWindow();
-        return true;
-      }
-      const i = items.findIndex((x) =>
-        key === "new" ? x.t === "new" : x.t === "row" && x.row.m.id === key,
-      );
-      if (i < 0) return false;
-      if (i >= lo && i < hi) return true;
-      atBottom = false;
-      lo = Math.max(0, i - Math.floor(MAX_WINDOW / 2));
-      hi = Math.min(items.length, lo + MAX_WINDOW);
-      applyPads();
-      // Hold the window here until the caller has finished scrolling to it.
-      revealHold = performance.now() + 700;
-      tick().then(() => {
-        measure();
-        applyPads();
-      });
+  function revealKey(key) {
+    // "follow the newest message again" — the jump-to-latest buttons, a
+    // channel switch, a message you just sent. Said out loud rather than
+    // inferred from geometry a frame later, because the window is still
+    // settling its measurements at that point and the geometry lies.
+    if (key === "bottom") {
+      atBottom = true;
+      lastScrollTop = feedEl?.scrollTop ?? 0;
+      scheduleWindow();
       return true;
-    }),
-  );
+    }
+    const i = items.findIndex((x) =>
+      key === "new" ? x.t === "new" : x.t === "row" && x.row.m.id === key,
+    );
+    if (i < 0) return false;
+    if (i >= lo && i < hi) return true;
+    atBottom = false;
+    lo = Math.max(0, i - Math.floor(MAX_WINDOW / 2));
+    hi = Math.min(items.length, lo + MAX_WINDOW);
+    applyPads();
+    // Hold the window here until the caller has finished scrolling to it.
+    revealHold = performance.now() + 700;
+    tick().then(() => {
+      measure();
+      applyPads();
+    });
+    return true;
+  }
+  $effect(() => registerFeedReveal(revealKey));
+
+  // ---- keyboard navigation over the rows -------------------------------
+  //
+  // The feed had no keydown handling at all: a thousand messages, each with a
+  // reply/react/edit toolbar, and the only way to reach any of it was a mouse.
+  // Tab was not the answer either — walking through every link, avatar and
+  // reaction pill of every row is not navigation, it is a marathon.
+  //
+  // So: one roving tab stop, exactly the pattern ContextMenu uses a hundred
+  // lines away. Tab lands on ONE row; ↑/↓ move it; Tab again steps into that
+  // row's own controls, which is how the action toolbar becomes reachable
+  // without a mouse — including in a narrow desktop window, where S.isMobile is
+  // true (it is width-based) and the toolbar is not rendered at all until a row
+  // is focused.
+  //
+  // Composing with the virtualizer is the whole difficulty, and it is solved by
+  // NOT holding a DOM reference: the current row is read back from
+  // document.activeElement, and `focusKey` is only a fallback for the case where
+  // the window has since unmounted the row the user was on. Moving to a row
+  // outside the window goes through revealKey(), which re-centres a bounded
+  // window on it — deliberately not through windowFor()'s pin, which widens the
+  // window without limit and would mount six hundred rows on a Home press.
+  let focusKey = $state("");
+
+  // "Mark as read" used to clear S.readAnchor, which deleted the divider row —
+  // and with it forty-one pixels out of the middle of what the reader was
+  // looking at, so the paragraph they were on jumped up under their eyes. It
+  // now keeps its slot and goes quiet instead: the divider is a place marker
+  // for the visit, and a place marker that vanishes when you acknowledge it is
+  // the one moment it is guaranteed to be in the way. It goes when the channel
+  // does, which is what S.readAnchor already meant.
+  let newCleared = $state(false);
+  $effect(() => {
+    void S.activeChannelId;
+    untrack(() => (newCleared = false));
+  });
+
+  // Not every `row` item becomes a Message: system notices, missed calls and
+  // device notes render as their own one-line divs with no data-msg-id, and
+  // archived rows are a different component again. Navigating onto one of them
+  // is navigating onto nothing — the focus call finds no element, and the tab
+  // stop it was pointing at disappears with it. Home landing on a guild's
+  // "created this channel" notice is exactly how that happens.
+  const NAV_SKIP = new Set(["system", "call-missed", "device"]);
+  const rowKeys = () =>
+    items.filter((x) => x.t === "row" && !NAV_SKIP.has(x.row.m.kind)).map((x) => x.k);
+
+  function focusRowByKey(key) {
+    if (!key) return;
+    focusKey = key;
+    const sel = `[data-msg-id="${CSS.escape(key)}"]`;
+    let tries = 15;
+    const land = () => {
+      const el = feedEl?.querySelector(sel);
+      if (!el) {
+        if (tries-- > 0) requestAnimationFrame(land);
+        return;
+      }
+      el.focus({ preventScroll: true });
+      el.scrollIntoView({ block: "nearest" });
+    };
+    if (feedEl?.querySelector(sel)) land();
+    else if (revealKey(key)) requestAnimationFrame(land);
+  }
+
+  function currentRowKey() {
+    const el = document.activeElement?.closest?.("[data-msg-id]");
+    if (el && feedEl?.contains(el)) return el.dataset.msgId;
+    return focusKey;
+  }
+
+  function onFeedKeydown(e) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    // ONLY when the row element itself holds focus. Anything focused INSIDE a
+    // row — the edit box, its Cancel and Save buttons, a link, a reaction pill,
+    // the thread prompt — owns its own keys, and a container handler that reads
+    // them anyway is a saboteur: with a first pass that only excluded text
+    // fields, Enter on Cancel was swallowed here and turned into a context
+    // menu, which moved focus out of the editor, which committed the edit the
+    // user had just asked to throw away.
+    const active = document.activeElement;
+    const row = active?.closest?.("[data-msg-id]");
+    if (!row || active !== row || !feedEl?.contains(row)) return;
+
+    const keys = rowKeys();
+    if (!keys.length) return;
+    const cur = currentRowKey();
+    const at = keys.indexOf(cur);
+
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      // No row focused yet: Down enters at the oldest loaded, Up at the newest —
+      // the direction you pressed is the end you meant to start from.
+      const next =
+        at < 0
+          ? e.key === "ArrowDown"
+            ? keys[0]
+            : keys[keys.length - 1]
+          : keys[Math.min(keys.length - 1, Math.max(0, at + (e.key === "ArrowDown" ? 1 : -1)))];
+      if (next === cur) return; // already at the end; let the scroller have it
+      e.preventDefault();
+      focusRowByKey(next);
+      return;
+    }
+    if (e.key === "Home" || e.key === "End") {
+      e.preventDefault();
+      focusRowByKey(e.key === "Home" ? keys[0] : keys[keys.length - 1]);
+      return;
+    }
+    // Enter and the menu key open the same context menu a right-click does, at
+    // the row's own corner. Synthesising the event rather than reaching into
+    // Message.svelte keeps one definition of what that menu contains.
+    if ((e.key === "Enter" || e.key === "ContextMenu") && at >= 0) {
+      const el = feedEl?.querySelector(`[data-msg-id="${CSS.escape(cur)}"]`);
+      if (!el) return;
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      el.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: Math.round(r.left + 24),
+          clientY: Math.round(r.top + Math.min(r.height, 40)),
+        }),
+      );
+    }
+  }
+
+  // A row focused with the mouse becomes the roving tab stop too, so Tab picks
+  // up where the pointer left off instead of at the top of the thread.
+  function onFeedFocusIn(e) {
+    const el = e.target?.closest?.("[data-msg-id]");
+    if (el) focusKey = el.dataset.msgId;
+  }
+
+  // The tab stop is chosen from the RENDERED rows, not from the whole thread,
+  // and that distinction is load-bearing: scroll far enough away from the row
+  // you were on and the window unmounts it, taking the browser's focus with it.
+  // Picked from the full list, the tab stop would then be pointing at a row
+  // that no longer exists and the feed would have no tab stop at all — Tab
+  // would skip the entire conversation. Falling back to the last rendered row
+  // means there is always exactly one way in, wherever the reader has scrolled.
+  const tabbableKey = $derived.by(() => {
+    const vis = items
+      .slice(lo, hi)
+      .filter((x) => x.t === "row" && !NAV_SKIP.has(x.row.m.kind))
+      .map((x) => x.k);
+    if (!vis.length) return "";
+    return vis.includes(focusKey) ? focusKey : vis[vis.length - 1];
+  });
+
+  // ---- arriving messages, spoken -----------------------------------------
+  //
+  // A live region is the only way a screen reader learns that anything happened:
+  // role="log" on the feed announces nothing on its own in most pairings, and a
+  // message that arrives while the reader is elsewhere on the page was simply
+  // silent. Primed per channel so switching into a busy channel does not read
+  // its last message out as if it had just been said.
+  let liveAnnounce = $state("");
+  let announcePrimed = "";
+  let announceLastId = "";
+  $effect(() => {
+    const ch = S.activeChannelId;
+    const last = S.messages[S.messages.length - 1];
+    const id = last?.id || "";
+    untrack(() => {
+      if (announcePrimed !== ch) {
+        announcePrimed = ch;
+        announceLastId = id;
+        liveAnnounce = "";
+        return;
+      }
+      if (id === announceLastId) return;
+      announceLastId = id;
+      if (!last || last.kind !== "" || last.sender === S.identity.fingerprint) {
+        liveAnnounce = "";
+        return;
+      }
+      const who = last.senderName || nameFor(last.sender);
+      liveAnnounce = `${who}: ${previewText(last.content)}`;
+    });
+  });
 
   // A scroller only pages backwards when it can be scrolled backwards. A
   // channel whose live history is a handful of rows — every channel the import
@@ -865,11 +1045,18 @@
   {/if}
 {/if}
 
+<!-- The keydown listener is delegation, not an interactive element: the rows
+     inside are what focus lands on (role=article, roving tabindex), and one
+     handler on the container is how ↑/↓ can move between rows that mount and
+     unmount under it as the window slides. -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="feed"
   bind:this={feedEl}
   role="log"
   aria-label="Messages"
+  onkeydown={onFeedKeydown}
+  onfocusin={onFeedFocusIn}
   ondragenter={onDragEnter}
   ondragleave={onDragLeave}
   ondragover={(e) => e.preventDefault()}
@@ -975,17 +1162,19 @@
     {:else if it.t === "day"}
       <div class="day-divider"><span>{fmtDay(it.day)}</span></div>
     {:else if it.t === "new"}
-      <div class="new-divider">
-        <span>NEW</span>
-        <button
-          class="mark-read"
-          onclick={() => {
-            markRead(S.activeChannelId);
-            S.readAnchor = "";
-          }}
-        >
-          Mark as read <Icon name="check" size={11} />
-        </button>
+      <div class="new-divider" class:cleared={newCleared}>
+        <span>{newCleared ? "READ UP TO HERE" : "NEW"}</span>
+        {#if !newCleared}
+          <button
+            class="mark-read"
+            onclick={() => {
+              markRead(S.activeChannelId);
+              newCleared = true;
+            }}
+          >
+            Mark as read <Icon name="check" size={11} />
+          </button>
+        {/if}
       </div>
     {:else if it.row.m.kind === "system"}
       <div class="system-msg" class:enter={it.row.m.id === animateId}>
@@ -1032,11 +1221,16 @@
         m={it.row.m}
         compact={it.row.compact}
         entering={it.row.m.id === animateId}
+        tabbable={it.k === tabbableKey}
         replyRef={it.row.m.replyTo ? byId.get(it.row.m.replyTo) : null}
       />
     {/if}
   {/each}
   <div class="vs vs-bot" style:height="{botPad}px" aria-hidden="true"></div>
+  <!-- What just arrived, for anyone who cannot see it arrive. Outside the
+       window so the virtualizer never unmounts the region mid-announcement,
+       which would swallow it. -->
+  <span class="sr-only" role="status" aria-live="polite" aria-atomic="true">{liveAnnounce}</span>
   {#if !rows.length}
     {#if S.feedLoading}
       <!-- Channel switch in flight: shimmer rows instead of a misleading
@@ -1474,6 +1668,20 @@
   .new-divider::after {
     order: 2;
   }
+  /* Acknowledged: same slot, same height, no jump — just quieter. */
+  .new-divider.cleared {
+    color: var(--text-faint);
+  }
+  .new-divider.cleared span {
+    background: transparent;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    animation: none;
+  }
+  .new-divider.cleared::before,
+  .new-divider.cleared::after {
+    background: color-mix(in srgb, var(--border) 70%, transparent);
+  }
   .new-divider .mark-read {
     order: 3;
     display: inline-flex;
@@ -1793,11 +2001,14 @@
     gap: 12px;
     padding: 7px 16px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--bg-1) 84%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    /* 84% let the message underneath show through the words, and the blur only
+       smeared it — two lines of text on top of each other read as neither. The
+       pill is a control, not a pane of glass. */
+    background: color-mix(in srgb, var(--bg-1) 96%, transparent);
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
     border: 1px solid var(--border);
-    color: var(--text-muted);
+    color: var(--text);
     font-size: var(--fs-compact);
     box-shadow: var(--float-shadow);
     z-index: 15;
@@ -1811,7 +2022,7 @@
   }
   @media (pointer: fine) {
     .older-bar:hover {
-      background: color-mix(in srgb, var(--bg-1) 92%, transparent);
+      background: var(--bg-1);
       border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
       transform: translateY(-1px);
     }
@@ -1892,25 +2103,6 @@
   .small {
     font-size: var(--fs-compact);
   }
-  /* Shared jump-target flash (applied by scrollToMessage): a brief accent
-     wash + hairline ring that fades, so the eye finds the row. Duration
-     matches the 1.2s class removal in state.svelte.js; the global
-     reduced-motion override in app.css collapses it to a blink. */
-  :global(.flash-highlight) {
-    animation: flash-bg 1.2s ease;
-  }
-  @keyframes flash-bg {
-    0%,
-    35% {
-      background: var(--accent-soft);
-      box-shadow: inset 2px 0 0 var(--accent);
-    }
-    100% {
-      background: transparent;
-      box-shadow: inset 2px 0 0 transparent;
-    }
-  }
-
   /* ---- phone ---- */
   @media (pointer: coarse), (max-width: 768px) {
     /* The return-to-now control is the most-tapped floating thing in any chat
