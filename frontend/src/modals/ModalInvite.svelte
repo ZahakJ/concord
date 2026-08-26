@@ -7,6 +7,32 @@
   import { haptic } from "../lib/touch.js";
   let { code, onCopy, onClose } = $props();
 
+  // The code as a picture. Three hundred characters is not a thing anyone reads
+  // aloud or retypes, and until now the only way to move it between two people
+  // in the same room was a messaging app and a round trip through the network
+  // the code exists to bootstrap. A camera does it directly.
+  //
+  // The qrcode library is a lazy chunk (it is 152KB and most sessions never
+  // open this dialog); a failure to load simply leaves the code on its own,
+  // which is exactly what this dialog was before.
+  let qr = $state("");
+  $effect(() => {
+    let live = true;
+    const raw = code;
+    if (!raw) return;
+    import("qrcode")
+      .then(({ default: QRCode }) =>
+        QRCode.toDataURL(raw, { margin: 1, width: 320, errorCorrectionLevel: "L" }),
+      )
+      .then((url) => {
+        if (live) qr = url;
+      })
+      .catch(() => {
+        /* no picture, same dialog as before */
+      });
+    return () => (live = false);
+  });
+
   let copied = $state(false);
   function copy() {
     onCopy(code);
@@ -59,7 +85,15 @@
   </p>
 
   <div class="code-well">
-    <code>{code}</code>
+    <div class="code-row">
+      <code>{code}</code>
+      {#if qr}
+        <figure class="qr">
+          <img src={qr} alt="This invite code, as a QR code" />
+          <figcaption>Point a camera at it</figcaption>
+        </figure>
+      {/if}
+    </div>
     <div class="give">
       {#if canShare}
         <button class="share" onclick={share}>
@@ -77,13 +111,6 @@
     <Icon name="spark" size={12} /> Anyone with this code can join, so share it directly with people
     you trust.
   </p>
-
-  <!-- The code carries the addresses a joiner dials, so this is the moment the
-       question "will that actually work from their network?" is live. Answering
-       it after they report the code not working means answering it a day late. -->
-  <button class="check" onclick={() => openPanel("reach", "invite")}>
-    <Icon name="bolt" size={12} /> Can people reach me?
-  </button>
 
   {#if candidates.length}
     <div class="divider"></div>
@@ -116,6 +143,15 @@
   {/if}
 
   <div class="actions">
+    <!-- Demoted from a bordered button in the middle of the flow to a link at
+         the end of it. The question it answers — "will that actually work from
+         their network?" — is a real one and worth reaching from here, but it is
+         a troubleshooting question, and putting it between the code and the
+         Copy button implied that inviting someone normally requires a
+         diagnostic first. -->
+    <button class="check" onclick={() => openPanel("reach", "invite")}>
+      Can people reach me?
+    </button>
     <button class="ghost" onclick={onClose}>Done</button>
   </div>
 </Modal>
@@ -222,14 +258,49 @@
       opacity: 0;
     }
   }
+  .code-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
   code {
+    flex: 1;
+    min-width: 0;
     font-family: ui-monospace, monospace;
     font-size: var(--fs-compact);
     line-height: 1.5;
     word-break: break-all;
     color: var(--text);
-    max-height: 120px;
-    overflow-y: auto;
+    /* No max-height. A 120px window over a three-hundred-character code cut a
+       glyph in half at the bottom edge, which reads as a code that has been
+       truncated rather than one that has been scrolled — and the whole anxiety
+       of this dialog is whether you have got all of it. The phone build removed
+       the cap for exactly that reason and the desktop one never followed. The
+       dialog scrolls; let it. */
+  }
+  .qr {
+    margin: 0;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+  .qr img {
+    /* White quiet zone regardless of theme — a dark-mode QR with a dark margin
+       is one a camera will not lock onto. */
+    width: 132px;
+    height: 132px;
+    display: block;
+    border-radius: var(--radius-sm);
+    background: #fff;
+    padding: 5px;
+  }
+  .qr figcaption {
+    font-size: var(--fs-tiny);
+    color: var(--text-faint);
+    text-align: center;
+    max-width: 132px;
   }
   .give {
     display: flex;
@@ -286,22 +357,24 @@
   }
   /* Quiet by design: it sits beside a warning about who may join, and must not
      compete with Copy for the eye. */
+  /* A link in the footer, not a control in the flow: no border, no fill, and
+     pushed to the left so it reads as an aside to Done rather than a choice
+     alongside it. */
   .check {
-    align-self: flex-start;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    margin-right: auto;
+    padding: 6px 0;
     background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    border: none;
     color: var(--text-muted);
     font-size: var(--fs-compact);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: var(--border);
   }
   .check:hover,
-  .check:active {
-    background: var(--bg-3);
+  .check:focus-visible {
     color: var(--text);
+    text-decoration-color: var(--accent);
   }
   /* Phone: handing the code over is the whole point — make it unmissable, and
      demote Copy to a quiet partner once the OS share sheet is available. */
@@ -319,11 +392,21 @@
       background: var(--bg-3);
       color: var(--text);
     }
-    /* The code is already inside a sheet that scrolls; a 120px window on it was
-       one more thumb trap, and it made a long code look truncated. */
-    code {
-      max-height: none;
-      overflow-y: visible;
+    /* A sheet is narrow enough that the code and the picture want to be
+       stacked, not side by side. */
+    .code-row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .qr {
+      align-self: center;
+    }
+    /* The footer stacks into full-width buttons here; a bare link in that stack
+       would look like a third button that forgot its chrome. */
+    .check {
+      margin-right: 0;
+      min-height: 0;
+      order: -1;
     }
     .add-list {
       max-height: none;
