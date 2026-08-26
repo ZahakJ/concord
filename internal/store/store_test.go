@@ -333,6 +333,48 @@ func TestCommitLog(t *testing.T) {
 	}
 }
 
+func TestPruneCommitsNeedsBothHorizons(t *testing.T) {
+	s, _ := openTestStore(t)
+	g := []byte("group-1")
+	for e := uint64(1); e <= 10; e++ {
+		if err := s.SaveCommit(g, e, []byte{byte(e)}); err != nil {
+			t.Fatalf("SaveCommit: %v", err)
+		}
+	}
+
+	// Young rows are kept however far back they are: a guild that changed
+	// membership ten times this morning keeps all ten.
+	n, err := s.PruneCommits(g, 2, time.Now().Add(-time.Hour))
+	if err != nil {
+		t.Fatalf("PruneCommits: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("pruned %d rows that were inside the age horizon", n)
+	}
+
+	// Old rows are kept while they are inside the count: a guild that has
+	// changed membership twice since 2019 keeps both.
+	if n, err = s.PruneCommits(g, 100, time.Now()); err != nil {
+		t.Fatalf("PruneCommits: %v", err)
+	} else if n != 0 {
+		t.Fatalf("pruned %d rows that were inside the count horizon", n)
+	}
+
+	// Past both, and only then, they go — and it is the OLDEST that go.
+	if n, err = s.PruneCommits(g, 3, time.Now()); err != nil {
+		t.Fatalf("PruneCommits: %v", err)
+	} else if n != 7 {
+		t.Fatalf("pruned %d rows, want 7", n)
+	}
+	rows, err := s.CommitsAfter(g, 0)
+	if err != nil {
+		t.Fatalf("CommitsAfter: %v", err)
+	}
+	if len(rows) != 3 || rows[0].Epoch != 8 || rows[2].Epoch != 10 {
+		t.Fatalf("kept the wrong rows: %+v", rows)
+	}
+}
+
 func TestChangedSinceServesStateUpdates(t *testing.T) {
 	s, _ := openTestStore(t)
 	m, _ := domain.NewMessage("chan-1", []byte("alice"), "hello")

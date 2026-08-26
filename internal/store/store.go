@@ -2189,6 +2189,41 @@ func (s *Store) CommitsAfter(groupID []byte, afterEpoch uint64) ([]CommitRow, er
 	return out, rows.Err()
 }
 
+// PruneCommits drops a group's oldest commit-log rows, keeping any row that is
+// within the last keepRecent epochs OR newer than notBefore. A row has to be
+// past BOTH horizons to go: the count is what bounds the log in a guild that
+// churns membership all day, and the age is what stops a quiet guild's short
+// log being trimmed to nothing the moment it passes the count. It reports how
+// many rows it removed.
+//
+// The log is a cache, not a record: it exists so a member who missed a commit
+// can be bridged without re-joining. What makes trimming it safe is that the
+// member who falls behind the horizon is not stranded — the sync answers
+// "epoch gap", which routes them to the re-add heal (see heal.go). What makes
+// trimming it NECESSARY is that nothing else ever deleted a row, so a
+// long-lived guild's commit log grew without bound, was read in full by
+// CommitsAfter on every catch-up, and was copied to disk forever.
+func (s *Store) PruneCommits(groupID []byte, keepRecent int, notBefore time.Time) (int, error) {
+	if keepRecent < 0 {
+		keepRecent = 0
+	}
+	res, err := s.db.Exec(
+		`DELETE FROM mls_commits
+		  WHERE group_id = ?
+		    AND created < ?
+		    AND epoch <= (SELECT MAX(epoch) FROM mls_commits WHERE group_id = ?) - ?`,
+		groupID, notBefore.UnixNano(), groupID, int64(keepRecent),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("store: prune commits: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, nil
+	}
+	return int(n), nil
+}
+
 // MessagesChangedSince returns up to limit channel messages sent OR updated
 // strictly after sinceNano, oldest first, including deleted tombstones (blank
 // content) and per-message reactions. It is the server side of history sync,

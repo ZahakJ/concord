@@ -372,6 +372,7 @@ func (s *Service) runHealLoop() {
 		if s.backgrounded() || tick%reconcileEvery == 0 {
 			s.reconcilePendingMembers()
 			s.reconcileGuilds()
+			s.pruneCommitLogs()
 		}
 		s.sweepMailbox()
 	}

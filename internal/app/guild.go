@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -996,6 +997,47 @@ func (s *Service) profileRoster() map[string]Profile {
 	// and travels over live announces only.
 	out[s.id.Fingerprint()] = s.selfStoredProfile()
 	return out
+}
+
+// commitLogKeep and commitLogMaxAge bound the MLS commit log. A row survives if
+// it is within the last commitLogKeep epochs OR younger than commitLogMaxAge —
+// whichever is more generous — so a busy guild keeps a deep enough log to
+// bridge anyone who was away for a normal weekend, and a quiet guild keeps its
+// whole short history regardless of age.
+//
+// The numbers are chosen against what the log is FOR. It bridges a member who
+// missed some commits; a member who has been gone longer than a month, or
+// through two thousand membership changes, is not being bridged by a commit
+// replay in any useful sense — they are re-added instead, which is one commit
+// for the guild rather than two thousand for them (heal.go). Before this the
+// log had no bound at all: every commit any peer ever made or applied stayed on
+// disk forever, and CommitsAfter read the tail of it on every catch-up.
+//
+// Variables rather than constants so a test can shrink the horizon; nothing in
+// the product ever writes them.
+var (
+	commitLogKeep   = 2000
+	commitLogMaxAge = 30 * 24 * time.Hour
+)
+
+// pruneCommitLogs trims every tracked guild's commit log to the horizon. Runs
+// on the guild anti-entropy beat — the log only grows when membership changes,
+// which is rare, so there is nothing to gain from checking more often.
+func (s *Service) pruneCommitLogs() {
+	s.mu.RLock()
+	groups := make([][]byte, 0, len(s.guilds))
+	for _, g := range s.guilds {
+		groups = append(groups, g.GroupID)
+	}
+	s.mu.RUnlock()
+	cutoff := time.Now().Add(-commitLogMaxAge)
+	for _, gid := range groups {
+		n, err := s.store.PruneCommits(gid, commitLogKeep, cutoff)
+		if err == nil && n > 0 {
+			log.Printf("concord/app: pruned %d commit-log rows past the %d-epoch/%s horizon",
+				n, commitLogKeep, commitLogMaxAge)
+		}
+	}
 }
 
 // logCommit records a commit this peer just created or applied, keyed by the
