@@ -3,7 +3,6 @@
   // fallback) that a new device scans/pastes to join this account. The code
   // carries a single-use secret + how to reach us; it expires in ~2 minutes.
   import { onMount, onDestroy } from "svelte";
-  import QRCode from "qrcode";
   import { api } from "../lib/api.js";
   import { linkURLFor } from "../lib/deeplink.js";
   import { flash } from "../lib/state.svelte.js";
@@ -19,6 +18,11 @@
   onMount(async () => {
     try {
       code = await api.linkOffer();
+      // Fetched here rather than imported at the top: the encoder is only ever
+      // needed by this dialog, and it was riding into every cold start for the
+      // sake of a screen most sessions never open. The offer round-trip above
+      // covers the load.
+      const { default: QRCode } = await import("qrcode");
       // The QR carries the concord:// deep-link form, so a plain OS-camera
       // scan opens the Concord app with the code already filled in. The
       // in-app scanner and the paste box accept both forms.

@@ -3,7 +3,6 @@
   // canvas and decoded with jsQR. Fires onScan(text) once and stops. Used by
   // the Login link flow (and anywhere else a code can arrive by camera).
   import { onMount, onDestroy } from "svelte";
-  import jsQR from "jsqr";
   import Icon from "./Icon.svelte";
 
   import { registerOverlay } from "./lib/state.svelte.js";
@@ -26,6 +25,23 @@
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
 
+  // jsQR is ~130KB and this is the only screen that decodes a camera frame, so
+  // it is fetched when the scanner opens rather than carried through every cold
+  // start by everyone who never links a device. The camera stream takes far
+  // longer to come up than the fetch does, so the wait is invisible — but the
+  // decode loop must not start before the module lands, hence the await in
+  // startCamera rather than a bare import at the top.
+  let decode = null;
+  async function loadDecoder() {
+    if (decode) return true;
+    try {
+      decode = (await import("jsqr")).default;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   function tick() {
     if (done) return;
     if (video && video.readyState >= 2 && video.videoWidth) {
@@ -35,7 +51,7 @@
       canvas.height = video.videoHeight * scale;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const hit = jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
+      const hit = decode(img.data, img.width, img.height, { inversionAttempts: "dontInvert" });
       if (hit?.data) {
         done = true;
         stop();
@@ -63,6 +79,10 @@
     denied = false;
     done = false;
     stop();
+    if (!(await loadDecoder())) {
+      error = "Couldn't load the QR decoder.";
+      return;
+    }
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
