@@ -4,7 +4,11 @@
   import Modal from "./Modal.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
-  import { S, setPref, flash, patchProfile } from "../lib/state.svelte.js";
+  import Icon from "../Icon.svelte";
+  import { S, setPref, flash, patchProfile, setAlertWords } from "../lib/state.svelte.js";
+  import { tooltip } from "../lib/tooltip.js";
+  import { plural } from "../lib/plural.js";
+  import { addWord, removeWord, rejectReason, MAX_WORDS, MAX_LEN } from "../lib/alertwords.js";
   import { asksLazily, notificationStatus, requestPermission, openSystemSettings } from "../lib/notify.js";
   import {
     soundsEnabled,
@@ -94,6 +98,26 @@
     }
   }
 
+  // ---- alert words ----
+  //
+  // The list lives in this device's own storage and is handed to the inbox query
+  // as an argument; nothing here writes it anywhere else. The copy above says
+  // so, so this code has to keep saying so.
+  let draft = $state("");
+  const reason = $derived(rejectReason(S.alertWords, draft));
+  function addAlert(e) {
+    e.preventDefault();
+    const next = addWord(S.alertWords, draft);
+    // addWord returns the SAME array when it refuses, which is how "added" is
+    // told from "rejected" without a second validation that could disagree.
+    if (next === S.alertWords) {
+      if (reason) flash(reason);
+      return;
+    }
+    setAlertWords(next);
+    draft = "";
+  }
+
   // "Stay connected" defaults on; toggling flips the pref and the Android
   // foreground service that keeps the P2P node alive in the background.
   let stayConnected = $state(S.prefs.stayConnected !== false);
@@ -140,6 +164,48 @@
     </SettingRow>
   </SettingGroup>
 
+  <SettingGroup
+    label="Alert words"
+    info="Concord matches these here, on this machine, against messages that are already on it. Any app with a server has to do this matching on the server, which means telling it what you are watching for. There is no server here to tell."
+  >
+    <div class="words">
+      <p class="say">
+        Words that ping you the way your own name does. They are stored on this
+        device only — never sent anywhere, never shared with your other devices,
+        and never part of any guild.
+      </p>
+      <form class="add" onsubmit={addAlert}>
+        <input
+          bind:value={draft}
+          placeholder="A word or a short phrase"
+          aria-label="Add an alert word"
+          maxlength={MAX_LEN}
+        />
+        <button type="submit" disabled={!draft.trim() || !!reason}>Add</button>
+      </form>
+      {#if reason}<p class="why">{reason}</p>{/if}
+      {#if S.alertWords.length}
+        <ul class="chips">
+          {#each S.alertWords as w (w)}
+            <li>
+              <span>{w}</span>
+              <button
+                aria-label="Remove the alert word {w}"
+                use:tooltip={"Remove"}
+                onclick={() => setAlertWords(removeWord(S.alertWords, w))}
+              >
+                <Icon name="close" size={9} />
+              </button>
+            </li>
+          {/each}
+        </ul>
+        <p class="count">{plural(S.alertWords.length, "word")} of {MAX_WORDS}</p>
+      {:else}
+        <p class="count">No alert words yet. A project name, a release, a nickname.</p>
+      {/if}
+    </div>
+  </SettingGroup>
+
   {#if asksLazily() && osKnown}
     <SettingGroup label="System">
       <SettingRow
@@ -171,6 +237,74 @@
 </Modal>
 
 <style>
+  .words {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+  }
+  .say {
+    margin: 0;
+    font-size: var(--fs-compact);
+    line-height: 1.55;
+    color: var(--text-muted);
+  }
+  .add {
+    display: flex;
+    gap: var(--sp-1);
+  }
+  .add input {
+    flex: 1;
+    min-width: 0;
+  }
+  .add button {
+    flex: none;
+    padding: 6px 14px;
+    min-width: 0;
+  }
+  .why {
+    margin: 0;
+    font-size: var(--fs-tiny);
+    color: var(--warn-text);
+  }
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .chips li {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px 4px 10px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    font-size: var(--fs-compact);
+    unicode-bidi: plaintext;
+  }
+  .chips button {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    min-width: 0;
+    padding: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+  }
+  .chips button:hover {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .count {
+    margin: 0;
+    font-size: var(--fs-tiny);
+    color: var(--text-faint);
+  }
   .pick {
     background: var(--bg-input);
     border: 1px solid var(--border);

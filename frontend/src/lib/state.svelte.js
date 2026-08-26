@@ -5,7 +5,8 @@ import { tick } from "svelte";
 import { api, on, onTransportHealth } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
 import { containsMention } from "./markdown.js";
-import { normalize as normalizeAlertWords } from "./alertwords.js";
+import { matchedWord as matchedAlertWord, normalize as normalizeAlertWords } from "./alertwords.js";
+import { awayLongEnough, guildLastSeen, buildDigest, worthShowing } from "./digest.js";
 import { playVoiceJoin, playVoiceLeave, playMention, playDM, playSfx } from "./sounds.js";
 
 // Per-sender soundboard rate limit (last accepted press, ms). Module-local:
@@ -138,6 +139,11 @@ export const S = $state({
   // The activity inbox: everything that concerns you, across every guild and
   // DM. Filled by refreshInbox() from a local query — nothing about it travels.
   inbox: { entries: [], unread: 0, readAt: 0, loading: false },
+  // The catch-up card, or null. A SNAPSHOT taken the moment a guild opens, not
+  // a derivation: the numbers it reports are about the moment you arrived, and
+  // reading the first message would otherwise start dismantling the summary of
+  // what you came back to.
+  catchUp: null,
   // Guild-rail layout: device-local ordering and folders (see lib/rail.js). An
   // array of { t:"g", id } / { t:"f", id, name, color, open,
   // ids }. Reconciled against the live guild list on render.
@@ -1245,6 +1251,18 @@ export function isMentionOfSelf(m) {
   return containsMention(m.content, names);
 }
 
+// isAlertWordHit answers "does this message contain one of MY words?" — the
+// device-local half of the mention treatment. It is a separate question from
+// isMentionOfSelf on purpose: a mention is something the author aimed at you,
+// and an alert word is something you asked to be told about. The row says which
+// one happened, and your own messages never count as either.
+export function alertWordIn(m) {
+  if (!S.alertWords.length) return "";
+  if (m.kind !== "" && m.kind !== "guest") return "";
+  if (m.sender === S.identity.fingerprint) return "";
+  return matchedAlertWord(m.content, S.alertWords);
+}
+
 // setAlertWords stores the list and nothing else does. It never reaches the
 // core as state — the inbox query takes it as an argument on each call — so
 // this write is the only place the list exists at rest, and it is this
@@ -1280,6 +1298,10 @@ export function refreshInbox({ soon = false } = {}) {
           readAt: page?.readAt || 0,
           loading: false,
         };
+        // The catch-up card's highlights come from these entries, and the inbox
+        // lands after the counts do — so it picks them up now rather than
+        // waiting for the next guild switch.
+        settleCatchUp();
       } catch {
         // A failed refresh leaves the last answer on screen rather than
         // emptying the panel: an inbox that blanks itself when the core hiccups
@@ -1329,6 +1351,79 @@ export async function jumpToInboxEntry(entry) {
       if (!scrollToMessage(entry.messageId)) flash("That message isn't loaded yet");
     }),
   );
+}
+
+// ---- the catch-up card -----------------------------------------------------
+//
+// Armed when a guild opens after a long enough absence, and torn down when you
+// leave it or dismiss it. There is nothing persistent here: the "when did I last
+// read this" mark it needs is the one the sidebar already keeps, so a second
+// last-visited timestamp would be a second thing that can be wrong.
+// Two phases, and the split is load-bearing. The MARK has to be captured before
+// anything opens a channel, because opening one moves it — a card computed after
+// the fact would always find that you had just been here. The CONTENT has to be
+// computed afterwards, because the unread counts and the inbox are not known
+// until their own queries land. So arm captures the moment, settle fills it in.
+let pending = null;
+function armCatchUp(guildId) {
+  S.catchUp = null;
+  pending = null;
+  const g = S.guilds.find((x) => x.id === guildId);
+  if (!g || g.kind === "dm" || g.kind === "group") return;
+  const since = guildLastSeen(g, lastRead);
+  if (!awayLongEnough(since, Date.now())) return;
+  // A copy of the marks as they were, so the counts are asked for against the
+  // moment you arrived rather than against whatever reading has done since.
+  const marks = {};
+  for (const c of g.channels) marks[c.id] = lastRead[c.id] || "";
+  pending = { guildId, sinceMs: since, atMs: Date.now(), marks };
+  settleCatchUp();
+}
+
+// settleCatchUp fills in (or refreshes) the armed card. Safe to call more than
+// once — the inbox lands after the counts do, and the card should pick up its
+// highlights when it does rather than waiting for a whole page load.
+export async function settleCatchUp() {
+  const p = pending;
+  if (!p || p.guildId !== S.activeGuildId) return;
+  const g = S.guilds.find((x) => x.id === p.guildId);
+  if (!g) return;
+
+  // The counts come from the cheap SQL path, asked against the captured marks:
+  // it counts rows without decrypting one, and it cannot be thrown off by the
+  // channel this session has already opened and read.
+  let counts = null;
+  try {
+    counts = await api.unreadCounts(p.marks);
+  } catch {
+    return; // no counts, no card — an empty summary is worse than none
+  }
+  if (pending !== p || p.guildId !== S.activeGuildId) return; // moved on mid-flight
+
+  const mentions = {};
+  for (const e of S.inbox.entries) {
+    if (e.guildId !== p.guildId || e.at <= p.sinceMs) continue;
+    mentions[e.channelId] = (mentions[e.channelId] || 0) + 1;
+  }
+  const unread = {};
+  for (const [id, n] of Object.entries(counts || {})) {
+    if (n > 0) unread[id] = { count: n, mentions: mentions[id] || 0 };
+  }
+
+  const d = buildDigest({
+    guild: g,
+    unread,
+    entries: S.inbox.entries,
+    sinceMs: p.sinceMs,
+    nowMs: p.atMs,
+    muted: (cid) => isMuted(cid, g.id),
+  });
+  S.catchUp = worthShowing(d) ? d : null;
+}
+
+export function dismissCatchUp() {
+  pending = null;
+  S.catchUp = null;
 }
 
 // myRoleNames: the roles this account holds in the active guild. Roles are
@@ -2061,6 +2156,10 @@ export async function refreshGuilds() {
 }
 
 export async function selectGuild(id) {
+  // Before anything opens a channel and starts marking things read: the card is
+  // about the moment you arrived, and selectChannel below moves the read marks
+  // it is computed from.
+  armCatchUp(id);
   S.activeGuildId = id;
   // Drop the previous guild's archive index before anything renders: the feed
   // matches archived channels by mapped id, and two guilds' ids do not collide
@@ -2566,12 +2665,21 @@ function initEvents() {
     ) {
       // Genuinely-new (first-seen) message in an unread channel bumps the badge.
       const since = lastRead[m.channelId];
-      if (!since || new Date(m.sent) > new Date(since)) bumpUnread(m.channelId, isMentionOfSelf(m));
+      // An alert word counts towards the mention badge as well as the plain
+      // count: the point of the setting is that those messages reach you the way
+      // your own name does, and a badge that stayed grey would be the first
+      // thing to make a liar of it.
+      if (!since || new Date(m.sent) > new Date(since))
+        bumpUnread(m.channelId, isMentionOfSelf(m) || !!alertWordIn(m));
     }
 
     // Chimes + desktop notifications: only for a genuinely-new, live message from
     // someone else (not edits/reactions/pins, not a sync backfill of old msgs).
-    const isMention = isMentionOfSelf(m);
+    //
+    // An alert word counts as a mention here, deliberately: the whole promise of
+    // the setting is "ping me the way my own name does", and a word that lights
+    // a row but does not make a sound is a setting people report as broken.
+    const isMention = isMentionOfSelf(m) || !!alertWordIn(m);
     const genuinelyNew = firstSeen && isLive && m.sender !== S.identity.fingerprint && !m.deleted && m.kind === "";
     // The inbox is a scan, not a running total, so a new message does not update
     // it — it invalidates it. Coalesced, so a burst costs one query.

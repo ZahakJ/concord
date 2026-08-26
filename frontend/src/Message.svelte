@@ -59,6 +59,7 @@
     mentionRefs,
     clockOpts,
     isMentionOfSelf,
+    alertWordIn,
   } from "./lib/state.svelte.js";
   import { clampToBytes, TITLE_MAX_BYTES } from "./lib/postdraft.js";
   import { api } from "./lib/api.js";
@@ -186,6 +187,11 @@
   // the eye is moving. Deliberately the same predicate the notification uses,
   // so what pinged you and what is tinted can never disagree.
   const mentionsMe = $derived(!m.deleted && isMentionOfSelf(m));
+  // An alert word gets the same treatment through a different door, and wears a
+  // different colour for it. A mention is somebody aiming a message at you; an
+  // alert word is you having asked to be told. Both are worth a tinted row and
+  // they are not the same event, so the row must not claim they are.
+  const alertHit = $derived(m.deleted ? "" : alertWordIn(m));
 
   // @mentions open a floating profile card — on hover (with intent delay) and
   // immediately on click.
@@ -931,6 +937,7 @@
   class:compact
   class:enter={entering}
   class:mentions-me={mentionsMe}
+  class:alerts-me={!mentionsMe && !!alertHit}
   data-msg-id={m.id}
   tabindex={tabbable ? 0 : -1}
   oncontextmenu={coarse ? (e) => e.preventDefault() : messageMenu}
@@ -1489,6 +1496,34 @@
     width: 3px;
     border-radius: 0 3px 3px 0;
     background: var(--warn);
+  }
+  /* ---- a word you asked about ----
+     The same shape as @you, in the accent instead of the amber, because it is
+     the same "look here" arriving through a different door. Amber says someone
+     aimed this at you; the accent says you asked to be told. Giving them one
+     colour would be a small lie every time an alert word fired, and giving the
+     alert word a THIRD colour would just be another thing to learn. */
+  .msg.alerts-me {
+    background: var(--accent-soft);
+    margin-left: -8px;
+    padding-left: var(--sp-2);
+    margin-right: -8px;
+    padding-right: var(--sp-2);
+  }
+  @media (pointer: fine) {
+    .msg.alerts-me:hover {
+      background: color-mix(in srgb, var(--accent) 20%, transparent);
+    }
+  }
+  .msg.alerts-me::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: var(--accent);
   }
   /* The row is the feed's roving tab stop (see the `tabbable` prop). The ring
      is drawn INSIDE it: the row runs the full width of the feed, and the app's

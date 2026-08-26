@@ -6,6 +6,7 @@
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Message from "./Message.svelte";
   import ArchiveMessage from "./ArchiveMessage.svelte";
+  import CatchUpCard from "./CatchUpCard.svelte";
   import Avatar from "./Avatar.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import { haptic } from "./lib/touch.js";
@@ -182,6 +183,12 @@
 
   // The id of the first message newer than where we left off (and not our own),
   // marking where the "New messages" divider goes. "" when nothing is new.
+  // The catch-up summary, when one is armed for the guild on screen. Read here
+  // rather than inside the card so the item list can decide whether the row
+  // exists at all — a card that renders nothing would still be an element the
+  // window has to pair with.
+  const catchUp = $derived(S.catchUp?.guildId === S.activeGuildId ? S.catchUp : null);
+
   const newLineId = $derived.by(() => {
     if (!S.readAnchor) return "";
     const m = S.messages.find(
@@ -277,7 +284,14 @@
     for (const row of rows) {
       const m = row.m;
       if (row.newDay) out.push({ k: `d:${m.id}`, t: "day", day: row.day });
-      if (m.id === newLineId) out.push({ k: "new", t: "new" });
+      if (m.id === newLineId) {
+        out.push({ k: "new", t: "new" });
+        // The catch-up summary belongs AT the boundary: everything below the
+        // line is what you have not read, and this is its one-paragraph
+        // version. An item of its own, not a conditional inside the divider,
+        // because the window pairs items off against elements one for one.
+        if (catchUp) out.push({ k: "catchup", t: "catchup" });
+      }
       // A join/create notice in a DM draws nothing at all (noise in a 1:1), and
       // an item that draws nothing has no element to pair with.
       if (m.kind === "system" && isDMView) continue;
@@ -1166,6 +1180,8 @@
       </div>
     {:else if it.t === "day"}
       <div class="day-divider"><span>{fmtDay(it.day)}</span></div>
+    {:else if it.t === "catchup"}
+      <CatchUpCard digest={catchUp} />
     {:else if it.t === "new"}
       <div class="new-divider" class:cleared={newCleared}>
         <span>{newCleared ? "READ UP TO HERE" : "NEW"}</span>
