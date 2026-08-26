@@ -13,6 +13,18 @@
     [...(activeGuild()?.categories || [])].sort((a, b) => a.position - b.position),
   );
 
+  // Nothing on either side of the wire refuses a name that already exists, so a
+  // guild could end up with five channels called #general and no way to tell
+  // which conversation was in which. It stays ALLOWED — a forum board and a
+  // voice room can reasonably share a name, and a rename is not worth blocking
+  // over — but it stops being something you do by accident.
+  const clash = $derived(
+    !!name.trim() &&
+      (activeGuild()?.channels || []).some(
+        (c) => !c.parent && c.name.toLowerCase() === name.trim().toLowerCase(),
+      ),
+  );
+
   const TYPES = [
     { id: "text", label: "Text", icon: "hash", hint: "Send messages, files, images" },
     { id: "voice", label: "Voice", icon: "speaker", hint: "Talk together in a call" },
@@ -48,8 +60,16 @@
       bind:value={name}
       maxlength="40"
       placeholder={type === "voice" ? "voice channel name" : "channel-name"}
+      aria-invalid={clash ? "true" : undefined}
       autofocus={!S.isMobile}
     />
+    {#if clash}
+      <p class="warn-line" role="status">
+        <Icon name="alert" size={13} />
+        This guild already has a #{name.trim()} — two channels with one name are hard
+        to tell apart.
+      </p>
+    {/if}
     {#if categories.length}
       <label class="cat-label">
         <span class="muted">Category</span>
@@ -78,6 +98,23 @@
   .type-row {
     display: flex;
     gap: 8px;
+  }
+  .warn-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: -6px 0 0;
+    color: var(--warn-text);
+    font-size: var(--fs-compact);
+    text-align: left;
+  }
+  .warn-line :global(svg) {
+    flex: none;
+    margin-top: 1px;
+    color: var(--warn);
+  }
+  input[aria-invalid] {
+    border-color: var(--warn);
   }
   .type {
     flex: 1;

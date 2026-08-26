@@ -1039,6 +1039,12 @@
     }
     await refreshGuilds();
     S.modal = null;
+    // Creating a channel produced no acknowledgement at all: the dialog shut and
+    // the new row appeared somewhere in a list of thirty, below the fold as
+    // often as not. Say so, and go there.
+    const made = activeGuild()?.channels.find((c) => c.name === name.trim());
+    if (made) selectChannel(made.id);
+    flash(`#${name.trim()} created`, "success");
   }
 
   async function createCategory(name) {

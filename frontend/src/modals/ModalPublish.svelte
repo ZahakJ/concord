@@ -6,6 +6,7 @@
   import Icon from "../Icon.svelte";
   import { S, activeGuild, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { plural } from "../lib/plural.js";
   import { encodeAnnounce } from "../lib/announce.js";
   import { previewText } from "../lib/attachments.js";
 
@@ -40,7 +41,12 @@
       }
     }
     busy = false;
-    flash(sent === targets.length ? `Published to ${sent} channel${sent > 1 ? "s" : ""} 📣` : `Published to ${sent}/${targets.length} channels`, sent ? "success" : "error");
+    flash(
+      sent === targets.length
+        ? `Published to ${plural(sent, "channel")} 📣`
+        : `Published to ${sent}/${targets.length} channels`,
+      sent ? "success" : "error",
+    );
     onClose();
   }
 </script>

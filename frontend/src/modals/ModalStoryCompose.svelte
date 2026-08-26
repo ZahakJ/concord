@@ -9,6 +9,7 @@
   import Icon from "../Icon.svelte";
   import { S, activeGuild, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { plural } from "../lib/plural.js";
   import { BANNERS, BANNER_GROUPS } from "../lib/banners.js";
   import { confettiBurst } from "../lib/burst.js";
 
@@ -194,7 +195,7 @@
         </label>
       {/each}
       <span class="aud-total muted">
-        {chosen.length ? `${chosen.length} guild${chosen.length === 1 ? "" : "s"} — ${total} members` : "Pick at least one guild"}
+        {chosen.length ? `${plural(chosen.length, "guild")} — ${plural(total, "member")}` : "Pick at least one guild"}
       </span>
     </div>
   {:else if myGuilds.length === 1}

@@ -16,6 +16,10 @@
     autofocus = false,
     autocomplete = "current-password",
     onkeydown = undefined,
+    // The last attempt with this field's contents failed. Marked for assistive
+    // tech as well as painted: a red sentence under the card said nothing at
+    // all about WHICH field a screen-reader user had to go back to.
+    invalid = false,
   } = $props();
 
   let shown = $state(false);
@@ -42,6 +46,7 @@
     {autofocus}
     {autocomplete}
     {onkeydown}
+    aria-invalid={invalid ? "true" : undefined}
     bind:value
   />
   <button
@@ -66,6 +71,13 @@
     width: 100%;
     /* Room for the button, so a long passphrase never slides under it. */
     padding-right: 40px;
+  }
+  .wrap input[aria-invalid] {
+    border-color: var(--danger);
+  }
+  .wrap input[aria-invalid]:focus {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 16%, transparent);
   }
   .peek {
     position: absolute;

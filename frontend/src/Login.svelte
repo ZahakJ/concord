@@ -78,6 +78,14 @@
     !!navigator.mediaDevices?.getUserMedia &&
     matchMedia("(pointer: coarse)").matches;
 
+  // The moment anything is typed, the complaint goes. It used to sit there for
+  // the whole retype — still reading "Passphrases don't match" over two fields
+  // that now did — because nothing but another submit ever cleared it.
+  $effect(() => {
+    void [passphrase, confirmPass, displayName, linkCode, restorePhrase];
+    error = "";
+  });
+
   // A concord://link deep link (OS camera scanned the QR) drops the code here —
   // jump straight into the linking step with it filled in.
   $effect(() => {
@@ -313,7 +321,7 @@
         so you can create a new passphrase. Guilds you own will be lost. This
         cannot be undone.
       </p>
-      {#if error}<div class="error">{error}</div>{/if}
+      <div class="error slot" role="alert">{error}</div>
       <button type="button" class="danger-btn" disabled={busy} onclick={doReset}>
         {busy ? "Resetting…" : "Yes, delete and start over"}
       </button>
@@ -357,9 +365,9 @@
           bind:value={linkCode}
         ></textarea>
       {/if}
-      <PassphraseField placeholder="Passphrase for this device" autocomplete="new-password" bind:value={passphrase} />
-      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} />
-      {#if error}<div class="error">{error}</div>{/if}
+      <PassphraseField placeholder="Passphrase for this device" autocomplete="new-password" bind:value={passphrase} invalid={!!error} />
+      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
+      <div class="error slot" role="alert">{error}</div>
       {#if busy}
         <div class="linking-status">
           <span class="ls-spin"></span>
@@ -391,9 +399,9 @@
         spellcheck="false"
         bind:value={restorePhrase}
       ></textarea>
-      <PassphraseField placeholder="New passphrase" autocomplete="new-password" bind:value={passphrase} />
-      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} />
-      {#if error}<div class="error">{error}</div>{/if}
+      <PassphraseField placeholder="New passphrase" autocomplete="new-password" bind:value={passphrase} invalid={!!error} />
+      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
+      <div class="error slot" role="alert">{error}</div>
       <button type="button" disabled={busy} onclick={doRestore}>
         {busy ? "Restoring…" : "Restore account"}
       </button>
@@ -408,7 +416,7 @@
         <strong>24-word recovery phrase</strong> restores your identity, but
         guilds and history only return by re-linking or re-invites.
       </p>
-      {#if error}<div class="error">{error}</div>{/if}
+      <div class="error slot" role="alert">{error}</div>
       <button type="button" onclick={() => ((linking = true), (forgot = false), (error = ""))}>
         Re-link from my other device
       </button>
@@ -427,8 +435,8 @@
            the app can't scroll out from under it. Let the biometric prompt own
            the first interaction; a tap on the field summons the keyboard when
            it's actually wanted. -->
-      <PassphraseField placeholder="Passphrase" bind:value={passphrase} autofocus={!S.isMobile} />
-      {#if error}<div class="error">{error}</div>{/if}
+      <PassphraseField placeholder="Passphrase" bind:value={passphrase} invalid={!!error} autofocus={!S.isMobile} />
+      <div class="error slot" role="alert">{error}</div>
       <button type="submit" disabled={!passphrase || busy}>
         {busy ? "Unlocking…" : "Unlock"}
       </button>
@@ -462,9 +470,9 @@
         bind:value={displayName}
         autofocus={!S.isMobile}
       />
-      <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" bind:value={passphrase} />
-      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} />
-      {#if error}<div class="error">{error}</div>{/if}
+      <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" bind:value={passphrase} invalid={!!error} />
+      <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
+      <div class="error slot" role="alert">{error}</div>
       <button type="submit" disabled={!displayName.trim() || !passphrase || !confirmPass || busy}>
         {busy ? "Creating…" : "Create identity"}
       </button>
@@ -540,6 +548,15 @@
     background:
       radial-gradient(circle at 50% 18%, color-mix(in srgb, var(--accent) 7%, transparent), transparent 55%),
       radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--bg-3) 70%, var(--bg)), var(--bg));
+  }
+  /* The error keeps its line whether or not there is an error. It used to
+     appear between the fields and the button, which moved the button a
+     half-second after a failed attempt — right under a finger already on its
+     way to click it again. */
+  .error.slot {
+    min-height: 1.3em;
+    margin: -4px 0;
+    text-align: left;
   }
   .card {
     width: 340px;

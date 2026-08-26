@@ -10,6 +10,7 @@
   import Icon from "../Icon.svelte";
   import { S, flash, refreshGuilds } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { plural } from "../lib/plural.js";
 
   let { onClose } = $props();
 
@@ -22,8 +23,6 @@
   let result = $state(null);
 
   const canBackUp = $derived(pass.length >= 8 && pass === confirmPass);
-
-  const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
 
   function stamp() {
     const d = new Date();

@@ -6,6 +6,7 @@
   import Icon from "../Icon.svelte";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { plural } from "../lib/plural.js";
 
   let { channel, onClose } = $props();
 
@@ -28,7 +29,7 @@
     try {
       await api.setChannelLinks(g.id, channel.id, [...selected]);
       await refreshGuilds();
-      flash(selected.size ? `Publishing to ${selected.size} channel${selected.size > 1 ? "s" : ""}` : "Links cleared", "success");
+      flash(selected.size ? `Publishing to ${plural(selected.size, "channel")}` : "Links cleared", "success");
       onClose();
     } catch (err) {
       flash(err);

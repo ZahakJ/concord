@@ -1454,6 +1454,7 @@
     display: flex;
     gap: 8px;
     align-items: baseline;
+    min-width: 0;
   }
   .av-btn {
     background: transparent;
@@ -1485,6 +1486,20 @@
     font-weight: 600;
     color: var(--accent-hover);
     cursor: pointer;
+    /* A 32-character display name used to run under the timestamp and push the
+       pin mark off the row. Ellipsis, the way the member list has always done
+       it — the full name is one hover (and one profile card) away. */
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .msg-head .time,
+  .msg-head .guest-badge,
+  .msg-head .ann-badge,
+  .msg-head .verify-check,
+  .msg-head .pin-mark {
+    flex-shrink: 0;
   }
   /* The transparent background is not decoration — it cancels the global button
      hover fill, which Chromium would otherwise latch onto a tapped name. Only

@@ -503,7 +503,7 @@
       await api.saveSearchedGif(g.id, saveName(x), saveTags(), x.full, x.w || 0, x.h || 0);
       await load();
       await refreshGuilds();
-      flash("Saved to this guild's GIFs", "ok");
+      flash("Saved to this guild's GIFs", "success");
     } catch (err) {
       flash(err);
     } finally {
