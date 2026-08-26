@@ -10,6 +10,9 @@
   import { PRESENCE_OPTIONS, splitStatus, joinStatus } from "./lib/presence.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import { sheetdrag } from "./lib/sheet.js";
+  // Escape with the caret in "What\'s happening?" steps out of the field rather
+  // than throwing the sentence away. See lib/fieldescape.js.
+  import { fieldEscape } from "./lib/fieldescape.js";
 
   let { anchor, onClose } = $props(); // anchor: {x, y, w, h} of the trigger button
 
@@ -141,6 +144,7 @@
   style={S.isMobile ? "" : pos ? `left:${pos.left}px;top:${pos.top}px` : "opacity:0;pointer-events:none"}
   role="dialog"
   aria-label="Set status"
+  use:fieldEscape
 >
   {#if S.isMobile}
     <!-- This sheet had no grip at all — no handle, and nothing to pull. The
@@ -179,7 +183,13 @@
     {/each}
   </div>
   <form class="st-box" onsubmit={submitStatus}>
-    <input bind:value={statusText} placeholder="What's happening?" maxlength="80" disabled={busy} />
+    <input
+      bind:value={statusText}
+      placeholder="What's happening?"
+      aria-label="Status message"
+      maxlength="80"
+      disabled={busy}
+    />
     <button type="submit" class="st-save" disabled={busy || !dirty} aria-label="Save status">
       <Icon name="check" size={14} />
     </button>

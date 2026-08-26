@@ -49,6 +49,7 @@
        and the panel visibly jumps. The field is one tap away. -->
   <input
     {placeholder}
+    aria-label={placeholder}
     bind:value={name}
     autofocus={!S.isMobile}
     maxlength="48"

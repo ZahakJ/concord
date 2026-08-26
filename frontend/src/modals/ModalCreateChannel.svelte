@@ -133,8 +133,13 @@
     background: var(--bg-2);
     color: var(--text);
   }
+  /* The ring is a box-shadow, not a thicker border: a border that grows on
+     selection changes the tile's box and nudges the other three sideways, so
+     the row twitches every time you change your mind. A shadow is painted
+     outside the layout entirely. */
   .type.sel {
     border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
     background: var(--accent-soft);
     color: var(--accent-hover);
   }

@@ -33,6 +33,7 @@
   import EmojiPicker from "../EmojiPicker.svelte";
   import BottomSheet from "../BottomSheet.svelte";
   import { syncLayer } from "../lib/navstack.svelte.js";
+  import { tooltip } from "../lib/tooltip.js";
   import { renderMarkdown, COLOR_NAMES } from "../lib/markdown.js";
   import { activeShortcode, searchEmoji, replaceShortcodes } from "../lib/emoji.js";
   import { S, customEmojiMap, mentionRefs, selfMember, flash } from "../lib/state.svelte.js";
@@ -68,6 +69,14 @@
     // the text" cannot mean "everything but the text and this six-field form".
     zen = $bindable(false),
     placeholder = "Write…",
+    // A line of teaching shown above the editor until it is dismissed. It used
+    // to be crammed into the placeholder, which is the one place a hint cannot
+    // survive: the instant you type the first character of what you came here
+    // to write, the instructions for writing it vanish. It also could not be
+    // read back, could not be selected, and was announced as the field's own
+    // name. `hintKey` is what remembers the dismissal between sessions.
+    hint = "",
+    hintKey = "",
     attachments = true,
     autofocus = false,
     minHeight = 200,
@@ -87,6 +96,29 @@
   } = $props();
 
   let ta = $state(null);
+
+  // Dismissed hints stay dismissed. Told once is the contract — a tip that
+  // comes back every time you open the composer is not a tip, it is chrome.
+  const HINT_STORE = "concord.hintsSeen";
+  function seenHints() {
+    try {
+      return JSON.parse(localStorage.getItem(HINT_STORE) || "[]");
+    } catch {
+      return [];
+    }
+  }
+  let hintDismissed = $state(false);
+  const hintGone = $derived(hintDismissed || (!!hintKey && seenHints().includes(hintKey)));
+  function dismissHint() {
+    hintDismissed = true;
+    if (!hintKey) return;
+    try {
+      localStorage.setItem(HINT_STORE, JSON.stringify([...new Set([...seenHints(), hintKey])]));
+    } catch {
+      /* storage refused (private window, locked-down policy): dismissed for
+         this session only, which is still better than not dismissible. */
+    }
+  }
   let fileInput = $state(null);
   let reading = $state(0); // files being decoded into the tray
   let pop = $state(""); // "" | "color" | "more" | "lang" | "head"
@@ -669,7 +701,7 @@
         class="sw"
         style="--sw:{hex}"
         role="menuitem"
-        title={name}
+        use:tooltip
         aria-label={name}
         onmousedown={noSteal}
         onclick={() => apply((t, s, e) => colorize(t, s, e, name))}></button>
@@ -697,7 +729,7 @@
         <button
           type="button"
           class="tb"
-          title={t.key ? `${t.label} (${MOD}${t.key})` : t.label}
+          use:tooltip={{ text: t.key ? `${t.label} (${MOD}${t.key})` : t.label }}
           aria-label={t.label}
           onmousedown={noSteal}
           onclick={() => apply(t.run)}><Icon name={t.icon} size={15} /></button>
@@ -711,7 +743,7 @@
         <button
           type="button"
           class="tb"
-          title="Heading ({MOD}Alt+2)"
+          use:tooltip={{ text: `Heading (${MOD}Alt+2)` }}
           aria-label="Heading"
           onmousedown={noSteal}
           onclick={() => apply((t, s, e) => heading(t, s, e, 2))}><Icon name="heading" size={15} /></button>
@@ -721,7 +753,7 @@
           class:on={pop === "head"}
           aria-label="Heading level"
           aria-expanded={pop === "head"}
-          title="Heading level"
+          use:tooltip
           onmousedown={noSteal}
           onclick={() => (pop = pop === "head" ? "" : "head")}><Icon name="chevron" size={9} /></button>
         {#if pop === "head" && !S.isMobile}
@@ -732,7 +764,7 @@
         <button
           type="button"
           class="tb"
-          title={t.key ? `${t.label} (${MOD}${t.key})` : t.label}
+          use:tooltip={{ text: t.key ? `${t.label} (${MOD}${t.key})` : t.label }}
           aria-label={t.label}
           onmousedown={noSteal}
           onclick={() => apply(t.run)}><Icon name={t.icon} size={15} /></button>
@@ -741,7 +773,7 @@
         <button
           type="button"
           class="tb"
-          title="Code block"
+          use:tooltip
           aria-label="Code block"
           onmousedown={noSteal}
           onclick={() => apply((t, s, e) => fence(t, s, e, ""))}><Icon name="codeblock" size={15} /></button>
@@ -751,7 +783,7 @@
           class:on={pop === "lang"}
           aria-label="Code block language"
           aria-expanded={pop === "lang"}
-          title="Language"
+          use:tooltip={"Language"}
           onmousedown={noSteal}
           onclick={() => (pop = pop === "lang" ? "" : "lang")}><Icon name="chevron" size={9} /></button>
         {#if pop === "lang" && !S.isMobile}
@@ -762,7 +794,14 @@
     <span class="sep" aria-hidden="true"></span>
     {/if}
     <div class="grp" role="group" aria-label="Insert">
-      <button type="button" class="tb" title="Link ({MOD}K)" aria-label="Link" onmousedown={noSteal} onclick={() => apply(mdLink)}>
+      <button
+        type="button"
+        class="tb"
+        use:tooltip={{ text: `Link (${MOD}K)` }}
+        aria-label="Link"
+        onmousedown={noSteal}
+        onclick={() => apply(mdLink)}
+      >
         <Icon name="link" size={15} />
       </button>
       <div class="split">
@@ -772,7 +811,7 @@
           class:on={pop === "color"}
           aria-label="Text colour"
           aria-expanded={pop === "color"}
-          title="Text colour"
+          use:tooltip
           onmousedown={noSteal}
           onclick={() => (pop = pop === "color" ? "" : "color")}>
           <span class="swatch-ring" aria-hidden="true"></span>
@@ -788,7 +827,7 @@
           class:on={emojiOpen}
           aria-label="Emoji"
           aria-expanded={emojiOpen}
-          title="Emoji"
+          use:tooltip
           onmousedown={noSteal}
           onclick={() => (emojiOpen = !emojiOpen)}><Icon name="smile" size={15} /></button>
         {#if emojiOpen}
@@ -805,7 +844,7 @@
         <button
           type="button"
           class="tb"
-          title="Attach an image or file (or paste / drop one)"
+          use:tooltip={"Attach an image or file (or paste / drop one)"}
           aria-label="Attach a file"
           disabled={reading > 0}
           onmousedown={noSteal}
@@ -823,7 +862,7 @@
             class:on={pop === "more"}
             aria-label="More formatting"
             aria-expanded={pop === "more"}
-            title="More formatting"
+            use:tooltip
             onmousedown={noSteal}
             onclick={() => (pop = pop === "more" ? "" : "more")}><Icon name="dots" size={15} /></button>
           {#if pop === "more" && !S.isMobile}
@@ -838,7 +877,7 @@
           class:on={pop === "fmt"}
           aria-expanded={pop === "fmt"}
           aria-label="Formatting marks"
-          title="Bold, italic, headings, lists…"
+          use:tooltip={"Bold, italic, headings, lists…"}
           onmousedown={noSteal}
           onclick={() => (pop = pop === "fmt" ? "" : "fmt")}>Aa</button>
       {/if}
@@ -860,7 +899,7 @@
         class="segb solo"
         class:on={zen}
         aria-pressed={zen}
-        title={zen ? "Leave focus mode (Esc)" : "Focus mode — hide everything but the text"}
+        use:tooltip={{ text: zen ? "Leave focus mode (Esc)" : "Focus mode — hide everything but the text" }}
         aria-label="Focus mode"
         onclick={() => (zen = !zen)}>Focus</button>
     </div>
@@ -898,7 +937,7 @@
                 class="tool"
                 class:on={p.spoiler}
                 aria-pressed={!!p.spoiler}
-                title={p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
+                use:tooltip
                 aria-label={p.spoiler ? "Not a spoiler" : "Mark as spoiler"}
                 onclick={() => setAtt(p.id, "spoiler", !p.spoiler)}><Icon name="spoiler" size={12} /></button>
             {/if}
@@ -906,10 +945,16 @@
               type="button"
               class="tool"
               class:on={editingAtt === p.id}
-              title="Name and description"
+              use:tooltip
               aria-label="Name and description"
               onclick={() => (editingAtt = editingAtt === p.id ? "" : p.id)}><Icon name="edit" size={12} /></button>
-            <button type="button" class="tool danger" title="Remove" aria-label="Remove attachment" onclick={() => removeAtt(p.id)}>
+            <button
+              type="button"
+              class="tool danger"
+              use:tooltip={"Remove"}
+              aria-label="Remove attachment"
+              onclick={() => removeAtt(p.id)}
+            >
               <Icon name="trash" size={12} />
             </button>
           </div>
@@ -938,6 +983,16 @@
         <button type="button" class="done" onclick={() => (editingAtt = "")}>Done</button>
       </div>
     {/if}
+  {/if}
+
+  {#if hint && !hintGone && !zen}
+    <p class="edit-hint">
+      <Icon name="spark" size={12} />
+      <span>{hint}</span>
+      <button type="button" class="hint-x" aria-label="Dismiss this hint" onclick={dismissHint}>
+        <Icon name="close" size={11} />
+      </button>
+    </p>
   {/if}
 
   <div class="work" class:split={showPreview && showEditor}>
@@ -2045,6 +2100,44 @@
     margin-left: auto;
     color: var(--text-faint);
     white-space: nowrap;
+  }
+  /* A line of prose above the field, not a ghost inside it. It stays put while
+     you type, and it has a way out. */
+  .edit-hint {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    margin: 0 0 6px;
+    padding: 7px 8px 7px 10px;
+    border-radius: var(--radius-sm);
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    line-height: 1.5;
+  }
+  .edit-hint > :global(svg) {
+    flex: none;
+    margin-top: 2px;
+    color: var(--accent-hover);
+  }
+  .edit-hint span {
+    flex: 1;
+    min-width: 0;
+  }
+  .hint-x {
+    flex: none;
+    display: grid;
+    place-items: center;
+    padding: 3px;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-faint);
+  }
+  .hint-x:hover,
+  .hint-x:focus-visible {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    color: var(--text);
   }
 
   /* ---- phone ------------------------------------------------------------ */

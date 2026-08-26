@@ -10,6 +10,7 @@
   // that selection rather than a picker.
   import Icon from "./Icon.svelte";
   import { SATELLITES, PALETTES, hasRider, hasPalette } from "./lib/rings.js";
+  import { emojiName } from "./lib/emoji.js";
 
   let {
     ring = $bindable(""),
@@ -88,7 +89,14 @@
         </button>
       {/if}
       {#each SATELLITES as s (s)}
-        <button type="button" class="sat-btn" class:on={sat === s} onclick={() => (sat = s)}>{s}</button>
+        <!-- The glyph IS the choice, so it has to be the label too — a row of
+             thirty-two buttons all announced as "button" is not a chooser. -->
+        <button
+          type="button"
+          class="sat-btn"
+          class:on={sat === s}
+          aria-label={emojiName(s) || "Satellite"}
+          onclick={() => (sat = s)}>{s}</button>
       {/each}
     </div>
     <input
@@ -108,7 +116,7 @@
   <div class="dials">
     <div class="dg">
       <span class="tiny muted">Speed</span>
-      <div class="seg">
+      <div class="seg" role="group" aria-label="Speed">
         {#each ["slow", "normal", "fast"] as s (s)}
           <button type="button" class:on={speed === s} onclick={() => (speed = s)}>{s}</button>
         {/each}
@@ -116,14 +124,14 @@
     </div>
     <div class="dg">
       <span class="tiny muted">Direction</span>
-      <div class="seg">
+      <div class="seg" role="group" aria-label="Direction">
         <button type="button" class:on={dir === "cw"} onclick={() => (dir = "cw")}>↻ cw</button>
         <button type="button" class:on={dir === "ccw"} onclick={() => (dir = "ccw")}>↺ ccw</button>
       </div>
     </div>
     <div class="dg">
       <span class="tiny muted">Glow</span>
-      <div class="seg">
+      <div class="seg" role="group" aria-label="Glow">
         {#each ["off", "soft", "strong"] as g (g)}
           <button type="button" class:on={glow === g} onclick={() => (glow = g)}>{g}</button>
         {/each}

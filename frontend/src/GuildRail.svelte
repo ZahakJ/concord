@@ -583,6 +583,7 @@
                 class="folder-name"
                 value={folder.name}
                 placeholder="Folder"
+                aria-label="Folder name"
                 onclick={(e) => e.stopPropagation()}
                 oninput={(e) => onRename(e, folder)}
               />

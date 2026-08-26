@@ -1191,6 +1191,16 @@
     border-radius: 999px;
     color: var(--text-muted);
     min-width: 210px;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  /* The input strips its own border and background, which is exactly what the
+     app-wide focus rule paints — so without a ring on the pill that holds it,
+     a keyboard lands here and nothing on screen changes. */
+  .find:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
   .find input {
     flex: 1;

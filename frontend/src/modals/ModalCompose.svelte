@@ -271,7 +271,9 @@
       autofocus
       minHeight={embedOn && !zen ? 150 : 200}
       attachments={!editId}
-      placeholder={"Write your message…\n\nSelect text and use the toolbar, or type markdown directly: **bold**, *italic*, ||spoiler||, `code`, > quote, - list, ## heading. :shortcodes: and @mentions autocomplete."}
+      placeholder="Write your message…"
+      hint="Select text and use the toolbar, or type markdown directly: **bold**, *italic*, ||spoiler||, `code`, > quote, - list, ## heading. :shortcodes: and @mentions autocomplete."
+      hintKey="compose-md"
       previewExtraFilled={!!previewEmbed}
       onSubmit={post}
       onInput={persist}

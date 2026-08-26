@@ -40,6 +40,9 @@
   import { cardFxTable, cardFramesTable, cardScenesTable } from "./lib/cosmetics.svelte.js";
   import CardFrame from "./CardFrame.svelte";
   import CardScene from "./CardScene.svelte";
+  // Escape with the caret in the nickname or the quick-DM box steps out of the
+  // field; only the press after that closes the card. See lib/fieldescape.js.
+  import { fieldEscape } from "./lib/fieldescape.js";
 
   // The card was a hardcoded rung underneath every registered overlay, so an
   // emoji picker or a studio opened from inside it closed only after the card
@@ -538,6 +541,7 @@
     style={S.isMobile ? "" : pos ? `left:${pos.left}px;top:${pos.top}px` : "opacity:0;pointer-events:none"}
     role="dialog"
     aria-label="{mem.name || 'Member'} profile"
+    use:fieldEscape
     onmouseenter={holdProfilePopover}
     onmouseleave={() => !S.contextMenu && scheduleCloseProfilePopover()}
   >
@@ -719,6 +723,7 @@
           <input
             bind:value={nickText}
             placeholder="Nickname for this guild"
+            aria-label="Nickname for this guild"
             maxlength="64"
             disabled={nickBusy}
           />
@@ -814,6 +819,7 @@
           <input
             bind:value={dmText}
             placeholder="Message @{mem.name || 'them'}"
+            aria-label="Message {mem.name || 'them'}"
             disabled={dmBusy}
           />
           <button type="submit" class="dm-send" disabled={dmBusy} aria-label="Send message">

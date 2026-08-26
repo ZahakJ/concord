@@ -243,9 +243,11 @@
       minHeight={180}
       previewTitle={title.trim()}
       attachNote="Files post into the thread right after your opening message."
-      placeholder={S.isMobile
-        ? "Start the discussion…\n\nThe toolbar and markdown both work: **bold**, > quote, - list, ## heading."
-        : "Start the discussion…\n\nThe toolbar and markdown both work: **bold**, > quote, - list, ## heading, ```code```, ||spoiler||. Paste or drop an image to attach it."}
+      placeholder="Start the discussion…"
+      hint={S.isMobile
+        ? "The toolbar and markdown both work: **bold**, > quote, - list, ## heading."
+        : "The toolbar and markdown both work: **bold**, > quote, - list, ## heading, ```code```, ||spoiler||. Paste or drop an image to attach it."}
+      hintKey="newpost-md"
       onSubmit={create}
       onInput={persist}
       submitHint={S.isMobile ? "" : "⌘/Ctrl + ↵ to post"} />

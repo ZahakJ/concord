@@ -270,6 +270,13 @@
     font-size: var(--fs-tiny);
   }
   .shelves {
+    /* overflow-y zeroes a flex item's automatic minimum size, so on a short
+       window this shelf did not scroll — it collapsed, and forty scene tiles
+       became an 8px sliver with a fade over it. A floor of one whole row plus
+       its heading means the worst case is a small shelf that scrolls, and the
+       dialog takes the rest. */
+    flex: 1 1 auto;
+    min-height: 148px;
     max-height: 40vh;
     max-height: 40dvh; /* fallback line above; dvh shrinks with the keyboard */
     overflow-y: auto;

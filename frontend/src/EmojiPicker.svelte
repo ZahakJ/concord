@@ -74,9 +74,92 @@
     if (toneOpen && !e.target.closest(".tones")) toneOpen = false;
     if (Date.now() - openedAt > 250 && !e.target.closest(".picker")) onClose();
   }
+
+  // ---- Escape, one layer at a time -------------------------------------
+  //
+  // Escape used to close the whole picker from anywhere inside it, which threw
+  // away a half-typed search — and did it twice over, since navstack also holds
+  // a layer for this component. The rungs here are the things that are open
+  // INSIDE the picker; once none of them are, the press falls through to
+  // navstack and the picker closes, exactly as before.
+  //
+  // Capture phase for the same reason RichEditor uses it: lib/shortcuts.js
+  // listens on window in the bubble phase and would pop the layer first.
+  $effect(() => {
+    const onEscapeCapture = (e) => {
+      if (e.key !== "Escape") return;
+      if (toneOpen) {
+        toneOpen = false;
+      } else if (query) {
+        query = "";
+        inputEl?.focus();
+      } else {
+        return; // nothing left inside — navstack closes the picker
+      }
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    window.addEventListener("keydown", onEscapeCapture, true);
+    return () => window.removeEventListener("keydown", onEscapeCapture, true);
+  });
+
+  // ---- keyboard over the grid -------------------------------------------
+  //
+  // The picker opens with the caret in the search box and, until now, that was
+  // the end of what a keyboard could do: reaching a result meant Tab, sixty-four
+  // times. Enter takes the first hit — the one thing you almost always want
+  // after typing a name — and ↓ steps into the grid, where the arrows walk it in
+  // two dimensions like the grid it looks like.
+  let gridEl = $state(null);
+  let inputEl = $state(null);
+
+  const cells = () => (gridEl ? [...gridEl.querySelectorAll(".cell")] : []);
+  // Read the column count off the live grid rather than hard-coding 8: the
+  // phone layout re-grids to auto-fill and ↓ has to mean "one row down" there
+  // too.
+  function cols() {
+    if (!gridEl) return 8;
+    const t = getComputedStyle(gridEl).gridTemplateColumns;
+    return Math.max(1, t.split(" ").filter(Boolean).length);
+  }
+  function focusCell(i) {
+    const list = cells();
+    if (!list.length) return;
+    const el = list[Math.max(0, Math.min(list.length - 1, i))];
+    el.focus();
+    el.scrollIntoView({ block: "nearest" });
+  }
+  function onInputKey(e) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      cells()[0]?.click();
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      focusCell(0);
+    }
+  }
+  function onGridKey(e) {
+    const list = cells();
+    const i = list.indexOf(document.activeElement);
+    if (i < 0) return;
+    const c = cols();
+    let n = null;
+    if (e.key === "ArrowRight") n = i + 1;
+    else if (e.key === "ArrowLeft") n = i - 1;
+    else if (e.key === "ArrowDown") n = i + c;
+    else if (e.key === "ArrowUp") n = i - c;
+    else if (e.key === "Home") n = 0;
+    else if (e.key === "End") n = list.length - 1;
+    if (n === null) return;
+    e.preventDefault();
+    // Off the top of the grid is the way back to the search box, so a typo is
+    // one ↑ away from being fixed rather than a hunt for the field.
+    if (n < 0) inputEl?.focus();
+    else focusCell(n);
+  }
 </script>
 
-<svelte:window onpointerdown={onOutside} onkeydown={(e) => e.key === "Escape" && onClose()} />
+<svelte:window onpointerdown={onOutside} />
 
 <div class="picker" role="dialog" bind:clientHeight={panelH}>
   {#if S.isMobile}
@@ -90,7 +173,14 @@
     <!-- svelte-ignore a11y_autofocus -->
     <!-- No autofocus on touch: it would pop the keyboard over the grid the
          moment the picker opens. -->
-    <input placeholder="Search emoji…" bind:value={query} autofocus={!S.isMobile} />
+    <input
+      placeholder="Search emoji…"
+      aria-label="Search emoji"
+      bind:this={inputEl}
+      bind:value={query}
+      onkeydown={onInputKey}
+      autofocus={!S.isMobile}
+    />
     <div class="tones">
       <button
         class="mini tone-btn"
@@ -100,16 +190,19 @@
       {#if toneOpen}
         <div class="tone-pop">
           {#each SKIN_TONES as t (t.key)}
+            <!-- The glyph is the same raised hand five times over, so it is the
+                 label and not the content that says which tone this is. -->
             <button
               class="cell tone-cell"
               class:sel={tone === t.key}
               title={t.label}
+              aria-label={t.label}
               onclick={() => chooseTone(t.key)}>{applyTone("✋", t.key)}</button>
           {/each}
         </div>
       {/if}
     </div>
-    <button class="mini" onclick={onClose}>✕</button>
+    <button class="mini" aria-label="Close emoji picker" onclick={onClose}>✕</button>
   </div>
 
   {#if !q}
@@ -119,19 +212,30 @@
           class="tab"
           class:sel={activeCat === t.key}
           title={t.label}
+          aria-label={t.label}
           onclick={() => (activeCat = t.key)}>{t.icon}</button>
       {/each}
     </div>
   {/if}
 
-  <div class="grid" role="group" aria-label="Emoji" onmouseleave={() => (preview = null)}>
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    class="grid"
+    role="group"
+    aria-label="Emoji"
+    bind:this={gridEl}
+    onkeydown={onGridKey}
+    onmouseleave={() => (preview = null)}
+  >
     {#if q}
       {#if searchCustom.length}
         <div class="section-label">Guild</div>
         {#each searchCustom as e (e.name)}
           <button
             class="cell"
+            aria-label=":{e.name}:"
             onmouseenter={() => (preview = { img: e.image, name: e.name })}
+            onfocus={() => (preview = { img: e.image, name: e.name })}
             onclick={() => pick(`:${e.name}:`)}>
             <img class="cimg" src={e.image} alt=":{e.name}:" />
           </button>
@@ -141,7 +245,9 @@
       {#each searchHits as [name] (name)}
         <button
           class="cell"
+          aria-label={name}
           onmouseenter={() => (preview = { char: display(name), name })}
+          onfocus={() => (preview = { char: display(name), name })}
           onclick={() => pick(display(name))}>{display(name)}</button>
       {/each}
       {#if !searchHits.length && !searchCustom.length}
@@ -154,14 +260,18 @@
       {#each recents as e, i (e + i)}
         <button
           class="cell"
+          aria-label={emojiName(e) || e}
           onmouseenter={() => (preview = { char: e, name: emojiName(e) })}
+          onfocus={() => (preview = { char: e, name: emojiName(e) })}
           onclick={() => pick(e)}>{e}</button>
       {/each}
     {:else if activeCat === "guild"}
       {#each customList as e (e.name)}
         <button
           class="cell"
+          aria-label=":{e.name}:"
           onmouseenter={() => (preview = { img: e.image, name: e.name })}
+          onfocus={() => (preview = { img: e.image, name: e.name })}
           onclick={() => pick(`:${e.name}:`)}>
           <img class="cimg" src={e.image} alt=":{e.name}:" />
         </button>
@@ -170,7 +280,9 @@
       {#each catNames as name (name)}
         <button
           class="cell"
+          aria-label={name}
           onmouseenter={() => (preview = { char: display(name), name })}
+          onfocus={() => (preview = { char: display(name), name })}
           onclick={() => pick(display(name))}>{display(name)}</button>
       {/each}
     {/if}
@@ -311,15 +423,30 @@
     opacity: 1;
     transform: scaleX(1);
   }
+  /* The viewport is expressed in ROWS, not pixels. At a flat 220px the last row
+     landed 40% into itself and the picker's bottom edge ran through the middle
+     of eight glyphs — which reads as a rendering fault rather than as "there is
+     more below". Snapping keeps that true once it is scrolling, and
+     scroll-padding keeps a row the keyboard jumps to off the edges. */
   .grid {
+    --egrid-cell: 28px; /* 20px glyph + 2 × 4px padding */
+    --egrid-gap: 2px;
+    --egrid-rows: 8;
     display: grid;
     grid-template-columns: repeat(8, 1fr);
-    gap: 2px;
-    height: 220px;
+    gap: var(--egrid-gap);
+    height: calc(
+      var(--egrid-rows) * var(--egrid-cell) + (var(--egrid-rows) - 1) * var(--egrid-gap)
+    );
     overflow-y: auto;
     align-content: start;
     scroll-behavior: smooth;
+    scroll-snap-type: y proximity;
+    scroll-padding-block: var(--egrid-gap);
     overscroll-behavior: contain;
+  }
+  .grid > * {
+    scroll-snap-align: start;
   }
   .cell {
     background: transparent;

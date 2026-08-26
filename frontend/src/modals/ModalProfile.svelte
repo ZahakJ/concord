@@ -1,5 +1,6 @@
 <script>
   import Modal from "./Modal.svelte";
+  import { emojiName } from "../lib/emoji.js";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import Banner from "../Banner.svelte";
@@ -410,7 +411,11 @@
     <div class="emoji-row">
       <button class="emoji" class:sel={emoji === ""} onclick={() => (emoji = "")} title="Use initials">Aa</button>
       {#each EMOJIS as e (e)}
-        <button class="emoji" class:sel={emoji === e} onclick={() => (emoji = e)}>{e}</button>
+        <button
+          class="emoji"
+          class:sel={emoji === e}
+          aria-label={emojiName(e) || "Emoji"}
+          onclick={() => (emoji = e)}>{e}</button>
       {/each}
     </div>
   </div>

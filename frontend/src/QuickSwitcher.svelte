@@ -229,6 +229,7 @@
       bind:this={inputEl}
       bind:value={query}
       placeholder="Jump anywhere, or type “&gt;” for commands…"
+      aria-label="Jump to a conversation, or run a command"
       onkeydown={onKeydown}
     />
     <div class="results" bind:this={listEl}>
