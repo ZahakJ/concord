@@ -303,6 +303,14 @@ export const api = {
     call("DeclineMessageRequest", fingerprint, block),
   typingEnabled: () => call("TypingEnabled"),
   setTypingEnabled: (on) => call("SetTypingEnabled", on),
+  // The two off-device search switches. These are backend prefs, not
+  // localStorage ones, precisely because the request they gate is made by the
+  // backend — see internal/app/offdevice.go. Reading them is how the two search
+  // UIs know to offer the switch instead of silently returning nothing.
+  gameSearchEnabled: () => call("GameSearchEnabled"),
+  setGameSearchEnabled: (on) => call("SetGameSearchEnabled", on),
+  gifSearchEnabled: () => call("GifSearchEnabled"),
+  setGifSearchEnabled: (on) => call("SetGifSearchEnabled", on),
   toggleReaction: (channelID, messageID, emoji) =>
     call("ToggleReaction", channelID, messageID, emoji),
   inviteCode: (guildID) => call("InviteCode", guildID),

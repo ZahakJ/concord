@@ -53,6 +53,11 @@ const (
 	// GifSearchUnreachable: a rendezvous is configured but we could not get an
 	// answer out of it.
 	GifSearchUnreachable = "unreachable"
+	// GifSearchOff: the user has switched off searching a public GIF service
+	// (Privacy & safety). Distinct from every other status here because nothing
+	// is wrong and nobody else can fix it — the tab has to offer the switch
+	// rather than explain an outage.
+	GifSearchOff = "off"
 )
 
 // gifSearchTimeout bounds one proxy round trip from the client's side. It is
@@ -110,6 +115,12 @@ func (s *Service) gifProxyPeers() []peer.ID {
 	return append(connected, rest...)
 }
 
+// gifSearchOffResult is what both entry points return when the switch is off.
+// Results is an empty slice rather than nil because the picker iterates it.
+func gifSearchOffResult() GifSearchResult {
+	return GifSearchResult{Status: GifSearchOff, Results: []cnet.GifHit{}}
+}
+
 // askRendezvous sends one request to the first rendezvous that answers.
 // Returns the node's reply and which node gave it.
 func (s *Service) askRendezvous(ctx context.Context, req cnet.GifRequest) (cnet.GifResponse, string, error) {
@@ -154,6 +165,9 @@ func (s *Service) askRendezvous(ctx context.Context, req cnet.GifRequest) (cnet.
 // every way this can go wrong is a state the picker has to describe in words,
 // so they all come back as a Status.
 func (s *Service) SearchGifs(ctx context.Context, query, pos string) GifSearchResult {
+	if !s.GifSearchEnabled() {
+		return gifSearchOffResult()
+	}
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return GifSearchResult{Status: cnet.GifStatusBadRequest, Detail: "type something to search for", Results: []cnet.GifHit{}}
@@ -195,6 +209,15 @@ func gifErrDetail(err error) string {
 // version over the thumbnail; both take this same path, which is the whole
 // point of the feature.
 func (s *Service) fetchGifMedia(ctx context.Context, ref string, full bool) (plain []byte, subtype string, err error) {
+	// Every route to the proxy passes through here — thumbnails, sending, and
+	// saving to the guild pack all resolve a handle. Gating the one funnel is
+	// what makes "off means no request" true rather than approximately true: a
+	// handle minted before the switch was flipped is still a live address on
+	// somebody else's machine, and clicking a result left on screen must not
+	// quietly redeem it.
+	if !s.GifSearchEnabled() {
+		return nil, "", fmt.Errorf("app: GIF search is switched off in Privacy & safety")
+	}
 	if strings.TrimSpace(ref) == "" {
 		return nil, "", fmt.Errorf("app: no GIF selected")
 	}
@@ -294,6 +317,12 @@ func (s *Service) SaveSearchedGif(ctx context.Context, guildID, name string, tag
 // running one. The picker asks this when its Search tab is opened so it can
 // explain an unusable tab BEFORE the user types, rather than after.
 func (s *Service) GifSearchAvailable(ctx context.Context) GifSearchResult {
+	// Asked before anything is typed, so the switch is checked here too — the
+	// probe is itself a round trip to the rendezvous, and an install that has
+	// opted out should not be announcing that it opened the picker.
+	if !s.GifSearchEnabled() {
+		return gifSearchOffResult()
+	}
 	resp, via, err := gifProxyRoundTrip(s, ctx, cnet.GifRequest{Op: "status"})
 	if err != nil {
 		return GifSearchResult{Status: gifErrStatus(err), Detail: gifErrDetail(err), Results: []cnet.GifHit{}}

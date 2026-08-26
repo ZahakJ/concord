@@ -30,7 +30,7 @@
   // the card stays open underneath.
   import Icon from "./Icon.svelte";
   import EmptyState from "./EmptyState.svelte";
-  import { S, flash, patchProfile, refreshRightPanel } from "./lib/state.svelte.js";
+  import { S, flash, patchProfile, refreshRightPanel, setOffDeviceSearch } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { splitStatus, joinStatus } from "./lib/presence.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
@@ -77,6 +77,15 @@
 
   function onInput() {
     clearTimeout(debounce);
+    // Suggestions off: the editor is still a working editor — you type a title
+    // and it is added as written — so this returns without arming the debounce
+    // rather than firing a call the backend would refuse anyway. The row below
+    // the box says so and offers the switch, because a search box that answers
+    // nothing and explains nothing is the worst of the three options.
+    if (!S.offDevice.gameSearch) {
+      results = [];
+      return;
+    }
     const term = q;
     debounce = setTimeout(async () => {
       const seq = ++searchSeq;
@@ -209,7 +218,7 @@
           <input
             bind:value={q}
             oninput={onInput}
-            placeholder="Search games…"
+            placeholder={S.offDevice.gameSearch ? "Search games…" : "Type a game title…"}
             maxlength="64"
             disabled={busy}
           />
@@ -217,6 +226,14 @@
             <Icon name="close" size={13} />
           </button>
         </form>
+        {#if !S.offDevice.gameSearch}
+          <p class="g-off muted">
+            Title suggestions are off, so nothing is sent to Steam.
+            <button type="button" class="g-off-on" onclick={() => setOffDeviceSearch("gameSearch", true)}>
+              Turn them on
+            </button>
+          </p>
+        {/if}
         {#if results.length}
           <div class="g-results">
             {#each results as r (r.name)}
@@ -556,6 +573,22 @@
     border-radius: var(--radius-sm);
     justify-content: center;
     color: var(--text-muted);
+  }
+  /* One line where the suggestions would have been: says what is switched off
+     and offers the switch, rather than leaving an empty box that looks broken. */
+  .g-off {
+    margin: 6px 2px 0;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .g-off-on {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
   }
   /* ---- full shelf grid (in the popup) ---- */
   .g-shelf {

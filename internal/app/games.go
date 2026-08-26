@@ -16,6 +16,12 @@ import (
 // Steam's public storefront search — proxied through the backend so the
 // webview never talks to a third party directly — and results are cached
 // briefly since autocomplete re-asks for every keystroke.
+//
+// Proxying through the backend keeps Valve from seeing a browser fingerprint,
+// but the backend runs on the user's own machine, so it is still their IP and
+// still their half-typed query. That is why this is gated: SearchGames returns
+// nothing at all unless the game-search switch is on (offdevice.go), and it is
+// off for every install that had not already been using the editor.
 
 const gameSearchURL = "https://store.steampowered.com/api/storesearch/?l=english&cc=US&term="
 
@@ -45,6 +51,13 @@ const gameSearchTTL = 10 * time.Minute
 // Best-effort: network trouble returns an empty list, never an error the UI
 // has to explain — the editor falls back to free-text entry.
 func (s *Service) SearchGames(query string) []GameSearchResult {
+	// The consent gate, ahead of the cache as well as the request: a cached
+	// answer is still an answer to a question this install has been told not to
+	// ask, and serving one after the switch was flipped would make the switch
+	// look broken. See offdevice.go.
+	if !s.GameSearchEnabled() {
+		return nil
+	}
 	query = strings.TrimSpace(query)
 	if len(query) < 2 {
 		return nil

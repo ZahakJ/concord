@@ -24,7 +24,7 @@
   //   name back into this file.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
-  import { S, activeGuild, flash, refreshGuilds } from "../lib/state.svelte.js";
+  import { S, activeGuild, flash, refreshGuilds, setOffDeviceSearch } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { loadAttachment } from "../lib/attachments.js";
   import { PERM, has } from "../lib/perms.js";
@@ -294,7 +294,10 @@
   let status = $state(null);
   // No rendezvous and no API key are properties of the deployment: retrying
   // cannot change them, so those are the only two that disable the controls.
-  const DEAD_END = new Set(["no_rendezvous", "unavailable"]);
+  // "off" belongs here even though nothing is broken: leaving the input live
+  // would invite someone to type a query the backend has been told to refuse.
+  // Unlike the other two, this one has a fix the user owns, offered inline.
+  const DEAD_END = new Set(["no_rendezvous", "unavailable", "off"]);
   let thumbs = $state({});
   let thumbFailed = $state({});
   const startedThumbs = new Set();
@@ -326,6 +329,8 @@
   function explain(st) {
     if (!st) return "";
     switch (st.status) {
+      case "off":
+        return "GIF search is switched off, so nothing you type here is sent anywhere. The terms would go to your own rendezvous, which asks a GIF service on your behalf — the service never sees you, but whoever runs the node can see what you searched for.";
       case "no_rendezvous":
         return "You have no rendezvous configured, so there is nothing to search through. Add one under Settings → Connection — or use this guild's own GIFs, which need no server at all.";
       case "unreachable":
@@ -353,6 +358,20 @@
 
   // Probed when the tab is first opened, so an unusable tab explains itself
   // BEFORE the user types rather than after they've handed over a query.
+  // SOFT: states that are somebody's settled choice rather than something
+  // going wrong, so the notice is plain rather than a warning colour.
+  const SOFT = new Set(["unavailable", "off"]);
+
+  // Flipping the switch from here must re-probe, because probe() answers once
+  // per open and would otherwise leave the tab reporting the old verdict.
+  async function enableGifSearch() {
+    await setOffDeviceSearch("gifSearch", true);
+    if (!S.offDevice.gifSearch) return; // the backend refused; flash() said so
+    status = null;
+    searchErr = null;
+    await probe();
+  }
+
   async function probe() {
     if (status) return;
     try {
@@ -661,7 +680,12 @@
     {#if searchErr}
       <p class="notice warn">{explain(searchErr)}</p>
     {:else if status && status.status !== "ok"}
-      <p class="notice" class:warn={status.status !== "unavailable"}>{explain(status)}</p>
+      <p class="notice" class:warn={!SOFT.has(status.status)}>
+        {explain(status)}
+        {#if status.status === "off"}
+          <button type="button" class="notice-on" onclick={enableGifSearch}>Turn it on</button>
+        {/if}
+      </p>
     {/if}
 
     {#if usable}
@@ -835,6 +859,16 @@
   }
   .notice.warn {
     border-left-color: var(--warn, var(--accent));
+  }
+  /* The one notice with a fix the reader owns, so it carries the switch. */
+  .notice-on {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: underline;
   }
   .grid {
     margin-top: 8px;

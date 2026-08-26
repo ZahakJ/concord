@@ -406,7 +406,10 @@ func (b *Bridge) RestoreOverExisting(phrase, passphrase string) error {
 
 // ResetIdentity deletes the identity and all data tied to it so a new identity
 // can be created (forgotten passphrase / corrupted keystore). Only allowed
-// while locked.
+// while locked — a logged-in user who wants to erase this device goes through
+// BeginWipe/ConfirmWipe instead (wipe.go), which is the same erase behind a
+// typed confirmation. This refusal stays as it is on purpose: it is what stops
+// a single unqualified RPC call from destroying an open account.
 func (b *Bridge) ResetIdentity() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -1470,6 +1473,47 @@ func (b *Bridge) SetTypingEnabled(on bool) error {
 		return err
 	}
 	return svc.SetTypingEnabled(on)
+}
+
+// GameSearchEnabled reports whether the collection editor may ask Valve for
+// title suggestions. A locked session answers false: the panel that renders
+// this is behind login, and a switch that guesses "on" would be the one guess
+// that costs something.
+func (b *Bridge) GameSearchEnabled() (bool, error) {
+	svc, err := b.service()
+	if err != nil {
+		return false, nil
+	}
+	return svc.GameSearchEnabled(), nil
+}
+
+// SetGameSearchEnabled persists the game-search switch (see
+// internal/app/offdevice.go).
+func (b *Bridge) SetGameSearchEnabled(on bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetGameSearchEnabled(on)
+}
+
+// GifSearchEnabled reports whether the GIF picker's Search tab may send terms
+// to the user's rendezvous.
+func (b *Bridge) GifSearchEnabled() (bool, error) {
+	svc, err := b.service()
+	if err != nil {
+		return true, nil // the default, for a UI asking before login
+	}
+	return svc.GifSearchEnabled(), nil
+}
+
+// SetGifSearchEnabled persists the GIF-search switch.
+func (b *Bridge) SetGifSearchEnabled(on bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetGifSearchEnabled(on)
 }
 
 func (b *Bridge) Messages(channelID string) ([]MessageView, error) {
@@ -2986,6 +3030,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.HasIdentity()
 	case "ResetIdentity":
 		return nil, b.ResetIdentity()
+	case "BeginWipe":
+		return b.BeginWipe()
+	case "ConfirmWipe":
+		return nil, b.ConfirmWipe(argStr(args, 0), argStr(args, 1))
 	case "RevealMnemonic":
 		return b.RevealMnemonic()
 	case "RestoreFromMnemonic":
@@ -3305,6 +3353,14 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.TypingEnabled()
 	case "SetTypingEnabled":
 		return nil, b.SetTypingEnabled(argBool(args, 0))
+	case "GameSearchEnabled":
+		return b.GameSearchEnabled()
+	case "SetGameSearchEnabled":
+		return nil, b.SetGameSearchEnabled(argBool(args, 0))
+	case "GifSearchEnabled":
+		return b.GifSearchEnabled()
+	case "SetGifSearchEnabled":
+		return nil, b.SetGifSearchEnabled(argBool(args, 0))
 	case "GuildStats":
 		return b.GuildStats(argStr(args, 0))
 	case "PropsTally":

@@ -8,7 +8,7 @@
   import SettingRow from "./SettingRow.svelte";
   import { api } from "../lib/api.js";
   import { bioEnrolled } from "../lib/biometric.js";
-  import { S, setPref, flash } from "../lib/state.svelte.js";
+  import { S, setPref, flash, setOffDeviceSearch } from "../lib/state.svelte.js";
 
   let { onClose } = $props();
 
@@ -89,12 +89,28 @@
       onclick={() => setPref("linkPreviews", !S.prefs.linkPreviews)}
     />
     <SettingRow
+      icon="search"
+      title="Game title search"
+      sub="Suggest real games as you type, from Steam"
+      info="Off by default. The collection editor's suggestions come from Valve's public storefront search, and it asks again as you type — so the title you are halfway through typing reaches Valve, along with your IP and the fact that you were online. Off, the editor still works: type a title and it is added as you wrote it. Nothing is cached and no request is made while this is off. Installs that already had a game collection when this switch arrived keep it on, because they had been using it."
+      checked={S.offDevice.gameSearch}
+      onclick={() => setOffDeviceSearch("gameSearch", !S.offDevice.gameSearch)}
+    />
+    <SettingRow
       icon="spark"
       title="Game box art"
       sub="Load real cover images for game collections"
-      info="Off by default. Covers come from Valve's CDN and are fetched by the app itself, so opening a profile that lists games would tell Valve your IP and the moment you were online — without you clicking anything. Off, collections show generated covers instead and nothing leaves the device. Searching for a game to add always contacts Steam, whatever this says."
+      info="Off by default. Covers come from Valve's CDN and are fetched by the app itself, so opening a profile that lists games would tell Valve your IP and the moment you were online — without you clicking anything. Off, collections show generated covers instead and nothing leaves the device."
       checked={S.prefs.gameCovers}
       onclick={() => setPref("gameCovers", !S.prefs.gameCovers)}
+    />
+    <SettingRow
+      icon="search"
+      title="GIF search"
+      sub="Search a GIF service through your rendezvous"
+      info="On by default, because it reaches nobody new. The terms go to the rendezvous you already chose and already route your traffic through; it asks the GIF service on your behalf and sends the pictures back, so the service never sees you and your browser never connects to it. What it costs is that the rendezvous operator can see what you searched for — if that is not a trade you want with whoever runs your node, switch this off. This guild's own GIF pack still works either way: it never leaves your machine."
+      checked={S.offDevice.gifSearch}
+      onclick={() => setOffDeviceSearch("gifSearch", !S.offDevice.gifSearch)}
     />
     <SettingRow
       icon="lock"

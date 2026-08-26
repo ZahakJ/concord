@@ -262,6 +262,13 @@ type Service struct {
 	// by mu — it is read on every keystroke's publish and on every inbound hint.
 	typingOn bool
 
+	// gameSearchOn and gifSearchOn mirror the two off-device search switches
+	// (see offdevice.go), guarded by mu. They are read at the top of the two
+	// Service methods that would otherwise send what the user is typing to
+	// somebody who is not a peer.
+	gameSearchOn bool
+	gifSearchOn  bool
+
 	// devices records which device keys we have seen behind each contact's
 	// account (fingerprint -> set of hex device keys; see devicewatch.go),
 	// guarded by mu. A key appearing that isn't in the set is a device that was
@@ -1255,6 +1262,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	s.loadPendingMembers()
 	s.loadMessageRequests()
 	s.loadTypingPref()
+	s.loadOffDeviceSearchPrefs()
 	// Seed the per-contact device roster before anything can raise an alert, so
 	// a restart doesn't report every device we already knew about as new.
 	s.loadDeviceRoster()
@@ -1689,7 +1697,7 @@ func (s *Service) SelfProfile() Profile {
 		act = s.activityInfo
 	}
 	s.activityMu.Unlock()
-	rawGames, _ := s.store.GetSetting("games")
+	rawGames, _ := s.store.GetSetting(gamesSettingKey)
 	color2, _ := s.store.GetSetting("accent_color2")
 	frame, _ := s.store.GetSetting("avatar_frame")
 	effect, _ := s.store.GetSetting("card_effect")
@@ -1848,7 +1856,7 @@ func (s *Service) SetGames(games []Game) error {
 	if err != nil {
 		return err
 	}
-	if err := s.store.SetSetting("games", string(raw)); err != nil {
+	if err := s.store.SetSetting(gamesSettingKey, string(raw)); err != nil {
 		return err
 	}
 	s.bumpProfileStamp()

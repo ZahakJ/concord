@@ -139,6 +139,15 @@ export const S = $state({
   recentChannels: loadJSON("concord.mru", []),
   readAnchor: "", // ISO time we'd last read the active channel (for the "new" line)
 
+  // The two off-device search switches. Unlike everything in `prefs` below,
+  // these live in the BACKEND (internal/app/offdevice.go) — the request they
+  // gate is made by the Go process, so a value kept only in localStorage would
+  // guard nothing. Mirrored here so the Privacy panel and the two search UIs
+  // read the same answer and a flip in one is visible in the other at once.
+  // The values here are only what the UI assumes before login; onLogin replaces
+  // them with what the backend actually holds.
+  offDevice: { gameSearch: false, gifSearch: true },
+
   // Privacy + appearance prefs. linkPreviews defaults OFF: fetching a preview
   // for a link in a message reveals your IP + online time to that link's host,
   // so a message with a link to an attacker-controlled server is a zero-click
@@ -796,6 +805,32 @@ export function commitRail(items) {
 export function setPref(key, value) {
   S.prefs = { ...S.prefs, [key]: value };
   saveJSON("concord.prefs", S.prefs);
+}
+
+// refreshOffDeviceSearch pulls both backend-held search switches. Failures are
+// swallowed on purpose: an older backend has neither method, and the panel is
+// better off showing the shipped defaults than an error nobody can act on.
+export async function refreshOffDeviceSearch() {
+  const [game, gif] = await Promise.all([
+    api.gameSearchEnabled().catch(() => S.offDevice.gameSearch),
+    api.gifSearchEnabled().catch(() => S.offDevice.gifSearch),
+  ]);
+  S.offDevice = { gameSearch: !!game, gifSearch: !!gif };
+}
+
+// setOffDeviceSearch flips one switch, optimistically, and puts it back if the
+// backend refuses — the same shape the other backend-held privacy switches use.
+// key is "gameSearch" | "gifSearch".
+export async function setOffDeviceSearch(key, on) {
+  const was = S.offDevice[key];
+  S.offDevice = { ...S.offDevice, [key]: on };
+  try {
+    if (key === "gameSearch") await api.setGameSearchEnabled(on);
+    else await api.setGifSearchEnabled(on);
+  } catch (err) {
+    S.offDevice = { ...S.offDevice, [key]: was };
+    flash(err);
+  }
 }
 
 // moveChannelToCategory reassigns a channel's category (preserving type/order/topic).
@@ -1675,6 +1710,7 @@ export async function onLogin() {
   await refreshGuilds();
   await refreshBlocked();
   await refreshRequests();
+  await refreshOffDeviceSearch();
   S.ready = true;
   initEvents();
   // Adopt reads that happened in other sessions/devices BEFORE counting, so
