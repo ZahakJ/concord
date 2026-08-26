@@ -1,5 +1,26 @@
+<script module>
+  // Which dialogs are on screen, innermost last.
+  //
+  // Every Modal registers its OWN window keydown listener, and until this stack
+  // existed all of them answered the same Escape. A confirm raised from inside
+  // a settings panel (six places do it) therefore closed itself AND the panel
+  // that asked the question, in one keypress — the user lost their place as the
+  // price of saying "no". Only the dialog on top acts now.
+  const openDialogs = [];
+
+  // What can hold focus inside a dialog. `[tabindex="-1"]` is excluded on
+  // purpose: it is how a thing is made programmatically focusable but kept out
+  // of the tab order, which is exactly what the dialog container itself uses.
+  const FOCUSABLE =
+    'a[href],button:not([disabled]),textarea:not([disabled]),' +
+    'input:not([disabled]):not([type="hidden"]),select:not([disabled]),' +
+    '[tabindex]:not([tabindex="-1"])';
+
+  const visible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+</script>
+
 <script>
-  import { onDestroy } from "svelte";
+  import { onDestroy, onMount, tick } from "svelte";
   import { S, modalNav, backPanel } from "../lib/state.svelte.js";
   import { haptic } from "../lib/touch.js";
   import Icon from "../Icon.svelte";
@@ -24,11 +45,67 @@
   const enterDir = modalNav.dir || (S.modal?.from ? 1 : 0);
   modalNav.dir = 0;
 
+  // Focus, on open and on close.
+  //
+  // 34 of the 49 dialogs focused nothing at all when they appeared. That is not
+  // a small omission: with focus left on whatever was behind the scrim, the Tab
+  // trap below could never engage (it only fires at the first and last item),
+  // so Tab walked straight out of the dialog and through the page underneath —
+  // and a keyboard user had no way to reach the dialog they had just opened
+  // except by tabbing all the way round. And none of the 49 gave focus BACK, so
+  // closing one dropped the caret at the top of the document every time.
+  const me = {};
+  openDialogs.push(me);
+  let opener = null;
+
+  onMount(() => {
+    const active = document.activeElement;
+    opener = active instanceof HTMLElement && active !== document.body ? active : null;
+    // One tick, so a panel with its own opening focus (ConfirmDialog puts it on
+    // Cancel, several fields carry autofocus) has already had its say. We only
+    // place focus when nothing inside the dialog has claimed it.
+    tick().then(() => {
+      if (!dialog || dialog.contains(document.activeElement)) return;
+      // Never the ✕ or the back arrow: they live in the pinned strip, and a
+      // dialog whose first keystroke closes it is a dialog you can't use.
+      //
+      // On a phone the dialog itself takes it. There is no Tab trap to prime
+      // there, and focusing the first field would raise the software keyboard
+      // over the sheet that just slid up — which is precisely why every modal's
+      // own autofocus is already written `autofocus={!S.isMobile}`.
+      const body = S.isMobile
+        ? []
+        : [...dialog.querySelectorAll(FOCUSABLE)].filter(
+            (el) => !el.closest(".sheet-top") && visible(el),
+          );
+      // A panel that names its own first field wins over DOM order. The create-
+      // channel dialog leads with four channel-TYPE buttons and follows them
+      // with the name box; first-in-the-tree would put the caret on "Text" and
+      // leave the one thing you came here to type unfocused.
+      const target = body.find((el) => el.hasAttribute("autofocus")) || body[0] || dialog;
+      if (target === dialog) dialog.tabIndex = -1;
+      target.focus?.({ preventScroll: true });
+    });
+  });
+
   // Closing for real drops the whole trail; navigating to another panel keeps
   // it. Which happened is simply whether a modal is still open by the time this
   // one is torn down.
   onDestroy(() => {
+    const i = openDialogs.indexOf(me);
+    if (i !== -1) openDialogs.splice(i, 1);
     if (!S.modal) S.modalStack = [];
+    // Hand focus back to whatever opened us — but only if nothing else has
+    // claimed it in the meantime (drilling into a settings sub-panel unmounts
+    // this dialog and mounts the next one on the same frame).
+    const back = opener;
+    opener = null;
+    if (!back) return;
+    tick().then(() => {
+      const now = document.activeElement;
+      if (now && now !== document.body && now !== document.documentElement) return;
+      if (document.contains(back)) back.focus?.({ preventScroll: true });
+    });
   });
 
   // Mobile: the sheet can be flicked/dragged DOWN to dismiss — the native
@@ -82,23 +159,29 @@
 
   // Escape closes reliably regardless of focus (the overlay keydown only fired
   // when focus was inside it). Tab is trapped within the dialog so focus can't
-  // wander onto the page behind. Focus/return is handled by the browser's
-  // inert-less default plus the initial autofocus in each modal's first field.
+  // wander onto the page behind.
   function onKeydown(e) {
+    // Only the dialog on top answers the keyboard.
+    if (openDialogs[openDialogs.length - 1] !== me) return;
     if (e.key === "Escape") {
       e.preventDefault();
       dismiss();
     } else if (e.key === "Tab" && dialog) {
-      const f = dialog.querySelectorAll(
-        'a[href],button:not([disabled]),textarea,input,select,[tabindex]:not([tabindex="-1"])',
-      );
+      const f = [...dialog.querySelectorAll(FOCUSABLE)].filter(visible);
       if (!f.length) return;
       const first = f[0];
       const last = f[f.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
+      const at = document.activeElement;
+      // Focus sitting on the dialog container itself (a panel with nothing
+      // focusable in it) or anywhere outside: the wrap has to engage from
+      // there too, or Tab leaves for the page behind the scrim.
+      if (!f.includes(at)) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && at === first) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
+      } else if (!e.shiftKey && at === last) {
         e.preventDefault();
         first.focus();
       }
