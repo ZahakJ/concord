@@ -189,6 +189,17 @@ func (n *Host) meteredNet() bool {
 	return n.metered
 }
 
+// Metered is meteredNet for the layers above. The flag was unexported because
+// its only consumer was the pacing arithmetic right here, and the rule it obeys
+// is deliberately narrow: metered may delay SEARCHING for peers, never
+// delivering a message. Bulk history is the first thing above net that has a
+// legitimate claim on the answer — a chronicle chunk is a megabyte nobody asked
+// for by name, fetched to fill a screen of history from years ago, and that is
+// exactly the traffic a data plan should not silently absorb. It is neither a
+// search nor a delivery, so reading the flag here breaks no promise; what would
+// break one is ever consulting it on the message path.
+func (n *Host) Metered() bool { return n.meteredNet() }
+
 // pace stretches a wait to whichever floor the current conditions impose.
 func (n *Host) pace(wait time.Duration) time.Duration {
 	return paceWait(wait, n.backgrounded(), n.meteredNet())

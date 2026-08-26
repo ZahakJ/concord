@@ -46,13 +46,14 @@ const MaxReleaseResponse = ReleaseChunkSize + (64 << 10)
 // the life of the process. A var so tests need not wait it out.
 var releaseStreamTimeout = 60 * time.Second
 
-// streamDeadline is when a release stream must have finished: the caller's
-// deadline if it set one, otherwise our own ceiling.
-func streamDeadline(ctx context.Context) time.Time {
+// streamDeadline is when a bulk stream must have finished: the caller's own
+// deadline if it set one, otherwise the protocol's ceiling. Shared with the
+// chronicle protocol, which has the same shape and the same hazard.
+func streamDeadline(ctx context.Context, ceiling time.Duration) time.Time {
 	if d, ok := ctx.Deadline(); ok {
 		return d
 	}
-	return time.Now().Add(releaseStreamTimeout)
+	return time.Now().Add(ceiling)
 }
 
 // ReleaseResponder answers an inbound release request; an empty response means
@@ -90,7 +91,7 @@ func (n *Host) RequestRelease(ctx context.Context, to peer.ID, request []byte) (
 	// offers fan-out behind Settings -> check for peer update — expresses its
 	// patience as a context, and every one of them was decorative: the context
 	// stopped applying the moment the stream opened.
-	_ = s.SetDeadline(streamDeadline(ctx))
+	_ = s.SetDeadline(streamDeadline(ctx, releaseStreamTimeout))
 	if err := writeFrame(s, request, maxReleaseRequest); err != nil {
 		return nil, err
 	}
