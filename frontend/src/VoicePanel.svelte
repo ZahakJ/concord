@@ -27,14 +27,24 @@
   import { bindLabel } from "./lib/keybind.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { haptic, longpress } from "./lib/touch.js";
-  import { SOUNDBOARD, playSfx } from "./lib/sounds.js";
+  import { SOUNDBOARD, playSfx, playRecipe } from "./lib/sounds.js";
+  import { recipeGlyph } from "./lib/sfxrecipe.js";
+  import { shelfSounds } from "./lib/soundshelf.svelte.js";
 
   // Soundboard: play locally on press (instant feedback), gossip a ~30-byte
   // "sfx" trigger on the room's voice topic — every peer synthesizes the same
   // recipe locally (lib/sounds.js). Own presses rate-limit to match the
   // receive-side gate, so what you hear is what the room hears.
+  //
+  // Two kinds of button, one trigger. A built-in press puts its ID on the wire
+  // and every client looks it up; a shelf press puts the whole RECIPE there,
+  // because the recipe is only tens of bytes and nobody else has it. The
+  // `target` field is an opaque string end to end, so neither needs a backend
+  // change — and a peer on a build that predates recipes looks the payload up
+  // in its table of six, misses, and plays nothing.
   let sfxOpen = $state(false);
   let sfxLastPress = 0;
+  const mySounds = $derived(shelfSounds().slice(0, 8));
   function pressSfx(id) {
     const now = Date.now();
     if (now - sfxLastPress < 1000) return;
@@ -42,6 +52,14 @@
     haptic("light");
     playSfx(id);
     api.signalCall(chId, "sfx", id).catch(() => {});
+  }
+  function pressMine(s) {
+    const now = Date.now();
+    if (now - sfxLastPress < 1000) return;
+    sfxLastPress = now;
+    haptic("light");
+    playRecipe(s.recipe);
+    api.signalCall(chId, "sfx", s.payload).catch(() => {});
   }
   import {
     canShareScreen,
@@ -746,6 +764,19 @@
       {#each SOUNDBOARD as s (s.id)}
         <button class="sfx" use:tooltip aria-label={s.name} onclick={() => pressSfx(s.id)}>{s.emoji}</button>
       {/each}
+      {#each mySounds as s (s.payload)}
+        <button class="sfx mine" use:tooltip aria-label={s.recipe.name} onclick={() => pressMine(s)}>
+          {recipeGlyph(s.recipe)}
+        </button>
+      {/each}
+      <button
+        class="sfx add"
+        use:tooltip
+        aria-label="Sounds you made"
+        onclick={() => (S.modal = { kind: "soundboard", onPick: (payload, recipe) => pressMine({ payload, recipe }) })}
+      >
+        <Icon name="plus" size={16} />
+      </button>
     </div>
   {/if}
   <div class="controls">
@@ -1413,6 +1444,14 @@
   }
   .sfx:active {
     transform: scale(0.9);
+  }
+  /* Your own sounds sit after the six built-ins with an accent hairline, so a
+     row of nine buttons still reads as "theirs, then mine". */
+  .sfx.mine {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .sfx.add {
+    color: var(--text-muted);
   }
   @media (prefers-reduced-motion: reduce) {
     .sfx {

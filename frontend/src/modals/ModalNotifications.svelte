@@ -13,6 +13,8 @@
   import {
     soundsEnabled,
     setSoundsEnabled,
+    soundboardEnabled,
+    setSoundboardEnabled,
     RINGTONE_OPTIONS,
     getRingtone,
     setRingtone,
@@ -25,6 +27,15 @@
   function toggleSounds() {
     sounds = !sounds;
     setSoundsEnabled(sounds);
+  }
+
+  // The soundboard gets its own switch. Sound effects are the one noise a
+  // person most often wants gone without also losing the mention ping and the
+  // ring of an incoming call, and until now the only lever was all of them.
+  let board = $state(soundboardEnabled());
+  function toggleBoard() {
+    board = !board;
+    setSoundboardEnabled(board);
   }
 
   // Do Not Disturb is a presence, set from the status popover — but it's also
@@ -154,6 +165,13 @@
       sub="Voice join/leave chimes and @mention pings"
       checked={sounds}
       onclick={toggleSounds}
+    />
+    <SettingRow
+      icon="megaphone"
+      title="Sound effects"
+      sub="The voice-room soundboard and sound chips other people send"
+      checked={board}
+      onclick={toggleBoard}
     />
     <SettingRow icon="phone" title="Call ringtone" sub="Plays when a friend calls you">
       <select class="pick" value={ringtone} onchange={(e) => pickRingtone(e.target.value)} aria-label="Call ringtone">

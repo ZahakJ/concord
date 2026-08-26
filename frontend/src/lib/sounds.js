@@ -2,6 +2,8 @@
 // AudioContext, created lazily on first use (a user gesture will have happened
 // by the time any of these fire). Muteable, persisted in localStorage.
 
+import { decodeRecipe, SFX_WAVES } from "./sfxrecipe.js";
+
 let ctx = null;
 let enabled = load();
 
@@ -564,10 +566,130 @@ const SFX = {
 // every other chime; rate limiting and per-sender gates live with the caller
 // (lib/state.svelte.js), which knows who pressed it.
 export function playSfx(id) {
-  if (!enabled) return;
+  if (!enabled || !boardOn) return;
   const ac = audio();
   if (!ac) return;
   SFX[id]?.(ac);
+}
+
+// ---- sounds people made up --------------------------------------------------
+//
+// A recipe is a couple of dozen numbers (lib/sfxrecipe.js) rather than one of
+// the six functions above, and this renders it out of the same primitives —
+// the same roomBus, the same noise burst, the same slide. Nothing here trusts
+// its input: everything below has already been through decodeRecipe, which
+// REFUSES anything out of range rather than clamping it, so by the time a
+// recipe arrives at this function its gain, duration and frequencies are all
+// inside bounds this file chose.
+
+// One recipe, rendered.
+function buildRecipe(ac, r) {
+  const level = 0.55 + (r.room / 100) * 0.2;
+  const bus = roomBus(ac, {
+    seconds: 0.5 + (r.room / 100) * 1.6,
+    decay: 2.0 + (r.room / 100) * 0.9,
+    wet: (r.room / 100) * 0.55,
+    damp: 2000 + (1 - r.noise / 100) * 3000,
+    level,
+  });
+  const peak = r.gain / 1000;
+  const dur = r.dur / 1000;
+  const gap = r.gap / 1000;
+  const attack = Math.min(r.attack / 1000, dur * 0.6);
+  const toneMix = 1 - r.noise / 100;
+  const exp = (r.flags & 1) !== 0;
+  const swell = (r.flags & 2) !== 0;
+  for (let i = 0; i < r.reps; i++) {
+    const at = i * gap;
+    // Repeats can climb or fall a fixed interval — that is what turns one
+    // parameter block into an arpeggio, a drum roll or a sad trombone.
+    const shift = Math.pow(2, (r.step * i) / 12);
+    // A swell rises across the repeats instead of every hit landing at the
+    // same weight; it is the difference between a roll and a metronome.
+    const level2 = swell ? peak * (0.35 + (0.65 * (i + 1)) / r.reps) : peak;
+    if (toneMix > 0.01) {
+      // Detune spreads two extra voices either side, which is what makes a
+      // sawtooth honk rather than buzz.
+      const voices = r.detune > 0 ? [0, r.detune, -r.detune] : [0];
+      for (const cents of voices) {
+        const osc = ac.createOscillator();
+        osc.type = SFX_WAVES[r.wave] || "sine";
+        osc.detune.value = cents;
+        const t0 = ac.currentTime + at;
+        const f0 = Math.max(20, Math.min(20000, r.f0 * shift));
+        const f1 = Math.max(20, Math.min(20000, r.f1 * shift));
+        osc.frequency.setValueAtTime(f0, t0);
+        if (exp) osc.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+        else osc.frequency.linearRampToValueAtTime(f1, t0 + dur);
+        const g = ac.createGain();
+        const v = (level2 * toneMix) / voices.length;
+        g.gain.setValueAtTime(0, t0);
+        g.gain.linearRampToValueAtTime(v, t0 + Math.max(0.002, attack));
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        osc.connect(g).connect(bus);
+        osc.start(t0);
+        osc.stop(t0 + dur + 0.03);
+      }
+    }
+    if (r.noise > 0) {
+      noiseHit(ac, bus, at, dur, Math.max(60, Math.min(16000, r.noiseHz * shift)), r.noiseQ / 4, level2 * (r.noise / 100));
+    }
+  }
+}
+
+// The soundboard's own mute, separate from the app-wide one. Sound effects are
+// the thing a person most wants to switch off without also losing the mention
+// ping and the incoming-call ring, and before this the only lever was all of
+// them at once.
+let boardOn = loadBoard();
+function loadBoard() {
+  try {
+    return localStorage.getItem("concord.soundboard") !== "off";
+  } catch {
+    return true;
+  }
+}
+export function soundboardEnabled() {
+  return boardOn;
+}
+export function setSoundboardEnabled(on) {
+  boardOn = on;
+  try {
+    localStorage.setItem("concord.soundboard", on ? "on" : "off");
+  } catch {
+    /* ignore */
+  }
+}
+
+// A sound is short and a room is small: two of them at once is noise, and a
+// held button is a siren. The wire-side rate limits are per sender; this one is
+// per SPEAKER, so however many people press at once the output stays a sound
+// rather than a wall. `force` is the studio's preview, which is a deliberate
+// request for a sound and must not be swallowed by somebody else's press.
+let lastPlay = 0;
+const MIN_GAP_MS = 220;
+
+export function playRecipe(recipe, { force = false } = {}) {
+  if (!recipe) return false;
+  if (!force && (!enabled || !boardOn)) return false;
+  const now = Date.now();
+  if (!force && now - lastPlay < MIN_GAP_MS) return false;
+  lastPlay = now;
+  const ac = audio();
+  if (!ac) return false;
+  buildRecipe(ac, recipe);
+  return true;
+}
+
+// playSfxTrigger resolves what arrived in a soundboard press: one of the six
+// built-in ids, or a recipe payload. Both are looked up rather than trusted,
+// and both fail to nothing — an id with no entry and a payload that will not
+// decode are the same silence, which is exactly what a client one version
+// behind does with a recipe it has never heard of.
+export function playSfxTrigger(target) {
+  if (!enabled || !boardOn) return;
+  if (SFX[target]) return playSfx(target);
+  playRecipe(decodeRecipe(target));
 }
 
 // Easter egg: the home button's logo is a Concorde, so hammering it flies one

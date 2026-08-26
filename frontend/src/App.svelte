@@ -98,6 +98,7 @@
     scheduled: () => import("./modals/ModalScheduled.svelte"),
     poll: () => import("./modals/ModalPoll.svelte"),
     doodle: () => import("./modals/ModalDoodle.svelte"),
+    soundboard: () => import("./modals/ModalSoundboard.svelte"),
     compose: () => import("./modals/ModalCompose.svelte"),
     disappear: () => import("./modals/ModalDisappear.svelte"),
     backup: () => import("./modals/ModalBackup.svelte"),
@@ -1538,6 +1539,10 @@
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "doodle"}
       <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "soundboard"}
+      <!-- onPick is set when the studio is opened from a voice room, where the
+           outcome is a sound played for everyone rather than a message sent. -->
+      <ModalView onPick={S.modal.onPick || null} onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "meme"}
       <!-- `edit` reopens a meme already in the channel; `src` starts a new one
            from a picture. They are mutually exclusive — see ModalMeme. -->

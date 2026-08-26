@@ -345,6 +345,7 @@
     { name: "meme", usage: "/meme", desc: "Open the meme editor", expand: (_, text) => text },
     { name: "gif", usage: "/gif", desc: "This guild's GIF pack", expand: (_, text) => text },
     { name: "doodle", usage: "/doodle", desc: "Draw something", expand: (_, text) => text },
+    { name: "sound", usage: "/sound", desc: "Send a sound, or build one", expand: (_, text) => text },
     { name: "clear", usage: "/clear <n>", desc: "Delete the last n messages (moderators)", args: true, mod: true, expand: (_, text) => text },
   ];
 
@@ -364,6 +365,10 @@
     }
     if (/^\/doodle\s*$/i.test(text)) {
       S.modal = { kind: "doodle" };
+      return true;
+    }
+    if (/^\/sound\s*$/i.test(text)) {
+      S.modal = { kind: "soundboard" };
       return true;
     }
     const m = text.match(/^\/clear(?:\s+(\d+))?\s*$/i);
@@ -1601,6 +1606,9 @@
             <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "doodle" })}>
               <Icon name="edit" size={14} /> Doodle
             </button>
+            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "soundboard" })}>
+              <Icon name="speaker" size={14} /> Sound
+            </button>
             <button class="menu-item" disabled={!ch} onclick={openAdvanced}>
               <Icon name="heading" size={14} /> Advanced composer
             </button>
@@ -1753,6 +1761,13 @@
         <span class="sr-text">
           <span class="sr-label">Doodle</span>
           <span class="sr-sub">Draw with a finger — sent as strokes, not a picture</span>
+        </span>
+      </button>
+      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "soundboard" }))}>
+        <span class="sr-icon"><Icon name="speaker" size={20} /></span>
+        <span class="sr-text">
+          <span class="sr-label">Sound</span>
+          <span class="sr-sub">A recipe, not a file — a few dozen bytes each</span>
         </span>
       </button>
       <button type="button" class="sheet-row" onclick={() => fromSheet(() => (showFmt = !showFmt))}>

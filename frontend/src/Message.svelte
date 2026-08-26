@@ -16,6 +16,8 @@
   import EmbedView from "./EmbedView.svelte";
   import DoodleView from "./DoodleView.svelte";
   import { parseDoodle, stripDoodle } from "./lib/doodle.js";
+  import SoundChip from "./SoundChip.svelte";
+  import { parseSound, soundPayload, stripSound } from "./lib/sfxrecipe.js";
   import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
   import { fxEffect, stripFx, playFxOnce } from "./lib/fxtoken.js";
@@ -256,6 +258,10 @@
   // over a bound, from a version we do not know, or simply corrupt. The two
   // cases render the same, which is the whole point of failing closed.
   const doodle = $derived(m.deleted ? null : parseDoodle(m.content));
+  // A sound somebody built: the recipe itself, not a reference to one. null
+  // again means "no sound here" and "a sound this client refuses to play" —
+  // out of range, from a version we do not know, or corrupt.
+  const sound = $derived(m.deleted ? null : parseSound(m.content));
   const bodyText = $derived.by(() => {
     let c = atts.length || files.length ? stripAttachTokens(m.content) : m.content;
     if (richEmbed) c = stripEmbedToken(c);
@@ -263,7 +269,7 @@
     // this client refused must leave nothing behind: gating the strip on a
     // successful parse is how a rejected token ends up printing several
     // hundred characters of base64 into the message body.
-    return stripDoodle(stripFx(stripTimestamp(stripEphemeral(c))));
+    return stripSound(stripDoodle(stripFx(stripTimestamp(stripEphemeral(c)))));
   });
 
   // Send effects ([fx](concord://fx/v1/…)): the burst plays once per session
@@ -1260,6 +1266,9 @@
       {/if}
       {#if doodle}
         <DoodleView strokes={doodle} />
+      {/if}
+      {#if sound}
+        <SoundChip recipe={sound} payload={soundPayload(m.content)} />
       {/if}
       <!-- One image sizes itself, as it always has. Two or more become a grid:
            stacked at their own sizes they were a ragged column — a portrait

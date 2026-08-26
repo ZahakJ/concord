@@ -7,7 +7,7 @@ import { notify, wantsPermissionPrompt } from "./notify.js";
 import { containsMention } from "./markdown.js";
 import { matchedWord as matchedAlertWord, normalize as normalizeAlertWords } from "./alertwords.js";
 import { awayLongEnough, guildLastSeen, buildDigest, worthShowing } from "./digest.js";
-import { playVoiceJoin, playVoiceLeave, playMention, playDM, playSfx } from "./sounds.js";
+import { playVoiceJoin, playVoiceLeave, playMention, playDM, playSfxTrigger } from "./sounds.js";
 
 // Per-sender soundboard rate limit (last accepted press, ms). Module-local:
 // nothing else needs to react to it.
@@ -2807,20 +2807,34 @@ function initEvents() {
   // every voice channel, so the sidebar can show who's in each call.
   on("voice-presence", (v) => {
     // Soundboard: a ~30-byte trigger; every client synthesizes locally
-    // (lib/sounds.js SOUNDBOARD). Gates: only while WE are in that room, never
-    // our own echo (we played on press), a per-sender rate limit so a held
-    // button can't become a siren, and a zeroed per-peer volume slider mutes
-    // their sound effects along with their voice.
+    // (lib/sounds.js). `target` is either one of the six built-in ids or a
+    // whole recipe (lib/sfxrecipe.js) — playSfxTrigger looks up both and plays
+    // nothing when neither resolves, which is also what a client that predates
+    // recipes does with one.
+    //
+    // Gates: only while WE are in that room, never our own echo (we played on
+    // press), a per-sender rate limit so a held button can't become a siren,
+    // deafen, and a zeroed per-peer volume slider mutes their sound effects
+    // along with their voice.
+    //
+    // Two of those gates were written down here and did not work. The volume
+    // slider is keyed by PEER ID — setPeerVolume(peerId, …), read as
+    // S.peerVolumes[pid] everywhere else — and this read it by fingerprint, so
+    // "Mute <name> for me" silenced their voice and left their airhorns at full
+    // level for everyone except a guest (whose two ids happen to be the same
+    // string). And deafen lives inside the mesh, which a soundboard press never
+    // goes through, so a deafened member still heard the room's sound effects.
     if (v.action === "sfx") {
       if (
         S.voice?.channelId === v.channelId &&
         v.fingerprint !== S.identity.fingerprint &&
-        S.peerVolumes[v.fingerprint] !== 0
+        !S.deafened &&
+        S.peerVolumes[v.from] !== 0
       ) {
         const now = Date.now();
         if (now - (sfxLast[v.fingerprint] || 0) >= 1000) {
           sfxLast[v.fingerprint] = now;
-          playSfx(v.target);
+          playSfxTrigger(v.target);
         }
       }
       return;
