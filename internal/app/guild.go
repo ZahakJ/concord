@@ -920,7 +920,60 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	if refusal != "" {
 		return json.Marshal(inviteResponse{Error: refusal})
 	}
-	return json.Marshal(inviteResponse{Welcome: welcome, Guild: *g, Profiles: s.profileRoster()})
+	return json.Marshal(inviteResponse{
+		Welcome: welcome, Guild: *g, Profiles: s.joinRoster(req.GuildID),
+	})
+}
+
+// joinRoster is the member roster handed to a brand-new joiner: everyone's
+// name, nobody's pictures except the two that are certain to be on screen
+// before anything else has had time to arrive.
+//
+// The full roster was the biggest thing in a join. Every profile this peer had
+// ever learned went out whole — an avatar is up to 64 KiB and a profile banner
+// up to 256 KiB — so admitting one person to a guild of two hundred meant
+// serving a few megabytes of images over a single stream, most of them
+// belonging to people the joiner will not look at today, and all of it in front
+// of the welcome they are actually waiting for. It scaled with the guild's
+// entire history of membership, not with anything the joiner needed.
+//
+// What a joiner needs immediately is NAMES: a member list of fingerprints reads
+// as a room full of strangers. Names are a few dozen bytes each. The pictures
+// arrive on their own within seconds — every member re-announces its profile
+// when a peer it has not greeted connects (publishProfile), and the digest sync
+// fills in whoever stayed quiet — so the only thing withholding them costs is
+// that an avatar fades in shortly after the name it belongs to.
+//
+// Two exceptions get their pictures up front, because they are the two faces a
+// new member sees without going looking: the guild's owner, and whoever just
+// admitted them.
+func (s *Service) joinRoster(guildID string) map[string]Profile {
+	roster := s.profileRoster()
+	keepWhole := map[string]bool{
+		s.id.Fingerprint():        true,
+		s.effectiveOwner(guildID): true,
+	}
+	for fpr, p := range roster {
+		if !keepWhole[fpr] {
+			roster[fpr] = p.withoutPictures()
+		}
+	}
+	return roster
+}
+
+// withoutPictures strips the three fields that can each be larger than the rest
+// of a profile put together: the avatar, the profile banner, and the sprite an
+// orbit ring carries. Everything else — name, colours, ring and effect ids,
+// mailbox key — is enum-or-text sized and stays.
+func (p Profile) withoutPictures() Profile {
+	p.Avatar = ""
+	p.Banner = ""
+	if p.Style != nil && strings.HasPrefix(p.Style.Sat, "data:") {
+		style := *p.Style // copy: the roster shares the cached profile's pointer
+		style.Sat = ""
+		p.Style = &style
+	}
+	return p
 }
 
 // profileRoster snapshots every profile this peer knows, plus its own, keyed by
