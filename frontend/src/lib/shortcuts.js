@@ -1,24 +1,71 @@
-// shortcuts.js — one global keymap. Registered once by App.svelte after login.
+// shortcuts.js — one global keymap, and the list of what is in it.
 //
-//   Ctrl/Cmd+K        quick switcher
-//   Ctrl/Cmd+F        focus message search
-//   Ctrl/Cmd+,        user settings
-//   Ctrl/Cmd+Shift+,  network stats
-//   Alt+↑ / Alt+↓     previous / next channel in the active guild
-//   Alt+Shift+↑/↓     previous / next unread channel (across guilds)
-//   Ctrl+Alt+↑/↓      previous / next guild
-//   Ctrl+Shift+M      toggle mic mute (while in a call)
-//   Ctrl+Shift+D      toggle deafen (while in a call)
-//   (your choice)     hold to talk, when push-to-talk is on — see below
-//   Ctrl/Cmd+U        toggle the member panel
-//   Ctrl/Cmd+= / - / 0  zoom the UI in / out / back to 100%
-//   Escape            close whatever is on top (see lib/navstack.svelte.js) —
-//                     or, if nothing is open, mark the current channel read
-//   Shift+Escape      mark ALL channels read
-//   ? or Ctrl+/       keyboard-shortcut cheat sheet
+// The list used to be the comment block that stood here, and the cheat sheet
+// (modals/ModalShortcuts.svelte) was a third, separately maintained copy. It
+// had drifted: nine bindings the app really answers were missing from it,
+// including `?`, so the sheet never taught how to reopen itself. SHORTCUTS
+// below is what the sheet renders, it lives against the handler it describes,
+// and shortcutlist.test.mjs fails the build when the handler grows a key the
+// list has not heard of.
 import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash } from "./state.svelte.js";
 import { popLayer } from "./navstack.svelte.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
+
+// ---- the registry ----
+//
+// One entry per thing a person can press or type. `chords` is a list of
+// ALTERNATIVES; the parts inside one chord are pressed together. Keeping those
+// two apart is not pedantry — the old sheet joined everything with "+", so
+// "/shrug + /me + /spoiler" and "Alt + ↑/↓" were printed the same way while
+// meaning opposite things. `typed` marks the entries you write rather than
+// press: markdown and slash commands, the only groups a phone can use, which
+// is why they are the only ones it shows.
+export const SHORTCUTS = [
+  { group: "Navigation", chords: [["Ctrl/⌘", "K"]], label: "Command palette (jump anywhere, run actions)" },
+  { group: "Navigation", chords: [["Ctrl/⌘", "F"]], label: "Search messages" },
+  { group: "Navigation", chords: [["Ctrl/⌘", ","]], label: "User settings" },
+  { group: "Navigation", chords: [["Ctrl/⌘", "Shift", ","]], label: "Network stats" },
+  { group: "Navigation", chords: [["Alt", "↑"], ["Alt", "↓"]], label: "Previous / next channel" },
+  { group: "Navigation", chords: [["Alt", "Shift", "↑"], ["Alt", "Shift", "↓"]], label: "Previous / next unread channel" },
+  { group: "Navigation", chords: [["Ctrl", "Alt", "↑"], ["Ctrl", "Alt", "↓"]], label: "Previous / next guild" },
+  { group: "Navigation", chords: [["Ctrl/⌘", "U"]], label: "Show or hide the member panel" },
+  { group: "Navigation", chords: [["Ctrl/⌘", "="], ["Ctrl/⌘", "-"], ["Ctrl/⌘", "0"]], label: "Zoom the whole UI in / out / back to 100%" },
+  { group: "Navigation", chords: [["?"], ["Ctrl/⌘", "/"]], label: "This list" },
+
+  { group: "Reading", chords: [["Esc"]], label: "Close what's open — or mark this channel read" },
+  { group: "Reading", chords: [["Shift", "Esc"]], label: "Mark all channels read" },
+
+  { group: "Voice", chords: [["Ctrl", "Shift", "M"]], label: "Toggle mute (while in a call)" },
+  { group: "Voice", chords: [["Ctrl", "Shift", "D"]], label: "Toggle deafen (while in a call)" },
+  { group: "Voice", chords: [["your own key"]], label: "Hold to talk, when push-to-talk is on (choose it in Voice settings)" },
+
+  { group: "Composer", chords: [["Enter"]], label: "Send message" },
+  { group: "Composer", chords: [["Shift", "Enter"]], label: "New line" },
+  { group: "Composer", chords: [["↑"]], label: "Edit your last message (empty composer)" },
+  { group: "Composer", chords: [["Ctrl/⌘", "B"]], label: "Bold the selection" },
+  { group: "Composer", chords: [["Ctrl/⌘", "I"]], label: "Italicise the selection" },
+  { group: "Composer", chords: [["Ctrl/⌘", "E"]], label: "Code the selection" },
+  { group: "Composer", chords: [["Ctrl/⌘", "K"]], label: "Link the selection" },
+  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "X"]], label: "Spoiler the selection" },
+  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "."]], label: "Quote the selection" },
+  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "D"]], label: "Cycle the draft's direction: per-line, right-to-left, left-to-right" },
+
+  { group: "Slash commands", typed: true, chords: [["/shrug"], ["/me"], ["/spoiler"], ["…"]], label: "Type one at the start of a message" },
+
+  { group: "Formatting", typed: true, chords: [["**text**"]], label: "Bold" },
+  { group: "Formatting", typed: true, chords: [["*text*"]], label: "Italic" },
+  { group: "Formatting", typed: true, chords: [["__text__"]], label: "Underline" },
+  { group: "Formatting", typed: true, chords: [["~~text~~"]], label: "Strikethrough" },
+  { group: "Formatting", typed: true, chords: [["||text||"]], label: "Spoiler" },
+  { group: "Formatting", typed: true, chords: [["`code`"], ["```block```"]], label: "Code" },
+  { group: "Formatting", typed: true, chords: [["> "], [">>> "]], label: "Quote (line / rest of message)" },
+  { group: "Formatting", typed: true, chords: [["# "], ["## "], ["### "]], label: "Headers" },
+  { group: "Formatting", typed: true, chords: [["[text](url)"]], label: "Masked link" },
+];
+
+// Group order for the sheet, taken from the registry so a new group appears
+// without anybody editing a second list.
+export const SHORTCUT_GROUPS = [...new Set(SHORTCUTS.map((s) => s.group))];
 
 function channelsOfActive() {
   return activeGuild()?.channels ?? [];

@@ -301,6 +301,25 @@
       animation: sheet-up 0.28s cubic-bezier(0.22, 1.1, 0.36, 1);
       touch-action: pan-y;
     }
+    /* Long content ran out from under the last line and straight behind the
+       gesture pill, with nothing to say it continued. This is a sticky strip at
+       the foot of the scroller — a pseudo-element, so no markup and no second
+       scroller — fading content into the sheet's own colour just above the
+       safe-area inset. A sticky footer (.actions, below) sits at z-index 2 and
+       draws over it, so a commit button is never washed out; on a sheet with
+       nothing to scroll the gradient lands on matching background and cannot be
+       seen at all. */
+    .dialog::after {
+      content: "";
+      flex: none;
+      position: sticky;
+      z-index: 1;
+      bottom: calc(-20px - var(--safe-bottom));
+      height: calc(26px + var(--safe-bottom));
+      margin: 0 -20px calc(-20px - var(--safe-bottom));
+      pointer-events: none;
+      background: linear-gradient(transparent, var(--bg-elevated));
+    }
     /* The drag, the spring-back and the slide-out are all driven from
        lib/sheet.js as inline styles, so the transform and its transition live
        there rather than being split between a rule here and an element there

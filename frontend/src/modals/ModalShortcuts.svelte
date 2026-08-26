@@ -1,68 +1,25 @@
 <script>
   import Modal from "./Modal.svelte";
   import { S } from "../lib/state.svelte.js";
+  import { SHORTCUTS, SHORTCUT_GROUPS } from "../lib/shortcuts.js";
   let { onClose } = $props();
 
-  const groups = [
-    {
-      name: "Navigation",
-      keys: [
-        [["Ctrl/⌘", "K"], "Command palette (jump anywhere, run actions)"],
-        [["Ctrl/⌘", "F"], "Search messages"],
-        [["Ctrl/⌘", ","], "User settings"],
-        [["Ctrl/⌘", "Shift", ","], "Network stats"],
-        [["Alt", "↑/↓"], "Previous / next channel"],
-        [["Alt", "Shift", "↑/↓"], "Previous / next unread channel"],
-        [["Ctrl", "Alt", "↑/↓"], "Previous / next guild"],
-        [["Ctrl/⌘", "+/−/0"], "Zoom the whole UI in / out / reset"],
-      ],
-    },
-    {
-      name: "Reading",
-      keys: [
-        [["Esc"], "Close what's open — or mark this channel read"],
-        [["Shift", "Esc"], "Mark all channels read"],
-      ],
-    },
-    {
-      name: "Voice",
-      keys: [[["Ctrl", "Shift", "M"], "Toggle mute (while in a call)"]],
-    },
-    {
-      name: "Composer",
-      keys: [
-        [["Enter"], "Send message"],
-        [["Shift", "Enter"], "New line"],
-        [["↑"], "Edit your last message (empty composer)"],
-      ],
-    },
-    {
-      name: "Slash commands",
-      typed: true,
-      keys: [[["/shrug", "/me", "/spoiler", "…"], "Type one at the start of a message"]],
-    },
-    {
-      typed: true,
-      name: "Formatting",
-      keys: [
-        [["**text**"], "Bold"],
-        [["*text*"], "Italic"],
-        [["__text__"], "Underline"],
-        [["~~text~~"], "Strikethrough"],
-        [["||text||"], "Spoiler"],
-        [["`code`", "```block```"], "Code"],
-        [["> ", ">>> "], "Quote (line / rest of message)"],
-        [["# ", "## ", "### "], "Headers"],
-        [["[text](url)"], "Masked link"],
-      ],
-    },
-  ];
-
-  // A phone has no Ctrl, no Alt and no Esc, so four of the six groups describe
-  // chords the device cannot produce — four screens of them before reaching the
-  // one section (markdown you type) that does apply. Show only what's typeable,
-  // and say so in the title.
-  const shown = $derived(S.isMobile ? groups.filter((g) => g.typed) : groups);
+  // Rendered from the keymap's own registry rather than from a copy of it. The
+  // copy had gone nine bindings out of date — the member panel, deafen,
+  // push-to-talk, the six composer formatting chords and the direction cycle,
+  // and `?` itself, so the one sheet that exists to teach shortcuts could not
+  // teach how to reopen itself.
+  //
+  // A phone has no Ctrl, no Alt and no Esc, so most of this describes chords
+  // the device cannot produce — screens of them before reaching the part
+  // (markdown, slash commands) that does apply. Show only what is typeable
+  // there, and say so in the title.
+  const shown = $derived(
+    SHORTCUT_GROUPS.map((name) => ({
+      name,
+      rows: SHORTCUTS.filter((s) => s.group === name && (!S.isMobile || s.typed)),
+    })).filter((g) => g.rows.length),
+  );
 </script>
 
 <Modal title={S.isMobile ? "Formatting" : "Keyboard shortcuts & formatting"} wide {onClose}>
@@ -70,12 +27,18 @@
     {#each shown as grp (grp.name)}
       <section class="sc-group">
         <h4>{grp.name}</h4>
-        {#each grp.keys as [keys, desc] (desc)}
+        {#each grp.rows as row (row.label)}
           <div class="sc-row">
-            <span class="sc-desc">{desc}</span>
+            <span class="sc-desc">{row.label}</span>
             <span class="sc-keys">
-              {#each keys as k, i (k)}
-                {#if i > 0}<span class="sc-plus">+</span>{/if}<kbd>{k}</kbd>
+              <!-- Alternatives read "or"; the parts of one chord are joined by
+                   "+". Printing both as "+" is what made "/shrug + /me" and
+                   "Alt + \u2191" look like the same instruction. -->
+              {#each row.chords as chord, ci (ci)}
+                {#if ci > 0}<span class="sc-or">or</span>{/if}
+                {#each chord as k, i (i)}
+                  {#if i > 0}<span class="sc-plus">+</span>{/if}<kbd class:typed={row.typed}>{k}</kbd>
+                {/each}
               {/each}
             </span>
           </div>
@@ -131,6 +94,12 @@
     color: var(--text-faint);
     font-size: var(--fs-tiny);
   }
+  .sc-or {
+    color: var(--text-muted);
+    font-size: var(--fs-tiny);
+    font-style: italic;
+    padding: 0 2px;
+  }
   /* Proper keycaps: raised, subtle top-highlight, pressed-looking bottom edge. */
   kbd {
     font-family: ui-monospace, monospace;
@@ -148,5 +117,10 @@
     padding: 2px 7px;
     color: var(--text);
     white-space: nowrap;
+  }
+  /* Markdown is typed, not pressed: leave the leading and trailing spaces of
+     "> " and "# " visible, or the sheet quietly teaches the wrong thing. */
+  kbd.typed {
+    white-space: pre;
   }
 </style>

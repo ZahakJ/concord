@@ -149,6 +149,18 @@
     overscroll-behavior: contain;
     padding: 0 10px calc(12px + var(--safe-bottom));
   }
+  /* The same fade the dialog sheets get: long content should look like it is
+     running out under the gesture pill, not like it was cut with scissors. */
+  .bs-body::after {
+    content: "";
+    display: block;
+    position: sticky;
+    bottom: calc(-12px - var(--safe-bottom));
+    height: calc(22px + var(--safe-bottom));
+    margin: 0 -10px calc(-12px - var(--safe-bottom));
+    pointer-events: none;
+    background: linear-gradient(transparent, var(--bg-elevated, var(--bg-1)));
+  }
   @keyframes bs-fade {
     from {
       opacity: 0;
