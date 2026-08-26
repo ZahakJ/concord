@@ -6,6 +6,7 @@
   import { api } from "../lib/api.js";
   import { S, flash, openPanel } from "../lib/state.svelte.js";
   import { haptic } from "../lib/touch.js";
+  import { selfUpdateAllowed } from "../lib/installsource.js";
 
   let { onClose } = $props();
   let phrase = $state("");
@@ -43,10 +44,17 @@
   }
 
   // ---- software update (full in-place self-update) ----
-  // Desktop/web swap their own binary. Android can't self-swap, but the card
-  // still checks and one-taps the APK download — the OS installer upgrades in
-  // place (same signing key). iOS is store-only, so the card hides there.
-  const isMobileApp = window.Capacitor?.getPlatform?.() === "ios";
+  // Desktop/web swap their own binary. A sideloaded Android build can't
+  // self-swap, but the card still checks and one-taps the APK download — the OS
+  // installer upgrades in place (same signing key). A build installed from Play
+  // must not offer any of that, and iOS is store-only, so the card hides in
+  // both cases. selfUpdateAllowed() asks the running install where it came
+  // from; until it answers, the card stays down rather than flashing on and
+  // off in front of someone on a store build.
+  let canUpdate = $state(false);
+  (async () => {
+    canUpdate = await selfUpdateAllowed();
+  })();
   let updInfo = $state(null); // CheckForUpdate view, once the user checks
   let peerInfo = $state(null); // CheckPeerUpdate view, when GitHub had nothing
   let checking = $state(false);
@@ -248,8 +256,8 @@
     </div>
   </section>
 
-  <!-- SOFTWARE UPDATE (not on mobile — app stores own updates there) -->
-  {#if !isMobileApp}
+  <!-- SOFTWARE UPDATE (hidden wherever a store owns updates instead) -->
+  {#if canUpdate}
     <section class="grp">
       <div class="sec-label">Software update</div>
       <div class="card pad upd-card">

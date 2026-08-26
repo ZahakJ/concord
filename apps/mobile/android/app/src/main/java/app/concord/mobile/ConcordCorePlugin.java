@@ -171,6 +171,51 @@ public class ConcordCorePlugin extends Plugin {
         call.resolve(ret);
     }
 
+    /**
+     * Who installed this copy of the app.
+     *
+     * Concord can update itself: it downloads a signed APK from a peer or from
+     * the release feed and hands it to the package installer. That is the whole
+     * point of a build somebody sideloaded — there is no other way for them to
+     * get a fix. It is also, word for word, what Play's Device and Network
+     * Abuse policy forbids an app distributed through Play from doing, and the
+     * penalty is suspension rather than a rejected upload.
+     *
+     * The two cases are the same binary, so the build cannot decide this; only
+     * the running install knows where it came from. "com.android.vending" is
+     * Play. Anything else — a file manager, adb, F-Droid, or null for a plain
+     * sideload — is a copy whose user has no store to update them, and they
+     * keep the feature.
+     *
+     * Resolves {installer: string|null}. Any failure resolves null, which the
+     * frontend reads as "not Play" and therefore leaves self-update on. That
+     * fail-open direction is deliberate: the alternative fails a sideloaded
+     * user into having no update path at all, and a Play install that somehow
+     * threw here would still be caught by the store's own review.
+     */
+    @PluginMethod
+    public void installerSource(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("installer", installerPackage());
+        call.resolve(ret);
+    }
+
+    private String installerPackage() {
+        try {
+            Context ctx = getContext();
+            String self = ctx.getPackageName();
+            android.content.pm.PackageManager pm = ctx.getPackageManager();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                // getInstallerPackageName is deprecated from API 30 and returns
+                // null for some installs it used to name.
+                return pm.getInstallSourceInfo(self).getInstallingPackageName();
+            }
+            return pm.getInstallerPackageName(self);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private boolean firebaseConfigured() {
         try {
             Context ctx = getContext();
