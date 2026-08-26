@@ -1599,19 +1599,43 @@ export const ANIMATED_PACKS = new Set([
 // Packs with a STATIC coloured mesh behind translucent surfaces ([data-textured]).
 export const TEXTURED_PACKS = new Set(["frost", "dusk", "grape"]);
 
+// The pack palettes are a fifth of the stylesheet and match nothing at all
+// unless somebody chose one, so they travel in their own file. The pack is not
+// stamped on the document until that file has arrived: half of them make the
+// app's surfaces translucent so a backdrop can show through, and stamping that
+// before the backdrop exists would show a frame of transparent panels over
+// nothing.
+let packsCSS = null;
+let packsLoaded = false;
+export function themePacksReady() {
+  if (!S.prefs.themePack) return Promise.resolve();
+  if (!packsCSS) packsCSS = import("../themepacks.css").catch(() => {});
+  return packsCSS;
+}
+
 export function applyAppearance() {
   const el = document.documentElement;
   const t = S.prefs.theme || "dark";
   el.dataset.theme = t === "system" ? (sysDark && !sysDark.matches ? "light" : "dark") : t;
   el.dataset.density = S.prefs.density === "compact" ? "compact" : "cozy";
-  if (S.prefs.themePack) el.dataset.themePack = S.prefs.themePack;
+  const pack = S.prefs.themePack;
+  if (pack && !packsLoaded) {
+    // Not yet: keep the default palette on screen and come back when the pack
+    // stylesheet lands. main.js waits for this before the first mount, so the
+    // only time anybody sees this branch is a live change from the picker.
+    themePacksReady().then(() => {
+      packsLoaded = true;
+      applyAppearance();
+    });
+  }
+  if (pack && packsLoaded) el.dataset.themePack = pack;
   else delete el.dataset.themePack;
   // Animated packs render a live backdrop (.theme-bg) and need translucent
   // surfaces so it shows through; a single flag drives both regardless of pack.
-  if (ANIMATED_PACKS.has(S.prefs.themePack)) el.dataset.animBg = "1";
+  if (packsLoaded && ANIMATED_PACKS.has(pack)) el.dataset.animBg = "1";
   else delete el.dataset.animBg;
   // Textured packs use the same translucent-surface trick over a STATIC mesh.
-  if (TEXTURED_PACKS.has(S.prefs.themePack)) el.dataset.textured = "1";
+  if (packsLoaded && TEXTURED_PACKS.has(pack)) el.dataset.textured = "1";
   else delete el.dataset.textured;
   // The shine pref, stamped as ONE attribute the pack CSS keys off, so a pack
   // that has a specular pass needs a single extra rule and every pack that

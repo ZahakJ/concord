@@ -41,7 +41,13 @@ const assert = (cond, msg) => {
   }
 };
 
-const css = readFileSync(new URL("../app.css", import.meta.url), "utf8");
+// Both halves of the stylesheet: the pack palettes moved into their own file so
+// that a session which never chooses one does not download them, and the gate
+// has to keep reading the palettes wherever they live.
+const css =
+  readFileSync(new URL("../app.css", import.meta.url), "utf8") +
+  "\n" +
+  readFileSync(new URL("../themepacks.css", import.meta.url), "utf8");
 const FLOOR = 3;
 
 // --- what the collection is made of ------------------------------------------

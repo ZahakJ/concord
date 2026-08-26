@@ -109,7 +109,7 @@ export const over = ([r, g, b, a = 1], bg) =>
 // --- the daylight grounds -------------------------------------------------
 
 // The packs a cosmetic has to survive: the six bright theme packs plus the
-// plain light theme. Their --bg-1 is read out of app.css rather than copied
+// plain light theme. Their --bg-1 is read out of the stylesheet rather than copied
 // here, so retuning a pack retunes the gate with it.
 //
 // Three of them declare --bg-1 as translucent white over a pastel mesh. The
@@ -143,7 +143,7 @@ export function daylightGrounds(css) {
       const hit = block.match(/--bg-1:\s*([^;]+);/);
       if (hit) m = hit;
     }
-    if (!seen) throw new Error(`contrast harness: ${sel} is no longer in app.css`);
+    if (!seen) throw new Error(`contrast harness: ${sel} is no longer in the stylesheet`);
     if (!m) throw new Error(`contrast harness: ${sel} declares no --bg-1`);
     const [c] = colorsIn(m[1]);
     if (!c) throw new Error(`contrast harness: cannot read ${sel} --bg-1 (${m[1].trim()})`);

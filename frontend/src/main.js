@@ -2,6 +2,7 @@ import { mount } from "svelte";
 import "./app.css";
 import App from "./App.svelte";
 import { configureTransport } from "./lib/api.js";
+import { themePacksReady } from "./lib/state.svelte.js";
 import { loadAnimatedEmoji } from "./lib/markdown.js";
 
 // Which emoji have an animated version is needed by the FIRST message that
@@ -41,6 +42,12 @@ function browserToken() {
 // with a bearer token; the native ConcordCore plugin boots it and hands both
 // over. Desktop/browser mounts immediately — the page origin IS the API.
 async function boot() {
+  // A chosen theme pack has to be in force BEFORE the first paint, or the app
+  // appears in the default palette and repaints itself a frame later — which is
+  // the one thing a person who picked a palette will notice. Started here, at
+  // the top of boot, so it runs alongside the core handshake below rather than
+  // after it; a session with no pack resolves immediately and pays nothing.
+  const packs = themePacksReady();
   const cap = typeof window !== "undefined" ? window.Capacitor : null;
   // Stamp the platform on <html> the instant the bundle runs — BEFORE the native
   // inset bridge pushes anything, and independently of whether it ever does. On
@@ -66,6 +73,7 @@ async function boot() {
     // binary handed us. Empty is tolerated so a dev server still mounts.
     configureTransport({ baseURL: "", authToken: browserToken() });
   }
+  await packs;
   return mount(App, { target: document.getElementById("app") });
 }
 

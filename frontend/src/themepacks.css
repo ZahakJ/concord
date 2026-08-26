@@ -1,0 +1,2951 @@
+/* The fifty theme packs.
+ *
+ * Every rule here is scoped to a [data-theme-pack] that is not on the document
+ * unless somebody chose it, so for the default palette this file is a fifth of
+ * the stylesheet that can never match anything. It is fetched when a pack is
+ * selected, and before the pack is stamped on the document — see
+ * loadThemePacks() in lib/state.svelte.js.
+ *
+ * Order matters twice over. Within this file it is the order these rules had in
+ * app.css, unchanged. Against app.css, this file now comes LAST — which is why
+ * the shape/typeface/density overrides there are written :root:root, so that an
+ * explicit choice still beats a pack's own answer. themepacks.test.mjs checks
+ * that nothing has quietly reintroduced a rule that depends on the old order.
+ */
+
+/* ---- Theme packs (Appearance → Theme pack) --------------------------------
+   Curated full palettes — each retints the whole depth scale plus the accent,
+   so the app reads as a different "skin", not just a swapped highlight color.
+   Device-local (never broadcast). A pack supplies its own accent via CSS;
+   applyAppearance() skips the inline accent override while a pack is active
+   (unless the user ALSO picked an explicit accent preset, which wins). Placed
+   after the light block so a pack wins regardless of the dark/light setting.
+   Each --text-faint below is tuned to clear 3:1 against ITS OWN --bg-3 (the
+   lightest surface a pack ever paints it on, composited for the translucent
+   packs): faint is decoration, but decoration still has to be visible. */
+:root[data-theme-pack="midnight"] {
+  --bg-0: #0b0e1a;
+  --bg-1: #111527;
+  --bg-2: #171c33;
+  --bg-3: #222946;
+  --border: #2e3654;
+  --text: #e6e9f5;
+  --text-muted: #949cbd;
+  --text-faint: #707897;
+  --accent: #6f7cff;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="nebula"] {
+  --bg-0: #120c1c;
+  --bg-1: #191129;
+  --bg-2: #201636;
+  --bg-3: #2e2149;
+  --border: #3c2c5e;
+  --text: #ece5f7;
+  --text-muted: #a394c2;
+  --text-faint: #7d71a1;
+  --accent: #a06bff;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="sakura"] {
+  --bg-0: #1a0f16;
+  --bg-1: #24141e;
+  --bg-2: #2e1a27;
+  --bg-3: #402637;
+  --border: #533146;
+  --text: #f5e8ef;
+  --text-muted: #bd94aa;
+  --text-faint: #957485;
+  --accent: #f06ba8;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="forest"] {
+  --bg-0: #0c1410;
+  --bg-1: #111c16;
+  --bg-2: #17251d;
+  --bg-3: #22342a;
+  --border: #2e4437;
+  --text: #e6f0ea;
+  --text-muted: #92ac9d;
+  --text-faint: #6b8675;
+  --accent: #3fb96e;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="abyss"] {
+  --bg-0: #000000;
+  --bg-1: #070709;
+  --bg-2: #0d0e11;
+  --bg-3: #17181d;
+  --border: #24262d;
+  --text: #e8eaed;
+  --text-muted: #8f939c;
+  --text-faint: #666a73;
+  --accent: #22d3ee;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+
+/* More curated palettes — flat/opaque (zero runtime cost), each a cohesive
+   color story that flows through every surface via the --bg/--text tokens. */
+:root[data-theme-pack="nord"] {
+  --bg-0: #22272f;
+  --bg-1: #2e3440;
+  --bg-2: #3b4252;
+  --bg-3: #434c5e;
+  --border: #4c566a;
+  --text: #eceff4;
+  --text-muted: #b6bece;
+  --text-faint: #97a0af;
+  --accent: #88c0d0;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="dracula"] {
+  --bg-0: #21222c;
+  --bg-1: #282a36;
+  --bg-2: #343746;
+  --bg-3: #424456;
+  --border: #4d5066;
+  --text: #f8f8f2;
+  --text-muted: #bcc0d8;
+  --text-faint: #9296b0;
+  --accent: #bd93f9;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="gruvbox"] {
+  --bg-0: #1d2021;
+  --bg-1: #282828;
+  --bg-2: #32302f;
+  --bg-3: #3c3836;
+  --border: #504945;
+  --text: #ebdbb2;
+  --text-muted: #bdae93;
+  --text-faint: #958676;
+  --accent: #fabd2f;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="rose"] {
+  --bg-0: #16141f;
+  --bg-1: #1f1d2e;
+  --bg-2: #26233a;
+  --bg-3: #2f2b45;
+  --border: #403c58;
+  --text: #e0def4;
+  --text-muted: #a7a3c8;
+  --text-faint: #7e7a95;
+  --accent: #ebbcba;
+  --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+:root[data-theme-pack="oceanic"] {
+  --bg-0: #0f1b21;
+  --bg-1: #16232b;
+  --bg-2: #1e2f38;
+  --bg-3: #294049;
+  --border: #34505b;
+  --text: #e0eaee;
+  --text-muted: #92adb8;
+  --text-faint: #78909a;
+  --accent: #5ec8cc;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+
+/* ── Effect-paired packs ──────────────────────────────────────────────────
+   Six flat palettes, each built as the ground for one of the stackable
+   effects further down the file (Appearance → Effects). They are deliberately
+   OPAQUE and unanimated: the effect is the moving part, and a translucent
+   surface under a drifting overlay would be two things competing for the same
+   pixels. Each stands on its own with the effect off — a pack that only works
+   with an accessory would be dead weight for anyone on reduced motion.
+
+   Same contrast contract as everything above, measured not guessed: --text
+   clears 4.5:1 on bg-0/1/2, --text-muted 4.5:1 on bg-1/2/3, --text-faint 3:1
+   on bg-3, --accent 3:1 on bg-2/3. */
+
+/* Tundra ← Snow. Blue-grey ice under a flat overcast light: no glow anywhere,
+   because snow light has no source you can point at. */
+:root[data-theme-pack="tundra"] {
+  --bg-0: #0d141b;
+  --bg-1: #131c25;
+  --bg-2: #192430;
+  --bg-3: #25333f;
+  --border: #33434f;
+  --text: #e9f2f8;
+  --text-muted: #9db2c0;
+  --text-faint: #7e93a1; /* 4.05:1 on bg-3 */
+  --accent: #8fd3f4;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+/* Phosphor ← CRT. A P1 monitor: near-black glass, one green, and everything
+   bleeding light the way a phosphor dot actually does. */
+:root[data-theme-pack="phosphor"] {
+  --bg-0: #020503;
+  --bg-1: #060c08;
+  --bg-2: #09120c;
+  --bg-3: #132119;
+  --border: #1e3324;
+  --text: #cdf5d8;
+  --text-muted: #7fb491;
+  --text-faint: #6d9c7e; /* 5.33:1 on bg-3 */
+  --accent: #3ef08c;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+/* Harbor ← Rain. Wet slate and one sodium lamp. The only warm thing in it is
+   the accent, which is the point. */
+:root[data-theme-pack="harbor"] {
+  --bg-0: #111619;
+  --bg-1: #171e23;
+  --bg-2: #1d262c;
+  --bg-3: #2a343c;
+  --border: #3a444e;
+  --text: #e4eaef;
+  --text-muted: #9aa7b3;
+  --text-faint: #7e8b97; /* 3.64:1 on bg-3 */
+  --accent: #e0a458;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+/* Observatory ← Stars. Navy dark enough that a 1px white dot on top of it
+   reads as a star and not as a dust speck, with warm ivory ink. */
+:root[data-theme-pack="observatory"] {
+  --bg-0: #06070e;
+  --bg-1: #0b0d17;
+  --bg-2: #10131f;
+  --bg-3: #1b1f2e;
+  --border: #262b3e;
+  --text: #f3f0e7;
+  --text-muted: #a9acbd;
+  --text-faint: #878ba0; /* 4.86:1 on bg-3 */
+  --accent: #e8c46a;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+/* Hearth ← Embers. Warm brown-black and firelight; the soft, sat-down pack. */
+:root[data-theme-pack="hearth"] {
+  --bg-0: #12100c;
+  --bg-1: #1a1613;
+  --bg-2: #211c18;
+  --bg-3: #2e2721;
+  --border: #3d342c;
+  --text: #f4ece3;
+  --text-muted: #b7a89a;
+  --text-faint: #978779; /* 4.24:1 on bg-3 */
+  --accent: #e59b4d;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+/* Harvest ← Leaves. Olive and umber, russet accent — autumn seen at dusk. */
+:root[data-theme-pack="harvest"] {
+  --bg-0: #14130b;
+  --bg-1: #1c1a11;
+  --bg-2: #232116;
+  --bg-3: #322e1f;
+  --border: #423d2a;
+  --text: #f0ead6;
+  --text-muted: #b3aa8c;
+  --text-faint: #948b6f; /* 4.00:1 on bg-3 */
+  --accent: #cf7b3f;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: var(--bg-3);
+  color-scheme: dark;
+}
+
+/* ── Animated theme packs ─────────────────────────────────────────────────
+   These go beyond a static palette: a live backdrop (.theme-bg, rendered once
+   in App.svelte / behind the mobile shell) animates, and the surface tokens
+   (--bg-*) are TRANSLUCENT so it reads through the whole app. state.svelte.js
+   stamps [data-anim-bg] alongside the pack so surfaces + backdrop switch
+   together. All motion is transform/opacity (compositor-only — no blur or
+   box-shadow animation, which torched the GPU last time) and is fully disabled
+   under prefers-reduced-motion (the static gradient remains).
+   Surfaces sit at z-index:1 (App .app / Mobile .mshell); the backdrop at 0.
+
+   The surface alphas below are the whole ballgame. At the 0.78–0.86 they used
+   to be, an already near-black backdrop reached the eye at ~20% strength and
+   the "living" packs measured as a flat dark panel; at 0.58–0.66 over a
+   backdrop lifted out of near-black, the motion is actually visible. Every one
+   of these was then measured for text contrast at the BRIGHTEST moment of its
+   own animation, not at rest — see the report. */
+
+:root[data-theme-pack="aurora"] {
+  --bg-0: rgba(3, 18, 24, 0.36);
+  --bg-1: rgba(6, 27, 33, 0.7);
+  --bg-2: rgba(4, 21, 27, 0.62);
+  --bg-3: rgba(17, 46, 52, 0.74);
+  --border: rgba(126, 232, 205, 0.18);
+  --text: #f0fdf8;
+  --text-muted: #cae7e0;
+  --text-faint: #9cbcb5;
+  --accent: #39d9b0;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: rgba(8, 26, 32, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="synthwave"] {
+  --bg-0: rgba(9, 2, 18, 0.36);
+  --bg-1: rgba(22, 7, 38, 0.7);
+  --bg-2: rgba(16, 4, 30, 0.62);
+  --bg-3: rgba(38, 15, 62, 0.74);
+  --border: rgba(255, 110, 214, 0.24);
+  --text: #fdf0ff;
+  --text-muted: #d9b7ec;
+  --text-faint: #a583c4;
+  --accent: #ff4fd8;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: rgba(26, 10, 44, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="cosmos"] {
+  --bg-0: rgba(3, 4, 12, 0.36);
+  --bg-1: rgba(10, 12, 27, 0.7);
+  --bg-2: rgba(7, 9, 20, 0.62);
+  --bg-3: rgba(21, 25, 48, 0.74);
+  --border: rgba(150, 165, 255, 0.18);
+  --text: #f1f3ff;
+  --text-muted: #bec5e8;
+  --text-faint: #8c93bb;
+  --accent: #7c8bff;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: rgba(14, 16, 34, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="molten"] {
+  --bg-0: rgba(16, 7, 3, 0.36);
+  --bg-1: rgba(28, 14, 8, 0.7);
+  --bg-2: rgba(21, 10, 6, 0.62);
+  --bg-3: rgba(46, 24, 14, 0.74);
+  --border: rgba(255, 150, 90, 0.2);
+  --text: #fff2e9;
+  --text-muted: #e0bda6;
+  --text-faint: #c39d84;
+  --accent: #ff7a2f;
+  --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
+  --bg-elevated: rgba(30, 16, 10, 0.95);
+  color-scheme: dark;
+}
+/* Prism: graphite, with a wide iridescent bar of light sweeping the window.
+   The one pack whose motion is a hard EDGE rather than a haze — you cannot
+   miss it, and it costs exactly one translating layer. */
+:root[data-theme-pack="prism"] {
+  --bg-0: rgba(10, 11, 15, 0.36);
+  --bg-1: rgba(18, 20, 26, 0.7);
+  --bg-2: rgba(13, 15, 20, 0.62);
+  --bg-3: rgba(32, 35, 44, 0.74);
+  --border: rgba(190, 200, 225, 0.16);
+  --text: #f4f6fa;
+  --text-muted: #c4cbd9;
+  --text-faint: #949cad;
+  --accent: #8de0ff;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(18, 20, 26, 0.95);
+  color-scheme: dark;
+}
+/* Monsoon: a different KIND of motion — two sheets of diagonal rain falling at
+   different speeds, which parallax against each other. Seamless because each
+   sheet translates by exactly one tile of its own repeating gradient. */
+:root[data-theme-pack="monsoon"] {
+  --bg-0: rgba(6, 14, 22, 0.36);
+  --bg-1: rgba(11, 23, 34, 0.7);
+  --bg-2: rgba(8, 17, 26, 0.62);
+  --bg-3: rgba(22, 40, 56, 0.74);
+  --border: rgba(140, 195, 235, 0.18);
+  --text: #eef6fd;
+  --text-muted: #b8cee0;
+  --text-faint: #99aec0;
+  --accent: #56b7e8;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: rgba(12, 24, 36, 0.95);
+  color-scheme: dark;
+}
+
+/* Fathom: underwater. Shafts of surface light swaying across a deep shelf,
+   with bubbles going up through them — the only pack whose motion runs in two
+   directions at once, which is what stops it reading as another sweep. */
+:root[data-theme-pack="fathom"] {
+  --bg-0: rgba(1, 14, 20, 0.36);
+  --bg-1: rgba(4, 24, 33, 0.7);
+  --bg-2: rgba(2, 18, 26, 0.62);
+  --bg-3: rgba(12, 45, 58, 0.74);
+  --border: rgba(120, 225, 235, 0.18);
+  --text: #eafaff;
+  --text-muted: #b5d8e2;
+  --text-faint: #93b6c2;
+  --accent: #35d0e8;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: rgba(5, 26, 35, 0.95);
+  color-scheme: dark;
+}
+/* Skyline: a city at night, seen from a rooftop. Two rows of silhouettes
+   parallax past a magenta horizon. Nothing else in the set has a HORIZON —
+   every other backdrop is weather or space, and this one has a place in it. */
+:root[data-theme-pack="skyline"] {
+  --bg-0: rgba(6, 4, 16, 0.36);
+  --bg-1: rgba(14, 10, 30, 0.7);
+  --bg-2: rgba(9, 6, 22, 0.62);
+  --bg-3: rgba(30, 20, 54, 0.74);
+  --border: rgba(120, 220, 255, 0.2);
+  --text: #f2f0ff;
+  --text-muted: #c2bce0;
+  --text-faint: #9c96be;
+  --accent: #35e0ff;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(16, 11, 32, 0.95);
+  color-scheme: dark;
+}
+/* Eclipse: totality. A black disc with a bright rim, and a corona of rays
+   turning behind it once every two minutes — slow enough to be scenery, not
+   an animation you have to watch. */
+:root[data-theme-pack="eclipse"] {
+  --bg-0: rgba(8, 4, 16, 0.36);
+  --bg-1: rgba(18, 10, 32, 0.7);
+  --bg-2: rgba(12, 7, 24, 0.62);
+  --bg-3: rgba(36, 24, 58, 0.74);
+  --border: rgba(230, 215, 255, 0.16);
+  --text: #f7f2ff;
+  --text-muted: #c7bee0;
+  --text-faint: #9d95b7;
+  --accent: #f0d68a;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(20, 12, 34, 0.95);
+  color-scheme: dark;
+}
+
+/* ── Animated packs, second set ───────────────────────────────────────────
+   The first set drifted purple. Synthwave, cosmos, nebula, eclipse, skyline,
+   grape, dracula and rosé all sit between blue and magenta, and a gallery
+   where half the "special" options are the same hue is a gallery with half as
+   many options as it looks. These ten were chosen for their VIBE first and
+   then pinned to hue families the collection did not already have: bright day,
+   desert, forest, terminal green, instrument amber, festival warm, ice, sepia,
+   neutral storm-grey, and acid lime. Not one of them is purple.
+
+   Daybreak is the first animated pack with a light ground — every backdrop
+   before it assumed white text over something dark. */
+:root[data-theme-pack="daybreak"] {
+  --bg-0: rgba(255, 255, 255, 0.42);
+  --bg-1: rgba(255, 255, 255, 0.72);
+  --bg-2: rgba(255, 255, 255, 0.66);
+  --bg-3: rgba(196, 213, 232, 0.82);
+  --border: rgba(70, 96, 130, 0.3);
+  --text: #1e2733;
+  --text-muted: #4b596b;
+  --text-faint: #64717f;
+  --accent: #1d6fbf;
+  --bg-elevated: rgba(255, 255, 255, 0.96);
+  /* The mobile scrim below is a black sheet tuned for dark glass; on a bright
+     backdrop it would bury the whole pack. */
+  --tb-scrim: rgba(255, 255, 255, 0.66);
+}
+:root[data-theme-pack="dunes"] {
+  --bg-0: rgba(20, 11, 5, 0.36);
+  --bg-1: rgba(38, 22, 11, 0.7);
+  --bg-2: rgba(28, 16, 8, 0.62);
+  --bg-3: rgba(62, 39, 20, 0.74);
+  --border: rgba(235, 175, 105, 0.22);
+  --text: #fdf1e0;
+  --text-muted: #d9bd98;
+  --text-faint: #b59c7b;
+  --accent: #e8a33f;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(40, 24, 12, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="canopy"] {
+  --bg-0: rgba(5, 14, 8, 0.36);
+  --bg-1: rgba(10, 26, 15, 0.7);
+  --bg-2: rgba(7, 19, 11, 0.62);
+  --bg-3: rgba(23, 50, 30, 0.74);
+  --border: rgba(150, 220, 150, 0.2);
+  --text: #eefaee;
+  --text-muted: #b0cfb2;
+  --text-faint: #91b094;
+  --accent: #62c46a;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: rgba(12, 30, 18, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="datastream"] {
+  --bg-0: rgba(0, 4, 2, 0.36);
+  --bg-1: rgba(2, 12, 6, 0.7);
+  --bg-2: rgba(1, 8, 4, 0.62);
+  --bg-3: rgba(9, 32, 17, 0.74);
+  --border: rgba(60, 255, 150, 0.22);
+  --text: #dcffe8;
+  --text-muted: #8bcda1;
+  --text-faint: #74b48a;
+  --accent: #35f08a;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: rgba(3, 16, 8, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="sonar"] {
+  --bg-0: rgba(2, 10, 10, 0.36);
+  --bg-1: rgba(4, 20, 20, 0.7);
+  --bg-2: rgba(3, 15, 15, 0.62);
+  --bg-3: rgba(11, 40, 38, 0.74);
+  --border: rgba(255, 190, 90, 0.22);
+  --text: #eaf6f4;
+  --text-muted: #a6c4c0;
+  --text-faint: #8caba7;
+  --accent: #ffb347;
+  --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
+  --bg-elevated: rgba(5, 24, 24, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="lantern"] {
+  --bg-0: rgba(4, 10, 18, 0.36);
+  --bg-1: rgba(8, 20, 34, 0.7);
+  --bg-2: rgba(6, 15, 26, 0.62);
+  --bg-3: rgba(19, 40, 62, 0.74);
+  --border: rgba(255, 180, 110, 0.22);
+  --text: #fff4e8;
+  --text-muted: #d3c0ad;
+  --text-faint: #ad9f90;
+  --accent: #ff9d4d;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(10, 24, 40, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="glacier"] {
+  --bg-0: rgba(8, 18, 26, 0.36);
+  --bg-1: rgba(16, 34, 48, 0.7);
+  --bg-2: rgba(11, 26, 38, 0.62);
+  --bg-3: rgba(31, 60, 80, 0.74);
+  --border: rgba(190, 230, 255, 0.24);
+  --text: #f2fbff;
+  --text-muted: #bdd8e8;
+  --text-faint: #9cb8ca;
+  --accent: #9fe0ff;
+  --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
+  --bg-elevated: rgba(18, 38, 54, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="vinyl"] {
+  --bg-0: rgba(18, 12, 7, 0.36);
+  --bg-1: rgba(32, 22, 14, 0.7);
+  --bg-2: rgba(24, 16, 10, 0.62);
+  --bg-3: rgba(54, 39, 25, 0.74);
+  --border: rgba(230, 190, 140, 0.22);
+  --text: #f7ece0;
+  --text-muted: #c9b39a;
+  --text-faint: #a6927d;
+  --accent: #d9a05b;
+  --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
+  --bg-elevated: rgba(36, 25, 16, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="storm"] {
+  --bg-0: rgba(10, 12, 14, 0.36);
+  --bg-1: rgba(20, 23, 27, 0.7);
+  --bg-2: rgba(15, 17, 20, 0.62);
+  --bg-3: rgba(39, 43, 49, 0.74);
+  --border: rgba(200, 210, 222, 0.2);
+  --text: #eef1f5;
+  --text-muted: #b2bac4;
+  --text-faint: #959da9;
+  --accent: #9fb4c9;
+  --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
+  --bg-elevated: rgba(24, 27, 32, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="blossom"] {
+  --bg-0: rgba(20, 8, 12, 0.36);
+  --bg-1: rgba(36, 16, 22, 0.7);
+  --bg-2: rgba(27, 12, 17, 0.62);
+  --bg-3: rgba(59, 27, 37, 0.74);
+  --border: rgba(255, 160, 190, 0.22);
+  --text: #fff0f4;
+  --text-muted: #dcb4c1;
+  --text-faint: #b795a2;
+  --accent: #ff7aa2;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(38, 18, 25, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="meridian"] {
+  --bg-0: rgba(4, 14, 18, 0.36);
+  --bg-1: rgba(8, 26, 32, 0.7);
+  --bg-2: rgba(6, 19, 24, 0.62);
+  --bg-3: rgba(17, 47, 55, 0.74);
+  --border: rgba(255, 170, 120, 0.22);
+  --text: #f4f7f5;
+  --text-muted: #b6c9c8;
+  --text-faint: #99aead;
+  --accent: #ff9a63;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(10, 30, 36, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="bloom"] {
+  --bg-0: rgba(8, 10, 4, 0.36);
+  --bg-1: rgba(16, 20, 8, 0.7);
+  --bg-2: rgba(12, 15, 6, 0.62);
+  --bg-3: rgba(31, 39, 15, 0.74);
+  --border: rgba(190, 240, 90, 0.22);
+  --text: #f4fbe4;
+  --text-muted: #c3d29a;
+  --text-faint: #a4b47e;
+  --accent: #b6e830;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(20, 25, 10, 0.95);
+  color-scheme: dark;
+}
+
+/* ── Animated packs, third set ────────────────────────────────────────────
+   Six packs with a PLACE in them. The set above is mostly weather and light;
+   these are somewhere you could be standing (or flying): a night orbit, a
+   meteor shower coming at you, a chip under a microscope, a machine-room
+   aisle, a tiled courtyard under a swinging lantern, and a glass-roofed atrium
+   at noon. Each one's motion is derived from its subject and exists nowhere
+   else in the file — a planet turning under you, a field expanding out of a
+   vanishing point, pulses running along orthogonal traces, indicator lights
+   blinking on two coprime periods, a pendulum, and the sun moving.
+
+   Atrium is the second animated pack with a LIGHT ground, and the collection
+   badly needed one: of everything above, exactly one (daybreak) assumed dark
+   ink was the wrong answer. */
+:root[data-theme-pack="orbit"] {
+  --bg-0: rgba(3, 6, 16, 0.36);
+  --bg-1: rgba(8, 14, 30, 0.7);
+  --bg-2: rgba(5, 10, 22, 0.62);
+  --bg-3: rgba(20, 30, 54, 0.74);
+  --border: rgba(150, 180, 230, 0.2);
+  --text: #eef2fb;
+  --text-muted: #b6c1d6;
+  --text-faint: #929db3;
+  /* Instrument white. Everything humans put in vacuum is white, grey or gold;
+     the only colour out there is the planet, so the accent is hardware and the
+     scenery keeps the hue. Nothing else in the collection has a white accent,
+     and it is the reason this pack cannot be mistaken for cosmos. */
+  --accent: #e2ecff;
+  --accent-hover: #ffffff;
+  --bg-elevated: rgba(10, 17, 34, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="radiant"] {
+  --bg-0: rgba(2, 4, 12, 0.36);
+  --bg-1: rgba(6, 11, 26, 0.7);
+  --bg-2: rgba(4, 7, 18, 0.62);
+  --bg-3: rgba(17, 26, 50, 0.74);
+  --border: rgba(120, 170, 255, 0.2);
+  --text: #eef4ff;
+  --text-muted: #b4c4e2;
+  --text-faint: #8f9fbd;
+  /* A saturated true blue — the collection had indigo (midnight), periwinkle
+     (cosmos) and cyan (skyline, glacier) but nothing actually blue. */
+  --accent: #5b9dff;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: rgba(8, 14, 30, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="silicon"] {
+  --bg-0: rgba(4, 8, 16, 0.36);
+  --bg-1: rgba(11, 20, 36, 0.7);
+  --bg-2: rgba(7, 14, 26, 0.62);
+  --bg-3: rgba(24, 42, 66, 0.74);
+  --border: rgba(120, 235, 225, 0.2);
+  --text: #e9fbfa;
+  --text-muted: #a8c8ca;
+  --text-faint: #8fb0b3;
+  --accent: #7cf3e0;
+  --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
+  --bg-elevated: rgba(12, 22, 38, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="uptime"] {
+  --bg-0: rgba(5, 8, 11, 0.36);
+  --bg-1: rgba(12, 18, 24, 0.7);
+  --bg-2: rgba(8, 13, 18, 0.62);
+  --bg-3: rgba(26, 37, 46, 0.74);
+  --border: rgba(160, 200, 220, 0.18);
+  --text: #e9f1f4;
+  --text-muted: #a8bcc6;
+  --text-faint: #8ba0ab;
+  --accent: #2fd18b;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(14, 21, 28, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="zellige"] {
+  --bg-0: rgba(2, 14, 15, 0.36);
+  --bg-1: rgba(6, 26, 28, 0.7);
+  --bg-2: rgba(4, 19, 21, 0.62);
+  --bg-3: rgba(14, 47, 48, 0.74);
+  --border: rgba(226, 200, 140, 0.24);
+  --text: #eefaf6;
+  --text-muted: #aeccc6;
+  --text-faint: #93b0ab;
+  /* The glaze itself. Brass was the obvious pick and the obvious mistake —
+     nine packs are already some shade of amber. */
+  --accent: #2ec4b6;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: rgba(8, 30, 32, 0.95);
+  color-scheme: dark;
+}
+/* Atrium: white stone, cool sky, warm floor. Same inverted depth scale the
+   other light packs use — bg-2 is the page, bg-3 the hover/input fill, DARKER
+   than the page so the existing hover styles read. */
+:root[data-theme-pack="atrium"] {
+  --bg-0: rgba(255, 255, 255, 0.42);
+  --bg-1: rgba(255, 255, 255, 0.74);
+  --bg-2: rgba(255, 255, 255, 0.66);
+  --bg-3: rgba(214, 208, 192, 0.82);
+  --border: rgba(96, 88, 72, 0.28);
+  --text: #262219;
+  --text-muted: #55503f;
+  --text-faint: #6b6553; /* 4.75:1 on bg-3 composited over the stone */
+  --accent: #0f8a86;
+  --bg-elevated: rgba(255, 255, 255, 0.96);
+  /* Same reason daybreak overrides it: the shared mobile scrim is a black
+     sheet tuned for dark glass and would put this courtyard in shadow. */
+  --tb-scrim: rgba(255, 255, 255, 0.66);
+}
+
+/* Aurora: a green-cyan curtain sweeping across a teal night, with a violet
+   mass drifting the other way underneath and a faint starfield on top. */
+:root[data-theme-pack="aurora"] .theme-bg {
+  background: radial-gradient(130% 92% at 50% -8%, #16505a 0%, #0a2f39 45%, #04161d 100%);
+}
+:root[data-theme-pack="aurora"] .tb-a {
+  background: linear-gradient(
+    103deg,
+    transparent 0 34%,
+    rgba(41, 214, 158, 0.46) 41%,
+    rgba(122, 246, 214, 0.72) 47%,
+    rgba(70, 226, 255, 0.55) 53%,
+    rgba(41, 214, 158, 0.34) 59%,
+    transparent 66% 100%
+  );
+  mix-blend-mode: screen;
+  animation: sheen-sweep 12s linear infinite;
+}
+:root[data-theme-pack="aurora"] .tb-b {
+  background: linear-gradient(
+    98deg,
+    transparent 0 30%,
+    rgba(118, 104, 255, 0.42) 40%,
+    rgba(56, 200, 220, 0.34) 52%,
+    transparent 64% 100%
+  );
+  mix-blend-mode: screen;
+  animation: sheen-sweep-back 19s linear infinite;
+}
+:root[data-theme-pack="aurora"] .tb-c {
+  background-image:
+    radial-gradient(1px 1px at 40px 60px, rgba(255, 255, 255, 0.9), transparent),
+    radial-gradient(1px 1px at 160px 120px, rgba(200, 255, 240, 0.8), transparent),
+    radial-gradient(1.5px 1.5px at 280px 40px, #fff, transparent),
+    radial-gradient(1px 1px at 220px 220px, rgba(220, 240, 255, 0.7), transparent);
+  background-size: 320px 320px;
+  opacity: 0.5;
+  animation: twinkle 5s ease-in-out infinite alternate;
+}
+
+/* Synthwave: purple sky, a scanlined sun, and a perspective grid rushing in.
+   The sun is anchored to the LEFT EDGE, not the middle: centred it sat behind
+   the first three messages and its scanlines ran straight through the text. */
+/* The CRT scanlines ride on .theme-bg itself (painted once, never animated) so
+   all three spans are free for things that move. */
+:root[data-theme-pack="synthwave"] .theme-bg {
+  background:
+    repeating-linear-gradient(180deg, transparent 0 3px, rgba(0, 0, 0, 0.16) 3px 4px),
+    linear-gradient(180deg, #1e0736 0%, #300a50 40%, #4a1069 54%, #12021f 58%, #12021f 100%);
+}
+:root[data-theme-pack="synthwave"] .tb-a {
+  inset: auto;
+  top: 14%;
+  left: -7%;
+  width: min(52vh, 380px);
+  height: min(52vh, 380px);
+  border-radius: 50%;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 7px, rgba(18, 2, 31, 0.6) 7px 14px),
+    linear-gradient(180deg, #ffd873 0%, #ff7ec9 52%, #b3379b 100%);
+  animation: sun-pulse 5s ease-in-out infinite alternate;
+}
+/* The grid translates by exactly one cell inside its own transform, which is
+   seamless and stays on the compositor — animating background-position instead
+   would repaint a full-viewport layer every frame.
+
+   The geometry matters as much as the motion. This plane used to be 88vh tall
+   under perspective(320px): at 74 degrees that puts its far half at z > 320px,
+   which is BEHIND the camera, so the browser clipped it and rasterised the
+   surviving near rows at an enormous scale. The result stuttered and tore at
+   the horizon. The rule now is simply that the plane must stay in front of the
+   camera: 44vh receding at 72 degrees reaches z = 0.95 x 396 = 377px, well
+   inside a 900px perspective, and the whole thing composites as one texture. */
+:root[data-theme-pack="synthwave"] .tb-b {
+  inset: 56% -30% 0 -30%;
+  background-image:
+    repeating-linear-gradient(to right, rgba(60, 240, 244, 0.75) 0 1px, transparent 1px 52px),
+    repeating-linear-gradient(to bottom, rgba(60, 240, 244, 0.75) 0 1px, transparent 1px 52px);
+  transform-origin: top center;
+  animation: sw-grid 3.4s linear infinite;
+}
+/* The refresh bar rolling down a CRT. Cheap, unmistakable, and the thing that
+   makes this pack read as ON rather than as a picture of a sunset. */
+:root[data-theme-pack="synthwave"] .tb-c {
+  background: linear-gradient(
+    180deg,
+    transparent 0 41%,
+    rgba(255, 126, 201, 0.28) 46%,
+    rgba(255, 216, 115, 0.34) 48.5%,
+    rgba(45, 226, 230, 0.26) 51%,
+    transparent 58% 100%
+  );
+  mix-blend-mode: screen;
+  animation: crt-roll 6s linear infinite;
+}
+
+/* Cosmos: deep space. The nebula drifts slowly (it should), so the motion you
+   actually notice is a shooting star crossing the window every 9s. */
+:root[data-theme-pack="cosmos"] .theme-bg {
+  background: radial-gradient(125% 105% at 50% 18%, #1b2059 0%, #0c0f2a 52%, #04040c 100%);
+}
+:root[data-theme-pack="cosmos"] .tb-a {
+  background:
+    radial-gradient(46% 36% at 32% 28%, rgba(124, 139, 255, 0.42), transparent 72%),
+    radial-gradient(38% 30% at 74% 62%, rgba(200, 120, 255, 0.34), transparent 74%),
+    radial-gradient(30% 26% at 54% 84%, rgba(72, 220, 255, 0.26), transparent 76%);
+  mix-blend-mode: screen;
+  animation: nebula-breathe 34s ease-in-out infinite alternate;
+}
+/* One thin bright streak, off-screen for most of the cycle. `opacity` carries
+   the appear/disappear so nothing has to repaint. */
+:root[data-theme-pack="cosmos"] .tb-b {
+  background: linear-gradient(
+    120deg,
+    transparent 0 44%,
+    rgba(255, 255, 255, 0) 46%,
+    rgba(214, 236, 255, 0.95) 49.4%,
+    rgba(255, 255, 255, 0) 52%,
+    transparent 56% 100%
+  );
+  mix-blend-mode: screen;
+  animation: shooting-star 9s linear infinite;
+}
+:root[data-theme-pack="cosmos"] .tb-c {
+  background-image:
+    radial-gradient(1px 1px at 20px 30px, #fff, transparent),
+    radial-gradient(1px 1px at 80px 120px, rgba(204, 238, 255, 0.9), transparent),
+    radial-gradient(1.5px 1.5px at 160px 60px, #fff, transparent),
+    radial-gradient(1px 1px at 240px 180px, rgba(221, 221, 238, 0.85), transparent),
+    radial-gradient(1px 1px at 120px 230px, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 300px 100px, rgba(200, 210, 255, 0.9), transparent);
+  background-size: 320px 320px;
+  animation:
+    stars-drift 40s linear infinite,
+    twinkle 4s ease-in-out infinite alternate;
+}
+
+/* Molten: heat. A bright wave rises off the floor every 8s and a second,
+   slower one behind it, so the glow visibly PULSES upward instead of sitting
+   there; embers rise through both. */
+:root[data-theme-pack="molten"] .theme-bg {
+  background: radial-gradient(125% 100% at 50% 114%, #7a2708 0%, #33150a 42%, #0e0704 100%);
+}
+:root[data-theme-pack="molten"] .tb-a {
+  background: linear-gradient(
+    0deg,
+    transparent 0 30%,
+    rgba(255, 122, 47, 0.6) 40%,
+    rgba(255, 196, 110, 0.75) 47%,
+    rgba(255, 87, 34, 0.5) 55%,
+    transparent 66% 100%
+  );
+  mix-blend-mode: screen;
+  animation: heat-rise 8s linear infinite;
+}
+:root[data-theme-pack="molten"] .tb-b {
+  background: linear-gradient(
+    4deg,
+    transparent 0 32%,
+    rgba(255, 150, 60, 0.42) 44%,
+    rgba(255, 214, 150, 0.34) 54%,
+    transparent 66% 100%
+  );
+  mix-blend-mode: screen;
+  animation: heat-rise 13s linear infinite;
+}
+:root[data-theme-pack="molten"] .tb-c {
+  background-image:
+    radial-gradient(1.5px 1.5px at 30px 40px, #ffb35a, transparent),
+    radial-gradient(2px 2px at 90px 160px, #ff7a2f, transparent),
+    radial-gradient(1px 1px at 150px 90px, #ffd08a, transparent),
+    radial-gradient(1.5px 1.5px at 210px 210px, #ff5722, transparent),
+    radial-gradient(1px 1px at 260px 130px, #ffab5e, transparent);
+  background-size: 300px 300px;
+  animation:
+    ember-rise 7s linear infinite,
+    twinkle 2.6s ease-in-out infinite alternate;
+}
+
+/* Prism: graphite, and a wide iridescent bar of light that crosses the window
+   every 9s. The most literal reading of "a moving edge beats a moving haze". */
+:root[data-theme-pack="prism"] .theme-bg {
+  background: radial-gradient(120% 100% at 50% 0%, #23262f 0%, #14161c 55%, #0a0b0e 100%);
+}
+:root[data-theme-pack="prism"] .tb-a {
+  background: linear-gradient(
+    100deg,
+    transparent 0 36%,
+    rgba(255, 92, 158, 0.42) 41%,
+    rgba(255, 196, 84, 0.5) 45%,
+    rgba(96, 240, 170, 0.5) 49%,
+    rgba(96, 200, 255, 0.55) 53%,
+    rgba(150, 130, 255, 0.42) 57%,
+    transparent 63% 100%
+  );
+  mix-blend-mode: screen;
+  animation: sheen-sweep 9s linear infinite;
+}
+:root[data-theme-pack="prism"] .tb-b {
+  background: linear-gradient(
+    96deg,
+    transparent 0 38%,
+    rgba(255, 255, 255, 0.16) 48%,
+    rgba(255, 255, 255, 0.28) 51%,
+    rgba(255, 255, 255, 0.12) 54%,
+    transparent 62% 100%
+  );
+  mix-blend-mode: screen;
+  animation: sheen-sweep-back 15s linear infinite;
+}
+:root[data-theme-pack="prism"] .tb-c {
+  background: repeating-linear-gradient(180deg, transparent 0 2px, rgba(255, 255, 255, 0.022) 2px 3px);
+  opacity: 0.9;
+}
+
+/* Monsoon: two sheets of diagonal rain at different speeds. Each sheet is a
+   repeating gradient translated by exactly one tile, so the loop is seamless
+   and the whole thing is still one transform per layer. */
+:root[data-theme-pack="monsoon"] .theme-bg {
+  background: linear-gradient(178deg, #17384f 0%, #0d2436 46%, #06141f 100%);
+}
+:root[data-theme-pack="monsoon"] .tb-a {
+  background-image: repeating-linear-gradient(
+    14deg,
+    rgba(186, 226, 255, 0.42) 0 1.5px,
+    rgba(186, 226, 255, 0.1) 1.5px 3px,
+    transparent 3px 26px
+  );
+  mix-blend-mode: screen;
+  animation: rain-near 1.1s linear infinite;
+}
+:root[data-theme-pack="monsoon"] .tb-b {
+  background-image: repeating-linear-gradient(
+    11deg,
+    rgba(150, 200, 236, 0.22) 0 1px,
+    transparent 1px 17px
+  );
+  mix-blend-mode: screen;
+  animation: rain-far 2.3s linear infinite;
+}
+/* The wash: a slow bright front moving across, so the rain has weather behind
+   it rather than a flat wall. */
+:root[data-theme-pack="monsoon"] .tb-c {
+  background: radial-gradient(90% 70% at 50% 0%, rgba(150, 210, 240, 0.34), transparent 76%);
+  mix-blend-mode: screen;
+  animation: gust 9s ease-in-out infinite alternate;
+}
+
+/* Fathom: light from a surface you cannot see. The shafts are one repeating
+   gradient translated by exactly one period along its own normal — for an
+   angle A and period P that vector is (-sin A · P, cos A · P), which at 96°
+   is almost pure sideways, so the whole column of light sways. */
+:root[data-theme-pack="fathom"] .theme-bg {
+  background: radial-gradient(130% 100% at 50% -12%, #0e5468 0%, #073344 42%, #01131c 100%);
+}
+:root[data-theme-pack="fathom"] .tb-a {
+  background-image: repeating-linear-gradient(
+    96deg,
+    transparent 0 58px,
+    rgba(150, 238, 255, 0.15) 76px,
+    rgba(215, 252, 255, 0.28) 88px,
+    rgba(150, 238, 255, 0.13) 100px,
+    transparent 122px 200px
+  );
+  mix-blend-mode: screen;
+  animation: fathom-rays 26s linear infinite;
+}
+/* Bubbles. Reuses the molten pack's rise — it is the same motion, "move up by
+   exactly one tile", and the tile size below is 300px to match its keyframe. */
+:root[data-theme-pack="fathom"] .tb-b {
+  background-image:
+    radial-gradient(2.5px 2.5px at 40px 250px, rgba(200, 248, 255, 0.72), transparent),
+    radial-gradient(3.5px 3.5px at 150px 120px, rgba(220, 252, 255, 0.6), transparent),
+    radial-gradient(1.8px 1.8px at 240px 60px, rgba(190, 244, 255, 0.66), transparent),
+    radial-gradient(3px 3px at 90px 30px, rgba(210, 250, 255, 0.5), transparent);
+  background-size: 300px 300px;
+  animation:
+    ember-rise 14s linear infinite,
+    twinkle 5s ease-in-out infinite alternate;
+}
+:root[data-theme-pack="fathom"] .tb-c {
+  background-image: repeating-linear-gradient(
+    82deg,
+    transparent 0 90px,
+    rgba(90, 200, 225, 0.1) 112px,
+    rgba(150, 230, 245, 0.16) 126px,
+    transparent 150px 280px
+  );
+  mix-blend-mode: screen;
+  animation: fathom-rays-b 41s linear infinite;
+}
+
+/* Skyline. Each silhouette row is several gradients sharing ONE tile width, so
+   a single translate of exactly that width loops all of them at once: the
+   layers differ only in where the block sits inside the tile and how tall the
+   tile is, and background-position: bottom stands them on the horizon. Both
+   rows are pinned above the same 30% line; the far one is lighter and drifts
+   at a third of the near one's speed, which is the whole parallax. */
+:root[data-theme-pack="skyline"] .theme-bg {
+  background: linear-gradient(
+    180deg,
+    #090620 0%,
+    #150c33 34%,
+    #2a1148 52%,
+    #4b1550 62%,
+    #7d1f4e 68%,
+    #12091f 71%,
+    #07040f 100%
+  );
+}
+:root[data-theme-pack="skyline"] .tb-a {
+  inset: auto -12% 29% -12%;
+  height: 22vh;
+  background-image:
+    linear-gradient(90deg, #2c1c52 0 34px, transparent 34px),
+    linear-gradient(90deg, transparent 0 52px, #2c1c52 52px 82px, transparent 82px),
+    linear-gradient(90deg, transparent 0 92px, #2c1c52 92px 112px, transparent 112px);
+  background-size:
+    120px 58%,
+    120px 100%,
+    120px 34%;
+  background-position: 0 100%;
+  background-repeat: repeat-x;
+  animation: skyline-far 62s linear infinite;
+}
+:root[data-theme-pack="skyline"] .tb-b {
+  inset: auto -12% 29% -12%;
+  height: 14vh;
+  background-image:
+    linear-gradient(90deg, #08040f 0 46px, transparent 46px),
+    linear-gradient(90deg, transparent 0 66px, #08040f 66px 104px, transparent 104px),
+    linear-gradient(90deg, transparent 0 124px, #08040f 124px 152px, transparent 152px);
+  background-size:
+    170px 62%,
+    170px 100%,
+    170px 40%;
+  background-position: 0 100%;
+  background-repeat: repeat-x;
+  animation: skyline-near 24s linear infinite;
+}
+/* The light the city throws up into the sky. Deliberately STILL: the two rows
+   of silhouettes are already moving, and a bright band crossing on top of them
+   is the thing that made half these packs look like the same pack. */
+:root[data-theme-pack="skyline"] .tb-c {
+  background: radial-gradient(70% 34% at 50% 71%, rgba(255, 120, 210, 0.3), transparent 78%);
+  mix-blend-mode: screen;
+}
+
+/* Eclipse. The corona is a repeating conic gradient — a whole fan of rays for
+   one background-image and no elements — masked to a ring that starts just
+   OUTSIDE the disc's rim, and turned by the ring engine's own fx-spin.
+   Both are anchored high and to the right rather than centred, for the same
+   reason synthwave's sun is off to the left: a bright rim drawn through the
+   middle of the window runs straight across the sentences. --ec-d is the
+   disc's diameter and every other number here is a fraction of it, so the two
+   layers cannot drift out of register. */
+:root[data-theme-pack="eclipse"] .theme-bg {
+  --ec-d: min(46vh, 330px);
+  background: radial-gradient(120% 110% at 78% 26%, #2c1848 0%, #120a24 48%, #05030c 100%);
+}
+:root[data-theme-pack="eclipse"] .tb-a,
+:root[data-theme-pack="eclipse"] .tb-b {
+  inset: auto;
+  left: 82%;
+  top: 26%;
+}
+/* Centred on that point with margins, not translate(-50%): the transform
+   belongs to the spin, and a second one in the same property replaces it. */
+:root[data-theme-pack="eclipse"] .tb-b {
+  width: var(--ec-d);
+  height: var(--ec-d);
+  margin: calc(var(--ec-d) / -2) 0 0 calc(var(--ec-d) / -2);
+  background: radial-gradient(
+    closest-side,
+    #05030c 0 90%,
+    rgba(255, 240, 200, 0.72) 95%,
+    rgba(255, 214, 140, 0) 100%
+  );
+  animation: sun-pulse 7s ease-in-out infinite alternate;
+}
+:root[data-theme-pack="eclipse"] .tb-a {
+  width: calc(var(--ec-d) * 1.9);
+  height: calc(var(--ec-d) * 1.9);
+  margin: calc(var(--ec-d) * -0.95) 0 0 calc(var(--ec-d) * -0.95);
+  background: repeating-conic-gradient(
+    from 0deg,
+    transparent 0 2.6deg,
+    rgba(255, 236, 190, 0.24) 3deg 3.9deg,
+    transparent 4.4deg 7deg
+  );
+  /* The disc's rim sits at 0.45·--ec-d, which is 47% of this layer's own
+     closest-side radius (0.95·--ec-d) — so the ring opens there and fades out
+     before the corner. */
+  mask-image: radial-gradient(closest-side, transparent 0 47%, #000 53%, #000 76%, transparent 99%);
+  mix-blend-mode: screen;
+  animation: fx-spin 120s linear infinite;
+}
+:root[data-theme-pack="eclipse"] .tb-c {
+  background-image:
+    radial-gradient(1px 1px at 30px 40px, #fff, transparent),
+    radial-gradient(1px 1px at 140px 180px, rgba(226, 214, 255, 0.85), transparent),
+    radial-gradient(1.5px 1.5px at 250px 90px, #fff, transparent),
+    radial-gradient(1px 1px at 190px 280px, rgba(255, 240, 210, 0.8), transparent);
+  background-size: 320px 320px;
+  animation:
+    stars-drift 60s linear infinite,
+    twinkle 6s ease-in-out infinite alternate;
+}
+
+/* Daybreak: morning. Two banks of cloud crossing a blue-to-amber sky at very
+   different speeds, and the sun low on the left, breathing. The slowest
+   backdrop in the set on purpose — weather at 7am does not hurry. */
+:root[data-theme-pack="daybreak"] .theme-bg {
+  background: linear-gradient(180deg, #7cbdec 0%, #b7dcf6 40%, #ffe9c9 74%, #ffd6a0 100%);
+}
+/* Separate cloud masses on a repeating tile, translated by exactly one tile —
+   a sky full of clouds rather than one lit band travelling across the window. */
+:root[data-theme-pack="daybreak"] .tb-a {
+  background-image:
+    radial-gradient(24% 15% at 16% 26%, rgba(255, 255, 255, 0.92), transparent 72%),
+    radial-gradient(17% 11% at 44% 52%, rgba(255, 255, 255, 0.8), transparent 72%),
+    radial-gradient(28% 17% at 78% 18%, rgba(255, 255, 255, 0.86), transparent 74%),
+    radial-gradient(15% 10% at 63% 78%, rgba(255, 255, 255, 0.7), transparent 72%);
+  background-size: 780px 430px;
+  animation: cloud-near 96s linear infinite;
+}
+:root[data-theme-pack="daybreak"] .tb-b {
+  background-image:
+    radial-gradient(20% 12% at 30% 34%, rgba(255, 252, 244, 0.6), transparent 74%),
+    radial-gradient(14% 9% at 72% 62%, rgba(255, 246, 226, 0.5), transparent 74%);
+  background-size: 530px 310px;
+  animation: cloud-far 158s linear infinite;
+}
+:root[data-theme-pack="daybreak"] .tb-c {
+  inset: auto;
+  left: -4%;
+  top: 8%;
+  width: min(44vh, 300px);
+  height: min(44vh, 300px);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 246, 214, 0.95), rgba(255, 214, 138, 0.45) 58%, transparent 78%);
+  animation: sun-pulse 9s ease-in-out infinite alternate;
+}
+
+/* Dunes: a desert at the end of the day. Heat coming off the sand, dust
+   blowing across it, and the sun going down on the right. */
+:root[data-theme-pack="dunes"] .theme-bg {
+  background: linear-gradient(
+    180deg,
+    #5a2f0f 0%,
+    #9c531a 24%,
+    #d98b33 38%,
+    #7a4416 46%,
+    #2a1608 62%,
+    #150b04 100%
+  );
+}
+:root[data-theme-pack="dunes"] .tb-a {
+  background: linear-gradient(
+    0deg,
+    transparent 0 26%,
+    rgba(255, 190, 110, 0.4) 38%,
+    rgba(255, 224, 170, 0.5) 46%,
+    rgba(255, 180, 96, 0.32) 55%,
+    transparent 68% 100%
+  );
+  mix-blend-mode: screen;
+  animation: heat-rise 11s linear infinite;
+}
+/* Blown dust: one tile of specks translated by exactly its own width, which is
+   the horizontal twin of every falling field in this file. */
+:root[data-theme-pack="dunes"] .tb-b {
+  background-image:
+    radial-gradient(1.6px 1.6px at 30px 60px, rgba(255, 222, 170, 0.5), transparent),
+    radial-gradient(1.1px 1.1px at 140px 30px, rgba(255, 206, 140, 0.4), transparent),
+    radial-gradient(2px 2px at 200px 140px, rgba(255, 234, 190, 0.36), transparent),
+    radial-gradient(1.3px 1.3px at 90px 170px, rgba(255, 198, 128, 0.44), transparent);
+  background-size: 260px 200px;
+  animation: dune-dust 9s linear infinite;
+}
+:root[data-theme-pack="dunes"] .tb-c {
+  inset: auto;
+  right: -6%;
+  top: 22%;
+  width: min(34vh, 240px);
+  height: min(34vh, 240px);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #ffd98a 0 62%, rgba(255, 150, 60, 0.55) 82%, transparent 100%);
+  animation: sun-pulse 8s ease-in-out infinite alternate;
+}
+
+/* Canopy: under the trees. Light coming through the leaves in slow patches,
+   pollen going up through it. */
+:root[data-theme-pack="canopy"] .theme-bg {
+  background: radial-gradient(120% 100% at 50% -10%, #2f6b33 0%, #17401d 40%, #050f08 100%);
+}
+/* Dapple: separate patches of light that shift as the branches move, which is
+   a tiled field on a slow diagonal — not a bar crossing the window. */
+:root[data-theme-pack="canopy"] .tb-a {
+  background-image:
+    radial-gradient(13% 11% at 18% 22%, rgba(235, 255, 195, 0.5), transparent 72%),
+    radial-gradient(9% 8% at 52% 46%, rgba(180, 245, 150, 0.42), transparent 74%),
+    radial-gradient(15% 12% at 80% 70%, rgba(220, 255, 185, 0.44), transparent 72%),
+    radial-gradient(8% 7% at 34% 82%, rgba(160, 235, 140, 0.36), transparent 74%);
+  background-size: 430px 390px;
+  mix-blend-mode: screen;
+  animation: dapple-near 48s linear infinite;
+}
+:root[data-theme-pack="canopy"] .tb-b {
+  background-image:
+    radial-gradient(1.8px 1.8px at 40px 250px, rgba(255, 246, 190, 0.6), transparent),
+    radial-gradient(1.2px 1.2px at 160px 130px, rgba(230, 255, 190, 0.5), transparent),
+    radial-gradient(2.2px 2.2px at 250px 60px, rgba(255, 250, 210, 0.45), transparent),
+    radial-gradient(1.4px 1.4px at 100px 30px, rgba(210, 250, 170, 0.5), transparent);
+  background-size: 300px 300px;
+  animation:
+    ember-rise 22s linear infinite,
+    twinkle 6s ease-in-out infinite alternate;
+}
+:root[data-theme-pack="canopy"] .tb-c {
+  background-image:
+    radial-gradient(10% 9% at 62% 18%, rgba(170, 230, 150, 0.26), transparent 74%),
+    radial-gradient(14% 11% at 24% 58%, rgba(120, 200, 110, 0.22), transparent 74%);
+  background-size: 310px 270px;
+  mix-blend-mode: screen;
+  animation: dapple-far 97s linear infinite;
+}
+
+/* Datastream: columns of green falling down a black screen. The drop is an
+   elongated radial with a bright head, tiled and translated one tile — the
+   same construction the rain EFFECT uses, stood upright and turned green. */
+:root[data-theme-pack="datastream"] .theme-bg {
+  background: linear-gradient(180deg, #04160b 0%, #020a05 60%, #000402 100%);
+}
+:root[data-theme-pack="datastream"] .tb-a {
+  background-image:
+    radial-gradient(2px 46px at 12% 26%, rgba(60, 255, 150, 0.36), transparent),
+    radial-gradient(2px 30px at 46% 62%, rgba(60, 255, 150, 0.26), transparent),
+    radial-gradient(2px 58px at 78% 12%, rgba(120, 255, 190, 0.32), transparent),
+    radial-gradient(2px 38px at 92% 78%, rgba(60, 255, 150, 0.22), transparent);
+  background-size: 163px 421px;
+  mix-blend-mode: screen;
+  animation: code-fall-a 2.7s linear infinite;
+}
+:root[data-theme-pack="datastream"] .tb-b {
+  background-image:
+    radial-gradient(1.5px 34px at 28% 40%, rgba(50, 220, 130, 0.2), transparent),
+    radial-gradient(1.5px 22px at 64% 80%, rgba(50, 220, 130, 0.15), transparent),
+    radial-gradient(1.5px 44px at 8% 8%, rgba(80, 240, 160, 0.18), transparent);
+  background-size: 227px 379px;
+  mix-blend-mode: screen;
+  animation: code-fall-b 4.6s linear infinite;
+}
+:root[data-theme-pack="datastream"] .tb-c {
+  background: linear-gradient(
+    180deg,
+    transparent 0 44%,
+    rgba(60, 255, 150, 0.16) 48.5%,
+    rgba(160, 255, 200, 0.22) 50%,
+    rgba(60, 255, 150, 0.14) 51.5%,
+    transparent 56% 100%
+  );
+  mix-blend-mode: screen;
+  animation: crt-roll 5s linear infinite;
+}
+
+/* Sonar: a scope. Rings painted once on the backdrop, one wedge turning over
+   them, and a soft return glow in the middle. Amber on ink so it does not
+   become another green terminal. */
+:root[data-theme-pack="sonar"] .theme-bg {
+  background:
+    repeating-radial-gradient(circle at 50% 50%, transparent 0 62px, rgba(255, 179, 71, 0.085) 62px 63px),
+    radial-gradient(90% 90% at 50% 50%, #073030 0%, #041a1a 55%, #010a0a 100%);
+}
+:root[data-theme-pack="sonar"] .tb-a {
+  background: conic-gradient(
+    from 0deg,
+    rgba(255, 179, 71, 0.26) 0deg,
+    rgba(255, 179, 71, 0.1) 26deg,
+    transparent 62deg 360deg
+  );
+  mask-image: radial-gradient(closest-side, #000 0 72%, transparent 96%);
+  mix-blend-mode: screen;
+  animation: fx-spin 9s linear infinite;
+}
+:root[data-theme-pack="sonar"] .tb-b {
+  background: radial-gradient(closest-side, rgba(255, 200, 120, 0.2) 0 12%, transparent 42%);
+  animation: sun-pulse 6s ease-in-out infinite alternate;
+}
+/* The crosshair. Static, so it rasters once. */
+:root[data-theme-pack="sonar"] .tb-c {
+  background-image:
+    linear-gradient(90deg, transparent calc(50% - 0.5px), rgba(255, 179, 71, 0.1) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px)),
+    linear-gradient(0deg, transparent calc(50% - 0.5px), rgba(255, 179, 71, 0.1) calc(50% - 0.5px) calc(50% + 0.5px), transparent calc(50% + 0.5px));
+}
+
+/* Lantern: paper lanterns going up over a harbour at night. Two sets at
+   different speeds so the sky has depth, and a warm haze crossing under them. */
+:root[data-theme-pack="lantern"] .theme-bg {
+  background: linear-gradient(180deg, #0a1e35 0%, #0d2340 40%, #14304c 66%, #060e18 100%);
+}
+:root[data-theme-pack="lantern"] .tb-a {
+  background-image:
+    radial-gradient(5px 6px at 50px 240px, rgba(255, 186, 110, 0.85), rgba(255, 140, 60, 0.25) 60%, transparent),
+    radial-gradient(3.5px 4.5px at 170px 120px, rgba(255, 210, 150, 0.75), rgba(255, 150, 70, 0.2) 60%, transparent),
+    radial-gradient(6px 7px at 250px 50px, rgba(255, 170, 90, 0.8), rgba(255, 120, 50, 0.22) 60%, transparent),
+    radial-gradient(3px 4px at 110px 20px, rgba(255, 220, 170, 0.7), transparent 70%);
+  background-size: 300px 300px;
+  animation:
+    ember-rise 20s linear infinite,
+    twinkle 4.5s ease-in-out infinite alternate;
+}
+:root[data-theme-pack="lantern"] .tb-b {
+  background-image:
+    radial-gradient(2.5px 3px at 90px 200px, rgba(255, 190, 120, 0.5), transparent 70%),
+    radial-gradient(2px 2.5px at 210px 90px, rgba(255, 210, 150, 0.42), transparent 70%),
+    radial-gradient(3px 3.5px at 20px 130px, rgba(255, 160, 80, 0.45), transparent 70%);
+  background-size: 300px 300px;
+  animation:
+    ember-rise 34s linear infinite,
+    twinkle 7s ease-in-out infinite alternate;
+}
+/* The glow off the water, breathing rather than travelling. */
+:root[data-theme-pack="lantern"] .tb-c {
+  background: radial-gradient(64% 34% at 50% 96%, rgba(255, 170, 90, 0.3), transparent 76%);
+  mix-blend-mode: screen;
+  animation: gust 13s ease-in-out infinite alternate;
+}
+
+/* Glacier: ice. A hard bright edge crossing quickly, a wide cold haze crossing
+   slowly the other way, and a still field of glints on top. */
+:root[data-theme-pack="glacier"] .theme-bg {
+  background: linear-gradient(158deg, #2b5f7d 0%, #164055 40%, #0a2130 72%, #050f17 100%);
+}
+/* Ice is faceted, so this is two families of straight edges crossing at
+   different angles, each translated one period along its own normal — the
+   vector for an angle A and period P is (-sin A . P, cos A . P). Nothing
+   sweeps; the whole sheet shears past itself. */
+:root[data-theme-pack="glacier"] .tb-a {
+  background-image: repeating-linear-gradient(
+    64deg,
+    transparent 0 62px,
+    rgba(215, 245, 255, 0.11) 70px,
+    rgba(255, 255, 255, 0.22) 74px,
+    rgba(190, 235, 255, 0.1) 78px,
+    transparent 86px 150px
+  );
+  mix-blend-mode: screen;
+  animation: glacier-facet-a 19s linear infinite;
+}
+:root[data-theme-pack="glacier"] .tb-b {
+  background-image: repeating-linear-gradient(
+    -38deg,
+    transparent 0 44px,
+    rgba(130, 200, 235, 0.1) 52px,
+    rgba(180, 225, 250, 0.16) 56px,
+    transparent 64px 110px
+  );
+  mix-blend-mode: screen;
+  animation: glacier-facet-b 33s linear infinite;
+}
+:root[data-theme-pack="glacier"] .tb-c {
+  background-image:
+    radial-gradient(1.4px 1.4px at 60px 80px, #fff, transparent),
+    radial-gradient(1px 1px at 190px 30px, rgba(220, 245, 255, 0.9), transparent),
+    radial-gradient(1.8px 1.8px at 120px 210px, #fff, transparent),
+    radial-gradient(1px 1px at 260px 150px, rgba(200, 235, 255, 0.85), transparent);
+  background-size: 300px 260px;
+  animation: twinkle 3.2s ease-in-out infinite alternate;
+}
+
+/* Vinyl: a record turning under a warm lamp, with the dust you only see when
+   the light is at the right angle. One rotation every 26s — it is furniture,
+   not a turntable you are meant to watch. */
+:root[data-theme-pack="vinyl"] .theme-bg {
+  background: radial-gradient(110% 100% at 24% 32%, #4a3520 0%, #241809 45%, #100a05 100%);
+}
+:root[data-theme-pack="vinyl"] .tb-a {
+  inset: auto;
+  left: 16%;
+  top: 40%;
+  width: min(78vh, 560px);
+  height: min(78vh, 560px);
+  margin-left: calc(min(78vh, 560px) / -2);
+  margin-top: calc(min(78vh, 560px) / -2);
+  border-radius: 50%;
+  /* The disc has to be DARKER than the ground it sits on, or a black record on
+     brown wood is just brown. The groove highlight and the rim are what make
+     the rotation visible at all — at the alpha this started on, the whole
+     560px record read as a 48px label. */
+  background:
+    repeating-radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0.4) 0 3px, rgba(255, 206, 150, 0.11) 3px 6px),
+    radial-gradient(
+      closest-side,
+      #e0a95f 0 7%,
+      #0d0803 9%,
+      #150d05 92%,
+      rgba(255, 214, 160, 0.45) 97%,
+      transparent 100%
+    );
+  opacity: 0.9;
+  animation: fx-spin 26s linear infinite;
+}
+:root[data-theme-pack="vinyl"] .tb-b {
+  background: radial-gradient(58% 50% at 74% 18%, rgba(255, 208, 140, 0.34), transparent 68%);
+  animation: sun-pulse 8s ease-in-out infinite alternate;
+}
+:root[data-theme-pack="vinyl"] .tb-c {
+  background-image:
+    radial-gradient(1.4px 1.4px at 50px 260px, rgba(255, 226, 180, 0.5), transparent),
+    radial-gradient(1px 1px at 180px 140px, rgba(255, 210, 160, 0.4), transparent),
+    radial-gradient(1.8px 1.8px at 260px 40px, rgba(255, 236, 200, 0.36), transparent);
+  background-size: 300px 300px;
+  animation:
+    ember-rise 30s linear infinite,
+    twinkle 5.5s ease-in-out infinite alternate;
+}
+
+/* Storm: the neutral one. Grey on grey, two cloud masses passing, and a
+   distant strike every 17 seconds — two quick pulses and then nothing, which
+   is both how lightning actually looks and comfortably under the three
+   flashes a second that photosensitivity guidance draws the line at. */
+:root[data-theme-pack="storm"] .theme-bg {
+  background: linear-gradient(180deg, #2b3238 0%, #1a1f24 45%, #0c0f12 100%);
+}
+:root[data-theme-pack="storm"] .tb-a {
+  background-image:
+    radial-gradient(30% 20% at 20% 22%, rgba(226, 234, 244, 0.24), transparent 74%),
+    radial-gradient(22% 15% at 58% 46%, rgba(190, 202, 214, 0.2), transparent 74%),
+    radial-gradient(34% 22% at 86% 16%, rgba(210, 220, 232, 0.22), transparent 76%);
+  mix-blend-mode: screen;
+  background-size: 660px 470px;
+  animation: storm-near 44s linear infinite;
+}
+:root[data-theme-pack="storm"] .tb-b {
+  background-image:
+    radial-gradient(26% 17% at 34% 36%, rgba(160, 172, 186, 0.2), transparent 76%),
+    radial-gradient(20% 13% at 76% 68%, rgba(180, 192, 206, 0.16), transparent 76%);
+  mix-blend-mode: screen;
+  background-size: 890px 530px;
+  animation: storm-far 79s linear infinite;
+}
+:root[data-theme-pack="storm"] .tb-c {
+  background: radial-gradient(70% 46% at 62% 4%, rgba(226, 238, 255, 0.55), transparent 70%);
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: storm-flash 17s linear infinite;
+}
+
+/* Blossom: petals coming down at dusk. Two sheets of small ellipses on the
+   same construction as the snow EFFECT, tinted and slowed right down — this is
+   what the collection had no pink for. */
+:root[data-theme-pack="blossom"] .theme-bg {
+  background: linear-gradient(180deg, #4a1626 0%, #7a2437 24%, #b8455c 38%, #3a1220 54%, #150609 100%);
+}
+:root[data-theme-pack="blossom"] .tb-a {
+  background-image:
+    radial-gradient(4px 2.6px at 40px 60px, rgba(255, 190, 210, 0.75), transparent),
+    radial-gradient(3px 2px at 170px 150px, rgba(255, 160, 190, 0.65), transparent),
+    radial-gradient(4.5px 3px at 250px 40px, rgba(255, 214, 226, 0.6), transparent),
+    radial-gradient(2.6px 1.8px at 90px 280px, rgba(255, 170, 200, 0.7), transparent),
+    radial-gradient(3.4px 2.2px at 210px 320px, rgba(255, 200, 216, 0.55), transparent);
+  background-size: 283px 359px;
+  animation: blossom-a 15s linear infinite;
+}
+:root[data-theme-pack="blossom"] .tb-b {
+  background-image:
+    radial-gradient(2.6px 1.8px at 60px 40px, rgba(255, 180, 205, 0.42), transparent),
+    radial-gradient(2px 1.4px at 150px 190px, rgba(255, 200, 218, 0.35), transparent),
+    radial-gradient(3px 2px at 20px 250px, rgba(255, 165, 195, 0.38), transparent);
+  background-size: 211px 293px;
+  animation: blossom-b 24s linear infinite;
+}
+/* The nearest petals: bigger, brighter, faster. Depth from a third sheet, not
+   from a light bar crossing the window. */
+:root[data-theme-pack="blossom"] .tb-c {
+  background-image:
+    radial-gradient(6px 4px at 70px 90px, rgba(255, 200, 218, 0.8), transparent),
+    radial-gradient(5px 3.4px at 220px 260px, rgba(255, 170, 200, 0.72), transparent),
+    radial-gradient(7px 4.6px at 320px 40px, rgba(255, 214, 226, 0.66), transparent);
+  background-size: 397px 431px;
+  animation: blossom-c 11s linear infinite;
+}
+
+/* Meridian: the sun going down over water. The one backdrop with a real
+   horizon line AND a reflection — the sun's path on the water is a repeating
+   band translated by one period, masked to a soft column so it does not become
+   a stripe across the whole window. */
+:root[data-theme-pack="meridian"] .theme-bg {
+  background: linear-gradient(
+    180deg,
+    #3a1a1c 0%,
+    #8f3a26 22%,
+    #d9673a 36%,
+    #f0a05a 45%,
+    #6a3a34 49%,
+    #123039 52%,
+    #0a1f28 72%,
+    #040c10 100%
+  );
+}
+/* Everything above 45% of the window is behind the header and the first
+   messages, so the horizon sits low: put the sun where the feed is empty and
+   the sunset is something you can actually see. */
+:root[data-theme-pack="meridian"] .tb-a {
+  inset: 52% 34% 0 34%;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255, 186, 118, 0.18) 0 3px,
+    transparent 3px 11px
+  );
+  mask-image: radial-gradient(62% 100% at 50% 0%, #000 0 22%, transparent 100%);
+  mix-blend-mode: screen;
+  animation: meridian-path 2.4s linear infinite;
+}
+/* Swell on the water: long low crests moving sideways below the horizon. */
+:root[data-theme-pack="meridian"] .tb-b {
+  inset: 52% -10% 0 -10%;
+  background-image:
+    radial-gradient(26% 3% at 20% 24%, rgba(140, 210, 225, 0.26), transparent 76%),
+    radial-gradient(20% 2.4% at 62% 52%, rgba(90, 170, 190, 0.22), transparent 76%),
+    radial-gradient(30% 3.4% at 86% 80%, rgba(120, 195, 212, 0.2), transparent 76%);
+  background-size: 470px 100%;
+  mix-blend-mode: screen;
+  animation: meridian-swell 27s linear infinite;
+}
+:root[data-theme-pack="meridian"] .tb-c {
+  inset: auto;
+  left: 50%;
+  top: 48%;
+  width: min(26vh, 180px);
+  height: min(26vh, 180px);
+  margin-left: calc(min(26vh, 180px) / -2);
+  margin-top: calc(min(26vh, 180px) / -2);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, #fff0c8 0 44%, rgba(255, 170, 90, 0.6) 76%, transparent 100%);
+  animation: sun-pulse 7s ease-in-out infinite alternate;
+}
+
+/* Bloom: a lava lamp. Two soft masses rising at unrelated speeds and one
+   warmer one crossing behind them — the slowest, softest backdrop here, and
+   the only acid-green thing in the collection. */
+:root[data-theme-pack="bloom"] .theme-bg {
+  background: radial-gradient(120% 100% at 50% 110%, #3d4a10 0%, #1b2208 45%, #080a03 100%);
+}
+:root[data-theme-pack="bloom"] .tb-a {
+  background: radial-gradient(30% 22% at 34% 50%, rgba(182, 232, 48, 0.46), transparent 70%);
+  mix-blend-mode: screen;
+  animation: heat-rise 22s linear infinite;
+}
+:root[data-theme-pack="bloom"] .tb-b {
+  background: radial-gradient(24% 18% at 68% 50%, rgba(140, 220, 90, 0.42), transparent 70%);
+  mix-blend-mode: screen;
+  animation: heat-rise 34s linear infinite;
+}
+:root[data-theme-pack="bloom"] .tb-c {
+  background: radial-gradient(28% 20% at 50% 50%, rgba(255, 176, 60, 0.34), transparent 72%);
+  mix-blend-mode: screen;
+  /* Alternate, and eased: a blob in a lamp slows to a stop and comes back. A
+     linear loop would need to teleport home, which is the one thing you would
+     notice. */
+  animation: bloom-wander 38s ease-in-out infinite alternate;
+}
+
+/* Orbit: the night side, from low orbit. The planet is a disc far bigger than
+   the window, anchored below it, so all you see is the limb curving across the
+   bottom — and it TURNS, which is the one motion in this file that is the
+   ground moving instead of the weather. The starfield drifts the same way at a
+   fraction of the speed, because that is what parallax does when you are the
+   thing that is moving.
+
+   The geometry is written as a centre and a radius rather than a box, because
+   the two layers have DIFFERENT radii and have to stay concentric: --ob-c is
+   how far below the top of the window the planet's centre sits and --ob-r its
+   radius, both in vh so the curvature scales with the window's height and the
+   horizon lands in the same place on any screen. At 215vh and 150vh the limb
+   crosses at 65vh — below the feed's last message and above the composer. */
+:root[data-theme-pack="orbit"] .theme-bg {
+  --ob-c: 215vh;
+  --ob-r: 150vh;
+  background: radial-gradient(120% 90% at 50% 4%, #0c1330 0%, #060a1c 46%, #01030a 100%);
+}
+:root[data-theme-pack="orbit"] .tb-a {
+  inset: auto;
+  left: 50%;
+  top: calc(var(--ob-c) - var(--ob-r));
+  width: calc(var(--ob-r) * 2);
+  height: calc(var(--ob-r) * 2);
+  margin-left: calc(var(--ob-r) * -1);
+  border-radius: 50%;
+  /* Ocean, two land masses, and the sodium clusters of cities on the night
+     side — all painted on the disc, so they turn with it. Everything sits in
+     the top tenth of the circle, which is the only part of it the window ever
+     sees. */
+  background:
+    radial-gradient(3.5px 3.5px at 41% 2.6%, rgba(255, 196, 130, 0.95), transparent),
+    radial-gradient(5px 5px at 46.5% 1.4%, rgba(255, 208, 150, 0.9), transparent),
+    radial-gradient(3px 3px at 52% 3.4%, rgba(255, 186, 120, 0.8), transparent),
+    radial-gradient(4px 4px at 58% 2%, rgba(255, 200, 140, 0.85), transparent),
+    radial-gradient(3px 3px at 63.5% 4.6%, rgba(255, 190, 128, 0.7), transparent),
+    radial-gradient(2.5px 2.5px at 35% 5.4%, rgba(255, 200, 140, 0.6), transparent),
+    radial-gradient(4.5px 4.5px at 30% 8.2%, rgba(255, 186, 120, 0.55), transparent),
+    radial-gradient(11% 3.4% at 44% 3.2%, rgba(66, 104, 140, 0.5), transparent 72%),
+    radial-gradient(8% 2.6% at 64% 6%, rgba(58, 92, 128, 0.42), transparent 74%),
+    radial-gradient(closest-side, #0e2743 0 97%, #0a1c33 100%);
+  animation: fx-spin 600s linear infinite;
+}
+/* The atmosphere: a hairline of airglow just outside the surface, on a disc 4%
+   wider and concentric with it. It brightens and dims rather than scaling —
+   scaling a disc this size by even 1% throws the horizon 13px. */
+:root[data-theme-pack="orbit"] .tb-b {
+  inset: auto;
+  left: 50%;
+  top: calc(var(--ob-c) - var(--ob-r) * 1.04);
+  width: calc(var(--ob-r) * 2.08);
+  height: calc(var(--ob-r) * 2.08);
+  margin-left: calc(var(--ob-r) * -1.04);
+  border-radius: 50%;
+  background: radial-gradient(
+    closest-side,
+    transparent 0 93%,
+    rgba(120, 205, 255, 0.4) 95.4%,
+    rgba(96, 150, 255, 0.18) 97%,
+    transparent 99.4%
+  );
+  mix-blend-mode: screen;
+  animation: airglow 14s ease-in-out infinite alternate;
+}
+:root[data-theme-pack="orbit"] .tb-c {
+  background-image:
+    radial-gradient(1px 1px at 40px 50px, #fff, transparent),
+    radial-gradient(1px 1px at 150px 140px, rgba(210, 228, 255, 0.85), transparent),
+    radial-gradient(1.5px 1.5px at 260px 60px, #fff, transparent),
+    radial-gradient(1px 1px at 200px 250px, rgba(226, 236, 255, 0.8), transparent),
+    radial-gradient(1px 1px at 90px 300px, rgba(200, 220, 255, 0.75), transparent);
+  background-size: 340px 340px;
+  animation:
+    orbit-stars 110s linear infinite,
+    twinkle 7s ease-in-out infinite alternate;
+}
+
+/* Radiant: a meteor shower, seen from underneath it. Everything expands out of
+   one point high on the right — the radiant — which is the only motion here
+   that comes TOWARD you rather than across you, and it is what makes this
+   read as flying instead of drifting. Two fields on the same keyframe, half a
+   cycle apart, so the stream never has a gap; opacity is zero at both ends of
+   the scale so the reset is invisible. */
+:root[data-theme-pack="radiant"] .theme-bg {
+  background:
+    radial-gradient(30% 28% at 62% 26%, rgba(96, 168, 255, 0.34), transparent 74%),
+    radial-gradient(120% 110% at 62% 26%, #0c1838 0%, #050a1a 44%, #010206 100%);
+}
+:root[data-theme-pack="radiant"] .tb-a,
+:root[data-theme-pack="radiant"] .tb-b,
+:root[data-theme-pack="radiant"] .tb-c {
+  /* The radiant, in the span's own coordinates: the spans are inset -60%, so
+     220% wide, and viewport 62%/26% lands at (0.62+0.6)/2.2 and (0.26+0.6)/2.2. */
+  transform-origin: 55.5% 39.1%;
+  mix-blend-mode: screen;
+}
+:root[data-theme-pack="radiant"] .tb-a {
+  background-image:
+    radial-gradient(1.8px 1.8px at 40px 50px, rgba(236, 246, 255, 1), transparent),
+    radial-gradient(1.3px 1.3px at 128px 26px, rgba(180, 216, 255, 0.9), transparent),
+    radial-gradient(2.2px 2.2px at 84px 140px, #fff, transparent),
+    radial-gradient(1.3px 1.3px at 160px 104px, rgba(198, 226, 255, 0.9), transparent),
+    radial-gradient(1.6px 1.6px at 20px 168px, rgba(216, 236, 255, 0.92), transparent),
+    radial-gradient(1.2px 1.2px at 150px 178px, rgba(170, 208, 255, 0.85), transparent);
+  background-size: 190px 190px;
+  animation: radiant-fly 7s linear infinite;
+}
+:root[data-theme-pack="radiant"] .tb-b {
+  background-image:
+    radial-gradient(2px 2px at 90px 74px, #fff, transparent),
+    radial-gradient(1.3px 1.3px at 24px 118px, rgba(190, 220, 255, 0.9), transparent),
+    radial-gradient(1.7px 1.7px at 138px 34px, rgba(236, 246, 255, 0.95), transparent),
+    radial-gradient(1.3px 1.3px at 56px 16px, rgba(206, 230, 255, 0.85), transparent),
+    radial-gradient(1.5px 1.5px at 128px 140px, rgba(224, 240, 255, 0.9), transparent);
+  background-size: 158px 158px;
+  animation: radiant-fly 7s linear infinite;
+  animation-delay: -3.5s;
+}
+/* The near field: fewer, bigger, faster, and drawn as short streaks rather
+   than points, because the ones that pass close are the ones you see move. */
+:root[data-theme-pack="radiant"] .tb-c {
+  background-image:
+    radial-gradient(14px 2px at 150px 110px, rgba(226, 242, 255, 0.95), transparent),
+    radial-gradient(10px 1.6px at 40px 240px, rgba(196, 226, 255, 0.85), transparent),
+    radial-gradient(17px 2.4px at 260px 46px, rgba(244, 250, 255, 0.9), transparent),
+    radial-gradient(12px 1.8px at 290px 210px, rgba(206, 232, 255, 0.8), transparent);
+  background-size: 340px 300px;
+  animation: radiant-fly 4.6s linear infinite;
+}
+
+/* Silicon: a die under a microscope. The lattice of traces is painted once on
+   the backdrop (two pitches — 46px cells inside 184px macro blocks — which is
+   how a floorplan actually looks), and what moves is the traffic on it: bright
+   pulses running along the horizontal bus one way and the vertical bus the
+   other, on periods that do not divide each other so the two never fall into
+   step. Every pulse sits at a multiple of the 46px pitch, so they run ON the
+   traces rather than across them; the tiles are 8 and 7 cells wide, so one
+   translate of a whole tile lands back on the lattice. */
+:root[data-theme-pack="silicon"] .theme-bg {
+  background:
+    repeating-linear-gradient(90deg, transparent 0 46px, rgba(124, 243, 224, 0.07) 46px 47px),
+    repeating-linear-gradient(0deg, transparent 0 46px, rgba(124, 243, 224, 0.055) 46px 47px),
+    repeating-linear-gradient(90deg, transparent 0 184px, rgba(150, 245, 255, 0.12) 184px 186px),
+    repeating-linear-gradient(0deg, transparent 0 184px, rgba(150, 245, 255, 0.1) 184px 186px),
+    radial-gradient(120% 100% at 28% 8%, #17253f 0%, #0d1728 44%, #05080f 100%);
+}
+:root[data-theme-pack="silicon"] .tb-a {
+  background-image:
+    radial-gradient(26px 1.8px at 60px 46.5px, rgba(180, 255, 248, 0.95), transparent),
+    radial-gradient(18px 1.8px at 240px 138.5px, rgba(140, 246, 255, 0.8), transparent),
+    radial-gradient(32px 1.8px at 130px 230.5px, rgba(180, 255, 248, 0.75), transparent),
+    radial-gradient(22px 1.8px at 320px 92.5px, rgba(160, 252, 255, 0.7), transparent),
+    radial-gradient(20px 1.8px at 20px 184.5px, rgba(180, 255, 248, 0.62), transparent);
+  background-size: 368px 276px;
+  mix-blend-mode: screen;
+  animation: si-bus-x 3.2s linear infinite;
+}
+:root[data-theme-pack="silicon"] .tb-b {
+  background-image:
+    radial-gradient(1.8px 22px at 92.5px 70px, rgba(180, 255, 248, 0.85), transparent),
+    radial-gradient(1.8px 30px at 230.5px 200px, rgba(140, 246, 255, 0.7), transparent),
+    radial-gradient(1.8px 18px at 276.5px 40px, rgba(180, 255, 248, 0.6), transparent),
+    radial-gradient(1.8px 26px at 46.5px 250px, rgba(160, 252, 255, 0.55), transparent);
+  background-size: 322px 322px;
+  mix-blend-mode: screen;
+  animation: si-bus-y 4.7s linear infinite;
+}
+/* The wafer's iridescence. It TILTS — eased, and reversing at both ends —
+   because a polished surface under a fixed lamp does not have a highlight that
+   travels off one edge and reappears at the other. */
+:root[data-theme-pack="silicon"] .tb-c {
+  background: linear-gradient(
+    112deg,
+    transparent 0 28%,
+    rgba(90, 255, 220, 0.1) 40%,
+    rgba(150, 200, 255, 0.15) 48%,
+    rgba(200, 140, 255, 0.12) 56%,
+    transparent 70% 100%
+  );
+  mix-blend-mode: screen;
+  animation: si-tilt 17s ease-in-out infinite alternate;
+}
+
+/* Uptime: a cold aisle. The racks are structure, not weather, so they are
+   painted once on the backdrop — bay seams every 150px, a shelf line every
+   26px — and the only thing that moves is the indicator lights.
+
+   They BLINK, on 1.1s and 1.7s: two periods that only realign every 18.7s, so
+   a wall of lights all sharing one opacity still never looks like a metronome.
+   Discrete steps rather than a fade is the whole point — nothing else in this
+   file changes state instantly, and it is what separates a machine from
+   weather. The swing is deliberately small; a rack is not a strobe. */
+:root[data-theme-pack="uptime"] .theme-bg {
+  background:
+    /* One bay per 150px: a lit front edge, the flat face of the cabinet, and
+       the black gap where the next one starts. Dark-on-dark structure is
+       invisible under 0.62-alpha surfaces, so the bay is drawn by the LIGHT on
+       it rather than by its shadow. */
+    repeating-linear-gradient(
+      90deg,
+      rgba(160, 210, 245, 0.085) 0 3px,
+      rgba(120, 170, 210, 0.03) 3px 136px,
+      rgba(0, 0, 0, 0.55) 136px 150px
+    ),
+    repeating-linear-gradient(180deg, rgba(196, 226, 246, 0.075) 0 1px, transparent 1px 26px),
+    linear-gradient(180deg, #16222c 0%, #0c151d 50%, #050a0f 100%);
+}
+/* Link lights: mostly on, breathing between two close values. A dot is drawn
+   as a hard centre inside a soft halo, because that is the whole difference
+   between an LED and a pixel. Screen-blended so they add light to the cabinet
+   rather than sitting on top of it as paint. */
+:root[data-theme-pack="uptime"] .tb-a {
+  background-image:
+    radial-gradient(7px 7px at 17px 13px, rgba(90, 255, 182, 0.95) 0 24%, rgba(60, 230, 160, 0.22) 46%, transparent 76%),
+    radial-gradient(6px 6px at 26px 39px, rgba(90, 255, 182, 0.8) 0 24%, rgba(60, 230, 160, 0.18) 46%, transparent 76%),
+    radial-gradient(7px 7px at 17px 65px, rgba(90, 255, 182, 0.9) 0 24%, rgba(60, 230, 160, 0.2) 46%, transparent 76%),
+    radial-gradient(6px 6px at 26px 91px, rgba(90, 255, 182, 0.75) 0 24%, rgba(60, 230, 160, 0.18) 46%, transparent 76%),
+    radial-gradient(7px 7px at 17px 117px, rgba(90, 255, 182, 0.88) 0 24%, rgba(60, 230, 160, 0.2) 46%, transparent 76%),
+    radial-gradient(6px 6px at 26px 143px, rgba(90, 255, 182, 0.72) 0 24%, rgba(60, 230, 160, 0.16) 46%, transparent 76%);
+  background-size: 150px 156px;
+  mix-blend-mode: screen;
+  animation: rack-blink-a 1.1s linear infinite;
+}
+/* Activity lights: the ones that actually flicker, and the reason the wall
+   never settles. Amber, on a period the green one does not divide. */
+:root[data-theme-pack="uptime"] .tb-b {
+  background-image:
+    radial-gradient(6px 6px at 26px 13px, rgba(255, 200, 104, 0.95) 0 24%, rgba(255, 170, 60, 0.2) 46%, transparent 76%),
+    radial-gradient(6px 6px at 17px 39px, rgba(255, 200, 104, 0.8) 0 24%, rgba(255, 170, 60, 0.18) 46%, transparent 76%),
+    radial-gradient(5px 5px at 26px 65px, rgba(255, 218, 148, 0.72) 0 24%, rgba(255, 170, 60, 0.16) 46%, transparent 76%),
+    radial-gradient(6px 6px at 17px 91px, rgba(255, 200, 104, 0.85) 0 24%, rgba(255, 170, 60, 0.18) 46%, transparent 76%),
+    radial-gradient(5px 5px at 26px 117px, rgba(255, 218, 148, 0.74) 0 24%, rgba(255, 170, 60, 0.16) 46%, transparent 76%),
+    radial-gradient(6px 6px at 17px 143px, rgba(255, 200, 104, 0.8) 0 24%, rgba(255, 170, 60, 0.18) 46%, transparent 76%);
+  background-size: 150px 156px;
+  mix-blend-mode: screen;
+  animation: rack-blink-b 1.7s linear infinite;
+}
+/* The air. Cold light spilling up off the floor of the aisle, breathing on a
+   long cycle — the one continuous thing in an otherwise digital pack. */
+:root[data-theme-pack="uptime"] .tb-c {
+  background: radial-gradient(110% 52% at 50% 106%, rgba(150, 205, 255, 0.28), transparent 74%);
+  mix-blend-mode: screen;
+  animation: gust 15s ease-in-out infinite alternate;
+}
+
+/* Zellige: a tiled courtyard. The lattice is the real construction — two
+   diagonal families at a 56px pitch crossed with two orthogonal ones at 56·√2
+   = 79.2px, which is what produces the eight-point star rather than a
+   diamond grid — and it is painted once, because tilework does not move.
+
+   What moves is the lamp above it, and it SWINGS: eased, reversing, and rising
+   at both ends of the arc, which is a pendulum and not a sweep. The cast
+   pattern lags the lamp by a third of a second, and the glaze highlights
+   travel with the light because that is what a specular highlight does. */
+:root[data-theme-pack="zellige"] .theme-bg {
+  background:
+    repeating-linear-gradient(45deg, rgba(240, 214, 152, 0.2) 0 2px, transparent 2px 56px),
+    repeating-linear-gradient(-45deg, rgba(240, 214, 152, 0.2) 0 2px, transparent 2px 56px),
+    repeating-linear-gradient(0deg, rgba(240, 214, 152, 0.13) 0 2px, transparent 2px 79.2px),
+    repeating-linear-gradient(90deg, rgba(240, 214, 152, 0.13) 0 2px, transparent 2px 79.2px),
+    repeating-conic-gradient(rgba(34, 158, 148, 0.3) 0 25%, transparent 0 50%) 0 0 / 112px 112px,
+    linear-gradient(180deg, #114a45 0%, #082b2c 54%, #041214 100%);
+}
+:root[data-theme-pack="zellige"] .tb-a {
+  background: radial-gradient(46% 44% at 50% 4%, rgba(255, 206, 130, 0.5), transparent 74%);
+  mix-blend-mode: screen;
+  animation: zel-swing 9s ease-in-out infinite alternate;
+}
+:root[data-theme-pack="zellige"] .tb-b {
+  background: repeating-conic-gradient(
+    from 12deg at 50% 4%,
+    transparent 0 4deg,
+    rgba(255, 214, 150, 0.11) 5deg 6.4deg,
+    transparent 7.4deg 12deg
+  );
+  mask-image: radial-gradient(58% 72% at 50% 4%, #000 0 26%, transparent 88%);
+  mix-blend-mode: screen;
+  animation: zel-swing 9s ease-in-out infinite alternate;
+  animation-delay: -0.35s;
+}
+:root[data-theme-pack="zellige"] .tb-c {
+  /* One glint per star in the lattice — a 56px tile, the same pitch the
+     diagonal families use, so the highlights land on the tilework rather than
+     scattering over it. */
+  background-image:
+    radial-gradient(3px 3px at 28px 28px, rgba(255, 252, 236, 0.85), transparent),
+    radial-gradient(1.8px 1.8px at 0 0, rgba(255, 240, 210, 0.5), transparent),
+    radial-gradient(1.8px 1.8px at 56px 56px, rgba(255, 240, 210, 0.5), transparent);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(46% 44% at 50% 10%, #000 0 24%, transparent 88%);
+  mix-blend-mode: screen;
+  animation: zel-swing 9s ease-in-out infinite alternate;
+}
+
+/* Atrium: noon under a glass roof. The shadows of the glazing bars fall across
+   pale stone, and everything moves because the SUN moves — one slow
+   translation, shared by the shadows and the light they belong to, so nothing
+   can drift out of register with anything else.
+
+   The two families of bars are exactly perpendicular (76° and 166°), which is
+   why one translation loops both: a step along the first family's normal runs
+   precisely ALONG the second family's lines, so the second never needs to
+   travel a period of its own. */
+:root[data-theme-pack="atrium"] .theme-bg {
+  background: linear-gradient(180deg, #e2eef6 0%, #f6f2e8 42%, #ddd2bd 100%);
+}
+:root[data-theme-pack="atrium"] .tb-a {
+  background-image:
+    repeating-linear-gradient(76deg, rgba(58, 78, 112, 0.17) 0 3px, transparent 3px 78px),
+    repeating-linear-gradient(166deg, rgba(58, 78, 112, 0.11) 0 3px, transparent 3px 132px);
+  animation: atrium-sun 180s linear infinite;
+}
+/* The beam, and the patch of floor it lands on. Warm, and NOT screen-blended:
+   on a near-white ground a screen layer does nothing at all. */
+:root[data-theme-pack="atrium"] .tb-b {
+  background:
+    linear-gradient(
+      104deg,
+      transparent 0 39%,
+      rgba(255, 222, 140, 0.44) 44.5%,
+      rgba(255, 238, 186, 0.72) 48.5%,
+      rgba(255, 246, 210, 0.78) 50%,
+      rgba(255, 238, 186, 0.66) 51.5%,
+      rgba(255, 222, 140, 0.4) 55.5%,
+      transparent 61% 100%
+    ),
+    radial-gradient(26% 20% at 56% 88%, rgba(255, 214, 128, 0.62), transparent 76%);
+  animation: atrium-sun 180s linear infinite;
+}
+/* Dust in the light. Slow, because still air in a big room barely moves. */
+:root[data-theme-pack="atrium"] .tb-c {
+  background-image:
+    radial-gradient(1.6px 1.6px at 50px 250px, rgba(160, 130, 80, 0.34), transparent),
+    radial-gradient(1.2px 1.2px at 170px 130px, rgba(150, 120, 70, 0.28), transparent),
+    radial-gradient(2px 2px at 250px 60px, rgba(170, 140, 90, 0.26), transparent),
+    radial-gradient(1.4px 1.4px at 100px 30px, rgba(150, 120, 70, 0.3), transparent);
+  background-size: 300px 300px;
+  animation:
+    ember-rise 46s linear infinite,
+    twinkle 9s ease-in-out infinite alternate;
+}
+
+/* ── Shine off (Appearance → "Sweeping highlights") ───────────────────────
+   Most of these packs carry a SPECULAR PASS: a band of light that crosses the
+   whole window on top of everything else. Aurora's curtain, prism's white bar,
+   the CRT roll on synthwave and datastream, the heat wave over molten and
+   dunes, ice glinting on glacier, the scope wedge, the light shafts in fathom,
+   the wafer sheen on silicon, the glaze on zellige, the sunbeam in atrium. It
+   is the layer whose brightest moment lands ON your text rather than behind
+   it, and it is the one part of a live backdrop somebody might want gone while
+   still wanting the pack.
+
+   The test for "is this shine" is narrow on purpose: a band of light that
+   TRAVELS ACROSS (or flashes over) the reading surface. Scenery is not shine
+   even when it is bright — cosmos keeps its shooting star, storm keeps its
+   lightning, eclipse keeps its corona, canopy keeps its dapple, skyline keeps
+   the glow the city throws up, because those are things happening in the
+   picture rather than gloss on the glass.
+
+   Two treatments. Where the pass is pure gloss it is simply gone. Where the
+   pass IS the pack — aurora is named for its curtain, prism for its bar,
+   fathom for its shafts, sonar for its sweep — removing it would leave a
+   palette with nothing in it, so the layer stays and loses its hot core: same
+   motion, same colour, no blade. Every rule below carries both attributes, so
+   it outweighs the pack's own rule whatever order the file ends up in.
+
+   S.prefs.themeShine drives it (state.svelte.js) and nothing else in the app
+   reads the attribute. Packs with no specular pass need no rule here, which is
+   why this block is nine short entries and not twenty-seven. */
+:root[data-theme-shine="off"][data-theme-pack="aurora"] .tb-a {
+  background: linear-gradient(
+    103deg,
+    transparent 0 30%,
+    rgba(41, 214, 158, 0.2) 42%,
+    rgba(52, 220, 178, 0.26) 50%,
+    rgba(56, 200, 220, 0.18) 58%,
+    transparent 68% 100%
+  );
+}
+:root[data-theme-shine="off"][data-theme-pack="prism"] .tb-a {
+  background: linear-gradient(
+    100deg,
+    transparent 0 34%,
+    rgba(255, 92, 158, 0.14) 41%,
+    rgba(255, 196, 84, 0.16) 45%,
+    rgba(96, 240, 170, 0.16) 49%,
+    rgba(96, 200, 255, 0.18) 53%,
+    rgba(150, 130, 255, 0.14) 57%,
+    transparent 65% 100%
+  );
+}
+:root[data-theme-shine="off"][data-theme-pack="prism"] .tb-b,
+:root[data-theme-shine="off"][data-theme-pack="synthwave"] .tb-c,
+:root[data-theme-shine="off"][data-theme-pack="datastream"] .tb-c,
+:root[data-theme-shine="off"][data-theme-pack="molten"] .tb-a,
+:root[data-theme-shine="off"][data-theme-pack="dunes"] .tb-a,
+:root[data-theme-shine="off"][data-theme-pack="glacier"] .tb-a,
+:root[data-theme-shine="off"][data-theme-pack="silicon"] .tb-c,
+:root[data-theme-shine="off"][data-theme-pack="zellige"] .tb-c,
+:root[data-theme-shine="off"][data-theme-pack="atrium"] .tb-b {
+  display: none;
+}
+:root[data-theme-shine="off"][data-theme-pack="fathom"] .tb-a {
+  background-image: repeating-linear-gradient(
+    96deg,
+    transparent 0 58px,
+    rgba(150, 238, 255, 0.08) 76px,
+    rgba(168, 240, 255, 0.12) 88px,
+    rgba(150, 238, 255, 0.07) 100px,
+    transparent 122px 200px
+  );
+}
+:root[data-theme-shine="off"][data-theme-pack="sonar"] .tb-a {
+  background: conic-gradient(
+    from 0deg,
+    rgba(255, 179, 71, 0.1) 0deg,
+    rgba(255, 179, 71, 0.04) 26deg,
+    transparent 62deg 360deg
+  );
+}
+/* ── Textured theme packs ─────────────────────────────────────────────────
+   Like the animated packs, surfaces are translucent so a backdrop shows through
+   the whole app — but the backdrop is a STATIC multi-radial gradient mesh (no
+   animation, so it paints once and costs nothing after). state stamps
+   [data-textured] so surfaces + backdrop switch together. Gives channels,
+   profiles, settings — every panel — a soft coloured depth instead of flat
+   fills. */
+:root[data-theme-pack="frost"] {
+  --bg-0: rgba(9, 16, 24, 0.4);
+  --bg-1: rgba(15, 25, 36, 0.72);
+  --bg-2: rgba(11, 20, 30, 0.64);
+  --bg-3: rgba(26, 40, 56, 0.76);
+  --border: rgba(150, 200, 235, 0.18);
+  --text: #eef6fd;
+  --text-muted: #b3c8d9;
+  --text-faint: #8ba0b1;
+  --accent: #7dd3fc;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(18, 30, 42, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="frost"] .theme-bg {
+  background:
+    radial-gradient(62% 52% at 15% 8%, rgba(56, 189, 248, 0.4), transparent 62%),
+    radial-gradient(58% 46% at 92% 18%, rgba(129, 140, 248, 0.34), transparent 62%),
+    radial-gradient(74% 62% at 70% 98%, rgba(45, 212, 191, 0.32), transparent 62%),
+    radial-gradient(120% 100% at 50% 0%, #16303f 0%, #0a1620 72%);
+}
+:root[data-theme-pack="dusk"] {
+  --bg-0: rgba(24, 14, 18, 0.4);
+  --bg-1: rgba(36, 22, 26, 0.72);
+  --bg-2: rgba(28, 16, 20, 0.64);
+  --bg-3: rgba(54, 34, 38, 0.76);
+  --border: rgba(255, 165, 160, 0.2);
+  --text: #fdeeed;
+  --text-muted: #d9b0af;
+  --text-faint: #a67f80;
+  --accent: #fb7185;
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
+  --bg-elevated: rgba(40, 26, 30, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="dusk"] .theme-bg {
+  background:
+    radial-gradient(62% 52% at 12% 6%, rgba(251, 146, 60, 0.44), transparent 62%),
+    radial-gradient(58% 46% at 90% 16%, rgba(244, 114, 182, 0.38), transparent 62%),
+    radial-gradient(78% 66% at 65% 100%, rgba(168, 85, 247, 0.4), transparent 64%),
+    radial-gradient(120% 100% at 50% 0%, #3a1f26 0%, #170c10 72%);
+}
+:root[data-theme-pack="grape"] {
+  --bg-0: rgba(18, 12, 26, 0.4);
+  --bg-1: rgba(28, 20, 40, 0.72);
+  --bg-2: rgba(22, 15, 32, 0.64);
+  --bg-3: rgba(42, 30, 58, 0.76);
+  --border: rgba(205, 165, 255, 0.2);
+  --text: #f5edfc;
+  --text-muted: #c6b3d8;
+  --text-faint: #9482a8;
+  --accent: #c084fc;
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
+  --bg-elevated: rgba(32, 23, 44, 0.95);
+  color-scheme: dark;
+}
+:root[data-theme-pack="grape"] .theme-bg {
+  background:
+    radial-gradient(62% 52% at 14% 8%, rgba(192, 132, 252, 0.44), transparent 62%),
+    radial-gradient(58% 46% at 90% 20%, rgba(96, 165, 250, 0.36), transparent 62%),
+    radial-gradient(76% 64% at 68% 98%, rgba(236, 72, 153, 0.36), transparent 64%),
+    radial-gradient(120% 100% at 50% 0%, #291b3a 0%, #100b1a 72%);
+}
+
+/* ── Daylight packs ───────────────────────────────────────────────────────
+   The light half of the collection: every pack above declares color-scheme:
+   dark, so a light-mode user had exactly one look. These four are bright
+   grounds with dark ink, following the light theme's inverted depth scale
+   (bg-2 is the page, bg-0 the deepest chrome, bg-3 the hover/input fill —
+   DARKER than the page so existing hover styles read).
+
+   The grouped block first: the [data-theme="light"] status/shadow overrides
+   are keyed on the theme attribute and never fire when the app is in dark
+   mode with a light PACK, so each of these has to carry them itself — dark
+   mode's #e0555b-on-22%-tint reds are tuned for dark grounds. Shared here so
+   the four palettes below stay readable against each other. Same contrast
+   contract as the rest of the file, measured not guessed: each --text-faint
+   clears 3:1 on its own --bg-3, each --text clears 4.5:1 on bg-0/1/2 (for
+   porcelain, composited over the brightest spot of its mesh). */
+:root[data-theme-pack="paper"],
+:root[data-theme-pack="solarized"],
+:root[data-theme-pack="meadow"],
+:root[data-theme-pack="porcelain"],
+:root[data-theme-pack="daybreak"],
+:root[data-theme-pack="atrium"] {
+  /* On a bright ground the accent's hover/link form darkens, like the light
+     theme — it doubles as name/link text and needs the contrast. */
+  --accent-hover: color-mix(in srgb, var(--accent) 78%, black);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --danger: #c93a41;
+  --ok: #2b8446;
+  --warn: #a3701a;
+  /* Fills dark enough that white is the surviving ink — light theme's call. */
+  --danger-fg: #ffffff;
+  --ok-fg: #ffffff;
+  --fx-halo: #fbfcfe;
+  --shadow-pop:
+    0 2px 6px rgba(20, 24, 32, 0.08),
+    0 12px 32px rgba(20, 24, 32, 0.18);
+  --float-shadow:
+    0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent),
+    0 2px 5px rgba(20, 24, 32, 0.14);
+  --accent-glow: none;
+  color-scheme: light;
+}
+/* Paper: a reading room at noon — warm off-white stock, dark umber ink, a
+   leather-red accent. The serif + hairline personality lives with the other
+   personality blocks below. */
+:root[data-theme-pack="paper"] {
+  --bg-0: #e6dfd0;
+  --bg-1: #f0eadc;
+  --bg-2: #f8f3e8;
+  --bg-3: #e9e2d1;
+  --border: #cfc5ae;
+  --text: #2a251c;
+  --text-muted: #5c5445;
+  --text-faint: #78705c; /* 3.81:1 on bg-3 */
+  --accent: #9c4a2c;
+  --bg-elevated: #fdfaf2;
+}
+/* Solarized (light): base3 ground, base2 hover, blue accent. --text is base01
+   pulled darker — canonical base00 body ink measures 3.9:1 on this bg-0,
+   under the 4.5 floor, so the hue stays and the lightness gives. */
+:root[data-theme-pack="solarized"] {
+  --bg-0: #e8e0c7;
+  --bg-1: #f3ebd3;
+  --bg-2: #fdf6e3;
+  --bg-3: #eee8d5;
+  --border: #cdc5a8;
+  --text: #43565c;
+  --text-muted: #586c73;
+  --text-faint: #778585; /* 3.13:1 on bg-3 */
+  --accent: #268bd2;
+  --bg-elevated: #fefaec;
+}
+/* Meadow: soft greens front to back, a lawn-dark accent (the same darkness
+   the light theme's --ok needed for white ink to survive on the fill). */
+:root[data-theme-pack="meadow"] {
+  --bg-0: #d5e3c8;
+  --bg-1: #e4eeda;
+  --bg-2: #f1f7ea;
+  --bg-3: #dde9d0;
+  --border: #b7cca4;
+  --text: #25301d;
+  --text-muted: #53644a;
+  --text-faint: #6e8064; /* 3.37:1 on bg-3 */
+  --accent: #2b8347;
+  --bg-elevated: #fbfdf8;
+}
+/* Porcelain: the light twin of the textured packs — translucent near-white
+   surfaces over a static pastel mesh. The mesh is painted on the ROOT CANVAS
+   itself rather than on .theme-bg: the backdrop element is gated by
+   TEXTURED_PACKS in state.svelte.js, and its mobile scrim is a black 0.62
+   sheet tuned for dark glass, which would bury a light one. An html
+   background propagates to the canvas, sits behind body's translucent
+   var(--bg-2) wash, and costs one static paint — the same mechanism with no
+   JS gate and no scrim needed: the worst (brightest) spot of the mesh only
+   RAISES the composite, and the ink here is dark. */
+:root[data-theme-pack="porcelain"] {
+  --bg-0: rgba(255, 255, 255, 0.45);
+  --bg-1: rgba(255, 255, 255, 0.68);
+  --bg-2: rgba(255, 255, 255, 0.6);
+  --bg-3: rgba(210, 216, 230, 0.78);
+  --border: rgba(96, 110, 138, 0.3);
+  --text: #262a33;
+  --text-muted: #59616f;
+  --text-faint: #6f7787; /* 3.37:1 on bg-3 composited over the mesh highlight */
+  --accent: #5661d8;
+  --bg-elevated: rgba(253, 253, 255, 0.96);
+  background:
+    radial-gradient(58% 48% at 12% 8%, rgba(255, 184, 210, 0.5), transparent 62%),
+    radial-gradient(54% 44% at 88% 14%, rgba(164, 198, 255, 0.52), transparent 62%),
+    radial-gradient(72% 60% at 68% 100%, rgba(168, 232, 206, 0.46), transparent 64%),
+    radial-gradient(120% 100% at 50% 0%, #f8f6fa 0%, #e9edf3 72%);
+  /* Viewport-anchored, like .theme-bg's position:fixed. */
+  background-attachment: fixed;
+}
+
+/* ── Pack personality: shape, type, rhythm, surface ───────────────────────
+   The part that makes a pack a *skin* rather than a recolor. Every block below
+   is what you'd see in a SCREENSHOT WITH THE COLOURS REMOVED: the typeface,
+   the corner radius, how much air the feed has, whether panels are separated
+   by colour steps or by hairlines, whether the accent glows, and whether an
+   avatar is a circle or a square. Kept together here (instead of inside each
+   palette block) so the whole set can be read against each other at a glance,
+   and so the user overrides below can simply come after it.
+
+   The five bundled faces used here (Inter, Space Grotesk, Source Serif 4,
+   JetBrains Mono, Nunito) ship in public/fonts — no runtime fetch. */
+
+/* --- Terminal lineage: monospaced, square, dense, no glow. -------------- */
+:root[data-theme-pack="gruvbox"] {
+  --radius-sm: 0px;
+  --radius-md: 2px;
+  --radius-lg: 3px;
+  --ui-font: "JetBrains Mono", "Noto Sans Arabic", ui-monospace, Menlo, monospace;
+  --tracking: -0.012em;
+  --avatar-radius: 2px;
+  /* A TUI has no ambient light: one hard offset block instead of two blurs. */
+  --shadow-pop: 3px 3px 0 rgba(0, 0, 0, 0.55);
+  --accent-glow: none;
+  --float-shadow: 3px 3px 0 rgba(0, 0, 0, 0.55);
+  /* Packed like a terminal buffer. */
+  --msg-pad-y: 0px;
+  --msg-gap: 6px;
+  --msg-group-pull: -3px;
+  --feed-pad: 10px;
+}
+:root[data-theme-pack="dracula"] {
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 7px;
+  --ui-font: "JetBrains Mono", "Noto Sans Arabic", ui-monospace, Menlo, monospace;
+  --tracking: -0.01em;
+  --avatar-radius: 5px;
+  --msg-gap: 9px;
+  --msg-group-pull: -6px;
+  --feed-pad: 13px;
+  --accent-glow: 0 0 18px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+/* --- Outlined: panels are told apart by a hairline, not by a colour step.
+   The three --bg levels are pulled within a few points of each other and the
+   border carries all the structure, which is a completely different silhouette
+   from the stepped-fill default even in greyscale. ----------------------- */
+:root[data-theme-pack="nord"] {
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 7px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --avatar-radius: 7px;
+  --bg-0: #343b48;
+  --bg-1: #373e4b;
+  --bg-2: #3a4250;
+  --bg-3: #434c5e;
+  --border: #6d7a92;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  --msg-rule-pad: 5px;
+  --shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --accent-glow: none;
+  --msg-gap: 10px;
+  --feed-pad: 14px;
+}
+:root[data-theme-pack="abyss"] {
+  --radius-sm: 1px;
+  --radius-md: 2px;
+  --radius-lg: 3px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.012em;
+  --avatar-radius: 3px;
+  /* True black, and the structure drawn on top of it in wire. */
+  --bg-1: #050506;
+  --bg-2: #060608;
+  --bg-3: #14151a;
+  --border: #3d4048;
+  --msg-rule: 1px solid #23252b;
+  --msg-rule-pad: 5px;
+  --shadow-pop: 0 0 0 1px #24262d;
+  --accent-glow: 0 0 26px color-mix(in srgb, var(--accent) 45%, transparent);
+  --msg-pad-y: 1px;
+  --msg-gap: 8px;
+  --msg-group-pull: -5px;
+  --feed-pad: 12px;
+}
+/* Retro-futurist: hard edges, wide tracking, everything glowing. */
+:root[data-theme-pack="synthwave"] {
+  --radius-sm: 0px;
+  --radius-md: 2px;
+  --radius-lg: 3px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.02em;
+  --avatar-radius: 2px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  --msg-rule-pad: 5px;
+  --accent-glow: 0 0 22px color-mix(in srgb, var(--accent) 65%, transparent);
+  --shadow-pop:
+    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 8px 40px rgba(255, 79, 216, 0.28);
+  --msg-gap: 10px;
+  --feed-pad: 14px;
+}
+
+/* --- Airy: soft faces, big radii, and every message sitting on its own card
+   with real air around it. The furthest thing from the terminal packs. ---- */
+:root[data-theme-pack="sakura"] {
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --ui-font: "Nunito", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.006em;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 70%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 75%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 6px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 22px;
+  --shadow-pop:
+    0 4px 10px rgba(0, 0, 0, 0.22),
+    0 18px 44px rgba(0, 0, 0, 0.4);
+  --accent-glow: 0 0 30px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+:root[data-theme-pack="rose"] {
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --tracking: 0.004em;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 62%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 70%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 5px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 20px;
+  --accent-glow: 0 0 26px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* --- Editorial: a serif UI. One look nothing else in the set has. -------- */
+:root[data-theme-pack="forest"] {
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 9px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --avatar-radius: 6px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  --msg-rule-pad: 5px;
+  --accent-glow: none;
+  --shadow-pop: 0 2px 8px rgba(0, 0, 0, 0.35);
+  --msg-gap: 14px;
+  --feed-pad: 20px;
+}
+
+/* --- Modern flat: Inter / Space Grotesk, moderate radius, real elevation. */
+:root[data-theme-pack="midnight"] {
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --shadow-pop:
+    0 3px 8px rgba(0, 0, 0, 0.4),
+    0 16px 44px rgba(0, 0, 0, 0.6);
+  --accent-glow: 0 0 28px color-mix(in srgb, var(--accent) 40%, transparent);
+  --msg-gap: 12px;
+  --feed-pad: 18px;
+}
+:root[data-theme-pack="nebula"] {
+  --radius-sm: 10px;
+  --radius-md: 15px;
+  --radius-lg: 21px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.008em;
+  --accent-glow: 0 0 32px color-mix(in srgb, var(--accent) 48%, transparent);
+  --shadow-pop:
+    0 3px 8px rgba(0, 0, 0, 0.4),
+    0 18px 48px rgba(0, 0, 0, 0.62);
+  --msg-gap: 13px;
+  --feed-pad: 18px;
+}
+:root[data-theme-pack="oceanic"] {
+  --radius-sm: 7px;
+  --radius-md: 11px;
+  --radius-lg: 15px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --avatar-radius: 40%;
+  --msg-gap: 12px;
+  --feed-pad: 17px;
+}
+
+/* Fathom is soft and rounded — everything underwater is. Skyline is the
+   opposite: hard edges and wide tracking, a city read off a sign. Eclipse is
+   the widest, quietest feed in the set, because the backdrop is doing the
+   talking and the text should stay out of its way. */
+:root[data-theme-pack="fathom"] {
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --ui-font: "Nunito", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.006em;
+  --avatar-radius: 50%;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 55%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 70%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 5px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 20px;
+}
+:root[data-theme-pack="skyline"] {
+  --radius-sm: 0px;
+  --radius-md: 2px;
+  --radius-lg: 3px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.024em;
+  --avatar-radius: 2px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  --msg-rule-pad: 5px;
+  --accent-glow: 0 0 24px color-mix(in srgb, var(--accent) 60%, transparent);
+  --msg-gap: 11px;
+  --feed-pad: 15px;
+}
+:root[data-theme-pack="eclipse"] {
+  --radius-sm: 14px;
+  --radius-md: 22px;
+  --radius-lg: 30px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --tracking: 0.008em;
+  --avatar-radius: 50%;
+  --msg-gap: 16px;
+  --feed-pad: 24px;
+}
+
+/* The second animated set's shapes. Ten packs, ten silhouettes: no two of them
+   share a typeface, a corner radius and a feed rhythm, so the greyscale
+   screenshot test still separates them. */
+:root[data-theme-pack="daybreak"] {
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --ui-font: "Nunito", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.004em;
+  --msg-gap: 13px;
+  --feed-pad: 20px;
+  /* A bright sky under translucent white panels: a dark drop shadow reads as
+     dirt, so elevation is a cool haze, as in porcelain. */
+  --shadow-pop:
+    0 2px 8px rgba(40, 60, 90, 0.1),
+    0 16px 44px rgba(40, 60, 90, 0.16);
+  --accent-glow: none;
+}
+:root[data-theme-pack="dunes"] {
+  --radius-sm: 4px;
+  --radius-md: 7px;
+  --radius-lg: 11px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --avatar-radius: 7px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  --msg-rule-pad: 5px;
+  --msg-gap: 13px;
+  --feed-pad: 19px;
+}
+:root[data-theme-pack="canopy"] {
+  --radius-sm: 9px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --avatar-radius: 40%;
+  --msg-gap: 14px;
+  --feed-pad: 20px;
+}
+:root[data-theme-pack="datastream"] {
+  --radius-sm: 0px;
+  --radius-md: 1px;
+  --radius-lg: 2px;
+  --ui-font: "JetBrains Mono", "Noto Sans Arabic", ui-monospace, Menlo, monospace;
+  --tracking: 0.01em;
+  --avatar-radius: 0px;
+  --shadow-pop: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
+  --accent-glow: 0 0 26px color-mix(in srgb, var(--accent) 62%, transparent);
+  --msg-pad-y: 0px;
+  --msg-gap: 6px;
+  --msg-group-pull: -3px;
+  --feed-pad: 10px;
+}
+:root[data-theme-pack="sonar"] {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 5px;
+  --ui-font: "JetBrains Mono", "Noto Sans Arabic", ui-monospace, Menlo, monospace;
+  --tracking: 0.014em;
+  --avatar-radius: 50%;
+  --msg-rule: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  --msg-rule-pad: 5px;
+  --accent-glow: 0 0 20px color-mix(in srgb, var(--accent) 50%, transparent);
+  --msg-gap: 9px;
+  --feed-pad: 12px;
+}
+:root[data-theme-pack="lantern"] {
+  --radius-sm: 13px;
+  --radius-md: 19px;
+  --radius-lg: 27px;
+  --ui-font: "Nunito", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.006em;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 55%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 70%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 5px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 20px;
+  --accent-glow: 0 0 28px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+:root[data-theme-pack="glacier"] {
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 6px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.016em;
+  --avatar-radius: 4px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  --msg-rule-pad: 5px;
+  --msg-gap: 12px;
+  --feed-pad: 17px;
+}
+:root[data-theme-pack="vinyl"] {
+  --radius-sm: 8px;
+  --radius-md: 13px;
+  --radius-lg: 18px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --avatar-radius: 50%;
+  --msg-gap: 14px;
+  --feed-pad: 20px;
+  --accent-glow: 0 0 22px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+:root[data-theme-pack="storm"] {
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --avatar-radius: 5px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  --msg-rule-pad: 5px;
+  --accent-glow: none;
+  --msg-gap: 11px;
+  --msg-group-pull: -6px;
+  --feed-pad: 14px;
+}
+:root[data-theme-pack="blossom"] {
+  --radius-sm: 14px;
+  --radius-md: 22px;
+  --radius-lg: 30px;
+  --ui-font: "Nunito", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.006em;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 60%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 72%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 6px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 21px;
+  --accent-glow: 0 0 28px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+:root[data-theme-pack="meridian"] {
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --avatar-radius: 50%;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  --msg-rule-pad: 5px;
+  --msg-gap: 14px;
+  --feed-pad: 20px;
+}
+:root[data-theme-pack="bloom"] {
+  --radius-sm: 16px;
+  --radius-md: 24px;
+  --radius-lg: 34px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.014em;
+  --avatar-radius: 50%;
+  --msg-gap: 15px;
+  --feed-pad: 23px;
+  --accent-glow: 0 0 30px color-mix(in srgb, var(--accent) 48%, transparent);
+}
+
+/* The third set's shapes. The greyscale test again: each of these takes a
+   (face, radius, rhythm) combination the other forty-odd packs left empty.
+   Radiant is the first monospaced pack with round corners and room to breathe;
+   Uptime the first Nunito one that is tight and ruled instead of an airy card
+   feed; Silicon the first card feed with hard corners, packed like a
+   floorplan; Zellige the first card feed set in Inter, each message its own
+   tile; Orbit a flight-deck readout; Atrium a courtyard in serif. */
+:root[data-theme-pack="orbit"] {
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.008em;
+  --avatar-radius: 50%;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
+  --msg-rule-pad: 5px;
+  --msg-gap: 12px;
+  --feed-pad: 18px;
+  /* Deliberately NOT in the glass group below, which hands every translucent
+     pack a big accent halo: instruments are lit, not haloed, and a white
+     accent inside a white glow is just blown out. It still needs that group's
+     ambient depth, so the shadow is restated here instead. */
+  --shadow-pop:
+    0 4px 12px rgba(0, 0, 0, 0.42),
+    0 20px 56px rgba(0, 0, 0, 0.55);
+  --accent-glow: none;
+}
+:root[data-theme-pack="radiant"] {
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --ui-font: "JetBrains Mono", "Noto Sans Arabic", ui-monospace, Menlo, monospace;
+  --tracking: -0.006em;
+  --avatar-radius: 40%;
+  --msg-gap: 14px;
+  --feed-pad: 20px;
+  --accent-glow: 0 0 30px color-mix(in srgb, var(--accent) 50%, transparent);
+}
+:root[data-theme-pack="silicon"] {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 5px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.014em;
+  --avatar-radius: 3px;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 62%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 72%, transparent);
+  --msg-pad-x: 9px;
+  --msg-pad-y: 2px;
+  --msg-gap: 5px;
+  --msg-group-pull: -2px;
+  --feed-pad: 12px;
+  --accent-glow: 0 0 24px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+:root[data-theme-pack="uptime"] {
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 9px;
+  --ui-font: "Nunito", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.004em;
+  --avatar-radius: 4px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  --msg-rule-pad: 5px;
+  --msg-gap: 9px;
+  --msg-group-pull: -5px;
+  --feed-pad: 13px;
+}
+:root[data-theme-pack="zellige"] {
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.004em;
+  --avatar-radius: 50%;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 58%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 70%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 6px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 20px;
+}
+:root[data-theme-pack="atrium"] {
+  --radius-sm: 16px;
+  --radius-md: 24px;
+  --radius-lg: 32px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --tracking: 0.004em;
+  --avatar-radius: 50%;
+  --msg-surface: color-mix(in srgb, var(--bg-3) 62%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 88%, transparent);
+  --msg-pad-x: 13px;
+  --msg-pad-y: 6px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 22px;
+  /* Daylight on stone: elevation is a cool haze, because a black drop shadow
+     on a near-white ground reads as dirt (same call porcelain makes). */
+  --shadow-pop:
+    0 2px 8px rgba(60, 54, 40, 0.1),
+    0 16px 44px rgba(60, 54, 40, 0.16);
+  --accent-glow: none;
+}
+
+/* --- Effect-paired: each shaped by what is going to drift over it. A dense,
+   glowing terminal under scanlines; a ruled, tight feed under rain; a wide
+   quiet one under stars. The pairing is a design intent, not a coupling —
+   nothing here switches an effect on. -------------------------------------- */
+:root[data-theme-pack="tundra"] {
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --avatar-radius: 40%;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  --msg-rule-pad: 5px;
+  /* Overcast light casts no halo; the accent stays flat. */
+  --accent-glow: none;
+  --msg-gap: 12px;
+  --feed-pad: 18px;
+}
+:root[data-theme-pack="phosphor"] {
+  --radius-sm: 0px;
+  --radius-md: 1px;
+  --radius-lg: 2px;
+  --ui-font: "JetBrains Mono", "Noto Sans Arabic", ui-monospace, Menlo, monospace;
+  --tracking: 0.02em;
+  --avatar-radius: 0px;
+  /* A phosphor dot bleeds into its neighbours; a shadow on a CRT is glow, not
+     depth, so both shadow tokens are rings of the accent rather than blur. */
+  --shadow-pop: 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
+  --float-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+  --accent-glow: 0 0 24px color-mix(in srgb, var(--accent) 60%, transparent);
+  --msg-pad-y: 0px;
+  --msg-gap: 6px;
+  --msg-group-pull: -3px;
+  --feed-pad: 10px;
+}
+:root[data-theme-pack="harbor"] {
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --avatar-radius: 5px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  --msg-rule-pad: 5px;
+  --accent-glow: none;
+  --shadow-pop: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --msg-gap: 10px;
+  --msg-group-pull: -6px;
+  --feed-pad: 14px;
+}
+:root[data-theme-pack="observatory"] {
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.014em;
+  --shadow-pop:
+    0 3px 10px rgba(0, 0, 0, 0.5),
+    0 20px 56px rgba(0, 0, 0, 0.7);
+  --accent-glow: 0 0 30px color-mix(in srgb, var(--accent) 40%, transparent);
+  --msg-gap: 15px;
+  --feed-pad: 22px;
+}
+:root[data-theme-pack="hearth"] {
+  --radius-sm: 14px;
+  --radius-md: 20px;
+  --radius-lg: 28px;
+  --ui-font: "Nunito", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.006em;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 75%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 78%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 6px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 20px;
+  --accent-glow: 0 0 26px color-mix(in srgb, var(--accent) 36%, transparent);
+}
+:root[data-theme-pack="harvest"] {
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --avatar-radius: 8px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  --msg-rule-pad: 5px;
+  --accent-glow: none;
+  --shadow-pop: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --msg-gap: 13px;
+  --feed-pad: 20px;
+}
+
+/* --- Glass: translucent surfaces over a live or textured backdrop. Deep
+   ambient shadow and a strong accent halo, because there is real depth behind
+   the panels for them to float over. ------------------------------------- */
+:root[data-theme-pack="frost"],
+:root[data-theme-pack="dusk"],
+:root[data-theme-pack="grape"],
+:root[data-theme-pack="aurora"],
+:root[data-theme-pack="cosmos"],
+:root[data-theme-pack="molten"],
+:root[data-theme-pack="prism"],
+:root[data-theme-pack="monsoon"],
+:root[data-theme-pack="fathom"],
+:root[data-theme-pack="skyline"],
+:root[data-theme-pack="eclipse"],
+:root[data-theme-pack="dunes"],
+:root[data-theme-pack="canopy"],
+:root[data-theme-pack="datastream"],
+:root[data-theme-pack="sonar"],
+:root[data-theme-pack="lantern"],
+:root[data-theme-pack="glacier"],
+:root[data-theme-pack="vinyl"],
+:root[data-theme-pack="storm"],
+:root[data-theme-pack="bloom"],
+:root[data-theme-pack="blossom"],
+:root[data-theme-pack="meridian"],
+:root[data-theme-pack="radiant"],
+:root[data-theme-pack="silicon"],
+:root[data-theme-pack="uptime"],
+:root[data-theme-pack="zellige"] {
+  --shadow-pop:
+    0 4px 12px rgba(0, 0, 0, 0.42),
+    0 20px 56px rgba(0, 0, 0, 0.55);
+  --accent-glow: 0 0 30px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+:root[data-theme-pack="frost"] {
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --msg-gap: 13px;
+  --feed-pad: 18px;
+}
+:root[data-theme-pack="dusk"] {
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --ui-font: "Nunito", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.006em;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 55%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 70%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 5px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 20px;
+}
+:root[data-theme-pack="grape"] {
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.008em;
+  --msg-gap: 13px;
+  --feed-pad: 18px;
+}
+:root[data-theme-pack="aurora"] {
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 22px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --avatar-radius: 40%;
+  --msg-gap: 13px;
+  --feed-pad: 18px;
+}
+:root[data-theme-pack="cosmos"] {
+  --radius-sm: 13px;
+  --radius-md: 20px;
+  --radius-lg: 28px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.01em;
+  --msg-gap: 15px;
+  --feed-pad: 22px;
+}
+:root[data-theme-pack="molten"] {
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --avatar-radius: 8px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  --msg-rule-pad: 5px;
+  --msg-gap: 13px;
+  --feed-pad: 18px;
+}
+:root[data-theme-pack="prism"] {
+  --radius-sm: 14px;
+  --radius-md: 22px;
+  --radius-lg: 30px;
+  --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.012em;
+  --msg-gap: 14px;
+  --feed-pad: 22px;
+}
+:root[data-theme-pack="monsoon"] {
+  --radius-sm: 5px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --avatar-radius: 8px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  --msg-rule-pad: 5px;
+  --msg-gap: 10px;
+  --msg-group-pull: -6px;
+  --feed-pad: 14px;
+}
+
+/* --- Daylight: the light packs' shapes. Paper reads like a book page — serif,
+   square-ish, author groups separated by a hairline the way a printed thread
+   would be. Solarized keeps its terminal ancestry: monospaced, tight, near-
+   square. Meadow is the light twin of Sakura's airy card feed. Porcelain is
+   glass over the pastel mesh: big radii and a shadow that is grey-blue haze,
+   not black smoke — a dark drop shadow on a near-white ground reads as dirt. */
+:root[data-theme-pack="paper"] {
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, serif;
+  --avatar-radius: 5px;
+  --msg-rule: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  --msg-rule-pad: 5px;
+  /* Ink on stock casts no glow; one shallow contact shadow is all a page gets. */
+  --shadow-pop: 0 1px 3px rgba(58, 48, 30, 0.2);
+  --msg-gap: 14px;
+  --feed-pad: 20px;
+}
+:root[data-theme-pack="solarized"] {
+  --radius-sm: 2px;
+  --radius-md: 3px;
+  --radius-lg: 5px;
+  --ui-font: "JetBrains Mono", "Noto Sans Arabic", ui-monospace, Menlo, monospace;
+  --tracking: -0.01em;
+  --avatar-radius: 3px;
+  --msg-pad-y: 1px;
+  --msg-gap: 8px;
+  --msg-group-pull: -5px;
+  --feed-pad: 13px;
+}
+:root[data-theme-pack="meadow"] {
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --ui-font: "Nunito", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.006em;
+  --msg-surface: color-mix(in srgb, var(--bg-1) 70%, transparent);
+  --msg-surface-hover: color-mix(in srgb, var(--bg-3) 75%, transparent);
+  --msg-pad-x: 12px;
+  --msg-pad-y: 5px;
+  --msg-gap: 8px;
+  --msg-group-pull: -4px;
+  --feed-pad: 22px;
+}
+:root[data-theme-pack="porcelain"] {
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 26px;
+  --ui-font: "Inter", "Noto Sans Arabic", system-ui, sans-serif;
+  --tracking: 0.01em;
+  --shadow-pop:
+    0 2px 8px rgba(44, 54, 82, 0.1),
+    0 16px 44px rgba(44, 54, 82, 0.16);
+  --accent-glow: 0 0 24px color-mix(in srgb, var(--accent) 22%, transparent);
+  --msg-gap: 13px;
+  --feed-pad: 20px;
+}
