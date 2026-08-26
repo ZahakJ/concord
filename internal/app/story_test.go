@@ -71,7 +71,7 @@ func TestForgedAuthorStoryRejected(t *testing.T) {
 	now := time.Now().Unix()
 
 	// Mallory crafts a "story from Alice": Alice's fingerprint in Author,
-	// Mallory's key under the signature — the README §12 forgery shape.
+	// Mallory's key under the signature — the DESIGN.md §11.2 forgery shape.
 	forged := signedStory(t, mallory, "st-forged", "g1", now)
 	forged.Author = identity.FingerprintOf(alice.PublicKey())
 	forged.Sig = mallory.Sign(forged.signingBytes())

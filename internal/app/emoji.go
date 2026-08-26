@@ -52,8 +52,13 @@ func (s *Service) AddCustomEmoji(guildID, name, dataURI string) error {
 	if !validEmojiImage(dataURI) {
 		return fmt.Errorf("app: emoji must be a base64 PNG/JPEG/GIF/WebP image under %d KB", maxEmojiBytes/1024)
 	}
-	e := domain.CustomEmoji{GuildID: guildID, Name: name, Image: dataURI}
-	if err := s.store.SaveCustomEmoji(store.CustomEmojiRow{GuildID: guildID, Name: name, Image: dataURI}); err != nil {
+	e := domain.CustomEmoji{GuildID: guildID, Name: name, Image: dataURI, Author: s.id.PublicKey()}
+	// Signed over the guild it is being added to (emojiSigningBytes), so a peer
+	// receiving this second-hand through history sync can check the authority
+	// behind it against its own governance state instead of trusting whoever
+	// happened to serve it.
+	e.Sig = s.id.Sign(emojiSigningBytes(guildID, e))
+	if err := s.store.SaveCustomEmoji(emojiRow(guildID, e)); err != nil {
 		return err
 	}
 	s.emitGuildUpdate()
@@ -93,13 +98,18 @@ func (s *Service) CustomEmoji(guildID string) ([]domain.CustomEmoji, error) {
 	}
 	out := make([]domain.CustomEmoji, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, domain.CustomEmoji{GuildID: r.GuildID, Name: r.Name, Image: r.Image})
+		out = append(out, domain.CustomEmoji{
+			GuildID: r.GuildID, Name: r.Name, Image: r.Image,
+			Author: r.Author, Sig: r.Sig,
+		})
 	}
 	return out, nil
 }
 
 // applyCustomEmoji stores an emoji learned from a peer (guild-meta or sync),
-// validating it the same way as a local add.
+// validating it the same way as a local add. The AUTHORITY check lives with each
+// caller, because the two lanes have different evidence: gossip has an
+// MLS-authenticated announcer, sync has only the record's own signature.
 func (s *Service) applyCustomEmoji(guildID string, e domain.CustomEmoji) {
 	// Same strict validation as a local add — a malicious peer must not be able
 	// to plant an emoji whose image string breaks out of the client's <img src>
@@ -107,5 +117,16 @@ func (s *Service) applyCustomEmoji(guildID string, e domain.CustomEmoji) {
 	if !emojiNameRe.MatchString(e.Name) || !validEmojiImage(e.Image) {
 		return
 	}
-	_ = s.store.SaveCustomEmoji(store.CustomEmojiRow{GuildID: guildID, Name: e.Name, Image: e.Image})
+	_ = s.store.SaveCustomEmoji(emojiRow(guildID, e))
+}
+
+// emojiRow binds a record to the guild whose lane carried it. The record's own
+// GuildID claim is never stored: the only authority on where an emoji belongs is
+// the (MLS-encrypted, per-guild) topic or sync response it arrived on, and the
+// signature is taken over that same value, so the two cannot disagree.
+func emojiRow(guildID string, e domain.CustomEmoji) store.CustomEmojiRow {
+	return store.CustomEmojiRow{
+		GuildID: guildID, Name: e.Name, Image: e.Image,
+		Author: e.Author, Sig: e.Sig,
+	}
 }

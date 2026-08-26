@@ -257,11 +257,11 @@ func TestUpdateContentAuthorization(t *testing.T) {
 	_, _ = s.SaveMessage(m)
 
 	// Non-author can't edit.
-	if ok, err := s.UpdateContent(m.ID, []byte("eve"), "hacked"); err != nil || ok {
+	if ok, err := s.UpdateContent(m.ID, []byte("eve"), "hacked", nil); err != nil || ok {
 		t.Fatalf("non-author edit: ok=%v err=%v", ok, err)
 	}
 	// Author can; content updates and edited flag set.
-	if ok, err := s.UpdateContent(m.ID, author, "fixed now"); err != nil || !ok {
+	if ok, err := s.UpdateContent(m.ID, author, "fixed now", nil); err != nil || !ok {
 		t.Fatalf("author edit: ok=%v err=%v", ok, err)
 	}
 	msgs, _ := s.Messages("chan-1", 0)
@@ -465,7 +465,7 @@ func TestUpsertSyncedMessage(t *testing.T) {
 	}
 
 	// A stale remote (older Updated) must not clobber newer local state.
-	if ok, err := s.UpdateContent(local.ID, []byte("alice"), "hello-edited"); err != nil || !ok {
+	if ok, err := s.UpdateContent(local.ID, []byte("alice"), "hello-edited", nil); err != nil || !ok {
 		t.Fatalf("UpdateContent: %v %v", ok, err)
 	}
 	stale := local

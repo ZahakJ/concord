@@ -22,8 +22,8 @@ import (
 //
 // Every record is signed by its AUTHOR's account key. That is not decoration:
 // the gossip path authenticates the sender via MLS, but history-sync content
-// is attested by the RESPONDER, not the original author (README §12's forgery
-// hole — the same gap that leaves synced messages forgeable today). A forged
+// is attested by the RESPONDER, not the original author (the DESIGN.md §11.2
+// forgery hole, which messages now close the same way). A forged
 // "story from Alice" must die at verification on BOTH arrival paths, so the
 // signature is checked on gossip receive AND on sync apply, against the key
 // the guild roster holds for the claimed author.
@@ -315,7 +315,7 @@ func (s *Service) applyStoryMeta(guildID, actor string, m guildMeta) {
 // member's local copies, so authorship must come from the record's own
 // signature, and membership of the claimed author is re-checked against OUR
 // roster — otherwise any member could serve a doctored snapshot carrying
-// stories "from" people who were never even in the guild (README §12).
+// stories "from" people who were never even in the guild (DESIGN.md §11.2).
 // Reports whether a new story was stored.
 func (s *Service) applySyncedStory(guildID string, rec storyRecord) bool {
 	if !s.guildHasMember(guildID, rec.Author) {

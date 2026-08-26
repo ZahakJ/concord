@@ -1096,6 +1096,22 @@
         {#if m.pinned}<span class="pin-mark" role="img" use:tooltip={"Pinned"} aria-label="Pinned"
             ><Icon name="pin" size={11} /></span
           >{/if}
+        <!-- The name on this row is a claim somebody else made. It reached this
+             device through history sync — relayed by whichever member answered
+             the catch-up — carrying no signature from the person it names, so
+             nothing here proves authorship. Every message written by a current
+             build signs itself and never lands here; what does is history from
+             before signatures existed, or a peer running an older one. Said
+             quietly, beside the timestamp, because it is a caveat on the byline
+             rather than an accusation about the words. -->
+        {#if m.unverified}
+          <span
+            class="unsigned-mark"
+            role="img"
+            use:tooltip={"Relayed by another member and unsigned — nobody proved who wrote this"}
+            aria-label="Author unverified"><Icon name="alert" size={11} /></span
+          >
+        {/if}
       </div>
     {:else if m.pinned}
       <span class="pin-mark inline" role="img" use:tooltip={"Pinned"} aria-label="Pinned"
@@ -1276,6 +1292,11 @@
             </button>
           {/if}{@html renderMarkdown(bodyText, mentionNames, cemoji, refs)}{#if m.edited}<span
               class="edited-tag">(edited)</span
+            >{/if}{#if m.unverified && (compact || gameAside)}<span
+              class="unsigned-mark trailing"
+              role="img"
+              use:tooltip={"Relayed by another member and unsigned — nobody proved who wrote this"}
+              aria-label="Author unverified"><Icon name="alert" size={11} /></span
             >{/if}
         </div>
       {/if}
@@ -1738,6 +1759,7 @@
   .msg-head .guest-badge,
   .msg-head .ann-badge,
   .msg-head .verify-check,
+  .msg-head .unsigned-mark,
   .msg-head .pin-mark {
     flex-shrink: 0;
   }
@@ -1776,6 +1798,17 @@
     display: inline-flex;
     align-items: center;
     color: var(--ok-text);
+  }
+  /* The counterpart to .verify-check, and deliberately the same weight: a bare
+     tinted glyph, not a filled pill. This is the moderation log's verdict
+     treatment (icon + semantic colour token, --warn-text for "the signature is
+     not the problem, the absence of one is") rather than a banner. A backfilled
+     channel can be hundreds of rows deep, and a shouting badge on every one of
+     them would be read as chrome and stop being read at all. */
+  .unsigned-mark {
+    display: inline-flex;
+    align-items: center;
+    color: var(--warn-text);
   }
   .time {
     font-size: var(--fs-tiny);
@@ -1818,6 +1851,15 @@
   }
   .pin-mark.inline {
     float: right;
+  }
+  /* A grouped continuation row has no header to hang the mark off, so its mark
+     trails the text instead — the position "(edited)" already occupies. Floating
+     it to the far edge, the way a pin does, put a column of warning glyphs an
+     inch from the words they were about: fine for a pin, which is rare, and
+     wrong for this, which can be every row of a backfilled channel. */
+  .unsigned-mark.trailing {
+    margin-left: 5px;
+    vertical-align: -1px;
   }
   .body {
     margin-top: 2px;

@@ -1615,18 +1615,46 @@ Details that matter:
   anti-entropy loop, whenever applying a live commit fails, and when the OS
   resumes the app. Peers holding the sync-host permission are asked first.
 
-**The trust boundary, stated plainly.** Synced content is *attested by the
-serving member*, from their local copies, and is not re-verified against each
-original sender. This is the same trust a centralized app places in its server,
-narrowed to people who are already in your guild. Two real gates sit on top of
-it: MLS commits are re-authorised through the §7.4 governance gate as the epoch
-advances, so a member cannot smuggle in an unauthorised membership change; and
-*destructive* reconciliation, meaning tombstoning, overwriting, replacing
-reactions, or overwriting an already-known profile, is restricted to the guild
-owner or a member holding the sync-host permission. An ordinary member may only
-fill gaps. The residual gap is that an ordinary member could forge a *new*
-message attributed to somebody else; closing it wants per-message author
-signatures.
+**The trust boundary, stated plainly.** A catch-up response is the serving
+member's copy of their own disk. They are not a witness to any of it, and the
+design no longer asks them to be for the parts where authorship matters.
+
+**Every message carries its author's own signature.** It covers the message's
+id, its channel, the author's account key, the display name, the kind, the
+reply target, the base direction, the send timestamp and a hash of the body,
+and it is checked against the key the message itself names as sender — no
+roster lookup, so it still verifies years later on a peer that has never met the
+author and cannot ask anyone. Forging a message attributed to Alice therefore
+needs Alice's private key. A message whose signature does not verify is refused
+outright, on the live lane and the catch-up lane alike.
+
+An *edit* is the one mutation that changes what a signature covers, so the edit
+action carries a second signature: the author's, over the target row as it will
+read once applied. Only the author can produce it, and the receiving peer
+rebuilds the signed form from its own copy of the row before checking it.
+
+What the signature deliberately does not cover is state that happened to the
+message afterwards — deleted, edited, pinned, its reactions. That is governed by
+the rules below rather than by the author's pen, and a tombstone carries no
+signature at all, because its body is gone and there is nothing left to attest.
+
+Three gates sit on top of that. MLS commits are re-authorised through the §7.4
+governance gate as the epoch advances, so a member cannot smuggle in an
+unauthorised membership change. *Destructive* reconciliation — tombstoning,
+overwriting, replacing reactions, or overwriting an already-known profile — is
+restricted to the guild owner or a member holding the sync-host permission; an
+ordinary member may only fill gaps. And pack records prove their own authority
+(§12).
+
+**The residual, stated as plainly.** A signature that is absent cannot be
+distinguished from one that never existed. Every message written before this
+field did, and everything a peer running an older build holds, arrives unsigned,
+and refusing those would delete history rather than protect anybody. So an
+unsigned message that arrives through catch-up is stored and **marked**: the
+client shows it as unverified beside the timestamp, because the name on it is
+the serving member's claim and not a proof. Refusing unsigned messages outright
+becomes possible only once the field is everywhere, and that is a later
+decision, not this one.
 
 ### 11.3 Attachments
 
@@ -1700,44 +1728,67 @@ The same reasoning shapes four features that *could* have been remote:
   recorded once rather than re-derived, so emptying the collection later does
   not retract it.
 
-### An asymmetry in how packs are received
+### How a pack record proves its own authority
 
-Worth documenting because it is a real hole, self-documented in the source, and
-the kind of thing that belongs in a design paper rather than being discovered
-later.
+A GIF-pack entry and a custom emoji are not authorship, they are **authority**:
+somebody holding manage-guild put an image in the guild's shared assets, where it
+renders in every member's picker. Both lanes have to establish that, and for a
+long time only one of them could.
 
 ```
    GOSSIP path (guild meta topic)          HISTORY-SYNC path
    ──────────────────────────────          ─────────────────
    MLS authenticates the announcer         MLS authenticates the RESPONDER
             │                                       │
-   check: does the announcer hold          check: … impossible.
-   MANAGE GUILD?                           Catch-up is served by whichever
-            │                              member answered, NOT by the admin
-        yes ▼ apply                        who created the record.
-        no  ✗ drop                                  │
-                                                    ▼ applied after format
-                                                      validation only
+   check: does the announcer hold          the responder is whoever answered,
+   MANAGE GUILD?                           NOT the admin who created it —
+            │                              so ask the RECORD instead:
+        yes ▼ apply                                 │
+        no  ✗ drop                          does its signature verify for
+                                            THIS guild, and does its author
+                                            hold MANAGE GUILD in our own
+                                            governance state?
+                                                    │
+                                            yes ▼ apply   no ✗ drop
 ```
 
-The gossip path verifies that the member announcing a GIF-pack entry or a custom
-emoji holds the manage-guild permission. The history-sync path cannot, because
-requiring the *responder* to be an admin would stop an ordinary member handing
-over a pack that is legitimately theirs to relay. The consequence is real: a
-member without manage-guild can inject a pack record, or replace an existing
-emoji's image, by serving a doctored snapshot.
+The record carries the adding admin's account key and their signature over it.
+The guild it belongs to is **under** that signature without travelling in it: the
+verifier substitutes the guild whose (MLS-encrypted, per-guild) lane the record
+arrived on, so a pack signed for one guild produces different bytes when replayed
+into another and fails. Cross-guild replay is closed by never asking the record
+where it belongs. The permission is judged against the *receiver's* governance
+state, not the responder's word — the same posture a backfilled MLS commit is
+held to — and pack records are applied after the governance operations in the
+same response, so an admin promoted while you were away is already an admin by
+the time their emoji is judged.
 
-What bounds the damage: records are validated as a local addition would be (name
-and tag patterns, a 500-entry pack ceiling for new identifiers, image data URIs
-restricted to PNG/JPEG/GIF/WebP under 256 KiB, with SVG excluded so there is no
-stored scripting), the record's own guild claim is discarded in favour of the
-topic it arrived on, and deletions cannot be injected at all because the sync
-payload carries only additions.
+This lane **fails closed on an absent signature too**, which is where it parts
+company with messages. An unsigned message is the entire history of every guild
+that predates the field, and refusing it would delete history; an unsigned pack
+record is exactly the injection being blocked. The gossip lane still accepts
+unsigned records, because there the announcer is MLS-authenticated and their
+authority is checked directly, which is the whole of what a signature would add.
 
-Closing it properly wants pack and emoji records to carry the creating admin's
-signature, the way governance operations already do (§7.4). That is a larger
-change than moving one line, and one that should cover both at once. Until then
-it is stated here rather than buried.
+Records created before signatures existed are not destroyed and do not silently
+stop working. At launch, every guild where **you** hold manage-guild has its
+unsigned emoji and GIFs signed with your own key — an admin's signature on a pack
+record says "somebody entitled to put this in the guild put it there", and an
+admin re-signing a record they already hold is making that statement truthfully
+about something they could add from scratch in the same breath. It is not a claim
+about who added it first, and the key on the record is the adopting admin's own.
+A member without the permission leaves their copies alone, because signing would
+be a claim they are not entitled to make; their copies stay usable locally and
+simply do not spread, which is the correct answer for them.
+
+The older bounds all still hold underneath: records are validated exactly as a
+local addition is (name and tag patterns, a 500-entry pack ceiling for new
+identifiers, image data URIs restricted to PNG/JPEG/GIF/WebP under 256 KiB, with
+SVG excluded so there is no stored scripting).
+
+One thing this does not fix: the sync payload carries only additions, so a member
+holding an old copy can re-offer a record its author legitimately signed and
+later removed. Deletion propagation is a tombstone problem, not a signature one.
 
 ---
 
@@ -1753,6 +1804,8 @@ Security claims are meaningless without a stated adversary.
 | A malicious or compromised rendezvous / relay | Never a group member, never an endpoint of the peers' own session. Its worst behaviour is refusal (§6.7). |
 | "Hack the server" | There is no central store to breach, subpoena, or leak. |
 | Message forgery or tampering | Every message is MLS-authenticated under the group key and signed by the sender's leaf. |
+| Forgery by a member relaying your history | Messages carry their author's own Ed25519 signature over the message and the channel it belongs to, checked against the key the message names — no roster, so it holds years later against an author who has left. A member serving catch-up is a courier, not a witness, and a signature that fails is refused on every lane (§11.2). Unsigned history predating the field is shown as unverified rather than attributed. |
+| A member without manage-guild injecting an emoji or GIF pack | Pack records carry the adding admin's signature, bound to the guild; catch-up refuses one whose signature does not verify or whose author does not hold manage-guild in *your* governance state (§12). |
 | Impersonation on the network | A PeerID *is* a public key; the transport handshake fails against anyone who does not hold the private half. |
 | Impersonation at first contact | Out-of-band fingerprint ("safety number") comparison, plus a local notice when a contact's device set grows. |
 | Retroactive decryption of recorded traffic after a key leak | Forward secrecy: past epochs' keys are deleted and cannot be recomputed. |
@@ -1772,8 +1825,8 @@ Security claims are meaningless without a stated adversary.
 | **A stolen device, in full** | Message bodies, attachments and the identity seed are encrypted at rest. Sender keys, timestamps, reactions, profiles, avatars, guild and channel names, the governance log, settings, and the MLS group state directory including leaf private keys, are on disk in the clear. Someone with the disk learns the shape of your social life and can decrypt captured group traffic at the current epoch; message *content* in your database still needs your passphrase. |
 | **`peers.json` is a plaintext contact list** | Remembering peers so friendships survive the rendezvous means writing peer IDs, addresses and last-seen times beside the encrypted store, readable without the passphrase. Each entry converts directly into the fingerprint the app shows for verification, so a stolen laptop or a config directory swept into a cloud backup yields the social graph, who and where and when, while every message stays sealed. Individually these addresses crossed the wire anyway; the *set* is what the encrypted store is otherwise careful never to write in the clear. It wants sealing with the same key as everything else, which means loading it after unlock rather than before, which is why it is not done yet. |
 | **Relay privileges are granted but never revoked** | Removing or banning someone drops them from the guild, but nothing withdraws the tag that grants them relay access, so until the process restarts they keep it and keep being re-dialled. |
-| **History-sync authenticity** | Content served during catch-up is attested by the serving member, not re-verified per original sender. Commits are re-authorised and destructive reconciliation is restricted, but an ordinary member could forge a new message attributed to someone else. Wants per-message author signatures (§11.2). |
-| **GIF-pack and custom-emoji records injected via sync** | The gossip path checks manage-guild; the sync path cannot. Bounded by format validation and pack ceilings, not by authority. Wants signed records (§12). |
+| **Unsigned history cannot be told from stripped history** | A message that carries a signature is verified and refused if it fails, so forging one attributed to somebody else is closed. What remains is the absence: every message written before the field existed, and everything a peer on an older build holds, arrives unsigned, and a member serving catch-up could hand over an unsigned message with anyone's name on it. Such a row is stored and displayed as **unverified** rather than attributed, so the claim is qualified rather than believed — but it is kept, because refusing it would delete history instead of protecting anyone. Refusing unsigned messages outright is available only once the field is ubiquitous (§11.2). |
+| **A removed pack entry can come back through sync** | Injection is closed — pack and emoji records prove their author's manage-guild on both lanes (§12) — but the sync payload carries only additions, so a member holding an old copy can re-offer a record its author legitimately signed and later removed. Fixing that is a tombstone, not a signature. |
 | **A removed member watching the roster** | Commits are signed but not encrypted, and a former member still knows the group identifier, so they can keep observing membership churn. Content stays sealed (§7.6). |
 | **The `contacts` table grows and is never pruned** | One row per peer ID ever seen. Only unverified rows are ever deleted, and this is the same mechanism that lets strangers reach you at all. |
 | **Concurrent membership commits do not merge** | One branch loses and its members recover by re-admission (§7.5). |

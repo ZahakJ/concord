@@ -14,6 +14,7 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
 )
 
 // This file implements the guild lifecycle: creating a guild, generating and
@@ -1152,6 +1153,22 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 	// attribute in every recipient's DOM, and this node is the last place able
 	// to guarantee it is one of the two things that means anything.
 	msg.Dir = domain.ValidDir(dir)
+	// Sign the message as its author, before anything encrypts or stores it.
+	// MLS already proves who sent this frame; the signature is what survives the
+	// frame — a member serving this message back to a peer years from now attests
+	// nothing, and this is what that peer checks instead of taking their word
+	// (recordsig.go).
+	msg.Sig = s.signMessage(msg)
+	// An edit rewrites a body some earlier signature covered, so the author signs
+	// the target row again in its post-edit form and sends that alongside. Only
+	// the author can: the row's identity (its id, its channel, its original
+	// timestamp) is fixed, and the key that signed it the first time is the one
+	// every receiver will check the second.
+	if kind == "edit" && replyTo != "" {
+		if target, ok, err := s.store.MessageByID(replyTo); err == nil && ok && bytes.Equal(target.Sender, msg.Sender) {
+			msg.RowSig = s.id.Sign(messageRowSigningBytes(target, content))
+		}
+	}
 	payload, _ := json.Marshal(msg)
 	ct, err := s.mls.Encrypt(s.ctx, groupID, payload)
 	if err != nil {
@@ -1174,7 +1191,7 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 		s.applyReaction(msg.ReplyTo, msg.Content, msg.Sender)
 		return msg, nil
 	case "edit":
-		s.applyEdit(msg.ReplyTo, msg.Content, msg.Sender)
+		s.applyEdit(msg.ReplyTo, msg.Content, msg.Sender, msg.RowSig)
 		return msg, nil
 	case "pin":
 		s.applyPin(msg.ReplyTo)
@@ -1224,11 +1241,25 @@ func (s *Service) EditMessage(channelID, targetID, newContent string) error {
 
 // applyEdit updates a target message's content (if bySender authored it) and
 // re-emits it so the UI refreshes.
-func (s *Service) applyEdit(targetID, newContent string, bySender []byte) {
+//
+// rowSig is the author's signature over the row in its edited form, carried by
+// the edit action. It is checked here rather than trusted: the projection is
+// rebuilt from OUR copy of the row, so a signature that verifies proves the
+// author signed this exact body against this exact message, and one that does
+// not is simply not stored — the edit still applies (it arrived authenticated),
+// the row just stops claiming a proof it does not have.
+func (s *Service) applyEdit(targetID, newContent string, bySender []byte, rowSig []byte) {
 	if targetID == "" || newContent == "" {
 		return
 	}
-	ok, err := s.store.UpdateContent(targetID, bySender, newContent)
+	var keep []byte
+	if len(rowSig) > 0 {
+		if target, found, err := s.store.MessageByID(targetID); err == nil && found &&
+			identity.Verify(bySender, messageRowSigningBytes(target, newContent), rowSig) {
+			keep = rowSig
+		}
+	}
+	ok, err := s.store.UpdateContent(targetID, bySender, newContent, keep)
 	if err != nil || !ok {
 		return
 	}
@@ -2506,6 +2537,15 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if !s.memberHasPerm(guildID, actor, PermManageGuild) {
 			return
 		}
+		// A signature that is present must verify; an absent one is accepted on
+		// this lane only, where the check above already established the
+		// announcer's authority. See applyGifMeta for the full reasoning — the
+		// two pack lanes keep exactly the same rule.
+		if len(m.CustomEmoji.Sig) > 0 &&
+			!verifyPackSig(m.CustomEmoji.Author, m.CustomEmoji.Sig, emojiSigningBytes(guildID, m.CustomEmoji)) {
+			refusedPacks.note(1, "announced emoji records", actor)
+			return
+		}
 		s.applyCustomEmoji(guildID, m.CustomEmoji)
 		s.emitGuildUpdate()
 	case "emoji_removed":
@@ -2855,6 +2895,21 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	// devices (whose leaf credential is a device cert) is attributed to the one
 	// account, and every stored/compared Sender is a uniform 32-byte account key.
 	m.Sender = accountKeyOf(msg.SenderID)
+	// FAIL CLOSED on a signature that does not verify. A message whose author
+	// signature is present and wrong has been altered or fabricated somewhere
+	// between the pen and here, and there is no version of "be lenient" that
+	// makes storing it the careful choice. An ABSENT signature is a different
+	// thing entirely — an older peer, or a build that predates the field — and
+	// on this lane it costs nothing, because MLS authenticated the sender of
+	// this frame end to end. Only the relayed lane has to qualify that (sync.go).
+	if len(m.Sig) > 0 && !verifyMessageSig(m) {
+		refusedMessages.note(1, "live messages", accountFingerprintOf(m.Sender))
+		return true
+	}
+	// The mark is ours to make, never the sender's to assert. Nothing on this
+	// lane earns it — MLS proved who sent the frame — so it is cleared rather
+	// than adopted, exactly as the sync lane recomputes it.
+	m.Unverified = false
 	switch m.Kind {
 	case "delete":
 		s.applyDelete(m.ReplyTo, m.Sender, m.ChannelID)
@@ -2863,7 +2918,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 		s.applyReaction(m.ReplyTo, m.Content, m.Sender)
 		return true
 	case "edit":
-		s.applyEdit(m.ReplyTo, m.Content, m.Sender)
+		s.applyEdit(m.ReplyTo, m.Content, m.Sender, m.RowSig)
 		return true
 	case "pin":
 		s.applyPin(m.ReplyTo)

@@ -309,6 +309,16 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 		`ALTER TABLE messages ADD COLUMN updated INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN expired INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE messages ADD COLUMN dir TEXT NOT NULL DEFAULT ''`,
+		// The author's own signature, and whether the row reached us relayed with
+		// nothing proving who wrote it. Existing rows get NULL and 0: history
+		// written before signatures existed is kept, not destroyed, and it is not
+		// retroactively accused either — nobody relayed it to us, we were there.
+		`ALTER TABLE messages ADD COLUMN sig BLOB`,
+		`ALTER TABLE messages ADD COLUMN unverified INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE custom_emoji ADD COLUMN author BLOB`,
+		`ALTER TABLE custom_emoji ADD COLUMN sig BLOB`,
+		`ALTER TABLE guild_gifs ADD COLUMN author BLOB`,
+		`ALTER TABLE guild_gifs ADD COLUMN sig BLOB`,
 		`ALTER TABLE channels ADD COLUMN type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
@@ -893,17 +903,21 @@ func (s *Store) Events(guildID string) ([]domain.Event, error) {
 	return out, rows.Err()
 }
 
-// CustomEmojiRow is one guild custom emoji.
+// CustomEmojiRow is one guild custom emoji. Author/Sig carry the adding admin's
+// account key and their signature over the record, so a peer that receives it
+// second-hand can check the authority behind it instead of the messenger.
 type CustomEmojiRow struct {
 	GuildID, Name, Image string
+	Author, Sig          []byte
 }
 
 // SaveCustomEmoji upserts a guild custom emoji.
 func (s *Store) SaveCustomEmoji(e CustomEmojiRow) error {
 	_, err := s.db.Exec(
-		`INSERT INTO custom_emoji (guild_id, name, image, created) VALUES (?, ?, ?, ?)
-		 ON CONFLICT(guild_id, name) DO UPDATE SET image=excluded.image`,
-		e.GuildID, e.Name, e.Image, time.Now().UnixNano())
+		`INSERT INTO custom_emoji (guild_id, name, image, created, author, sig) VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(guild_id, name) DO UPDATE SET
+		   image=excluded.image, author=excluded.author, sig=excluded.sig`,
+		e.GuildID, e.Name, e.Image, time.Now().UnixNano(), nilIfEmpty(e.Author), nilIfEmpty(e.Sig))
 	if err != nil {
 		return fmt.Errorf("store: save custom emoji: %w", err)
 	}
@@ -918,7 +932,7 @@ func (s *Store) DeleteCustomEmoji(guildID, name string) error {
 
 // CustomEmoji returns a guild's custom emoji, ordered by name.
 func (s *Store) CustomEmoji(guildID string) ([]CustomEmojiRow, error) {
-	rows, err := s.db.Query(`SELECT guild_id, name, image FROM custom_emoji WHERE guild_id=? ORDER BY name`, guildID)
+	rows, err := s.db.Query(`SELECT guild_id, name, image, author, sig FROM custom_emoji WHERE guild_id=? ORDER BY name`, guildID)
 	if err != nil {
 		return nil, err
 	}
@@ -926,7 +940,7 @@ func (s *Store) CustomEmoji(guildID string) ([]CustomEmojiRow, error) {
 	var out []CustomEmojiRow
 	for rows.Next() {
 		var e CustomEmojiRow
-		if err := rows.Scan(&e.GuildID, &e.Name, &e.Image); err != nil {
+		if err := rows.Scan(&e.GuildID, &e.Name, &e.Image, &e.Author, &e.Sig); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -940,17 +954,22 @@ func (s *Store) CustomEmoji(guildID string) ([]CustomEmojiRow, error) {
 type GuildGifRow struct {
 	GuildID, ID, Name, Tags, Keys, Subtype string
 	Width, Height                          int
+	// Author is the adding admin's account public key and Sig their signature
+	// over the record (app.gifSigningBytes). See CustomEmojiRow.
+	Author, Sig []byte
 }
 
 // SaveGuildGif upserts one guild GIF (id = the attachment blob id).
 func (s *Store) SaveGuildGif(g GuildGifRow) error {
 	_, err := s.db.Exec(
-		`INSERT INTO guild_gifs (guild_id, id, name, tags, att_keys, subtype, width, height, created)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO guild_gifs (guild_id, id, name, tags, att_keys, subtype, width, height, created, author, sig)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(guild_id, id) DO UPDATE SET
 		   name=excluded.name, tags=excluded.tags, att_keys=excluded.att_keys,
-		   subtype=excluded.subtype, width=excluded.width, height=excluded.height`,
-		g.GuildID, g.ID, g.Name, g.Tags, g.Keys, g.Subtype, g.Width, g.Height, time.Now().UnixNano())
+		   subtype=excluded.subtype, width=excluded.width, height=excluded.height,
+		   author=excluded.author, sig=excluded.sig`,
+		g.GuildID, g.ID, g.Name, g.Tags, g.Keys, g.Subtype, g.Width, g.Height, time.Now().UnixNano(),
+		nilIfEmpty(g.Author), nilIfEmpty(g.Sig))
 	if err != nil {
 		return fmt.Errorf("store: save guild gif: %w", err)
 	}
@@ -967,7 +986,7 @@ func (s *Store) DeleteGuildGif(guildID, id string) error {
 // GuildGifs returns a guild's pack, newest first (how a picker wants it).
 func (s *Store) GuildGifs(guildID string) ([]GuildGifRow, error) {
 	rows, err := s.db.Query(
-		`SELECT guild_id, id, name, tags, att_keys, subtype, width, height
+		`SELECT guild_id, id, name, tags, att_keys, subtype, width, height, author, sig
 		 FROM guild_gifs WHERE guild_id=? ORDER BY created DESC`, guildID)
 	if err != nil {
 		return nil, err
@@ -976,7 +995,7 @@ func (s *Store) GuildGifs(guildID string) ([]GuildGifRow, error) {
 	var out []GuildGifRow
 	for rows.Next() {
 		var g GuildGifRow
-		if err := rows.Scan(&g.GuildID, &g.ID, &g.Name, &g.Tags, &g.Keys, &g.Subtype, &g.Width, &g.Height); err != nil {
+		if err := rows.Scan(&g.GuildID, &g.ID, &g.Name, &g.Tags, &g.Keys, &g.Subtype, &g.Width, &g.Height, &g.Author, &g.Sig); err != nil {
 			return nil, err
 		}
 		out = append(out, g)
@@ -988,9 +1007,9 @@ func (s *Store) GuildGifs(guildID string) ([]GuildGifRow, error) {
 func (s *Store) GuildGif(guildID, id string) (GuildGifRow, bool, error) {
 	var g GuildGifRow
 	err := s.db.QueryRow(
-		`SELECT guild_id, id, name, tags, att_keys, subtype, width, height
+		`SELECT guild_id, id, name, tags, att_keys, subtype, width, height, author, sig
 		 FROM guild_gifs WHERE guild_id=? AND id=?`, guildID, id).
-		Scan(&g.GuildID, &g.ID, &g.Name, &g.Tags, &g.Keys, &g.Subtype, &g.Width, &g.Height)
+		Scan(&g.GuildID, &g.ID, &g.Name, &g.Tags, &g.Keys, &g.Subtype, &g.Width, &g.Height, &g.Author, &g.Sig)
 	if err == sql.ErrNoRows {
 		return GuildGifRow{}, false, nil
 	}
@@ -1198,10 +1217,11 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
 	res, err := s.db.Exec(
-		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
 		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir), sealed, nonce[:], m.Sent.UnixNano(),
+		nilIfEmpty(m.Sig), boolToInt(m.Unverified),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
@@ -1252,7 +1272,7 @@ func (s *Store) UnreadCounts(sinceNano map[string]int64) (map[string]int, error)
 // Messages returns up to limit most-recent messages for a channel, oldest
 // first, decrypting bodies. A limit <= 0 returns all messages.
 func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) {
-	q := `SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent
+	q := `SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent, sig, unverified
 	      FROM messages WHERE channel_id = ? ORDER BY sent DESC`
 	args := []any{channelID}
 	if limit > 0 {
@@ -1270,13 +1290,14 @@ func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) 
 		var m domain.Message
 		var enc, nonceB []byte
 		var sent int64
-		var deleted, edited, pinned, expired int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
+		var deleted, edited, pinned, expired, unverified int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent, &m.Sig, &unverified); err != nil {
 			return nil, err
 		}
 		m.Edited = edited != 0
 		m.Pinned = pinned != 0
 		m.Expired = expired != 0
+		m.Unverified = unverified != 0
 		if deleted != 0 {
 			m.Deleted = true // leave content blank
 		} else {
@@ -1317,7 +1338,7 @@ func (s *Store) MessagesBefore(channelID string, beforeNano int64, limit int) ([
 		limit = 200
 	}
 	rows, err := s.db.Query(
-		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent
+		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent, sig, unverified
 		 FROM messages WHERE channel_id = ? AND sent < ? ORDER BY sent DESC LIMIT ?`,
 		channelID, beforeNano, limit)
 	if err != nil {
@@ -1330,13 +1351,14 @@ func (s *Store) MessagesBefore(channelID string, beforeNano int64, limit int) ([
 		var m domain.Message
 		var enc, nonceB []byte
 		var sent int64
-		var deleted, edited, pinned, expired int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent); err != nil {
+		var deleted, edited, pinned, expired, unverified int
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent, &m.Sig, &unverified); err != nil {
 			return nil, err
 		}
 		m.Edited = edited != 0
 		m.Pinned = pinned != 0
 		m.Expired = expired != 0
+		m.Unverified = unverified != 0
 		if deleted != 0 {
 			m.Deleted = true
 		} else {
@@ -1495,11 +1517,11 @@ func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
 	var enc, nonceB []byte
 	var sent int64
 	var deleted int
-	var edited, pinned int
+	var edited, pinned, expired, unverified int
 	err := s.db.QueryRow(
-		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent
+		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent, sig, unverified
 		 FROM messages WHERE id = ?`, id,
-	).Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent)
+	).Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent, &m.Sig, &unverified)
 	if err == sql.ErrNoRows {
 		return domain.Message{}, false, nil
 	}
@@ -1508,6 +1530,8 @@ func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
 	}
 	m.Edited = edited != 0
 	m.Pinned = pinned != 0
+	m.Expired = expired != 0
+	m.Unverified = unverified != 0
 	if deleted != 0 {
 		m.Deleted = true
 	} else if content, oerr := s.open(enc, nonceB); oerr == nil {
@@ -1863,7 +1887,16 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 
 // UpdateContent replaces a message's (encrypted) content, but only if bySender
 // authored it. Marks the message edited. Returns whether a row changed.
-func (s *Store) UpdateContent(id string, bySender []byte, newContent string) (bool, error) {
+//
+// newSig is the author's re-signature over the row as it will now read, or nil
+// when the editing client did not send one (an older peer). The row's old
+// signature covered the old body and cannot survive the edit either way, so it
+// is replaced rather than left standing: a stale signature is worse than none,
+// because every peer downstream would refuse the row rather than merely
+// disbelieve it. A row that ends up with no signature is not marked unverified —
+// the edit itself arrived authenticated, on the live lane or from a trusted sync
+// source, which is a different question from who wrote the words.
+func (s *Store) UpdateContent(id string, bySender []byte, newContent string, newSig []byte) (bool, error) {
 	var sender []byte
 	err := s.db.QueryRow(`SELECT sender FROM messages WHERE id = ?`, id).Scan(&sender)
 	if err == sql.ErrNoRows {
@@ -1881,8 +1914,8 @@ func (s *Store) UpdateContent(id string, bySender []byte, newContent string) (bo
 	}
 	sealed := secretbox.Seal(nil, []byte(newContent), &nonce, &s.key)
 	if _, err := s.db.Exec(
-		`UPDATE messages SET content_enc = ?, nonce = ?, edited = 1, updated = ? WHERE id = ?`,
-		sealed, nonce[:], time.Now().UnixNano(), id,
+		`UPDATE messages SET content_enc = ?, nonce = ?, edited = 1, updated = ?, sig = ?, unverified = 0 WHERE id = ?`,
+		sealed, nonce[:], time.Now().UnixNano(), nilIfEmpty(newSig), id,
 	); err != nil {
 		return false, err
 	}
@@ -1908,7 +1941,10 @@ func (s *Store) MarkDeleted(id string, bySender []byte, force bool) (domain.Mess
 	if !force && (len(bySender) == 0 || string(m.Sender) != string(bySender)) {
 		return domain.Message{}, false, nil // not the author and not a moderator
 	}
-	if _, err := s.db.Exec(`UPDATE messages SET deleted = 1, updated = ? WHERE id = ?`, time.Now().UnixNano(), id); err != nil {
+	// The signature dies with the body it covered. Keeping it would make every
+	// tombstone a record that fails verification on the next peer to receive it,
+	// which is how deletes would stop propagating.
+	if _, err := s.db.Exec(`UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0 WHERE id = ?`, time.Now().UnixNano(), id); err != nil {
 		return domain.Message{}, false, err
 	}
 	m.ID = id
@@ -2359,7 +2395,7 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 	// 'app' is included so app-plane payloads sync like any other message: a
 	// member who was offline still receives the machine traffic they missed.
 	rows, err := s.db.Query(
-		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated
+		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig
 		 FROM messages WHERE channel_id = ? AND (sent > ? OR updated > ?) AND kind IN ('', 'system', 'app')
 		 ORDER BY sent ASC LIMIT ?`, channelID, sinceNano, sinceNano, limit)
 	if err != nil {
@@ -2373,7 +2409,7 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 		var enc, nonceB []byte
 		var sent, updated int64
 		var deleted, edited, pinned int
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent, &updated); err != nil {
+		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &enc, &nonceB, &sent, &updated, &m.Sig); err != nil {
 			return nil, err
 		}
 		if deleted != 0 {
@@ -2443,11 +2479,12 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 		}
 		sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 		if _, err := s.db.Exec(
-			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir),
 			boolToInt(m.Deleted), boolToInt(m.Edited), boolToInt(m.Pinned),
 			sealed, nonce[:], m.Sent.UnixNano(), remoteUpdated,
+			nilIfEmpty(m.Sig), boolToInt(m.Unverified),
 		); err != nil {
 			return false, fmt.Errorf("store: upsert synced message: %w", err)
 		}
@@ -2462,7 +2499,7 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 	default:
 		if m.Deleted && curDeleted == 0 {
 			if _, err := s.db.Exec(
-				`UPDATE messages SET deleted = 1, updated = ? WHERE id = ?`, maxInt64(remoteUpdated, curUpdated), m.ID,
+				`UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0 WHERE id = ?`, maxInt64(remoteUpdated, curUpdated), m.ID,
 			); err != nil {
 				return false, err
 			}
@@ -2474,8 +2511,9 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 			}
 			sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 			if _, err := s.db.Exec(
-				`UPDATE messages SET content_enc = ?, nonce = ?, edited = ?, pinned = ?, updated = ? WHERE id = ?`,
-				sealed, nonce[:], boolToInt(m.Edited), boolToInt(m.Pinned), remoteUpdated, m.ID,
+				`UPDATE messages SET content_enc = ?, nonce = ?, edited = ?, pinned = ?, updated = ?, sig = ?, unverified = ? WHERE id = ?`,
+				sealed, nonce[:], boolToInt(m.Edited), boolToInt(m.Pinned), remoteUpdated,
+				nilIfEmpty(m.Sig), boolToInt(m.Unverified), m.ID,
 			); err != nil {
 				return false, err
 			}
@@ -2560,6 +2598,15 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// nilIfEmpty stores an absent signature as SQL NULL rather than a zero-length
+// blob, so "has a signature" is one predicate in the database and not two.
+func nilIfEmpty(b []byte) any {
+	if len(b) == 0 {
+		return nil
+	}
+	return b
 }
 
 func maxInt64(a, b int64) int64 {

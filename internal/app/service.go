@@ -1298,6 +1298,12 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// grow with people you actually share a group with.
 	s.pruneContacts()
 
+	// Pack records created before author signatures existed carry none, and the
+	// catch-up lane refuses unsigned ones. Any guild where this account holds
+	// Manage Guild gets its legacy emoji and GIFs signed here, so they keep
+	// reaching new members instead of quietly stopping (recordsig.go).
+	s.adoptUnsignedPackRecords()
+
 	// Background recovery: periodically re-attempt re-add for any stranded guild.
 	go s.runHealLoop()
 

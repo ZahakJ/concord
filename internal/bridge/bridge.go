@@ -271,7 +271,13 @@ type MessageView struct {
 	Edited    bool                `json:"edited"`
 	Pinned    bool                `json:"pinned"`
 	Reactions map[string][]string `json:"reactions"` // emoji -> fingerprints
-	Sent      string              `json:"sent"`
+	// Unverified says this row reached this device THROUGH ANOTHER MEMBER with
+	// nothing proving who wrote it — a history-sync backfill of a message that
+	// carried no author signature. It has to reach the view layer because the
+	// reader cannot derive it and it changes what the row means: the name on it
+	// is the serving peer's claim, not a proof. Live messages never carry it.
+	Unverified bool   `json:"unverified,omitempty"`
+	Sent       string `json:"sent"`
 }
 
 type MemberView struct {
@@ -3015,6 +3021,7 @@ func messageView(m domain.Message) MessageView {
 		Edited:     m.Edited,
 		Pinned:     m.Pinned,
 		Reactions:  m.Reactions,
+		Unverified: m.Unverified,
 		// Full nanosecond precision, fixed width. This string is ALSO the
 		// scroll-up pagination cursor (MessagesBefore parses it back to
 		// UnixNano and the store compares `sent < cursor` exactly): truncating

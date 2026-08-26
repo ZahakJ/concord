@@ -193,6 +193,16 @@ func (s *Service) ImportArchive(sealed []byte, passphrase string) (ArchiveStats,
 			st.Skipped++
 			continue
 		}
+		// An author signature that survived the export round trip is kept, and one
+		// that does not check out is dropped rather than the row: this is the
+		// operator restoring their own file, so the import is not the place to
+		// argue about it. What matters is the invariant every other path relies
+		// on — a stored signature is one that verified — because these rows are
+		// re-served to peers by history sync, and a signature that fails there is
+		// a refusal, not a shrug.
+		if len(m.Sig) > 0 && !verifyMessageSig(m) {
+			m.Sig = nil
+		}
 		// SaveMessage is ON CONFLICT(id) DO NOTHING, which is exactly the
 		// additive semantics wanted: an id already here wins, untouched.
 		added, err := s.store.SaveMessage(m)

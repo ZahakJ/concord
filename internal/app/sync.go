@@ -34,10 +34,16 @@ var errSyncDeclined = errors.New("app: peer declined to sync")
 //     pins, and reactions of messages we already hold (state snapshots, not
 //     action replay).
 //
-// Trust note: everything in the payload is *attested by the responding member*
-// (their local copies), not re-verified against each original sender — the
-// same trust a centralized app places in its server, but limited to guild
-// members.
+// Trust note: the payload is the responding member's local copies, and the
+// responder attests nothing about who produced any of it. What used to follow
+// from that — "not re-verified against each original sender" — is no longer true
+// of the parts that carry an author's own signature. Messages, stories, pack
+// records and archive manifests each prove themselves on arrival against the key
+// that signed them, so the member serving the payload is a courier rather than a
+// witness (recordsig.go). What is still taken on their word is the guild
+// snapshot, the profile roster, categories and events, and the destructive
+// reconcile of rows we already hold — which is why that last one is gated on the
+// owner and designated sync hosts rather than on any member.
 // Message saves are idempotent by ID and state adoption is newest-wins, so
 // overlapping syncs against several members are harmless.
 
@@ -714,9 +720,9 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 	// state we already hold (tombstoning/rewriting messages, overwriting cached
 	// profiles). Gap-fill inserts stay open to any member so ordinary catch-up
 	// works; destructive reconcile is limited to the guild owner and designated
-	// SyncHost members. (Forging a brand-new message attributed to another member
-	// is the residual gap here — closing it fully needs per-message author
-	// signatures; tracked as a follow-up.)
+	// SyncHost members. Forging a brand-new message attributed to another member
+	// used to be the residual gap here; it is now the author's own signature that
+	// answers it, not this flag (see the message loop at the bottom).
 	trusted := s.trustedSyncSource(guildID, srcFpr)
 
 	// Channels created while we were away (addChannel is idempotent and
@@ -799,27 +805,6 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 			_ = s.store.SaveCategory(c)
 		}
 	}
-	for _, e := range payload.Emoji {
-		s.applyCustomEmoji(guildID, e)
-	}
-	// GIF-pack records are metadata only (the blobs are fetched on demand), so a
-	// member who joins after a GIF was added still learns the pack here — the
-	// gossiped announcement they missed is not replayed.
-	//
-	// Note the trust boundary, which is the same one custom emoji sit behind
-	// just above: the GOSSIP path checks that the announcing member holds
-	// PermManageGuild, but this one cannot. Catch-up is served by whichever
-	// member answered, not by the admin who created the record, so requiring the
-	// server to be an admin would stop an ordinary member handing over a pack
-	// that is legitimately theirs to relay. The consequence is real and worth
-	// naming: a member without Manage Guild can inject a pack record by serving
-	// a doctored snapshot. Closing it needs the record to carry the creating
-	// admin's signature, the way governance ops already do (ingestGovOpsRaw
-	// below) — a bigger change than moving this line, and one that would want to
-	// cover emoji at the same time.
-	for _, g := range payload.Gifs {
-		s.applyGuildGif(guildID, g)
-	}
 	// Calendar events ride the snapshot so a member who joins AFTER an event
 	// was created still converges on it — the event_upserted gossip they never
 	// received is not replayed. Trust and merge rules live in applySyncedEvent.
@@ -827,6 +812,50 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 		s.applySyncedEvent(guildID, ev)
 	}
 	s.ingestGovOpsRaw(guildID, payload.GovOps)
+
+	// Pack records, AFTER the governance ops, for the reason the archives below
+	// give: the op that granted somebody Manage Guild may be arriving in this very
+	// response, and judging their emoji against a state that predates it would
+	// refuse a record that is about to be perfectly legitimate.
+	// Custom emoji and GIF-pack records are metadata only (a GIF's bytes are
+	// fetched on demand), so a member who joins after one was added still learns
+	// it here — the gossiped announcement they missed is not replayed.
+	//
+	// THE OLD TRUST BOUNDARY, and why it is gone. The gossip path checks that the
+	// announcing member holds PermManageGuild; this path could not, because
+	// catch-up is served by whichever member answered rather than by the admin
+	// who created the record, and requiring the responder to be an admin would
+	// stop an ordinary member handing over a pack that is legitimately theirs to
+	// relay. The consequence was real: a member without Manage Guild could inject
+	// a pack record, or replace an existing emoji's image, by serving a doctored
+	// snapshot.
+	//
+	// The record now carries the creating admin's own signature, so the question
+	// is asked of the right person. Both lanes ask the identical thing of the
+	// identical member — does the AUTHOR hold Manage Guild — and neither has to
+	// trust the messenger. Unlike a message, this one FAILS CLOSED on an absent
+	// signature too: a pack record is a claim of authority, not of authorship,
+	// and an unsigned claim of authority is precisely the injection that was
+	// being blocked. Records added before signatures existed keep working on the
+	// devices that already hold them; they simply stop spreading on nobody's
+	// word, and an admin re-adding one takes a few seconds.
+	packPerm := map[string]bool{}
+	packRefused := 0
+	for _, e := range payload.Emoji {
+		if !s.authorizedPackRecord(guildID, e.Author, e.Sig, emojiSigningBytes(guildID, e), packPerm) {
+			packRefused++
+			continue
+		}
+		s.applyCustomEmoji(guildID, e)
+	}
+	for _, g := range payload.Gifs {
+		if !s.authorizedPackRecord(guildID, g.Author, g.Sig, gifSigningBytes(guildID, g), packPerm) {
+			packRefused++
+			continue
+		}
+		s.applyGuildGif(guildID, g)
+	}
+	refusedPacks.note(packRefused, "backfilled pack records", srcFpr)
 
 	// History archives, AFTER the governance ops in the same payload. The order
 	// is the whole of the interlock: a manifest is only accepted from the guild's
@@ -842,9 +871,8 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 	// whatever the serving member's disk says, and "trusted" above only covers
 	// mutating state we already hold. Each record must prove itself: the
 	// author's signature is verified against our roster's key for them, and
-	// the author's membership is re-checked, in applySyncedStory. This is the
-	// per-record closing of the forgery gap the message comment above still
-	// names as open for message rows.
+	// the author's membership is re-checked, in applySyncedStory — the same
+	// per-record proof the message loop below now applies to chat rows.
 	storyChanged := false
 	for _, rec := range payload.Stories {
 		if s.applySyncedStory(guildID, rec) {
@@ -864,6 +892,7 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 
 	self := s.id.Fingerprint()
 	anyNew := false
+	refused := 0
 	for chID, msgs := range payload.Messages {
 		s.mu.RLock()
 		_, tracked := s.channelToGuild[chID]
@@ -877,6 +906,16 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 			if m.ChannelID != chID || (m.Kind != "" && m.Kind != "system") {
 				continue
 			}
+			// THIS is the row §13 named. The responder attests nothing about who
+			// wrote these words — the payload is their disk, and their disk is
+			// whatever they chose to put in it. A signature that does not verify
+			// is refused outright; one that is absent is kept and marked, because
+			// refusing it would delete every guild's pre-signature history rather
+			// than protect anyone (recordsig.go states the reasoning in full).
+			if !messageAttestation(&m) {
+				refused++
+				continue
+			}
 			changed, err := s.store.UpsertSyncedMessage(m, self, trusted)
 			if err != nil || !changed {
 				continue
@@ -887,6 +926,7 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 			}
 		}
 	}
+	refusedMessages.note(refused, "backfilled messages", srcFpr)
 	// Activity that arrived while we were offline must reopen a closed DM, same
 	// as a live message would.
 	if anyNew {

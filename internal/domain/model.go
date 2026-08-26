@@ -133,6 +133,18 @@ type CustomEmoji struct {
 	GuildID string `json:"guildId,omitempty"`
 	Name    string `json:"name"`
 	Image   string `json:"image"` // data:image/...;base64,...
+	// Author is the account public key of the member who added this emoji, and
+	// Sig their signature over it (app.emojiSigningBytes). An emoji is a claim
+	// of AUTHORITY — it renders in every member's picker and only a Manage Guild
+	// holder may add one — and the history-sync lane has no way to check that
+	// against the member who answered rather than the one who created it. The
+	// signature is what it checks instead.
+	//
+	// Optional in both directions on the wire: an older peer drops both fields
+	// on decode and keeps working, and a record from an older peer arrives
+	// without them.
+	Author []byte `json:"author,omitempty"`
+	Sig    []byte `json:"sig,omitempty"`
 }
 
 // A Message is a single chat message. Content is the human-readable body; it is
@@ -180,6 +192,36 @@ type Message struct {
 	// Reactions aggregates emoji -> fingerprints who reacted. Populated on load;
 	// never sent over the wire (reactions travel as their own "reaction" action).
 	Reactions map[string][]string `json:"reactions,omitempty"`
+
+	// Sig is the AUTHOR's Ed25519 signature over this message, against the key in
+	// Sender (app.messageSigningBytes). It exists because the two lanes a message
+	// travels authenticate different people: live gossip authenticates the sender,
+	// but history sync authenticates whichever member answered the catch-up, and
+	// that member is not the author. Without this, a member serving history could
+	// hand a peer a message with anyone's name on it.
+	//
+	// Optional in both directions. An older peer drops it on decode and behaves
+	// exactly as it does today; a message that arrives without one is stored and
+	// marked (see Unverified) rather than refused, because "no signature" is the
+	// entire history of every guild that predates the field.
+	Sig []byte `json:"sig,omitempty"`
+
+	// RowSig appears only on an "edit" ACTION and never on a stored row: it is
+	// the author's signature over the TARGET row as it will read once the edit is
+	// applied. An edit changes the body a signature covers, so without a fresh
+	// one the edited row would carry a signature over text that no longer exists
+	// and would be refused by the very peers this feature is for. The author is
+	// the only person who can produce it, which is the whole point.
+	RowSig []byte `json:"rowSig,omitempty"`
+
+	// Unverified marks a row that reached us THROUGH A THIRD PARTY with nothing
+	// proving who wrote it — a history-sync backfill of a message carrying no
+	// signature. It is local knowledge about how the row arrived, never adopted
+	// from the wire (every ingest path recomputes it), and it is what lets the
+	// UI qualify the claim instead of attributing the message silently.
+	//
+	// A live message needs no mark: MLS authenticated its sender end to end.
+	Unverified bool `json:"unverified,omitempty"`
 }
 
 // A Contact is a peer this node has encountered, tracked for trust-on-first-use

@@ -65,6 +65,18 @@ type GuildGif struct {
 	Subtype string   `json:"subtype"` // png | jpeg | gif | webp
 	Width   int      `json:"w,omitempty"`
 	Height  int      `json:"h,omitempty"`
+	// Author is the account public key of the admin who added this entry and Sig
+	// their signature over it (app.gifSigningBytes). Adding to a guild's pack is a
+	// Manage Guild action; the gossip lane checks that against the member who
+	// announced it, and the history-sync lane — served by whoever answered, not by
+	// the admin — checks it against this instead. The guild the record belongs to
+	// is under the signature WITHOUT travelling in it, so a pack signed for one
+	// guild cannot be replayed into another.
+	//
+	// Optional on the wire in both directions: an older peer drops them on decode
+	// and behaves as it always has.
+	Author []byte `json:"author,omitempty"`
+	Sig    []byte `json:"sig,omitempty"`
 }
 
 // validGifText reports whether a display string is safe to store and show.
@@ -179,10 +191,14 @@ func (s *Service) AddGuildGif(guildID, name string, tags []string, dataURL strin
 		ID: blobID, GuildID: guildID,
 		Name: strings.TrimSpace(name), Tags: cleanGifTags(tags),
 		Keys: keys, Subtype: m[1], Width: w, Height: h,
+		Author: s.id.PublicKey(),
 	}
 	if err := validGuildGif(gif); err != nil {
 		return GuildGif{}, err
 	}
+	// Signed over the guild it is being added to, so the record proves both who
+	// put it there and where — see gifSigningBytes.
+	gif.Sig = s.id.Sign(gifSigningBytes(guildID, gif))
 	if err := s.store.SaveGuildGif(gifRow(gif)); err != nil {
 		return GuildGif{}, err
 	}
@@ -268,6 +284,18 @@ func (s *Service) applyGifMeta(guildID, actor, typ string, g *GuildGif) {
 	}
 	switch typ {
 	case "gif_added":
+		// A signature that is present must verify — fail closed, same rule the
+		// live message lane keeps. An ABSENT one is accepted here and only here:
+		// on this lane MLS authenticated the announcer and the line above already
+		// checked their authority, which is the whole of what a signature would
+		// add. That is what lets a peer running an older build still manage the
+		// pack. The record is stored exactly as it arrived, so a peer that later
+		// receives it through catch-up gets the truth about it rather than an
+		// endorsement we were in no position to give.
+		if len(g.Sig) > 0 && !verifyPackSig(g.Author, g.Sig, gifSigningBytes(guildID, *g)) {
+			refusedPacks.note(1, "announced GIF records", actor)
+			return
+		}
 		if !s.applyGuildGif(guildID, *g) {
 			return
 		}
@@ -309,6 +337,7 @@ func gifRow(g GuildGif) store.GuildGifRow {
 	return store.GuildGifRow{
 		GuildID: g.GuildID, ID: g.ID, Name: g.Name, Tags: strings.Join(g.Tags, " "),
 		Keys: g.Keys, Subtype: g.Subtype, Width: g.Width, Height: g.Height,
+		Author: g.Author, Sig: g.Sig,
 	}
 }
 
@@ -320,5 +349,6 @@ func gifFromRow(r store.GuildGifRow) GuildGif {
 	return GuildGif{
 		ID: r.ID, GuildID: r.GuildID, Name: r.Name, Tags: tags,
 		Keys: r.Keys, Subtype: r.Subtype, Width: r.Width, Height: r.Height,
+		Author: r.Author, Sig: r.Sig,
 	}
 }
