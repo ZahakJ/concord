@@ -98,14 +98,12 @@
       screenH: window.screen.height,
       screenW: window.screen.width,
       dpr: Math.round(window.devicePixelRatio * 1000) / 1000,
-      // What the floor actually decided from (see MainActivity's pushed
-      // __saFloor): the sub-pixel visual viewport and the remembered
-      // full-bleed verdict. "floor engaged" false with a 0 native top is the
-      // one-screenshot proof of which layer let a bare status bar through.
+      // The sub-pixel bottom of the visual viewport. Read next to "viewport vs
+      // screen" it answers the question every round of this bug turned on: is
+      // the page really spanning the whole display, or has something inset it?
       vvBottom: window.visualViewport
         ? Math.round((window.visualViewport.offsetTop + window.visualViewport.height) * 100) / 100
         : null,
-      floorFull: typeof window.__saFull === "boolean" ? window.__saFull : null,
       pushes: (window.__saLog || []).slice(-6).reverse(),
       now: Date.now(),
     };
@@ -473,10 +471,8 @@
           <span class="v">{ins.innerW}×{ins.innerH} / {ins.screenW}×{ins.screenH} @ {ins.dpr}×</span>
         </div>
         <div class="stat">
-          <span class="k">Visual viewport bottom · floor engaged</span>
-          <span class="v">
-            {ins.vvBottom ?? "n/a"} · {ins.floorFull === null ? "not installed" : ins.floorFull ? "yes" : "no"}
-          </span>
+          <span class="k">Visual viewport bottom</span>
+          <span class="v">{ins.vvBottom ?? "n/a"}</span>
         </div>
       </div>
       {#if ins.pushes.length}

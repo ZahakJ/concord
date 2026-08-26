@@ -158,12 +158,14 @@
      desktop never set those, so env() carries them there. max() takes whichever
      platform actually answered.
 
-     --sa-floor-top is the Android belt-and-braces: a page-side check (installed
-     by the same native push) that floors the top inset at the raw status-bar
-     height whenever the viewport demonstrably spans the whole screen
-     (innerHeight >= screen.height). If the native remaining-inset measurement
-     ever reports 0 while the app is in fact full-bleed, this keeps the top bar
-     out from under the clock. Platforms that never set it resolve it to 0. */
+     --sa-floor-top is the Android belt-and-braces: the same native push sets it
+     to the raw status-bar height UNCONDITIONALLY. It used to be gated on a
+     page-side full-bleed check, and two generations of that check measured
+     correct on every emulator while still letting a bare status bar through on
+     a real phone — so the gate was removed rather than made cleverer. If the
+     native remaining-inset measurement ever reports 0 while the app is in fact
+     full-bleed, this keeps the top bar out from under the clock. Platforms that
+     never set it resolve it to 0. */
   --safe-top: max(env(safe-area-inset-top), var(--sa-top, 0px), var(--sa-floor-top, 0px));
   --safe-bottom: max(env(safe-area-inset-bottom), var(--sa-bottom, 0px));
   --safe-left: max(env(safe-area-inset-left), var(--sa-left, 0px));
