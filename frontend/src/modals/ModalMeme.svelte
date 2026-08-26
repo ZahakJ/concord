@@ -1404,8 +1404,8 @@
     opacity: 0.4;
   }
   .mini.danger:not(:disabled):hover {
-    background: var(--danger, #b23);
-    color: #fff;
+    background: var(--danger);
+    color: var(--danger-fg);
   }
   .chips {
     display: flex;
@@ -1432,7 +1432,7 @@
   }
   .chip.on {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
   }
   /* A layer chip is identified by the picture in it — a row of "42%" labels
      tells you nothing about which pasted photo is which. */
@@ -1498,7 +1498,7 @@
   }
   .font.on {
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
   }
   .row {
     display: flex;
@@ -1570,7 +1570,7 @@
     position: sticky;
     bottom: 0;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     font-weight: 600;
     padding: 10px;
     border-radius: var(--radius-sm);

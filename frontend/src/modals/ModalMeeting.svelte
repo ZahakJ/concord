@@ -307,7 +307,7 @@
   }
   .done {
     background: var(--ok) !important;
-    color: #fff;
+    color: var(--ok-fg);
   }
   .tiny {
     font-size: var(--fs-small);

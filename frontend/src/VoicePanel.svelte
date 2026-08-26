@@ -1643,7 +1643,7 @@
      room sets it apart so it's never fat-fingered mid-call. */
   .ctl.hangup {
     background: var(--danger);
-    color: #fff;
+    color: var(--danger-fg);
     border-color: transparent;
     margin-left: 6px;
   }

@@ -386,7 +386,7 @@
      a glance the way it does on Discord. */
   .ico.on {
     background: var(--danger);
-    color: #fff;
+    color: var(--danger-fg);
     border-color: transparent;
   }
   .ico.on:hover {
@@ -402,7 +402,7 @@
   }
   .ico.hang {
     background: var(--danger);
-    color: #fff;
+    color: var(--danger-fg);
     border-color: transparent;
   }
   .ico.hang:hover {

@@ -160,7 +160,7 @@
     place-items: center;
     border-radius: 50%;
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     transition:
       transform 0.12s ease,
       background 0.12s ease;

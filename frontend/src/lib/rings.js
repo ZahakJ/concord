@@ -25,7 +25,11 @@ export const PALETTES = [
   { id: "bronze", name: "Bronze", stops: ["#6b3f1d", "#d08b4e 30%", "#f0b880 55%", "#6b3f1d"] },
   { id: "platinum", name: "Platinum", stops: ["#cfd6e2", "#ffffff 20%", "#9fb0c9 45%", "#ffffff 70%", "#cfd6e2"] },
   { id: "rose-gold", name: "Rose gold", stops: ["#8c4a44", "#f0b8ab 30%", "#e8a08f 55%", "#8c4a44"] },
-  { id: "obsidian", name: "Obsidian", stops: ["#0b0b10", "#3a3a4a 30%", "#6f6f8a 45%", "#0b0b10"] },
+  // The specular band used to top out at #6f6f8a, which is a highlight against
+  // the default ground and nothing at all against Nord's or Dracula's — 2.5:1,
+  // so on two of the shipped dark packs the "obsidian" ring was a black ring on
+  // a nearly black page. Volcanic glass has a sharp sheen; this is that sheen.
+  { id: "obsidian", name: "Obsidian", stops: ["#0b0b10", "#3a3a4a 30%", "#9a9ab8 45%", "#0b0b10"] },
   { id: "gem", name: "Diamond", stops: ["#b9f2ff", "#ffffff 12%", "#b9f2ff 24%", "#7ad7f0 40%", "#ffffff 55%", "#b9f2ff 70%", "#7ad7f0 88%", "#b9f2ff"] },
   { id: "ruby", name: "Ruby", stops: ["#6b0f1a", "#ff4d6d 30%", "#ffb3c1 50%", "#6b0f1a"] },
   { id: "emerald", name: "Emerald", stops: ["#06402b", "#2fd08a 30%", "#b8ffdf 52%", "#06402b"] },
@@ -60,7 +64,7 @@ export const RINGS = [
   // ---------- orbits: same ring, the RIDER is a config ----------
   { id: "orbit", name: "Orbit", orbit: { dot: "" }, band: true },
   { id: "comet", name: "Comet", orbit: { dot: "#bfe9ff", trail: true }, band: true },
-  { id: "satellite", name: "Satellite", orbit: { dot: "#e8eaed" }, band: true },
+  { id: "satellite", name: "Satellite", orbit: { dot: "var(--text)" }, band: true },
   { id: "binary", name: "Binary stars", orbit: { dot: "#ffd76b", dot2: "#6ad2ff" }, band: true },
   { id: "theme-orbit", name: "Your orbit", orbit: { dot: "var(--c1)" }, band: true },
   { id: "theme-duo", name: "Your duo", orbit: { dot: "var(--c1)", dot2: "var(--c2)" }, band: true },
@@ -109,9 +113,14 @@ export const RINGS = [
   { id: "pulse", name: "Pulse", halo: "" },
 
   // ---------- patterns ----------
+  // `checker` and `satellite` used to paint #1d2025 and #e8eaed — the DARK
+  // theme's --bg-2 and --text, copied out as literals. On a daylight pack the
+  // checker was a dark ring with a white ring inside it, both wrong way round,
+  // and the satellite was a near-white dot on near-white paper. They read the
+  // tokens now, so they invert with the theme instead of ignoring it.
   { id: "candy-ring", name: "Candy", art: "repeating-conic-gradient(from 0deg, #ff8fb1 0 18deg, #ffffff 18deg 36deg)" },
   { id: "barber", name: "Barber pole", art: "repeating-conic-gradient(from 0deg, #e0555b 0 20deg, #ffffff 20deg 40deg)" },
-  { id: "checker", name: "Checker", art: "repeating-conic-gradient(from 0deg, #1d2025 0 15deg, #e8eaed 15deg 30deg)" },
+  { id: "checker", name: "Checker", art: "repeating-conic-gradient(from 0deg, var(--bg-2) 0 15deg, var(--text) 15deg 30deg)" },
   { id: "sparkline", name: "Dashes", art: "repeating-conic-gradient(from 0deg, transparent 0 12deg, #fff2a8 12deg 15deg)" },
 ];
 

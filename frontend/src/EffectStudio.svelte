@@ -256,16 +256,22 @@
     font-size: var(--fs-tiny);
     color: var(--text-muted);
   }
+  /* The tile is a stand-in for a profile card, so it wears the surface a
+     profile card is painted on — not a dark gradient nailed on in hex. On the
+     six daylight packs those two literals made every preview a dark chip
+     floating on a bright page, and the pale effects inside them (of which
+     there are plenty) were invisible against the wrong ground. The decoration
+     picker next door has always used the token. */
   .tile {
     position: relative;
     display: block;
     height: 50px;
-    background: linear-gradient(140deg, #2a2f3a, #1b1f27);
+    background: linear-gradient(140deg, var(--bg-1), var(--bg-0));
   }
   /* A scene paints its own sky, and it needs the room to show a subject. */
   .tile.scene {
     height: 62px;
-    background: #0d1017;
+    background: var(--bg-0);
   }
   /* Scene tiles hold their opening frame until you point at one or pick it —
      the same bargain the ring picker already strikes with its orbits, and the

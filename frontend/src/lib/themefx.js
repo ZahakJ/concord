@@ -61,7 +61,11 @@ const PARTICLE = {
   embers: {
     kind: "rise",
     n: 14,
-    colors: ["#ffb35a", "#ff7a2f", "#ffd08a"],
+    // The one field that can't be --fx-ink: a grey ember is not an ember. It
+    // gets its own trio of tokens instead, flipped for the daylight packs the
+    // same way and for the same reason — three near-white oranges over a bright
+    // page were a field of nothing at 1.4:1. See app.css, --fx-ember-*.
+    colors: ["var(--fx-ember-mid)", "var(--fx-ember-low)", "var(--fx-ember-hot)"],
     size: [1.5, 3.5],
     dur: [7, 16],
     opacity: [0.4, 0.85],

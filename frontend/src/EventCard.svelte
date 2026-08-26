@@ -1000,7 +1000,7 @@
   }
   .evcard.live .gjoin {
     background: var(--ok);
-    color: var(--ok-fg, #fff);
+    color: var(--ok-fg);
   }
   .spin {
     width: 12px;

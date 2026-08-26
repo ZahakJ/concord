@@ -3245,7 +3245,13 @@ export const COLORWAYS = [
   { id: "silver", name: "Silver", c: ["#a9b3c1", "#e4ebf4"] },
   { id: "copper", name: "Copper", c: ["#b8672f", "#e39a5e"] },
   { id: "obsidian", name: "Obsidian", c: ["#2e3340", "#5b6478"] },
-  { id: "bone", name: "Bone", c: ["#e2dccb", "#fbf7ec"] },
+  // Both ends of this one used to be near-white (#e2dccb → #fbf7ec), which made
+  // it the only colourway with NO dark end at all: on the six daylight packs it
+  // took all 73 decorations with it — a crown, an antler and a laurel wreath
+  // all rendering as a faint smudge at 1.1:1 against the page. Aged bone rather
+  // than fresh: the root end is now a weathered tan that reads on paper as well
+  // as it does at night, and the pale end is still the highlight it always was.
+  { id: "bone", name: "Bone", c: ["#8f8368", "#efe9d8"] },
   { id: "azure", name: "Azure", c: ["#3a7fd5", "#8ec5f7"] },
   { id: "frost", name: "Frost", c: ["#79c6e2", "#d5f0fb"] },
   { id: "jade", name: "Jade", c: ["#2ea27c", "#7fd9b6"] },

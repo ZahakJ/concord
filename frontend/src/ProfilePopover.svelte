@@ -526,6 +526,7 @@
     class="pop {mem.effect && !cardEffect(mem.effect) && !cardScene(mem.effect) ? `card-effect-${mem.effect}` : ''}"
     class:sheet={S.isMobile}
     class:framed={!!cf}
+    class:haseffect={!!mem.effect}
   >
     <!-- The card effect. One `effect` id, two libraries: a drawn scene
          (lib/cardscenes.js) is painted as SVG, anything the particle engine
@@ -875,18 +876,26 @@
      single tight shadow is invisible against a busy background and a single
      wide one just makes the text look smudged.
      The `--fx-lift` custom property carries it so every text surface on the
-     card opts in by name and none of them can drift apart. */
-  .pop {
+     card opts in by name and none of them can drift apart.
+
+     Two conditions on it, both learned the hard way. It applies only when
+     there IS an effect: on the great majority of cards, which have none, a
+     triple shadow was being drawn around every glyph to protect them from a
+     flat surface, and the name simply looked slightly dirty. And the halo is
+     the PAGE's colour, not black: the point is to be the opposite of the ink,
+     so on the daylight packs — where the ink is near-black — a near-black halo
+     was not separating the name from anything, it was smudging it. */
+  .pop.haseffect {
     --fx-lift:
-      0 1px 1px rgba(4, 6, 10, 0.92),
-      0 0 3px rgba(4, 6, 10, 0.85),
-      0 0 9px rgba(4, 6, 10, 0.6);
+      0 1px 1px color-mix(in srgb, var(--fx-halo) 92%, transparent),
+      0 0 3px color-mix(in srgb, var(--fx-halo) 85%, transparent),
+      0 0 9px color-mix(in srgb, var(--fx-halo) 60%, transparent);
   }
-  .pop .name-row,
-  .pop .status-text,
-  .pop .bio,
-  .pop .sub-line,
-  .pop .roles-row {
+  .pop.haseffect .name-row,
+  .pop.haseffect .status-text,
+  .pop.haseffect .bio,
+  .pop.haseffect .sub-line,
+  .pop.haseffect .roles-row {
     text-shadow: var(--fx-lift);
   }
   @keyframes pop-in {

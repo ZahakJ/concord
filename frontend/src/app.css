@@ -42,6 +42,11 @@
      fills that side is the dark one, where white was scraping 3.1:1. */
   --danger-fg: #141419;
   --ok-fg: #141419;
+  /* The halo a text surface draws around itself when it sits ON art (the
+     profile card's effects). It has to be the opposite of the ink to separate
+     anything from anything, so it flips with the theme rather than being a
+     fixed near-black — see ProfilePopover's --fx-lift. */
+  --fx-halo: #04060a;
   /* The same colours as INK, which is not the same colour as the fill: --danger
      manages 3.75:1 as text on --bg-3, and an amber label on its own 22% tint is
      worse. Blending toward --text drags each one to whichever end of the scale
@@ -248,6 +253,7 @@
      blend toward --text, which flipped with the theme.) */
   --danger-fg: #ffffff;
   --ok-fg: #ffffff;
+  --fx-halo: #fbfcfe;
 
   --shadow-pop:
     0 2px 6px rgba(20, 24, 32, 0.08),
@@ -2801,6 +2807,7 @@
   /* Fills dark enough that white is the surviving ink — light theme's call. */
   --danger-fg: #ffffff;
   --ok-fg: #ffffff;
+  --fx-halo: #fbfcfe;
   --shadow-pop:
     0 2px 6px rgba(20, 24, 32, 0.08),
     0 12px 32px rgba(20, 24, 32, 0.18);
@@ -3804,6 +3811,32 @@
    this very overlay wears those classes. */
 :root {
   --fx-ink: 255, 255, 255;
+  /* Embers are the one field here that is NOT drawn in --fx-ink — a grey
+     ember is not an ember — so the fire keeps its own pair of tokens and
+     flips with the ground like everything else. Hot orange over a dark room;
+     the same fire seen in daylight, which is a far darker thing than the
+     white-hot version, and the only version you can see on paper. */
+  --fx-ember-hot: #ffd08a;
+  --fx-ember-mid: #ffb35a;
+  --fx-ember-low: #ff7a2f;
+  /* What a decorative effect drawn for a dark ground has to do on a bright
+     one. Both cosmetic libraries (lib/cardfx.js, lib/rings.js) are palettes of
+     near-white snow, neon and pastel — colours chosen against #16181c, where
+     they are exactly right and where 26 of the 29 card effects and 19 of the
+     47 rings have every colour they own. On a daylight pack those same
+     palettes have NOTHING above 2.2:1 against the page: the picker showed 24
+     blank tiles and the profile card showed nothing at all.
+
+     A uniform darkening is the whole fix, and it is a better one than
+     hand-writing a second palette for eighty entries: multiplying the sRGB
+     channels preserves hue and saturation exactly, so a daylight snowfall is
+     the same snowfall in slate rather than a different effect wearing its
+     name. The factor is derived, not chosen — see lib/cosmeticcontrast.test.mjs,
+     which reads it back out of this file and proves every colour in both
+     libraries clears 3:1 on all seven bright grounds with it applied. 0.5
+     leaves the worst case (pure white on `paper`) at 3.32:1; anything above
+     about 0.53 stops clearing the bar. */
+  --fx-dim: none;
   /* CRT grille strength. Touching one pixel in three, it is the one effect
      here that veils the whole window — everything else is sparse specks. So
      it is set by measurement, at the two thinnest ink/ground pairs in the
@@ -3823,6 +3856,10 @@
 :root[data-theme-pack="atrium"] {
   --fx-ink: 26, 32, 44;
   --fx-scan: 0.055;
+  --fx-ember-hot: #a5620b;
+  --fx-ember-mid: #8f4a09;
+  --fx-ember-low: #7a2c05;
+  --fx-dim: brightness(0.5);
 }
 
 .fx-overlay {
@@ -4714,6 +4751,18 @@ textarea:focus {
   overflow: hidden;
   pointer-events: none;
   border-radius: inherit;
+  /* Daylight packs darken the whole field — see --fx-dim. `none` on every dark
+     ground, so this costs nothing there. */
+  filter: var(--fx-dim, none);
+}
+/* …except on the two surfaces that are not the page. A banner paints its own
+   picture and its templates are already measured against their own ink
+   (lib/guildbanners.test.mjs); the app-wide theme overlay draws in --fx-ink,
+   which has flipped for the light grounds since it was written. Darkening
+   either would be correcting something that is already right. */
+.bnr .fxfield,
+.fx-overlay .fxfield {
+  filter: none;
 }
 .fxp {
   position: absolute;

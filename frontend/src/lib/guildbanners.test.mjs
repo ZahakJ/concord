@@ -18,6 +18,7 @@
 //      WCAG AA (4.5:1) for the ink it asks for — see contrast() below for how
 //      the worst case is derived rather than eyeballed.
 import { readFileSync } from "node:fs";
+import { contrast, worstBackdrop } from "./contrast.mjs";
 import { LAYERED } from "./fx.js";
 import { BANNERS } from "./banners.js";
 import {
@@ -84,77 +85,13 @@ for (const k of ["fall", "rise", "twinkle", "streak", "matrix", "rain"]) {
 
 // --- 3. contrast under the header scrim --------------------------------------
 
-const lin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-const lum = ([r, g, b]) => 0.2126 * lin(r / 255) + 0.7152 * lin(g / 255) + 0.0722 * lin(b / 255);
-const contrast = (a, b) => {
-  const [hi, lo] = lum(a) >= lum(b) ? [lum(a), lum(b)] : [lum(b), lum(a)];
-  return (hi + 0.05) / (lo + 0.05);
-};
+// The maths lives in contrast.mjs now — the same worst-case compositing walk
+// answers "can you read the guild name over this banner?" here and "can you see
+// this ring at all on a daylight pack?" in cosmeticcontrast.test.mjs, and two
+// copies of it would have drifted the first time either was tuned.
+
 // The two inks the header prints in (ChannelList.svelte .guild-header).
 const INK = { light: [255, 255, 255], dark: [0x12, 0x16, 0x1a] };
-
-// Every colour literal in a CSS background layer, as [r,g,b,a].
-function colorsIn(s) {
-  const out = [];
-  for (const m of s.matchAll(/#([0-9a-f]{6})\b/gi)) {
-    const h = m[1];
-    out.push([parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 1]);
-  }
-  for (const m of s.matchAll(/rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:[\s,/]+([\d.]+))?\s*\)/gi)) {
-    out.push([+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]]);
-  }
-  // `transparent` contributes nothing but must not read as opaque black.
-  for (let i = (s.match(/\btransparent\b/g) || []).length; i > 0; i--) out.push([0, 0, 0, 0]);
-  return out;
-}
-
-// Split a `background` shorthand into its layers — commas at paren depth 0.
-function layersOf(base) {
-  const out = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i < base.length; i++) {
-    const c = base[i];
-    if (c === "(") depth++;
-    else if (c === ")") depth--;
-    else if (c === "," && depth === 0) {
-      out.push(base.slice(start, i));
-      start = i + 1;
-    }
-  }
-  out.push(base.slice(start));
-  return out;
-}
-
-// The worst backdrop a template can put behind the header text, as a channel
-// triple. `dir` is +1 for light ink (we want the LIGHTEST possible backdrop) and
-// -1 for dark ink (the darkest).
-//
-// Why this is a true bound and not a guess: relative luminance is monotone in
-// each channel, so a per-channel extreme bounds the luminance of anything the
-// template can produce. Within one layer, a gradient only ever blends its own
-// stops, and (lin being convex and increasing) a blend's luminance never exceeds
-// the max of its endpoints. Across layers, each is composited exactly ONCE over
-// what's below, so walking bottom-to-top — CSS lists the bottom layer last —
-// gives the extreme without pretending a 4%-alpha wash is opaque.
-function worstBackdrop(base, dir) {
-  const better = (x, y) => (dir > 0 ? Math.max(x, y) : Math.min(x, y));
-  let m = null;
-  for (const layer of layersOf(base).reverse()) {
-    const cols = colorsIn(layer);
-    if (!cols.length) continue;
-    if (!m) {
-      // The bottom layer is the floor: nothing shows through it.
-      m = [0, 1, 2].map((i) => cols.reduce((acc, c) => better(acc, c[i]), cols[0][i]));
-      continue;
-    }
-    // Transparent regions keep what's underneath, so `m` is always a candidate.
-    m = [0, 1, 2].map((i) =>
-      cols.reduce((acc, c) => better(acc, c[3] * c[i] + (1 - c[3]) * m[i]), m[i]),
-    );
-  }
-  return m || [0, 0, 0];
-}
 
 // The scrim: opaque black (light ink) or white (dark ink) at SCRIM_ALPHA.
 const scrimmed = (rgb, ink) => {

@@ -1749,7 +1749,7 @@
   }
   .edit-btn.save {
     background: var(--accent);
-    color: var(--accent-fg, #fff);
+    color: var(--accent-fg);
   }
   .edit-btn.save:hover {
     background: var(--accent-hover);
@@ -1833,7 +1833,7 @@
   }
   .tp-btn.go {
     background: var(--accent);
-    color: var(--accent-fg, #fff);
+    color: var(--accent-fg);
   }
   .tp-btn.go:hover:not(:disabled) {
     background: var(--accent-hover);

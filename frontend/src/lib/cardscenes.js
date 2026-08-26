@@ -1392,6 +1392,215 @@ function sunfallScene() {
   return parts;
 }
 
+
+// ---------- daylight ----------
+//
+// Seventeen of the eighteen scenes above are night pieces, and that was not a
+// decision — it is what happens when a library is authored against #16181c and
+// nobody opens it on a bright pack. A daylight user picking a scene was
+// choosing between eighteen shades of dark blue to hang over a white card.
+// These three are the other end: skies that are actually lit, horizons that
+// come from above rather than below, and subjects that read as silhouettes
+// against light instead of highlights against dark.
+
+function meadowNoonScene() {
+  const r = rng("meadow-noon");
+  const parts = [
+    RECT(0, 0, 272, 400, "@sky"),
+    CIRC(214, 26, 17, "@sun", { cls: "breathe", a: 0.8, dur: 11, o: 0.9 }),
+    // Cumulus, in banks rather than as single puffs: one ellipse is a balloon,
+    // three overlapping at different heights is weather.
+    G(
+      [
+        ELL(56, 52, 34, 12, "@cloud"),
+        ELL(80, 46, 26, 14, "@cloud"),
+        ELL(34, 56, 22, 9, "@cloud"),
+      ],
+      { cls: "shift", tx: 26, dur: 52, o: 0.95 },
+    ),
+    G([ELL(196, 74, 40, 11, "@cloud"), ELL(222, 68, 26, 12, "@cloud")], {
+      cls: "shift",
+      tx: -20,
+      dur: 44,
+      dl: -18,
+      o: 0.7,
+    }),
+    G([ELL(126, 96, 52, 8, "@cloud")], { cls: "shift", tx: 16, dur: 62, dl: -30, o: 0.42 }),
+    // The land. Two ridges of hedgerow behind the meadow the card stands in.
+    ridgeBand("@far", "mn-far", { y: 122, amp: 12, floor: 200, steps: 9, jag: 0.7, skew: 0.35 }, { o: 0.55 }),
+    ridgeBand("@near", "mn-near", { y: 138, amp: 9, floor: 260, steps: 8, jag: 0.8, skew: 0.7 }, { o: 0.8 }),
+  ];
+  // Grass, rooted below the horizon and leaning together in the same air.
+  for (let i = 0; i < 26; i++) {
+    const x = r2(r() * 272);
+    const base = r2(150 + r() * 10);
+    const h = r2(14 + r() * 20);
+    const lean = r2(-5 + r() * 10);
+    parts.push(
+      G(
+        [
+          PATH(
+            `M${x} ${base}Q${r2(x + lean * 0.4)} ${r2(base - h * 0.6)} ${r2(x + lean)} ${r2(base - h)}`,
+            "none",
+            { stroke: "@blade", sw: r2(0.9 + r() * 0.7), cap: "round" },
+          ),
+        ],
+        {
+          cls: "sway",
+          origin: [x, base],
+          amp: r2(1.6 + r() * 2.4),
+          dur: r2(4.5 + r() * 4),
+          dl: r2(-r() * 6),
+          o: r2(0.5 + r() * 0.4),
+          hi: i > 9,
+        },
+      ),
+    );
+  }
+  // Seed heads coming off the grass and up into the light.
+  for (let i = 0; i < 12; i++) {
+    parts.push(
+      CIRC(r2(r() * 272), r2(126 + r() * 26), r2(0.9 + r() * 1.3), "@fluff", {
+        cls: "rise",
+        tx: r2(-16 + r() * 34),
+        ty: r2(-(50 + r() * 60)),
+        a: r2(0.4 + r() * 0.35),
+        dur: r2(11 + r() * 9),
+        dl: r2(-r() * 16),
+        o: 0.7,
+        hi: i > 4,
+      }),
+    );
+  }
+  parts.push(RECT(0, 320, 272, 80, "@haze"));
+  return parts;
+}
+
+function chalkCoastScene() {
+  const r = rng("chalk-coast");
+  const parts = [
+    RECT(0, 0, 272, 400, "@sky"),
+    CIRC(48, 30, 14, "@sun", { cls: "breathe", a: 0.75, dur: 13, o: 0.85 }),
+    G([ELL(180, 40, 44, 10, "@cloud"), ELL(212, 36, 28, 8, "@cloud")], {
+      cls: "shift",
+      tx: -24,
+      dur: 58,
+      o: 0.6,
+    }),
+    // The sea. A flat band, not a gradient of one: the horizon is the hardest
+    // line on the card and it is what makes the light read as noon.
+    RECT(0, 108, 272, 46, "@sea"),
+    // Chalk. Bright enough to be the subject, cut square the way chalk fails.
+    PATH("M0 154L0 116L26 112L44 128L74 118L96 138L130 130L130 154Z", "@chalk", { o: 0.96 }),
+    PATH("M168 154L168 122L196 114L214 132L240 120L272 126L272 154Z", "@chalk", { o: 0.9 }),
+    PATH("M0 148L26 140L52 150L86 142L130 150L130 154L0 154Z", "@shadow", { o: 0.5 }),
+    // Swell, sliding under the cliffs rather than breaking on them.
+    PATH(swell(126, 2.2, 108, 0, 30), "@swell", { cls: "shift", tx: 22, dur: 30, o: 0.5 }),
+    PATH(swell(136, 1.6, 74, 1.9, 24), "@swell", { cls: "shift", tx: -16, dur: 24, dl: -9, o: 0.35 }),
+  ];
+  // Glitter: the sun's own path across the water, and only there.
+  for (let i = 0; i < 22; i++) {
+    parts.push(
+      RECT(r2(18 + r() * 78), r2(112 + r() * 34), r2(1.4 + r() * 2.6), 1, "@glint", {
+        cls: "twinkle",
+        a: r2(0.35 + r() * 0.5),
+        dur: r2(1.8 + r() * 3),
+        dl: r2(-r() * 5),
+        hi: i > 7,
+      }),
+    );
+  }
+  // Gulls, wheeling out over the water and back.
+  for (let i = 0; i < 5; i++) {
+    const y = r2(52 + r() * 44);
+    const sc = r2(0.7 + r() * 0.7);
+    parts.push(
+      G(
+        [
+          PATH(
+            `M${r2(-6 * sc)} 0Q${r2(-2.6 * sc)} ${r2(-3 * sc)} 0 0Q${r2(2.6 * sc)} ${r2(-3 * sc)} ${r2(6 * sc)} 0`,
+            "none",
+            { stroke: "@gull", sw: r2(1 * sc), cap: "round" },
+          ),
+        ],
+        {
+          tr: `translate(${r2(40 + r() * 190)} ${y})`,
+          o: r2(0.4 + r() * 0.4),
+          hi: i > 1,
+        },
+      ),
+    );
+  }
+  parts.push(
+    G([PATH("M-7 0Q-3 -3.4 0 0Q3 -3.4 7 0", "none", { stroke: "@gull", sw: 1.2, cap: "round" })], {
+      cls: "cross",
+      x0: -40,
+      x1: 300,
+      a: 0.55,
+      dur: 26,
+      tr: undefined,
+    }),
+  );
+  parts.push(RECT(0, 320, 272, 80, "@haze"));
+  return parts;
+}
+
+function orchardDayScene() {
+  const r = rng("orchard-day");
+  const parts = [
+    RECT(0, 0, 272, 400, "@sky"),
+    CIRC(30, 22, 20, "@sun", { cls: "breathe", a: 0.7, dur: 12, o: 0.8 }),
+    // One heavy bough across the top, with everything on it hanging from the
+    // same gust — the branch is the composition, the blossom is the texture.
+    G(
+      [
+        PATH("M-6 6C40 22 88 26 140 20C186 15 232 22 278 40L278 -4L-6 -4Z", "@bark", { o: 0.92 }),
+        PATH("M96 22C104 40 112 52 118 66", "none", { stroke: "@bark", sw: 3.4, cap: "round", o: 0.85 }),
+        PATH("M188 22C192 38 200 48 212 58", "none", { stroke: "@bark", sw: 2.8, cap: "round", o: 0.8 }),
+        PATH("M40 16C36 30 34 40 36 52", "none", { stroke: "@bark", sw: 2.4, cap: "round", o: 0.75 }),
+      ],
+      { cls: "gust", origin: [136, 0], amp: 1.1, dur: 13 },
+    ),
+  ];
+  // Blossom, clustered on the twigs rather than scattered over the sky.
+  const clusters = [
+    [40, 52], [36, 40], [96, 26], [110, 46], [118, 64], [140, 24],
+    [188, 30], [200, 46], [212, 58], [66, 20], [160, 18], [236, 26],
+  ];
+  for (const [cx, cy] of clusters) {
+    for (let j = 0; j < 5; j++) {
+      parts.push(
+        CIRC(r2(cx + (r() - 0.5) * 18), r2(cy + (r() - 0.5) * 14), r2(2 + r() * 2.6), "@petal", {
+          cls: "breathe",
+          a: r2(0.6 + r() * 0.35),
+          dur: r2(6 + r() * 5),
+          dl: r2(-r() * 8),
+          hi: j > 1,
+        }),
+      );
+    }
+  }
+  // Petals coming off it, turning as they go, stopping above the name.
+  for (let i = 0; i < 14; i++) {
+    const x = r2(r() * 272);
+    const y = r2(24 + r() * 54);
+    parts.push(
+      ELL(x, y, r2(1.6 + r() * 1.4), r2(1 + r() * 0.9), "@petalfall", {
+        cls: "fall",
+        tx: r2(-26 + r() * 52),
+        ty: r2(56 + r() * 54),
+        a: r2(0.45 + r() * 0.4),
+        dur: r2(8 + r() * 8),
+        dl: r2(-r() * 14),
+        o: 0.85,
+        hi: i > 5,
+      }),
+    );
+  }
+  parts.push(RECT(0, 300, 272, 100, "@haze"));
+  return parts;
+}
+
 export const CARD_SCENES = [
   // ---------- haunting ----------
   {
@@ -1902,6 +2111,99 @@ export const CARD_SCENES = [
       fade("warm", "#2a1512", 300, 400, 0, 0.2),
     ],
     parts: sunfallScene(),
+  },
+  // ---------- daylight ----------
+  {
+    id: "meadow-noon",
+    name: "Meadow at noon",
+    group: "Daylight",
+    // Flat midday light, high cumulus crossing at three speeds, and a meadow
+    // leaning in one wind. The horizon sits at y=138 so the hedgerow lands
+    // behind the avatar rather than through it.
+    defs: [
+      veil("sky", "#7fbfe8", "#cfe4f2", 0.3),
+      RG("sun", 214, 26, 34, [
+        [0, "#fffdf2", 0.95],
+        [0.5, "#fff2c8", 0.5],
+        [1, "#ffe6a8", 0],
+      ]),
+      LG("cloud", 0, 30, 0, 106, [
+        [0, "#ffffff", 0.96],
+        [1, "#dfe9f2", 0.7],
+      ]),
+      fade("far", "#7fa564", 118, 210, 0.7, 0),
+      fade("near", "#4c7b3f", 132, 280, 0.9, 0),
+      fade("blade", "#3f6b34", 118, 175, 0.95, 0.35),
+      RGB("fluff", [
+        [0, "#fffdf4", 0.9],
+        [1, "#f0e6c8", 0],
+      ]),
+      fade("haze", "#9ec4dd", 320, 400, 0, 0.12),
+    ],
+    parts: meadowNoonScene(),
+  },
+  {
+    id: "chalk-coast",
+    name: "Chalk coast",
+    group: "Daylight",
+    // The one scene in the library whose subject is WHITE. Chalk against a
+    // blue sea is a picture that only exists in daylight, which is the point
+    // of putting it here.
+    defs: [
+      veil("sky", "#93cbe9", "#d3e7f2", 0.28),
+      RG("sun", 48, 30, 30, [
+        [0, "#fffef6", 0.95],
+        [1, "#ffeec2", 0],
+      ]),
+      LG("cloud", 0, 24, 0, 56, [
+        [0, "#ffffff", 0.9],
+        [1, "#d8e6f0", 0.6],
+      ]),
+      LG("sea", 0, 108, 0, 154, [
+        [0, "#2f7fa8", 0.95],
+        [1, "#1d5f83", 0.95],
+      ]),
+      LG("chalk", 0, 108, 0, 156, [
+        [0, "#fbf9f2", 0.98],
+        [1, "#ddd8c9", 0.98],
+      ]),
+      fade("shadow", "#8d9384", 138, 158, 0.55, 0.2),
+      fade("swell", "#bfe1f0", 120, 152, 0.6, 0),
+      RGB("glint", [
+        [0, "#ffffff", 0.95],
+        [1, "#ffffff", 0.4],
+      ]),
+      fade("gull", "#33414d", 40, 110, 0.9, 0.5),
+      fade("haze", "#a9cadd", 320, 400, 0, 0.12),
+    ],
+    parts: chalkCoastScene(),
+  },
+  {
+    id: "orchard-day",
+    name: "Orchard in bloom",
+    group: "Daylight",
+    // Looking up through a blossoming bough at a bright sky — the same upward
+    // composition as Windbreak, with the light on the other side of it.
+    defs: [
+      veil("sky", "#bfd9ea", "#e3edf3", 0.26),
+      RG("sun", 30, 22, 44, [
+        [0, "#fffef7", 0.9],
+        [0.55, "#fff6d8", 0.4],
+        [1, "#ffe9b4", 0],
+      ]),
+      fade("bark", "#4a3a2c", 0, 90, 0.95, 0.6),
+      RGB("petal", [
+        [0, "#fffafc", 0.95],
+        [0.6, "#ffdfe9", 0.8],
+        [1, "#f6b9cd", 0.35],
+      ]),
+      RGB("petalfall", [
+        [0, "#fff2f6", 0.9],
+        [1, "#f0a9c0", 0.5],
+      ]),
+      fade("haze", "#c9b7bd", 300, 400, 0, 0.13),
+    ],
+    parts: orchardDayScene(),
   },
 ];
 

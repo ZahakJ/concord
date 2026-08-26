@@ -1887,7 +1887,7 @@
   }
   .lc-btn.danger {
     background: var(--danger);
-    color: #fff;
+    color: var(--danger-fg);
   }
   .app {
     display: grid;

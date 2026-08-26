@@ -415,11 +415,11 @@
   }
   .mark-check.ok {
     background: var(--ok);
-    color: var(--ok-fg, #fff);
+    color: var(--ok-fg);
   }
   .mark-check.bad {
     background: var(--danger);
-    color: #fff;
+    color: var(--danger-fg);
   }
   /* The trophy sits in the row, not on it — a small fact, not a banner. */
   .crown {
