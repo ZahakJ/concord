@@ -1156,7 +1156,27 @@
     navigator.clipboard?.writeText(text);
     flash("Copied to clipboard", "success");
   }
+  // Every fenced code block the markdown renderer emits carries a Copy button.
+  // The blocks arrive as {@html}, in the feed, the archive, forum posts and the
+  // preview pane alike, so no component owns them — one delegated listener at
+  // the root serves all of them and cannot go stale when a body re-renders.
+  // Copying code out of chat was a select-and-drag through a horizontally
+  // scrolling box, which is how people ended up with half a line.
+  function onRootClick(e) {
+    const btn = e.target?.closest?.("[data-code-copy]");
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const code = btn.parentElement?.querySelector("pre code");
+    if (!code) return;
+    navigator.clipboard?.writeText(code.textContent || "");
+    haptic("light");
+    btn.classList.add("copied");
+    setTimeout(() => btn.classList.remove("copied"), 1400);
+  }
 </script>
+
+<svelte:window onclick={onRootClick} />
 
 <!-- The core stopped answering. Everything on screen is now a photograph: the
      presence dots, the member list and the peer count all render the last thing

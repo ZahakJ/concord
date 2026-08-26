@@ -3,7 +3,7 @@
 // no user-controlled string can open a tag or attribute. Keep it that way.
 //
 // Supported: ```code fences``` (with language label), `inline code`, **bold**,
-// *italic*, __underline__, ~~strike~~, ||spoiler||, # headers, > and >>> quotes,
+// *italic*, _italic_, __underline__, ~~strike~~, ||spoiler||, # headers, > and >>> quotes,
 // - / 1. lists, bare + [masked](url) links, ![image](data:image/...) attachments,
 // @mentions.
 
@@ -138,12 +138,28 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
   // Spoilers ||text|| — revealed on click (handler in Message.svelte). Runs
   // before emphasis so **bold**/etc. inside a spoiler still render.
   s = s.replace(/\|\|(.+?)\|\|/g, '<span class="spoiler" role="button" tabindex="0">$1</span>');
-  // Strikethrough ~~text~~ and underline __text__ (underscore is free — italic
-  // uses *, so __ never collides with emphasis).
+  // A URL is not prose: park every one of them for the duration of the
+  // emphasis passes and put it back afterwards. Linkification happens further
+  // down this function, so without this an address like
+  // https://ex.dev/_draft_/notes gets an <em> spliced into the middle of it and
+  // the link pass then builds an href around a fragment of a tag.
+  const urls = [];
+  s = s.replace(/https?:\/\/[^\s<]+/g, (u) => {
+    urls.push(u);
+    return `\x02${urls.length - 1}\x02`;
+  });
+  // Strikethrough ~~text~~ and underline __text__. The doubled form is taken
+  // first so it can never be read as two nested italics.
   s = s.replace(/~~(.+?)~~/g, "<s>$1</s>");
   s = s.replace(/__(.+?)__/g, "<u>$1</u>");
   s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+  // _italic_ as well as *italic*, because both halves of the dialect are in
+  // everyone's fingers. Emphasis only counts at a word boundary, which is what
+  // keeps snake_case_identifiers — the single commonest underscore in a
+  // developer's chat window — out of it.
+  s = s.replace(/(^|[^\w_])_([^_\n]+)_(?!\w)/g, "$1<em>$2</em>");
+  s = s.replace(/\x02(\d+)\x02/g, (_, i) => urls[+i]);
   // Colored text: {#rrggbb|text} or {name|text}. The color that reaches the
   // inline style is ONLY ever a strict #hex or a name mapped to a fixed hex —
   // no user string touches the CSS, so this can't inject (same guarantee the
@@ -249,7 +265,17 @@ export function renderMarkdown(text, mentionNames = [], customEmoji = null, refs
       // leading language line as a label (data-lang), then strip it.
       const lang = (/^([a-zA-Z0-9+-]+)\n/.exec(parts[i]) || [])[1] || "";
       const body = parts[i].replace(/^[a-zA-Z0-9+-]*\n/, "");
-      out += `<pre${lang ? ` data-lang="${escapeHtml(lang)}"` : ""}><code>${escapeHtml(body.replace(/\n$/, ""))}</code></pre>`;
+      // The wrapper and the button are fixed strings, not a sink: the only
+      // user-controlled values in here are the language label and the body, and
+      // both go through escapeHtml exactly as they always did. Emitting the
+      // chrome from the renderer rather than bolting it on afterwards means it
+      // survives every re-render and works in every consumer of this function —
+      // the feed, the archive, the forum, the preview pane.
+      out +=
+        `<div class="codeblock"><pre${lang ? ` data-lang="${escapeHtml(lang)}"` : ""}>` +
+        `<code>${escapeHtml(body.replace(/\n$/, ""))}</code></pre>` +
+        `<button class="code-copy" type="button" data-code-copy aria-label="Copy code">` +
+        `<span>Copy</span></button></div>`;
     } else {
       out += renderBlocks(escapeHtml(parts[i]), mentionNames, customEmoji, refs, opts);
     }

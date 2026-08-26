@@ -14,7 +14,8 @@ const assert = (cond, msg) => {
 
 // Unsafe = a real tag outside our whitelist, an event handler, or a non-https/
 // non-image URI inside a real tag. Escaped text (&lt;script&gt;) is safe.
-const ALLOWED = /^<\/?(strong|em|code|pre|a|img|ul|ol|li|blockquote|span)(\s|>|\/)/;
+const ALLOWED =
+  /^<\/?(strong|em|s|u|code|pre|a|img|ul|ol|li|blockquote|span|div|button|h[3-5])(\s|>|\/)/;
 function unsafe(html) {
   for (const m of html.matchAll(/<[^>]*>/g)) {
     const tag = m[0];
@@ -46,6 +47,13 @@ const hostile = [
   "{#fff;position:fixed|x}",
   '{red|"><img src=x onerror=alert(1)>}',
   "{expression(alert(1))|x}",
+  // The underscore emphasis pass runs over already-escaped text, like the rest.
+  '_<img src=x onerror=alert(1)>_',
+  "_`<b>`_",
+  // The fence now emits a wrapper and a button around the code. Neither may be
+  // reachable from inside the fence.
+  '```\n</code></pre></div><button onclick=alert(1)>x</button>\n```',
+  '```js"><button onclick=alert(1)>\ncode\n```',
 ];
 for (const h of hostile) {
   const bad = unsafe(renderMarkdown(h, ["euclid"]));
@@ -58,6 +66,25 @@ assert(out.includes("<strong>b</strong>"), `bold: ${out}`);
 assert(out.includes("<em>i</em>"), `italic: ${out}`);
 assert(out.includes("<code>c</code>"), `code: ${out}`);
 assert(out.includes('<a href="https://x.dev"'), `link: ${out}`);
+
+// Both spellings of italic, and the boundaries that keep the underscore form
+// from eating things that are not emphasis.
+out = renderMarkdown("_i_ and *j*");
+assert(out.includes("<em>i</em>") && out.includes("<em>j</em>"), `both italics: ${out}`);
+assert(renderMarkdown("__u__") === "<u>u</u>", `underline still wins: ${renderMarkdown("__u__")}`);
+assert(renderMarkdown("~~x~~") === "<s>x</s>", `strike: ${renderMarkdown("~~x~~")}`);
+out = renderMarkdown("call read_file_sync now");
+assert(!out.includes("<em>"), `snake_case is not emphasis: ${out}`);
+out = renderMarkdown("`_x_`");
+assert(out === "<code>_x_</code>", `code span is literal: ${out}`);
+// A URL is parked for the emphasis passes: without that, the path here becomes
+// <em> tags and the link that follows is built around the wreckage.
+out = renderMarkdown("see https://ex.dev/_draft_/notes ok");
+assert(out.includes('href="https://ex.dev/_draft_/notes"'), `url survives emphasis: ${out}`);
+assert(!out.includes("<em>"), `no emphasis inside a url: ${out}`);
+out = renderMarkdown("[the _plan_](https://ex.dev/a_b)");
+assert(out.includes("<em>plan</em>"), `emphasis in link text still renders: ${out}`);
+assert(out.includes('href="https://ex.dev/a_b"'), `masked href untouched: ${out}`);
 
 // Colored text: named colors map to a fixed hex; #hex passes through; a bad
 // name is left as literal text.

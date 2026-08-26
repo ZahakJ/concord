@@ -36,6 +36,7 @@
   --ok: #3ba55d;
   --ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
   --warn: #d9a13c;
+  --warn-soft: color-mix(in srgb, var(--warn) 14%, transparent);
   /* --accent-fg's contract, applied to the status fills: the ink that survives
      ON the colour. These two never change at runtime (no pack retints them), so
      the winning side is settled here instead of in JS — and on both dark-mode
@@ -1630,6 +1631,46 @@ textarea:focus {
   }
 }
 
+/* Shared jump-target flash: a brief accent wash + hairline ring that fades, so
+   the eye finds the thing that was jumped to. Applied by landOn() in
+   state.svelte.js — to a message row for a reply/pin/search jump, and to a
+   channel row for a channel that was just created. Duration matches the 1.2s
+   class removal there; the reduced-motion override further down collapses it
+   to a blink.
+
+   It lives here rather than in MessageList's style block, where it used to,
+   because it is no longer the feed's private business: a rule scoped to a
+   component only exists while that component is mounted. */
+.flash-highlight {
+  animation: flash-bg 1.2s ease;
+}
+@keyframes flash-bg {
+  0%,
+  35% {
+    background: var(--accent-soft);
+    box-shadow: inset 2px 0 0 var(--accent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 2px 0 0 transparent;
+  }
+}
+
+/* Selected text was the one surface still painted by the operating system: an
+   OS blue highlight landing in the middle of all fifty packs. --accent is
+   retinted at runtime per guild and per profile, and --accent-fg is recomputed
+   from its luminance for exactly this job — ink that survives ON the fill — so
+   one rule tracks whatever accent is live rather than picking a colour that is
+   right for one theme and wrong for the rest. */
+::selection {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+::-moz-selection {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
 /* Touch devices: kill the grey tap flash and stop scroll chaining/pull-to-
    refresh from hijacking inner scrollers. Desktop styles are untouched. */
 @media (pointer: coarse), (max-width: 768px) {
@@ -2414,4 +2455,115 @@ textarea {
   direction: ltr;
   unicode-bidi: isolate;
   text-align: left;
+}
+
+/* ---- fenced code chrome -------------------------------------------------
+   A fenced block scrolls sideways and used to do it with no cue whatsoever: a
+   line ran off the edge and simply stopped, with nothing to say there was more.
+   Two things answer that — a scrollbar that is drawn all the time rather than
+   one that appears mid-gesture, and a fade over the right edge so text visibly
+   runs UNDER something instead of ending. The fade is painted in the block's own
+   background, so a line that does not overflow has nothing to fade and the rule
+   costs nothing.
+
+   The wrapper and its Copy button are emitted by lib/markdown.js, which every
+   surface that prints written text goes through — the feed, the archive, forum
+   posts, embeds, the editor's preview. That is exactly why the styling lives
+   here and not in one of them: a component that styled its own would leave the
+   button in the other five wearing the app's default accent-filled button.
+   `.codeblock` deliberately sets no margin of its own, so the pre's margins
+   collapse straight through it and each surface keeps the spacing it chose. */
+.body .codeblock,
+.md .codeblock {
+  position: relative;
+}
+.body .codeblock::after,
+.md .codeblock::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  bottom: 1px;
+  width: 26px;
+  pointer-events: none;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: linear-gradient(to right, transparent, var(--bg-0) 82%);
+}
+.body .codeblock > pre,
+.md .codeblock > pre {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.body .codeblock > pre::-webkit-scrollbar,
+.md .codeblock > pre::-webkit-scrollbar {
+  height: 8px;
+}
+.body .codeblock > pre::-webkit-scrollbar-thumb,
+.md .codeblock > pre::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+/* Copying code out of a chat window was a drag through a scrolling box, which
+   is how people ended up pasting half a line. One delegated listener at the app
+   root (App.svelte) answers every one of these. */
+.body .code-copy,
+.md .code-copy {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  padding: 3px 8px;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: var(--fs-tiny);
+  font-weight: 500;
+  line-height: 1.4;
+  opacity: 0;
+  transition:
+    opacity 0.12s ease,
+    color 0.12s ease,
+    border-color 0.12s ease;
+}
+.body .codeblock:hover .code-copy,
+.md .codeblock:hover .code-copy,
+.body .code-copy:focus-visible,
+.md .code-copy:focus-visible {
+  opacity: 1;
+}
+.body .code-copy:hover,
+.md .code-copy:hover {
+  color: var(--text);
+  border-color: var(--text-faint);
+  background: var(--bg-2);
+}
+.body .code-copy.copied,
+.md .code-copy.copied {
+  opacity: 1;
+  color: var(--ok-text);
+  border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+}
+.body .code-copy.copied span,
+.md .code-copy.copied span {
+  display: none;
+}
+.body .code-copy.copied::after,
+.md .code-copy.copied::after {
+  content: "Copied";
+}
+/* Touch wraps the code rather than scrolling it (there is no horizontal finger
+   pan inside the chat pane), so there is no edge to fade — and a hover button is
+   not an affordance a finger can reach. "Copy Code" in the long-press sheet is
+   the touch path, and always was. */
+@media (pointer: coarse), (max-width: 768px) {
+  .body .codeblock::after,
+  .md .codeblock::after,
+  .body .code-copy,
+  .md .code-copy {
+    display: none;
+  }
 }
