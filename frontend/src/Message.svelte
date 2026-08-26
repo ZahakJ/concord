@@ -25,6 +25,7 @@
   import { untrack } from "svelte";
   import { renderMarkdown, emojiOnly, animatedEmojiSrc, twemojiCode } from "./lib/markdown.js";
   import { animateInView, animateOnHover } from "./lib/anemoji.js";
+  import { highlightCode } from "./lib/highlight.js";
   import {
     parseAttachTokens,
     parseFileTokens,
@@ -1206,7 +1207,7 @@
              element's own direction by definition and dir alone would be
              silently inert. Bounded to two values on the way in
              (domain.ValidDir), so this is never a string a stranger chose. -->
-        <div class="body" class:jumbo={jumbo} dir={m.dir || null} style={m.dir ? "unicode-bidi:isolate" : null} use:animateInView={jumbo} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
+        <div class="body" class:jumbo={jumbo} dir={m.dir || null} style={m.dir ? "unicode-bidi:isolate" : null} use:animateInView={jumbo} use:highlightCode={bodyText} onclick={onBodyClick} onkeydown={onBodyKeydown} onmouseover={onBodyOver} onmouseout={onBodyOut} onfocusin={onBodyOver}>
           {#if sealMs}
             <!-- Tap AND hover, deliberately — but the hover pair must be gated
                  on a device that HAS hover: a tap synthesizes mouseenter first

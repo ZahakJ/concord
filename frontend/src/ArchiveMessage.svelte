@@ -27,6 +27,7 @@
   import FileAttachment from "./FileAttachment.svelte";
   import VideoAttachment from "./VideoAttachment.svelte";
   import { renderMarkdown } from "./lib/markdown.js";
+  import { highlightCode } from "./lib/highlight.js";
   import { parseAttachTokens, parseFileTokens, stripAttachTokens } from "./lib/attachments.js";
   import { splitPlaceholders } from "./lib/chronicle.js";
   import { S, customEmojiMap, openContextMenu, flash, clockOpts } from "./lib/state.svelte.js";
@@ -118,7 +119,7 @@
     {/if}
 
     {#if bodyText}
-      <div class="body">{@html renderMarkdown(bodyText, [], cemoji, null)}</div>
+      <div class="body" use:highlightCode={bodyText}>{@html renderMarkdown(bodyText, [], cemoji, null)}</div>
     {/if}
 
     {#each images as tok (tok.blobId)}

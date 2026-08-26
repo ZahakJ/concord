@@ -12,6 +12,7 @@
   // someone's aside about the announcement rather than the announcement itself.
   import { customEmojiMap, mentionRefs, S } from "./lib/state.svelte.js";
   import { renderMarkdown } from "./lib/markdown.js";
+  import { highlightCode } from "./lib/highlight.js";
 
   let { announce } = $props();
 
@@ -21,7 +22,7 @@
 {#if announce.note}
   <div class="note">{@html renderMarkdown(announce.note, names, customEmojiMap(), mentionRefs())}</div>
 {/if}
-<div class="body">{@html renderMarkdown(announce.body, names, customEmojiMap(), mentionRefs())}</div>
+<div class="body" use:highlightCode={announce.body}>{@html renderMarkdown(announce.body, names, customEmojiMap(), mentionRefs())}</div>
 
 <style>
   /* An announcement renders as the guild talking, formatted like any other

@@ -2525,6 +2525,83 @@ textarea {
   text-align: left;
 }
 
+/* ---- syntax colours -----------------------------------------------------
+   Nine token colours for lib/highlight.js, each written ONCE.
+
+   The obvious way to do this is two hand-tuned palettes, one per theme. It
+   would have been wrong here for the same reason it was wrong for
+   --danger-text: the theme attribute is not the only thing that decides what a
+   code block is drawn on. Fifty packs redefine the depth scale, six of them are
+   light grounds while the app is nominally in dark mode, and any of them can be
+   worn in either theme — so a palette keyed on [data-theme] is right in two
+   cases out of four.
+
+   Each colour is instead a saturated hue blended toward var(--text). That drags
+   every one of them to whichever end of the scale the current ground ISN'T, on
+   every pack, with no list to keep in step. The blend percentages are not
+   guesses: each is the largest value that still clears 4.6:1 on BOTH themes
+   (dark ink #e8eaed on --bg-0 #101114, light ink #1c1e22 on #d9dce1), measured,
+   and the hues are fully saturated so a 38-68% blend still reads as a colour
+   rather than a tint. Amber is the low one because a yellow bright enough to
+   see on black is invisible on white; that is a property of yellow, not a
+   mistake in the number.
+
+   Comments and punctuation take the theme's own muted ink rather than a hue —
+   they are prose and scaffolding, and every pack has already decided what those
+   look like.
+
+   Any block the tokenizer bails on — an unknown language label, an oversized
+   block, an exhausted step budget — simply keeps the inherited colour, which is
+   exactly what every fence looked like before this existed. */
+:root {
+  --code-com: var(--text-muted);
+  --code-pun: color-mix(in srgb, var(--text) 72%, transparent);
+  --code-str: color-mix(in srgb, #00c853 47%, var(--text));
+  --code-kw: color-mix(in srgb, #b14cff 68%, var(--text));
+  --code-typ: color-mix(in srgb, #00bcd4 48%, var(--text));
+  --code-num: color-mix(in srgb, #ff8f00 47%, var(--text));
+  --code-fn: color-mix(in srgb, #2196ff 57%, var(--text));
+  --code-att: color-mix(in srgb, #ffc400 38%, var(--text));
+  --code-tag: color-mix(in srgb, #ff4d5e 61%, var(--text));
+  /* A diff's two halves are the same green and red, so they move together. */
+  --code-add: var(--code-str);
+  --code-del: var(--code-tag);
+}
+.hl-com {
+  color: var(--code-com);
+  font-style: italic;
+}
+.hl-str {
+  color: var(--code-str);
+}
+.hl-kw {
+  color: var(--code-kw);
+}
+.hl-typ {
+  color: var(--code-typ);
+}
+.hl-num {
+  color: var(--code-num);
+}
+.hl-fn {
+  color: var(--code-fn);
+}
+.hl-att {
+  color: var(--code-att);
+}
+.hl-tag {
+  color: var(--code-tag);
+}
+.hl-pun {
+  color: var(--code-pun);
+}
+.hl-add {
+  color: var(--code-add);
+}
+.hl-del {
+  color: var(--code-del);
+}
+
 /* ---- fenced code chrome -------------------------------------------------
    A fenced block scrolls sideways and used to do it with no cue whatsoever: a
    line ran off the edge and simply stopped, with nothing to say there was more.

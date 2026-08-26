@@ -35,6 +35,7 @@
   import { syncLayer } from "../lib/navstack.svelte.js";
   import { tooltip } from "../lib/tooltip.js";
   import { renderMarkdown, COLOR_NAMES } from "../lib/markdown.js";
+  import { highlightCode } from "../lib/highlight.js";
   import { activeShortcode, searchEmoji, replaceShortcodes } from "../lib/emoji.js";
   import { S, customEmojiMap, mentionRefs, selfMember, flash } from "../lib/state.svelte.js";
   import { stagedImage } from "../lib/attachopts.js";
@@ -1063,7 +1064,7 @@
                   <!-- The SAME renderer the feed uses, with the same mention and
                        emoji tables — the only way a preview can be trusted. -->
                   <!-- eslint-disable-next-line svelte/no-at-html-tags -->
-                  <div class="md">{@html renderMarkdown(previewBody, mentionNames, cemoji, refs)}</div>
+                  <div class="md" use:highlightCode={previewBody}>{@html renderMarkdown(previewBody, mentionNames, cemoji, refs)}</div>
                 {/if}
                 {#each pending as p (p.id)}
                   {#if p.isImage}
