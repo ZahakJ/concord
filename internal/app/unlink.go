@@ -187,7 +187,7 @@ func (s *Service) UnlinkDevice(deviceKeyHex string) error {
 		go s.pushRevocation(id, rev)
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("app: unlinked, but %d server(s) still list that device — reopen them when you can commit there", len(failed))
+		return fmt.Errorf("app: unlinked, but %s still list that device — reopen them when you can commit there", plural(len(failed), "guild", "guilds"))
 	}
 	return nil
 }
@@ -346,4 +346,15 @@ func (s *Service) wipeSelf() {
 	for _, cb := range cbs {
 		cb()
 	}
+}
+
+// plural counts a thing in a user-facing sentence. It exists because the one
+// place that needed it wrote "%d server(s)" instead — the only "(s)" in the
+// product, and a shape that reads like a form letter rather than a sentence
+// somebody wrote.
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
+	}
+	return fmt.Sprintf("%d %s", n, many)
 }

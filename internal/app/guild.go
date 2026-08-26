@@ -609,7 +609,7 @@ func (s *Service) AddMember(guildID, fingerprint string) error {
 		return fmt.Errorf("app: verify this contact first — only verified contacts can be added directly")
 	}
 	if s.guildHasMember(guildID, fingerprint) {
-		return fmt.Errorf("app: they're already in this server")
+		return fmt.Errorf("app: they're already in this guild")
 	}
 	// Record them as PENDING right away, so they show in the roster like a DM you
 	// opened — even if they're offline. The invite is pushed now if they're
@@ -644,7 +644,7 @@ func (s *Service) InviteCode(guildID string) (string, error) {
 	// fork the moment it's redeemed (honest peers drop the unauthorized commit).
 	// Refuse to hand out a code we can't honor.
 	if !s.canManageMembers(guildID) {
-		return "", fmt.Errorf("app: you don't have permission to invite members to this server")
+		return "", fmt.Errorf("app: you don't have permission to invite members to this guild")
 	}
 
 	ai := s.host.AddrInfo()
@@ -909,7 +909,7 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// Enforce the banlist at the gate: a banned fingerprint cannot rejoin, even
 	// with a fresh invite code. This is what makes a ban survive rejoin.
 	if len(req.Credential) > 0 && s.isBanned(req.GuildID, accountFingerprintOf(req.Credential)) {
-		return json.Marshal(inviteResponse{Error: "you are banned from this server"})
+		return json.Marshal(inviteResponse{Error: "you are banned from this guild"})
 	}
 
 	// Serialize the add + epoch-advancing publish: concurrent joins (a group DM

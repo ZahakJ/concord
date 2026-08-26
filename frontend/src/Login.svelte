@@ -1,7 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { api } from "./lib/api.js";
-  import { S, flash } from "./lib/state.svelte.js";
+  import { S, flash, humanError } from "./lib/state.svelte.js";
   import { linkCodeFrom } from "./lib/deeplink.js";
   import { confettiBurst } from "./lib/burst.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
@@ -48,10 +48,7 @@
       await api.login(pass);
       onLogin();
     } catch (err) {
-      // Strip only the Go package prefix (app:/net:/store:) — NOT everything up
-      // to the last colon, which would discard a helpful multi-clause message
-      // and leave just the innermost transport error.
-      error = String(err?.message || err).replace(/^(app|net|store|rpc \w+):\s*/, "");
+      error = humanError(err);
     } finally {
       busy = false;
     }
@@ -138,10 +135,7 @@
       confettiBurst({ seed: "device-link" });
       onLogin();
     } catch (err) {
-      // Strip only the Go package prefix (app:/net:/store:) — NOT everything up
-      // to the last colon, which would discard a helpful multi-clause message
-      // and leave just the innermost transport error.
-      error = String(err?.message || err).replace(/^(app|net|store|rpc \w+):\s*/, "");
+      error = humanError(err);
     } finally {
       busy = false;
     }
@@ -191,10 +185,7 @@
       await api.login(passphrase);
       onLogin();
     } catch (err) {
-      // Strip only the Go package prefix (app:/net:/store:) — NOT everything up
-      // to the last colon, which would discard a helpful multi-clause message
-      // and leave just the innermost transport error.
-      error = String(err?.message || err).replace(/^(app|net|store|rpc \w+):\s*/, "");
+      error = humanError(err);
     } finally {
       busy = false;
     }
@@ -252,10 +243,7 @@
       }
       onLogin();
     } catch (err) {
-      // Strip only the Go package prefix (app:/net:/store:) — NOT everything up
-      // to the last colon, which would discard a helpful multi-clause message
-      // and leave just the innermost transport error.
-      error = String(err?.message || err).replace(/^(app|net|store|rpc \w+):\s*/, "");
+      error = humanError(err);
     } finally {
       busy = false;
     }
@@ -271,7 +259,7 @@
       passphrase = "";
       confirmPass = "";
     } catch (err) {
-      error = String(err?.message || err);
+      error = humanError(err);
     } finally {
       busy = false;
     }

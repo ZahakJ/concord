@@ -1123,13 +1123,33 @@ export function guildUnread(g) {
 let toastSeq = 0;
 const toastTimers = new Map(); // id -> timeout handle
 
+// Errors arrive here still wearing the Go package that raised them — "app:",
+// "net:", "store:", or an "rpc Foo:" from the HTTP transport. That prefix is
+// for a log, not for a person, and it reached users on 119 call sites: three
+// screens stripped it inline and the fourth forgot, which is how you end up
+// with "app: they're already in this guild" in a toast. Strip it once, here.
+//
+// Only the leading package token: NOT everything up to the last colon, which
+// would throw away a helpful multi-clause message and leave just the innermost
+// transport error.
+const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|rpc\s+\w+):\s*)+/;
+// The browser's own words for "nothing answered". They are true and useless.
+const RAW_NETWORK = /^(failed to fetch|networkerror when attempting to fetch resource\.?|load failed|the network connection was lost\.?)$/i;
+
+export function humanError(msg) {
+  const text = String(msg?.message ?? msg ?? "").replace(GO_PREFIX, "");
+  if (msg?.offline || RAW_NETWORK.test(text.trim()))
+    return "Concord isn't responding — trying to reconnect";
+  return text;
+}
+
 export function flash(msg, kind = "info") {
   // Back-compat: flash(err) with an Error (or anything error-shaped) reads as
   // a failure without every existing call site having to opt in.
   if (kind === "info" && (msg instanceof Error || (typeof msg === "object" && msg?.message)))
     kind = "error";
   const id = ++toastSeq;
-  S.toasts.push({ id, kind, text: String(msg?.message || msg) });
+  S.toasts.push({ id, kind, text: humanError(msg) });
   // Bound the backlog even if something flashes in a tight loop.
   while (S.toasts.length > 8) dismissToast(S.toasts[0].id);
   toastTimers.set(

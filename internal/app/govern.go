@@ -387,7 +387,7 @@ func (s *Service) TransferOwnership(guildID, targetFpr string) error {
 		return fmt.Errorf("app: only the owner can transfer ownership")
 	}
 	if targetFpr == self {
-		return fmt.Errorf("app: you already own this server")
+		return fmt.Errorf("app: you already own this guild")
 	}
 	if !s.guildHasMember(guildID, targetFpr) {
 		return fmt.Errorf("app: ownership can only be handed to a current member")
@@ -422,7 +422,7 @@ func (s *Service) SetHeir(guildID, targetFpr string) error {
 		return fmt.Errorf("app: only the owner can name an heir")
 	}
 	if targetFpr == self {
-		return fmt.Errorf("app: you already own this server")
+		return fmt.Errorf("app: you already own this guild")
 	}
 	if !s.guildHasMember(guildID, targetFpr) {
 		return fmt.Errorf("app: the heir must be a current member")
@@ -446,7 +446,7 @@ func (s *Service) ClearHeir(guildID string) error {
 func (s *Service) ClaimOwnership(guildID string) error {
 	self := s.id.Fingerprint()
 	if s.IsGuildOwner(guildID, self) {
-		return fmt.Errorf("app: you already own this server")
+		return fmt.Errorf("app: you already own this guild")
 	}
 	if s.GuildHeir(guildID) != self {
 		return fmt.Errorf("app: the owner has not named you their heir")

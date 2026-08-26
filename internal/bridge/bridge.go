@@ -2310,12 +2310,16 @@ func (b *Bridge) RedeemLinkCode(code, passphrase string) (string, error) {
 	// Guilds the issuer belongs to but does not administer can't be handed over
 	// from here — it has no authority to invite anyone to them. Saying so is the
 	// whole point of tracking them: a device that looks linked and is quietly
-	// missing servers is the failure this replaces, and the fix is for a human
+	// missing guilds is the failure this replaces, and the fix is for a human
 	// to accept the new device from a machine that can.
-	if len(res.MissingGuilds) > 0 {
-		return fmt.Sprintf("Linked — but %d server(s) couldn't be handed over from that device (%s). "+
-			"Ask an admin of each to invite you, or link again from a device that administers them.",
-			len(res.MissingGuilds), strings.Join(res.MissingGuilds, ", ")), nil
+	if n := len(res.MissingGuilds); n > 0 {
+		noun, they := "guild", "it"
+		if n != 1 {
+			noun, they = "guilds", "each"
+		}
+		return fmt.Sprintf("Linked — but %d %s couldn't be handed over from that device (%s). "+
+			"Ask an admin of %s to invite you, or link again from a device that administers them.",
+			n, noun, strings.Join(res.MissingGuilds, ", "), they), nil
 	}
 	return "", nil
 }
