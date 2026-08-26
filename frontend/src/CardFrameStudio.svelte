@@ -8,7 +8,8 @@
   // decoration picker's do: motion is half of what you are choosing between,
   // and freezing it in the one place it has to sell itself was a bug once
   // already.
-  import { registerOverlay, S } from "./lib/state.svelte.js";
+  import { S } from "./lib/state.svelte.js";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import Icon from "./Icon.svelte";
   import CardFrame from "./CardFrame.svelte";
   import { CARD_FRAME_BY_ID, CARD_FRAME_GROUPS, CARD_FRAMES } from "./lib/cardframes.js";
@@ -17,7 +18,7 @@
   // studios were both bitten by a prop shadowing a rune and the convention is
   // cheaper to keep than to re-learn.
   let { current = "", color = "#14a394", color2 = "", onApply, onClose } = $props();
-  $effect(() => registerOverlay(() => onClose?.()));
+  $effect(() => pushLayer("studio", () => onClose?.()));
 
   let sel = $state(current);
 </script>

@@ -5,13 +5,14 @@
   // typing signals, reply banner, and ArrowUp-in-empty-composer to edit your
   // last message.
   import Icon from "./Icon.svelte";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import EmojiPicker from "./EmojiPicker.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import Menu from "./Menu.svelte";
   import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { haptic } from "./lib/touch.js";
-  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor, mentionRefs, registerOverlay } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor, mentionRefs } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -667,6 +668,10 @@
         e.preventDefault();
         accept();
       } else if (e.key === "Escape") {
+        // Consumed here, so it never reaches the keymap's window listener and
+        // pops a layer as well — dismissing the completion list and cancelling
+        // the reply you were writing on one keypress.
+        e.stopPropagation();
         suggest = null;
       }
       return;
@@ -683,9 +688,10 @@
     } else if (e.key === "ArrowUp" && !draft) {
       e.preventDefault();
       editLastOwnMessage();
-    } else if (e.key === "Escape" && S.replyingTo) {
-      S.replyingTo = null;
     }
+    // Escape while replying is not handled here any more: the reply is a layer
+    // like everything else, and the keymap pops whichever layer is on top —
+    // which may well be a picker this composer opened.
   }
 
   function onInput() {
@@ -1117,7 +1123,7 @@
   }
   // Hardware back closes the sheet before it reaches the drawers or exits.
   $effect(() => {
-    if (moreOpen) return registerOverlay(() => (moreOpen = false));
+    if (moreOpen) return pushLayer("sheet", () => (moreOpen = false));
   });
 
   function openAdvanced() {

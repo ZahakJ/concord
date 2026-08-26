@@ -684,35 +684,11 @@ export function closeContextMenu() {
   S.contextMenu = null;
 }
 
-// Overlay-closer stack: component-local overlays that AREN'T S.modal (the QR
-// scanner, the Ring/Banner studios, …) register their onClose here on mount, so
-// the mobile hardware-back button can dismiss the topmost one before falling
-// through to closing a modal or exiting the app.
-const overlayClosers = [];
-export function registerOverlay(close) {
-  overlayClosers.push(close);
-  return () => {
-    const i = overlayClosers.indexOf(close);
-    if (i >= 0) overlayClosers.splice(i, 1);
-  };
-}
-// closeTopOverlay dismisses the highest-priority open overlay and reports
-// whether it closed anything — the mobile back handler consults this first.
-export function closeTopOverlay() {
-  if (S.contextMenu) {
-    closeContextMenu();
-    return true;
-  }
-  if (overlayClosers.length) {
-    overlayClosers[overlayClosers.length - 1]();
-    return true;
-  }
-  if (S.profilePopover) {
-    closeProfilePopover();
-    return true;
-  }
-  return false;
-}
+// Dismissible layers — modals, sheets, popovers, menus, panels — all live on
+// one stack in lib/navstack.svelte.js, which back and Escape pop from. This
+// file used to keep a flat closer list of its own with the context menu and the
+// profile card wired in front of it as fixed rungs, so those two closed before
+// anything registered no matter which had been opened last.
 
 // patchProfile writes one or two profile fields and carries every other one
 // through untouched. SetProfile is all-or-nothing — it takes the whole profile

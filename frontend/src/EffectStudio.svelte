@@ -22,7 +22,8 @@
   // away did not give them the scene — it gave them nothing. Scenes lead the
   // gallery because they are the bigger thing to look at; the fields keep
   // their shelf under them.
-  import { registerOverlay, S } from "./lib/state.svelte.js";
+  import { S } from "./lib/state.svelte.js";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import Icon from "./Icon.svelte";
   import FxLayer from "./FxLayer.svelte";
   import CardScene from "./CardScene.svelte";
@@ -34,7 +35,7 @@
   // ("e.subscribe is not a function" at runtime). BannerStudio carries the same
   // warning for the same reason.
   let { current = "", color = "#14a394", color2 = "", onApply, onClose } = $props();
-  $effect(() => registerOverlay(() => onClose?.()));
+  $effect(() => pushLayer("studio", () => onClose?.()));
 
   let sel = $state(current);
   const cur = $derived(cardEffect(sel));

@@ -25,6 +25,7 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { bindLabel } from "./lib/keybind.js";
+  import { syncLayer } from "./lib/navstack.svelte.js";
   import { haptic, longpress } from "./lib/touch.js";
   import { SOUNDBOARD, playSfx } from "./lib/sounds.js";
 
@@ -180,6 +181,20 @@
   // moment Android permits the lock (it refuses outside fullscreen), and which
   // iOS/WKWebView simply ignores.
   let stageEl = $state(null);
+  // Theater and fullscreen are two layers, in the order you entered them: back
+  // leaves the fullscreen first and the big view second. Neither was on the
+  // ladder before, so back out of a full-screen share exited the app.
+  // Tracked from the event, not from a flag we set ourselves: Escape and the
+  // system's own fullscreen affordances leave it without asking us.
+  let isFullscreen = $state(false);
+  $effect(() => {
+    const sync = () => (isFullscreen = !!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", sync);
+    sync();
+    return () => document.removeEventListener("fullscreenchange", sync);
+  });
+  syncLayer("theater", () => inTheater, () => (focusedKey = null));
+  syncLayer("fullscreen", () => isFullscreen, () => document.exitFullscreen?.());
   async function toggleFullscreen() {
     try {
       if (document.fullscreenElement) {

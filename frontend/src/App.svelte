@@ -30,7 +30,6 @@
     dismissUpdate,
     setChannelTopic,
     nudge,
-    closeTopOverlay,
     selectChannel,
     isCallLocked,
     nameFor,
@@ -45,6 +44,7 @@
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
   import { initDeepLinks, consumePendingChannel } from "./lib/deeplink.js";
   import { closeSearch } from "./lib/search.js";
+  import { popLayer, syncLayer } from "./lib/navstack.svelte.js";
   import { haptic, hapticNotify } from "./lib/touch.js";
   import Icon from "./Icon.svelte";
   import Login from "./Login.svelte";
@@ -401,6 +401,11 @@
     // the login and device-linking screens are where a stray back press used to
     // drop a half-set-up user on the launcher.
     wireMobileLifecycle();
+    // Escape is the desktop half of the same navigation stack, so it has to be
+    // live from the first frame for the same reason: the login screen raises
+    // dialogs and a full-screen QR scanner, and until Escape moved into the
+    // keymap each dialog answered it with a listener of its own.
+    installShortcuts();
     // Hand the launch splash over now that there is something to look at. Held
     // by MainActivity across the WebView load AND the Go core boot, which is a
     // blank window otherwise.
@@ -463,7 +468,6 @@
     // lib/notify.js. On mobile the ask waits for a message the user missed,
     // which offerNotifications() turns into the rationale bar below.
     if (!asksLazily()) requestPermission();
-    installShortcuts();
     startScheduler();
     startEventRadar(); // live-meeting + new-event radar (lib/radar.svelte.js)
     startEphemeralSweep();
@@ -653,30 +657,35 @@
   }
 
   // ---- hardware back ----
-  // The Android back button is the app's primary navigation control, and it used
-  // to be: dismiss an overlay, close the drawers, close a modal, EXIT. The SPA
-  // pushes no history entries, so `canGoBack` is always false — which meant back
-  // from inside any conversation, or from inside a forum post, quit Concord.
-  // What follows is a real stack, unwound one press at a time:
   //
-  //   overlay / sheet / popover   (closeTopOverlay)
-  //   modal
-  //   transient panel             (quick switcher, pins, picker, search results)
-  //   knock / call invite
-  //   open drawer
-  //   forum post  →  its board
-  //   open channel →  reveal the channel list
-  //   root        →  press again to exit
+  // Back has exactly two jobs, in this order: take away whatever is covering
+  // the screen, and then walk out of where you are. The first is the layer
+  // stack in lib/navstack.svelte.js, which back shares with desktop Escape. The
+  // second is the ladder below, and it is deliberately short:
   //
-  // Escape on desktop walks a near-identical ladder in lib/shortcuts.js.
+  //   a post inside a forum board  →  the board
+  //   a conversation               →  the channel list (the drawer)
+  //   the channel list             →  press again to exit
+  //
+  // What used to be here was thirteen if/else rungs with a latch in the middle,
+  // and it could not leave the app at all. Two of the rungs were "close the
+  // drawer" and "open the drawer", so back oscillated between them: press,
+  // press, press and you were exactly where you started, while a toast promised
+  // an exit that never came. The latch (`backRevealedDrawer`) stopped the loop
+  // being infinite and made it a four-press cycle instead.
+  //
+  // The drawer is the fix. It is not an overlay to be popped, it is the phone's
+  // channel list — the only screen that shows one — so leaving a conversation
+  // reveals it and leaving IT leaves the app. There is no rung that closes it,
+  // which is why the sequence can no longer double back on itself: every press
+  // moves strictly outwards and the toast's promise is kept.
 
-  // Back revealed the drawer, so the NEXT back is at the root and should leave.
-  // Without this the two rungs ping-pong: back opens the drawer, back closes it,
-  // back opens it again, and there is no way out of the app but the home button.
-  let backRevealedDrawer = false;
-  $effect(() => {
-    if (!S.drawerOpen) backRevealedDrawer = false;
-  });
+  // Layers with no component of their own to register from. Each is something
+  // that visibly covers or claims the screen and that back should take away
+  // before it starts leaving places.
+  syncLayer("reply", () => !!S.replyingTo, () => (S.replyingTo = null));
+  syncLayer("call-invite", () => !!S.callInvite, () => (S.callInvite = null));
+  syncLayer("knock", () => !!S.knocking, () => (S.knocking = ""));
 
   let exitArmed = 0;
   function confirmExit(App) {
@@ -691,54 +700,8 @@
   }
 
   function handleBack(App, canGoBack) {
-    if (closeTopOverlay()) return;
-    if (S.modal) {
-      S.modal = null;
-      return;
-    }
-    // Panels the old handler could not see — opening Pinned messages and
-    // pressing back exited the app with the panel still on screen.
-    if (S.quickSwitcher) {
-      S.quickSwitcher = false;
-      return;
-    }
-    if (S.pickerTarget) {
-      S.pickerTarget = null;
-      return;
-    }
-    if (S.showPins) {
-      S.showPins = false;
-      return;
-    }
-    if (S.searchResults !== null || S.searchLoading) {
-      closeSearch();
-      return;
-    }
-    if (S.replyingTo) {
-      S.replyingTo = null;
-      return;
-    }
-    if (S.callInvite) {
-      S.callInvite = null;
-      return;
-    }
-    if (S.knocking) {
-      S.knocking = "";
-      return;
-    }
-    if (S.membersOpen) {
-      S.membersOpen = false;
-      return;
-    }
-    if (S.drawerOpen) {
-      if (backRevealedDrawer) {
-        backRevealedDrawer = false;
-        confirmExit(App);
-      } else {
-        S.drawerOpen = false;
-      }
-      return;
-    }
+    // Something is covering the screen: take the top one away.
+    if (popLayer()) return;
     // A forum post is a channel nested under its board; going "back" from one
     // means the board, exactly as ChatHeader's breadcrumb does on desktop.
     const parent = activeChannelObj?.parent;
@@ -746,11 +709,10 @@
       selectChannel(parent);
       return;
     }
-    // Back out of a conversation into the list it came from — the single most
-    // used back action in every messenger, and the one this app had no step for.
-    if (S.isMobile && S.activeChannelId) {
+    // Out of a conversation and into the list it came from — the single most
+    // used back action in every messenger.
+    if (S.isMobile && S.activeChannelId && !S.drawerOpen) {
       S.drawerOpen = true;
-      backRevealedDrawer = true;
       return;
     }
     if (canGoBack) return; // let the WebView handle a real history entry
@@ -787,6 +749,7 @@
     // warm and cold shares once it's attached in onMount.
     cap?.Plugins?.ConcordCore?.addListener?.("shareIn", (ev) => handleShareIn(ev?.text));
   }
+
 
   // ---- share-sheet intake (Android) ----
   // v1 is text/links into the ACTIVE conversation's composer draft. A proper

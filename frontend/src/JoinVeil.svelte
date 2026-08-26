@@ -7,8 +7,14 @@
   // { title, leaving? }; the card that started the join owns the lifecycle.
   import Avatar from "./Avatar.svelte";
   import { S, selfMember } from "./lib/state.svelte.js";
+  import { syncLayer } from "./lib/navstack.svelte.js";
 
   const me = $derived(selfMember());
+
+  // A door you are already walking through has no back. The veil sits over
+  // everything for the ~500ms of the join, and back used to walk past it and
+  // exit the app while the join carried on regardless.
+  syncLayer("veil", () => !!S.joinVeil, () => {}, { blocking: true });
 
   // Past ~1.5s the honest line changes to the door language the guest page
   // already speaks — a slow P2P join is a knock, and saying so beats a mute

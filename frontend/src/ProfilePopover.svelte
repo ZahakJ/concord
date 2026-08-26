@@ -13,6 +13,7 @@
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GameShelf, { coverStyle, gameHue } from "./GameShelf.svelte";
+  import { syncLayer } from "./lib/navstack.svelte.js";
   import {
     S,
     activeGuild,
@@ -38,6 +39,11 @@
   import { cardFxTable, cardFramesTable, cardScenesTable } from "./lib/cosmetics.svelte.js";
   import CardFrame from "./CardFrame.svelte";
   import CardScene from "./CardScene.svelte";
+
+  // The card was a hardcoded rung underneath every registered overlay, so an
+  // emoji picker or a studio opened from inside it closed only after the card
+  // that raised them had already gone.
+  syncLayer("popover", () => !!S.profilePopover, closeProfilePopover);
 
   let dmText = $state("");
   let dmBusy = $state(false);
@@ -494,12 +500,13 @@
 <!-- The ⋯ menu renders at the app root, outside .pop, so while it's up every
      interaction with it (its backdrop, its sheet, an item) must not count as
      "clicked outside the card" — the menu's actions read the card's member.
-     Escape likewise closes only the menu first; this component's listener was
-     registered before ContextMenu's, so S.contextMenu is still set here. -->
+     Escape is not handled here at all any more: the card is a layer like any
+     other, and whichever of it and the menu was opened last is the one back
+     takes away. -->
 <svelte:window
   onscroll={closeProfilePopover}
   onresize={closeProfilePopover}
-  onkeydown={(e) => e.key === "Escape" && !S.contextMenu && closeProfilePopover()}
+
   onpointerdown={(e) => {
     if (!S.profilePopover || popoverJustOpened()) return;
     if (e.target.closest(".pop-wrap, .cm, .cm-backdrop, .bs-sheet, .bs-scrim")) return;

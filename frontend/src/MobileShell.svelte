@@ -15,12 +15,12 @@
     refreshGuilds,
     selectGuild,
     selectChannel,
-    registerOverlay,
     flash,
     clearFeed,
     accentForeground,
   } from "./lib/state.svelte.js";
   import { untrack } from "svelte";
+  import { pushLayer, syncLayer } from "./lib/navstack.svelte.js";
   import { guildAccent } from "./lib/guildaccent.js";
   import { api } from "./lib/api.js";
   import { haptic } from "./lib/touch.js";
@@ -149,6 +149,12 @@
     S.membersOpen = false;
   }
 
+  // The member drawer covers the conversation you are reading, so back takes it
+  // away. The LEFT drawer deliberately does not register: it is the channel
+  // list, the place a conversation sits inside, and popping it is exactly the
+  // move that made back oscillate. See handleBack in App.svelte.
+  syncLayer("drawer", () => S.membersOpen, () => (S.membersOpen = false));
+
   // ---- "⋯" top-bar menu ----
   // Everything ChatHeader offers on desktop (search, pins, call, invite, guild
   // management) is reachable here — ChatHeader itself never renders on phones.
@@ -159,7 +165,7 @@
   // instead of walking past it and exiting the app.
   $effect(() => {
     if (!searchOpen) return;
-    return registerOverlay(() => {
+    return pushLayer("search", () => {
       closeSearch();
       searchOpen = false;
     });

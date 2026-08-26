@@ -14,6 +14,11 @@
     isDMChannel,
     guildUnread,
   } from "./lib/state.svelte.js";
+  import { pushLayer } from "./lib/navstack.svelte.js";
+
+  // Escape used to be answered here as well as in the desktop keymap's ladder;
+  // now the one stack owns it.
+  $effect(() => pushLayer("panel", () => (S.quickSwitcher = false)));
 
   let query = $state("");
   let sel = $state(0);
@@ -175,9 +180,7 @@
   }
 
   function onKeydown(e) {
-    if (e.key === "Escape") {
-      S.quickSwitcher = false;
-    } else if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       sel = (sel + 1) % Math.max(flat.length, 1);
     } else if (e.key === "ArrowUp") {

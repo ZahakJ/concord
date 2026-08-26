@@ -3,15 +3,15 @@
   // canvas and decoded with jsQR. Fires onScan(text) once and stops. Used by
   // the Login link flow (and anywhere else a code can arrive by camera).
   import { onMount, onDestroy } from "svelte";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import Icon from "./Icon.svelte";
 
-  import { registerOverlay } from "./lib/state.svelte.js";
   import { openSystemSettings } from "./lib/notify.js";
   import { haptic } from "./lib/touch.js";
   let { onScan, onClose } = $props();
   // Hardware-back / global overlay stack: closing this scanner is what back
   // should do, not exit the app.
-  $effect(() => registerOverlay(() => onClose?.()));
+  $effect(() => pushLayer("scanner", () => onClose?.()));
 
   let video = $state(null);
   let error = $state("");

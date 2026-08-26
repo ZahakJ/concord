@@ -2,6 +2,7 @@
   // The feed: date dividers, consecutive-sender grouping, drag-and-drop
   // attachments, pins/search panels, and the out-of-sync banner.
   import Icon from "./Icon.svelte";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import Message from "./Message.svelte";
   import ArchiveMessage from "./ArchiveMessage.svelte";
   import Avatar from "./Avatar.svelte";
@@ -24,7 +25,6 @@
     markRead,
     loadOlder,
     clockOpts,
-    registerOverlay,
     nudge,
     selectChannel,
     archiveChannel,
@@ -132,7 +132,7 @@
   // itself — Escape already does the equivalent on desktop (lib/shortcuts.js).
   $effect(() => {
     if (!S.showPins || !S.isMobile) return;
-    return registerOverlay(() => (S.showPins = false));
+    return pushLayer("pins", () => (S.showPins = false));
   });
 
   // How many peers could actually serve the catch-up. The banner said "as soon

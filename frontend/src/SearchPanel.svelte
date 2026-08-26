@@ -16,8 +16,11 @@
   } from "./lib/state.svelte.js";
   import { removeChip, closeSearch } from "./lib/search.js";
   import { previewText } from "./lib/attachments.js";
+  import { syncLayer } from "./lib/navstack.svelte.js";
 
   const open = $derived(S.searchResults !== null || S.searchLoading);
+  // Results cover the whole feed; back closes them rather than the app.
+  syncLayer("panel", () => open, closeSearch);
   const results = $derived(S.searchResults ?? []);
 
   function fmtTime(iso) {

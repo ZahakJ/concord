@@ -1,5 +1,4 @@
 <script>
-  import { registerOverlay } from "./lib/state.svelte.js";
   // The banner editor: one place, three ways in.
   //   • Presets — 40+ LIVE scenes: snow falls, meteors streak, lightning
   //     strikes, lava bubbles, an equalizer dances. They cost a dozen bytes on
@@ -8,6 +7,7 @@
   //     and only the part you choose is baked into the banner.
   //   • Colors — your two profile colors, angle included.
   import Icon from "./Icon.svelte";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import Banner from "./Banner.svelte";
   import { BANNERS, BANNER_GROUPS, isPreset, presetId } from "./lib/banners.js";
 
@@ -20,7 +20,7 @@
     onApply,
     onClose,
   } = $props();
-  $effect(() => registerOverlay(() => onClose?.()));
+  $effect(() => pushLayer("studio", () => onClose?.()));
 
   // The card effect is chosen in its own picker now (EffectStudio), not here.
   // It lived here on the reasoning that an overlay only affected the banner;

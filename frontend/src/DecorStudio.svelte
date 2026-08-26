@@ -27,8 +27,8 @@
   // chosen, because the whole point of drawing these as paths rather than
   // shipping images is that they adopt the wearer. A generic swatch would sell
   // that short.
-  import { registerOverlay } from "./lib/state.svelte.js";
   import Icon from "./Icon.svelte";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import Avatar from "./Avatar.svelte";
   import RingDials from "./RingDials.svelte";
   import {
@@ -58,7 +58,7 @@
     onApply,
     onClose,
   } = $props();
-  $effect(() => registerOverlay(() => onClose?.()));
+  $effect(() => pushLayer("studio", () => onClose?.()));
 
   // The two halves of the one slot. Both can arrive set — see the note above —
   // and picking anything at all collapses that back to one.

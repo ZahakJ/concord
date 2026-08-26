@@ -14,6 +14,12 @@
   import Icon from "./Icon.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import { S, closeContextMenu } from "./lib/state.svelte.js";
+  import { syncLayer } from "./lib/navstack.svelte.js";
+
+  // A menu is the shallowest thing on screen and the first thing back should
+  // take away — but only because it was opened last, not because it used to be
+  // hardcoded in front of everything else.
+  syncLayer("menu", () => !!S.contextMenu, closeContextMenu);
 
   let el = $state(null);
   let pos = $state({ x: 0, y: 0 });

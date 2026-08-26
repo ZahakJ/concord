@@ -33,6 +33,7 @@
   import { S, flash, patchProfile, refreshRightPanel } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { splitStatus, joinStatus } from "./lib/presence.js";
+  import { syncLayer } from "./lib/navstack.svelte.js";
 
   let { games = [], editable = false, onchange } = $props();
 
@@ -69,13 +70,10 @@
     results = [];
     clearTimeout(debounce);
   }
-  // Capture-phase so Esc closes just the library, not the popover under it.
-  function onKeydown(e) {
-    if (e.key === "Escape" && expanded) {
-      e.stopPropagation();
-      closeLibrary();
-    }
-  }
+  // The library covers the card that opened it, so it is a layer of its own —
+  // which is also what makes Escape and back close it first, without the
+  // capture-phase listener that used to arrange that by hand.
+  syncLayer("panel", () => expanded, closeLibrary);
 
   function onInput() {
     clearTimeout(debounce);
@@ -158,7 +156,6 @@
   const showCover = (g) => g.cover && !broken[g.name] && S.prefs.gameCovers;
 </script>
 
-<svelte:window onkeydowncapture={onKeydown} />
 
 <div class="sec-head">
   <span class="sec-label muted">

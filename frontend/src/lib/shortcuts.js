@@ -12,12 +12,12 @@
 //   (your choice)     hold to talk, when push-to-talk is on — see below
 //   Ctrl/Cmd+U        toggle the member panel
 //   Ctrl/Cmd+= / - / 0  zoom the UI in / out / back to 100%
-//   Escape            close switcher / pins / search / reply — or, if nothing
-//                     is open, mark the current channel read
+//   Escape            close whatever is on top (see lib/navstack.svelte.js) —
+//                     or, if nothing is open, mark the current channel read
 //   Shift+Escape      mark ALL channels read
 //   ? or Ctrl+/       keyboard-shortcut cheat sheet
 import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash } from "./state.svelte.js";
-import { closeSearch } from "./search.js";
+import { popLayer } from "./navstack.svelte.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
 
 function channelsOfActive() {
@@ -235,19 +235,25 @@ export function installShortcuts() {
       S.modal = S.modal?.kind === "shortcuts" ? null : { kind: "shortcuts" };
       return;
     }
-    if (e.key === "Escape" && !inputFocused()) {
-      // An open modal owns Escape — Modal.svelte has its own window listener
-      // that dismisses it, so acting here too would fire two actions (e.g.
-      // cancel-reply AND close-modal) on a single keypress.
-      if (S.modal) return;
-      if (e.shiftKey) {
-        markAllRead();
-      } else if (S.contextMenu) S.contextMenu = null;
-      else if (S.quickSwitcher) S.quickSwitcher = false;
-      else if (S.pickerTarget) S.pickerTarget = null;
-      else if (S.showPins) S.showPins = false;
-      else if (S.searchResults !== null || S.searchLoading) closeSearch();
-      else if (S.replyingTo) S.replyingTo = null;
+    // Escape: take away the top layer, whatever it is.
+    //
+    // This used to be a second ladder, listing the same panels the Android back
+    // handler listed, in the same fixed order — and Modal.svelte kept a third
+    // listener of its own on top of that. Three places had to agree about what
+    // was open and about which of two things opened at once should go first,
+    // and they drifted: a modal short-circuited the whole ladder, so a picker
+    // raised from inside one could not be closed without closing the dialog
+    // under it. One stack, popped from the top, cannot drift.
+    if (e.key === "Escape") {
+      // A dismissal has to work with the caret in a text field — that is where
+      // it is needed most (a sheet is up, the keyboard is up, the search box
+      // has focus). Only the fallbacks below defer to the field.
+      if (popLayer()) {
+        e.preventDefault();
+        return;
+      }
+      if (inputFocused()) return;
+      if (e.shiftKey) markAllRead();
       // Nothing to dismiss → mark the current channel read (Discord-style).
       else if (S.activeChannelId) markRead(S.activeChannelId);
     }

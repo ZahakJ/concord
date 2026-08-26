@@ -8,8 +8,13 @@
   import { S, flash, refreshRightPanel, patchProfile } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PRESENCE_OPTIONS, splitStatus, joinStatus } from "./lib/presence.js";
+  import { pushLayer } from "./lib/navstack.svelte.js";
 
   let { anchor, onClose } = $props(); // anchor: {x, y, w, h} of the trigger button
+
+  // Unregistered until now: hardware back walked straight past an open status
+  // sheet and out of the app.
+  $effect(() => pushLayer("popover", onClose));
 
   const EMOJI = ["🎮", "🎧", "🌙", "💻", "📚", "☕", "🏃", "😴"];
   const PRESETS = [
@@ -116,7 +121,7 @@
 
 <svelte:window
   onresize={onClose}
-  onkeydown={(e) => e.key === "Escape" && onClose()}
+
   onpointerdown={(e) => {
     // The trigger toggles the popover itself; closing here too would reopen it.
     if (!e.target.closest(".status-pop, .me-status-trigger")) onClose();

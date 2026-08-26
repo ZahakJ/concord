@@ -5,9 +5,10 @@
   // click zooms to the cursor, wheel zooms, drag pans, pinch works on touch,
   // Esc / backdrop / ✕ close.
   import Icon from "./Icon.svelte";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import { loadAttachment, copyImageToClipboard, saveImageSrc } from "./lib/attachments.js";
   import { knownRecipe } from "./lib/memerecipe.js";
-  import { openContextMenu, flash, registerOverlay, S } from "./lib/state.svelte.js";
+  import { openContextMenu, flash, S } from "./lib/state.svelte.js";
   import { longpress, haptic } from "./lib/touch.js";
 
   // `messageId`/`own` exist only for "Edit meme": editing a picture in place
@@ -171,7 +172,7 @@
   // up. Escape (below) is the desktop half of the same job.
   $effect(() => {
     if (!lightbox) return;
-    return registerOverlay(closeLightbox);
+    return pushLayer("lightbox", closeLightbox);
   });
 
   function onKeydown(e) {

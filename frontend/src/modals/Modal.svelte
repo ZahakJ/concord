@@ -1,13 +1,4 @@
 <script module>
-  // Which dialogs are on screen, innermost last.
-  //
-  // Every Modal registers its OWN window keydown listener, and until this stack
-  // existed all of them answered the same Escape. A confirm raised from inside
-  // a settings panel (six places do it) therefore closed itself AND the panel
-  // that asked the question, in one keypress — the user lost their place as the
-  // price of saying "no". Only the dialog on top acts now.
-  const openDialogs = [];
-
   // What can hold focus inside a dialog. `[tabindex="-1"]` is excluded on
   // purpose: it is how a thing is made programmatically focusable but kept out
   // of the tab order, which is exactly what the dialog container itself uses.
@@ -22,6 +13,7 @@
 <script>
   import { onDestroy, onMount, tick } from "svelte";
   import { S, modalNav, backPanel } from "../lib/state.svelte.js";
+  import { layer } from "../lib/navstack.svelte.js";
   import { haptic } from "../lib/touch.js";
   import Icon from "../Icon.svelte";
   // `wide` widens the desktop dialog for content that benefits from the room
@@ -54,8 +46,13 @@
   // and a keyboard user had no way to reach the dialog they had just opened
   // except by tabbing all the way round. And none of the 49 gave focus BACK, so
   // closing one dropped the caret at the top of the document every time.
-  const me = {};
-  openDialogs.push(me);
+  // This dialog's place on the app-wide layer stack. Registering at component
+  // init rather than in an effect keeps creation order and stack order the same
+  // thing, which is what makes a confirm raised from inside a settings panel —
+  // six places do it — answer Escape on its own without also closing the panel
+  // that asked the question. `dismiss` is what goes on the stack, not
+  // `onClose`, so back and the ✕ play the same exit.
+  const me = layer("modal", () => dismiss());
   let opener = null;
 
   onMount(() => {
@@ -92,8 +89,6 @@
   // it. Which happened is simply whether a modal is still open by the time this
   // one is torn down.
   onDestroy(() => {
-    const i = openDialogs.indexOf(me);
-    if (i !== -1) openDialogs.splice(i, 1);
     if (!S.modal) S.modalStack = [];
     // Hand focus back to whatever opened us — but only if nothing else has
     // claimed it in the meantime (drilling into a settings sub-panel unmounts
@@ -157,16 +152,14 @@
     setTimeout(onClose, 190);
   }
 
-  // Escape closes reliably regardless of focus (the overlay keydown only fired
-  // when focus was inside it). Tab is trapped within the dialog so focus can't
-  // wander onto the page behind.
+  // Tab is trapped within the dialog so focus can't wander onto the page
+  // behind. Escape is NOT handled here: it goes through the one navigation
+  // stack in lib/shortcuts.js, which pops whatever is on top — and the top may
+  // well be a picker or a menu this dialog raised.
   function onKeydown(e) {
-    // Only the dialog on top answers the keyboard.
-    if (openDialogs[openDialogs.length - 1] !== me) return;
-    if (e.key === "Escape") {
-      e.preventDefault();
-      dismiss();
-    } else if (e.key === "Tab" && dialog) {
+    // Only the innermost dialog answers the keyboard.
+    if (!me.isInnermostOfKind) return;
+    if (e.key === "Tab" && dialog) {
       const f = [...dialog.querySelectorAll(FOCUSABLE)].filter(visible);
       if (!f.length) return;
       const first = f[0];
@@ -191,7 +184,18 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<div class="overlay" class:closing onclick={dismiss} role="presentation">
+<!-- Depth comes from the stack, not from a constant. Two sheets used to be
+     drawn at the same z-index with a single scrim under both, so a profile
+     sheet raised over Settings read as one flat pile with no dim between the
+     layers and no clue which of them a tap would reach. Each layer's scrim now
+     sits above everything below it. -->
+<div
+  class="overlay"
+  class:closing
+  style:z-index={100 + me.index * 2}
+  onclick={dismiss}
+  role="presentation"
+>
   <div
     bind:this={dialog}
     class="dialog"

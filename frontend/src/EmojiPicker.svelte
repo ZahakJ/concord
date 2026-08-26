@@ -3,7 +3,8 @@
     EMOJI, CATEGORIES, searchEmoji, recentEmoji, pushRecentEmoji,
     SKIN_TONES, TONABLE, applyTone, emojiTone, setEmojiTone, emojiName,
   } from "./lib/emoji.js";
-  import { S, activeGuild, registerOverlay } from "./lib/state.svelte.js";
+  import { S, activeGuild } from "./lib/state.svelte.js";
+  import { pushLayer } from "./lib/navstack.svelte.js";
 
   // Searchable, tabbed emoji grid. onPick(emoji) fires on selection. Closes on
   // Escape or an outside click (a short guard ignores the opening click).
@@ -21,7 +22,7 @@
   // Hardware back closes the picker. Without this it skipped straight past to
   // the drawers or App.exitApp() — and since the picker opens with the keyboard
   // up, the reflexive "back to close" dismissed the IME and then quit the app.
-  $effect(() => registerOverlay(onClose));
+  $effect(() => pushLayer("picker", onClose));
   let recents = $state(recentEmoji());
   const openedAt = Date.now();
 

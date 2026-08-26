@@ -8,9 +8,10 @@
   // stand down), so this component adds no animation of its own beyond the
   // progress bars, whose movement is information, not decoration.
   import Icon from "./Icon.svelte";
+  import { pushLayer } from "./lib/navstack.svelte.js";
   import Avatar from "./Avatar.svelte";
   import Banner from "./Banner.svelte";
-  import { S, memberByFpr, registerOverlay, startDM, flash } from "./lib/state.svelte.js";
+  import { S, memberByFpr, startDM, flash } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { sealAgo } from "./lib/timestamp.js";
 
@@ -29,7 +30,7 @@
   const mem = $derived(story ? memberByFpr(story.author) : null);
   const isSelf = $derived(story?.author === S.identity.fingerprint);
 
-  $effect(() => registerOverlay(() => onClose?.()));
+  $effect(() => pushLayer("story", () => onClose?.()));
 
   // Seen is recorded when you move PAST a story (auto-advance or tap-forward)
   // — rewinding and bailing out mid-story leave it unread, and the call is
