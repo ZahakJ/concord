@@ -132,9 +132,13 @@ ios-core:
 # unconfigured build still produces an unsigned artifact for testing.
 # MOBILE_VERSION_NAME strips a leading "v" from VERSION (v0.6.0 -> 0.6.0) for
 # the store-required numeric versionName; MOBILE_VERSION_CODE is a monotonic int
-# (CI passes the run number; local builds default to 1).
+# the caller must supply. It has no useful default: Play rejects any upload
+# whose code is not strictly greater than the last one, and the old default of 1
+# meant a release built without the variable produced a bundle that could only
+# ever be uploaded once — silently, with nothing in the build log to say so.
+# The convention is minor*100 + patch (v0.57.0 -> 5700).
 MOBILE_VERSION_NAME := $(patsubst v%,%,$(VERSION))
-MOBILE_VERSION_CODE ?= 1
+MOBILE_VERSION_CODE ?= 0
 
 # Windows version resource, stamped from the same tag (see the `release` target).
 # WIN_PATCH is empty unless VERSION splits into three dot-separated parts, so an
@@ -150,6 +154,16 @@ WIN_STAMP    = $(if $(WIN_PATCH),\
 	-file-version "$(WIN_VERSION).0" -product-version "$(WIN_VERSION)")
 
 android-app: frontend android-core
+	@case "$(MOBILE_VERSION_CODE)" in \
+		''|*[!0-9]*) ok=no ;; \
+		*) [ "$(MOBILE_VERSION_CODE)" -gt 1 ] && ok=yes || ok=no ;; \
+	esac; \
+	if [ "$$ok" != yes ]; then \
+		echo "make: MOBILE_VERSION_CODE='$(MOBILE_VERSION_CODE)' is not a usable release code." >&2; \
+		echo "      Pass a monotonic integer, by convention minor*100+patch:" >&2; \
+		echo "      make android-app VERSION=$(VERSION) MOBILE_VERSION_CODE=5700" >&2; \
+		exit 1; \
+	fi
 	cd apps/mobile && npm ci && npx cap sync android
 	cd apps/mobile/android && ./gradlew bundleRelease \
 		-PconcordVersionName=$(MOBILE_VERSION_NAME) \

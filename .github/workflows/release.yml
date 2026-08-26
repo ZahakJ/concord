@@ -192,8 +192,20 @@ jobs:
           EOF
       # Reuses the Makefile target (frontend -> android-core -> cap sync -> gradle),
       # so local and CI builds stay identical. VERSION stamps the Go core.
+      #
+      # versionCode is derived from the tag rather than the run number: Play
+      # only ever accepts a code strictly greater than the last upload, and a
+      # run number resets meaning the moment the workflow is edited. minor*100
+      # + patch matches what the published builds already carry (v0.57.0 is
+      # 5700) and leaves 99 patch releases per minor.
       - name: Build app bundle
-        run: make android-app VERSION=${{ github.ref_name }}
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          minor=$(echo "$v" | cut -d. -f2)
+          patch=$(echo "$v" | cut -d. -f3)
+          code=$(( 10#$minor * 100 + 10#$patch ))
+          echo "versionCode $code from tag $GITHUB_REF_NAME"
+          make android-app VERSION="$GITHUB_REF_NAME" MOBILE_VERSION_CODE="$code"
       - uses: actions/upload-artifact@v7
         with:
           name: concord-android
