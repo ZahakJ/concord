@@ -11,7 +11,7 @@
   // The scene painter. Draws one entry of lib/cardscenes.js into the 272×400
   // box the profile card occupies. Everything is paths, gradients and filters
   // — nothing is fetched, ever.
-  import { cardScene } from "./lib/cardscenes.js";
+  import { cardScenesTable } from "./lib/cosmetics.svelte.js";
   import CardSceneNode from "./CardSceneNode.svelte";
 
   // `scale` is the same signal the particle engine takes: below 0.7 this is a
@@ -20,7 +20,8 @@
   let { id = "", color = "", color2 = "", scale = 1 } = $props();
 
   const uid = `cs${++seq}`;
-  const sc = $derived(cardScene(id));
+  const tbl = $derived(cardScenesTable());
+  const sc = $derived(tbl && id ? tbl.cardScene(id) : null);
   const full = $derived(scale >= 0.7);
   const vars = $derived(
     `--c1:${color || "var(--accent)"};--c2:${color2 || color || "var(--accent)"}`,

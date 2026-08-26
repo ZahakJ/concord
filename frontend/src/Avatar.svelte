@@ -1,7 +1,7 @@
 <script>
   import AvatarRing from "./AvatarRing.svelte";
   import AvatarDecoration from "./AvatarDecoration.svelte";
-  import { wornRing } from "./lib/decorations.js";
+  import { wornRing } from "./lib/wornrings.js";
   // The one avatar. Renders, in priority order: uploaded image, profile emoji,
   // name/fingerprint initials — tinted by the member's accent color, with an
   // optional presence dot. Replaces five copy-pasted implementations.

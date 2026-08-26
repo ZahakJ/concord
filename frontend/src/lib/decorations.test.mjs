@@ -51,6 +51,7 @@ import {
   decorColors,
   wornRing,
 } from "./decorations.js";
+import { WORN_RINGS } from "./wornrings.js";
 import { RINGS } from "./rings.js";
 
 let failures = 0;
@@ -461,6 +462,19 @@ function arcPoints(x1, y1, x2, y2, r, large, sweep) {
     out.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]);
   }
   return out;
+}
+
+// 8. The RING LIST. wornrings.js duplicates which decorations are rings,
+//    because every avatar in the app needs that answer before it can pick its
+//    silhouette and cannot wait for a 125KB table to arrive over the network to
+//    get it. A duplicate is only safe while something enforces it.
+{
+  const inTable = DECORATIONS.filter((d) => d.ring).map((d) => d.id).sort();
+  const inList = [...WORN_RINGS].sort();
+  const missing = inTable.filter((id) => !WORN_RINGS.has(id));
+  const extra = inList.filter((id) => !inTable.includes(id));
+  if (missing.length) fail(`wornrings.js is missing rings that decorations.js has: ${missing.join(", ")}`);
+  if (extra.length) fail(`wornrings.js names rings decorations.js does not have: ${extra.join(", ")}`);
 }
 
 if (failures) {

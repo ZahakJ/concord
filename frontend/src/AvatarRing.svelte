@@ -4,7 +4,7 @@
   // halo, and/or a live effect layer in front — snow, embers, meteors,
   // lightning. Every one obeys the wearer's dials (speed / direction / glow /
   // thickness). One component, 80+ rings, one short id on the wire.
-  import { ringArt } from "./lib/rings.js";
+  import { ringsTable } from "./lib/cosmetics.svelte.js";
   import FxLayer from "./FxLayer.svelte";
 
   let { ring = "", size = 32, style = null, color = "", color2 = "" } = $props();
@@ -12,7 +12,12 @@
   const SPEED_MS = { slow: 7000, normal: 3600, fast: 1600 };
   const GLOW_PX = { off: 0, soft: 10, strong: 22 };
 
-  const r = $derived(ringArt(ring, color, color2, style?.sat || "", style?.pal || ""));
+  // Null until the ring library lands on its own chunk; the whole component is
+  // behind `{#if r}` already, so that reads as "no ring yet".
+  const tbl = $derived(ringsTable());
+  const r = $derived(
+    tbl && ring ? tbl.ringArt(ring, color, color2, style?.sat || "", style?.pal || "") : null,
+  );
   const dur = $derived(SPEED_MS[style?.speed] || SPEED_MS.normal);
   const cw = $derived(style?.dir !== "ccw");
   const glow = $derived(GLOW_PX[style?.glow] ?? GLOW_PX.soft);

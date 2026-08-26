@@ -35,11 +35,9 @@
   import { splitStatus } from "./lib/presence.js";
   import Banner from "./Banner.svelte";
   import FxLayer from "./FxLayer.svelte";
-  import { cardEffect } from "./lib/cardfx.js";
+  import { cardFxTable, cardFramesTable, cardScenesTable } from "./lib/cosmetics.svelte.js";
   import CardFrame from "./CardFrame.svelte";
-  import { cardFrame } from "./lib/cardframes.js";
   import CardScene from "./CardScene.svelte";
-  import { cardScene } from "./lib/cardscenes.js";
 
   let dmText = $state("");
   let dmBusy = $state(false);
@@ -101,7 +99,19 @@
   // The scenic frame around the card. Resolved here, failing CLOSED: the id
   // arrives on a peer's broadcast profile, so one this build has never heard of
   // must draw nothing rather than anything at all.
-  const cf = $derived(mem?.style?.cf && cardFrame(mem.style.cf) ? mem.style.cf : "");
+  // The three cosmetic libraries arrive on their own chunks; until they do the
+  // lookups answer "no", which is the same answer they give for an id this
+  // build has never heard of, and every use of them is behind an {#if}. The
+  // card is laid out by its own content, so a scene or a frame appearing a
+  // frame later moves nothing.
+  const fxTbl = $derived(cardFxTable());
+  const frameTbl = $derived(cardFramesTable());
+  const sceneTbl = $derived(cardScenesTable());
+  const cardEffect = (id) => (fxTbl && id ? fxTbl.cardEffect(id) : null);
+  const cardScene = (id) => (sceneTbl && id ? sceneTbl.cardScene(id) : null);
+  const cf = $derived(
+    mem?.style?.cf && frameTbl?.cardFrame(mem.style.cf) ? mem.style.cf : "",
+  );
   // Clear per-person editor state when the card switches to a different person.
   $effect(() => {
     S.profilePopover?.fingerprint;
@@ -523,7 +533,9 @@
       <CardFrame id={cf} color={mem.color} color2={mem.color2} />
     {/if}
   <div
-    class="pop {mem.effect && !cardEffect(mem.effect) && !cardScene(mem.effect) ? `card-effect-${mem.effect}` : ''}"
+    class="pop {fxTbl && sceneTbl && mem.effect && !cardEffect(mem.effect) && !cardScene(mem.effect)
+      ? `card-effect-${mem.effect}`
+      : ''}"
     class:sheet={S.isMobile}
     class:framed={!!cf}
     class:haseffect={!!mem.effect}

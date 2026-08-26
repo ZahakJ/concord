@@ -3,6 +3,7 @@
   // lifecycle, global shortcuts, and modal routing. All shared state and the
   // backend event wiring live in lib/state.svelte.js.
   import { onMount } from "svelte";
+  import { precacheCosmetics } from "./lib/cosmetics.svelte.js";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
   import { createVisibilityReporter } from "./lib/visibility.js";
   import { VoiceMesh } from "./lib/voice.js";
@@ -65,64 +66,109 @@
   import Toasts from "./Toasts.svelte";
   import FxOverlay from "./FxOverlay.svelte";
   import { validFx } from "./lib/themefx.js";
-  import ModalCreate from "./modals/ModalCreate.svelte";
-  import ModalCreateChannel from "./modals/ModalCreateChannel.svelte";
-  import ModalEmoji from "./modals/ModalEmoji.svelte";
-  import ModalMeme from "./modals/ModalMeme.svelte";
-  import ModalGifs from "./modals/ModalGifs.svelte";
-  import ModalForward from "./modals/ModalForward.svelte";
-  import ModalReport from "./modals/ModalReport.svelte";
-  import ModalBans from "./modals/ModalBans.svelte";
-  import ModalRoles from "./modals/ModalRoles.svelte";
-  import ModalGuildSettings from "./modals/ModalGuildSettings.svelte";
-  import ModalGuildHub from "./modals/ModalGuildHub.svelte";
-  import ModalChannelTopic from "./modals/ModalChannelTopic.svelte";
-  import ModalChannelLinks from "./modals/ModalChannelLinks.svelte";
-  import ModalPublish from "./modals/ModalPublish.svelte";
-  import ModalNewPost from "./modals/ModalNewPost.svelte";
-  import ModalForumSettings from "./modals/ModalForumSettings.svelte";
-  import ModalMeeting from "./modals/ModalMeeting.svelte";
-  import ModalShortcuts from "./modals/ModalShortcuts.svelte";
-  import ModalWhatsNew from "./modals/ModalWhatsNew.svelte";
-  import ModalSaved from "./modals/ModalSaved.svelte";
-  import ModalNewDM from "./modals/ModalNewDM.svelte";
-  import ModalRenameGroup from "./modals/ModalRenameGroup.svelte";
-  import ModalRenameChannel from "./modals/ModalRenameChannel.svelte";
-  import ModalJoin from "./modals/ModalJoin.svelte";
-  import ModalInvite from "./modals/ModalInvite.svelte";
-  import ModalGuildInvite from "./modals/ModalGuildInvite.svelte";
-  import ModalProfile from "./modals/ModalProfile.svelte";
-  import ModalSettings from "./modals/ModalSettings.svelte";
-  import ModalLinkDevice from "./modals/ModalLinkDevice.svelte";
-  import ModalAppearance from "./modals/ModalAppearance.svelte";
-  import ModalDevices from "./modals/ModalDevices.svelte";
-  import ModalNotifications from "./modals/ModalNotifications.svelte";
-  import ModalPrivacy from "./modals/ModalPrivacy.svelte";
-  import ModalBookings from "./modals/ModalBookings.svelte";
-  import ModalConnection from "./modals/ModalConnection.svelte";
-  import ModalReach from "./modals/ModalReach.svelte";
-  import ModalWhen from "./modals/ModalWhen.svelte";
-  import ModalScheduled from "./modals/ModalScheduled.svelte";
-  import ModalPoll from "./modals/ModalPoll.svelte";
-  import ModalCompose from "./modals/ModalCompose.svelte";
-  import ModalDisappear from "./modals/ModalDisappear.svelte";
-  import ModalStats from "./modals/ModalStats.svelte";
-  import ModalChronicle from "./modals/ModalChronicle.svelte";
-  import ModalChronicleImport from "./modals/ModalChronicleImport.svelte";
-  import ModalRetention from "./modals/ModalRetention.svelte";
-  import ModalBackup from "./modals/ModalBackup.svelte";
-  import ModalBlocked from "./modals/ModalBlocked.svelte";
-  import ModalRequests from "./modals/ModalRequests.svelte";
-  import ModalEvents from "./modals/ModalEvents.svelte";
-  import ModalMyCalendar from "./modals/ModalMyCalendar.svelte";
-  import ModalStoryCompose from "./modals/ModalStoryCompose.svelte";
-  import StoryViewer from "./StoryViewer.svelte";
   import JoinVeil from "./JoinVeil.svelte";
   import EventNudges from "./EventNudges.svelte";
+
+  // ---- the dialogs ----
+  //
+  // Fifty of them, and every one used to be compiled into the first chunk the
+  // app downloads — a fifth of it — so that a session could open the one it
+  // wanted without waiting. They are all opened by a click, and a click is an
+  // eternity next to reading a file that is already on the device, so they are
+  // fetched then instead.
+  const MODAL_LOADERS = {
+    create: () => import("./modals/ModalCreate.svelte"),
+    channel: () => import("./modals/ModalCreateChannel.svelte"),
+    category: () => import("./modals/ModalCreate.svelte"),
+    emoji: () => import("./modals/ModalEmoji.svelte"),
+    gifs: () => import("./modals/ModalGifs.svelte"),
+    meme: () => import("./modals/ModalMeme.svelte"),
+    forward: () => import("./modals/ModalForward.svelte"),
+    report: () => import("./modals/ModalReport.svelte"),
+    bans: () => import("./modals/ModalBans.svelte"),
+    roles: () => import("./modals/ModalRoles.svelte"),
+    guildHub: () => import("./modals/ModalGuildHub.svelte"),
+    guildSettings: () => import("./modals/ModalGuildSettings.svelte"),
+    shortcuts: () => import("./modals/ModalShortcuts.svelte"),
+    whatsNew: () => import("./modals/ModalWhatsNew.svelte"),
+    saved: () => import("./modals/ModalSaved.svelte"),
+    when: () => import("./modals/ModalWhen.svelte"),
+    scheduled: () => import("./modals/ModalScheduled.svelte"),
+    poll: () => import("./modals/ModalPoll.svelte"),
+    compose: () => import("./modals/ModalCompose.svelte"),
+    disappear: () => import("./modals/ModalDisappear.svelte"),
+    backup: () => import("./modals/ModalBackup.svelte"),
+    retention: () => import("./modals/ModalRetention.svelte"),
+    stats: () => import("./modals/ModalStats.svelte"),
+    chronicle: () => import("./modals/ModalChronicle.svelte"),
+    chronicleImport: () => import("./modals/ModalChronicleImport.svelte"),
+    blocked: () => import("./modals/ModalBlocked.svelte"),
+    requests: () => import("./modals/ModalRequests.svelte"),
+    events: () => import("./modals/ModalEvents.svelte"),
+    myCalendar: () => import("./modals/ModalMyCalendar.svelte"),
+    storyCompose: () => import("./modals/ModalStoryCompose.svelte"),
+    storyViewer: () => import("./StoryViewer.svelte"),
+    newDM: () => import("./modals/ModalNewDM.svelte"),
+    renameGroup: () => import("./modals/ModalRenameGroup.svelte"),
+    renameChannel: () => import("./modals/ModalRenameChannel.svelte"),
+    channelTopic: () => import("./modals/ModalChannelTopic.svelte"),
+    channelLinks: () => import("./modals/ModalChannelLinks.svelte"),
+    publish: () => import("./modals/ModalPublish.svelte"),
+    meeting: () => import("./modals/ModalMeeting.svelte"),
+    newPost: () => import("./modals/ModalNewPost.svelte"),
+    forumSettings: () => import("./modals/ModalForumSettings.svelte"),
+    rename: () => import("./modals/ModalCreate.svelte"),
+    profile: () => import("./modals/ModalProfile.svelte"),
+    settings: () => import("./modals/ModalSettings.svelte"),
+    notifications: () => import("./modals/ModalNotifications.svelte"),
+    privacy: () => import("./modals/ModalPrivacy.svelte"),
+    bookings: () => import("./modals/ModalBookings.svelte"),
+    connection: () => import("./modals/ModalConnection.svelte"),
+    reach: () => import("./modals/ModalReach.svelte"),
+    linkDevice: () => import("./modals/ModalLinkDevice.svelte"),
+    appearance: () => import("./modals/ModalAppearance.svelte"),
+    devices: () => import("./modals/ModalDevices.svelte"),
+    join: () => import("./modals/ModalJoin.svelte"),
+    guildInvite: () => import("./modals/ModalGuildInvite.svelte"),
+    invite: () => import("./modals/ModalInvite.svelte"),
+    confirm: () => import("./modals/ConfirmDialog.svelte"),
+  };
+
+  // The component for whatever S.modal names, or null while it is arriving.
+  let ModalView = $state(null);
+  let modalSlow = $state(false);
+  let modalLoadedKind = "";
+  $effect(() => {
+    const kind = S.modal?.kind || "";
+    if (kind === modalLoadedKind) return;
+    modalLoadedKind = "";
+    ModalView = null;
+    modalSlow = false;
+    const load = MODAL_LOADERS[kind];
+    if (!load) return;
+    const slow = setTimeout(() => (modalSlow = true), 150);
+    load().then(
+      (m) => {
+        clearTimeout(slow);
+        modalSlow = false;
+        // Opened and shut again, or swapped for another dialog, while the chunk
+        // was in the air.
+        if (S.modal?.kind !== kind) return;
+        modalLoadedKind = kind;
+        ModalView = m.default;
+      },
+      (err) => {
+        clearTimeout(slow);
+        modalSlow = false;
+        S.modal = null;
+        flash(err);
+      },
+    );
+    return () => clearTimeout(slow);
+  });
   import { startScheduler } from "./lib/scheduled.svelte.js";
   import { startEventRadar, markCalendarSeen, markAllCalendarsSeen } from "./lib/radar.svelte.js";
   import { startEphemeralSweep } from "./lib/ephemeral.svelte.js";
-  import ConfirmDialog from "./modals/ConfirmDialog.svelte";
 
   let composer = $state(null);
 
@@ -361,6 +407,16 @@
     window.Capacitor?.Plugins?.ConcordCore?.appReady?.().catch(() => {});
     watchSystemBars();
     watchVisibility();
+    // Fetch the cosmetic tables once there is something on screen. They are
+    // lazy so that a boot never waits for a quarter of a megabyte of path data
+    // (lib/cosmetics.svelte.js), but a guild that uses decorations wants them
+    // by the time its member list is scrolled — so ask for them in the first
+    // idle moment rather than on the first avatar that needs one. On a phone
+    // that means requestIdleCallback; a desktop window has the headroom to just
+    // do it after the frame.
+    if (window.Capacitor && "requestIdleCallback" in window)
+      requestIdleCallback(precacheCosmetics, { timeout: 4000 });
+    else requestAnimationFrame(() => setTimeout(precacheCosmetics, 0));
     // Closing or reloading the tab while in a call: tell the node to leave, so
     // it stops announcing us to a room we're no longer in. "pagehide" is the
     // one that also fires when a mobile browser backgrounds the page.
@@ -1401,182 +1457,225 @@
     </div>
   {/if}
 
-  <!-- Modals -->
-  {#if S.modal?.kind === "create"}
-    <ModalCreate onSubmit={createGuild} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "channel"}
-    <ModalCreateChannel onSubmit={createChannel} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "category"}
-    <ModalCreate
-      onSubmit={createCategory}
-      onClose={() => (S.modal = null)}
-      title="Create a category"
-      hint="Groups channels in the sidebar."
-      placeholder="Category name"
-    />
-  {:else if S.modal?.kind === "emoji"}
-    <ModalEmoji onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "gifs"}
-    <ModalGifs onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "meme"}
-    <!-- `edit` reopens a meme already in the channel; `src` starts a new one
-         from a picture. They are mutually exclusive — see ModalMeme. -->
-    <ModalMeme src={S.modal.src || ""} edit={S.modal.edit || null} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "forward"}
-    <ModalForward message={S.modal.message} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "report"}
-    <ModalReport message={S.modal.message} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "bans"}
-    <ModalBans onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "roles"}
-    <ModalRoles onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "guildHub"}
-    <!-- The hub is the front door; guildSettings below is now its Overview
-         panel (opened via openPanel, so Back returns to the hub). -->
-    <ModalGuildHub onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "guildSettings"}
-    <ModalGuildSettings onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "shortcuts"}
-    <ModalShortcuts onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "whatsNew"}
-    <ModalWhatsNew version={S.modal.version} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "saved"}
-    <ModalSaved onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "when"}
-    <ModalWhen onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "scheduled"}
-    <ModalScheduled onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "poll"}
-    <ModalPoll onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "compose"}
-    <ModalCompose
-      initial={S.modal.initial || ""}
-      editId={S.modal.editId || ""}
-      onSent={S.modal.onSent}
-      onClose={() => (S.modal = null)}
-    />
-  {:else if S.modal?.kind === "disappear"}
-    <ModalDisappear onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "backup"}
-    <ModalBackup onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "retention"}
-    <ModalRetention onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "stats"}
-    <ModalStats onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "chronicle"}
-    <ModalChronicle onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "chronicleImport"}
-    <ModalChronicleImport onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "blocked"}
-    <ModalBlocked onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "requests"}
-    <ModalRequests onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "events"}
-    <!-- onJoinVoice: a voice-channel-located event's Join enters the call
-         through the same lifecycle a sidebar click uses (knock included). -->
-    <ModalEvents onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
-  {:else if S.modal?.kind === "myCalendar"}
-    <ModalMyCalendar onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
-  {:else if S.modal?.kind === "storyCompose"}
-    <ModalStoryCompose onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "storyViewer"}
-    <!-- Not a Modal: a fullscreen overlay (the studios' tier). It still
-         routes through S.modal so the tray can open it from anywhere, and it
-         registers its own overlay closer for Esc / the hardware back button. -->
-    <StoryViewer
-      stories={S.modal.stories || []}
-      start={S.modal.start || 0}
-      onClose={() => (S.modal = null)}
-    />
-  {:else if S.modal?.kind === "newDM"}
-    <ModalNewDM onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "renameGroup"}
-    <ModalRenameGroup
-      guildId={S.modal.guildId}
-      current={S.modal.current}
-      onClose={() => (S.modal = null)}
-    />
-  {:else if S.modal?.kind === "renameChannel"}
-    <ModalRenameChannel
-      guildId={S.modal.guildId}
-      channelId={S.modal.channelId}
-      current={S.modal.current}
-      onClose={() => (S.modal = null)}
-    />
-  {:else if S.modal?.kind === "channelTopic"}
-    <ModalChannelTopic
-      channel={S.modal.channel}
-      onSubmit={(t) => {
-        setChannelTopic(S.modal.channel, t.trim());
-        S.modal = null;
-      }}
-      onClose={() => (S.modal = null)}
-    />
-  {:else if S.modal?.kind === "channelLinks"}
-    <ModalChannelLinks channel={S.modal.channel} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "publish"}
-    <ModalPublish message={S.modal.message} channel={S.modal.channel} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "meeting"}
-    <ModalMeeting
-      code={S.modal.code}
-      guestLink={S.modal.guestLink || ""}
-      guildId={S.modal.guildId || ""}
-      expires={S.modal.expires || 0}
-      onClose={() => (S.modal = null)}
-    />
-  {:else if S.modal?.kind === "newPost"}
-    <ModalNewPost forum={S.modal.forum} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "forumSettings"}
-    <ModalForumSettings forum={S.modal.forum} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "rename"}
-    <ModalCreate
-      onSubmit={renameGuild}
-      onClose={() => (S.modal = null)}
-      title="Rename guild"
-      hint="Renames the guild for everyone."
-      placeholder={activeGuild()?.name || "New name"}
-    />
-  {:else if S.modal?.kind === "profile"}
-    <ModalProfile identity={S.identity} onSubmit={saveProfile} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "settings"}
-    <ModalSettings onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "notifications"}
-    <ModalNotifications onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "privacy"}
-    <ModalPrivacy onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "bookings"}
-    <ModalBookings onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "connection"}
-    <ModalConnection
-      onClose={() => (S.modal = null)}
-      onSaved={() => flash("Rendezvous saved", "success")}
-    />
-  {:else if S.modal?.kind === "reach"}
-    <ModalReach onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "linkDevice"}
-    <ModalLinkDevice onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "appearance"}
-    <ModalAppearance onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "devices"}
-    <ModalDevices onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "join"}
-    <ModalJoin error={S.modal.error} onSubmit={joinGuild} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "guildInvite"}
-    <ModalGuildInvite invite={S.modal.invite} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "invite"}
-    <ModalInvite code={S.modal.code} onCopy={copy} onClose={() => (S.modal = null)} />
-  {:else if S.modal?.kind === "confirm"}
-    <ConfirmDialog
-      title={S.modal.title}
-      body={S.modal.body}
-      confirmLabel={S.modal.confirmLabel}
-      onConfirm={S.modal.onConfirm}
-      onClose={() => (S.modal = null)}
-    />
+  <!-- Modals. One component variable for all of them: ModalView is whichever
+       dialog the current S.modal.kind has been loaded for (see MODAL_LOADERS),
+       which is what lets fifty dialogs stay off the boot bundle without any of
+       them losing the props they are called with. -->
+  {#if ModalView}
+    {#if S.modal?.kind === "create"}
+      <ModalView onSubmit={createGuild} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "channel"}
+      <ModalView onSubmit={createChannel} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "category"}
+      <ModalView
+        onSubmit={createCategory}
+        onClose={() => (S.modal = null)}
+        title="Create a category"
+        hint="Groups channels in the sidebar."
+        placeholder="Category name"
+      />
+    {:else if S.modal?.kind === "emoji"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "gifs"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "meme"}
+      <!-- `edit` reopens a meme already in the channel; `src` starts a new one
+           from a picture. They are mutually exclusive — see ModalMeme. -->
+      <ModalView src={S.modal.src || ""} edit={S.modal.edit || null} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "forward"}
+      <ModalView message={S.modal.message} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "report"}
+      <ModalView message={S.modal.message} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "bans"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "roles"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "guildHub"}
+      <!-- The hub is the front door; guildSettings below is now its Overview
+           panel (opened via openPanel, so Back returns to the hub). -->
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "guildSettings"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "shortcuts"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "whatsNew"}
+      <ModalView version={S.modal.version} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "saved"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "when"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "scheduled"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "poll"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "compose"}
+      <ModalView
+        initial={S.modal.initial || ""}
+        editId={S.modal.editId || ""}
+        onSent={S.modal.onSent}
+        onClose={() => (S.modal = null)}
+      />
+    {:else if S.modal?.kind === "disappear"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "backup"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "retention"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "stats"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "chronicle"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "chronicleImport"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "blocked"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "requests"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "events"}
+      <!-- onJoinVoice: a voice-channel-located event's Join enters the call
+           through the same lifecycle a sidebar click uses (knock included). -->
+      <ModalView onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
+    {:else if S.modal?.kind === "myCalendar"}
+      <ModalView onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
+    {:else if S.modal?.kind === "storyCompose"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "storyViewer"}
+      <!-- Not a Modal: a fullscreen overlay (the studios' tier). It still
+           routes through S.modal so the tray can open it from anywhere, and it
+           registers its own overlay closer for Esc / the hardware back button. -->
+      <ModalView
+        stories={S.modal.stories || []}
+        start={S.modal.start || 0}
+        onClose={() => (S.modal = null)}
+      />
+    {:else if S.modal?.kind === "newDM"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "renameGroup"}
+      <ModalView
+        guildId={S.modal.guildId}
+        current={S.modal.current}
+        onClose={() => (S.modal = null)}
+      />
+    {:else if S.modal?.kind === "renameChannel"}
+      <ModalView
+        guildId={S.modal.guildId}
+        channelId={S.modal.channelId}
+        current={S.modal.current}
+        onClose={() => (S.modal = null)}
+      />
+    {:else if S.modal?.kind === "channelTopic"}
+      <ModalView
+        channel={S.modal.channel}
+        onSubmit={(t) => {
+          setChannelTopic(S.modal.channel, t.trim());
+          S.modal = null;
+        }}
+        onClose={() => (S.modal = null)}
+      />
+    {:else if S.modal?.kind === "channelLinks"}
+      <ModalView channel={S.modal.channel} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "publish"}
+      <ModalView message={S.modal.message} channel={S.modal.channel} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "meeting"}
+      <ModalView
+        code={S.modal.code}
+        guestLink={S.modal.guestLink || ""}
+        guildId={S.modal.guildId || ""}
+        expires={S.modal.expires || 0}
+        onClose={() => (S.modal = null)}
+      />
+    {:else if S.modal?.kind === "newPost"}
+      <ModalView forum={S.modal.forum} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "forumSettings"}
+      <ModalView forum={S.modal.forum} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "rename"}
+      <ModalView
+        onSubmit={renameGuild}
+        onClose={() => (S.modal = null)}
+        title="Rename guild"
+        hint="Renames the guild for everyone."
+        placeholder={activeGuild()?.name || "New name"}
+      />
+    {:else if S.modal?.kind === "profile"}
+      <ModalView identity={S.identity} onSubmit={saveProfile} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "settings"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "notifications"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "privacy"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "bookings"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "connection"}
+      <ModalView
+        onClose={() => (S.modal = null)}
+        onSaved={() => flash("Rendezvous saved", "success")}
+      />
+    {:else if S.modal?.kind === "reach"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "linkDevice"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "appearance"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "devices"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "join"}
+      <ModalView error={S.modal.error} onSubmit={joinGuild} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "guildInvite"}
+      <ModalView invite={S.modal.invite} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "invite"}
+      <ModalView code={S.modal.code} onCopy={copy} onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "confirm"}
+      <ModalView
+        title={S.modal.title}
+        body={S.modal.body}
+        confirmLabel={S.modal.confirmLabel}
+        onConfirm={S.modal.onConfirm}
+        onClose={() => (S.modal = null)}
+      />
+    {/if}
+  {:else if S.modal && modalSlow}
+    <!-- The dialog's code is still on its way. Only after 150ms, so opening one
+         from a chunk already in memory — which is every time after the first —
+         shows nothing at all rather than a flicker. -->
+    <div class="modal-wait" role="status" aria-label="Opening…">
+      <span class="mw-spin"></span>
+    </div>
   {/if}
 {/if}
 
 <style>
+  /* Shown only when a dialog's code takes longer than a frame or two to arrive
+     — a cold first open, or a slow disk. Deliberately not a full backdrop: the
+     dialog is about to draw its own, and two of them fading over each other
+     reads as a flicker. */
+  .modal-wait {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+  .mw-spin {
+    width: 22px;
+    height: 22px;
+    border: 2px solid color-mix(in srgb, var(--border) 60%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: mw-turn 0.7s linear infinite;
+  }
+  @keyframes mw-turn {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .mw-spin {
+      animation: none;
+    }
+  }
+
   /* Concorde fly-in: overlay fades from the login backdrop to nothing while
      the jet sweeps lower-left → upper-right. Under the app lock (privacy
      wins), above everything else. */

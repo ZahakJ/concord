@@ -28,7 +28,12 @@
   // avatar itself is a DOM element between them. One overlay could not do that
   // without compositing the avatar into the SVG, which would lose the image
   // element, the presence dot and the text fallback.
-  import { decoration, decorColors } from "./lib/decorations.js";
+  // The table arrives on its own chunk (lib/cosmetics.svelte.js). Until it
+  // does, `d` is null and this component draws nothing — which is exactly what
+  // it already did for an id this build does not recognise, and costs nothing
+  // in layout because both layers are overlays around a face that is already
+  // there.
+  import { decorationsTable } from "./lib/cosmetics.svelte.js";
 
   // `preview` overrides the small-size freeze below. A picker is the ONE place
   // motion has to be visible — it is the whole reason to choose one decoration
@@ -42,7 +47,8 @@
   let { id = "", size = 32, color = "", color2 = "", cw = "", preview = false } = $props();
 
   const uid = `dc${++seq}`;
-  const d = $derived(decoration(id));
+  const tbl = $derived(decorationsTable());
+  const d = $derived(tbl && id ? tbl.decoration(id) : null);
   const back = $derived(d ? d.parts.filter((p) => p.z === "back") : []);
   const front = $derived(d ? d.parts.filter((p) => p.z !== "back") : []);
 
@@ -100,7 +106,7 @@
   // A colourway replaces the base pair outright; with none chosen the pair is
   // the wearer's own profile colours and the chain below is untouched, so a
   // profile saved before any of this renders byte for byte as it did.
-  const base = $derived(decorColors(id, cw, color, color2));
+  const base = $derived(tbl ? tbl.decorColors(id, cw, color, color2) : []);
   const vars = $derived(
     `--d-c1:${base[0] || d?.own?.[0] || "var(--accent)"};` +
       `--d-c2:${base[1] || base[0] || d?.own?.[1] || d?.own?.[0] || "var(--accent)"};`,

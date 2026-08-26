@@ -11,11 +11,12 @@
   // Neither SVG clips. They are stretched over the card's own box — x maps 1:1
   // onto its 272px width, y onto whatever height the content gave it — and the
   // art is free to run outside that box. The overhang is the whole effect.
-  import { cardFrame } from "./lib/cardframes.js";
+  import { cardFramesTable } from "./lib/cosmetics.svelte.js";
 
   let { id = "", color = "", color2 = "" } = $props();
 
-  const f = $derived(cardFrame(id));
+  const tbl = $derived(cardFramesTable());
+  const f = $derived(tbl && id ? tbl.cardFrame(id) : null);
   const back = $derived(f ? f.parts.filter((p) => p.z === "back") : []);
   const front = $derived(f ? f.parts.filter((p) => p.z !== "back") : []);
   // The gradients go in whichever layer is actually drawn first — a frame with
