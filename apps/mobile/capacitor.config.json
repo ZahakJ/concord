@@ -3,8 +3,8 @@
   "appName": "Concord",
   "webDir": "../../frontend/dist",
   "server": {
-    "androidScheme": "http",
-    "cleartext": true
+    "_comment": "No \"cleartext\": true. Setting it makes the CLI write android:usesCleartextTraffic=\"true\" into the generated cordova shim manifest, which permits plaintext HTTP to every host on the internet so that a WebView can reach a Go core on 127.0.0.1. android/app/src/main/res/xml/network_security_config.xml grants exactly that loopback exemption and refuses the rest.",
+    "androidScheme": "http"
   },
   "android": {
     "backgroundColor": "#FF16181C"

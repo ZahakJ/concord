@@ -12,14 +12,26 @@
          application". The app-side half is in ConcordCorePlugin.setBackDepth,
          which enables an OnBackPressedCallback only while the web navigation
          stack has something left to pop. -->
+    <!-- networkSecurityConfig scopes cleartext HTTP to the loopback interface.
+         Capacitor's CLI writes android:usesCleartextTraffic="true" into the
+         generated cordova shim manifest whenever server.cleartext is set, and
+         that attribute is app-wide: it permits plaintext HTTP to any host
+         anywhere, to serve a Go core that only ever listens on 127.0.0.1.
+         capacitor.config.json no longer sets it; @xml/network_security_config
+         allows exactly 127.0.0.1 and localhost and refuses everything else.
+         tools:replace keeps the scoping even if a plugin reintroduces the
+         blanket attribute in a future sync. -->
     <application
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/AppTheme">
+        android:theme="@style/AppTheme"
+        android:usesCleartextTraffic="false"
+        tools:replace="android:usesCleartextTraffic">
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
@@ -81,6 +93,7 @@
             android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+
     </application>
 
     <!-- Permissions -->
