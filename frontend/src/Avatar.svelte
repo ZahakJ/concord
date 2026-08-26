@@ -31,6 +31,10 @@
   } = $props();
 
   const glyph = $derived(emoji || (name || "?").slice(0, 2));
+  // Reset per image, so a component reused for a different person (the feed
+  // recycles these) does not inherit the last one's failure.
+  let failedSrc = $state("");
+  const imageFailed = $derived(!!image && failedSrc === image);
   const cw = $derived(dc || style?.dc || "");
 
   // The drawn RINGS used to be their own library and used to travel in `frame`.
@@ -69,7 +73,7 @@
 <span
   class="avatar"
   class:ringed={ringed}
-  class:pictured={!!image}
+  class:pictured={!!image && !imageFailed}
   style="width:{size}px;height:{size}px;font-size:{Math.max(10, Math.round(size * 0.38))}px;{color && !image
     ? `background:${color};`
     : ''}"
@@ -86,8 +90,15 @@
   {#if decoration}
     <AvatarDecoration id={decoration} {size} {color} {color2} {cw} {preview} />
   {/if}
-  {#if image}
-    <img src={image} alt="" />
+  {#if image && !imageFailed}
+    <!-- A picture that will not decode falls back to the initials underneath
+         it rather than to the browser's broken-image glyph. Ordinary profile
+         pictures are validated on the way in, but an ARCHIVE carries author
+         portraits copied straight out of somebody else's export: the importer
+         checks the size and the declared type, never the pixels, so a truncated
+         or mislabelled file reaches this img and there is nothing to be done
+         about it after the fact — the manifest is signed. -->
+    <img src={image} alt="" onerror={() => (failedSrc = image)} />
   {:else}
     {glyph}
   {/if}
