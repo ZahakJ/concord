@@ -182,7 +182,14 @@ caption-box placements. **The images are not in this repository.** They are
 third-party photographs and artwork with identifiable rightsholders, several of
 them commercial, and Concord holds no licence to redistribute them — so the pack
 is built rather than checked in. `node frontend/scripts/prep-memes.mjs` fetches
-and re-encodes it; releases ship without it.
+and re-encodes it into a working tree that has run it.
+
+Releases ship without it, and that is enforced rather than assumed: `make
+frontend` deletes `memes/` from `frontend/dist` after every build, so no
+desktop binary, web binary or Android package can carry the pack out of a
+machine where the script has been run. `CONCORD_MEMES=1 make frontend` keeps
+it, for a build going nowhere; `make peers` and the dev server are unaffected,
+because neither goes through that target.
 
 Nothing depends on the pack. The editor reads the manifest at runtime and falls
 back to bring-your-own images when the directory is absent, so paste, upload and

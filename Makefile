@@ -30,8 +30,30 @@ MOBILE_LDFLAGS := -checklinkname=0 -s -w $(MOBILE_PAGE_ALIGN) -X github.com/Zaha
 ANDROID_API    := 26
 IOS_VERSION    := 15.0
 
+# Every shippable artifact goes through here: the desktop window, the web
+# binaries, the .aab and the .apk all depend on `frontend`, and all of them
+# embed or copy frontend/dist wholesale.
+#
+# Which is why the meme pack is removed from dist right after the build. Those
+# 101 images are third-party photographs and film stills with identifiable
+# rightsholders (frontend/public/memes/README.md sets out the position); they
+# are gitignored so the repository does not redistribute them, but a gitignore
+# says nothing about a binary built on a machine where prep-memes.mjs has been
+# run — which is every machine that has ever cut a release. The README claimed
+# they were "in neither the repository nor any release" and only the first half
+# was true.
+#
+# CONCORD_MEMES=1 keeps them, for a build going nowhere. `make peers` and the
+# vite dev server are unaffected: neither goes through this target, and the dev
+# server reads public/ directly.
 frontend:
 	cd frontend && npm install && npm run build
+	@if [ "$(CONCORD_MEMES)" = "1" ]; then \
+		echo "frontend: keeping the bundled meme pack (CONCORD_MEMES=1) — do not ship this build"; \
+	elif [ -d frontend/dist/memes ]; then \
+		rm -rf frontend/dist/memes; \
+		echo "frontend: pruned the bundled meme pack from dist/"; \
+	fi
 
 # Create the release signing keypair. Run ONCE, on the machine that publishes
 # releases; the private half stays there (back it up offline), the public half

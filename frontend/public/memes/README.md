@@ -4,6 +4,13 @@
 > images are gitignored for the licensing reason set out below, so they are in
 > neither the repository nor any release. `node frontend/scripts/prep-memes.mjs`
 > builds them here. Everything below describes the pack that script produces.
+>
+> The gitignore only keeps them out of the *repository*. Keeping them out of
+> *builds* is a separate job, because vite copies `public/` into `dist/` and
+> every shippable artifact embeds or copies `dist` wholesale — so on a machine
+> that has run the script, the pack rode into the binaries until `make frontend`
+> started deleting `dist/memes` after each build. Set `CONCORD_MEMES=1` to keep
+> it in a build that is not going anywhere.
 
 These images are the starter pack for the meme editor (`/meme`): 101 templates,
 2.1 MB, re-encoded as WebP at 600px. They are third-party photographs and
