@@ -68,6 +68,12 @@ type Service struct {
 	admitting       map[string]*admissionBatch
 	admitCommitting int
 
+	// memberSets caches each guild's resolved roster (see guildMemberSet).
+	// Its own mutex: the roster is read from paths that already hold mu, and
+	// from the connect callback, which must not queue behind a sync.
+	memberSetMu sync.Mutex
+	memberSets  map[string]*memberSet
+
 	// pendingDMInvites tracks DM invitees (1:1 and group) who haven't joined
 	// yet (guild ID -> set of fingerprints). When such a peer later connects we
 	// push them the invite, and the heal loop re-pushes periodically, so a DM
@@ -1015,6 +1021,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		slowSeen:         map[string]int64{},
 		govHashes:        map[string]map[string]bool{},
 		admitting:        map[string]*admissionBatch{},
+		memberSets:       map[string]*memberSet{},
 		meetingLife:      map[string]time.Time{},
 		outOfSync:        map[string]bool{},
 		forkedPeers:      map[string]map[peer.ID]bool{},

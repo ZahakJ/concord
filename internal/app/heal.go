@@ -272,6 +272,8 @@ func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
 		return false
 	}
+	// The welcome replaced our whole group state, roster included.
+	s.forgetMemberSet(guildID)
 	// The Join replaced our group state outright, so nothing we had concluded
 	// about our old tree survives it: drop the fork evidence before clearing the
 	// flag, or the verdict that routed us here would keep the flag up forever.

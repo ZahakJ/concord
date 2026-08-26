@@ -787,6 +787,9 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
 		return domain.Guild{}, fmt.Errorf("app: join group: %w", err)
 	}
+	// A welcome installs a fresh roster (this may be a REJOIN, so a cached one
+	// from the previous membership could still be sitting there).
+	s.forgetMemberSet(ic.GuildID)
 	if err := s.store.SaveGuild(resp.Guild); err != nil {
 		return domain.Guild{}, err
 	}
@@ -1045,6 +1048,9 @@ func (s *Service) pruneCommitLogs() {
 // local state in place). The log is what lets reconnecting members bridge
 // missed membership changes — see sync.go.
 func (s *Service) logCommit(groupID, commit []byte) {
+	// Every commit this peer mints or applies passes through here, which makes
+	// it the one place that always knows the roster may have moved.
+	s.forgetMemberSetForGroup(groupID)
 	epoch, err := s.mls.Epoch(s.ctx, groupID)
 	if err != nil {
 		return

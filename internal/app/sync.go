@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -411,59 +412,120 @@ func (s *Service) hasProfile(fpr string) bool {
 	return ok
 }
 
+// memberSetTTL bounds how long a cached roster answer may be reused.
+//
+// It is a backstop, not the mechanism: every path that changes a group's
+// membership goes through logCommit or a welcome, and both drop the entry
+// outright, so a kick is refused on the very next request. The TTL is what
+// makes a membership check that we FORGOT to invalidate self-correct in
+// seconds instead of never — the cached answers gate serving guild history, and
+// "stale forever" is not a failure mode worth risking to save a hash.
+const memberSetTTL = 2 * time.Second
+
+// memberSet is one guild's roster, resolved once and reused.
+type memberSet struct {
+	fprs map[string]bool
+	list []string
+	at   time.Time
+}
+
+// guildMemberSet resolves a guild's account fingerprints, from cache when it
+// can. Reading the roster means asking the MLS engine, which reloads and
+// unmarshals the whole group state (~370µs for a fifty-member group on a fast
+// desktop) and then hashing every credential — and this was being done ONCE PER
+// PEER PER GUILD in the connect and heal paths, so a dozen guilds and twenty
+// connected peers cost a quarter of a second of pure re-derivation on every
+// beat. Membership only changes when the epoch does, so the answer is worth
+// keeping.
+func (s *Service) guildMemberSet(guildID string) *memberSet {
+	s.memberSetMu.Lock()
+	if c, ok := s.memberSets[guildID]; ok && time.Since(c.at) < memberSetTTL {
+		s.memberSetMu.Unlock()
+		return c
+	}
+	s.memberSetMu.Unlock()
+
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return nil
+	}
+	creds, err := s.mls.Members(s.ctx, groupID)
+	if err != nil {
+		return nil
+	}
+	c := &memberSet{
+		fprs: make(map[string]bool, len(creds)),
+		list: make([]string, 0, len(creds)),
+		at:   time.Now(),
+	}
+	for _, cred := range creds {
+		fpr := accountFingerprintOf(cred)
+		if fpr == "" || c.fprs[fpr] {
+			continue // an account's second device is the same member
+		}
+		c.fprs[fpr] = true
+		c.list = append(c.list, fpr)
+	}
+	s.memberSetMu.Lock()
+	if s.memberSets == nil {
+		s.memberSets = map[string]*memberSet{}
+	}
+	s.memberSets[guildID] = c
+	s.memberSetMu.Unlock()
+	return c
+}
+
+// forgetMemberSet drops a guild's cached roster. Called wherever the group's
+// membership can have moved — every commit we mint or apply, and every welcome
+// we accept.
+func (s *Service) forgetMemberSet(guildID string) {
+	s.memberSetMu.Lock()
+	delete(s.memberSets, guildID)
+	s.memberSetMu.Unlock()
+}
+
+// forgetMemberSetForGroup is forgetMemberSet for the paths that hold a group ID
+// rather than a guild ID (commit handling works in group IDs).
+func (s *Service) forgetMemberSetForGroup(groupID []byte) {
+	s.mu.RLock()
+	var id string
+	for gid, g := range s.guilds {
+		if bytes.Equal(g.GroupID, groupID) {
+			id = gid
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if id != "" {
+		s.forgetMemberSet(id)
+	}
+}
+
 // guildHasMember reports whether the fingerprint belongs to a current member
 // of the guild's MLS group.
 func (s *Service) guildHasMember(guildID, fingerprint string) bool {
 	if fingerprint == "" {
 		return false
 	}
-	s.mu.RLock()
-	g, ok := s.guilds[guildID]
-	var groupID []byte
-	if ok {
-		groupID = g.GroupID
-	}
-	s.mu.RUnlock()
-	if !ok {
-		return false
-	}
-	creds, err := s.mls.Members(s.ctx, groupID)
-	if err != nil {
-		return false
-	}
-	for _, c := range creds {
-		if accountFingerprintOf(c) == fingerprint {
-			return true
-		}
-	}
-	return false
+	c := s.guildMemberSet(guildID)
+	return c != nil && c.fprs[fingerprint]
 }
 
 // guildMemberFingerprints lists the account fingerprints in a guild's MLS group.
 // guildHasMember answers the same question for one person; this is for callers
 // that need the whole set and would otherwise walk the roster once per name.
 func (s *Service) guildMemberFingerprints(guildID string) []string {
-	s.mu.RLock()
-	g, ok := s.guilds[guildID]
-	var groupID []byte
-	if ok {
-		groupID = g.GroupID
-	}
-	s.mu.RUnlock()
-	if !ok {
+	c := s.guildMemberSet(guildID)
+	if c == nil {
 		return nil
 	}
-	creds, err := s.mls.Members(s.ctx, groupID)
-	if err != nil {
-		return nil
-	}
-	out := make([]string, 0, len(creds))
-	for _, c := range creds {
-		if fpr := accountFingerprintOf(c); fpr != "" {
-			out = append(out, fpr)
-		}
-	}
-	return out
+	return c.list
 }
 
 // sharesGuild reports whether the fingerprint is a member of any guild we are
