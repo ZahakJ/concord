@@ -4447,6 +4447,23 @@ textarea {
     background 0.16s ease,
     box-shadow 0.16s ease;
 }
+/* A box you tick is not a field you type in. The rule above dresses every
+   `input` as a filled well — full width, 11px of padding, an inset shadow —
+   which stretched every checkbox and radio in the app to the width of its row
+   and sank the tick to the bottom of a padded box. Hand those two back to the
+   platform control and tint them with the accent. (Modal.svelte's phone rules
+   already carve the same two types out of the 48px tap floor for exactly this
+   reason; the base rule was the half nobody had excluded them from.) */
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  box-shadow: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 input::placeholder,
 textarea::placeholder {
   color: var(--text-faint);
