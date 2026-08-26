@@ -21,8 +21,5 @@
     "@capacitor/keyboard": "^8.0.5",
     "@capacitor/push-notifications": "^8.1.2",
     "capacitor-native-biometric": "^4.2.2"
-  },
-  "devDependencies": {
-    "@capacitor/assets": "^3.0.5"
   }
 }
