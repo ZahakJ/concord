@@ -986,6 +986,17 @@ search terms, with no way to attribute either to a person. Other guild members
 see an ordinary encrypted image. A network observer sees Noise-encrypted libp2p
 traffic to a node you already talk to constantly.
 
+Since the operator sees the terms, there is a switch: *Privacy & safety → GIF
+search*, **on** by default. On is the right default because the trade is made
+with a machine the user already chose to route everything through, and turning it
+off by default would break a working feature to protect them from a party they
+are already talking to — but the setting's own description names what the
+operator can see, so the trade is stated rather than assumed. Off is enforced in
+the service at all three doors (the readiness probe, the search, and the media
+funnel that sending and saving share), so a handle minted before the switch was
+flipped cannot still be redeemed. The guild's own pack is unaffected: it never
+left the machine. See `internal/app/offdevice.go`.
+
 ### 6.7 Why "untrusted infrastructure" rather than "server"
 
 A server is something whose correct behaviour you depend on. This is not that.
@@ -1649,7 +1660,7 @@ that no third party knows anything. There is no way to have this feature and the
 CDN. So the assets ship in the binary, every stylesheet reference is same-origin,
 and the favicon is an inline data URI rather than one more request.
 
-The same reasoning shapes three features that *could* have been remote:
+The same reasoning shapes four features that *could* have been remote:
 
 - **Guild GIF packs and custom emoji.** A guild curates its own collection.
   Records travel on the guild's meta topic (MLS-encrypted); the images ride the
@@ -1672,6 +1683,18 @@ The same reasoning shapes three features that *could* have been remote:
   (`validGameCover`), because an arbitrary-host URL in a profile would be a
   deanonymizing beacon aimed at everyone who opened your card. The allowlist
   bounds *which* third party; the switch is what bounds *whether*.
+- **Game title search.** The same profile section can suggest real titles while
+  you type, from the same storefront. This one is not an image but a *query*,
+  which is worse: autocomplete asks again on every keystroke, so a title
+  half-typed leaves the machine along with the IP behind it. It is **off by
+  default** too, and the editor works without it — type a title and it is added
+  as written. The switch lives in the Go service rather than in the interface
+  (`internal/app/offdevice.go`), because a preference in the webview guarding a
+  backend that still holds the code to make the call is a promise, not a gate.
+  An install that already had a game collection when the switch arrived keeps
+  the feature on, on the evidence that it had been using it; the decision is
+  recorded once rather than re-derived, so emptying the collection later does
+  not retract it.
 
 ### An asymmetry in how packs are received
 

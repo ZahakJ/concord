@@ -2711,9 +2711,10 @@ type GifHitView struct {
 // GifSearchView is a page of search results or, far more interestingly, an
 // explained absence of them. Status is one of ok | unavailable | rate_limited |
 // expired | upstream | bad_request (the node's answers) or no_rendezvous |
-// unreachable (what the client concluded on its own). Detail is a sentence the
-// picker shows verbatim — the whole point being that the tab never presents an
-// empty grid without saying why.
+// unreachable | off (what the client concluded on its own — "off" being the
+// user's own switch in Privacy & safety, which is not a failure and gets its own
+// wording). Detail is a sentence the picker shows verbatim — the whole point
+// being that the tab never presents an empty grid without saying why.
 type GifSearchView struct {
 	Status  string       `json:"status"`
 	Detail  string       `json:"detail,omitempty"`
