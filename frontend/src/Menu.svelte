@@ -9,6 +9,7 @@
   // there is room for finger-sized rows and nothing can be clipped off-screen.
   import Icon from "./Icon.svelte";
   import BottomSheet from "./BottomSheet.svelte";
+  import { syncLayer } from "./lib/navstack.svelte.js";
   import { S } from "./lib/state.svelte.js";
 
   // `up` opens the dropdown ABOVE the trigger — for a trigger that lives at the
@@ -16,6 +17,9 @@
   // it would be off-screen.
   let { label = "More", icon = "chevron", align = "right", compact = false, up = false, children } = $props();
   let open = $state(false);
+  // Both presentations are a layer: back closes the sheet on a phone, Escape
+  // the dropdown on a desktop, and neither needs a listener of its own.
+  syncLayer("menu", () => open, () => (open = false));
   let root = $state(null);
 
   function onWindowClick(e) {
@@ -25,7 +29,7 @@
   }
 </script>
 
-<svelte:window onclick={onWindowClick} onkeydown={(e) => e.key === "Escape" && (open = false)} />
+<svelte:window onclick={onWindowClick} />
 
 <div class="menu-root" bind:this={root}>
   <button

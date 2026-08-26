@@ -14,6 +14,7 @@
   import Avatar from "./Avatar.svelte";
   import GameShelf, { coverStyle, gameHue } from "./GameShelf.svelte";
   import { syncLayer } from "./lib/navstack.svelte.js";
+  import { sheetdrag } from "./lib/sheet.js";
   import {
     S,
     activeGuild,
@@ -135,6 +136,10 @@
   }
 
   let card = $state(null);
+  // The sheet presentation's moving parts, for the shared drag (lib/sheet.js):
+  // the wrapper travels, .pop is what scrolls inside it, .pp-scrim is the dim.
+  let popEl = $state(null);
+  let scrimEl = $state(null);
   let pos = $state(null); // {left, top} once measured
 
   // Measure then place: above the anchor if it fits, else below; clamp to
@@ -517,7 +522,7 @@
 {#if S.profilePopover && mem}
   {#if S.isMobile}
     <!-- Sheet presentation gets a dimming scrim; tap it to dismiss. -->
-    <button class="pp-scrim" onclick={closeProfilePopover} aria-label="Close profile"></button>
+    <button bind:this={scrimEl} class="pp-scrim" onclick={closeProfilePopover} aria-label="Close profile"></button>
   {/if}
   <!-- The card and its frame share one positioned wrapper. The card itself has
        to keep `overflow: hidden` (rounded corners, an internal scroll when the
@@ -546,6 +551,7 @@
     class:sheet={S.isMobile}
     class:framed={!!cf}
     class:haseffect={!!mem.effect}
+    bind:this={popEl}
   >
     <!-- The card effect. One `effect` id, two libraries: a drawn scene
          (lib/cardscenes.js) is painted as SVG, anything the particle engine
@@ -824,12 +830,24 @@
          on top of the sheet's grip, which is the only visible way off the
          card on a phone. Out here they can sit above the art. -->
     {#if S.isMobile}
-      <!-- Every other sheet in the app has a grip; without one this card read
-           as a stuck panel whose only exit was a blind tap outside it. Tapping
-           it closes, so the affordance is real and not just decoration. It
-           rides on the banner art, so it's over-image chrome (light pill, dark
-           shadow) rather than a themed surface. -->
-      <button class="grip" onclick={closeProfilePopover} aria-label="Close profile"></button>
+      <!-- The grip DRAGS. It used to be a button that closed on click and did
+           nothing at all under a pull, which is worse than having no handle:
+           the one universal "grab me" affordance on the screen answered the
+           gesture it invites by ignoring it. Same physics as every other sheet
+           (lib/sheet.js). The click stays, for anyone who taps it. It rides on
+           the banner art, so it's over-image chrome (light pill, dark shadow)
+           rather than a themed surface. -->
+      <button
+        class="grip"
+        use:sheetdrag={{
+          sheet: () => card,
+          scrim: () => scrimEl,
+          scroller: () => popEl,
+          onDismiss: closeProfilePopover,
+        }}
+        onclick={closeProfilePopover}
+        aria-label="Close profile"
+      ></button>
     {/if}
     {#if hasOverflow}
       <!-- Discord-style overflow: moderation, nickname and block live here so

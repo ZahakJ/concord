@@ -28,6 +28,7 @@
   import EmptyState from "./EmptyState.svelte";
   import Banner from "./Banner.svelte";
   import BottomSheet from "./BottomSheet.svelte";
+  import { syncLayer } from "./lib/navstack.svelte.js";
   import { api, on } from "./lib/api.js";
   import { longpress, haptic } from "./lib/touch.js";
   import {
@@ -466,6 +467,7 @@
   // A popover, not a dialog: choosing two chips is not a task that deserves a
   // modal, and anchoring it to the card keeps the post you're tagging in view.
   let tagPick = $state(null); // { post, chosen: string[], busy }
+  syncLayer("picker", () => !!tagPick, () => (tagPick = null));
 
   function openTagPicker(p) {
     tagPick = { post: p, chosen: [...(p.tags || [])], busy: false };

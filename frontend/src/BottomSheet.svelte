@@ -1,11 +1,26 @@
+<script module>
+  // Sheets currently on screen. Module scope, not state: it is only read at
+  // creation, to stack a nested sheet's scrim above the sheet it was raised
+  // from.
+  let openSheets = 0;
+</script>
+
 <script>
-  // BottomSheet — the mobile modal primitive: a panel that slides up from the
-  // bottom edge under a scrim, with a grab handle you can drag or fling down
+  // BottomSheet — the mobile action-sheet primitive: a panel that slides up from
+  // the bottom edge under a scrim, with a grab handle you can drag or fling down
   // to dismiss. Content renders via the children snippet and scrolls
   // independently; only the handle/header region drives the drag, so a
   // scrollable list inside never fights the gesture. Desktop never mounts
   // this — it's the touch counterpart of popovers and context menus.
-  import { haptic } from "./lib/touch.js";
+  //
+  // The gesture itself is not implemented here: lib/sheet.js owns the numbers
+  // and the animation, shared with the dialog sheets and the two profile cards.
+  // This file used to carry its own — touch events, a 40% threshold, a 0.55
+  // px/ms fling, and no exit animation at all, so a sheet dismissed by a flick
+  // vanished under a still-moving finger while a dialog dismissed the same way
+  // slid out over 190ms.
+  import { onDestroy } from "svelte";
+  import { sheetdrag } from "./lib/sheet.js";
 
   // dvh, not vh: Android's WebView does not shrink 100vh when the software
   // keyboard opens, so a sheet holding an input measured itself against the
@@ -14,79 +29,46 @@
   let { title = "", onClose, maxHeight = "72dvh", children } = $props();
 
   let sheetEl = $state(null);
-  let dragY = $state(0); // translateY while dragging (px, downward only)
-  let dragging = $state(false);
-  let sheetH = $state(0); // sheet height captured at grab, for the scrim dim
-  let prevY = 0;
-  let prevT = 0;
-  let velocity = 0; // px/ms, positive = downward
+  let scrimEl = $state(null);
+  let bodyEl = $state(null);
 
-  // Scrim tracks the pull: as the sheet slides down, the backdrop lightens —
-  // the sheet feels physically attached to the dim behind it (iOS-style).
-  const scrimO = $derived(dragging && sheetH ? Math.max(0.3, 1 - dragY / sheetH) : 1);
-
-  function onTouchStart(e) {
-    const t = e.touches[0];
-    if (!t) return;
-    dragging = true;
-    sheetH = sheetEl?.offsetHeight || 0;
-    prevY = t.clientY;
-    prevT = performance.now();
-    velocity = 0;
-  }
-  function onTouchMove(e) {
-    if (!dragging) return;
-    const t = e.touches[0];
-    if (!t) return;
-    const now = performance.now();
-    if (now > prevT) velocity = (t.clientY - prevY) / (now - prevT);
-    dragY = Math.max(0, dragY + (t.clientY - prevY));
-    prevY = t.clientY;
-    prevT = now;
-  }
-  function onTouchEnd() {
-    if (!dragging) return;
-    dragging = false;
-    const h = sheetEl?.offsetHeight || 300;
-    // Fling down or drag past 40% of the sheet → dismiss; else spring back.
-    if (dragY > h * 0.4 || velocity > 0.55) {
-      // The gesture committed — say so in the hand, the way the platform's own
-      // sheets do. Silent on web/desktop.
-      haptic("light");
-      onClose?.();
-    } else dragY = 0;
-  }
+  // How many sheets are already up. A second sheet raised over the first used
+  // to be drawn at the same z-index with a single scrim under both, so the two
+  // read as one flat pile and nothing said which surface a tap would reach.
+  // Each one now brings its own dim, above everything below it.
+  const depth = openSheets++;
+  onDestroy(() => openSheets--);
 </script>
 
-<svelte:window onkeydown={(e) => e.key === "Escape" && onClose?.()} />
-
 <button
+  bind:this={scrimEl}
   class="bs-scrim"
-  class:dragging
-  style="opacity:{scrimO}"
+  style:z-index={400 + depth * 2}
   aria-label="Close"
   onclick={onClose}
 ></button>
 <div
-  class="bs-sheet"
-  class:dragging
   bind:this={sheetEl}
-  style="max-height:{maxHeight}; transform:translateY({dragY}px)"
+  class="bs-sheet"
+  style="max-height:{maxHeight}"
+  style:z-index={401 + depth * 2}
   role="dialog"
   aria-label={title || "Sheet"}
 >
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="bs-grab"
-    ontouchstart={onTouchStart}
-    ontouchmove={onTouchMove}
-    ontouchend={onTouchEnd}
-    ontouchcancel={onTouchEnd}
+    use:sheetdrag={{
+      sheet: () => sheetEl,
+      scrim: () => scrimEl,
+      scroller: () => bodyEl,
+      onDismiss: () => onClose?.(),
+    }}
   >
     <span class="bs-handle"></span>
     {#if title}<div class="bs-title">{title}</div>{/if}
   </div>
-  <div class="bs-body">
+  <div class="bs-body" bind:this={bodyEl}>
     {@render children?.()}
   </div>
 </div>
@@ -99,11 +81,9 @@
     z-index: 400;
     border: none;
     animation: bs-fade 0.16s ease;
-    /* Springs the dim back in sync with the sheet on a released half-swipe. */
+    /* Springs the dim back in sync with the sheet on a released half-swipe;
+       lib/sheet.js suppresses it for the duration of a tracked drag. */
     transition: opacity 0.18s ease;
-  }
-  .bs-scrim.dragging {
-    transition: none;
   }
   .bs-sheet {
     position: fixed;
@@ -120,10 +100,6 @@
     max-height: 72vh;
     box-shadow: var(--shadow-pop);
     animation: bs-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
-    transition: transform 0.18s ease;
-  }
-  .bs-sheet.dragging {
-    transition: none;
   }
   .bs-grab {
     flex-shrink: 0;
@@ -134,6 +110,12 @@
     /* The grab zone owns its touches — without this the browser treats the
        drag as a scroll/refresh gesture and the sheet stutters. */
     touch-action: none;
+    /* A slow grab-and-pull starts WebView text selection on the title
+       otherwise, popping the Android selection toolbar over the sheet and
+       abandoning the drag. */
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
   .bs-handle {
     display: block;

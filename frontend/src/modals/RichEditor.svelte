@@ -32,6 +32,7 @@
   import Avatar from "../Avatar.svelte";
   import EmojiPicker from "../EmojiPicker.svelte";
   import BottomSheet from "../BottomSheet.svelte";
+  import { syncLayer } from "../lib/navstack.svelte.js";
   import { renderMarkdown, COLOR_NAMES } from "../lib/markdown.js";
   import { activeShortcode, searchEmoji, replaceShortcodes } from "../lib/emoji.js";
   import { S, customEmojiMap, mentionRefs, selfMember, flash } from "../lib/state.svelte.js";
@@ -89,6 +90,10 @@
   let fileInput = $state(null);
   let reading = $state(0); // files being decoded into the tray
   let pop = $state(""); // "" | "color" | "more" | "lang" | "head"
+  // The formatting popovers sit over the composer dialog, so they have to come
+  // off first — which they now do by being on the stack rather than by the
+  // dialog's Escape handler happening to run second.
+  syncLayer("picker", () => !!pop, () => (pop = ""));
   let emojiOpen = $state(false);
   let editingAtt = $state("");
   let focused = $state(false);

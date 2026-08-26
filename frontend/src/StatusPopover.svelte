@@ -9,6 +9,7 @@
   import { api } from "./lib/api.js";
   import { PRESENCE_OPTIONS, splitStatus, joinStatus } from "./lib/presence.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
+  import { sheetdrag } from "./lib/sheet.js";
 
   let { anchor, onClose } = $props(); // anchor: {x, y, w, h} of the trigger button
 
@@ -86,6 +87,7 @@
   // else below; clamp to the viewport with an 8px margin. (Desktop only —
   // the mobile presentation is a bottom sheet and ignores the anchor.)
   let card = $state(null);
+  let scrimEl = $state(null);
   let pos = $state(null);
   $effect(() => {
     if (!card || !anchor || S.isMobile) {
@@ -130,7 +132,7 @@
 
 {#if S.isMobile}
   <!-- Sheet presentation gets a dimming scrim; tap anywhere on it to close. -->
-  <button class="sp-scrim" onclick={onClose} aria-label="Close status picker"></button>
+  <button bind:this={scrimEl} class="sp-scrim" onclick={onClose} aria-label="Close status picker"></button>
 {/if}
 <div
   class="status-pop"
@@ -140,6 +142,18 @@
   role="dialog"
   aria-label="Set status"
 >
+  {#if S.isMobile}
+    <!-- This sheet had no grip at all — no handle, and nothing to pull. The
+         strip is sticky so a scrolled sheet keeps its own way out within
+         thumb reach; the physics is the app's one set (lib/sheet.js). -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="sp-grab"
+      use:sheetdrag={{ sheet: () => card, scrim: () => scrimEl, scroller: () => card, onDismiss: onClose }}
+    >
+      <span class="sp-handle"></span>
+    </div>
+  {/if}
   <div class="sec-label muted">Presence</div>
   {#each PRESENCE_OPTIONS as p (p.id)}
     <button class="presence" class:sel={myPresence === p.id} onclick={() => pickPresence(p.id)} disabled={busy}>
@@ -402,6 +416,29 @@
     from {
       opacity: 0;
     }
+  }
+  /* The grab strip, matching every other sheet's pill. Sticky, with the
+     sheet's own top padding pulled back onto it, so it survives a scroll. */
+  .sp-grab {
+    position: sticky;
+    top: -14px;
+    z-index: 3;
+    margin: -14px -14px 2px;
+    padding: 10px 14px 6px;
+    background: var(--bg-elevated, var(--bg-1));
+    /* lib/sheet.js overwrites this as the sheet scrolls; see Modal.svelte. */
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: grab;
+  }
+  .sp-handle {
+    display: block;
+    width: 40px;
+    height: 5px;
+    margin: 0 auto;
+    border-radius: 999px;
+    background: var(--border);
   }
   /* Mobile: present as a full-width bottom sheet with finger-sized rows. */
   .status-pop.sheet {

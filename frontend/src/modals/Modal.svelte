@@ -15,6 +15,7 @@
   import { S, modalNav, backPanel } from "../lib/state.svelte.js";
   import { layer } from "../lib/navstack.svelte.js";
   import { haptic } from "../lib/touch.js";
+  import { sheetdrag, playExit } from "../lib/sheet.js";
   import Icon from "../Icon.svelte";
   // `wide` widens the desktop dialog for content that benefits from the room
   // (sectioned settings); `size="xl"` makes it a large workspace (the advanced
@@ -46,7 +47,8 @@
   // and a keyboard user had no way to reach the dialog they had just opened
   // except by tabbing all the way round. And none of the 49 gave focus BACK, so
   // closing one dropped the caret at the top of the document every time.
-  // This dialog's place on the app-wide layer stack. Registering at component
+  //
+  // `me` is this dialog's place on the app-wide layer stack. Registering at component
   // init rather than in an effect keeps creation order and stack order the same
   // thing, which is what makes a confirm raised from inside a settings panel —
   // six places do it — answer Escape on its own without also closing the panel
@@ -105,36 +107,9 @@
 
   // Mobile: the sheet can be flicked/dragged DOWN to dismiss — the native
   // gesture people expect, so they don't have to reach the tiny ✕ in the top
-  // corner one-handed. The grab area is the pinned top strip (grip + title).
-  let dragY = $state(0);
-  let dragging = $state(false);
-  let startY = 0;
-  let startT = 0;
-  function onGrab(e) {
-    if (!S.isMobile || closing) return;
-    // Refuse the gesture outright when the body is scrolled, so `touch-action:
-    // pan-y` on the strip hands the move to the scroller instead. Deciding this
-    // per-move (the old behaviour) made a pinned header a dead zone on any tall
-    // sheet: it neither scrolled nor dismissed.
-    if ((dialog?.scrollTop ?? 0) > 0) return;
-    dragging = true;
-    startY = e.clientY;
-    startT = Date.now();
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  }
-  function onDrag(e) {
-    if (!dragging) return;
-    const dy = e.clientY - startY;
-    // Only pull down, never up.
-    if (dy > 0) dragY = dy;
-  }
-  function onRelease() {
-    if (!dragging) return;
-    dragging = false;
-    const speed = dragY / Math.max(1, Date.now() - startT); // px/ms
-    if (dragY > 120 || speed > 0.6) dismiss();
-    else dragY = 0; // snap back
-  }
+  // corner one-handed. The grab area is the pinned top strip (grip + title);
+  // the physics is shared with every other sheet in the app (lib/sheet.js).
+  let overlay = $state(null);
 
   // Every consumer's onClose sets S.modal = null, which unmounts this component
   // in one frame — so the sheet that slid up over 0.28s used to vanish
@@ -144,12 +119,9 @@
   function dismiss() {
     if (!S.isMobile) return onClose();
     if (closing) return;
-    haptic("light"); // the OS acknowledges a committed dismissal
-    // Reduced motion suppresses the slide, so waiting for it would just be
-    // 190ms of nothing happening.
-    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return onClose();
     closing = true;
-    setTimeout(onClose, 190);
+    haptic("light");
+    playExit(dialog, overlay, onClose);
   }
 
   // Tab is trapped within the dialog so focus can't wander onto the page
@@ -190,8 +162,8 @@
      layers and no clue which of them a tap would reach. Each layer's scrim now
      sits above everything below it. -->
 <div
+  bind:this={overlay}
   class="overlay"
-  class:closing
   style:z-index={100 + me.index * 2}
   onclick={dismiss}
   role="presentation"
@@ -203,9 +175,6 @@
     class:xl={size === "xl"}
     class:deeper={enterDir === 1}
     class:shallower={enterDir === -1}
-    class:dragging
-    class:closing
-    style={dragY && !closing ? `transform:translateY(${dragY}px)` : ""}
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     aria-modal="true"
@@ -216,10 +185,13 @@
          of reach on exactly the tall panels that need it most. -->
     <div
       class="sheet-top"
-      onpointerdown={onGrab}
-      onpointermove={onDrag}
-      onpointerup={onRelease}
-      onpointercancel={onRelease}
+      use:sheetdrag={{
+        enabled: S.isMobile && !closing,
+        sheet: () => dialog,
+        scrim: () => overlay,
+        scroller: () => dialog,
+        onDismiss: onClose,
+      }}
       role="presentation"
     >
       <div class="grip"></div>
@@ -248,10 +220,6 @@
     place-items: center;
     z-index: 100;
     animation: fade 0.16s ease;
-  }
-  .overlay.closing {
-    opacity: 0;
-    transition: opacity 0.19s ease;
   }
   .dialog {
     width: 380px;
@@ -333,22 +301,18 @@
       animation: sheet-up 0.28s cubic-bezier(0.22, 1.1, 0.36, 1);
       touch-action: pan-y;
     }
-    /* Snap back smoothly when a drag doesn't cross the dismiss threshold. */
-    .dialog:not(.dragging) {
-      transition: transform 0.24s cubic-bezier(0.22, 1.1, 0.36, 1);
-    }
-    /* Slide out under the screen edge rather than blinking away — and beat the
-       inline drag transform, which is why this is !important. */
-    .dialog.closing {
-      animation: none;
-      transform: translateY(100%) !important;
-      transition: transform 0.19s cubic-bezier(0.4, 0, 1, 1);
-    }
+    /* The drag, the spring-back and the slide-out are all driven from
+       lib/sheet.js as inline styles, so the transform and its transition live
+       there rather than being split between a rule here and an element there
+       (which is what needed an !important to settle). */
     .sheet-top {
-      /* Drag when the body is at the top (onGrab decides), otherwise pan-y
-         lets the browser scroll the sheet from the header like any other area.
-         `touch-action: none` here used to forbid both. */
-      touch-action: pan-y;
+      /* touch-action is written by lib/sheet.js, which keeps it in step with
+         the body's scroll position: `none` at the top so the strip owns the
+         drag, `pan-y` once scrolled so the header scrolls like any other area.
+         The static `pan-y` that used to be here meant the browser claimed every
+         downward drag as a scroll and cancelled the gesture on its second move,
+         which is why no dialog could actually be swiped away. */
+      touch-action: none;
       /* A slow grab-and-pull — the exact gesture the grip invites — otherwise
          starts WebView text selection on the title and pops the Android
          selection toolbar over the sheet, abandoning the drag. */
