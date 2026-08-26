@@ -346,6 +346,7 @@
     { name: "gif", usage: "/gif", desc: "This guild's GIF pack", expand: (_, text) => text },
     { name: "doodle", usage: "/doodle", desc: "Draw something", expand: (_, text) => text },
     { name: "sound", usage: "/sound", desc: "Send a sound, or build one", expand: (_, text) => text },
+    { name: "game", usage: "/game", desc: "Start a game in this channel", expand: (_, text) => text },
     { name: "clear", usage: "/clear <n>", desc: "Delete the last n messages (moderators)", args: true, mod: true, expand: (_, text) => text },
   ];
 
@@ -369,6 +370,10 @@
     }
     if (/^\/sound\s*$/i.test(text)) {
       S.modal = { kind: "soundboard" };
+      return true;
+    }
+    if (/^\/game\s*$/i.test(text)) {
+      S.modal = { kind: "game" };
       return true;
     }
     const m = text.match(/^\/clear(?:\s+(\d+))?\s*$/i);
@@ -1609,6 +1614,9 @@
             <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "soundboard" })}>
               <Icon name="speaker" size={14} /> Sound
             </button>
+            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "game" })}>
+              <Icon name="die" size={14} /> Game
+            </button>
             <button class="menu-item" disabled={!ch} onclick={openAdvanced}>
               <Icon name="heading" size={14} /> Advanced composer
             </button>
@@ -1651,6 +1659,16 @@
             onclick={() => (S.modal = { kind: "poll" })}
           >
             <Icon name="poll" size={20} />
+          </button>
+          <button
+            type="button"
+            class="iconbtn"
+            use:tooltip={"Start a game in this channel"}
+            aria-label="Start a game"
+            disabled={!ch}
+            onclick={() => (S.modal = { kind: "game" })}
+          >
+            <Icon name="die" size={19} />
           </button>
           <button
             type="button"
@@ -1768,6 +1786,13 @@
         <span class="sr-text">
           <span class="sr-label">Sound</span>
           <span class="sr-sub">A recipe, not a file — a few dozen bytes each</span>
+        </span>
+      </button>
+      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "game" }))}>
+        <span class="sr-icon"><Icon name="die" size={20} /></span>
+        <span class="sr-text">
+          <span class="sr-label">Game</span>
+          <span class="sr-sub">Play in the channel — the board is folded from the messages</span>
         </span>
       </button>
       <button type="button" class="sheet-row" onclick={() => fromSheet(() => (showFmt = !showFmt))}>

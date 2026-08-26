@@ -18,6 +18,8 @@
   import { parseDoodle, stripDoodle } from "./lib/doodle.js";
   import SoundChip from "./SoundChip.svelte";
   import { parseSound, soundPayload, stripSound } from "./lib/sfxrecipe.js";
+  import GameCard from "./GameCard.svelte";
+  import { gameAt, stripGame } from "./lib/games.js";
   import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
   import { fxEffect, stripFx, playFxOnce } from "./lib/fxtoken.js";
@@ -262,6 +264,19 @@
   // again means "no sound here" and "a sound this client refuses to play" —
   // out of range, from a version we do not know, or corrupt.
   const sound = $derived(m.deleted ? null : parseSound(m.content));
+  // A game move. What this ROW draws depends on the fold over the whole
+  // channel, not on the token alone: the newest message that actually moved the
+  // game carries the live board, everything else is a one-line aside — which is
+  // how a rejected proposal renders as "invalid move" without dragging the
+  // board down the feed behind it.
+  const gameRow = $derived(m.deleted ? null : gameAt(S.messages, m));
+  // A move whose board is drawn further down the feed. Fifteen turns is fifteen
+  // messages — that is what "the game IS the messages" costs — so these rows
+  // borrow the grouped-continuation presentation: no portrait, no header, a
+  // hover timestamp in the gutter and the player's name inside the line. A game
+  // then reads as a run of small asides under one board rather than as fifteen
+  // people talking.
+  const gameAside = $derived(!!gameRow && gameRow.kind !== "card" && !bodyText);
   const bodyText = $derived.by(() => {
     let c = atts.length || files.length ? stripAttachTokens(m.content) : m.content;
     if (richEmbed) c = stripEmbedToken(c);
@@ -269,7 +284,7 @@
     // this client refused must leave nothing behind: gating the strip on a
     // successful parse is how a rejected token ends up printing several
     // hundred characters of base64 into the message body.
-    return stripSound(stripDoodle(stripFx(stripTimestamp(stripEphemeral(c)))));
+    return stripGame(stripSound(stripDoodle(stripFx(stripTimestamp(stripEphemeral(c))))));
   });
 
   // Send effects ([fx](concord://fx/v1/…)): the burst plays once per session
@@ -962,7 +977,7 @@
   use:fxOnView
   use:swipeReply
 >
-  {#if compact}
+  {#if compact || gameAside}
     <span
       class="gutter-time muted"
       use:tooltip={{ text: new Date(m.sent).toLocaleString() }}>{fmtTime(m.sent)}</span
@@ -1040,7 +1055,7 @@
         {/if}
       </button>
     {/if}
-    {#if !compact}
+    {#if !compact && !gameAside}
       <div class="msg-head">
         {#if guest}
           <span class="sender guest-name">{guestName}</span>
@@ -1269,6 +1284,27 @@
       {/if}
       {#if sound}
         <SoundChip recipe={sound} payload={soundPayload(m.content)} />
+      {/if}
+      {#if gameRow?.kind === "card"}
+        <GameCard game={gameRow.game} />
+      {:else if gameRow}
+        <span class="gamenote" class:bad={gameRow.note?.kind === "bad" || gameRow.note?.kind === "dup"}>
+          <Icon name="die" size={11} />
+          <span class="gn-who">{nameFor(m.sender, m.senderName)}</span>
+          {#if gameRow.kind === "orphan"}
+            made a move in a game that started earlier
+          {:else if gameRow.note?.kind === "bad" || gameRow.note?.kind === "dup"}
+            — invalid move, {gameRow.note.text}
+          {:else if gameRow.note?.kind === "new"}
+            started a game
+          {:else if gameRow.note?.kind === "join"}
+            took the seat
+          {:else if gameRow.note?.kind === "resign"}
+            resigned
+          {:else}
+            played {gameRow.note?.text || "a move"}
+          {/if}
+        </span>
       {/if}
       <!-- One image sizes itself, as it always has. Two or more become a grid:
            stacked at their own sizes they were a ragged column — a portrait
@@ -1881,6 +1917,28 @@
     user-select: none;
   }
   .eph-hint :global(svg) {
+    opacity: 0.8;
+  }
+  /* A move whose board is drawn further down the feed, and a proposal that was
+     refused. Both are asides, deliberately quiet: a game people are playing
+     should not fill the channel with a row per turn. */
+  .gamenote {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: 2px;
+    font-size: var(--fs-micro);
+    color: var(--text-faint);
+    user-select: none;
+  }
+  .gamenote.bad {
+    color: var(--warn-text);
+  }
+  .gn-who {
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+  .gamenote :global(svg) {
     opacity: 0.8;
   }
   @keyframes tag-in {

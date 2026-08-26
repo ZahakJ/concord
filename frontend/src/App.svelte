@@ -99,6 +99,7 @@
     poll: () => import("./modals/ModalPoll.svelte"),
     doodle: () => import("./modals/ModalDoodle.svelte"),
     soundboard: () => import("./modals/ModalSoundboard.svelte"),
+    game: () => import("./modals/ModalGame.svelte"),
     compose: () => import("./modals/ModalCompose.svelte"),
     disappear: () => import("./modals/ModalDisappear.svelte"),
     backup: () => import("./modals/ModalBackup.svelte"),
@@ -1538,6 +1539,8 @@
     {:else if S.modal?.kind === "gifs"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "doodle"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "game"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "soundboard"}
       <!-- onPick is set when the studio is opened from a voice room, where the
