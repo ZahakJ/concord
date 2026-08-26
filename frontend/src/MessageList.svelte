@@ -3,6 +3,7 @@
   // attachments, pins/search panels, and the out-of-sync banner.
   import Icon from "./Icon.svelte";
   import Message from "./Message.svelte";
+  import ArchiveMessage from "./ArchiveMessage.svelte";
   import Avatar from "./Avatar.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import { haptic } from "./lib/touch.js";
@@ -24,9 +25,12 @@
     registerOverlay,
     nudge,
     selectChannel,
+    archiveChannel,
+    loadArchiveOlder,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
+  import { msOf, rangeLabel } from "./lib/chronicle.js";
   import { untrack, tick } from "svelte";
 
   let { onDropFiles } = $props();
@@ -215,6 +219,79 @@
     }
     return out;
   });
+
+  // ---- the imported archive, above the start of live history ----
+  //
+  // The seam is one divider. Above it is history that was written somewhere
+  // else and imported; below it is this channel. Paging past the divider uses
+  // the same cursor-and-restore discipline as loadOlder, so scrolling through
+  // the join is indistinguishable from scrolling anywhere else.
+  const arcChan = $derived(archiveChannel());
+  const arcRange = $derived(arcChan ? rangeLabel(arcChan.firstNano, arcChan.lastNano) : "");
+
+  const arcRows = $derived.by(() => {
+    const out = [];
+    let prev = null;
+    for (const m of S.archiveRows) {
+      const day = new Date(msOf(m.nano)).toDateString();
+      const newDay = !prev || new Date(msOf(prev.nano)).toDateString() !== day;
+      // A run is one author speaking without a long pause. Its first row wears
+      // the face, the name, the archive chip and the absolute date.
+      const first =
+        newDay || prev.author !== m.author || m.nano - prev.nano > GROUP_WINDOW_MS * 1e6;
+      out.push({ key: m.id || String(m.nano), m, newDay, day, first });
+      prev = m;
+    }
+    return out;
+  });
+
+  // A scroller only pages backwards when it can be scrolled backwards. A
+  // channel whose live history is a handful of rows — every channel the import
+  // just created, on the day it created them — has no scrollbar at all, so the
+  // divider appeared with nothing above it and nothing the reader could do
+  // about it: setting scrollTop to 0 when it is already 0 fires no event.
+  //
+  // So the feed fills itself until there is something to scroll. The guards are
+  // the same three that stop the scroll handler (in flight, exhausted, metered
+  // refusal), and the effect re-runs on archiveRows, so it walks forward one
+  // page at a time and then stops on its own.
+  $effect(() => {
+    // Deps, read plainly so the effect re-runs as each of them settles.
+    void S.archiveRows.length;
+    const blocked =
+      !feedEl ||
+      !arcChan ||
+      !S.feedReachedStart ||
+      S.feedLoading ||
+      S.archiveLoading ||
+      S.archiveReachedStart ||
+      S.archiveMetered;
+    if (blocked) return;
+    untrack(() => {
+      // After the frame: the live rows that just arrived have to be laid out
+      // before "can this scroll?" means anything.
+      tick().then(() => {
+        if (!feedEl || S.archiveLoading || S.archiveReachedStart || S.archiveMetered) return;
+        if (feedEl.scrollHeight > feedEl.clientHeight + 240) return;
+        pageBack(() => loadArchiveOlder(false));
+      });
+    });
+  });
+
+  // pageBack runs a backwards fetch and holds the reader's position across the
+  // insert: the prepended rows would otherwise shove the viewport down by
+  // however tall they turned out to be. Shared by live history and the archive
+  // because there is exactly one right way to do it.
+  async function pageBack(fetchOlder) {
+    if (!feedEl) return;
+    const prevH = feedEl.scrollHeight;
+    const prevTop = feedEl.scrollTop;
+    const added = await fetchOlder();
+    if (added > 0) {
+      await tick();
+      feedEl.scrollTop = feedEl.scrollHeight - prevH + prevTop;
+    }
+  }
 
   function fmtDay(day) {
     const d = new Date(day);
@@ -426,14 +503,22 @@
     // Near the top: page in older history and hold the reader's position — the
     // prepended rows would otherwise jump the viewport. We restore scrollTop by
     // the exact height the content grew, so the message under the cursor stays put.
-    if (feedEl && feedEl.scrollTop < 240 && !S.loadingOlder && !S.feedReachedStart) {
-      const prevH = feedEl.scrollHeight;
-      const prevTop = feedEl.scrollTop;
-      const added = await loadOlder();
-      if (added > 0) {
-        await tick();
-        feedEl.scrollTop = feedEl.scrollHeight - prevH + prevTop;
-      }
+    if (!feedEl || feedEl.scrollTop >= 240) return;
+    if (!S.loadingOlder && !S.feedReachedStart) {
+      await pageBack(loadOlder);
+      return;
+    }
+    // Live history has run out and this channel has an archive above it: keep
+    // going, into pages fetched from whoever holds them. A metered refusal
+    // stops here until the reader answers the card offering to fetch anyway.
+    if (
+      S.feedReachedStart &&
+      arcChan &&
+      !S.archiveLoading &&
+      !S.archiveReachedStart &&
+      !S.archiveMetered
+    ) {
+      await pageBack(() => loadArchiveOlder(false));
     }
   }}
 >
@@ -451,6 +536,36 @@
   {/if}
   {#if S.loadingOlder}
     <div class="older-loading"><span class="ol-spin"></span> Loading older messages…</div>
+  {:else if S.feedReachedStart && arcChan && !S.feedLoading}
+    <!-- Above the seam: whatever of the archive has been paged in so far, and
+         the state of the fetch that would bring more. -->
+    {#if S.archiveLoading}
+      <div class="older-loading"><span class="ol-spin"></span> Loading archived messages…</div>
+    {:else if S.archiveMetered}
+      <!-- Not a failure — a decision the reader gets to make. Archive pages are
+           fetched from other members, and this connection is billed by the
+           byte, so nothing was downloaded. -->
+      <div class="arc-metered">
+        <span class="am-ic"><Icon name="devices" size={14} /></span>
+        <span class="am-text">Archive pages load on Wi-Fi</span>
+        <button class="am-go" onclick={() => pageBack(() => loadArchiveOlder(true))}>
+          Load anyway
+        </button>
+      </div>
+    {:else if S.archiveReachedStart}
+      <div class="feed-start">This is the beginning of the archive.</div>
+    {/if}
+    {#each arcRows as row (row.key)}
+      {#if row.newDay}
+        <div class="day-divider archived"><span>{fmtDay(row.day)}</span></div>
+      {/if}
+      <ArchiveMessage m={row.m} first={row.first} channelId={S.activeChannelId} />
+    {/each}
+    <!-- The seam itself. Everything above it was imported; everything below was
+         said here. -->
+    <div class="arc-divider">
+      <span><Icon name="clock" size={10} /> imported archive{arcRange ? ` · ${arcRange}` : ""}</span>
+    </div>
   {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading}
     <div class="feed-start">This is the beginning of the channel.</div>
   {/if}
@@ -537,7 +652,11 @@
           </div>
         {/each}
       </div>
-    {:else}
+    {:else if !arcChan}
+      <!-- …but not when an archive sits above: "this is the start of #plans"
+           under two thousand imported messages is simply false, and it is the
+           channels an import has just created that are most likely to have no
+           live history at all. -->
       <div class="empty">
         <div class="empty-badge">
           <Icon name={emptyInfo.icon} size={28} />
@@ -1129,6 +1248,96 @@
   }
   .feed-start {
     font-style: italic;
+  }
+  /* The seam between imported history and this channel's own. A day divider
+     wearing a different coat: same centred rule, but the pill is filled and
+     carries the span so the reader knows what they are about to scroll into
+     before they scroll into it. */
+  .arc-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-faint);
+    font-size: var(--fs-small);
+    margin: var(--sp-3) 0 var(--sp-1);
+  }
+  .arc-divider::before,
+  .arc-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, transparent, var(--border));
+  }
+  .arc-divider::after {
+    background: linear-gradient(to left, transparent, var(--border));
+  }
+  .arc-divider span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 12px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    text-align: center;
+  }
+  /* Day dividers inside the archive are quieter than live ones: they are
+     wayfinding through seven years, not "today". */
+  .day-divider.archived span {
+    background: var(--bg-2);
+    color: var(--text-faint);
+    font-weight: 500;
+  }
+  /* The metered offer. Deliberately not red and not a warning triangle: nothing
+     has gone wrong, the app has simply declined to spend somebody's data
+     without asking. */
+  .arc-metered {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    align-self: center;
+    max-width: 100%;
+    margin: var(--sp-3) 0 var(--sp-1);
+    padding: var(--sp-2) var(--sp-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-2);
+    color: var(--text-muted);
+    font-size: var(--fs-compact);
+  }
+  .am-ic {
+    display: inline-flex;
+    color: var(--text-faint);
+    flex-shrink: 0;
+  }
+  .am-text {
+    min-width: 0;
+  }
+  .am-go {
+    flex-shrink: 0;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: transparent;
+    color: var(--accent-hover);
+    font-size: var(--fs-compact);
+    font-weight: 600;
+  }
+  @media (pointer: fine) {
+    .am-go:hover {
+      background: var(--accent-soft);
+    }
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .am-go {
+      min-height: var(--tap-min);
+      padding-inline: var(--sp-3);
+    }
+    .arc-metered {
+      flex-wrap: wrap;
+    }
   }
   @keyframes att-spin {
     to {
