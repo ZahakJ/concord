@@ -55,6 +55,47 @@ public class ConcordForegroundService extends Service {
         return START_STICKY;
     }
 
+    /**
+     * Android 15 gives a dataSync foreground service a budget — 6 hours in any
+     * 24 — and when it runs out the framework calls this. A service that does
+     * not override it is killed with an ANR, which is a crash in the user's
+     * eyes and a bad-behaviour signal in Play's vitals. So the only question is
+     * whether we go quietly.
+     *
+     * We go quietly: drop the notification and stop the service. What we do NOT
+     * do is stop the node. It lives in this process, not in this service, and
+     * the process survives as long as Android lets it — so messages keep
+     * arriving for a while after the tray icon disappears. That is the honest
+     * shape of the tradeoff: the platform has decided this app may not hold the
+     * process up any longer, and no amount of restarting the service changes
+     * that (an immediate restart would only burn the next budget window and
+     * arrive back here). The next time the user opens the app, or the OS
+     * delivers a push, the existing start paths put the service back.
+     *
+     * Deliberately not START_STICKY-restarted and deliberately not silent: the
+     * notification is removed rather than left standing, because a tray entry
+     * reading "Connected — you'll receive messages" over a process the OS is
+     * now free to reap is exactly the lie onStartCommand's comment warns about.
+     */
+    @Override
+    public void onTimeout(int startId, int fgsType) {
+        retire();
+    }
+
+    /** API 34's single-argument form. Only ever fires for shortService, which
+     *  this is not, but overriding it costs nothing and means a platform that
+     *  routes the timeout here instead still gets a clean stop rather than an
+     *  ANR. */
+    @Override
+    public void onTimeout(int startId) {
+        retire();
+    }
+
+    private void retire() {
+        stopForeground(Service.STOP_FOREGROUND_REMOVE); // API 24; minSdk is 26.
+        stopSelf();
+    }
+
     private Notification buildNotification() {
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
