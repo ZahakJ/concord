@@ -1,9 +1,11 @@
 // state.svelte.js — Concord's shared UI state (Svelte 5 runes) and the actions
 // that mutate it. Components import { S, ... } and read/mutate S's properties;
 // api.js stays the only transport layer underneath.
+import { tick } from "svelte";
 import { api, on, onTransportHealth } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
 import { containsMention } from "./markdown.js";
+import { normalize as normalizeAlertWords } from "./alertwords.js";
 import { playVoiceJoin, playVoiceLeave, playMention, playDM, playSfx } from "./sounds.js";
 
 // Per-sender soundboard rate limit (last accepted press, ms). Module-local:
@@ -128,6 +130,14 @@ export const S = $state({
   // itself — a channel you'd muted comes back as "Nothing", which is the same
   // thing under a name that leaves room for "only @mentions".
   notifs: migrateMutes(normalizeNotifs(loadJSON("concord.notifs", null)), loadJSON("concord.mutes", {})),
+  // Words that ping you like your own name. DEVICE-LOCAL, and that is the
+  // feature: this list is the one thing a hosted app cannot offer without
+  // learning what you are watching for. It is passed to the inbox query as an
+  // argument and never stored by the core (see lib/alertwords.js).
+  alertWords: normalizeAlertWords(loadJSON("concord.alertWords", [])),
+  // The activity inbox: everything that concerns you, across every guild and
+  // DM. Filled by refreshInbox() from a local query — nothing about it travels.
+  inbox: { entries: [], unread: 0, readAt: 0, loading: false },
   // Guild-rail layout: device-local ordering and folders (see lib/rail.js). An
   // array of { t:"g", id } / { t:"f", id, name, color, open,
   // ids }. Reconciled against the live guild list on render.
@@ -1235,6 +1245,92 @@ export function isMentionOfSelf(m) {
   return containsMention(m.content, names);
 }
 
+// setAlertWords stores the list and nothing else does. It never reaches the
+// core as state — the inbox query takes it as an argument on each call — so
+// this write is the only place the list exists at rest, and it is this
+// browser's own storage on this machine.
+export function setAlertWords(words) {
+  S.alertWords = normalizeAlertWords(words);
+  saveJSON("concord.alertWords", S.alertWords);
+  refreshInbox();
+}
+
+// ---- the activity inbox ----------------------------------------------------
+//
+// One query answers both things the UI needs: the list the panel shows and the
+// number on the badge. It is a scan over the local store, so it is refreshed
+// rather than maintained — there is no incremental state to get out of step
+// with the messages, which is the failure mode a hand-kept mention counter has.
+//
+// The refresh is coalesced because a burst of arriving messages would otherwise
+// ask for the same scan a dozen times in a second.
+let inboxTimer = null;
+export function refreshInbox({ soon = false } = {}) {
+  if (!S.ready) return;
+  clearTimeout(inboxTimer);
+  inboxTimer = setTimeout(
+    async () => {
+      S.inbox = { ...S.inbox, loading: true };
+      try {
+        const page = await api.inbox(S.alertWords, 0, 50, false);
+        S.inbox = {
+          ...S.inbox,
+          entries: page?.entries || [],
+          unread: page?.unread || 0,
+          readAt: page?.readAt || 0,
+          loading: false,
+        };
+      } catch {
+        // A failed refresh leaves the last answer on screen rather than
+        // emptying the panel: an inbox that blanks itself when the core hiccups
+        // reads as "nothing happened", which is the one thing it must not say.
+        S.inbox = { ...S.inbox, loading: false };
+      }
+    },
+    soon ? 0 : 1500,
+  );
+}
+
+// markInboxRead clears the badge up to now. Local only — see ModalPrivacy: read
+// state has never travelled to anyone but your own devices.
+export async function markInboxRead() {
+  const at = Date.now();
+  try {
+    await api.markInboxRead(at);
+  } catch {
+    /* the mark is a convenience; failing to move it loses nothing */
+  }
+  S.inbox = {
+    ...S.inbox,
+    readAt: at,
+    unread: 0,
+    entries: S.inbox.entries.map((e) => ({ ...e, unread: false })),
+  };
+}
+
+// openInbox shows the panel and refreshes it, because the reason someone opens
+// it is to find out what they have missed. It rides the modal stack rather than
+// being a place of its own: on a phone that makes it a sheet with the app's own
+// physics, and on desktop a dialog, from one component.
+export function openInbox() {
+  S.modal = { kind: "inbox" };
+  refreshInbox({ soon: true });
+}
+
+// jumpToInboxEntry lands on the message an entry names — the same land-and-flash
+// path search and bookmarks use, so a jump from here behaves identically.
+export async function jumpToInboxEntry(entry) {
+  if (!entry?.channelId) return;
+  S.modal = null;
+  await jumpToChannel(entry.channelId);
+  await tick();
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (!scrollToMessage(entry.messageId)) flash("That message isn't loaded yet");
+    }),
+  );
+}
+
 // myRoleNames: the roles this account holds in the active guild. Roles are
 // per-guild and S.roles only ever holds the guild you're looking at, so a
 // mention of a role you hold elsewhere isn't seen here — the badge lands when
@@ -1773,6 +1869,7 @@ export async function onLogin() {
   // badges cleared elsewhere stay cleared here.
   await syncReadState();
   recomputeUnread();
+  refreshInbox({ soon: true });
   refreshNetStatus();
   // Slow poll backstops the presence-event refresh (covers bootstrap dials that
   // don't produce a peer-presence event, e.g. a relay reservation forming).
@@ -2476,6 +2573,9 @@ function initEvents() {
     // someone else (not edits/reactions/pins, not a sync backfill of old msgs).
     const isMention = isMentionOfSelf(m);
     const genuinelyNew = firstSeen && isLive && m.sender !== S.identity.fingerprint && !m.deleted && m.kind === "";
+    // The inbox is a scan, not a running total, so a new message does not update
+    // it — it invalidates it. Coalesced, so a burst costs one query.
+    if (genuinelyNew) refreshInbox();
     // One decision, both outputs: the chime and the OS notification agree by
     // construction rather than by two similar-looking conditions drifting apart.
     // A DM counts as a mention here — someone talking only to you is the case

@@ -15,6 +15,7 @@
     selectChannel,
     accentForeground,
     confirmLeaveGuild,
+    openInbox,
   } from "./lib/state.svelte.js";
   import { untrack } from "svelte";
   import { pushLayer, syncLayer } from "./lib/navstack.svelte.js";
@@ -205,6 +206,13 @@
         // around once there are more than a handful of conversations, so it goes
         // first — and this sheet opens at the bottom, under the thumb.
         { label: "Jump to…", icon: "search", onClick: () => (S.quickSwitcher = true) },
+        // The inbox lives on the rail, which mid-chat is a drawer-swipe away —
+        // and it is the one thing you reach for BECAUSE you are somewhere else.
+        {
+          label: S.inbox.unread > 0 ? `Inbox (${S.inbox.unread})` : "Inbox",
+          icon: "bell",
+          onClick: () => openInbox(),
+        },
         { label: "Search messages", icon: "search", onClick: () => (searchOpen = true) },
         { label: "Pinned messages", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
         // Every room has a calendar now: guilds share theirs, a DM's belongs
@@ -459,8 +467,20 @@
         <span class="chev-back"><Icon name="chevron" size={18} /></span>
       </button>
     {:else}
-      <button class="icon-btn" aria-label="Menu" onclick={() => (S.drawerOpen = true)}>
+      <button
+        class="icon-btn"
+        aria-label={S.inbox.unread > 0
+          ? `Menu — ${S.inbox.unread} unread in your inbox`
+          : "Menu"}
+        onclick={() => (S.drawerOpen = true)}
+      >
         <Icon name="menu" />
+        <!-- A dot, not a count. The inbox button itself is one swipe away in the
+             drawer's rail and carries the number; what the closed hamburger has
+             to say is only "there is something in there", and a number on a
+             control that does not open the inbox would be a promise it cannot
+             keep. -->
+        {#if S.inbox.unread > 0}<span class="inbox-dot"></span>{/if}
       </button>
     {/if}
     <!-- The title is tappable, which is where a thumb goes first: same sheet as ⋯.
@@ -745,6 +765,21 @@
     background: transparent;
     color: var(--text-muted);
     flex-shrink: 0;
+    position: relative;
+  }
+  /* A dot on the closed hamburger, in the same red the mention badges use. Its
+     ring is the bar's own background so it reads as a sticker on the icon
+     rather than a shape in the layout. */
+  .inbox-dot {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--danger);
+    border: 2px solid var(--bg-1);
+    pointer-events: none;
   }
   .icon-btn:active {
     background: var(--bg-3);

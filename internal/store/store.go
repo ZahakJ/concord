@@ -1600,6 +1600,129 @@ func (s *Store) BookmarkedMessages() ([]domain.Message, error) {
 	return out, rows.Err()
 }
 
+// InboxHit is one message the inbox scan thinks concerns you, plus the one
+// thing SQL could decide that Go could not cheaply re-derive: whether it is a
+// reply to something you wrote.
+type InboxHit struct {
+	domain.Message
+	RepliesToYou bool
+}
+
+// InboxCandidates walks history newest-first and returns the messages that
+// either reply to something you sent or contain one of `terms` in the body.
+//
+// It is a CANDIDATE scan, not the answer. The terms are matched as plain
+// case-insensitive substrings here, and the caller applies the real rule — word
+// boundaries, whether a role name counts in the guild the message landed in —
+// because that rule needs the roster and the roster is not the store's business.
+// A substring pre-filter that over-matches is cheap; one that under-matches
+// would silently lose a mention, so this side is deliberately the generous one.
+//
+// The reply test is the interesting half: it runs in SQL as an EXISTS against
+// the messages primary key, so "was this a reply to me" costs an index lookup
+// per candidate row rather than a second pass in Go. The rest is the same
+// bounded decrypt-and-scan as SearchMessages, for the same reason — there is no
+// index over message bodies and there deliberately never will be.
+//
+// afterNano bounds the scan at the old end, which is what makes the unread
+// count cheap in the steady state: the caller passes the moment it last looked.
+func (s *Store) InboxCandidates(self []byte, terms []string, beforeNano, afterNano int64, limit int) ([]InboxHit, error) {
+	if len(self) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	needles := make([]string, 0, len(terms))
+	for _, t := range terms {
+		if t = strings.ToLower(strings.TrimSpace(t)); t != "" {
+			needles = append(needles, t)
+		}
+	}
+
+	where := `m.deleted = 0 AND m.kind = '' AND m.sender <> ?`
+	args := []any{self}
+	if afterNano > 0 {
+		where += ` AND m.sent > ?`
+		args = append(args, afterNano)
+	}
+
+	var out []InboxHit
+	curSent, curID := beforeNano, ""
+	const batch = 256
+	const maxScan = 20000
+	for scanned := 0; len(out) < limit && scanned < maxScan; {
+		q := `SELECT m.id, m.channel_id, m.sender, m.name, m.kind, m.reply_to, m.dir,
+		             m.deleted, m.edited, m.pinned, m.content_enc, m.nonce, m.sent,
+		             (m.reply_to <> '' AND EXISTS(
+		                 SELECT 1 FROM messages p WHERE p.id = m.reply_to AND p.sender = ?))
+		 FROM messages m WHERE ` + where
+		pageArgs := append([]any{self}, args...)
+		if curSent > 0 {
+			if curID == "" {
+				q += ` AND m.sent < ?`
+				pageArgs = append(pageArgs, curSent)
+			} else {
+				q += ` AND (m.sent < ? OR (m.sent = ? AND m.id > ?))`
+				pageArgs = append(pageArgs, curSent, curSent, curID)
+			}
+		}
+		q += ` ORDER BY m.sent DESC, m.id ASC LIMIT ?`
+		pageArgs = append(pageArgs, batch)
+
+		rows, err := s.db.Query(q, pageArgs...)
+		if err != nil {
+			return nil, err
+		}
+		fetched := 0
+		for rows.Next() && len(out) < limit && scanned < maxScan {
+			fetched++
+			var m domain.Message
+			var enc, nonceB []byte
+			var sent int64
+			var deleted, edited, pinned, replied int
+			if err := rows.Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir,
+				&deleted, &edited, &pinned, &enc, &nonceB, &sent, &replied); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			curSent, curID = sent, m.ID
+			scanned++
+			content, err := s.open(enc, nonceB)
+			if err != nil {
+				continue // an undecryptable row is skipped, never fatal
+			}
+			hit := replied != 0
+			if !hit {
+				lower := strings.ToLower(content)
+				for _, n := range needles {
+					if strings.Contains(lower, n) {
+						hit = true
+						break
+					}
+				}
+			}
+			if !hit {
+				continue
+			}
+			m.Content = content
+			m.Edited = edited != 0
+			m.Pinned = pinned != 0
+			m.Sent = time.Unix(0, sent).UTC()
+			out = append(out, InboxHit{Message: m, RepliesToYou: replied != 0})
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if fetched < batch {
+			break // history exhausted
+		}
+	}
+	return out, nil
+}
+
 // SearchFilter optionally narrows SearchMessages. The zero value matches
 // everything. Every field describes metadata the schema stores in the clear,
 // so the narrowing happens in SQL — before any row is decrypted. The fields

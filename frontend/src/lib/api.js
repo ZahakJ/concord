@@ -428,6 +428,17 @@ export const api = {
   // (the replay was willing to act on it) — they are different questions and the
   // panel must not conflate them.
   governanceLog: (guildID, offset, limit) => call("GovernanceLog", guildID, offset, limit),
+  // inbox resolves to { entries, readAt, unread }. Entries are newest first,
+  // across every guild and DM, paged with beforeNano (0 = newest).
+  //
+  // `words` is this device's alert-word list, passed in on every call. It is
+  // deliberately NOT stored in the core: the words live in this device's own
+  // settings, the matching happens where the messages already are, and nothing
+  // writes them to a disk or a wire. That is the whole privacy argument for the
+  // feature, so do not "tidy" it into backend state.
+  inbox: (words, beforeNano = 0, limit = 50, unreadOnly = false) =>
+    call("Inbox", words, beforeNano, limit, unreadOnly),
+  markInboxRead: (atMs) => call("MarkInboxRead", atMs),
   contacts: () => call("Contacts"),
   joinVoice: (channelID) => call("JoinVoice", channelID),
   leaveVoice: (channelID) => call("LeaveVoice", channelID),

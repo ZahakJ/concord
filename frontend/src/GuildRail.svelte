@@ -16,7 +16,9 @@
     startMeeting,
     guildMenuItems,
     commitRail,
+    openInbox,
   } from "./lib/state.svelte.js";
+  import { plural } from "./lib/plural.js";
   import {
     reconcile,
     combineGuilds,
@@ -637,6 +639,28 @@
          the one strip on screen in every layout (desktop column, phone
          drawer), and the pinned footer keeps it reachable at any guild count.
          Same pill DNA as the guilds above; tapping again puts it away. -->
+    <!-- The inbox. It sits with the calendar rather than up with the guilds
+         because it is not a place — it is a question about all of them, and the
+         answer is the same wherever you happen to be standing. -->
+    <div class="bubble-wrap">
+      <button
+        class="pill cal"
+        class:active={S.modal?.kind === "inbox"}
+        use:tooltip={{ ...railTip, text: "Inbox — every mention, reply and alert word aimed at you" }}
+        aria-label={S.inbox.unread > 0
+          ? `Inbox — ${plural(S.inbox.unread, "unread item")}`
+          : "Inbox"}
+        onclick={() => (S.modal?.kind === "inbox" ? (S.modal = null) : openInbox())}
+      >
+        <Icon name="bell" size={20} />
+      </button>
+      {#if S.inbox.unread > 0}
+        <!-- Red, like the guild bubbles' mention badge: this IS the mention
+             count, gathered from every guild at once, and giving it a different
+             colour would say it was a different kind of thing. -->
+        <span class="badge mention">{S.inbox.unread > 99 ? "99+" : S.inbox.unread}</span>
+      {/if}
+    </div>
     <button
       class="pill cal"
       class:active={S.modal?.kind === "myCalendar"}

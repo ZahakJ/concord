@@ -2260,6 +2260,38 @@ func (b *Bridge) Bans(guildID string) ([]BanView, error) {
 	return out, nil
 }
 
+// Inbox lists what concerns you across every guild and DM: mentions, replies to
+// your messages, and hits on this device's alert words.
+//
+// The alert words are an ARGUMENT, not stored state, and they stay that way on
+// purpose. They live in this device's own settings, they are handed to the query
+// that needs them, and no part of this process writes them down or sends them.
+// That is the claim the settings copy makes, so it has to be true in the code.
+func (b *Bridge) Inbox(words []string, beforeNano int64, limit int, unreadOnly bool) (appsvc.InboxPage, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.InboxPage{}, err
+	}
+	page, err := svc.Inbox(words, beforeNano, limit, unreadOnly)
+	if err != nil {
+		return appsvc.InboxPage{}, err
+	}
+	if page.Entries == nil {
+		page.Entries = []appsvc.InboxEntry{}
+	}
+	return page, nil
+}
+
+// MarkInboxRead moves this device's inbox read mark. Local only: read state has
+// never travelled anywhere but your own devices, and this does not change that.
+func (b *Bridge) MarkInboxRead(atMs int64) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.MarkInboxRead(atMs)
+}
+
 // GovLogView is a page of the guild's governance log plus how long the log is,
 // so the panel can say "42 of 380" without a second call. Total is the whole
 // log, including any entry the replay refused — a refusal is a row too.
@@ -3227,6 +3259,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.Bans(argStr(args, 0))
 	case "GovernanceLog":
 		return b.GovernanceLog(argStr(args, 0), argInt(args, 1), argInt(args, 2))
+	case "Inbox":
+		return b.Inbox(argStrs(args, 0), argInt64(args, 1), argInt(args, 2), argBool(args, 3))
+	case "MarkInboxRead":
+		return nil, b.MarkInboxRead(argInt64(args, 0))
 	case "Contacts":
 		return b.Contacts()
 	case "JoinVoice":

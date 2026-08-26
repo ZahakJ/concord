@@ -123,6 +123,7 @@
     profile: () => import("./modals/ModalProfile.svelte"),
     settings: () => import("./modals/ModalSettings.svelte"),
     notifications: () => import("./modals/ModalNotifications.svelte"),
+    inbox: () => import("./modals/ModalInbox.svelte"),
     privacy: () => import("./modals/ModalPrivacy.svelte"),
     bookings: () => import("./modals/ModalBookings.svelte"),
     connection: () => import("./modals/ModalConnection.svelte"),
@@ -1659,6 +1660,8 @@
     {:else if S.modal?.kind === "settings"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "notifications"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "inbox"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "privacy"}
       <ModalView onClose={() => (S.modal = null)} />
