@@ -4557,7 +4557,11 @@ textarea:focus {
     --fs-title: 19px;
     --fs-display: 24px;
     --sp-edge: 14px;
-    --tap-min: 44px;
+    /* 48px, not 44. 44 is Apple's figure and it is what this was set to; 48dp
+       is Android's, it is the larger of the two, and Android is the platform
+       Concord ships a store build for. A control sized for the smaller number
+       is under the floor on the device most likely to be holding it. */
+    --tap-min: 48px;
   }
 
   /* iOS/WKWebView zooms the whole page when a focused field's text is under

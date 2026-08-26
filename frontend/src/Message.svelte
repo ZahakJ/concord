@@ -1282,7 +1282,14 @@
     </span>
   {/if}
 
-  {#if !m.deleted && S.editing?.id !== m.id}
+  <!-- Hover toolbar. Built only where hovering is a thing.
+       This is ~33 nodes per row and it used to be built on every row of every
+       feed and then hidden with display:none on phones — on a 200-row channel
+       that is the majority of the DOM, paid for in parse, layout and memory by
+       the device least able to afford it. The mobile entry point is the
+       long-press sheet (messageMenu), which carries every action this bar has
+       and several it never had, so nothing is lost by not drawing it. -->
+  {#if !S.isMobile && !m.deleted && S.editing?.id !== m.id}
     <div class="msg-actions" role="toolbar" aria-label="Message actions">
       <div class="grp">
         {#each quickEmojis as e (e)}
@@ -2076,11 +2083,10 @@
      Touch devices have no hover — a tap would emulate it and pop the action bar
      up right under the finger, causing accidental reacts/replies. Long-press
      (action sheet) is the mobile entry point instead, and it now carries
-     everything the bar does plus the link/code/timestamp cases hover never had. */
+     everything the bar does plus the link/code/timestamp cases hover never had.
+     The bar is no longer rendered at all here (see the !S.isMobile gate on the
+     markup), so there is nothing left for this block to hide. */
   @media (pointer: coarse), (max-width: 768px) {
-    .msg-actions {
-      display: none;
-    }
     .msg {
       /* The row's gap is 12px of a 360px screen next to a 38px avatar; trimming
          it buys back characters per line where they are scarcest. */

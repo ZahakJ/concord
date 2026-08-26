@@ -1904,8 +1904,12 @@
       position: absolute;
       /* Right-biased: the channel-options chevron is immediately to the left
          and carries its own overlay, so growing leftward would put two hit
-         boxes on top of each other. Vertically it fills the row instead. */
-      inset: -6px -6px -6px 0;
+         boxes on top of each other. Vertically it fills the row instead.
+         The button measures 37x39, so these are the exact numbers that reach
+         Android's 48dp floor without a leftward centimetre: 39+5+5 and 37+11,
+         the extra width taken out of the row's own end padding. Hand-placed
+         rather than calc()'d because the left side must stay pinned at 0. */
+      inset: -5px -11px -5px 0;
     }
     .mute-slot {
       width: 37px; /* tracks .mute-btn's touch padding above */
@@ -1967,14 +1971,19 @@
       min-width: 44px;
       min-height: 44px;
     }
-    /* Invisible overlay pads the avatar/status tap area out to 44px. */
+    /* Invisible overlay pads the avatar/status tap area out to the 48dp floor.
+       Biased left and vertical, never right: .me sits immediately to the right
+       with its own 44px target and opens a different thing, so a symmetric
+       overlay would hand four pixels of "set status" to "open profile". The
+       left edge is the drawer's own padding, where nothing else is listening. */
     .me-status-trigger {
       position: relative;
     }
     .me-status-trigger::after {
       content: "";
       position: absolute;
-      inset: -2px;
+      inset: calc((var(--tap-min) - 100%) / -2) 0 calc((var(--tap-min) - 100%) / -2)
+        calc(100% - var(--tap-min));
     }
   }
   .add-locked {

@@ -976,8 +976,13 @@
     background: var(--bg-3);
     color: var(--text);
   }
-  /* Touch: invisible overlay pads the small expand/collapse toggle's tap
-     area out to ~44px without growing the glyph. */
+  /* Touch: invisible overlay pads the small expand/collapse toggle's tap area
+     out to the platform floor without growing the glyph. The glyph box is
+     23x18, so a single hardcoded inset can only be right on one axis — it was
+     -13px, which reached 44 across and 44 down by coincidence of those two
+     numbers and went stale the moment --tap-min moved to Android's 48. The
+     calc form measures from the element's own size on each axis, so it is
+     correct for both and stays correct if the glyph changes. */
   @media (pointer: coarse), (max-width: 768px) {
     .mini {
       position: relative;
@@ -985,7 +990,7 @@
     .mini::after {
       content: "";
       position: absolute;
-      inset: -13px;
+      inset: calc((var(--tap-min) - 100%) / -2);
     }
   }
   .chev {
