@@ -76,6 +76,9 @@
     crown: "M2.5 12.5 2 5l3.5 2.5L8 3.5l2.5 4L14 5l-.5 7.5z",
     // Empty game library (EmptyState badge): a five-pip die.
     die: "M2.5 2.5h11v11h-11z M5.4 5.4h.01 M10.6 5.4h.01 M8 8h.01 M5.4 10.6h.01 M10.6 10.6h.01",
+    // Take back the last stroke on the drawing pad: an arrow curving back on
+    // itself. Distinct from `reply`, which points into a conversation.
+    undo: "M3 7.5h6.5a3.5 3.5 0 0 1 0 7H6 M5.5 4 3 7.5 5.5 11",
     // Call events (missed-call lines in DMs).
     phone:
       "M4.4 2.5c.4 0 .8.2.9.6l.9 2.1a1 1 0 0 1-.2 1.1L4.8 7.5a9.8 9.8 0 0 0 3.7 3.7l1.2-1.2a1 1 0 0 1 1.1-.2l2.1.9c.4.1.6.5.6.9v1.4c0 .6-.5 1.1-1.1 1A11.9 11.9 0 0 1 2.5 3.6c-.1-.6.4-1.1 1-1.1z",

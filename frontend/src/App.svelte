@@ -97,6 +97,7 @@
     when: () => import("./modals/ModalWhen.svelte"),
     scheduled: () => import("./modals/ModalScheduled.svelte"),
     poll: () => import("./modals/ModalPoll.svelte"),
+    doodle: () => import("./modals/ModalDoodle.svelte"),
     compose: () => import("./modals/ModalCompose.svelte"),
     disappear: () => import("./modals/ModalDisappear.svelte"),
     backup: () => import("./modals/ModalBackup.svelte"),
@@ -1534,6 +1535,8 @@
     {:else if S.modal?.kind === "emoji"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "gifs"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "doodle"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "meme"}
       <!-- `edit` reopens a meme already in the channel; `src` starts a new one

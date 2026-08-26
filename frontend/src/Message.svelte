@@ -14,6 +14,8 @@
   import { parsePoll } from "./lib/polls.js";
   import { parseAnnounce } from "./lib/announce.js";
   import EmbedView from "./EmbedView.svelte";
+  import DoodleView from "./DoodleView.svelte";
+  import { parseDoodle, stripDoodle } from "./lib/doodle.js";
   import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
   import { fxEffect, stripFx, playFxOnce } from "./lib/fxtoken.js";
@@ -249,10 +251,19 @@
   const richEmbed = $derived(m.deleted ? null : parseEmbed(m.content));
   const atts = $derived(m.deleted ? [] : parseAttachTokens(m.content));
   const files = $derived(m.deleted ? [] : parseFileTokens(m.content));
+  // A doodle: strokes, not an image (lib/doodle.js). null means either "there
+  // is no doodle here" or "there is one and this client refuses to draw it" —
+  // over a bound, from a version we do not know, or simply corrupt. The two
+  // cases render the same, which is the whole point of failing closed.
+  const doodle = $derived(m.deleted ? null : parseDoodle(m.content));
   const bodyText = $derived.by(() => {
     let c = atts.length || files.length ? stripAttachTokens(m.content) : m.content;
     if (richEmbed) c = stripEmbedToken(c);
-    return stripFx(stripTimestamp(stripEphemeral(c)));
+    // Stripped unconditionally, NOT gated on `doodle` being non-null. A doodle
+    // this client refused must leave nothing behind: gating the strip on a
+    // successful parse is how a rejected token ends up printing several
+    // hundred characters of base64 into the message body.
+    return stripDoodle(stripFx(stripTimestamp(stripEphemeral(c))));
   });
 
   // Send effects ([fx](concord://fx/v1/…)): the burst plays once per session
@@ -1246,6 +1257,9 @@
               class="edited-tag">(edited)</span
             >{/if}
         </div>
+      {/if}
+      {#if doodle}
+        <DoodleView strokes={doodle} />
       {/if}
       <!-- One image sizes itself, as it always has. Two or more become a grid:
            stacked at their own sizes they were a ragged column — a portrait

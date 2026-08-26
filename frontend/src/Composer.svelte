@@ -344,6 +344,7 @@
     // ACTIONS, not text expansions: these run instead of sending (see runAction).
     { name: "meme", usage: "/meme", desc: "Open the meme editor", expand: (_, text) => text },
     { name: "gif", usage: "/gif", desc: "This guild's GIF pack", expand: (_, text) => text },
+    { name: "doodle", usage: "/doodle", desc: "Draw something", expand: (_, text) => text },
     { name: "clear", usage: "/clear <n>", desc: "Delete the last n messages (moderators)", args: true, mod: true, expand: (_, text) => text },
   ];
 
@@ -359,6 +360,10 @@
     }
     if (/^\/gif\s*$/i.test(text)) {
       S.modal = { kind: "gifs" };
+      return true;
+    }
+    if (/^\/doodle\s*$/i.test(text)) {
+      S.modal = { kind: "doodle" };
       return true;
     }
     const m = text.match(/^\/clear(?:\s+(\d+))?\s*$/i);
@@ -1593,6 +1598,9 @@
             <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
               <Icon name="poll" size={14} /> Poll
             </button>
+            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "doodle" })}>
+              <Icon name="edit" size={14} /> Doodle
+            </button>
             <button class="menu-item" disabled={!ch} onclick={openAdvanced}>
               <Icon name="heading" size={14} /> Advanced composer
             </button>
@@ -1635,6 +1643,16 @@
             onclick={() => (S.modal = { kind: "poll" })}
           >
             <Icon name="poll" size={20} />
+          </button>
+          <button
+            type="button"
+            class="iconbtn"
+            use:tooltip={"Draw a doodle — strokes, not a picture"}
+            aria-label="Draw a doodle"
+            disabled={!ch}
+            onclick={() => (S.modal = { kind: "doodle" })}
+          >
+            <Icon name="edit" size={19} />
           </button>
           <button
             type="button"
@@ -1729,6 +1747,13 @@
       <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "poll" }))}>
         <span class="sr-icon"><Icon name="poll" size={20} /></span>
         <span class="sr-text"><span class="sr-label">Poll</span></span>
+      </button>
+      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "doodle" }))}>
+        <span class="sr-icon"><Icon name="edit" size={20} /></span>
+        <span class="sr-text">
+          <span class="sr-label">Doodle</span>
+          <span class="sr-sub">Draw with a finger — sent as strokes, not a picture</span>
+        </span>
       </button>
       <button type="button" class="sheet-row" onclick={() => fromSheet(() => (showFmt = !showFmt))}>
         <span class="sr-icon sr-aa">Aa</span>
