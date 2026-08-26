@@ -2006,6 +2006,78 @@ func (b *Bridge) ImportArchive(dataB64, passphrase string) (appsvc.ArchiveStats,
 	return svc.ImportArchive(raw, passphrase)
 }
 
+// ChronicleMessagesView is a page of a guild's history archive, plus the one
+// thing a page of it can be instead of messages: a refusal to spend a data plan
+// on a megabyte nobody urgently needs. Metered is a field rather than an error
+// because the frontend's response to it is an offer ("fetch anyway?"), not a
+// failure, and matching on an error string to tell the two apart is exactly the
+// kind of coupling a view type exists to avoid.
+type ChronicleMessagesView struct {
+	Messages []appsvc.ChronicleMessageView `json:"messages"`
+	Metered  bool                          `json:"metered,omitempty"`
+}
+
+// AttachChronicle records a signed history archive against a guild. Owner-only.
+// The manifest and every page arrive base64-encoded because the RPC surface is
+// JSON; the pages are keyed by the content address the manifest names them by,
+// and a mismatch fails the whole call rather than storing a partial archive.
+func (b *Bridge) AttachChronicle(guildID, manifestB64 string, chunksB64 map[string]string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	manifest, err := base64.StdEncoding.DecodeString(manifestB64)
+	if err != nil {
+		return fmt.Errorf("bridge: the archive index is not valid base64: %w", err)
+	}
+	chunks := make(map[string][]byte, len(chunksB64))
+	for id, b64 := range chunksB64 {
+		raw, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil {
+			return fmt.Errorf("bridge: archive page %s is not valid base64: %w", id, err)
+		}
+		chunks[id] = raw
+	}
+	return svc.AttachChronicle(guildID, manifest, chunks)
+}
+
+// ChronicleInfo describes a guild's archive: what it is, how big, and how much
+// of it this device holds. The zero view means the guild has no archive.
+func (b *Bridge) ChronicleInfo(guildID string) (appsvc.ChronicleView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.ChronicleView{}, err
+	}
+	return svc.ChronicleInfo(guildID)
+}
+
+// ChronicleMessages reads one page of the archive, newest-backwards from
+// beforeNano (0 = the newest), returned oldest-first.
+func (b *Bridge) ChronicleMessages(guildID, channelID string, beforeNano int64, limit int, allowMetered bool) (ChronicleMessagesView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return ChronicleMessagesView{}, err
+	}
+	msgs, err := svc.ChronicleMessages(guildID, channelID, beforeNano, limit, allowMetered)
+	if errors.Is(err, appsvc.ErrChronicleMetered) {
+		return ChronicleMessagesView{Metered: true}, nil
+	}
+	if err != nil {
+		return ChronicleMessagesView{}, err
+	}
+	return ChronicleMessagesView{Messages: msgs}, nil
+}
+
+// SetChroniclePinned keeps a guild's archive on this device permanently, or
+// returns its pages to the evictable cache.
+func (b *Bridge) SetChroniclePinned(guildID string, pinned bool) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	return svc.SetChroniclePinned(guildID, pinned)
+}
+
 // SetRetention sets how long messages are kept, in seconds (0 = forever).
 // An empty channelID sets the guild-wide policy; a channel id overrides it for
 // that channel. Needs manage-guild — it deletes other members' copies too.
@@ -2934,6 +3006,14 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.ExportArchive(argStr(args, 0), argBool(args, 1))
 	case "ImportArchive":
 		return b.ImportArchive(argStr(args, 0), argStr(args, 1))
+	case "AttachChronicle":
+		return nil, b.AttachChronicle(argStr(args, 0), argStr(args, 1), argStrMap(args, 2))
+	case "ChronicleInfo":
+		return b.ChronicleInfo(argStr(args, 0))
+	case "ChronicleMessages":
+		return b.ChronicleMessages(argStr(args, 0), argStr(args, 1), argInt64(args, 2), argInt(args, 3), argBool(args, 4))
+	case "SetChroniclePinned":
+		return nil, b.SetChroniclePinned(argStr(args, 0), argBool(args, 1))
 	case "SetRetention":
 		return nil, b.SetRetention(argStr(args, 0), argStr(args, 1), argInt(args, 2))
 	case "GuildRetention":
@@ -3150,6 +3230,17 @@ func argStr(args []json.RawMessage, i int) string {
 	var s string
 	_ = json.Unmarshal(args[i], &s)
 	return s
+}
+
+// argStrMap decodes a string->string argument — the archive-page bundle, keyed
+// by content address and base64-encoded because the envelope is JSON.
+func argStrMap(args []json.RawMessage, i int) map[string]string {
+	if i >= len(args) {
+		return nil
+	}
+	var m map[string]string
+	_ = json.Unmarshal(args[i], &m)
+	return m
 }
 
 func argStrs(args []json.RawMessage, i int) []string {

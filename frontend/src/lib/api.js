@@ -326,6 +326,17 @@ export const api = {
   exportMarkdown: (guildID, channelID) => call("ExportMarkdown", guildID, channelID),
   exportArchive: (passphrase, withAttachments) => call("ExportArchive", passphrase, withAttachments),
   importArchive: (dataB64, passphrase) => call("ImportArchive", dataB64, passphrase),
+  // A chronicle is a guild's bulk history archive: signed by the owner, carried
+  // as a small index that every member holds, with the pages themselves fetched
+  // from whoever has them only when somebody scrolls that far back.
+  // chronicleMessages resolves to { messages, metered } — metered:true means the
+  // page was not cached and the connection is billed by the byte, so nothing was
+  // fetched; call again with allowMetered to override.
+  attachChronicle: (guildID, manifestB64, chunksB64) => call("AttachChronicle", guildID, manifestB64, chunksB64),
+  chronicleInfo: (guildID) => call("ChronicleInfo", guildID),
+  chronicleMessages: (guildID, channelID, beforeNano, limit, allowMetered) =>
+    call("ChronicleMessages", guildID, channelID, beforeNano, limit, allowMetered),
+  setChroniclePinned: (guildID, pinned) => call("SetChroniclePinned", guildID, pinned),
   setRetention: (guildID, channelID, seconds) => call("SetRetention", guildID, channelID, seconds),
   guildRetention: (guildID) => call("GuildRetention", guildID),
   unmuteMember: (guildID, fingerprint) => call("UnmuteMember", guildID, fingerprint),
