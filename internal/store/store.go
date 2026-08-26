@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/nacl/secretbox"
@@ -34,6 +35,13 @@ const nonceSize = 24
 type Store struct {
 	db  *sql.DB
 	key [32]byte // secretbox key for message bodies
+	// chronicleCap is the ceiling on UNPINNED archive chunks. A knob rather
+	// than a constant because the right number depends on the device: the
+	// laptop that performed an import wants its own chronicle pinned and
+	// permanent, while a phone that occasionally scrolls into it wants to
+	// forget the pages it has read. Guarded by capMu.
+	capMu        sync.RWMutex
+	chronicleCap int64
 }
 
 // Open opens (creating if needed) the SQLite database at path and prepares the
@@ -69,7 +77,7 @@ func Open(path string, dataKey []byte) (*Store, error) {
 		return nil, fmt.Errorf("store: set pragmas: %w", err)
 	}
 
-	s := &Store{db: db}
+	s := &Store{db: db, chronicleCap: defaultChronicleCap}
 	copy(s.key[:], dataKey)
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
@@ -270,6 +278,21 @@ CREATE TABLE IF NOT EXISTS story_tombstones (
   expires_at INTEGER NOT NULL,
   sig        BLOB NOT NULL
 );
+CREATE TABLE IF NOT EXISTS chronicle_manifests (
+  chronicle_id TEXT PRIMARY KEY,
+  guild_id     TEXT NOT NULL,
+  raw          BLOB NOT NULL,
+  created      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_chronicle_manifests_guild ON chronicle_manifests(guild_id, created);
+CREATE TABLE IF NOT EXISTS chronicle_chunks (
+  chunk_id  TEXT PRIMARY KEY,
+  ct        BLOB NOT NULL,
+  size      INTEGER NOT NULL,
+  created   INTEGER NOT NULL,
+  last_used INTEGER NOT NULL,
+  pinned    INTEGER NOT NULL DEFAULT 0
+);
 `
 	if _, err := s.db.Exec(schema); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
@@ -334,6 +357,12 @@ CREATE TABLE IF NOT EXISTS story_tombstones (
 		// rest — an older database reads back as all-free-text, which is
 		// exactly what those events were.
 		`ALTER TABLE events ADD COLUMN location_channel TEXT NOT NULL DEFAULT ''`,
+		// A blob the local chronicle references is exempt from the attachment
+		// LRU. Without it, the device that imported a decade of history would
+		// evict the pictures out of its own archive within a gigabyte of ordinary
+		// chat — and unlike an ordinary attachment there is nobody else to fetch
+		// them back from, because the import happened here and nowhere else.
+		`ALTER TABLE attachments ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := s.db.Exec(col); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return fmt.Errorf("store: migrate: %w", err)
@@ -2419,18 +2448,258 @@ func (s *Store) GetAttachment(blobID string) ([]byte, bool, error) {
 	return ct, true, nil
 }
 
+// PinAttachment exempts a blob from the attachment LRU, or returns it to the
+// cache. Used for the blobs a locally-imported chronicle references: they exist
+// on this device because an import put them here, so evicting one loses it
+// outright rather than merely costing a re-fetch.
+func (s *Store) PinAttachment(blobID string, pinned bool) error {
+	v := 0
+	if pinned {
+		v = 1
+	}
+	if _, err := s.db.Exec(`UPDATE attachments SET pinned = ? WHERE blob_id = ?`, v, blobID); err != nil {
+		return fmt.Errorf("store: pin attachment: %w", err)
+	}
+	return nil
+}
+
 // evictAttachments drops least-recently-used blobs while the cache exceeds
-// its size cap. Best-effort.
+// its size cap. Pinned blobs are never candidates — which means a pinned pile
+// larger than the cap simply stops eviction rather than looping on rows it may
+// not touch, so the delete's own row count is the loop's exit condition.
+// Best-effort.
 func (s *Store) evictAttachments() {
 	for i := 0; i < 64; i++ { // hard bound on the loop, just in case
 		var total sql.NullInt64
 		if err := s.db.QueryRow(`SELECT SUM(size) FROM attachments`).Scan(&total); err != nil || total.Int64 <= maxAttachmentStore {
 			return
 		}
-		if _, err := s.db.Exec(
+		res, err := s.db.Exec(
 			`DELETE FROM attachments WHERE blob_id IN
-			   (SELECT blob_id FROM attachments ORDER BY last_used ASC LIMIT 1)`,
-		); err != nil {
+			   (SELECT blob_id FROM attachments WHERE pinned = 0 ORDER BY last_used ASC LIMIT 1)`,
+		)
+		if err != nil {
+			return
+		}
+		if n, err := res.RowsAffected(); err != nil || n == 0 {
+			return // nothing evictable left
+		}
+	}
+}
+
+// ---- chronicles (owner-signed bulk history archives) ----
+
+// defaultChronicleCap is the ceiling on cached archive chunks that no device
+// has pinned. Half the attachment cache: an archive is read far less often than
+// a picture is looked at, and every page of it is re-fetchable from any member
+// who has read it, so the cheapest place to keep a chunk nobody has opened
+// lately is somebody else's disk.
+const defaultChronicleCap = 512 << 20 // 512 MiB
+
+// SetChronicleCap changes the unpinned-chunk ceiling. Pinned chunks are exempt
+// and are not counted against it — the pin is a statement that this device is
+// the archive's home, and a home does not evict.
+func (s *Store) SetChronicleCap(bytes int64) {
+	if bytes < 0 {
+		bytes = 0
+	}
+	s.capMu.Lock()
+	s.chronicleCap = bytes
+	s.capMu.Unlock()
+	s.evictChronicleChunks()
+}
+
+func (s *Store) chronicleCapBytes() int64 {
+	s.capMu.RLock()
+	defer s.capMu.RUnlock()
+	return s.chronicleCap
+}
+
+// ChronicleManifestRow is one stored manifest. Raw is the exact signed bytes
+// that arrived — never a re-encoding of a decoded struct, because the signature
+// covers a canonical form that a round trip through Go's json package would not
+// necessarily reproduce, and because a field this build does not know about
+// still has to reach the build that does.
+type ChronicleManifestRow struct {
+	ChronicleID string
+	GuildID     string
+	Raw         []byte
+	Created     int64
+}
+
+// SaveChronicleManifest stores a manifest verbatim, keyed by its content
+// address, and reports whether a NEW row was written. Idempotent: the same
+// archive arriving from four members costs one row and three no-ops, and the
+// insert's own row count is what tells the caller which of the four it was —
+// cheaper and racier-proof than reading before writing.
+func (s *Store) SaveChronicleManifest(chronicleID, guildID string, raw []byte) (bool, error) {
+	res, err := s.db.Exec(
+		`INSERT INTO chronicle_manifests (chronicle_id, guild_id, raw, created)
+		 VALUES (?, ?, ?, ?)
+		 ON CONFLICT(chronicle_id) DO NOTHING`,
+		chronicleID, guildID, raw, time.Now().Unix(),
+	)
+	if err != nil {
+		return false, fmt.Errorf("store: save chronicle manifest: %w", err)
+	}
+	n, err := res.RowsAffected()
+	return err == nil && n > 0, nil
+}
+
+// ChronicleManifests returns a guild's manifests, newest first.
+func (s *Store) ChronicleManifests(guildID string) ([]ChronicleManifestRow, error) {
+	rows, err := s.db.Query(
+		`SELECT chronicle_id, guild_id, raw, created FROM chronicle_manifests
+		  WHERE guild_id = ? ORDER BY created DESC, chronicle_id ASC`, guildID)
+	if err != nil {
+		return nil, fmt.Errorf("store: chronicle manifests: %w", err)
+	}
+	defer rows.Close()
+	var out []ChronicleManifestRow
+	for rows.Next() {
+		var r ChronicleManifestRow
+		if err := rows.Scan(&r.ChronicleID, &r.GuildID, &r.Raw, &r.Created); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// SaveChronicleChunk stores one sealed chunk. pinned marks it exempt from the
+// cache ceiling; an already-pinned chunk stays pinned, so a peer fetching a
+// page of the archive it imported itself cannot demote its own copy.
+func (s *Store) SaveChronicleChunk(chunkID string, ct []byte, pinned bool) error {
+	now := time.Now().UnixNano()
+	p := 0
+	if pinned {
+		p = 1
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO chronicle_chunks (chunk_id, ct, size, created, last_used, pinned)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(chunk_id) DO UPDATE SET
+		   last_used = excluded.last_used,
+		   pinned = MAX(chronicle_chunks.pinned, excluded.pinned)`,
+		chunkID, ct, len(ct), now, now, p,
+	)
+	if err != nil {
+		return fmt.Errorf("store: save chronicle chunk: %w", err)
+	}
+	s.evictChronicleChunks()
+	return nil
+}
+
+// ChronicleChunk loads a chunk's ciphertext, bumping its recency.
+func (s *Store) ChronicleChunk(chunkID string) ([]byte, bool, error) {
+	var ct []byte
+	err := s.db.QueryRow(`SELECT ct FROM chronicle_chunks WHERE chunk_id = ?`, chunkID).Scan(&ct)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	_, _ = s.db.Exec(`UPDATE chronicle_chunks SET last_used = ? WHERE chunk_id = ?`, time.Now().UnixNano(), chunkID)
+	return ct, true, nil
+}
+
+// PinChronicleChunks pins or unpins a set of chunks in one transaction.
+func (s *Store) PinChronicleChunks(chunkIDs []string, pinned bool) error {
+	if len(chunkIDs) == 0 {
+		return nil
+	}
+	v := 0
+	if pinned {
+		v = 1
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: pin chronicle chunks: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, id := range chunkIDs {
+		if _, err := tx.Exec(`UPDATE chronicle_chunks SET pinned = ? WHERE chunk_id = ?`, v, id); err != nil {
+			return fmt.Errorf("store: pin chronicle chunks: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: pin chronicle chunks: %w", err)
+	}
+	if !pinned {
+		s.evictChronicleChunks()
+	}
+	return nil
+}
+
+// ChronicleChunkPresence reports which of the given chunks this device holds,
+// how many bytes they occupy and how many are pinned — the numbers behind "312
+// of 1,204 pages, 84 MB, kept on this device". It reads the index and the size
+// column only: asking the same question by loading each chunk would pull the
+// whole archive through memory to count it.
+func (s *Store) ChronicleChunkPresence(chunkIDs []string) (present map[string]bool, bytes int64, pinned int, err error) {
+	present = make(map[string]bool, len(chunkIDs))
+	// Batched rather than one giant IN clause: an archive may index thousands of
+	// chunks, and a parameter list that long is a portability question nobody
+	// should have to answer.
+	const batch = 400
+	for start := 0; start < len(chunkIDs); start += batch {
+		end := start + batch
+		if end > len(chunkIDs) {
+			end = len(chunkIDs)
+		}
+		ids := chunkIDs[start:end]
+		args := make([]any, len(ids))
+		for i, id := range ids {
+			args[i] = id
+		}
+		q := `SELECT chunk_id, size, pinned FROM chronicle_chunks WHERE chunk_id IN (?` +
+			strings.Repeat(",?", len(ids)-1) + `)`
+		rows, qerr := s.db.Query(q, args...)
+		if qerr != nil {
+			return nil, 0, 0, fmt.Errorf("store: chronicle chunk presence: %w", qerr)
+		}
+		for rows.Next() {
+			var id string
+			var size int64
+			var p int
+			if serr := rows.Scan(&id, &size, &p); serr != nil {
+				rows.Close()
+				return nil, 0, 0, serr
+			}
+			present[id] = true
+			bytes += size
+			pinned += p
+		}
+		rerr := rows.Err()
+		rows.Close()
+		if rerr != nil {
+			return nil, 0, 0, rerr
+		}
+	}
+	return present, bytes, pinned, nil
+}
+
+// evictChronicleChunks drops least-recently-used UNPINNED chunks while the
+// unpinned cache exceeds its ceiling. Pinned chunks are neither counted nor
+// candidates: they are the archive's home copy, and there is no re-fetch behind
+// them. Best-effort.
+func (s *Store) evictChronicleChunks() {
+	ceiling := s.chronicleCapBytes()
+	for i := 0; i < 4096; i++ {
+		var total sql.NullInt64
+		if err := s.db.QueryRow(
+			`SELECT SUM(size) FROM chronicle_chunks WHERE pinned = 0`).Scan(&total); err != nil || total.Int64 <= ceiling {
+			return
+		}
+		res, err := s.db.Exec(
+			`DELETE FROM chronicle_chunks WHERE chunk_id IN
+			   (SELECT chunk_id FROM chronicle_chunks WHERE pinned = 0 ORDER BY last_used ASC LIMIT 1)`,
+		)
+		if err != nil {
+			return
+		}
+		if n, err := res.RowsAffected(); err != nil || n == 0 {
 			return
 		}
 	}
