@@ -711,3 +711,50 @@ func TestImportedNamesAreBounded(t *testing.T) {
 		t.Fatalf("an archive of wide names did not build: %v", err)
 	}
 }
+
+// TestImportedReactionsNameTheEmojiThatExists checks the one place where a
+// reaction tally and the guild's emoji table have to agree.
+//
+// The export writes a custom emoji as its raw name ("Party-Parrot!"). The
+// import creates a guild emoji from the folded form ("party_parrot"), and
+// SanitizeContent already rewrites the same emoji inside a message body to
+// ":party_parrot:". A reaction that kept the raw spelling therefore named
+// something that does not exist in the destination guild, and rendered as a
+// literal shortcode in an archive nobody can edit afterwards.
+func TestImportedReactionsNameTheEmojiThatExists(t *testing.T) {
+	custom := chronimport.Emoji{ID: "1234", Name: "Party-Parrot!"}
+	if got := reactionLabel(custom); got != ":party_parrot:" {
+		t.Fatalf("custom reaction label = %q, want %q", got, ":party_parrot:")
+	}
+	// A name with nothing usable in it names no emoji at all, which is better
+	// than a pill reading "::".
+	if got := reactionLabel(chronimport.Emoji{ID: "9", Name: "!!!"}); got != "" {
+		t.Fatalf("unusable custom emoji label = %q, want it dropped", got)
+	}
+	// Unicode is untouched: it is the character itself, not a shortcode.
+	if got := reactionLabel(chronimport.Emoji{Code: "👍"}); got != "👍" {
+		t.Fatalf("unicode reaction label = %q, want the character", got)
+	}
+
+	// …and end to end, through a real import of the fixture, which carries
+	// exactly one custom reaction.
+	s := importTestService(t)
+	dir, _ := importFixture(t)
+	_, acc := runImportOffline(t, s, dir, chronimport.DefaultPolicy())
+	seen := map[string]bool{}
+	for _, msgs := range acc.byChannel {
+		for _, m := range msgs {
+			for label := range m.Reactions {
+				seen[label] = true
+			}
+		}
+	}
+	if !seen[":party_parrot:"] {
+		t.Fatalf("no reaction named the imported emoji; labels seen: %v", seen)
+	}
+	for label := range seen {
+		if strings.HasPrefix(label, ":") && strings.ToLower(label) != label {
+			t.Fatalf("a reaction label kept the export's spelling: %q", label)
+		}
+	}
+}

@@ -858,7 +858,7 @@ func importedReactions(rs []chronimport.Reaction) map[string]int {
 		if len(out) >= maxImportedReactionsPerMessage {
 			break
 		}
-		label := chronimport.SanitizeName(r.Emoji.Label())
+		label := reactionLabel(r.Emoji)
 		if label == "" || r.Count <= 0 {
 			continue
 		}
@@ -868,6 +868,30 @@ func importedReactions(rs []chronimport.Reaction) map[string]int {
 		return nil
 	}
 	return out
+}
+
+// reactionLabel is how one emoji is written into a chunk.
+//
+// A CUSTOM emoji has to go through the same name fold the emoji import itself
+// uses, because the two have to name the same thing. The export calls it
+// "Party-Parrot!"; importCustomEmoji creates a guild emoji called
+// "party_parrot" (that charset is all a guild emoji name may contain); and
+// SanitizeContent already rewrites "<:Party-Parrot:1234>" in a message BODY to
+// ":party_parrot:". Leaving the reaction tally spelling it ":Party-Parrot:"
+// meant the one place the picture was most likely to appear was the one place
+// it never resolved — the pill rendered as a literal shortcode, in an archive
+// nobody can edit, for as long as the archive exists.
+func reactionLabel(e chronimport.Emoji) string {
+	if !e.Custom() {
+		return chronimport.SanitizeName(e.Label())
+	}
+	name := chronimport.SanitizeEmojiName(e.Name)
+	if name == "" {
+		// Nothing usable survives the fold, so there is no emoji this could
+		// name. Dropping it beats a pill reading "::".
+		return ""
+	}
+	return ":" + name + ":"
 }
 
 // importedAvatar returns an author's portrait as a data URI, or "" — which is
