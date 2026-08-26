@@ -1,7 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import { api } from "./lib/api.js";
-  import { S, flash, humanError } from "./lib/state.svelte.js";
+  import { S, flash, humanError, setPref } from "./lib/state.svelte.js";
   import { linkCodeFrom } from "./lib/deeplink.js";
   import { confettiBurst } from "./lib/burst.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
@@ -157,6 +157,34 @@
   let copiedPhrase = $state(false);
   const backupWords = $derived(backupPhrase.trim().split(/\s+/).filter(Boolean));
 
+  // ---- the verify step ----
+  //
+  // "I've saved my recovery phrase" is a button, and a button is not evidence.
+  // Asking for two of the words back is: it cannot be answered by a person who
+  // clicked past the screen, and it takes about fifteen seconds for a person
+  // who actually wrote them down. Two positions, drawn once per phrase and kept
+  // stable so the question does not change under the answer.
+  //
+  // This is still not a wall — see askAgain: someone who cannot answer is shown
+  // the words again rather than locked out of their own new account. The point
+  // is to make writing them down the path of least resistance, and to KNOW
+  // whether it happened, which is what the nudge banner needs.
+  let verifying = $state(false);
+  let verifyErr = $state("");
+  let answerA = $state("");
+  let answerB = $state("");
+  const asks = $derived.by(() => {
+    const n = backupWords.length;
+    if (n < 4) return [];
+    // Deterministic in the phrase itself: re-rendering must not reshuffle the
+    // question, and two different positions are the whole point.
+    let a = 0;
+    for (const ch of backupPhrase) a = (a * 31 + ch.charCodeAt(0)) >>> 0;
+    const i = a % n;
+    const j = (i + 1 + ((a >>> 8) % (n - 1))) % n;
+    return [Math.min(i, j), Math.max(i, j)];
+  });
+
   function toggleReveal() {
     showPhrase = !showPhrase;
     if (showPhrase) revealedOnce = true;
@@ -166,8 +194,38 @@
     copiedPhrase = true;
     setTimeout(() => (copiedPhrase = false), 1600);
   }
-  function finishBackup() {
+  function startVerify() {
+    if (!asks.length) {
+      // Nothing to ask about (a phrase we could not split): don't invent a quiz.
+      finishBackup();
+      return;
+    }
+    verifying = true;
+    showPhrase = false; // otherwise it is a copying exercise, not a check
+    verifyErr = "";
+    answerA = "";
+    answerB = "";
+  }
+  function askAgain() {
+    verifying = false;
+    showPhrase = true;
+    verifyErr = "";
+  }
+  const norm = (s) => s.trim().toLowerCase();
+  function submitVerify(e) {
+    e?.preventDefault();
+    if (norm(answerA) === backupWords[asks[0]] && norm(answerB) === backupWords[asks[1]]) {
+      finishBackup();
+      return;
+    }
+    verifyErr = "That doesn't match. Check the numbers against what you wrote down.";
+  }
+  function finishBackup(verified = true) {
+    // Cleared only on a real answer. Skipping leaves it set, which is what
+    // keeps the banner coming back until the words exist somewhere.
+    setPref("backupPending", !verified);
     backupPhrase = "";
+    verifying = false;
     onLogin();
   }
 
@@ -240,6 +298,9 @@
         } catch {
           backupPhrase = "";
         }
+        // From here the phrase exists on exactly one device and nowhere else.
+        // The flag stays set until it has been verified or looked at again.
+        setPref("backupPending", true);
         if (backupPhrase) return;
       }
       // Offer biometric unlock after a successful password unlock on a device
@@ -289,6 +350,50 @@
       </p>
       <button type="button" onclick={confirmEnableBio}>Enable biometric unlock</button>
       <button type="button" class="link" onclick={skipEnableBio}>Not now</button>
+    {:else if backupPhrase && verifying}
+      <p class="muted">
+        Two of them, to be sure they made it off the screen. Count from the top of what you wrote
+        down.
+      </p>
+      <!-- A div, not a form: this whole card already sits inside the login
+           form, and a nested one would submit THAT — straight past the check
+           and into the app. Enter is wired to the two fields instead. -->
+      <div class="verify">
+        <label class="vfield">
+          <span class="vnum">Word {asks[0] + 1}</span>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input
+            bind:value={answerA}
+            aria-label="Word {asks[0] + 1} of your recovery phrase"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            autocomplete="off"
+            autofocus={!S.isMobile}
+            onkeydown={(e) => e.key === "Enter" && submitVerify(e)}
+          />
+        </label>
+        <label class="vfield">
+          <span class="vnum">Word {asks[1] + 1}</span>
+          <input
+            bind:value={answerB}
+            aria-label="Word {asks[1] + 1} of your recovery phrase"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            autocomplete="off"
+            onkeydown={(e) => e.key === "Enter" && submitVerify(e)}
+          />
+        </label>
+      </div>
+      <div class="error slot" role="alert">{verifyErr}</div>
+      <button type="button" disabled={!answerA.trim() || !answerB.trim()} onclick={submitVerify}>
+        Confirm
+      </button>
+      <!-- Never a lock-out: someone who cannot answer needs the words MORE, not
+           less, and refusing to let them into an account they just made would
+           be the app breaking its own promise about who holds the keys. -->
+      <button type="button" class="ghost-sm" onclick={askAgain}>Show me the words again</button>
     {:else if backupPhrase}
       <p class="muted">
         These 24 words are the <strong>only</strong> way to get your account back if you lose this
@@ -312,7 +417,7 @@
         Anyone with these words can become you — never share them. You can view them again later in
         Settings.
       </p>
-      <button type="button" disabled={!revealedOnce} onclick={finishBackup}>
+      <button type="button" disabled={!revealedOnce} onclick={startVerify}>
         I've saved my recovery phrase
       </button>
     {:else if confirmingReset}
@@ -365,7 +470,7 @@
           bind:value={linkCode}
         ></textarea>
       {/if}
-      <PassphraseField placeholder="Passphrase for this device" autocomplete="new-password" bind:value={passphrase} invalid={!!error} />
+      <PassphraseField placeholder="Passphrase for this device" autocomplete="new-password" meter bind:value={passphrase} invalid={!!error} />
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
       <div class="error slot" role="alert">{error}</div>
       {#if busy}
@@ -399,7 +504,7 @@
         spellcheck="false"
         bind:value={restorePhrase}
       ></textarea>
-      <PassphraseField placeholder="New passphrase" autocomplete="new-password" bind:value={passphrase} invalid={!!error} />
+      <PassphraseField placeholder="New passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={!!error} />
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
       <div class="error slot" role="alert">{error}</div>
       <button type="button" disabled={busy} onclick={doRestore}>
@@ -470,7 +575,7 @@
         bind:value={displayName}
         autofocus={!S.isMobile}
       />
-      <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" bind:value={passphrase} invalid={!!error} />
+      <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={!!error} />
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
       <div class="error slot" role="alert">{error}</div>
       <button type="submit" disabled={!displayName.trim() || !passphrase || !confirmPass || busy}>
@@ -759,6 +864,23 @@
     display: flex;
     gap: 8px;
     justify-content: center;
+  }
+  .verify {
+    display: flex;
+    gap: 10px;
+  }
+  .vfield {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    text-align: left;
+  }
+  .vnum {
+    font-size: var(--fs-tiny);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
   }
   .ghost-sm {
     background: transparent;

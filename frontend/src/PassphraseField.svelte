@@ -9,6 +9,7 @@
   // The toggle is a button, not a checkbox, so it never lands in the tab order
   // between the field and the submit button.
   import Icon from "./Icon.svelte";
+  import { strength } from "./lib/passphrase.js";
 
   let {
     value = $bindable(""),
@@ -20,7 +21,19 @@
     // tech as well as painted: a red sentence under the card said nothing at
     // all about WHICH field a screen-reader user had to go back to.
     invalid = false,
+    // Show the strength readout. Opt-in, and set only on the fields that CHOOSE
+    // a passphrase — never on an unlock (where it would be scoring a
+    // passphrase the person already has and cannot change from there) and never
+    // on a Confirm field (where it would score the same string twice).
+    //
+    // It gates nothing. There is deliberately no minimum length anywhere in
+    // this app: one imposed now could not be applied to the accounts that
+    // already exist, and refusing to open an account whose passphrase the owner
+    // chose last year is a worse outcome than a weak passphrase.
+    meter = false,
   } = $props();
+
+  const score = $derived(meter ? strength(value) : null);
 
   let shown = $state(false);
   let input = $state(null);
@@ -43,6 +56,7 @@
     bind:this={input}
     type={shown ? "text" : "password"}
     {placeholder}
+    aria-label={placeholder}
     {autofocus}
     {autocomplete}
     {onkeydown}
@@ -61,6 +75,14 @@
     <Icon name={shown ? "eyeOff" : "eye"} size={16} />
   </button>
 </div>
+{#if score?.label}
+  <div class="strength" data-level={score.level}>
+    <div class="bar" aria-hidden="true"><span style:width="{score.percent}%"></span></div>
+    <!-- Spoken as well as drawn, and politely: it changes on every keystroke,
+         so an assertive region would interrupt the typing it is describing. -->
+    <span class="slabel" role="status" aria-live="polite">{score.label}</span>
+  </div>
+{/if}
 
 <style>
   .wrap {
@@ -126,5 +148,54 @@
     .peek {
       transition: none;
     }
+    .strength .bar span {
+      transition: none;
+    }
+  }
+  /* ---- strength readout ----
+     A bar and a sentence. The sentence is the part that does the work: "Fair"
+     on its own is a grade, and a grade invites arguing with it, whereas
+     "fine unless someone is really trying" says what it actually means. */
+  .strength {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+  }
+  .bar {
+    flex: 1;
+    height: 4px;
+    min-width: 60px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    overflow: hidden;
+  }
+  .bar span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--danger);
+    transition:
+      width 0.18s ease,
+      background 0.18s ease;
+  }
+  .slabel {
+    font-size: var(--fs-tiny);
+    color: var(--text-muted);
+    text-align: right;
+  }
+  /* Tokens, so the six light packs get a readable bar without their own rules;
+     --warn is the same amber the mention accent uses, and --ok the same green
+     as every other "this is fine" in the app. */
+  .strength[data-level="2"] .bar span {
+    background: var(--warn);
+  }
+  .strength[data-level="3"] .bar span,
+  .strength[data-level="4"] .bar span {
+    background: var(--ok);
+  }
+  .strength[data-level="3"] .slabel,
+  .strength[data-level="4"] .slabel {
+    color: var(--ok-text);
   }
 </style>

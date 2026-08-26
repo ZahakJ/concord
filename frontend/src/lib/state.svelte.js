@@ -168,6 +168,15 @@ export const S = $state({
     // point of asking late is to ask once; Settings -> Notifications is where
     // someone who changes their mind turns it on.
     notifyAskDeclined: false,
+    // Set when an account is CREATED on this device and cleared the moment its
+    // recovery phrase has been verified — or simply looked at again in
+    // Settings. Its only job is to keep the nudge banner up until then: the
+    // hold-the-door step at signup can be walked past with a page reload, and
+    // an account whose only key exists on one device and nowhere else is one
+    // hard drive away from gone. Device-local on purpose; a device that was
+    // LINKED rather than created never sets it, because the phrase for that
+    // account is already written down somewhere else.
+    backupPending: false,
     hideCallIp: false, // on = always relay calls through the rendezvous (hide IP)
     theme: "dark",
     accent: "",

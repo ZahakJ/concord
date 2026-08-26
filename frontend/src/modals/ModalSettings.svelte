@@ -4,7 +4,7 @@
   import Avatar from "../Avatar.svelte";
   import { onMount, onDestroy } from "svelte";
   import { api } from "../lib/api.js";
-  import { S, flash, openPanel } from "../lib/state.svelte.js";
+  import { S, flash, openPanel, setPref } from "../lib/state.svelte.js";
   import { haptic } from "../lib/touch.js";
   import { selfUpdateAllowed } from "../lib/installsource.js";
 
@@ -23,6 +23,9 @@
         flash(err);
         return;
       }
+      // Coming here and reading them is the thing the nudge was asking for, so
+      // reaching this line is the answer — no second confirmation to click.
+      if (S.prefs.backupPending) setPref("backupPending", false);
     }
     phraseOpen = !phraseOpen;
   }
@@ -386,6 +389,12 @@
     gap: 7px;
     text-align: left;
     animation: grp-in 0.3s ease both;
+    /* The dialog is a flex column that scrolls. Without this these sections are
+       shrinkable, so on a short window the browser squeezes them instead of
+       scrolling — and .card clips its overflow, so what got squeezed out is
+       simply gone. The recovery phrase, eight rows tall and at the bottom of the
+       list, was the row that lost. */
+    flex: none;
   }
   /* Sections cascade in — a beat apart, settled fast. */
   .grp:nth-child(2) {

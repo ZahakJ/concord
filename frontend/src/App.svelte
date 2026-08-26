@@ -1164,6 +1164,12 @@
     flash("Copied to clipboard", "success");
   }
 
+  // "Later" on the recovery-phrase nudge. Session-only, deliberately: the
+  // sticky "don't ask again" that the notification bar gets would be the wrong
+  // shape here, because the thing being asked for has not been done and the
+  // consequence of never doing it is losing the account.
+  let backupNudgeHidden = $state(false);
+
   // Every fenced code block the markdown renderer emits carries a Copy button.
   // The blocks arrive as {@html}, in the feed, the archive, forum posts and the
   // preview pane alike, so no component owns them — one delegated listener at
@@ -1220,6 +1226,24 @@
       Enable
     </button>
     <button class="ub-close" onclick={() => dismissNotifyAsk(true)} aria-label="Not now">×</button>
+  </div>
+{/if}
+
+<!-- The signup screen holds the door and asks for the recovery phrase back, but
+     a page reload walks straight past it — and an account created on one device
+     with its phrase written down nowhere is one dead disk away from being gone
+     for good. There is no server holding a copy and no reset link, so nobody
+     else can put this right later. It keeps coming back until the words have
+     been verified, or simply looked at again in Settings; "Later" quiets it for
+     this session only, which is the whole point of it. -->
+{#if S.ready && S.prefs.backupPending && !backupNudgeHidden && !S.update && !S.notifyAsk && !ringingChannel && !S.offline}
+  <div class="update-banner backup-nudge">
+    <span class="ub-text">
+      <strong>Write down your recovery phrase.</strong> It is the only way back into this account, and
+      right now it exists on this device and nowhere else.
+    </span>
+    <button class="ub-dl" onclick={() => (S.modal = { kind: "settings" })}>Show me</button>
+    <button class="ub-close" onclick={() => (backupNudgeHidden = true)} aria-label="Later">×</button>
   </div>
 {/if}
 
@@ -2132,6 +2156,12 @@
     box-shadow: var(--shadow-pop);
     z-index: 205;
     font-size: 13px;
+  }
+  /* Amber rather than accent: this is the one banner that is a warning about
+     something the reader has to go and do, not an offer. Same colour the feed
+     uses for a mention, for the same reason — attention without alarm. */
+  .backup-nudge {
+    border-color: var(--warn);
   }
   .ub-text {
     overflow: hidden;
