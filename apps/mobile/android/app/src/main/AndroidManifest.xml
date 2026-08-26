@@ -94,6 +94,42 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Firebase auto-initialisation, switched off until Firebase is
+             actually configured.
+
+             @capacitor/push-notifications depends on firebase-messaging, and
+             firebase-common contributes FirebaseInitProvider: a ContentProvider
+             the system instantiates before Application.onCreate, whose only job
+             is to call FirebaseApp.initializeApp(). Its configuration comes
+             from resources the google-services Gradle plugin generates out of
+             google-services.json — and that file is deliberately absent from
+             this repository (docs/PUSH.md). So every launch of every build we
+             have ever shipped paid for a provider that loaded the Firebase
+             component runtime, found no google_app_id and gave up:
+
+               W FirebaseApp: Default FirebaseApp failed to initialize because
+                              no default options were found.
+               I FirebaseInitProvider: FirebaseApp initialization unsuccessful
+
+             android:enabled is a real component attribute, so a manifest
+             placeholder can drive it, and a disabled provider is never
+             instantiated. app/build.gradle sets firebaseAutoInit to "true" the
+             moment google-services.json is dropped in beside it and "false"
+             otherwise — the same condition that decides whether the
+             google-services plugin is applied at all. Nothing about the
+             documented drop-in changes: add the file, rebuild, and the provider
+             comes back enabled with the resources it was looking for.
+
+             Note this is the FirebaseApp init itself, not
+             firebase_messaging_auto_init_enabled. That meta-data only stops FCM
+             minting a registration token; the provider would still run and
+             still fail, because it fails before messaging is reached. -->
+        <provider
+            android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:authorities="${applicationId}.firebaseinitprovider"
+            android:enabled="${firebaseAutoInit}"
+            android:exported="false"
+            tools:replace="android:enabled" />
     </application>
 
     <!-- Permissions -->

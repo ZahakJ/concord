@@ -43,6 +43,37 @@ That check exists because getting it wrong is fatal rather than untidy:
 `PushNotifications.register()` reaches `FirebaseMessaging`, which throws on a
 handler thread where no JavaScript `try/catch` can reach it, and the app dies.
 
+### Firebase does not start until it is configured
+
+`firebase-messaging` arrives with `@capacitor/push-notifications` and brings
+`FirebaseInitProvider` with it: a `ContentProvider` the system instantiates
+before `Application.onCreate`, whose only job is to call
+`FirebaseApp.initializeApp()` from resources the google-services plugin
+generates. With no `google-services.json` those resources do not exist, so
+every launch of every build ran a provider that loaded the Firebase component
+runtime, found no `google_app_id`, and gave up:
+
+```
+W FirebaseApp: Default FirebaseApp failed to initialize because no default
+               options were found.
+I FirebaseInitProvider: FirebaseApp initialization unsuccessful
+```
+
+So the provider is now switched off until it has something to do.
+`app/build.gradle` sets a `firebaseAutoInit` manifest placeholder from the same
+condition that decides whether to apply the google-services plugin at all, and
+`AndroidManifest.xml` binds it to `android:enabled` on the provider. A disabled
+component is never instantiated.
+
+Nothing about the drop-in below changes. Put `google-services.json` in place and
+the placeholder flips to `true` on the next configure, the provider comes back
+enabled, and `FirebaseApp` initialises from the resources it was looking for.
+
+Note this is `FirebaseApp` initialisation itself, not the
+`firebase_messaging_auto_init_enabled` meta-data. That flag only stops FCM
+minting a registration token; the provider would still run and still fail,
+because it fails before messaging is reached.
+
 ## Client side: switching Android on
 
 1. **Create a Firebase project.** <https://console.firebase.google.com>. Any
@@ -65,7 +96,8 @@ handler thread where no JavaScript `try/catch` can reach it, and the app dies.
    ```
 
    Nothing else moves. `app/build.gradle` already applies the google-services
-   plugin when — and only when — that file is present.
+   plugin when — and only when — that file is present, and the same check
+   re-enables `FirebaseInitProvider` (see above).
 
 4. **Rebuild the app.**
 
@@ -165,6 +197,13 @@ It belongs in the same change as the first build that actually has
 **`pushAvailable()` says false after adding the file.** The Gradle plugin only
 runs on a clean configure. Rebuild via `make android-app`, and check the build
 log does not contain `google-services.json not found`.
+
+**Nothing Firebase appears in logcat at all after adding the file.** The
+`firebaseAutoInit` placeholder is read at configure time, so a build that was
+already configured without the file keeps the provider disabled. The merged
+manifest is the check: `android:enabled="false"` on `FirebaseInitProvider` in
+`app/build/intermediates/merged_manifest/…/AndroidManifest.xml` means the
+configure did not see the file.
 
 **Registered, but no wakes arrive.** Confirm the *node* has credentials: its
 startup line is the fastest check. A client will register a token happily

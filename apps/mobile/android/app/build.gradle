@@ -22,6 +22,14 @@ android {
         if (project.hasProperty("concordAbi")) {
             ndk { abiFilters project.concordAbi.split(",") }
         }
+        // Drives android:enabled on FirebaseInitProvider (see AndroidManifest.xml).
+        // Same condition as the google-services block at the bottom of this file:
+        // with no google-services.json there is nothing for FirebaseApp to
+        // initialise from, so the provider is disabled rather than left to run
+        // and fail on every cold start. Dropping the file in flips both.
+        manifestPlaceholders = [
+            firebaseAutoInit: file('google-services.json').exists() ? "true" : "false"
+        ]
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
