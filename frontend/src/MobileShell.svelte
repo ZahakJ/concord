@@ -20,6 +20,7 @@
     clearFeed,
     accentForeground,
   } from "./lib/state.svelte.js";
+  import { untrack } from "svelte";
   import { guildAccent } from "./lib/guildaccent.js";
   import { api } from "./lib/api.js";
   import { haptic } from "./lib/touch.js";
@@ -93,6 +94,19 @@
   let dragging = $state(false); // a claimed horizontal drag is in progress
   let vw = $state(window.innerWidth);
 
+  // moving stays true for the whole of a drawer's travel — the tracked drag AND
+  // the 0.22s settle that follows it, AND a plain tap-to-open with no drag at
+  // all. It is what puts `will-change` on the two panels: the layer has to exist
+  // before the movement starts and has to survive the release, or the settle
+  // repaints every frame with nothing left to say so.
+  let moving = $state(false);
+  let moveTimer;
+  function holdLayer(ms = 320) {
+    moving = true;
+    clearTimeout(moveTimer);
+    moveTimer = setTimeout(() => (moving = false), ms);
+  }
+
   const leftW = $derived(Math.min(vw * 0.86, 340));
   const rightW = $derived(Math.min(vw * 0.82, 300));
   const scrimO = $derived(Math.max(leftFrac, rightFrac));
@@ -101,11 +115,17 @@
   // fractions — but never mid-drag, where the finger owns them.
   $effect(() => {
     const open = S.drawerOpen;
-    if (!dragging) leftFrac = open ? 1 : 0;
+    if (!dragging && leftFrac !== (open ? 1 : 0)) {
+      leftFrac = open ? 1 : 0;
+      untrack(holdLayer);
+    }
   });
   $effect(() => {
     const open = S.membersOpen;
-    if (!dragging) rightFrac = open ? 1 : 0;
+    if (!dragging && rightFrac !== (open ? 1 : 0)) {
+      rightFrac = open ? 1 : 0;
+      untrack(holdLayer);
+    }
   });
 
   // Selecting a channel from the drawer should reveal the chat — close the
@@ -318,6 +338,8 @@
       drag.claimed = true;
       drag.startFrac = drag.target === "left" ? leftFrac : rightFrac;
       dragging = true;
+      moving = true;
+      clearTimeout(moveTimer);
     }
     const now = performance.now();
     if (now > drag.prevT) {
@@ -357,6 +379,7 @@
       const vel = target === "left" ? drag.vel : -drag.vel;
       const open = Math.abs(vel) > 0.35 ? vel > 0 : frac > 0.5;
       dragging = false;
+      holdLayer();
       // Deliberately NO haptic on the drawer snap. Opening and closing the
       // drawer is the single most frequent gesture in the app and it is already
       // fully visible — the drawer is tracking your finger. A buzz on something
@@ -542,11 +565,20 @@
     {/if}
   </main>
 
-  <!-- Scrim: opacity tracks how far a drawer is pulled in. -->
+  <!-- Scrim: opacity tracks how far a drawer is pulled in.
+       `style:` rather than a style="" template, and pointer-events moved to a
+       class: a template style attribute is written back WHOLE on every change,
+       and replacing an element's entire inline declaration invalidates it and
+       everything under it — sixty times a second, for the two biggest subtrees
+       on the screen. A style: directive writes the one property through the
+       CSSOM instead, and opacity is not inherited, so nothing below it is
+       touched. -->
   <button
     class="scrim"
     class:drag={dragging}
-    style="opacity:{scrimO}; pointer-events:{scrimO > 0 ? 'auto' : 'none'}"
+    class:moving
+    class:lit={scrimO > 0}
+    style:opacity={scrimO}
     aria-label="Close menu"
     tabindex={scrimO > 0 ? 0 : -1}
     onclick={closeDrawers}
@@ -561,10 +593,12 @@
   <aside
     class="drawer left"
     class:drag={dragging}
+    class:moving
     class:hidden={leftFrac === 0 && !dragging}
-    style="width:{leftW}px; transform:{leftFrac === 1 && !dragging
-      ? 'none'
-      : `translateX(${(leftFrac - 1) * leftW}px)`}"
+    style:width="{leftW}px"
+    style:transform={leftFrac === 1 && !dragging
+      ? "none"
+      : `translateX(${(leftFrac - 1) * leftW}px)`}
     role="dialog"
     aria-label="Navigation"
     aria-hidden={leftFrac === 0}
@@ -586,10 +620,12 @@
     <aside
       class="drawer right"
       class:drag={dragging}
+      class:moving
       class:hidden={rightFrac === 0 && !dragging}
-      style="width:{rightW}px; transform:{rightFrac === 1 && !dragging
-        ? 'none'
-        : `translateX(${(1 - rightFrac) * rightW}px)`}"
+      style:width="{rightW}px"
+      style:transform={rightFrac === 1 && !dragging
+        ? "none"
+        : `translateX(${(1 - rightFrac) * rightW}px)`}
       role="dialog"
       aria-label="Members"
       aria-hidden={rightFrac === 0}
@@ -810,6 +846,14 @@
     z-index: 60;
     border: none;
     transition: opacity 0.22s ease;
+    /* Fully transparent and out of the way unless a drawer is showing. This is
+       a class rather than an inline pointer-events value because it changes
+       exactly twice per gesture, while opacity changes every frame — keeping
+       them apart is what lets the per-frame write be opacity alone. */
+    pointer-events: none;
+  }
+  .scrim.lit {
+    pointer-events: auto;
   }
   .drawer {
     position: fixed;
@@ -839,6 +883,19 @@
   .drawer.drag,
   .scrim.drag {
     transition: none;
+  }
+  /* Promote both to their own compositor layer for the duration of the drag —
+     and only for that duration. An untransformed drawer moving under a finger
+     is repainted at its new position on every frame (a hundred-odd paints per
+     traversal, all of them of a full-height panel); on its own layer the same
+     movement is the compositor re-placing a texture. will-change is left OFF at
+     rest deliberately: a permanent layer costs its texture in video memory on
+     every phone, awake or not, and there are two of these. */
+  .drawer.moving {
+    will-change: transform;
+  }
+  .scrim.moving {
+    will-change: opacity;
   }
   /* The drawers are position:fixed, so the shell's own insets don't reach them:
      they pad themselves. Without the bottom one the settings gear and profile
