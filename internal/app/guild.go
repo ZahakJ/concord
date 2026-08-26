@@ -912,48 +912,14 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 		return json.Marshal(inviteResponse{Error: "you are banned from this guild"})
 	}
 
-	// Serialize the add + epoch-advancing publish: concurrent joins (a group DM
-	// invites several people at once) must not commit at the same epoch.
-	s.inviteMu.Lock()
-	defer s.inviteMu.Unlock()
-
-	commit, welcome, err := s.mls.Invite(ctx, g.GroupID, req.KeyPackage)
-	if err != nil {
-		// Most common cause: this is a RETRY where the joiner is already in the
-		// group (a previous attempt added them but they never finished joining,
-		// e.g. the response was lost). Remove the stale entry and re-invite so
-		// they get a fresh Welcome at the current epoch.
-		if len(req.Credential) > 0 {
-			if rmCommit, rmErr := s.mls.Remove(ctx, g.GroupID, req.Credential); rmErr == nil {
-				s.logCommit(g.GroupID, rmCommit)
-				_ = s.ps.Publish(ctx, domain.ControlTopicID(g.GroupID), rmCommit)
-				commit, welcome, err = s.mls.Invite(ctx, g.GroupID, req.KeyPackage)
-			}
-		}
-		if err != nil {
-			return json.Marshal(inviteResponse{Error: "invite failed"})
-		}
+	// Queue behind whatever admission is in flight and ride its successor's
+	// commit. One joiner at an idle guild is committed immediately; a wave
+	// commits together (see admission.go, which also owns the stale-leaf retry
+	// this used to do inline).
+	welcome, refusal := s.admit(g, req, from)
+	if refusal != "" {
+		return json.Marshal(inviteResponse{Error: refusal})
 	}
-	s.logCommit(g.GroupID, commit)
-	// Advance existing members (if any) to the new epoch.
-	if err := s.ps.Publish(ctx, domain.ControlTopicID(g.GroupID), commit); err != nil {
-		return nil, err
-	}
-	// Learn the joiner's display name over this reliable stream (their gossip
-	// announce may be lost while their mesh warms up), and hand back the member
-	// roster so they show real names immediately.
-	if len(req.Credential) > 0 {
-		s.learnProfile(accountFingerprintOf(req.Credential), req.Profile)
-	}
-	// Keep this member reachable (esp. over a relay) and refresh the roster.
-	s.host.Protect(from)
-	// The commit above is what made the joiner a member, so this is the first
-	// moment they are worth caching. See rememberMembers.
-	s.rememberMembers()
-	if len(req.Credential) > 0 {
-		s.clearPendingDMInvite(req.GuildID, accountFingerprintOf(req.Credential))
-	}
-	s.emitGuildUpdate()
 	return json.Marshal(inviteResponse{Welcome: welcome, Guild: *g, Profiles: s.profileRoster()})
 }
 

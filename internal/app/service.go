@@ -59,6 +59,15 @@ type Service struct {
 	// commits at the same epoch. Serializing keeps each add on its own epoch.
 	inviteMu sync.Mutex
 
+	// admitting holds the open admission batch per guild — the joiners that
+	// will share the next commit — and admitCommitting counts the batches
+	// currently inside inviteMu, which is how a new batch's leader knows a wave
+	// is already under way. Both guarded by admitMu, which is taken INSIDE
+	// inviteMu and never the other way round. See admission.go.
+	admitMu         sync.Mutex
+	admitting       map[string]*admissionBatch
+	admitCommitting int
+
 	// pendingDMInvites tracks DM invitees (1:1 and group) who haven't joined
 	// yet (guild ID -> set of fingerprints). When such a peer later connects we
 	// push them the invite, and the heal loop re-pushes periodically, so a DM
@@ -1005,6 +1014,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		govState:         map[string]GuildState{},
 		slowSeen:         map[string]int64{},
 		govHashes:        map[string]map[string]bool{},
+		admitting:        map[string]*admissionBatch{},
 		meetingLife:      map[string]time.Time{},
 		outOfSync:        map[string]bool{},
 		forkedPeers:      map[string]map[peer.ID]bool{},
