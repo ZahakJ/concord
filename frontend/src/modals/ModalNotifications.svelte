@@ -5,6 +5,7 @@
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
   import { S, setPref, flash, patchProfile } from "../lib/state.svelte.js";
+  import { asksLazily, notificationStatus, requestPermission, openSystemSettings } from "../lib/notify.js";
   import {
     soundsEnabled,
     setSoundsEnabled,
@@ -40,6 +41,57 @@
     ringtone = id;
     setRingtone(id);
     previewRingtone(id); // audition the choice immediately
+  }
+
+  // The OS grant. Concord no longer asks for it at login on a phone (see
+  // asksLazily in lib/notify.js), so this row is the deliberate route: the only
+  // place someone who never saw the rationale bar, or who dismissed it, can
+  // still turn tray notifications on. Without it the deferral would be a
+  // one-way door.
+  //
+  // Three states, because Android has three: granted; not yet asked (we can
+  // still open the dialog); and hard-denied, where the dialog will never appear
+  // again and system Settings is the only way back.
+  let osNotif = $state({ enabled: false, canRequest: false });
+  let osKnown = $state(false);
+  async function refreshOsNotif() {
+    try {
+      osNotif = await notificationStatus();
+    } catch {
+      osNotif = { enabled: false, canRequest: false };
+    }
+    osKnown = true;
+  }
+  refreshOsNotif();
+
+  // Coming back into view is the other signal something may have changed — the
+  // system settings route leaves the app entirely and cannot call back.
+  $effect(() => {
+    const onVisible = () => {
+      if (!document.hidden) refreshOsNotif();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  });
+
+  async function fixOsNotif() {
+    if (osNotif.enabled) {
+      // Already on — Settings is where it gets turned off, not here.
+      await openSystemSettings();
+      return;
+    }
+    if (osNotif.canRequest) {
+      osNotif = await requestPermission(); // resolves once the dialog is answered
+      osKnown = true;
+      return;
+    }
+    if (!(await openSystemSettings())) {
+      flash("Open your system settings to allow Concord notifications.");
+    }
   }
 
   // "Stay connected" defaults on; toggling flips the pref and the Android
@@ -87,6 +139,22 @@
       </select>
     </SettingRow>
   </SettingGroup>
+
+  {#if asksLazily() && osKnown}
+    <SettingGroup label="System">
+      <SettingRow
+        icon="bell"
+        title="Show notifications"
+        sub={osNotif.enabled
+          ? "On — messages appear in your notification tray"
+          : osNotif.canRequest
+            ? "Off — tap to allow Concord to notify you"
+            : "Blocked — tap to change it in system settings"}
+        info="This is your device's own permission, not a Concord setting. Concord asks for it the first time you miss a message rather than at startup, because your phone only offers the choice twice before deciding for you."
+        onclick={fixOsNotif}
+      />
+    </SettingGroup>
+  {/if}
 
   {#if S.isMobile}
     <SettingGroup label="Background">

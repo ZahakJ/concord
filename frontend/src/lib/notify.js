@@ -20,21 +20,64 @@ function nativeNotifier() {
   return cap.Plugins?.ConcordCore || null;
 }
 
+// asksLazily reports whether this platform must EARN the permission dialog
+// rather than simply opening it.
+//
+// Android 13 gives an app two chances. Two dismissals and POST_NOTIFICATIONS is
+// hard-denied forever, with no route back except the user finding this app in
+// system Settings — which nobody does, because nobody knows anything is wrong.
+// So on a phone the dialog is a resource with exactly two uses, and spending
+// one on a person who has been in the app for four seconds and has never
+// received a message is spending it on a reflex "no".
+//
+// Desktop and the browser have no such trap: a dismissed prompt there can be
+// re-opened from the site controls, and the request has always been made at
+// login. Nothing changes for them.
+export function asksLazily() {
+  return !!nativeNotifier();
+}
+
+// wantsPermissionPrompt: is there a grant to be had, and would asking now be
+// the first time? Used to decide whether to show the in-app rationale — never
+// to decide whether to notify.
+export async function wantsPermissionPrompt() {
+  if (!asksLazily()) return false;
+  const { enabled, canRequest } = await notificationStatus();
+  return !enabled && canRequest;
+}
+
 // requestPermission asks for the OS notification grant. On Android this used to
 // happen in MainActivity.onCreate — a system dialog on top of the splash, before
-// the user had seen what Concord is. Android 13+ hard-denies after two
-// dismissals with no way back except system Settings, so that reflex "no" cost
-// people every future message alert, silently. It is called from start(), i.e.
-// once there is an account and a reason.
-export function requestPermission() {
+// the user had seen what Concord is; then from start(), which is barely later.
+// Both spent one of the two chances above on a moment where the app has nothing
+// to point at. It is now called only from a place where the user has just been
+// told what the permission is for: the rationale bar's Enable button, or the
+// notification settings panel they opened themselves.
+//
+// Resolves with the status AFTER the user has answered, which on Android means
+// after the system dialog closes — the native plugin holds the call open across
+// the permission callback. Callers that show the answer must await it: the
+// alternative is a timer racing a human reading a dialog, and the human wins
+// often enough that the settings row sat there saying "Off" over a permission
+// that had just been granted.
+export async function requestPermission() {
   const native = nativeNotifier();
   if (native?.requestNotifications) {
-    native.requestNotifications().catch(() => {});
-    return;
+    try {
+      const r = await native.requestNotifications();
+      return { enabled: !!r?.enabled, canRequest: !!r?.canRequest };
+    } catch {
+      return notificationStatus();
+    }
   }
   if (typeof Notification !== "undefined" && Notification.permission === "default") {
-    Notification.requestPermission().catch(() => {});
+    try {
+      await Notification.requestPermission();
+    } catch {
+      /* a browser that refuses to be asked */
+    }
   }
+  return notificationStatus();
 }
 
 // notificationStatus reports what the OS currently allows, so settings can say

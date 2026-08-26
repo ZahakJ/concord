@@ -6,7 +6,7 @@
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
   import { createVisibilityReporter } from "./lib/visibility.js";
   import { VoiceMesh } from "./lib/voice.js";
-  import { requestPermission } from "./lib/notify.js";
+  import { requestPermission, asksLazily } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
   import { playVoiceJoin, playVoiceLeave, playRing } from "./lib/sounds.js";
   import {
@@ -37,6 +37,7 @@
     clearCallState,
     publishVoiceState,
     setPref,
+    dismissNotifyAsk,
   } from "./lib/state.svelte.js";
 
   import { guildAccent } from "./lib/guildaccent.js";
@@ -399,7 +400,11 @@
   async function start(fromLogin = false) {
     if (fromLogin) playFlyIn();
     await onLogin();
-    requestPermission();
+    // Desktop and the browser ask now, as they always have — a dismissed
+    // prompt is recoverable there. A phone does not: see asksLazily() in
+    // lib/notify.js. On mobile the ask waits for a message the user missed,
+    // which offerNotifications() turns into the rationale bar below.
+    if (!asksLazily()) requestPermission();
     installShortcuts();
     startScheduler();
     startEventRadar(); // live-meeting + new-event radar (lib/radar.svelte.js)
@@ -1085,6 +1090,29 @@
     flash("Copied to clipboard", "success");
   }
 </script>
+
+<!-- Notification rationale. Raised by offerNotifications() the first time a
+     message arrives that the OS grant would have surfaced, so the sentence can
+     point at something that just happened rather than at a hypothetical. The
+     Enable button is what opens the system dialog — on Android there are only
+     ever two of those, and this is how one gets spent on somebody who wants it. -->
+{#if S.notifyAsk && !S.update && !ringingChannel}
+  <div class="update-banner notif-ask">
+    <span class="ub-text">
+      <strong>You just missed a message.</strong> Turn on notifications and Concord can tell you next time.
+    </span>
+    <button
+      class="ub-dl"
+      onclick={() => {
+        requestPermission();
+        dismissNotifyAsk(true);
+      }}
+    >
+      Enable
+    </button>
+    <button class="ub-close" onclick={() => dismissNotifyAsk(true)} aria-label="Not now">×</button>
+  </div>
+{/if}
 
 {#if S.update && !ringingChannel}
   <div class="update-banner">

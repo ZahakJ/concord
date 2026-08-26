@@ -2,7 +2,7 @@
 // that mutate it. Components import { S, ... } and read/mutate S's properties;
 // api.js stays the only transport layer underneath.
 import { api, on } from "./api.js";
-import { notify } from "./notify.js";
+import { notify, wantsPermissionPrompt } from "./notify.js";
 import { containsMention } from "./markdown.js";
 import { playVoiceJoin, playVoiceLeave, playMention, playDM, playSfx } from "./sounds.js";
 
@@ -33,6 +33,10 @@ export const S = $state({
   roles: [], // active guild's roles (highest position first)
   contacts: [],
   blocked: [], // account fingerprints you've blocked
+  // Set when a message has arrived that the user would have been told about if
+  // the OS grant existed. Drives the one-line rationale bar in App.svelte; see
+  // offerNotifications below for why it is not simply an OS prompt.
+  notifyAsk: false,
   // Message IDs this device has been asked to stop drawing (Report -> Hide).
   // Device-local and reversible: the rows stay in the store and in every other
   // copy of the guild, exactly as with a block. Loaded below from localStorage.
@@ -119,6 +123,10 @@ export const S = $state({
     // were designed to stand on their own, so off costs nothing but the art.
     gameCovers: false,
     showDeleted: false, // off = deleted messages vanish; on = leave a faint marker
+    // "Not now" on the notification rationale bar. Sticky, because the whole
+    // point of asking late is to ask once; Settings -> Notifications is where
+    // someone who changes their mind turns it on.
+    notifyAskDeclined: false,
     hideCallIp: false, // on = always relay calls through the rendezvous (hide IP)
     theme: "dark",
     accent: "",
@@ -1457,6 +1465,34 @@ export async function refreshNetStatus() {
   }
 }
 
+// ---- notification permission, asked late ----
+
+// offerNotifications raises the in-app rationale bar the first time a message
+// arrives that the user would have been notified about, had the OS grant
+// existed. It does NOT open the system dialog — that is what the bar's Enable
+// button does, so the system dialog only ever appears with the user's finger
+// already moving towards "allow".
+//
+// Once per session at most, and never again after "Not now": a bar that comes
+// back on every message is the same nagging as the cold prompt, just slower.
+// The declined pref is device-local, and Settings -> Notifications still offers
+// the switch, so saying no here is not a dead end.
+let notifyAsked = false;
+export async function offerNotifications() {
+  if (notifyAsked || S.notifyAsk || S.prefs.notifyAskDeclined) return;
+  notifyAsked = true;
+  try {
+    if (await wantsPermissionPrompt()) S.notifyAsk = true;
+  } catch {
+    /* no notification support here at all — nothing to offer */
+  }
+}
+
+export function dismissNotifyAsk(remember) {
+  S.notifyAsk = false;
+  if (remember) setPref("notifyAskDeclined", true);
+}
+
 // ---- per-message hiding ----
 
 // Hiding one message, as opposed to blocking its author. The case is a single
@@ -2071,6 +2107,10 @@ function initEvents() {
         mention: isMention,
         onClick: () => jumpToChannel(m.channelId),
       });
+      // ...and if that notification went nowhere because the OS grant was never
+      // asked for, this is the moment to ask — a message the user wanted and
+      // did not get is the only honest argument for the permission.
+      offerNotifications();
     }
   });
 
