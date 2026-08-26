@@ -72,6 +72,12 @@ export const S = $state({
   isMobile: detectMobile(),
   drawerOpen: false,
   membersOpen: false,
+  // narrow: still the desktop grid, but the chat column has been squeezed by
+  // the two side panels until its own toolbars no longer fit. Between the
+  // mobile breakpoint and this one the chat column is only ~350–550px wide,
+  // which is where the composer's icon row and the header's action row have to
+  // fold away instead of eating the content they sit beside.
+  narrow: detectNarrow(),
 
   // Connectivity for the connection pill: { peers, bootstrapReached,
   // hasBootstrap, outOfSyncGuilds }, refreshed on presence events + a slow poll.
@@ -374,10 +380,21 @@ function detectMobile() {
   return !!(coarse || narrow);
 }
 
+// detectNarrow reports the squeezed-desktop band. The number is measured, not
+// picked: with both side columns at their defaults the chat column only clears
+// ~600px — enough for the composer's nine icons and the header's seven controls
+// — once the window passes 1150px.
+function detectNarrow() {
+  if (typeof window === "undefined") return false;
+  return !!window.matchMedia?.("(max-width: 1150px)")?.matches;
+}
+
 if (typeof window !== "undefined") {
   const sync = () => {
     const now = detectMobile();
     if (now !== S.isMobile) S.isMobile = now;
+    const tight = detectNarrow();
+    if (tight !== S.narrow) S.narrow = tight;
   };
   window.addEventListener("resize", sync);
   window.matchMedia?.("(orientation: portrait)")?.addEventListener?.("change", sync);

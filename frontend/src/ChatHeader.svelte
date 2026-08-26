@@ -41,9 +41,23 @@
   );
   const peerSharing = $derived(peerInCall && (voiceMembersFor(ch.id) || []).some((m) => !m.self && m.sharing));
   const pinnedCount = $derived(S.messages.filter((m) => m.pinned && !m.deleted).length);
+  // Squeezed column (see S.narrow): the action row is 566px of nowrap buttons
+  // that never shrank, so below ~1150px it simply pushed the channel name to
+  // zero width and then overflowed the column anyway. The two occasional
+  // actions — disappearing messages, events — move into the menu that is
+  // already here, and the button labels shrink to their glyphs.
+  const tight = $derived(!S.isMobile && S.narrow);
 
   async function showInvite() {
     S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) };
+  }
+
+  function downloadText(filename, text) {
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
   }
 
   function confirmLeave() {
@@ -82,14 +96,6 @@
     }
   }
 
-  function downloadText(filename, text) {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
 </script>
 
 <header class="chat-head">
@@ -122,7 +128,11 @@
     {/if}
   </div>
   <div class="row">
-    <form class="search-wrap" onsubmit={runSearch}>
+    <form
+      class="search-wrap"
+      class:open={!!S.searchQuery || S.searchResults !== null}
+      onsubmit={runSearch}
+    >
       <input
         class="search-box"
         class:busy={S.searchLoading || S.searchQuery || S.searchResults !== null}
@@ -150,6 +160,10 @@
           <Icon name="close" size={11} />
         </button>
       {/if}
+      <!-- Only ever seen in the squeezed band, where the field itself is a
+           32px stub: without it the stub is a small empty box that says
+           nothing about what it does. -->
+      <span class="search-glyph" aria-hidden="true"><Icon name="search" size={14} /></span>
     </form>
 
     {#if S.voice && S.voice.channelId === S.activeChannelId && (g?.kind === "dm" || g?.kind === "meeting")}
@@ -204,11 +218,11 @@
         aria-label="Pinned messages"
         onclick={() => (S.showPins = !S.showPins)}
       >
-        <Icon name="pin" />{#if pinnedCount}<span class="n">{pinnedCount}</span>{/if}
+        <Icon name="pin" />{#if pinnedCount}<span class="n count">{pinnedCount}</span>{/if}
       </button>
     {/if}
 
-    {#if ch}
+    {#if ch && !tight}
       <button
         class="ghost iconbtn"
         class:pin-active={ephTTL > 0}
@@ -220,7 +234,7 @@
       </button>
     {/if}
 
-    {#if g}
+    {#if g && !tight}
       <!-- The calendar — the thing that replaces "so when are we on?"
            scroll-back. Every room gets one: a guild's is the crew's shared
            board, a DM's is "when are we hopping on?" between its people, and
@@ -250,12 +264,34 @@
       </button>
     {/if}
 
-    {#if g?.canManage && g?.kind !== "dm"}
+    {#if g?.canManage && g?.kind !== "dm" && !tight}
       <button class="ghost invite" onclick={showInvite}>Invite</button>
     {/if}
 
     {#if g}
       <Menu label="More" icon="chevron">
+        {#if tight && ch}
+          <button
+            class="menu-item"
+            onclick={() => (S.modal = { kind: "disappear", channelId: S.activeChannelId })}
+          >
+            <Icon name="clock" size={14} />
+            {ephTTL > 0 ? `Disappearing after ${ttlLabel(ephTTL)}` : "Disappearing messages"}
+          </button>
+        {/if}
+        {#if tight}
+          <button class="menu-item" onclick={() => (S.modal = { kind: "events" })}>
+            <Icon name="calendar" size={14} /> {g.dmNotes ? "Private events" : "Events"}
+          </button>
+        {/if}
+        {#if tight && g.canManage && g.kind !== "dm"}
+          <button class="menu-item" onclick={showInvite}>
+            <Icon name="plus" size={14} /> Invite people
+          </button>
+        {/if}
+        {#if tight}
+          <div class="menu-sep"></div>
+        {/if}
         {#if ch}
           <button class="menu-item" onclick={exportChannel}>
             <Icon name="download" size={14} /> Export history
@@ -323,10 +359,30 @@
     background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
     pointer-events: none;
   }
+  /* Where you ARE outranks everything you can do here. The title used to be a
+     plain flex item next to an action row of nowrap buttons: flex handed the
+     whole width to the side that refused to shrink, so between 769 and 1200px
+     the channel name measured exactly 0px and only its `#` survived. It now
+     takes the slack and keeps a floor; the search box is the piece that gives.
+     8ch is a name you can still recognise, not a name you can read. */
   .title {
     gap: 6px;
     color: var(--text-muted);
-    min-width: 0;
+    flex: 1 1 auto;
+    min-width: 8ch;
+  }
+  /* The action row gives up its own slack — the search box has min-width:0 and
+     collapses first — but never goes below what its buttons actually measure.
+     With a plain `min-width: 0` flex was happy to hand it a box narrower than
+     its contents, and since none of the buttons wrap, the last two simply
+     spilled past the column's edge and were clipped: at 800px the Invite
+     button and the overflow menu were on screen but unreachable. */
+  .chat-head > .row:last-child {
+    flex: 0 1 auto;
+    min-width: min-content;
+  }
+  .search-wrap {
+    flex: 0 1 auto;
   }
   /* The channel-type glyph carries the accent — a small "you are here" tint. */
   .title :global(svg) {
@@ -358,6 +414,7 @@
     position: relative;
     display: inline-flex;
     align-items: center;
+    min-width: 0;
   }
   .search-box {
     /* Fluid: shrinks with the window so it never overlaps the channel name,
@@ -380,6 +437,50 @@
   /* Leave room for the clear button / spinner once there's something to show. */
   .search-box.busy {
     padding-right: 26px;
+  }
+  .search-glyph {
+    display: none;
+  }
+  /* Below 1000px there is no width left to share: giving the channel name its
+     8ch floor squeezed this field to literally zero, which is worse than not
+     drawing it. So it becomes a 32px stub with a magnifier in it and floats
+     back out over the button row the moment it has focus or a query — the
+     buttons it covers are all still one Escape away. */
+  @media (max-width: 1000px) {
+    .search-wrap {
+      flex: 0 0 auto;
+      width: 32px;
+    }
+    .search-box,
+    .search-box:focus {
+      width: 100%;
+      min-width: 0;
+      padding: 5px 6px;
+    }
+    .search-box.busy {
+      padding-right: 26px;
+    }
+    .search-wrap:focus-within,
+    .search-wrap.open {
+      position: absolute;
+      right: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: min(320px, calc(100% - 48px));
+      z-index: 3;
+    }
+    .search-glyph {
+      display: grid;
+      place-items: center;
+      position: absolute;
+      inset: 0;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+    .search-wrap:focus-within .search-glyph,
+    .search-wrap.open .search-glyph {
+      display: none;
+    }
   }
   .search-clear {
     position: absolute;
@@ -430,6 +531,14 @@
   }
   .n {
     font-size: var(--fs-compact);
+  }
+  /* Squeezed column: the words come off the call buttons and the glyph plus its
+     tooltip carries them instead. The pin COUNT stays — that is data, not a
+     label, and there is no other place it appears. */
+  @media (max-width: 1150px) {
+    .n:not(.count) {
+      display: none;
+    }
   }
   .pin-active {
     color: var(--accent-hover);

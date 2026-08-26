@@ -11,7 +11,10 @@
   import BottomSheet from "./BottomSheet.svelte";
   import { S } from "./lib/state.svelte.js";
 
-  let { label = "More", icon = "chevron", align = "right", compact = false, children } = $props();
+  // `up` opens the dropdown ABOVE the trigger — for a trigger that lives at the
+  // bottom of the window (the composer's overflow), where a menu hanging below
+  // it would be off-screen.
+  let { label = "More", icon = "chevron", align = "right", compact = false, up = false, children } = $props();
   let open = $state(false);
   let root = $state(null);
 
@@ -47,7 +50,7 @@
       </BottomSheet>
     {:else}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-      <div class="menu {align}" role="menu" onclick={() => (open = false)}>
+      <div class="menu {align}" class:up role="menu" onclick={() => (open = false)}>
         {@render children()}
       </div>
     {/if}
@@ -127,6 +130,33 @@
     left: 0;
     transform-origin: top left;
   }
+  /* Upward: the trigger sits on the bottom edge of the window, so the panel
+     grows toward the content instead of off the screen. */
+  .menu.up {
+    top: auto;
+    bottom: calc(100% + 6px);
+    transform-origin: bottom;
+    animation: menu-in-up 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  .menu.up.right {
+    transform-origin: bottom right;
+  }
+  .menu.up.left {
+    transform-origin: bottom left;
+  }
+  @keyframes menu-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.97);
+    }
+  }
+  /* After the .menu.up rule above, not with the other reduced-motion block: a
+     media query adds no specificity, so at equal weight the later rule wins. */
+  @media (prefers-reduced-motion: reduce) {
+    .menu.up {
+      animation: none;
+    }
+  }
   /* Sheet presentation: the dropdown's positioning and chrome come off, the
      rows stay. Same markup, same consumer classes. */
   .menu.sheet {
@@ -162,6 +192,10 @@
   }
   .menu :global(.menu-item:active) {
     background: var(--bg-3);
+  }
+  .menu :global(.menu-item:disabled) {
+    opacity: 0.45;
+    pointer-events: none;
   }
   .menu :global(.menu-item.danger) {
     color: var(--danger-text);

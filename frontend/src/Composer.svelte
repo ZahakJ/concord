@@ -7,6 +7,7 @@
   import Icon from "./Icon.svelte";
   import EmojiPicker from "./EmojiPicker.svelte";
   import BottomSheet from "./BottomSheet.svelte";
+  import Menu from "./Menu.svelte";
   import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { haptic } from "./lib/touch.js";
@@ -71,6 +72,12 @@
   // Enter behavior keys off actual pointer coarseness so a physical keyboard
   // in a narrow window keeps Enter-to-send.
   const mobile = $derived(S.isMobile);
+  // Between the mobile breakpoint and ~1150px the desktop layout survives but
+  // the chat column does not: nine 34px buttons plus their gaps claim ~300px of
+  // a 314px well, and the textarea is left with the twelve pixels nobody
+  // measured. The five occasional controls fold into an overflow menu there,
+  // which is the same trade the phone row already makes — just later.
+  const tight = $derived(!mobile && S.narrow);
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
   const canSend = $derived((!!draft.trim() || pending.length > 0) && !!ch && slowLeft <= 0);
 
@@ -1503,67 +1510,95 @@
             <Icon name="mic" size={20} />
           </button>
         {/if}
-        <!-- The guild's own GIF pack. A word, not a glyph: there is no icon for
-             "GIF" that anyone reads correctly, and this is the label every
-             other client uses.
+        {#if tight}
+          <!-- Squeezed column: one door for the five occasional controls. Words
+               rather than glyphs, since a menu has the room for them. -->
+          <Menu label="More" icon="dots" up>
+            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "gifs" })}>
+              <Icon name="play" size={14} /> GIF
+            </button>
+            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
+              <Icon name="poll" size={14} /> Poll
+            </button>
+            <button class="menu-item" disabled={!ch} onclick={openAdvanced}>
+              <Icon name="heading" size={14} /> Advanced composer
+            </button>
+            <button
+              class="menu-item"
+              disabled={!ch}
+              onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
+            >
+              <Icon name="diamond" size={14} />
+              {sealNext ? "Don't seal the send time" : "Seal the send time"}
+            </button>
+            <button class="menu-item" disabled={!ch} onclick={scheduleSend}>
+              <Icon name="clock" size={14} />
+              {draft.trim() ? "Schedule this message" : "Scheduled messages"}
+            </button>
+          </Menu>
+        {:else}
+          <!-- The guild's own GIF pack. A word, not a glyph: there is no icon for
+               "GIF" that anyone reads correctly, and this is the label every
+               other client uses.
 
-             No vendor named in the tooltip: which GIF service the Search tab
-             reaches is the rendezvous operator's choice, and the picker itself
-             reports it. A hardcoded "Tenor" here went stale the day Google shut
-             that API down (30 June 2026). -->
-        <button
-          type="button"
-          class="iconbtn gifbtn"
-          title="GIFs — this guild's pack, or a web search via your rendezvous"
-          aria-label="Open the GIF picker"
-          disabled={!ch}
-          onclick={() => (S.modal = { kind: "gifs" })}
-        >GIF</button>
-        <button
-          type="button"
-          class="iconbtn"
-          title="Create a poll"
-          aria-label="Create a poll"
-          disabled={!ch}
-          onclick={() => (S.modal = { kind: "poll" })}
-        >
-          <Icon name="poll" size={20} />
-        </button>
-        <button
-          type="button"
-          class="iconbtn"
-          title="Advanced composer (colors, rich embeds, preview)"
-          aria-label="Advanced composer"
-          disabled={!ch}
-          onclick={openAdvanced}
-        >
-          <Icon name="heading" size={19} />
-        </button>
-        <!-- Seal: arms a permanent timestamp on the next message. Distinct from
-             the clock beside it, which schedules a message for LATER — this one
-             records exactly when it went out. -->
-        <button
-          type="button"
-          class="iconbtn sealbtn"
-          class:armed={sealNext}
-          title={sealNext ? "Sealing the send time onto this message — click to cancel" : "Seal the exact send time onto this message"}
-          aria-label="Seal timestamp"
-          aria-pressed={sealNext}
-          disabled={!ch}
-          onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
-        >
-          <Icon name="diamond" size={18} />
-        </button>
-        <button
-          type="button"
-          class="iconbtn"
-          title={draft.trim() ? "Schedule this message" : "Scheduled messages & reminders"}
-          aria-label="Schedule message"
-          disabled={!ch}
-          onclick={scheduleSend}
-        >
-          <Icon name="clock" size={20} />
-        </button>
+               No vendor named in the tooltip: which GIF service the Search tab
+               reaches is the rendezvous operator's choice, and the picker itself
+               reports it. A hardcoded "Tenor" here went stale the day Google shut
+               that API down (30 June 2026). -->
+          <button
+            type="button"
+            class="iconbtn gifbtn"
+            title="GIFs — this guild's pack, or a web search via your rendezvous"
+            aria-label="Open the GIF picker"
+            disabled={!ch}
+            onclick={() => (S.modal = { kind: "gifs" })}
+          >GIF</button>
+          <button
+            type="button"
+            class="iconbtn"
+            title="Create a poll"
+            aria-label="Create a poll"
+            disabled={!ch}
+            onclick={() => (S.modal = { kind: "poll" })}
+          >
+            <Icon name="poll" size={20} />
+          </button>
+          <button
+            type="button"
+            class="iconbtn"
+            title="Advanced composer (colors, rich embeds, preview)"
+            aria-label="Advanced composer"
+            disabled={!ch}
+            onclick={openAdvanced}
+          >
+            <Icon name="heading" size={19} />
+          </button>
+          <!-- Seal: arms a permanent timestamp on the next message. Distinct from
+               the clock beside it, which schedules a message for LATER — this one
+               records exactly when it went out. -->
+          <button
+            type="button"
+            class="iconbtn sealbtn"
+            class:armed={sealNext}
+            title={sealNext ? "Sealing the send time onto this message — click to cancel" : "Seal the exact send time onto this message"}
+            aria-label="Seal timestamp"
+            aria-pressed={sealNext}
+            disabled={!ch}
+            onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
+          >
+            <Icon name="diamond" size={18} />
+          </button>
+          <button
+            type="button"
+            class="iconbtn"
+            title={draft.trim() ? "Schedule this message" : "Scheduled messages & reminders"}
+            aria-label="Schedule message"
+            disabled={!ch}
+            onclick={scheduleSend}
+          >
+            <Icon name="clock" size={20} />
+          </button>
+        {/if}
         <button
           type="button"
           class="iconbtn"
@@ -1767,6 +1802,15 @@
   .typing-line .typer {
     font-weight: 600;
     font-style: normal;
+    /* Truncate the NAME, not the sentence. The line already ellipsed as a
+       whole, which on a long display name ate "is typing…" and left a name
+       hanging there with no verb after it. */
+    display: inline-block;
+    max-width: 15ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
   }
   /* Three staggered bouncing dots ahead of "X is typing…". */
   .t-dots {
@@ -2146,7 +2190,7 @@
     padding: 6px 12px;
     border-radius: var(--radius-sm);
     background: var(--accent);
-    color: #fff;
+    color: var(--accent-fg);
     font-size: var(--fs-compact);
     font-weight: 600;
   }
@@ -2392,6 +2436,26 @@
     .sealbtn.armed::after { animation: none; opacity: 0.8; }
   }
 
+  /* The overflow trigger wears the composer's own icon-button clothes rather
+     than Menu's default ghost chrome — inside the input well a bordered button
+     reads as a separate control sitting on top of the field. */
+  .input-box :global(.menu-root) {
+    align-self: flex-end;
+  }
+  .input-box :global(.menu-root > .trigger) {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+  }
+  .input-box :global(.menu-root > .trigger:hover) {
+    background: transparent;
+    color: var(--text);
+  }
   .iconbtn {
     display: grid;
     place-items: center;
