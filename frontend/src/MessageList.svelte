@@ -188,6 +188,9 @@
       // original" button on the tombstone; the capability rides the toggle, it
       // doesn't bypass it.)
       if (m.deleted && !S.prefs.showDeleted) continue;
+      // Report -> Hide. Same rule as a block: not drawn here, not removed from
+      // the store, and back the moment it is unhidden.
+      if (S.hiddenMessages.includes(m.id)) continue;
       const day = new Date(m.sent).toDateString();
       const newDay = !prev || new Date(prev.sent).toDateString() !== day;
       // Grouping follows the AUTHOR, not the signing key: a relayed guest is a

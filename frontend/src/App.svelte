@@ -70,6 +70,7 @@
   import ModalMeme from "./modals/ModalMeme.svelte";
   import ModalGifs from "./modals/ModalGifs.svelte";
   import ModalForward from "./modals/ModalForward.svelte";
+  import ModalReport from "./modals/ModalReport.svelte";
   import ModalBans from "./modals/ModalBans.svelte";
   import ModalRoles from "./modals/ModalRoles.svelte";
   import ModalGuildSettings from "./modals/ModalGuildSettings.svelte";
@@ -1373,6 +1374,8 @@
     <ModalMeme src={S.modal.src || ""} edit={S.modal.edit || null} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "forward"}
     <ModalForward message={S.modal.message} onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "report"}
+    <ModalReport message={S.modal.message} onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "bans"}
     <ModalBans onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "roles"}

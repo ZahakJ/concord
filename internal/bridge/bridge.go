@@ -527,6 +527,13 @@ func (b *Bridge) Login(passphrase string) error {
 		return err
 	}
 	svc.OnMessage(func(m domain.Message) {
+		// A blocked sender's message is stored and synced like any other, but
+		// it never reaches the UI — so it raises no chime, no unread badge and
+		// no OS notification. Silence is most of what blocking is for; letting
+		// the message through and hiding it later would still buzz the phone.
+		if svc.SenderBlocked(m.Sender) {
+			return
+		}
 		if b.OnMessage != nil {
 			b.OnMessage(messageView(m))
 		}
@@ -1298,11 +1305,7 @@ func (b *Bridge) SearchMessages(query string) ([]MessageView, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]MessageView, 0, len(msgs))
-	for _, m := range msgs {
-		out = append(out, messageView(m))
-	}
-	return out, nil
+	return visibleViews(svc, msgs), nil
 }
 
 // Saved messages (bookmarks) — device-local; the panel reuses the same
@@ -1332,11 +1335,7 @@ func (b *Bridge) SavedMessages() ([]MessageView, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]MessageView, 0, len(msgs))
-	for _, m := range msgs {
-		out = append(out, messageView(m))
-	}
-	return out, nil
+	return visibleViews(svc, msgs), nil
 }
 
 func (b *Bridge) SavedMessageIDs() ([]string, error) {
@@ -1461,11 +1460,7 @@ func (b *Bridge) Messages(channelID string) ([]MessageView, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]MessageView, 0, len(msgs))
-	for _, m := range msgs {
-		out = append(out, messageView(m))
-	}
-	return out, nil
+	return visibleViews(svc, msgs), nil
 }
 
 // MessagesBefore returns the page of messages older than the RFC3339 cursor
@@ -1488,11 +1483,7 @@ func (b *Bridge) MessagesBefore(channelID, beforeISO string, limit int) ([]Messa
 	if err != nil {
 		return nil, err
 	}
-	out := make([]MessageView, 0, len(msgs))
-	for _, m := range msgs {
-		out = append(out, messageView(m))
-	}
-	return out, nil
+	return visibleViews(svc, msgs), nil
 }
 
 // UnreadCounts returns the per-channel unread message count. sinceISO maps a
@@ -2783,6 +2774,33 @@ func (b *Bridge) NewDMInvite() (string, error) {
 		return "", err
 	}
 	return svc.NewDMInvite()
+}
+
+// senderBlocker is the one thing visibleViews needs from the service, named as
+// an interface so the filter can be tested without booting a node.
+type senderBlocker interface {
+	SenderBlocked(sender []byte) bool
+}
+
+// visibleViews converts a run of stored messages into views, dropping the ones
+// whose sender this device has blocked.
+//
+// The filter lives here, at the bridge, because this is the one boundary every
+// front end crosses: the desktop window, the web build and the phone all reach
+// the service through these methods, so a message hidden here is hidden in the
+// feed, in search, in bookmarks and in the live push, without four separate
+// filters that can drift apart. Doing it in SQL would be faster and wrong —
+// the store is the shared, converging record, and blocking is a local viewing
+// preference that must not be able to alter it.
+func visibleViews(svc senderBlocker, msgs []domain.Message) []MessageView {
+	out := make([]MessageView, 0, len(msgs))
+	for _, m := range msgs {
+		if svc.SenderBlocked(m.Sender) {
+			continue
+		}
+		out = append(out, messageView(m))
+	}
+	return out
 }
 
 func messageView(m domain.Message) MessageView {

@@ -848,6 +848,16 @@
             },
           }),
       },
+      // Somebody else's message only: reporting your own is nothing but a
+      // slower route to Delete, which is right there. This one entry serves
+      // both the phone (long-press sheet) and the desktop (⋯), because they
+      // render the same list.
+      !isOwn && { sep: true },
+      !isOwn && {
+        label: "Report message",
+        icon: "alert",
+        onClick: () => (S.modal = { kind: "report", message: m }),
+      },
       (isOwn || canDeleteOthers) && { sep: true },
       (isOwn || canDeleteOthers) && {
         label: "Delete",

@@ -33,6 +33,10 @@ export const S = $state({
   roles: [], // active guild's roles (highest position first)
   contacts: [],
   blocked: [], // account fingerprints you've blocked
+  // Message IDs this device has been asked to stop drawing (Report -> Hide).
+  // Device-local and reversible: the rows stay in the store and in every other
+  // copy of the guild, exactly as with a block. Loaded below from localStorage.
+  hiddenMessages: [],
   // Message requests: DM invites from strangers the backend deliberately has
   // NOT redeemed ([{ from, fromName, code, at }]). Until one is accepted the
   // sender has learned nothing about us — see internal/app/request.go.
@@ -419,6 +423,10 @@ function saveJSON(key, value) {
 }
 
 const lastRead = loadJSON("concord.lastRead", {}); // channelId -> ISO time
+
+// Restore the per-message hides (Report -> Hide). Assigned here rather than in
+// the S literal because loadJSON is declared below it.
+S.hiddenMessages = loadJSON("concord.hiddenMessages", []);
 
 // Where you were: the guild open when the app last closed, and the channel you
 // were reading in each guild. Device-local — this is a view preference, not
@@ -1447,6 +1455,31 @@ export async function refreshNetStatus() {
   } catch {
     /* locked or transport down — leave the last known status */
   }
+}
+
+// ---- per-message hiding ----
+
+// Hiding one message, as opposed to blocking its author. The case is a single
+// thing somebody does not want on their screen again — a picture, a slur —
+// where blocking the whole person would be an overreaction or, in a guild they
+// have to keep reading, not an option.
+//
+// Local, persisted, reversible, and NOT a delete: the message stays in the
+// store and in everyone else's copy. Concord cannot remove something from other
+// people's devices and must never imply that it has.
+export function hideMessage(id) {
+  if (!id || S.hiddenMessages.includes(id)) return;
+  S.hiddenMessages = [...S.hiddenMessages, id];
+  saveJSON("concord.hiddenMessages", S.hiddenMessages);
+}
+
+export function unhideMessage(id) {
+  S.hiddenMessages = S.hiddenMessages.filter((x) => x !== id);
+  saveJSON("concord.hiddenMessages", S.hiddenMessages);
+}
+
+export function isHidden(id) {
+  return !!id && S.hiddenMessages.includes(id);
 }
 
 // ---- blocking ----
