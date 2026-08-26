@@ -174,9 +174,28 @@
     return Math.max(76, Math.min(DRAFT_MAX_H, Math.round(vh * 0.32)));
   }
 
+  // Where the browser will do it for us. `field-sizing: content` makes the
+  // textarea size itself to its value, which is the whole of what autosize()
+  // was for — and it does it inside the same layout pass that the keystroke
+  // already costs, instead of the write/read/write straddle below, which forces
+  // a synchronous re-layout of the entire document on every character typed.
+  // Chrome 123+ / WebView 123+; everything older keeps the measuring path.
+  const AUTOFIT = typeof CSS !== "undefined" && !!CSS.supports?.("field-sizing", "content");
+  let lastCap = -1;
+
   function autosize() {
     if (!composerEl) return;
     const cap = draftCap();
+    if (AUTOFIT) {
+      // Only the cap is ours, and it moves with the viewport (keyboard up,
+      // rotation) — not with the text. Writing it unconditionally would put a
+      // style invalidation back on the keystroke path for no reason.
+      if (cap !== lastCap) {
+        lastCap = cap;
+        composerEl.style.maxHeight = cap + "px";
+      }
+      return;
+    }
     composerEl.style.maxHeight = cap + "px";
     composerEl.style.height = "auto";
     const full = composerEl.scrollHeight;
@@ -185,10 +204,21 @@
     // Left on `overflow-y: auto`, the height we just assigned can land a
     // fraction of a pixel under the scrollHeight it came from — enough for the
     // browser to render a permanent, tiny scrollbar in a composer with nothing
-    // typed in it at all.
+    // typed in it at all. (Under field-sizing the browser picks the height, so
+    // there is no rounding of ours to trip over and the CSS says `auto`.)
     composerEl.style.overflowY = full > cap ? "auto" : "hidden";
   }
-  const queueAutosize = () => requestAnimationFrame(autosize);
+  // Coalescing: several of these can be queued by one gesture (input, then a
+  // suggestion accepted, then a paste), and they would each have re-measured.
+  let autosizeQueued = false;
+  const queueAutosize = () => {
+    if (autosizeQueued) return;
+    autosizeQueued = true;
+    requestAnimationFrame(() => {
+      autosizeQueued = false;
+      autosize();
+    });
+  };
 
   // ---- the software keyboard ----
   // Android (adjustResize) and iOS/WKWebView disagree about what an open IME
@@ -665,7 +695,7 @@
       api.sendTyping(S.activeChannelId).catch(() => {});
     }
     saveDraft(S.activeChannelId, draft);
-    autosize();
+    queueAutosize();
     updateSuggest();
   }
 
@@ -1178,6 +1208,7 @@
   <textarea
     bind:this={composerEl}
     class="draft"
+    class:autofit={AUTOFIT}
     dir={dirMode || null}
     style={dirMode ? "unicode-bidi:isolate" : null}
     rows="1"
@@ -2401,6 +2432,14 @@
     line-height: 1.4;
     box-sizing: border-box;
     width: auto;
+  }
+  /* Where the engine supports it, the box grows to fit its own value and JS is
+     left holding only the cap — see AUTOFIT in autosize(). `auto` rather than
+     the `hidden` above because the height is no longer a rounded number of ours
+     that the content can sit a fraction of a pixel outside of. */
+  .draft.autofit {
+    field-sizing: content;
+    overflow-y: auto;
   }
   .draft:focus {
     border: none;
