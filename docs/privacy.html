@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Concord — Privacy Policy</title>
+<meta name="description" content="Concord's privacy policy: no analytics, no accounts, no server, nothing collected — and a named, exhaustive list of every connection that is not to your peers.">
+<meta property="og:title" content="Concord — Privacy Policy">
+<meta property="og:description" content="No analytics, no accounts, no server, nothing collected — and a named list of every connection that is not to your peers.">
+<meta property="og:image" content="media/social-preview.png">
+<meta property="og:type" content="article">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2316181c'/%3E%3Cpath fill='%23fff' d='M32 12l2 14 12 9-12-3-2 18-2-18-12 3 12-9z'/%3E%3C/svg%3E">
+<style>
+/* Everything here is same-origin. No webfont host, no analytics, no CDN —
+   a site arguing that nothing should be fetched at runtime does not get to
+   fetch three things to render its own headline. */
+@font-face{font-family:Inter;src:url(assets/inter.woff2) format('woff2');font-weight:300 700;font-display:swap}
+
+:root{
+  --bg:#16181c; --bg2:#101216; --panel:#1b1e23; --line:#272b31;
+  --fg:#e8ebee; --muted:#98a1ab; --accent:#14a394; --accent-fg:#0a0c0e;
+  --warn:#d9a441;
+}
+@media (prefers-color-scheme:light){
+  :root{--bg:#fbfbfc; --bg2:#f2f3f6; --panel:#fff; --line:#e3e6ea;
+        --fg:#14161a; --muted:#5b636d; --accent:#0f8577; --accent-fg:#fff; --warn:#8a6212}
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font:400 17px/1.65 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:940px;margin:0 auto;padding:0 24px}
+section{padding:76px 0;border-top:1px solid var(--line)}
+section:first-of-type{border-top:0}
+h1,h2,h3{line-height:1.2;letter-spacing:-.02em;margin:0 0 .5em}
+h2{font-size:31px;font-weight:700}
+h3{font-size:19px;font-weight:600}
+p{margin:0 0 1em}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.lede{font-size:19px;color:var(--muted);max-width:65ch}
+.muted{color:var(--muted)}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.9em;
+  background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:.1em .4em}
+pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+  padding:16px 18px;overflow-x:auto;margin:0 0 1em}
+pre code{background:none;border:0;padding:0;font-size:14px;line-height:1.6}
+
+/* ---- hero ---- */
+.hero{padding:88px 0 68px;background:
+  radial-gradient(760px 380px at 18% -10%, color-mix(in srgb, var(--accent) 15%, transparent), transparent 70%);}
+.brand{display:flex;align-items:center;gap:20px;margin-bottom:26px}
+.mark{width:76px;height:76px;border-radius:19px;background:linear-gradient(150deg,var(--panel),var(--bg));
+  border:1px solid color-mix(in srgb, var(--accent) 30%, transparent);display:grid;place-items:center;flex:none}
+.mark svg{width:52px;height:52px;fill:var(--fg)}
+.brand h1{font-size:54px;font-weight:700;letter-spacing:-.035em;margin:0}
+.claim{font-size:24px;line-height:1.45;max-width:24ch;margin:0 0 8px;font-weight:600}
+.claim em{color:var(--accent);font-style:normal}
+.sub{font-size:18px;color:var(--muted);max-width:60ch}
+.cta{display:flex;flex-wrap:wrap;gap:12px;margin-top:32px}
+.btn{display:inline-block;padding:12px 22px;border-radius:9px;font-weight:600;font-size:16px;
+  border:1px solid var(--line);color:var(--fg);transition:.15s}
+.btn:hover{text-decoration:none;border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.btn.primary:hover{filter:brightness(1.08)}
+.facts{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:26px;font-size:14px;color:var(--muted)}
+.facts b{color:var(--fg);font-weight:600}
+
+/* ---- grids ---- */
+.grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(255px,1fr))}
+/* Four cards in an auto-fit grid land 3+1 at this container width, which reads
+   as a mistake. Two-up keeps them balanced and gives the longer copy room. */
+.grid.two{grid-template-columns:repeat(auto-fit,minmax(340px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:22px}
+.card h3{margin-bottom:.35em}
+.card p{margin:0;font-size:15.5px;color:var(--muted)}
+.card .cost{display:block;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);
+  font-size:14.5px;color:var(--warn)}
+.card .cost b{color:var(--warn);font-weight:600}
+
+/* ---- table ---- */
+table{width:100%;border-collapse:collapse;font-size:15.5px;margin:0 0 1em}
+th,td{text-align:left;padding:13px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+td:first-child{font-weight:600;white-space:nowrap}
+.tablewrap{overflow-x:auto}
+
+/* ---- shots ---- */
+.shots{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-top:26px}
+figure{margin:0}
+figure img{width:100%;height:auto;display:block;border-radius:11px;border:1px solid var(--line)}
+figcaption{font-size:14px;color:var(--muted);margin-top:9px}
+
+/* ---- limits ---- */
+.limits li{margin-bottom:.7em;color:var(--muted);font-size:15.5px}
+.limits li b{color:var(--fg);font-weight:600}
+
+footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);font-size:15px}
+.flinks{display:flex;flex-wrap:wrap;gap:8px 20px;margin-bottom:18px}
+@media (max-width:640px){
+  .brand{gap:14px}.brand h1{font-size:40px}.mark{width:60px;height:60px}.mark svg{width:40px;height:40px}
+  .claim{font-size:20px}section{padding:56px 0}h2{font-size:26px}
+}
+
+/* ---- policy page ---- */
+.policy{padding:0 0 76px}
+.policy h2{margin-top:60px;padding-top:32px;border-top:1px solid var(--line);scroll-margin-top:16px}
+.policy h2:first-of-type{border-top:0;margin-top:34px;padding-top:0}
+.policy h3{margin-top:32px}
+.policy p,.policy li{color:var(--muted)}
+.policy li{margin-bottom:.65em}
+.policy b,.policy strong{color:var(--fg);font-weight:600}
+.policy ul{padding-left:22px;margin:0 0 1em}
+.policy code{font-size:.88em}
+.stamp{font-size:14.5px;color:var(--muted);margin-top:10px;max-width:70ch}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:20px 24px;margin:30px 0 0}
+.toc ul{list-style:none;padding:0;margin:0;display:grid;gap:7px 24px;
+  grid-template-columns:repeat(auto-fit,minmax(235px,1fr))}
+.toc li{margin:0;font-size:15px}
+.nothing{background:var(--panel);border:1px solid color-mix(in srgb, var(--accent) 34%, var(--line));
+  border-left:3px solid var(--accent);border-radius:11px;padding:18px 22px;margin:0 0 22px}
+.nothing p{margin:0;color:var(--fg)}
+.crumb{display:flex;gap:8px 20px;flex-wrap:wrap;padding:30px 0 0;font-size:15px}
+</style>
+</head>
+<body>
+
+<header class="hero" style="padding:56px 0 34px">
+  <div class="wrap">
+    <div class="brand" style="margin-bottom:20px">
+      <span class="mark" aria-hidden="true"><svg viewBox="0 0 64 64"><path fill-rule="evenodd" d="M32 6C31.1 6 30.6 6.7 30.6 8.2L30.2 17C27.3 17.8 25.2 20.5 25.2 23.8L25.2 27.6L4.6 41.6C3.4 42.4 4.1 44.3 5.5 44L24 40.7C24.7 41.9 25.8 42.8 27.1 43.3L26.2 50.6C26.1 51.6 26.9 52.2 27.7 51.7L30.3 45.9L31 55.2C31 56 31.4 56.4 32 56.4C32.6 56.4 33 56 33 55.2L33.7 45.9L36.3 51.7C37.1 52.2 37.9 51.6 37.8 50.6L36.9 43.3C38.2 42.8 39.3 41.9 40 40.7L58.5 44C59.9 44.3 60.6 42.4 59.4 41.6L38.8 27.6L38.8 23.8C38.8 20.5 36.7 17.8 33.8 17L33.4 8.2C33.4 6.7 32.9 6 32 6ZM28.4 22.3L31 22.3L31 27.2L27.4 27.2L27.4 24.3C27.4 23.3 27.7 22.3 28.4 22.3ZM33 22.3L35.6 22.3C36.3 22.3 36.6 23.3 36.6 24.3L36.6 27.2L33 27.2Z"/></svg></span>
+      <h1 style="font-size:40px">Privacy</h1>
+    </div>
+    <p class="claim" style="max-width:30ch">There is no company, no account database, and <em>nothing collected</em>.</p>
+    <p class="sub">This is the privacy policy for the Concord application on every platform it
+      ships for, including the Android app. It says what data exists, where it lives, who can read
+      it, and — the part most policies leave out — what Concord does not protect.</p>
+    <p class="stamp">Last updated 26 August 2026 · the authoritative copy is
+      <a href="https://github.com/ZahakJ/concord/blob/main/PRIVACY.md">PRIVACY.md</a> in the
+      repository, whose commit history is this document's change log.</p>
+    <div class="toc">
+      <ul>
+        <li><a href="#collected">What the developer collects</a></li>
+        <li><a href="#model">The model in one paragraph</a></li>
+        <li><a href="#encrypted">What is end-to-end encrypted</a></li>
+        <li><a href="#local">Where your data lives</a></li>
+        <li><a href="#rendezvous">The untrusted rendezvous node</a></li>
+        <li><a href="#outbound">Every outbound call, named</a></li>
+        <li><a href="#retention">How long anything is kept</a></li>
+        <li><a href="#deletion">Deleting your data</a></li>
+        <li><a href="#children">Children</a></li>
+        <li><a href="#limits">What is not protected</a></li>
+        <li><a href="#changes">Changes to this policy</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </div>
+  </div>
+</header>
+
+<div class="wrap policy">
+
+  <h2 id="collected">What the developer collects: nothing</h2>
+  <div class="nothing">
+    <p><b>No personal data is collected, transmitted to, or held by the developer of Concord.</b>
+      There is no exception to hedge and no "except as described below". Concord has no company
+      behind it, no backend of its own, and no account you could be a row in.</p>
+  </div>
+  <ul>
+    <li><b>No analytics, no crash reporting, no advertising, no attribution.</b> Not disabled by
+      default — absent. The Android app's entire third-party dependency list is
+      <a href="https://github.com/ZahakJ/concord/blob/main/apps/mobile/package.json">apps/mobile/package.json</a>:
+      Capacitor itself, four of its plugins (app lifecycle, haptics, keyboard, push) and a biometric
+      one. The interface's is
+      <a href="https://github.com/ZahakJ/concord/blob/main/frontend/package.json">frontend/package.json</a>:
+      an emoji set and two QR-code libraries. Nothing in either reports anything anywhere, and no
+      advertising or attribution identifier is read.</li>
+    <li><b>The Firebase library ships but does not start.</b> Push notifications are written and
+      unprovisioned: the push plugin brings Firebase Cloud Messaging with it, but there is no
+      Firebase project behind it and no configuration file in the build, so its initialisation is
+      switched off outright and nothing registers, reports or wakes.</li>
+    <li><b>No accounts.</b> Nothing to sign up for, so no email address, no phone number and no name
+      held anywhere but on your own device and on the devices of the people you talk to.</li>
+    <li><b>No default server.</b> Concord ships pointing at nothing. Any rendezvous node you use is
+      one you or a friend configured, and it is untrusted by construction. The project operates no
+      infrastructure that your copy of the app connects to automatically.</li>
+    <li><b>No device or advertising identifiers</b> are read or transmitted. Your identity is a
+      keypair you generated.</li>
+  </ul>
+  <p>The rest of this page is about data that stays on your device, data that goes to the people you
+    are talking to, and a short, named, exhaustive list of connections that go somewhere else — each
+    with what it reveals and, where one exists, the switch that turns it off.</p>
+
+  <h2 id="model">The model in one paragraph</h2>
+  <p>There is no company, no account database, and no server that stores your messages. Your
+    identity is a keypair on your device; your history is an encrypted SQLite database on your
+    device; your messages travel directly between group members, encrypted end-to-end with
+    <a href="https://www.rfc-editor.org/rfc/rfc9420">MLS</a> (RFC 9420). Any helper infrastructure
+    Concord can use is <b>untrusted by construction</b>: it forwards ciphertext and is
+    cryptographically incapable of reading it.</p>
+
+  <h2 id="encrypted">What is end-to-end encrypted</h2>
+  <ul>
+    <li><b>Messages</b> — including edits, deletes, reactions, pins and offline history-sync batches
+      — are MLS-encrypted to the group. Only current members hold the keys. MLS provides forward
+      secrecy (past epochs' keys are deleted) and post-compromise security (removing a member rekeys
+      the group).</li>
+    <li><b>Voice and video</b> are a browser-to-browser WebRTC mesh; media is DTLS-SRTP encrypted
+      between participants.</li>
+    <li><b>Transport</b> hops are additionally Noise/DTLS-encrypted, so a network eavesdropper —
+      Wi-Fi, an ISP — sees only ciphertext either way.</li>
+  </ul>
+
+  <h2 id="local">Where your data lives</h2>
+  <p>On your own devices, and nowhere else. Locally it is an encrypted SQLite database:</p>
+  <ul>
+    <li>Message bodies are sealed with NaCl secretbox under a key derived from your identity seed; a
+      stolen database file yields no readable messages.</li>
+    <li>Your identity seed is itself encrypted at rest with Argon2id + secretbox, unlocked by your
+      passphrase.</li>
+    <li>Full-text search runs entirely on your machine; queries never leave it.</li>
+    <li>Export is one click to Markdown — your data is yours.</li>
+  </ul>
+
+  <h2 id="rendezvous">The untrusted rendezvous node</h2>
+  <p>The one optional piece of infrastructure is a small rendezvous host: a DHT phone-book, a
+    circuit relay, an offline mailbox, and optionally a TURN relay for calls. It is deliberately
+    designed to learn as little as possible.</p>
+  <ul>
+    <li><b>It only ever sees ciphertext.</b> It is never a group member and never holds message
+      keys.</li>
+    <li><b>The offline mailbox is addressed by an opaque tag</b> derived by salted hash from the
+      recipient's public key. Senders can compute it; the node cannot reverse it to an identity.
+      Deposits are end-to-end-encrypted blobs, drained and deleted when the recipient
+      reconnects.</li>
+    <li><b>Optional push wakes are contentless</b> — "you have mail", never message content. Tokens
+      are keyed by the opaque mailbox tag, not by identity.</li>
+    <li><b>Its two plain-HTTPS doors are the exception to "ciphertext only".</b> A browser guest
+      joining a meeting, and a visitor booking a slot on a booking link, have no Concord install and
+      no keys, so their leg terminates at the node before continuing to the host. It therefore sees
+      a guest's own messages, and a booking visitor's IP plus whatever they submit. It stores none
+      of it, and everything else passing through stays ciphertext.</li>
+    <li>You can self-host the whole thing.</li>
+  </ul>
+
+  <h2 id="outbound">Every outbound call that is not to your peers</h2>
+  <p>Nearly every connection the app makes is to your peers or to whatever rendezvous node you
+    configure — but <em>nearly</em> is not <em>only</em>. Naming the exceptions is the point of this
+    section, and this list is exhaustive.</p>
+
+  <h3>Two that can happen without you asking</h3>
+  <ul>
+    <li><b>api.github.com, once at launch, on desktop and web only.</b> The app asks the project's
+      own repository for its latest release tag so it can tell you an update exists. It is
+      unauthenticated and sends no identifier beyond what any HTTP request carries — your IP and a
+      <code>concord-updater</code> user agent — and any error is a silent no-op. Builds without a
+      release version stamp skip it entirely.
+      <br><b>The mobile app never makes this request automatically.</b> A <em>sideloaded</em> Android
+      build offers a manual "Check for updates" button, because someone who downloaded an APK from a
+      GitHub release has no other route to a fix; nothing happens until they press it. A build
+      installed from Google Play does not offer it at all — the store owns updates there, and the app
+      asks the running install where it came from to decide.</li>
+    <li><b>stun.l.google.com, at call time only.</b> Starting a call needs to learn your own external
+      address. If the rendezvous you bootstrap through serves ICE configuration, that is used and
+      Google is never contacted; only when it does not is there a fallback to this hardcoded public
+      STUN server. It learns your IP and that you are starting a call — no media, no identity, no
+      group, and nothing at all if you never place a call.</li>
+  </ul>
+
+  <h3>Two searches that are yours to switch on or off</h3>
+  <p>These are the only two features where something you type is sent to a search service. Both are
+    switches in <em>Settings → Privacy &amp; safety</em>, and both are enforced in the backend rather
+    than in the interface: switched off, the request is not made, not merely not displayed.</p>
+  <ul>
+    <li><b>Game title search → Valve, off by default.</b> The collection editor can suggest real game
+      titles from Steam's public storefront search, and it asks again as you type — so a half-typed
+      title, your IP and the fact that you were online reach Valve. Switched off, the editor still
+      works: type a title and it is added as you wrote it, and nothing leaves the device. An install
+      that already had a game collection when this switch was introduced keeps it on, because it had
+      been using the feature; every other install starts closed.</li>
+    <li><b>GIF search → your own rendezvous, on by default.</b> The GIF picker's search tab sends
+      what you type to the rendezvous node <em>you</em> configured. That node asks a public GIF
+      service on your behalf — Giphy in the node this project ships, though the operator chooses —
+      and sends the pictures back through itself, so the service sees the node's IP and never yours,
+      and your browser never connects to it. <b>What it costs is that the operator of your
+      rendezvous can see your search terms.</b> It is on by default because it reaches exactly one
+      machine you had already chosen to route your traffic through; off is one switch away if that
+      is not a trade you want with whoever runs your node. A guild's own GIF pack is unaffected
+      either way — it never leaves your machine.</li>
+  </ul>
+
+  <h3>Three more that load a picture, all off by default</h3>
+  <p>Game box art, link previews and YouTube embeds have the same shape: rendering someone else's
+    message would otherwise make your browser fetch something from a third party, telling them your
+    IP and the moment you were online with no click at all. So all three are off by default, with a
+    switch each.</p>
+
+  <h2 id="retention">How long anything is kept</h2>
+  <p>There is no retention schedule to publish, because there is nobody holding a copy to schedule.
+    Your history is kept on your device until you delete it, and on the devices of the people you
+    sent it to until <em>they</em> delete it. Three things shorten that on purpose:</p>
+  <ul>
+    <li><b>Disappearing messages.</b> An author can put a timer on a message. The timer travels
+      inside the encrypted content, so every device erases the body at the same wall-clock instant
+      without coordinating.</li>
+    <li><b>A guild retention policy.</b> A guild can set how long messages are kept, per guild or per
+      channel, and each member's app prunes its own copy. This is local enforcement and nothing
+      else: two members with different uptimes forget at slightly different moments, and a member
+      running a modified client need not forget at all. The interface says so beside the switch.</li>
+    <li><b>The offline mailbox.</b> A deposit waiting at a rendezvous is an encrypted blob addressed
+      to an opaque tag; it is drained and deleted when you next connect, and nodes expire undrained
+      deposits on their own schedule.</li>
+  </ul>
+
+  <h2 id="deletion">Deleting your data</h2>
+  <p><b>In the app: Settings → Privacy &amp; safety → Delete everything on this device.</b> It asks
+    you to type your profile name, and then erases your identity keystore, the encrypted database
+    holding every message stored here, the MLS group state and the plaintext peer cache. The app is
+    left exactly as it was before you first opened it. Nothing is retained, anywhere, for any
+    period, because there is nowhere for it to be retained.</p>
+  <p>Smaller erasures, for when the whole device is not what you meant: delete one message and the
+    deletion travels to the group like any other message; <em>Privacy &amp; safety → Empty trash</em>
+    scrubs the retained text behind every deleted message on this device; <em>Settings → Devices →
+    Unlink</em> tells one linked device to erase itself.</p>
+  <p>What deletion cannot do, and no feature of any peer-to-peer messenger can, is <b>reach the
+    copies other people already have</b>. A message you sent is on the recipient's device, sealed to
+    them. There is no server holding the authoritative copy that could be told to forget — which is
+    the same fact that makes the rest of this page true.</p>
+  <p>Because there is no account, there is also no "delete my account" request to send anyone, and no
+    data-subject request the developer could answer if you made one: we hold nothing about you to
+    disclose, correct or erase.</p>
+
+  <h2 id="children">Children</h2>
+  <p>Concord is a general-audience communication app. It has no age gate, because it has no accounts
+    and collects no personal information from anyone, of any age, to gate. It is not directed to
+    children, and it is not designed, marketed or featured for them.</p>
+  <p>It does carry user-generated content — anything a member of a guild you join chooses to send —
+    so it is rated accordingly, and it provides blocking, a report flow, and message requests that
+    hold a stranger's first direct message unopened. If you are responsible for a young person's
+    device, treat Concord as you would any other open communication tool.</p>
+
+  <h2 id="limits">What is not protected</h2>
+  <p>Stating this is part of the policy, not a footnote to it.</p>
+  <ul class="limits">
+    <li><b>Metadata is not hidden.</b> Inherent to peer-to-peer: the DHT and relay can observe that
+      your peer ID connects and roughly when, never content, and peers you connect to directly learn
+      your IP address. Calls can opt into relay-only mode to hide IPs from other participants.</li>
+    <li><b>Concord is not an anonymity tool.</b> It authenticates identities; it does not hide them.
+      If you need anonymity, use a network layer built for it.</li>
+    <li><b>Group members are trusted.</b> Encryption protects the group from outsiders; it cannot
+      stop a member you invited from copying or screenshotting what you sent them.</li>
+    <li><b>Your passphrase is the at-rest anchor.</b> Configure convenience auto-unlock and at-rest
+      encryption no longer protects your history from someone who compromises that machine. The
+      default is to ask for the passphrase.</li>
+    <li><b>Not everything on your disk is encrypted.</b> The remembered-peer list and each group's
+      MLS state, including its leaf private keys, sit beside the database in the clear. Your message
+      bodies stay sealed; those do not.</li>
+    <li><b>Verification matters.</b> First-contact impersonation is defeated by comparing key
+      fingerprints — "safety numbers" — out of band. Actually do it.</li>
+  </ul>
+
+  <h2 id="changes">Changes to this policy</h2>
+  <p>The policy lives in the repository next to the code it describes, so its history is the change
+    log: every revision is a commit with a message saying what changed and why. The date at the top
+    is the last substantive revision.</p>
+  <p>A change that alters what leaves your device — a new outbound connection, a default flipped
+    from off to on — lands in the same release as the change itself and is named in that release's
+    notes, not slipped in quietly.</p>
+
+  <h2 id="contact">Questions and contact</h2>
+  <p>There is no support address, because there is no company to staff one. Both routes are the
+    repository:</p>
+  <ul>
+    <li><b>Anything about this policy, or the app in general:</b>
+      <a href="https://github.com/ZahakJ/concord">github.com/ZahakJ/concord</a> — open an issue.</li>
+    <li><b>A security or privacy vulnerability:</b> use GitHub's private vulnerability reporting —
+      the <em>Security</em> tab on the repository, then <em>Report a vulnerability</em> — which opens
+      a private thread.
+      <a href="https://github.com/ZahakJ/concord/blob/main/SECURITY.md">SECURITY.md</a> has the
+      scope, the response times, and what is already a documented known gap. Please do not post a
+      vulnerability as a public issue.</li>
+  </ul>
+  <p>The implementation is the authoritative source and is meant to be read as one. The full policy,
+    with a link to the file behind each claim, is
+    <a href="https://github.com/ZahakJ/concord/blob/main/PRIVACY.md">PRIVACY.md</a>.</p>
+
+  <div class="crumb">
+    <a href="index.html">← Back to the front page</a>
+    <a href="https://github.com/ZahakJ/concord/blob/main/docs/DESIGN.md">Design</a>
+    <a href="https://github.com/ZahakJ/concord/blob/main/SECURITY.md">Security</a>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <p style="margin:0">Free software under the GNU Affero General Public License, version 3 or
+      later. Copyright © 2026 Concord contributors.</p>
+    <p style="margin:.5em 0 0">This page fetches nothing from anywhere. The typeface and the styles
+      are served from the same place as the page itself, which is the same rule the application
+      follows — and the same rule a page about privacy has no business breaking.</p>
+  </div>
+</footer>
+
+</body>
+</html>
