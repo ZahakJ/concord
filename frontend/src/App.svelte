@@ -1091,12 +1091,26 @@
   }
 </script>
 
+<!-- The core stopped answering. Everything on screen is now a photograph: the
+     presence dots, the member list and the peer count all render the last thing
+     the backend said, and they will keep saying it forever. This bar is the only
+     thing that knows, so it is not dismissible and it outranks the other two —
+     an update offer from a process that is no longer there is noise. -->
+{#if S.offline && S.ready}
+  <div class="update-banner offline-banner" role="status" aria-live="polite">
+    <span class="ob-spin" aria-hidden="true"></span>
+    <span class="ub-text">
+      <strong>Reconnecting…</strong> Concord's core stopped responding. Messages you send now won't go out.
+    </span>
+  </div>
+{/if}
+
 <!-- Notification rationale. Raised by offerNotifications() the first time a
      message arrives that the OS grant would have surfaced, so the sentence can
      point at something that just happened rather than at a hypothetical. The
      Enable button is what opens the system dialog — on Android there are only
      ever two of those, and this is how one gets spent on somebody who wants it. -->
-{#if S.notifyAsk && !S.update && !ringingChannel}
+{#if S.notifyAsk && !S.update && !ringingChannel && !S.offline}
   <div class="update-banner notif-ask">
     <span class="ub-text">
       <strong>You just missed a message.</strong> Turn on notifications and Concord can tell you next time.
@@ -1114,7 +1128,7 @@
   </div>
 {/if}
 
-{#if S.update && !ringingChannel}
+{#if S.update && !ringingChannel && !S.offline}
   <div class="update-banner">
     <span class="ub-text">
       <strong>Update available</strong> — Concord {S.update.latest} is out (you have {S.update.current}).
@@ -1981,6 +1995,32 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* Trouble, not news: the warning colour, and no dismiss button, because the
+     condition doesn't end when you stop looking at it. */
+  .offline-banner {
+    border-color: var(--warn);
+    color: var(--warn-text);
+    padding-right: 16px;
+  }
+  .ob-spin {
+    flex-shrink: 0;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--warn) 30%, transparent);
+    border-top-color: var(--warn);
+    animation: ob-spin 0.8s linear infinite;
+  }
+  @keyframes ob-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .ob-spin {
+      animation: none;
+    }
   }
   .ub-dl {
     flex-shrink: 0;

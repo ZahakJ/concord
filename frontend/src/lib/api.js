@@ -43,6 +43,40 @@ function wailsBindings() {
 
 const isWails = () => wailsBindings() !== null;
 
+// ---- transport health ------------------------------------------------------
+//
+// A dead core is otherwise completely invisible. Every green dot, every peer
+// count and every member row in the UI is drawn from the last state we were
+// told about, so when the process behind the page dies the app carries on
+// looking perfectly healthy — and the only thing that gives it away is a send
+// failing with the browser's own "Failed to fetch".
+//
+// The HTTP transport is the only one that can know (a Wails binding call has no
+// network under it), so it reports here and lib/state.svelte.js turns it into
+// the reconnecting bar. Recovery needs no polling of its own: the EventSource
+// redials by itself and its `open` says we're back.
+let transportUp = true;
+const healthWatchers = new Set();
+
+export function onTransportHealth(cb) {
+  healthWatchers.add(cb);
+  cb(transportUp);
+  return () => healthWatchers.delete(cb);
+}
+
+function reportTransport(up) {
+  if (up === transportUp) return;
+  transportUp = up;
+  for (const cb of [...healthWatchers]) cb(up);
+}
+
+// The one error the UI should never print verbatim.
+export function offlineError() {
+  const err = new Error("Concord isn't responding — trying to reconnect");
+  err.offline = true;
+  return err;
+}
+
 async function call(name, ...args) {
   const b = wailsBindings();
   if (b && typeof b[name] === "function") {
@@ -51,11 +85,21 @@ async function call(name, ...args) {
   // Browser transport.
   const headers = { "Content-Type": "application/json" };
   if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
-  const res = await fetch(`${apiBase}/rpc`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ method: name, args }),
-  });
+  let res;
+  try {
+    res = await fetch(`${apiBase}/rpc`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ method: name, args }),
+    });
+  } catch {
+    // fetch only rejects when the request never reached anything — a refused
+    // connection, a dropped socket, DNS. That is the core being gone, not this
+    // particular call failing.
+    reportTransport(false);
+    throw offlineError();
+  }
+  reportTransport(true);
   if (!res.ok) throw new Error(`rpc ${name}: HTTP ${res.status}`);
   const body = await res.json();
   if (body.error) throw new Error(body.error);
@@ -389,10 +433,15 @@ function sse() {
     // this page is in fact hidden; a visible page needs no call, because
     // visible is already what the backend assumed.
     eventSource.addEventListener("open", () => {
+      reportTransport(true);
       if (typeof document !== "undefined" && document.hidden) {
         call("SetClientVisible", clientID, false).catch(() => {});
       }
     });
+    // EventSource redials on its own schedule; `error` fires on every failed
+    // attempt, so this is also the heartbeat that keeps the bar up while the
+    // core is down, and `open` above is what takes it away again.
+    eventSource.addEventListener("error", () => reportTransport(false));
   }
   return eventSource;
 }

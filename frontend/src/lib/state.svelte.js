@@ -1,7 +1,7 @@
 // state.svelte.js — Concord's shared UI state (Svelte 5 runes) and the actions
 // that mutate it. Components import { S, ... } and read/mutate S's properties;
 // api.js stays the only transport layer underneath.
-import { api, on } from "./api.js";
+import { api, on, onTransportHealth } from "./api.js";
 import { notify, wantsPermissionPrompt } from "./notify.js";
 import { containsMention } from "./markdown.js";
 import { playVoiceJoin, playVoiceLeave, playMention, playDM, playSfx } from "./sounds.js";
@@ -83,6 +83,11 @@ export const S = $state({
   // hasBootstrap, outOfSyncGuilds }, refreshed on presence events + a slow poll.
   // null until the first fetch (login).
   netStatus: null,
+  // offline: the local core stopped answering. Distinct from having no peers —
+  // this is the process behind the window being gone, which every status dot in
+  // the app would otherwise keep reporting as fine, because they all render the
+  // last thing it said before it died.
+  offline: false,
 
   // feedLoading: a channel switch is fetching history (drives the skeleton —
   // without it the OLD channel's rows linger under the new header).
@@ -1481,6 +1486,18 @@ export async function refreshNetStatus() {
     /* locked or transport down — leave the last known status */
   }
 }
+
+// The transport's own verdict on whether anything is listening, raised into the
+// reconnecting bar. Coming back is worth a refresh: whatever happened while we
+// were blind (messages, members, presence) never reached this page.
+onTransportHealth((up) => {
+  const wasOffline = S.offline;
+  S.offline = !up;
+  if (up && wasOffline) {
+    refreshGuilds().catch(() => {});
+    refreshNetStatus();
+  }
+});
 
 // ---- notification permission, asked late ----
 
