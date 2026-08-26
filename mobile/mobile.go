@@ -29,6 +29,7 @@ import (
 	// it directly, so keep it pinned with a blank import (the documented idiom).
 	_ "golang.org/x/mobile/bind"
 
+	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/bridge"
 	"github.com/ZahakJ/concord/internal/httpapi"
 	"github.com/ZahakJ/concord/internal/version"
@@ -193,6 +194,13 @@ func (n *Node) SetEventSink(sink EventSink) {
 			prevStory(u)
 		}
 		emit("story", u)
+	}
+	prevImport := b.OnChronicleImport
+	b.OnChronicleImport = func(p appsvc.ChatImportProgress) {
+		if prevImport != nil {
+			prevImport(p)
+		}
+		emit("chronicle-import", p)
 	}
 }
 

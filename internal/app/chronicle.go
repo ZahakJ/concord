@@ -156,6 +156,15 @@ type chronicleChannel struct {
 	Name  string `json:"name"`
 	Type  string `json:"type,omitempty"`
 	Topic string `json:"topic,omitempty"`
+	// Mapped is the channel in THIS guild the importer put the history in front
+	// of, or "" when the archive was attached without one. It is what lets a
+	// reader who was never in the source community be told which room a
+	// conversation belongs above, and it is why the mapping is decided ONCE, on
+	// the importing machine, rather than re-guessed from names by every member
+	// who opens the archive — names change, and two of them re-guessing
+	// differently is two members reading the same history under different
+	// headings.
+	Mapped string `json:"mapped,omitempty"`
 }
 
 // chronicleChunkRef is one entry in the index: where a slice of one channel's
@@ -277,6 +286,9 @@ func validChronicleManifest(m chronicleManifest) bool {
 			return false
 		}
 		if len(c.Name) > maxChronicleNameLen || len(c.Topic) > maxChronicleDescLen || len(c.Type) > 32 {
+			return false
+		}
+		if len(c.Mapped) > 128 {
 			return false
 		}
 		seenChannel[c.ID] = true
@@ -765,9 +777,12 @@ func (s *Service) fetchChronicleChunk(guildID, chunkID string) ([]byte, error) {
 
 // ChronicleChannelView is one channel of an archive as the UI lists it.
 type ChronicleChannelView struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Type         string `json:"type,omitempty"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Type string `json:"type,omitempty"`
+	// Mapped is the real channel in this guild whose scrollback this archived
+	// channel sits above, or "" when the import mapped it nowhere.
+	Mapped       string `json:"mapped,omitempty"`
 	Topic        string `json:"topic,omitempty"`
 	Messages     int64  `json:"messages"`
 	FirstNano    int64  `json:"firstNano"`
@@ -934,7 +949,7 @@ func (s *Service) ChronicleInfo(guildID string) (ChronicleView, error) {
 		Pinned: pinned > 0 && pinned == len(held),
 	}
 	for _, c := range m.Channels {
-		cv := &ChronicleChannelView{ID: c.ID, Name: c.Name, Type: c.Type, Topic: c.Topic}
+		cv := &ChronicleChannelView{ID: c.ID, Name: c.Name, Type: c.Type, Mapped: c.Mapped, Topic: c.Topic}
 		byChannel[c.ID] = cv
 	}
 	for _, c := range m.Chunks {

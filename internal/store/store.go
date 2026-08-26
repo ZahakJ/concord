@@ -2463,6 +2463,24 @@ func (s *Store) PinAttachment(blobID string, pinned bool) error {
 	return nil
 }
 
+// AttachmentPinned reports whether a blob is exempt from the LRU. Reports
+// ok=false for a blob that is not held at all, which is a different answer from
+// "held and evictable" and worth being able to tell apart: the importer's
+// guarantee is that a picture it sealed is BOTH present and pinned, and a check
+// that could not distinguish the two would pass on a blob that had already been
+// swept.
+func (s *Store) AttachmentPinned(blobID string) (pinned, ok bool, err error) {
+	var v int
+	err = s.db.QueryRow(`SELECT pinned FROM attachments WHERE blob_id = ?`, blobID).Scan(&v)
+	if err == sql.ErrNoRows {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, err
+	}
+	return v != 0, true, nil
+}
+
 // evictAttachments drops least-recently-used blobs while the cache exceeds
 // its size cap. Pinned blobs are never candidates — which means a pinned pile
 // larger than the cap simply stops eviction rather than looping on rows it may

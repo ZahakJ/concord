@@ -94,6 +94,7 @@ func main() {
 			b.OnGuildInvite = func(inv appsvc.GuildInvite) { wruntime.EventsEmit(ctx, "guild-invite", inv) }
 			b.OnReadState = func(r bridge.ReadStateView) { wruntime.EventsEmit(ctx, "read-state", r) }
 			b.OnStory = func(u bridge.StoryUpdate) { wruntime.EventsEmit(ctx, "story", u) }
+			b.OnChronicleImport = func(p appsvc.ChatImportProgress) { wruntime.EventsEmit(ctx, "chronicle-import", p) }
 		},
 		OnShutdown: func(context.Context) { b.Close() },
 	})

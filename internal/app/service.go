@@ -22,6 +22,7 @@ import (
 	"golang.org/x/crypto/hkdf"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/ZahakJ/concord/internal/chronimport"
 	"github.com/ZahakJ/concord/internal/crypto/mls"
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
@@ -123,6 +124,11 @@ type Service struct {
 	// onStory fires when a guild's stories change ("" = expiry sweep, several
 	// guilds may have changed). See story.go.
 	onStory []func(guildID string)
+	// onChatImport fires on every beat of a running chat-export import. It is
+	// the one callback here whose payload is a struct rather than scalars,
+	// because a progress line is five fields that only mean anything together.
+	// See chronimport.go.
+	onChatImport []func(ChatImportProgress)
 
 	// Read markers awaiting broadcast to our own devices. Coalesced (see
 	// broadcastReadMarker) so a mark-all-read burst becomes ONE publish.
@@ -268,6 +274,16 @@ type Service struct {
 	// because sharing one keyspace between two content-addressed namespaces is
 	// a collision waiting for somebody to reuse an id.
 	chronicleFlight singleflight.Group
+
+	// Chat-export import (see chronimport.go). importMu guards both fields and
+	// is the enforcement of one-import-at-a-time: two running at once would
+	// race on creating the same channel and leave the guild with two of it.
+	// scanCache holds the last export directory's dry run, keyed by directory,
+	// so the wizard's live re-estimates are arithmetic rather than a re-read of
+	// however many gigabytes the export is.
+	importMu  sync.Mutex
+	importJob *chatImportJob
+	scanCache map[string]*chronimport.Stats
 
 	// previews caches link-preview scrapes (see preview.go).
 	previews *previewCache

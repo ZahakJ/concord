@@ -381,6 +381,22 @@ export const api = {
   chronicleMessages: (guildID, channelID, beforeNano, limit, allowMetered) =>
     call("ChronicleMessages", guildID, channelID, beforeNano, limit, allowMetered),
   setChroniclePinned: (guildID, pinned) => call("SetChroniclePinned", guildID, pinned),
+  // Importing a chat export (a directory of per-channel JSON files) into a guild
+  // as a chronicle. scanChatExport reads the directory ONCE and returns the size
+  // report; estimateChatImport is pure arithmetic over that scan, so it is the
+  // one to call on every slider drag. The policy object is
+  // { fromNano, toNano, excludeChannels[], maxAttachmentBytes, includeImages,
+  //   includeVideo, includeOther, includeReactions, includeEmoji, source,
+  //   description } — an omitted field means false, so an empty policy imports
+  // text only. importChatExport is owner-only, resolves to a JOB ID rather than
+  // waiting (a real import runs for minutes), reports itself on the
+  // "chronicle-import" event, and is read back with chronicleImportStatus("").
+  // Nothing is ever fetched from the network: media the export did not bring
+  // along is imported as a placeholder line naming the file and its size.
+  scanChatExport: (dir) => call("ScanChatExport", dir),
+  estimateChatImport: (dir, policy) => call("EstimateChatImport", dir, policy),
+  importChatExport: (guildID, dir, policy) => call("ImportChatExport", guildID, dir, policy),
+  chronicleImportStatus: (jobID) => call("ChronicleImportStatus", jobID),
   setRetention: (guildID, channelID, seconds) => call("SetRetention", guildID, channelID, seconds),
   guildRetention: (guildID) => call("GuildRetention", guildID),
   unmuteMember: (guildID, fingerprint) => call("UnmuteMember", guildID, fingerprint),

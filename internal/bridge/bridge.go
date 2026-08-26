@@ -14,6 +14,7 @@ import (
 	"time"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
+	"github.com/ZahakJ/concord/internal/chronimport"
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
 	"github.com/ZahakJ/concord/internal/version"
@@ -59,6 +60,12 @@ type Bridge struct {
 	// OnStory fires as the "story" event when a guild's stories change
 	// (GuildID "" = the expiry sweep; recheck every guild).
 	OnStory func(StoryUpdate)
+	// OnChronicleImport fires as the "chronicle-import" event roughly every five
+	// hundred messages of a running chat-export import, and once more when it
+	// ends. The terminal beat carries phase "done" or "failed"; the reason for a
+	// failure is in ChronicleImportStatus, not in the event, so a progress bar
+	// never has to parse one.
+	OnChronicleImport func(appsvc.ChatImportProgress)
 }
 
 // StoryUpdate names the guild whose stories changed ("" = several may have).
@@ -600,6 +607,11 @@ func (b *Bridge) Login(passphrase string) error {
 	svc.OnStory(func(guildID string) {
 		if b.OnStory != nil {
 			b.OnStory(StoryUpdate{GuildID: guildID})
+		}
+	})
+	svc.OnChatImport(func(p appsvc.ChatImportProgress) {
+		if b.OnChronicleImport != nil {
+			b.OnChronicleImport(p)
 		}
 	})
 	b.svc = svc
@@ -2069,6 +2081,57 @@ func (b *Bridge) SetChroniclePinned(guildID string, pinned bool) error {
 	return svc.SetChroniclePinned(guildID, pinned)
 }
 
+// ---- importing a chat export into a guild ----
+//
+// Four calls, and the shape of them is dictated by the fact that the third one
+// takes minutes. Scan and Estimate are ordinary request/response — the first
+// reads the export once, the second is arithmetic over what the first found, so
+// the wizard can re-estimate on every slider drag without touching a file.
+// Import STARTS a job and hands back its id; progress arrives as
+// chronicle-import events and the outcome is read back with Status. An RPC that
+// blocked for twenty minutes would time out in every transport this bridge has.
+
+// ScanChatExport reads a directory of channel-export JSON files and reports what
+// is in it — per channel, per author, per attachment size — without writing or
+// fetching anything. The result is cached against the directory's fingerprint.
+func (b *Bridge) ScanChatExport(dir string) (*chronimport.Stats, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	return svc.ScanChatExport(dir)
+}
+
+// EstimateChatImport projects what importing that directory under a policy would
+// cost: messages, pages, sealed media, and the total that lands on disk.
+func (b *Bridge) EstimateChatImport(dir string, policy chronimport.Policy) (chronimport.Estimate, error) {
+	svc, err := b.service()
+	if err != nil {
+		return chronimport.Estimate{}, err
+	}
+	return svc.EstimateChatImport(dir, policy)
+}
+
+// ImportChatExport starts the import and returns a job id. Owner-only, and
+// refused while another import is running.
+func (b *Bridge) ImportChatExport(guildID, dir string, policy chronimport.Policy) (string, error) {
+	svc, err := b.service()
+	if err != nil {
+		return "", err
+	}
+	return svc.ImportChatExport(guildID, dir, policy)
+}
+
+// ChronicleImportStatus reports where an import got to. An empty job id asks
+// about the most recent one — what a client that reloaded mid-import needs.
+func (b *Bridge) ChronicleImportStatus(jobID string) (appsvc.ChatImportStatus, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.ChatImportStatus{}, err
+	}
+	return svc.ChronicleImportStatus(jobID)
+}
+
 // SetRetention sets how long messages are kept, in seconds (0 = forever).
 // An empty channelID sets the guild-wide policy; a channel id overrides it for
 // that channel. Needs manage-guild — it deletes other members' copies too.
@@ -3036,6 +3099,14 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.ChronicleMessages(argStr(args, 0), argStr(args, 1), argInt64(args, 2), argInt(args, 3), argBool(args, 4))
 	case "SetChroniclePinned":
 		return nil, b.SetChroniclePinned(argStr(args, 0), argBool(args, 1))
+	case "ScanChatExport":
+		return b.ScanChatExport(argStr(args, 0))
+	case "EstimateChatImport":
+		return b.EstimateChatImport(argStr(args, 0), argImportPolicy(args, 1))
+	case "ImportChatExport":
+		return b.ImportChatExport(argStr(args, 0), argStr(args, 1), argImportPolicy(args, 2))
+	case "ChronicleImportStatus":
+		return b.ChronicleImportStatus(argStr(args, 0))
 	case "SetRetention":
 		return nil, b.SetRetention(argStr(args, 0), argStr(args, 1), argInt(args, 2))
 	case "GuildRetention":
@@ -3263,6 +3334,20 @@ func argStrMap(args []json.RawMessage, i int) map[string]string {
 	var m map[string]string
 	_ = json.Unmarshal(args[i], &m)
 	return m
+}
+
+// argImportPolicy decodes a chat-import policy. A missing or unreadable
+// argument becomes the ZERO policy, which imports text only — the same
+// fail-quiet direction every other helper here takes, and the safe one for this
+// argument in particular: a policy that arrived garbled must under-import, never
+// seal forty gigabytes of video nobody asked for.
+func argImportPolicy(args []json.RawMessage, i int) chronimport.Policy {
+	if i >= len(args) {
+		return chronimport.Policy{}
+	}
+	var p chronimport.Policy
+	_ = json.Unmarshal(args[i], &p)
+	return p
 }
 
 func argStrs(args []json.RawMessage, i int) []string {
