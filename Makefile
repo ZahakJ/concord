@@ -18,7 +18,15 @@ VERSION ?= dev
 # gomobile bind flags shared by both mobile cores.
 #   -checklinkname=0: github.com/wlynxg/anet (libp2p's Android net shim) uses
 #    go:linkname into net internals that Go 1.23+ rejects by default.
-MOBILE_LDFLAGS := -checklinkname=0 -s -w -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)
+#   -extldflags max-page-size=16384: Android 15 ships 16KB memory pages on new
+#    64-bit devices and Play refuses uploads at targetSdk 35+ whose native
+#    libraries are laid out for 4KB pages. The external linker (cgo/c-shared
+#    always uses one) decides the ELF LOAD alignment, so the flag has to reach
+#    the NDK's lld rather than the Go linker. Verify with
+#    `llvm-readelf -lW libgojni.so`: every LOAD must read 0x4000, not 0x1000.
+#    Single quotes because this expands inside a double-quoted -ldflags string.
+MOBILE_PAGE_ALIGN := -extldflags '-Wl,-z,max-page-size=16384,-z,common-page-size=16384'
+MOBILE_LDFLAGS := -checklinkname=0 -s -w $(MOBILE_PAGE_ALIGN) -X github.com/ZahakJ/concord/internal/version.Version=$(VERSION)
 ANDROID_API    := 26
 IOS_VERSION    := 15.0
 
