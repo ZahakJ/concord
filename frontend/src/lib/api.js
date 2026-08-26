@@ -311,6 +311,12 @@ export const api = {
   setGameSearchEnabled: (on) => call("SetGameSearchEnabled", on),
   gifSearchEnabled: () => call("GifSearchEnabled"),
   setGifSearchEnabled: (on) => call("SetGifSearchEnabled", on),
+  // Erasing this device, in two calls on purpose: beginWipe destroys nothing
+  // and hands back a one-shot ticket plus the phrase that must be typed, and
+  // confirmWipe spends the ticket whether or not it matched. See
+  // internal/bridge/wipe.go for why one call would have been wrong.
+  beginWipe: () => call("BeginWipe"),
+  confirmWipe: (ticket, typed) => call("ConfirmWipe", ticket, typed),
   toggleReaction: (channelID, messageID, emoji) =>
     call("ToggleReaction", channelID, messageID, emoji),
   inviteCode: (guildID) => call("InviteCode", guildID),

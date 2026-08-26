@@ -4,6 +4,7 @@
   // their paragraphs attached, which is what made that list a wall.
   import Modal from "./Modal.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
+  import ModalWipeDevice from "./ModalWipeDevice.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
   import { api } from "../lib/api.js";
@@ -21,6 +22,9 @@
   // confirmation reached via Settings → Privacy dropped you all the way back to
   // the chat pane. Layering the component keeps the panel and its trail intact.
   let confirmPurge = $state(false);
+  // Same reasoning: layered, not pushed through S.modal, so cancelling the
+  // erase leaves you standing in Privacy & safety rather than back in the chat.
+  let confirmWipe = $state(false);
   async function emptyTrash() {
     confirmPurge = false;
     purging = true;
@@ -181,8 +185,11 @@
     />
   </SettingGroup>
 
-  {#if S.isMobile}
-    <SettingGroup label="This device">
+  <SettingGroup
+    label="This device"
+    info="Everything here is about this one install. Concord has no account database to delete you from — your data is on the devices that hold it, and this is the one you are holding."
+  >
+    {#if S.isMobile}
       <SettingRow
         icon="lock"
         title="App lock"
@@ -193,9 +200,21 @@
         disabled={!bioEnrolled()}
         onclick={() => setPref("appLock", !(S.prefs.appLock === true))}
       />
-    </SettingGroup>
-  {/if}
+    {/if}
+    <SettingRow
+      icon="trash"
+      title="Delete everything on this device"
+      sub="Erase your identity, guilds and message history from here"
+      info="Wipes the keystore, the encrypted database and the MLS group state, leaving the app as it was before you first opened it. It reaches nothing outside this device: messages you have sent are on the recipients' machines and cannot be recalled. If another of your devices is still linked, re-linking this one brings your guilds and history back; the 24-word recovery phrase on its own does not — it restores the account key only."
+      danger
+      onclick={() => (confirmWipe = true)}
+    />
+  </SettingGroup>
 </Modal>
+
+{#if confirmWipe}
+  <ModalWipeDevice onClose={() => (confirmWipe = false)} />
+{/if}
 
 {#if confirmPurge}
   <ConfirmDialog
