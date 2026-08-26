@@ -66,6 +66,15 @@ type Bridge struct {
 	// failure is in ChronicleImportStatus, not in the event, so a progress bar
 	// never has to parse one.
 	OnChronicleImport func(appsvc.ChatImportProgress)
+
+	// PickDirectory opens the platform's folder chooser and reports what was
+	// chosen, or "" when the person cancelled. Set only by a shell that owns a
+	// native window to hang a dialog on; nil everywhere else, which is what
+	// CanPickDirectory reports so the caller can offer a text field instead of
+	// a button that does nothing. It is a HOOK rather than a method because the
+	// dialog belongs to the windowing toolkit, and this package must keep
+	// building for the browser-served and mobile shells that have none.
+	PickDirectory func(title string) (string, error)
 }
 
 // StoryUpdate names the guild whose stories changed ("" = several may have).
@@ -2091,6 +2100,23 @@ func (b *Bridge) SetChroniclePinned(guildID string, pinned bool) error {
 // chronicle-import events and the outcome is read back with Status. An RPC that
 // blocked for twenty minutes would time out in every transport this bridge has.
 
+// CanChooseFolder reports whether this shell has a native folder chooser. The
+// wizard asks before it draws: an export lives at a path nobody has memorised,
+// and "type it in" is a reasonable fallback but a poor first offer.
+func (b *Bridge) CanChooseFolder() bool { return b.PickDirectory != nil }
+
+// ChooseFolder opens that chooser and returns the chosen path, or "" when the
+// dialog was dismissed — which is not an error and must not be reported as one.
+func (b *Bridge) ChooseFolder(title string) (string, error) {
+	if b.PickDirectory == nil {
+		return "", nil
+	}
+	if title == "" {
+		title = "Choose a folder"
+	}
+	return b.PickDirectory(title)
+}
+
 // ScanChatExport reads a directory of channel-export JSON files and reports what
 // is in it — per channel, per author, per attachment size — without writing or
 // fetching anything. The result is cached against the directory's fingerprint.
@@ -3099,6 +3125,10 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.ChronicleMessages(argStr(args, 0), argStr(args, 1), argInt64(args, 2), argInt(args, 3), argBool(args, 4))
 	case "SetChroniclePinned":
 		return nil, b.SetChroniclePinned(argStr(args, 0), argBool(args, 1))
+	case "CanChooseFolder":
+		return b.CanChooseFolder(), nil
+	case "ChooseFolder":
+		return b.ChooseFolder(argStr(args, 0))
 	case "ScanChatExport":
 		return b.ScanChatExport(argStr(args, 0))
 	case "EstimateChatImport":

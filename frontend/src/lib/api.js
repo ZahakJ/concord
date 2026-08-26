@@ -393,6 +393,11 @@ export const api = {
   // "chronicle-import" event, and is read back with chronicleImportStatus("").
   // Nothing is ever fetched from the network: media the export did not bring
   // along is imported as a placeholder line naming the file and its size.
+  // canChooseFolder is false on every shell without a native window to hang a
+  // dialog on (the browser build, phones), where the wizard asks for a typed
+  // path instead. chooseFolder resolves to "" when the dialog was dismissed.
+  canChooseFolder: () => call("CanChooseFolder"),
+  chooseFolder: (title = "") => call("ChooseFolder", title),
   scanChatExport: (dir) => call("ScanChatExport", dir),
   estimateChatImport: (dir, policy) => call("EstimateChatImport", dir, policy),
   importChatExport: (guildID, dir, policy) => call("ImportChatExport", guildID, dir, policy),

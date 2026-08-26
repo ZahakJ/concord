@@ -82,6 +82,13 @@ func main() {
 		Linux:            &linux.Options{Icon: appIcon},
 		OnStartup: func(ctx context.Context) {
 			b.SetContext(ctx)
+			// The one dialog the desktop shell owns that the web build cannot:
+			// choosing the folder an exported community was unpacked into. A
+			// path typed into a text field is the fallback everywhere else, and
+			// it is a bad first offer for a directory nobody has memorised.
+			b.PickDirectory = func(title string) (string, error) {
+				return wruntime.OpenDirectoryDialog(ctx, wruntime.OpenDialogOptions{Title: title})
+			}
 			// Events flow over the native Wails runtime (window.runtime.EventsOn),
 			// which is injected even with -skipbindings — unlike the Go method
 			// bindings (window.go.*), which aren't, hence RPC over HTTP.
