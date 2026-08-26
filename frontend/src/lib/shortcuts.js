@@ -112,10 +112,43 @@ function pttUp(e) {
   if (heldBind && releasesBind(e, heldBind)) release();
 }
 
+// The chords that keep working while a text field has focus: the ones a caret,
+// a selection or a character has no claim on. Everything else in the keymap
+// belongs to the field for as long as it holds focus.
+function globalWhileTyping(e, mod) {
+  // Escape's own branch already decides what it means with focus in a field.
+  if (e.key === "Escape") return true;
+  // Ctrl+Shift+M / D — mic and deafen, mid-call, mid-sentence: exactly when
+  // you need them.
+  if (mod && e.shiftKey && (e.key === "m" || e.key === "M" || e.key === "d" || e.key === "D")) return true;
+  // Ctrl+, and Ctrl+Shift+, — settings and stats.
+  if (mod && (e.key === "," || e.key === "<")) return true;
+  // Ctrl+= / - / 0 — UI zoom.
+  if (mod && !e.altKey && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) return true;
+  // Ctrl+/ — the cheat sheet. (Bare "?" is a character and stays in the field.)
+  if (mod && e.key === "/") return true;
+  return false;
+}
+
 export function installShortcuts() {
   const handler = (e) => {
     const mod = e.ctrlKey || e.metaKey;
+    // A focused text field owns its keys first.
+    //
+    // Every binding here listens on `window`, which sees a keystroke whether or
+    // not a field has focus — and nothing below used to check. So Ctrl+K in the
+    // composer inserted a markdown link AND opened the quick switcher on one
+    // press; Ctrl+U, which a Unix text field reads as "delete to the start of
+    // the line", also toggled the member panel; and Alt+↑/↓, the caret's
+    // paragraph jump, switched channels out from under a half-written message
+    // and took the draft's focus with it.
+    if (inputFocused() && !globalWhileTyping(e, mod)) return;
+    // Ctrl/Cmd+K — the quick switcher. Refused while a dialog is up: the
+    // switcher and the modal overlay were peers in the stacking order, so it
+    // opened UNDER the dialog — an invisible thing holding the keyboard, and an
+    // Escape that closed whichever of the two the browser reached first.
     if (mod && e.key.toLowerCase() === "k") {
+      if (S.modal) return;
       e.preventDefault();
       S.quickSwitcher = !S.quickSwitcher;
       return;
@@ -126,8 +159,11 @@ export function installShortcuts() {
       if (focusSearch()) e.preventDefault();
       return;
     }
-    // Ctrl/Cmd+, — user settings.
-    if (mod && e.key === ",") {
+    // Ctrl/Cmd+, — user settings. !e.shiftKey because a layout that keeps
+    // reporting "," with Shift held (anything but a US keyboard, in practice)
+    // sent Ctrl+Shift+, here first and opened Settings instead of the stats
+    // panel it is bound to.
+    if (mod && !e.shiftKey && e.key === ",") {
       e.preventDefault();
       S.modal = S.modal?.kind === "settings" ? null : { kind: "settings" };
       return;

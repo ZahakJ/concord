@@ -260,7 +260,11 @@
     display: flex;
     justify-content: center;
     padding-top: 12vh;
-    z-index: 100;
+    /* Above a dialog's overlay, not level with it. Ctrl+K is refused while a
+       modal is open (lib/shortcuts.js), but a tie here meant that whenever the
+       two did coexist the switcher lost on DOM order and took the keyboard from
+       behind the scrim. */
+    z-index: 110;
     animation: qs-fade 0.12s ease;
   }
   .switcher {
@@ -402,7 +406,7 @@
   }
   .hit-unread.mention {
     background: var(--accent);
-    color: var(--accent-fg, #fff);
+    color: var(--accent-fg);
   }
   .hit-label {
     flex: 1;
