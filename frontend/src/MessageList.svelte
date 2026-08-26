@@ -2,6 +2,7 @@
   // The feed: date dividers, consecutive-sender grouping, drag-and-drop
   // attachments, pins/search panels, and the out-of-sync banner.
   import Icon from "./Icon.svelte";
+  import EmptyState from "./EmptyState.svelte";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Message from "./Message.svelte";
   import ArchiveMessage from "./ArchiveMessage.svelte";
@@ -165,13 +166,17 @@
     }
     const c = activeChannel();
     const name = c?.name || "this-channel";
+    // The hash belongs to a TEXT channel — it is the sigil you type to link one.
+    // A voice room is not addressed that way and is not named that way either
+    // ("Voice Lounge", not "voice-lounge"), so "#Voice Lounge" read as a typo.
+    // The icon and the body already branched here; the title was the holdout.
+    const voice = c?.type === "voice";
     return {
-      icon: c?.type === "voice" ? "speaker" : "hash",
-      title: `Welcome to #${name}`,
-      body:
-        c?.type === "voice"
-          ? `This is the chat alongside the ${name} voice channel. Drop a link or a note for whoever's on the call.`
-          : `This is the start of #${name}. Say hi 👋`,
+      icon: voice ? "speaker" : "hash",
+      title: voice ? `Welcome to ${name}` : `Welcome to #${name}`,
+      body: voice
+        ? `This is the chat alongside the ${name} voice channel. Drop a link or a note for whoever's on the call.`
+        : `This is the start of #${name}. Say hi 👋`,
     };
   });
 
@@ -1252,11 +1257,7 @@
            channels an import has just created that are most likely to have no
            live history at all. -->
       <div class="empty">
-        <div class="empty-badge">
-          <Icon name={emptyInfo.icon} size={28} />
-        </div>
-        <h3>{emptyInfo.title}</h3>
-        <p class="muted">{emptyInfo.body}</p>
+        <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body} />
       </div>
     {/if}
   {/if}
@@ -1533,76 +1534,13 @@
     margin-top: calc(-1 * var(--feed-gap));
     pointer-events: none;
   }
+  /* Centering only. The illustration itself — badge, dashed orbit, drifting
+     satellite, entrance — was extracted into EmptyState.svelte for the other
+     panels and then left duplicated here, which is how the two drifted: this
+     copy's headline sat at a literal 18px while the shared one was on the type
+     scale. Positioning is the parent's job and the only job left here. */
   .empty {
     margin: auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
-    gap: var(--sp-1);
-    max-width: 400px;
-    padding: var(--sp-5) var(--sp-4);
-    /* Settle in gently instead of popping when a fresh channel opens.
-       (The global reduced-motion rule in app.css zeroes the duration.) */
-    animation: empty-in 0.4s var(--ease-out) both;
-  }
-  @keyframes empty-in {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-  }
-  .empty-badge {
-    position: relative;
-    width: 64px;
-    height: 64px;
-    border-radius: 22px;
-    display: grid;
-    place-items: center;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-    margin-bottom: 10px;
-  }
-  /* A dashed "orbit" ring + a small satellite dot make it feel illustrated
-     without any image assets (strict CSP: inline CSS only). */
-  .empty-badge::before {
-    content: "";
-    position: absolute;
-    inset: -9px;
-    border-radius: 28px;
-    border: 1.5px dashed color-mix(in srgb, var(--accent) 38%, transparent);
-  }
-  .empty-badge::after {
-    content: "";
-    position: absolute;
-    top: -13px;
-    right: -11px;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--accent);
-    opacity: 0.55;
-    /* The satellite drifts gently, giving the illustrated badge some life. */
-    animation: sat-float 4.5s ease-in-out infinite;
-  }
-  @keyframes sat-float {
-    50% {
-      transform: translateY(-4px);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .empty-badge::after {
-      animation: none;
-    }
-  }
-  .empty h3 {
-    margin: 0;
-    font-size: 18px;
-  }
-  .empty p {
-    margin: 0;
-    font-size: var(--fs-ui);
-    line-height: 1.55;
   }
   .day-divider {
     display: flex;

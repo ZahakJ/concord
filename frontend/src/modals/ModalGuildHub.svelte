@@ -15,11 +15,10 @@
   import {
     S,
     activeGuild,
-    refreshGuilds,
-    selectGuild,
     flash,
     openPanel,
     modalNav,
+    confirmLeaveGuild,
   } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { PERM, has } from "../lib/perms.js";
@@ -65,28 +64,6 @@
     S.modal = { kind: "invite", code };
   }
 
-  // Same confirm as ChatHeader's — copied, not imported: a cross-component
-  // import for one payload would couple the header to this modal's lifetime.
-  function confirmLeave() {
-    if (!g) return;
-    const verb = g.isOwner ? "Delete" : "Leave";
-    S.modal = {
-      kind: "confirm",
-      title: `${verb} "${g.name}"?`,
-      body: "Its messages will be removed from this device.",
-      confirmLabel: verb,
-      onConfirm: async () => {
-        S.modal = null;
-        await api.leaveGuild(g.id);
-        S.activeGuildId = "";
-        S.activeChannelId = "";
-        S.messages = [];
-        await refreshGuilds();
-        if (S.guilds.length) selectGuild(S.guilds[0].id);
-        flash(g.isOwner ? "Guild deleted" : "Left guild");
-      },
-    };
-  }
 </script>
 
 <Modal title="Guild settings" wide {onClose}>
@@ -273,7 +250,7 @@
             </span>
           </div>
         {/if}
-        <button class="row danger" onclick={confirmLeave}>
+        <button class="row danger" onclick={() => confirmLeaveGuild(g)}>
           <span class="chip danger-chip"><Icon name={g.isOwner ? "trash" : "door"} size={16} /></span>
           <span class="row-text">
             <span class="row-title">{g.isOwner ? "Delete guild" : "Leave guild"}</span>

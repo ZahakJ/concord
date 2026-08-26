@@ -12,12 +12,9 @@
     activeGuild,
     nudge,
     openContextMenu,
-    refreshGuilds,
-    selectGuild,
     selectChannel,
-    flash,
-    clearFeed,
     accentForeground,
+    confirmLeaveGuild,
   } from "./lib/state.svelte.js";
   import { untrack } from "svelte";
   import { pushLayer, syncLayer } from "./lib/navstack.svelte.js";
@@ -193,32 +190,6 @@
     });
   });
 
-  function confirmLeave() {
-    const g = activeGuild();
-    if (!g) return;
-    // A 1:1 DM is only CLOSED (hidden; messaging again reopens it, history
-    // intact) — the backend keeps the conversation alive underneath.
-    const closeDM = g.kind === "dm" && (g.dmMembers ?? 2) <= 2;
-    const verb = closeDM ? "Close" : g.isOwner ? "Delete" : "Leave";
-    S.modal = {
-      kind: "confirm",
-      title: `${verb} "${g.name}"?`,
-      body: closeDM
-        ? "The conversation is hidden from your list — messaging each other brings it back."
-        : "Its messages will be removed from this device.",
-      confirmLabel: verb,
-      onConfirm: async () => {
-        S.modal = null;
-        await api.leaveGuild(g.id);
-        S.activeGuildId = "";
-        S.activeChannelId = "";
-        clearFeed();
-        await refreshGuilds();
-        if (S.guilds.length) selectGuild(S.guilds[0].id);
-        flash(closeDM ? "Conversation closed" : g.isOwner ? "Guild deleted" : "Left guild");
-      },
-    };
-  }
 
   function moreMenu(e) {
     const g = activeGuild();
@@ -276,7 +247,7 @@
               : "Leave guild",
           icon: g.isOwner ? "trash" : "door",
           danger: true,
-          onClick: confirmLeave,
+          onClick: () => confirmLeaveGuild(activeGuild()),
         },
       ],
       { title },
@@ -537,7 +508,7 @@
         autocapitalize="none"
         autocorrect="off"
         spellcheck="false"
-        placeholder="Search all conversations"
+        placeholder="Search all conversations…"
         aria-label="Search messages"
         bind:this={searchEl}
         bind:value={S.searchQuery}

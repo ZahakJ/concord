@@ -10,6 +10,7 @@
   // creating/editing happens in each room's own calendar.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import EmptyState from "../EmptyState.svelte";
   import EventCard from "../EventCard.svelte";
   import { fly } from "svelte/transition";
   import { S, clockOpts, flash, refreshGuilds } from "../lib/state.svelte.js";
@@ -362,14 +363,12 @@
       {/each}
     {/each}
     {#if !upcoming.length}
-      <div class="empty">
-        <span class="badge"><Icon name="calendar" size={20} /></span>
-        <strong>A clear horizon</strong>
-        <p class="muted">
-          Nothing coming up anywhere — no guild events, no plans in your chats, nothing private.
-          Enjoy it — or be the reason everyone else can't.
-        </p>
-        <div class="empty-acts">
+      <EmptyState
+        icon="calendar"
+        headline="A clear horizon"
+        sub="Nothing coming up anywhere — no guild events, no plans in your chats, nothing private. Enjoy it — or be the reason everyone else can't."
+      >
+        {#snippet actions()}
           {#if firstGuild}
             <button class="primary" onclick={() => planIn(firstGuild)}>
               <Icon name="plus" size={13} /> Open {firstGuild.name}'s calendar
@@ -380,8 +379,8 @@
           <button class="ghost priv" onclick={planPrivate}>
             <Icon name="lock" size={12} /> Add something private
           </button>
-        </div>
-      </div>
+        {/snippet}
+      </EmptyState>
     {/if}
   </div>
   {/if}
@@ -735,30 +734,6 @@
     color: var(--accent-hover);
     flex-shrink: 0;
   }
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    text-align: center;
-    padding: 26px 16px;
-  }
-  .empty .badge {
-    display: grid;
-    place-items: center;
-    width: 52px;
-    height: 52px;
-    border-radius: 16px;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-    margin-bottom: var(--sp-1);
-  }
-  .empty p {
-    margin: 0 0 8px;
-    max-width: 340px;
-    font-size: var(--fs-compact);
-    line-height: 1.5;
-  }
   .primary {
     display: inline-flex;
     align-items: center;
@@ -770,13 +745,6 @@
     font-weight: 600;
     font-size: var(--fs-ui);
   }
-  .empty-acts {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--sp-2);
-    flex-wrap: wrap;
-  }
   .ghost.priv {
     display: inline-flex;
     align-items: center;
@@ -785,8 +753,8 @@
     font-size: var(--fs-ui);
   }
   @media (pointer: coarse), (max-width: 768px) {
-    .empty-acts .primary,
-    .empty-acts .ghost.priv {
+    .primary,
+    .ghost.priv {
       min-height: var(--tap-min);
     }
   }

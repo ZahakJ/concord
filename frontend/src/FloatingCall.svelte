@@ -220,7 +220,7 @@
     padding: 6px var(--sp-2);
     background: var(--ok-soft);
     border-bottom: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
-    box-shadow: 0 6px 16px rgb(0 0 0 / 0.28);
+    box-shadow: var(--shadow-pop);
     user-select: none;
   }
   .cb-open {
@@ -407,11 +407,6 @@
   }
   .ico.hang:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
-  }
-  /* Round controls keep a round focus ring (the global :focus-visible rule
-     would otherwise square their corners). */
-  .ico:focus-visible {
-    border-radius: 50%;
   }
 
   @media (prefers-reduced-motion: reduce) {

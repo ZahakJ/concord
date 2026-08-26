@@ -652,13 +652,19 @@
       <span class="find"><Icon name="search" size={14} /></span>
       <!-- svelte-ignore a11y_autofocus -->
       <!-- Same on this tab: the results grid sits below the box, and an IME on
-           open leaves nothing to browse. Typing is still one tap away. -->
+           open leaves nothing to browse. Typing is still one tap away.
+
+           The placeholder names the field, always. It used to swap to "Search
+           unavailable" when the tab could not search, which put a state message
+           in the one slot that is supposed to say what a box is FOR — and did it
+           redundantly: the .notice directly above already explains why, in a
+           sentence, next to the button that fixes it. -->
       <input
         class="q"
         autofocus={!S.isMobile}
         bind:value={sq}
         disabled={!usable}
-        placeholder={usable ? `Search ${source} via your rendezvous…` : "Search unavailable"}
+        placeholder={`Search ${source} via your rendezvous…`}
         aria-label="Search for GIFs through your rendezvous"
         enterkeyhint="search"
         oninput={onType}

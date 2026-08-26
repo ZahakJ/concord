@@ -62,8 +62,8 @@
     if (!ch) return "Select a channel";
     const g = activeGuild();
     if (g?.dmNotes) return "Write a note to yourself…";
-    if (g?.kind === "dm") return `Message ${g.name || "your friend"}`;
-    return `Message #${ch.name}`;
+    if (g?.kind === "dm") return `Message ${g.name || "your friend"}…`;
+    return `Message #${ch.name}…`;
   });
 
   const ch = $derived(activeChannel());
@@ -1639,7 +1639,7 @@
           <button
             type="button"
             class="iconbtn"
-            use:tooltip={"Advanced composer (colors, rich embeds, preview)"}
+            use:tooltip={"Advanced composer (colours, rich embeds, preview)"}
             aria-label="Advanced composer"
             disabled={!ch}
             onclick={openAdvanced}

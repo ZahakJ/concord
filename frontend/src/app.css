@@ -351,9 +351,9 @@
     content: "";
     position: absolute;
     inset: 0;
-    /* A black sheet is right for every dark pack; the one pack with a BRIGHT
-       backdrop (daybreak) overrides the token with a white one, because the
-       black version turns a morning sky into a bruise. */
+    /* A black sheet is right for every dark pack; the two packs with a BRIGHT
+       backdrop (daybreak and atrium) override the token with a white one,
+       because the black version turns a morning sky into a bruise. */
     background: var(--tb-scrim, rgba(0, 0, 0, 0.62));
   }
 }
@@ -919,7 +919,7 @@
       streak's width, a scanline's pitch) deliberately do NOT scale — a 1px
       speck shrunk to 0.4px is a grey smear.
    4. --fx-ink is the field colour, as an "r, g, b" triple. It is white on
-      every dark ground and dark on the four light packs (and on the plain
+      every dark ground and dark on the six light packs (and on the plain
       light theme), because white snow on near-white paper is no snow at all.
 
    The class prefix is `fxo-`, not `fx-`: `fx-<kind>` is already the particle
@@ -1534,8 +1534,8 @@ button:disabled {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent-hover);
-  outline-offset: 2px;
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-ring-offset);
   /* No border-radius here on purpose: the outline already follows each element's
      own radius, so forcing one squared off circular/pill controls (call buttons,
      reaction pills, avatars) on focus. Let each control keep its shape. */

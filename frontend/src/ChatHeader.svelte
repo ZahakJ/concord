@@ -9,12 +9,11 @@
     activeChannel,
     channelName,
     flash,
-    refreshGuilds,
-    selectGuild,
     voiceMembersFor,
     channelTypeIcon,
     toggleMemberPanel,
     openProfilePopover,
+    confirmLeaveGuild,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { saveText } from "./lib/savefile.js";
@@ -56,27 +55,6 @@
 
   async function showInvite() {
     S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) };
-  }
-
-  function confirmLeave() {
-    if (!g) return;
-    const verb = g.isOwner ? "Delete" : "Leave";
-    S.modal = {
-      kind: "confirm",
-      title: `${verb} "${g.name}"?`,
-      body: "Its messages will be removed from this device.",
-      confirmLabel: verb,
-      onConfirm: async () => {
-        S.modal = null;
-        await api.leaveGuild(g.id);
-        S.activeGuildId = "";
-        S.activeChannelId = "";
-        S.messages = [];
-        await refreshGuilds();
-        if (S.guilds.length) selectGuild(S.guilds[0].id);
-        flash(g.isOwner ? "Guild deleted" : "Left guild");
-      },
-    };
   }
 
   // The transcript comes from the backend, which reads the store. Building it
@@ -141,7 +119,7 @@
       <input
         class="search-box"
         class:busy={S.searchLoading || S.searchQuery || S.searchResults !== null}
-        placeholder="Search all conversations"
+        placeholder="Search all conversations…"
         aria-label="Search messages across all conversations"
         bind:this={searchEl}
         bind:value={S.searchQuery}
@@ -205,7 +183,11 @@
         <span class="live-dot"></span>
         <span class="n">Live{peerSharing ? " · sharing" : ""} · Join</span>
       </button>
-    {:else if ch}
+      <!-- Notes is a conversation with yourself, so it gets no call button: the
+           phone shell already withheld it (`!g.dmNotes`) and the desktop header
+           did not, which left a Call button whose only possible outcome was
+           ringing an empty room. -->
+    {:else if ch && !g?.dmNotes}
       <button
         class="ghost iconbtn"
         class:call={g?.kind === "dm" || g?.kind === "meeting"}
@@ -326,7 +308,7 @@
             <Icon name="gear" size={14} /> Guild settings
           </button>
           <div class="menu-sep"></div>
-          <button class="menu-item danger" onclick={confirmLeave}>
+          <button class="menu-item danger" onclick={() => confirmLeaveGuild(g)}>
             <Icon name={g.isOwner ? "trash" : "door"} size={14} />
             {g.isOwner ? "Delete guild" : "Leave guild"}
           </button>
@@ -617,12 +599,6 @@
   }
   .pill-btn.leave:hover {
     background: var(--danger-soft);
-  }
-  /* Round controls keep a round focus ring (the global :focus-visible rule
-     would otherwise square their corners to --radius-sm). */
-  .pill-btn:focus-visible,
-  .search-clear:focus-visible {
-    border-radius: 50%;
   }
   .invite {
     padding: 6px 12px;

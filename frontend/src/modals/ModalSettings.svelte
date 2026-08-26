@@ -196,7 +196,7 @@
         />
         <span class="row-text">
           <span class="row-title">{S.displayName || S.identity.displayName || "Your profile"}</span>
-          <span class="row-sub">Name, avatar, color, status &amp; bio</span>
+          <span class="row-sub">Name, avatar, colour, status &amp; bio</span>
         </span>
         <span class="chev">›</span>
       </button>

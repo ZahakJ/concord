@@ -8,6 +8,7 @@
   // Notes self-DM (private to you) — see the isDM/isNotes derivations below.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import EmptyState from "../EmptyState.svelte";
   import EventCard from "../EventCard.svelte";
   import { fly, slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
@@ -45,6 +46,30 @@
 
   let view = $state(S.isMobile ? "agenda" : "grid");
   let selectedDay = $state(""); // a dayKey, or "" = everything
+
+  // The empty panel's copy, as data. It used to be four branches of markup
+  // inside the illustration, which is why this panel could not use the shared
+  // EmptyState — the component takes a headline and a sub, and the branching
+  // was tangled up with the badge. Lifting it out is what let the illustration
+  // become the house one.
+  const emptyHead = $derived(
+    selectedDay
+      ? `Nothing on ${fmtDayHeading(selectedDay)}`
+      : isNotes
+        ? "Nothing planned — just yours"
+        : isDM
+          ? `Nothing planned ${(g?.dmMembers ?? 2) > 2 ? "here" : `with ${g?.name || "them"}`} yet`
+          : "Nothing on the calendar yet",
+  );
+  const emptyBody = $derived(
+    selectedDay
+      ? "A free day. Suspiciously free. Fix that?"
+      : isNotes
+        ? 'Dentist, deadline, "call mom" — events here are private to you, synced to your own devices, and show up in Your calendar tagged Private.'
+        : isDM
+          ? `"When are we hopping on?" — put a time on it. Everyone in this chat sees it, and Join drops ${dmEveryone} straight into the call.`
+          : "Game night, standup, the big launch — whatever this crew does together, give it a time and everyone can RSVP right here.",
+  );
   let editing = $state(null); // null | draft {id?, title, details, location, start, durMin}
   let showPast = $state(false);
 
@@ -782,34 +807,13 @@
         {/each}
       {:else}
         {#if !pastEvents.length}
-          <div class="empty">
-            <span class="badge"><Icon name="calendar" size={20} /></span>
-            {#if selectedDay}
-              <strong>Nothing on {fmtDayHeading(selectedDay)}</strong>
-              <p class="muted">A free day. Suspiciously free. Fix that?</p>
-            {:else if isNotes}
-              <strong>Nothing planned — just yours</strong>
-              <p class="muted">
-                Dentist, deadline, "call mom" — events here are private to you, synced to your own
-                devices, and show up in Your calendar tagged Private.
-              </p>
-            {:else if isDM}
-              <strong>Nothing planned {(g?.dmMembers ?? 2) > 2 ? "here" : `with ${g?.name || "them"}`} yet</strong>
-              <p class="muted">
-                "When are we hopping on?" — put a time on it. Everyone in this chat sees it, and
-                Join drops {dmEveryone} straight into the call.
-              </p>
-            {:else}
-              <strong>Nothing on the calendar yet</strong>
-              <p class="muted">
-                Game night, standup, the big launch — whatever this crew does together, give it a
-                time and everyone can RSVP right here.
-              </p>
-            {/if}
-            <button class="primary" onclick={startCreate}>
-              <Icon name="plus" size={13} /> Plan something
-            </button>
-          </div>
+          <EmptyState icon="calendar" headline={emptyHead} sub={emptyBody}>
+            {#snippet actions()}
+              <button class="primary" onclick={startCreate}>
+                <Icon name="plus" size={13} /> Plan something
+              </button>
+            {/snippet}
+          </EmptyState>
         {/if}
       {/each}
       {#if pastEvents.length}
@@ -1085,30 +1089,6 @@
   }
   .pchev.open {
     transform: rotate(90deg);
-  }
-  .empty {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    text-align: center;
-    padding: 26px 16px;
-  }
-  .empty .badge {
-    display: grid;
-    place-items: center;
-    width: 52px;
-    height: 52px;
-    border-radius: 16px;
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-    margin-bottom: var(--sp-1);
-  }
-  .empty p {
-    margin: 0 0 8px;
-    max-width: 340px;
-    font-size: var(--fs-compact);
-    line-height: 1.5;
   }
   /* ---- create / edit: three taps, not a tax form ---- */
   .form {

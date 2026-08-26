@@ -580,7 +580,7 @@
           </button>
           {#if !S.isMobile}
             <button class="cta" onclick={newPost}>
-              <Icon name="plus" size={14} /> <span>New Post</span>
+              <Icon name="plus" size={14} /> <span>New post</span>
             </button>
           {/if}
         </div>
@@ -598,7 +598,7 @@
           bind:this={searchEl}
           bind:value={query}
           type="text"
-          placeholder="Search posts"
+          placeholder="Search posts…"
           aria-label="Search posts"
           spellcheck="false"
         />
@@ -723,7 +723,7 @@
         headline="Nothing here yet"
         sub="Start the first post — it becomes its own thread, with its own unread badge."
       />
-      <button class="cta solid" onclick={newPost}><Icon name="plus" size={14} /> New Post</button>
+      <button class="cta solid" onclick={newPost}><Icon name="plus" size={14} /> New post</button>
     </div>
   {:else if !visible.length}
     <div class="state">
@@ -1391,8 +1391,12 @@
   }
   .card:focus-within {
     border-color: var(--accent);
-    /* An outline, not a shadow: no repaint of the card's whole box. */
-    outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    /* An outline, not a shadow: no repaint of the card's whole box. The ring is
+       the app's, not a softer local one — a half-strength ring on the biggest
+       target on the screen was the hardest focus indicator in the app to find,
+       which is exactly backwards. Inset by a pixel so it lands on the card's
+       own border instead of floating off a tightly packed grid. */
+    outline: var(--focus-ring);
     outline-offset: -1px;
   }
   .card.pinned {

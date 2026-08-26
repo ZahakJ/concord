@@ -40,7 +40,7 @@
   const customList = $derived(activeGuild()?.emoji || []);
   // Tabs: recent (if any) + the standard categories + guild (if any custom).
   const tabs = $derived([
-    ...(recents.length ? [{ key: "recent", label: "Recently Used", icon: "🕘" }] : []),
+    ...(recents.length ? [{ key: "recent", label: "Recently used", icon: "🕘" }] : []),
     ...CATEGORIES,
     ...(customList.length ? [{ key: "guild", label: "Guild", icon: "🖼️" }] : []),
   ]);

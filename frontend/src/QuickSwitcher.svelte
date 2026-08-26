@@ -65,7 +65,7 @@
     const list = [
       { id: "newdm", label: "New message", icon: "edit", run: () => (S.modal = { kind: "newDM" }) },
       { id: "create", label: "Create guild", icon: "plus", run: () => (S.modal = { kind: "create" }) },
-      { id: "join", label: "Join with invite", icon: "door", run: () => (S.modal = { kind: "join" }) },
+      { id: "join", label: "Join with an invite code", icon: "download", run: () => (S.modal = { kind: "join" }) },
       { id: "mycal", label: "Your calendar", icon: "calendar", run: () => (S.modal = { kind: "myCalendar" }) },
       { id: "saved", label: "Saved messages", icon: "pin", run: () => (S.modal = { kind: "saved" }) },
       { id: "reach", label: "Can people reach me?", icon: "bolt", sub: "connection check", run: () => (S.modal = { kind: "reach" }) },

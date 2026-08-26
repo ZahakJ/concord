@@ -19,6 +19,7 @@
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
   import { api } from "../lib/api.js";
   import { haptic } from "../lib/touch.js";
+  import { S } from "../lib/state.svelte.js";
   let { identity, onSubmit, onClose } = $props();
   let name = $state(identity.displayName || "");
   let status = $state(identity.status || "");
@@ -60,7 +61,18 @@
   // screen, to establish that you are you. Grouped in fours so an eye can hold
   // a place in it, and tappable, because selecting a run of monospace inside a
   // scrolling sheet with a fingertip is close to impossible.
-  const fprGroups = $derived((identity.fingerprint || "").match(/.{1,4}/g)?.join(" ") || "");
+  //
+  // Strip the whitespace BEFORE regrouping. Fingerprints already arrive
+  // space-grouped, so chunking the raw string counted those spaces as
+  // characters and produced ragged runs — "YXNO  YAD U MX G3" — in the one
+  // string in the app whose whole job is to be read out loud and matched
+  // character for character. ProfilePopover fixed this; this copy did not.
+  const fprGroups = $derived(
+    (identity.fingerprint || "")
+      .replace(/\s+/g, "")
+      .replace(/(.{4})/g, "$1 ")
+      .trim(),
+  );
   let fprCopied = $state(false);
   async function copyFingerprint() {
     try {
@@ -494,7 +506,7 @@
       </span>
       <span class="re-text">
         <strong>{CARD_FRAME_BY_ID[cf]?.name || "None"}</strong>
-        <span class="tiny muted">{CARD_FRAMES.length} scenes</span>
+        <span class="tiny muted">{CARD_FRAMES.length} frames</span>
       </span>
       <span class="chev">›</span>
     </button>
@@ -534,7 +546,7 @@
     <span class="muted">Your identity fingerprint (others verify you with this):</span>
     <button class="fpr mono" onclick={copyFingerprint} title="Copy fingerprint">
       {fprGroups}
-      <span class="fpr-hint">{fprCopied ? "Copied" : "Tap to copy"}</span>
+      <span class="fpr-hint">{fprCopied ? "Copied" : S.isMobile ? "Tap to copy" : "Click to copy"}</span>
     </button>
   </div>
 
@@ -648,10 +660,14 @@
      So the chip is a BOX around a miniature card rather than a card itself.
      The mini keeps the 272×400 proportion the art is authored in, so nothing
      is squashed, and the box around it is the room the overhang needs. */
+  /* 30px, the same slot the avatar and the effect chip occupy: three rows one
+     under another with a 40px preview in the middle put the middle row's name
+     ten pixels right of its neighbours'. The mini card inside is what shrank;
+     the chip does not clip, so a frame's overhang still hangs over. */
   .cf-chip {
     position: relative;
-    width: 40px;
-    height: 40px;
+    width: 30px;
+    height: 30px;
     flex: none;
     display: flex;
     align-items: center;
@@ -659,8 +675,8 @@
   }
   .cf-mini {
     position: relative;
-    width: 21px;
-    height: 31px;
+    width: 17px;
+    height: 25px;
     border-radius: 2px;
     background: var(--bg-1);
     box-shadow: 0 0 0 1.5px var(--bg-3);

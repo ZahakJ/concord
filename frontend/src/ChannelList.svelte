@@ -203,12 +203,12 @@
   function channelMenu(e, c) {
     openContextMenu(e, [
       c.type === "voice" && {
-        label: "Open Chat",
+        label: "Open chat",
         icon: "hash",
         onClick: () => selectChannel(c.id), // view messages without joining the call
       },
       c.type === "voice" && { sep: true },
-      { label: "Mark As Read", icon: "check", onClick: () => markRead(c.id) },
+      { label: "Mark as read", icon: "check", onClick: () => markRead(c.id) },
       // Notification level, listed flat with a tick on the one in force — the
       // same shape "Change type to…" uses below, since this menu has no
       // submenus. "Use guild default" is a fourth, distinct answer: it's not a
@@ -248,23 +248,23 @@
           ]
         : []),
       canManageChannels && {
-        label: "Rename Channel",
+        label: "Rename channel",
         icon: "edit",
         onClick: () => (S.modal = { kind: "renameChannel", guildId: g.id, channelId: c.id, current: c.name }),
       },
       canManageChannels && c.type !== "voice" && {
-        label: "Edit Topic",
+        label: "Edit topic",
         icon: "list",
         onClick: () => (S.modal = { kind: "channelTopic", channel: c }),
       },
       canManageChannels && c.type === "announcement" && {
-        label: "Linked Channels",
+        label: "Linked channels",
         icon: "link",
         onClick: () => (S.modal = { kind: "channelLinks", channel: c }),
       },
       canManageChannels && { sep: true },
       canManageChannels && {
-        label: "Delete Channel",
+        label: "Delete channel",
         icon: "trash",
         danger: true,
         onClick: () => deleteChannel(c),
@@ -300,8 +300,8 @@
       "position:fixed;top:-100px;left:-100px;max-width:220px;overflow:hidden;" +
       "white-space:nowrap;text-overflow:ellipsis;padding:6px 14px;font-size:var(--fs-ui);" +
       "font-weight:600;color:var(--text);background:var(--bg-2);" +
-      "border:1px solid var(--accent);border-radius:8px;" +
-      "box-shadow:0 8px 24px rgba(0,0,0,0.35);pointer-events:none;";
+      "border:1px solid var(--accent);border-radius:var(--radius-md);" +
+      "box-shadow:var(--shadow-pop);pointer-events:none;";
     document.body.appendChild(ghost);
     e.dataTransfer.setDragImage(ghost, 16, 16);
     requestAnimationFrame(() => ghost.remove()); // only needed for the snapshot
@@ -389,7 +389,7 @@
       "position:fixed;top:-100px;left:-100px;max-width:200px;overflow:hidden;" +
       "white-space:nowrap;text-overflow:ellipsis;padding:5px 12px;font-size:var(--fs-compact);" +
       "font-weight:600;color:var(--accent-fg);background:var(--accent);" +
-      "border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none;";
+      "border-radius:999px;box-shadow:var(--shadow-pop);pointer-events:none;";
     document.body.appendChild(ghost);
     e.dataTransfer.setDragImage(ghost, 20, 14);
     requestAnimationFrame(() => ghost.remove());
@@ -485,7 +485,7 @@
     const isGroup = (dm.dmMembers ?? 2) > 2;
     openContextMenu(e, [
       {
-        label: "Mark As Read",
+        label: "Mark as read",
         icon: "check",
         onClick: () => markRead(dm.channels?.[0]?.id),
       },
@@ -495,7 +495,7 @@
         onClick: () => (S.modal = { kind: "disappear", channelId: dm.channels[0].id }),
       },
       isGroup && {
-        label: "Rename Group",
+        label: "Rename group",
         icon: "edit",
         onClick: () =>
           (S.modal = {
@@ -516,7 +516,7 @@
               onClick: () => blockUser(dm.dmPeer, dm.name),
             }),
       {
-        label: (dm.dmMembers ?? 2) > 2 ? "Leave Group" : "Close DM",
+        label: (dm.dmMembers ?? 2) > 2 ? "Leave group" : "Close DM",
         icon: "door",
         danger: true,
         onClick: () =>

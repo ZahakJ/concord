@@ -80,8 +80,8 @@
       e,
       [
         {
-          label: "Copy Text",
-          icon: "edit",
+          label: "Copy text",
+          icon: "copy",
           onClick: () => {
             navigator.clipboard?.writeText(plain);
             flash("Copied text", "success");

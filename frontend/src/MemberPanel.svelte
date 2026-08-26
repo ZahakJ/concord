@@ -36,7 +36,7 @@
 
   function memberMenu(e, mem) {
     openContextMenu(e, [
-      { label: "View Profile", icon: "spark", onClick: () => openProfilePopover(mem.fingerprint, e.target) },
+      { label: "View profile", icon: "spark", onClick: () => openProfilePopover(mem.fingerprint, e.target) },
       // Only while you're actually in a call, and only for someone who isn't
       // already in it — otherwise it's an option that can't mean anything.
       !!S.voice &&
@@ -47,7 +47,7 @@
           onClick: () => inviteToCall(mem.fingerprint),
         },
       {
-        label: "Copy User ID",
+        label: "Copy user ID",
         icon: "check",
         onClick: () => {
           navigator.clipboard?.writeText(mem.fingerprint);
@@ -61,7 +61,7 @@
         !mem.isSelf &&
         !mem.isOwner &&
         !mem.pending && {
-          label: "Transfer Ownership…",
+          label: "Transfer ownership…",
           icon: "crown",
           danger: true,
           onClick: () => transferOwnership(mem),
@@ -73,12 +73,12 @@
         !mem.isOwner &&
         !mem.pending &&
         (mem.isHeir
-          ? { label: "Revoke Heir", icon: "crown", onClick: () => revokeHeir(mem) }
-          : { label: "Name as Heir…", icon: "crown", onClick: () => nameHeir(mem) }),
+          ? { label: "Revoke heir", icon: "crown", onClick: () => revokeHeir(mem) }
+          : { label: "Name as heir…", icon: "crown", onClick: () => nameHeir(mem) }),
       g?.canManage &&
         !mem.isSelf &&
         !mem.isOwner && {
-          label: "Remove from Guild",
+          label: "Remove from guild",
           icon: "close",
           danger: true,
           onClick: () => kick(mem),
@@ -95,7 +95,7 @@
       kind: "confirm",
       title: `Transfer ownership to ${name}?`,
       body: `This makes ${name} the owner of ${g?.name || "this guild"}. You'll become a regular member, and only ${name} can hand ownership back.`,
-      confirmLabel: "Transfer Ownership",
+      confirmLabel: "Transfer ownership",
       onConfirm: async () => {
         S.modal = null;
         try {
@@ -123,7 +123,7 @@
       kind: "confirm",
       title: `Name ${name} as heir?`,
       body: `${name} will be able to take ownership of ${g?.name || "this guild"} at any time — including while you're still around. Only name someone you'd trust to run this place. You can revoke this whenever you like, until it's used.`,
-      confirmLabel: "Name as Heir",
+      confirmLabel: "Name as heir",
       onConfirm: async () => {
         S.modal = null;
         try {
@@ -157,7 +157,7 @@
       kind: "confirm",
       title: "Take ownership of this guild?",
       body: `The owner named you their heir, so you can take over at any time. You'll become the owner of ${g?.name || "this guild"} and the current owner becomes a regular member. Do this if the owner is gone — or asked you to.`,
-      confirmLabel: "Take Ownership",
+      confirmLabel: "Take ownership",
       onConfirm: async () => {
         S.modal = null;
         try {
@@ -320,7 +320,7 @@
       api
         .cancelPendingMember(S.activeGuildId, mem.fingerprint)
         .then(() => refreshRightPanel())
-        .then(() => flash("Invite canceled"))
+        .then(() => flash("Invite cancelled"))
         .catch(flash);
       return;
     }
@@ -383,7 +383,7 @@
       <input
         class="member-filter"
         type="text"
-        placeholder="Filter members"
+        placeholder="Filter members…"
         aria-label="Filter members by name or status"
         bind:value={memberFilter}
         onkeydown={filterKeydown}

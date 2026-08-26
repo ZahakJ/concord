@@ -151,7 +151,7 @@
     <div class="tabs">
       <button class:on={tab === "presets"} onclick={() => (tab = "presets")}>Presets</button>
       <button class:on={tab === "image"} onclick={() => (tab = "image")}>Image</button>
-      <button class:on={tab === "colors"} onclick={() => (tab = "colors")}>Your colors</button>
+      <button class:on={tab === "colors"} onclick={() => (tab = "colors")}>Your colours</button>
     </div>
 
     {#if tab === "presets"}

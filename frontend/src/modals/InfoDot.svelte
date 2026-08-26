@@ -131,6 +131,8 @@
     border: 1px solid var(--text-muted);
     background: transparent;
     color: var(--text-muted);
+    /* Geometry, not type: the italic i has to sit inside a 14px ring, and the
+       phone step of --fs-micro (11px) does not fit one. */
     font-size: 9.5px;
     font-weight: 700;
     font-style: italic;
@@ -166,7 +168,7 @@
        --bg-1, and matching it makes the popover read as part of the row. */
     background: var(--bg-3);
     border: 1px solid var(--border);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--shadow-pop);
     color: var(--text);
     font-size: var(--fs-compact);
     font-weight: 400;

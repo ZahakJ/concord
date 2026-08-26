@@ -246,7 +246,7 @@
     <p class="muted tiny">
       A pack is a whole look, not a hue: its own typeface, corner radius, avatar
       shape, shadow depth and feed rhythm come with it. (An accent preset or a
-      Corners/Typeface choice under Customize still overrides the pack.)
+      Corners/Typeface choice under Customise still overrides the pack.)
     </p>
 
     <div class="live-head">
@@ -333,7 +333,7 @@
   <hr />
   <button class="disclose" onclick={() => (custom = !custom)} aria-expanded={custom}>
     <span class="disclose-chev" class:open={custom}>›</span>
-    Customize
+    Customise
     <span class="disclose-sub">Accent, corners, typeface, density &amp; clock</span>
   </button>
 
@@ -342,7 +342,7 @@
 
     <section>
       <strong class="label">Accent</strong>
-      <div class="swatches" role="radiogroup" aria-label="Accent color">
+      <div class="swatches" role="radiogroup" aria-label="Accent colour">
         {#each ACCENTS as a (a.color)}
           <button
             class="swatch"
@@ -360,8 +360,8 @@
           class:sel={accent === ""}
           role="radio"
           aria-checked={accent === ""}
-          title="Your profile color"
-          aria-label="Your profile color"
+          title="Your profile colour"
+          aria-label="Your profile colour"
           style="--sw:{profileColor}"
           onclick={() => setAppearance("accent", "")}
         ></button>
@@ -470,9 +470,9 @@
       <strong class="label">Flair</strong>
       <SettingRow
         icon="diamond"
-        title="Use guild colors"
+        title="Use guild colours"
         sub="Each guild tints the app with its banner's hue"
-        info="Derived from the banner a guild already chose, so every guild has a color identity for free. Your own accent preset above always wins when set."
+        info="Derived from the banner a guild already chose, so every guild has a colour identity for free. Your own accent preset above always wins when set."
         checked={S.prefs.guildAccents !== false}
         onclick={() => setAppearance("guildAccents", S.prefs.guildAccents === false)}
       />

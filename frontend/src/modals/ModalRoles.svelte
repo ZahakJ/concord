@@ -90,7 +90,7 @@
       <label class="field">
         <span class="muted">Role name</span>
         <div class="name-row">
-          <input type="color" bind:value={editing.color} title="Role color" />
+          <input type="color" bind:value={editing.color} title="Role colour" />
           <input bind:value={editing.name} maxlength="32" placeholder="e.g. Moderator" />
         </div>
       </label>

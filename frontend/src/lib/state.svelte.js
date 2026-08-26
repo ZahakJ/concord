@@ -784,18 +784,34 @@ export function guildMenuItems(g) {
 
 // confirmLeaveGuild: leaving is destructive and irreversible for the owner, so
 // it always goes through a confirm — wherever it's triggered from.
+//
+// It is the ONLY copy of this dialog. There were four: this one and three
+// hand-copies, in the chat header, the guild hub and the phone shell. All three
+// said the same flat sentence — "Its messages will be removed from this device"
+// — to an owner deleting a guild and to a member leaving one, which is the
+// question people actually want answered and the one the copy skipped. Two of
+// them also emptied S.messages by hand instead of calling clearFeed(), so the
+// pagination cursor and any imported archive from the guild you just left
+// stayed live under the next guild you opened. A dialog that appears in four
+// places is one dialog; the copies were three chances to be wrong.
 export function confirmLeaveGuild(g) {
   if (!g) return;
-  const verb = g.isOwner ? "Delete" : "Leave";
+  // A 1:1 conversation (Notes included) is only CLOSED, never destroyed: the
+  // backend keeps membership, subscriptions and history, and messaging each
+  // other brings it straight back. Saying "delete" there would be a lie.
+  const closeDM = g.kind === "dm" && (g.dmMembers ?? 2) <= 2;
+  const verb = closeDM ? "Close" : g.isOwner ? "Delete" : "Leave";
   S.modal = {
     kind: "confirm",
     title: `${verb} "${g.name}"?`,
     // Honest about what actually happens: removal is from THIS side and it
     // sticks — linked devices and old invites won't quietly re-add it. For an
     // owner, other members keep their copy (deleting is local, not a dissolve).
-    body: g.isOwner
-      ? "Its messages will be removed from this device, and it won't come back on its own. Other members keep their copy."
-      : "Its messages will be removed from this device, and you won't be re-added automatically. Rejoining takes a new invite.",
+    body: closeDM
+      ? "The conversation is hidden from your list — messaging each other brings it back."
+      : g.isOwner
+        ? "Its messages will be removed from this device, and it won't come back on its own. Other members keep their copy."
+        : "Its messages will be removed from this device, and you won't be re-added automatically. Rejoining takes a new invite.",
     confirmLabel: verb,
     onConfirm: async () => {
       S.modal = null;
@@ -805,7 +821,7 @@ export function confirmLeaveGuild(g) {
       clearFeed();
       await refreshGuilds();
       if (S.guilds.length) selectGuild(S.guilds[0].id);
-      flash(g.isOwner ? "Guild deleted" : "Left guild");
+      flash(closeDM ? "Conversation closed" : g.isOwner ? "Guild deleted" : "Left guild");
     },
   };
 }

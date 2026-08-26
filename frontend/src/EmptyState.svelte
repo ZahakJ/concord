@@ -3,17 +3,26 @@
   // empty-channel greeting so every panel speaks the same visual language:
   // an accent-tinted badge wearing a dashed "orbit" ring and a small drifting
   // satellite dot. Drawn entirely in CSS — strict CSP means no image assets.
-  // MessageList still carries its own original copy of this (unifying it can
-  // come later); centering is the parent's job, not ours.
+  // Centering is the parent's job, not ours.
+  //
+  // `actions` is a snippet, not a label-and-callback pair, because the buttons
+  // an empty state needs are not uniform — one panel offers a single primary,
+  // another offers a primary and a quiet alternative. Its absence was why five
+  // panels that DO have a next action hand-rolled the whole illustration
+  // instead of using this: there was nowhere to put the button, so the
+  // component was only usable by the dead ends. An empty state that names the
+  // thing you should do next and gives you nothing to press is a sign, not a
+  // door.
   import Icon from "./Icon.svelte";
 
-  let { icon = "diamond", headline, sub = "" } = $props();
+  let { icon = "diamond", headline, sub = "", actions } = $props();
 </script>
 
 <div class="empty">
   <div class="badge"><Icon name={icon} size={28} /></div>
   <h3>{headline}</h3>
   {#if sub}<p>{sub}</p>{/if}
+  {#if actions}<div class="acts">{@render actions()}</div>{/if}
 </div>
 
 <style>
@@ -88,5 +97,17 @@
     font-size: var(--fs-ui);
     line-height: 1.55;
     color: var(--text-muted);
+  }
+  .acts {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
+  }
+  .acts :global(button) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
   }
 </style>

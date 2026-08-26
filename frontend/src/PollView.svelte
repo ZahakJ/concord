@@ -410,6 +410,10 @@
     border-radius: 50%;
     background: var(--accent);
     color: var(--accent-fg);
+    /* A literal, and one of only two left in the app: this is a tick inside a
+       13px disc, not prose, and --fs-micro grows to 11px on a phone — which
+       would push the glyph out of the circle it is drawn in. Sizing here is
+       geometry. */
     font-size: 8px;
     font-weight: 900;
   }

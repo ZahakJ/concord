@@ -756,7 +756,7 @@
     if (img) {
       openContextMenu(e, [
         {
-          label: "Copy Image",
+          label: "Copy image",
           icon: "copy",
           onClick: async () => {
             try {
@@ -768,7 +768,7 @@
           },
         },
         {
-          label: "Save Image",
+          label: "Save image",
           icon: "download",
           onClick: async () => {
             // Only the gallery route is worth a toast: a browser download
@@ -783,7 +783,7 @@
         // loaded — the shortest path there is, and the reason the editor takes
         // a src rather than only offering its own templates.
         {
-          label: "Make a Meme",
+          label: "Make a meme",
           icon: "spark",
           onClick: () => (S.modal = { kind: "meme", src: img.src }),
         },
@@ -799,20 +799,20 @@
     const memeTok = isOwn ? atts.find((t) => knownRecipe(t.blobId)) : null;
     openContextMenu(e, [
       link && {
-        label: "Open Link",
+        label: "Open link",
         icon: "forward",
         onClick: () => window.open(link.href, "_blank", "noopener,noreferrer"),
       },
-      link && { label: "Copy Link", icon: "copy", onClick: () => copy(link.href, "Copied link") },
+      link && { label: "Copy link", icon: "copy", onClick: () => copy(link.href, "Copied link") },
       pre && {
-        label: "Copy Code",
+        label: "Copy code",
         icon: "copy",
         onClick: () => copy(pre.textContent || "", "Copied code"),
       },
       (link || pre) && { sep: true },
       { label: "Reply", icon: "reply", onClick: () => (S.replyingTo = m) },
       canThread && {
-        label: "Start Thread",
+        label: "Start thread",
         icon: "forum",
         onClick: () => {
           threadTitle = "";
@@ -829,12 +829,12 @@
             edit: { channelId: m.channelId, messageId: m.id, blobId: memeTok.blobId },
           }),
       },
-      { label: "Add Reaction", icon: "smile", onClick: () => (S.pickerTarget = m) },
+      { label: "Add reaction", icon: "smile", onClick: () => (S.pickerTarget = m) },
       { sep: true },
-      { label: "Copy Text", icon: "edit", onClick: () => copy(stripAttachTokens(m.content).trim() || previewText(m.content), "Copied text") },
+      { label: "Copy text", icon: "copy", onClick: () => copy(stripAttachTokens(m.content).trim() || previewText(m.content), "Copied text") },
       {
-        label: "Copy Message Link",
-        icon: "forward",
+        label: "Copy message link",
+        icon: "copy",
         onClick: () => copy(`concord://msg/${m.channelId}/${m.id}`, "Copied message link"),
       },
       {
@@ -852,13 +852,13 @@
       },
       { label: "Forward", icon: "forward", onClick: () => (S.modal = { kind: "forward", message: m }) },
       {
-        label: isSaved(m.id) ? "Remove from Saved" : "Save Message",
+        label: isSaved(m.id) ? "Remove from saved" : "Save message",
         icon: "pin",
         onClick: () => toggleSaved(m),
       },
-      { label: "Mark Unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
+      { label: "Mark unread", icon: "bell", onClick: () => markUnread(m.channelId, m) },
       {
-        label: "Remind Me",
+        label: "Remind me",
         icon: "clock",
         onClick: () =>
           (S.modal = {
@@ -1494,7 +1494,7 @@
      2px outward offset would land in the column's overflow-x:hidden and be
      sliced off on both sides. */
   .msg:focus-visible {
-    outline: 2px solid var(--accent-hover);
+    outline: var(--focus-ring);
     outline-offset: -2px;
   }
   .msg.compact {

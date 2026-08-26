@@ -29,7 +29,7 @@
     </button>
     <button class="card" onclick={() => (S.modal = { kind: "join", code: "" })}>
       <span class="ic"><Icon name="download" size={18} /></span>
-      <strong>Join with an invite</strong>
+      <strong>Join with an invite code</strong>
       <span class="muted sub">Paste a code a friend sent you</span>
     </button>
     <button class="card" onclick={selectNotes}>

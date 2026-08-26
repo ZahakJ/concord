@@ -1677,17 +1677,6 @@
   .ctl.hangup:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
   }
-  /* Circular controls keep a circular focus ring — the global :focus-visible
-     rule otherwise squares their corners to --radius-sm. */
-  .ctl:focus-visible,
-  .fbtn:focus-visible,
-  .bubble:focus-visible {
-    border-radius: 50%;
-  }
-  .screen-tile:focus-visible {
-    border-radius: var(--radius-md);
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .tile.speaking .ring,
     .focus-main.speaking,

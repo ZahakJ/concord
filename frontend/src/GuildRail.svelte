@@ -677,7 +677,7 @@
       >
         <Icon name="bolt" />
       </button>
-      <button class="pill add" use:tooltip={railTip} aria-label="Join with invite" onclick={() => (S.modal = { kind: "join", code: "" })}>
+      <button class="pill add" use:tooltip={railTip} aria-label="Join with an invite code" onclick={() => (S.modal = { kind: "join", code: "" })}>
         <Icon name="download" />
       </button>
     {/if}

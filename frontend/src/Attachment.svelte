@@ -35,7 +35,7 @@
   function imageMenu(e) {
     openContextMenu(e, [
       {
-        label: "Copy Image",
+        label: "Copy image",
         icon: "copy",
         onClick: async () => {
           try {
@@ -47,7 +47,7 @@
         },
       },
       {
-        label: "Save Image",
+        label: "Save image",
         icon: "download",
         // Honour a sender-supplied file name when there is one: it is the only
         // thing the v2 token's name field is good for, and without this the
@@ -72,7 +72,7 @@
       // itself and never has to know it came from an encrypted attachment.
       // Still offered next to "Edit meme": one fixes this meme, the other
       // starts a fresh one on top of the flattened result.
-      { label: "Make a Meme", icon: "spark", onClick: () => (S.modal = { kind: "meme", src }) },
+      { label: "Make a meme", icon: "spark", onClick: () => (S.modal = { kind: "meme", src }) },
     ]);
   }
 

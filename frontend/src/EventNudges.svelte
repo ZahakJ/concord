@@ -90,7 +90,7 @@
     border-radius: var(--radius-lg);
     background: var(--bg-2);
     border: 1px solid var(--border);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    box-shadow: var(--shadow-pop);
   }
   /* Live is the loud one: --ok frame + a slow breathing glow, the same
      temperature EventCard gives the one live card in a list. */
@@ -101,11 +101,11 @@
   @keyframes nudge-breathe {
     0%,
     100% {
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+      box-shadow: var(--shadow-pop);
     }
     50% {
       box-shadow:
-        0 10px 30px rgba(0, 0, 0, 0.35),
+        var(--shadow-pop),
         0 0 14px color-mix(in srgb, var(--ok) 28%, transparent);
     }
   }

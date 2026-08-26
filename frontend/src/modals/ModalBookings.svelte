@@ -157,7 +157,7 @@
         id="bk-blurb"
         class="fin"
         maxlength="280"
-        placeholder="e.g. 30 minutes, straight to a demo — bring questions."
+        placeholder="e.g. 30 minutes, straight to a demo — bring questions"
         bind:value={blurb}
       />
     </div>

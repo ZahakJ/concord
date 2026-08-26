@@ -18,14 +18,69 @@
   let { label = "More", icon = "chevron", align = "right", compact = false, up = false, children } = $props();
   let open = $state(false);
   // Both presentations are a layer: back closes the sheet on a phone, Escape
-  // the dropdown on a desktop, and neither needs a listener of its own.
+  // the dropdown on a desktop, and neither needs a listener of its own. Note
+  // this is also why nothing below adds a window Escape handler — that would
+  // pop the navstack twice and take whatever is underneath with it.
   syncLayer("menu", () => open, () => (open = false));
   let root = $state(null);
+  // The PANEL, separately from the trigger wrapper: on a phone the sheet is
+  // portalled out of .menu-root entirely, so `root` cannot reach the rows.
+  let panel = $state(null);
+  let prevFocus = null;
 
   function onWindowClick(e) {
     // The sheet portals outside .menu-root, so "outside the trigger" would
     // close it on its own first tap. It owns its dismissal (scrim/swipe).
     if (open && !S.isMobile && root && !root.contains(e.target)) open = false;
+  }
+
+  // role="menu" is a promise about the keyboard, and this component made it
+  // twice — on the dropdown and on the sheet — while honouring none of it. Tab
+  // walked straight past the open menu into the page behind it, the arrows did
+  // nothing, and closing left focus wherever it had wandered. ContextMenu, a
+  // hundred lines away, has had all of this the whole time; this is that
+  // behaviour, adapted to the one structural difference between them.
+  //
+  // The difference: ContextMenu builds its rows from a data array, so it can
+  // stamp role="menuitem" itself. Menu's rows arrive as a consumer snippet, so
+  // the roles are applied to the rendered DOM instead. Every consumer already
+  // marks its rows .menu-item and its rules .menu-sep (the stylesheet below
+  // depends on it), so the query is not a new contract, it is the existing one.
+  function decorate() {
+    if (!panel) return;
+    for (const el of panel.querySelectorAll(".menu-item")) el.setAttribute("role", "menuitem");
+    for (const el of panel.querySelectorAll(".menu-sep")) el.setAttribute("role", "separator");
+  }
+
+  $effect(() => {
+    if (!open || !panel) return;
+    decorate();
+    prevFocus = document.activeElement;
+    // preventScroll: an `up` menu sits on the bottom edge of the window, and
+    // focusing its first row without this scrolls the page out from under it.
+    panel.querySelector(".menu-item:not(:disabled)")?.focus({ preventScroll: true });
+    return () => {
+      if (prevFocus?.isConnected) prevFocus.focus();
+      prevFocus = null;
+    };
+  });
+
+  // Roving focus. Enter/Space need no handling — the rows are real <button>s.
+  // DOM order is visual order in both presentations, `up` included: that
+  // variant repositions the whole panel, it does not reverse it.
+  function onMenuKey(e) {
+    const items = [...e.currentTarget.querySelectorAll(".menu-item:not(:disabled)")];
+    if (!items.length) return;
+    const n = items.length;
+    const i = items.indexOf(document.activeElement);
+    let next = null;
+    if (e.key === "ArrowDown") next = items[i < 0 ? 0 : (i + 1) % n];
+    else if (e.key === "ArrowUp") next = items[i < 0 ? n - 1 : (i - 1 + n) % n];
+    else if (e.key === "Home") next = items[0];
+    else if (e.key === "End") next = items[n - 1];
+    if (!next) return;
+    e.preventDefault();
+    next.focus();
   }
 </script>
 
@@ -47,14 +102,29 @@
   {#if open}
     {#if S.isMobile}
       <BottomSheet title={label} onClose={() => (open = false)}>
-        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <div class="menu sheet" role="menu" onclick={() => (open = false)}>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="menu sheet"
+          role="menu"
+          tabindex="-1"
+          bind:this={panel}
+          onclick={() => (open = false)}
+          onkeydown={onMenuKey}
+        >
           {@render children()}
         </div>
       </BottomSheet>
     {:else}
-      <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-      <div class="menu {align}" class:up role="menu" onclick={() => (open = false)}>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="menu {align}"
+        class:up
+        role="menu"
+        tabindex="-1"
+        bind:this={panel}
+        onclick={() => (open = false)}
+        onkeydown={onMenuKey}
+      >
         {@render children()}
       </div>
     {/if}
@@ -193,6 +263,17 @@
     .menu :global(.menu-item.danger:hover) {
       background: var(--danger-soft);
     }
+  }
+  /* The keyboard's highlight is the mouse's highlight. Without this the arrow
+     keys moved a focus ring around rows that gave no other sign of being the
+     current one, which is a different-looking menu depending on which hand you
+     opened it with. Not inside the (pointer: fine) block above: a desktop
+     window under 768px gets the sheet, and a real keyboard with it. */
+  .menu :global(.menu-item:focus-visible) {
+    background: var(--bg-3);
+  }
+  .menu :global(.menu-item.danger:focus-visible) {
+    background: var(--danger-soft);
   }
   .menu :global(.menu-item:active) {
     background: var(--bg-3);
