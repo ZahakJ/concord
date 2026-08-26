@@ -101,6 +101,12 @@ type syncDigest struct {
 	// responder sends the ops we lack rather than the whole log. A hash per op
 	// costs ~6% of an op's own size, which is what buys the incremental replay.
 	GovOps []string `json:"govOps,omitempty"`
+	// Chronicles is per-archive, and per-archive costs nothing to be: a
+	// chronicle id is already the sha256 of its own manifest, so the inventory
+	// is a truncation rather than a hash — the same eight bytes every other
+	// entry here spends. One archive is nineteen bytes on the wire, which is
+	// what an idle guild pays for the whole feature.
+	Chronicles []string `json:"chron,omitempty"`
 }
 
 // maxDigestOps bounds the op inventory. Past it the oldest ops are left out and
@@ -185,6 +191,21 @@ func digestStories(recs []storyRecord, dels []storyDelete) string {
 	return setDigest(parts)
 }
 
+// digestChronicles inventories the archives a peer holds. digestRaw over the
+// manifest bytes, which is the leading half of the chronicle id itself — so the
+// responder can compare without decoding anything, and a manifest carrying a
+// field this build cannot read still compares correctly.
+func digestChronicles(raws []json.RawMessage) []string {
+	if len(raws) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raws))
+	for _, raw := range raws {
+		out = append(out, digestRaw(raw))
+	}
+	return out
+}
+
 func digestOps(ops []json.RawMessage) []string {
 	if len(ops) == 0 {
 		return nil
@@ -219,6 +240,7 @@ func sourceDigest(src syncSource) *syncDigest {
 		Events:      digestEvents(src.events),
 		Stories:     digestStories(src.stories, src.storyDels),
 		GovOps:      digestOps(src.govOps),
+		Chronicles:  digestChronicles(src.chronicles),
 	}
 }
 
@@ -229,12 +251,13 @@ func sourceDigest(src syncSource) *syncDigest {
 // so a dead record never spends payload budget — newest first, capped per guild.
 func (s *Service) syncSourceFor(guildID string, guild domain.Guild, nowUnix int64) syncSource {
 	src := syncSource{
-		guild:     guild,
-		profiles:  s.profileRoster(),
-		govOps:    s.govOpsFor(guildID),
-		stories:   s.storiesForSync(guildID, nowUnix),
-		storyDels: s.storyDelsForSync(guildID, nowUnix),
-		selfFpr:   s.id.Fingerprint(),
+		guild:      guild,
+		profiles:   s.profileRoster(),
+		govOps:     s.govOpsFor(guildID),
+		stories:    s.storiesForSync(guildID, nowUnix),
+		storyDels:  s.storyDelsForSync(guildID, nowUnix),
+		chronicles: s.chroniclesForSync(guildID),
+		selfFpr:    s.id.Fingerprint(),
 	}
 	if cats, err := s.store.Categories(guildID); err == nil {
 		src.categories = cats
@@ -341,6 +364,9 @@ type syncSource struct {
 	govOps     []json.RawMessage
 	stories    []storyRecord
 	storyDels  []storyDelete
+	// chronicles are owner-signed history-archive manifests, raw. Raw here and
+	// raw all the way out: the signature is over these exact bytes.
+	chronicles []json.RawMessage
 	channels   []syncChannelRows
 	// selfFpr is the responder's own account fingerprint, reqFpr the
 	// certificate-authenticated fingerprint of whoever asked.
@@ -442,7 +468,33 @@ func buildSyncPayload(src syncSource, have *syncDigest) (syncPayload, bool) {
 		}
 	}
 
-	// 3. Messages, per channel in the guild's own order. A row that doesn't fit
+	// 3. History-archive manifests. Above messages because a manifest is the
+	//    only way a member ever learns the archive EXISTS — the pages themselves
+	//    are fetched on demand and never travel here — and because it is a
+	//    table of contents, not content: a few hundred kilobytes at the very
+	//    worst, once, against an archive it makes readable. Per-manifest against
+	//    the requester's inventory, like governance ops, since an archive is
+	//    immutable and appending a second one must not re-ship the first.
+	if len(src.chronicles) > 0 {
+		var haveChron map[string]bool
+		if have != nil {
+			haveChron = make(map[string]bool, len(have.Chronicles))
+			for _, h := range have.Chronicles {
+				haveChron[h] = true
+			}
+		}
+		for _, raw := range src.chronicles {
+			if haveChron[digestRaw(raw)] {
+				continue
+			}
+			if !b.take(jsonCost(raw)) {
+				break
+			}
+			out.Chronicles = append(out.Chronicles, raw)
+		}
+	}
+
+	// 4. Messages, per channel in the guild's own order. A row that doesn't fit
 	//    stops THIS channel only — a smaller row in the next one may still fit,
 	//    and the cursor means neither is lost.
 	for _, ch := range src.channels {
@@ -454,7 +506,7 @@ func buildSyncPayload(src syncSource, have *syncDigest) (syncPayload, bool) {
 		}
 	}
 
-	// 4. Profiles: avatars up to 64 KiB and profile banners up to 256 KiB, so
+	// 5. Profiles: avatars up to 64 KiB and profile banners up to 256 KiB, so
 	//    the heaviest thing in the payload and the reason it needed a budget.
 	//    Cheapest first, so a name-only row is never displaced by somebody's
 	//    banner, and whatever didn't fit leads the next round.
@@ -502,7 +554,7 @@ func buildSyncPayload(src syncSource, have *syncDigest) (syncPayload, bool) {
 		out.Profiles[it.key] = src.profiles[it.key]
 	}
 
-	// 5. Custom emoji — the other unbounded pile of images, same rule.
+	// 6. Custom emoji — the other unbounded pile of images, same rule.
 	wanted = wanted[:0]
 	byName := make(map[string]domain.CustomEmoji, len(src.emoji))
 	for _, e := range src.emoji {
@@ -525,7 +577,7 @@ func buildSyncPayload(src syncSource, have *syncDigest) (syncPayload, bool) {
 		out.Emoji = append(out.Emoji, byName[it.key])
 	}
 
-	// 6. The guild's own art, last because it is the most decorative thing here
+	// 7. The guild's own art, last because it is the most decorative thing here
 	//    and the easiest to be a beat late with.
 	if src.guild.Icon != "" && (have == nil || have.GuildIcon != digestOf(src.guild.Icon)) {
 		if b.take(len(src.guild.Icon) + 32) {

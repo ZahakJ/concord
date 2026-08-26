@@ -1481,6 +1481,12 @@ type guildMeta struct {
 	// band, because a GIF would not fit in a gossip frame.
 	Gif   *GuildGif       `json:"gif,omitempty"`
 	GovOp json.RawMessage `json:"govOp,omitempty"` // a signed governance op (roles/bans)
+	// Chronicle carries the owner-signed manifest of a history archive
+	// (chronicle.go), verbatim. A RawMessage for the same reason GovOp is one:
+	// the signature covers the exact bytes, and a decode-then-re-encode on the
+	// way past would strip anything this build does not know about and leave a
+	// record nobody could re-verify.
+	Chronicle json.RawMessage `json:"chronicle,omitempty"`
 	// guild_profile: icon/banner/description (Name reused from above).
 	GuildIcon        string `json:"gIcon,omitempty"`
 	GuildBanner      string `json:"gBanner,omitempty"`
@@ -2562,6 +2568,14 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		s.applyStoryMeta(guildID, actor, m)
 	case "story_del":
 		s.applyStoryDelMeta(guildID, actor, m)
+	case "chronicle":
+		// A history archive's manifest. The authenticated actor is deliberately
+		// not passed on: unlike a story, which speaks for its author, an archive
+		// speaks for the guild's OWNER and carries their signature to prove it,
+		// so any member may relay one. That is the property that keeps an
+		// archive reachable once the machine that imported it is gone. The owner
+		// check itself lives in ingestChronicle, shared with the sync path.
+		s.applyChronicleMeta(guildID, m)
 	case "nickname":
 		// A per-guild nickname. Two legitimate authors: the member themselves,
 		// or a moderator with MANAGE_MEMBERS renaming someone (Discord-style).

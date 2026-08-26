@@ -261,6 +261,13 @@ type Service struct {
 	// attachFlight collapses concurrent fetches of one attachment blob (e.g.
 	// the same image rendered several times) into a single network request.
 	attachFlight singleflight.Group
+	// chronicleFlight does the same for a page of a history archive, where the
+	// duplication is easier to provoke: a scroll that crosses a chunk boundary
+	// asks for the same megabyte from the render and from the prefetch, and both
+	// arrive before either finishes. Its own group, not attachFlight's, only
+	// because sharing one keyspace between two content-addressed namespaces is
+	// a collision waiting for somebody to reuse an id.
+	chronicleFlight singleflight.Group
 
 	// previews caches link-preview scrapes (see preview.go).
 	previews *previewCache
@@ -1070,6 +1077,9 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 	// Serve attachment blobs to peers rendering images we hold.
 	host.HandleAttachments(s.handleAttachRequest)
+
+	// Serve pages of a guild's history archive to members reading it.
+	host.HandleChronicle(s.handleChronicleRequest)
 
 	// Hand our own release binary to peers running an older one.
 	host.HandleRelease(s.handleReleaseRequest)

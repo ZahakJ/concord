@@ -122,6 +122,12 @@ type syncPayload struct {
 	// StoryDels are author-signed retractions, verified exactly like Stories —
 	// a peer who slept through a delete hears it from whoever answers.
 	StoryDels []storyDelete `json:"storyDels,omitempty"`
+	// Chronicles are OWNER-signed history-archive manifests (chronicle.go),
+	// carried raw. Raw is load-bearing twice over: the signature covers these
+	// exact bytes, and this is the field most likely to grow one — decoding and
+	// re-encoding on the way past would silently strip whatever a newer peer
+	// added and leave a manifest nobody could verify again.
+	Chronicles []json.RawMessage `json:"chronicles,omitempty"`
 }
 
 // handleSyncRequest serves a peer's catch-up request from local state.
@@ -758,6 +764,16 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 		s.applySyncedEvent(guildID, ev)
 	}
 	s.ingestGovOpsRaw(guildID, payload.GovOps)
+
+	// History archives, AFTER the governance ops in the same payload. The order
+	// is the whole of the interlock: a manifest is only accepted from the guild's
+	// EFFECTIVE owner, and the op that moved the crown may be arriving in this
+	// very response. Applying the ops first means a member who slept through a
+	// transfer learns of it and of the new owner's archive in one round instead
+	// of dropping the archive and waiting a beat to be offered it again.
+	//
+	// Nothing here is taken on the responder's word — see applySyncedChronicles.
+	s.applySyncedChronicles(guildID, payload.Chronicles)
 
 	// Stories: the responder attests NOTHING for these — this payload is just
 	// whatever the serving member's disk says, and "trusted" above only covers
