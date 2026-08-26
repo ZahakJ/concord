@@ -421,7 +421,11 @@
     for (let j = lo; j < i && n && n !== s[1]; j++) n = n.nextElementSibling;
     if (!n || n === s[1]) return;
     const want = n.offsetTop - a.delta;
-    if (Math.abs(want - feedEl.scrollTop) >= 1) feedEl.scrollTop = want;
+    // Two pixels of slack. offsetTop is a rounded integer, so a correction of
+    // one pixel is usually the rounding and not a movement — and writing
+    // scrollTop mid-fling drags the scroll off the compositor and onto the main
+    // thread, which costs far more than the pixel was worth.
+    if (Math.abs(want - feedEl.scrollTop) > 2) feedEl.scrollTop = want;
   }
 
   // Which rows should be rendered for where we are now. At the bottom the answer
@@ -498,6 +502,24 @@
     // changing, so the cached table is good enough to ask the question with.
     let [a, b] = windowFor();
     if (a === lo && b === hi) return;
+    // Scrolling back over rows we have already measured needs neither of the
+    // expensive halves: every height in the new window is known, so the spacer
+    // above it is exact and the rows land where the arithmetic already said they
+    // would. Skipping the re-measure and the correction is what keeps a fling
+    // back through read history on the compositor.
+    let known = true;
+    for (let i = a; i < b; i++)
+      if (!advance.has(items[i].k)) {
+        known = false;
+        break;
+      }
+    if (known) {
+      lo = a;
+      hi = b;
+      applyPads();
+      if (pin) settle(pin, null);
+      return;
+    }
     const anchor = atBottom ? null : takeAnchor();
     measure();
     [a, b] = windowFor();
