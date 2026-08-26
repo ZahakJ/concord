@@ -12,6 +12,8 @@
     activeGuild,
     activeChannel,
     registerFeed,
+    registerFeedReveal,
+    trimLoadedHistory,
     scrollSoon,
     feedNearBottom,
     scrollToMessage,
@@ -37,6 +39,7 @@
 
   let feedEl = $state(null);
   let atBottom = $state(true);
+  let lastScrollTop = 0;
   $effect(() => registerFeed(feedEl));
 
   // Keep the feed pinned to the newest message while the user is at the bottom,
@@ -49,16 +52,22 @@
     if (!feedEl) return;
     const repin = () => {
       if (atBottom) feedEl.scrollTop = feedEl.scrollHeight;
+      // A row that changed height is a row whose cached advance is now a lie,
+      // and the window is sized from those numbers.
+      scheduleWindow();
     };
     // A fixed-height scroll container's OWN box doesn't change as content grows,
     // so we observe its children (each message row) — an image loading grows a
-    // row, which re-pins us. New rows are observed as they're added.
+    // row, which re-pins us. New rows are observed as they're added. The two
+    // spacers are skipped deliberately: their height is an OUTPUT of the
+    // measure pass, so observing them would feed it back into itself.
     const ro = new ResizeObserver(repin);
     ro.observe(feedEl); // container resize (e.g. mobile keyboard opening)
-    for (const child of feedEl.children) ro.observe(child);
-    const mo = new MutationObserver(() => {
-      for (const child of feedEl.children) ro.observe(child);
-    });
+    const watch = () => {
+      for (const child of feedEl.children) if (!child.classList.contains("vs")) ro.observe(child);
+    };
+    watch();
+    const mo = new MutationObserver(watch);
     mo.observe(feedEl, { childList: true });
     return () => {
       ro.disconnect();
@@ -228,6 +237,7 @@
   // the join is indistinguishable from scrolling anywhere else.
   const arcChan = $derived(archiveChannel());
   const arcRange = $derived(arcChan ? rangeLabel(arcChan.firstNano, arcChan.lastNano) : "");
+  const showArchive = $derived(S.feedReachedStart && !!arcChan && !S.feedLoading);
 
   const arcRows = $derived.by(() => {
     const out = [];
@@ -244,6 +254,334 @@
     }
     return out;
   });
+
+  // Everything the feed draws between the two spacers, flattened so that one
+  // item is exactly one element. Dividers are items in their own right rather
+  // than a conditional inside a row, because the window measures by walking
+  // siblings and pairing them off against this list — a row that sometimes
+  // brings a divider with it and sometimes doesn't would break the pairing.
+  const items = $derived.by(() => {
+    const out = [];
+    if (showArchive) {
+      for (const row of arcRows) {
+        if (row.newDay) out.push({ k: `ad:${row.key}`, t: "arcday", day: row.day });
+        out.push({ k: `a:${row.key}`, t: "arc", row });
+      }
+      out.push({ k: "seam", t: "seam" });
+    }
+    for (const row of rows) {
+      const m = row.m;
+      if (row.newDay) out.push({ k: `d:${m.id}`, t: "day", day: row.day });
+      if (m.id === newLineId) out.push({ k: "new", t: "new" });
+      // A join/create notice in a DM draws nothing at all (noise in a 1:1), and
+      // an item that draws nothing has no element to pair with.
+      if (m.kind === "system" && isDMView) continue;
+      out.push({ k: m.id, t: "row", row });
+    }
+    return out;
+  });
+
+  // ---- the window ----------------------------------------------------------
+  //
+  // The feed renders a window of its rows, not all of them. Above and below the
+  // window sits one spacer each, holding the height of everything not rendered,
+  // so the scrollbar still describes the whole thread and every scroll position
+  // in it remains reachable.
+  //
+  // Two decisions are worth stating because they are what make this safe on top
+  // of components as stateful as Message.svelte:
+  //
+  //   * The window is sized in PIXELS, not rows — the viewport plus a screenful
+  //     of overscan on each side. A row therefore has to be dragged a whole
+  //     screen out of sight before it is unmounted, which is what keeps the
+  //     things that live only in a mounted row (a revealed spoiler, an open
+  //     seal card, a half-typed edit) from being thrown away under normal
+  //     reading. The one that cannot survive it at all — an edit in progress,
+  //     whose textarea COMMITS on blur — is pinned into the window explicitly.
+  //
+  //   * Position is held by an anchor row, not by arithmetic. Before the window
+  //     changes we note which row is under the top of the viewport and how far
+  //     under; afterwards we put it back exactly there. Heights of rows nobody
+  //     has seen are guesses, and a guess is allowed to be wrong: it moves the
+  //     scrollbar thumb, never the words.
+  const OVERSCAN = 700; // px of rendered-but-offscreen rows on each side
+  const MAX_WINDOW = 160; // hard ceiling on rendered items, whatever their size
+
+  let lo = $state(0);
+  let hi = $state(0);
+  let topPad = $state(0);
+  let botPad = $state(0);
+
+  // key -> the distance from this item's top to the next item's top. An ADVANCE
+  // rather than a height because the feed is a flex column with a gap and
+  // grouped rows pull themselves up with a negative margin; the gap between two
+  // rows belongs to the row above as far as this arithmetic is concerned.
+  const advance = new Map();
+  const typeMean = new Map(); // item type -> mean measured advance
+  let headerH = 0; // the loading/seam markers that sit above the top spacer
+  let cum = [0]; // cum[i] = summed advance of items 0..i-1
+
+  const guessFor = (it) => typeMean.get(it.t) ?? (it.t === "row" || it.t === "arc" ? 46 : 30);
+  const hOf = (it) => advance.get(it.k) ?? guessFor(it);
+
+  function rebuildCum() {
+    const n = items.length;
+    const c = new Array(n + 1);
+    c[0] = 0;
+    for (let i = 0; i < n; i++) c[i + 1] = c[i] + hOf(items[i]);
+    cum = c;
+  }
+
+  // Largest index whose top is at or before y.
+  function indexAt(y) {
+    let a = 0;
+    let b = cum.length - 1;
+    while (a < b) {
+      const m = (a + b + 1) >> 1;
+      if (cum[m] <= y) a = m;
+      else b = m - 1;
+    }
+    return a;
+  }
+
+  function spacers() {
+    const top = feedEl?.querySelector(".vs-top");
+    const bot = feedEl?.querySelector(".vs-bot");
+    return top && bot ? [top, bot] : null;
+  }
+
+  // Read back what the browser actually did with the rows we rendered, and fold
+  // it into the height table. One layout flush, not one per row.
+  function measure() {
+    const s = spacers();
+    if (!s) return;
+    const [top, bot] = s;
+    headerH = top.offsetTop;
+    const els = [];
+    for (let n = top.nextElementSibling; n && n !== bot; n = n.nextElementSibling) els.push(n);
+    const sums = new Map();
+    // The last rendered element is skipped: the bottom spacer cancels the gap
+    // above itself, so measuring against it would record an advance one gap
+    // short. It is measured on the next pass, when something follows it.
+    for (let i = 0; i + 1 < els.length; i++) {
+      const it = items[lo + i];
+      if (!it) break;
+      const next = els[i + 1];
+      const h = next.offsetTop - els[i].offsetTop;
+      if (h <= 0) continue; // mid-transition or display:none; keep the old value
+      advance.set(it.k, h);
+      const s2 = sums.get(it.t) || [0, 0];
+      sums.set(it.t, [s2[0] + h, s2[1] + 1]);
+    }
+    // Guesses for rows nobody has scrolled to yet come from the rows they have.
+    for (const [t, [total, n]] of sums) {
+      const seen = typeMean.get(t);
+      const fresh = total / n;
+      typeMean.set(t, seen == null ? fresh : Math.round(seen * 0.8 + fresh * 0.2));
+    }
+    rebuildCum();
+  }
+
+  function applyPads() {
+    const t = cum[lo] ?? 0;
+    const b = Math.max(0, (cum[items.length] ?? 0) - (cum[hi] ?? 0));
+    if (t === topPad && b === botPad) return;
+    topPad = t;
+    botPad = b;
+    // A spacer that just grew is content that just appeared above or below the
+    // viewport. The ResizeObserver deliberately does not watch the spacers (it
+    // would feed its own output back in), so the one case that must not be
+    // missed is said here: while following the newest message, stay on it.
+    if (atBottom)
+      tick().then(() => {
+        if (feedEl && atBottom) feedEl.scrollTop = feedEl.scrollHeight;
+      });
+  }
+
+  // The row under the top of the viewport, and how far under it is.
+  function takeAnchor() {
+    const s = spacers();
+    if (!s || !feedEl) return null;
+    const [top, bot] = s;
+    const st = feedEl.scrollTop;
+    let i = lo;
+    for (let n = top.nextElementSibling; n && n !== bot; n = n.nextElementSibling, i++) {
+      if (n.offsetTop + n.offsetHeight > st) return { k: items[i]?.k, delta: n.offsetTop - st };
+    }
+    return null;
+  }
+
+  function restoreAnchor(a) {
+    if (!a?.k || !feedEl) return;
+    const i = items.findIndex((x) => x.k === a.k);
+    if (i < lo || i >= hi) return;
+    const s = spacers();
+    if (!s) return;
+    let n = s[0].nextElementSibling;
+    for (let j = lo; j < i && n && n !== s[1]; j++) n = n.nextElementSibling;
+    if (!n || n === s[1]) return;
+    const want = n.offsetTop - a.delta;
+    if (Math.abs(want - feedEl.scrollTop) >= 1) feedEl.scrollTop = want;
+  }
+
+  // Which rows should be rendered for where we are now. At the bottom the answer
+  // is "the last screenful and a bit", computed from the end rather than from
+  // scrollTop — on a channel switch scrollTop is still 0 and the pin to the
+  // bottom has not happened yet.
+  function windowFor() {
+    const n = items.length;
+    if (!n) return [0, 0];
+    const view = feedEl?.clientHeight || 600;
+    let a;
+    let b;
+    if (atBottom) {
+      b = n;
+      a = indexAt(Math.max(0, cum[n] - view - OVERSCAN));
+    } else {
+      const st = (feedEl?.scrollTop || 0) - headerH;
+      a = indexAt(Math.max(0, st - OVERSCAN));
+      b = Math.min(n, indexAt(st + view + OVERSCAN) + 2);
+    }
+    if (b - a > MAX_WINDOW) {
+      if (atBottom) a = b - MAX_WINDOW;
+      else b = a + MAX_WINDOW;
+    }
+    // An edit in progress must not be unmounted: the textarea's blur handler
+    // commits, so scrolling away from it would silently save a half-written
+    // message and throw the rest of it away.
+    const pin = S.editing?.id;
+    if (pin) {
+      const p = items.findIndex((x) => x.k === pin);
+      if (p >= 0) {
+        if (p < a) a = p;
+        if (p >= b) b = p + 1;
+      }
+    }
+    return [a, b];
+  }
+
+  let windowPending = false;
+  function scheduleWindow() {
+    if (windowPending || !feedEl) return;
+    windowPending = true;
+    requestAnimationFrame(() => {
+      windowPending = false;
+      updateWindow();
+    });
+  }
+
+  // A jump has just placed the window somewhere the scroll position does not
+  // agree with yet. Recomputing from scrollTop in that gap would snap the window
+  // straight back and unmount the row the jump was for.
+  let revealHold = 0;
+  const revealPending = () => performance.now() < revealHold;
+
+  function updateWindow() {
+    if (!feedEl || !items.length) {
+      if (lo || hi) {
+        lo = hi = 0;
+        topPad = botPad = 0;
+      }
+      return;
+    }
+    if (performance.now() < revealHold) return;
+    // Whether we were following the newest message when this pass STARTED. The
+    // re-pin below happens a tick later, by which time the growing content can
+    // have put the scroller a screen short of the bottom — and a scroll event in
+    // that gap would have already answered "no, not at the bottom", turning one
+    // frame of lag into a permanent stop just above the newest message.
+    const pin = atBottom;
+    // Measure only when the answer is about to change. This runs on every
+    // scrolled frame, and measuring means reading offsetTop off forty elements —
+    // a forced layout, once per frame, for most of a fling that never leaves the
+    // window it started in. Heights cannot have changed without the rows
+    // changing, so the cached table is good enough to ask the question with.
+    let [a, b] = windowFor();
+    if (a === lo && b === hi) return;
+    const anchor = atBottom ? null : takeAnchor();
+    measure();
+    [a, b] = windowFor();
+    lo = a;
+    hi = b;
+    applyPads();
+    settle(pin, anchor);
+  }
+
+  // Put the scroller back where it belongs once the new window is on screen AND
+  // the spacers have taken their new heights. Two ticks, not one: the second
+  // measure feeds applyPads, and a pad written during a tick has not reached the
+  // DOM until the tick after it — reading scrollHeight in between measures the
+  // page as it was, which left the reader parked a screenful above the newest
+  // message and jumps to a row landing several thousand pixels past it.
+  async function settle(pin, anchor) {
+    await tick();
+    if (!feedEl) return;
+    measure();
+    applyPads();
+    await tick();
+    if (!feedEl) return;
+    if (pin) feedEl.scrollTop = feedEl.scrollHeight;
+    else restoreAnchor(anchor);
+  }
+
+  // A channel switch is a different thread: every measurement is about rows that
+  // no longer exist.
+  let windowChannel = "";
+  $effect(() => {
+    const ch = S.activeChannelId;
+    if (ch === windowChannel) return;
+    windowChannel = ch;
+    untrack(() => {
+      advance.clear();
+      typeMean.clear();
+      headerH = 0;
+      atBottom = true;
+      lastScrollTop = 0;
+      lo = hi = 0;
+      topPad = botPad = 0;
+    });
+  });
+
+  // Anything that changes the list changes the window.
+  $effect(() => {
+    void items.length;
+    void S.editing?.id;
+    untrack(scheduleWindow);
+  });
+
+  // Bring a row that is loaded but outside the window back into it, so the
+  // jump-to-message paths (reply refs, pin jumps, search hits, the reading-
+  // position stash, the unread divider) still have an element to aim at.
+  $effect(() =>
+    registerFeedReveal((key) => {
+      // "follow the newest message again" — the jump-to-latest buttons, a
+      // channel switch, a message you just sent. Said out loud rather than
+      // inferred from geometry a frame later, because the window is still
+      // settling its measurements at that point and the geometry lies.
+      if (key === "bottom") {
+        atBottom = true;
+        lastScrollTop = feedEl?.scrollTop ?? 0;
+        scheduleWindow();
+        return true;
+      }
+      const i = items.findIndex((x) =>
+        key === "new" ? x.t === "new" : x.t === "row" && x.row.m.id === key,
+      );
+      if (i < 0) return false;
+      if (i >= lo && i < hi) return true;
+      atBottom = false;
+      lo = Math.max(0, i - Math.floor(MAX_WINDOW / 2));
+      hi = Math.min(items.length, lo + MAX_WINDOW);
+      applyPads();
+      // Hold the window here until the caller has finished scrolling to it.
+      revealHold = performance.now() + 700;
+      tick().then(() => {
+        measure();
+        applyPads();
+      });
+      return true;
+    }),
+  );
 
   // A scroller only pages backwards when it can be scrolled backwards. A
   // channel whose live history is a handful of rows — every channel the import
@@ -282,15 +620,36 @@
   // insert: the prepended rows would otherwise shove the viewport down by
   // however tall they turned out to be. Shared by live history and the archive
   // because there is exactly one right way to do it.
+  //
+  // It cannot be the old "grew by N, so scroll by N" any more: most of what is
+  // prepended is never rendered, so the height it added is an estimate, and an
+  // estimate is not good enough to hold somebody's place. Instead the window
+  // slides down by however many items appeared above it — the SAME rows stay
+  // rendered — and the anchor puts the pixel offset back exactly.
   async function pageBack(fetchOlder) {
-    if (!feedEl) return;
-    const prevH = feedEl.scrollHeight;
-    const prevTop = feedEl.scrollTop;
+    if (!feedEl) return 0;
+    const anchor = takeAnchor();
+    const firstKey = items[lo]?.k;
     const added = await fetchOlder();
     if (added > 0) {
       await tick();
-      feedEl.scrollTop = feedEl.scrollHeight - prevH + prevTop;
+      if (!feedEl) return added;
+      const moved = firstKey ? items.findIndex((x) => x.k === firstKey) : -1;
+      if (moved >= 0) {
+        const shift = moved - lo;
+        lo += shift;
+        hi = Math.min(items.length, hi + shift);
+      }
+      rebuildCum();
+      applyPads();
+      // Paging backwards while sitting at the newest message is the eager fill
+      // below, on a channel whose whole history is shorter than the screen. The
+      // reader has not scrolled anywhere, so there is no position to hold — the
+      // bottom is where they are and where they should stay.
+      await settle(atBottom, anchor);
+      scheduleWindow();
     }
+    return added;
   }
 
   function fmtDay(day) {
@@ -498,11 +857,29 @@
   ontouchend={onPullEnd}
   ontouchcancel={onPullCancel}
   onscroll={async () => {
-    atBottom = feedNearBottom();
+    // Following the newest message is something the reader LEAVES, by scrolling
+    // up; it is not something content growing underneath them can take away.
+    // Re-deciding it from geometry on every event meant that a window still
+    // settling its measurements — which grows the thread by a few hundred pixels
+    // a frame after the jump — read as "they are not at the bottom any more",
+    // and parked them a screenful above the newest message with nothing left to
+    // correct it. So: only an upward scroll can end it.
+    //
+    // A jump in progress owns the scroller until it lands; the intermediate
+    // positions it passes through are not the reader deciding anything.
+    if (!revealPending()) {
+      const st = feedEl?.scrollTop ?? 0;
+      atBottom = st < lastScrollTop - 2 ? feedNearBottom() : atBottom || feedNearBottom();
+      lastScrollTop = st;
+    }
     if (S.newBelow && atBottom) S.newBelow = false;
+    scheduleWindow();
+    // Back at the bottom with a long afternoon of paged-in history above us:
+    // let it go. Everything dropped is far off the top of the screen and the
+    // scroller stays exactly where it is; scrolling up fetches it again.
+    if (atBottom && trimLoadedHistory()) return;
     // Near the top: page in older history and hold the reader's position — the
-    // prepended rows would otherwise jump the viewport. We restore scrollTop by
-    // the exact height the content grew, so the message under the cursor stays put.
+    // prepended rows would otherwise jump the viewport.
     if (!feedEl || feedEl.scrollTop >= 240) return;
     if (!S.loadingOlder && !S.feedReachedStart) {
       await pageBack(loadOlder);
@@ -536,7 +913,7 @@
   {/if}
   {#if S.loadingOlder}
     <div class="older-loading"><span class="ol-spin"></span> Loading older messages…</div>
-  {:else if S.feedReachedStart && arcChan && !S.feedLoading}
+  {:else if showArchive}
     <!-- Above the seam: whatever of the archive has been paged in so far, and
          the state of the fetch that would bring more. -->
     {#if S.archiveLoading}
@@ -555,25 +932,27 @@
     {:else if S.archiveReachedStart}
       <div class="feed-start">This is the beginning of the archive.</div>
     {/if}
-    {#each arcRows as row (row.key)}
-      {#if row.newDay}
-        <div class="day-divider archived"><span>{fmtDay(row.day)}</span></div>
-      {/if}
-      <ArchiveMessage m={row.m} first={row.first} channelId={S.activeChannelId} />
-    {/each}
-    <!-- The seam itself. Everything above it was imported; everything below was
-         said here. -->
-    <div class="arc-divider">
-      <span><Icon name="clock" size={10} /> imported archive{arcRange ? ` · ${arcRange}` : ""}</span>
-    </div>
   {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading}
     <div class="feed-start">This is the beginning of the channel.</div>
   {/if}
-  {#each rows as row (row.m.id)}
-    {#if row.newDay}
-      <div class="day-divider"><span>{fmtDay(row.day)}</span></div>
-    {/if}
-    {#if row.m.id === newLineId}
+  <!-- Everything above this line is fixed chrome at the top of the thread.
+       Everything between the two spacers is the window; the spacers hold the
+       height of the rows on either side of it that are not rendered. -->
+  <div class="vs vs-top" style:height="{topPad}px" aria-hidden="true"></div>
+  {#each items.slice(lo, hi) as it (it.k)}
+    {#if it.t === "arcday"}
+      <div class="day-divider archived"><span>{fmtDay(it.day)}</span></div>
+    {:else if it.t === "arc"}
+      <ArchiveMessage m={it.row.m} first={it.row.first} channelId={S.activeChannelId} />
+    {:else if it.t === "seam"}
+      <!-- The seam itself. Everything above it was imported; everything below
+           was said here. -->
+      <div class="arc-divider">
+        <span><Icon name="clock" size={10} /> imported archive{arcRange ? ` · ${arcRange}` : ""}</span>
+      </div>
+    {:else if it.t === "day"}
+      <div class="day-divider"><span>{fmtDay(it.day)}</span></div>
+    {:else if it.t === "new"}
       <div class="new-divider">
         <span>NEW</span>
         <button
@@ -586,58 +965,57 @@
           Mark as read <Icon name="check" size={11} />
         </button>
       </div>
-    {/if}
-    {#if row.m.kind === "system" && isDMView}
-      <!-- DMs skip join/create notices — noise in a 1:1 -->
-    {:else if row.m.kind === "system"}
-      <div class="system-msg" class:enter={row.m.id === animateId}>
+    {:else if it.row.m.kind === "system"}
+      <div class="system-msg" class:enter={it.row.m.id === animateId}>
         <span>
           <Icon name="spark" size={11} />
-          {#if row.m.content.startsWith("👤")}
+          {#if it.row.m.content.startsWith("👤")}
             <!-- Guest notices carry their own actor ("👤 Sam joined as a
                  guest") — prefixing the HOST's name made it read as if the
                  host said it. -->
-            {row.m.content}
+            {it.row.m.content}
           {:else}
-            <strong>{row.m.senderName || row.m.sender.slice(0, 9)}</strong>
-            {row.m.content}
+            <strong>{it.row.m.senderName || it.row.m.sender.slice(0, 9)}</strong>
+            {it.row.m.content}
           {/if}
         </span>
       </div>
-    {:else if row.m.kind === "call-missed"}
+    {:else if it.row.m.kind === "call-missed"}
       <!-- A DM ring that went unanswered. The caller's client emits it, both
            sides render it; never pings (non-"" kinds are unread-exempt). -->
-      <div class="system-msg call-missed" class:enter={row.m.id === animateId}>
+      <div class="system-msg call-missed" class:enter={it.row.m.id === animateId}>
         <span>
           <span class="call-ic"><Icon name="phone" size={11} /></span>
-          {#if row.m.sender === S.identity.fingerprint}
+          {#if it.row.m.sender === S.identity.fingerprint}
             You called — no answer
           {:else}
-            Missed call from <strong>{row.m.senderName || row.m.sender.slice(0, 9)}</strong>
+            Missed call from <strong>{it.row.m.senderName || it.row.m.sender.slice(0, 9)}</strong>
           {/if}
-          <span class="call-time">{fmtCallTime(row.m.sent)}</span>
+          <span class="call-time">{fmtCallTime(it.row.m.sent)}</span>
         </span>
       </div>
-    {:else if row.m.kind === "device"}
+    {:else if it.row.m.kind === "device"}
       <!-- Written locally when a contact links a device (internal/app/
            devicewatch.go). It never travelled: the sync ingest drops every kind
            but ""/"system", so our observation stays on this machine. -->
-      <div class="system-msg device-note" class:enter={row.m.id === animateId}>
+      <div class="system-msg device-note" class:enter={it.row.m.id === animateId}>
         <span>
           <span class="dev-ic"><Icon name="devices" size={11} /></span>
-          <strong>{row.m.senderName || row.m.sender.slice(0, 9)}</strong>
-          {row.m.content}
+          <strong>{it.row.m.senderName || it.row.m.sender.slice(0, 9)}</strong>
+          {it.row.m.content}
         </span>
       </div>
     {:else}
       <Message
-        m={row.m}
-        compact={row.compact}
-        entering={row.m.id === animateId}
-        replyRef={row.m.replyTo ? byId.get(row.m.replyTo) : null}
+        m={it.row.m}
+        compact={it.row.compact}
+        entering={it.row.m.id === animateId}
+        replyRef={it.row.m.replyTo ? byId.get(it.row.m.replyTo) : null}
       />
     {/if}
-  {:else}
+  {/each}
+  <div class="vs vs-bot" style:height="{botPad}px" aria-hidden="true"></div>
+  {#if !rows.length}
     {#if S.feedLoading}
       <!-- Channel switch in flight: shimmer rows instead of a misleading
            "start of channel" welcome (or the old channel's messages). -->
@@ -665,7 +1043,7 @@
         <p class="muted">{emptyInfo.body}</p>
       </div>
     {/if}
-  {/each}
+  {/if}
 
   {#if S.newBelow}
     <!-- A plain button keeps its control semantics; the live announcement lives
@@ -919,12 +1297,25 @@
        whole chat a horizontal scrollbar — content wraps or scrolls inside its
        own box (pre/code have their own overflow-x). */
     overflow-x: hidden;
-    /* Spacing tracks the density vars (Appearance: Cozy/Compact) in app.css. */
+    /* Spacing tracks the density vars (Appearance: Cozy/Compact) in app.css.
+       The gap is named so the two window spacers can cancel their own share of
+       it — see .vs. */
     padding: var(--feed-pad, 16px);
     display: flex;
     flex-direction: column;
-    gap: var(--msg-gap, 12px);
+    --feed-gap: var(--msg-gap, 12px);
+    gap: var(--feed-gap);
     position: relative;
+  }
+  /* The window spacers: the height of the rows above and below the rendered
+     window. Every direct child of a flex column earns a gap on both sides, and
+     these two are not rows — a zero-height spacer would still push the thread
+     down by a full gap at each end. Cancelling the gap ABOVE each spacer leaves
+     exactly the one gap that would have been there without it. */
+  .vs {
+    flex: none;
+    margin-top: calc(-1 * var(--feed-gap));
+    pointer-events: none;
   }
   .empty {
     margin: auto;
@@ -1515,7 +1906,7 @@
        of a 360px screen is 12% of the viewport spent displaying nothing. The
        vertical value still tracks the pack, so its rhythm survives. */
     .feed {
-      gap: calc(var(--msg-gap, 12px) + 4px);
+      --feed-gap: calc(var(--msg-gap, 12px) + 4px);
       padding: var(--feed-pad, 16px) min(var(--feed-pad, 16px), var(--sp-edge));
       /* Keep a flick inside the feed instead of handing it to the page (which
          is where pull-to-refresh and rubber-banding come from). */

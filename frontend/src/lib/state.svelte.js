@@ -1313,10 +1313,47 @@ let feedEl = null;
 export function registerFeed(el) {
   feedEl = el;
 }
+
+// The feed renders a WINDOW of its rows, so "find the row and scroll to it" can
+// no longer be a querySelector: the row a search result or a reply-ref points at
+// is very often a thousand rows outside the window and has no element at all.
+// MessageList registers a way to bring one back — reveal(key) widens the window
+// to include it and answers whether it could, and the callers below then look
+// the element up on the next tick. Nothing else about their contract changes,
+// including the synchronous true/false they hand back.
+let feedReveal = null;
+export function registerFeedReveal(fn) {
+  feedReveal = fn;
+  return () => {
+    if (feedReveal === fn) feedReveal = null;
+  };
+}
+// Wait for the row to actually be on screen. The window it belongs to has to
+// render and lay out first, and how long that takes depends on how many rows the
+// jump had to mount — a fixed two frames was enough when the jump was short and
+// silently did nothing when it was not, leaving the reader parked wherever they
+// were with no sign that anything had been asked for. fn returns false while it
+// is still waiting.
+function afterRender(fn, tries = 15) {
+  requestAnimationFrame(() => {
+    if (fn() === false && tries > 0) afterRender(fn, tries - 1);
+  });
+}
 export function scrollSoon() {
   S.newBelow = false;
+  // Tell the feed this is a deliberate return to the newest message, so it
+  // renders the end of the thread rather than working it out from a scroll
+  // position that is about to change.
+  feedReveal?.("bottom");
+  // Twice, a frame apart. The feed renders a window of its rows and measures
+  // them as it goes, so the height it reports on the first frame after a jump is
+  // still an estimate — pinning to it once left the reader a screenful short of
+  // the newest message about one time in three.
   requestAnimationFrame(() => {
     if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+    requestAnimationFrame(() => {
+      if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+    });
   });
 }
 // feedNearBottom: is the user effectively at the end of the thread? Used to
@@ -1348,13 +1385,21 @@ function restoreReadingPosition(id) {
   if (!anchor) return false;
   delete scrollStash[id];
   if (!S.messages.some((m) => m.id === anchor)) return false;
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      feedEl
-        ?.querySelector(`[data-msg-id="${CSS.escape(anchor)}"]`)
-        ?.scrollIntoView({ block: "start" });
-    });
-  });
+  feedReveal?.(anchor);
+  // Same settling problem as scrollToMessage, same answer: keep putting the row
+  // back at the top until the window stops moving it.
+  let prev = null;
+  let steady = 0;
+  afterRender(() => {
+    const el = feedEl?.querySelector(`[data-msg-id="${CSS.escape(anchor)}"]`);
+    if (!el) return false;
+    const top = Math.round(el.getBoundingClientRect().top);
+    steady = prev !== null && Math.abs(top - prev) <= 1 ? steady + 1 : 0;
+    if (steady >= 2) return true;
+    el.scrollIntoView({ block: "start" });
+    prev = Math.round(el.getBoundingClientRect().top);
+    return false;
+  }, 24);
   return true;
 }
 // scrollToMessage: center the target row and flash-highlight it so the eye
@@ -1363,10 +1408,8 @@ function restoreReadingPosition(id) {
 // in-flight highlight and replays the animation from the start.
 let flashTimer = null;
 let flashEl = null;
-export function scrollToMessage(id) {
-  const el = feedEl?.querySelector(`[data-msg-id="${CSS.escape(id)}"]`);
-  if (!el) return false;
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+function landOn(el, instant = false) {
+  const reduceMotion = instant || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
   el.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
   clearTimeout(flashTimer);
   flashEl?.classList.remove("flash-highlight");
@@ -1377,6 +1420,44 @@ export function scrollToMessage(id) {
     el.classList.remove("flash-highlight");
     if (flashEl === el) flashEl = null;
   }, 1200);
+}
+export function scrollToMessage(id) {
+  const sel = `[data-msg-id="${CSS.escape(id)}"]`;
+  const el = feedEl?.querySelector(sel);
+  if (el) {
+    landOn(el);
+    return true;
+  }
+  // Not rendered: it may still be loaded and simply outside the feed's window.
+  // Asking the feed to bring it back answers both questions at once — false here
+  // still means "that message isn't loaded yet", which is what callers report.
+  if (!feedReveal?.(id)) return false;
+  // A jump into a part of the thread that was not rendered is not a smooth
+  // scroll from where we are: the distance is a spacer, there is nothing in it
+  // to scroll past, and gliding across it drags the window along behind and
+  // loses the row again. It lands.
+  //
+  // And it lands more than once. The window mounts the rows, measures them, and
+  // corrects the spacer above them from that measurement — which moves every row
+  // it has just placed, by a screenful or more when the rows turned out shorter
+  // than the estimate. Centring on the first frame the row exists therefore aims
+  // at a layout that is about to change. So re-centre until the row stops
+  // moving, and only then flash it.
+  let prev = null;
+  let steady = 0;
+  afterRender(() => {
+    const found = feedEl?.querySelector(sel);
+    if (!found) return false;
+    const top = Math.round(found.getBoundingClientRect().top);
+    steady = prev !== null && Math.abs(top - prev) <= 1 ? steady + 1 : 0;
+    if (steady >= 2) {
+      landOn(found, true);
+      return true;
+    }
+    found.scrollIntoView({ block: "center", behavior: "auto" });
+    prev = Math.round(found.getBoundingClientRect().top);
+    return false;
+  }, 24);
   return true;
 }
 
@@ -2004,15 +2085,53 @@ export async function loadOlder() {
   return prepended;
 }
 
+// MAX_LOADED_ROWS caps how much history one channel may hold in memory. Every
+// page-back added 200 rows and nothing ever took any away, so a long afternoon
+// in a busy channel grew the array — and, before the feed was windowed, the DOM
+// — without limit, and the only thing that ever released it was switching
+// channels.
+//
+// Trimming happens at exactly one moment: when the reader is back at the bottom.
+// Everything dropped is then far above the viewport, the scroller clamps to the
+// same place it was already resting, and nothing on screen moves. It also
+// undoes the two pieces of state that say "there is nothing older": there is
+// again, and scrolling up re-fetches it from the same sqlite pages it came from
+// the first time. Editing a message that is about to be dropped defers the trim
+// rather than throwing the draft away.
+const MAX_LOADED_ROWS = 600;
+
+export function trimLoadedHistory() {
+  if (S.messages.length <= MAX_LOADED_ROWS) return false;
+  if (S.loadingOlder || S.feedLoading || S.archiveLoading) return false;
+  const keep = S.messages.slice(-MAX_LOADED_ROWS);
+  if (S.editing && !keep.some((m) => m.id === S.editing.id)) return false;
+  S.messages = keep;
+  feedOldest = keep[0].sent;
+  S.feedReachedStart = false;
+  // The archive hangs off the START of live history. With that start no longer
+  // loaded there is nothing for it to hang from, and its rows are the largest
+  // single thing this channel is holding.
+  clearArchive();
+  return true;
+}
+
 // scrollToNewDivider places the unread divider comfortably in view (falling
 // back to the bottom if it isn't rendered for any reason).
 function scrollToNewDivider() {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      const el = feedEl?.querySelector(".new-divider");
-      if (el) el.scrollIntoView({ block: "center" });
-      else if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
-    });
+  feedReveal?.("new");
+  let waited = 0;
+  afterRender(() => {
+    const el = feedEl?.querySelector(".new-divider");
+    if (el) {
+      el.scrollIntoView({ block: "center" });
+      return true;
+    }
+    // There may simply be no divider (nothing unread, or it is not in this
+    // channel's loaded history). Give the window a few frames to prove it, then
+    // fall back to the newest message.
+    if (++waited < 8) return false;
+    if (feedEl) feedEl.scrollTop = feedEl.scrollHeight;
+    return true;
   });
 }
 
