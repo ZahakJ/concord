@@ -1350,7 +1350,7 @@
   .side-panel {
     border-bottom: 1px solid var(--border);
     background: var(--bg-1);
-    padding: 8px 16px;
+    padding: var(--sp-2) var(--sp-4);
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -1377,7 +1377,7 @@
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-pop);
     overflow: hidden;
-    animation: pins-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+    animation: pins-in var(--dur-standard) var(--ease-out);
     transform-origin: top right;
   }
   @keyframes pins-in {
@@ -1390,7 +1390,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 9px 8px 9px 12px;
     border-bottom: 1px solid var(--border);
     background: var(--bg-1);
@@ -1473,18 +1473,18 @@
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 22px 18px;
   }
   .pins-empty-badge {
     width: 40px;
     height: 40px;
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     display: grid;
     place-items: center;
     background: var(--accent-soft);
     color: var(--accent-hover);
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
   }
   .pins-empty strong {
     font-size: var(--fs-ui);
@@ -1539,12 +1539,12 @@
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: 4px;
+    gap: var(--sp-1);
     max-width: 400px;
-    padding: 24px 16px;
+    padding: var(--sp-5) var(--sp-4);
     /* Settle in gently instead of popping when a fresh channel opens.
        (The global reduced-motion rule in app.css zeroes the duration.) */
-    animation: empty-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: empty-in 0.4s var(--ease-out) both;
   }
   @keyframes empty-in {
     from {
@@ -1635,7 +1635,7 @@
   .new-divider {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     color: var(--accent-hover);
     font-size: var(--fs-micro);
     font-weight: 700;
@@ -1695,7 +1695,7 @@
     letter-spacing: 0.06em;
     text-transform: uppercase;
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: pointer;
   }
   .new-divider .mark-read:hover,
@@ -1711,7 +1711,7 @@
   }
   .sk-row {
     display: flex;
-    gap: 12px;
+    gap: var(--sp-3);
     align-items: flex-start;
   }
   .sk-av {
@@ -1728,7 +1728,7 @@
   }
   .sk-line {
     height: 10px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
   }
   .sk-line.body {
     height: 12px;
@@ -1770,7 +1770,7 @@
   /* Newest appended system row slides in like a message (zeroed under the
      global reduced-motion override in app.css). */
   .system-msg.enter {
-    animation: row-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+    animation: row-in 0.26s var(--ease-out) backwards;
   }
   @keyframes row-in {
     from {
@@ -1829,7 +1829,7 @@
     display: inline-flex;
     align-items: center;
     gap: 7px;
-    padding: 8px 16px;
+    padding: var(--sp-2) var(--sp-4);
     border-radius: 999px;
     background: linear-gradient(135deg, var(--accent), var(--accent-hover));
     color: var(--accent-fg);
@@ -1838,8 +1838,8 @@
     letter-spacing: 0.01em;
     box-shadow: var(--float-shadow);
     z-index: 15;
-    animation: float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
-    transition: transform 0.15s ease;
+    animation: float-in 0.2s var(--ease-out);
+    transition: transform var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     .new-below:hover {
@@ -1847,14 +1847,14 @@
     }
   }
   .new-below .arrow {
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .older-loading,
   .feed-start {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 14px 12px 6px;
     font-size: var(--fs-compact);
     color: var(--text-muted);
@@ -1938,7 +1938,7 @@
   }
   .am-go {
     flex-shrink: 0;
-    padding: 4px 12px;
+    padding: var(--sp-1) var(--sp-3);
     border-radius: 999px;
     border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
     background: transparent;
@@ -1998,7 +1998,7 @@
     align-self: center;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     padding: 7px 16px;
     border-radius: 999px;
     /* 84% let the message underneath show through the words, and the blur only
@@ -2012,8 +2012,8 @@
     font-size: var(--fs-compact);
     box-shadow: var(--float-shadow);
     z-index: 15;
-    animation: float-in 0.2s cubic-bezier(0.2, 0.9, 0.3, 1);
-    transition: border-color 0.15s ease, transform 0.15s ease;
+    animation: float-in 0.2s var(--ease-out);
+    transition: border-color var(--dur-standard) ease, transform var(--dur-standard) ease;
   }
   .ob-cta {
     color: var(--accent-hover);
@@ -2050,7 +2050,7 @@
     min-width: 0;
     display: flex;
     align-items: flex-start;
-    gap: 8px;
+    gap: var(--sp-2);
     background: transparent;
     color: var(--text);
     text-align: left;
@@ -2140,7 +2140,7 @@
     }
     .new-divider .mark-read {
       min-height: 36px;
-      padding: 8px 12px;
+      padding: var(--sp-2) var(--sp-3);
       font-size: var(--fs-tiny);
     }
     /* Unpin is hover-revealed on desktop — hover doesn't exist here, so keep it
@@ -2151,7 +2151,7 @@
       gap: var(--sp-3);
     }
     .pin-item .unpin {
-      padding: 8px;
+      padding: var(--sp-2);
     }
     .pin-jump {
       min-height: 56px;

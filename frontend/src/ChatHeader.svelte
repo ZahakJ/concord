@@ -430,14 +430,14 @@
     min-width: 0;
     padding: 5px 10px;
     font-size: var(--fs-ui);
-    transition: width 0.25s cubic-bezier(0.2, 0.9, 0.3, 1), border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+    transition: width 0.25s var(--ease-out), border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease, background var(--dur-standard) ease;
   }
   .search-box:focus {
     width: clamp(84px, 28vw, 260px);
   }
   @media (prefers-reduced-motion: reduce) {
     .search-box {
-      transition: border-color 0.16s ease, box-shadow 0.16s ease;
+      transition: border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease;
     }
   }
   /* Leave room for the clear button / spinner once there's something to show. */
@@ -524,10 +524,10 @@
     gap: 5px;
     padding: 6px 9px;
     transition:
-      background 0.15s ease,
-      color 0.15s ease,
-      border-color 0.15s ease,
-      transform 0.12s ease;
+      background var(--dur-standard) ease,
+      color var(--dur-standard) ease,
+      border-color var(--dur-standard) ease,
+      transform var(--dur-quick) ease;
   }
   .iconbtn:hover {
     transform: translateY(-1px);
@@ -554,13 +554,13 @@
   .voice-pill {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     font-size: var(--fs-compact);
     font-weight: 600;
     color: var(--ok-text);
     padding: 3px 5px 3px 9px;
     background: var(--ok-soft);
-    border-radius: 13px;
+    border-radius: var(--radius-lg);
     white-space: nowrap;
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 25%, transparent);
     /* One quiet breath while the call is live (the pill only exists then). */
@@ -588,7 +588,7 @@
   .pill-label {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     line-height: 1;
   }
   .pill-sep {

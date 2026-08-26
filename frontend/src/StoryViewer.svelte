@@ -313,8 +313,8 @@
   }
   .bars {
     display: flex;
-    gap: 4px;
-    margin-bottom: 8px;
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-2);
   }
   .bar {
     flex: 1;
@@ -333,7 +333,7 @@
   .head {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .who {
     display: flex;
@@ -395,7 +395,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .caption {
     margin: 0;

@@ -888,7 +888,7 @@
     position: fixed;
     z-index: 250;
     width: 272px;
-    animation: pop-in 0.12s ease;
+    animation: pop-in var(--dur-quick) ease;
   }
   .pop {
     position: relative;
@@ -956,10 +956,10 @@
   .pp-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--scrim);
     z-index: 400;
     border: none;
-    animation: pp-fade 0.16s ease;
+    animation: pp-fade var(--dur-standard) ease;
   }
   @keyframes pp-fade {
     from {
@@ -973,7 +973,7 @@
     bottom: 0;
     width: auto;
     z-index: 401;
-    animation: pp-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: pp-up 0.22s var(--ease-out);
   }
   .pop.sheet {
     /* dvh: the nickname and DM fields open the keyboard, and vh does not shrink
@@ -984,7 +984,7 @@
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     border: none;
-    border-radius: 16px 16px 0 0;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
     padding-bottom: var(--safe-bottom);
   }
   @keyframes pp-up {
@@ -1157,8 +1157,8 @@
   .verified {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    margin-bottom: 4px;
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-1);
     padding: 2px 9px;
     font-size: var(--fs-small);
     font-weight: 600;
@@ -1181,7 +1181,7 @@
     padding: 6px 14px 14px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .name-row {
     display: flex;
@@ -1201,7 +1201,7 @@
     background: var(--bg-3);
     color: var(--text-muted);
     padding: 1px 6px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
   }
   .username {
     font-size: var(--fs-compact);
@@ -1209,10 +1209,10 @@
   }
   /* Birthday chip: same quiet shape as the "you" tag, emoji does the talking. */
   .bday-chip {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     background: var(--bg-3);
     padding: 1px 6px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     line-height: 1.4;
   }
   .mutual {
@@ -1229,15 +1229,15 @@
   .status-box {
     display: flex;
     align-items: flex-start;
-    gap: 8px;
-    margin-top: 4px;
+    gap: var(--sp-2);
+    margin-top: var(--sp-1);
     padding: 7px 10px;
     background: var(--bg-0);
     border-radius: var(--radius-sm);
   }
   /* Now-playing card: art + track + a live progress bar. */
   .activity {
-    margin-top: 4px;
+    margin-top: var(--sp-1);
     padding: 9px 10px 8px;
     background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 14%, var(--bg-0)), var(--bg-0) 70%);
     border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
@@ -1257,7 +1257,7 @@
   .act-art.game {
     width: 36px;
     height: 52px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
   .act-art.ph-game {
     display: grid;
@@ -1283,7 +1283,7 @@
   .act-art {
     width: 52px;
     height: 52px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     object-fit: cover;
     flex-shrink: 0;
     box-shadow: 0 2px 8px rgb(0 0 0 / 0.3);
@@ -1291,7 +1291,7 @@
   .act-art.ph {
     display: grid;
     place-items: center;
-    font-size: 22px;
+    font-size: var(--fs-display);
     background: var(--bg-3);
   }
   .act-meta {
@@ -1353,7 +1353,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .bio {
     font-size: var(--fs-compact);
@@ -1368,7 +1368,7 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     padding: 1px 6px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     font-weight: 600;
   }
   .role-badge.owner {
@@ -1396,7 +1396,7 @@
     background: var(--bg-3);
     color: var(--text-muted);
     border: 1px solid transparent;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
   }
   .role-pill {
     color: var(--text);
@@ -1425,7 +1425,7 @@
   }
   .role-x {
     color: var(--text-faint);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1;
   }
   .nick-box {
@@ -1451,12 +1451,12 @@
   .copy-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 2px 7px;
     font-size: var(--fs-small);
     background: var(--bg-3);
     color: var(--text-muted);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
   }
   .copy-btn:hover {
     color: var(--text);
@@ -1483,7 +1483,7 @@
     margin: 4px 0 0;
   }
   .verify-btn {
-    margin-top: 8px;
+    margin-top: var(--sp-2);
     font-size: var(--fs-ui);
     padding: 7px;
   }

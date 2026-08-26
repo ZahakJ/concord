@@ -693,7 +693,7 @@
      Global because the nodes wearing it live in other components' scopes;
      mounted only inside the phone shell, which is exactly its audience. */
   :global(.lp-press) {
-    transition: transform 0.12s ease, filter 0.12s ease;
+    transition: transform var(--dur-quick) ease, filter var(--dur-quick) ease;
     transform: scale(0.985);
     filter: brightness(1.18);
   }
@@ -783,13 +783,13 @@
   .msearch {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-shrink: 0;
     padding: 6px 10px 6px 14px;
     background: var(--bg-1);
     border-bottom: 1px solid var(--border);
     color: var(--text-muted);
-    transition: border-color 0.15s ease;
+    transition: border-color var(--dur-standard) ease;
   }
   /* A phone with a keyboard attached still tabs through this. The input drops
      its own border so the global focus rule has nothing to draw on; the row
@@ -887,7 +887,7 @@
   .scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.58);
+    background: var(--scrim);
     z-index: 60;
     border: none;
     transition: opacity 0.22s ease;
@@ -915,11 +915,11 @@
     /* Slide via inline transform; hide fully-closed drawers only after the
        slide-out finishes (the delayed-visibility trick), never on the way in. */
     transition:
-      transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1),
+      transform 0.22s var(--ease-out),
       visibility 0s linear 0.25s;
   }
   .drawer:not(.hidden) {
-    transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+    transition: transform 0.22s var(--ease-out);
     visibility: visible;
   }
   .drawer.hidden {

@@ -50,12 +50,12 @@
   .when {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .preset {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 10px 12px;
     background: var(--bg-1);
     border: 1px solid var(--border);
@@ -64,9 +64,9 @@
     font-size: var(--fs-ui);
     text-align: left;
     transition:
-      background 0.12s ease,
-      border-color 0.12s ease,
-      transform 0.12s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease,
+      transform var(--dur-quick) ease;
   }
   .preset:hover {
     background: var(--bg-3);
@@ -86,7 +86,7 @@
   .custom-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .custom-row input {
     flex: 1 1 60%;
@@ -97,7 +97,7 @@
   }
   .go {
     flex-shrink: 0;
-    padding: 8px 16px;
+    padding: var(--sp-2) var(--sp-4);
     background: var(--accent);
     color: var(--accent-fg);
     border-radius: var(--radius-md);

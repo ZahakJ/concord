@@ -57,7 +57,7 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 24px;
+    padding: var(--sp-5);
     gap: 10px;
     overflow-y: auto;
     position: relative;
@@ -167,10 +167,10 @@
   }
   .chips {
     display: flex;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-wrap: wrap;
     justify-content: center;
-    margin-top: 4px;
+    margin-top: var(--sp-1);
   }
   .chip {
     display: inline-flex;
@@ -189,11 +189,11 @@
     animation-delay: 0.08s;
   }
   .chip:nth-child(3) {
-    animation-delay: 0.16s;
+    animation-delay: var(--dur-standard);
   }
   .cards {
     display: flex;
-    gap: 12px;
+    gap: var(--sp-3);
     margin-top: 18px;
     flex-wrap: wrap;
     justify-content: center;
@@ -203,17 +203,17 @@
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 4px;
-    padding: 16px;
+    gap: var(--sp-1);
+    padding: var(--sp-4);
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     color: var(--text);
     text-align: left;
     transition:
-      transform 0.15s ease,
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
+      transform var(--dur-standard) ease,
+      border-color var(--dur-standard) ease,
+      box-shadow var(--dur-standard) ease;
     /* Staggered arrival: each card fades up a beat after the previous. */
     animation: card-in 0.35s ease backwards;
   }
@@ -221,7 +221,7 @@
     animation-delay: 0.07s;
   }
   .cards .card:nth-child(3) {
-    animation-delay: 0.14s;
+    animation-delay: var(--dur-quick);
   }
   .cards .card:nth-child(4) {
     animation-delay: 0.21s;
@@ -261,7 +261,7 @@
     );
     color: var(--accent-hover);
     margin-bottom: 6px;
-    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 0.18s var(--ease-spring);
   }
   .sub {
     font-size: var(--fs-compact);

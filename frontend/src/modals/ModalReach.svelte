@@ -307,7 +307,7 @@
     place-items: center;
     width: 30px;
     height: 30px;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: var(--bg-3);
     color: var(--text-muted);
   }

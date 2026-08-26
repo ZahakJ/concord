@@ -77,7 +77,7 @@
     z-index: 450;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     width: min(440px, calc(100vw - 20px));
     pointer-events: none; /* the gaps must not eat clicks on the app below */
   }
@@ -124,7 +124,7 @@
   }
   .cal-ic {
     flex-shrink: 0;
-    font-size: 15px;
+    font-size: var(--fs-body);
     line-height: 1;
   }
   .txt {

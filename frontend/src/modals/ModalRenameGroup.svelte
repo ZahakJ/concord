@@ -38,12 +38,12 @@
 <style>
   p {
     margin: 0 0 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 12px;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
   }
 </style>

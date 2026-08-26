@@ -145,9 +145,9 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-top: 4px;
+    margin-top: var(--sp-1);
     max-width: 340px;
-    padding: 8px 12px;
+    padding: var(--sp-2) var(--sp-3);
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -162,8 +162,8 @@
     background: var(--accent);
     color: var(--accent-fg);
     transition:
-      transform 0.12s ease,
-      background 0.12s ease;
+      transform var(--dur-quick) ease,
+      background var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .vm-play:hover {

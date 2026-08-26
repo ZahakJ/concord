@@ -298,7 +298,7 @@
     ghost.textContent = `${glyph} ${c.name}`;
     ghost.style.cssText =
       "position:fixed;top:-100px;left:-100px;max-width:220px;overflow:hidden;" +
-      "white-space:nowrap;text-overflow:ellipsis;padding:6px 14px;font-size:13px;" +
+      "white-space:nowrap;text-overflow:ellipsis;padding:6px 14px;font-size:var(--fs-ui);" +
       "font-weight:600;color:var(--text);background:var(--bg-2);" +
       "border:1px solid var(--accent);border-radius:8px;" +
       "box-shadow:0 8px 24px rgba(0,0,0,0.35);pointer-events:none;";
@@ -387,7 +387,7 @@
     ghost.textContent = vdrag.name;
     ghost.style.cssText =
       "position:fixed;top:-100px;left:-100px;max-width:200px;overflow:hidden;" +
-      "white-space:nowrap;text-overflow:ellipsis;padding:5px 12px;font-size:12.5px;" +
+      "white-space:nowrap;text-overflow:ellipsis;padding:5px 12px;font-size:var(--fs-compact);" +
       "font-weight:600;color:var(--accent-fg);background:var(--accent);" +
       "border-radius:999px;box-shadow:0 8px 24px rgba(0,0,0,0.4);pointer-events:none;";
     document.body.appendChild(ghost);
@@ -1044,13 +1044,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--sp-2);
     overflow: visible;
   }
   .guild-header {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     width: 100%;
     background: transparent;
     color: var(--text);
@@ -1091,7 +1091,7 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     flex: 1;
     min-width: 0;
   }
@@ -1105,7 +1105,7 @@
   .g-icon {
     width: 26px;
     height: 26px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     object-fit: cover;
     flex-shrink: 0;
   }
@@ -1120,7 +1120,7 @@
        made the divider "pulsate". clip keeps them visible; hidden would too,
        but clip doesn't create a scroll port. */
     overflow-x: clip;
-    padding: 8px;
+    padding: var(--sp-2);
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -1276,7 +1276,7 @@
     gap: 3px;
     margin-left: auto;
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: color-mix(in srgb, var(--danger) 20%, transparent);
     color: var(--danger-text);
     font-size: var(--fs-micro);
@@ -1299,7 +1299,7 @@
     align-items: center;
     gap: 3px;
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--ok-soft);
     color: var(--ok-text);
     font-size: var(--fs-micro);
@@ -1344,7 +1344,7 @@
     display: flex;
     align-items: center;
     border-radius: var(--radius-sm);
-    transition: background 0.15s ease;
+    transition: background var(--dur-standard) ease;
   }
   .channel-row.active::before {
     content: "";
@@ -1357,7 +1357,7 @@
     border-radius: 0 3px 3px 0;
     background: var(--accent);
     box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
-    animation: nub-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: nub-in 0.25s var(--ease-spring);
   }
   @keyframes nub-in {
     from {
@@ -1432,9 +1432,9 @@
   .channel,
   .dm-item {
     transition:
-      background 0.15s ease,
-      color 0.15s ease,
-      transform 0.15s ease;
+      background var(--dur-standard) ease,
+      color var(--dur-standard) ease,
+      transform var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     .channel-row:hover .channel,
@@ -1513,7 +1513,7 @@
     height: 18px;
     border-radius: 0 3px 3px 0;
     background: var(--text);
-    animation: unread-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: unread-in 0.22s var(--ease-spring);
   }
   .channel-row.mentioned::before {
     background: var(--danger);
@@ -1543,14 +1543,14 @@
     min-width: 18px;
     padding: 0 5px;
     height: 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: var(--text-muted);
     color: var(--bg-1);
     font-size: var(--fs-tiny);
     font-weight: 700;
     display: grid;
     place-items: center;
-    animation: count-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation: count-pop 0.25s var(--ease-spring) both;
   }
   @keyframes count-pop {
     from {
@@ -1606,7 +1606,7 @@
       opacity: 0;
     }
     .count {
-      transition: opacity 0.12s ease;
+      transition: opacity var(--dur-quick) ease;
     }
   }
   .menu-head {
@@ -1641,9 +1641,9 @@
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: 8px;
+    gap: var(--sp-2);
     margin: 14px 6px;
-    padding: 16px 12px;
+    padding: var(--sp-4) var(--sp-3);
     border: 1px dashed var(--border);
     border-radius: var(--radius-md);
   }
@@ -1683,8 +1683,8 @@
     text-align: left;
     border-radius: var(--radius-sm);
     transition:
-      background 0.15s ease,
-      color 0.15s ease;
+      background var(--dur-standard) ease,
+      color var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     .dm-item:hover {
@@ -1750,7 +1750,7 @@
   .vb-info {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     min-width: 0;
     flex: 1;
     background: transparent;
@@ -1833,7 +1833,7 @@
   .me-row {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     /* Pad past the phone's bottom system bar (Android gesture/button bar, iOS
        home indicator) — without this, edge-to-edge draw (viewport-fit=cover)
        lets the OS nav overlap the self row and its settings/sign-out button.
@@ -1841,7 +1841,7 @@
     /* No safe-area inset: on a phone this row lives inside the left drawer,
        which pads its own bottom, and on desktop the inset is 0 anyway. Adding it
        here stacked the gesture-bar gap twice inside the drawer. */
-    padding: 8px;
+    padding: var(--sp-2);
     border-top: 1px solid var(--border);
     background: var(--bg-0);
     /* Your own framed avatar lives here; its ring overflows by design. */
@@ -1854,8 +1854,8 @@
     line-height: 0;
     flex-shrink: 0;
     transition:
-      background 0.12s ease,
-      transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+      background var(--dur-quick) ease,
+      transform var(--dur-standard) var(--ease-spring);
   }
   .me-status-trigger:hover {
     background: var(--bg-3);
@@ -1869,7 +1869,7 @@
   /* The footer's listening equalizer sits inline with the status line. */
   .me-eq {
     height: 9px;
-    margin-right: 4px;
+    margin-right: var(--sp-1);
     vertical-align: baseline;
     color: var(--accent-hover);
   }
@@ -1918,7 +1918,7 @@
     white-space: nowrap;
   }
   .me-gear {
-    padding: 8px;
+    padding: var(--sp-2);
     border: none;
   }
   /* Touch: taller rows (44px+ targets), slightly larger type, and the
@@ -1987,10 +1987,10 @@
     .cat-actions {
       /* 28px box + 16px gap = 44px between centres, so the two 44px tap areas
          abut instead of overlapping. */
-      gap: 16px;
+      gap: var(--sp-4);
     }
     .cat-add {
-      padding: 8px;
+      padding: var(--sp-2);
       position: relative;
     }
     .cat-add::after {
@@ -2013,19 +2013,19 @@
       min-height: var(--tap-min);
     }
     .channel-row + .vc-member {
-      margin-top: 4px;
+      margin-top: var(--sp-1);
     }
     /* Four 44px targets plus the label never fit the drawer's ~252px on one
        line — the label was squeezed to 123px and "Voice connected" wrapped.
        Give the controls their own row. */
     .voice-bar {
       flex-wrap: wrap;
-      row-gap: 4px;
+      row-gap: var(--sp-1);
     }
     .vb-actions {
       flex: 1 0 100%;
       justify-content: space-between;
-      gap: 4px;
+      gap: var(--sp-1);
     }
     .vb-btn {
       min-width: 44px;
@@ -2074,7 +2074,7 @@
   .unread-jump {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     width: 100%;
     margin: 0 0 6px;
     padding: 7px 10px;
@@ -2086,8 +2086,8 @@
     cursor: pointer;
     animation: uj-in 0.25s ease;
     transition:
-      background 0.14s ease,
-      border-color 0.14s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease;
   }
   @keyframes uj-in {
     from {

@@ -75,7 +75,7 @@
   .qr-wrap {
     display: flex;
     justify-content: center;
-    padding: 12px;
+    padding: var(--sp-3);
     background: #fff;
     border-radius: var(--radius-md);
     margin: 6px 0;

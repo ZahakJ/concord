@@ -404,7 +404,7 @@
     animation-delay: 0.08s;
   }
   .grp:nth-child(4) {
-    animation-delay: 0.12s;
+    animation-delay: var(--dur-quick);
   }
   @keyframes grp-in {
     from {
@@ -430,7 +430,7 @@
   .upd-head {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .upd-chip {
     flex: none;
@@ -509,7 +509,7 @@
     color: var(--text-muted);
     cursor: pointer;
     border-radius: 999px;
-    transition: color 0.15s ease;
+    transition: color var(--dur-standard) ease;
   }
   .about:hover {
     color: var(--text);
@@ -537,7 +537,7 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     width: 100%;
     min-height: 52px;
     padding: 10px 14px;
@@ -547,7 +547,7 @@
     border-radius: 0;
   }
   .row {
-    transition: background 0.14s ease;
+    transition: background var(--dur-quick) ease;
   }
   .row:hover {
     background: var(--bg-3);
@@ -590,8 +590,8 @@
      rotates instead — handled below — so it's excluded). */
   .chev:not(.disclose) {
     transition:
-      transform 0.15s ease,
-      color 0.15s ease;
+      transform var(--dur-standard) ease,
+      color var(--dur-standard) ease;
   }
   .row:hover .chev:not(.disclose) {
     color: var(--text-muted);
@@ -599,7 +599,7 @@
   }
   .disclose {
     transform: rotate(90deg);
-    transition: transform 0.15s ease;
+    transition: transform var(--dur-standard) ease;
   }
   .disclose.open {
     transform: rotate(-90deg);
@@ -611,7 +611,7 @@
     width: 34px;
     height: 34px;
     flex-shrink: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
     color: var(--accent-hover);
   }
@@ -619,7 +619,7 @@
     width: 34px;
     height: 34px;
     flex-shrink: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
     background: linear-gradient(135deg, var(--accent) 0% 50%, var(--bg-3) 50% 100%);
   }

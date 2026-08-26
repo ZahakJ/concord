@@ -479,7 +479,7 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--sp-2);
     margin-top: var(--sp-2);
   }
   .mtitle {
@@ -582,7 +582,7 @@
     place-items: center;
     border-radius: 50%;
     font-variant-numeric: tabular-nums;
-    transition: background 0.12s ease;
+    transition: background var(--dur-quick) ease;
   }
   /* TODAY is the loudest mark on the grid: a filled accent disc. */
   .cell.today .dn {
@@ -666,7 +666,7 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 8px 0 4px;
     border-top: 1px solid var(--hairline);
   }
@@ -751,7 +751,7 @@
     border-radius: 16px;
     background: var(--accent-soft);
     color: var(--accent-hover);
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
   }
   .empty p {
     margin: 0 0 8px;

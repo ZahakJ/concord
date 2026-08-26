@@ -119,7 +119,7 @@
   .es-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--scrim);
     z-index: 60;
   }
   .es {
@@ -155,8 +155,8 @@
   .preview {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 16px;
+    gap: var(--sp-4);
+    padding: var(--sp-4);
     border-bottom: 1px solid var(--border);
   }
   .preview p {
@@ -211,7 +211,7 @@
   .stitle {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--sp-2);
     font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text);
@@ -226,7 +226,7 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .opt {
     display: flex;
@@ -300,7 +300,7 @@
   .es-foot {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 12px 14px;
     border-top: 1px solid var(--border);
   }

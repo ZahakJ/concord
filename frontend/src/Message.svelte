@@ -1445,7 +1445,7 @@
      cozy is today's spacing, compact tightens padding + group pull together. */
   .msg {
     display: flex;
-    gap: 12px;
+    gap: var(--sp-3);
     position: relative;
     padding: var(--msg-pad-y, 2px) 0;
     border-radius: var(--radius-sm);
@@ -1470,9 +1470,9 @@
     /* The margin and the padding cancel, so the tint reaches into the feed's
        gutter without moving a single pixel of the row's content. */
     margin-left: -8px;
-    padding-left: 8px;
+    padding-left: var(--sp-2);
     margin-right: -8px;
-    padding-right: 8px;
+    padding-right: var(--sp-2);
   }
   @media (pointer: fine) {
     .msg.mentions-me:hover {
@@ -1503,7 +1503,7 @@
   /* Newest appended message only (see MessageList): quick fade + slide-up.
      The global reduced-motion override in app.css zeroes the duration. */
   .msg.enter {
-    animation: msg-in 0.26s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
+    animation: msg-in 0.26s var(--ease-out) backwards;
   }
   @keyframes msg-in {
     from {
@@ -1529,7 +1529,7 @@
     white-space: nowrap;
     opacity: 0;
     flex-shrink: 0;
-    padding-top: 4px;
+    padding-top: var(--sp-1);
   }
   @media (pointer: fine) {
     .msg.compact:hover .gutter-time {
@@ -1554,9 +1554,9 @@
     max-width: 100%;
     min-width: 0;
     transition:
-      background 0.12s ease,
-      border-color 0.12s ease,
-      color 0.12s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .reply-ref:hover {
@@ -1597,7 +1597,7 @@
   }
   .msg-head {
     display: flex;
-    gap: 8px;
+    gap: var(--sp-2);
     align-items: baseline;
     min-width: 0;
   }
@@ -1615,8 +1615,8 @@
   }
   .av-btn :global(.avatar) {
     transition:
-      box-shadow 0.12s ease,
-      transform 0.12s ease;
+      box-shadow var(--dur-quick) ease,
+      transform var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .av-btn:hover :global(.avatar) {
@@ -1667,7 +1667,7 @@
   .ann-badge {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 1px 7px;
     border-radius: 999px;
     background: var(--accent-soft);
@@ -1687,7 +1687,7 @@
   }
   .pin-mark {
     color: var(--warn);
-    animation: pin-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: pin-in 0.25s var(--ease-spring);
   }
   @keyframes pin-in {
     from {
@@ -1711,7 +1711,7 @@
     font-size: var(--fs-micro);
     font-weight: 600;
     line-height: 16px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--bg-3);
     color: var(--text-muted);
     text-transform: uppercase;
@@ -1738,7 +1738,7 @@
        covers every rendered-prose container rather than just this one. */
   }
   .reveal-btn {
-    margin-left: 8px;
+    margin-left: var(--sp-2);
     padding: 1px 8px;
     font-size: var(--fs-small);
     border: 1px solid var(--border);
@@ -1760,7 +1760,7 @@
     padding: 0 6px;
     font-size: var(--fs-micro);
     font-style: normal;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--accent-soft);
     color: var(--text-muted);
     text-transform: uppercase;
@@ -1780,7 +1780,7 @@
   }
   .body.deleted.revealable em {
     border-bottom: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
-    transition: color 0.15s ease;
+    transition: color var(--dur-standard) ease;
   }
   .body.deleted.revealable:hover em {
     color: var(--accent-hover);
@@ -1790,7 +1790,7 @@
   .disappeared {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     font-style: italic;
     color: color-mix(in srgb, var(--accent) 55%, var(--text-faint));
   }
@@ -1878,8 +1878,8 @@
     color: var(--text-faint);
     cursor: pointer;
     transition:
-      color 0.12s ease,
-      background 0.12s ease;
+      color var(--dur-quick) ease,
+      background var(--dur-quick) ease;
   }
   .edit-emoji:hover {
     color: var(--text);
@@ -1900,8 +1900,8 @@
     color: var(--text-muted);
     border: 1px solid transparent;
     transition:
-      background 0.12s,
-      color 0.12s;
+      background var(--dur-quick),
+      color var(--dur-quick);
   }
   .edit-btn:hover {
     background: color-mix(in srgb, var(--text) 14%, var(--bg-3));
@@ -1961,8 +1961,8 @@
     border-radius: var(--radius-sm);
     max-width: 440px;
     transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
+      border-color var(--dur-standard) ease,
+      box-shadow var(--dur-standard) ease;
   }
   .thread-prompt:focus-within {
     border-color: var(--accent);
@@ -2031,7 +2031,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-pop);
-    padding: 4px;
+    padding: var(--sp-1);
     display: flex;
     flex-direction: column;
     z-index: 30;
@@ -2039,7 +2039,7 @@
   .es-item {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     width: 100%;
     padding: 5px 8px;
     background: transparent;
@@ -2061,17 +2061,17 @@
   }
   .es-enter {
     margin-left: auto;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     color: var(--text-faint);
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 0 4px;
   }
   .reactions {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
-    margin-top: 4px;
+    gap: var(--sp-1);
+    margin-top: var(--sp-1);
   }
   .reaction {
     display: inline-flex;
@@ -2082,14 +2082,14 @@
     color: var(--text);
     padding: 3px 9px;
     font-size: var(--fs-ui);
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     /* springy pop when a new pill appears (overshoot bezier) */
-    animation: pill-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: pill-in 0.25s var(--ease-spring);
     transition:
       transform 0.1s ease,
-      border-color 0.12s ease,
-      background 0.12s ease,
-      box-shadow 0.12s ease;
+      border-color var(--dur-quick) ease,
+      background var(--dur-quick) ease,
+      box-shadow var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .reaction:hover {
@@ -2198,9 +2198,9 @@
     visibility: hidden;
     transform: translateY(4px);
     transition:
-      opacity 0.15s ease,
-      transform 0.15s ease,
-      visibility 0s linear 0.15s;
+      opacity var(--dur-standard) ease,
+      transform var(--dur-standard) ease,
+      visibility 0s linear var(--dur-standard);
   }
   @media (pointer: fine) {
     .react-wrap:hover .react-who {
@@ -2233,13 +2233,13 @@
     transform: translateY(3px) scale(0.97);
     background: var(--bg-1);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     padding: 3px;
     box-shadow: var(--shadow-pop);
     z-index: 5;
     transition:
-      opacity 0.12s ease,
-      transform 0.14s cubic-bezier(0.2, 0.9, 0.3, 1);
+      opacity var(--dur-quick) ease,
+      transform var(--dur-quick) var(--ease-out);
   }
   .msg:hover .msg-actions,
   .msg:focus-within .msg-actions {
@@ -2369,7 +2369,7 @@
     font-size: 14px;
     display: grid;
     place-items: center;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     transition:
       background 0.1s ease,
       transform 0.08s ease;
@@ -2390,7 +2390,7 @@
     position: absolute;
     top: 0;
     right: 2px;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     line-height: 1;
   }
@@ -2404,7 +2404,7 @@
   .body :global(code) {
     background: var(--bg-3);
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     /* An Arabic string literal or comment inside code has no glyph in a
        monospace face and drops to whatever the system offers. Naming the
        companion keeps it the same Arabic the rest of the app is set in. */
@@ -2418,8 +2418,8 @@
   .att-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 4px;
-    margin-top: 4px;
+    gap: var(--sp-1);
+    margin-top: var(--sp-1);
     max-width: 380px;
   }
   .att-grid > :global(*) {
@@ -2469,7 +2469,7 @@
   .body :global(.mention) {
     background: color-mix(in srgb, var(--text-muted) 22%, transparent);
     color: var(--text);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 0 3px;
     font-weight: 600;
     cursor: pointer;
@@ -2511,7 +2511,7 @@
   .body :global(.spoiler) {
     filter: blur(0.35em);
     background: color-mix(in srgb, var(--text-muted) 16%, transparent);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 0 3px;
     cursor: pointer;
     user-select: none;
@@ -2567,7 +2567,7 @@
     position: absolute;
     top: 3px;
     right: 8px;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -2581,7 +2581,7 @@
     height: auto;
     border-radius: var(--radius-sm);
     display: block;
-    margin-top: 4px;
+    margin-top: var(--sp-1);
     animation: att-in 0.25s ease;
   }
   @keyframes att-in {
@@ -2647,8 +2647,8 @@
     line-height: 1.5;
     cursor: default;
     transition:
-      background 0.15s ease,
-      border-color 0.15s ease;
+      background var(--dur-standard) ease,
+      border-color var(--dur-standard) ease;
   }
   .seal:hover,
   .seal.open {
@@ -2675,7 +2675,7 @@
     color: var(--text);
     text-align: left;
     white-space: nowrap;
-    animation: seal-in 0.13s ease-out;
+    animation: seal-in var(--dur-quick) ease-out;
   }
   @keyframes seal-in {
     from { opacity: 0; transform: translateY(3px); }

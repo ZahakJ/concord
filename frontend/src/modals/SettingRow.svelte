@@ -74,14 +74,14 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     width: 100%;
     padding: 11px 14px;
     background: transparent;
     border: none;
     color: var(--text);
     text-align: left;
-    transition: background 0.13s ease;
+    transition: background var(--dur-quick) ease;
   }
   .row + :global(.row) {
     border-top: 1px solid var(--border);
@@ -108,7 +108,7 @@
     width: 30px;
     height: 30px;
     flex: none;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: var(--bg-3);
     color: var(--text-muted);
   }
@@ -139,8 +139,8 @@
   .chev {
     flex: none;
     color: var(--text-faint);
-    font-size: 17px;
-    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+    font-size: var(--fs-title);
+    transition: transform 0.18s var(--ease-spring);
   }
   button.row:hover .chev {
     transform: translateX(3px);
@@ -173,7 +173,7 @@
     border-radius: 50%;
     background: white;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-    transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1);
+    transition: transform 0.18s var(--ease-out);
   }
   .switch.on .knob {
     transform: translateX(16px);
@@ -186,7 +186,7 @@
   @media (pointer: coarse), (max-width: 768px) {
     .row:has(.slot) {
       flex-wrap: wrap;
-      row-gap: 8px;
+      row-gap: var(--sp-2);
     }
     .row:has(.slot) .slot {
       flex: 1 0 100%;

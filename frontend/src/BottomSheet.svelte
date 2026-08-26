@@ -77,10 +77,10 @@
   .bs-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--scrim);
     z-index: 400;
     border: none;
-    animation: bs-fade 0.16s ease;
+    animation: bs-fade var(--dur-standard) ease;
     /* Springs the dim back in sync with the sheet on a released half-swipe;
        lib/sheet.js suppresses it for the duration of a tracked drag. */
     transition: opacity 0.18s ease;
@@ -94,18 +94,18 @@
     display: flex;
     flex-direction: column;
     background: var(--bg-elevated, var(--bg-1));
-    border-radius: 16px 16px 0 0;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
     /* Fallback for engines without dvh: the inline max-height above carries the
        dvh value and is simply dropped there, leaving this one standing. */
     max-height: 72vh;
     box-shadow: var(--shadow-pop);
-    animation: bs-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: bs-up 0.22s var(--ease-out);
   }
   .bs-grab {
     flex-shrink: 0;
     /* The pill itself is 4px tall; a thumb aims at the strip, not the pill, so
        the strip has to be worth aiming at. */
-    padding: 12px 16px 8px;
+    padding: var(--sp-3) var(--sp-4) var(--sp-2);
     cursor: grab;
     /* The grab zone owns its touches — without this the browser treats the
        drag as a scroll/refresh gesture and the sheet stutters. */

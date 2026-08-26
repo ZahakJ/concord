@@ -60,7 +60,7 @@
 <style>
   .card {
     display: flex;
-    gap: 12px;
+    gap: var(--sp-3);
     margin-top: 6px;
     max-width: 460px;
     min-height: var(--tap-min);
@@ -71,9 +71,9 @@
     text-decoration: none;
     color: var(--text);
     transition:
-      background 0.14s ease,
-      box-shadow 0.14s ease,
-      transform 0.14s ease;
+      background var(--dur-quick) ease,
+      box-shadow var(--dur-quick) ease,
+      transform var(--dur-quick) ease;
   }
   /* Pointer-only: Chromium latches :hover onto the last-tapped element, which
      left a link card you had merely tapped floating above the feed for good. */

@@ -315,7 +315,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .sec-label {
     font-size: var(--fs-tiny);
@@ -348,7 +348,7 @@
     border-radius: var(--radius-sm);
     background: transparent;
     cursor: pointer;
-    transition: background 0.13s ease;
+    transition: background var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .g-strip:hover {
@@ -362,7 +362,7 @@
     position: relative;
     width: 26px;
     height: 35px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     overflow: hidden;
     display: grid;
     place-items: center;
@@ -377,7 +377,7 @@
     object-fit: cover;
   }
   .g-mini-glyph {
-    font-size: 9px;
+    font-size: var(--fs-micro);
     font-weight: 800;
     color: rgba(255, 255, 255, 0.92);
     user-select: none;
@@ -391,8 +391,8 @@
   .g-chev {
     margin-left: auto;
     color: var(--text-faint);
-    font-size: 15px;
-    transition: transform 0.13s ease;
+    font-size: var(--fs-body);
+    transition: transform var(--dur-quick) ease;
   }
   .g-strip:hover .g-chev {
     transform: translateX(2px);
@@ -403,11 +403,11 @@
     position: fixed;
     inset: 0;
     z-index: 320;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--scrim);
     display: grid;
     place-items: center;
     padding: 5vh 5vw;
-    animation: gs-fade 0.14s ease;
+    animation: gs-fade var(--dur-quick) ease;
   }
   @keyframes gs-fade {
     from {
@@ -422,12 +422,12 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
-    padding: 16px;
+    padding: var(--sp-4);
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
     overflow: hidden; /* the GRID scrolls (gs-body), the header stays put */
-    animation: gs-pop 0.22s cubic-bezier(0.34, 1.4, 0.5, 1);
+    animation: gs-pop 0.22s var(--ease-spring);
   }
   .gs-body {
     overflow-y: auto;
@@ -455,7 +455,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .gs-head strong {
     font-size: var(--fs-body);
@@ -463,7 +463,7 @@
   .gs-actions {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .gs-close {
     display: grid;
@@ -522,7 +522,7 @@
   .g-result {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     width: 100%;
     padding: 5px 8px;
     background: var(--bg-0);
@@ -594,12 +594,12 @@
   .g-shelf {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .g-tile {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     min-width: 0;
     animation: g-in 0.25s ease both;
     animation-delay: calc(var(--tile-i, 0) * 0.02s);
@@ -613,14 +613,14 @@
   .g-art {
     position: relative;
     aspect-ratio: 2 / 3;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     display: grid;
     place-items: center;
     overflow: hidden;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
     transition:
-      transform 0.16s ease,
-      box-shadow 0.16s ease;
+      transform var(--dur-standard) ease,
+      box-shadow var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     .g-tile:hover .g-art {
@@ -698,7 +698,7 @@
     height: 22px;
     padding: 0; /* global button padding pushed the trash glyph off center */
     line-height: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     border: none;
     background: rgba(0, 0, 0, 0.55);
     color: rgba(255, 255, 255, 0.85);
@@ -706,8 +706,8 @@
     opacity: 0;
     cursor: pointer;
     transition:
-      opacity 0.12s ease,
-      background 0.12s ease;
+      opacity var(--dur-quick) ease,
+      background var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .g-tile:hover .g-x {
@@ -738,7 +738,7 @@
     height: 22px;
     padding: 0; /* same off-center hazard as .g-x */
     line-height: 0;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     border: none;
     background: rgba(0, 0, 0, 0.55);
     color: rgba(255, 255, 255, 0.85);
@@ -746,8 +746,8 @@
     opacity: 0;
     cursor: pointer;
     transition:
-      opacity 0.12s ease,
-      background 0.12s ease;
+      opacity var(--dur-quick) ease,
+      background var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .g-tile:hover .g-play {
@@ -804,7 +804,7 @@
       max-width: none;
       max-height: 88dvh;
       border: none;
-      border-radius: 16px 16px 0 0;
+      border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
       padding: 16px 14px calc(16px + var(--safe-bottom));
     }
     /* The remove button was revealed only on :hover — on touch that is an
@@ -815,7 +815,7 @@
       opacity: 1;
       width: 30px;
       height: 30px;
-      border-radius: 8px;
+      border-radius: var(--radius-md);
     }
     .g-x::after,
     .g-play::after {

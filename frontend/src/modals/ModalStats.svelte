@@ -511,7 +511,7 @@
   section {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     text-align: left;
   }
   .label {
@@ -529,14 +529,14 @@
   .grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .stat {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     gap: 10px;
-    padding: 8px 12px;
+    padding: var(--sp-2) var(--sp-3);
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -556,8 +556,8 @@
   .peers {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-top: 8px;
+    gap: var(--sp-1);
+    margin-top: var(--sp-2);
   }
   /* Wraps, always. A peer row carries a dot, a name, a 19-character ID, a
      latency, a transport pill and a direction — over 350px of unshrinkable
@@ -568,7 +568,7 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sp-2);
     row-gap: 2px;
     padding: 6px 10px;
     background: var(--bg-1);
@@ -674,7 +674,7 @@
     border: none;
     padding: 2px 4px;
     margin: -2px -4px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     min-width: 0;
     max-width: 100%;
     overflow: hidden;
@@ -732,14 +732,14 @@
     }
   }
   .note {
-    margin-top: 8px;
+    margin-top: var(--sp-2);
   }
   /* Inset push history: dense monospace rows, newest first. */
   .pushlog {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    margin-top: 8px;
+    margin-top: var(--sp-2);
   }
   .pushrow {
     font-family: var(--mono, monospace);

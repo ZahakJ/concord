@@ -216,7 +216,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    margin-bottom: 12px;
+    margin-bottom: var(--sp-3);
     text-align: left;
   }
   .lbl {
@@ -229,7 +229,7 @@
   .opt-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     margin-bottom: 6px;
   }
   .opt-row input {
@@ -239,7 +239,7 @@
   .opt-num {
     display: grid;
     place-items: center;
-    font-size: 15px;
+    font-size: var(--fs-body);
     width: 30px;
     height: 30px;
     flex-shrink: 0;
@@ -256,8 +256,8 @@
     border-radius: 50%;
     color: var(--text-muted);
     transition:
-      background 0.12s ease,
-      color 0.12s ease;
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
   .opt-x:hover {
     background: color-mix(in srgb, var(--danger) 16%, transparent);
@@ -283,8 +283,8 @@
     border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
     border-radius: var(--radius-sm);
     transition:
-      background 0.12s ease,
-      border-color 0.12s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease;
   }
   .add-opt :global(svg) {
     color: var(--accent-hover);
@@ -314,7 +314,7 @@
      where the thumb comes off the keyboard. */
   @media (pointer: coarse) {
     .opt-row {
-      gap: 12px;
+      gap: var(--sp-3);
     }
     .opt-x {
       width: var(--tap-min);
@@ -355,7 +355,7 @@
   /* The answer key: the same rows you just wrote, re-listed as radios — picking
      the truth should look like pointing at it, not re-typing it. */
   .ans-field {
-    margin-top: 4px;
+    margin-top: var(--sp-1);
   }
   .ans-list {
     display: flex;
@@ -365,7 +365,7 @@
   .ans {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 7px 10px;
     background: var(--bg-1);
     border: 1px solid var(--border);
@@ -374,8 +374,8 @@
     font-size: var(--fs-ui);
     text-align: left;
     transition:
-      background 0.12s ease,
-      border-color 0.12s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease;
   }
   .ans:hover {
     border-color: var(--ok);
@@ -393,7 +393,7 @@
   }
   .ans-num {
     flex-shrink: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .ans-text {
     flex: 1;
@@ -411,11 +411,11 @@
   .switch {
     width: 34px;
     height: 20px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: var(--bg-3);
     position: relative;
     flex-shrink: 0;
-    transition: background 0.15s ease;
+    transition: background var(--dur-standard) ease;
   }
   .switch.on {
     background: var(--accent);
@@ -428,7 +428,7 @@
     height: 16px;
     border-radius: 50%;
     background: #fff;
-    transition: transform 0.15s ease;
+    transition: transform var(--dur-standard) ease;
   }
   .switch.on .knob {
     transform: translateX(14px);
@@ -450,8 +450,8 @@
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
+    gap: var(--sp-2);
+    margin-top: var(--sp-4);
   }
   @media (prefers-reduced-motion: reduce) {
     .knob,

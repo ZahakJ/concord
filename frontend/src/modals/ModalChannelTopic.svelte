@@ -70,7 +70,7 @@
 <style>
   p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .slow {
     margin-top: 14px;
@@ -83,7 +83,7 @@
   }
   .seg {
     display: flex;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .seg button {
     flex: 1;
@@ -102,9 +102,9 @@
     width: 100%;
     resize: vertical;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 8px 10px;
-    margin-top: 8px;
+    margin-top: var(--sp-2);
     box-sizing: border-box;
   }
 </style>

@@ -201,7 +201,7 @@
   .fld {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     margin: 10px 0;
   }
   .fld span {

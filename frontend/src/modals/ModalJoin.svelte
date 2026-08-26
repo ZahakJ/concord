@@ -186,7 +186,7 @@
   .bubble.ready {
     border: 1px solid transparent;
     box-shadow: var(--accent-glow);
-    animation: arrive 0.35s cubic-bezier(0.34, 1.5, 0.5, 1);
+    animation: arrive 0.35s var(--ease-spring);
   }
   /* Joining can take a few seconds of dialing — the bubble breathes so the
      wait reads as knocking, not a hang. */

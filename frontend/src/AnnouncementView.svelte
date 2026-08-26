@@ -35,7 +35,7 @@
   /* The publisher's own words, set apart from the announcement they are
      introducing without being boxed off from it. */
   .note {
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
     font-size: var(--fs-body);
     line-height: 1.55;
     color: var(--text-muted);

@@ -22,12 +22,12 @@
     flex-direction: column;
     align-items: center;
     text-align: center;
-    gap: 4px;
+    gap: var(--sp-1);
     max-width: 400px;
-    padding: 24px 16px;
+    padding: var(--sp-5) var(--sp-4);
     /* Settle in gently instead of popping when the panel opens.
        (The global reduced-motion rule in app.css zeroes the duration.) */
-    animation: empty-in 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    animation: empty-in 0.4s var(--ease-out) both;
   }
   @keyframes empty-in {
     from {

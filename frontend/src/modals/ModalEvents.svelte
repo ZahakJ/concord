@@ -833,7 +833,7 @@
   .bar {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-wrap: wrap;
   }
   .spring {
@@ -889,8 +889,8 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
-    gap: 8px;
-    margin-top: 4px;
+    gap: var(--sp-2);
+    margin-top: var(--sp-1);
   }
   .mtitle {
     display: flex;
@@ -992,7 +992,7 @@
     place-items: center;
     border-radius: 50%;
     font-variant-numeric: tabular-nums;
-    transition: background 0.12s ease;
+    transition: background var(--dur-quick) ease;
   }
   /* TODAY is the loudest mark on the grid: a filled accent disc. */
   .cell.today .dn {
@@ -1031,7 +1031,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .dayk {
     color: var(--text-muted);
@@ -1073,7 +1073,7 @@
     gap: 6px;
     align-self: flex-start;
     background: transparent;
-    padding: 8px 4px;
+    padding: var(--sp-2) var(--sp-1);
     font-size: var(--fs-compact);
   }
   .pastbtn:hover {
@@ -1081,7 +1081,7 @@
   }
   .pchev {
     display: flex;
-    transition: transform 0.15s ease;
+    transition: transform var(--dur-standard) ease;
   }
   .pchev.open {
     transform: rotate(90deg);
@@ -1102,7 +1102,7 @@
     border-radius: 16px;
     background: var(--accent-soft);
     color: var(--accent-hover);
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
   }
   .empty p {
     margin: 0 0 8px;
@@ -1157,7 +1157,7 @@
     font-size: var(--fs-compact);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    transition: background var(--dur-quick) ease, border-color var(--dur-quick) ease, color var(--dur-quick) ease;
   }
   .slotchip:hover {
     background: var(--bg-3);
@@ -1182,7 +1182,7 @@
     flex: 1 1 150px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     min-width: 0;
   }
   /* A datetime-local field has a real intrinsic width (segments + spinner);
@@ -1227,20 +1227,20 @@
     min-height: var(--tap-min);
     background: transparent;
     transition:
-      background 0.12s ease,
-      color 0.12s ease,
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease,
       box-shadow 0.18s var(--ease-calm);
   }
   .wseg-t {
     font-size: var(--fs-ui);
     font-weight: 650;
     color: var(--text-muted);
-    transition: color 0.12s ease;
+    transition: color var(--dur-quick) ease;
   }
   .wseg-h {
     font-size: var(--fs-small);
     color: var(--text-faint);
-    transition: color 0.12s ease;
+    transition: color var(--dur-quick) ease;
   }
   .wseg:hover {
     background: var(--bg-3);
@@ -1297,9 +1297,9 @@
     border: 1px solid transparent;
     text-align: left;
     transition:
-      background 0.12s ease,
-      border-color 0.12s ease,
-      color 0.12s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
   .chrow:hover {
     background: var(--bg-3);
@@ -1339,8 +1339,8 @@
     flex-direction: column;
     gap: var(--sp-2);
     transition:
-      background 0.12s ease,
-      border-color 0.12s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease;
   }
   .roomcard.armed {
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
@@ -1390,7 +1390,7 @@
     border-radius: 999px;
     background: var(--bg-3);
     border: 1px solid var(--border);
-    transition: background 0.15s ease, border-color 0.15s ease;
+    transition: background var(--dur-standard) ease, border-color var(--dur-standard) ease;
   }
   .switch input {
     position: absolute;
@@ -1410,7 +1410,7 @@
     height: 16px;
     border-radius: 50%;
     background: var(--text-muted);
-    transition: transform 0.15s var(--ease-calm), background 0.15s ease;
+    transition: transform var(--dur-standard) var(--ease-calm), background var(--dur-standard) ease;
   }
   .switch:has(input:checked) {
     background: var(--accent);
@@ -1489,7 +1489,7 @@
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .actions .ghost {
     padding: 7px 14px;
@@ -1502,7 +1502,7 @@
       transition: none; /* the color fades may stay; the travel may not */
     }
     .wseg {
-      transition: background 0.12s ease, color 0.12s ease; /* drop the glow bloom */
+      transition: background var(--dur-quick) ease, color var(--dur-quick) ease; /* drop the glow bloom */
     }
   }
   @media (pointer: coarse), (max-width: 768px) {

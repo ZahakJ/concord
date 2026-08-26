@@ -771,8 +771,8 @@
 <style>
   .tabs {
     display: flex;
-    gap: 4px;
-    margin-bottom: 8px;
+    gap: var(--sp-1);
+    margin-bottom: var(--sp-2);
     border-bottom: 1px solid var(--border);
   }
   .tabs button {
@@ -806,15 +806,15 @@
   .go {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     font-size: var(--fs-compact);
     white-space: nowrap;
   }
   .add {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px;
+    gap: var(--sp-2);
+    padding: var(--sp-2);
     background: var(--bg-3);
     border-radius: var(--radius-sm);
   }
@@ -840,7 +840,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     min-width: 0;
   }
   .fields input {
@@ -871,7 +871,7 @@
     text-decoration: underline;
   }
   .grid {
-    margin-top: 8px;
+    margin-top: var(--sp-2);
     max-height: 52vh;
     overflow-y: auto;
     /* A flick that reaches the end of the results must stop there, not start
@@ -949,7 +949,7 @@
     padding: 3px 5px;
     background: rgba(0, 0, 0, 0.6);
     color: #fff;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     opacity: 0;
   }
   .cell:hover .rm,
@@ -977,7 +977,7 @@
     }
   }
   .more {
-    margin-top: 8px;
+    margin-top: var(--sp-2);
     width: 100%;
     min-height: var(--tap-min);
     font-size: var(--fs-compact);

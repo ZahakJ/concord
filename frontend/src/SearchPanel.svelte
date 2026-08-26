@@ -205,7 +205,7 @@
   .sp-head {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 8px var(--sp-edge) 6px;
     font-size: var(--fs-compact);
   }
@@ -274,8 +274,8 @@
     font-size: var(--fs-small);
     line-height: 1.5;
     transition:
-      border-color 0.12s ease,
-      color 0.12s ease;
+      border-color var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
   .sp-add code {
     font-family: ui-monospace, monospace;
@@ -298,7 +298,7 @@
   .sp-chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 2px 4px 2px 9px;
     border-radius: 999px;
     background: var(--accent-soft);
@@ -337,7 +337,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--dur-standard) ease;
   }
   .sp-list.dim {
     opacity: 0.55;
@@ -355,7 +355,7 @@
     font-size: var(--fs-ui);
     transition:
       background 0.1s ease,
-      transform 0.12s ease;
+      transform var(--dur-quick) ease;
     animation: sp-in 0.2s ease backwards;
   }
   /* Entrance stagger, capped after the first rows — anything past the fold
@@ -365,7 +365,7 @@
   .sp-hit:nth-child(4) { animation-delay: 0.075s; }
   .sp-hit:nth-child(5) { animation-delay: 0.1s; }
   .sp-hit:nth-child(6) { animation-delay: 0.125s; }
-  .sp-hit:nth-child(7) { animation-delay: 0.15s; }
+  .sp-hit:nth-child(7) { animation-delay: var(--dur-standard); }
   .sp-hit:nth-child(n + 8) { animation-delay: 0.17s; }
   @keyframes sp-in {
     from {
@@ -395,7 +395,7 @@
   .sp-meta {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--sp-2);
     min-width: 0;
   }
   .sp-meta strong {
@@ -462,7 +462,7 @@
   .sk-a,
   .sk-b {
     height: 9px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
   }
   .sk-a {
     width: 38%;

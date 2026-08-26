@@ -250,7 +250,7 @@
 
 <style>
   .poll {
-    margin-top: 4px;
+    margin-top: var(--sp-1);
     max-width: 460px;
     padding: 14px 15px 11px;
     background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 5%, var(--bg-1)), var(--bg-1));
@@ -261,7 +261,7 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    margin-bottom: 12px;
+    margin-bottom: var(--sp-3);
   }
   .poll-q {
     font-weight: 700;
@@ -309,7 +309,7 @@
     overflow: hidden;
     text-align: left;
     transition:
-      border-color 0.14s ease,
+      border-color var(--dur-quick) ease,
       transform 0.08s ease;
   }
   /* Pointer-only: Chromium latches :hover after a tap, so an option you merely
@@ -384,8 +384,8 @@
     background: var(--bg-3);
     box-shadow: inset 0 0 0 1px var(--border);
     transition:
-      background 0.14s ease,
-      box-shadow 0.14s ease;
+      background var(--dur-quick) ease,
+      box-shadow var(--dur-quick) ease;
   }
   .mark.on {
     background: var(--accent-soft);
@@ -396,7 +396,7 @@
     box-shadow: inset 0 0 0 1.5px var(--ok);
   }
   .mark-emoji {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1;
   }
   .mark-check {

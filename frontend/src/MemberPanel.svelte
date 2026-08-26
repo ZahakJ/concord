@@ -521,7 +521,7 @@
     border-left: 1px solid var(--border);
     /* No safe-area inset: the right-hand drawer that hosts this on a phone pads
        its own bottom, so repeating it here reserved the home indicator twice. */
-    padding: 12px 8px;
+    padding: var(--sp-3) var(--sp-2);
     overflow-y: auto;
     /* A fling that runs out of member list stops there instead of dragging the
        message feed visible past the open drawer's edge. */
@@ -539,7 +539,7 @@
     letter-spacing: 0.07em;
     font-weight: 700;
     color: var(--text-muted);
-    margin: 12px 8px 4px;
+    margin: var(--sp-3) var(--sp-2) var(--sp-1);
   }
   /* The filter is background chrome like the rest of this panel — a quiet
      recessed well, no accent until the field itself is focused (the global
@@ -600,8 +600,8 @@
     align-items: center;
     border-radius: var(--radius-sm);
     transition:
-      background 0.15s ease,
-      transform 0.15s ease;
+      background var(--dur-standard) ease,
+      transform var(--dur-standard) ease;
   }
   /* Hover is a mouse state; on touch a tap leaves it stuck on the row behind
      you, which reads as a selection you cannot clear. */
@@ -623,7 +623,7 @@
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     background: transparent;
     color: var(--text);
     text-align: left;
@@ -638,7 +638,7 @@
      hovering or focusing a row brings the person fully back. */
   .member.offline {
     opacity: 0.62;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--dur-standard) ease;
   }
   .member-row:hover .member.offline,
   .member.offline:focus-visible {
@@ -672,7 +672,7 @@
     overflow: hidden;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     min-width: 0;
   }
   /* The name itself ellipsizes (text-overflow doesn't work on the flex parent);
@@ -752,7 +752,7 @@
     color: var(--ok-text);
     display: inline-grid;
     place-items: center;
-    animation: v-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation: v-pop 0.3s var(--ease-spring) both;
   }
   @keyframes v-pop {
     from {
@@ -779,7 +779,7 @@
     text-transform: uppercase;
     letter-spacing: 0.03em;
     padding: 1px 5px;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     font-weight: 600;
     flex-shrink: 0;
   }
@@ -793,7 +793,7 @@
     text-transform: uppercase;
     letter-spacing: 0.03em;
     padding: 1px 5px;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     font-weight: 600;
     flex-shrink: 0;
     background: color-mix(in srgb, var(--warn) 22%, transparent);
@@ -811,7 +811,7 @@
      Tokens only, so they hold in dark/light and every pack; full-width and
      wrap-friendly so they sit fine in the 393px right drawer. */
   .notice {
-    margin: 4px 4px 8px;
+    margin: var(--sp-1) var(--sp-1) var(--sp-2);
     padding: 10px;
     border-radius: var(--radius-md);
     font-size: var(--fs-small);
@@ -838,7 +838,7 @@
     align-items: center;
     gap: 6px;
     font-size: var(--fs-ui);
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
   }
   .notice-head strong {
     flex: 1;
@@ -905,7 +905,7 @@
   .kick {
     background: transparent;
     color: var(--danger-text);
-    padding: 4px 8px;
+    padding: var(--sp-1) var(--sp-2);
     opacity: 0;
   }
   .member-row:hover .kick,
@@ -938,7 +938,7 @@
     }
   }
   .peers-info {
-    padding: 4px 8px;
+    padding: var(--sp-1) var(--sp-2);
     line-height: 1.45;
     margin: 0;
   }
@@ -946,7 +946,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 6px 8px;
     word-break: break-all;
   }
@@ -956,7 +956,7 @@
   .badge {
     font-size: var(--fs-small);
     padding: 2px 8px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
   }
   .badge.verified {
     background: var(--ok-soft);
@@ -996,7 +996,7 @@
   .chev {
     display: inline-grid;
     place-items: center;
-    transition: transform 0.15s ease;
+    transition: transform var(--dur-standard) ease;
   }
   .chev.open {
     transform: rotate(90deg);

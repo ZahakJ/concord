@@ -182,7 +182,7 @@
     display: flex;
     justify-content: space-evenly;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 4px 6px 12px;
     border-bottom: 1px solid var(--border);
     margin-bottom: 6px;
@@ -268,7 +268,7 @@
     /* Gentle rise-in so the menu arrives instead of blinking into place. Only
        opacity/translate animate — never scale — so the on-open flip measurement
        (which reads width/height) stays exact. */
-    animation: cm-in 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: cm-in var(--dur-quick) var(--ease-out);
   }
   @keyframes cm-in {
     from {
@@ -327,7 +327,7 @@
   /* The sheet's rows are twice the size of the popover's, so its group labels
      have to grow with them or they read as debris between the rows. */
   .as-list .cm-header {
-    padding: 8px 12px 4px;
+    padding: var(--sp-2) var(--sp-3) var(--sp-1);
     font-size: var(--fs-compact);
     letter-spacing: 0.02em;
   }

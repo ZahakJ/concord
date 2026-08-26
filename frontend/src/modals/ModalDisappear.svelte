@@ -63,8 +63,8 @@
     font-size: var(--fs-ui);
     text-align: left;
     transition:
-      background 0.12s ease,
-      border-color 0.12s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease;
   }
   .opt:hover,
   .opt:active {

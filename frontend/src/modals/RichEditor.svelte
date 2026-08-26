@@ -1177,8 +1177,8 @@
     color: var(--text-muted);
     border-radius: var(--radius-sm);
     transition:
-      background 0.12s ease,
-      color 0.12s ease;
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
   .tb:hover:not(:disabled) {
     background: var(--bg-3);
@@ -1219,7 +1219,7 @@
   .bar .aa {
     width: auto;
     padding: 0 9px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 700;
     letter-spacing: 0.01em;
   }
@@ -1246,10 +1246,10 @@
     font-weight: 600;
     color: var(--text-muted);
     background: transparent;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     transition:
-      background 0.14s ease,
-      color 0.14s ease;
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
   .segb:hover {
     color: var(--text);
@@ -1261,7 +1261,7 @@
   }
   /* Focus is a mode of its own, not a fourth view — same type, its own well. */
   .segb.solo {
-    margin-left: 4px;
+    margin-left: var(--sp-1);
     background: var(--bg-3);
   }
   .segb.solo.on {
@@ -1283,7 +1283,7 @@
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-pop);
     transform-origin: top left;
-    animation: pop-in 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: pop-in var(--dur-quick) var(--ease-out);
   }
   .pop.narrow {
     min-width: 120px;
@@ -1304,7 +1304,7 @@
   }
   .pop-head {
     padding: 4px 8px 6px;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     letter-spacing: 0.07em;
     text-transform: uppercase;
@@ -1316,7 +1316,7 @@
     gap: 9px;
     width: 100%;
     padding: 7px 9px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text);
     background: transparent;
     border-radius: var(--radius-sm);
@@ -1351,7 +1351,7 @@
     margin-top: 3px;
     border-top: 1px solid var(--border);
     border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-    padding-top: 8px;
+    padding-top: var(--sp-2);
   }
   /* ---- the touch presentation of the menus above ------------------------ */
   /* Same rows, rendered inside BottomSheet instead of a popover. They need the
@@ -1410,7 +1410,7 @@
   .swatches {
     display: grid;
     grid-template-columns: repeat(9, 1fr);
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 0 6px 6px;
   }
   /* Descendant selector on purpose: Modal's mobile sheet puts a 44px min-height
@@ -1424,7 +1424,7 @@
     border-radius: 50%;
     background: var(--sw);
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
-    transition: transform 0.12s ease;
+    transition: transform var(--dur-quick) ease;
   }
   .swatches .sw:hover {
     transform: scale(1.18);
@@ -1432,7 +1432,7 @@
   .pop-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 0 8px 4px;
   }
   .custom {
@@ -1458,7 +1458,7 @@
   }
   .linkish {
     margin-left: auto;
-    padding: 4px 8px;
+    padding: var(--sp-1) var(--sp-2);
     font-size: 12px;
     font-weight: 600;
     color: var(--accent-hover);
@@ -1472,11 +1472,11 @@
      `bottom: 54px; right: 12px` — correct above a bottom-docked composer, wrong
      under a toolbar. Re-anchor it downward.
      Scoped to exactly the case where the picker is a floating card: its own
-     mobile rule (`@media (pointer: coarse), (max-width: 700px)`) turns it into a
+     mobile rule (`@media (pointer: coarse), (max-width: 768px)`) turns it into a
      fixed bottom sheet, and this override has the higher specificity, so
      applying it unconditionally would drag that sheet back into the middle of
      the toolbar. The condition below is the complement of that rule. */
-  @media (pointer: fine) and (min-width: 701px) {
+  @media (pointer: fine) and (min-width: 769px) {
     .epwrap :global(.picker) {
       top: calc(100% + 6px);
       bottom: auto;
@@ -1495,11 +1495,11 @@
   .tray {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .chip {
     position: relative;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow: hidden;
     background: var(--bg-1);
     border: 1px solid var(--border);
@@ -1553,7 +1553,7 @@
     border-radius: 3px;
     background: rgba(0, 0, 0, 0.72);
     color: #fff;
-    font-size: 8px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     letter-spacing: 0.4px;
     pointer-events: none;
@@ -1565,7 +1565,7 @@
     display: flex;
     gap: 2px;
     opacity: 0;
-    transition: opacity 0.14s ease;
+    transition: opacity var(--dur-quick) ease;
   }
   .chip:hover .tools,
   .chip:focus-within .tools {
@@ -1580,7 +1580,7 @@
     display: grid;
     place-items: center;
     padding: 0;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: rgba(0, 0, 0, 0.68);
     color: #fff;
   }
@@ -1671,7 +1671,7 @@
   .attedit {
     display: flex;
     align-items: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-wrap: wrap;
     padding: 9px;
     border-radius: var(--radius-sm);
@@ -1686,7 +1686,7 @@
     min-width: 140px;
   }
   .attedit span {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -1708,7 +1708,7 @@
     min-height: var(--work-min, 200px);
     display: grid;
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: var(--sp-3);
     /* Declared, not assumed: measured in a real browser, leaving this to the
        initial value left both panes at content height and vertically CENTRED in
        a 484px row — a 200px editor floating in the middle of the dialog. */
@@ -1736,8 +1736,8 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
+      border-color var(--dur-standard) ease,
+      box-shadow var(--dur-standard) ease;
   }
   .edit.focused {
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
@@ -1771,7 +1771,7 @@
     place-items: center;
     gap: 6px;
     grid-auto-flow: column;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--accent-hover);
     background: color-mix(in srgb, var(--accent) 10%, var(--bg-1));
@@ -1805,7 +1805,7 @@
     z-index: 30;
     min-width: 240px;
     max-width: calc(100% - 24px);
-    padding: 4px;
+    padding: var(--sp-1);
     display: flex;
     flex-direction: column;
     background: var(--bg-elevated);
@@ -1813,11 +1813,11 @@
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-pop);
     transform-origin: bottom left;
-    animation: pop-in 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: pop-in var(--dur-quick) var(--ease-out);
   }
   .s-head {
     padding: 4px 10px 3px;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -1827,7 +1827,7 @@
     display: flex;
     align-items: center;
     padding: 6px 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-family: var(--mono-font, monospace);
     color: var(--text);
     background: transparent;
@@ -1843,23 +1843,23 @@
     box-shadow: inset 2px 0 0 var(--accent);
   }
   .s-glyph {
-    font-size: 15px;
+    font-size: var(--fs-body);
     margin-right: 6px;
   }
   .s-note {
-    margin-left: 8px;
+    margin-left: var(--sp-2);
     font-family: var(--ui-font, sans-serif);
     font-size: 11px;
     color: var(--text-muted);
   }
   .s-enter {
     margin-left: auto;
-    padding-left: 12px;
+    padding-left: var(--sp-3);
     font-family: inherit;
     font-size: 11px;
     color: var(--accent-hover);
     opacity: 0;
-    transition: opacity 0.12s ease;
+    transition: opacity var(--dur-quick) ease;
   }
   .s-item.sel .s-enter {
     opacity: 0.9;
@@ -1870,8 +1870,8 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    margin-bottom: 8px;
-    font-size: 10px;
+    margin-bottom: var(--sp-2);
+    font-size: var(--fs-tiny);
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -1916,7 +1916,7 @@
     color: var(--text-muted);
   }
   .ptitle {
-    font-size: 17px;
+    font-size: var(--fs-title);
     font-weight: 700;
     line-height: 1.25;
     letter-spacing: -0.01em;
@@ -1925,7 +1925,7 @@
   }
   .empty {
     margin: 4px 0 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.6;
     color: var(--text-muted);
   }
@@ -1964,7 +1964,7 @@
   .md :global(code) {
     background: var(--bg-3);
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-family: var(--mono-font, monospace);
     font-size: 12px;
   }
@@ -1990,7 +1990,7 @@
     position: absolute;
     top: 3px;
     right: 8px;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     color: var(--text-faint);
@@ -2034,7 +2034,7 @@
   .md :global(.mention) {
     background: color-mix(in srgb, var(--text-muted) 22%, transparent);
     color: var(--text);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 0 3px;
     font-weight: 600;
   }
@@ -2046,7 +2046,7 @@
   .md :global(.spoiler) {
     filter: blur(0.35em);
     background: color-mix(in srgb, var(--text-muted) 16%, transparent);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 0 3px;
     user-select: none;
   }
@@ -2073,7 +2073,7 @@
   .status {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     flex-wrap: wrap;
     font-size: var(--fs-small);
     color: var(--text-muted);
@@ -2130,7 +2130,7 @@
     display: grid;
     place-items: center;
     padding: 3px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text-faint);
   }
@@ -2152,7 +2152,7 @@
       grid-template-columns: 1fr;
     }
     .bar {
-      gap: 4px;
+      gap: var(--sp-1);
     }
     .grp.right {
       margin-left: 0;

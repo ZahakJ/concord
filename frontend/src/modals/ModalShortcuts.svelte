@@ -70,7 +70,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: var(--sp-4);
     padding: 7px 0;
     font-size: var(--fs-ui);
     border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
@@ -86,7 +86,7 @@
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     flex-wrap: wrap;
     justify-content: flex-end;
   }
@@ -110,7 +110,7 @@
     background: linear-gradient(var(--bg-3), var(--bg-2));
     border: 1px solid var(--border);
     border-bottom: 2px solid color-mix(in srgb, var(--border) 70%, black);
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     box-shadow:
       inset 0 1px 0 color-mix(in srgb, var(--text) 8%, transparent),
       0 1px 1px rgb(0 0 0 / 0.12);

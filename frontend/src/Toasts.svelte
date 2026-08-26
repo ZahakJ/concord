@@ -62,7 +62,7 @@
     z-index: 450;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     width: min(360px, calc(100vw - 32px));
     /* The container spans the corner even when empty; only toasts take clicks. */
     pointer-events: none;

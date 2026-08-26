@@ -271,7 +271,7 @@
   .ds-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--scrim);
     z-index: 60;
   }
   .ds {
@@ -307,7 +307,7 @@
   .preview {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--sp-4);
     padding: 18px 16px;
     border-bottom: 1px solid var(--border);
   }
@@ -351,7 +351,7 @@
      Nine pixels of text on a 30px dot is small, but the alternative is two
      swatches that look like colourways and are not. */
   .mark {
-    font-size: 8px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     letter-spacing: 0.02em;
     color: #10131a;
@@ -386,7 +386,7 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .opt {
     display: flex;
@@ -429,7 +429,7 @@
   .opt.none {
     flex-direction: row;
     justify-content: center;
-    gap: 8px;
+    gap: var(--sp-2);
     width: 100%;
     padding: 10px;
   }
@@ -448,7 +448,7 @@
   .ds-foot {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 12px 14px;
     border-top: 1px solid var(--border);
   }
@@ -459,7 +459,7 @@
       height: var(--tap-min);
     }
     .mark {
-      font-size: 10px;
+      font-size: var(--fs-tiny);
     }
     .grid {
       grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));

@@ -257,7 +257,7 @@
   .fieldrow {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 10px 14px;
   }
   .linkrow,
@@ -278,7 +278,7 @@
   .fin {
     background: var(--bg-3);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     padding: 8px 10px;
     color: var(--text);
     font-size: var(--fs-compact);
@@ -298,7 +298,7 @@
     color: var(--text-muted);
     background: var(--bg-3);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     padding: 8px 10px;
   }
   .addr-act {
@@ -307,7 +307,7 @@
     place-items: center;
     width: 34px;
     height: 34px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
     background: transparent;
     color: var(--text-muted);
@@ -328,7 +328,7 @@
     gap: 6px;
     background: transparent;
     border: 1px dashed var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     padding: 8px 14px;
     color: var(--text-muted);
     font-size: var(--fs-compact);
@@ -342,7 +342,7 @@
     background: var(--accent);
     color: var(--accent-fg);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     padding: 10px;
     font-weight: 600;
     font-size: var(--fs-compact);

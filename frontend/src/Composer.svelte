@@ -1765,7 +1765,7 @@
     gap: 7px;
     width: 100%;
     padding: 6px 12px;
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
     font-size: var(--fs-compact);
     color: var(--text-muted);
     background: color-mix(in srgb, var(--accent) 8%, var(--bg-input));
@@ -1807,13 +1807,13 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 6px 16px;
     font-size: var(--fs-ui);
     border-top: 1px solid var(--border);
     /* Faint accent wash ties the banner to the reply you're composing. */
     background: color-mix(in srgb, var(--accent) 7%, transparent);
-    animation: rb-in 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: rb-in var(--dur-standard) var(--ease-out);
   }
   @keyframes rb-in {
     from {
@@ -1905,7 +1905,7 @@
     animation: t-bounce 1.2s ease-in-out infinite;
   }
   .t-dots span:nth-child(2) {
-    animation-delay: 0.15s;
+    animation-delay: var(--dur-standard);
   }
   .t-dots span:nth-child(3) {
     animation-delay: 0.3s;
@@ -1960,14 +1960,14 @@
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 4px;
+    padding: var(--sp-1);
     display: flex;
     flex-direction: column;
     min-width: 240px;
     box-shadow: var(--shadow-pop);
     z-index: 50;
     transform-origin: bottom left;
-    animation: sg-pop 0.14s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: sg-pop var(--dur-quick) var(--ease-out);
   }
   @keyframes sg-pop {
     from {
@@ -2007,7 +2007,7 @@
     white-space: nowrap;
     transition:
       background 0.1s ease,
-      transform 0.12s ease;
+      transform var(--dur-quick) ease;
   }
   .suggest-item.sel,
   .suggest-item:hover {
@@ -2021,12 +2021,12 @@
   /* ↵ affordance on the selected row only (matches the command palette). */
   .s-enter {
     margin-left: auto;
-    padding-left: 12px;
+    padding-left: var(--sp-3);
     font-family: inherit;
     font-size: var(--fs-small);
     color: var(--accent-hover);
     opacity: 0;
-    transition: opacity 0.12s ease;
+    transition: opacity var(--dur-quick) ease;
   }
   .suggest-item.sel .s-enter {
     opacity: 0.9;
@@ -2080,9 +2080,9 @@
     border: 1px solid transparent;
     border-radius: var(--radius-lg);
     transition:
-      border-color 0.15s ease,
-      background 0.15s ease,
-      box-shadow 0.15s ease;
+      border-color var(--dur-standard) ease,
+      background var(--dur-standard) ease,
+      box-shadow var(--dur-standard) ease;
   }
   .input-shell.active:focus-within {
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
@@ -2092,7 +2092,7 @@
   .attach-tray {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 10px 10px 6px;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
     /* Several staged files make this row scroll; without containment the flick
@@ -2101,7 +2101,7 @@
   }
   .att-chip {
     position: relative;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow: hidden;
     background: color-mix(in srgb, var(--border) 30%, var(--bg-input));
     border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
@@ -2147,7 +2147,7 @@
     right: 3px;
     display: flex;
     gap: 2px;
-    transition: opacity 0.14s ease;
+    transition: opacity var(--dur-quick) ease;
   }
   /* Spoiler and Edit stay hover-only — they are refinements, and three 19px
      buttons permanently over a 64px thumbnail is more chrome than picture.
@@ -2196,14 +2196,14 @@
   /* The 34px right padding held the hover tools clear of the filename; with the
      tools gone on touch it's just a truncated name for no reason. */
   .composer.mobile .att-file {
-    padding-right: 12px;
+    padding-right: var(--sp-3);
     min-height: var(--tap-min);
   }
   /* Full-width rows in the edit panel — spoiler and, last and tinted, remove. */
   .att-acts {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sp-2);
     width: 100%;
   }
   .att-act {
@@ -2211,7 +2211,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--sp-2);
     min-height: var(--tap-min);
     padding: 0 12px;
     font-size: var(--fs-ui);
@@ -2237,7 +2237,7 @@
     place-items: center;
     padding: 0;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: rgba(0, 0, 0, 0.68);
     color: #fff;
   }
@@ -2253,11 +2253,11 @@
   .att-edit {
     display: flex;
     align-items: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-wrap: wrap;
     margin: 6px 0 2px;
-    padding: 8px;
-    border-radius: 8px;
+    padding: var(--sp-2);
+    border-radius: var(--radius-md);
     background: var(--bg-3);
   }
   .att-edit label {
@@ -2354,7 +2354,7 @@
     /* Quiet until the composer is hovered or focused, but not invisible: at
        0.45 these icons sat at 1.9:1 against the input they float over. */
     opacity: 0.8;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--dur-standard) ease;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
   }
   .composer:hover .fmt-bar,
@@ -2371,8 +2371,8 @@
     color: var(--text-muted);
     border-radius: var(--radius-sm);
     transition:
-      background 0.12s ease,
-      color 0.12s ease;
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
   .fmtbtn:hover:not(:disabled) {
     background: var(--bg-3);
@@ -2452,13 +2452,13 @@
   .dir-pill {
     flex: none;
     align-self: end;
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
     padding: 1px 5px;
     border: 1px solid var(--line);
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: var(--bg-3, transparent);
     color: var(--text-dim);
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     line-height: 1.5;
     font-weight: 600;
     letter-spacing: 0.04em;
@@ -2574,8 +2574,8 @@
     border-radius: var(--radius-sm);
     align-self: flex-end;
     transition:
-      color 0.12s ease,
-      transform 0.12s ease;
+      color var(--dur-quick) ease,
+      transform var(--dur-quick) ease;
   }
   .iconbtn:hover:not(:disabled) {
     background: transparent;
@@ -2635,7 +2635,7 @@
      amount and the newest message stays visible. */
   .composer-wrap.mobile {
     margin-bottom: calc(var(--kb-inset, 0px) + var(--ep-h, 0px));
-    transition: margin-bottom 0.12s ease;
+    transition: margin-bottom var(--dur-quick) ease;
   }
   .composer.mobile .input-box {
     flex-wrap: nowrap;
@@ -2655,7 +2655,7 @@
     opacity: 1;
     flex-wrap: wrap;
     padding-bottom: 6px;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   /* Two rows of four rather than eight abreast: eight shared 322px gave each
      button 33px, side by side with its neighbours, in a row where hitting the
@@ -2723,7 +2723,7 @@
   .slow-chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     align-self: center;
     padding: 3px 8px;
     border-radius: 999px;
@@ -2745,7 +2745,7 @@
     border-radius: 50%;
     background: var(--accent);
     color: var(--accent-fg);
-    transition: opacity 0.12s ease, transform 0.12s ease;
+    transition: opacity var(--dur-quick) ease, transform var(--dur-quick) ease;
   }
   .sendbtn:active:not(:disabled) {
     transform: scale(0.9);

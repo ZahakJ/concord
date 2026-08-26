@@ -53,7 +53,7 @@ function ensureTip() {
       box-shadow: var(--shadow-pop, 0 4px 12px rgba(0, 0, 0, 0.3));
       pointer-events: none; /* the tip must never steal the hover that opened it */
       opacity: 0;
-      transition: opacity 0.12s ease;
+      transition: opacity var(--dur-quick) ease;
     }
     .app-tooltip.show { opacity: 1; }
     @media (prefers-reduced-motion: reduce) {

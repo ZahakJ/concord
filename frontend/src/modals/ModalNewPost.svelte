@@ -292,7 +292,7 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
     text-align: left;
   }
   /* See the note on RichEditor's .rx: on the phone the dialog is an auto-height
@@ -308,7 +308,7 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--sp-2);
     font-size: var(--fs-compact);
     color: var(--text-muted);
   }
@@ -367,11 +367,11 @@
   @media (pointer: coarse), (max-width: 768px) {
     .badge {
       padding: 6px 12px;
-      gap: 8px;
+      gap: var(--sp-2);
     }
     .badge button {
       position: relative;
-      padding-left: 8px;
+      padding-left: var(--sp-2);
     }
     .badge button::after {
       content: "";
@@ -384,14 +384,14 @@
   .titlefield {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     padding: 4px 14px 4px 16px;
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
+      border-color var(--dur-standard) ease,
+      box-shadow var(--dur-standard) ease;
   }
   .titlefield:focus-within {
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
@@ -425,7 +425,7 @@
   .budget {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-shrink: 0;
   }
   .bnum {
@@ -459,8 +459,8 @@
     background: var(--accent);
     transform-origin: left center;
     transition:
-      transform 0.16s ease,
-      background 0.16s ease;
+      transform var(--dur-standard) ease,
+      background var(--dur-standard) ease;
   }
   .bfill.warn {
     background: var(--warn);
@@ -499,10 +499,10 @@
     border: 1px solid transparent;
     border-radius: 999px;
     transition:
-      background 0.14s ease,
-      color 0.14s ease,
-      border-color 0.14s ease,
-      transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1);
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease,
+      border-color var(--dur-quick) ease,
+      transform var(--dur-standard) var(--ease-spring);
   }
   @media (pointer: fine) {
     .tagrow .chip:hover {
@@ -535,8 +535,8 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
-    padding-top: 12px;
+    gap: var(--sp-2);
+    padding-top: var(--sp-3);
     border-top: 1px solid var(--border);
   }
   .need {

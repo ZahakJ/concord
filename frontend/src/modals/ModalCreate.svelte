@@ -64,14 +64,14 @@
 <style>
   p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     line-height: 1.5;
   }
   .hero {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 6px 0 2px;
   }
   .bubble {
@@ -80,12 +80,12 @@
     border-radius: 20px;
     display: grid;
     place-items: center;
-    font-size: 22px;
+    font-size: var(--fs-display);
     font-weight: 700;
     color: var(--accent-hover);
     background: var(--accent-soft);
     border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
-    animation: bubble-in 0.35s cubic-bezier(0.34, 1.5, 0.5, 1);
+    animation: bubble-in 0.35s var(--ease-spring);
     transition:
       background 0.25s ease,
       color 0.25s ease,
@@ -100,7 +100,7 @@
     box-shadow: var(--accent-glow);
   }
   .bubble-name {
-    font-size: 13px;
+    font-size: var(--fs-ui);
     font-weight: 600;
     max-width: 240px;
     overflow: hidden;

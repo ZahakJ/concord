@@ -208,7 +208,7 @@
     align-items: flex-start;
     gap: 6px;
     margin-top: 14px;
-    padding-top: 12px;
+    padding-top: var(--sp-3);
     border-top: 1px solid var(--border);
     line-height: 1.5;
   }
@@ -224,8 +224,8 @@
     overflow: hidden;
     display: flex;
     align-items: flex-end;
-    padding: 8px;
-    transition: box-shadow 0.15s ease;
+    padding: var(--sp-2);
+    transition: box-shadow var(--dur-standard) ease;
   }
   .banner-box :global(.bp-art) {
     position: absolute;
@@ -237,10 +237,10 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     min-width: 0;
     color: #fff;
-    font-size: 15px;
+    font-size: var(--fs-body);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
   }
   .banner-box.ink-dark .bp-name {
@@ -259,7 +259,7 @@
   .bp-icon {
     width: 26px;
     height: 26px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     object-fit: cover;
     flex-shrink: 0;
   }
@@ -279,7 +279,7 @@
     font-weight: 600;
   }
   .tpl-toggle :global(svg) {
-    transition: transform 0.15s ease;
+    transition: transform var(--dur-standard) ease;
   }
   .tpl-toggle[aria-expanded="true"] :global(svg) {
     transform: rotate(90deg);
@@ -320,7 +320,7 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    gap: 8px;
+    gap: var(--sp-2);
   }
   /* Offscreen tiles don't paint and don't animate — the same trade BannerStudio
      makes: a shelf of live scenes is only cheap if the ones you can't see are
@@ -330,11 +330,11 @@
     contain-intrinsic-size: 100px 62px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 0;
     background: transparent;
     border: 2px solid transparent;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     overflow: hidden;
     min-height: 0; /* the mobile 44px button floor would stretch the tiles */
   }
@@ -358,14 +358,14 @@
     display: block;
     width: 100%;
     height: 44px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
   .art-none {
     display: grid;
     place-items: center;
     height: 44px;
     border: 1px dashed var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     color: var(--text-faint);
   }
   .tname {
@@ -417,16 +417,16 @@
   .id-row {
     display: flex;
     align-items: flex-end;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .icon-btn {
     position: relative;
     width: 56px;
     height: 56px;
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     background: var(--accent);
     color: var(--accent-fg);
-    font-size: 22px;
+    font-size: var(--fs-display);
     font-weight: 700;
     display: grid;
     place-items: center;
@@ -445,14 +445,14 @@
     inset: 0;
     display: grid;
     place-items: center;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: #fff;
     background: rgba(0, 0, 0, 0.5);
     opacity: 0;
-    transition: opacity 0.12s ease;
+    transition: opacity var(--dur-quick) ease;
   }
   .icon-btn:hover .cam-overlay,
   .icon-btn:focus-visible .cam-overlay {
@@ -466,7 +466,7 @@
       inset: auto 0 0 0;
       align-content: center;
       height: 18px;
-      font-size: 9px;
+      font-size: var(--fs-micro);
       opacity: 1;
       background: rgba(0, 0, 0, 0.62);
     }
@@ -474,7 +474,7 @@
   .field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     text-align: left;
     font-size: var(--fs-compact);
   }

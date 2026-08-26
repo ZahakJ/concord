@@ -65,6 +65,13 @@
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 14px;
+  /* A sheet's top corners are the one radius in the app that is bigger than
+     anything on the scale — it is a whole surface arriving from the bottom of
+     the screen, and --radius-lg on something that wide reads as a rectangle.
+     Seven sheets had agreed on that and then disagreed about the number, three
+     at 16px and four at 18px, and none of the seven moved when somebody chose
+     Sharp corners. Derived, so it still does. */
+  --radius-sheet: calc(var(--radius-lg) + 4px);
   /* The default face is the machine's own. The alternatives are BUNDLED with
      the app (public/fonts, built by scripts/prep-fonts.mjs): Concord never
      fetches a webfont at runtime, which would tell a font host your IP and the
@@ -87,6 +94,44 @@
      surface, so every fade and slide there feels like the same hand. */
   --dur-calm: 200ms;
   --ease-calm: cubic-bezier(0.25, 0.8, 0.35, 1);
+
+  /* ---- Motion -----------------------------------------------------------
+     The app only ever means two things by an easing curve, and it was spelling
+     each of them six ways: an overshoot (a thing ARRIVES — a popover, a
+     reaction pill, a sheet) and a deceleration (a thing MOVES or a state
+     changes — hover, fade, slide). Twenty-one distinct curves is not twenty-one
+     intents, it is one intent typed from memory, and the drift is visible when
+     two elements animate side by side with 1.3 and 1.56 of overshoot.
+
+     These two are the most-used spelling of each family, so adopting them moved
+     the majority of call sites by zero. Anything genuinely different — an
+     ease-IN for something leaving, the shake, --ease-calm's editorial curve —
+     stays its own literal on purpose; this is not a rule that everything must
+     decelerate. */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out: cubic-bezier(0.2, 0.9, 0.3, 1);
+  /* Two durations for chrome. Quick is a state change you should not notice
+     happening (hover, focus, a tint); standard is a thing you should see move
+     (a panel, a reveal, a slide). Longer runs — the ambient backdrops, the
+     cosmetic effects — are compositions, not chrome, and keep their own times. */
+  --dur-quick: 120ms;
+  --dur-standard: 150ms;
+
+  /* ---- Focus ------------------------------------------------------------
+     One ring recipe, so a component that has to re-declare the ring (an inset
+     one on a full-bleed row, a round one on a circular control) restates the
+     SHAPE and not the colour and weight. Deliberately no border-radius: the
+     outline already follows each element's own corners. */
+  --focus-ring: 2px solid var(--accent-hover);
+  --focus-ring-offset: 2px;
+
+  /* The dim behind a dialog or a sheet. Theme-flipped: 55% black is right over
+     a dark app and a bruise over a light one, where the page it is dimming is
+     already near-white and a much lighter veil reads as "behind glass" rather
+     than "switched off". Overlays that sit on ARTWORK (a lightbox, a banner
+     gradient, chrome over a photograph) keep their own black — those are not
+     dimming the theme, they are darkening an image. */
+  --scrim: rgba(0, 0, 0, 0.55);
   /* Hairline: the events surface separates with ink, not grey boxes. Derived
      from --border so every theme pack keeps its own temperature. */
   --hairline: color-mix(in srgb, var(--border) 55%, transparent);
@@ -263,6 +308,7 @@
     0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent),
     0 2px 5px rgba(20, 24, 32, 0.14);
   --bg-elevated: #fdfdfe;
+  --scrim: rgba(20, 24, 32, 0.38);
 
   color-scheme: light;
 }
@@ -1437,7 +1483,7 @@ button {
   padding: 8px 14px;
   background: var(--accent);
   color: var(--accent-fg);
-  transition: background 0.15s ease;
+  transition: background var(--dur-standard) ease;
 }
 button.ghost {
   background: transparent;
@@ -1513,9 +1559,9 @@ textarea {
   width: 100%;
   box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.14);
   transition:
-    border-color 0.16s ease,
-    background 0.16s ease,
-    box-shadow 0.16s ease;
+    border-color var(--dur-standard) ease,
+    background var(--dur-standard) ease,
+    box-shadow var(--dur-standard) ease;
 }
 /* A box you tick is not a field you type in. The rule above dresses every
    `input` as a filled well — full width, 11px of padding, an inset shadow —
@@ -1705,8 +1751,19 @@ textarea:focus {
 
    Write it exactly as:  @media (pointer: coarse), (max-width: 768px)
    The codebase previously used 480/560/600/620/700/760/768/900 and bare
-   (pointer: coarse) interchangeably; those are being migrated to this. Only
-   two other tiers are legitimate:
+   (pointer: coarse) interchangeably. The last stragglers are gone: two rules in
+   the compose dialog and one in the meme editor sat at 760px and one picker at
+   700px, which meant a window between 701 and 768 got the phone value of
+   S.isMobile from JS and the desktop layout from CSS — precisely the
+   disagreement this paragraph exists to forbid. When you move one of these,
+   move its complement in the same commit: the emoji picker's mobile rule has an
+   inverse in RichEditor written as (pointer: fine) and (min-width: 769px), and
+   an off-by-one there opens a band where both branches apply.
+
+   Only three other tiers are legitimate:
+     @media (max-width: 1150px)  — S.narrow: the squeezed desktop column, where
+                                   the chat header and composer fold their
+                                   controls into menus. Mirrors detectNarrow().
      @media (max-width: 400px)   — the narrow floor, for genuine 360px squeeze
      @media (pointer: fine)      — mouse-only affordances (hover reveals) */
 @media (pointer: coarse), (max-width: 768px) {
@@ -1738,13 +1795,24 @@ textarea:focus {
   }
 }
 
+/* The global stand-down. Note the two DELAY lines: without them this block was
+   half a fix. Seventy-six rules in the app stagger themselves with an
+   animation-delay, and a staggered entrance is usually written
+   `animation: rise 0.3s both` — `both` holds the FROM frame for the length of
+   the delay. Collapsing the duration to nothing while leaving the delay alone
+   therefore did not remove the animation, it removed only the part where the
+   element becomes visible: a reduced-motion reader watched a list appear one
+   invisible row at a time, which is the same wait with none of the feedback.
+   Zeroing both makes the finished state the first state. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }
@@ -2299,7 +2367,7 @@ textarea:focus {
   content: attr(data-g);
 }
 .fxo-radial {
-  animation: fxo-radial var(--du) cubic-bezier(0.16, 0.84, 0.44, 1) 1 forwards;
+  animation: fxo-radial var(--du) var(--ease-out) 1 forwards;
 }
 @keyframes fxo-radial {
   from {
@@ -2327,7 +2395,7 @@ textarea:focus {
   border-radius: 2px;
   background: linear-gradient(to top, transparent, var(--c) 55%, #fff);
   box-shadow: 0 0 6px var(--c);
-  animation: fxo-shot var(--du) cubic-bezier(0.2, 0.7, 0.45, 1) 1 both;
+  animation: fxo-shot var(--du) var(--ease-out) 1 both;
 }
 .fxo-shot::before {
   content: none;
@@ -2345,7 +2413,7 @@ textarea:focus {
 /* The shell: expands fast, hangs bright, then droops under gravity and dies —
    the droop is what separates a firework from a dandelion. */
 .fxo-shell {
-  animation: fxo-shell var(--du) cubic-bezier(0.16, 0.84, 0.44, 1) 1 forwards;
+  animation: fxo-shell var(--du) var(--ease-out) 1 forwards;
 }
 @keyframes fxo-shell {
   from {
@@ -2516,7 +2584,7 @@ textarea {
   padding: 3px 8px;
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg-2);
   color: var(--text-muted);
   font-family: inherit;
@@ -2525,9 +2593,9 @@ textarea {
   line-height: 1.4;
   opacity: 0;
   transition:
-    opacity 0.12s ease,
-    color 0.12s ease,
-    border-color 0.12s ease;
+    opacity var(--dur-quick) ease,
+    color var(--dur-quick) ease,
+    border-color var(--dur-quick) ease;
 }
 .body .codeblock:hover .code-copy,
 .md .codeblock:hover .code-copy,

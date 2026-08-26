@@ -668,7 +668,7 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding: 32px;
+    padding: var(--sp-6);
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -734,9 +734,9 @@
     font-weight: 600;
     box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 28%, transparent);
     transition:
-      transform 0.15s ease,
-      box-shadow 0.15s ease,
-      filter 0.15s ease;
+      transform var(--dur-standard) ease,
+      box-shadow var(--dur-standard) ease,
+      filter var(--dur-standard) ease;
   }
   .card button:not(.link):not(.ghost-sm):not(.danger-btn):not(.rescan):hover:not(:disabled) {
     transform: translateY(-1px);
@@ -771,7 +771,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   /* "or paste it" divider between the scan CTA and the manual box. */
   .or {
@@ -828,7 +828,7 @@
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 5px 10px;
-    padding: 12px;
+    padding: var(--sp-3);
     background: var(--bg-input, var(--bg-3));
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
@@ -846,7 +846,7 @@
     gap: 6px;
     align-items: baseline;
     overflow-wrap: anywhere;
-    transition: filter 0.15s ease;
+    transition: filter var(--dur-standard) ease;
   }
   /* Which word this is, not decoration — you read it to check word 17. */
   .wn {
@@ -862,7 +862,7 @@
   }
   .phrase-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--sp-2);
     justify-content: center;
   }
   .verify {
@@ -873,7 +873,7 @@
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     text-align: left;
   }
   .vnum {
@@ -917,7 +917,7 @@
   }
   .tiny {
     font-size: var(--fs-small);
-    margin-top: 4px;
+    margin-top: var(--sp-1);
   }
 
   /* ---- touch adjustments ---- */
@@ -939,7 +939,7 @@
       width: 100%;
       max-width: 460px;
       padding: 8px 20px 20px;
-      gap: 16px;
+      gap: var(--sp-4);
       background: transparent;
       border: none;
       box-shadow: none;
@@ -951,7 +951,7 @@
     input,
     .phrase-in {
       font-size: 16px;
-      padding: 12px;
+      padding: var(--sp-3);
     }
     button {
       min-height: 48px;
@@ -969,7 +969,7 @@
     .words {
       grid-template-columns: repeat(2, 1fr);
       font-size: var(--fs-ui);
-      gap: 8px 12px;
+      gap: var(--sp-2) var(--sp-3);
       padding: 14px 12px;
     }
     /* The "Rescan" chip is inline with a line of copy, so it can't grow without

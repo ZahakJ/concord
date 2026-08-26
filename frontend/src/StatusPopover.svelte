@@ -227,7 +227,7 @@
     max-height: calc(100dvh - 16px);
     overflow-y: auto;
     overscroll-behavior: contain;
-    animation: pop-in 0.18s cubic-bezier(0.34, 1.4, 0.64, 1);
+    animation: pop-in 0.18s var(--ease-spring);
   }
   @keyframes pop-in {
     from {
@@ -258,7 +258,7 @@
     border-radius: var(--radius-sm);
   }
   .presence {
-    transition: background 0.12s ease;
+    transition: background var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .presence:hover {
@@ -285,7 +285,7 @@
     height: 10px;
     border-radius: 50%;
     flex-shrink: 0;
-    transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.15s ease;
+    transition: transform var(--dur-standard) var(--ease-spring), box-shadow var(--dur-standard) ease;
   }
   .presence.sel .dot {
     box-shadow: 0 0 6px 1px color-mix(in srgb, var(--pc) 55%, transparent);
@@ -324,14 +324,14 @@
   .em {
     flex: 1;
     padding: 4px 0;
-    font-size: 15px;
+    font-size: var(--fs-body);
     background: transparent;
     border-radius: var(--radius-sm);
     line-height: 1.2;
-    transition: background 0.12s ease;
+    transition: background var(--dur-quick) ease;
   }
   .em {
-    transition: background 0.12s ease, transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: background var(--dur-quick) ease, transform var(--dur-standard) var(--ease-spring);
   }
   .em:active {
     transform: scale(0.95);
@@ -364,7 +364,7 @@
     padding: 0 11px;
     display: grid;
     place-items: center;
-    transition: box-shadow 0.2s ease, opacity 0.15s ease;
+    transition: box-shadow 0.2s ease, opacity var(--dur-standard) ease;
   }
   /* A ready-to-save glow the moment the draft differs from the saved status. */
   .st-save:not(:disabled) {
@@ -384,9 +384,9 @@
     font-size: var(--fs-compact);
     background: var(--bg-3);
     color: var(--text-muted);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     white-space: nowrap;
-    transition: background 0.12s ease, color 0.12s ease;
+    transition: background var(--dur-quick) ease, color var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .preset:hover {
@@ -417,10 +417,10 @@
   .sp-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--scrim);
     z-index: 400;
     border: none;
-    animation: sp-fade 0.16s ease;
+    animation: sp-fade var(--dur-standard) ease;
   }
   @keyframes sp-fade {
     from {
@@ -466,9 +466,9 @@
     overflow-y: auto;
     overscroll-behavior: contain;
     border: none;
-    border-radius: 18px 18px 0 0;
+    border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
     padding: 14px 14px calc(16px + var(--safe-bottom));
-    animation: sheet-up 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: sheet-up 0.22s var(--ease-out);
   }
   @keyframes sheet-up {
     from {

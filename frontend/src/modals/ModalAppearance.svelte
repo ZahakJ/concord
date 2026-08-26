@@ -541,7 +541,7 @@
   .disclose {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     width: 100%;
     padding: 10px 12px;
     background: transparent;
@@ -552,8 +552,8 @@
     font-weight: 600;
     text-align: left;
     transition:
-      border-color 0.14s ease,
-      background 0.14s ease;
+      border-color var(--dur-quick) ease,
+      background var(--dur-quick) ease;
   }
   .disclose:hover {
     background: var(--bg-1);
@@ -561,9 +561,9 @@
   }
   .disclose-chev {
     color: var(--text-faint);
-    font-size: 17px;
+    font-size: var(--fs-title);
     line-height: 1;
-    transition: transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1);
+    transition: transform 0.22s var(--ease-spring);
   }
   .disclose-chev.open {
     transform: rotate(90deg);
@@ -577,7 +577,7 @@
   .custom {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   @media (prefers-reduced-motion: reduce) {
     .disclose-chev {
@@ -587,7 +587,7 @@
   section {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     text-align: left;
   }
   /* Match the sectioned settings look: small uppercase group labels. */
@@ -616,7 +616,7 @@
   .theme-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .theme-card {
     display: flex;
@@ -642,11 +642,11 @@
   .pv {
     width: 100%;
     height: 44px;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     display: flex;
     gap: 6px;
-    padding: 8px;
+    padding: var(--sp-2);
     overflow: hidden;
     /* Dark preview colors (defaults); the light card overrides them and the
        system card splits itself between the two. */
@@ -699,12 +699,12 @@
   .pack-row {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .pack-card {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 6px;
     background: transparent;
     border: 1px solid var(--border);
@@ -748,7 +748,7 @@
     position: relative;
     width: 100%;
     height: 58px;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     border: 1px solid rgba(255, 255, 255, 0.07);
     background: var(--pk-base, var(--pk-bg));
     display: flex;
@@ -799,7 +799,7 @@
   .pk-msg {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     min-width: 0;
     padding: 1px 2px;
     border-radius: min(var(--pk-r), 9px);
@@ -822,7 +822,7 @@
   /* The face, actually set in the face. */
   .pk-ag {
     font-family: var(--pk-font);
-    font-size: 15px;
+    font-size: var(--fs-body);
     line-height: 1;
     letter-spacing: 0;
     color: color-mix(in srgb, var(--pk-ac) 45%, white);
@@ -853,7 +853,7 @@
     position: relative;
     width: 100%;
     height: 58px;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     border: 1px solid var(--border);
     background: linear-gradient(160deg, var(--bg-1), var(--bg-0));
     display: flex;
@@ -880,8 +880,8 @@
   .live-head {
     display: flex;
     align-items: baseline;
-    gap: 8px;
-    margin-top: 12px;
+    gap: var(--sp-2);
+    margin-top: var(--sp-3);
     flex-wrap: wrap;
   }
   .live-tag {
@@ -1250,7 +1250,7 @@
     border-radius: 50%;
     background: var(--sw);
     border: 2px solid transparent;
-    transition: transform 0.12s ease;
+    transition: transform var(--dur-quick) ease;
   }
   .swatch:hover {
     background: var(--sw);
@@ -1278,13 +1278,13 @@
   .seg {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .seg > button {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 8px 12px;
+    padding: var(--sp-2) var(--sp-3);
     background: transparent;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -1339,7 +1339,7 @@
   .font-pv {
     width: 22px;
     flex: none;
-    font-size: 15px;
+    font-size: var(--fs-body);
     line-height: 1;
     text-align: center;
     opacity: 0.85;

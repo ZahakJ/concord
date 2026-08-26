@@ -680,14 +680,14 @@
   .field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     text-align: left;
     font-size: 12px;
   }
   .bday-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .bday-row select {
     padding: 6px 8px;
@@ -695,7 +695,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .theme-preview {
     height: 34px;
@@ -706,7 +706,7 @@
   .theme-row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .theme-color {
     display: flex;
@@ -718,7 +718,7 @@
   .studio {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .pv-card {
     position: relative;
@@ -726,7 +726,7 @@
     border-radius: var(--radius-md);
     overflow: hidden;
     background: var(--bg-1);
-    padding-bottom: 12px;
+    padding-bottom: var(--sp-3);
   }
   .pv-card :global(.pv-banner) {
     height: 120px;
@@ -737,7 +737,7 @@
   .pv-head {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     padding: 0 14px;
     margin-top: -34px;
   }
@@ -748,7 +748,7 @@
   .ring-entry {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--sp-4);
     width: 100%;
     padding: 10px 14px;
     background: var(--bg-0);
@@ -760,8 +760,8 @@
   }
   .ring-entry {
     transition:
-      background 0.15s ease,
-      border-color 0.15s ease;
+      background var(--dur-standard) ease,
+      border-color var(--dur-standard) ease;
   }
   .ring-entry:hover {
     background: var(--bg-3);
@@ -777,8 +777,8 @@
     color: var(--text-faint);
     font-size: 16px;
     transition:
-      transform 0.15s ease,
-      color 0.15s ease;
+      transform var(--dur-standard) ease,
+      color var(--dur-standard) ease;
   }
   .ring-entry:hover .chev {
     color: var(--accent-hover);
@@ -806,7 +806,7 @@
     background: rgba(0, 0, 0, 0.42);
     backdrop-filter: blur(3px);
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--dur-standard) ease;
   }
   .pv-card :global(.pv-banner:hover .banner-edit),
   .pv-card :global(.pv-banner:focus-visible .banner-edit) {
@@ -851,8 +851,8 @@
     border: 2px solid var(--bg-1);
     opacity: 0.9;
     transition:
-      opacity 0.15s ease,
-      transform 0.15s ease;
+      opacity var(--dur-standard) ease,
+      transform var(--dur-standard) ease;
   }
   .pv-av:hover .av-edit,
   .pv-av:focus-visible .av-edit {
@@ -876,16 +876,16 @@
   .emoji-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .emoji {
     background: var(--bg-input);
     border: 1px solid var(--border);
-    padding: 4px 8px;
+    padding: var(--sp-1) var(--sp-2);
     font-size: 16px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     color: var(--text);
-    transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform var(--dur-standard) var(--ease-spring);
   }
   /* The sheet's touch floor made these 44 tall but left them ~32 wide, so
      thirteen targets sat with their centres 36px apart on the one axis that
@@ -893,7 +893,7 @@
      width costs a line, not a layout. */
   @media (pointer: coarse), (max-width: 768px) {
     .emoji-row {
-      gap: 8px;
+      gap: var(--sp-2);
     }
     .emoji {
       min-width: var(--tap-min);
@@ -907,7 +907,7 @@
   .emoji.sel {
     border-color: var(--accent);
     background: var(--accent-soft);
-    animation: sel-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: sel-pop 0.25s var(--ease-spring);
   }
   @keyframes sel-pop {
     40% {
@@ -947,15 +947,15 @@
     border-radius: var(--radius-sm);
     color: var(--text-muted);
     transition:
-      border-color 0.15s ease,
-      background 0.15s ease,
-      color 0.15s ease;
+      border-color var(--dur-standard) ease,
+      background var(--dur-standard) ease,
+      color var(--dur-standard) ease;
   }
   .presence.sel {
     border-color: var(--accent);
     background: var(--accent-soft);
     color: var(--text);
-    animation: sel-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: sel-pop 0.25s var(--ease-spring);
   }
   @media (prefers-reduced-motion: reduce) {
     .presence,
@@ -972,7 +972,7 @@
   textarea {
     resize: vertical;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 8px 10px;
   }
   .cropper {
@@ -980,7 +980,7 @@
     flex-direction: column;
     align-items: center;
     gap: 10px;
-    padding: 12px;
+    padding: var(--sp-3);
     background: var(--bg-0);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -1011,7 +1011,7 @@
   .zoom {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     width: 100%;
     color: var(--text-muted);
   }
@@ -1021,7 +1021,7 @@
   }
   .crop-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--sp-2);
     align-self: flex-end;
   }
   .tiny {
@@ -1048,7 +1048,7 @@
     border: 1px solid var(--border);
     color: var(--text);
     padding: 8px 10px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
   .fpr:hover,
   .fpr:active {
@@ -1056,7 +1056,7 @@
   }
   .fpr-hint {
     display: block;
-    margin-top: 4px;
+    margin-top: var(--sp-1);
     font-family: var(--ui-font);
     font-size: var(--fs-small);
     letter-spacing: normal;

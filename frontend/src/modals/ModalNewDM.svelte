@@ -144,7 +144,7 @@
     gap: 2px;
     max-height: 300px;
     overflow-y: auto;
-    margin-top: 8px;
+    margin-top: var(--sp-2);
   }
   .row {
     display: flex;
@@ -197,7 +197,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-top: 12px;
+    margin-top: var(--sp-3);
   }
   @media (pointer: coarse), (max-width: 768px) {
     /* Two nested scrollers in one sheet means a flick that starts inside the

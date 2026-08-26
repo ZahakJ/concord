@@ -515,7 +515,7 @@
     z-index: 2;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 10px 12px;
     min-width: 0;
     width: 100%;
@@ -526,7 +526,7 @@
     place-items: center;
     width: 26px;
     height: 26px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     color: #fff;
     background: rgba(0, 0, 0, 0.34);
     border: 1px solid rgba(255, 255, 255, 0.18);
@@ -557,14 +557,14 @@
   section {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding-top: 4px;
+    gap: var(--sp-2);
+    padding-top: var(--sp-1);
     border-top: 1px solid var(--border);
   }
   .sec-head {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   h4 {
     margin: 0;
@@ -614,7 +614,7 @@
   .layouts {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .lay {
     display: flex;
@@ -628,8 +628,8 @@
     color: var(--text-muted);
     text-align: left;
     transition:
-      transform 0.16s cubic-bezier(0.34, 1.3, 0.5, 1),
-      border-color 0.15s ease;
+      transform var(--dur-standard) var(--ease-spring),
+      border-color var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     .lay:hover {
@@ -657,7 +657,7 @@
     width: 100%;
     height: 30px;
     padding: 3px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: var(--bg-1);
   }
   .dia i {
@@ -716,7 +716,7 @@
     overflow: hidden;
     border: 2px solid transparent;
     background: var(--bg-3);
-    transition: transform 0.16s cubic-bezier(0.34, 1.3, 0.5, 1);
+    transition: transform var(--dur-standard) var(--ease-spring);
   }
   @media (pointer: fine) {
     .art:hover {
@@ -811,7 +811,7 @@
     width: 24px;
     height: 15px;
     padding: 0;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text-faint);
   }
@@ -859,7 +859,7 @@
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 3px 9px;
     border-radius: 999px;
     font-size: var(--fs-small);
@@ -873,8 +873,8 @@
   .actions {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-top: 4px;
+    gap: var(--sp-2);
+    margin-top: var(--sp-1);
   }
   .spacer {
     flex: 1;

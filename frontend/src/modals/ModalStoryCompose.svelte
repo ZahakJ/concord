@@ -256,7 +256,7 @@
     font-weight: 600;
   }
   .tpl-toggle :global(svg) {
-    transition: transform 0.15s ease;
+    transition: transform var(--dur-standard) ease;
   }
   .tpl-toggle[aria-expanded="true"] :global(svg) {
     transform: rotate(90deg);
@@ -307,7 +307,7 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-    gap: 8px;
+    gap: var(--sp-2);
   }
   /* Offscreen tiles don't paint and don't animate — the same trade BannerStudio
      makes: a shelf of live scenes is only cheap if the ones you can't see are
@@ -317,11 +317,11 @@
     contain-intrinsic-size: 100px 62px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 0;
     background: transparent;
     border: 2px solid transparent;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     overflow: hidden;
     min-height: 0; /* the mobile 44px button floor would stretch the tiles */
   }
@@ -342,21 +342,21 @@
     display: block;
     width: 100%;
     height: 44px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
   .art-img {
     display: block;
     width: 100%;
     height: 44px;
     object-fit: cover;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
   .art-none {
     display: grid;
     place-items: center;
     height: 44px;
     border: 1px dashed var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     color: var(--text-faint);
   }
   .tname {
@@ -399,7 +399,7 @@
   .audience-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     font-size: var(--fs-ui);
   }
   .aud-head {
@@ -408,7 +408,7 @@
   .aud-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 3px 0;
     cursor: pointer;
   }
@@ -431,6 +431,6 @@
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
   }
 </style>

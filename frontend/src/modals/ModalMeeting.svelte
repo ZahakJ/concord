@@ -200,7 +200,7 @@
   .way {
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 12px;
+    padding: var(--sp-3);
     display: flex;
     flex-direction: column;
     gap: 9px;
@@ -223,7 +223,7 @@
     width: 30px;
     height: 30px;
     flex: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: var(--bg-3);
     color: var(--text-muted);
   }
@@ -244,7 +244,7 @@
   .link-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .link {
     flex: 1;
@@ -261,7 +261,7 @@
   .btn-row {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .btn-row button,
   .link-row button {
@@ -273,7 +273,7 @@
   .life {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-wrap: wrap;
   }
   .life-label {

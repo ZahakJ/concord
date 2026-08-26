@@ -439,13 +439,13 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
     text-align: left;
   }
   /* See the note on RichEditor's .rx: on the phone the dialog is an auto-height
      sheet, and flex negotiation there either crushes these blocks into each
      other or balloons them. Natural heights + the sheet's own scroll. */
-  @media (max-width: 760px), (pointer: coarse) {
+  @media (pointer: coarse), (max-width: 768px) {
     .ac {
       flex: none;
       min-height: auto;
@@ -457,8 +457,8 @@
     display: flex;
     align-items: center;
     flex-wrap: wrap;
-    gap: 8px;
-    font-size: 12.5px;
+    gap: var(--sp-2);
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   .dest {
@@ -482,7 +482,7 @@
     align-items: center;
     gap: 5px;
     padding: 3px 9px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     border-radius: 999px;
     background: var(--bg-3);
   }
@@ -501,7 +501,7 @@
   .badge button {
     padding: 0 0 0 6px;
     min-height: 0;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     font-weight: 600;
     color: inherit;
     background: none;
@@ -523,8 +523,8 @@
     background: transparent;
     border-radius: var(--radius-sm);
     transition:
-      background 0.12s ease,
-      color 0.12s ease;
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
   .embedbtn:hover {
     background: var(--bg-3);
@@ -545,7 +545,7 @@
   .eb {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     /* Sized so the panel and the editor's 200px floor BOTH fit the xl dialog at
        a laptop height — otherwise opening the builder pushes the workspace past
        the dialog and the whole thing starts scrolling under you mid-sentence. */
@@ -564,13 +564,13 @@
        top of it. Pinned children make the panel scroll like a panel should, and
        pinning the panel itself stops the workspace stealing its height. */
     flex-shrink: 0;
-    padding: 12px;
+    padding: var(--sp-3);
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     /* Appears in place; nothing above it moves except downward, which is the
        honest direction for a panel that opened. */
-    animation: eb-in 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+    animation: eb-in 0.18s var(--ease-out);
   }
   .eb > * {
     flex-shrink: 0;
@@ -603,7 +603,7 @@
     color: var(--text);
   }
   .ebhint {
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: var(--text-faint);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -625,7 +625,7 @@
     border-radius: 50%;
     background: var(--acc);
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.28);
-    transition: transform 0.12s ease;
+    transition: transform var(--dur-quick) ease;
   }
   .accent .acc:hover {
     transform: scale(1.18);
@@ -641,7 +641,7 @@
     height: 22px;
     min-height: 22px;
     padding: 0;
-    margin-left: 4px;
+    margin-left: var(--sp-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: none;
@@ -681,7 +681,7 @@
     padding: 0;
     color: var(--text-faint);
     background: transparent;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: grab;
   }
   .frow .handle:hover,
@@ -794,8 +794,8 @@
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 8px;
-    padding-top: 12px;
+    gap: var(--sp-2);
+    padding-top: var(--sp-3);
     border-top: 1px solid var(--border);
   }
   .guard :global(svg) {
@@ -807,7 +807,7 @@
     align-items: center;
     gap: 7px;
     margin: 0 auto 0 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text);
   }
   .guard .danger {
@@ -840,7 +840,7 @@
      under that query, which a component rule cannot outrank — and the button's
      own "Sending…"/"Posting…" label is what carries the meaning anyway. */
 
-  @media (max-width: 760px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .eb {
       max-height: none;
     }

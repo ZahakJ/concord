@@ -78,7 +78,7 @@
   .cfs-scrim {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--scrim);
     z-index: 60;
   }
   .cfs {
@@ -114,8 +114,8 @@
   .preview {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 16px;
+    gap: var(--sp-4);
+    padding: var(--sp-4);
     border-bottom: 1px solid var(--border);
   }
   .preview p {
@@ -143,7 +143,7 @@
     position: relative;
     width: 136px;
     height: 177px;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     background: var(--bg-1);
     box-shadow: var(--shadow-pop);
   }
@@ -151,7 +151,7 @@
     position: absolute;
     inset: 0 0 auto;
     height: 56px;
-    border-radius: 7px 7px 0 0;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
     background: linear-gradient(140deg, var(--c1), var(--c2));
   }
   .pv-av {
@@ -170,7 +170,7 @@
     top: 80px;
     width: 58px;
     height: 7px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--text);
     opacity: 0.85;
   }
@@ -193,7 +193,7 @@
     right: 9px;
     bottom: 9px;
     height: 20px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: var(--bg-0);
   }
   .library {
@@ -210,7 +210,7 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .opt {
     display: flex;
@@ -247,7 +247,7 @@
     align-items: end;
     justify-items: center;
     height: 126px;
-    padding-bottom: 8px;
+    padding-bottom: var(--sp-2);
     overflow: hidden;
     background: var(--bg-0);
   }
@@ -285,7 +285,7 @@
   .cfs-foot {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 12px 14px;
     border-top: 1px solid var(--border);
   }

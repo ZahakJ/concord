@@ -317,7 +317,7 @@
   }
 
   .pulse {
-    animation: cs-pulse var(--dur, 7s) cubic-bezier(0.2, 0.7, 0.3, 1) var(--dl, 0s) infinite;
+    animation: cs-pulse var(--dur, 7s) var(--ease-out) var(--dl, 0s) infinite;
   }
   @keyframes cs-pulse {
     0% {

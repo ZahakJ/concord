@@ -59,7 +59,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-top: 4px;
+    margin-top: var(--sp-1);
     max-width: 340px;
     padding: 10px 12px;
     background: var(--bg-1);
@@ -68,9 +68,9 @@
     text-align: left;
     color: var(--text);
     transition:
-      background 0.13s ease,
-      border-color 0.13s ease,
-      box-shadow 0.13s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease,
+      box-shadow var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .file-card:hover {
@@ -126,8 +126,8 @@
     color: var(--text-muted);
     flex-shrink: 0;
     transition:
-      color 0.13s ease,
-      transform 0.13s ease;
+      color var(--dur-quick) ease,
+      transform var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .file-card:hover .dl {

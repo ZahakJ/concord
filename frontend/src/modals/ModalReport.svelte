@@ -134,16 +134,16 @@
   .opts {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     margin: 14px 0 0;
   }
   .opt {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--sp-3);
     width: 100%;
     text-align: start;
-    padding: 12px;
+    padding: var(--sp-3);
     min-height: var(--tap-min);
     background: var(--bg-2);
     border: 1px solid var(--border);

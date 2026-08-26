@@ -133,7 +133,7 @@
     font-size: var(--fs-compact);
   }
   .none {
-    padding: 12px;
+    padding: var(--sp-3);
     font-size: var(--fs-ui);
     text-align: center;
   }

@@ -1937,7 +1937,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     text-align: center;
   }
   .rc-inner h2 {
@@ -1946,7 +1946,7 @@
   }
   .rc-inner p {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .rc-jet {
     color: var(--accent-hover);
@@ -1982,7 +1982,7 @@
     align-items: center;
     gap: 10px;
     text-align: center;
-    padding: 24px;
+    padding: var(--sp-5);
   }
   .lock-badge {
     display: grid;
@@ -1992,7 +1992,7 @@
     border-radius: 50%;
     background: color-mix(in srgb, var(--accent) 16%, transparent);
     color: var(--accent-hover);
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
   }
   .lock-gate h2 {
     margin: 0;
@@ -2012,7 +2012,7 @@
   .lock-alt {
     background: transparent;
     color: var(--text-muted);
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 10px;
   }
   .lock-alt:hover {
@@ -2094,7 +2094,7 @@
     touch-action: none; /* a drag resizes; it must never scroll */
     background: var(--accent);
     opacity: 0; /* invisible until hovered; the cursor is the affordance */
-    transition: opacity 120ms ease;
+    transition: opacity var(--dur-quick) ease;
   }
   .rz-channels {
     left: calc(64px + var(--cw) - 5px);
@@ -2147,7 +2147,7 @@
     transform: translateX(-50%);
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     max-width: calc(100vw - 24px);
     padding: 8px 10px 8px 16px;
     background: var(--bg-1);
@@ -2155,7 +2155,7 @@
     border-radius: 22px;
     box-shadow: var(--shadow-pop);
     z-index: 205;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   /* Amber rather than accent: this is the one banner that is a warning about
      something the reader has to go and do, not an offer. Same colour the feed
@@ -2173,7 +2173,7 @@
   .offline-banner {
     border-color: var(--warn);
     color: var(--warn-text);
-    padding-right: 16px;
+    padding-right: var(--sp-4);
   }
   .ob-spin {
     flex-shrink: 0;
@@ -2199,7 +2199,7 @@
     padding: 5px 14px;
     background: var(--accent);
     color: var(--accent-fg);
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     font-weight: 600;
     text-decoration: none;
   }
@@ -2240,7 +2240,7 @@
     translate: -50% 0;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     padding: 8px 10px 8px 8px;
     /* Same doorway light as the host's knock card: accent spilling from the
        icon's corner, so the two ends of this interaction rhyme. */
@@ -2382,16 +2382,16 @@
   }
   .ring-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-shrink: 0;
   }
   .ring-btn {
     padding: 7px 16px;
     border-radius: var(--radius-md);
     font-weight: 600;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     white-space: nowrap;
-    transition: background 0.12s ease, transform 0.08s ease, border-color 0.12s ease, color 0.12s ease;
+    transition: background var(--dur-quick) ease, transform 0.08s ease, border-color var(--dur-quick) ease, color var(--dur-quick) ease;
   }
   /* The most time-critical buttons in the app were visually inert — no hover or
      press feedback. Give them clear states so they feel like live controls. */

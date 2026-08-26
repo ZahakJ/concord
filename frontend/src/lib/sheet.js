@@ -47,7 +47,7 @@ const DISMISS_PX = 120; // absolute cap on the pull a dismissal needs
 const DISMISS_FRACTION = 0.33; // …or a third of the sheet, whichever is less
 const FLING = 0.6; // px/ms, downward
 const EXIT_MS = 190;
-const SETTLE = "transform 0.24s cubic-bezier(0.22, 1.1, 0.36, 1)";
+const SETTLE = "transform 0.24s var(--ease-spring)";
 const EXIT = `transform ${EXIT_MS}ms cubic-bezier(0.4, 0, 1, 1)`;
 const SCRIM_MIN = 0.25; // the dim never goes fully clear mid-pull
 

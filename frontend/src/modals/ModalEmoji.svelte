@@ -177,7 +177,7 @@
   .lead code {
     background: var(--bg-0);
     padding: 1px 5px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     font-size: var(--fs-compact);
   }
   .add-row {
@@ -192,7 +192,7 @@
     right: 0;
     bottom: 0;
     padding: 0 3px;
-    font-size: 8px;
+    font-size: var(--fs-micro);
     font-weight: 700;
     letter-spacing: 0.3px;
     line-height: 12px;
@@ -232,7 +232,7 @@
   .list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     max-height: 240px;
     overflow-y: auto;
   }
@@ -291,6 +291,6 @@
   }
   .empty {
     font-size: var(--fs-ui);
-    padding: 8px;
+    padding: var(--sp-2);
   }
 </style>

@@ -242,11 +242,11 @@
     z-index: 400;
     /* No backdrop blur: it would re-blur the whole animated app behind this
        dialog every frame (measured ~17fps of the cost). */
-    background: rgba(0, 0, 0, 0.68);
+    background: var(--scrim);
     display: grid;
     place-items: center;
     padding: 4vh 4vw;
-    animation: bsf 0.15s ease;
+    animation: bsf var(--dur-standard) ease;
   }
   @keyframes bsf {
     from {
@@ -265,7 +265,7 @@
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
     padding: 14px;
-    animation: bsp 0.2s cubic-bezier(0.34, 1.4, 0.5, 1);
+    animation: bsp 0.2s var(--ease-spring);
   }
   @keyframes bsp {
     from {
@@ -305,7 +305,7 @@
   }
   .tabs button {
     padding: 6px 14px;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     border-radius: 999px;
     border: 1px solid var(--border);
     background: transparent;
@@ -331,7 +331,7 @@
   .overlays {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .ovs {
     display: flex;
@@ -360,7 +360,7 @@
     padding: 2px;
   }
   .gtitle {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-faint);
@@ -369,7 +369,7 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
-    gap: 8px;
+    gap: var(--sp-2);
   }
   /* Offscreen tiles don't paint and don't animate: with 43 live scenes in the
      grid, rendering only what's actually scrolled into view is the difference
@@ -380,11 +380,11 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 0;
     background: transparent;
     border: 2px solid transparent;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     cursor: pointer;
     overflow: hidden;
   }
@@ -403,10 +403,10 @@
     display: block;
     width: 100%;
     height: 46px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
   }
   .tname {
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     color: var(--text-muted);
     text-align: center;
     padding-bottom: 3px;
@@ -415,17 +415,17 @@
     position: absolute;
     top: 3px;
     right: 4px;
-    font-size: 10px;
+    font-size: var(--fs-tiny);
   }
   .img-pane,
   .colors-pane {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .frame {
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     border: 1px solid var(--border);
     cursor: grab;
     touch-action: none;
@@ -444,7 +444,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     width: 100%;
     padding: 28px;
     border: 1px dashed var(--border);
@@ -467,7 +467,7 @@
   .bs-foot {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .spacer {
     flex: 1;

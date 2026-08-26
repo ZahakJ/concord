@@ -153,7 +153,7 @@
   .shelf {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .sat-btn {
     display: grid;
@@ -164,7 +164,7 @@
     font-size: 16px;
     line-height: 1;
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
   }
   .sat-btn:hover {
@@ -204,7 +204,7 @@
   .dials {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .dg {
     display: flex;
@@ -213,7 +213,7 @@
   }
   .seg {
     display: flex;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .seg button {
     flex: 1;

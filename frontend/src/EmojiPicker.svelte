@@ -317,11 +317,11 @@
     padding: 10px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     box-shadow: var(--shadow-pop);
     z-index: 50;
     transform-origin: bottom right;
-    animation: ep-pop 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: ep-pop var(--dur-standard) var(--ease-out);
   }
   @keyframes ep-pop {
     from {
@@ -368,14 +368,14 @@
     right: 0;
     display: flex;
     gap: 2px;
-    padding: 4px;
+    padding: var(--sp-1);
     background: var(--bg-elevated);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     box-shadow: var(--shadow-pop);
     z-index: 5;
     transform-origin: top right;
-    animation: ep-pop 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: ep-pop var(--dur-quick) var(--ease-out);
   }
   .tone-cell.sel {
     background: var(--bg-input);
@@ -389,13 +389,13 @@
   .tab {
     position: relative;
     background: transparent;
-    font-size: 17px;
+    font-size: var(--fs-title);
     padding: 4px 6px 7px;
-    border-radius: 6px 6px 0 0;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
     line-height: 1;
     opacity: 0.55;
     filter: grayscale(0.6);
-    transition: opacity 0.12s ease, filter 0.12s ease, background 0.12s ease;
+    transition: opacity var(--dur-quick) ease, filter var(--dur-quick) ease, background var(--dur-quick) ease;
   }
   .tab::after {
     content: "";
@@ -408,7 +408,7 @@
     background: var(--accent);
     opacity: 0;
     transform: scaleX(0.4);
-    transition: opacity 0.15s ease, transform 0.15s ease;
+    transition: opacity var(--dur-standard) ease, transform var(--dur-standard) ease;
   }
   .tab:hover {
     background: var(--bg-input);
@@ -451,8 +451,8 @@
   .cell {
     background: transparent;
     font-size: 20px;
-    padding: 4px;
-    border-radius: 6px;
+    padding: var(--sp-1);
+    border-radius: var(--radius-sm);
     line-height: 1;
     transition: background 0.1s ease, transform 0.08s ease;
   }
@@ -493,7 +493,7 @@
   .preview {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     min-height: 34px;
     padding: 2px 4px 0;
     border-top: 1px solid var(--border);
@@ -502,7 +502,7 @@
   .pchar {
     font-size: 26px;
     line-height: 1;
-    animation: pv-pop 0.14s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: pv-pop var(--dur-quick) var(--ease-spring);
   }
   @keyframes pv-pop {
     from {
@@ -533,16 +533,16 @@
   }
   /* Mobile: a full-width bottom panel with finger-sized cells and tabs,
      instead of the small anchored popover. */
-  @media (pointer: coarse), (max-width: 700px) {
+  @media (pointer: coarse), (max-width: 768px) {
     .ep-scrim {
       display: block;
       position: fixed;
       inset: 0;
       z-index: -1; /* behind the panel, above everything under it */
-      background: rgba(0, 0, 0, 0.5);
+      background: var(--scrim);
       border: none;
       border-radius: 0;
-      animation: ep-fade 0.16s ease;
+      animation: ep-fade var(--dur-standard) ease;
     }
     @keyframes ep-fade {
       from {
@@ -560,13 +560,13 @@
       border-left: none;
       border-right: none;
       border-bottom: none;
-      border-radius: 18px 18px 0 0;
+      border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
       padding-bottom: calc(10px + var(--safe-bottom));
       box-shadow: var(--shadow-pop);
       z-index: 90;
       /* Bottom-panel presentation slides up like the app's sheets. */
       transform-origin: bottom center;
-      animation: ep-rise 0.22s cubic-bezier(0.2, 0.9, 0.3, 1);
+      animation: ep-rise 0.22s var(--ease-out);
     }
     @keyframes ep-rise {
       from {
@@ -606,7 +606,7 @@
          out as a reaction. Let the count follow the width instead. */
       grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
       height: 46vh;
-      gap: 4px;
+      gap: var(--sp-1);
     }
     .cell {
       font-size: 27px;

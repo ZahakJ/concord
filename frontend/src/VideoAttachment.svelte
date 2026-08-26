@@ -89,7 +89,7 @@
 <style>
   .vid-embed {
     position: relative;
-    margin-top: 4px;
+    margin-top: var(--sp-1);
     width: min(420px, 100%);
     max-height: 360px;
     border-radius: var(--radius-md);

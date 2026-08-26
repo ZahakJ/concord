@@ -76,7 +76,7 @@
     background: transparent;
     color: var(--text-muted);
     border: none;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
   }
   @media (pointer: fine) {
     .trigger.compact:hover {
@@ -113,7 +113,7 @@
     flex-direction: column;
     gap: 2px;
     transform-origin: top;
-    animation: menu-in 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: menu-in var(--dur-quick) var(--ease-out);
   }
   @keyframes menu-in {
     from {
@@ -140,7 +140,7 @@
     top: auto;
     bottom: calc(100% + 6px);
     transform-origin: bottom;
-    animation: menu-in-up 0.13s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: menu-in-up var(--dur-quick) var(--ease-out);
   }
   .menu.up.right {
     transform-origin: bottom right;

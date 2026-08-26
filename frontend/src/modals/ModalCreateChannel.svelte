@@ -93,11 +93,11 @@
   form {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .type-row {
     display: flex;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .warn-line {
     display: flex;
@@ -150,12 +150,12 @@
   .cat-label {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     font-size: 12px;
   }
   .cat-label select {
     padding: 8px 10px;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     border-radius: var(--radius-sm);
     background: var(--bg-3);
     color: var(--text);

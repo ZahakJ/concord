@@ -424,8 +424,8 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    margin-top: 4px;
+    gap: var(--sp-2);
+    margin-top: var(--sp-1);
     border-radius: var(--radius-sm);
     overflow: hidden;
   }
@@ -485,7 +485,7 @@
   .frame.done img {
     display: block;
     border-radius: var(--radius-sm);
-    transition: filter 0.15s ease;
+    transition: filter var(--dur-standard) ease;
   }
   /* Dim a touch on hover so the thumbnail reads as "click to enlarge". Gated on
      a real pointer: Chromium latches :hover onto the last-tapped element, so on
@@ -531,7 +531,7 @@
     padding: 4vh 4vw;
     overflow: hidden;
     touch-action: none; /* pointer events own pinch/drag */
-    animation: lb-in 0.15s ease;
+    animation: lb-in var(--dur-standard) ease;
     transition: background 0.18s ease;
   }
   .lightbox.flinging {
@@ -579,7 +579,7 @@
     border-radius: 999px;
     padding: 3px 10px;
     opacity: 0;
-    transition: opacity 0.15s ease;
+    transition: opacity var(--dur-standard) ease;
     pointer-events: none;
   }
   .lb-zoom.show {

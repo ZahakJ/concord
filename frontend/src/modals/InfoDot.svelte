@@ -140,9 +140,9 @@
     cursor: help;
     opacity: 0.75;
     transition:
-      opacity 0.12s,
-      color 0.12s,
-      border-color 0.12s;
+      opacity var(--dur-quick),
+      color var(--dur-quick),
+      border-color var(--dur-quick);
     flex: 0 0 auto;
   }
   .dot:hover,
@@ -176,7 +176,7 @@
     white-space: normal;
     text-transform: none;
     letter-spacing: normal;
-    animation: pop 0.13s ease both;
+    animation: pop var(--dur-quick) ease both;
   }
   @keyframes pop {
     from {

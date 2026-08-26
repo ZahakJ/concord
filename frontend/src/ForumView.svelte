@@ -1006,7 +1006,7 @@
     padding: 14px 16px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .hero-title {
     display: flex;
@@ -1019,7 +1019,7 @@
     place-items: center;
     width: 32px;
     height: 32px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     color: #fff;
     background: rgba(0, 0, 0, 0.34);
     border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1089,8 +1089,8 @@
   button.stat {
     cursor: pointer;
     transition:
-      transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1),
-      background 0.16s ease;
+      transform var(--dur-standard) var(--ease-spring),
+      background var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     button.stat:hover {
@@ -1109,7 +1109,7 @@
   .hero-acts {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     margin-left: auto;
   }
   .glass {
@@ -1119,13 +1119,13 @@
     width: 32px;
     height: 32px;
     padding: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     color: #fff;
     background: rgba(0, 0, 0, 0.34);
     border: 1px solid rgba(255, 255, 255, 0.18);
     transition:
-      transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1),
-      background 0.16s ease;
+      transform var(--dur-standard) var(--ease-spring),
+      background var(--dur-standard) ease;
   }
   /* On a phone this is the ONLY visible control in the hero (New Post is the
      FAB), and it opens the whole settings sheet. A 32px glass square is right
@@ -1151,7 +1151,7 @@
     border-radius: 999px;
     font-weight: 600;
     box-shadow: var(--accent-glow);
-    transition: transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1);
+    transition: transform var(--dur-standard) var(--ease-spring);
   }
   @media (pointer: fine) {
     .cta:hover {
@@ -1166,7 +1166,7 @@
     z-index: 6;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 10px var(--pad);
     /* Opaque: it slides over cards. Matches the chat column's own surface. */
     background: var(--bg-2);
@@ -1175,7 +1175,7 @@
   .bar-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .bar-row.chips {
     flex-wrap: wrap;
@@ -1195,8 +1195,8 @@
     border: 1px solid transparent;
     color: var(--text-muted);
     transition:
-      border-color 0.15s ease,
-      background 0.15s ease;
+      border-color var(--dur-standard) ease,
+      background var(--dur-standard) ease;
   }
   .find:focus-within {
     border-color: var(--accent);
@@ -1250,8 +1250,8 @@
     font-size: var(--fs-compact);
     font-weight: 600;
     transition:
-      background 0.15s ease,
-      color 0.15s ease;
+      background var(--dur-standard) ease,
+      color var(--dur-standard) ease;
   }
   .seg-b.icon {
     padding: 5px 8px;
@@ -1293,9 +1293,9 @@
     color: var(--text-muted);
     border: 1px solid transparent;
     transition:
-      transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1),
-      background 0.15s ease,
-      color 0.15s ease;
+      transform var(--dur-standard) var(--ease-spring),
+      background var(--dur-standard) ease,
+      color var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     button.chip:hover {
@@ -1364,11 +1364,11 @@
     display: grid;
     /* Cards settle in on a stagger, capped so a long board doesn't take a
        second to appear. Transform + opacity only. */
-    animation: card-in 0.3s cubic-bezier(0.2, 0.8, 0.25, 1) both;
+    animation: card-in 0.3s var(--ease-out) both;
     animation-delay: calc(var(--i, 0) * 26ms);
     transition:
-      transform 0.16s cubic-bezier(0.34, 1.3, 0.5, 1),
-      border-color 0.16s ease;
+      transform var(--dur-standard) var(--ease-spring),
+      border-color var(--dur-standard) ease;
   }
   @keyframes card-in {
     from {
@@ -1431,14 +1431,14 @@
     height: 28px;
     margin: 8px 8px 0 0;
     padding: 0;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: transparent;
     color: var(--text-faint);
     opacity: 0;
     transition:
-      opacity 0.15s ease,
-      background 0.15s ease,
-      color 0.15s ease;
+      opacity var(--dur-standard) ease,
+      background var(--dur-standard) ease,
+      color var(--dur-standard) ease;
   }
   .card:hover .more,
   .card:focus-within .more,
@@ -1466,7 +1466,7 @@
     height: 100%;
     object-fit: cover;
     /* Compositor-only zoom on hover — see .card:hover .media img. */
-    transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.25, 1);
+    transition: transform 0.35s var(--ease-out);
     animation: shot-in 0.24s ease both;
   }
   @keyframes shot-in {
@@ -1489,7 +1489,7 @@
     place-items: center;
     width: 22px;
     height: 22px;
-    border-radius: 7px;
+    border-radius: var(--radius-sm);
     color: rgba(255, 255, 255, 0.85);
     background: rgba(0, 0, 0, 0.42);
     /* A pulse, not a spinner: opacity only, and it says "coming" rather than
@@ -1521,7 +1521,7 @@
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .title {
     margin: 0;
@@ -1586,7 +1586,7 @@
   .tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .meta {
     display: flex;
@@ -1613,7 +1613,7 @@
   .mi {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .dot {
     color: var(--text-faint);
@@ -1631,7 +1631,7 @@
   }
   .pend-bar {
     height: 9px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: var(--ph);
     width: 82%;
     animation: pulse 1.7s ease-in-out infinite;
@@ -1785,12 +1785,12 @@
   .sk-lines {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 14px 14px 14px 12px;
   }
   .sk-line {
     height: 10px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     background: var(--ph);
     animation: pulse 1.6s ease-in-out infinite;
   }
@@ -1799,7 +1799,7 @@
   }
   .sk-line.w90 {
     width: 90%;
-    animation-delay: 0.15s;
+    animation-delay: var(--dur-standard);
   }
   .sk-line.w40 {
     width: 40%;
@@ -1812,7 +1812,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--sp-2);
     text-align: center;
     padding: 32px 24px 48px;
   }
@@ -1858,7 +1858,7 @@
     display: grid;
     place-items: center;
     background: rgba(0, 0, 0, 0.5);
-    animation: fade-in 0.14s ease;
+    animation: fade-in var(--dur-quick) ease;
   }
   @keyframes fade-in {
     from {
@@ -1872,13 +1872,13 @@
     overflow-y: auto;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 14px;
     background: var(--bg-elevated);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-pop);
-    animation: pick-in 0.2s cubic-bezier(0.34, 1.3, 0.5, 1);
+    animation: pick-in 0.2s var(--ease-spring);
   }
   @keyframes pick-in {
     from {
@@ -1932,7 +1932,7 @@
     flex: none;
     width: 12px;
     height: 12px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--tc);
   }
   .pick-name {
@@ -1944,7 +1944,7 @@
   .pick-acts {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
     margin-top: 2px;
   }
 
@@ -1961,7 +1961,7 @@
     padding: 0;
     border-radius: 50%;
     box-shadow: var(--float-shadow);
-    transition: transform 0.16s cubic-bezier(0.34, 1.4, 0.5, 1);
+    transition: transform var(--dur-standard) var(--ease-spring);
   }
   .fab:active {
     transform: scale(0.94);

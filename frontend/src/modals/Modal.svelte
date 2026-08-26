@@ -215,11 +215,11 @@
     inset: 0;
     /* Frosted scrim: the app dims AND recedes, so the dialog reads as the
        only in-focus surface. */
-    background: rgba(0, 0, 0, 0.55);
+    background: var(--scrim);
     display: grid;
     place-items: center;
     z-index: 100;
-    animation: fade 0.16s ease;
+    animation: fade var(--dur-standard) ease;
   }
   .dialog {
     width: 380px;
@@ -244,10 +244,10 @@
     padding: 20px;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
     box-shadow: var(--shadow-pop);
     /* A touch of spring on entry — overshoots ~1% then settles. */
-    animation: pop 0.26s cubic-bezier(0.34, 1.4, 0.5, 1);
+    animation: pop 0.26s var(--ease-spring);
   }
   .dialog.wide {
     width: 460px;
@@ -296,9 +296,9 @@
       max-height: 92vh;
       max-height: 92dvh;
       border: none;
-      border-radius: 18px 18px 0 0;
+      border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
       padding-bottom: calc(20px + var(--safe-bottom));
-      animation: sheet-up 0.28s cubic-bezier(0.22, 1.1, 0.36, 1);
+      animation: sheet-up 0.28s var(--ease-spring);
       touch-action: pan-y;
     }
     /* Long content ran out from under the last line and straight behind the
@@ -438,7 +438,7 @@
      underneath. */
   .dialog.deeper,
   .dialog.shallower {
-    animation: panel-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+    animation: panel-in 0.28s var(--ease-out);
   }
   .dialog.deeper {
     --panel-from: 42px;
@@ -495,10 +495,10 @@
     color: var(--text-muted);
     padding: 4px 6px;
     margin: 0 4px 0 -4px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     transition:
-      color 0.15s ease,
-      background 0.15s ease;
+      color var(--dur-standard) ease,
+      background var(--dur-standard) ease;
   }
   .back :global(svg) {
     transform: rotate(180deg);
@@ -510,12 +510,12 @@
   .x {
     background: transparent;
     color: var(--text-muted);
-    padding: 4px 8px;
-    border-radius: 8px;
+    padding: var(--sp-1) var(--sp-2);
+    border-radius: var(--radius-md);
     transition:
-      color 0.15s ease,
-      background 0.15s ease,
-      transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+      color var(--dur-standard) ease,
+      background var(--dur-standard) ease,
+      transform 0.2s var(--ease-spring);
   }
   .x:hover {
     color: var(--text);

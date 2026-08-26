@@ -63,7 +63,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     text-align: center;
     padding: 6px 0 4px;
   }
@@ -74,8 +74,8 @@
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 16px;
+    gap: var(--sp-2);
+    margin-top: var(--sp-4);
   }
   .actions button {
     display: inline-flex;

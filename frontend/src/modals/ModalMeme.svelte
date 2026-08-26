@@ -1162,7 +1162,7 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .gtop {
     display: flex;
@@ -1173,12 +1173,12 @@
   }
   .gtitle h4 {
     margin: 0 0 3px;
-    font-size: 15px;
+    font-size: var(--fs-body);
     font-weight: 700;
   }
   .gtitle p {
     margin: 0;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   .find {
@@ -1192,8 +1192,8 @@
     color: var(--text-muted);
     min-width: 210px;
     transition:
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
+      border-color var(--dur-standard) ease,
+      box-shadow var(--dur-standard) ease;
   }
   /* The input strips its own border and background, which is exactly what the
      app-wide focus rule paints — so without a ring on the pill that holds it,
@@ -1210,7 +1210,7 @@
     outline: none;
     color: var(--text);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     padding: 8px 0;
   }
   .clearq {
@@ -1239,8 +1239,8 @@
     text-align: left;
     border-radius: var(--radius-md);
     transition:
-      transform 0.14s ease,
-      box-shadow 0.14s ease;
+      transform var(--dur-quick) ease,
+      box-shadow var(--dur-quick) ease;
   }
   .card:hover {
     transform: translateY(-2px);
@@ -1282,7 +1282,7 @@
   }
   .none {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--fs-ui);
     color: var(--text-muted);
     text-align: center;
   }
@@ -1294,7 +1294,7 @@
   .bar {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     flex: none;
   }
   .spacer {
@@ -1304,7 +1304,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     padding: 6px 10px;
     border-radius: var(--radius-sm);
     background: var(--bg-3);
@@ -1324,7 +1324,7 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
     white-space: nowrap;
   }
@@ -1345,10 +1345,10 @@
     grid-template-rows: minmax(0, 1fr) auto;
     justify-items: center;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     background: var(--bg-3);
     border-radius: var(--radius-md);
-    padding: 12px;
+    padding: var(--sp-3);
     min-height: 0;
     overflow: hidden;
   }
@@ -1361,7 +1361,7 @@
     width: 100%;
     height: auto;
     max-height: 100%;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     cursor: grab;
     touch-action: none; /* let us handle the drag, not the browser's scroll */
     box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
@@ -1372,20 +1372,20 @@
   .hint {
     margin: 0;
     flex: none;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     color: var(--text-muted);
     text-align: center;
   }
   .side {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     min-width: 0;
     overflow-y: auto;
     padding-right: 2px;
   }
   .lbl {
-    font-size: 10.5px;
+    font-size: var(--fs-tiny);
     font-weight: 700;
     letter-spacing: 0.4px;
     text-transform: uppercase;
@@ -1398,14 +1398,14 @@
   }
   .capbtns {
     display: flex;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .mini {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     font-size: 12px;
-    padding: 4px 8px;
+    padding: var(--sp-1) var(--sp-2);
     border-radius: var(--radius-sm);
     background: var(--bg-3);
     color: var(--text);
@@ -1420,13 +1420,13 @@
   .chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .chip {
     display: inline-flex;
     align-items: baseline;
     gap: 5px;
-    font-size: 11.5px;
+    font-size: var(--fs-small);
     padding: 4px 9px;
     border-radius: 999px;
     background: var(--bg-3);
@@ -1437,7 +1437,7 @@
     white-space: nowrap;
   }
   .chip b {
-    font-size: 10px;
+    font-size: var(--fs-tiny);
     opacity: 0.7;
   }
   .chip.on {
@@ -1461,9 +1461,9 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     color: var(--text);
-    padding: 8px;
+    padding: var(--sp-2);
     font: inherit;
-    font-size: 13px;
+    font-size: var(--fs-ui);
   }
   .seg {
     display: flex;
@@ -1494,7 +1494,7 @@
   .fonts {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .font {
     font-size: 12px;
@@ -1514,8 +1514,8 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
-    font-size: 12.5px;
+    gap: var(--sp-2);
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   .row > span:first-child {
@@ -1556,7 +1556,7 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .sw {
     width: 18px;
@@ -1572,7 +1572,7 @@
   }
   .pick {
     margin: 0;
-    font-size: 12.5px;
+    font-size: var(--fs-compact);
     color: var(--text-muted);
   }
   .send {
@@ -1593,7 +1593,7 @@
   /* Phone: one column with the picture on top and the controls scrolling under
      it. The template gallery keeps its grid — on a 390px screen that is two
      named columns, which still beats a nameless strip. */
-  @media (max-width: 760px) {
+  @media (pointer: coarse), (max-width: 768px) {
     /* The bottom sheet is the scroll container here, and it has no height of
        its own, so nothing inside may claim a share of it: `flex: 1` against an
        auto-height parent resolves to nothing and collapses the picture to a

@@ -77,7 +77,7 @@
     overflow-y: auto;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 4px;
+    padding: var(--sp-1);
   }
   /* One scroller per sheet — see Modal.svelte. */
   @media (pointer: coarse), (max-width: 768px) {
@@ -89,7 +89,7 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 7px 10px;
     background: transparent;
     border: none;
@@ -120,7 +120,7 @@
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
     margin-top: 10px;
   }
 </style>

@@ -155,7 +155,7 @@
   }
   .tray {
     display: flex;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 2px 4px 6px;
     margin: 0 4px;
     overflow-x: auto;

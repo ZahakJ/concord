@@ -168,7 +168,7 @@
      "these are not live messages" looks like without a banner on every row. */
   .msg {
     display: flex;
-    gap: 12px;
+    gap: var(--sp-3);
     position: relative;
     padding: var(--msg-pad-y, 2px) 0;
     border-radius: var(--radius-sm);
@@ -235,7 +235,7 @@
   }
   .body :global(code) {
     background: var(--bg-2);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 1px 4px;
     font-family: var(--mono-font);
     font-size: 0.92em;
@@ -309,7 +309,7 @@
   .arc-reaction {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 1px 7px;
     border-radius: 999px;
     border: 1px solid var(--border);

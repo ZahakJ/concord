@@ -44,7 +44,7 @@
 <style>
   .embed {
     display: flex;
-    margin-top: 4px;
+    margin-top: var(--sp-1);
     max-width: 460px;
     background: var(--bg-1);
     border: 1px solid var(--border);
@@ -64,7 +64,7 @@
     font-weight: 700;
     font-size: var(--fs-ui);
     line-height: 1.3;
-    margin-bottom: 4px;
+    margin-bottom: var(--sp-1);
   }
   .desc {
     font-size: var(--fs-ui);
@@ -78,7 +78,7 @@
     /* min() so a phone column narrower than 140px gets one field per row
        instead of a grid track wider than the card. */
     grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
-    gap: 8px 16px;
+    gap: var(--sp-2) var(--sp-4);
     margin-top: 10px;
   }
   .f-name {

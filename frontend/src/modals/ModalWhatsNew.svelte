@@ -90,11 +90,11 @@
   .rows {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .row {
     display: flex;
-    gap: 12px;
+    gap: var(--sp-3);
     align-items: flex-start;
   }
   .ric {
@@ -117,7 +117,7 @@
     font-size: var(--fs-ui);
   }
   .actions {
-    margin-top: 16px;
+    margin-top: var(--sp-4);
     display: flex;
     justify-content: center;
   }

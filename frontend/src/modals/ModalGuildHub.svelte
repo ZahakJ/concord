@@ -327,7 +327,7 @@
   .hero-icon {
     width: 30px;
     height: 30px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     object-fit: cover;
     flex-shrink: 0;
   }
@@ -351,10 +351,10 @@
     animation-delay: 0.08s;
   }
   .grp:nth-child(6) {
-    animation-delay: 0.12s;
+    animation-delay: var(--dur-quick);
   }
   .grp:nth-child(7) {
-    animation-delay: 0.16s;
+    animation-delay: var(--dur-standard);
   }
   @keyframes grp-in {
     from {
@@ -390,7 +390,7 @@
   .row {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     width: 100%;
     min-height: 52px;
     padding: 10px 14px;
@@ -398,7 +398,7 @@
     color: var(--text);
     text-align: left;
     border-radius: 0;
-    transition: background 0.14s ease;
+    transition: background var(--dur-quick) ease;
   }
   button.row:hover,
   button.row:active {
@@ -427,8 +427,8 @@
     line-height: 1;
     color: var(--text-faint);
     transition:
-      transform 0.15s ease,
-      color 0.15s ease;
+      transform var(--dur-standard) ease,
+      color var(--dur-standard) ease;
   }
   /* Nav chevrons drift toward the destination on hover. */
   .row:hover .chev {
@@ -442,7 +442,7 @@
     width: 34px;
     height: 34px;
     flex-shrink: 0;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     background: color-mix(in srgb, var(--accent) 16%, transparent);
     color: var(--accent-hover);
   }

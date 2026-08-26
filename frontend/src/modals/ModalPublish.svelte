@@ -91,7 +91,7 @@
     padding: 8px 10px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     margin-bottom: 10px;
   }
   .orig .body {
@@ -106,12 +106,12 @@
     font-size: var(--fs-small);
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     margin-bottom: 10px;
   }
   .field textarea {
@@ -135,7 +135,7 @@
   .actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .actions button {
     display: inline-flex;

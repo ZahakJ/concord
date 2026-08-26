@@ -260,7 +260,7 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--scrim);
     display: flex;
     justify-content: center;
     padding-top: 12vh;
@@ -269,7 +269,7 @@
        two did coexist the switcher lost on DOM order and took the keyboard from
        behind the scrim. */
     z-index: 110;
-    animation: qs-fade 0.12s ease;
+    animation: qs-fade var(--dur-quick) ease;
   }
   .switcher {
     width: 460px;
@@ -281,13 +281,13 @@
     -webkit-backdrop-filter: blur(14px);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
-    padding: 12px;
+    padding: var(--sp-3);
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
     box-shadow: var(--shadow-pop);
     transform-origin: top center;
-    animation: qs-pop 0.16s cubic-bezier(0.2, 0.9, 0.3, 1);
+    animation: qs-pop var(--dur-standard) var(--ease-out);
   }
   @keyframes qs-fade {
     from {
@@ -338,7 +338,7 @@
     font-size: var(--fs-ui);
     transition:
       background 0.1s ease,
-      transform 0.12s ease;
+      transform var(--dur-quick) ease;
   }
   .hit.sel {
     background: var(--bg-3);
@@ -375,8 +375,8 @@
     opacity: 0;
     transform: translateX(-3px);
     transition:
-      opacity 0.12s ease,
-      transform 0.12s ease;
+      opacity var(--dur-quick) ease,
+      transform var(--dur-quick) ease;
   }
   .hit.sel .hit-enter {
     opacity: 0.9;
@@ -389,7 +389,7 @@
     background: var(--bg-2);
     border: 1px solid var(--border);
     border-bottom-width: 2px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     padding: 1px 6px;
     white-space: nowrap;
   }
@@ -399,7 +399,7 @@
     min-width: 18px;
     padding: 0 5px;
     height: 16px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: var(--text-muted);
     color: var(--bg-1);
     font-size: var(--fs-tiny);

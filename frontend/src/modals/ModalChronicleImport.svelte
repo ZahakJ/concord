@@ -566,7 +566,7 @@
   .hint code {
     font-family: var(--mono-font);
     background: var(--bg-2);
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     padding: 0 4px;
   }
   .note {
@@ -699,7 +699,7 @@
     color: var(--text);
   }
   .caret {
-    font-size: 8px;
+    font-size: var(--fs-micro);
   }
   .trow {
     font-size: var(--fs-compact);
@@ -893,7 +893,7 @@
     border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
     border-radius: var(--radius-md);
     background: var(--accent-soft);
-    transition: opacity 0.15s ease;
+    transition: opacity var(--dur-standard) ease;
   }
   .est.stale {
     opacity: 0.55;
@@ -974,7 +974,7 @@
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
     vertical-align: -1px;
-    margin-right: 4px;
+    margin-right: var(--sp-1);
   }
   @keyframes spin {
     to {

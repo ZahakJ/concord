@@ -113,7 +113,7 @@
     background: transparent;
     border: none;
     color: var(--text-faint);
-    transition: color 0.14s ease;
+    transition: color var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .peek:hover {
@@ -159,7 +159,7 @@
   .strength {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     margin-top: 6px;
   }
   .bar {

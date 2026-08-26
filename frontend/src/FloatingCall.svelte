@@ -216,7 +216,7 @@
     z-index: 90; /* above chat, but BELOW modals (100) so dialogs aren't covered */
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 6px var(--sp-2);
     background: var(--ok-soft);
     border-bottom: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
@@ -270,7 +270,7 @@
     /* The dock breathes softly while the call is live — a low green ambience
        that says "this is running" without demanding attention. */
     animation: dock-breathe 4s ease-in-out infinite;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    transition: transform var(--dur-standard) ease, box-shadow var(--dur-standard) ease;
   }
   .dock.shelved,
   .callbar.shelved {

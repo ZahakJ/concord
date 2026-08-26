@@ -774,8 +774,8 @@
   .dev {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 12px;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -791,7 +791,7 @@
     width: 28px;
     height: 28px;
     flex: none;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: var(--bg-3);
     color: var(--text-muted);
   }
@@ -808,8 +808,8 @@
     font-size: var(--fs-compact);
     padding: 4px 14px;
     transition:
-      color 0.12s ease,
-      border-color 0.12s ease;
+      color var(--dur-quick) ease,
+      border-color var(--dur-quick) ease;
   }
   .test:hover:not(:disabled) {
     color: var(--text);
@@ -933,7 +933,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding-top: 8px;
+    padding-top: var(--sp-2);
     border-top: 1px solid var(--border);
   }
   .seg {
@@ -968,7 +968,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding-top: 8px;
+    padding-top: var(--sp-2);
     border-top: 1px solid var(--border);
   }
   .ptt {
@@ -1000,8 +1000,8 @@
   .gate-row {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding-top: 4px;
+    gap: var(--sp-3);
+    padding-top: var(--sp-1);
     border-top: 1px solid var(--border);
   }
   .gate-text {
@@ -1017,12 +1017,12 @@
   .gate-body {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .toggle {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--sp-3);
     padding: 8px 0;
     background: transparent;
     color: var(--text);
@@ -1068,7 +1068,7 @@
     border-radius: 50%;
     background: white;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-    transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1);
+    transition: transform 0.18s var(--ease-out);
   }
   .switch.on .sw-knob {
     transform: translateX(16px);
@@ -1077,7 +1077,7 @@
   .disclose {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     width: 100%;
     padding: 10px 12px;
     background: transparent;
@@ -1088,8 +1088,8 @@
     font-weight: 600;
     text-align: left;
     transition:
-      border-color 0.14s ease,
-      background 0.14s ease;
+      border-color var(--dur-quick) ease,
+      background var(--dur-quick) ease;
   }
   .disclose:hover {
     background: var(--bg-1);
@@ -1097,9 +1097,9 @@
   }
   .disclose-chev {
     color: var(--text-faint);
-    font-size: 17px;
+    font-size: var(--fs-title);
     line-height: 1;
-    transition: transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1);
+    transition: transform 0.22s var(--ease-spring);
   }
   .disclose-chev.open {
     transform: rotate(90deg);
@@ -1119,7 +1119,7 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 10px 12px;
     background: var(--bg-1);
     border: 1px dashed var(--border);

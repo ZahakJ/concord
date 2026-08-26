@@ -714,7 +714,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 10px 0;
     overflow-y: auto;
     /* A fling off the end of the rail must not continue into the chat feed
@@ -734,7 +734,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 8px 0 calc(10px + var(--safe-bottom));
     border-top: 1px solid var(--border);
     background: var(--bg-0);
@@ -753,9 +753,9 @@
     place-items: center;
     padding: 0;
     transition:
-      border-radius 0.18s cubic-bezier(0.2, 0.9, 0.3, 1),
+      border-radius 0.18s var(--ease-out),
       background 0.18s ease,
-      transform 0.12s ease,
+      transform var(--dur-quick) ease,
       box-shadow 0.18s ease;
     flex-shrink: 0;
   }
@@ -764,7 +764,7 @@
      answer, and it is already unconditional below. */
   @media (pointer: fine) {
     .pill:hover {
-      border-radius: 14px;
+      border-radius: var(--radius-lg);
       background: var(--bg-3);
       transform: translateY(-1px) scale(1.04);
     }
@@ -773,7 +773,7 @@
     transform: scale(0.92);
   }
   .pill.active {
-    border-radius: 14px;
+    border-radius: var(--radius-lg);
     background: var(--accent);
     color: var(--accent-fg);
     box-shadow: var(--accent-glow);
@@ -799,19 +799,19 @@
     bottom: auto;
   }
   .pill.home {
-    border-radius: 15px;
+    border-radius: var(--radius-lg);
     background: var(--bg-3);
     color: var(--accent-hover);
   }
   @media (pointer: fine) {
     .pill.home:hover {
-      border-radius: 15px;
+      border-radius: var(--radius-lg);
       color: var(--accent-fg);
       background: var(--accent);
     }
   }
   .pill.home :global(svg) {
-    transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 0.18s var(--ease-spring);
   }
   .pill.home:hover :global(svg) {
     transform: rotate(-10deg) translateY(-1px);
@@ -846,7 +846,7 @@
     }
   }
   .pill.home.active {
-    border-radius: 15px;
+    border-radius: var(--radius-lg);
     background: var(--accent);
     color: var(--accent-fg);
   }
@@ -881,19 +881,19 @@
      accent ink so it reads as "yours". .pill.active supplies the open state —
      the same fill a selected guild wears. */
   .pill.cal {
-    border-radius: 15px;
+    border-radius: var(--radius-lg);
     background: var(--bg-3);
     color: var(--accent-hover);
   }
   @media (pointer: fine) {
     .pill.cal:hover {
-      border-radius: 15px;
+      border-radius: var(--radius-lg);
       background: var(--accent);
       color: var(--accent-fg);
     }
   }
   .pill.cal.active {
-    border-radius: 15px;
+    border-radius: var(--radius-lg);
   }
   .pill.add {
     background: transparent;
@@ -901,7 +901,7 @@
     color: var(--text-muted);
   }
   .pill.add :global(svg) {
-    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 0.22s var(--ease-spring);
   }
   @media (pointer: fine) {
     .pill.add:hover {
@@ -917,13 +917,13 @@
     position: relative;
     display: flex;
     flex-shrink: 0;
-    animation: rail-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+    animation: rail-in 0.3s var(--ease-out) both;
     animation-delay: calc(40ms + var(--i, 0) * 25ms);
   }
   .pill.home,
   .pill.add,
   .pill.cal {
-    animation: rail-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+    animation: rail-in 0.3s var(--ease-out) both;
   }
   .pill.add {
     animation-delay: 0.18s;
@@ -947,7 +947,7 @@
     opacity: 0;
     pointer-events: none;
     transition:
-      height 0.22s cubic-bezier(0.34, 1.56, 0.64, 1),
+      height 0.22s var(--ease-spring),
       opacity 0.18s ease;
   }
   @media (pointer: fine) {
@@ -972,7 +972,7 @@
     min-width: 18px;
     height: 18px;
     padding: 0 5px;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: var(--danger);
     color: var(--danger-fg);
     font-size: var(--fs-small);
@@ -982,7 +982,7 @@
     place-items: center;
     border: 2px solid var(--bg-0);
     pointer-events: none;
-    animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation: badge-pop 0.25s var(--ease-spring) both;
   }
   @keyframes badge-pop {
     from {
@@ -1005,12 +1005,12 @@
     border-radius: 50%;
     border: 2px solid var(--bg-0);
     pointer-events: none;
-    animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation: badge-pop 0.25s var(--ease-spring) both;
   }
   .live-dot {
     background: var(--ok);
     animation:
-      badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+      badge-pop 0.25s var(--ease-spring) both,
       rail-live-pulse 1.4s ease-in-out 0.3s infinite;
   }
   @keyframes rail-live-pulse {
@@ -1031,7 +1031,7 @@
     min-width: 18px;
     height: 18px;
     padding: 0 5px;
-    border-radius: 9px;
+    border-radius: var(--radius-md);
     background: var(--accent);
     color: var(--accent-fg);
     font-size: var(--fs-small);
@@ -1041,11 +1041,11 @@
     place-items: center;
     border: 2px solid var(--bg-0);
     pointer-events: none;
-    animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation: badge-pop 0.25s var(--ease-spring) both;
   }
   .badge.mention {
     animation:
-      badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+      badge-pop 0.25s var(--ease-spring) both,
       badge-beat 2.6s ease-in-out 0.4s infinite;
   }
   @keyframes badge-beat {
@@ -1066,7 +1066,7 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .badge.mention {
-      animation: badge-pop 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+      animation: badge-pop 0.25s var(--ease-spring) both;
     }
     .live-dot,
     .ev-dot,
@@ -1129,7 +1129,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-shrink: 0;
   }
   .folder.open {
@@ -1168,7 +1168,7 @@
   .mini {
     width: 100%;
     height: 100%;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     object-fit: cover;
     display: grid;
     place-items: center;
@@ -1180,7 +1180,7 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .folder-name {
     width: 46px;
@@ -1220,7 +1220,7 @@
     background: var(--accent);
     box-shadow: var(--accent-glow);
     flex-shrink: 0;
-    animation: badge-pop 0.15s ease both;
+    animation: badge-pop var(--dur-standard) ease both;
   }
   .dropbar--in {
     width: 24px;

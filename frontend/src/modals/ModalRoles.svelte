@@ -185,7 +185,7 @@
     background: transparent;
     color: var(--text);
     text-align: left;
-    padding: 8px;
+    padding: var(--sp-2);
   }
   .swatch {
     width: 14px;
@@ -241,7 +241,7 @@
   }
   .name-row {
     display: flex;
-    gap: 8px;
+    gap: var(--sp-2);
     align-items: center;
   }
   .name-row input[type="color"] {
@@ -256,7 +256,7 @@
   .perms {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
   }
   .perm {
     display: flex;

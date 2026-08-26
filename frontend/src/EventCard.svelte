@@ -738,7 +738,7 @@
     justify-content: center;
     width: 16px;
     height: 16px;
-    border-radius: 5px;
+    border-radius: var(--radius-sm);
     font-size: var(--fs-micro);
     letter-spacing: 0;
     flex-shrink: 0;
@@ -756,7 +756,7 @@
   .srctag {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     flex-shrink: 0;
     padding: 1px 8px;
     min-width: 0;
@@ -818,7 +818,7 @@
     border-radius: var(--radius-sm);
     background: transparent;
     color: var(--text-faint);
-    transition: background 0.12s ease, color 0.12s ease;
+    transition: background var(--dur-quick) ease, color var(--dur-quick) ease;
   }
   .del:hover {
     background: var(--danger-soft);
@@ -939,7 +939,7 @@
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 4px 11px;
     border-radius: 999px;
     background: var(--bg-2);
@@ -947,7 +947,7 @@
     color: var(--text-muted);
     font-size: var(--fs-compact);
     font-weight: 600;
-    transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    transition: background var(--dur-quick) ease, color var(--dur-quick) ease, border-color var(--dur-quick) ease;
   }
   .chip:hover {
     background: var(--bg-3);
@@ -990,7 +990,7 @@
     color: var(--accent-fg);
     font-size: var(--fs-compact);
     font-weight: 700;
-    transition: background 0.12s ease;
+    transition: background var(--dur-quick) ease;
   }
   .gjoin:hover {
     background: var(--accent-hover);
@@ -1018,7 +1018,7 @@
   .gtag {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 3px 9px;
     border-radius: 999px;
     background: var(--ok-soft);
@@ -1083,7 +1083,7 @@
   .gcopy {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 3px 4px;
     background: transparent;
     border-radius: var(--radius-sm);

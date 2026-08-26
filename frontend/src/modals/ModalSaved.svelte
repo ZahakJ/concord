@@ -94,7 +94,7 @@
   .list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--sp-1);
     max-height: 56vh;
     max-height: 56dvh;
     overflow-y: auto;
@@ -128,7 +128,7 @@
   .meta {
     display: flex;
     align-items: baseline;
-    gap: 8px;
+    gap: var(--sp-2);
     min-width: 0;
   }
   .meta strong {
@@ -146,7 +146,7 @@
   .x {
     flex: none;
     align-self: center;
-    padding: 8px;
+    padding: var(--sp-2);
     border-radius: var(--radius-md);
     color: var(--text-muted);
     background: none;

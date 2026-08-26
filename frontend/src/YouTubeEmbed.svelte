@@ -70,10 +70,10 @@
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 12px;
+    padding: var(--sp-3);
     background: var(--bg-1);
     text-align: center;
-    transition: background 0.12s ease;
+    transition: background var(--dur-quick) ease;
   }
   @media (pointer: fine) {
     .placeholder:hover {
@@ -114,7 +114,7 @@
     display: grid;
     place-items: center;
     background: rgba(0, 0, 0, 0.25);
-    transition: background 0.15s ease;
+    transition: background var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     .thumb:hover .play {
@@ -124,8 +124,8 @@
   .play svg {
     filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
     transition:
-      transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
-      filter 0.15s ease;
+      transform var(--dur-standard) var(--ease-spring),
+      filter var(--dur-standard) ease;
   }
   /* The red button swells slightly under the cursor — the whole thumbnail
      feels like a play control. */

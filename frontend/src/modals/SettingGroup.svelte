@@ -36,7 +36,7 @@
     animation-delay: 0.08s;
   }
   .grp:nth-child(4) {
-    animation-delay: 0.12s;
+    animation-delay: var(--dur-quick);
   }
   @keyframes grp-in {
     from {

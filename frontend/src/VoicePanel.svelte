@@ -914,7 +914,7 @@
   .voice-panel {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--sp-3);
     padding: 14px 16px;
     background: radial-gradient(120% 140% at 50% 0%, var(--bg-2), var(--bg-0));
     border-bottom: 1px solid var(--border);
@@ -931,7 +931,7 @@
        scrolling monster: each tile is at most 240px wide, centered. */
     grid-template-columns: repeat(auto-fit, minmax(130px, 200px));
     justify-content: center;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   .stage.solo {
     grid-template-columns: minmax(180px, 260px);
@@ -949,9 +949,9 @@
     place-items: center;
     cursor: pointer;
     transition:
-      transform 0.15s ease,
-      border-color 0.15s ease,
-      box-shadow 0.15s ease;
+      transform var(--dur-standard) ease,
+      border-color var(--dur-standard) ease,
+      box-shadow var(--dur-standard) ease;
   }
   /* Hover lift — a gentle rise + shadow so tiles feel tactile. */
   .tile:hover {
@@ -998,7 +998,7 @@
     border-radius: inherit;
     pointer-events: none;
     box-shadow: inset 0 0 0 0 transparent;
-    transition: box-shadow 0.12s ease;
+    transition: box-shadow var(--dur-quick) ease;
   }
   .tile.speaking .ring {
     animation: pulse 1.6s ease-in-out infinite;
@@ -1087,8 +1087,8 @@
     color: #fff;
     opacity: 0;
     transition:
-      opacity 0.12s,
-      background 0.12s;
+      opacity var(--dur-quick),
+      background var(--dur-quick);
   }
   .tile:hover .evict,
   .evict:focus-visible {
@@ -1122,7 +1122,7 @@
     color: #fff;
     background: rgba(0, 0, 0, 0.5);
     opacity: 0;
-    transition: opacity 0.12s ease, background 0.12s ease;
+    transition: opacity var(--dur-quick) ease, background var(--dur-quick) ease;
   }
   .tile:hover .local-mute,
   .local-mute:focus-visible {
@@ -1258,7 +1258,7 @@
     flex-wrap: wrap;
     justify-content: center;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .strip .thumb {
     position: relative;
@@ -1296,8 +1296,8 @@
     padding: 2px;
     border: 2px solid transparent;
     transition:
-      transform 0.12s ease,
-      border-color 0.12s ease;
+      transform var(--dur-quick) ease,
+      border-color var(--dur-quick) ease;
   }
   .bubble:hover {
     transform: translateY(-1px);
@@ -1327,7 +1327,7 @@
     bottom: 8px;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     padding: 2px 8px;
     font-size: var(--fs-compact);
     color: #fff;
@@ -1339,7 +1339,7 @@
     align-self: center;
     display: inline-flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     padding: 6px var(--sp-4);
     font-size: var(--fs-ui);
     color: var(--text-muted);
@@ -1393,14 +1393,14 @@
     display: flex;
     justify-content: center;
     gap: 6px;
-    margin-bottom: 8px;
+    margin-bottom: var(--sp-2);
   }
   .sfx {
     width: 36px;
     height: 36px;
     display: grid;
     place-items: center;
-    font-size: 17px;
+    font-size: var(--fs-title);
     border-radius: var(--radius-md);
     background: var(--bg-2);
     border: 1px solid var(--border);
@@ -1434,7 +1434,7 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 4px 8px 8px;
+    padding: var(--sp-1) var(--sp-2) var(--sp-2);
     /* First thing in the panel, every size. As the panel's last DOM child it
        rendered below the sticky controls — a scrollable 46vh panel hid the one
        decision the lock exists for under the fold. */
@@ -1551,7 +1551,7 @@
   .knock-acts {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--sp-2);
     flex-shrink: 0;
   }
   .knock-admit {
@@ -1567,9 +1567,9 @@
     font-size: var(--fs-compact);
     font-weight: 700;
     transition:
-      transform 0.12s ease,
-      box-shadow 0.15s ease,
-      background 0.12s ease;
+      transform var(--dur-quick) ease,
+      box-shadow var(--dur-standard) ease,
+      background var(--dur-quick) ease;
   }
   .knock-admit:hover {
     background: var(--accent-hover);
@@ -1589,8 +1589,8 @@
     border-radius: 50%;
     color: var(--text-muted);
     transition:
-      background 0.12s ease,
-      color 0.12s ease;
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
   .knock-deny:hover {
     background: color-mix(in srgb, var(--danger) 16%, transparent);
@@ -1621,10 +1621,10 @@
     color: var(--text);
     border: 1px solid var(--border);
     transition:
-      background 0.12s ease,
-      color 0.12s ease,
-      transform 0.12s ease,
-      box-shadow 0.15s ease;
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease,
+      transform var(--dur-quick) ease,
+      box-shadow var(--dur-standard) ease;
   }
   .ctl:hover {
     background: var(--bg-1);
@@ -1746,7 +1746,7 @@
       padding: 0;
     }
     .controls {
-      gap: 8px;
+      gap: var(--sp-2);
       /* 7 controls never fit one phone row at finger size (44px each + gaps
          needs 362px against 358px of content box at 390). Wrapping is the only
          thing that holds at 320 — without it flex shrinks the WIDTH only and
@@ -1772,7 +1772,7 @@
        land alone (a flip-camera or route button wraps down with it) it is the
        only thing between a thumb and hanging up on everyone. */
     .ctl.hangup {
-      margin-left: 12px;
+      margin-left: var(--sp-3);
     }
     /* A 16:9 share on a phone is height-limited by its width, and the only
        width left to give it is our own 16px gutters. */
@@ -1789,7 +1789,7 @@
       height: 44px;
     }
     .focus-actions {
-      gap: 12px;
+      gap: var(--sp-3);
     }
     /* Width is the scarce resource for a shared desktop, and .screens was
        spending 40px of it on gutters either side of a 320px-capped tile — the
@@ -1797,7 +1797,7 @@
     .screens {
       grid-template-columns: 1fr;
       margin-inline: -16px;
-      gap: 8px;
+      gap: var(--sp-2);
     }
     .screen-tile {
       border-radius: 0;
@@ -1818,7 +1818,7 @@
     }
     .knock-acts {
       flex: 1 0 100%;
-      gap: 12px;
+      gap: var(--sp-3);
     }
     .knock-admit {
       flex: 1;

@@ -124,8 +124,8 @@
     text-align: left;
     color: var(--text);
     transition:
-      background 0.12s ease,
-      border-color 0.12s ease;
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease;
   }
   .rmain:hover {
     background: var(--bg-3);

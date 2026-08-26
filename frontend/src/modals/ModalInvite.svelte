@@ -218,7 +218,7 @@
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--sp-1);
     color: var(--ok-text);
   }
   .code-well {
@@ -226,7 +226,7 @@
     background: var(--bg-0);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: 12px;
+    padding: var(--sp-3);
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -261,7 +261,7 @@
   .code-row {
     display: flex;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--sp-3);
   }
   code {
     flex: 1;
@@ -304,7 +304,7 @@
   }
   .give {
     display: flex;
-    gap: 8px;
+    gap: var(--sp-2);
   }
   .share {
     flex: 1;
@@ -326,7 +326,7 @@
     font-weight: 600;
     padding: 7px 16px;
     transition:
-      transform 0.12s ease,
+      transform var(--dur-quick) ease,
       background 0.25s ease,
       box-shadow 0.25s ease;
   }
@@ -336,7 +336,7 @@
   .copy.copied {
     background: var(--ok);
     box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 45%, transparent);
-    animation: copied-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    animation: copied-pop 0.3s var(--ease-spring);
   }
   @keyframes copied-pop {
     40% {
