@@ -20,7 +20,7 @@
   import { saveText } from "./lib/savefile.js";
   // Operator parsing (from:/in:/has:/before:/after:) + the backend call live
   // in lib/search.js, shared with the results panel's chip refinement.
-  import { runSearch, closeSearch } from "./lib/search.js";
+  import { runSearch, closeSearch, queueSearch, registerSearchInput } from "./lib/search.js";
   import { channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
   // Icon buttons carry use:tooltip (below-center, default delay) instead of
   // native title= — instant theme-matched labels; aria-label stays and is the
@@ -28,6 +28,11 @@
   import { tooltip } from "./lib/tooltip.js";
 
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
+
+  // Handed to lib/search.js so a filter chip clicked in the results panel can
+  // type its prefix here and put the caret back after it.
+  let searchEl = $state(null);
+  $effect(() => registerSearchInput(searchEl));
 
   const g = $derived(activeGuild());
   const ch = $derived(activeChannel());
@@ -130,13 +135,17 @@
       class:open={!!S.searchQuery || S.searchResults !== null}
       onsubmit={runSearch}
     >
+      <!-- The operator syntax used to be documented in a title= on this field.
+           It now lives as clickable chips in the results panel directly below,
+           where it can be read without hovering and used without typing. -->
       <input
         class="search-box"
         class:busy={S.searchLoading || S.searchQuery || S.searchResults !== null}
         placeholder="Search all conversations"
-        title="Searches every channel and DM. Filters: from:name  in:#channel  has:link|image|file  before:YYYY-MM-DD  after:YYYY-MM-DD"
         aria-label="Search messages across all conversations"
+        bind:this={searchEl}
         bind:value={S.searchQuery}
+        oninput={() => queueSearch()}
         onkeydown={(e) => {
           if (e.key === "Escape") {
             closeSearch();

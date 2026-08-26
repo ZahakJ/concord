@@ -14,8 +14,9 @@
     flash,
     clockOpts,
   } from "./lib/state.svelte.js";
-  import { removeChip, closeSearch } from "./lib/search.js";
+  import { removeChip, closeSearch, insertFilter, FILTERS } from "./lib/search.js";
   import { previewText } from "./lib/attachments.js";
+  import { stripMarkdown } from "./lib/forum.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
 
   const open = $derived(S.searchResults !== null || S.searchLoading);
@@ -56,7 +57,10 @@
   // snippet: readable preview windowed around the first matched term, so the
   // hit is visible even in a long message.
   function snippet(content) {
-    const text = previewText(content);
+    // Through the markdown stripper first: a result read "> **the** plan" where
+    // the message says "the plan", so the one line whose whole job is to show
+    // you the words you searched for was showing you the syntax around them.
+    const text = stripMarkdown(previewText(content));
     const lower = text.toLowerCase();
     let idx = -1;
     for (const t of S.searchTerms) {
@@ -112,6 +116,19 @@
       <button class="sp-close" aria-label="Close search" title="Close search" onclick={closeSearch}>
         <Icon name="close" size={11} />
       </button>
+    </div>
+
+    <!-- The operator vocabulary, clickable. It used to live in a native title=
+         on the input: a tooltip nobody hovers a text field long enough to see,
+         and one a touch device cannot open at all. A chip that types the prefix
+         teaches the syntax by using it. -->
+    <div class="sp-syntax">
+      <span class="sp-syntax-lead">Narrow it</span>
+      {#each FILTERS as f (f.prefix)}
+        <button class="sp-add" onclick={() => insertFilter(f.prefix)}>
+          <code>{f.prefix}</code><span class="sp-add-hint">{f.hint}</span>
+        </button>
+      {/each}
     </div>
 
     {#if S.searchChips.length}
@@ -228,6 +245,55 @@
     flex-wrap: wrap;
     gap: 6px;
     padding: 0 var(--sp-edge) 8px;
+  }
+  /* Quieter than the active-filter chips above them on purpose: these are an
+     offer, those are state. */
+  .sp-syntax {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+    padding: 0 var(--sp-edge) 8px;
+  }
+  .sp-syntax-lead {
+    font-size: var(--fs-tiny);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-faint);
+    margin-right: 2px;
+  }
+  .sp-add {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+    line-height: 1.5;
+    transition:
+      border-color 0.12s ease,
+      color 0.12s ease;
+  }
+  .sp-add code {
+    font-family: ui-monospace, monospace;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .sp-add-hint {
+    font-size: var(--fs-tiny);
+    color: var(--text-faint);
+  }
+  .sp-add:hover,
+  .sp-add:focus-visible {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .sp-add:hover code,
+  .sp-add:focus-visible code {
+    color: var(--accent-hover);
   }
   .sp-chip {
     display: inline-flex;
@@ -441,6 +507,11 @@
        neighbour's. */
     .sp-chips {
       gap: var(--sp-2);
+    }
+    .sp-add {
+      min-height: var(--tap-min);
+      padding: 0 12px;
+      font-size: var(--fs-ui);
     }
     .sp-chip {
       min-height: 40px;

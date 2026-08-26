@@ -73,12 +73,65 @@ export function matchFilters(m, f) {
   return true;
 }
 
+// The operator vocabulary, as data rather than as a sentence in a title=
+// attribute. The panel renders one chip per entry and clicking it types the
+// prefix for you — which is the only form of this documentation a phone user
+// has ever been able to reach, native tooltips having no touch equivalent.
+export const FILTERS = [
+  { prefix: "from:", hint: "a person" },
+  { prefix: "in:#", hint: "a channel" },
+  { prefix: "has:", hint: "link, image, file" },
+  { prefix: "before:", hint: "YYYY-MM-DD" },
+  { prefix: "after:", hint: "YYYY-MM-DD" },
+];
+
+// The live input, so a chip click can put the caret back where the typing is.
+let inputEl = null;
+export function registerSearchInput(el) {
+  inputEl = el;
+  return () => {
+    if (inputEl === el) inputEl = null;
+  };
+}
+
+export function insertFilter(prefix) {
+  const q = S.searchQuery.trim();
+  S.searchQuery = (q ? q + " " : "") + prefix;
+  const n = S.searchQuery.length;
+  inputEl?.focus();
+  inputEl?.setSelectionRange?.(n, n);
+}
+
 // Monotonic ticket so a slow response can't clobber a newer search (or a
 // search the user has since closed).
 let seq = 0;
 
+// Live search. Enter used to be the only way to find out whether a query
+// matched anything, which meant every refinement was a round trip through a
+// key you had to know to press — and no feedback at all in between.
+//
+// Two guards keep it from being a keystroke firehose: the debounce, and a
+// two-character floor. A one-letter query substring-matches most of the
+// archive and answers with everything, which is slower AND less useful than
+// waiting. Enter still forces the search whatever is typed.
+let typeTimer = null;
+export function queueSearch(delay = 200) {
+  clearTimeout(typeTimer);
+  const raw = S.searchQuery.trim();
+  if (!raw) {
+    closeSearch();
+    return;
+  }
+  // A bare operator ("from:") is half a thought, not a query.
+  const { text } = parseQuery(raw);
+  if (text.trim().length < 2) return;
+  S.searchLoading = true;
+  typeTimer = setTimeout(runSearch, delay);
+}
+
 export async function runSearch(e) {
   e?.preventDefault();
+  clearTimeout(typeTimer); // Enter overtakes whatever the debounce was about to send
   const raw = S.searchQuery.trim();
   if (!raw) {
     closeSearch();
@@ -112,6 +165,7 @@ export function removeChip(chip) {
 
 export function closeSearch() {
   seq++; // invalidate any in-flight response
+  clearTimeout(typeTimer);
   S.searchResults = null;
   S.searchQuery = "";
   S.searchChips = [];

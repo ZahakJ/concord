@@ -24,7 +24,7 @@
   import { guildAccent } from "./lib/guildaccent.js";
   import { api } from "./lib/api.js";
   import { haptic } from "./lib/touch.js";
-  import { runSearch, closeSearch } from "./lib/search.js";
+  import { runSearch, closeSearch, queueSearch, registerSearchInput } from "./lib/search.js";
   import { PERM, has } from "./lib/perms.js";
   import GuildRail from "./GuildRail.svelte";
   import ChannelList from "./ChannelList.svelte";
@@ -178,6 +178,10 @@
   // management) is reachable here — ChatHeader itself never renders on phones.
   // openContextMenu presents these as a bottom action sheet on mobile.
   let searchOpen = $state(false);
+  // Handed to lib/search.js so a filter chip in the results panel can type its
+  // prefix into this field and put the caret back after it.
+  let searchEl = $state(null);
+  $effect(() => registerSearchInput(searchEl));
   // The search row is component-local, so the hardware-back ladder in App.svelte
   // cannot see it. Registering it as an overlay is what makes back close the row
   // instead of walking past it and exiting the app.
@@ -535,7 +539,9 @@
         spellcheck="false"
         placeholder="Search all conversations"
         aria-label="Search messages"
+        bind:this={searchEl}
         bind:value={S.searchQuery}
+        oninput={() => queueSearch()}
         autofocus
       />
       <button
@@ -783,6 +789,14 @@
     background: var(--bg-1);
     border-bottom: 1px solid var(--border);
     color: var(--text-muted);
+    transition: border-color 0.15s ease;
+  }
+  /* A phone with a keyboard attached still tabs through this. The input drops
+     its own border so the global focus rule has nothing to draw on; the row
+     carries the state instead. */
+  .msearch:focus-within {
+    border-bottom-color: var(--accent);
+    color: var(--accent-hover);
   }
   .msearch input {
     flex: 1;

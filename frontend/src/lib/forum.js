@@ -189,7 +189,12 @@ const LEAD_LIST = /^(?:[-*+]|\d{1,3}\.)\s+/;
 // stripMarkdown reduces formatting to the words inside it. Paired markers only
 // (so snake_case and 3 * 4 survive), then a sweep for the multi-character
 // markers a truncated excerpt can leave dangling.
-function stripMarkdown(input) {
+//
+// Exported because a search result is the same problem as a post excerpt: a
+// line of prose printed somewhere that will not render it, where `**bold**`
+// and `> quoted` are noise standing between the reader and the words they
+// searched for.
+export function stripMarkdown(input) {
   let s = input
     .replace(/```+/g, " ")
     .replace(/`([^`]*)`/g, "$1")
