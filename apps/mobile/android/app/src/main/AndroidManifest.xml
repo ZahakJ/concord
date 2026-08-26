@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- allowBackup MUST stay false: an OS backup restored onto another install
          would resurrect stale MLS ratchet state and fork every group the
          account is in. The 24-word mnemonic is the only supported migration. -->
@@ -102,6 +103,20 @@
          while the call is on the earpiece. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- USE_FINGERPRINT is injected by androidx.biometric, which arrives with
+         the biometric app-lock plugin (Login.svelte). It was deprecated in API
+         28 and replaced by USE_BIOMETRIC, which the library also declares and
+         which is what every device running a supported Android version
+         actually uses — but the library still declares the old one unscoped,
+         so the merged manifest asked every install for a permission that has
+         been meaningless since 2018. It is not removed outright because minSdk
+         is 26: on API 26-27 the library really does fall back to
+         FingerprintManager and really does need it. Capping it at 27 asks the
+         two API levels that use it and nobody else. -->
+    <uses-permission
+        android:name="android.permission.USE_FINGERPRINT"
+        android:maxSdkVersion="27"
+        tools:node="replace" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 </manifest>
