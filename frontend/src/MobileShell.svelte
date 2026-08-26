@@ -144,6 +144,24 @@
     if (!canRight) S.membersOpen = false;
   });
 
+  // Toasts pin themselves to --mchrome, so it has to describe the chrome that
+  // is ACTUALLY on screen: the top bar, plus the search row while it is open,
+  // plus the connection bar. Otherwise a toast lands on "Catching up…" and on
+  // the search field being typed into — the two states a phone user sees most.
+  //
+  // On :root, not on .mshell. Custom properties inherit, and Toasts renders at
+  // the app root as a SIBLING of this shell, so the careful value written here
+  // never reached it and every toast was placed by app.css's bare default. The
+  // default is restored on unmount, for the desktop layout that has no shell.
+  $effect(() => {
+    const rows = (searchOpen ? 46 : 0) + (conn.show ? 30 : 0);
+    document.documentElement.style.setProperty(
+      "--mchrome",
+      `calc(52px + var(--safe-top) + ${rows}px)`,
+    );
+    return () => document.documentElement.style.removeProperty("--mchrome");
+  });
+
   function closeDrawers() {
     S.drawerOpen = false;
     S.membersOpen = false;
@@ -407,6 +425,11 @@
   // we're solidly online (peers connected, nothing healing) to stay quiet.
   const conn = $derived.by(() => {
     const n = S.netStatus;
+    // App.svelte raises a full-width "Reconnecting…" bar when the core itself
+    // has stopped answering, and everything this bar could say in that state is
+    // a stale reading from the process that died. One of them wins, and it is
+    // the one that knows.
+    if (S.offline) return { show: false, cls: "offline", text: "" };
     if (!n) return { show: true, cls: "connecting", text: "Connecting…" };
     if (n.outOfSyncGuilds > 0)
       // Only when the feed is NOT already saying it. MessageList shows a full
@@ -438,17 +461,10 @@
 
 <svelte:window onresize={() => (vw = window.innerWidth)} />
 
-<!-- Toasts pin themselves to --mchrome, so it has to describe the chrome that is
-     ACTUALLY on screen: the top bar, plus the search row while it is open, plus
-     the floating connection pill. Without the last two, a toast landed on top of
-     "Catching up…" and over the search field being typed into — the two states a
-     phone user sees most. -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="mshell"
-  style="{guildAccentVars}--mchrome: calc(52px + var(--safe-top) + {searchOpen ? 46 : 0}px + {conn.show
-    ? 38
-    : 0}px)"
+  style={guildAccentVars}
   ontouchstart={onTouchStart}
   ontouchmove={onTouchMove}
   ontouchend={onTouchEnd}
@@ -536,17 +552,22 @@
     </form>
   {/if}
 
+  <!-- A slim bar in the chrome, not a pill floating over the conversation.
+       It used to sit at about a seventh of the way down the screen, centred,
+       permanently, on top of whatever message was underneath it — a full line
+       of text you could not read and could not dismiss. The reason it floated
+       was that appearing and disappearing in normal flow shifted the feed; up
+       here it shrinks the pane instead, and the feed is pinned to its newest
+       message, so what moves is the history above rather than the line being
+       read. -->
+  {#if conn.show}
+    <button class="conn {conn.cls}" onclick={nudge} aria-label="Reconnect">
+      <span class="conn-dot"></span>
+      <span class="conn-text">{conn.text}</span>
+    </button>
+  {/if}
+
   <main class="mchat">
-    <!-- Floated over the feed rather than stacked above it: this pill appears
-         and disappears on its own (offline → online, "Catching up…" → done), and
-         in normal flow every one of those flips shifted the whole conversation
-         ~27px under the reader's eyes. -->
-    {#if conn.show}
-      <button class="conn {conn.cls}" onclick={nudge} aria-label="Reconnect">
-        <span class="conn-dot"></span>
-        {conn.text}
-      </button>
-    {/if}
     {#if hasChannel}
       {#if callHere}
         <VoicePanel
@@ -792,28 +813,32 @@
        in JS (onTouchMove) and now stands down inside a horizontal scroller. */
     touch-action: pan-x pan-y;
   }
-  /* Connection pill: floats over the top of the feed, Telegram-style, and is
-     tappable to force a reconnect. */
+  /* Connection bar: a slim strip under the header, tappable to force a
+     reconnect. Full width and in flow, so it can never sit on a message. */
   .conn {
-    position: absolute;
-    top: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 4;
+    flex: none;
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 7px;
-    max-width: calc(100% - 24px);
-    min-height: var(--tap-min);
+    width: 100%;
+    /* Short on purpose — it is a status line, not a control worth a 48px row,
+       and every pixel it takes is a pixel of conversation. The whole strip is
+       the tap target, which is far wider than the floor asks for even if it is
+       shorter than it. */
+    min-height: 30px;
     padding: 0 16px;
     font-size: var(--fs-ui);
     font-weight: 600;
     color: var(--text);
+    border: none;
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+  }
+  .conn-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
     white-space: nowrap;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    box-shadow: var(--shadow-pop, 0 4px 16px rgba(0, 0, 0, 0.35));
   }
   .conn-dot {
     width: 7px;

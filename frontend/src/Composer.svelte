@@ -119,6 +119,30 @@
   // TOP of it like a keyboard accessory instead of behind it.
   let pickerH = $state(0);
 
+  // Publish the composer's height as --composer-h, so the toast stack can sit
+  // ABOVE it instead of on top of it. Toasts were pinned to the bottom-right
+  // corner, which on every desktop window is precisely where the composer's
+  // icon row is — "Joined voice" and "Failed to fetch" both landed on the
+  // buttons and clipped the overflow chevron through the middle of its glyph.
+  // A ResizeObserver rather than a measured constant: the composer grows with
+  // the draft, with a reply banner, with attachments, and with the emoji panel.
+  let wrapEl = $state(null);
+  $effect(() => {
+    const el = wrapEl;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const root = document.documentElement;
+    const ro = new ResizeObserver(() => {
+      root.style.setProperty("--composer-h", `${Math.round(el.offsetHeight)}px`);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      // The composer unmounts on a forum board and in the empty state; leaving
+      // a stale height behind would park every toast in mid-air.
+      root.style.removeProperty("--composer-h");
+    };
+  });
+
   export function focus() {
     composerEl?.focus();
   }
@@ -1249,7 +1273,7 @@
   {/if}
 {/snippet}
 
-<div class="composer-wrap" class:mobile style="--ep-h:{pickerH}px">
+<div class="composer-wrap" class:mobile bind:this={wrapEl} style="--ep-h:{pickerH}px">
   {#if suggest}
     <div class="suggest-pop">
       <div class="suggest-head">

@@ -51,7 +51,11 @@
 <style>
   .toasts {
     position: fixed;
-    bottom: 16px;
+    /* Clear of the composer, which is what the bottom-right corner belongs to:
+       a 16px offset put every toast on the composer's icon row. --composer-h is
+       published by Composer.svelte and unset wherever there is no composer (a
+       forum board, the empty state), which is what the fallback covers. */
+    bottom: calc(var(--composer-h, 0px) + 16px);
     right: 16px;
     /* Above the bottom sheets/scrims (400/401) so a toast fired from a sheet
        action is visible; still under the app lock (500). */
@@ -171,11 +175,11 @@
     .toasts {
       bottom: auto;
       /* Anchored to the shell's chrome, not to a number. The hardcoded 62px was
-         measured against the bare top bar, so the moment the connection pill
+         measured against the bare top bar, so the moment the connection bar
          appeared — "Catching up…", "Offline — reconnecting…", the two most
          common phone states — a toast was drawn straight over it, and over the
-         search row underneath that. --mchrome is declared in app.css and owned
-         by MobileShell, which knows how tall its own chrome currently is. */
+         search row underneath that. --mchrome is declared in app.css and kept
+         up to date by MobileShell, which knows how tall its own chrome is. */
       top: calc(var(--mchrome) + 10px);
       right: 50%;
       transform: translateX(50%);
