@@ -754,7 +754,17 @@
             }
           },
         },
-        { label: "Save Image", icon: "download", onClick: () => saveImageSrc(img.src) },
+        {
+          label: "Save Image",
+          icon: "download",
+          onClick: async () => {
+            // Only the gallery route is worth a toast: a browser download
+            // announces itself, and a dismissed picker is not an event.
+            const how = await saveImageSrc(img.src);
+            if (how === "gallery") flash("Saved to your gallery", "success");
+            else if (!how) flash("Couldn't save that image");
+          },
+        },
         { sep: true },
         // Straight from "that picture is funny" to the editor with it already
         // loaded — the shortest path there is, and the reason the editor takes

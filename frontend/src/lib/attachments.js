@@ -7,6 +7,7 @@
 // extract tokens from the PLAIN message content before rendering, so markdown
 // never sees them.
 import { api } from "./api.js";
+import { saveImage } from "./savefile.js";
 import { parsePoll } from "./polls.js";
 
 // v1 and v2 in one pattern. v2 appends the composer's per-image options —
@@ -143,12 +144,9 @@ export async function copyImageToClipboard(src) {
   await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
 }
 
-// saveImageSrc downloads an image src to disk.
+// saveImageSrc hands an image src to the user. See lib/savefile.js for why
+// this is not simply an <a download>: on Android that is a silent no-op, and
+// "Save Image" was doing nothing at all there.
 export function saveImageSrc(src, name = "concord-image.png") {
-  const a = document.createElement("a");
-  a.href = src;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+  return saveImage(src, name);
 }

@@ -47,8 +47,14 @@
         // Honour a sender-supplied file name when there is one: it is the only
         // thing the v2 token's name field is good for, and without this the
         // rename control in the composer has no observable effect anywhere.
-        onClick: () =>
-          saveImageSrc(src, tok.name || `concord-${(tok.blobId || "image").slice(0, 8)}.png`),
+        onClick: async () => {
+          const how = await saveImageSrc(
+            src,
+            tok.name || `concord-${(tok.blobId || "image").slice(0, 8)}.png`,
+          );
+          if (how === "gallery") flash("Saved to your gallery", "success");
+          else if (!how) flash("Couldn't save that image");
+        },
       },
       { sep: true },
       editable() && {

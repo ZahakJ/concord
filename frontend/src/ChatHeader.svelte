@@ -17,6 +17,7 @@
     openProfilePopover,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { saveText } from "./lib/savefile.js";
   // Operator parsing (from:/in:/has:/before:/after:) + the backend call live
   // in lib/search.js, shared with the results panel's chip refinement.
   import { runSearch, closeSearch } from "./lib/search.js";
@@ -52,14 +53,6 @@
     S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) };
   }
 
-  function downloadText(filename, text) {
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([text], { type: "text/markdown" }));
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-
   function confirmLeave() {
     if (!g) return;
     const verb = g.isOwner ? "Delete" : "Leave";
@@ -88,9 +81,13 @@
   async function exportChannel() {
     if (!ch) return;
     try {
-      const md = await api.exportMarkdown(S.activeGuildId, S.activeChannelId);
-      downloadText(`${ch.name}-history.md`, md);
-      flash("History exported", "success");
+      const how = await saveText(
+        `${ch.name}-history.md`,
+        await api.exportMarkdown(S.activeGuildId, S.activeChannelId),
+        "text/markdown",
+      );
+      if (how === "file") flash("History exported", "success");
+      else if (how === "clipboard") flash("History copied to the clipboard", "success");
     } catch (err) {
       flash(err);
     }

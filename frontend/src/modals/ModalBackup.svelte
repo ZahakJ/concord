@@ -7,6 +7,7 @@
   // back. The copy keeps them apart because someone who confuses the two finds
   // out on the worst possible day.
   import Modal from "./Modal.svelte";
+  import { saveBlob } from "../lib/savefile.js";
   import Icon from "../Icon.svelte";
   import { S, flash, refreshGuilds } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
@@ -38,11 +39,14 @@
       // The archive arrives base64 because the RPC surface is JSON; turn it
       // back into bytes so the file on disk is the archive itself.
       const bin = Uint8Array.from(atob(r.data), (c) => c.charCodeAt(0));
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([bin], { type: "application/octet-stream" }));
-      a.download = `concord-backup-${stamp()}.archive`;
-      a.click();
-      URL.revokeObjectURL(a.href);
+      const how = await saveBlob(
+        `concord-backup-${stamp()}.archive`,
+        new Blob([bin], { type: "application/octet-stream" }),
+      );
+      if (!how) {
+        flash("The backup wasn't written — nothing was saved");
+        return;
+      }
       result = { kind: "backup", ...r.stats };
       pass = confirmPass = "";
     } catch (err) {

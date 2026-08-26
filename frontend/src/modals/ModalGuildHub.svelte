@@ -9,6 +9,7 @@
   // Rows are permission-gated exactly the way their targets gate the op (the
   // same checks ChatHeader's menu used): what you can't do, you don't see.
   import Modal from "./Modal.svelte";
+  import { saveText } from "../lib/savefile.js";
   import Icon from "../Icon.svelte";
   import Banner from "../Banner.svelte";
   import {
@@ -38,12 +39,13 @@
   async function exportGuild() {
     try {
       const md = await api.exportMarkdown(S.activeGuildId, "");
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([md], { type: "text/markdown" }));
-      a.download = `${(g?.name || "guild").replace(/[^\w.-]+/g, "-")}-history.md`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      flash("Guild history exported", "success");
+      const how = await saveText(
+        `${(g?.name || "guild").replace(/[^\w.-]+/g, "-")}-history.md`,
+        md,
+        "text/markdown",
+      );
+      if (how === "file") flash("Guild history exported", "success");
+      else if (how === "clipboard") flash("Guild history copied to the clipboard", "success");
     } catch (err) {
       flash(err);
     }

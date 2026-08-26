@@ -1,6 +1,7 @@
 package app.concord.mobile;
 
 import android.Manifest;
+import android.app.Activity;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -9,12 +10,18 @@ import android.app.Person;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.content.ContentValues;
 import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import android.provider.Settings;
+import android.util.Base64;
 import android.view.WindowManager;
 
+import androidx.activity.result.ActivityResult;
 import androidx.core.app.NotificationManagerCompat;
 
+import java.io.OutputStream;
 import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
@@ -24,6 +31,7 @@ import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import com.getcapacitor.annotation.Permission;
 import com.getcapacitor.annotation.PermissionCallback;
@@ -473,6 +481,125 @@ public class ConcordCorePlugin extends Plugin {
     public void appReady(PluginCall call) {
         MainActivity.markWebReady();
         call.resolve();
+    }
+
+    // ---- handing the user a file ----
+    //
+    // `<a download>` is a SILENT no-op in this WebView. Nothing registers a
+    // DownloadListener, so a click on a blob: URL with a download attribute
+    // produces no file, no error and no clue — which is what every export in
+    // the app was doing on Android, and what "Save Image" still was.
+    //
+    // Two routes, because the two kinds of file want different homes. A
+    // document (a report, a history export, an encrypted backup) goes through
+    // the storage-access framework: the user picks where it lands, no
+    // permission is involved, and it is the only way to reach the folder they
+    // actually want. An image goes to the shared Pictures collection instead —
+    // a picture saved out of a chat belongs in the gallery, and asking someone
+    // to choose a directory for it is a worse answer than putting it where
+    // every other app puts theirs. MediaStore has needed no permission for
+    // that since API 29, and below that the app's own Pictures directory is
+    // still visible to the user.
+
+    /** Bytes from a base64 payload, tolerating a whole `data:` URL. */
+    private static byte[] payload(String data) {
+        if (data == null) return new byte[0];
+        int comma = data.startsWith("data:") ? data.indexOf(',') : -1;
+        return Base64.decode(comma >= 0 ? data.substring(comma + 1) : data, Base64.DEFAULT);
+    }
+
+    /**
+     * Opens the system "save as" sheet for a document. Resolves
+     * { saved: true, where } once the bytes are written, or { saved: false }
+     * if the user backed out — a cancel is not a failure and must not be
+     * reported as one.
+     */
+    @PluginMethod
+    public void saveFile(PluginCall call) {
+        String name = call.getString("filename", "concord-export");
+        String mime = call.getString("mime", "application/octet-stream");
+        try {
+            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType(mime);
+            i.putExtra(Intent.EXTRA_TITLE, name);
+            startActivityForResult(call, i, "saveFileResult");
+        } catch (Exception e) {
+            call.reject("no app on this device can save a file", e);
+        }
+    }
+
+    @ActivityCallback
+    private void saveFileResult(PluginCall call, ActivityResult result) {
+        if (call == null) return;
+        JSObject r = new JSObject();
+        Uri target = result != null && result.getData() != null ? result.getData().getData() : null;
+        if (result == null || result.getResultCode() != Activity.RESULT_OK || target == null) {
+            r.put("saved", false);
+            call.resolve(r);
+            return;
+        }
+        try (OutputStream os = getContext().getContentResolver().openOutputStream(target)) {
+            if (os == null) throw new java.io.IOException("no stream for " + target);
+            os.write(payload(call.getString("data", "")));
+            os.flush();
+        } catch (Exception e) {
+            call.reject("couldn't write the file", e);
+            return;
+        }
+        r.put("saved", true);
+        r.put("where", "file");
+        call.resolve(r);
+    }
+
+    /**
+     * Writes an image into the shared Pictures collection, under a Concord
+     * folder, and makes it visible to the gallery. No picker and no
+     * permission: this is the one destination a saved picture is ever wanted
+     * in, and IS_PENDING keeps a half-written file out of the gallery if the
+     * write dies partway.
+     */
+    @PluginMethod
+    public void saveImage(PluginCall call) {
+        String name = call.getString("filename", "concord-image.png");
+        String mime = call.getString("mime", "image/png");
+        ContentValues v = new ContentValues();
+        v.put(MediaStore.Images.Media.DISPLAY_NAME, name);
+        v.put(MediaStore.Images.Media.MIME_TYPE, mime);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            v.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Concord");
+            v.put(MediaStore.Images.Media.IS_PENDING, 1);
+        }
+        Uri target = null;
+        try {
+            target = getContext().getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, v);
+            if (target == null) throw new java.io.IOException("MediaStore refused the insert");
+            try (OutputStream os = getContext().getContentResolver().openOutputStream(target)) {
+                if (os == null) throw new java.io.IOException("no stream for " + target);
+                os.write(payload(call.getString("data", "")));
+                os.flush();
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                v.clear();
+                v.put(MediaStore.Images.Media.IS_PENDING, 0);
+                getContext().getContentResolver().update(target, v, null, null);
+            }
+        } catch (Exception e) {
+            // A pending row with nothing in it would sit in the gallery as a
+            // broken thumbnail forever.
+            if (target != null) {
+                try {
+                    getContext().getContentResolver().delete(target, null, null);
+                } catch (Exception ignored) {
+                }
+            }
+            call.reject("couldn't save the picture", e);
+            return;
+        }
+        JSObject r = new JSObject();
+        r.put("saved", true);
+        r.put("where", "gallery");
+        call.resolve(r);
     }
 
     /**

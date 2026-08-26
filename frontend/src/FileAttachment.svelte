@@ -2,6 +2,7 @@
   // A non-image file attachment: a compact card with icon, name, size, and a
   // download button that fetches + decrypts the blob on demand.
   import Icon from "./Icon.svelte";
+  import { saveBlob } from "./lib/savefile.js";
   import { api } from "./lib/api.js";
   import { flash } from "./lib/state.svelte.js";
 
@@ -27,10 +28,8 @@
     busy = true;
     try {
       const dataUrl = await api.fetchFile(channelId, tok.blobId, tok.keys, tok.mime);
-      const a = document.createElement("a");
-      a.href = dataUrl;
-      a.download = tok.name;
-      a.click();
+      const how = await saveBlob(tok.name, await (await fetch(dataUrl)).blob());
+      if (!how) flash("Couldn't save that file");
     } catch (err) {
       flash(err);
     } finally {
