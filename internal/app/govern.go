@@ -160,7 +160,7 @@ func (s *Service) ingestGovOp(guildID string, o govOp, live bool) bool {
 		return false
 	}
 	s.govHashes[guildID][hash] = true
-	s.govOps[guildID] = append(s.govOps[guildID], o)
+	s.recordGovOpLocked(guildID, o)
 	s.rebuildGovStateLocked(guildID)
 	s.mu.Unlock()
 
@@ -170,29 +170,44 @@ func (s *Service) ingestGovOp(guildID string, o govOp, live bool) bool {
 	return true
 }
 
+// recordGovOpLocked appends an op to a guild's log and keeps the derived
+// indexes in step. Callers hold s.mu.
+//
+// The indexes exist because the backdating guard used to answer "what is the
+// highest Seq I hold from this signer?" by walking the entire log and taking a
+// fingerprint of every op's signer key on the way — a hash per op per ingest,
+// on a log that only ever grows, in the path every live governance message
+// travels. Maintaining the two maxima as ops arrive costs one comparison.
+func (s *Service) recordGovOpLocked(guildID string, o govOp) {
+	s.govOps[guildID] = append(s.govOps[guildID], o)
+	if s.govHighSeq == nil {
+		s.govHighSeq = map[string]map[string]uint64{}
+	}
+	if s.govTopSeq == nil {
+		s.govTopSeq = map[string]uint64{}
+	}
+	if s.govHighSeq[guildID] == nil {
+		s.govHighSeq[guildID] = map[string]uint64{}
+	}
+	if signer := o.signerFpr(); o.Seq > s.govHighSeq[guildID][signer] {
+		s.govHighSeq[guildID][signer] = o.Seq
+	}
+	if o.Seq > s.govTopSeq[guildID] {
+		s.govTopSeq[guildID] = o.Seq
+	}
+}
+
 // highestSeqBySignerLocked is the highest Seq we already hold from one signer
 // in a guild. Callers hold s.mu.
 func (s *Service) highestSeqBySignerLocked(guildID, signerFpr string) uint64 {
-	var max uint64
-	for _, o := range s.govOps[guildID] {
-		if o.Seq > max && o.signerFpr() == signerFpr {
-			max = o.Seq
-		}
-	}
-	return max
+	return s.govHighSeq[guildID][signerFpr]
 }
 
 // nextGovSeq returns one past the highest op seq known for the guild.
 func (s *Service) nextGovSeq(guildID string) uint64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	var max uint64
-	for _, o := range s.govOps[guildID] {
-		if o.Seq > max {
-			max = o.Seq
-		}
-	}
-	return max + 1
+	return s.govTopSeq[guildID] + 1
 }
 
 // issueGovOp fills in seq/signer/time, signs, records, and broadcasts an op.

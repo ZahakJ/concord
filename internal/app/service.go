@@ -202,6 +202,12 @@ type Service struct {
 	// govHashes indexes each guild's ingested op hashes for O(1) dedup, instead
 	// of re-hashing the whole op log on every ingest (sync replays the full log).
 	govHashes map[string]map[string]bool
+	// govHighSeq is the highest Seq held from each signer (guild -> signer
+	// fingerprint -> seq), and govTopSeq the highest from anyone. They are the
+	// backdating guard's and the seq allocator's answers, maintained on ingest
+	// rather than re-derived by scanning the log — see recordGovOpLocked.
+	govHighSeq map[string]map[string]uint64
+	govTopSeq  map[string]uint64
 	// slowSeen tracks the last ACCEPTED message time per channel|sender for
 	// slow-mode enforcement, keyed on the AUTHOR's Sent stamp so every honest
 	// client agrees on which message was the too-soon one. In-memory only: an
@@ -1020,6 +1026,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		govState:         map[string]GuildState{},
 		slowSeen:         map[string]int64{},
 		govHashes:        map[string]map[string]bool{},
+		govHighSeq:       map[string]map[string]uint64{},
+		govTopSeq:        map[string]uint64{},
 		admitting:        map[string]*admissionBatch{},
 		memberSets:       map[string]*memberSet{},
 		meetingLife:      map[string]time.Time{},
@@ -1085,7 +1093,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 			for _, b := range raw {
 				var o govOp
 				if json.Unmarshal(b, &o) == nil {
-					s.govOps[gid] = append(s.govOps[gid], o)
+					s.recordGovOpLocked(gid, o)
 					if s.govHashes[gid] == nil {
 						s.govHashes[gid] = map[string]bool{}
 					}
