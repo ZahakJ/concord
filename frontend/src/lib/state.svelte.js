@@ -10,6 +10,8 @@ import { playVoiceJoin, playVoiceLeave, playMention, playDM, playSfx } from "./s
 // nothing else needs to react to it.
 const sfxLast = {};
 import { PERM, has } from "./perms.js";
+import { plur } from "./plural.js";
+import { fmtCount } from "./chronicle.js";
 import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
@@ -96,6 +98,25 @@ export const S = $state({
   // load is only the recent window; older rows are paged in on demand.
   loadingOlder: false,
   feedReachedStart: false,
+  // The imported archive that sits ABOVE live history. `chronicle` is the
+  // active guild's index (null when it has none); the rest is the same
+  // scroll-up pagination as loadingOlder/feedReachedStart, one channel at a
+  // time, and is reset by every channel switch.
+  //
+  // archiveMetered is not an error state: it means a page was NOT fetched
+  // because the connection is billed by the byte, and the reader is offered
+  // the choice rather than having it made for them.
+  chronicle: null,
+  // A running chat-export import, and the outcome of the last one. Both live
+  // out here rather than inside the wizard because the job is asynchronous and
+  // the wizard is closable while it runs: whoever started an import gets the
+  // completion toast whether or not the dialog is still on screen.
+  chronImport: null,
+  chronImportDone: null,
+  archiveRows: [],
+  archiveLoading: false,
+  archiveReachedStart: false,
+  archiveMetered: false,
   // restarting: a self-update restart is in flight; the app shows a full-bleed
   // "right back" curtain so the outgoing version is never visible mid-swap.
   restarting: false,
@@ -1049,6 +1070,101 @@ let feedOldest = "";
 export function clearFeed() {
   S.messages = [];
   feedOldest = "";
+  clearArchive();
+}
+
+// ---- the imported archive above live history ----------------------------
+//
+// A guild's chronicle is a signed index every member holds; the pages behind it
+// are fetched from whoever has them, only when somebody scrolls that far back.
+// From the feed's point of view it is simply more history: the same cursor, the
+// same "hold the reader's position" discipline as loadOlder, reached once live
+// history has run out.
+
+function clearArchive() {
+  S.archiveRows = [];
+  S.archiveLoading = false;
+  S.archiveReachedStart = false;
+  S.archiveMetered = false;
+}
+
+// refreshChronicle loads the active guild's archive index. Absence is the
+// ordinary answer — most guilds have never imported anything — so a failure
+// here is silent rather than a toast on every channel switch.
+export async function refreshChronicle(guildID = S.activeGuildId) {
+  if (!guildID) {
+    S.chronicle = null;
+    return;
+  }
+  let view = null;
+  try {
+    view = await api.chronicleInfo(guildID);
+  } catch {
+    view = null;
+  }
+  // Another guild was opened while this was in flight.
+  if (S.activeGuildId !== guildID) return;
+  S.chronicle = view && view.id ? view : null;
+}
+
+// archiveChannel is the archived channel whose history sits above the one on
+// screen, matched on the mapping the import recorded. "" mapped means the
+// import put it nowhere, and nothing should render.
+export function archiveChannel() {
+  const ch = S.activeChannelId;
+  if (!ch || !S.chronicle) return null;
+  return S.chronicle.channels?.find((c) => c.mapped === ch && c.messages > 0) || null;
+}
+
+// loadArchiveOlder pages the archive backwards from the oldest row on screen.
+// Returns how many rows were prepended, so the feed can restore scroll by the
+// exact height the content grew — the same contract loadOlder has.
+//
+// allowMetered is the reader's explicit "yes, on cellular" and is never assumed:
+// the default call reports the refusal instead of spending the data.
+export async function loadArchiveOlder(allowMetered = false) {
+  const guildID = S.activeGuildId;
+  const chan = archiveChannel();
+  if (!guildID || !chan || S.archiveLoading || S.archiveReachedStart) return 0;
+  if (S.archiveMetered && !allowMetered) return 0;
+  S.archiveLoading = true;
+  let prepended = 0;
+  try {
+    // The cursor is the oldest row we hold; nothing yet means "start at the
+    // newest", which the backend spells 0.
+    const before = S.archiveRows.length ? S.archiveRows[0].nano : 0;
+    const page = await api.chronicleMessages(guildID, chan.id, before, 100, allowMetered);
+    if (S.activeGuildId !== guildID || archiveChannel()?.id !== chan.id) return 0;
+    if (page?.metered) {
+      S.archiveMetered = true;
+      return 0;
+    }
+    S.archiveMetered = false;
+    const older = page?.messages || [];
+    if (older.length === 0) {
+      S.archiveReachedStart = true;
+      return 0;
+    }
+    // Deduplicate on the way in. The cursor is a nanosecond that has been
+    // through a JSON number, which loses a couple of hundred nanoseconds of
+    // precision at present-day epochs — enough to hand back the row it was
+    // taken from, never enough to skip one.
+    const have = new Set(S.archiveRows.map((r) => r.id).filter(Boolean));
+    const fresh = older.filter((r) => !r.id || !have.has(r.id));
+    if (fresh.length) S.archiveRows = [...fresh, ...S.archiveRows];
+    prepended = fresh.length;
+    // A short page is the end of this channel's archive. So is a full page that
+    // was entirely a repeat, which is what a cursor that failed to advance
+    // looks like.
+    if (older.length < 100 || prepended === 0) S.archiveReachedStart = true;
+  } catch (err) {
+    // One unreachable page must not look like the end of history: say so, and
+    // let the reader try again by scrolling.
+    flash(err);
+  } finally {
+    S.archiveLoading = false;
+  }
+  return prepended;
 }
 
 function isMentionOfSelf(m) {
@@ -1676,6 +1792,10 @@ export async function refreshGuilds() {
 
 export async function selectGuild(id) {
   S.activeGuildId = id;
+  // Drop the previous guild's archive index before anything renders: the feed
+  // matches archived channels by mapped id, and two guilds' ids do not collide
+  // but "no archive yet" briefly reading as "the last guild's archive" would.
+  S.chronicle = null;
   const g = S.guilds.find((x) => x.id === id);
   if (g && g.channels.length) await selectChannel(channelToResume(g));
   else {
@@ -1685,6 +1805,9 @@ export async function selectGuild(id) {
     S.activeChannelId = "";
     clearFeed();
   }
+  // After the channel, not before: the index is only consulted once live
+  // history runs out, so it must never delay the first screen.
+  refreshChronicle(id);
   await refreshRightPanel();
 }
 
@@ -1957,6 +2080,10 @@ export function scheduleRefresh({ guilds = false, panel = false } = {}) {
       await refreshRequests();
     }
     if (p) await refreshRightPanel();
+    // An archive arrives the way any other guild fact does — gossiped as guild
+    // metadata — so a member who was online when the owner finished an import
+    // gets the divider without reopening the guild.
+    if (g && S.activeGuildId) refreshChronicle(S.activeGuildId);
     // Own profile can change server-side without user input (rich-presence
     // overlay) — keep S.identity live so your own card/status match reality.
     if (p && S.ready) {
@@ -2178,6 +2305,35 @@ function initEvents() {
   });
 
   on("guild-updated", () => scheduleRefresh({ guilds: true, panel: true }));
+
+  // A chat-export import reports itself every few hundred messages. The wizard
+  // draws the bar from S.chronImport; this handler exists so that the run
+  // survives the wizard being closed, and so the person who started it is told
+  // when it lands even if they went back to reading.
+  on("chronicle-import", async (p) => {
+    if (!p) return;
+    S.chronImport = p;
+    if (p.phase !== "done" && p.phase !== "failed") return;
+    let st = null;
+    try {
+      st = await api.chronicleImportStatus(p.jobId);
+    } catch {
+      /* the job is over either way; the toast below just gets less specific */
+    }
+    S.chronImportDone = st;
+    if (st?.error) flash(st.error);
+    else if (st?.result)
+      // fmtCount, not plural(): a seven-digit import reads as gibberish
+      // without the thousands separators.
+      flash(
+        `Archive imported — ${fmtCount(st.result.imported)} message${plur(st.result.imported)}`,
+        "success",
+      );
+    // An import creates channels and attaches the archive, so both the sidebar
+    // and the index above the feed are stale the moment it finishes.
+    await refreshGuilds();
+    refreshChronicle(p.guildId || S.activeGuildId);
+  });
 
   // Another session (a second window) or another linked device advanced a
   // channel's read cursor: adopt it and re-count that channel's badge, so a

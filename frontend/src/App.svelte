@@ -107,6 +107,8 @@
   import ModalCompose from "./modals/ModalCompose.svelte";
   import ModalDisappear from "./modals/ModalDisappear.svelte";
   import ModalStats from "./modals/ModalStats.svelte";
+  import ModalChronicle from "./modals/ModalChronicle.svelte";
+  import ModalChronicleImport from "./modals/ModalChronicleImport.svelte";
   import ModalRetention from "./modals/ModalRetention.svelte";
   import ModalBackup from "./modals/ModalBackup.svelte";
   import ModalBlocked from "./modals/ModalBlocked.svelte";
@@ -1461,6 +1463,10 @@
     <ModalRetention onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "stats"}
     <ModalStats onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "chronicle"}
+    <ModalChronicle onClose={() => (S.modal = null)} />
+  {:else if S.modal?.kind === "chronicleImport"}
+    <ModalChronicleImport onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "blocked"}
     <ModalBlocked onClose={() => (S.modal = null)} />
   {:else if S.modal?.kind === "requests"}

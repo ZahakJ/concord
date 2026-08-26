@@ -23,6 +23,7 @@
   } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { PERM, has } from "../lib/perms.js";
+  import { plural } from "../lib/plural.js";
   import { guildBannerArt } from "../lib/guildbanners.js";
 
   let { onClose } = $props();
@@ -207,6 +208,43 @@
             </span>
             <span class="chev">›</span>
           </button>
+          <!-- The archive is a guild-wide fact every member can look at: how far
+               back the history above the channels goes, who signed it, and what
+               it costs this device. Importing one is the owner's call, and the
+               panel offers that only to them. -->
+          <button class="row" onclick={() => openPanel("chronicle")}>
+            <span class="chip"><Icon name="clock" size={17} /></span>
+            <span class="row-text">
+              <span class="row-title">Archive</span>
+              <span class="row-sub">
+                {#if S.chronicle}
+                  {S.chronicle.source || "Imported history"} — {plural(S.chronicle.messages, "message")}
+                {:else}
+                  Older history imported into this guild
+                {/if}
+              </span>
+            </span>
+            <span class="chev">›</span>
+          </button>
+          {#if g.isOwner}
+            <!-- Offered whether or not one is already attached: a second import
+                 supersedes the first, which is how a policy anyone regrets gets
+                 corrected. -->
+            <button class="row" onclick={() => openPanel("chronicleImport")}>
+              <span class="chip"><Icon name="folder" size={17} /></span>
+              <span class="row-text">
+                <span class="row-title">Import a chat archive</span>
+                <span class="row-sub">
+                  {#if S.chronicle}
+                    Import again to replace the archive this guild carries
+                  {:else}
+                    Bring a community's exported history in, and see what it costs first
+                  {/if}
+                </span>
+              </span>
+              <span class="chev">›</span>
+            </button>
+          {/if}
           {#if g.canManage}
           <button class="row" onclick={() => openPanel("retention")}>
             <span class="chip"><Icon name="clock" size={17} /></span>
