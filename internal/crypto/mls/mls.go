@@ -21,10 +21,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sync"
 
 	upstream "github.com/thomas-vilte/mls-go"
 	"github.com/thomas-vilte/mls-go/ciphersuite"
 	"github.com/thomas-vilte/mls-go/framing"
+	"github.com/thomas-vilte/mls-go/keypackages"
 	filestore "github.com/thomas-vilte/mls-go/storage/file"
 )
 
@@ -65,6 +67,18 @@ type Engine interface {
 	// via ApplyCommit) and a welcome (delivered to the new member, who calls
 	// Join). The inviter's own state is advanced in place.
 	Invite(ctx context.Context, gid GroupID, memberKeyPackage []byte) (commit, welcome []byte, err error)
+
+	// AddMembers admits several key packages in ONE epoch: a single commit for
+	// every existing member to apply, and a single welcome addressed to all the
+	// joiners at once (each finds its own secret in it). accepted holds the
+	// indexes of the key packages that made it in, in the order given.
+	//
+	// A key package that cannot be admitted — malformed, expired, or belonging
+	// to a leaf that is still in the tree — is DROPPED rather than allowed to
+	// fail the batch, which is what makes a queue of joiners safe to commit
+	// together. err is returned only when nothing could be admitted or the
+	// commit itself failed; in both cases the group is left exactly as it was.
+	AddMembers(ctx context.Context, gid GroupID, memberKeyPackages [][]byte) (commit, welcome []byte, accepted []int, err error)
 
 	// Join enters a group from a welcome message and returns the group ID.
 	Join(ctx context.Context, welcome []byte) (GroupID, error)
@@ -109,6 +123,15 @@ type Engine interface {
 // mlsEngine is the mls-go-backed implementation of Engine.
 type mlsEngine struct {
 	c *upstream.Client
+	// commitMu serializes every operation that MINTS a commit. The upstream
+	// client already serializes each of its own calls per group, which is
+	// enough while one call is one whole commit — but AddMembers is several
+	// calls (stage each add, then commit them), and the upstream commit path
+	// sweeps up EVERY stored proposal. A Remove landing between two of those
+	// calls would carry the half-staged adds out on its own commit and return
+	// no welcome for them: members added to the tree that nobody can reach,
+	// forever. This mutex is what makes the staged window indivisible.
+	commitMu sync.Mutex
 }
 
 // New creates an in-memory MLS engine. credential is the member's identity (in
@@ -167,11 +190,109 @@ func (e *mlsEngine) CreateGroup(ctx context.Context) (GroupID, error) {
 }
 
 func (e *mlsEngine) Invite(ctx context.Context, gid GroupID, kp []byte) (commit, welcome []byte, err error) {
+	e.commitMu.Lock()
+	defer e.commitMu.Unlock()
+	e.discardOrphanProposals(ctx, gid)
 	commit, welcome, err = e.c.InviteMember(ctx, gid, kp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("mls: invite member: %w", err)
 	}
 	return commit, welcome, nil
+}
+
+// maxBatchAdds caps how many joiners one commit may carry. The ceiling is not
+// MLS's — a commit may hold any number of Add proposals — it is the welcome's:
+// one welcome carries the ratchet tree once plus a per-joiner encrypted secret,
+// and every one of those joiners downloads the whole thing. Past a few dozen
+// the batch stops paying for itself and starts making a single response large
+// enough to matter on a phone. Callers hand over what they have; the surplus
+// simply rides the next commit.
+const maxBatchAdds = 32
+
+func (e *mlsEngine) AddMembers(ctx context.Context, gid GroupID, kps [][]byte) (commit, welcome []byte, accepted []int, err error) {
+	if len(kps) == 0 {
+		return nil, nil, nil, fmt.Errorf("mls: add members: no key packages")
+	}
+	e.commitMu.Lock()
+	defer e.commitMu.Unlock()
+	e.discardOrphanProposals(ctx, gid)
+
+	// Pre-flight, rather than staging everything and letting the commit fail.
+	// The upstream proposal filter rejects an Add whose signature key already
+	// sits in the tree (RFC 9420 ValSem101) — which is exactly what a joiner
+	// retrying with a leaf we never cleaned up looks like — and it does so at
+	// COMMIT time, where one bad joiner would take the whole queue down with
+	// it. Checking here turns that into a dropped joiner, which the caller can
+	// then repair on its own (evict the stale leaf, ask again) without the
+	// others paying for it.
+	inTree := make(map[string]bool)
+	if members, mErr := e.c.ListMembers(ctx, gid); mErr == nil {
+		for _, m := range members {
+			if len(m.SigningKey) > 0 {
+				inTree[string(m.SigningKey)] = true
+			}
+		}
+	}
+	staged := make([]int, 0, len(kps))
+	for i, kp := range kps {
+		if len(staged) >= maxBatchAdds {
+			break
+		}
+		sig, sErr := signatureKeyOf(kp)
+		if sErr != nil || inTree[string(sig)] {
+			continue // unparseable, or a leaf (or an earlier entry in this very
+			// batch) already holding that signature key
+		}
+		if _, pErr := e.c.ProposeAddMember(ctx, gid, kp); pErr != nil {
+			continue
+		}
+		inTree[string(sig)] = true
+		staged = append(staged, i)
+	}
+	if len(staged) == 0 {
+		e.discardOrphanProposals(ctx, gid)
+		return nil, nil, nil, fmt.Errorf("mls: add members: no admissible key packages")
+	}
+
+	commit, welcome, err = e.c.CommitPendingProposals(ctx, gid)
+	if err != nil {
+		// Nothing was merged (the upstream commit validates before it mutates),
+		// so dropping the proposals returns the group to where it started and
+		// leaves the caller free to fall back to one-at-a-time invites.
+		e.discardOrphanProposals(ctx, gid)
+		return nil, nil, nil, fmt.Errorf("mls: commit pending adds: %w", err)
+	}
+	if len(welcome) == 0 {
+		// Adds without a welcome would seat members nobody can reach. The
+		// upstream path cannot produce this for a commit that carried Adds; the
+		// check is here because the failure would be silent and permanent.
+		return nil, nil, nil, fmt.Errorf("mls: commit of %d adds produced no welcome", len(staged))
+	}
+	return commit, welcome, staged, nil
+}
+
+// signatureKeyOf reads the signature key out of a key package's leaf, the
+// identity the RFC's uniqueness rule is enforced against.
+func signatureKeyOf(kp []byte) ([]byte, error) {
+	parsed, err := keypackages.UnmarshalKeyPackage(kp)
+	if err != nil {
+		return nil, err
+	}
+	if parsed.LeafNode == nil || len(parsed.LeafNode.SignatureKeyBytes) == 0 {
+		return nil, fmt.Errorf("mls: key package has no leaf signature key")
+	}
+	return parsed.LeafNode.SignatureKeyBytes, nil
+}
+
+// discardOrphanProposals clears anything left staged on a group before we mint
+// a commit. Concord never leaves a proposal staged across a call — AddMembers
+// commits or discards under commitMu, and no other path stages one — so
+// anything found here survived a crash mid-batch, persisted with the group
+// state. It cannot be committed safely: an orphaned Add would ride out on the
+// next commit (a kick, a self-update) and seat a member with no welcome behind
+// it. Best-effort: a failure here just means the commit below fails too.
+func (e *mlsEngine) discardOrphanProposals(ctx context.Context, gid GroupID) {
+	_ = e.c.CancelPendingProposals(ctx, gid)
 }
 
 func (e *mlsEngine) Join(ctx context.Context, welcome []byte) (GroupID, error) {
@@ -217,6 +338,9 @@ func (e *mlsEngine) CommitSender(ctx context.Context, gid GroupID, commit []byte
 }
 
 func (e *mlsEngine) Remove(ctx context.Context, gid GroupID, memberCredential []byte) ([]byte, error) {
+	e.commitMu.Lock()
+	defer e.commitMu.Unlock()
+	e.discardOrphanProposals(ctx, gid)
 	commit, err := e.c.RemoveMember(ctx, gid, memberCredential)
 	if err != nil {
 		return nil, fmt.Errorf("mls: remove member: %w", err)
