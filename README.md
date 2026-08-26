@@ -205,11 +205,12 @@ tracked even though the images it describes are not.
 | [docs/DESIGN.md](docs/DESIGN.md) | How Concord works, end to end, and what it costs |
 | [docs/RENDEZVOUS.md](docs/RENDEZVOUS.md) | Running the one optional node, and how to avoid needing it |
 | [docs/PUSH.md](docs/PUSH.md) | Optional push wakes: what they cost in privacy, and how to switch them on |
-| [PRIVACY.md](PRIVACY.md) | What data exists and who can read it |
+| [PRIVACY.md](PRIVACY.md) | The privacy policy: what data exists, who can read it, and every outbound call ([published copy](https://zahakj.github.io/concord/privacy.html)) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, the multi-peer dev loop, code style |
 | [MAINTAINERS.md](MAINTAINERS.md) | Who decides what, and how a change gets merged |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | How we expect people to treat each other |
 | [docs/RELEASING.md](docs/RELEASING.md) | Maintainer runbook: releases and self-hosting a rendezvous |
+| [docs/PLAY-LISTING.md](docs/PLAY-LISTING.md) | The Play Store submission: listing copy, questionnaire answers, assets, and what is still manual |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability |
 | [WINDOWS.md](WINDOWS.md) | SmartScreen, Defender, and the fallback |
 | [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) | Bundled fonts, emoji, libraries and their licences |
