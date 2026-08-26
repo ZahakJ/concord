@@ -3,7 +3,7 @@
 // the results panel.
 //
 // The backend (api.searchMessages) substring-matches free text across ALL
-// conversations; Discord-style operators are parsed out here and applied
+// conversations; the search operators are parsed out here and applied
 // on-device:
 //   from:name  in:#channel  has:link|image|file  before:YYYY-MM-DD  after:…
 import { S, flash } from "./state.svelte.js";

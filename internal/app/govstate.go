@@ -22,7 +22,7 @@ import (
 // delegate holding ManageRoles) defines and assigns. guild.OwnerID stays the
 // immutable FOUNDING key and replay seed; the CURRENT owner is computed by
 // replay — a valid transfer_owner chain (each link signed by the then-current
-// owner) moves it, Discord-style, without touching MLS membership at all.
+// owner) moves it without touching MLS membership at all.
 
 // Permission is a capability bit. Each maps to a concrete action in the P2P
 // system, so a role grants exactly the powers it names — not a blanket "mod".
@@ -355,7 +355,7 @@ func replayGuildOps(owner []byte, ops []govOp) GuildState {
 			if o.Seconds <= 0 {
 				delete(st.SlowMode, o.ChannelID)
 			} else if o.Seconds > 21600 {
-				st.SlowMode[o.ChannelID] = 21600 // 6h, Discord's own ceiling
+				st.SlowMode[o.ChannelID] = 21600 // 6h, the ceiling the UI offers
 			} else {
 				st.SlowMode[o.ChannelID] = o.Seconds
 			}

@@ -128,7 +128,7 @@ export function loadAttachment(channelId, tok) {
 
 // copyImageToClipboard puts an image (any src the webview can draw) on the
 // system clipboard as a real PNG — pasteable inside Concord or in any other
-// app, like Discord's "Copy Image".
+// app — the "Copy Image" a browser or an image viewer offers.
 export async function copyImageToClipboard(src) {
   const img = new Image();
   await new Promise((res, rej) => {

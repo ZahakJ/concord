@@ -45,10 +45,11 @@ const (
 	// eventGuestKeepOpen is how long a room stays joinable once opened. A meeting
 	// room is NOT a countdown that dies at the stroke of the scheduled end —
 	// people join late, meetings run over, "let's continue tomorrow" is normal,
-	// and Teams keeps the room around for exactly this. So the room lives until
-	// the host ENDS it (or deletes the event), with this as the automatic
-	// backstop that reclaims a forgotten room. Re-opening refreshes it. Kept just
-	// under maxMeetingLifetime so opening never trips the too-far-ahead guard.
+	// and a room that vanishes on the hour is a room that vanished mid-sentence.
+	// So the room lives until the host ENDS it (or deletes the event), with this
+	// as the automatic backstop that reclaims a forgotten room. Re-opening
+	// refreshes it. Kept just under maxMeetingLifetime so opening never trips the
+	// too-far-ahead guard.
 	eventGuestKeepOpen = 30 * 24 * time.Hour
 	// eventGuestDefaultLen stands in for a missing end time: an open-ended
 	// event holds its room for two hours, matching the "sane default" the UI's
@@ -391,9 +392,10 @@ func (s *Service) teardownEventGuestRoom(eventID string) {
 	s.emitGuildUpdate()
 }
 
-// JoinEventRoom walks a MEMBER into an event's meeting room as themselves —
-// the Teams distinction: people already inside the guild/DM click Join and
-// walk straight in, only outsiders ride the guest link and knock. The code
+// JoinEventRoom walks a MEMBER into an event's meeting room as themselves. The
+// distinction is insider versus outsider: people already inside the guild/DM
+// click Join and walk straight in, only outsiders ride the guest link and
+// knock. The code
 // being redeemed arrived on the event's MLS-encrypted record, gated on
 // receive so only the recorded host could have put it there; redeeming it is
 // the ordinary invite handshake to the host's node, so the joiner becomes a

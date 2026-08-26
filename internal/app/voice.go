@@ -47,7 +47,7 @@ type voiceAnnounce struct {
 
 // watchVoice passively subscribes to a voice channel's presence topic so this
 // peer learns who is in the call WITHOUT joining it (guild-wide presence, like
-// Discord's sidebar). Called for every voice channel in every guild we're in;
+// the sidebar). Called for every voice channel in every guild we're in;
 // idempotent per channel.
 func (s *Service) watchVoice(groupID []byte, channelID string) {
 	s.voiceMu.Lock()

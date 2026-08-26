@@ -301,7 +301,7 @@ export function installShortcuts() {
       }
       if (inputFocused()) return;
       if (e.shiftKey) markAllRead();
-      // Nothing to dismiss → mark the current channel read (Discord-style).
+      // Nothing to dismiss → mark the current channel read.
       else if (S.activeChannelId) markRead(S.activeChannelId);
     }
   };

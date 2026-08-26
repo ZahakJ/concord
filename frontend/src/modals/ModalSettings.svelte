@@ -530,7 +530,7 @@
     display: flex;
     flex-direction: column;
   }
-  /* Hairlines between rows, inset past the icon chip like iOS/Telegram. */
+  /* Hairlines between rows, inset past the icon chip. */
   .card > .row + .row {
     border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   }

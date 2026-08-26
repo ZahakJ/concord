@@ -12,7 +12,7 @@ import (
 )
 
 // Game search backs the collection editor's autocomplete: you type a title,
-// we suggest real games with real box art (Discord-style). Queries go to
+// we suggest real games with real box art. Queries go to
 // Steam's public storefront search — proxied through the backend so the
 // webview never talks to a third party directly — and results are cached
 // briefly since autocomplete re-asks for every keystroke.
@@ -111,7 +111,7 @@ func (s *Service) SearchGames(query string) []GameSearchResult {
 		}
 		r := GameSearchResult{
 			Name: name,
-			// Portrait "library" art — the pretty Discord-like tile. Some titles
+			// Portrait "library" art — the tall, pretty tile. Some titles
 			// lack it; the UI falls back to the generated cover on load error.
 			Cover: fmt.Sprintf("https://cdn.cloudflare.steamstatic.com/steam/apps/%s/library_600x900.jpg", it.ID),
 		}

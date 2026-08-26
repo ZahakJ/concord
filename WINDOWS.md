@@ -1,8 +1,8 @@
 # Running Concord on Windows
 
 **The easy way: download `Concord-Setup-<version>.exe` and run it.** It's a
-one-click installer, Discord-style — no admin prompt, no wizard: it installs
-Concord for your user account, puts it in the Start Menu and on the Desktop,
+one-click installer — no admin prompt, no wizard: it installs Concord for your
+user account, puts it in the Start Menu and on the Desktop,
 and launches it. Updates after that happen from inside the app (Settings →
 Software update). Uninstall from Windows' "Add or remove programs" as usual
 (your chat history and identity are kept).

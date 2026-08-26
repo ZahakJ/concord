@@ -36,7 +36,8 @@ var errSyncDeclined = errors.New("app: peer declined to sync")
 //
 // Trust note: everything in the payload is *attested by the responding member*
 // (their local copies), not re-verified against each original sender — the
-// same trust Discord places in its server, but limited to guild members.
+// same trust a centralized app places in its server, but limited to guild
+// members.
 // Message saves are idempotent by ID and state adoption is newest-wins, so
 // overlapping syncs against several members are harmless.
 

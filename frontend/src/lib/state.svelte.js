@@ -128,8 +128,8 @@ export const S = $state({
   // itself — a channel you'd muted comes back as "Nothing", which is the same
   // thing under a name that leaves room for "only @mentions".
   notifs: migrateMutes(normalizeNotifs(loadJSON("concord.notifs", null)), loadJSON("concord.mutes", {})),
-  // Guild-rail layout: device-local ordering + Discord-style folders (see
-  // lib/rail.js). An array of { t:"g", id } / { t:"f", id, name, color, open,
+  // Guild-rail layout: device-local ordering and folders (see lib/rail.js). An
+  // array of { t:"g", id } / { t:"f", id, name, color, open,
   // ids }. Reconciled against the live guild list on render.
   rail: loadJSON("concord.rail", []),
   // MRU trail of channel ids, newest first (cap 15). The command palette's
@@ -2039,8 +2039,8 @@ export async function startDM(fingerprint, text = "") {
 }
 
 // startMeeting creates a disposable meeting room (voice + chat, expiring), opens
-// it, and pops the shareable invitation — the "send them a Concord meeting
-// instead of a Zoom link" move. The modal owns the link's lifetime from there.
+// it, and pops the shareable invitation — a meeting link to send someone who has
+// no account anywhere. The modal owns the link's lifetime from there.
 export async function startMeeting() {
   try {
     const m = await api.startMeeting();
@@ -2123,8 +2123,8 @@ export async function selectChannel(id) {
   let newest = "";
   for (const m of S.messages) if (m.sent > newest) newest = m.sent;
   if (newest) markRead(id, newest);
-  // Land on the "NEW" divider when there's unread history (Discord behavior),
-  // instead of dumping the reader at the bottom past everything they missed.
+  // Land on the "NEW" divider when there's unread history, instead of dumping
+  // the reader at the bottom past everything they missed.
   const hasUnread =
     S.readAnchor &&
     S.messages.some(
@@ -2259,7 +2259,7 @@ export function roleColorFor(fpr) {
 }
 
 // nameColorFor: the color a member's name is painted in, everywhere (chat,
-// typing line). A colored role wins (Discord-style); otherwise the member's own
+// typing line). A colored role wins; otherwise the member's own
 // chosen accent color. "" means fall back to the default name color.
 export function nameColorFor(fpr) {
   return roleColorFor(fpr) || memberByFpr(fpr)?.color || "";

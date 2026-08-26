@@ -99,7 +99,7 @@ func TestEventGuestOpenKnockSeedAndAutoAdmit(t *testing.T) {
 		t.Fatalf("room not named for the event: %q", room.Name)
 	}
 	// Lifetime: the room persists well past the event — anchored to now, not the
-	// scheduled end, so a meeting a while ago is still joinable like Teams.
+	// scheduled end, so a meeting a while ago is still joinable.
 	if got, want := s.meetingExpiry(rec.MeetingGuildID).Unix(), time.Now().Add(eventGuestKeepOpen).Unix(); got < want-120 || got > want+120 {
 		t.Fatalf("room expiry %d, want ~now+keepOpen %d", got, want)
 	}

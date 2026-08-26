@@ -224,8 +224,9 @@ aloud. So Concord also derives a **fingerprint**:
                = "2XXL XRW4 TT5D 6QK7 …"                (32 characters, 160 bits)
 ```
 
-This is what Signal calls a *safety number*. Its purpose is narrow, and the
-narrowness matters:
+The app calls this a **safety number**, which is the term the field has settled
+on for a fingerprint two people read to each other. Its purpose is narrow, and
+the narrowness matters:
 
 - **What it defends against.** The one attack the mathematics cannot see is a
   substitution at first contact: an attacker who hands you *their* key while
@@ -920,10 +921,12 @@ Everything else the rendezvous carries is ciphertext. GIF search is different in
 kind, and the reasoning is the interesting part.
 
 A GIF picker that calls the provider's API directly from the client sends every
-keystroke of every search, and every member's IP address, to that provider.
-Discord solves this by proxying through Discord, who then see the searches
-instead. Concord proxies through the rendezvous you already run and already
-connect to constantly: the same trade, made with an operator you chose.
+keystroke of every search, and every member's IP address, to that provider. The
+usual fix is for the platform to proxy the search itself, which does not remove
+the leak — it relocates it, to the company running the platform, who then see
+the searches instead of the provider. Concord relocates it too, to the
+rendezvous you already run and already connect to constantly: the same trade,
+made with an operator you chose.
 
 The property that makes it worth having is that the node fetches **the bytes, not
 just the results**:
@@ -1116,9 +1119,10 @@ arithmetically useless.
 > The limit: MLS delivers post-compromise security when a member performs an
 > update. Concord's only commits are adds and removes, so a guild with a stable
 > roster does not rekey on its own. Post-compromise security is realised at the
-> next membership change, not on a timer. Discord and most chat applications
-> have neither property at all, but "we rekey on membership change" is a smaller
-> claim than "we rekey continuously", and it is the true one.
+> next membership change, not on a timer. Most group chat has neither forward
+> secrecy nor post-compromise security at all, so this is still a long way ahead
+> of the usual — but "we rekey on membership change" is a smaller claim than
+> "we rekey continuously", and it is the true one.
 
 ### 7.4 Authorising membership changes with no server to arbitrate
 
@@ -1780,7 +1784,7 @@ Security claims are meaningless without a stated adversary.
 
 ### Concord versus a centralized platform
 
-| Property | Discord | Concord |
+| Property | A centralized platform | Concord |
 |---|---|---|
 | Who can read your messages | The operator (plaintext to them) | Only group members (MLS end-to-end) |
 | Central point to hack, subpoena, or ban | Yes | None (P2P; one optional untrusted node) |

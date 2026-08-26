@@ -271,7 +271,7 @@
 <Modal title="Your profile" wide {onClose}>
   <!-- ===== LIVE PREVIEW: exactly what other people see. ===== -->
   <div class="studio">
-    <!-- Discord-style: a tall banner the avatar straddles, so the card is
+    <!-- A tall banner the avatar straddles, so the card is
          mostly art instead of mostly empty background. Hover the banner and it
          blurs behind an "Edit banner" call to action — the banner IS the
          button. -->

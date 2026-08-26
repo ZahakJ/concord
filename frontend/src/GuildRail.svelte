@@ -1,9 +1,9 @@
 <script>
   // The leftmost rail: a Concord "home" bubble (opens DMs), one bubble per DM
   // and per guild with unread badges, plus create/join. Guilds can be dragged
-  // to reorder, dropped onto each other to form folders, and grouped/renamed —
-  // Discord-style. The layout is a device-local preference (lib/rail.js), not
-  // part of any guild's crypto state.
+  // to reorder, dropped onto each other to form folders, and grouped/renamed.
+  // The layout is a device-local preference (lib/rail.js), not part of any
+  // guild's crypto state.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
   import GroupAvatar from "./GroupAvatar.svelte";
@@ -377,7 +377,8 @@
   }
 
   // ————————————————— folder management —————————————————
-  // Concord-native folder swatches — deliberately not Discord's blurple palette.
+  // Concord-native folder swatches. A folder should read as Concord, which
+  // means not borrowing the violet every other chat app's rail is painted in.
   const SWATCHES = [
     ["Accent", "var(--accent)"],
     ["Teal", "#2dd4bf"],
@@ -783,7 +784,7 @@
      inside squared off, and the corners spilled past the outline — a square
      drawn over a circle, which reads as broken CSS rather than as a style.
      Guild pills keep the 50% -> 14px squircle morph above: those are tiles, not
-     faces, and Discord's rounding cue on them is deliberate. */
+     faces, and the corner softening on them is the deliberate hover cue. */
   .pill.dm,
   .pill.dm:hover,
   .pill.dm.active {

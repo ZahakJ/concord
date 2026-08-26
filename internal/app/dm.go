@@ -221,8 +221,9 @@ const groupDMMax = 10
 
 // CreateGroupDM opens a group direct message with the given fingerprints. Every
 // invitee must be a VERIFIED contact — verification is the trust gate for group
-// DMs (you pull people you've confirmed into a private group, Discord-style but
-// stricter). The group is an ordinary kind="dm" MLS group owned by this peer;
+// DMs: you pull people you've confirmed into a private group, and confirming
+// them first is the part most group chats do not ask for. The group is an
+// ordinary kind="dm" MLS group owned by this peer;
 // each reachable invitee is pushed the standard DM invite and auto-redeems it.
 // Unreachable invitees simply don't join yet (they can be re-invited later).
 func (s *Service) CreateGroupDM(fingerprints []string) (domain.Guild, error) {
@@ -310,7 +311,7 @@ func (s *Service) retryPendingDMInvites() {
 }
 
 // RenameDM sets a custom name for a group DM and syncs it to the other members
-// (any member may rename it, like Discord). An empty name resets to the auto
+// (any member may rename it). An empty name resets to the auto
 // member-list name. Reuses the guild_renamed meta lane (advisory, same trust
 // model as a channel rename).
 func (s *Service) RenameDM(guildID, name string) error {

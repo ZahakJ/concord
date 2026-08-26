@@ -1,8 +1,7 @@
 <script>
   // The call stage: one big square per participant (avatar, or their live
   // camera), animated speaking rings, plus wide tiles for any screen shares.
-  // Discord-style — dynamic and animated, works the same in a DM call or a
-  // guild voice room.
+  // Dynamic and animated, and the same in a DM call or a guild voice room.
   import { scale } from "svelte/transition";
   import { flip } from "svelte/animate";
   import Avatar from "./Avatar.svelte";
@@ -112,7 +111,7 @@
   }
 
   // Ring for ~30s while alone in a DM call, then quietly settle into "just you
-  // in the call" if they never pick up (Discord-style).
+  // in the call" if they never pick up.
   let ringTimedOut = $state(false);
   $effect(() => {
     if (!solo) {
@@ -150,7 +149,7 @@
   // Screen shares get their own wide tiles — a share isn't a person.
   const screens = $derived(S.videoTiles.filter((t) => t.kind === "screen"));
 
-  // Discord-style focus/theater: one thing fills the stage (a screen share OR a
+  // Focus/theater mode: one thing fills the stage (a screen share OR a
   // participant), everyone else drops to a small strip. A shared screen
   // auto-focuses so it isn't a same-size tile you have to scroll to. Click a
   // strip item to switch focus; click the big view (or shrink) to exit.
@@ -1386,7 +1385,7 @@
       transform: translateY(-3px);
     }
   }
-  /* Call controls, on the call box itself (Discord-style). Sticky to the bottom
+  /* Call controls, on the call box itself. Sticky to the bottom
      of the (scrollable) panel so mute/leave are always reachable, never scrolled
      off when there are many tiles or a big screen share. */
   .sfx-row {
@@ -1657,7 +1656,7 @@
     color: var(--text);
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
-  /* Muted mic reads as a clear "off/alert" state (Discord-style red). */
+  /* Muted mic reads as a clear "off/alert" state, in the danger colour. */
   .ctl.danger {
     background: color-mix(in srgb, var(--danger) 20%, transparent);
     color: var(--danger-text);

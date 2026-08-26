@@ -10,7 +10,7 @@ import (
 
 // Rich presence surfaces what you're doing on this device — currently the
 // now-playing media track (via the OS media session) — as your status line, the
-// way Discord shows "Listening to Spotify". It is:
+// way a status line reads "Listening to <track>". It is:
 //   - opt-in (off by default; a purely local, on-device read),
 //   - an overlay: while something is playing it stands in for your manual
 //     status on this device's own card, and your manual status is what returns

@@ -148,8 +148,8 @@
   }
 
   // Unread channels in this guild, in sidebar order — powers the jump pill and
-  // Alt+↑/↓ navigation (a real gap in Discord: it has the shortcut but no
-  // visible affordance telling you how many are waiting or where).
+  // Alt+↑/↓ navigation. The shortcut alone is not the feature: without a
+  // visible affordance nothing tells you how many are waiting, or where.
   const unreadChannels = $derived.by(() =>
     groups
       .flatMap((grp) => grp.channels)
@@ -364,7 +364,7 @@
     if (drag && !e.currentTarget.contains(e.relatedTarget)) dropHint = null;
   }
 
-  // --- Drag a person between voice channels (Discord-style) ----------------
+  // --- Drag a person between voice channels ---------------------------------
   // Separate from the channel-reorder drag above: this one lifts a PERSON, and
   // the drop targets are voice-channel rows rather than gaps between them.
   // Dragging yourself is just a fast way to switch rooms and needs no
@@ -479,8 +479,8 @@
   }
 
   // Right-click a DM to close it. Closing a 1:1 DM only hides the conversation
-  // (Discord-style) — it reopens, history intact, when either side messages
-  // again. Leaving a group DM removes it locally.
+  // — it reopens, history intact, when either side messages again. Leaving a
+  // group DM removes it locally.
   function dmMenu(e, dm) {
     const isGroup = (dm.dmMembers ?? 2) > 2;
     openContextMenu(e, [
@@ -666,8 +666,8 @@
       {/if}
     {:else if g}
       {#if unreadChannels.length}
-        <!-- Better than Discord: it hides "jump to unread" behind a shortcut.
-             We SHOW what's waiting, where, and let one click walk it. -->
+        <!-- "Jump to unread" is usually a shortcut and nothing else. This SHOWS
+             what's waiting, where, and lets one click walk it. -->
         <button
           class="unread-jump"
           class:mention={unreadMentions > 0}
@@ -918,7 +918,7 @@
     {/if}
   </div>
 
-  <!-- Persistent bottom-left call controller (Discord-style): shows whenever
+  <!-- Persistent bottom-left call controller: shows whenever
        you're in a call, whatever you're viewing. When you're on the call's own
        channel the VoicePanel also shows full controls — that's fine, this is the
        always-there compact bar; when you navigate away the FloatingCall dock
@@ -1497,9 +1497,9 @@
     white-space: nowrap;
   }
   /* ---- unread & mentions ----------------------------------------------
-     Discord marks unread with a white bar + bold name. We do that AND tint
-     the bar (accent = unread, danger = @you), tint the count pill to match,
-     and keep the whole row a touch brighter so it reads at a glance. */
+     The usual unread cue is a white bar and a bold name. This does that AND
+     tints the bar (accent = unread, danger = @you), tints the count pill to
+     match, and keeps the whole row a touch brighter so it reads at a glance. */
   .channel-row {
     position: relative;
   }
@@ -2070,7 +2070,7 @@
     background: var(--bg-3);
     opacity: 0.8;
   }
-  /* Unread summary pill: the affordance Discord never gives you. */
+  /* Unread summary pill: what's waiting and where, without a shortcut. */
   .unread-jump {
     display: flex;
     align-items: center;

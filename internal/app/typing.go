@@ -8,8 +8,8 @@ import (
 
 // Typing indicators are the one presence signal Concord broadcasts that the
 // user has no say over, and the switch is reciprocal: turn it off and you stop
-// sending "typing…" AND stop seeing it. Reciprocity is the honest arrangement
-// (it's what Signal settled on), and it is the only one that survives here —
+// sending "typing…" AND stop seeing it. Reciprocity is the honest arrangement,
+// and it is the only one that survives here —
 // there is no server to enforce a one-way deal, so a client that kept receiving
 // while withholding would just be a client that lies to its friends.
 //

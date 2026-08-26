@@ -118,7 +118,7 @@
   // Quick-reaction bar: the viewer's recently-used emoji padded with a
   // default set, capped at 5. Computed once per row (fresh rows pick up new
   // recents; recents only ever hold unicode chars).
-  // Keep the hover bar minimal, Discord-style: three quick reactions (your
+  // Keep the hover bar minimal: three quick reactions (your
   // recents first) — the smile button opens the full picker for everything else.
   const DEFAULT_QUICK = ["👍", "❤️", "😂"];
   const quickEmojis = [...new Set([...recentEmoji(), ...DEFAULT_QUICK])].slice(0, 3);
@@ -1728,8 +1728,8 @@
     margin-top: 2px;
     white-space: pre-wrap;
     word-break: break-word;
-    /* Comfortable reading measure for multi-line messages — matches Discord's
-       roomier line-height without stretching single-line rows noticeably.
+    /* Comfortable reading measure for multi-line messages — roomier than the
+       default without stretching single-line rows noticeably.
        Arabic and Persian sit taller than Latin at the same size: the diacritics
        climb above the letterform and the descenders drop well below it, so 1.45
        clipped them against the row above. */
@@ -2120,8 +2120,8 @@
     color: var(--accent-hover);
     font-weight: 600;
   }
-  /* Discord sizes the emoji noticeably larger than the count — the glyph is
-     the thing you read at a glance. Overrides the pill's 13px font. */
+  /* The emoji is noticeably larger than the count — the glyph is the thing you
+     read at a glance. Overrides the pill's 13px font. */
   .remoji {
     display: inline-flex;
     line-height: 1;
@@ -2590,7 +2590,7 @@
       transform: translateY(4px);
     }
   }
-  /* Inline unicode emoji: bundled Twemoji images at Discord's exact sizing —
+  /* Inline unicode emoji: bundled Twemoji images —
      uniform 1.375em squares hanging slightly below the baseline, identical on
      every platform (native font glyphs wobble in size and baseline per OS). */
   .body :global(img.emoji) {
@@ -2607,7 +2607,7 @@
     margin: 0 1px;
     object-fit: contain;
   }
-  /* Emoji-only messages render jumbo, like Discord. */
+  /* Emoji-only messages render jumbo. */
   .body.jumbo :global(img.emoji) {
     width: 3em;
     height: 3em;

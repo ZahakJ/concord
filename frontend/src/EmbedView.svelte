@@ -1,6 +1,6 @@
 <script>
   // Renders a rich embed card: an accent bar, a title, a markdown description,
-  // and name/value fields — Discord-style. Text goes through the same XSS-safe
+  // and name/value fields. Text goes through the same XSS-safe
   // renderMarkdown as messages, so **bold**, {color|text}, links etc. all work
   // and nothing user-authored can inject.
   import { renderMarkdown } from "./lib/markdown.js";

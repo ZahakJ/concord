@@ -246,7 +246,7 @@
         (a.name || a.fingerprint).localeCompare(b.name || b.fingerprint),
     );
 
-  // Group members under their highest role (Discord-style hoisting), roles
+  // Group members under their highest role (role hoisting), roles
   // highest-position first, with a "Members" catch-all for the roleless.
   const memberGroups = $derived.by(() => {
     const roles = [...S.roles].sort((a, b) => b.position - a.position);
@@ -457,7 +457,7 @@
               <span class="muted-badge" title="Muted"><Icon name="micOff" size={11} /></span>
             {/if}
           </span>
-          <!-- Sidebar one-liner: live activity wins (Discord-style); the custom
+          <!-- Sidebar one-liner: live activity wins; the custom
                status still lives on the expanded profile card. -->
           {#if mem.activity}
             <span class="muted member-status listening">
@@ -634,7 +634,7 @@
   .member:active {
     background: transparent;
   }
-  /* Offline members recede (Discord-style) so the online roster reads first;
+  /* Offline members recede so the online roster reads first;
      hovering or focusing a row brings the person fully back. */
   .member.offline {
     opacity: 0.62;

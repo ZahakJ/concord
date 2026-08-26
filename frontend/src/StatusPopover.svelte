@@ -1,5 +1,5 @@
 <script>
-  // Discord-style presence + custom-status popover, opened from the self row.
+  // Presence + custom-status popover, opened from the self row.
   // Positioning mirrors ProfilePopover: measure the card, place it above the
   // anchor (below when there's no room), clamped to the viewport. Every change
   // applies via api.setProfile while preserving the rest of the profile.

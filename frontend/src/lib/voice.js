@@ -617,8 +617,8 @@ export class VoiceMesh {
     this._applyMicLive();
   }
 
-  // setDeafened silences every remote participant and, Discord-style, also mutes
-  // your own mic (you can't sensibly talk to a room you can't hear). Undeafening
+  // setDeafened silences every remote participant and also mutes your own mic
+  // (you can't sensibly talk to a room you can't hear). Undeafening
   // does NOT auto-unmute — that stays the user's explicit choice.
   setDeafened(deafened) {
     this.deafened = deafened;

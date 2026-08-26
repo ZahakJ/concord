@@ -41,8 +41,9 @@
     setTimeout(() => (copied = false), 1600);
   }
 
-  // On a phone the whole point of this screen is to get the code INTO
-  // WhatsApp/Signal/Messages. Copy-then-switch-apps-then-paste is the desktop
+  // On a phone the whole point of this screen is to get the code into whatever
+  // messaging app the other person is already in. Copy-then-switch-apps-then-
+  // paste is the desktop
   // metaphor; the OS share sheet is one tap. Offered only where it exists, and
   // it falls back to Copy if the sheet is dismissed or the API is missing.
   const canShare = typeof navigator !== "undefined" && !!navigator.share && S.isMobile;

@@ -19,7 +19,7 @@ import (
 	cnet "github.com/ZahakJ/concord/internal/net"
 )
 
-// Encrypted attachments (Signal-style): an image is sealed once with a random
+// Encrypted attachments: an image is sealed once with a random
 // secretbox key, stored locally as an opaque, content-addressed blob, and the
 // message carries only a ~190-char reference token — the key rides INSIDE the
 // MLS-encrypted message content. Blobs travel over a dedicated stream protocol

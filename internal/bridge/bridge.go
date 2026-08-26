@@ -2527,7 +2527,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 				joined[f] = true
 			}
 			// Fold in people we've invited who haven't joined yet, so the group
-			// shows everyone you picked (Discord-style) even while some are away.
+			// shows everyone you picked even while some are away.
 			var pending []string
 			for _, f := range svc.PendingDMInvitees(g.ID) {
 				if !joined[f] {

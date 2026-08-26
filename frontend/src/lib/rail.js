@@ -1,4 +1,4 @@
-// rail.js — the guild rail's layout model: ordering + Discord-style folders.
+// rail.js — the guild rail's layout model: ordering and folders.
 //
 // This is a DEVICE-LOCAL preference (persisted to localStorage by state), not
 // part of any guild's cryptographic state. A "layout" is an ordered array of
@@ -10,8 +10,8 @@
 // Every function here is pure (returns a new array) so the logic is testable
 // in isolation and the reactive layer stays a thin wrapper.
 
-// Default to the app accent, not Discord blurple — folders should read as
-// Concord, and follow whatever accent the user has themed.
+// Default to the app accent, not a fixed hue — a folder should read as Concord,
+// and follow whatever accent the user has themed.
 export const DEFAULT_FOLDER_COLOR = "var(--accent)";
 
 export function makeFolderId() {
@@ -36,7 +36,7 @@ export function guildIdsInLayout(items) {
  *  - drop ids that no longer exist (top level and inside folders)
  *  - de-duplicate (keep first occurrence)
  *  - dissolve folders that fall below 2 guilds (survivor kept at the folder's
- *    slot), matching Discord
+ *    slot): a folder of one is a guild with extra chrome
  *  - append genuinely new guilds at the end as top-level entries
  */
 export function reconcile(items, liveIds) {

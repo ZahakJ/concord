@@ -91,7 +91,7 @@ type Service struct {
 	reqMu    sync.Mutex
 	requests map[string]MessageRequest
 
-	// hiddenDMs marks DM conversations the user has closed. Discord-style: the
+	// hiddenDMs marks DM conversations the user has closed. The
 	// conversation stays fully alive (MLS membership, subscriptions, history)
 	// but the UI hides it until the user reopens it or a new message arrives.
 	// Guarded by mu; persisted in the settings table (see dmState).
@@ -129,7 +129,7 @@ type Service struct {
 	voiceRooms map[string]context.CancelFunc // channel ID -> heartbeat stop (rooms we're IN)
 	// voiceWatched marks voice channels whose presence topic we passively listen
 	// to (for every voice channel in every guild), so the sidebar can show who's
-	// in a call without us having to join it — Discord-style guild-wide presence.
+	// in a call without us having to join it — guild-wide voice presence.
 	voiceWatched    map[string]bool
 	onVoicePresence []func(from, fingerprint, channelID, action, target, dest string)
 	onVoiceSignal   []func(from string, data []byte)
@@ -192,7 +192,7 @@ type Service struct {
 
 	// nicks holds per-guild display-name overrides: guildID -> fingerprint ->
 	// nickname. A nickname shadows the global profile name inside that guild only
-	// (Discord-style server nicknames). Members set their own; propagated over
+	// (per-guild nicknames). Members set their own; propagated over
 	// the guild-meta topic like profiles.
 	nicks map[string]map[string]string
 
@@ -431,7 +431,7 @@ type Profile struct {
 	// song moves. Clients render the line from it; the 🎵 status substitution
 	// is local to the device doing the playing (see selfWireProfile).
 	Activity *Activity `json:"activity,omitempty"`
-	// Games is the member's curated game collection (Discord-style), shown on
+	// Games is the member's curated game collection, shown on
 	// the profile card. A name plus an optional cover URL (validated against
 	// the Steam CDN allowlist) — art stays a URL, keeping broadcasts tiny.
 	Games []Game `json:"games,omitempty"`
@@ -676,7 +676,7 @@ const (
 )
 
 // validArtURL admits album-art URLs only from known music CDNs (https). The
-// allowlist is what lets clients render art by DEFAULT, Discord-style: a peer
+// allowlist is what lets clients render art by DEFAULT: a peer
 // broadcasting an Activity cannot point ArtURL at a host they control and
 // harvest the IP of everyone who views their profile. Anything else is
 // dropped — the card falls back to the 🎵 placeholder.

@@ -383,7 +383,7 @@
     background: var(--bg-1);
   }
   /* Active mute/deafen: a filled danger state, so "I'm muted/deafened" reads at
-     a glance the way it does on Discord. */
+     a glance rather than needing to be looked for. */
   .ico.on {
     background: var(--danger);
     color: var(--danger-fg);

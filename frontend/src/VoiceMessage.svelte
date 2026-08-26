@@ -1,6 +1,6 @@
 <script>
   // A voice message: an audio attachment (recorded in the composer, sent through
-  // the same encrypted-blob path as any file) rendered as a Discord-style player
+  // the same encrypted-blob path as any file) rendered as an inline player
   // — play/pause, a drag-to-seek waveform, and elapsed/total time. The blob is
   // fetched + decrypted on first play, so it costs nothing until you listen.
   import Icon from "./Icon.svelte";

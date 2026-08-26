@@ -8,7 +8,7 @@ package main
 // MEETING LINK you paste somewhere public, it is a deanonymization vector — a
 // stranger who clicks it would otherwise see your home IP, and you theirs.
 //
-// TURN fixes this the way Signal does: when a client uses `iceTransportPolicy:
+// TURN fixes this the standard way: when a client uses `iceTransportPolicy:
 // "relay"`, it offers ONLY relayed candidates, so its real address never leaves
 // its machine. If BOTH ends relay, the media flows client → TURN → client and
 // neither peer sees the other's IP. The relay does (it has to, to forward), but

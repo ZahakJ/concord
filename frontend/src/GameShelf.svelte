@@ -19,7 +19,7 @@
 </script>
 
 <script>
-  // Game collection, Discord-style: profile cards show a COMPACT strip (a few
+  // Game collection: profile cards show a COMPACT strip (a few
   // mini covers + "+N"), and clicking it opens a popup with the full library —
   // big tiles, titles, and (on your own card) add/remove. Adding suggests real
   // games with real box art (backend-proxied Steam search); titles without

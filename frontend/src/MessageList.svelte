@@ -114,7 +114,7 @@
     }
   }
 
-  // Clicking a pinned message jumps to it in the feed (like Discord) and
+  // Clicking a pinned message jumps to it in the feed and
   // closes the panel so the flash-highlighted row isn't hidden behind it.
   function jumpToPin(m) {
     if (scrollToMessage(m.id)) S.showPins = false;

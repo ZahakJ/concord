@@ -1,5 +1,5 @@
-; Concord one-click Windows installer — Discord-style: no wizard, no admin
-; prompt. Installs per-user into %LOCALAPPDATA%\Concord (which keeps the exe
+; Concord one-click Windows installer: no wizard, no admin prompt. Installs
+; per-user into %LOCALAPPDATA%\Concord (which keeps the exe
 ; user-writable, so the app's built-in self-update can swap it in place),
 ; creates Start Menu + Desktop shortcuts and an Add/Remove Programs entry,
 ; then launches the app.

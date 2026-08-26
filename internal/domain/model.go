@@ -13,9 +13,10 @@ import (
 	"time"
 )
 
-// A Guild is Concord's equivalent of a Discord "server": a named collection of
-// channels whose membership and message keys are governed by a single MLS
-// group. GroupID is the MLS group identifier; every member of the guild is a
+// A Guild is Concord's top-level space — what a centralized chat app would call
+// a "server", except that there is no machine anywhere that holds it: a named
+// collection of channels whose membership and message keys are governed by a
+// single MLS group. GroupID is the MLS group identifier; every member of the guild is a
 // member of that MLS group.
 type Guild struct {
 	ID       string    `json:"id"`
@@ -248,10 +249,10 @@ type Event struct {
 	// MemberCode is the members' door into the same room: a guild invite code
 	// for the meeting guild, minted by GuestHost's node alongside GuestURL.
 	// Redeeming it makes the member a REAL member of the room — own identity,
-	// full E2EE — with no knock, mirroring how Teams lets internal people walk
-	// straight in while externals wait in the lobby. It travels only on this
-	// MLS-encrypted record, so outsiders never see it, and it obeys the same
-	// receive-side rule as GuestURL: only GuestHost's frames may touch it.
+	// full E2EE — with no knock: insiders walk straight in, and only outsiders
+	// wait in the lobby. It travels only on this MLS-encrypted record, so
+	// outsiders never see it, and it obeys the same receive-side rule as
+	// GuestURL: only GuestHost's frames may touch it.
 	MemberCode string `json:"memberCode,omitempty"`
 }
 

@@ -1,6 +1,6 @@
 <script>
   // A group DM's bubble: the members' avatars tiled inside one circle, divided
-  // across the peers (Discord-style). Falls back to a single Avatar for one face.
+  // across the peers. Falls back to a single Avatar for one face.
   import Avatar from "./Avatar.svelte";
 
   let { faces = [], size = 42 } = $props();

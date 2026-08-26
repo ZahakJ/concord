@@ -1,5 +1,5 @@
 <script>
-  // The guild hub: everything about ONE guild behind one door, Discord-style.
+  // The guild hub: everything about ONE guild behind one door.
   // The channel-list header, the mobile sheet and the chat header's More menu
   // all used to scatter guild management across their own piles of entries;
   // they now open this instead. It's a MENU modal — rows grouped in sections,
@@ -360,7 +360,7 @@
     display: flex;
     flex-direction: column;
   }
-  /* Hairlines between rows, inset past the icon chip like iOS/Telegram. */
+  /* Hairlines between rows, inset past the icon chip. */
   .card > .row + .row {
     border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
   }

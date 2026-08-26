@@ -349,8 +349,8 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 		// fingerprint of the member whose node hosts the room (eventguest.go).
 		`ALTER TABLE events ADD COLUMN guest_url TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE events ADD COLUMN guest_host TEXT NOT NULL DEFAULT ''`,
-		// The members' invite code into the same room (Teams-style one-tap
-		// Join for people already in the guild/DM; eventguest.go).
+		// The members' invite code into the same room (one-tap Join for people
+		// already in the guild/DM; eventguest.go).
 		`ALTER TABLE events ADD COLUMN member_code TEXT NOT NULL DEFAULT ''`,
 		// Channel-located events: the id of the guild channel the event happens
 		// in ("" = free-text location). Same tolerant additive shape as the
@@ -1542,8 +1542,8 @@ func (s *Store) TogglePinned(id string) (bool, error) {
 
 // ---- saved messages (bookmarks) ----
 // Purely local, deliberately: a bookmark is the reader's business, so it never
-// rides any wire. Signal/Telegram users lean on "Saved Messages"; the prior
-// workaround here (forward-to-Notes) lost the jump-back link.
+// rides any wire. The familiar shape of this is a "Saved Messages" pile; the
+// prior workaround here (forward-to-Notes) lost the jump-back link.
 
 func (s *Store) BookmarkMessage(messageID, channelID string) error {
 	_, err := s.db.Exec(

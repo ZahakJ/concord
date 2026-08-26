@@ -1644,9 +1644,9 @@
         $("micBtn").querySelector(".ico").textContent = muted ? "🔇" : "🎤";
         $("micBtn").querySelector(".t").textContent = muted ? "Unmute" : "Mute";
       };
-      // Deafen, Discord-style: silence everything coming in AND mute your own mic
-      // (you can't sensibly talk to a room you can't hear). Undeafening does not
-      // auto-unmute — that stays an explicit choice.
+      // Deafen silences everything coming in AND mutes your own mic (you can't
+      // sensibly talk to a room you can't hear). Undeafening does not auto-unmute
+      // — that stays an explicit choice.
       $("deafBtn").onclick = () => {
         if (!inCall) return;
         deafened = !deafened;

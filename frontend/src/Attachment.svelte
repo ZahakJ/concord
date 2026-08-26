@@ -1,8 +1,8 @@
 <script>
   // One encrypted image attachment: reserves layout space from the token's
   // dimensions, fetches + decrypts through the backend, and renders with
-  // spinner / error+retry states. Clicking opens a Discord-style lightbox:
-  // click zooms to the cursor, wheel zooms, drag pans, pinch works on touch,
+  // spinner / error+retry states. Clicking opens a lightbox: click zooms to
+  // the cursor, wheel zooms, drag pans, pinch works on touch,
   // Esc / backdrop / ✕ close.
   import Icon from "./Icon.svelte";
   import { pushLayer } from "./lib/navstack.svelte.js";
@@ -21,7 +21,7 @@
 
   // Right-click on the image (thumbnail or lightbox): copy to the system
   // clipboard as a real image (paste it anywhere — in Concord or outside),
-  // or save it to disk. Like Discord.
+  // or save it to disk.
   // Can this picture be reopened in the editor it came out of? Three things
   // have to hold, and the check is done at click time rather than in a
   // $derived because the recipe index is plain module state, not reactive:
@@ -193,7 +193,7 @@
   }
 
   // zoomAround rescales while keeping the point under `p` (client coords)
-  // visually fixed — Discord/maps-style anchored zoom. At fit scale (1) the
+  // visually fixed — the anchored zoom a map does. At fit scale (1) the
   // pan resets so the image is always centered when fully zoomed out.
   function zoomAround(p, next) {
     next = Math.min(ZMAX, Math.max(ZMIN, next));

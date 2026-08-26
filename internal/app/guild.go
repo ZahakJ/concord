@@ -184,8 +184,8 @@ func (s *Service) saveMeetingLife() {
 	_ = s.store.SetSetting(meetingLifetimeKey, string(blob))
 }
 
-// StartMeeting spins up a TEMPORARY room — the Zoom-link move: one click
-// makes a disposable guild with a single channel that doubles as the call
+// StartMeeting spins up a TEMPORARY room — the disposable-meeting-link move:
+// one click makes a disposable guild with a single channel that doubles as the call
 // room (like a DM), and hands back an invite code to send to anyone. Every
 // participant's client deletes expired meetings on startup, so the room
 // cleans itself up.
@@ -415,7 +415,7 @@ const maxGuildImageBytes = 512 << 10 // 512 KiB
 
 // LeaveGuild removes a guild from this peer locally. (A local action — other
 // members keep the guild.) A 1:1 DM (including Notes) is special-cased,
-// Discord-style: "closing" it only hides the conversation — membership,
+// "Closing" it only hides the conversation — membership,
 // subscriptions, and history stay intact, and it reopens (history and all)
 // when either side messages again. Destroying the group here is what used to
 // strand the other side typing into a conversation we could no longer see.
@@ -2645,7 +2645,7 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		s.applyChronicleMeta(guildID, m)
 	case "nickname":
 		// A per-guild nickname. Two legitimate authors: the member themselves,
-		// or a moderator with MANAGE_MEMBERS renaming someone (Discord-style).
+		// or a moderator with MANAGE_MEMBERS renaming someone.
 		// EVERY peer checks this independently against the replayed op log —
 		// the payload names its target, so without this check any member could
 		// rename anyone on everyone else's screen. MLS authenticates SenderID,
@@ -2916,7 +2916,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 		return true // duplicate (gossip re-delivery or already synced): stay silent
 	}
 	s.emitMessage(m)
-	// A message landing in a closed DM reopens the conversation (Discord
+	// A message landing in a closed DM reopens the conversation (closing
 	// behavior: closing hides it, new activity surfaces it again).
 	if guildID != "" {
 		s.unhideDM(guildID)

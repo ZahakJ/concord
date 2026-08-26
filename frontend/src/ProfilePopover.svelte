@@ -7,7 +7,7 @@
 </script>
 
 <script>
-  // Floating Discord-style profile card. Reads S.profilePopover ({fingerprint,
+  // Floating profile card. Reads S.profilePopover ({fingerprint,
   // rect}); positions itself above the anchor (or below when there's no room),
   // clamped to the viewport. Rendered once at the app root so nothing clips it.
   import Icon from "./Icon.svelte";
@@ -57,8 +57,8 @@
   let nickText = $state("");
   let nickBusy = $state(false);
   // You can always rename yourself in a guild. A moderator with MANAGE_MEMBERS
-  // can rename anyone they outrank — never the owner (Discord's rule, and the
-  // one every peer re-checks when the change arrives).
+  // can rename anyone they outrank — never the owner. Every peer re-checks that
+  // rule independently when the change arrives.
   const canNick = $derived.by(() => {
     const g = activeGuild();
     if (!mem || !S.activeGuildId || g?.kind === "dm") return false;
@@ -206,9 +206,9 @@
       (has(activeGuild()?.myPerms || 0, PERM.MANAGE_ROLES) || !!activeGuild()?.isOwner),
   );
 
-  // One-click admin: Discord makes you hand-build a role first; here, "Make
-  // admin" finds (or creates) an Admin role with every permission and assigns
-  // it. Owner or Manage Roles only.
+  // One-click admin. Making somebody an admin normally means hand-building a
+  // role first; here, "Make admin" finds (or creates) an Admin role with every
+  // permission and assigns it. Owner or Manage Roles only.
   const adminRole = $derived(S.roles.find((r) => r.perms === PERM_ALL));
   const isAdmin = $derived(!!adminRole && !!mem?.roleIds?.includes(adminRole.id));
 
@@ -856,7 +856,7 @@
       ></button>
     {/if}
     {#if hasOverflow}
-      <!-- Discord-style overflow: moderation, nickname and block live here so
+      <!-- Overflow menu: moderation, nickname and block live here so
            the resting card stays about the person. Rides the banner art, so
            over-image chrome like the grip, not a themed surface. -->
       <button class="more-btn" onclick={openOverflow} aria-label="More options" title="More options">

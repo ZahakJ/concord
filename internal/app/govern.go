@@ -387,7 +387,7 @@ func (s *Service) BanMember(guildID, targetFpr string) error {
 	return s.removeMemberByFingerprint(guildID, targetFpr)
 }
 
-// TransferOwnership hands the guild to another member — what Discord does.
+// TransferOwnership hands the guild to another member.
 // It is ONE signed governance op: the MLS group is untouched (nobody joins,
 // leaves, or re-keys), so messages and calls flow straight through it. The
 // issue-side checks here are a courtesy; ingest re-checks membership and

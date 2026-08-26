@@ -1,7 +1,7 @@
 <script>
   // Publish an announcement: copy a message from an announcement channel into
-  // every linked consumer channel, optionally topped with a comment —
-  // Discord's "Publish" flow, guild-local.
+  // every linked consumer channel, optionally topped with a comment. The
+  // "publish" half of the announcement/following pair, guild-local.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { S, activeGuild, flash } from "../lib/state.svelte.js";

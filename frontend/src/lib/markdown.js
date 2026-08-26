@@ -37,8 +37,8 @@ const EMOJI_RE =
   /(?:\p{RI}\p{RI}|\p{Extended_Pictographic}(?:\u{FE0F}|\u{20E3}|[\u{1F3FB}-\u{1F3FF}]|\u{200D}\p{Extended_Pictographic})*)/gu;
 
 // emojiOnly: true when a message is nothing but emoji (unicode and/or custom
-// :name: shortcodes) and whitespace, so the caller can render it "jumbo" like
-// Discord. Bounded to a handful of emoji.
+// :name: shortcodes) and whitespace, so the caller can render it "jumbo".
+// Bounded to a handful of emoji.
 const CUSTOM_EMOJI_RE = /:[a-z0-9_]{2,32}:/gi;
 export function emojiOnly(text) {
   const stripped = text.replace(EMOJI_RE, "").replace(CUSTOM_EMOJI_RE, "").trim();
@@ -96,8 +96,8 @@ function renderInline(s, mentionNames, customEmoji, refs, opts) {
   });
 
   // Unicode emoji render as bundled Twemoji images — uniform squares on every
-  // OS, exactly like Discord — instead of native font glyphs (whose size and
-  // baseline wobble per platform). Done on escaped plain text before any of
+  // OS — instead of native font glyphs (whose size and baseline wobble per
+  // platform). Done on escaped plain text before any of
   // our tags are inserted, so the swap can never land inside an attribute or
   // tag we add later. An emoji newer than the bundled set falls back to the
   // raw glyph via onerror.
@@ -261,7 +261,7 @@ export function renderMarkdown(text, mentionNames = [], customEmoji = null, refs
   let out = "";
   for (let i = 0; i < parts.length; i++) {
     if (i % 2 === 1) {
-      // Inside a fence (unclosed runs to the end, like Discord). Keep the
+      // Inside a fence (unclosed runs to the end). Keep the
       // leading language line as a label (data-lang), then strip it.
       const lang = (/^([a-zA-Z0-9+-]+)\n/.exec(parts[i]) || [])[1] || "";
       const body = parts[i].replace(/^[a-zA-Z0-9+-]*\n/, "");

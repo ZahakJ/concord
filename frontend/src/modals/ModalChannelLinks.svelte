@@ -1,7 +1,7 @@
 <script>
   // Announcement → consumer wiring: pick which text channels this
-  // announcement channel publishes into (Discord's "following", scoped to
-  // the guild). Members with ManageChannels only.
+  // announcement channel publishes into — the "following" relationship, scoped
+  // to the guild. Members with ManageChannels only.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";

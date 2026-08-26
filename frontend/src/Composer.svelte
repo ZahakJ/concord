@@ -47,7 +47,7 @@
   let dirMode = $state("");
   let uploading = $state(0); // files being read into `pending` (brief)
   // Staged attachments: pasting/dropping/picking a file adds a PREVIEW to the
-  // composer (Discord-style), sent together with the text on submit.
+  // composer, sent together with the text on submit.
   // Each: { id, dataUrl, w, h, name, isImage }
   let pending = $state([]);
   let composerEl = $state(null);
@@ -783,7 +783,7 @@
     let sent = 0; // attachments successfully sent so far
     try {
       // Attachments first, then the caption — so a pasted image sits above its
-      // text in the feed, the way Discord shows an image with a caption below.
+      // text in the feed, the way a captioned picture reads.
       for (const a of atts) {
         if (a.isImage)
           await api.sendAttachment(chId, a.dataUrl, a.w, a.h, nextReply(), !!a.spoiler, a.name || "", a.desc || "");
@@ -879,7 +879,7 @@
 
   const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-  // Per-attachment controls, Discord-style: mark as spoiler, edit the name and
+  // Per-attachment controls: mark as spoiler, edit the name and
   // description, or drop it. Only one editor is open at a time — `editingAtt`
   // holds its id.
   let editingAtt = $state("");
@@ -2137,7 +2137,7 @@
     letter-spacing: 0.4px;
     pointer-events: none;
   }
-  /* The three controls, revealed on hover like Discord. A mouse can land on a
+  /* The three controls, revealed on hover. A mouse can land on a
      19px button; a fingertip covers all three, and the middle one is a delete
      with no undo. On touch the chip is the target instead (.att-open) and these
      move into the edit panel — see .att-acts. */
@@ -2391,7 +2391,7 @@
     margin: 0 5px;
     flex: none;
   }
-  /* One unified rounded bar — icons live inside it, Discord-style. */
+  /* One unified rounded bar — the icons live inside it, not beside it. */
   .input-box {
     display: flex;
     align-items: flex-end;

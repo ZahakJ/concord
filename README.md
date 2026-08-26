@@ -18,8 +18,8 @@
   <a href="https://zahakj.github.io/concord/"><b>zahakj.github.io/concord</b></a> — what it is, what it costs, and whether it will work for you
 </p>
 
-A peer-to-peer, end-to-end-encrypted alternative to Discord: guilds, channels,
-direct messages, voice, video and screen sharing, with nobody in the middle.
+A peer-to-peer, end-to-end-encrypted group chat app: guilds, channels, direct
+messages, voice, video and screen sharing, with nobody in the middle.
 There is no company, no account database, and no server that stores your
 messages. Every guild is a cryptographic group, every message is end-to-end
 encrypted, and the one piece of infrastructure Concord can use is untrusted by

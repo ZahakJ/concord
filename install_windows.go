@@ -22,7 +22,7 @@ import (
 // place already). If we aren't running from %LOCALAPPDATA%\Concord\
 // Concord.exe, we copy ourselves there, create Start Menu + Desktop
 // shortcuts and an Add/Remove Programs entry, relaunch the installed copy,
-// and exit — Discord's exact self-install behavior. Running from the install
+// and exit — the per-user self-install pattern. Running from the install
 // home is a no-op (plus cleanup of a self-update's parked .old binary).
 //
 // Everything here is silent: registry work goes through syscalls, and the

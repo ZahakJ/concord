@@ -31,9 +31,9 @@ import (
 //
 // What the proxy buys, precisely: the provider sees one IP (the rendezvous) and
 // no search terms tied to a person. What it costs: the rendezvous operator sees
-// the terms. That is a worse deal than the pack and a better one than Discord's,
-// where the intermediary is a company. The UI is required to say all of this;
-// see ModalGifs.svelte.
+// the terms. That is a worse deal than the pack, and a better one than routing
+// through a platform, where the intermediary is a company you did not choose.
+// The UI is required to say all of this; see ModalGifs.svelte.
 //
 // The single property that makes this worth building is that the MEDIA BYTES
 // come through the proxy too. If a result carried a provider URL and the UI

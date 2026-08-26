@@ -1,6 +1,6 @@
 <script>
   // MobileShell is the phone/touch layout: one pane at a time instead of the
-  // desktop 4-column grid. Discord-style gesture navigation — swipe right
+  // desktop 4-column grid. Gesture navigation — swipe right
   // anywhere in the chat to pull in the left drawer (guild rail + channel
   // list), swipe left for the member drawer; both track the finger and snap
   // open/closed on release by position + fling velocity. The top-bar buttons
@@ -463,7 +463,7 @@
         <Icon name="menu" />
       </button>
     {/if}
-    <!-- The title is tappable (Discord/Telegram muscle memory): same sheet as ⋯.
+    <!-- The title is tappable, which is where a thumb goes first: same sheet as ⋯.
          The chevron is the only thing that says so before you tap it. -->
     <button class="mtitle" onclick={hasChannel ? moreMenu : undefined} disabled={!hasChannel}>
       <span class="mtitle-text">{title}</span>
