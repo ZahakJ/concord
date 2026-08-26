@@ -99,41 +99,51 @@
     </section>
 
     <!-- PEOPLE -->
-    {#if canRoles || g.canManage}
-      <section class="grp">
-        <div class="sec-label">People</div>
-        <div class="card">
-          {#if canRoles}
-            <button class="row" onclick={() => openPanel("roles")}>
-              <span class="chip"><Icon name="spark" size={17} /></span>
-              <span class="row-text">
-                <span class="row-title">Roles</span>
-                <span class="row-sub">Permissions &amp; who can do what</span>
-              </span>
-              <span class="chev">›</span>
-            </button>
-          {/if}
-          {#if g.canManage}
-            <button class="row" onclick={() => openPanel("bans")}>
-              <span class="chip"><Icon name="door" size={17} /></span>
-              <span class="row-text">
-                <span class="row-title">Banned members</span>
-                <span class="row-sub">Review &amp; lift bans</span>
-              </span>
-              <span class="chev">›</span>
-            </button>
-            <button class="row" onclick={showInvite}>
-              <span class="chip"><Icon name="members" size={17} /></span>
-              <span class="row-text">
-                <span class="row-title">Invite people</span>
-                <span class="row-sub">Share a code that lets people in</span>
-              </span>
-              <span class="chev">›</span>
-            </button>
-          {/if}
-        </div>
-      </section>
-    {/if}
+    <!-- The section is no longer permission-gated, because the moderation log
+         inside it is not: that log is already on every member's disk, so hiding
+         the screen would hide the record from the people it is about and from
+         nobody else. The rows that DO act still gate themselves. -->
+    <section class="grp">
+      <div class="sec-label">People</div>
+      <div class="card">
+        {#if canRoles}
+          <button class="row" onclick={() => openPanel("roles")}>
+            <span class="chip"><Icon name="spark" size={17} /></span>
+            <span class="row-text">
+              <span class="row-title">Roles</span>
+              <span class="row-sub">Permissions &amp; who can do what</span>
+            </span>
+            <span class="chev">›</span>
+          </button>
+        {/if}
+        {#if g.canManage}
+          <button class="row" onclick={() => openPanel("bans")}>
+            <span class="chip"><Icon name="door" size={17} /></span>
+            <span class="row-text">
+              <span class="row-title">Banned members</span>
+              <span class="row-sub">Review &amp; lift bans</span>
+            </span>
+            <span class="chev">›</span>
+          </button>
+          <button class="row" onclick={showInvite}>
+            <span class="chip"><Icon name="members" size={17} /></span>
+            <span class="row-text">
+              <span class="row-title">Invite people</span>
+              <span class="row-sub">Share a code that lets people in</span>
+            </span>
+            <span class="chev">›</span>
+          </button>
+        {/if}
+        <button class="row" onclick={() => openPanel("modLog")}>
+          <span class="chip"><Icon name="list" size={17} /></span>
+          <span class="row-text">
+            <span class="row-title">Moderation log</span>
+            <span class="row-sub">Every signed decision, checked on your device</span>
+          </span>
+          <span class="chev">›</span>
+        </button>
+      </div>
+    </section>
 
     <!-- EXPRESSION -->
     <section class="grp">

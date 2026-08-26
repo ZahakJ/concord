@@ -88,6 +88,7 @@
     report: () => import("./modals/ModalReport.svelte"),
     bans: () => import("./modals/ModalBans.svelte"),
     roles: () => import("./modals/ModalRoles.svelte"),
+    modLog: () => import("./modals/ModalModerationLog.svelte"),
     guildHub: () => import("./modals/ModalGuildHub.svelte"),
     guildSettings: () => import("./modals/ModalGuildSettings.svelte"),
     shortcuts: () => import("./modals/ModalShortcuts.svelte"),
@@ -1544,6 +1545,8 @@
     {:else if S.modal?.kind === "bans"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "roles"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "modLog"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "guildHub"}
       <!-- The hub is the front door; guildSettings below is now its Overview

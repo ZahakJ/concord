@@ -244,202 +244,247 @@ func canonicalOps(ops []govOp) []govOp {
 // Invalidly-signed or unauthorized ops are skipped, not fatal (the log is
 // gossiped; a peer may see a stray or malicious op).
 func replayGuildOps(owner []byte, ops []govOp) GuildState {
+	st, _ := replayGuildOpsRecording(owner, ops, false)
+	return st
+}
+
+// opVerdict is what the replay decided about one op. It exists because the
+// moderation log has to be able to say "this was signed by someone who was not
+// allowed to do it, and nothing happened" — a screen whose whole claim is that
+// you can check the record yourself must not print a ban that never took.
+type opVerdict struct {
+	Verified bool // the Ed25519 signature checks out against the signer's key
+	Applied  bool // the op was authorized at its point in the order and changed state
+}
+
+// replayGuildOpsRecording is replayGuildOps with the verdicts kept. Recording is
+// opt-in because the plain replay runs on every ingest and every rebuild, and a
+// map allocation per fold is a cost the hot path should not pay for a screen
+// almost nobody has open.
+func replayGuildOpsRecording(owner []byte, ops []govOp, record bool) (GuildState, map[string]opVerdict) {
 	cur := identity.FingerprintOf(owner)
 	st := newGuildState()
+	var verdicts map[string]opVerdict
+	if record {
+		verdicts = make(map[string]opVerdict, len(ops))
+	}
 	for _, o := range canonicalOps(ops) {
 		if !o.verifySig() {
+			if record {
+				verdicts[o.hash()] = opVerdict{}
+			}
 			continue
 		}
-		signer := o.signerFpr()
-		isOwner := signer == cur
-
-		switch o.Type {
-		case "role_upsert":
-			if o.RoleID == "" {
-				continue
-			}
-			if !isOwner && !st.Can(cur, signer, PermManageRoles) {
-				continue
-			}
-			newPerms := Permission(o.Perms) & permAll
-			if !isOwner {
-				// Can't mint a role more powerful than yourself.
-				if !st.permsOf(cur, signer).Has(newPerms) {
-					continue
-				}
-				// Can't create/move a role at or above your own rank.
-				if o.Position >= st.topPosition(cur, signer) {
-					continue
-				}
-				// Can't edit an existing role that outranks you.
-				if existing, ok := st.Roles[o.RoleID]; ok && existing.Position >= st.topPosition(cur, signer) {
-					continue
-				}
-			}
-			st.Roles[o.RoleID] = Role{
-				ID: o.RoleID, Name: o.Name, Color: o.Color, Perms: newPerms, Position: o.Position,
-			}
-		case "role_delete":
-			r, ok := st.Roles[o.RoleID]
-			if !ok {
-				continue
-			}
-			if !isOwner {
-				if !st.Can(cur, signer, PermManageRoles) || r.Position >= st.topPosition(cur, signer) {
-					continue
-				}
-			}
-			delete(st.Roles, o.RoleID)
-			for fpr := range st.MemberRoles {
-				st.MemberRoles[fpr] = removeStr(st.MemberRoles[fpr], o.RoleID)
-			}
-		case "role_assign":
-			r, ok := st.Roles[o.RoleID]
-			// Nobody but the owner may hand roles TO the owner — that keeps a
-			// moderator from decorating (or re-ranking) them. The owner giving
-			// THEMSELVES a role is fine and is how they take the Admin badge;
-			// it grants nothing they don't already have.
-			if !ok || o.Target == "" || (o.Target == cur && !isOwner) {
-				continue
-			}
-			if !isOwner {
-				// Need ManageRoles, and the role must be below your own rank.
-				if !st.Can(cur, signer, PermManageRoles) || r.Position >= st.topPosition(cur, signer) {
-					continue
-				}
-			}
-			if o.Add {
-				if !containsStr(st.MemberRoles[o.Target], o.RoleID) {
-					st.MemberRoles[o.Target] = append(st.MemberRoles[o.Target], o.RoleID)
-				}
-			} else {
-				st.MemberRoles[o.Target] = removeStr(st.MemberRoles[o.Target], o.RoleID)
-			}
-		case "ban":
-			if !isOwner && !st.Can(cur, signer, PermManageMembers) {
-				continue
-			}
-			if o.Target == cur || o.Target == "" {
-				continue
-			}
-			st.Banned[o.Target] = true
-			delete(st.MemberRoles, o.Target) // a banned member forfeits its roles
-		case "unban":
-			if !isOwner && !st.Can(cur, signer, PermManageMembers) {
-				continue
-			}
-			delete(st.Banned, o.Target)
-		case "mute":
-			if !isOwner && !st.Can(cur, signer, PermMuteMembers) {
-				continue
-			}
-			if o.Target == cur || o.Target == "" {
-				continue // the owner can't be muted
-			}
-			st.Muted[o.Target] = o.Until
-		case "unmute":
-			if !isOwner && !st.Can(cur, signer, PermMuteMembers) {
-				continue
-			}
-			delete(st.Muted, o.Target)
-		case "slow_mode":
-			// A channel setting, so it rides manage-channels. The clamp is part
-			// of the REPLAY (not just the issuing UI) so every honest client
-			// derives the identical state from a hand-crafted op too.
-			if !isOwner && !st.Can(cur, signer, PermManageChannels) {
-				continue
-			}
-			if o.ChannelID == "" {
-				continue
-			}
-			if o.Seconds <= 0 {
-				delete(st.SlowMode, o.ChannelID)
-			} else if o.Seconds > 21600 {
-				st.SlowMode[o.ChannelID] = 21600 // 6h, the ceiling the UI offers
-			} else {
-				st.SlowMode[o.ChannelID] = o.Seconds
-			}
-		case "retention":
-			// Deleting everyone's history is not a channel tweak, so it rides
-			// manage-guild rather than manage-channels. Empty ChannelID is the
-			// guild-wide policy; a channel id overrides it for that channel.
-			if !isOwner && !st.Can(cur, signer, PermManageGuild) {
-				continue
-			}
-			// Clamped in REPLAY, not just at the point of issue, so a
-			// hand-crafted op folds to the same state on every honest client.
-			// The floor is an hour: this is housekeeping for old messages, and
-			// a policy of seconds would be a foot-gun that eats a conversation
-			// as fast as it is typed. Ephemeral-by-design already exists
-			// elsewhere as moments.
-			switch {
-			case o.Seconds <= 0:
-				delete(st.Retention, o.ChannelID)
-			case o.Seconds < 3600:
-				st.Retention[o.ChannelID] = 3600
-			case o.Seconds > 31536000:
-				st.Retention[o.ChannelID] = 31536000 // a year
-			default:
-				st.Retention[o.ChannelID] = o.Seconds
-			}
-		case "transfer_owner":
-			// Only the reigning owner abdicates — nobody else's signature moves
-			// the crown, no matter how the op reached us. Transfer-to-self is a
-			// no-op, not a state change. (Membership of the target is enforced
-			// receive-side at ingest, because MLS membership is a moving fact
-			// while this replay must stay a pure function of the log.)
-			//
-			// A ban on the target does NOT veto the handover, and that is
-			// deliberate: the owner outranks every ban and cannot be removed,
-			// so "banned owner" is not a state this system can be in. Letting a
-			// ban block a transfer also handed an attacker a lever — a ban
-			// folded in ahead of the transfer made the transfer skip, leaving
-			// the outgoing owner in place. Naming someone owner readmits them.
-			if !isOwner || o.Target == "" || o.Target == cur {
-				continue
-			}
-			delete(st.Banned, o.Target)
-			cur = o.Target
-			// A handover voids any standing heir designation: it was the OLD
-			// owner's trust decision, and the new owner names their own.
-			st.heir = ""
-		case "set_heir":
-			// Only the reigning owner pre-authorizes a successor (or revokes
-			// the designation with an empty Target). This is the involuntary-
-			// succession primitive: the resulting claim is valid WHENEVER the
-			// heir uses it, not merely "if the owner goes quiet" — wall-clock
-			// liveness is not a fact partitioned peers can agree on, and a
-			// liveness gate could crown two owners on two sides of a partition.
-			// So the heir holds a permanent, revocable break-glass, and the UI
-			// says exactly that at designation time.
-			if !isOwner || o.Target == cur || st.Banned[o.Target] {
-				continue // self-heir is meaningless; a banned fpr can't inherit
-			}
-			st.heir = o.Target
-		case "claim_heir":
-			// The heir cashes the owner's standing authorization: ownership
-			// moves through the SAME cur machinery as transfer_owner, so there
-			// is exactly one notion of "current owner" for every later rule.
-			// Only a signature from the fingerprint the live designation names
-			// counts, and a since-banned heir cannot claim. The designation is
-			// consumed — the new owner names their own heir.
-			//
-			// The ban veto STAYS here, unlike transfer_owner: "named an heir,
-			// then banned them" is an in-order revocation by the same owner and
-			// blocking the claim is the honest reading of it. The backdating
-			// attack that made the veto dangerous on transfer_owner is stopped
-			// upstream at ingest (see ingestGovOp), which is where an
-			// out-of-order op belongs — not in a rule that would also throw away
-			// a legitimate revocation.
-			if st.heir == "" || signer != st.heir || st.Banned[signer] {
-				continue
-			}
-			cur = signer
-			st.heir = ""
+		applied := st.applyGovOp(&cur, o)
+		if record {
+			verdicts[o.hash()] = opVerdict{Verified: true, Applied: applied}
 		}
 	}
 	st.owner = cur
-	return st
+	return st, verdicts
+}
+
+// applyGovOp folds one verified op into the state, returning whether it was
+// authorized and actually changed anything. Every refusal is a `return false`
+// so the caller can record it; an op type this build does not know is a refusal
+// too, which is the fail-closed reading of a field a stranger chose.
+//
+// cur is a pointer because ownership moves inside the fold: transfer_owner and
+// claim_heir re-anchor every later op's authority check, and they have to do it
+// in the same variable the loop reads.
+func (st *GuildState) applyGovOp(curp *string, o govOp) bool {
+	cur := *curp
+	signer := o.signerFpr()
+	isOwner := signer == cur
+
+	switch o.Type {
+	case "role_upsert":
+		if o.RoleID == "" {
+			return false
+		}
+		if !isOwner && !st.Can(cur, signer, PermManageRoles) {
+			return false
+		}
+		newPerms := Permission(o.Perms) & permAll
+		if !isOwner {
+			// Can't mint a role more powerful than yourself.
+			if !st.permsOf(cur, signer).Has(newPerms) {
+				return false
+			}
+			// Can't create/move a role at or above your own rank.
+			if o.Position >= st.topPosition(cur, signer) {
+				return false
+			}
+			// Can't edit an existing role that outranks you.
+			if existing, ok := st.Roles[o.RoleID]; ok && existing.Position >= st.topPosition(cur, signer) {
+				return false
+			}
+		}
+		st.Roles[o.RoleID] = Role{
+			ID: o.RoleID, Name: o.Name, Color: o.Color, Perms: newPerms, Position: o.Position,
+		}
+	case "role_delete":
+		r, ok := st.Roles[o.RoleID]
+		if !ok {
+			return false
+		}
+		if !isOwner {
+			if !st.Can(cur, signer, PermManageRoles) || r.Position >= st.topPosition(cur, signer) {
+				return false
+			}
+		}
+		delete(st.Roles, o.RoleID)
+		for fpr := range st.MemberRoles {
+			st.MemberRoles[fpr] = removeStr(st.MemberRoles[fpr], o.RoleID)
+		}
+	case "role_assign":
+		r, ok := st.Roles[o.RoleID]
+		// Nobody but the owner may hand roles TO the owner — that keeps a
+		// moderator from decorating (or re-ranking) them. The owner giving
+		// THEMSELVES a role is fine and is how they take the Admin badge;
+		// it grants nothing they don't already have.
+		if !ok || o.Target == "" || (o.Target == cur && !isOwner) {
+			return false
+		}
+		if !isOwner {
+			// Need ManageRoles, and the role must be below your own rank.
+			if !st.Can(cur, signer, PermManageRoles) || r.Position >= st.topPosition(cur, signer) {
+				return false
+			}
+		}
+		if o.Add {
+			if !containsStr(st.MemberRoles[o.Target], o.RoleID) {
+				st.MemberRoles[o.Target] = append(st.MemberRoles[o.Target], o.RoleID)
+			}
+		} else {
+			st.MemberRoles[o.Target] = removeStr(st.MemberRoles[o.Target], o.RoleID)
+		}
+	case "ban":
+		if !isOwner && !st.Can(cur, signer, PermManageMembers) {
+			return false
+		}
+		if o.Target == cur || o.Target == "" {
+			return false
+		}
+		st.Banned[o.Target] = true
+		delete(st.MemberRoles, o.Target) // a banned member forfeits its roles
+	case "unban":
+		if !isOwner && !st.Can(cur, signer, PermManageMembers) {
+			return false
+		}
+		delete(st.Banned, o.Target)
+	case "mute":
+		if !isOwner && !st.Can(cur, signer, PermMuteMembers) {
+			return false
+		}
+		if o.Target == cur || o.Target == "" {
+			return false // the owner can't be muted
+		}
+		st.Muted[o.Target] = o.Until
+	case "unmute":
+		if !isOwner && !st.Can(cur, signer, PermMuteMembers) {
+			return false
+		}
+		delete(st.Muted, o.Target)
+	case "slow_mode":
+		// A channel setting, so it rides manage-channels. The clamp is part
+		// of the REPLAY (not just the issuing UI) so every honest client
+		// derives the identical state from a hand-crafted op too.
+		if !isOwner && !st.Can(cur, signer, PermManageChannels) {
+			return false
+		}
+		if o.ChannelID == "" {
+			return false
+		}
+		if o.Seconds <= 0 {
+			delete(st.SlowMode, o.ChannelID)
+		} else if o.Seconds > 21600 {
+			st.SlowMode[o.ChannelID] = 21600 // 6h, the ceiling the UI offers
+		} else {
+			st.SlowMode[o.ChannelID] = o.Seconds
+		}
+	case "retention":
+		// Deleting everyone's history is not a channel tweak, so it rides
+		// manage-guild rather than manage-channels. Empty ChannelID is the
+		// guild-wide policy; a channel id overrides it for that channel.
+		if !isOwner && !st.Can(cur, signer, PermManageGuild) {
+			return false
+		}
+		// Clamped in REPLAY, not just at the point of issue, so a
+		// hand-crafted op folds to the same state on every honest client.
+		// The floor is an hour: this is housekeeping for old messages, and
+		// a policy of seconds would be a foot-gun that eats a conversation
+		// as fast as it is typed. Ephemeral-by-design already exists
+		// elsewhere as moments.
+		switch {
+		case o.Seconds <= 0:
+			delete(st.Retention, o.ChannelID)
+		case o.Seconds < 3600:
+			st.Retention[o.ChannelID] = 3600
+		case o.Seconds > 31536000:
+			st.Retention[o.ChannelID] = 31536000 // a year
+		default:
+			st.Retention[o.ChannelID] = o.Seconds
+		}
+	case "transfer_owner":
+		// Only the reigning owner abdicates — nobody else's signature moves
+		// the crown, no matter how the op reached us. Transfer-to-self is a
+		// no-op, not a state change. (Membership of the target is enforced
+		// receive-side at ingest, because MLS membership is a moving fact
+		// while this replay must stay a pure function of the log.)
+		//
+		// A ban on the target does NOT veto the handover, and that is
+		// deliberate: the owner outranks every ban and cannot be removed,
+		// so "banned owner" is not a state this system can be in. Letting a
+		// ban block a transfer also handed an attacker a lever — a ban
+		// folded in ahead of the transfer made the transfer skip, leaving
+		// the outgoing owner in place. Naming someone owner readmits them.
+		if !isOwner || o.Target == "" || o.Target == cur {
+			return false
+		}
+		delete(st.Banned, o.Target)
+		*curp = o.Target
+		// A handover voids any standing heir designation: it was the OLD
+		// owner's trust decision, and the new owner names their own.
+		st.heir = ""
+	case "set_heir":
+		// Only the reigning owner pre-authorizes a successor (or revokes
+		// the designation with an empty Target). This is the involuntary-
+		// succession primitive: the resulting claim is valid WHENEVER the
+		// heir uses it, not merely "if the owner goes quiet" — wall-clock
+		// liveness is not a fact partitioned peers can agree on, and a
+		// liveness gate could crown two owners on two sides of a partition.
+		// So the heir holds a permanent, revocable break-glass, and the UI
+		// says exactly that at designation time.
+		if !isOwner || o.Target == cur || st.Banned[o.Target] {
+			return false // self-heir is meaningless; a banned fpr can't inherit
+		}
+		st.heir = o.Target
+	case "claim_heir":
+		// The heir cashes the owner's standing authorization: ownership
+		// moves through the SAME cur machinery as transfer_owner, so there
+		// is exactly one notion of "current owner" for every later rule.
+		// Only a signature from the fingerprint the live designation names
+		// counts, and a since-banned heir cannot claim. The designation is
+		// consumed — the new owner names their own heir.
+		//
+		// The ban veto STAYS here, unlike transfer_owner: "named an heir,
+		// then banned them" is an in-order revocation by the same owner and
+		// blocking the claim is the honest reading of it. The backdating
+		// attack that made the veto dangerous on transfer_owner is stopped
+		// upstream at ingest (see ingestGovOp), which is where an
+		// out-of-order op belongs — not in a rule that would also throw away
+		// a legitimate revocation.
+		if st.heir == "" || signer != st.heir || st.Banned[signer] {
+			return false
+		}
+		*curp = signer
+		st.heir = ""
+	default:
+		// An op type this build does not know folds to nothing, and says so.
+		return false
+	}
+	return true
 }
 
 func containsStr(s []string, v string) bool {

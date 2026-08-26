@@ -2260,6 +2260,33 @@ func (b *Bridge) Bans(guildID string) ([]BanView, error) {
 	return out, nil
 }
 
+// GovLogView is a page of the guild's governance log plus how long the log is,
+// so the panel can say "42 of 380" without a second call. Total is the whole
+// log, including any entry the replay refused — a refusal is a row too.
+type GovLogView struct {
+	Entries []appsvc.GovLogEntry `json:"entries"`
+	Total   int                  `json:"total"`
+}
+
+// GovernanceLog reads the guild's moderation history. No permission gate: the
+// ops are already on this device, already signed, and already verifiable — see
+// the header of internal/app/govlog.go for why hiding the screen would hide
+// nothing.
+func (b *Bridge) GovernanceLog(guildID string, offset, limit int) (GovLogView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return GovLogView{}, err
+	}
+	entries, err := svc.GovernanceLog(guildID, offset, limit)
+	if err != nil {
+		return GovLogView{}, err
+	}
+	if entries == nil {
+		entries = []appsvc.GovLogEntry{}
+	}
+	return GovLogView{Entries: entries, Total: svc.GovernanceLogSize(guildID)}, nil
+}
+
 func (b *Bridge) RemoveMember(guildID, fingerprint string) error {
 	svc, err := b.service()
 	if err != nil {
@@ -3198,6 +3225,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return nil, b.UnmuteMember(argStr(args, 0), argStr(args, 1))
 	case "Bans":
 		return b.Bans(argStr(args, 0))
+	case "GovernanceLog":
+		return b.GovernanceLog(argStr(args, 0), argInt(args, 1), argInt(args, 2))
 	case "Contacts":
 		return b.Contacts()
 	case "JoinVoice":

@@ -420,6 +420,14 @@ export const api = {
   guildRetention: (guildID) => call("GuildRetention", guildID),
   unmuteMember: (guildID, fingerprint) => call("UnmuteMember", guildID, fingerprint),
   bans: (guildID) => call("Bans", guildID),
+  // governanceLog resolves to { entries, total }. Entries are newest first,
+  // paged by position in the canonical replay order (offset counts back from the
+  // newest), because that order is the one every peer agrees on and the `at`
+  // timestamps are author clocks that can disagree. Each entry carries
+  // `verified` (the signature checks out here, on this machine) and `applied`
+  // (the replay was willing to act on it) — they are different questions and the
+  // panel must not conflate them.
+  governanceLog: (guildID, offset, limit) => call("GovernanceLog", guildID, offset, limit),
   contacts: () => call("Contacts"),
   joinVoice: (channelID) => call("JoinVoice", channelID),
   leaveVoice: (channelID) => call("LeaveVoice", channelID),
