@@ -60,13 +60,15 @@ type Service struct {
 	inviteMu sync.Mutex
 
 	// admitting holds the open admission batch per guild — the joiners that
-	// will share the next commit — and admitCommitting counts the batches
-	// currently inside inviteMu, which is how a new batch's leader knows a wave
-	// is already under way. Both guarded by admitMu, which is taken INSIDE
-	// inviteMu and never the other way round. See admission.go.
+	// will share the next commit — and admitCommitting counts, per guild, the
+	// batches currently inside inviteMu, which is how a new batch's leader
+	// knows a wave is already under way THERE (a commit in another guild is
+	// not a reason to wait for stragglers in this one). Both guarded by
+	// admitMu, which is taken INSIDE inviteMu and never the other way round.
+	// See admission.go.
 	admitMu         sync.Mutex
 	admitting       map[string]*admissionBatch
-	admitCommitting int
+	admitCommitting map[string]int
 
 	// memberSets caches each guild's resolved roster (see guildMemberSet).
 	// Its own mutex: the roster is read from paths that already hold mu, and
@@ -1029,6 +1031,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		govHighSeq:       map[string]map[string]uint64{},
 		govTopSeq:        map[string]uint64{},
 		admitting:        map[string]*admissionBatch{},
+		admitCommitting:  map[string]int{},
 		memberSets:       map[string]*memberSet{},
 		meetingLife:      map[string]time.Time{},
 		outOfSync:        map[string]bool{},

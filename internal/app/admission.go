@@ -122,7 +122,7 @@ func (s *Service) admit(g *domain.Guild, req inviteRequest, from peer.ID) (welco
 // line is promoted to lead the remainder.
 func (s *Service) leadAdmission(g *domain.Guild, b *admissionBatch) {
 	s.admitMu.Lock()
-	wave := len(b.tickets) > 1 || s.admitCommitting > 0
+	wave := len(b.tickets) > 1 || s.admitCommitting[g.ID] > 0
 	s.admitMu.Unlock()
 	if wave {
 		s.lingerAdmission(b)
@@ -131,7 +131,10 @@ func (s *Service) leadAdmission(g *domain.Guild, b *admissionBatch) {
 	// good case, because its queue keeps growing while it waits.
 	s.inviteMu.Lock()
 	s.admitMu.Lock()
-	s.admitCommitting++
+	if s.admitCommitting == nil {
+		s.admitCommitting = map[string]int{}
+	}
+	s.admitCommitting[g.ID]++
 	n := len(b.tickets)
 	if n > maxAdmissionBatch {
 		n = maxAdmissionBatch
@@ -149,7 +152,9 @@ func (s *Service) leadAdmission(g *domain.Guild, b *admissionBatch) {
 	s.commitAdmissions(g, tickets)
 
 	s.admitMu.Lock()
-	s.admitCommitting--
+	if s.admitCommitting[g.ID]--; s.admitCommitting[g.ID] <= 0 {
+		delete(s.admitCommitting, g.ID)
+	}
 	s.admitMu.Unlock()
 	s.inviteMu.Unlock()
 
