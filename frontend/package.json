@@ -10,7 +10,7 @@
     "build": "npm run prep-twemoji && vite build",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{js,mjs,svelte}\"",
-    "test": "node src/lib/markdown.test.mjs && node src/lib/rail.test.mjs && node src/lib/keybind.test.mjs && node src/lib/notifs.test.mjs && node src/lib/animated.test.mjs && node src/lib/meme.test.mjs && node src/lib/memerecipe.test.mjs && node src/lib/anemoji.test.mjs && node src/lib/attachopts.test.mjs && node src/lib/guildbanners.test.mjs && node src/lib/cosmeticcontrast.test.mjs && node src/lib/cardframes.test.mjs && node src/lib/cardscenes.test.mjs && node src/lib/decorations.test.mjs && node src/lib/forum.test.mjs && node src/lib/postdraft.test.mjs && node src/lib/timestamp.test.mjs && node src/lib/eventtime.test.mjs && node src/lib/radar.test.mjs && node src/lib/visibility.test.mjs && node src/lib/report.test.mjs"
+    "test": "node src/lib/markdown.test.mjs && node src/lib/rail.test.mjs && node src/lib/keybind.test.mjs && node src/lib/notifs.test.mjs && node src/lib/animated.test.mjs && node src/lib/meme.test.mjs && node src/lib/memerecipe.test.mjs && node src/lib/anemoji.test.mjs && node src/lib/attachopts.test.mjs && node src/lib/guildbanners.test.mjs && node src/lib/cosmeticcontrast.test.mjs && node src/lib/cardframes.test.mjs && node src/lib/cardscenes.test.mjs && node src/lib/decorations.test.mjs && node src/lib/forum.test.mjs && node src/lib/postdraft.test.mjs && node src/lib/timestamp.test.mjs && node src/lib/eventtime.test.mjs && node src/lib/radar.test.mjs && node src/lib/visibility.test.mjs && node src/lib/report.test.mjs && node src/lib/chronicle.test.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.2.0",
