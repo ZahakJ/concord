@@ -11,27 +11,32 @@
   let { version = "", onClose } = $props();
 
   // Update these WITH each release — the splash is the release's voice.
-  // 3-4 rows maximum: a changelog is a document, this is a wave hello.
+  // 3-5 rows maximum: a changelog is a document, this is a wave hello.
   const HIGHLIGHTS = [
     {
-      icon: "bolt",
-      title: "Guilds sync in bytes, not megabytes",
-      desc: "Peers now send only what has actually changed, so a guild where nothing is happening costs a few hundred bytes a minute instead of most of a megabyte — and a guild carrying enough art that it could never finish syncing at all now catches up.",
+      icon: "folder",
+      title: "Bring a community's history with you",
+      desc: "Point the import wizard at a chat export and it says what is inside, and what your choices will cost, before it writes a byte. What comes out sits above your channels — scrolling past the top simply keeps reading.",
+    },
+    {
+      icon: "members",
+      title: "A crowd can arrive all at once",
+      desc: "A guild used to pay for every joiner separately, so a wave cost more than the wave. A hundred people joining now settle in 47 seconds rather than two and a quarter minutes, and a newcomer is handed everybody's name instead of everybody's photograph.",
     },
     {
       icon: "phone",
-      title: "Your phone stops working for everyone else",
-      desc: "It no longer carries other people's traffic over your data plan, holds far fewer connections, and slows its search for peers while you are on cellular. A minimised window or a hidden tab now goes quiet the same way a pocketed phone does.",
+      title: "The phone app, rebuilt around your thumb",
+      desc: "Only the messages you are looking at are drawn, so a channel opens in 55ms rather than freezing; half as much is fetched before the first one appears; every sheet answers a pull the same way; and back is Android's own gesture again.",
     },
     {
-      icon: "check",
-      title: "A guild that split in two finds its way back",
-      desc: "Two owners changing who is in a guild at the same moment could leave it quietly divided, each half unable to read a word from the other and nothing saying so. That is now noticed and repaired within seconds.",
+      icon: "bell",
+      title: "Find what was aimed at you",
+      desc: "An inbox gathers every mention, every reply and every hit on the words you asked to be told about — matched on your own machine, told to nobody. Come back after a night away and a card at the unread line hands you what you missed.",
     },
     {
-      icon: "diamond",
-      title: "The frames around your card are places now",
-      desc: "All twelve are redrawn with real light, depth and texture — a keep, a cathedral, deep woods, a reef — and the scenes behind them reach the whole card again, with your name given its own edge so it stays readable over any of them.",
+      icon: "die",
+      title: "Draw on a message, play, make a noise",
+      desc: "A pad that sends strokes rather than a picture, four in a row played inside a channel with nothing but the messages holding the board, and a soundboard whose sounds are thirty-byte recipes anyone can write.",
     },
   ];
 
