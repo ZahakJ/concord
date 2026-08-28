@@ -9,6 +9,7 @@
   import FxOverlay from "../FxOverlay.svelte";
   import { THEME_FX } from "../lib/themefx.js";
   import { S, setAppearance } from "../lib/state.svelte.js";
+  import { rangefill } from "../lib/rangefill.js";
 
   let { onClose } = $props();
 
@@ -455,6 +456,7 @@
           value={uiScale}
           aria-label="UI scale"
           oninput={(e) => setAppearance("uiScale", Number(e.currentTarget.value))}
+          use:rangefill={uiScale}
         />
         <span class="scale-val">{Math.round(uiScale * 100)}%</span>
         <button class="scale-reset" disabled={uiScale === 1} onclick={() => setAppearance("uiScale", 1)}>
@@ -519,7 +521,6 @@
   }
   .scale-row input[type="range"] {
     flex: 1;
-    accent-color: var(--accent);
   }
   .scale-val {
     font-variant-numeric: tabular-nums;

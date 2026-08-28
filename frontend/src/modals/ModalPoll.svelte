@@ -8,6 +8,7 @@
   import { flip } from "svelte/animate";
   import { fade } from "svelte/transition";
   import Modal from "./Modal.svelte";
+  import Switch from "../Switch.svelte";
   import Icon from "../Icon.svelte";
   import PollView from "../PollView.svelte";
   import { S, flash } from "../lib/state.svelte.js";
@@ -145,8 +146,8 @@
   </div>
 
   <button type="button" class="multi" role="switch" aria-checked={multi} onclick={() => (multi = !multi)}>
-    <span class="switch" class:on={multi}><span class="knob"></span></span>
     <span>Allow selecting multiple options</span>
+    <Switch on={multi} />
   </button>
 
   <div class="field closes">
@@ -168,8 +169,8 @@
   </div>
 
   <button type="button" class="multi" role="switch" aria-checked={quiz} onclick={() => (quiz = !quiz)}>
-    <span class="switch" class:on={quiz}><span class="knob"></span></span>
     <span>Quiz mode — one option is the right answer</span>
+    <Switch on={quiz} />
   </button>
 
   {#if quiz}
@@ -303,6 +304,11 @@
     display: flex;
     align-items: center;
     gap: 10px;
+    /* Label first, control last — the reading order of every settings row in
+       the app, and of the switch rows these two sit two lines away from. */
+    justify-content: space-between;
+    width: 100%;
+    text-align: left;
     padding: 6px 2px;
     font-size: var(--fs-ui);
     color: var(--text);
@@ -408,31 +414,6 @@
       min-height: var(--tap-min);
     }
   }
-  .switch {
-    width: 34px;
-    height: 20px;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
-    position: relative;
-    flex-shrink: 0;
-    transition: background var(--dur-standard) ease;
-  }
-  .switch.on {
-    background: var(--accent);
-  }
-  .knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #fff;
-    transition: transform var(--dur-standard) ease;
-  }
-  .switch.on .knob {
-    transform: translateX(14px);
-  }
   .preview-wrap {
     display: flex;
     flex-direction: column;
@@ -454,8 +435,6 @@
     margin-top: var(--sp-4);
   }
   @media (prefers-reduced-motion: reduce) {
-    .knob,
-    .switch,
     .preview {
       transition: none;
     }

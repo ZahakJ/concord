@@ -213,6 +213,11 @@
     position: absolute;
     top: calc(100% + 6px);
     min-width: 180px;
+    /* A menu used to hold a handful of verbs. Select.svelte hands it option
+       lists — thirty-one days, twelve months — which without a ceiling grow a
+       thousand-pixel panel that runs off both ends of the window. */
+    max-height: min(340px, 62vh);
+    overflow-y: auto;
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);

@@ -22,6 +22,7 @@
   import BottomSheet from "./BottomSheet.svelte";
   import { S, closeContextMenu } from "./lib/state.svelte.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
+  import { rangefill } from "./lib/rangefill.js";
 
   // A menu is the shallowest thing on screen and the first thing back should
   // take away — but only because it was opened last, not because it used to be
@@ -122,6 +123,7 @@
       value={rangeVal}
       aria-label={item.label}
       oninput={(e) => slide(item, +e.target.value)}
+      use:rangefill={rangeVal}
     />
   </div>
 {/snippet}

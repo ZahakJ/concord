@@ -270,6 +270,14 @@
   --bg-input: color-mix(in srgb, var(--bg-3) 42%, var(--bg-2));
   --verified: var(--ok);
   --radius: var(--radius-md);
+  /* Slider parts. The groove is derived so a pack's own depth scale carries
+     it; the knob is a fixed near-white on BOTH themes, because a knob mixed
+     from --text flips to near-black in light mode and a slider that changes
+     species between themes is the thing this rule exists to stop. It clears
+     the accent fill it sits on in either direction, and the hairline border
+     keeps it off a pale track. */
+  --range-groove: color-mix(in srgb, var(--bg-0) 55%, var(--bg-3));
+  --range-knob: #f4f6fa;
 
   font-family: var(--ui-font);
   letter-spacing: var(--tracking);
@@ -1613,6 +1621,106 @@ input[type="radio"] {
   box-shadow: none;
   accent-color: var(--accent);
   cursor: pointer;
+}
+/* One slider, drawn once, for the whole app. `input[type="range"]` appears in
+   ten files; six of them had reached for `accent-color` locally and three —
+   the decoration thickness dial and the banner studio's zoom and angle — were
+   the raw platform control, so the most colourful panel in the product handed
+   you Chromium's blue thumb, and a different shape again under the WebKitGTK
+   the desktop build ships. They were also inheriting the filled-well chrome
+   above (a border, an inset shadow and 14px of side padding), which ate the
+   track from both ends.
+
+   The filled run from the left edge to the thumb is the one part no selector
+   can compute: Firefox exposes `::-moz-range-progress`, WebKit and Blink
+   expose nothing, and the usual box-shadow-on-the-thumb trick clips to the
+   input's box rather than the track and paints a full-height bar. `use:rangefill`
+   measures it instead and publishes `--range-pct`. A slider that forgets the
+   action still gets the track, the thumb and the focus ring — it only loses the
+   accent run, which is the failure mode that degrades quietly rather than
+   loudly. */
+input[type="range"] {
+  --range-pct: 0%;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--range-pct),
+    var(--range-groove) var(--range-pct) 100%
+  );
+}
+input[type="range"]::-moz-range-track {
+  height: 5px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) 0 var(--range-pct),
+    var(--range-groove) var(--range-pct) 100%
+  );
+}
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  /* (track − thumb) / 2: WebKit lays the thumb out against the top of the
+     track, so it has to be pulled back up by half the difference or it hangs
+     below the groove. */
+  margin-top: -5.5px;
+  border-radius: 50%;
+  background: var(--range-knob);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  transition:
+    transform var(--dur-quick) ease,
+    box-shadow var(--dur-quick) ease;
+}
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--range-knob);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  transition:
+    transform var(--dur-quick) ease,
+    box-shadow var(--dur-quick) ease;
+}
+input[type="range"]:hover::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+input[type="range"]:hover::-moz-range-thumb {
+  transform: scale(1.12);
+}
+/* The ring belongs on the knob, not on the 20px box: an outline around the
+   whole control draws a rectangle nowhere near the thing the arrow keys move. */
+input[type="range"]:focus-visible {
+  outline: none;
+}
+input[type="range"]:focus-visible::-webkit-slider-thumb {
+  box-shadow:
+    0 0 0 4px var(--accent-soft),
+    0 1px 3px rgb(0 0 0 / 0.35);
+}
+input[type="range"]:focus-visible::-moz-range-thumb {
+  box-shadow:
+    0 0 0 4px var(--accent-soft),
+    0 1px 3px rgb(0 0 0 / 0.35);
+}
+input[type="range"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 input::placeholder,
 textarea::placeholder {

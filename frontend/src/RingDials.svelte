@@ -9,6 +9,7 @@
   // gradient ring is the thing selected. So they are a panel that appears for
   // that selection rather than a picker.
   import Icon from "./Icon.svelte";
+  import { rangefill } from "./lib/rangefill.js";
   import { SATELLITES, PALETTES, hasRider, hasPalette } from "./lib/rings.js";
   import { emojiName } from "./lib/emoji.js";
 
@@ -139,7 +140,7 @@
     </div>
     <label class="dg">
       <span class="tiny muted">Thickness · {width}px</span>
-      <input type="range" min="1" max="5" step="1" bind:value={width} />
+      <input type="range" min="1" max="5" step="1" bind:value={width} use:rangefill={width} />
     </label>
   </div>
 {/if}

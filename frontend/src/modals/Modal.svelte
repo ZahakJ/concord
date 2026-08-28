@@ -426,15 +426,11 @@
     .dialog :global(select) {
       min-height: var(--tap-min);
     }
-    /* …except a range slider, which app.css's text-input chrome had been
-       giving a border, an inset shadow and 14px of side padding — the floor
-       then stretched that box while the track inside stayed short. */
+    /* …except a range slider, which app.css draws at 20px so the thumb clears
+       the groove. The tap floor is still owed on a phone; everything else the
+       exception used to restore is now the base rule's job. */
     .dialog :global(input[type="range"]) {
       min-height: var(--tap-min);
-      padding: 0;
-      border: none;
-      background: transparent;
-      box-shadow: none;
     }
     /* A commit button must never be stranded below a screen of content. Every
        modal's footer row shares this class — the profile sheet alone runs well

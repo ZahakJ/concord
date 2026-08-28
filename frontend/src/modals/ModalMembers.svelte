@@ -11,6 +11,7 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
+  import Select from "../Select.svelte";
   import {
     S,
     activeGuild,
@@ -140,19 +141,19 @@
       <Icon name="search" size={14} />
       <input bind:value={q} placeholder="Search name or fingerprint" aria-label="Search members" />
     </label>
-    <label class="filt">
-      <span class="sr-only">Filter</span>
-      <select bind:value={roleFilter} aria-label="Filter members">
-        <option value="">Everyone ({S.members.length})</option>
-        <option value="none">No role</option>
-        {#each roles as r (r.id)}
-          <option value={r.id}>{r.name}</option>
-        {/each}
-        {#each PERM_LIST as p (p.bit)}
-          <option value={`perm:${p.bit}`}>Can {p.label.toLowerCase()}</option>
-        {/each}
-      </select>
-    </label>
+    <div class="filt">
+      <Select
+        label="Filter members"
+        value={roleFilter}
+        onPick={(v) => (roleFilter = v)}
+        options={[
+          { value: "", label: `Everyone (${S.members.length})` },
+          { value: "none", label: "No role" },
+          ...roles.map((r) => ({ value: r.id, label: r.name })),
+          ...PERM_LIST.map((p) => ({ value: `perm:${p.bit}`, label: `Can ${p.label.toLowerCase()}` })),
+        ]}
+      />
+    </div>
   </div>
 
   {#if canAssign && picked.size > 0}
@@ -160,12 +161,13 @@
          row of disabled controls reads as broken. -->
     <div class="bulk" role="group" aria-label="Bulk role actions">
       <strong>{picked.size} selected</strong>
-      <select bind:value={bulkRoleID} aria-label="Role to grant or revoke">
-        <option value="">Choose a role…</option>
-        {#each roles as r (r.id)}
-          <option value={r.id}>{r.name}</option>
-        {/each}
-      </select>
+      <Select
+        label="Role to grant or revoke"
+        placeholder="Choose a role…"
+        value={bulkRoleID}
+        onPick={(v) => (bulkRoleID = v)}
+        options={[{ value: "", label: "Choose a role…" }, ...roles.map((r) => ({ value: r.id, label: r.name }))]}
+      />
       <button disabled={busy || !bulkRoleID} onclick={() => bulkRole(bulkRoleID, true)}>
         Grant
       </button>
@@ -283,6 +285,12 @@
     gap: var(--sp-2);
     align-items: center;
   }
+  /* Fixed, not content-sized: a picker that resizes the search box beside it
+     every time you change the filter is a moving target. */
+  .filt {
+    flex: none;
+    width: 172px;
+  }
   .search {
     flex: 1;
     display: flex;
@@ -303,14 +311,6 @@
   .search input:focus {
     outline: none;
   }
-  .filt select {
-    padding: 7px 9px;
-    font-size: var(--fs-small);
-    background: var(--bg-3);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-  }
   .bulk {
     display: flex;
     align-items: center;
@@ -322,13 +322,10 @@
     border-radius: var(--radius-sm);
     font-size: var(--fs-small);
   }
-  .bulk select {
-    padding: 5px 8px;
-    background: var(--bg-1);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: var(--fs-small);
+  /* The role picker in the bulk bar is one control among four in a tight row;
+     it takes the width it needs and no more. */
+  .bulk :global(.menu-root) {
+    min-width: 160px;
   }
   .bulk button {
     padding: 5px 11px;

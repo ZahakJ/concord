@@ -30,6 +30,8 @@
     soundLength,
   } from "../lib/sfxrecipe.js";
   import { shelfSounds, keepSound, dropSound, shelfFull, MAX_SHELF } from "../lib/soundshelf.svelte.js";
+  import { rangefill } from "../lib/rangefill.js";
+  import Switch from "../Switch.svelte";
 
   // onPick is set when the studio is opened from a voice room: there the
   // outcome is a sound to press, not a message to send.
@@ -160,11 +162,11 @@
     {/if}
 
     <button type="button" class="mute" role="switch" aria-checked={boardOn} onclick={toggleBoard}>
-      <span class="switch" class:on={boardOn}><span class="knob"></span></span>
       <span>
         Hear sound effects
         <span class="sub">Off silences the soundboard and every sound chip, and leaves mentions and ringtones alone.</span>
       </span>
+      <Switch on={boardOn} />
     </button>
   {:else}
     <div class="bench">
@@ -220,6 +222,7 @@
               max={SFX_FIELDS[k].max}
               step={SFX_FIELDS[k].step || 1}
               bind:value={draft[k]}
+              use:rangefill={draft[k]}
             />
             <span class="dval">{draft[k]}{SFX_FIELDS[k].unit ? ` ${SFX_FIELDS[k].unit}` : ""}</span>
           </label>
@@ -382,34 +385,6 @@
     font-size: var(--fs-small);
     color: var(--text-muted);
   }
-  /* Same geometry as every other switch in the app (see ModalPoll): a toggle
-     that is a few pixels off its neighbours reads as a different control. */
-  .switch {
-    flex: none;
-    width: 34px;
-    height: 20px;
-    margin-top: 2px;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
-    position: relative;
-    transition: background var(--dur-standard) ease;
-  }
-  .switch.on {
-    background: var(--accent);
-  }
-  .knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #fff;
-    transition: transform var(--dur-standard) ease;
-  }
-  .switch.on .knob {
-    transform: translateX(14px);
-  }
 
   .bench {
     display: grid;
@@ -478,11 +453,7 @@
     grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
     gap: var(--sp-1) var(--sp-4);
   }
-  /* accent-color is how every other slider in the app is themed (the profile
-     crop zoom, the UI scale). A native range control here would be the one
-     blue thing on the screen. */
   .dial input[type="range"] {
-    accent-color: var(--accent);
     min-width: 0;
   }
   .dial {

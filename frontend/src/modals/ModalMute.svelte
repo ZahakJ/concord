@@ -3,6 +3,7 @@
   // site — no picker, no custom value, and nothing anywhere recording why.
   // This is the picker, and the reason field the moderation log now carries.
   import Modal from "./Modal.svelte";
+  import Select from "../Select.svelte";
   import { S } from "../lib/state.svelte.js";
   import { MUTE_DURATIONS, muteMember } from "../lib/moderation.svelte.js";
 
@@ -68,14 +69,19 @@
         <span class="lbl">Amount</span>
         <input type="number" min="1" max="10080" bind:value={customValue} />
       </label>
-      <label class="c-num">
+      <div class="c-num">
         <span class="lbl">Unit</span>
-        <select bind:value={customUnit}>
-          <option value={1}>minutes</option>
-          <option value={60}>hours</option>
-          <option value={1440}>days</option>
-        </select>
-      </label>
+        <Select
+          label="Unit"
+          value={customUnit}
+          onPick={(v) => (customUnit = v)}
+          options={[
+            { value: 1, label: "minutes" },
+            { value: 60, label: "hours" },
+            { value: 1440, label: "days" },
+          ]}
+        />
+      </div>
     </div>
     {#if tooLong}
       <p class="warn-line" role="status">A mute tops out at one week — past that, kick instead.</p>

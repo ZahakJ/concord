@@ -8,6 +8,7 @@
   // app is closed.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import Select from "../Select.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
@@ -169,11 +170,14 @@
   >
     {#each windows as w, i (i)}
       <div class="winrow">
-        <select class="fin day" bind:value={w.weekday} aria-label="Weekday">
-          {#each dayOrder as d (d)}
-            <option value={d}>{dayNames[d].slice(0, 3)}</option>
-          {/each}
-        </select>
+        <span class="fsel day">
+          <Select
+            label="Weekday"
+            value={w.weekday}
+            onPick={(v) => (w.weekday = v)}
+            options={dayOrder.map((d) => ({ value: d, label: dayNames[d].slice(0, 3) }))}
+          />
+        </span>
         <input
           class="fin time"
           type="time"
@@ -198,18 +202,29 @@
       <button class="ghostbtn" onclick={addWindow}><Icon name="plus" size={14} /> Add hours</button>
     </div>
     <div class="winrow opts">
-      <label class="flab" for="bk-slot">Slot length</label>
-      <select id="bk-slot" class="fin" bind:value={slotMinutes}>
-        {#each [15, 20, 30, 45, 60, 90] as m (m)}
-          <option value={m}>{m} min</option>
-        {/each}
-      </select>
-      <label class="flab" for="bk-horizon">Bookable</label>
-      <select id="bk-horizon" class="fin" bind:value={horizonDays}>
-        {#each [[7, "1 week ahead"], [14, "2 weeks ahead"], [21, "3 weeks ahead"], [30, "30 days ahead"]] as [d, lbl] (d)}
-          <option value={d}>{lbl}</option>
-        {/each}
-      </select>
+      <span class="flab">Slot length</span>
+      <span class="fsel">
+        <Select
+          label="Slot length"
+          value={slotMinutes}
+          onPick={(v) => (slotMinutes = v)}
+          options={[15, 20, 30, 45, 60, 90].map((m) => ({ value: m, label: `${m} min` }))}
+        />
+      </span>
+      <span class="flab">Bookable</span>
+      <span class="fsel">
+        <Select
+          label="Bookable"
+          value={horizonDays}
+          onPick={(v) => (horizonDays = v)}
+          options={[
+            { value: 7, label: "1 week ahead" },
+            { value: 14, label: "2 weeks ahead" },
+            { value: 21, label: "3 weeks ahead" },
+            { value: 30, label: "30 days ahead" },
+          ]}
+        />
+      </span>
     </div>
     {#if dirty}
       <div class="winrow">
@@ -319,8 +334,13 @@
   .dash {
     color: var(--text-faint);
   }
+  /* A Select brings its own well; this wrapper is only here to size it. */
+  .fsel {
+    display: block;
+    min-width: 0;
+  }
   .day {
-    width: 74px;
+    width: 84px;
   }
   .ghostbtn {
     display: inline-flex;

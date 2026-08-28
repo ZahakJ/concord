@@ -35,6 +35,8 @@
     recordSelfTest,
   } from "../lib/devices.js";
   import { NR_LEVELS, canDenoise } from "../lib/denoise.js";
+  import { rangefill } from "../lib/rangefill.js";
+  import Switch from "../Switch.svelte";
   import { bindLabel, makeRecorder, typesCharacter } from "../lib/keybind.js";
 
   let { onClose } = $props();
@@ -604,6 +606,7 @@
         value={S.prefs.outputVolume ?? 1}
         oninput={(e) => knob("outputVolume", +e.target.value, (v) => S.voice?.mesh.setOutputVolume(v))}
         aria-label="Call volume"
+        use:rangefill={S.prefs.outputVolume ?? 1}
       />
       <span class="knob-val">{pct(S.prefs.outputVolume ?? 1)}</span>
     </div>
@@ -656,6 +659,7 @@
             value={S.prefs.micGain ?? 1}
             oninput={(e) => knob("micGain", +e.target.value, (v) => S.voice?.mesh.setMicGain(v))}
             aria-label="Microphone boost"
+            use:rangefill={S.prefs.micGain ?? 1}
           />
           <span class="knob-val">{pct(S.prefs.micGain ?? 1)}</span>
         </div>
@@ -695,8 +699,8 @@
             </span>
           </span>
           {#if !ptt}
-            <button class="switch" class:on={gateOn} role="switch" aria-checked={gateOn} aria-label="Noise gate" onclick={toggleGate}>
-              <span class="sw-knob"></span>
+            <button class="sw-btn" role="switch" aria-checked={gateOn} aria-label="Noise gate" onclick={toggleGate}>
+              <Switch on={gateOn} />
             </button>
           {/if}
         </div>
@@ -722,6 +726,7 @@
                 value={S.prefs.micGate}
                 oninput={(e) => knob("micGate", +e.target.value, (v) => S.voice?.mesh.setGate(v))}
                 aria-label="Noise gate threshold"
+                use:rangefill={S.prefs.micGate}
               />
               <span class="knob-val">{pct(S.prefs.micGate * 4)}</span>
             </div>
@@ -748,7 +753,7 @@
               </span>
               <span class="hint">{lead(p.sub).line}</span>
             </span>
-            <span class="switch" class:on={S.prefs[name] !== false}><span class="sw-knob"></span></span>
+            <Switch on={S.prefs[name] !== false} />
           </button>
         {/each}
       </section>
@@ -968,17 +973,9 @@
     flex: none;
     white-space: nowrap;
   }
-  /* app.css styles every `input` as a text field — border, inset shadow, 14px
-     of side padding — and a range input was quietly inheriting all of it, so
-     the chrome ate 28px of a track that has nowhere to spare. */
   .knob input[type="range"] {
     flex: 1;
-    accent-color: var(--accent);
     min-width: 0;
-    padding: 0;
-    border: none;
-    background: transparent;
-    box-shadow: none;
   }
   .knob-val {
     font-size: var(--fs-compact);
@@ -1115,38 +1112,17 @@
     font-size: var(--fs-ui);
     font-weight: 600;
   }
-  .switch {
+  /* The button is the hit area and the accessible control; the switch inside
+     it is the picture. app.css fills a bare button with the accent, so the
+     wrapper has to hand its chrome back. */
+  .sw-btn {
     flex-shrink: 0;
     margin-left: auto;
-    width: 40px;
-    height: 24px;
     padding: 0;
+    background: transparent;
+    border: none;
     border-radius: 12px;
-    background: var(--bg-3);
-    border: 1px solid var(--border);
-    position: relative;
-    transition:
-      background 0.18s ease,
-      border-color 0.18s ease;
-  }
-  .switch.on {
-    background: var(--accent);
-    border-color: var(--accent);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 40%, transparent);
-  }
-  .sw-knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: white;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-    transition: transform 0.18s var(--ease-out);
-  }
-  .switch.on .sw-knob {
-    transform: translateX(16px);
+    line-height: 0;
   }
   /* Advanced disclosure: quiet until you want it. */
   .disclose {
@@ -1212,8 +1188,6 @@
     color: var(--text-muted);
   }
   @media (prefers-reduced-motion: reduce) {
-    .switch,
-    .sw-knob,
     .fill,
     .disclose-chev {
       transition: none;

@@ -10,6 +10,7 @@
   // entry carries a paragraph is the wall of text we're trying not to build.
   import Icon from "../Icon.svelte";
   import InfoDot from "./InfoDot.svelte";
+  import Switch from "../Switch.svelte";
   import { openPanel } from "../lib/state.svelte.js";
   import { haptic } from "../lib/touch.js";
 
@@ -62,7 +63,7 @@
     {#if sub}<span class="sub">{sub}</span>{/if}
   </span>
   {#if isSwitch}
-    <span class="switch" class:on={checked}><span class="knob"></span></span>
+    <Switch on={checked} />
   {:else if isLink}
     <span class="chev">›</span>
   {:else if children}
@@ -145,38 +146,6 @@
   button.row:hover .chev {
     transform: translateX(3px);
     color: var(--text-muted);
-  }
-  .switch {
-    flex: none;
-    width: 40px;
-    height: 24px;
-    border-radius: 12px;
-    background: var(--bg-3);
-    border: 1px solid var(--border);
-    position: relative;
-    transition:
-      background 0.18s ease,
-      border-color 0.18s ease,
-      box-shadow 0.18s ease;
-  }
-  .switch.on {
-    background: var(--accent);
-    border-color: var(--accent);
-    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 40%, transparent);
-  }
-  .knob {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: white;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-    transition: transform 0.18s var(--ease-out);
-  }
-  .switch.on .knob {
-    transform: translateX(16px);
   }
   /* A row hosting its own control (a select, a port field) can't share one line
      on a phone: the control took 40% and the description was left breaking

@@ -9,6 +9,8 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
+  import Select from "../Select.svelte";
+  import Switch from "../Switch.svelte";
   import EventCard from "../EventCard.svelte";
   import { fly, slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
@@ -624,11 +626,12 @@
         <div class="fld">
           <span class="muted tiny">Lasts</span>
           {#if durMore}
-            <select bind:value={editing.durMin}>
-              {#each DURATIONS as d (d.min)}
-                <option value={d.min}>{d.label}</option>
-              {/each}
-            </select>
+            <Select
+              label="Lasts"
+              value={editing.durMin}
+              onPick={(v) => (editing.durMin = v)}
+              options={DURATIONS.map((d) => ({ value: d.min, label: d.label }))}
+            />
           {:else}
             <div class="chips" role="group" aria-label="Duration">
               {#each QUICK_DUR as d (d.min)}
@@ -810,10 +813,9 @@
                         <strong>Meeting room</strong>
                         <span class="room-sub">Guests get a browser link into a separate, sealed, disposable room — this event's guild stays out of it. Members join in one tap.</span>
                       </span>
-                      <span class="switch">
+                      <Switch on={editing.guests}>
                         <input type="checkbox" bind:checked={editing.guests} onchange={() => (guestsTouched = true)} />
-                        <span class="knob" aria-hidden="true"></span>
-                      </span>
+                      </Switch>
                     </label>
                     {#if editing.guests}
                       <div class="room-door" transition:slide={{ duration: reduceMotion ? 0 : 150, easing: cubicOut }}>
@@ -853,14 +855,17 @@
       </div>
       <textarea rows="3" placeholder="Details (optional)" maxlength="2000" bind:value={editing.details}></textarea>
       {#if !editing.id && announceChannels.length}
-        <label class="fld">
+        <div class="fld">
           <span class="muted tiny">Announce in</span>
-          <select bind:value={editing.announceIn}>
-            <option value="">Don't announce it</option>
-            {#each announceChannels as c (c.id)}
-              <option value={c.id}>#{c.name}</option>
-            {/each}
-          </select>
+          <Select
+            label="Announce in"
+            value={editing.announceIn}
+            onPick={(v) => (editing.announceIn = v)}
+            options={[
+              { value: "", label: "Don't announce it" },
+              ...announceChannels.map((c) => ({ value: c.id, label: `#${c.name}` })),
+            ]}
+          />
           <span class="muted tiny">
             {#if editing.announceIn}
               A card lands in that channel now, and it follows the event if you edit it.
@@ -868,7 +873,7 @@
               It will only appear in the calendar.
             {/if}
           </span>
-        </label>
+        </div>
       {/if}
       <div class="actions">
         <button class="ghost" onclick={() => (editing = null)}>Cancel</button>
@@ -1549,47 +1554,6 @@
     color: var(--text-muted);
     line-height: 1.4;
   }
-  /* A real checkbox wearing a switch: label-click, Space and SR semantics
-     all come free; only the pixels are ours. */
-  .switch {
-    position: relative;
-    flex-shrink: 0;
-    width: 36px;
-    height: 20px;
-    margin-top: 2px;
-    border-radius: 999px;
-    background: var(--bg-3);
-    border: 1px solid var(--border);
-    transition: background var(--dur-standard) ease, border-color var(--dur-standard) ease;
-  }
-  .switch input {
-    position: absolute;
-    opacity: 0;
-    inset: 0;
-    margin: 0;
-    /* app.css gives every input width:100% for stacked-field layouts — a
-       hidden checkbox must not take the row (same landmine the old .chk
-       documented). */
-    width: auto;
-  }
-  .switch .knob {
-    position: absolute;
-    top: 1px;
-    left: 1px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--text-muted);
-    transition: transform var(--dur-standard) var(--ease-calm), background var(--dur-standard) ease;
-  }
-  .switch:has(input:checked) {
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-  .switch input:checked ~ .knob {
-    transform: translateX(16px);
-    background: var(--accent-fg);
-  }
   .room-door {
     display: flex;
     flex-direction: column;
@@ -1667,9 +1631,6 @@
   @media (prefers-reduced-motion: reduce) {
     .riser {
       animation: none;
-    }
-    .switch .knob {
-      transition: none; /* the color fades may stay; the travel may not */
     }
     .wseg {
       transition: background var(--dur-quick) ease, color var(--dur-quick) ease; /* drop the glow bloom */

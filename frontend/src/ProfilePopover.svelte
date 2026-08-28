@@ -386,9 +386,29 @@
     return `${m}:${String(s % 60).padStart(2, "0")}`;
   }
 
-  // The member's roles as read-only pills (managers get the toggle UI instead,
-  // which already shows membership state).
+  // What this member actually HOLDS. One list, drawn the same way whether or
+  // not you can change it — the card's job is to say what is true, and only
+  // then to offer the edit.
   const memberRoles = $derived(mem ? S.roles.filter((r) => mem.roleIds?.includes(r.id)) : []);
+  // The rest of the guild's roles, which are what "Add role" can offer.
+  const addableRoles = $derived(mem ? S.roles.filter((r) => !mem.roleIds?.includes(r.id)) : []);
+
+  // Adding goes through a menu instead of a row of unheld pills. A pill that
+  // looks like a badge but means "click to grant" is a permission control that
+  // is ambiguous about current state, which is the one thing a permission
+  // control may never be — the card was showing Cyra a Moderator pill she did
+  // not have.
+  function addRoleMenu(e) {
+    openContextMenu(
+      e,
+      addableRoles.map((role) => ({
+        label: role.name,
+        swatch: role.color || "var(--text-faint)",
+        onClick: () => toggleRole(role),
+      })),
+      { title: "Add a role" },
+    );
+  }
 
   // Best-effort "also in": peer DMs carry the other side's fingerprint, so
   // shared DMs are cheap to count. Guild member lists other than the active
@@ -718,32 +738,31 @@
         </form>
       {/if}
 
-      {#if canAssignRoles && S.roles.length}
-        <div class="divider"></div>
-        <div class="sec-label muted">Roles</div>
-        <div class="role-toggles">
-          {#each S.roles as role (role.id)}
-            <button
-              class="role-toggle"
-              class:on={mem.roleIds?.includes(role.id)}
-              onclick={() => toggleRole(role)}
-            >
-              <span class="role-dot" style="background:{role.color || 'var(--text-faint)'}"></span>
-              {role.name}
-              {#if mem.roleIds?.includes(role.id)}<span class="role-x">×</span>{/if}
-            </button>
-          {/each}
-        </div>
-      {:else if memberRoles.length}
+      {#if memberRoles.length || (canAssignRoles && addableRoles.length)}
         <div class="divider"></div>
         <div class="sec-label muted">Roles</div>
         <div class="role-pills">
           {#each memberRoles as role (role.id)}
-            <span class="role-pill">
-              <span class="role-dot" style="background:{role.color || 'var(--text-faint)'}"></span>
+            <span class="role-pill" class:editable={canAssignRoles} style="--role:{role.color || 'var(--text-faint)'}">
+              <span class="role-dot"></span>
               {role.name}
+              {#if canAssignRoles}
+                <button
+                  class="role-x"
+                  aria-label="Remove the {role.name} role"
+                  onclick={() => toggleRole(role)}>×</button
+                >
+              {/if}
             </span>
           {/each}
+          {#if !memberRoles.length}
+            <span class="role-none muted">No roles</span>
+          {/if}
+          {#if canAssignRoles && addableRoles.length}
+            <button class="role-add" aria-label="Add a role" onclick={addRoleMenu}>
+              <Icon name="plus" size={11} /> Add
+            </button>
+          {/if}
         </div>
       {/if}
 
@@ -924,8 +943,8 @@
   .pop.haseffect .name-row,
   .pop.haseffect .status-text,
   .pop.haseffect .bio,
-  .pop.haseffect .sub-line,
-  .pop.haseffect .roles-row {
+  .pop.haseffect .sec-label,
+  .pop.haseffect .role-pills {
     text-shadow: var(--fx-lift);
   }
   @keyframes pop-in {
@@ -1366,54 +1385,80 @@
     background: color-mix(in srgb, var(--ok) 20%, transparent);
     color: var(--ok-text);
   }
-  .role-toggles,
   .role-pills {
     display: flex;
     flex-wrap: wrap;
+    align-items: center;
     gap: 5px;
     margin-top: 2px;
   }
-  .role-toggle,
+  /* A held role is a FILLED chip in the role's own colour. The old treatment
+     drew held and unheld with the same --bg-3 ground (the "on" rule reached
+     for a --bg-4 that no theme defines), so the only difference between "is a
+     moderator" and "could be made one" was a small ×. */
   .role-pill {
     display: inline-flex;
     align-items: center;
     gap: 5px;
     padding: 3px 9px;
     font-size: var(--fs-compact);
-    background: var(--bg-3);
-    color: var(--text-muted);
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
-  }
-  .role-pill {
     color: var(--text);
-    border-color: var(--border);
+    background: color-mix(in srgb, var(--role) 22%, var(--bg-3));
+    border: 1px solid color-mix(in srgb, var(--role) 45%, transparent);
     border-radius: 999px;
   }
-  /* A clickable role chip should answer the pointer — the un-toggled state was
-     visually inert on hover. */
-  .role-toggle:hover {
-    color: var(--text);
-    border-color: var(--border);
-  }
-  .role-toggle.on {
-    background: var(--bg-4, var(--bg-3));
-    color: var(--text);
-    border-color: var(--border);
-  }
-  .role-toggle.on:hover {
-    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  /* Room for the × only when there is one. */
+  .role-pill.editable {
+    padding-right: var(--sp-1);
   }
   .role-dot {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    background: var(--role, var(--text-faint));
     flex: none;
   }
+  .role-none {
+    font-size: var(--fs-compact);
+  }
   .role-x {
-    color: var(--text-faint);
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 50%;
+    color: var(--text-muted);
     font-size: var(--fs-ui);
     line-height: 1;
+  }
+  @media (pointer: fine) {
+    .role-x:hover {
+      background: var(--danger-soft);
+      color: var(--danger-text);
+    }
+  }
+  /* Dashed, because this one IS an empty slot — the idiom the guild rail
+     misuses for three real actions is exactly right here. */
+  .role-add {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 3px 9px;
+    font-size: var(--fs-compact);
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px dashed var(--border);
+    border-radius: 999px;
+  }
+  @media (pointer: fine) {
+    .role-add:hover {
+      color: var(--accent-hover);
+      border-color: var(--accent-hover);
+      background: var(--bg-3);
+    }
   }
   .nick-box {
     display: flex;

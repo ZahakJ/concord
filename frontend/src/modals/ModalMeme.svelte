@@ -49,6 +49,7 @@
     usedAssets,
   } from "../lib/meme.js";
   import { saveRecipe, loadRecipe, dropRecipe } from "../lib/memerecipe.js";
+  import { rangefill } from "../lib/rangefill.js";
 
   // `edit` turns this from "compose a meme" into "reopen the one already in the
   // channel": { channelId, messageId, blobId }. Saving then re-renders and
@@ -936,6 +937,7 @@
                 step="0.01"
                 value={selLay.w}
                 oninput={(e) => setLay("lsize", "w", +e.currentTarget.value)}
+                use:rangefill={selLay.w}
               />
               <em>{pct(selLay.w)}</em>
             </label>
@@ -952,6 +954,7 @@
                 value={selLay.rot || 0}
                 aria-label="Rotate picture"
                 oninput={(e) => setLay("lrot", "rot", +e.currentTarget.value)}
+                use:rangefill={selLay.rot || 0}
               />
               <button class="em-btn" onclick={() => setLay("lrot0", "rot", 0)} title="Straighten">{selLay.rot || 0}°</button>
             </div>
@@ -1034,6 +1037,7 @@
                 step="0.005"
                 value={resolve(sel).stroke}
                 oninput={(e) => set("weight", "stroke", +e.currentTarget.value)}
+                use:rangefill={resolve(sel).stroke}
               />
               <em>{pct(resolve(sel).stroke)}</em>
             </label>
@@ -1047,6 +1051,7 @@
                 step="0.005"
                 value={sel.size}
                 oninput={(e) => set("size", "size", +e.currentTarget.value)}
+                use:rangefill={sel.size}
               />
               <em>{pct(sel.size)}</em>
             </label>
@@ -1060,6 +1065,7 @@
                 step="0.02"
                 value={sel.w}
                 oninput={(e) => set("width", "w", +e.currentTarget.value)}
+                use:rangefill={sel.w}
               />
               <em>{pct(sel.w)}</em>
             </label>
@@ -1076,6 +1082,7 @@
                 value={sel.rot || 0}
                 aria-label="Rotate"
                 oninput={(e) => set("rot", "rot", +e.currentTarget.value)}
+                use:rangefill={sel.rot || 0}
               />
               <button class="em-btn" onclick={() => set("rot0", "rot", 0)} title="Straighten">{sel.rot || 0}°</button>
             </div>
@@ -1525,7 +1532,6 @@
   .row input[type="range"] {
     flex: 1;
     min-width: 0;
-    accent-color: var(--accent); /* every other slider in the app sets this */
   }
   .row .seg {
     flex: 1;

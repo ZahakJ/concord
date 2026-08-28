@@ -2,6 +2,7 @@
   import Modal from "./Modal.svelte";
   import { emojiName } from "../lib/emoji.js";
   import Icon from "../Icon.svelte";
+  import Select from "../Select.svelte";
   import Avatar from "../Avatar.svelte";
   import Banner from "../Banner.svelte";
   import BannerStudio from "../BannerStudio.svelte";
@@ -20,6 +21,7 @@
   import { api } from "../lib/api.js";
   import { haptic } from "../lib/touch.js";
   import { S } from "../lib/state.svelte.js";
+  import { rangefill } from "../lib/rangefill.js";
   let { identity, onSubmit, onClose } = $props();
   let name = $state(identity.displayName || "");
   let status = $state(identity.status || "");
@@ -353,7 +355,7 @@
       </div>
       <label class="zoom">
         <Icon name="search" size={14} />
-        <input type="range" min="1" max="4" step="0.01" bind:value={zoom} />
+        <input type="range" min="1" max="4" step="0.01" bind:value={zoom} use:rangefill={zoom} />
       </label>
       <div class="crop-actions">
         <button type="button" class="ghost" onclick={() => (rawImg = null)}>Cancel</button>
@@ -393,18 +395,24 @@
   <div class="field">
     <span class="muted">Birthday (optional)</span>
     <div class="bday-row">
-      <select bind:value={bMonth} aria-label="Birthday month">
-        <option value="">Month</option>
-        {#each MONTHS as m, i (m)}
-          <option value={String(i + 1).padStart(2, "0")}>{m}</option>
-        {/each}
-      </select>
-      <select bind:value={bDay} disabled={!bMonth} aria-label="Birthday day">
-        <option value="">Day</option>
-        {#each dayOptions as d (d)}
-          <option value={d}>{+d}</option>
-        {/each}
-      </select>
+      <Select
+        label="Birthday month"
+        placeholder="Month"
+        value={bMonth}
+        onPick={(v) => (bMonth = v)}
+        options={[
+          { value: "", label: "Month" },
+          ...MONTHS.map((m, i) => ({ value: String(i + 1).padStart(2, "0"), label: m })),
+        ]}
+      />
+      <Select
+        label="Birthday day"
+        placeholder="Day"
+        disabled={!bMonth}
+        value={bDay}
+        onPick={(v) => (bDay = v)}
+        options={[{ value: "", label: "Day" }, ...dayOptions.map((d) => ({ value: d, label: String(+d) }))]}
+      />
       {#if bMonth || bDay}
         <button
           type="button"
@@ -705,13 +713,12 @@
     align-items: center;
     gap: var(--sp-2);
   }
-  .bday-row select {
-    padding: 6px 8px;
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    font-size: var(--fs-ui);
+  /* The two pickers share the row evenly; without this the month name sets
+     the width and "Day" is left a stub. */
+  .bday-row > :global(.menu-root),
+  .bday-row > :global(.pick.off) {
+    flex: 1;
+    min-width: 0;
   }
   .theme-preview {
     height: 34px;
@@ -1033,7 +1040,6 @@
   }
   .zoom input[type="range"] {
     flex: 1;
-    accent-color: var(--accent);
   }
   .crop-actions {
     display: flex;

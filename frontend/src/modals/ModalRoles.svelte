@@ -98,8 +98,16 @@
         <span class="muted">Permissions</span>
         <div class="perms">
           {#each PERM_LIST as p (p.bit)}
-            <button type="button" class="perm" class:on={has(editing.perms, p.bit)} onclick={() => togglePerm(p.bit)}>
-              <span class="check">{has(editing.perms, p.bit) ? "✓" : ""}</span>
+            {@const on = has(editing.perms, p.bit)}
+            <button
+              type="button"
+              class="perm"
+              class:on
+              role="checkbox"
+              aria-checked={on}
+              onclick={() => togglePerm(p.bit)}
+            >
+              <span class="box" aria-hidden="true"><Icon name="check" size={12} /></span>
               <span class="perm-text">
                 <strong>{p.label}</strong>
                 <span class="muted tiny">{p.hint}</span>
@@ -273,10 +281,36 @@
     border-color: var(--accent);
     background: var(--accent-soft);
   }
-  .check {
-    width: 16px;
-    color: var(--accent-hover);
-    font-weight: 700;
+  /* The unticked state has to be DRAWN. This row used to mark "on" with a ✓
+     glyph in a 16px column and "off" with 16px of nothing, on a --bg-3 ground
+     that reads as the dialog's own surface — so seven permissions looked like
+     seven paragraphs, and the only way to learn they were controls was to
+     click one. An empty box says "this is a thing you tick" before it says
+     anything about its state. */
+  .box {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 5px;
+    background: var(--bg-1);
+    border: 1.5px solid color-mix(in srgb, var(--border) 90%, var(--text-faint));
+    color: transparent;
+    transition:
+      background var(--dur-quick) ease,
+      border-color var(--dur-quick) ease,
+      color var(--dur-quick) ease;
+  }
+  .perm.on .box {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+  }
+  @media (pointer: fine) {
+    .perm:hover .box {
+      border-color: var(--accent);
+    }
   }
   .perm-text {
     display: flex;

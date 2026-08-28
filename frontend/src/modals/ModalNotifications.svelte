@@ -5,11 +5,13 @@
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
   import Icon from "../Icon.svelte";
+  import Select from "../Select.svelte";
   import { S, setPref, flash, patchProfile, setAlertWords } from "../lib/state.svelte.js";
   import { tooltip } from "../lib/tooltip.js";
   import { plural } from "../lib/plural.js";
   import { addWord, removeWord, rejectReason, MAX_WORDS, MAX_LEN } from "../lib/alertwords.js";
   import { asksLazily, notificationStatus, requestPermission, openSystemSettings } from "../lib/notify.js";
+  import { rangefill } from "../lib/rangefill.js";
   import {
     soundsEnabled,
     setSoundsEnabled,
@@ -205,16 +207,18 @@
           aria-label="Sound volume"
           oninput={setVol}
           onchange={() => sounds && playDone()}
+          use:rangefill={vol}
         />
         <span class="volnum">{vol}%</span>
       </span>
     </SettingRow>
     <SettingRow icon="phone" title="Call ringtone" sub="Plays when a friend calls you">
-      <select class="pick" value={ringtone} onchange={(e) => pickRingtone(e.target.value)} aria-label="Call ringtone">
-        {#each RINGTONE_OPTIONS as o (o.id)}
-          <option value={o.id}>{o.label}</option>
-        {/each}
-      </select>
+      <Select
+        label="Call ringtone"
+        value={ringtone}
+        onPick={pickRingtone}
+        options={RINGTONE_OPTIONS.map((o) => ({ value: o.id, label: o.label }))}
+      />
     </SettingRow>
   </SettingGroup>
 
@@ -374,14 +378,5 @@
     margin: 0;
     font-size: var(--fs-tiny);
     color: var(--text-faint);
-  }
-  .pick {
-    background: var(--bg-input);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text);
-    font-size: var(--fs-compact);
-    padding: 6px 8px;
-    max-width: 100%;
   }
 </style>

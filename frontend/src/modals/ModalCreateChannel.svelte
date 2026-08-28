@@ -1,6 +1,7 @@
 <script>
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import Select from "../Select.svelte";
   import { S, activeGuild } from "../lib/state.svelte.js";
   import { slugChannelName } from "../lib/guildtemplates.js";
   let { onSubmit, onClose } = $props();
@@ -90,15 +91,15 @@
       </p>
     {/if}
     {#if categories.length}
-      <label class="cat-label">
+      <div class="cat-label">
         <span class="muted">Category</span>
-        <select bind:value={category}>
-          <option value="">No category</option>
-          {#each categories as c (c.id)}
-            <option value={c.id}>{c.name}</option>
-          {/each}
-        </select>
-      </label>
+        <Select
+          label="Category"
+          value={category}
+          onPick={(v) => (category = v)}
+          options={[{ value: "", label: "No category" }, ...categories.map((c) => ({ value: c.id, label: c.name }))]}
+        />
+      </div>
     {/if}
     {#if type !== "voice"}
       <!-- The topic was reachable only afterwards, through a menu item named
@@ -193,13 +194,5 @@
     flex-direction: column;
     gap: var(--sp-1);
     font-size: 12px;
-  }
-  .cat-label select {
-    padding: 8px 10px;
-    font-size: var(--fs-ui);
-    border-radius: var(--radius-sm);
-    background: var(--bg-3);
-    color: var(--text);
-    border: 1px solid var(--border);
   }
 </style>

@@ -9,6 +9,7 @@
   import Icon from "./Icon.svelte";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Banner from "./Banner.svelte";
+  import { rangefill } from "./lib/rangefill.js";
   import { BANNERS, BANNER_GROUPS, isPreset, presetId } from "./lib/banners.js";
 
   let {
@@ -189,7 +190,7 @@
           ></canvas>
           <label class="zoom">
             <span class="tiny muted">Zoom</span>
-            <input type="range" min="1" max="3" step="0.01" bind:value={zoom} />
+            <input type="range" min="1" max="3" step="0.01" bind:value={zoom} use:rangefill={zoom} />
           </label>
           <p class="tiny muted">Drag the image to choose exactly what shows.</p>
           <button class="ghost small" onclick={() => (rawImg = null)}>Pick another image</button>
@@ -218,7 +219,7 @@
         </div>
         <label class="zoom">
           <span class="tiny muted">Angle · {ang}°</span>
-          <input type="range" min="0" max="360" step="5" bind:value={ang} />
+          <input type="range" min="0" max="360" step="5" bind:value={ang} use:rangefill={ang} />
         </label>
         <p class="tiny muted">Uses the two profile colors you picked below the banner.</p>
       </div>
