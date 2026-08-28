@@ -6,7 +6,7 @@
   // last message.
   import Icon from "./Icon.svelte";
   import FormatBar from "./FormatBar.svelte";
-  import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
+  import { applyFormat as formatField, chordFor, replaceRange } from "./lib/mdformat.js";
   import { uneditableReason } from "./lib/tokenbody.js";
   import { sendText as outSendText, sendAttachment as outSendAttachment } from "./lib/outbox.svelte.js";
   import { roving } from "./lib/roving.js";
@@ -635,6 +635,15 @@
         return;
       }
     }
+    // Tab accepts the wall-of-text offer, and ONLY while that offer is
+    // standing — which is the keystroke immediately after the paste and no
+    // other, because any input clears it. Tab keeps meaning "leave the
+    // composer" every other moment of its life.
+    if (wrapOffer && e.key === "Tab" && !e.shiftKey) {
+      e.preventDefault();
+      acceptWrap();
+      return;
+    }
     if (suggest) {
       // Tab cycles for emoji/mentions (long-standing behavior) but accepts for
       // slash commands, where there's a single obvious completion.
@@ -676,6 +685,15 @@
   }
 
   function onInput() {
+    // The wall-of-text offer lives exactly as long as the paste is the last
+    // thing you did. That is what makes Tab safe to borrow for it below.
+    if (wrapPending) {
+      const to = composerEl?.selectionStart ?? draft.length;
+      wrapOffer = { ...wrapPending, range: [Math.max(0, to - wrapPending.len), to] };
+      wrapPending = null;
+    } else {
+      wrapOffer = null;
+    }
     const now = Date.now();
     if (now - lastTypingSent > 2000 && S.activeChannelId) {
       lastTypingSent = now;
@@ -725,6 +743,7 @@
     pending = [];
     saveDraft(chId, "");
     suggest = null;
+    wrapOffer = null;
     queueAutosize();
     // The reply attaches to the FIRST message we send; the rest are plain.
     let rt = S.replyingTo?.id || "";
@@ -1007,12 +1026,86 @@
     };
   }
 
+  // ---- paste ----
+  //
+  // Paste used to special-case exactly one thing — an image — and let the
+  // browser have everything else. Two of the misses are worth catching here;
+  // the third, converting pasted rich HTML to markdown, is deliberately NOT in
+  // this batch: an HTML→markdown pass is a parser with its own failure modes
+  // and it wants its own work, not a corner of this function.
+
+  // A single bare URL, which is the only thing a masked link can be built from.
+  const URL_RE = /^https?:\/\/[^\s<>"']+$/i;
+
+  // The offer to fence a wall of text, while it is still the last thing you
+  // did. `range` is where the paste landed, so accepting can fence exactly that
+  // and not whatever else is in the draft.
+  let wrapOffer = $state(null); // { range: [from, to], lines, chars }
+  // Set by the paste, promoted by the input event it causes. The offer CANNOT
+  // be raised in the paste handler: the browser inserts the text afterwards and
+  // fires `input`, and that is where the caret finally says where the paste
+  // landed. Raising it early also meant onInput's "any typing clears the offer"
+  // rule cleared the offer the paste had just raised, one event later.
+  let wrapPending = null;
+  const WRAP_LINES = 15;
+  const WRAP_CHARS = 2000;
+
+  function acceptWrap() {
+    const off = wrapOffer;
+    wrapOffer = null;
+    if (!off || !composerEl) return;
+    composerEl.focus();
+    composerEl.setSelectionRange(off.range[0], Math.min(off.range[1], composerEl.value.length));
+    applyFormat("codeblock");
+  }
+
   function onPaste(e) {
     const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith("image/"));
     if (item) {
       e.preventDefault();
       stageImage(item.getAsFile());
+      return;
     }
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    if (!text || !composerEl) return;
+    const start = composerEl.selectionStart ?? 0;
+    const end = composerEl.selectionEnd ?? start;
+
+    // A URL dropped over a selection turns that selection into the link's
+    // label. Pasting a URL over a word to link it is what every editor built in
+    // the last decade does; here it replaced the word with the address, which
+    // is the one outcome nobody was after. Only over a real selection, and only
+    // for a bare URL — a paste with any other shape is still a paste.
+    if (end > start && URL_RE.test(text.trim())) {
+      e.preventDefault();
+      const label = composerEl.value.slice(start, end);
+      const insert = `[${label}](${text.trim()})`;
+      const caret = start + insert.length;
+      if (!replaceRange(composerEl, start, end, insert, caret, caret)) {
+        draft = composerEl.value.slice(0, start) + insert + composerEl.value.slice(end);
+        requestAnimationFrame(() => composerEl?.setSelectionRange(caret, caret));
+      }
+      draft = composerEl.value;
+      saveDraft(S.activeChannelId, draft);
+      queueAutosize();
+      wrapOffer = null;
+      return;
+    }
+
+    // A wall of text. Pasting two hundred lines silently made a two-hundred
+    // line message; in a client where people paste logs and stack traces that
+    // is the common case, not the odd one. The paste itself is untouched — the
+    // offer is a one-key upgrade sitting beside it, and ignoring it costs
+    // nothing because the next keystroke takes it away.
+    // Newlines are normalised on the way into a textarea, so the length that
+    // matters for finding the pasted span again is the normalised one.
+    const norm = text.replace(/\r\n?/g, "\n");
+    const lines = norm.split("\n").length;
+    wrapPending =
+      lines > WRAP_LINES || norm.length > WRAP_CHARS
+        ? { len: norm.length, lines, chars: norm.length }
+        : null;
+    wrapOffer = null;
   }
 
   // Typing anywhere focuses the composer — the pressed character lands in the
@@ -1312,6 +1405,21 @@
         <span>Messages disappear after <strong>{ttlLabel(ephTTL)}</strong></span>
         <span class="eph-change">change</span>
       </button>
+    {/if}
+    {#if wrapOffer}
+      <!-- Beside the paste, not on top of it: the text is already in the box
+           and sending it as-is stays the default. -->
+      <div class="wrap-offer" role="status">
+        <Icon name="codeblock" size={13} />
+        <span>
+          Pasted {wrapOffer.lines > 1 ? `${wrapOffer.lines} lines` : `${wrapOffer.chars} characters`}.
+          Wrap it in a code block?
+        </span>
+        <button type="button" class="wo-yes" onclick={acceptWrap}>Wrap <kbd>Tab</kbd></button>
+        <button type="button" class="wo-no" aria-label="Leave it as it is" onclick={() => (wrapOffer = null)}>
+          <Icon name="close" size={11} />
+        </button>
+      </div>
     {/if}
     <div class="input-shell" class:active={!!ch}>
     {#if pending.length || uploading > 0}
@@ -1780,6 +1888,52 @@
 {/if}
 
 <style>
+  .wrap-offer {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 5px var(--sp-3);
+    margin-bottom: var(--sp-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-2);
+    color: var(--text-muted);
+    font-size: var(--fs-compact);
+  }
+  .wrap-offer span {
+    margin-right: auto;
+  }
+  .wo-yes {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-3);
+    color: var(--text);
+    font-size: var(--fs-compact);
+  }
+  .wo-yes kbd {
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text-faint);
+    font-size: var(--fs-tiny);
+  }
+  .wo-no {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    background: transparent;
+    color: var(--text-faint);
+    border-radius: var(--radius-sm);
+  }
+  .wo-no:hover {
+    color: var(--text);
+    background: var(--bg-3);
+  }
   .eph-banner {
     display: flex;
     align-items: center;
