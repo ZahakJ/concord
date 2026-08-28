@@ -144,7 +144,7 @@
 <svelte:window onpaste={onPaste} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="bs-scrim" onclick={(e) => e.target === e.currentTarget && onClose()}>
+<div class="bs-scrim" onclick={(e) => e.target === e.currentTarget && onClose()} use:portal>
   <div class="bs" role="dialog" aria-label="Edit banner">
     <div class="bs-head">
       <strong>Edit banner</strong>

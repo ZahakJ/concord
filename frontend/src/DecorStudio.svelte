@@ -104,8 +104,8 @@
   );
 </script>
 
-<div class="ds-scrim" role="presentation" onclick={onClose}></div>
-<div class="ds" role="dialog" aria-label="Choose what you wear on your avatar">
+<div class="ds-scrim" role="presentation" onclick={onClose} use:portal></div>
+<div class="ds" role="dialog" use:portal aria-label="Choose what you wear on your avatar">
   <div class="ds-head">
     <button class="icon-btn" onclick={onClose} aria-label="Back"><Icon name="back" size={16} /></button>
     <strong>Avatar decoration</strong>
@@ -278,7 +278,10 @@
     position: fixed;
     inset: 0;
     background: var(--scrim);
-    z-index: 60;
+    /* Above modals/Modal.svelte's own overlay (z-index 100 + depth). These
+       studios are portalled to <body>, so they no longer inherit the dialog's
+       stacking context and have to out-rank it explicitly. */
+    z-index: 400;
   }
   .ds {
     position: fixed;
@@ -297,7 +300,7 @@
     box-shadow: var(--shadow-pop);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    z-index: 61;
+    z-index: 401;
     overflow: hidden;
   }
   /* Quiet. app.css fills a bare button with the accent, so an unstyled

@@ -26,8 +26,8 @@
   let sel = $state(current);
 </script>
 
-<div class="cfs-scrim" role="presentation" onclick={onClose}></div>
-<div class="cfs" role="dialog" aria-label="Choose a card frame" style="--c1:{color};--c2:{color2 || color}">
+<div class="cfs-scrim" role="presentation" onclick={onClose} use:portal></div>
+<div class="cfs" role="dialog" use:portal aria-label="Choose a card frame" style="--c1:{color};--c2:{color2 || color}">
   <div class="cfs-head">
     <button class="icon-btn" onclick={onClose} aria-label="Back"><Icon name="back" size={16} /></button>
     <strong>Card frame</strong>
@@ -80,7 +80,10 @@
     position: fixed;
     inset: 0;
     background: var(--scrim);
-    z-index: 60;
+    /* Above modals/Modal.svelte's own overlay (z-index 100 + depth). These
+       studios are portalled to <body>, so they no longer inherit the dialog's
+       stacking context and have to out-rank it explicitly. */
+    z-index: 400;
   }
   .cfs {
     position: fixed;
@@ -99,7 +102,7 @@
     box-shadow: var(--shadow-pop);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    z-index: 61;
+    z-index: 401;
     overflow: hidden;
   }
   /* Quiet. app.css fills a bare button with the accent, so an unstyled
