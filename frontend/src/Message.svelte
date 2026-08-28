@@ -2473,9 +2473,20 @@
     color: var(--text-faint);
     font-size: var(--fs-small);
   }
+  /* The bar lives INSIDE the row it acts on. It used to hang 16px above,
+     which put an opaque plate on whatever was there: the last line of the
+     previous message (14px of it in #arabic-corner, where the text is
+     right-aligned and therefore always underneath), the "created this channel"
+     system row, and the unread divider's own MARK AS READ button.
+     A popper-style flip is the usual answer and is not one here: flipping down
+     covers the NEXT row instead, and there is no third direction. Nor is there
+     room to overlap into — a grouped row pulls itself up with -10px against a
+     12px gap, so the gap between two continuation rows is two pixels, and one
+     pixel in the Compact density. Inside the row is the only anchor that
+     cannot cover a neighbour, in either direction, at any density. */
   .msg-actions {
     position: absolute;
-    top: -16px;
+    top: 2px;
     right: 10px;
     display: flex;
     align-items: center;

@@ -1734,6 +1734,10 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     margin: 2px 0 -4px;
+    /* Its MARK AS READ is a real control and outranks any hover chrome that
+       reaches for the same pixels. */
+    position: relative;
+    z-index: 6;
   }
   .new-divider::before,
   .new-divider::after {
