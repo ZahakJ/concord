@@ -34,6 +34,12 @@ export const S = $state({
   activeGuildId: "",
   activeChannelId: "",
   messages: [], // the active channel's messages, oldest first
+  // Messages this device has handed to the core but has not seen come back.
+  // Kept OUT of `messages` on purpose: that array is what the backend says
+  // exists, and everything that reads it — dedupe by id, backfill, the trim at
+  // MAX_LOADED_ROWS, pin and reply lookups — is entitled to assume every entry
+  // is a real stored message with a real id. See lib/outbox.svelte.js.
+  outbox: [],
   members: [],
   roles: [], // active guild's roles (highest position first)
   contacts: [],

@@ -8,6 +8,7 @@
   import FormatBar from "./FormatBar.svelte";
   import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
   import { uneditableReason } from "./lib/tokenbody.js";
+  import { sendText as outSendText, sendAttachment as outSendAttachment } from "./lib/outbox.svelte.js";
   import { roving } from "./lib/roving.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -16,7 +17,7 @@
   import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { haptic } from "./lib/touch.js";
-  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor, mentionRefs, focusFeed } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, react, flash, nameColorFor, mentionRefs, focusFeed } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -720,8 +721,6 @@
     playLaunch();
     playSend();
     const chId = S.activeChannelId;
-    const prevDraft = draft;
-    const prevReply = S.replyingTo;
     draft = "";
     pending = [];
     saveDraft(chId, "");
@@ -735,39 +734,28 @@
       return r;
     };
     S.replyingTo = null;
-    let sent = 0; // attachments successfully sent so far
-    try {
-      // Attachments first, then the caption — so a pasted image sits above its
-      // text in the feed, the way a captioned picture reads.
-      for (const a of atts) {
-        if (a.isImage)
-          await api.sendAttachment(chId, a.dataUrl, a.w, a.h, nextReply(), !!a.spoiler, a.name || "", a.desc || "");
-        else await api.sendFile(chId, a.dataUrl, a.name, nextReply());
-        sent++;
-      }
-      if (text) {
-        // Seal before the ephemeral stamp so both tokens sit at the front in a
-        // stable order; each strips independently at render.
-        const body = sealNext ? stampTimestamp(text) : text;
-        // The direction travels with the message. Laid out one way as it was
-        // written and the other way as it is read is not the message anyone
-        // wrote — and the reader's client has no way to recover the intent,
-        // because the per-line rule is exactly what the writer overrode.
-        await sendMessage(stampEphemeral(chId, body), nextReply(), dirMode);
-        sealNext = false;
-        if (chId === S.activeChannelId) armSlowMode();
-      }
-    } catch (err) {
-      // Restore only what did NOT go out, so a retry can't double-post. The text
-      // is the last step, so on any failure it's unsent — put the draft back. The
-      // reply rides the first send; only restore it if nothing was sent yet
-      // (otherwise it was already consumed and would re-attach to a stray retry).
-      draft = prevDraft;
-      pending = atts.slice(sent);
-      saveDraft(chId, prevDraft);
-      if (sent === 0) S.replyingTo = prevReply;
-      queueAutosize();
-      flash(err);
+    // Everything below is HANDED OFF rather than awaited. The rows appear now,
+    // at the bottom of the feed, dimmed and clocked; the outbox promotes them
+    // when the core echoes them back and marks them failed — in place, with a
+    // Retry — when it does not. This function used to await the round trip with
+    // nothing on screen and hand the draft back on failure, which is the only
+    // moment anything was said at all.
+    //
+    // Attachments first, then the caption — so a pasted image sits above its
+    // text in the feed, the way a captioned picture reads. Each is its own
+    // pending row because each is its own message.
+    for (const a of atts) outSendAttachment(chId, a, nextReply());
+    if (text) {
+      // Seal before the ephemeral stamp so both tokens sit at the front in a
+      // stable order; each strips independently at render.
+      const body = sealNext ? stampTimestamp(text) : text;
+      // The direction travels with the message. Laid out one way as it was
+      // written and the other way as it is read is not the message anyone
+      // wrote — and the reader's client has no way to recover the intent,
+      // because the per-line rule is exactly what the writer overrode.
+      outSendText(chId, stampEphemeral(chId, body), nextReply(), dirMode);
+      sealNext = false;
+      if (chId === S.activeChannelId) armSlowMode();
     }
   }
 
@@ -1685,6 +1673,17 @@
         >
           <Icon name="smile" size={20} />
         </button>
+        {#if canSend}
+          <!-- A send button on the desktop too. Enter keeps working and remains
+               the fast path, but "press Enter" was the ONLY path: there was no
+               glyph at any draft length, on the one screen in the app whose job
+               is to send things. It appears with something to send and goes
+               again when there isn't, so the row does not carry a permanently
+               dead control. -->
+          <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
+            <Icon name="send" size={17} />
+          </button>
+        {/if}
         </div>
       {/if}
     </div>

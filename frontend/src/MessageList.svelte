@@ -6,6 +6,7 @@
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Message from "./Message.svelte";
   import ArchiveMessage from "./ArchiveMessage.svelte";
+  import PendingMessage from "./PendingMessage.svelte";
   import CatchUpCard from "./CatchUpCard.svelte";
   import Avatar from "./Avatar.svelte";
   import BottomSheet from "./BottomSheet.svelte";
@@ -36,6 +37,7 @@
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
   import { msOf, rangeLabel } from "./lib/chronicle.js";
+  import { entriesFor } from "./lib/outbox.svelte.js";
   import { untrack, tick } from "svelte";
 
   let { onDropFiles } = $props();
@@ -299,6 +301,10 @@
   // than a conditional inside a row, because the window measures by walking
   // siblings and pairing them off against this list — a row that sometimes
   // brings a divider with it and sometimes doesn't would break the pairing.
+  // The outbox for THIS channel, with anything the core has already echoed
+  // back filtered out — see lib/outbox.svelte.js for why the echo check exists.
+  const outbox = $derived(entriesFor(S.activeChannelId));
+
   const items = $derived.by(() => {
     const out = [];
     if (showArchive) {
@@ -308,6 +314,7 @@
       }
       out.push({ k: "seam", t: "seam" });
     }
+    let lastM = null;
     for (const row of rows) {
       const m = row.m;
       if (row.newDay) out.push({ k: `d:${m.id}`, t: "day", day: row.day });
@@ -323,6 +330,28 @@
       // an item that draws nothing has no element to pair with.
       if (m.kind === "system" && isDMView) continue;
       out.push({ k: m.id, t: "row", row });
+      lastM = m;
+    }
+    // Everything this device has handed to the core and not yet seen come back.
+    // Always last, because they are always the newest thing in the channel —
+    // which is also why they compose with the bottom-anchor logic for free: a
+    // pending row is a real item at the end of the list, so "at the bottom"
+    // follows it exactly as it follows an arriving message.
+    for (let i = 0; i < outbox.length; i++) {
+      const e = outbox[i];
+      // The first pending row wears the face and the name unless it is
+      // continuing a run of ours, by the same rule the real rows use — so
+      // promotion does not change the row's shape under the reader's eyes.
+      const first =
+        i === 0 &&
+        !(
+          lastM &&
+          lastM.sender === S.identity.fingerprint &&
+          lastM.kind === "" &&
+          !lastM.deleted &&
+          Date.now() - new Date(lastM.sent).getTime() < GROUP_WINDOW_MS
+        );
+      out.push({ k: `o:${e.id}`, t: "pending", entry: e, first });
     }
     return out;
   });
@@ -367,7 +396,8 @@
   let headerH = 0; // the loading/seam markers that sit above the top spacer
   let cum = [0]; // cum[i] = summed advance of items 0..i-1
 
-  const guessFor = (it) => typeMean.get(it.t) ?? (it.t === "row" || it.t === "arc" ? 46 : 30);
+  const guessFor = (it) =>
+    typeMean.get(it.t) ?? (it.t === "row" || it.t === "arc" || it.t === "pending" ? 46 : 30);
   const hOf = (it) => advance.get(it.k) ?? guessFor(it);
 
   function rebuildCum() {
@@ -1243,6 +1273,8 @@
       <div class="day-divider"><span>{fmtDay(it.day)}</span></div>
     {:else if it.t === "catchup"}
       <CatchUpCard digest={catchUp} />
+    {:else if it.t === "pending"}
+      <PendingMessage entry={it.entry} first={it.first} />
     {:else if it.t === "new"}
       <div class="new-divider" class:cleared={newCleared}>
         <span>{newCleared ? "READ UP TO HERE" : "NEW"}</span>
