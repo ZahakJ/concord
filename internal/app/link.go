@@ -127,6 +127,23 @@ func (s *Service) handleLinkRequest(_ context.Context, _ peer.ID, reqBytes []byt
 	// ownDevicesKey.
 	s.rememberOwnDevice(cert)
 
+	// Notes is created lazily, the first time anything asks for it — which for
+	// most accounts is AFTER the second device exists. A device linked before
+	// that inherits no Notes group, then mints its own the first time its owner
+	// opens the scratchpad, and the account is left holding two groups both
+	// called Notes with nothing to merge them. Two consequences, both silent:
+	// notes written on one device never appear on the other, and read state
+	// stops converging at all — the Notes meta topic is the only wire it
+	// travels on, so each device publishes markers into a group the other
+	// cannot decrypt.
+	//
+	// Minting it here, once, at the moment of handover, means there is exactly
+	// one to hand over and the joiner adopts it instead of inventing a rival.
+	// It belongs on THIS path and not inside linkGuildInvites, which is also
+	// what a hello to an already-linked device calls — doing it there would
+	// have every device create a Notes the first time it greets one of its own.
+	_, _ = s.NotesDM()
+
 	// One invite code per guild so the new device can join every existing group
 	// after it restarts in linked mode.
 	invites, missing := s.linkGuildInvites()
