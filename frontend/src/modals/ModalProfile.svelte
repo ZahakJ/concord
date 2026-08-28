@@ -13,9 +13,9 @@
   import CardFrame from "../CardFrame.svelte";
   import FxLayer from "../FxLayer.svelte";
   import { DECORATION_BY_ID, DECORATIONS, COLORWAYS } from "../lib/decorations.js";
-  import { CARD_EFFECT_BY_ID, CARD_EFFECTS } from "../lib/cardfx.js";
+  import { CARD_EFFECT_BY_ID, CARD_EFFECTS, cardEffect } from "../lib/cardfx.js";
   import { CARD_FRAME_BY_ID, CARD_FRAMES } from "../lib/cardframes.js";
-  import { CARD_SCENE_BY_ID, CARD_SCENES } from "../lib/cardscenes.js";
+  import { CARD_SCENE_BY_ID, CARD_SCENES, cardScene } from "../lib/cardscenes.js";
   import GameShelf from "../GameShelf.svelte";
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
   import { api } from "../lib/api.js";
@@ -109,6 +109,21 @@
   // Every style field has to be listed here or its value is silently dropped
   // on save — `dec` went missing that way once.
   const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal, dec, dc, cf });
+  // What the two card studios need in order to preview YOUR card rather than a
+  // wireframe. One object, so a new field reaches both without a third call
+  // site learning about it.
+  const cardProps = $derived({
+    name: name || "You",
+    emoji,
+    avatar,
+    banner,
+    style: { angle, fill },
+    ring: frame,
+    dec,
+    status,
+  });
+  const fxOf = $derived(effect ? cardEffect(effect) : null);
+  const sceneOf = $derived(effect ? cardScene(effect) : null);
   let fileInput;
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
@@ -277,7 +292,19 @@
          mostly art instead of mostly empty background. Hover the banner and it
          blurs behind an "Edit banner" call to action — the banner IS the
          button. -->
-    <div class="pv-card card-effect-{effect || 'none'}">
+    <!-- The hero has to be wearing everything the live card wears. It knew
+         about the banner, the avatar and the decoration, and not about the card
+         frame or the card effect — so the two cosmetics defined by what they do
+         to a card were the two this card would not show you. The frame is a
+         SIBLING, as it is on the real popover, because its art overhangs. -->
+    <div class="pv-stage" class:framed={!!cf}>
+      {#if cf}
+        <CardFrame id={cf} {color} color2={color2 || color} />
+      {/if}
+      <div class="pv-card card-effect-{effect || 'none'}" class:framed={!!cf}>
+      {#if fxOf}
+        <span class="pv-fx"><FxLayer fx={fxOf.fx} seed={effect} /></span>
+      {/if}
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <Banner
         {banner}
@@ -290,6 +317,12 @@
       >
         <span class="banner-edit"><Icon name="edit" size={14} /> Edit banner</span>
       </Banner>
+      <!-- After the banner, before the avatar: a drawn scene IS the art and
+           its subject lives in the top third, which a 120px banner would bury.
+           Same ordering as the popover, for the same reason. -->
+      {#if sceneOf}
+        <span class="pv-fx"><CardScene id={effect} {color} {color2} /></span>
+      {/if}
       <div class="pv-head">
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
@@ -321,6 +354,7 @@
         <div class="pv-id">
           <div class="pv-name">{name || "Your name"}</div>
           {#if status}<div class="pv-status tiny muted">{status}</div>{/if}
+        </div>
         </div>
       </div>
     </div>
@@ -603,6 +637,7 @@
   {#if effectStudio}
     <EffectStudio
       current={effect}
+      card={cardProps}
       {color}
       {color2}
       onApply={(r) => {
@@ -616,6 +651,7 @@
   {#if cfStudio}
     <CardFrameStudio
       current={cf}
+      card={cardProps}
       {color}
       {color2}
       onApply={(r) => {
@@ -743,6 +779,18 @@
     flex-direction: column;
     gap: var(--sp-1);
   }
+  /* A card frame's art overhangs its card on purpose, and on the real popover
+     it overhangs into the app. Inside a settings sheet it has to stop at the
+     sheet: this is the positioned, clipping box that gives it somewhere to be
+     — without it the frame anchors to the nearest positioned ancestor, which
+     turned out to be the viewport, and painted a cathedral across the app. */
+  .pv-stage {
+    position: relative;
+  }
+  .pv-stage.framed {
+    overflow: hidden;
+    padding: 24px 22px;
+  }
   .pv-card {
     position: relative;
     border: 1px solid var(--border);
@@ -750,6 +798,22 @@
     overflow: hidden;
     background: var(--bg-1);
     padding-bottom: var(--sp-3);
+  }
+  /* A frame draws the card's edge; the card's own border under it reads as a
+     seam. */
+  .pv-card.framed {
+    border-color: transparent;
+  }
+  .pv-fx {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+  }
+  .pv-head,
+  .pv-id {
+    position: relative;
+    z-index: 1;
   }
   .pv-card :global(.pv-banner) {
     height: 120px;

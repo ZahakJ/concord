@@ -317,6 +317,19 @@
     border-top: 1px solid var(--hairline);
     box-shadow: 0 -10px 16px -14px var(--scrim);
   }
+  /* A disabled commit button must not be the accent at half strength. app.css
+     fills a bare button with --accent and dims disabled ones to opacity .5,
+     which on a footer's primary reads as a paint fault — a washed-out purple
+     bleeding the dialog through itself — rather than as "not yet". A flat
+     surface with faint text is the same sentence said properly. Scoped to the
+     footer, which is the one place in the app where a filled primary is
+     routinely disabled. */
+  .dialog :global(.actions button:disabled) {
+    opacity: 1;
+    background: var(--bg-3);
+    color: var(--text-faint);
+    box-shadow: none;
+  }
   /* The scroll fade, on the desktop card too. A container that ends on a
      half-drawn row reads as broken rather than as scrollable — the command
      palette sliced "Saved messages" through the middle, the forward dialog cut

@@ -215,10 +215,19 @@
       onpointerup={up}
       onpointercancel={up}
     ></canvas>
+    {#if empty}
+      <span class="pad-hint" aria-hidden="true">Draw here</span>
+    {/if}
   </div>
 
+  <!-- Two labelled groups with a rule between them. They used to be eleven
+       identical circles in one row — eight colours and three stroke widths
+       drawn as a small dot, a medium dot and a large grey disc — which read as
+       three broken colours. A brush is a LINE, so it is drawn as one. -->
   <div class="tools">
-    <div class="inks" role="radiogroup" aria-label="Colour">
+    <div class="grp">
+      <span class="glabel">Colour</span>
+      <div class="inks" role="radiogroup" aria-label="Colour">
       {#each DOODLE_COLOURS as c, i (c.id)}
         <button
           type="button"
@@ -231,33 +240,39 @@
           style:--ink={c.css}
           onclick={() => (colour = i)}
         ></button>
-      {/each}
+        {/each}
+      </div>
     </div>
 
-    <div class="nibs" role="radiogroup" aria-label="Brush size">
-      {#each DOODLE_WIDTHS as w, i (w)}
-        <button
-          type="button"
-          class="nib"
-          class:on={width === i}
-          role="radio"
-          aria-checked={width === i}
-          aria-label={["Thin", "Medium", "Thick"][i]}
-          use:tooltip
-          onclick={() => (width = i)}
-        >
-          <span class="dot" style:--d="{Math.min(w + 4, 16)}px"></span>
-        </button>
-      {/each}
+    <span class="grule" aria-hidden="true"></span>
+
+    <div class="grp">
+      <span class="glabel">Brush</span>
+      <div class="nibs" role="radiogroup" aria-label="Brush size">
+        {#each DOODLE_WIDTHS as w, i (w)}
+          <button
+            type="button"
+            class="nib"
+            class:on={width === i}
+            role="radio"
+            aria-checked={width === i}
+            aria-label={["Thin", "Medium", "Thick"][i]}
+            use:tooltip
+            onclick={() => (width = i)}
+          >
+            <span class="stroke" style:--d="{Math.min(w + 2, 10)}px"></span>
+          </button>
+        {/each}
+      </div>
     </div>
 
     <div class="spacer"></div>
 
-    <button type="button" class="iconbtn" aria-label="Undo last stroke" use:tooltip disabled={empty} onclick={undo}>
-      <Icon name="undo" size={16} />
+    <button type="button" class="txtbtn" disabled={empty} onclick={undo}>
+      <Icon name="undo" size={14} /> Undo
     </button>
-    <button type="button" class="iconbtn" aria-label="Clear the pad" use:tooltip disabled={empty} onclick={clear}>
-      <Icon name="trash" size={16} />
+    <button type="button" class="txtbtn" disabled={empty} onclick={clear}>
+      <Icon name="trash" size={14} /> Clear
     </button>
   </div>
 
@@ -281,17 +296,30 @@
   .pad-wrap {
     position: relative;
   }
+  /* Only while the pad is empty, and never in the way: pointer-events off, and
+     it is gone the moment the first stroke lands. */
+  .pad-hint {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+    font-size: var(--fs-ui);
+    color: var(--text-faint);
+  }
   /* touch-action: none is load-bearing on a phone. Without it the browser
      claims the first vertical movement for a scroll (and the sheet's own
      drag-to-dismiss claims the rest), so a downward stroke dismisses the
      dialog instead of drawing a line. */
+  /* A dashed edge and a hint say "draw here". A plain filled rectangle above
+     a palette is as likely to read as a preview of nothing. */
   .pad {
     display: block;
     width: 100%;
     aspect-ratio: 8 / 5;
     touch-action: none;
     background: var(--bg-1);
-    border: 1px solid var(--border);
+    border: 1px dashed var(--border);
     border-radius: var(--radius-md);
     cursor: crosshair;
   }
@@ -301,10 +329,31 @@
 
   .tools {
     display: flex;
-    align-items: center;
-    gap: var(--sp-2);
+    align-items: flex-end;
+    gap: var(--sp-3);
     margin-top: var(--sp-3);
     flex-wrap: wrap;
+  }
+  .grp {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .glabel {
+    font-size: var(--fs-tiny);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  /* The separator the two groups needed. Without it "eight circles then three
+     circles" is one row of eleven. */
+  .grule {
+    align-self: stretch;
+    flex: none;
+    width: 1px;
+    margin: 2px 0;
+    background: var(--border);
   }
   .spacer {
     flex: 1;
@@ -351,32 +400,42 @@
     background: var(--bg-3);
     border-color: var(--border);
   }
-  .nib .dot {
-    width: var(--d);
+  /* A stroke, not a dot. A brush weight is a LINE — drawing it as a disc at
+     the same size and shape as the colour swatches beside it is what made the
+     three of them read as broken colours. */
+  .nib .stroke {
+    width: 15px;
     height: var(--d);
-    border-radius: 50%;
+    border-radius: 999px;
     background: var(--text-muted);
+  }
+  .nib.on .stroke {
+    background: var(--text);
   }
   .nib.on .dot {
     background: var(--text);
   }
 
-  .iconbtn {
-    width: 30px;
+  /* Labelled. Two unlabelled 16px glyphs floating under a palette are a
+     guess; "Undo" and "Clear" are not, and they are the two actions in this
+     dialog you least want to press by mistake. */
+  .txtbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     height: 30px;
-    display: grid;
-    place-items: center;
-    padding: 0;
+    padding: 0 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-3);
     color: var(--text-muted);
+    font-size: var(--fs-compact);
     cursor: pointer;
   }
-  .iconbtn:hover:not(:disabled) {
+  .txtbtn:hover:not(:disabled) {
     color: var(--text);
   }
-  .iconbtn:disabled {
+  .txtbtn:disabled {
     opacity: 0.4;
     cursor: default;
   }

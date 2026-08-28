@@ -105,7 +105,7 @@
 <div class="ds-scrim" role="presentation" onclick={onClose}></div>
 <div class="ds" role="dialog" aria-label="Choose what you wear on your avatar">
   <div class="ds-head">
-    <button class="icon-btn" onclick={onClose} aria-label="Back"><Icon name="chevron" size={16} /></button>
+    <button class="icon-btn" onclick={onClose} aria-label="Back"><Icon name="back" size={16} /></button>
     <strong>Avatar decoration</strong>
     <span class="tiny muted">{worn}</span>
   </div>
@@ -185,17 +185,19 @@
   {/if}
 
   <div class="library">
-    <button
-      class="opt none"
-      class:sel={selDec === "" && selRing === ""}
-      onclick={() => {
-        selDec = "";
-        selRing = "";
-      }}
-    >
-      <span class="none-dot"></span>
-      <span class="oname">None</span>
-    </button>
+    <div class="grid">
+      <button
+        class="opt none"
+        class:sel={selDec === "" && selRing === ""}
+        onclick={() => {
+          selDec = "";
+          selRing = "";
+        }}
+      >
+        <span class="none-dot"></span>
+        <span class="oname">None</span>
+      </button>
+    </div>
 
     <div class="section">Drawn</div>
     {#each DECORATION_GROUPS as g (g.title)}
@@ -294,6 +296,36 @@
     z-index: 61;
     overflow: hidden;
   }
+  /* Quiet. app.css fills a bare button with the accent, so an unstyled
+     .icon-btn made the BACK arrow the loudest control on the panel — louder
+     than Apply. A back button is chrome; it gets a ghost's treatment, the same
+     one Modal's own back arrow has. */
+  .icon-btn {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    border-radius: var(--radius-md);
+    transition:
+      color var(--dur-standard) ease,
+      background var(--dur-standard) ease;
+  }
+  @media (pointer: fine) {
+    .icon-btn:hover {
+      color: var(--text);
+      background: var(--bg-3);
+    }
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .icon-btn {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
+  }
   .ds-head {
     display: flex;
     align-items: center;
@@ -304,9 +336,12 @@
   .ds-head .tiny {
     margin-left: auto;
   }
+  /* Centred. The avatar was left-aligned in a full-width band, leaving most
+     of the hero empty beside the one thing it is showing you. */
   .preview {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: var(--sp-4);
     padding: 18px 16px;
     border-bottom: 1px solid var(--border);
@@ -426,16 +461,17 @@
   .grid.rings .opt:not(:hover):not(.sel) :global(.ring .sat) {
     animation-play-state: paused;
   }
+  /* A tile, like everything else it sits above. "None" used to be a 49x36 grey
+     pill floating alone over the first section header — a different species of
+     control for the option people reach for most often. Same footprint as an
+     art tile, dashed interior because this one IS the empty choice, label
+     centred. */
   .opt.none {
-    flex-direction: row;
-    justify-content: center;
-    gap: var(--sp-2);
-    width: 100%;
-    padding: 10px;
+    gap: 6px;
   }
   .none-dot {
-    width: 22px;
-    height: 22px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     border: 1px dashed var(--text-faint);
   }

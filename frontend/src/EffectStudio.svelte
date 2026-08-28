@@ -27,6 +27,7 @@
   import Icon from "./Icon.svelte";
   import FxLayer from "./FxLayer.svelte";
   import CardScene from "./CardScene.svelte";
+  import ProfileCardPreview from "./ProfileCardPreview.svelte";
   import { CARD_EFFECT_BY_ID, CARD_EFFECT_GROUPS, cardEffect } from "./lib/cardfx.js";
   import { CARD_SCENE_BY_ID, CARD_SCENE_GROUPS, cardScene } from "./lib/cardscenes.js";
 
@@ -34,7 +35,7 @@
   // the call below silently compiles to a store subscription instead
   // ("e.subscribe is not a function" at runtime). BannerStudio carries the same
   // warning for the same reason.
-  let { current = "", color = "#14a394", color2 = "", onApply, onClose } = $props();
+  let { current = "", color = "#14a394", color2 = "", card = {}, onApply, onClose } = $props();
   $effect(() => pushLayer("studio", () => onClose?.()));
 
   let sel = $state(current);
@@ -49,24 +50,28 @@
 <div class="es-scrim" role="presentation" onclick={onClose}></div>
 <div class="es" role="dialog" aria-label="Choose a profile effect">
   <div class="es-head">
-    <button class="icon-btn" onclick={onClose} aria-label="Back"><Icon name="chevron" size={16} /></button>
+    <button class="icon-btn" onclick={onClose} aria-label="Back"><Icon name="back" size={16} /></button>
     <strong>Profile effect</strong>
     <span class="tiny muted">{selName}</span>
   </div>
 
-  <div class="preview" style="--c1:{color};--c2:{color2 || color}">
-    <div class="card">
-      {#if curScene}
-        <span class="cfx"><CardScene id={sel} {color} {color2} /></span>
-      {:else if cur}
-        <span class="cfx"><FxLayer fx={cur.fx} seed={sel} /></span>
-      {/if}
-      <div class="who"><span class="av"></span><b>{S.displayName || "You"}</b></div>
+  <!-- The real card, wearing the effect. The preview used to be a 190x92
+       gradient strip with a 22px black disc where your face goes, which told
+       you what the effect looks like over a rectangle and nothing about what it
+       looks like over YOUR card — the only place it will ever play. -->
+  <div class="preview">
+    <div class="stage">
+      <ProfileCardPreview {...card} {color} {color2} effect={sel} scale={0.8} />
     </div>
   </div>
 
   <div class="library">
-    <button class="opt none" class:sel={sel === ""} onclick={() => (sel = "")}>None</button>
+    <div class="grid">
+      <button class="opt none" class:sel={sel === ""} onclick={() => (sel = "")}>
+        <span class="tile none-tile"><span class="none-word">None</span></span>
+        <span class="oname">No effect</span>
+      </button>
+    </div>
 
     <div class="stitle">
       Scenes <span class="tiny muted">drawn art, animated</span>
@@ -142,6 +147,36 @@
     z-index: 61;
     overflow: hidden;
   }
+  /* Quiet. app.css fills a bare button with the accent, so an unstyled
+     .icon-btn made the BACK arrow the loudest control on the panel — louder
+     than Apply. A back button is chrome; it gets a ghost's treatment, the same
+     one Modal's own back arrow has. */
+  .icon-btn {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    border-radius: var(--radius-md);
+    transition:
+      color var(--dur-standard) ease,
+      background var(--dur-standard) ease;
+  }
+  @media (pointer: fine) {
+    .icon-btn:hover {
+      color: var(--text);
+      background: var(--bg-3);
+    }
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .icon-btn {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
+  }
   .es-head {
     display: flex;
     align-items: center;
@@ -154,27 +189,18 @@
   }
   .preview {
     display: flex;
-    align-items: center;
-    gap: var(--sp-4);
+    justify-content: center;
     padding: var(--sp-4);
     border-bottom: 1px solid var(--border);
   }
-  .preview p {
-    margin: 0;
-    line-height: 1.5;
-  }
-  .card {
-    position: relative;
-    flex: none;
-    width: 190px;
-    height: 92px;
-    border-radius: var(--radius-sm);
+  .stage {
+    display: grid;
+    place-items: center;
+    width: min(100%, 360px);
+    padding: 14px 0;
     overflow: hidden;
-    background: linear-gradient(140deg, var(--c1), var(--c2));
-  }
-  .cfx {
-    position: absolute;
-    inset: 0;
+    border-radius: var(--radius-sm);
+    background: var(--bg-0);
   }
   .who {
     position: absolute;
@@ -251,11 +277,24 @@
   .opt.sel {
     border-color: var(--accent);
   }
-  .opt.none {
-    padding: 10px;
-    text-align: center;
-    font-size: var(--fs-tiny);
+  /* A tile, like everything else it sits above. "None" used to be a 49x36 grey
+     pill floating alone over the first section header — a different species of
+     control for the option people reach for most often. Same footprint as an
+     art tile, dashed interior because this one IS the empty choice, label
+     centred. */
+  .none-tile {
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+  }
+  .none-word {
+    font-size: var(--fs-compact);
     color: var(--text-muted);
+  }
+  .opt.none.sel .none-word {
+    color: var(--text);
   }
   /* The tile is a stand-in for a profile card, so it wears the surface a
      profile card is painted on — not a dark gradient nailed on in hex. On the

@@ -12,12 +12,13 @@
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Icon from "./Icon.svelte";
   import CardFrame from "./CardFrame.svelte";
+  import ProfileCardPreview from "./ProfileCardPreview.svelte";
   import { CARD_FRAME_BY_ID, CARD_FRAME_GROUPS, CARD_FRAMES } from "./lib/cardframes.js";
 
   // `current`, not `frame`: this file has no $effect, but the neighbouring
   // studios were both bitten by a prop shadowing a rune and the convention is
   // cheaper to keep than to re-learn.
-  let { current = "", color = "#14a394", color2 = "", onApply, onClose } = $props();
+  let { current = "", color = "#14a394", color2 = "", card = {}, onApply, onClose } = $props();
   $effect(() => pushLayer("studio", () => onClose?.()));
 
   let sel = $state(current);
@@ -26,29 +27,27 @@
 <div class="cfs-scrim" role="presentation" onclick={onClose}></div>
 <div class="cfs" role="dialog" aria-label="Choose a card frame" style="--c1:{color};--c2:{color2 || color}">
   <div class="cfs-head">
-    <button class="icon-btn" onclick={onClose} aria-label="Back"><Icon name="chevron" size={16} /></button>
+    <button class="icon-btn" onclick={onClose} aria-label="Back"><Icon name="back" size={16} /></button>
     <strong>Card frame</strong>
     <span class="tiny muted">{CARD_FRAME_BY_ID[sel]?.name || "None"}</span>
   </div>
 
+  <!-- Your real card, at 0.8, centred. It used to be a grey circle and three
+       grey bars in a left-aligned band with 60% of the hero empty beside it —
+       a wireframe standing in for the one thing this picker exists to sell. -->
   <div class="preview">
     <div class="stage">
-      <div class="card">
-        {#if sel}
-          <CardFrame id={sel} {color} color2={color2 || color} />
-        {/if}
-        <div class="pv-banner"></div>
-        <div class="pv-av"></div>
-        <div class="pv-name"></div>
-        <div class="pv-line"></div>
-        <div class="pv-line short"></div>
-        <div class="pv-input"></div>
-      </div>
+      <ProfileCardPreview {...card} {color} {color2} frame={sel} scale={0.8} />
     </div>
   </div>
 
   <div class="library">
-    <button class="opt none" class:sel={sel === ""} onclick={() => (sel = "")}>None</button>
+    <div class="grid">
+      <button class="opt none" class:sel={sel === ""} onclick={() => (sel = "")}>
+        <span class="tile none-tile"><span class="none-word">None</span></span>
+        <span class="oname">No frame</span>
+      </button>
+    </div>
     {#each CARD_FRAME_GROUPS as g (g.title)}
       <div class="gtitle">{g.title}</div>
       <div class="grid">
@@ -101,6 +100,36 @@
     z-index: 61;
     overflow: hidden;
   }
+  /* Quiet. app.css fills a bare button with the accent, so an unstyled
+     .icon-btn made the BACK arrow the loudest control on the panel — louder
+     than Apply. A back button is chrome; it gets a ghost's treatment, the same
+     one Modal's own back arrow has. */
+  .icon-btn {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    border-radius: var(--radius-md);
+    transition:
+      color var(--dur-standard) ease,
+      background var(--dur-standard) ease;
+  }
+  @media (pointer: fine) {
+    .icon-btn:hover {
+      color: var(--text);
+      background: var(--bg-3);
+    }
+  }
+  @media (pointer: coarse), (max-width: 768px) {
+    .icon-btn {
+      width: var(--tap-min);
+      height: var(--tap-min);
+    }
+  }
   .cfs-head {
     display: flex;
     align-items: center;
@@ -113,25 +142,20 @@
   }
   .preview {
     display: flex;
-    align-items: center;
-    gap: var(--sp-4);
+    justify-content: center;
     padding: var(--sp-4);
     border-bottom: 1px solid var(--border);
   }
-  .preview p {
-    margin: 0;
-    line-height: 1.5;
-  }
-  /* The stage is what gives the overhang somewhere to be. Without the padding
+  /* The stage is what gives the overhang somewhere to be. Without the room
      the art is drawn, then clipped by the panel, and every frame looks docked. */
+  /* Room for the overhang, and a hard edge so it cannot escape the panel: a
+     frame's art is drawn well outside the card it wraps, and the nearest thing
+     with an overflow is otherwise the page. */
   .stage {
-    flex: none;
     display: grid;
-    align-items: end;
-    justify-items: center;
-    width: 210px;
-    height: 290px;
-    padding-bottom: 18px;
+    place-items: center;
+    width: min(100%, 360px);
+    height: 250px;
     overflow: hidden;
     border-radius: var(--radius-sm);
     background: var(--bg-0);
@@ -235,11 +259,24 @@
   .opt.sel {
     border-color: var(--accent);
   }
-  .opt.none {
-    padding: 10px;
-    text-align: center;
-    font-size: var(--fs-tiny);
+  /* A tile, like everything else it sits above. "None" used to be a 49x36 grey
+     pill floating alone over the first section header — a different species of
+     control for the option people reach for most often. Same footprint as an
+     art tile, dashed interior because this one IS the empty choice, label
+     centred. */
+  .none-tile {
+    display: grid;
+    place-items: center;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+  }
+  .none-word {
+    font-size: var(--fs-compact);
     color: var(--text-muted);
+  }
+  .opt.none.sel .none-word {
+    color: var(--text);
   }
   .tile {
     position: relative;
