@@ -43,8 +43,15 @@ var voiceOwnerGrace = 10 * time.Second
 
 type voiceOwners struct {
 	mu sync.Mutex
-	// channelID -> the client id that started this room's call.
-	rooms map[string]string
+	// channelID -> the set of client ids that asked for this room's call.
+	//
+	// A set, not a single owner: two windows of the same account on one node
+	// are one participant in the room, and the node must stay in it until the
+	// LAST of them has gone. With a single owner the second window to join
+	// replaced the first, and closing it hung up on a window that was still
+	// open and still showing itself in the call — the outcome noteVoiceOwner's
+	// own comment calls far worse than leaving a ghost.
+	rooms map[string]map[string]bool
 	// clientID -> the timer that will end its rooms, armed when its stream
 	// dropped and disarmed if it comes back.
 	pending map[string]*time.Timer
@@ -66,7 +73,10 @@ func (b *Bridge) noteVoiceOwner(channelID, clientID string) {
 		delete(v.rooms, channelID)
 		return
 	}
-	v.rooms[channelID] = clientID
+	if v.rooms[channelID] == nil {
+		v.rooms[channelID] = map[string]bool{}
+	}
+	v.rooms[channelID][clientID] = true
 	// This client is demonstrably alive — it just made a call. Anything armed
 	// against it is stale.
 	if t, ok := v.pending[clientID]; ok {
@@ -116,19 +126,23 @@ func (b *Bridge) voiceClientBack(clientID string) {
 	}
 }
 
-// endVoiceFor leaves every call a departed client was holding.
+// endVoiceFor leaves every call the departed client was the last one holding.
+// A room another attached window also asked for is left alone: this client is
+// gone, that one is not, and the node is still genuinely in the call.
 func (b *Bridge) endVoiceFor(clientID string) {
 	v := b.voice()
 	v.mu.Lock()
 	delete(v.pending, clientID)
 	var rooms []string
-	for ch, owner := range v.rooms {
-		if owner == clientID {
+	for ch, holders := range v.rooms {
+		if !holders[clientID] {
+			continue
+		}
+		delete(holders, clientID)
+		if len(holders) == 0 {
+			delete(v.rooms, ch)
 			rooms = append(rooms, ch)
 		}
-	}
-	for _, ch := range rooms {
-		delete(v.rooms, ch)
 	}
 	v.mu.Unlock()
 	if len(rooms) == 0 {
@@ -147,8 +161,8 @@ func (b *Bridge) endVoiceFor(clientID string) {
 }
 
 func (v *voiceOwners) ownsAnyLocked(clientID string) bool {
-	for _, owner := range v.rooms {
-		if owner == clientID {
+	for _, holders := range v.rooms {
+		if holders[clientID] {
 			return true
 		}
 	}
@@ -161,7 +175,7 @@ func (b *Bridge) voice() *voiceOwners {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.voiceOwn == nil {
-		b.voiceOwn = &voiceOwners{rooms: map[string]string{}, pending: map[string]*time.Timer{}}
+		b.voiceOwn = &voiceOwners{rooms: map[string]map[string]bool{}, pending: map[string]*time.Timer{}}
 	}
 	return b.voiceOwn
 }

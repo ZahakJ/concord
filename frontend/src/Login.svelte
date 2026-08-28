@@ -149,6 +149,22 @@
     }
   }
 
+  // Why this screen is showing, when the answer is not "you opened the app".
+  // api.js sets the flag and reloads when the node reports the identity is
+  // locked out from under a running window — which in practice means the
+  // account unlinked this device and the node erased itself. Read once and
+  // cleared, so a later reload does not re-explain something that has stopped
+  // being true.
+  const endedElsewhere = (() => {
+    try {
+      const v = sessionStorage.getItem("concord.sessionEnded");
+      sessionStorage.removeItem("concord.sessionEnded");
+      return v === "1";
+    } catch {
+      return false;
+    }
+  })();
+
   // After CREATING a fresh identity we hold the door and make the user save
   // their 24-word recovery phrase — it's the only way back into the account.
   let backupPhrase = $state(""); // non-empty ⇒ show the "save this now" step
@@ -339,6 +355,15 @@
   <form class="card" class:wide={!!backupPhrase} onsubmit={submit}>
     <div class="logo"><Icon name="concorde" size={44} /></div>
     <h1>{backupPhrase ? "Save your recovery phrase" : "Concord"}</h1>
+
+    {#if endedElsewhere && !backupPhrase}
+      <p class="notice" role="status">
+        This device was unlinked from its account. Its copy of your identity,
+        your guilds and your messages has been erased here — nothing was deleted
+        from anyone else. Link it again from one of your other devices to get
+        them back.
+      </p>
+    {/if}
 
     {#if !checked}
       <p class="muted">Loading…</p>
@@ -833,6 +858,20 @@
     color: var(--text-muted);
     cursor: pointer;
   }
+  /* Why you are looking at a login screen you did not ask for. Warm rather than
+     alarming: nothing has gone wrong, this device was told to let go. */
+  .notice {
+    margin: 0 0 4px;
+    padding: 10px 12px;
+    border-radius: var(--r-md, 10px);
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    color: var(--text-2);
+    font-size: var(--fs-sm, 13px);
+    line-height: 1.5;
+    text-align: left;
+  }
+
   /* The 24-word grid: numbered, monospace, blurred until revealed so nobody
      shoulder-surfs it before the user is ready. */
   .words {

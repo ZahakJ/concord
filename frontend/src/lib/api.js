@@ -109,8 +109,39 @@ async function call(name, ...args) {
   reportTransport(true);
   if (!res.ok) throw new Error(`rpc ${name}: HTTP ${res.status}`);
   const body = await res.json();
-  if (body.error) throw new Error(body.error);
+  if (body.error) {
+    if (LOCKED.test(body.error)) sessionEnded();
+    throw new Error(body.error);
+  }
   return body.result;
+}
+
+// The session went away underneath a window that is still showing the app.
+//
+// There is one way this happens that is not the user's doing: the account
+// unlinks this device from somewhere else, the node erases its own keystore and
+// database, and drops the session. The window carries on displaying every
+// channel, every message and a working composer over an account that no longer
+// exists here — a fossil. Watched live: unlink a second device and thirty
+// seconds later it was still showing the guild list, the member panel and the
+// composer, with nothing on screen and two "identity is locked" lines in a
+// console nobody has open.
+//
+// Every call goes through here, so this is the one place that can notice. The
+// reload lands on Login, where hasIdentity is now false and the screen is the
+// first-run one — which is the truth about this device. The flag survives the
+// reload just long enough for Login to say why it happened.
+const LOCKED = /identity is locked/i;
+let bouncing = false;
+function sessionEnded() {
+  if (bouncing) return;
+  bouncing = true;
+  try {
+    sessionStorage.setItem("concord.sessionEnded", "1");
+  } catch {
+    /* private mode: the reload is still right, it just arrives unexplained */
+  }
+  location.reload();
 }
 
 // leaveVoiceOnUnload tells the backend we're gone while the page is being torn

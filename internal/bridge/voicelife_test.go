@@ -100,3 +100,42 @@ func TestANewCallDisarmsAPendingHangUp(t *testing.T) {
 		t.Error("a client that just made a call was hung up on by a stale timer")
 	}
 }
+
+// Two windows of the same account, on the same node, in the same room. The
+// second one to join is the one the ownership record names — and when it goes,
+// the first is still open, still streaming, still showing itself in the call.
+// Hanging up on it is the exact outcome noteVoiceOwner's own comment says would
+// be "far worse than leaving a ghost"; the empty-client case was guarded and
+// this one was not. A room ends when the last client that asked for it has
+// gone, not when the most recent one has.
+func TestASecondWindowClosingDoesNotHangUpTheFirst(t *testing.T) {
+	shortGrace(t, 20*time.Millisecond)
+	b := &Bridge{}
+	b.noteVoiceOwner("study-hall", "tab-1")
+	b.noteVoiceOwner("study-hall", "tab-2")
+	b.DropClient("tab-2")
+	time.Sleep(120 * time.Millisecond)
+	if !owns(b, "study-hall") {
+		t.Fatal("the second window closing ended a call the first window is still in")
+	}
+	// …and when the first one goes too, the room does end.
+	b.DropClient("tab-1")
+	time.Sleep(120 * time.Millisecond)
+	if owns(b, "study-hall") {
+		t.Error("every client that asked for the room has gone and the node still holds it")
+	}
+}
+
+// The same, in the order that actually happens when somebody reloads: the
+// window that STARTED the call goes, a second one is still there.
+func TestTheStartingWindowLeavingDoesNotHangUpTheOther(t *testing.T) {
+	shortGrace(t, 20*time.Millisecond)
+	b := &Bridge{}
+	b.noteVoiceOwner("study-hall", "tab-1")
+	b.noteVoiceOwner("study-hall", "tab-2")
+	b.DropClient("tab-1")
+	time.Sleep(120 * time.Millisecond)
+	if !owns(b, "study-hall") {
+		t.Error("the window that started the call closed and took a live one down with it")
+	}
+}
