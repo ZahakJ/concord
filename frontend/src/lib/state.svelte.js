@@ -16,6 +16,12 @@ import {
   playNope,
   playDone,
   playArrive,
+  playMuteOn,
+  playMuteOff,
+  playDeafenOn,
+  playDeafenOff,
+  playShareStart,
+  playCallDropped,
 } from "./sounds.js";
 
 // Per-sender soundboard rate limit (last accepted press, ms). Module-local:
@@ -402,6 +408,14 @@ export function getVideoStream(key) {
 
 export function setVideoStream(key, stream, meta = {}) {
   if (stream) {
+    // Someone's screen going up is the one thing in a call that changes what
+    // you should be LOOKING at, and it arrived in silence. Only for other
+    // people's shares, and only on the transition — the kind can arrive after
+    // the stream does, so a re-emit that only fills the label in must not
+    // chime a second time.
+    if (meta.kind === "screen" && !meta.self && videoMetaMap.get(key)?.kind !== "screen") {
+      playShareStart();
+    }
     videoStreams.set(key, stream);
     videoMetaMap.set(key, meta);
   } else {
@@ -2050,6 +2064,11 @@ export async function refreshNetStatus() {
 onTransportHealth((up) => {
   const wasOffline = S.offline;
   S.offline = !up;
+  // Losing the transport mid-call is the moment you most need to be told
+  // something without reading anything: you are probably still talking, and
+  // the stage will go on rendering everybody's faces. The banner says it in
+  // words; this says it to someone who is looking at the person, not the app.
+  if (!up && !wasOffline && S.voice) playCallDropped();
   if (up && wasOffline) {
     refreshGuilds().catch(() => {});
     refreshNetStatus();
@@ -3282,6 +3301,8 @@ export function toggleMicMute() {
     S.voice?.mesh.setDeafened(false);
   }
   S.voice?.mesh.setMuted(S.muted);
+  // Said out loud, because this is the control people press without looking.
+  (S.muted ? playMuteOn : playMuteOff)();
   publishVoiceState();
 }
 
@@ -3299,6 +3320,10 @@ export function toggleDeafen() {
     S.muted = mutedBeforeDeafen;
     S.voice?.mesh.setMuted(S.muted);
   }
+  // Deafening silences the call, so the cue for it has to be the last thing you
+  // hear rather than something the deafen swallows — it plays through the UI
+  // bus, which the mesh's deafen never touches.
+  (S.deafened ? playDeafenOn : playDeafenOff)();
   publishVoiceState();
 }
 

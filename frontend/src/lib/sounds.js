@@ -545,6 +545,90 @@ export function playDone() {
   );
 }
 
+// ---- the call's own switches ----
+//
+// Mute is the one control in this app you press without looking at it — the
+// hand goes to the key while the eyes stay on the person talking — and until
+// now it made no sound at all, so the only confirmation was a badge you had
+// stopped watching. That is how "you're on mute" happens.
+//
+// Two notes, and the interval carries the meaning: down for off, up for on, so
+// the pair is an answer rather than two unrelated beeps. Deafen says the same
+// thing an octave lower and a little slower, because it is the bigger door:
+// muting stops them hearing you, deafening stops the room existing.
+//
+// All four are deliberately tiny — 120ms end to end, well under the join
+// chime — and they ride the same master gain and mute switch as everything
+// else in this file.
+
+// Mic off: G5 down to C5, a perfect fourth falling.
+export function playMuteOn() {
+  play(
+    [
+      [783.99, 0, 0.055, 0.05],
+      [523.25, 0.05, 0.09, 0.045],
+    ],
+    "triangle",
+  );
+}
+
+// Mic on: the same fourth climbing back. Two presses of the toggle are two
+// halves of one gesture, and they sound like it.
+export function playMuteOff() {
+  play(
+    [
+      [523.25, 0, 0.055, 0.045],
+      [783.99, 0.05, 0.09, 0.05],
+    ],
+    "triangle",
+  );
+}
+
+// Deafen: an octave below the mute pair, on sines rather than triangles, so it
+// reads as the heavier of the two without being any louder.
+export function playDeafenOn() {
+  play([
+    [392, 0, 0.07, 0.055],
+    [261.63, 0.065, 0.13, 0.05],
+  ]);
+}
+
+export function playDeafenOff() {
+  play([
+    [261.63, 0, 0.07, 0.05],
+    [392, 0.065, 0.13, 0.055],
+  ]);
+}
+
+// You were disconnected — the call is still on your screen and you are no
+// longer in it. Distinct from the leave chime on purpose: leaving is something
+// you did, and this is something that happened to you. Three notes down a minor
+// triad through the leave chime's darker room, so it lands as a fall rather
+// than as a farewell.
+export function playCallDropped() {
+  if (!enabled) return;
+  const ac = audio();
+  if (!ac) return;
+  const bus = roomBus(ac, { seconds: 2.2, decay: 3.1, wet: 0.36, damp: 1600, level: 0.6 });
+  thump(ac, bus, 0, 110, 40, 0.14);
+  note(ac, bus, 440.0, 0.0, 0.5, 0.14);
+  note(ac, bus, 349.23, 0.11, 0.55, 0.14);
+  note(ac, bus, 261.63, 0.22, 1.3, 0.15);
+}
+
+// Someone put their screen up. A soft two-note rise with a little room on it —
+// enough to make you look, nowhere near enough to interrupt whoever is talking
+// over it. Quieter than the join chime, because a share is an addition to a
+// call you are already in.
+export function playShareStart() {
+  if (!enabled) return;
+  const ac = audio();
+  if (!ac) return;
+  const bus = roomBus(ac, { seconds: 1.1, decay: 2.6, wet: 0.24, damp: 3400, level: 0.42 });
+  note(ac, bus, 587.33, 0.0, 0.34, 0.1);
+  note(ac, bus, 880.0, 0.075, 0.52, 0.1);
+}
+
 // A message arriving in the channel you are LOOKING at. Off by default and it
 // has to be: a chime for something already on screen is the definition of a
 // notification nobody asked for. It exists because in a quiet room some people
