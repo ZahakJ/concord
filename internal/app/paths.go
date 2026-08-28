@@ -80,6 +80,15 @@ func ResetIdentity(dataDir string) error {
 		// every one of those peers that the two identities are the same person.
 		// That is the one thing starting over is for.
 		peerCachePath(dataDir),
+		// The linked-device marker is the certificate saying "the account key
+		// signed FOR this device key". The device key does not survive here —
+		// the next unlock finds no device seed and mints a fresh one — so a
+		// marker left behind describes a key this install no longer has. It
+		// would come back in linked mode, offer that certificate as its MLS
+		// credential, and be refused by every peer that binds a credential to
+		// the connection it arrived on, with nothing on either side saying why.
+		deviceMarkerPath(dataDir),
+		deviceMarkerPath(dataDir) + ".tmp",
 	} {
 		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
 			return err

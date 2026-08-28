@@ -306,7 +306,7 @@ func (s *Service) revokesUs(rev *identity.DeviceRevocation) bool {
 	if len(dev) == 0 {
 		return false
 	}
-	if _, linked := loadDeviceMarker(s.dataDir, s.id.PublicKey()); !linked {
+	if _, linked := loadDeviceMarker(s.dataDir, s.id.PublicKey(), dev); !linked {
 		return false
 	}
 	return bytes.Equal(rev.DevicePub, dev)

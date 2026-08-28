@@ -972,7 +972,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// install uses its own device key for the libp2p PeerID and its device cert
 	// as the MLS credential. Absent → default single-device behavior (account-key
 	// PeerID, bare account credential), unchanged.
-	marker, linked := loadDeviceMarker(cfg.DataDir, id.PublicKey())
+	marker, linked := loadDeviceMarker(cfg.DataDir, id.PublicKey(), id.DevicePublicKey())
 	var hostKey ed25519.PrivateKey
 	if linked {
 		hostKey = id.DeviceKey()

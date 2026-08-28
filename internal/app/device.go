@@ -37,9 +37,10 @@ func deviceMarkerPath(dataDir string) string {
 }
 
 // loadDeviceMarker returns the linked-device marker if this install has one and
-// it verifies against the given account key. A missing/invalid/foreign marker
-// yields (nil,false) → default single-device mode.
-func loadDeviceMarker(dataDir string, accountPub ed25519.PublicKey) (*deviceMarker, bool) {
+// it verifies against the given account key AND the device key this install
+// actually holds. A missing/invalid/foreign/stale marker yields (nil,false) →
+// default single-device mode.
+func loadDeviceMarker(dataDir string, accountPub, devicePub ed25519.PublicKey) (*deviceMarker, bool) {
 	b, err := os.ReadFile(deviceMarkerPath(dataDir))
 	if err != nil {
 		return nil, false
@@ -51,6 +52,14 @@ func loadDeviceMarker(dataDir string, accountPub ed25519.PublicKey) (*deviceMark
 	// The cert must verify AND certify THIS install's account — a marker copied
 	// from another account is ignored rather than trusted.
 	if !m.Cert.Verify() || !ed25519Equal(m.Cert.AccountPub, accountPub) {
+		return nil, false
+	}
+	// …and it must certify the device key we are about to present it with.
+	// Signature and account both survive an identity reset; only the device key
+	// is regenerated. Without this check a reset install comes back believing it
+	// is linked, offers a certificate for a key it no longer has, and is refused
+	// by every peer that binds the credential to the connection.
+	if !ed25519Equal(m.Cert.DevicePub, devicePub) {
 		return nil, false
 	}
 	return &m, true
