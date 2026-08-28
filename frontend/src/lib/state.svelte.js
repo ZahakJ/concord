@@ -7,7 +7,16 @@ import { notify, wantsPermissionPrompt } from "./notify.js";
 import { containsMention } from "./markdown.js";
 import { matchedWord as matchedAlertWord, normalize as normalizeAlertWords } from "./alertwords.js";
 import { awayLongEnough, guildLastSeen, buildDigest, worthShowing } from "./digest.js";
-import { playVoiceJoin, playVoiceLeave, playMention, playDM, playSfxTrigger } from "./sounds.js";
+import {
+  playVoiceJoin,
+  playVoiceLeave,
+  playMention,
+  playDM,
+  playSfxTrigger,
+  playNope,
+  playDone,
+  playArrive,
+} from "./sounds.js";
 
 // Per-sender soundboard rate limit (last accepted press, ms). Module-local:
 // nothing else needs to react to it.
@@ -203,6 +212,10 @@ export const S = $state({
     hideCallIp: false, // on = always relay calls through the rendezvous (hide IP)
     theme: "dark",
     accent: "",
+    // A soft blip when a message lands in the channel already on screen. OFF:
+    // a chime for something you are looking at is a notification nobody asked
+    // for, and it is only right for the person who deliberately turns it on.
+    soundOnArrive: false,
     themePack: "", // curated full-palette skin ("" = default palette)
     // Stackable visual effect, drawn over the app on top of whatever pack is
     // active (lib/themefx.js for the catalogue, FxOverlay.svelte for the
@@ -1525,6 +1538,13 @@ export function flash(msg, kind = "info") {
     kind = "error";
   const id = ++toastSeq;
   S.toasts.push({ id, kind, text: humanError(msg) });
+  // Every failure and every confirmation in the app comes through here, which
+  // is why the sound is wired here and not at a hundred call sites: one
+  // decision, and the two of them arrive everywhere at once. "info" stays
+  // silent — a toast that merely tells you something is not an answer to a
+  // question you asked.
+  if (kind === "error") playNope();
+  else if (kind === "success") playDone();
   // Bound the backlog even if something flashes in a tight loop.
   while (S.toasts.length > 8) dismissToast(S.toasts[0].id);
   toastTimers.set(
@@ -2678,6 +2698,20 @@ function initEvents() {
         S.messages = S.messages.map((x) => (x.id === m.id ? m : x)); // update (edit/delete/react)
       } else {
         S.messages = [...S.messages, m];
+        // A sound for something already on screen. Off by default and it has
+        // to be — but in a quiet room some people want to hear the room, and
+        // the app had nothing at all for a message arriving in the channel you
+        // are looking at. Live, from somebody else, and never for the
+        // bookkeeping a game move is.
+        if (
+          S.prefs.soundOnArrive &&
+          firstSeen &&
+          isLive &&
+          countsAsChat(m) &&
+          !m.deleted &&
+          m.sender !== S.identity.fingerprint
+        )
+          playArrive();
         // Follow the conversation only if the reader is already at the end
         // (or it's their own message) — never yank them out of history.
         if (m.sender === S.identity.fingerprint || feedNearBottom()) {

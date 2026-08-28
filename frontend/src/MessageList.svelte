@@ -638,12 +638,23 @@
     else restoreAnchor(anchor);
   }
 
+  // Switching channel is the thing a person does a hundred times an hour, and
+  // it was the one interaction in the app with no transition at all: the list
+  // swapped in a single frame, which reads as a page reload. This is the
+  // cheapest possible continuity — one opacity, on the compositor, over
+  // --dur-quick — and it is a fade IN rather than a true cross-fade because
+  // there is nothing to fade out against: the old rows are gone in the same
+  // flush that changes the id. Zeroed under prefers-reduced-motion by the CSS.
+  let feedOpacity = $state(1);
+  let fadeRaf = 0;
+
   // A channel switch is a different thread: every measurement is about rows that
   // no longer exist.
   let windowChannel = "";
   $effect(() => {
     const ch = S.activeChannelId;
     if (ch === windowChannel) return;
+    const first = !windowChannel;
     windowChannel = ch;
     untrack(() => {
       advance.clear();
@@ -653,6 +664,14 @@
       lastScrollTop = 0;
       lo = hi = 0;
       topPad = botPad = 0;
+      // Not on the first channel of the session: the app has its own entrance
+      // and a second fade under it reads as a stutter.
+      if (first) return;
+      feedOpacity = 0;
+      cancelAnimationFrame(fadeRaf);
+      fadeRaf = requestAnimationFrame(() => {
+        fadeRaf = requestAnimationFrame(() => (feedOpacity = 1));
+      });
     });
   });
 
@@ -1178,6 +1197,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="feed"
+  style:opacity={feedOpacity}
   bind:this={feedEl}
   role="log"
   aria-label="Messages"
@@ -1669,6 +1689,9 @@
   .feed {
     flex: 1;
     min-height: 0;
+    /* The channel-switch fade. Opacity only, so the whole thing is one
+       compositor property and never touches layout or paint. */
+    transition: opacity var(--dur-quick) var(--ease-out);
     overflow-y: auto;
     /* Never let one long unbroken string (URL, fingerprint, code) give the
        whole chat a horizontal scrollbar — content wraps or scrolls inside its

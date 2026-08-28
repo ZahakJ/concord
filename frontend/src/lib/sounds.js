@@ -6,6 +6,7 @@ import { decodeRecipe, SFX_WAVES } from "./sfxrecipe.js";
 
 let ctx = null;
 let enabled = load();
+let volume = loadVolume();
 
 function load() {
   try {
@@ -13,6 +14,51 @@ function load() {
   } catch {
     return true;
   }
+}
+
+// ---- how loud ----
+//
+// The settings section is headed "HOW LOUD" and, until this existed, contained
+// two on/off toggles and a ringtone picker — no volume control at all, under a
+// header that promises one. One master gain sits between every sound in this
+// file and the speakers, so the answer is one node rather than a peak
+// multiplier threaded through nine synthesizers. 1 is what the chimes have
+// always been tuned at, so an existing install sounds identical.
+function loadVolume() {
+  try {
+    const v = Number(localStorage.getItem("concord.soundVolume"));
+    return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function soundVolume() {
+  return volume;
+}
+
+export function setSoundVolume(v) {
+  volume = Math.max(0, Math.min(1, Number(v) || 0));
+  if (masterNode && masterCtx === ctx) masterNode.gain.value = volume;
+  try {
+    localStorage.setItem("concord.soundVolume", String(volume));
+  } catch {
+    /* ignore */
+  }
+}
+
+// The master gain, rebuilt with the context. audio() replaces the context on an
+// audio-route change, and a node from a dead context is not a node.
+let masterNode = null;
+let masterCtx = null;
+function master(ac) {
+  if (masterCtx !== ac || !masterNode) {
+    masterNode = ac.createGain();
+    masterNode.gain.value = volume;
+    masterNode.connect(ac.destination);
+    masterCtx = ac;
+  }
+  return masterNode;
 }
 
 export function soundsEnabled() {
@@ -91,7 +137,7 @@ function tone(ac, freq, start, dur, peak = 0.14, wave = "sine") {
   gain.gain.setValueAtTime(0, t0);
   gain.gain.linearRampToValueAtTime(peak, t0 + 0.015);
   gain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  osc.connect(gain).connect(ac.destination);
+  osc.connect(gain).connect(master(ac));
   osc.start(t0);
   osc.stop(t0 + dur + 0.02);
 }
@@ -157,7 +203,7 @@ function roomBus(ac, { seconds, decay, wet, damp, level = 1 }) {
   // won't reproduce anyway.
   const out = ac.createGain();
   out.gain.value = level;
-  comp.connect(out).connect(ac.destination);
+  comp.connect(out).connect(master(ac));
   inp.connect(comp); // dry
   const send = ac.createGain();
   send.gain.value = wet;
@@ -456,6 +502,58 @@ export function playSend() {
   );
 }
 
+// ---- the three confirmations ----
+//
+// The synthesis in this file is genuinely good and, for a long time, it was
+// used for seven events: send, mention, DM, voice in, voice out, ring,
+// soundboard. Nothing at all confirmed a reaction, an error or a save — the
+// "Microphone access denied" toast was silent — so the app's voice went quiet
+// at exactly the moments a person is asking "did that work?".
+//
+// All three are built from the primitives already here, and all three are
+// deliberately SMALLER than the chimes above: these fire often, and a
+// confirmation that demands attention becomes something you turn off.
+
+// A tick. Thirty milliseconds of nothing but an edge — the sound a switch
+// makes, not the sound a notification makes. For a reaction landing and for
+// anything else that toggles.
+export function playTick() {
+  play([[2100, 0, 0.03, 0.03]], "triangle");
+}
+
+// Two notes down a minor third. Descending is the whole grammar of "no" in
+// every interface that has ever had one; keeping it soft is what stops it
+// being a scold.
+export function playNope() {
+  play(
+    [
+      [392, 0, 0.1, 0.06],
+      [311.13, 0.09, 0.16, 0.055],
+    ],
+    "triangle",
+  );
+}
+
+// Two notes up a fourth, the second a touch quieter so it settles rather than
+// announcing. The counterpart to the nope, and the reason they are a pair.
+export function playDone() {
+  play(
+    [
+      [659.25, 0, 0.08, 0.05],
+      [880, 0.07, 0.16, 0.04],
+    ],
+  );
+}
+
+// A message arriving in the channel you are LOOKING at. Off by default and it
+// has to be: a chime for something already on screen is the definition of a
+// notification nobody asked for. It exists because in a quiet room some people
+// want to hear the room. Quieter than the mention ping, and lower, so the two
+// can never be confused.
+export function playArrive() {
+  play([[523.25, 0, 0.09, 0.035]], "triangle");
+}
+
 // ---- the voice-room soundboard ----
 // Six effects built from oscillators and noise, honoring the file's vow: there
 // are no audio files in this app and there must not be. On the wire a
@@ -713,9 +811,9 @@ export function playFlyby() {
   if (out) {
     out.pan.setValueAtTime(-0.9, t0);
     out.pan.linearRampToValueAtTime(0.9, t0 + dur);
-    out.connect(ac.destination);
+    out.connect(master(ac));
   }
-  const sink = out || ac.destination;
+  const sink = out || master(ac);
 
   // Engine: broadband noise through a bandpass swept up on approach and back
   // down as it recedes. The sweep IS the Doppler shift — a fixed filter just

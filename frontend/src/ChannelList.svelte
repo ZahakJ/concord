@@ -1453,6 +1453,9 @@
     text-align: left;
     min-width: 0;
     border-radius: var(--radius-sm);
+    /* The row's ground already eases; its ink did not, so the name snapped to
+       full brightness a beat before the background caught up. */
+    transition: color var(--dur-standard) ease;
   }
   .channel:hover,
   .channel:active {

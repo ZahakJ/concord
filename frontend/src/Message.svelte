@@ -28,6 +28,7 @@
   import { fxEffect, stripFx, playFxOnce } from "./lib/fxtoken.js";
   import { plainSnippet } from "./lib/snippet.js";
   import { radialBurst } from "./lib/burst.js";
+  import { playTick } from "./lib/sounds.js";
   import { saved, isSaved, toggleSaved, refreshSaved } from "./lib/saved.svelte.js";
   import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo } from "./lib/timestamp.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
@@ -159,6 +160,10 @@
     // control you tapped; un-reacting is a retraction and stays quiet. Custom
     // emoji (":name:") have no glyph to throw — the bounce carries those.
     const adding = !(m.reactions?.[emoji] || []).includes(S.identity.fingerprint);
+    // A reaction is the smallest thing anybody sends and it had no sound at
+    // all. Thirty milliseconds of edge — the sound a switch makes — on both
+    // directions, because taking one back is a decision too.
+    playTick();
     const at = e?.currentTarget?.getBoundingClientRect?.();
     if (adding && at && !emoji.startsWith(":")) {
       radialBurst(at.left + at.width / 2, at.top + at.height / 2, {

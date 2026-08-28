@@ -19,6 +19,9 @@
     getRingtone,
     setRingtone,
     previewRingtone,
+    soundVolume,
+    setSoundVolume,
+    playDone,
   } from "../lib/sounds.js";
 
   let { onClose } = $props();
@@ -49,6 +52,16 @@
     } catch (err) {
       flash(err);
     }
+  }
+
+  // The section is headed HOW LOUD and contained nothing that answered it —
+  // two on/off switches and a ringtone picker. The slider auditions itself on
+  // release rather than on every input event: dragging through forty values
+  // must not fire forty chimes.
+  let vol = $state(Math.round(soundVolume() * 100));
+  function setVol(e) {
+    vol = Number(e.target.value);
+    setSoundVolume(vol / 100);
   }
 
   let ringtone = $state(getRingtone());
@@ -173,6 +186,29 @@
       checked={board}
       onclick={toggleBoard}
     />
+    <SettingRow
+      icon="bubble"
+      title="Sound on every message"
+      sub="A soft blip when a message lands in the channel you're looking at"
+      checked={S.prefs.soundOnArrive}
+      onclick={() => setPref("soundOnArrive", !S.prefs.soundOnArrive)}
+    />
+    <SettingRow icon="speaker" title="Volume" sub="Everything this app plays, from the mention ping to the ringtone">
+      <span class="vol">
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="5"
+          value={vol}
+          disabled={!sounds}
+          aria-label="Sound volume"
+          oninput={setVol}
+          onchange={() => sounds && playDone()}
+        />
+        <span class="volnum">{vol}%</span>
+      </span>
+    </SettingRow>
     <SettingRow icon="phone" title="Call ringtone" sub="Plays when a friend calls you">
       <select class="pick" value={ringtone} onchange={(e) => pickRingtone(e.target.value)} aria-label="Call ringtone">
         {#each RINGTONE_OPTIONS as o (o.id)}
@@ -255,6 +291,22 @@
 </Modal>
 
 <style>
+  .vol {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-2);
+  }
+  .vol input {
+    width: 120px;
+  }
+  .volnum {
+    min-width: 4ch;
+    text-align: right;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
   .words {
     display: flex;
     flex-direction: column;
