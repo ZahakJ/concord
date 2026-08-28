@@ -8,7 +8,7 @@
   // into ⋯.
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
-  import { S, nameFor, flash, openContextMenu, selectGuild, refreshGuilds, jumpToChannel } from "./lib/state.svelte.js";
+  import { S, nameFor, memberByFpr, flash, openContextMenu, selectGuild, refreshGuilds, jumpToChannel } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
@@ -178,8 +178,20 @@
     return parts.join(" · ");
   });
   function showWho(e) {
+    // Faces, not a list of names. Everywhere else in the app a person is a
+    // coloured circle with their picture in it; a roster that answers "who is
+    // coming" with plain text makes you read the names instead of recognising
+    // them, which is the whole point of an identity people can choose.
     const bucketItems = (label, list) =>
-      list.length ? [{ header: true, label }, ...list.map((f) => ({ label: nameFor(f) }))] : [];
+      list.length
+        ? [
+            { header: true, label },
+            ...list.map((f) => {
+              const m = memberByFpr(f);
+              return { label: nameFor(f), avatar: { name: nameFor(f), emoji: m?.emoji, color: m?.color, image: m?.avatar } };
+            }),
+          ]
+        : [];
     openContextMenu(
       e,
       [
@@ -575,7 +587,13 @@
         {#if pile.length || buckets.no.length}
           <button class="faces" aria-label="See who's coming" onclick={showWho}>
             {#each pile as p (p.f)}
-              <span class="face" class:maybe={p.st === "maybe"}><Avatar name={nameFor(p.f)} size={22} /></span>
+              {@const m = memberByFpr(p.f)}
+              <!-- The only Avatar in the app that used to be handed a name and
+                   nothing else, so every RSVP was grey initials while the same
+                   person is a colour and a picture two panels away. -->
+              <span class="face" class:maybe={p.st === "maybe"}>
+                <Avatar name={nameFor(p.f)} emoji={m?.emoji} color={m?.color} image={m?.avatar} size={22} />
+              </span>
             {/each}
             {#if pileExtra}<span class="face more">+{pileExtra}</span>{/if}
             <span class="counts">{countsLine}</span>

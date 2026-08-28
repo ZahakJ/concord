@@ -18,6 +18,7 @@
   import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { haptic } from "./lib/touch.js";
+  import { emoteText } from "./lib/emote.js";
   import { S, activeChannel, activeGuild, react, flash, nameColorFor, mentionRefs, focusFeed } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
@@ -381,7 +382,16 @@
     // flip, the left half is that same flip reflected, and "fa me" sits exactly
     // between them — two people flipping tables away from the phrase.
     { name: "fa", usage: "/fa [message]", desc: "┻━┻ ︵╰(°□°╰) fa me (╯°□°)╯︵ ┻━┻", args: true, expand: kaomoji("┻━┻ ︵╰(°□°╰) fa me (╯°□°)╯︵ ┻━┻") },
-    { name: "me", usage: "/me <action>", desc: "Italicized action text", args: true, expand: (rest, text) => (rest ? `*${rest}*` : text) },
+    // The actor rides IN the text — see lib/emote.js. "*waves*" grouped under
+    // whatever came before it and left the whole grammar of the command with no
+    // subject on screen.
+    {
+      name: "me",
+      usage: "/me <action>",
+      desc: "An action, in your name",
+      args: true,
+      expand: (rest, text) => (rest ? emoteText(S.displayName || "", rest) : text),
+    },
     { name: "spoiler", usage: "/spoiler <text>", desc: "Hides text until clicked", args: true, expand: (rest, text) => (rest ? `||${rest}||` : text) },
     // Arms the seal and leaves the text alone, so "/timestamp on my way" sends
     // "on my way" with the mark rather than the command word.

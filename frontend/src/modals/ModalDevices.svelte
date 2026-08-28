@@ -874,7 +874,7 @@
   .dev-pick.disabled {
     opacity: 0.6;
   }
-  .trigger:hover .dev-pick {
+  :global(.trigger.own:hover) .dev-pick {
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   }
   .dev-pick-txt {

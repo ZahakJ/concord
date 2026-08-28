@@ -83,8 +83,14 @@ export function titleFit(title, max = TITLE_MAX_BYTES) {
   };
 }
 
-// bodyStats: the numbers a long-form editor owes its author. Reading time uses
-// 220 wpm (average adult prose) and never prints "0 min".
+// bodyStats: the numbers a long-form editor owes its author.
+//
+// Reading time uses 220 wpm and is 0 below READ_TIME_FLOOR words. The advanced
+// composer is a chat composer wearing a long-form editor's clothes, and it was
+// reporting "1 min read" for a four-word message — a floor of one minute on
+// four words is noise at best and comic at worst. Under the floor there is
+// nothing worth estimating, so it estimates nothing.
+export const READ_TIME_FLOOR = 200;
 export function bodyStats(body) {
   const text = String(body ?? "");
   const words = text.trim() ? text.trim().split(/\s+/).length : 0;
@@ -92,7 +98,7 @@ export function bodyStats(body) {
     chars: runeLen(text),
     words,
     lines: text ? text.split("\n").length : 0,
-    minutes: words ? Math.max(1, Math.round(words / 220)) : 0,
+    minutes: words >= READ_TIME_FLOOR ? Math.max(1, Math.round(words / 220)) : 0,
     over: runeLen(text) > BODY_SOFT_MAX,
   };
 }

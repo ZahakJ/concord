@@ -815,7 +815,8 @@
           use:tooltip
           onmousedown={noSteal}
           onclick={() => (pop = pop === "color" ? "" : "color")}>
-          <span class="swatch-ring" aria-hidden="true"></span>
+          <Icon name="textcolor" size={15} />
+          <span class="swatch-bar" style="--sw:{customColor}" aria-hidden="true"></span>
         </button>
         {#if pop === "color" && !S.isMobile}
           <div class="pop colors" role="menu" aria-label="Text colour">{@render colorItems()}</div>
@@ -1088,6 +1089,7 @@
       <span class="dotsep" aria-hidden="true">·</span>
       <strong>{stats.chars}</strong> character{stats.chars === 1 ? "" : "s"}
       {#if stats.minutes}
+        <!-- Only past READ_TIME_FLOOR words, where the number means something. -->
         <span class="dotsep" aria-hidden="true">·</span>{stats.minutes} min read
       {/if}
     </span>
@@ -1224,14 +1226,24 @@
     font-weight: 700;
     letter-spacing: 0.01em;
   }
-  .swatchbtn .swatch-ring {
-    width: 15px;
-    height: 15px;
-    border-radius: 50%;
-    /* The colour tool wears the palette it opens — a conic sample, so it reads
-       as "colour" without a glyph that would need explaining. */
-    background: conic-gradient(#e0555b, #e8873c, #e0b341, #3ba55d, #2dd4bf, #4b8bf5, #a06bff, #eb6f9e, #e0555b);
-    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
+  /* A monochrome glyph with a colour bar under it, which is what every other
+     text-colour control in software looks like. It used to be a full-colour
+     conic disc in a row of 1.4px monochrome strokes — the one rainbow thing on
+     the toolbar, saying "colour" by being colourful rather than by naming what
+     it colours. The bar carries the colour it will apply. */
+  .swatchbtn {
+    position: relative;
+  }
+  .swatchbtn .swatch-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 4px;
+    width: 14px;
+    height: 3px;
+    transform: translateX(-50%);
+    border-radius: 2px;
+    background: var(--sw, currentColor);
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.25);
   }
 
   /* Segmented view switcher. */

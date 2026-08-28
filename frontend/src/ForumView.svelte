@@ -24,6 +24,7 @@
   import { flip } from "svelte/animate";
   import { cubicOut } from "svelte/easing";
   import Icon from "./Icon.svelte";
+  import { tooltip } from "./lib/tooltip.js";
   import Avatar from "./Avatar.svelte";
   import EmptyState from "./EmptyState.svelte";
   import Banner from "./Banner.svelte";
@@ -636,12 +637,16 @@
         </div>
         <div class="seg" role="group" aria-label="Card layout">
           {#each LAYOUTS as l (l.id)}
+            <!-- The sort chips next door carry their word; these three carried
+                 only a glyph and a native title, which arrives a second late in
+                 the OS's own theme. The shared tooltip reads the aria-label, so
+                 the name and the tip cannot drift apart. -->
             <button
               class="seg-b icon"
               class:on={prefs.layout === l.id}
               aria-pressed={prefs.layout === l.id}
               aria-label={`${l.label} layout`}
-              title={`${l.label} — ${l.hint}`}
+              use:tooltip={{ text: `${l.label} — ${l.hint}`, side: "bottom" }}
               onclick={() => savePrefs({ layout: l.id })}
             >
               <Icon name={layoutIcon(l.id)} size={14} />
@@ -1274,9 +1279,14 @@
   .seg-b:hover {
     color: var(--text);
   }
+  /* The active one is FILLED, the way the sort chips beside it are. It used to
+     step from --bg-3 to --bg-1 — a difference of a few percent of lightness on
+     most packs and none at all on the flat ones, which left a row of three
+     unlabelled glyphs with no visible answer to "which of these am I on". */
   .seg-b.on {
-    background: var(--bg-1);
+    background: var(--accent-soft);
     color: var(--text);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
   }
   .pill {
     display: inline-flex;

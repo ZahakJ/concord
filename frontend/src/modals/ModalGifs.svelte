@@ -24,6 +24,7 @@
   //   name back into this file.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import EmptyState from "../EmptyState.svelte";
   import { S, activeGuild, flash, refreshGuilds, setOffDeviceSearch } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { loadAttachment } from "../lib/attachments.js";
@@ -630,16 +631,30 @@
             </div>
           {/each}
         </div>
+      {:else if query.trim()}
+        <EmptyState icon="search" headline="Nothing matches “{query.trim()}”" sub="The filter runs on the GIFs already on this machine.">
+          {#snippet actions()}
+            <button class="ghost" onclick={() => (query = "")}>Clear the filter</button>
+          {/snippet}
+        </EmptyState>
       {:else}
-        <p class="muted none">
-          {#if query.trim()}
-            Nothing matches “{query.trim()}”.
-          {:else if canManage}
-            This guild has no GIFs yet — add the first one, or find one under Search.
-          {:else}
-            This guild has no GIFs yet. Someone who can manage it can add some.
-          {/if}
-        </p>
+        <!-- The house empty state, with the next action in it. This was a grey
+             centred sentence over 200px of nothing, in a dialog that already
+             had a button for exactly what the sentence was telling you to do. -->
+        <EmptyState
+          icon="play"
+          headline="No GIFs in this guild yet"
+          sub={canManage
+            ? "Add one from this machine, or find one under Search — anything you add is shared with the guild, peer to peer."
+            : "Someone who can manage this guild can add some. Search still works from the tab above."}
+        >
+          {#snippet actions()}
+            {#if canManage}
+              <button onclick={() => (adding = true)}><Icon name="plus" size={14} /> Add a GIF</button>
+            {/if}
+            <button class="ghost" onclick={() => (tab = "search")}>Search instead →</button>
+          {/snippet}
+        </EmptyState>
       {/if}
     </div>
 
@@ -739,16 +754,20 @@
               {searching ? "Loading…" : "More results"}
             </button>
           {/if}
+        {:else if searching}
+          <p class="muted none">Asking your rendezvous…</p>
+        {:else if searched}
+          <EmptyState
+            icon="search"
+            headline="Nothing for “{sent}”"
+            sub="That is your rendezvous's answer, not this app's — it is the only thing that saw the query."
+          />
         {:else}
-          <p class="muted none">
-            {#if searching}
-              Asking your rendezvous…
-            {:else if searched}
-              Your rendezvous found nothing for “{sent}”.
-            {:else}
-              Results appear as you type. Nothing is sent anywhere until you type.
-            {/if}
-          </p>
+          <EmptyState
+            icon="play"
+            headline="Search the web for a GIF"
+            sub="Results appear as you type. Nothing leaves this machine until you type — and it goes to your rendezvous, not to a search engine."
+          />
         {/if}
       </div>
     {/if}

@@ -105,7 +105,13 @@ t("titleFit's tone crosses over in the last quarter and at zero", () => {
 t("bodyStats never claims a 0-minute read and flags the soft cap", () => {
   assert.deepEqual(bodyStats(""), { chars: 0, words: 0, lines: 0, minutes: 0, over: false });
   assert.equal(bodyStats("one two three").words, 3);
-  assert.equal(bodyStats("one").minutes, 1, "a one-word body is a 1-minute read, not 0");
+  assert.equal(bodyStats("one").minutes, 0, "four words is not a 1-minute read");
+  assert.equal(
+    bodyStats(Array(220).fill("word").join(" ")).minutes,
+    1,
+    "220 words is a 1-minute read",
+  );
+  assert.equal(bodyStats(Array(199).fill("word").join(" ")).minutes, 0, "just under the floor says nothing");
   assert.equal(bodyStats("a\nb\nc").lines, 3);
   assert.ok(!bodyStats("x".repeat(BODY_SOFT_MAX)).over);
   assert.ok(bodyStats("x".repeat(BODY_SOFT_MAX + 1)).over);

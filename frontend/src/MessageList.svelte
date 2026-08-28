@@ -11,6 +11,7 @@
   import Avatar from "./Avatar.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import { haptic } from "./lib/touch.js";
+  import { isEmote } from "./lib/emote.js";
   import {
     S,
     activeGuild,
@@ -298,10 +299,17 @@
         prev.kind === m.kind &&
         (m.kind !== "guest" || prev.senderName === m.senderName);
       const groupable = m.kind === "" || m.kind === "guest";
+      // An emote never groups. Its whole grammar is "this person is doing
+      // something", and a row with no name header cannot say who — which is
+      // exactly what tucking "*Amina Sadiq waves*" under the message above it
+      // did. Neither does the row AFTER one, or a plain sentence would inherit
+      // the emote's header.
+      const emote = isEmote(m.content, m.senderName) || isEmote(prev?.content, prev?.senderName);
       const compact =
         !newDay &&
         sameAuthor &&
         groupable &&
+        !emote &&
         !m.replyTo &&
         !prev.deleted &&
         new Date(m.sent) - new Date(prev.sent) < GROUP_WINDOW_MS;

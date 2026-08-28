@@ -2657,17 +2657,27 @@
     transform: scale(1.18);
     background: transparent;
   }
-  /* "smiley +" picker opener */
+  /* "smiley +" picker opener. The + used to sit at top:0/right:2px, which put
+     it straight through the smiley's own outline — at 1x the two read as one
+     smudge. It sits at the baseline corner with a gap now, and carries the
+     button's ground behind it so it stays legible over the glyph whatever the
+     pack's colours are. */
   .msg-actions .add-react {
     position: relative;
   }
   .msg-actions .add-react .plus {
     position: absolute;
-    top: 0;
-    right: 2px;
-    font-size: var(--fs-tiny);
-    font-weight: 700;
+    right: -1px;
+    bottom: -1px;
+    padding: 0 1px;
+    border-radius: 3px;
+    background: var(--bg-2);
+    font-size: var(--fs-micro);
+    font-weight: 800;
     line-height: 1;
+  }
+  .msg-actions .add-react:hover .plus {
+    background: var(--bg-3);
   }
   .msg-actions button.on {
     color: var(--warn);

@@ -51,6 +51,9 @@
     // was a forward arrow — a direction typed from memory. A name cannot be
     // typed the wrong way round.
     back: "M10.5 3 5.5 8l5 5",
+    // Text colour: an A, with the coloured bar under it drawn by the caller so
+    // the swatch can be the colour and the glyph can stay monochrome.
+    textcolor: "M3.4 10.6 8 2.6l4.6 8M5.2 7.9h5.6",
     // The advanced composer. It borrowed `heading` — an H — inside a composer
     // that already has a formatting bar, where an H means "heading". A page
     // with a pen over it says "write this one properly".

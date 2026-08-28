@@ -45,6 +45,8 @@ export const SHORTCUTS = [
   { group: "Composer", chords: [["Ctrl/⌘", "B"]], label: "Bold the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "I"]], label: "Italicise the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "E"]], label: "Code the selection" },
+  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "U"]], label: "Underline the selection" },
+  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "S"]], label: "Strike through the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "Shift", "K"]], label: "Link the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "Shift", "X"]], label: "Spoiler the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "Shift", "."]], label: "Quote the selection" },

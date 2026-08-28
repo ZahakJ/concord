@@ -171,8 +171,6 @@
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .switch,
-    .knob,
     .chev {
       transition: none;
     }

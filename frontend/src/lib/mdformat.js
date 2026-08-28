@@ -25,6 +25,10 @@ export const WRAPS = {
   bold: { pre: "**", post: "**", ph: "bold" },
   italic: { pre: "*", post: "*", ph: "italic" },
   strike: { pre: "~~", post: "~~", ph: "strikethrough" },
+  // Underline was documented in the cheat sheet and rendered by markdown.js,
+  // and had no wrap, no button and no chord — so the one place it was named
+  // was the one place it could not be reached. It is a real format now.
+  underline: { pre: "__", post: "__", ph: "underline" },
   spoiler: { pre: "||", post: "||", ph: "spoiler" },
   code: { pre: "`", post: "`", ph: "code" },
 };
@@ -35,7 +39,8 @@ export const FMT_GROUPS = [
   [
     { kind: "bold", label: "Bold", keys: "B" },
     { kind: "italic", label: "Italic", keys: "I" },
-    { kind: "strike", label: "Strikethrough" },
+    { kind: "underline", label: "Underline", keys: "Shift+U" },
+    { kind: "strike", label: "Strikethrough", keys: "Shift+S" },
     { kind: "spoiler", label: "Spoiler", keys: "Shift+X" },
   ],
   [
@@ -206,6 +211,10 @@ export function chordFor(e) {
   }
   if (k === "x") return "spoiler";
   if (k === "k") return "link";
+  // Shift+S and Shift+U, both free: Ctrl+U alone is the member panel and
+  // Ctrl+S is not bound at all (nothing here is ever saved by hand).
+  if (k === "s") return "strike";
+  if (k === "u") return "underline";
   if (e.code === "Period" || k === "." || k === ">") return "quote";
   return null;
 }

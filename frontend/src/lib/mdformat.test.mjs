@@ -103,7 +103,7 @@ for (const k of Object.keys(WRAPS)) if (!kinds.has(k)) fail(`WRAPS has "${k}" an
 for (const b of FMT_GROUPS.flat()) if (!planFormat("x", 0, 1, b.kind)) fail(`toolbar has "${b.kind}" and planFormat does not`);
 // The tooltip hint and the chord must not drift apart — the link's said "K"
 // while the handler answered Shift+K for exactly as long as nobody checked.
-const HINTED = { bold: "b", italic: "i", code: "e", spoiler: "x", quote: ".", link: "k" };
+const HINTED = { bold: "b", italic: "i", underline: "u", strike: "s", code: "e", spoiler: "x", quote: ".", link: "k" };
 for (const b of FMT_GROUPS.flat()) {
   if (!b.keys) continue;
   const shift = b.keys.startsWith("Shift+");

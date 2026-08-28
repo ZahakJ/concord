@@ -20,6 +20,7 @@
   // guilds, members — upgrades automatically.
   import Icon from "./Icon.svelte";
   import BottomSheet from "./BottomSheet.svelte";
+  import Avatar from "./Avatar.svelte";
   import { S, closeContextMenu } from "./lib/state.svelte.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { rangefill } from "./lib/rangefill.js";
@@ -180,7 +181,8 @@
               role="menuitem"
               onclick={() => run(item)}
             >
-              {#if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
+              {#if item.avatar}<Avatar {...item.avatar} size={22} />
+              {:else if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
               {:else if item.icon}<span class="as-icon"><Icon name={item.icon} size={18} /></span>{/if}
               <span>{item.label}</span>
               {#if item.active}<span class="cm-tick" aria-hidden="true">✓</span>{/if}
@@ -211,7 +213,11 @@
             onclick={() => run(item)}
             onpointerenter={(e) => e.currentTarget.focus()}
           >
-            {#if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
+            <!-- A row that is about a PERSON shows their face where an icon
+                 would go, so the same person is the same circle in a menu as in
+                 a member list. -->
+            {#if item.avatar}<Avatar {...item.avatar} size={18} />
+            {:else if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
             {:else if item.icon}<Icon name={item.icon} size={14} />{/if}
             <span>{item.label}</span>
             {#if item.active}<span class="cm-tick" aria-hidden="true">✓</span>{/if}

@@ -412,9 +412,6 @@
   .nib.on .stroke {
     background: var(--text);
   }
-  .nib.on .dot {
-    background: var(--text);
-  }
 
   /* Labelled. Two unlabelled 16px glyphs floating under a palette are a
      guess; "Undo" and "Clear" are not, and they are the two actions in this
@@ -457,10 +454,12 @@
     /* Fingers, not a pointer: the swatches and nibs have to clear the tap
        floor, and the row wraps rather than shrinking them. */
     .ink,
-    .nib,
-    .iconbtn {
+    .nib {
       width: var(--tap-min);
       height: var(--tap-min);
+    }
+    .txtbtn {
+      min-height: var(--tap-min);
     }
     .ink {
       /* A circle at 48px is a lot of colour; keep the swatch itself the size

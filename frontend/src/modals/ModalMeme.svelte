@@ -17,6 +17,7 @@
   // browser; this file is interaction only.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import EmptyState from "../EmptyState.svelte";
   import { S, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import {
@@ -820,7 +821,18 @@
         </div>
 
         {#if manifestDone && templates.length && !shown.length}
-          <p class="none">Nothing matches “{query}”. Try a word from the picture — “fire”, “cat”, “yes no”.</p>
+          <!-- The house empty state, with the way out in it: the search that
+               found nothing is the thing standing between you and the grid. -->
+          <EmptyState
+            icon="search"
+            headline="Nothing matches “{query}”"
+            sub="Try a word from the picture — “fire”, “cat”, “yes no”."
+          >
+            {#snippet actions()}
+              <button class="ghost" onclick={() => (query = "")}>Show every template</button>
+              <button class="ghost" onclick={() => fileInput.click()}>Use your own image</button>
+            {/snippet}
+          </EmptyState>
         {/if}
         {#if img}
           <button class="ghostbtn back-to-edit" onclick={() => (browsing = false)}>
@@ -1286,12 +1298,6 @@
     line-height: 1.25;
     color: var(--text);
     padding: 0 2px;
-  }
-  .none {
-    margin: 0;
-    font-size: var(--fs-ui);
-    color: var(--text-muted);
-    text-align: center;
   }
   .back-to-edit {
     align-self: center;

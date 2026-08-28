@@ -11,6 +11,7 @@
   const count = $derived(shown.length + (overflow ? 1 : 0));
 
   const glyph = (f) => f.emoji || (f.name || "?").slice(0, 2);
+  let failed = $state({});
   const cellFont = $derived(Math.round(size * 0.26) + "px");
 </script>
 
@@ -35,7 +36,12 @@
         title={f.pending ? `${f.name} (invited)` : f.name}
         style={f.color ? `background:${f.color}` : ""}
       >
-        {#if f.avatar}<img src={f.avatar} alt="" />{:else}{glyph(f)}{/if}
+        <!-- Same fallback Avatar has: a picture that will not load must leave
+             the initials behind, not a broken-image box in the middle of a
+             collage. -->
+        {#if f.avatar && !failed[f.avatar]}
+          <img src={f.avatar} alt="" onerror={() => (failed = { ...failed, [f.avatar]: true })} />
+        {:else}{glyph(f)}{/if}
       </span>
     {/each}
     {#if overflow}
