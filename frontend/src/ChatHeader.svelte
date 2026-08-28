@@ -38,6 +38,17 @@
 
   const g = $derived(activeGuild());
   const ch = $derived(activeChannel());
+
+  // Slow mode, said out loud. It is a governed rule the room lives under and
+  // it was legible only from inside the dialog that sets it.
+  const slowSecs = $derived(Number(ch?.slowMode) || 0);
+  const slowLabel = $derived(
+    slowSecs >= 3600
+      ? `${Math.round(slowSecs / 3600)}h`
+      : slowSecs >= 60
+        ? `${Math.round(slowSecs / 60)}m`
+        : `${slowSecs}s`,
+  );
   const ephTTL = $derived(ch ? channelTTL(S.activeChannelId) : 0);
   // In a DM (or meeting), is the other side already in the call while we're not?
   // Drives a "🔴 Live · Join" affordance so a call in progress is obvious.
@@ -106,6 +117,21 @@
     {:else if ch}
       <Icon name={channelTypeIcon(ch.type)} size={15} />
       <strong>{ch.name}</strong>
+      {#if slowSecs > 0}
+        <!-- Slow mode was invisible until you opened the panel that set it, so
+             a room that had gone quiet looked broken rather than paced. The
+             pill is a fixed-width chip and never competes with the name for
+             room: it sits after the name and before the topic, which is the
+             half that gives way. -->
+        <span
+          class="slow-pill"
+          use:tooltip={`Slow mode: one message per member every ${slowLabel}`}
+          aria-label={`Slow mode: one message per member every ${slowLabel}`}
+        >
+          <Icon name="clock" size={11} />
+          {slowLabel}
+        </span>
+      {/if}
       {#if ch.topic}
         <span class="topic-sep"></span>
         <span class="chan-topic" title={ch.topic}>{ch.topic}</span>
@@ -433,6 +459,20 @@
   .thread-back {
     flex: 0 0 auto;
     max-width: 20ch;
+  }
+  /* Fixed content, so it never takes width from the channel name — the topic
+     is the part that absorbs the shrink (see .chan-topic). */
+  .slow-pill {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: var(--fs-small);
+    font-weight: 600;
+    color: var(--warn-text);
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
   }
   .topic-sep {
     width: 1px;

@@ -195,6 +195,11 @@ export const S = $state({
   // Spread over defaults so prefs saved before a key existed still get it.
   prefs: {
     linkPreviews: false,
+    // Which sidebar categories are folded, keyed by category id. Device-local:
+    // which parts of a sidebar you keep shut is a reading preference, and
+    // syncing it would be one member deciding what everyone else's sidebar
+    // looks like.
+    collapsedCats: {},
     // Game box art defaults OFF for the same reason. A profile card carrying a
     // game collection would otherwise load images straight from Valve's CDN the
     // moment you opened it — no click, no prompt — telling Valve your IP and
@@ -977,20 +982,30 @@ export async function setChannelType(channel, type) {
       flash(err);
     }
   };
-  if (current === "forum" && threads) {
-    S.modal = {
-      kind: "confirm",
-      title: `Turn #${channel.name} into a ${type} channel?`,
-      body: `Its ${threads} post${threads === 1 ? "" : "s"} won't be deleted, but they'll be hidden until you turn it back into a forum.`,
-      confirmLabel: "Convert",
-      onConfirm: () => {
-        S.modal = null;
-        apply();
-      },
-    };
-    return;
-  }
-  await apply();
+  // Every conversion is confirmed, and the confirmation says what SURVIVES.
+  // Turning a two-hundred-message text channel into a voice room was one
+  // unannounced click in a menu, right beside Rename and Delete, and the
+  // reassuring half — that nothing is thrown away — was written down only in
+  // this comment where nobody could read it.
+  const survives =
+    current === "forum" && threads
+      ? `Its ${threads} post${threads === 1 ? "" : "s"} and every message in them stay on disk, but the board is hidden until you turn it back into a forum.`
+      : type === "voice"
+        ? "Its messages stay, and the chat alongside the call is where you will find them."
+        : current === "voice"
+          ? "The chat that ran alongside the call becomes the channel, with every message still in it."
+          : "Nothing is deleted — the same messages, read a different way. Converting back restores the old view.";
+  S.modal = {
+    kind: "confirm",
+    title: `Turn #${channel.name} into a ${type} channel?`,
+    body: survives,
+    confirmLabel: "Convert",
+    danger: false,
+    onConfirm: () => {
+      S.modal = null;
+      apply();
+    },
+  };
 }
 
 export async function moveChannelToCategory(channel, categoryId) {

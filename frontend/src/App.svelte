@@ -1156,21 +1156,31 @@
     return `${chans} channel${chans === 1 ? "" : "s"} in ${cats} categor${cats === 1 ? "y" : "ies"}`;
   }
 
-  async function createChannel({ name, type, category }) {
+  async function createChannel({ name, type, category, topic }) {
     if (!name?.trim() || !S.activeGuildId) return;
+    let made;
     try {
-      await api.createChannel(S.activeGuildId, name.trim(), type || "", category || "");
+      made = await api.createChannel(S.activeGuildId, name.trim(), type || "", category || "");
     } catch (err) {
       flash(err); // e.g. "you don't have permission" — never fail silently
       return;
+    }
+    // The topic is a second call because CreateChannel has never taken one.
+    // Best effort: the channel exists either way, and a lost topic is one
+    // menu item to fix, while failing the creation over it would not be.
+    if (topic?.trim() && made?.id) {
+      try {
+        await api.setChannelMeta(S.activeGuildId, made.id, type || "", category || "", 0, topic.trim());
+      } catch (err) {
+        flash(err);
+      }
     }
     await refreshGuilds();
     S.modal = null;
     // Creating a channel produced no acknowledgement at all: the dialog shut and
     // the new row appeared somewhere in a list of thirty, below the fold as
     // often as not. Say so, and go there.
-    const made = activeGuild()?.channels.find((c) => c.name === name.trim());
-    if (made) {
+    if (made?.id) {
       selectChannel(made.id);
       // …and point at it. A toast in the corner says it worked; it does not
       // answer "where did it go?", and the answer is a row somewhere in a list
@@ -1829,6 +1839,7 @@
         title={S.modal.title}
         body={S.modal.body}
         confirmLabel={S.modal.confirmLabel}
+        danger={S.modal.danger !== false}
         reasonLabel={S.modal.reasonLabel || ""}
         reasonPlaceholder={S.modal.reasonPlaceholder || ""}
         onConfirm={S.modal.onConfirm}

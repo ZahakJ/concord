@@ -2,10 +2,21 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import { S, activeGuild } from "../lib/state.svelte.js";
+  import { slugChannelName } from "../lib/guildtemplates.js";
   let { onSubmit, onClose } = $props();
 
   let name = $state("");
+  let topic = $state("");
   let type = $state("text");
+
+  // A voice room is not addressed with a hash and is not named like an
+  // address ("Study Hall", not "study-hall") — the empty-channel hero already
+  // branches on exactly that — so slugging one would enforce a convention the
+  // rest of the app does not follow.
+  const slugged = $derived(type === "voice" ? name.trim() : slugChannelName(name));
+  // Only worth showing when it CHANGED something. A live preview under a field
+  // that reads back what you just typed is noise.
+  const showSlug = $derived(!!name.trim() && slugged !== name.trim());
   // Pre-select the category if the modal was opened from a category's "+".
   let category = $state(S.modal?.category || "");
 
@@ -19,9 +30,9 @@
   // voice room can reasonably share a name, and a rename is not worth blocking
   // over — but it stops being something you do by accident.
   const clash = $derived(
-    !!name.trim() &&
+    !!slugged &&
       (activeGuild()?.channels || []).some(
-        (c) => !c.parent && c.name.toLowerCase() === name.trim().toLowerCase(),
+        (c) => !c.parent && c.name.toLowerCase() === slugged.toLowerCase(),
       ),
   );
 
@@ -34,8 +45,8 @@
 
   function submit(e) {
     e?.preventDefault();
-    if (!name.trim()) return;
-    onSubmit({ name: name.trim(), type, category });
+    if (!slugged) return;
+    onSubmit({ name: slugged, type, category, topic: topic.trim() });
   }
 </script>
 
@@ -63,10 +74,18 @@
       aria-invalid={clash ? "true" : undefined}
       autofocus={!S.isMobile}
     />
+    {#if showSlug}
+      <!-- Live, under the field, the way every mainstream app does it. A guild
+           with #general sitting beside #Welcome & Rules reads as one nobody is
+           in charge of. -->
+      <p class="slug-line" role="status">
+        Will be created as <strong>#{slugged}</strong>
+      </p>
+    {/if}
     {#if clash}
       <p class="warn-line" role="status">
         <Icon name="alert" size={13} />
-        This guild already has a #{name.trim()} — two channels with one name are hard
+        This guild already has a #{slugged} — two channels with one name are hard
         to tell apart.
       </p>
     {/if}
@@ -81,10 +100,19 @@
         </select>
       </label>
     {/if}
+    {#if type !== "voice"}
+      <!-- The topic was reachable only afterwards, through a menu item named
+           after a different field. Setting up ten channels cost thirty
+           interactions. -->
+      <label class="cat-label">
+        <span class="muted">Topic <span class="opt">optional</span></span>
+        <input bind:value={topic} maxlength="180" placeholder="What this channel is for" />
+      </label>
+    {/if}
     <p class="muted hint">{TYPES.find((t) => t.id === type)?.hint}</p>
     <div class="actions">
       <button type="button" class="ghost" onclick={onClose}>Cancel</button>
-      <button type="submit" disabled={!name.trim()}>Create</button>
+      <button type="submit" disabled={!slugged}>Create</button>
     </div>
   </form>
 </Modal>
@@ -98,6 +126,19 @@
   .type-row {
     display: flex;
     gap: var(--sp-2);
+  }
+  .slug-line {
+    margin: -6px 0 0;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    text-align: left;
+  }
+  .slug-line strong {
+    color: var(--text);
+    font-family: var(--font-mono, monospace);
+  }
+  .opt {
+    color: var(--text-faint);
   }
   .warn-line {
     display: flex;

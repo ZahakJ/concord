@@ -2,6 +2,7 @@
   import Modal from "./Modal.svelte";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { PERM, has } from "../lib/perms.js";
   let { channel, onSubmit, onClose } = $props();
   let topic = $state(channel?.topic || "");
 
@@ -19,10 +20,61 @@
   let slow = $state(Number(channel?.slowMode) || 0);
   const slowChanged = $derived(slow !== (Number(channel?.slowMode) || 0));
 
+  // Per-channel retention. The API has taken a channel since the day it was
+  // written and nothing ever passed one: ModalRetention hard-wires the empty
+  // guild-wide key, and lib/govlog.js has always known how to render a
+  // per-channel sentence that nothing could produce. "#general: 30 days,
+  // #announcements: forever" is the ordinary shape of a community's policy.
+  //
+  // It rides MANAGE GUILD, not manage-channels — the same bit ModalRetention
+  // asks for — because it deletes other people's copies of the conversation
+  // on their machines, and that is not a channel tweak.
+  const RETAIN = [
+    { secs: -1, label: "Guild default" },
+    { secs: 0, label: "Forever" },
+    { secs: 86400, label: "24h" },
+    { secs: 7 * 86400, label: "7d" },
+    { secs: 30 * 86400, label: "30d" },
+    { secs: 90 * 86400, label: "90d" },
+  ];
+  const canRetain = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_GUILD));
+  // ChannelView.retention already resolves to the effective policy, so the
+  // channel's own override is only knowable as "differs from the guild's".
+  // -1 means "inherit", which is what a delete of the override produces.
+  let retain = $state(-1);
+  let guildRetain = $state(0);
+  (async () => {
+    try {
+      guildRetain = (await api.guildRetention(S.activeGuildId)) || 0;
+    } catch {
+      /* older backend: no policy support */
+    }
+    const eff = Number(channel?.retention) || 0;
+    retain = eff === guildRetain ? -1 : eff;
+  })();
+  const retainChanged = $derived(
+    retain !== (Number(channel?.retention) === guildRetain ? -1 : Number(channel?.retention) || 0),
+  );
+  const retainLabel = (secs) => RETAIN.find((r) => r.secs === secs)?.label || `${secs}s`;
+
   async function save() {
+    const gid = activeGuild()?.id || S.activeGuildId;
     if (slowChanged) {
       try {
-        await api.setSlowMode(activeGuild()?.id || S.activeGuildId, channel.id, slow);
+        await api.setSlowMode(gid, channel.id, slow);
+        refreshGuilds();
+      } catch (err) {
+        flash(err);
+        return;
+      }
+    }
+    if (canRetain && retainChanged) {
+      try {
+        // 0 seconds is how the op says "no override" as well as "keep
+        // forever", so inheriting and keeping forever are the same wire
+        // value — and inheriting a guild that keeps forever IS keeping
+        // forever, so nothing is lost by that.
+        await api.setRetention(gid, channel.id, retain < 0 ? 0 : retain);
         refreshGuilds();
       } catch (err) {
         flash(err);
@@ -61,6 +113,31 @@
       One message per member per interval. Moderators are exempt.
     </p>
   </div>
+  {#if canRetain}
+    <div class="slow">
+      <strong class="slow-label">Message history</strong>
+      <div class="seg" role="radiogroup" aria-label="How long this channel keeps messages">
+        {#each RETAIN as r (r.secs)}
+          <button
+            class:sel={retain === r.secs}
+            role="radio"
+            aria-checked={retain === r.secs}
+            onclick={() => (retain = r.secs)}
+          >{r.label}</button>
+        {/each}
+      </div>
+      <p class="muted tiny">
+        {#if retain < 0}
+          Follows the guild ({guildRetain ? retainLabel(guildRetain) : "forever"}).
+        {:else if retain === 0}
+          Nothing in this channel is removed by age, whatever the guild says.
+        {:else}
+          Every member's app prunes its own copy of this channel past {retainLabel(retain)}. There
+          is no server to enforce it — a modified client can keep whatever it likes.
+        {/if}
+      </p>
+    </div>
+  {/if}
   <div class="actions">
     <button class="ghost" onclick={onClose}>Cancel</button>
     <button onclick={save}>Save</button>

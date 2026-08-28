@@ -46,6 +46,7 @@
     moveVoiceMember,
     disconnectVoiceMember,
     clockOpts,
+    setPref,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { tooltip } from "./lib/tooltip.js";
@@ -103,6 +104,82 @@
       }
       S.modal = null;
     });
+  }
+
+  // ---- categories: rename in place, and fold ----
+  //
+  // Neither existed. A typo meant delete, recreate and re-drag every channel
+  // back — and deleting mints a NEW id, so a peer that missed the removal
+  // keeps a dangling reference. The header is now the fold control and
+  // double-click (or the menu, or the pencil) starts the rename.
+  let renamingCat = $state("");
+
+  // The same shorthand the header pill uses, so a row and a header never
+  // disagree about how long an interval is.
+  const slowShort = (secs) =>
+    secs >= 3600 ? `${Math.round(secs / 3600)}h` : secs >= 60 ? `${Math.round(secs / 60)}m` : `${secs}s`;
+
+  async function commitCatRename(grp, value) {
+    const name = (value || "").trim();
+    renamingCat = "";
+    if (!name || name === grp.name) return;
+    try {
+      await api.renameCategory(S.activeGuildId, grp.id, name);
+      await refreshGuilds();
+    } catch (err) {
+      flash(err);
+    }
+  }
+
+  // Folded state is per DEVICE, not per guild member: which parts of a sidebar
+  // you keep shut is a reading preference, and shipping it would mean deciding
+  // what everyone else's sidebar looks like.
+  const collapsed = (catID) => !!catID && !!S.prefs.collapsedCats?.[catID];
+  function toggleCat(catID) {
+    if (!catID) return;
+    const next = { ...(S.prefs.collapsedCats || {}) };
+    if (next[catID]) delete next[catID];
+    else next[catID] = true;
+    setPref("collapsedCats", next);
+  }
+
+  // A folded category still shows the rows you would lose track of otherwise:
+  // the channel you are reading, and anything unread. Folding a category must
+  // hide clutter, never a mention.
+  function keepVisible(c) {
+    if (c.id === S.activeChannelId) return true;
+    if (S.voice?.channelId === c.id) return true;
+    const u = channelUnread(c);
+    return !!u && !isMuted(c.id, g?.id);
+  }
+
+  function categoryMenu(e, grp) {
+    if (!canManageChannels) return;
+    openContextMenu(
+      e,
+      [
+        {
+          label: collapsed(grp.id) ? "Expand" : "Collapse",
+          icon: "chevron",
+          onClick: () => toggleCat(grp.id),
+        },
+        { sep: true },
+        { label: "Rename category…", icon: "edit", onClick: () => (renamingCat = grp.id) },
+        {
+          label: "Create channel here…",
+          icon: "plus",
+          onClick: () => (S.modal = { kind: "channel", category: grp.id }),
+        },
+        { sep: true },
+        {
+          label: "Delete category",
+          icon: "trash",
+          danger: true,
+          onClick: () => deleteCategory({ id: grp.id, name: grp.name }),
+        },
+      ],
+      { title: grp.name },
+    );
   }
 
   // In the DMs area, the channel column becomes a conversation list (Notes
@@ -288,9 +365,13 @@
         icon: "edit",
         onClick: () => (S.modal = { kind: "renameChannel", guildId: g.id, channelId: c.id, current: c.name }),
       },
+      // Named after the DIALOG it opens, not after one of its fields. An
+      // organizer looking for rate limiting had no reason to open a menu item
+      // about topics, and the panel that holds slow mode was called "Edit
+      // topic" the whole time.
       canManageChannels && c.type !== "voice" && {
-        label: "Edit topic",
-        icon: "list",
+        label: "Channel settings…",
+        icon: "gear",
         onClick: () => (S.modal = { kind: "channelTopic", channel: c }),
       },
       canManageChannels && c.type === "announcement" && {
@@ -779,30 +860,71 @@
             ondragover={(e) => headDragOver(e, grp)}
             ondrop={(e) => headDrop(e, grp)}
           >
-            <span>{grp.name}</span>
-            {#if canManageChannels}
-              <span class="cat-actions">
-                <button
-                  class="cat-add"
-                  use:tooltip
-                  aria-label="Create channel in {grp.name}"
-                  onclick={() => (S.modal = { kind: "channel", category: grp.id })}
-                >
-                  <Icon name="plus" size={12} />
-                </button>
-                <button
-                  class="cat-add"
-                  use:tooltip
-                  aria-label="Delete category {grp.name}"
-                  onclick={() => deleteCategory({ id: grp.id, name: grp.name })}
-                >
-                  <Icon name="trash" size={12} />
-                </button>
-              </span>
+            {#if renamingCat === grp.id}
+              <!-- svelte-ignore a11y_autofocus -->
+              <input
+                class="cat-edit"
+                autofocus
+                value={grp.name}
+                maxlength="40"
+                aria-label="Rename category {grp.name}"
+                onkeydown={(e) => {
+                  if (e.key === "Enter") commitCatRename(grp, e.currentTarget.value);
+                  if (e.key === "Escape") renamingCat = "";
+                }}
+                onblur={(e) => commitCatRename(grp, e.currentTarget.value)}
+              />
+            {:else}
+              <!-- The header is the collapse control. The first thing that
+                   happens to a healthy community is thirty channels, and a
+                   sidebar that can never fold is unnavigable long before
+                   that. -->
+              <button
+                class="cat-toggle"
+                aria-expanded={!collapsed(grp.id)}
+                onclick={() => toggleCat(grp.id)}
+                ondblclick={() => canManageChannels && (renamingCat = grp.id)}
+                oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => categoryMenu(e, grp)}
+                use:longpress={{ handler: (e) => categoryMenu(e, grp) }}
+              >
+                <span class="cat-caret" class:folded={collapsed(grp.id)}><Icon name="chevron" size={11} /></span>
+                <span class="cat-label">{grp.name}</span>
+                {#if collapsed(grp.id)}
+                  <span class="cat-count">{grp.channels.length}</span>
+                {/if}
+              </button>
+              {#if canManageChannels}
+                <span class="cat-actions">
+                  <button
+                    class="cat-add"
+                    use:tooltip
+                    aria-label="Create channel in {grp.name}"
+                    onclick={() => (S.modal = { kind: "channel", category: grp.id })}
+                  >
+                    <Icon name="plus" size={12} />
+                  </button>
+                  <button
+                    class="cat-add"
+                    use:tooltip
+                    aria-label="Rename category {grp.name}"
+                    onclick={() => (renamingCat = grp.id)}
+                  >
+                    <Icon name="edit" size={12} />
+                  </button>
+                  <button
+                    class="cat-add"
+                    use:tooltip
+                    aria-label="Delete category {grp.name}"
+                    onclick={() => deleteCategory({ id: grp.id, name: grp.name })}
+                  >
+                    <Icon name="trash" size={12} />
+                  </button>
+                </span>
+              {/if}
             {/if}
           </div>
         {/if}
-        {#each grp.channels as c (c.id)}
+        {#each collapsed(grp.id) ? grp.channels.filter((c) => keepVisible(c)) : grp.channels as c (c.id)}
           {@const u = channelUnread(c)}
           {@const active = c.id === S.activeChannelId}
           {@const inVoice = S.voice && S.voice.channelId === c.id}
@@ -837,6 +959,17 @@
             >
               <Icon name={typeIcon(c.type)} size={13} />
               <span class="ch-name">{c.name}</span>
+              {#if Number(c.slowMode) > 0}
+                <!-- A paced room says so where you choose which room to enter,
+                     not only once you are in it and the composer refuses. -->
+                <span
+                  class="ch-slow"
+                  role="img"
+                  use:tooltip={`Slow mode: one message every ${slowShort(c.slowMode)}`}
+                  aria-label={`Slow mode: one message every ${slowShort(c.slowMode)}`}
+                ><Icon name="clock" size={11} /></span
+                >
+              {/if}
               {#if c.type === "voice" && isCallLocked(c.id)}
                 <span class="ch-lock" role="img" use:tooltip={"Call locked — knock to join"} aria-label="Call locked — knock to join"
                   ><Icon name="lock" size={11} /></span
@@ -1301,6 +1434,66 @@
     /* Same 6px inset as .section-head — the two headings stack in one column
        and a 2px difference reads as a wobble. */
     margin: 10px 6px 2px;
+  }
+  /* The header is the fold control, so it has to BE a button and fill the
+     row — a caret you have to hit exactly is worse than no caret. */
+  .cat-toggle {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    text-align: left;
+  }
+  .cat-toggle:hover {
+    color: var(--text-muted);
+  }
+  /* The glyph is a right-pointing chevron, so OPEN is the rotated state: it
+     points down at what it is showing, and folds back to pointing at the rows
+     it is hiding. */
+  .cat-caret {
+    display: inline-grid;
+    place-items: center;
+    transform: rotate(90deg);
+    transition: transform var(--dur-quick) var(--ease-out);
+  }
+  .cat-caret.folded {
+    transform: none;
+  }
+  .cat-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* What folding cost you, so the number is never a surprise. */
+  .cat-count {
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text-faint);
+    font-size: var(--fs-micro);
+  }
+  .cat-edit {
+    flex: 1;
+    min-width: 0;
+    padding: 2px 6px;
+    font-size: var(--fs-tiny);
+    letter-spacing: inherit;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .ch-slow {
+    flex: none;
+    display: inline-grid;
+    place-items: center;
+    color: var(--warn-text);
+    opacity: 0.85;
   }
   .cat-actions {
     display: inline-flex;
