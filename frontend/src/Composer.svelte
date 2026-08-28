@@ -5,7 +5,8 @@
   // typing signals, reply banner, and ArrowUp-in-empty-composer to edit your
   // last message.
   import Icon from "./Icon.svelte";
-  import { applyFormat as formatField, chordFor, FMT_GROUPS } from "./lib/mdformat.js";
+  import FormatBar from "./FormatBar.svelte";
+  import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import EmojiPicker from "./EmojiPicker.svelte";
   import BottomSheet from "./BottomSheet.svelte";
@@ -565,10 +566,6 @@
   // textarea THROUGH the browser (execCommand insertText) rather than by
   // assigning `draft`, which is what keeps Ctrl+Z alive — see the module header
   // for why that matters and what it cost before.
-  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
-  const MOD_LABEL = isMac ? "⌘" : "Ctrl+";
-  const fmtTitle = (b) => (b.keys ? `${b.label} (${MOD_LABEL}${b.keys})` : b.label);
-
   function applyFormat(kind) {
     if (!composerEl || !ch) return;
     suggest = null;
@@ -1215,6 +1212,7 @@
         text: `Text direction: ${dirMode === "rtl" ? "right to left" : "left to right"} — Ctrl+Shift+L to change`,
       }}
       aria-label="Text direction: {dirMode === 'rtl' ? 'right to left' : 'left to right'}. Activate to change."
+      tabindex="-1"
       onclick={() => {
         dirMode = dirMode === "rtl" ? "ltr" : "";
         composerEl?.focus();
@@ -1415,24 +1413,7 @@
       {/if}
     {/if}
     {#if showFmtBar}
-    <div class="fmt-bar" role="toolbar" aria-label="Text formatting">
-      {#each FMT_GROUPS as group, gi (gi)}
-        {#if gi > 0}<span class="fmt-sep" aria-hidden="true"></span>{/if}
-        {#each group as b (b.kind)}
-          <button
-            type="button"
-            class="fmtbtn"
-            use:tooltip={{ text: fmtTitle(b) }}
-            aria-label={b.label}
-            disabled={!ch}
-            onmousedown={(e) => e.preventDefault()}
-            onclick={() => applyFormat(b.kind)}
-          >
-            <Icon name={b.kind} size={15} />
-          </button>
-        {/each}
-      {/each}
-    </div>
+      <FormatBar onFormat={applyFormat} disabled={!ch} {dirMode} onCycleDir={cycleDir} />
     {/if}
     <div class="input-box" class:focused={ch} class:recording>
       {#if recording}
@@ -2371,51 +2352,6 @@
       transform: rotate(360deg);
     }
   }
-  .fmt-bar {
-    display: flex;
-    align-items: center;
-    gap: 1px;
-    padding: 5px 8px 4px;
-    /* Quiet until the composer is hovered or focused, but not invisible: at
-       0.45 these icons sat at 1.9:1 against the input they float over. */
-    opacity: 0.8;
-    transition: opacity var(--dur-standard) ease;
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
-  }
-  .composer:hover .fmt-bar,
-  .composer:focus-within .fmt-bar {
-    opacity: 1;
-  }
-  .fmtbtn {
-    display: grid;
-    place-items: center;
-    width: 26px;
-    height: 22px;
-    padding: 0;
-    background: transparent;
-    color: var(--text-muted);
-    border-radius: var(--radius-sm);
-    transition:
-      background var(--dur-quick) ease,
-      color var(--dur-quick) ease;
-  }
-  .fmtbtn:hover:not(:disabled) {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .fmtbtn:active:not(:disabled) {
-    background: var(--bg-3);
-  }
-  .fmtbtn:disabled {
-    opacity: 0.35;
-  }
-  .fmt-sep {
-    width: 1px;
-    height: 14px;
-    background: var(--border);
-    margin: 0 5px;
-    flex: none;
-  }
   /* One unified rounded bar — the icons live inside it, not beside it. */
   .input-box {
     display: flex;
@@ -2676,7 +2612,9 @@
   }
   /* On touch the fmt bar can't hover-reveal — when toggled on from the sheet,
      show it at full strength and give the buttons real finger targets. */
-  .composer.mobile .fmt-bar {
+  /* :global because the bar is FormatBar.svelte's markup now, and a scoped
+     selector here cannot reach a child component's element. */
+  .composer.mobile :global(.fmt-bar) {
     opacity: 1;
     flex-wrap: wrap;
     padding-bottom: 6px;
@@ -2685,14 +2623,14 @@
   /* Two rows of four rather than eight abreast: eight shared 322px gave each
      button 33px, side by side with its neighbours, in a row where hitting the
      wrong one silently inserts the wrong markers into the message. */
-  .composer.mobile .fmtbtn {
+  .composer.mobile :global(.fmtbtn) {
     flex: 1 1 21%;
     width: auto;
     height: var(--tap-min);
   }
   /* The separators are a desktop grouping cue; in a wrapped grid they'd land
      mid-row and eat 22px that the buttons need. */
-  .composer.mobile .fmt-sep {
+  .composer.mobile :global(.fmt-sep) {
     display: none;
   }
   /* Finger-sized targets; glyphs stay grid-centered so only the tap area grows. */

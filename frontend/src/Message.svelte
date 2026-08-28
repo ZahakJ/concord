@@ -3,6 +3,8 @@
   // avatar/header, hover timestamp). The action bar is keyboard-reachable
   // (focus-within) with labelled icon buttons.
   import Icon from "./Icon.svelte";
+  import FormatBar from "./FormatBar.svelte";
+  import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
   import EmojiPicker from "./EmojiPicker.svelte";
   import Avatar from "./Avatar.svelte";
   import Attachment from "./Attachment.svelte";
@@ -28,7 +30,7 @@
   import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo } from "./lib/timestamp.js";
   import YouTubeEmbed from "./YouTubeEmbed.svelte";
   import LinkPreview from "./LinkPreview.svelte";
-  import { untrack } from "svelte";
+  import { untrack, tick } from "svelte";
   import { renderMarkdown, emojiOnly, animatedEmojiSrc, twemojiCode } from "./lib/markdown.js";
   import { animateInView, animateOnHover } from "./lib/anemoji.js";
   import { highlightCode } from "./lib/highlight.js";
@@ -514,6 +516,50 @@
     wasEditing = editing;
   });
 
+  // Put the caret in the box the moment it opens, at the end of the text.
+  //
+  // The textarea carried `autofocus`, which does nothing here: the HTML
+  // attribute is honoured once per Document, at parse time, and this element is
+  // inserted years later in page-lifetime terms. So the headline "press ↑ to
+  // edit your last message" opened an editor and left focus in the composer —
+  // you typed your correction into a NEW draft and Enter posted it as a second
+  // message, with the mistake still standing above it. End-of-text is where the
+  // caret goes because the next keystroke is nearly always a continuation.
+  $effect(() => {
+    if (!editEl || S.editing?.id !== m.id) return;
+    const el = editEl;
+    // After the tick AND a frame, and the LENGTH is read at the end of that
+    // wait rather than the start. The seeding effect above assigns editDraft,
+    // and the binding writes that string into the element some time after this
+    // effect runs — writing a textarea's value resets its selection to 0, so a
+    // caret placed before the write is a caret that gets thrown away. That is
+    // the difference between "the caret is at the end" and "the caret is where
+    // it looks like nothing happened".
+    tick().then(() =>
+      requestAnimationFrame(() => {
+        if (S.editing?.id !== m.id) return;
+        el.focus({ preventScroll: true });
+        const end = el.value.length;
+        el.setSelectionRange(end, end);
+        autosizeEdit();
+      }),
+    );
+  });
+
+  // The edit box grows with its text, capped, exactly as the composer does.
+  // Fixed at two rows it clipped anything longer mid-line with no scrollbar in
+  // sight, which is a poor place to be correcting a paragraph.
+  const EDIT_MAX_H = 220;
+  const EDIT_AUTOFIT = typeof CSS !== "undefined" && !!CSS.supports?.("field-sizing", "content");
+  function autosizeEdit() {
+    const el = editEl;
+    if (!el || EDIT_AUTOFIT) return;
+    el.style.height = "auto";
+    const full = el.scrollHeight;
+    el.style.height = Math.min(full, EDIT_MAX_H) + "px";
+    el.style.overflowY = full > EDIT_MAX_H ? "auto" : "hidden";
+  }
+
   function startEdit() {
     // A message with a rich embed can't be edited inline (the raw
     // [embed](concord://…) token would show and could be mangled) — reopen it in
@@ -523,6 +569,20 @@
       return;
     }
     S.editing = m;
+  }
+
+  // The formatting bar and chords, applied to the edit box. Editing is where
+  // you go to FIX formatting, and it was the one surface with none of the
+  // controls — a bare textarea under a composer carrying eight of them.
+  function applyEditFormat(kind) {
+    if (!editEl) return;
+    editSuggest = null;
+    formatField(editEl, kind, (next, selStart, selEnd) => {
+      editDraft = next;
+      requestAnimationFrame(() => editEl?.setSelectionRange(selStart, selEnd));
+    });
+    editDraft = editEl.value;
+    autosizeEdit();
   }
   function cancelEdit() {
     editCancelled = true; // so the textarea's blur handler doesn't save it
@@ -585,6 +645,14 @@
 
   // Suggest-aware keys, layered over the save/cancel keys the textarea has.
   function onEditKeydown(e) {
+    // Formatting chords first — they all carry Ctrl/Cmd, so they cannot
+    // collide with the suggestion navigation or the save/cancel keys below.
+    const kind = chordFor(e);
+    if (kind) {
+      e.preventDefault();
+      applyEditFormat(kind);
+      return;
+    }
     if (editSuggest) {
       if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
@@ -1149,34 +1217,40 @@
       </div>
     {:else if S.editing?.id === m.id}
       <div class="edit-wrap" class:pick-below={editPickerBelow}>
-        <!-- svelte-ignore a11y_autofocus -->
-        <textarea
-          class="edit-input"
-          rows="1"
-          bind:value={editDraft}
-          bind:this={editEl}
-          oninput={onEditInput}
-          autofocus
-          onkeydown={onEditKeydown}
-          onblur={(e) => {
-            // Focus moving WITHIN the edit UI must not commit-and-close. That
-            // is the emoji button and its picker (.edit-wrap) — and Cancel and
-            // Save, which live in a SIBLING .edit-actions row. A mouse never
-            // noticed the gap because those buttons swallow mousedown, but Tab
-            // does not, so tabbing to Cancel saved the edit on the way there
-            // and then cancelled nothing.
-            if (!e.relatedTarget?.closest?.(".edit-wrap, .edit-actions")) commitEdit();
-          }}
-        ></textarea>
-        <button
-          type="button"
-          class="edit-emoji"
-          use:tooltip
-          aria-label="Insert emoji"
-          onclick={toggleEditPicker}
-        >
-          <Icon name="smile" size={17} />
-        </button>
+        <!-- The same bar the composer has, over the same engine, routed at this
+             textarea. Its buttons swallow mousedown, so pressing one never
+             takes focus out of the box and never trips the blur-commits rule
+             below. -->
+        <FormatBar onFormat={applyEditFormat} label="Text formatting for this edit" compact />
+        <div class="edit-field">
+          <textarea
+            class="edit-input"
+            class:autofit={EDIT_AUTOFIT}
+            rows="1"
+            bind:value={editDraft}
+            bind:this={editEl}
+            oninput={onEditInput}
+            onkeydown={onEditKeydown}
+            onblur={(e) => {
+              // Focus moving WITHIN the edit UI must not commit-and-close. That
+              // is the emoji button and its picker (.edit-wrap) — and Cancel and
+              // Save, which live in a SIBLING .edit-actions row. A mouse never
+              // noticed the gap because those buttons swallow mousedown, but Tab
+              // does not, so tabbing to Cancel saved the edit on the way there
+              // and then cancelled nothing.
+              if (!e.relatedTarget?.closest?.(".edit-wrap, .edit-actions")) commitEdit();
+            }}
+          ></textarea>
+          <button
+            type="button"
+            class="edit-emoji"
+            use:tooltip
+            aria-label="Insert emoji"
+            onclick={toggleEditPicker}
+          >
+            <Icon name="smile" size={17} />
+          </button>
+        </div>
         {#if editSuggest}
           <div class="edit-suggest" role="listbox" aria-label="Emoji suggestions">
             {#each editSuggest.items as item, i (item[0])}
@@ -1989,7 +2063,17 @@
     }
   }
   .edit-wrap {
-    position: relative; /* anchors the emoji button + picker */
+    position: relative; /* anchors the picker and the suggestion list */
+  }
+  /* The emoji button hangs off the TEXTAREA, not off the wrap: the formatting
+     bar sits above it now, and a button measured from the wrap's top edge
+     landed on the bar's buttons instead of in the box's corner. */
+  .edit-field {
+    position: relative;
+  }
+  .edit-input.autofit {
+    field-sizing: content;
+    max-height: 220px;
   }
   /* The shared picker defaults to composer placement (bottom:54px); in the
      edit context anchor it just above the box — or just below when the
