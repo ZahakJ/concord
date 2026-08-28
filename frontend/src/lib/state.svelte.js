@@ -2312,7 +2312,26 @@ export async function startDM(fingerprint, text = "") {
 // startMeeting creates a disposable meeting room (voice + chat, expiring), opens
 // it, and pops the shareable invitation — a meeting link to send someone who has
 // no account anywhere. The modal owns the link's lifetime from there.
+// The rendezvous question is asked BEFORE anything is created. A meeting whose
+// guest link cannot be minted is still a usable room, but "guest links need a
+// rendezvous — set one in Settings → Connection" said at the point of SHARING,
+// after the guild, the channel and the call already exist, is the answer
+// arriving after the question stopped mattering. See ModalMeetingReady.
 export async function startMeeting() {
+  let hasRendezvous = false;
+  try {
+    hasRendezvous = ((await api.getBootstrap()) || []).some((l) => l && l.trim());
+  } catch {
+    /* locked or transport down — treat as "ask", never as "silently can't" */
+  }
+  if (!hasRendezvous) {
+    S.modal = { kind: "meetingReady", onReady: () => openMeeting() };
+    return;
+  }
+  return openMeeting();
+}
+
+async function openMeeting() {
   try {
     const m = await api.startMeeting();
     await refreshGuilds();
@@ -2327,9 +2346,31 @@ export async function startMeeting() {
     } catch {
       /* no rendezvous configured — code-only invitation */
     }
+    // Put the host IN the meeting they just started. Without this you were left
+    // standing in a new empty guild with the sidebar still announcing the call
+    // you were in somewhere else — a meeting nobody had joined, including the
+    // person who called it.
+    const ch = (m.guild.channels || []).find((c) => c.type === "voice") || m.guild.channels?.[0];
+    if (ch?.id) await joinMeetingCall(ch.id);
     S.modal = { kind: "meeting", code: m.code, guestLink, guildId: m.guild.id, expires };
   } catch (err) {
     flash(err);
+  }
+}
+
+// Joining is App's lifecycle (it owns the mesh), so it registers the door and
+// this knocks on it. One function, one registrar — the alternative was
+// threading a callback through the guild rail, the rail's overflow menu and
+// two modals to reach a room the user has not navigated to yet.
+let meetingJoiner = null;
+export function registerMeetingJoiner(fn) {
+  meetingJoiner = fn;
+}
+async function joinMeetingCall(channelId) {
+  try {
+    await meetingJoiner?.(channelId);
+  } catch {
+    /* the room exists either way; the invite dialog is still the point */
   }
 }
 

@@ -22,6 +22,7 @@
     refreshRightPanel,
     applyAppearance,
     flash,
+    registerMeetingJoiner,
     setVideoStream,
     clearVideoStreams,
     incomingCall,
@@ -124,6 +125,7 @@
     channelLinks: () => import("./modals/ModalChannelLinks.svelte"),
     publish: () => import("./modals/ModalPublish.svelte"),
     meeting: () => import("./modals/ModalMeeting.svelte"),
+    meetingReady: () => import("./modals/ModalMeetingReady.svelte"),
     newPost: () => import("./modals/ModalNewPost.svelte"),
     forumSettings: () => import("./modals/ModalForumSettings.svelte"),
     rename: () => import("./modals/ModalCreate.svelte"),
@@ -408,6 +410,10 @@
     el.classList.add("gone");
     setTimeout(() => el.remove(), 240);
   }
+
+  // A meeting that has just been created has to put its host in its own call,
+  // and joining lives here because the mesh does. See startMeeting().
+  registerMeetingJoiner((channelId) => joinVoice(channelId));
 
   onMount(async () => {
     // Skip the self-update check on mobile — the app stores own updates there.
@@ -1677,6 +1683,9 @@
         expires={S.modal.expires || 0}
         onClose={() => (S.modal = null)}
       />
+    {:else if S.modal?.kind === "meetingReady"}
+      <!-- Asked before the meeting is created; onReady carries on with it. -->
+      <ModalView onReady={S.modal?.onReady} onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "newPost"}
       <ModalView forum={S.modal.forum} onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "forumSettings"}
