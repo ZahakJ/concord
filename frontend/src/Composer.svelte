@@ -5,6 +5,7 @@
   // typing signals, reply banner, and ArrowUp-in-empty-composer to edit your
   // last message.
   import Icon from "./Icon.svelte";
+  import { applyFormat as formatField, chordFor, FMT_GROUPS } from "./lib/mdformat.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import EmojiPicker from "./EmojiPicker.svelte";
   import BottomSheet from "./BottomSheet.svelte";
@@ -559,116 +560,37 @@
   }
 
   // ---- markdown formatting (toolbar buttons + Ctrl/Cmd shortcuts) ----
-  // Wraps the current selection with markers, or inserts a selected
-  // placeholder when nothing is selected. Mirrors accept(): mutate `draft`,
-  // refocus, then place the selection on the next frame because bind:value
-  // alone would park the caret at the end.
-
+  //
+  // The engine is lib/mdformat.js, shared with the edit box. It edits the
+  // textarea THROUGH the browser (execCommand insertText) rather than by
+  // assigning `draft`, which is what keeps Ctrl+Z alive — see the module header
+  // for why that matters and what it cost before.
   const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || "");
   const MOD_LABEL = isMac ? "⌘" : "Ctrl+";
-  const WRAPS = {
-    bold: { pre: "**", post: "**", ph: "bold" },
-    italic: { pre: "*", post: "*", ph: "italic" },
-    strike: { pre: "~~", post: "~~", ph: "strikethrough" },
-    spoiler: { pre: "||", post: "||", ph: "spoiler" },
-    code: { pre: "`", post: "`", ph: "code" },
-  };
-  // Groups render with a thin separator between them. `keys` is only the
-  // tooltip hint — the actual bindings live in onKeydown.
-  const FMT_GROUPS = [
-    [
-      { kind: "bold", label: "Bold", keys: "B" },
-      { kind: "italic", label: "Italic", keys: "I" },
-      { kind: "strike", label: "Strikethrough" },
-      { kind: "spoiler", label: "Spoiler", keys: "Shift+X" },
-    ],
-    [
-      { kind: "code", label: "Inline code", keys: "E" },
-      { kind: "codeblock", label: "Code block" },
-    ],
-    [
-      { kind: "quote", label: "Quote", keys: "Shift+." },
-      { kind: "link", label: "Link", keys: "K" },
-    ],
-  ];
   const fmtTitle = (b) => (b.keys ? `${b.label} (${MOD_LABEL}${b.keys})` : b.label);
 
   function applyFormat(kind) {
     if (!composerEl || !ch) return;
-    const start = composerEl.selectionStart ?? draft.length;
-    const end = composerEl.selectionEnd ?? start;
-    const sel = draft.slice(start, end);
-    let selStart, selEnd;
-
-    if (kind === "quote") {
-      // Toggle "> " on every line the selection touches.
-      const lineStart = draft.lastIndexOf("\n", start - 1) + 1;
-      let lineEnd = draft.indexOf("\n", end);
-      if (lineEnd < 0) lineEnd = draft.length;
-      const lines = draft.slice(lineStart, lineEnd).split("\n");
-      const quoted = lines.every((l) => l.startsWith("> "));
-      const block = lines.map((l) => (quoted ? l.slice(2) : "> " + l)).join("\n");
-      draft = draft.slice(0, lineStart) + block + draft.slice(lineEnd);
-      if (start === end) {
-        const p = Math.max(lineStart, start + (quoted ? -2 : 2));
-        selStart = selEnd = Math.min(p, lineStart + block.length);
-      } else {
-        selStart = lineStart;
-        selEnd = lineStart + block.length;
-      }
-    } else if (kind === "link") {
-      // A selection becomes the label with "url" selected to type over; with
-      // nothing selected, insert a full placeholder and select the label.
-      const label = sel || "text";
-      draft = draft.slice(0, start) + `[${label}](url)` + draft.slice(end);
-      if (sel) {
-        selStart = start + label.length + 3; // just past "[label]("
-        selEnd = selStart + 3;
-      } else {
-        selStart = start + 1;
-        selEnd = selStart + label.length;
-      }
-    } else if (kind === "codeblock") {
-      // Fences want their own lines — only add the newlines that are missing.
-      const text = sel || "code";
-      const pre = (start > 0 && draft[start - 1] !== "\n" ? "\n" : "") + "```\n";
-      const post = "\n```" + (end < draft.length && draft[end] !== "\n" ? "\n" : "");
-      draft = draft.slice(0, start) + pre + text + post + draft.slice(end);
-      selStart = start + pre.length;
-      selEnd = selStart + text.length;
-    } else {
-      const { pre, post, ph } = WRAPS[kind];
-      // Already wrapped (markers just outside, or included in the selection)?
-      // Then this press toggles the formatting back off. The italic guard
-      // keeps a lone "*" check from eating half of a surrounding "**".
-      const outside =
-        sel &&
-        draft.slice(start - pre.length, start) === pre &&
-        draft.slice(end, end + post.length) === post &&
-        !(kind === "italic" && draft.slice(start - 2, start) === "**" && draft.slice(end, end + 2) === "**");
-      const inside = sel.length >= pre.length + post.length && sel.startsWith(pre) && sel.endsWith(post);
-      if (outside) {
-        draft = draft.slice(0, start - pre.length) + sel + draft.slice(end + post.length);
-        selStart = start - pre.length;
-        selEnd = selStart + sel.length;
-      } else if (inside) {
-        const inner = sel.slice(pre.length, sel.length - post.length);
-        draft = draft.slice(0, start) + inner + draft.slice(end);
-        selStart = start;
-        selEnd = start + inner.length;
-      } else {
-        const text = sel || ph;
-        draft = draft.slice(0, start) + pre + text + post + draft.slice(end);
-        selStart = start + pre.length;
-        selEnd = selStart + text.length;
-      }
-    }
-
-    saveDraft(S.activeChannelId, draft);
     suggest = null;
-    composerEl.focus();
+    formatField(composerEl, kind, (next, selStart, selEnd) => {
+      // Fallback only: no engine Concord ships on takes this path.
+      draft = next;
+      requestAnimationFrame(() => composerEl?.setSelectionRange(selStart, selEnd));
+    });
+    // execCommand fires a real input event, so bind:value has already caught
+    // up; persist and re-measure the same way a keystroke would.
+    draft = composerEl.value;
+    saveDraft(S.activeChannelId, draft);
     queueAutosize();
-    requestAnimationFrame(() => composerEl?.setSelectionRange(selStart, selEnd));
+  }
+
+  // The direction cycle: per-line → RTL → LTR → per-line. A cycle rather than
+  // two bindings because the third state is the one people want back, and a
+  // single key that returns to the default is easier to trust than remembering
+  // which of two undoes the other.
+  function cycleDir() {
+    dirMode = dirMode === "" ? "rtl" : dirMode === "rtl" ? "ltr" : "";
+    composerEl?.focus();
   }
 
   function editLastOwnMessage() {
@@ -683,36 +605,25 @@
     // collide with autocomplete nav, Enter-send, or ArrowUp-edit below.
     if ((e.ctrlKey || e.metaKey) && !e.altKey) {
       const k = e.key.toLowerCase();
-      const kind = !e.shiftKey
-        ? k === "b"
-          ? "bold"
-          : k === "i"
-            ? "italic"
-            : k === "e"
-              ? "code"
-              : k === "k"
-                ? "link"
-                : null
-        : k === "x"
-          ? "spoiler"
-          : e.code === "Period" || k === "." || k === ">"
-            ? "quote"
-            : null;
+      const kind = chordFor(e);
       if (kind) {
         e.preventDefault();
         applyFormat(kind);
         return;
       }
-      // Ctrl/Cmd+Shift+D cycles the draft's base direction: per-line → RTL →
-      // LTR → per-line. A cycle rather than two bindings because the third
-      // state is the one people want back, and a single key that returns to
-      // the default is easier to trust than remembering which of two undoes
-      // the other. `e.code` alongside `k` so a non-Latin keyboard layout —
-      // exactly the layout someone writing Arabic is on — still matches.
-      if (e.shiftKey && (k === "d" || e.code === "KeyD")) {
+      // Ctrl/Cmd+Shift+L cycles the draft's base direction. It was Ctrl+Shift+D
+      // — the same chord the keymap answers with "toggle deafen", which is on
+      // the allowlist that survives a focused text field precisely so it works
+      // mid-sentence. preventDefault does not stop propagation, so both fired:
+      // an Arabic writer in a call deafened themselves every time they flipped
+      // the composer's direction, and undeafened themselves flipping it back.
+      // L is free in the keymap and stays free — a composer chord that only the
+      // composer answers cannot collide with anything. `e.code` alongside `k`
+      // so a non-Latin keyboard layout — exactly the layout someone writing
+      // Arabic is on — still matches.
+      if (e.shiftKey && (k === "l" || e.code === "KeyL")) {
         e.preventDefault();
-        dirMode = dirMode === "" ? "rtl" : dirMode === "rtl" ? "ltr" : "";
-        composerEl?.focus();
+        cycleDir();
         return;
       }
     }
@@ -1301,7 +1212,7 @@
       type="button"
       class="dir-pill"
       use:tooltip={{
-        text: `Text direction: ${dirMode === "rtl" ? "right to left" : "left to right"} — Ctrl+Shift+D to change`,
+        text: `Text direction: ${dirMode === "rtl" ? "right to left" : "left to right"} — Ctrl+Shift+L to change`,
       }}
       aria-label="Text direction: {dirMode === 'rtl' ? 'right to left' : 'left to right'}. Activate to change."
       onclick={() => {

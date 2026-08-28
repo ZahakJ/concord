@@ -85,6 +85,10 @@ const SPELLED = {
 const scope = [
   ["shortcuts.js", keysUsedIn("shortcuts.js")],
   ["../Composer.svelte", keysUsedIn("../Composer.svelte")],
+  // The formatting chords moved out of the composer and into the module the
+  // composer and the edit box now share. They are still bindings the sheet has
+  // to describe, so the reader follows them.
+  ["mdformat.js", keysUsedIn("mdformat.js")],
 ];
 
 for (const [file, keys] of scope) {

@@ -45,10 +45,10 @@ export const SHORTCUTS = [
   { group: "Composer", chords: [["Ctrl/⌘", "B"]], label: "Bold the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "I"]], label: "Italicise the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "E"]], label: "Code the selection" },
-  { group: "Composer", chords: [["Ctrl/⌘", "K"]], label: "Link the selection" },
+  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "K"]], label: "Link the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "Shift", "X"]], label: "Spoiler the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "Shift", "."]], label: "Quote the selection" },
-  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "D"]], label: "Cycle the draft's direction: per-line, right-to-left, left-to-right" },
+  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "L"]], label: "Cycle the draft's direction: per-line, right-to-left, left-to-right" },
 
   { group: "Slash commands", typed: true, chords: [["/shrug"], ["/me"], ["/spoiler"], ["…"]], label: "Type one at the start of a message" },
 
