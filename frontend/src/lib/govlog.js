@@ -23,7 +23,22 @@ export const GOV_FILTERS = [
     types: ["ban", "unban", "mute", "unmute", "remove_member", "readmit"],
   },
   { id: "roles", label: "Roles", types: ["role_upsert", "role_delete", "role_assign"] },
-  { id: "channels", label: "Channels", types: ["slow_mode", "retention"] },
+  {
+    id: "channels",
+    label: "Channels",
+    // A Channels tab that could only ever show slow mode was worse than no tab:
+    // "who deleted #introductions and when" is the first question asked after a
+    // bad night, and it was unanswerable.
+    types: [
+      "slow_mode",
+      "retention",
+      "channel_create",
+      "channel_rename",
+      "channel_delete",
+      "channel_move",
+    ],
+  },
+  { id: "guild", label: "Guild", types: ["guild_rename", "emoji_add", "emoji_remove"] },
   { id: "ownership", label: "Ownership", types: ["transfer_owner", "set_heir", "claim_heir"] },
 ];
 
@@ -131,6 +146,27 @@ export function govSentence(e) {
         : [who, text(" revoked the heir designation")];
     case "claim_heir":
       return [who, text(" claimed ownership as the named heir")];
+    case "channel_create":
+      return [who, text(" created "), channel(e)];
+    case "channel_delete":
+      return [who, text(" deleted "), channel(e)];
+    case "channel_rename":
+      // The "from" half only appears when the log actually knows it. A guild
+      // whose channels predate this record has nothing to recover, and inventing
+      // a former name would be the one thing an audit trail must never do.
+      return e.prevName
+        ? [who, text(" renamed "), { k: "channel", v: `#${e.prevName}` }, text(" to "), channel(e)]
+        : [who, text(" renamed a channel to "), channel(e)];
+    case "channel_move":
+      return [who, text(" moved "), channel(e), text(" to another category")];
+    case "guild_rename":
+      return e.prevName
+        ? [who, text(` renamed the guild from ${e.prevName} to ${e.name}`)]
+        : [who, text(` renamed the guild to ${e.name}`)];
+    case "emoji_add":
+      return [who, text(` added the emoji :${e.name}:`)];
+    case "emoji_remove":
+      return [who, text(` removed the emoji :${e.name}:`)];
     default:
       // Not an error and not a blank row: a member on a newer build did
       // something this one has no words for, and saying so is more honest than

@@ -63,6 +63,7 @@ func (s *Service) AddCustomEmoji(guildID, name, dataURI string) error {
 	}
 	s.emitGuildUpdate()
 	s.publishMeta(groupID, guildMeta{Type: "emoji_added", CustomEmoji: e})
+	s.logGuildOp(guildID, "emoji_add", name)
 	return nil
 }
 
@@ -87,6 +88,7 @@ func (s *Service) RemoveCustomEmoji(guildID, name string) error {
 	}
 	s.emitGuildUpdate()
 	s.publishMeta(groupID, guildMeta{Type: "emoji_removed", CustomEmoji: domain.CustomEmoji{GuildID: guildID, Name: name}})
+	s.logGuildOp(guildID, "emoji_remove", name)
 	return nil
 }
 

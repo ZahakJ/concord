@@ -71,9 +71,16 @@ type Role struct {
 type govOp struct {
 	Seq    uint64 `json:"seq"`
 	Signer []byte `json:"signer"` // author's Ed25519 account public key
-	// Type discriminates the op: role_upsert | role_delete | role_assign | ban |
-	// unban | mute | unmute | remove_member | readmit | transfer_owner |
-	// set_heir | claim_heir | slow_mode | retention
+	// Type discriminates the op. Two families:
+	//   ENFORCING — role_upsert | role_delete | role_assign | ban | unban |
+	//     mute | unmute | remove_member | readmit | transfer_owner | set_heir |
+	//     claim_heir | slow_mode | retention
+	//   AUDIT-ONLY — channel_create | channel_rename | channel_delete |
+	//     channel_move | guild_rename | emoji_add | emoji_remove
+	// An audit-only op records that an authorized member did something whose
+	// EFFECT travels on the guild-meta lane; replay checks the authority and
+	// changes no state. It exists so the moderation log can answer "who deleted
+	// #introductions", which is the first question asked after a bad night.
 	//
 	// Adding a new TYPE is safe on the wire: a build that does not know it folds
 	// it to nothing (see the default arm) and still relays it byte-for-byte.
@@ -99,6 +106,8 @@ type govOp struct {
 	Until  int64  `json:"until,omitempty"` // mute: muted-until (unix seconds)
 
 	// slow_mode — per-channel posting interval. Seconds <= 0 turns it off.
+	// The channel_* audit ops name their channel here, and carry its name (the
+	// one AFTER the change, for a rename) in Name.
 	ChannelID string `json:"channelId,omitempty"`
 	Seconds   int64  `json:"seconds,omitempty"`
 
@@ -538,6 +547,28 @@ func (st *GuildState) applyGovOp(curp *string, o govOp) bool {
 		}
 		*curp = signer
 		st.heir = ""
+	case "channel_create", "channel_rename", "channel_delete", "channel_move":
+		// AUDIT ONLY. The channel itself is created, renamed, moved and deleted
+		// over the guild-meta lane, and that stays true — this op does not
+		// duplicate the effect, it records the decision. What replay contributes
+		// is the verdict: whether the person who signed it held manage-channels
+		// AT THAT POINT IN THE LOG, which is the only thing that makes the row
+		// worth reading later.
+		if !isOwner && !st.Can(cur, signer, PermManageChannels) {
+			return false
+		}
+		if o.ChannelID == "" {
+			return false
+		}
+	case "guild_rename", "emoji_add", "emoji_remove":
+		// Audit only, same shape, manage-guild instead. Name carries the new
+		// guild name, or the emoji's short name.
+		if !isOwner && !st.Can(cur, signer, PermManageGuild) {
+			return false
+		}
+		if o.Name == "" {
+			return false
+		}
 	default:
 		// An op type this build does not know folds to nothing, and says so.
 		return false

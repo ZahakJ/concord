@@ -359,6 +359,7 @@ func (s *Service) RenameGuild(guildID, name string) error {
 	if ct, err := s.mls.Encrypt(s.ctx, groupID, payload); err == nil {
 		_ = s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct)
 	}
+	s.logGuildOp(guildID, "guild_rename", name)
 	return nil
 }
 
@@ -403,6 +404,7 @@ func (s *Service) SetGuildProfile(guildID, name, icon, banner, description strin
 		s.mu.Unlock()
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
+	renamed := name != "" && name != g.Name
 	if name != "" {
 		g.Name = name
 	}
@@ -417,6 +419,12 @@ func (s *Service) SetGuildProfile(guildID, name, icon, banner, description strin
 		Type: "guild_profile", Name: guildCopy.Name,
 		GuildIcon: icon, GuildBanner: banner, GuildDescription: description,
 	})
+	// Only the NAME goes in the log. This panel also carries the icon, the
+	// banner and the blurb, and a row every time somebody tries a new banner is
+	// noise in a screen whose value is that everything in it matters.
+	if renamed {
+		s.logGuildOp(guildID, "guild_rename", name)
+	}
 	return nil
 }
 
@@ -1998,12 +2006,39 @@ func (s *Service) CreateChannel(guildID, name, ctype, category string) (domain.C
 	if err := s.ps.Publish(s.ctx, domain.GuildMetaTopicID(groupID), ct); err != nil {
 		return domain.Channel{}, err
 	}
+	s.logChannelOp(guildID, "channel_create", ch.ID, ch.Name)
 	// Note the creation in the new channel itself (text channels only — voice
 	// channels have no chat feed).
 	if ch.ChannelType() != "voice" {
 		s.sendSystem(ch.ID, "created this channel")
 	}
 	return ch, nil
+}
+
+// logChannelOp records a channel change in the moderation log. The change
+// itself already happened and travelled on the guild-meta lane — this is the
+// signed receipt, and it is separate for a reason: the meta lane carries
+// advisory layout that any member's client applies, while the log has to be
+// something a reader can check for themselves years later.
+//
+// Best effort on purpose. A guild whose gossip is briefly unhappy should still
+// get its channel renamed; losing the audit row is a smaller failure than
+// refusing the action, and the row is gossiped and synced like every other op,
+// so it converges on its own.
+func (s *Service) logChannelOp(guildID, kind, channelID, name string) {
+	if channelID == "" {
+		return
+	}
+	_ = s.issueGovOp(guildID, govOp{Type: kind, ChannelID: channelID, Name: name})
+}
+
+// logGuildOp is logChannelOp for the guild-wide records (rename, emoji), which
+// name a thing rather than a channel.
+func (s *Service) logGuildOp(guildID, kind, name string) {
+	if name == "" {
+		return
+	}
+	_ = s.issueGovOp(guildID, govOp{Type: kind, Name: name})
 }
 
 // CreateCategory adds a sidebar category and announces it to members.
@@ -2054,9 +2089,36 @@ func (s *Service) DeleteChannel(guildID, channelID string) error {
 	if !ok {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
+	// The name has to be read BEFORE the channel goes, or the log entry says
+	// "deleted a channel" — which is the least useful half of the only question
+	// anyone asks it afterwards.
+	name := s.channelName(guildID, channelID)
+	_, _, isPost := s.postAndForum(guildID, channelID)
 	s.applyChannelRemoved(guildID, channelID)
 	s.publishMeta(groupID, guildMeta{Type: "channel_removed", Channel: domain.Channel{ID: channelID}})
+	// A forum post is member content, not a moderation act — anyone may start
+	// one and its author may take it back — so it does not go in the log. Only
+	// the destruction of a room does.
+	if !isPost {
+		s.logChannelOp(guildID, "channel_delete", channelID, name)
+	}
 	return nil
+}
+
+// channelName is a channel's current name, or "" if we do not have it.
+func (s *Service) channelName(guildID, channelID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		return ""
+	}
+	for _, c := range g.Channels {
+		if c.ID == channelID {
+			return c.Name
+		}
+	}
+	return ""
 }
 
 // applyChannelRemoved drops a channel locally (from any source).
@@ -2163,6 +2225,14 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
 	topic = strings.TrimSpace(topic)
+	wasCategory := ""
+	s.mu.RLock()
+	for _, c := range g.Channels {
+		if c.ID == channelID {
+			wasCategory = c.Category
+		}
+	}
+	s.mu.RUnlock()
 	_ = s.store.UpdateChannelMeta(channelID, ctype, category, position, topic)
 	s.mu.Lock()
 	for i := range g.Channels {
@@ -2180,6 +2250,13 @@ func (s *Service) SetChannelMeta(guildID, channelID, ctype, category string, pos
 	s.emitGuildUpdate()
 	s.publishMeta(groupID, guildMeta{Type: "channel_updated",
 		Channel: domain.Channel{ID: channelID, GuildID: guildID, Type: ctype, Category: category, Position: position, Topic: topic}})
+	// Only a MOVE is worth a row. This call is also how a drag within a category
+	// settles positions and how a topic gets edited, and a log that prints a
+	// line every time somebody nudges a channel up two places is a log nobody
+	// reads. The category is what changes who can find the channel.
+	if category != wasCategory {
+		s.logChannelOp(guildID, "channel_move", channelID, s.channelName(guildID, channelID))
+	}
 	return nil
 }
 
@@ -2212,6 +2289,7 @@ func (s *Service) RenameChannel(guildID, channelID, name string) error {
 	}
 	_ = s.store.UpdateChannelName(channelID, name)
 	s.publishMeta(groupID, guildMeta{Type: "channel_renamed", ChannelID: channelID, Name: name})
+	s.logChannelOp(guildID, "channel_rename", channelID, name)
 	return nil
 }
 

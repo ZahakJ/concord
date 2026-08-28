@@ -101,10 +101,10 @@
 
 <Modal title="Moderation log" {onClose} wide>
   <p class="lede">
-    Every role change, ban, mute and handover in this guild, signed by whoever
-    made it and checked here on your own machine. Nothing was fetched to build
-    this — the record is already on every member's device, which is why every
-    member can read it.
+    Every role change, removal, ban, mute, channel change and handover in this
+    guild, signed by whoever made it and checked here on your own machine.
+    Nothing was fetched to build this — the record is already on every member's
+    device, which is why every member can read it.
   </p>
 
   <div class="filters" role="group" aria-label="Filter the log">

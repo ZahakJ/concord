@@ -46,6 +46,54 @@ eq(govSentenceText(e({ type: "unban" })), "Ada lifted the ban on Ben", "unban");
 eq(govSentenceText(e({ type: "remove_member" })), "Ada removed Ben from the guild", "kick");
 eq(govSentenceText(e({ type: "readmit" })), "Ada allowed Ben back in", "readmit");
 eq(
+  govSentenceText(e({ type: "channel_create", channelName: "general" })),
+  "Ada created #general",
+  "channel created",
+);
+eq(
+  govSentenceText(e({ type: "channel_delete", channelName: "welcome" })),
+  "Ada deleted #welcome",
+  "channel deleted",
+);
+eq(
+  govSentenceText(e({ type: "channel_rename", channelName: "rules", prevName: "welcome" })),
+  "Ada renamed #welcome to #rules",
+  "channel renamed with a known former name",
+);
+eq(
+  govSentenceText(e({ type: "channel_rename", channelName: "rules" })),
+  "Ada renamed a channel to #rules",
+  "channel renamed with no former name in the log",
+);
+eq(
+  govSentenceText(e({ type: "channel_move", channelName: "rules" })),
+  "Ada moved #rules to another category",
+  "channel moved",
+);
+eq(
+  govSentenceText(e({ type: "guild_rename", name: "Riverside", prevName: "Riverbank" })),
+  "Ada renamed the guild from Riverbank to Riverside",
+  "guild renamed with a known former name",
+);
+eq(
+  govSentenceText(e({ type: "guild_rename", name: "Riverside" })),
+  "Ada renamed the guild to Riverside",
+  "guild renamed with no former name",
+);
+eq(govSentenceText(e({ type: "emoji_add", name: "parrot" })), "Ada added the emoji :parrot:", "emoji added");
+eq(
+  govSentenceText(e({ type: "emoji_remove", name: "parrot" })),
+  "Ada removed the emoji :parrot:",
+  "emoji removed",
+);
+eq(govSentenceText(e({ type: "unmute" })), "Ada unmuted Ben", "unmute");
+eq(govSentenceText(e({ type: "mute" })), "Ada muted Ben", "mute with no expiry");
+eq(
+  govSentenceText(e({ type: "mute", until: 1000000 })),
+  "Ada muted Ben until " + new Date(1000000000).toISOString(),
+  "mute until",
+);
+eq(
   govSentenceText(e({ type: "role_upsert", roleName: "Moderator", created: true })),
   "Ada created the role Moderator",
   "role created",
@@ -165,6 +213,8 @@ const KNOWN = [
   "role_upsert", "role_delete", "role_assign", "ban", "unban", "mute", "unmute",
   "remove_member", "readmit",
   "slow_mode", "retention", "transfer_owner", "set_heir", "claim_heir",
+  "channel_create", "channel_rename", "channel_delete", "channel_move",
+  "guild_rename", "emoji_add", "emoji_remove",
 ];
 for (const t of KNOWN) {
   const groups = GOV_FILTERS.filter((f) => f.types && f.types.includes(t));

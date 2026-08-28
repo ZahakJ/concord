@@ -64,6 +64,16 @@ type GovLogEntry struct {
 	ChannelName string `json:"channelName,omitempty"`
 	Seconds     int64  `json:"seconds,omitempty"`
 
+	// Name is what the op named: the new channel name, the new guild name, the
+	// emoji's short name. PrevName is what it was called before, for the two
+	// renames — recovered by walking the log, and empty when the log does not
+	// reach back far enough to know. "Renamed #old to #new" is the whole value
+	// of a rename row, and neither half is in the folded state: a rename
+	// overwrites the name it replaced, which is exactly the thing a reader is
+	// trying to recover.
+	Name     string `json:"name,omitempty"`
+	PrevName string `json:"prevName,omitempty"`
+
 	// At is the author's own wall clock, in unix milliseconds. It is the honest
 	// field for "when did this happen": the store's `created` column records
 	// when THIS device first saw the op, which for anything that arrived in a
@@ -127,6 +137,32 @@ func (s *Service) GovernanceLog(guildID string, offset, limit int) ([]GovLogEntr
 	for _, c := range s.channelsOf(guildID) {
 		channelNames[c.ID] = c.Name
 	}
+	// The same walk again, for names the folded state cannot supply. A DELETED
+	// channel is gone from channelsOf, and "deleted a channel" is the least
+	// useful half of the only question this screen exists to answer; a RENAMED
+	// one has overwritten the name a reader is looking for. Walking forward and
+	// remembering what each thing was last called before each op gives both
+	// rows the name they need, and gives the rename its "from".
+	prevNames := make(map[string]string, len(ordered)) // op hash -> name before it
+	logNames := make(map[string]string, 8)             // channelID -> last name seen
+	guildName := ""
+	for _, o := range ordered {
+		switch o.Type {
+		case "channel_create", "channel_rename", "channel_delete", "channel_move":
+			if o.ChannelID == "" {
+				continue
+			}
+			prevNames[o.hash()] = logNames[o.ChannelID]
+			if o.Name != "" {
+				logNames[o.ChannelID] = o.Name
+			}
+		case "guild_rename":
+			prevNames[o.hash()] = guildName
+			if o.Name != "" {
+				guildName = o.Name
+			}
+		}
+	}
 
 	// Newest first, which is the reverse of the fold order.
 	out := make([]GovLogEntry, 0, limit)
@@ -165,6 +201,18 @@ func (s *Service) GovernanceLog(guildID string, offset, limit int) ([]GovLogEntr
 				e.RoleName = o.Name
 			}
 			e.Created = firstUpsert[o.RoleID] == e.Hash
+		}
+		switch o.Type {
+		case "channel_create", "channel_rename", "channel_delete", "channel_move":
+			e.Name = o.Name
+			e.PrevName = prevNames[e.Hash]
+			if e.ChannelName == "" {
+				// The channel is gone. What it was called is in the op itself.
+				e.ChannelName = o.Name
+			}
+		case "guild_rename", "emoji_add", "emoji_remove":
+			e.Name = o.Name
+			e.PrevName = prevNames[e.Hash]
 		}
 		e.SignerName = s.govActorName(guildID, e.Signer)
 		if e.Target != "" {
