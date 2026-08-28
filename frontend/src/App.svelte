@@ -1331,17 +1331,26 @@
             onToggleCamera={toggleCamera}
           />
         {/if}
-        <!-- Search results overlay the pane for EVERY channel type. It used to
+        <!-- Search results TAKE the pane, for every channel type. They used to
              be mounted inside MessageList, which a forum channel never renders —
              so searching from a forum board filled S.searchResults and displayed
-             them nowhere. -->
-        <SearchPanel />
-        {#if activeChannelObj?.type === "forum"}
-          <ForumView forum={activeChannelObj} />
-        {:else}
-          <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
-          <Composer bind:this={composer} />
-        {/if}
+             them nowhere.
+             They also used to be a 380px band in the flow, with the live channel
+             carrying on at full brightness underneath and the join landing
+             wherever it landed: the boundary cut a message row through the
+             middle, which reads as a rendering fault rather than as a panel.
+             Covering the column instead means nothing is ever half-drawn, and
+             the feed keeps its scroll position because it is still mounted and
+             still laid out — merely behind. -->
+        <div class="pane-body">
+          {#if activeChannelObj?.type === "forum"}
+            <ForumView forum={activeChannelObj} />
+          {:else}
+            <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
+            <Composer bind:this={composer} />
+          {/if}
+          <SearchPanel />
+        </div>
       {:else}
         <Welcome />
       {/if}
@@ -2157,6 +2166,17 @@
     min-height: 0;
     overflow: hidden;
     background: var(--bg-2);
+  }
+  /* Everything below the header and the call panel: the feed and the composer,
+     with the search results able to cover exactly that and no more. The header
+     stays out of it deliberately — the search box you are typing into lives
+     there. */
+  .pane-body {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
   }
   /* Update-available banner: a floating top-center pill (doesn't cover the rail). */
   .update-banner {

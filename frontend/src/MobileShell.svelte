@@ -582,14 +582,19 @@
         />
       {/if}
       <!-- Mounted per-pane, not inside MessageList: a forum channel renders
-           ForumView instead, and search results had nowhere to land there. -->
-      <SearchPanel />
-      {#if activeChannelObj?.type === "forum"}
-        <ForumView forum={activeChannelObj} />
-      {:else}
-        <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
-        <Composer bind:this={composer} />
-      {/if}
+           ForumView instead, and search results had nowhere to land there. And
+           over the pane rather than above it, for the reason spelled out in
+           App.svelte — a band in the flow slices the row underneath its bottom
+           edge in half. -->
+      <div class="pane-body">
+        {#if activeChannelObj?.type === "forum"}
+          <ForumView forum={activeChannelObj} />
+        {:else}
+          <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
+          <Composer bind:this={composer} />
+        {/if}
+        <SearchPanel />
+      </div>
     {:else}
       <Welcome />
     {/if}
@@ -799,6 +804,13 @@
   }
   .icon-btn:active {
     background: var(--bg-3);
+  }
+  .pane-body {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
   }
   /* Mobile search row (under the top bar): feeds the shared search pipeline;
      results render in the SearchPanel inside the feed. */

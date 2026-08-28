@@ -195,12 +195,27 @@
 {/if}
 
 <style>
+  /* The results OWN the column while they are open.
+     They used to be a 380px band in the flow with the live channel continuing
+     underneath at full brightness — poll, messages, composer, all still
+     readable and clickable — and the band's hard bottom edge landed wherever it
+     landed, which was usually through the middle of a message row. A container
+     that ends mid-row reads as a rendering fault, not as a panel, and a set of
+     results with a different conversation showing under them is not a set of
+     results anyone can read.
+     Absolute rather than replacing the feed, because the feed must still be
+     mounted and laid out: unmounting it would throw away the scroll position
+     you were reading at, so closing the search would drop you at the bottom of
+     the channel. It is covered, not destroyed. */
   .search-panel {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
     border-bottom: 1px solid var(--border);
     background: var(--bg-1);
     display: flex;
     flex-direction: column;
-    max-height: min(46vh, 380px);
+    box-shadow: var(--shadow-pop);
   }
   .sp-head {
     display: flex;
@@ -488,9 +503,6 @@
   /* Touch: roomier hit rows and more of the (full-screen) column for results;
      drop the scope pill to keep the top bar to one clean line. */
   @media (pointer: coarse), (max-width: 768px) {
-    .search-panel {
-      max-height: 60vh;
-    }
     .sp-hit {
       padding: 10px 8px;
       min-height: var(--tap-min);
