@@ -17,6 +17,7 @@ import (
 	"context"
 	"embed"
 	"net/http"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -40,6 +41,17 @@ var assets embed.FS
 var appIcon []byte
 
 func main() {
+	// WebKitGTK's DMA-BUF renderer aborts the whole app with a Wayland
+	// protocol error (Gdk "Error 71") on wlroots compositors, reliably so
+	// with the proprietary NVIDIA driver — the window flashes once and the
+	// process is gone before the user sees anything. Upstream's own escape
+	// hatch is this variable, so set it before the first GTK call, and only
+	// when the session is Wayland and the user hasn't chosen a value
+	// themselves. X11 sessions never hit the bug and keep the faster path.
+	if os.Getenv("XDG_SESSION_TYPE") == "wayland" &&
+		os.Getenv("WEBKIT_DISABLE_DMABUF_RENDERER") == "" {
+		os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+	}
 	// Windows: behave like a real installed app no matter where the exe was
 	// launched from — self-install to %LOCALAPPDATA%\Concord, register
 	// shortcuts + Add/Remove, and hand over to the installed copy.
