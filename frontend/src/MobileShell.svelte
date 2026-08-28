@@ -28,6 +28,7 @@
   import GuildRail from "./GuildRail.svelte";
   import ChannelList from "./ChannelList.svelte";
   import MessageList from "./MessageList.svelte";
+  import SetupCard from "./SetupCard.svelte";
   import ForumView from "./ForumView.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import Composer from "./Composer.svelte";
@@ -602,6 +603,7 @@
         {#if activeChannelObj?.type === "forum"}
           <ForumView forum={activeChannelObj} />
         {:else}
+          <SetupCard />
           <MessageList {onJoinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
           <Composer bind:this={composer} />
         {/if}

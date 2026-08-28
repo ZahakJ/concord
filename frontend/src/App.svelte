@@ -33,6 +33,7 @@
     setChannelTopic,
     nudge,
     selectChannel,
+    selectGuild,
     flashChannel,
     isCallLocked,
     nameFor,
@@ -49,6 +50,8 @@
   import { bioEnrolled, unlockWithBiometric } from "./lib/biometric.js";
   import { initDeepLinks, consumePendingChannel } from "./lib/deeplink.js";
   import { closeSearch } from "./lib/search.js";
+  import { armGuildSetup } from "./lib/setup.js";
+  import { templateById, slugChannelName } from "./lib/guildtemplates.js";
   import { popLayer, navDepth, syncLayer } from "./lib/navstack.svelte.js";
   import { haptic, hapticNotify } from "./lib/touch.js";
   import Icon from "./Icon.svelte";
@@ -73,6 +76,7 @@
   import FxOverlay from "./FxOverlay.svelte";
   import { validFx } from "./lib/themefx.js";
   import JoinVeil from "./JoinVeil.svelte";
+  import SetupCard from "./SetupCard.svelte";
   import EventNudges from "./EventNudges.svelte";
 
   // ---- the dialogs ----
@@ -1085,11 +1089,71 @@
 
   // ---- modal handlers ----
 
-  async function createGuild(name) {
+  // Creating a guild used to close the dialog and leave you exactly where you
+  // were: the only evidence anything had happened was a new two-letter pill in
+  // the far-left rail. The whole point of the action was to go there, so it
+  // goes there — the same move createChannel already makes.
+  async function createGuild(opts) {
+    // ModalCreate hands the guild path an object and the category/rename paths
+    // a bare string; both still land here through onSubmit.
+    const { name, icon, description, template } =
+      typeof opts === "string" ? { name: opts } : opts || {};
     if (!name?.trim()) return;
-    await api.createGuild(name.trim());
-    await refreshGuilds();
+    let g;
+    try {
+      g = await api.createGuild(name.trim());
+    } catch (err) {
+      flash(err);
+      return;
+    }
     S.modal = null;
+    // The identity, then the rooms. Both are best-effort on purpose: the guild
+    // EXISTS the moment CreateGuild returns, and failing to land an icon must
+    // not read as a failure to create.
+    if (icon || description) {
+      try {
+        await api.setGuildProfile(g.id, name.trim(), icon || "", "", description || "");
+      } catch (err) {
+        flash(err);
+      }
+    }
+    const made = await scaffoldTemplate(g.id, template);
+    await refreshGuilds();
+    armGuildSetup(g.id);
+    await selectGuild(g.id);
+    flash(made ? `${name.trim()} is ready — ${made}` : `${name.trim()} created`, "success");
+  }
+
+  // Play a starter layout back through the ORDINARY creation calls: the same
+  // CreateCategory / CreateChannel the sidebar's "+" makes, in order, so a
+  // templated guild is byte-for-byte a hand-built one. Returns a sentence for
+  // the toast, or "" when nothing was scaffolded.
+  async function scaffoldTemplate(guildID, templateID) {
+    const plan = templateById(templateID)?.plan || [];
+    if (!plan.length) return "";
+    let cats = 0;
+    let chans = 0;
+    for (const group of plan) {
+      let categoryID = "";
+      try {
+        // The bridge hands the CategoryView back precisely so the channels can
+        // be placed without a refresh-and-match-by-name round trip.
+        categoryID = (await api.createCategory(guildID, group.category))?.id || "";
+        cats++;
+      } catch (err) {
+        flash(err); // keep going: an uncategorised channel beats no channel
+      }
+      for (const ch of group.channels) {
+        try {
+          const name = ch.type === "voice" ? ch.name : slugChannelName(ch.name);
+          await api.createChannel(guildID, name, ch.type, categoryID);
+          chans++;
+        } catch (err) {
+          flash(err);
+        }
+      }
+    }
+    return `${chans} channel${chans === 1 ? "" : "s"} in ${cats} categor${cats === 1 ? "y" : "ies"}`;
   }
 
   async function createChannel({ name, type, category }) {
@@ -1135,13 +1199,31 @@
     S.modal = null;
   }
 
+  // Joining, like creating, ends where you were going. The veil is the same
+  // door JoinVeil already draws for an event join: it names the destination
+  // for the beat the channel takes to open, so the first frame of a guild you
+  // have never seen is not indistinguishable from a failed join.
   async function joinGuild(code) {
     if (!code?.trim()) return;
+    // The veil goes up BEFORE the request, not after: it exists to cover the
+    // wait, and a veil raised once the join has already landed covers nothing.
+    // The dialog stays mounted underneath so a refusal still has somewhere to
+    // print itself.
+    S.joinVeil = { title: "" };
+    const dwell = new Promise((r) => setTimeout(r, 400));
     try {
-      await api.joinViaInvite(code.trim());
-      await refreshGuilds();
+      const [g] = await Promise.all([api.joinViaInvite(code.trim()), dwell]);
+      S.joinVeil = { title: g?.name || "your new guild" };
       S.modal = null;
+      await refreshGuilds();
+      if (g?.id && S.guilds.some((x) => x.id === g.id)) await selectGuild(g.id);
+      S.joinVeil = { title: g?.name || "", leaving: true };
+      setTimeout(() => {
+        if (S.joinVeil?.leaving) S.joinVeil = null;
+      }, 260);
+      flash(`You're in ${g?.name || "the guild"}`, "success");
     } catch (err) {
+      S.joinVeil = null; // drop the veil before the dialog says why
       S.modal = { ...S.modal, error: String(err?.message || err) };
     }
   }
@@ -1359,6 +1441,10 @@
           {#if activeChannelObj?.type === "forum"}
             <ForumView forum={activeChannelObj} />
           {:else}
+            <!-- Above the feed, not inside it: the checklist has to survive the
+                 first message being sent, and anything mounted inside
+                 MessageList lives or dies with the empty state. -->
+            <SetupCard />
             <MessageList onJoinVoice={joinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
             <Composer bind:this={composer} />
           {/if}

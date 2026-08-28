@@ -36,6 +36,7 @@
     loadArchiveOlder,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
+  import { PERM, has } from "./lib/perms.js";
   import { previewText } from "./lib/attachments.js";
   import { gameAt, isGameToken } from "./lib/games.js";
   import { msOf, rangeLabel } from "./lib/chronicle.js";
@@ -213,6 +214,22 @@
       name,
     };
   });
+  // A channel you MADE never got the hero a fresh #general gets: CreateChannel
+  // posts one "created this channel" system row, `rows.length` stops being 0,
+  // and the welcome card gives way to a line of muted italic. A room whose
+  // whole content is the announcement that it exists is empty, so the hero
+  // asks whether anyone has SAID anything, not whether the array is empty.
+  const noConversation = $derived(rows.every((r) => r.m.kind === "system"));
+
+  // …and the thing an owner should do next in a room they just made.
+  const canSetTopic = $derived(
+    !!activeChannel() &&
+      !activeChannel()?.topic &&
+      activeChannel()?.type !== "voice" &&
+      activeGuild()?.kind !== "dm" &&
+      has(activeGuild()?.myPerms || 0, PERM.MANAGE_CHANNELS),
+  );
+
   // Who is in the call this page is the chat alongside — the second half of the
   // answer, under the button.
   const voiceHere = $derived(
@@ -1427,7 +1444,7 @@
        window so the virtualizer never unmounts the region mid-announcement,
        which would swallow it. -->
   <span class="sr-only" role="status" aria-live="polite" aria-atomic="true">{liveAnnounce}</span>
-  {#if !rows.length}
+  {#if noConversation}
     {#if S.feedLoading}
       <!-- Channel switch in flight: shimmer rows instead of a misleading
            "start of channel" welcome (or the old channel's messages). -->
@@ -1450,6 +1467,15 @@
       <div class="empty">
         <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body}>
           {#snippet actions()}
+            {#if canSetTopic}
+              <button
+                class="set-topic"
+                onclick={() => (S.modal = { kind: "channelTopic", channel: activeChannel() })}
+              >
+                <Icon name="edit" size={14} />
+                Set a topic
+              </button>
+            {/if}
             {#if emptyInfo.voice}
               <!-- The landing page of a voice room used to end at a sentence:
                    "this is the chat alongside the Study Hall voice channel",
@@ -1811,6 +1837,26 @@
     margin: auto;
   }
   /* The way in, at the size of a decision. */
+  /* The nudge, not a call to action: quieter than Join, because the room is
+     usable without it and the person reading this made the room. */
+  .set-topic {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 15px;
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: 999px;
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    min-height: var(--tap-min);
+  }
+  .set-topic:hover {
+    background: var(--bg-2);
+    color: var(--text);
+    border-color: var(--accent);
+  }
   .join-call {
     padding: 10px 18px;
     background: var(--accent);
