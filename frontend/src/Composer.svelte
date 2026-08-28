@@ -2168,6 +2168,22 @@
   .composer {
     padding: 0 var(--sp-4) var(--sp-4);
   }
+  /* Sits in the composer's own well so the column keeps its shape, but reads as
+     a label rather than a field: no caret, no focus ring, nothing to click. */
+  .locked-strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    margin: 0 var(--sp-4) var(--sp-4);
+    padding: var(--sp-3) var(--sp-4);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-2);
+    color: var(--text-muted);
+    font-size: var(--fs-compact);
+    text-align: center;
+  }
   /* Formatting toolbar: a whisper-quiet row above the input that comes up to
      full strength while the composer is hovered or focused. No transforms, so
      the global reduced-motion duration-zeroing covers it. */

@@ -614,6 +614,22 @@ func (s *Service) SetPostLocked(guildID, postID string, locked bool) error {
 // closed. Used on BOTH the send and the receive side: refusing only to send
 // would make the lock a suggestion to whoever is running an unmodified client,
 // which is precisely the person who did not need convincing.
+// channelIsAnnouncement reports whether a channel is one only moderators may
+// post in. Same walk as postIsLocked, and cheap for the same reason: a guild's
+// channel list is tens of entries and this runs once per delivered message.
+func (s *Service) channelIsAnnouncement(channelID string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, g := range s.guilds {
+		for _, c := range g.Channels {
+			if c.ID == channelID {
+				return c.ChannelType() == "announcement"
+			}
+		}
+	}
+	return false
+}
+
 func (s *Service) postIsLocked(channelID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

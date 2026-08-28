@@ -1151,6 +1151,16 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 	if kind == "" && s.isMuted(guildID, s.id.Fingerprint()) {
 		return domain.Message{}, fmt.Errorf("app: you're muted in this guild")
 	}
+	// Announcement channel, send side. Every other peer drops this on receive
+	// anyway, so the value here is honesty: an error beats writing into a room
+	// where nobody will ever see it.
+	if kind == "" && s.channelIsAnnouncement(channelID) {
+		self := s.id.Fingerprint()
+		if !s.memberHasPerm(guildID, self, PermManageMessages) &&
+			!s.memberHasPerm(guildID, self, PermManageChannels) {
+			return domain.Message{}, fmt.Errorf("app: only moderators can post in an announcement channel")
+		}
+	}
 	// Slow mode, send side: the composer's countdown should make this error
 	// rare, but the composer is UI and this is the contract. Moderators are
 	// exempt — the interval exists to pace the room, not the people running it.
@@ -2996,6 +3006,15 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 			s.isBanned(guildID, senderFpr) || s.isRemoved(guildID, senderFpr) {
 			return true
 		}
+	}
+	// Announcement channels enforce, rather than wearing a megaphone. The gate
+	// is here and not only in the composer because in a network with no server
+	// the composer is the one place enforcement cannot live: it runs on the
+	// machine of the person being restrained.
+	if guildID != "" && m.Kind == "" && s.channelIsAnnouncement(m.ChannelID) &&
+		!s.memberHasPerm(guildID, senderFpr, PermManageMessages) &&
+		!s.memberHasPerm(guildID, senderFpr, PermManageChannels) {
+		return true
 	}
 	// Advisory mute: drop a normal message from a member who is currently muted.
 	if guildID != "" && s.isMuted(guildID, senderFpr) {
