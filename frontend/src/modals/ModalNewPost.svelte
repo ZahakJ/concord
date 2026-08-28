@@ -48,6 +48,7 @@
   }
 
   const scope = $derived(forum?.id ? `post:${forum.id}` : "");
+  const inForum = $derived((forum?.type || "") === "forum");
   // The palette comes off the guild snapshot (ChannelView.forumTags), which is
   // the same in-memory channel ForumBoard reads — they cannot disagree.
   // Colours are validated hex from the backend; normalizeHex is the second gate,
@@ -169,10 +170,16 @@
   }
 </script>
 
-<Modal title="New post" size="xl" onClose={requestClose}>
+<!-- The same dialog serves a forum board and a text channel: CreateThread has
+     always taken either as the parent, and a thread started in #general is the
+     same object as a forum post. Only the words change. -->
+<Modal title={inForum ? "New post" : "Start a thread"} size="xl" onClose={requestClose}>
   <div class="np">
     <div class="ctx">
-      <span class="dest"><Icon name="forum" size={13} /> Posting in <strong>{forum.name}</strong></span>
+      <span class="dest">
+        <Icon name={inForum ? "forum" : "hash"} size={13} />
+        {inForum ? "Posting in" : "A thread in"} <strong>{forum.name}</strong>
+      </span>
       {#if offline}
         <span class="badge off"><Icon name="alert" size={12} /> Offline — it'll reach others when you reconnect</span>
       {/if}

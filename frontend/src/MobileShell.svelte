@@ -29,6 +29,7 @@
   import ChannelList from "./ChannelList.svelte";
   import MessageList from "./MessageList.svelte";
   import SetupCard from "./SetupCard.svelte";
+  import PostHeader from "./PostHeader.svelte";
   import ForumView from "./ForumView.svelte";
   import SearchPanel from "./SearchPanel.svelte";
   import Composer from "./Composer.svelte";
@@ -78,6 +79,16 @@
     activeChannelObj?.parent
       ? activeGuild()?.channels.find((c) => c.id === activeChannelObj.parent) || null
       : null,
+  );
+  // The panel presentation, mirroring App.svelte: a post slides in over the
+  // board, which stays mounted behind it.
+  const postObj = $derived(activeChannelObj?.parent ? activeChannelObj : null);
+  const boardObj = $derived(
+    activeChannelObj?.type === "forum"
+      ? activeChannelObj
+      : parentChannel?.type === "forum"
+        ? parentChannel
+        : null,
   );
 
   // Title bar: the open channel's name (or guild name on the welcome screen).
@@ -600,12 +611,21 @@
            App.svelte — a band in the flow slices the row underneath its bottom
            edge in half. -->
       <div class="pane-body">
-        {#if activeChannelObj?.type === "forum"}
-          <ForumView forum={activeChannelObj} />
-        {:else}
-          <SetupCard />
-          <MessageList {onJoinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
-          <Composer bind:this={composer} />
+        {#if boardObj}
+          <ForumView forum={boardObj} />
+        {/if}
+        {#if !boardObj || postObj}
+          <!-- Same panel presentation as the desktop shell, always covering
+               here: a phone has no room to show a board beside a post. -->
+          <div class="feedwrap" class:aspanel={!!postObj}>
+            {#if postObj}
+              <PostHeader channel={postObj} />
+            {:else}
+              <SetupCard />
+            {/if}
+            <MessageList {onJoinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
+            <Composer bind:this={composer} />
+          </div>
         {/if}
         <SearchPanel />
       </div>
@@ -826,10 +846,40 @@
   }
   .pane-body {
     position: relative;
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
+  }
+  .feedwrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  /* A post covers here — a phone has no room for a board beside one. Transform
+     and opacity only: this slides over a mounted board. */
+  .feedwrap.aspanel {
+    position: absolute;
+    inset: 0;
+    /* Above everything the board paints, including its own sticky toolbar and
+       floating controls — a panel that a search field shows through is not a
+       panel. The pane isolates so this number stays local. */
+    z-index: 60;
+    background: var(--bg-1);
+    animation: post-in 0.32s var(--ease-spring) both;
+  }
+  @keyframes post-in {
+    from {
+      opacity: 0;
+      transform: translateX(22px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .feedwrap.aspanel {
+      animation: none;
+    }
   }
   /* Mobile search row (under the top bar): feeds the shared search pipeline;
      results render in the SearchPanel inside the feed. */

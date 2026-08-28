@@ -255,6 +255,12 @@ func (s *Service) GovernanceLogSize(guildID string) int {
 	return len(s.govOps[guildID])
 }
 
+// GovActorName is govActorName for callers outside this package: the bridge
+// needs the same resolution for a post's closer as the moderation log uses for
+// an op's signer, and two answers to "what is this fingerprint called" would
+// be one too many.
+func (s *Service) GovActorName(guildID, fpr string) string { return s.govActorName(guildID, fpr) }
+
 // govActorName resolves a fingerprint the way the member list does — a
 // per-guild nickname shadows the profile name — and falls back to nothing
 // rather than to a guess. A banned member is gone from the roster and from the

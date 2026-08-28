@@ -456,9 +456,10 @@ t("boardStats counts what the header prints", () => {
     post({ unanswered: true }),
     post({ unanswered: false, replies: 3 }),
     post({ unanswered: false, pinned: true, solved: true }),
+    post({ unanswered: false, replies: 1, locked: true }),
   ]);
-  assert.deepEqual(s, { total: 4, unanswered: 2, pinned: 1 });
-  assert.deepEqual(boardStats([]), { total: 0, unanswered: 0, pinned: 0 });
+  assert.deepEqual(s, { total: 5, unanswered: 2, pinned: 1, closed: 1 });
+  assert.deepEqual(boardStats([]), { total: 0, unanswered: 0, pinned: 0, closed: 0 });
 });
 
 t("isPending is exactly 'no opening message yet'", () => {

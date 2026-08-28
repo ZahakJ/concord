@@ -601,6 +601,14 @@ func (s *Service) SetPostLocked(guildID, postID string, locked bool) error {
 			return false
 		}
 		c.Locked = locked
+		// Who did it. Locally that is us; on receive it is the authenticated
+		// sender (see applyPostMeta). Cleared on reopen so a reopened post does
+		// not carry a stale "closed by".
+		if locked {
+			c.LockedBy = s.id.Fingerprint()
+		} else {
+			c.LockedBy = ""
+		}
 		return true
 	})
 	if !changed {
@@ -702,6 +710,14 @@ func (s *Service) applyPostMeta(guildID, actor string, m guildMeta) {
 		// answered, and only the former silences other people.
 		if m.PostLocked != nil && mod && c.Locked != *m.PostLocked {
 			c.Locked = *m.PostLocked
+			// The ACTOR, not a field they could have written. The frame is
+			// MLS-authenticated, so the sender is already known here, and that
+			// is what makes "closed by X" a fact rather than a claim.
+			if c.Locked {
+				c.LockedBy = actor
+			} else {
+				c.LockedBy = ""
+			}
 			changed = true
 		}
 		if m.PostSolved != nil && curator && c.Solved != *m.PostSolved {
@@ -742,8 +758,13 @@ type ForumPost struct {
 	// depending on how much prose preceded it, and never appear at all for a post
 	// made through the composer, which sends attachments as their own messages.
 	Media string `json:"media,omitempty"`
-	// Locked means the post takes no more messages.
-	Locked bool `json:"locked,omitempty"`
+	// Locked means the post takes no more messages; LockedBy names who closed
+	// it, resolved to a display name where the roster still knows them. Empty
+	// after a history sync, which attests no actor — closed, by nobody this
+	// device can name.
+	Locked     bool   `json:"locked,omitempty"`
+	LockedBy   string `json:"lockedBy,omitempty"`
+	LockedName string `json:"lockedName,omitempty"`
 	// Replies counts real messages after the opening one — tombstones, system
 	// notices AND the post's own attachment messages excluded, so the number
 	// matches what a reader will actually find.
@@ -813,7 +834,10 @@ func (s *Service) ForumBoard(guildID, forumID string) (ForumBoard, error) {
 			ID: p.ID, Title: p.Name, Tags: p.Tags, Pinned: p.Pinned, Solved: p.Solved,
 			AuthorName: st.AuthorName, Excerpt: postExcerpt(st.Opening),
 			Replies: st.Replies, Created: st.Created, LastActivity: st.LastAt,
-			Media: st.Media, Locked: p.Locked,
+			Media: st.Media, Locked: p.Locked, LockedBy: p.LockedBy,
+		}
+		if fp.LockedBy != "" {
+			fp.LockedName = s.govActorName(guildID, fp.LockedBy)
 		}
 		if len(st.AuthorKey) > 0 {
 			fp.AuthorFingerprint = accountFingerprintOf(st.AuthorKey)

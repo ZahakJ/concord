@@ -150,11 +150,15 @@ export function boardStats(posts) {
   const list = posts || [];
   let unanswered = 0;
   let pinned = 0;
+  let closed = 0;
   for (const p of list) {
     if (p.unanswered ?? (!p.solved && !p.replies)) unanswered++;
     if (p.pinned) pinned++;
+    // A board that could count pinned posts but not closed ones was the reason
+    // "Close post" looked like an action with no effect.
+    if (p.locked) closed++;
   }
-  return { total: list.length, unanswered, pinned };
+  return { total: list.length, unanswered, pinned, closed };
 }
 
 // isPending: the post's channel record arrived but its opening message hasn't.

@@ -8,6 +8,7 @@
   import FormatBar from "./FormatBar.svelte";
   import { applyFormat as formatField, chordFor, replaceRange } from "./lib/mdformat.js";
   import { uneditableReason } from "./lib/tokenbody.js";
+  import { setPostLocked } from "./lib/postactions.svelte.js";
   import { sendText as outSendText, sendAttachment as outSendAttachment } from "./lib/outbox.svelte.js";
   import { roving } from "./lib/roving.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
@@ -72,6 +73,15 @@
     const g = activeGuild();
     if (g?.dmNotes) return "Write a note to yourself…";
     if (g?.kind === "dm") return `Message ${g.name || "your friend"}…`;
+    // A post is not a channel you message: "Message #Weekly meetup logistics
+    // thread…" put a channel sigil on a sentence and then truncated it. What
+    // you are doing in a post is replying to it — and in a thread started from
+    // a message, replying in it, because a thread is a side conversation
+    // rather than a question somebody asked.
+    if (ch.parent) {
+      const parent = (g?.channels || []).find((c) => c.id === ch.parent);
+      return parent?.type === "forum" ? "Reply to this post…" : "Reply in this thread…";
+    }
     return `Message #${ch.name}…`;
   });
 
@@ -91,9 +101,31 @@
       !!g.isOwner || has(g.myPerms || 0, PERM.MANAGE_MESSAGES) || has(g.myPerms || 0, PERM.MANAGE_CHANNELS)
     );
   });
+  // A CLOSED post. "Close post" used to be an action with no observable
+  // effect from inside the thread: the composer stayed enabled and cheerfully
+  // offered to send into a post every honest client would drop.
+  // A thread here. The message context menu has always offered "Start thread"
+  // — the backend's CreateThread took a text parent from the day it was
+  // written — but only from a message, so starting one about something nobody
+  // has said yet meant saying it first and then threading it.
+  const canStartThread = $derived(
+    activeGuild()?.kind !== "dm" && (ch?.type || "text") === "text" && !ch?.parent,
+  );
+
+  const closedPost = $derived(!!ch?.parent && !!ch?.locked);
+  async function reopenPost() {
+    const g = activeGuild();
+    if (!g || !ch) return;
+    await setPostLocked(g, { id: ch.id, title: ch.name }, false);
+  }
+  const canReopen = $derived(
+    !!activeGuild() && (activeGuild().isOwner || has(activeGuild().myPerms || 0, PERM.MANAGE_MESSAGES)),
+  );
   const lockedNote = $derived.by(() => {
     if (evicted === "banned") return "You were banned from this guild.";
     if (evicted) return "You're no longer a member of this guild.";
+    if (closedPost)
+      return ch.lockedName ? `This post is closed — ${ch.lockedName} closed it.` : "This post is closed.";
     if (!canPostHere) return "Only moderators can post here";
     return "";
   });
@@ -1518,8 +1550,11 @@
          replaces is the same height, so the feed does not jump when you walk
          into one. -->
     <div class="locked-strip" role="status">
-      <Icon name={evicted ? "door" : "megaphone"} size={14} />
+      <Icon name={evicted ? "door" : closedPost ? "lock" : "megaphone"} size={14} />
       <span>{lockedNote}</span>
+      {#if closedPost && canReopen}
+        <button class="reopen" onclick={reopenPost}>Reopen</button>
+      {/if}
     </div>
   {:else}
   <form class="composer" class:mobile onsubmit={send}>
@@ -1895,6 +1930,11 @@
             <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "game" })}>
               <Icon name="die" size={14} /> Game
             </button>
+            {#if canStartThread}
+              <button class="menu-item" onclick={() => (S.modal = { kind: "newPost", forum: ch })}>
+                <Icon name="forum" size={14} /> Start a thread
+              </button>
+            {/if}
             <button class="menu-item" disabled={!ch} onclick={openAdvanced}>
               <Icon name="heading" size={14} /> Advanced composer
             </button>
@@ -2065,6 +2105,15 @@
         <span class="sr-icon"><Icon name="poll" size={20} /></span>
         <span class="sr-text"><span class="sr-label">Poll</span></span>
       </button>
+      {#if canStartThread}
+        <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "newPost", forum: ch }))}>
+          <span class="sr-icon"><Icon name="forum" size={20} /></span>
+          <span class="sr-text">
+            <span class="sr-label">Start a thread</span>
+            <span class="sr-sub">A side conversation with its own unread count</span>
+          </span>
+        </button>
+      {/if}
       <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "doodle" }))}>
         <span class="sr-icon"><Icon name="edit" size={20} /></span>
         <span class="sr-text">
@@ -2494,6 +2543,12 @@
   }
   /* Sits in the composer's own well so the column keeps its shape, but reads as
      a label rather than a field: no caret, no focus ring, nothing to click. */
+  .reopen {
+    margin-left: auto;
+    padding: 4px 11px;
+    font-size: var(--fs-small);
+    font-weight: 600;
+  }
   .locked-strip {
     display: flex;
     align-items: center;

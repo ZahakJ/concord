@@ -87,6 +87,14 @@ type Channel struct {
 	// That is a real quorum, not a lock, and calling it a lock in the UI would
 	// promise more than the network can.
 	Locked bool `json:"locked,omitempty"`
+	// LockedBy names the account that closed it — and is NOT adopted from the
+	// wire, ever. The post_meta frame that closes a post is MLS-authenticated,
+	// so the receiver already knows who sent it; recording the sender rather
+	// than a field they filled in is what makes "closed by X" a fact instead
+	// of a claim, and it is why closing needs no new wire field at all.
+	// Empty is the honest state after a history-sync snapshot, which attests
+	// no actor: the post is closed and nobody local can say by whom.
+	LockedBy string `json:"lockedBy,omitempty"`
 	// Banner is a FORUM's own artwork: either a small data-URI image or
 	// "preset:<id>" naming an entry in the client's banner library, exactly as a
 	// guild banner does.

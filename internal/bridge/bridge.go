@@ -191,7 +191,11 @@ type ChannelView struct {
 	Pinned    bool              `json:"pinned,omitempty"`    // post: floated to the top of its board
 	Solved    bool              `json:"solved,omitempty"`    // post: marked answered
 	Locked    bool              `json:"locked,omitempty"`    // post: closed to new messages
-	Banner    string            `json:"banner,omitempty"`    // forum: its own artwork
+	// Who closed it, and the name to print. Empty after a history sync, which
+	// attests no actor — the honest answer is "closed", with no name attached.
+	LockedBy   string `json:"lockedBy,omitempty"`
+	LockedName string `json:"lockedName,omitempty"`
+	Banner     string `json:"banner,omitempty"` // forum: its own artwork
 }
 
 type CategoryView struct {
@@ -2643,7 +2647,7 @@ func channelView(c domain.Channel) ChannelView {
 	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category,
 		Position: c.Position, Topic: c.Topic, Parent: c.Parent, Links: c.Links,
 		ForumTags: c.ForumTags, Tags: c.Tags, Pinned: c.Pinned, Solved: c.Solved,
-		Locked: c.Locked, Banner: c.Banner}
+		Locked: c.Locked, LockedBy: c.LockedBy, Banner: c.Banner}
 }
 
 func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
@@ -2656,6 +2660,9 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		}
 		cv.SlowMode = svc.SlowModeSeconds(g.ID, c.ID)
 		cv.Retention = svc.RetentionSeconds(g.ID, c.ID)
+		if cv.LockedBy != "" {
+			cv.LockedName = svc.GovActorName(g.ID, cv.LockedBy)
+		}
 		channels = append(channels, cv)
 	}
 	cats := []CategoryView{}

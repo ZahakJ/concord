@@ -334,6 +334,13 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 		// the only thing an event could be before these columns existed.
 		`ALTER TABLE events ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE events ADD COLUMN repeat_until INTEGER NOT NULL DEFAULT 0`,
+		// Closing a post was purely in-memory: SetPostLocked moved the flag, the
+		// meta frame carried it to everyone, and the next restart forgot it on
+		// every device at once. locked_by is who did it, recorded from the
+		// MLS-AUTHENTICATED sender rather than adopted from the frame — which
+		// is also why it never needs a wire field of its own.
+		`ALTER TABLE channels ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE channels ADD COLUMN locked_by TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
@@ -577,16 +584,16 @@ func (s *Store) SaveGuild(g domain.Guild) error {
 	for _, c := range g.Channels {
 		if _, err := tx.Exec(
 			`INSERT INTO channels (id, guild_id, name, type, category, position, topic, parent, links,
-			   forum_tags, post_tags, pinned, solved, banner)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			   forum_tags, post_tags, pinned, solved, banner, locked, locked_by)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET name=excluded.name, type=excluded.type,
 			   category=excluded.category, position=excluded.position, topic=excluded.topic,
 			   parent=excluded.parent, links=excluded.links, forum_tags=excluded.forum_tags,
 			   post_tags=excluded.post_tags, pinned=excluded.pinned, solved=excluded.solved,
-			   banner=excluded.banner`,
+			   banner=excluded.banner, locked=excluded.locked, locked_by=excluded.locked_by`,
 			c.ID, g.ID, c.Name, c.Type, c.Category, c.Position, c.Topic, c.Parent, encodeLinks(c.Links),
 			encodeForumTags(c.ForumTags), encodeLinks(c.Tags), boolToInt(c.Pinned), boolToInt(c.Solved),
-			c.Banner,
+			c.Banner, boolToInt(c.Locked), c.LockedBy,
 		); err != nil {
 			return fmt.Errorf("store: save channel: %w", err)
 		}
@@ -629,7 +636,7 @@ func (s *Store) Guilds() ([]domain.Guild, error) {
 func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	rows, err := s.db.Query(
 		`SELECT id, guild_id, name, type, category, position, topic, parent, links,
-		        forum_tags, post_tags, pinned, solved, banner FROM channels
+		        forum_tags, post_tags, pinned, solved, banner, locked, locked_by FROM channels
 		 WHERE guild_id = ? ORDER BY position ASC, rowid ASC`, guildID)
 	if err != nil {
 		return nil, err
@@ -639,15 +646,15 @@ func (s *Store) channelsFor(guildID string) ([]domain.Channel, error) {
 	for rows.Next() {
 		var c domain.Channel
 		var links, forumTags, postTags string
-		var pinned, solved int
+		var pinned, solved, locked int
 		if err := rows.Scan(&c.ID, &c.GuildID, &c.Name, &c.Type, &c.Category, &c.Position, &c.Topic, &c.Parent,
-			&links, &forumTags, &postTags, &pinned, &solved, &c.Banner); err != nil {
+			&links, &forumTags, &postTags, &pinned, &solved, &c.Banner, &locked, &c.LockedBy); err != nil {
 			return nil, err
 		}
 		c.Links = decodeLinks(links)
 		c.ForumTags = decodeForumTags(forumTags)
 		c.Tags = decodeLinks(postTags)
-		c.Pinned, c.Solved = pinned != 0, solved != 0
+		c.Pinned, c.Solved, c.Locked = pinned != 0, solved != 0, locked != 0
 		out = append(out, c)
 	}
 	return out, rows.Err()
@@ -740,9 +747,9 @@ func (s *Store) Categories(guildID string) ([]domain.Category, error) {
 // a moderator repeats. Narrow by design.
 func (s *Store) UpdateChannelForumMeta(c domain.Channel) error {
 	_, err := s.db.Exec(
-		`UPDATE channels SET forum_tags=?, post_tags=?, pinned=?, solved=?, banner=? WHERE id=?`,
+		`UPDATE channels SET forum_tags=?, post_tags=?, pinned=?, solved=?, banner=?, locked=?, locked_by=? WHERE id=?`,
 		encodeForumTags(c.ForumTags), encodeLinks(c.Tags), boolToInt(c.Pinned), boolToInt(c.Solved),
-		c.Banner, c.ID)
+		c.Banner, boolToInt(c.Locked), c.LockedBy, c.ID)
 	if err != nil {
 		return fmt.Errorf("store: update channel forum meta: %w", err)
 	}

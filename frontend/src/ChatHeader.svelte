@@ -354,11 +354,18 @@
           <button class="menu-item" onclick={() => (S.modal = { kind: "guildHub" })}>
             <Icon name="gear" size={14} /> Guild settings
           </button>
-          <div class="menu-sep"></div>
-          <button class="menu-item danger" onclick={() => confirmLeaveGuild(g)}>
-            <Icon name={g.isOwner ? "trash" : "door"} size={14} />
-            {g.isOwner ? "Delete guild" : "Leave guild"}
-          </button>
+          <!-- NOT inside a post. The most destructive action in the product was
+               the last item of a forum thread's overflow menu, under two items
+               that had nothing to do with the post either; the post's own
+               actions live in its header now, and deleting the guild lives in
+               the danger zone of guild settings where it has proper framing. -->
+          {#if !ch?.parent}
+            <div class="menu-sep"></div>
+            <button class="menu-item danger" onclick={() => confirmLeaveGuild(g)}>
+              <Icon name={g.isOwner ? "trash" : "door"} size={14} />
+              {g.isOwner ? "Delete guild" : "Leave guild"}
+            </button>
+          {/if}
         {/if}
       </Menu>
     {/if}

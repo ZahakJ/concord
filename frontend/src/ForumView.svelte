@@ -565,6 +565,9 @@
               </button>
             {/if}
           {/if}
+          {#if stats.closed}
+            <span class="stat"><Icon name="lock" size={11} /> <b>{stats.closed}</b> closed</span>
+          {/if}
           {#if stats.pinned}
             <span class="stat"><Icon name="pin" size={11} /> <b>{stats.pinned}</b> pinned</span>
           {/if}
@@ -750,6 +753,7 @@
         <li
           class="card"
           class:pinned={p.pinned}
+          class:closed={p.locked}
           class:unread={!!unread?.count}
           class:pending
           class:has-shot={!!shot}
@@ -808,6 +812,14 @@
                 {#if p.solved}
                   <span class="flag ok" title="Marked answered">
                     <Icon name="check" size={10} /> Answered
+                  </span>
+                {/if}
+                {#if p.locked}
+                  <!-- A closed post used to be visually identical to an open
+                       one, which made "Close post" indistinguishable from a
+                       bug. -->
+                  <span class="flag closed" title={p.lockedName ? `Closed by ${p.lockedName}` : "Closed to new replies"}>
+                    <Icon name="lock" size={10} /> Closed
                   </span>
                 {/if}
                 {#if unread?.count}
@@ -883,7 +895,10 @@
 
 <!-- Mobile: starting a post is the point of a forum, so it gets a thumb-reachable
      target that survives scrolling. -->
-{#if S.isMobile}
+<!-- …but not while a post is open over it. The board stays MOUNTED behind the
+     post panel, which is what keeps its scroll position — so its own floating
+     controls have to know they are behind something. -->
+{#if S.isMobile && S.activeChannelId === forum.id}
   <button class="fab" aria-label="New post" onclick={newPost}><Icon name="plus" size={20} /></button>
 {/if}
 
@@ -1570,6 +1585,17 @@
   .flag.new {
     background: var(--accent);
     color: var(--accent-fg);
+  }
+  .flag.closed {
+    background: var(--warn-soft);
+    color: var(--warn-text);
+  }
+  /* A closed post is still readable and still worth finding, so this is a
+     quieter card, not a greyed-out one: the title stays at full contrast and
+     only the surrounding chrome recedes. */
+  .card.closed .media,
+  .card.closed .excerpt {
+    opacity: 0.72;
   }
   .excerpt {
     margin: 0;

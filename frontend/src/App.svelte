@@ -77,6 +77,7 @@
   import { validFx } from "./lib/themefx.js";
   import JoinVeil from "./JoinVeil.svelte";
   import SetupCard from "./SetupCard.svelte";
+  import PostHeader from "./PostHeader.svelte";
   import EventNudges from "./EventNudges.svelte";
 
   // ---- the dialogs ----
@@ -199,6 +200,24 @@
   const activeChannelObj = $derived(
     activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null,
   );
+
+  // A post (or a thread started from a message) is a channel parented to
+  // another one. Opening it used to REPLACE the board with a plain chat: the
+  // channel's face vanished, and coming back was a breadcrumb press. It now
+  // slides in over the board, which stays mounted behind it as the thing the
+  // channel actually is.
+  const postObj = $derived(activeChannelObj?.parent ? activeChannelObj : null);
+  // The face to leave behind the panel. Only a FORUM has one: a thread started
+  // from a message in a text channel has a parent that is itself a feed, and
+  // there is exactly one MessageList — so that case gets the panel's chrome
+  // and its own way out, over an empty ground rather than a second copy of a
+  // conversation.
+  const boardObj = $derived.by(() => {
+    if (activeChannelObj?.type === "forum") return activeChannelObj;
+    if (!postObj) return null;
+    const p = activeGuild()?.channels.find((c) => c.id === postObj.parent) || null;
+    return p?.type === "forum" ? p : null;
+  });
 
   // Resizable side columns. The persisted pref only overrides the stylesheet
   // when it differs from the wide-desktop default: an untouched pref leaves the
@@ -1448,15 +1467,27 @@
              the feed keeps its scroll position because it is still mounted and
              still laid out — merely behind. -->
         <div class="pane-body">
-          {#if activeChannelObj?.type === "forum"}
-            <ForumView forum={activeChannelObj} />
-          {:else}
-            <!-- Above the feed, not inside it: the checklist has to survive the
-                 first message being sent, and anything mounted inside
-                 MessageList lives or dies with the empty state. -->
-            <SetupCard />
-            <MessageList onJoinVoice={joinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
-            <Composer bind:this={composer} />
+          {#if boardObj}
+            <ForumView forum={boardObj} />
+          {/if}
+          {#if !boardObj || postObj}
+            <!-- The feed. As a PANEL when it is a post: absolutely positioned
+                 over the board, sliding in on its own spring. The board keeps
+                 its scroll position and its state because it is still mounted,
+                 which is the whole reason the post is a layer over it rather
+                 than a navigation away from it. -->
+            <div class="feedwrap" class:aspanel={!!postObj} class:overboard={!!boardObj}>
+              {#if postObj}
+                <PostHeader channel={postObj} />
+              {:else}
+                <!-- Above the feed, not inside it: the checklist has to survive
+                     the first message being sent, and anything mounted inside
+                     MessageList lives or dies with the empty state. -->
+                <SetupCard />
+              {/if}
+              <MessageList onJoinVoice={joinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
+              <Composer bind:this={composer} />
+            </div>
           {/if}
           <SearchPanel />
         </div>
@@ -2309,10 +2340,53 @@
      there. */
   .pane-body {
     position: relative;
+    isolation: isolate;
     display: flex;
     flex-direction: column;
     flex: 1;
     min-height: 0;
+  }
+  /* The feed's own column. In the ordinary case it is simply the pane. */
+  .feedwrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  /* …and as a post, a panel over the board. Transform and opacity only, so the
+     entrance is compositor work — a slide that repaints a whole board behind
+     it is the kind of "magical" that drops frames. */
+  .feedwrap.aspanel {
+    position: absolute;
+    inset: 0;
+    /* Above everything the board paints, including its own sticky toolbar and
+       floating controls — a panel that a search field shows through is not a
+       panel. The pane isolates so this number stays local. */
+    z-index: 60;
+    background: var(--bg-1);
+    animation: post-in 0.34s var(--ease-spring) both;
+  }
+  /* Beside the board, not over it, once there is room for both: a forum's face
+     is the list of posts, and losing it entirely to read one is the takeover
+     this replaces. Below that width the panel covers — a 340px board strip
+     beside a 340px post is two unusable columns. */
+  @media (min-width: 1150px) {
+    .feedwrap.aspanel.overboard {
+      left: min(46%, 520px);
+      border-left: 1px solid var(--border);
+      box-shadow: -18px 0 40px -24px rgba(0, 0, 0, 0.55);
+    }
+  }
+  @keyframes post-in {
+    from {
+      opacity: 0;
+      transform: translateX(26px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .feedwrap.aspanel {
+      animation: none;
+    }
   }
   /* Update-available banner: a floating top-center pill (doesn't cover the rail). */
   .update-banner {
