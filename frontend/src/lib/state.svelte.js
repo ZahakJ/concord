@@ -3341,6 +3341,15 @@ export function toggleCallLock() {
   if (locking) locks[ch] = true;
   else delete locks[ch];
   S.callLocks = locks;
+  // The transition, said out loud once. The stage carries the standing state
+  // in a pill (VoicePanel's header); this is the moment it changed, which the
+  // pill alone can't distinguish from "it was already like that".
+  flash(
+    locking
+      ? "Call locked — people have to knock now"
+      : "Call unlocked — anyone in the guild can walk in",
+    locking ? "info" : "success",
+  );
   clearInterval(lockRebroadcast);
   if (locking) {
     // One-off gossip is missable, so re-announce the lock every few seconds

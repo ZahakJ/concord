@@ -18,10 +18,14 @@
     denyKnocker,
     isGuestFpr,
     togglePeerMute,
+    setPeerVolume,
     setVideoStream,
     openContextMenu,
+    channelShort,
     flash,
   } from "./lib/state.svelte.js";
+  import { callClock } from "./lib/calltimer.svelte.js";
+  import { setSelfViewCovered } from "./lib/selfview.svelte.js";
   import { api } from "./lib/api.js";
   import { tooltip } from "./lib/tooltip.js";
   import { bindLabel } from "./lib/keybind.js";
@@ -42,24 +46,66 @@
   // `target` field is an opaque string end to end, so neither needs a backend
   // change — and a peer on a build that predates recipes looks the payload up
   // in its table of six, misses, and plays nothing.
+  //
+  // The board itself was fourteen unlabelled emoji in one strip, identified by
+  // a hover tooltip that deliberately does not exist on a touch screen — so on
+  // a phone it was fourteen anonymous pictures, two of them 🥁 and two of them
+  // 🎺. It is a grid of named chips now, split under its two headings, and the
+  // rate limit — which used to swallow a press in complete silence, so a
+  // refused press and a broken button looked identical — draws itself as a
+  // sweeping cooldown on the button you just pressed.
+  const SFX_COOLDOWN_MS = 1000;
   let sfxOpen = $state(false);
-  let sfxLastPress = 0;
+  let sfxLastPress = $state(0);
+  let sfxCooling = $state("");
+  let coolTimer = null;
   const mySounds = $derived(shelfSounds().slice(0, 8));
+
+  // True while the gate is shut. Read as $state so the buttons can go dim for
+  // exactly as long as a press would be refused.
+  function beginCooldown(key) {
+    sfxLastPress = Date.now();
+    sfxCooling = key;
+    clearTimeout(coolTimer);
+    coolTimer = setTimeout(() => (sfxCooling = ""), SFX_COOLDOWN_MS);
+  }
+  const cooling = $derived(!!sfxCooling);
   function pressSfx(id) {
-    const now = Date.now();
-    if (now - sfxLastPress < 1000) return;
-    sfxLastPress = now;
+    if (Date.now() - sfxLastPress < SFX_COOLDOWN_MS) return;
+    beginCooldown(`b:${id}`);
     haptic("light");
     playSfx(id);
     api.signalCall(chId, "sfx", id).catch(() => {});
   }
   function pressMine(s) {
-    const now = Date.now();
-    if (now - sfxLastPress < 1000) return;
-    sfxLastPress = now;
+    if (Date.now() - sfxLastPress < SFX_COOLDOWN_MS) return;
+    beginCooldown(`m:${s.payload}`);
     haptic("light");
     playRecipe(s.recipe);
     api.signalCall(chId, "sfx", s.payload).catch(() => {});
+  }
+
+  // 1-6 fire the six built-ins while the board is open. A soundboard you have
+  // to aim at is a soundboard you use once; the whole point of an airhorn is
+  // that it arrives on the beat.
+  //
+  // Opening the board takes focus, and that is what makes the digits usable at
+  // all: the composer holds focus for almost the whole life of a channel, and
+  // a bare number typed into a message must stay a number. So the keys work
+  // from the moment you open the board and stop the moment you click back into
+  // the text box — which is the same rule the app's other keyboard policy uses.
+  let boardEl = $state(null);
+  $effect(() => {
+    if (sfxOpen && boardEl) boardEl.querySelector(".sfx")?.focus();
+  });
+  function sfxKey(e) {
+    if (!sfxOpen || e.altKey || e.ctrlKey || e.metaKey) return;
+    const t = e.target;
+    if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+    const n = Number(e.key);
+    if (!Number.isInteger(n) || n < 1 || n > SOUNDBOARD.length) return;
+    e.preventDefault();
+    pressSfx(SOUNDBOARD[n - 1].id);
   }
   import {
     canShareScreen,
@@ -221,6 +267,63 @@
   const roster = $derived(["self", ...S.voiceParticipants]);
   // Screen shares get their own wide tiles — a share isn't a person.
   const screens = $derived(S.videoTiles.filter((t) => t.kind === "screen"));
+
+  // ---- the call takes the stage ----
+  //
+  // `max-height: 46vh` made a live call a band above an empty chat: on a 900px
+  // window two participants got a 230px strip with two 200px tiles floating in
+  // it, and the remaining 60% of the column was the "Welcome to Study Hall"
+  // empty state of a conversation nobody was having, because everybody was
+  // talking. The call was never the main event in its own channel.
+  //
+  // So when a call is live in the channel you are looking at, the call is the
+  // column and the chat collapses to a strip at the bottom — the reverse of
+  // what it was. The strip is a real strip, not a hidden pane: the composer and
+  // the last message or two stay on screen and stay MOUNTED, which matters
+  // because the message list is virtualized and unmounting it would throw away
+  // both its window and the reader's place in it.
+  //
+  // The toggle in the header puts the chat back, because there is a real second
+  // mode here — a call you are listening to while reading — and which one you
+  // want is a preference, not a guess. Per device, like the dock's position.
+  const STAGE_KEY = "concord.callTakesStage";
+  function loadStagePref() {
+    try {
+      return localStorage.getItem(STAGE_KEY) !== "off";
+    } catch {
+      return true;
+    }
+  }
+  let stageFirst = $state(loadStagePref());
+  function toggleStageFirst() {
+    stageFirst = !stageFirst;
+    haptic("light");
+    try {
+      localStorage.setItem(STAGE_KEY, stageFirst ? "on" : "off");
+    } catch {
+      /* private mode — the choice still holds for this session */
+    }
+  }
+  // Tiles grow with the space instead of capping at 200px. The column count is
+  // the meeting-grid rule (ceil(sqrt(n)), capped at four), which is what gives
+  // two people two big tiles side by side and nine people a 3x3.
+  const cols = $derived(Math.min(4, Math.max(1, Math.ceil(Math.sqrt(roster.length)))));
+  // While joining there is nothing on the stage yet, and a full-column empty
+  // panel above a squashed chat is a worse first second than the old band.
+  const onStage = $derived(stageFirst && !joining);
+
+  const clock = $derived(callClock());
+  const roomName = $derived(chId ? channelShort(chId) : "");
+
+  // Is your own camera drawn here, big enough to be a preview? The grid always
+  // shows your own tile; theater shows it only when you are the focused thing.
+  // SelfView reads the answer and fills the gap. Cleared on unmount, so
+  // navigating away from the call's channel brings the preview with you.
+  $effect(() => {
+    const mine = !!camTile("self");
+    setSelfViewCovered(mine && (!inTheater || focusedPid === "self"));
+    return () => setSelfViewCovered(false);
+  });
 
   // Focus/theater mode: one thing fills the stage (a screen share OR a
   // participant), everyone else drops to a small strip. A shared screen
@@ -506,6 +609,16 @@
         icon: t.localMuted ? "speaker" : "deafened",
         onClick: () => togglePeerMute(pid),
       },
+      // Per-person volume, for you only. The mesh has applied a real per-peer
+      // gain under the master level since it was written, and the only thing
+      // that ever called it passed 0 or 1 — so the one participant who is too
+      // loud could be silenced or endured and nothing in between.
+      !t.self && {
+        range: true,
+        label: `${t.name}'s volume, for you`,
+        value: S.peerVolumes[pid] ?? 1,
+        onInput: (v) => setPeerVolume(pid, v),
+      },
       t.guest && { sep: true },
       t.guest && {
         label: "Remove from call",
@@ -516,8 +629,12 @@
     ]);
   }
 
-  function screenLabel(tile) {
-    return tile.self ? "You" : participant(tile.peerId).name;
+  // The caption on a shared screen, whole. It used to be a name interpolated
+  // into `{screenLabel(tile)}'s screen`, and the name for yourself was "You" —
+  // so your own share, its tooltip and its aria-label all read "You's screen",
+  // which is the single most-read string in a shared call.
+  function screenTitle(tile) {
+    return tile.self ? "Your screen" : `${participant(tile.peerId).name}'s screen`;
   }
 
   // Give up on the connection we have and build a new one. Offered only after
@@ -595,6 +712,49 @@
     };
   });
 
+  // The phone's "⋯" — everything the four-button bar doesn't carry, as the
+  // same action sheet every other secondary action in this app opens into.
+  function moreControls(e) {
+    openContextMenu(e, [
+      { label: "Call controls", header: true },
+      {
+        label: sfxOpen ? "Hide the soundboard" : "Soundboard",
+        icon: "megaphone",
+        active: sfxOpen,
+        onClick: () => (sfxOpen = !sfxOpen),
+      },
+      canRoute && {
+        label: `Audio out: ${routeInfo.label}`,
+        icon: routeInfo.icon,
+        onClick: cycleRoute,
+      },
+      S.cameraOn &&
+        cameras > 1 && {
+          label: `Switch to the ${facing === "environment" ? "front" : "back"} camera`,
+          icon: "forward",
+          onClick: flipCamera,
+        },
+      shareable && {
+        label: S.sharing ? "Stop sharing" : "Share screen",
+        icon: S.sharing ? "screenOff" : "screen",
+        active: S.sharing,
+        onClick: onToggleShare,
+      },
+      canLock && {
+        label: locked ? "Unlock call" : "Lock call (people must knock)",
+        icon: "lock",
+        active: locked,
+        onClick: toggleCallLock,
+      },
+      { sep: true },
+      {
+        label: "Audio & video settings",
+        icon: "gear",
+        onClick: () => (S.modal = { kind: "devices" }),
+      },
+    ]);
+  }
+
   // Muting is the one control you need to know landed without looking at it,
   // and the phone said nothing — the :active scale is under your fingertip at
   // exactly the moment it plays.
@@ -637,7 +797,37 @@
   }
 </script>
 
-<div class="voice-panel" class:theater={inTheater}>
+<svelte:window onkeydown={sfxKey} />
+
+<div class="voice-panel" class:theater={inTheater} class:on-stage={onStage} style="--cols:{cols}">
+  <!-- The stage's own header: which room, how many people, how long, and
+       whether the door is locked. None of it existed — a call had no elapsed
+       time anywhere in the app, and a locked call (which makes everyone else
+       knock) announced itself only by one of eight identical circular buttons
+       picking up a subtle `active` class. -->
+  <div class="stage-head">
+    <span class="sh-live" aria-hidden="true"></span>
+    <span class="sh-room">{roomName || "Call"}</span>
+    <span class="sh-count">{roster.length} in call</span>
+    {#if locked}
+      <span class="sh-lock">
+        <Icon name="lock" size={11} />
+        Locked — people must knock
+      </span>
+    {/if}
+    <span class="sh-spacer"></span>
+    {#if clock}<span class="sh-clock" aria-label="Call duration">{clock}</span>{/if}
+    <button
+      class="sh-swap"
+      use:tooltip={{ text: onStage ? "Show the chat" : "Give the call the whole column" }}
+      aria-label={onStage ? "Show the chat" : "Give the call the whole column"}
+      aria-pressed={onStage}
+      onclick={toggleStageFirst}
+    >
+      <Icon name={onStage ? "hash" : "screen"} size={14} />
+    </button>
+  </div>
+
   {#if ringing || waiting}
     <div class="ringing">
       <span class="dots"><span></span><span></span><span></span></span>
@@ -658,7 +848,7 @@
       {#if focusedScreen}
         <!-- svelte-ignore a11y_media_has_caption -->
         <video use:srcObject={focusedScreen.key} use:zoomable={focusedScreen.key} autoplay playsinline muted></video>
-        <span class="screen-label"><Icon name="screen" size={12} /> {screenLabel(focusedScreen)}'s screen</span>
+        <span class="screen-label"><Icon name="screen" size={12} /> {screenTitle(focusedScreen)}</span>
       {:else}
         {@const t = tileInfo(focusedPid)}
         {@const cam = camTile(focusedPid)}
@@ -696,8 +886,8 @@
         {#if tile.key !== focusedKey}
           <button
             class="thumb"
-            use:tooltip={{ text: `${screenLabel(tile)}'s screen` }}
-            aria-label="{screenLabel(tile)}'s screen"
+            use:tooltip={{ text: screenTitle(tile) }}
+            aria-label={screenTitle(tile)}
             onclick={() => toggleFocus(tile.key)}
           >
             <!-- svelte-ignore a11y_media_has_caption -->
@@ -709,15 +899,24 @@
       {#each roster as pid (pid)}
         {#if pid !== focusedKey}
           {@const t = tileInfo(pid)}
+          <!-- Name chips, not bare circles. The strip carried its names in a
+               tooltip, which does not exist on a touch screen and is a hover
+               away on a desktop — so in a six-person call the row under the
+               share was six unreadable faces. -->
           <button
             class="bubble"
             class:speaking={t.speaking}
             transition:scale={pop}
-            use:tooltip={{ text: t.self ? `${t.name} (you)` : t.name }}
             aria-label={t.self ? `${t.name} (you)` : t.name}
             onclick={() => toggleFocus(pid)}
           >
             <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={34} />
+            <span class="bub-name">{t.self ? "You" : t.name}</span>
+            {#if t.deafened}
+              <span class="bub-mark" aria-hidden="true"><Icon name="deafened" size={9} /></span>
+            {:else if t.muted}
+              <span class="bub-mark" aria-hidden="true"><Icon name="micOff" size={9} /></span>
+            {/if}
           </button>
         {/if}
       {/each}
@@ -850,7 +1049,7 @@
             <video use:srcObject={tile.key} autoplay playsinline muted></video>
             <span class="screen-label">
               <Icon name="screen" size={12} />
-              {screenLabel(tile)}'s screen · {S.isMobile ? "tap" : "click"} to zoom
+              {screenTitle(tile)} · {S.isMobile ? "tap" : "click"} to zoom
             </span>
           </button>
         {/each}
@@ -859,23 +1058,50 @@
   {/if}
 
   {#if sfxOpen}
-    <div class="sfx-row" role="toolbar" aria-label="Soundboard">
-      {#each SOUNDBOARD as s (s.id)}
-        <button class="sfx" use:tooltip aria-label={s.name} onclick={() => pressSfx(s.id)}>{s.emoji}</button>
-      {/each}
-      {#each mySounds as s (s.payload)}
-        <button class="sfx mine" use:tooltip aria-label={s.recipe.name} onclick={() => pressMine(s)}>
-          {recipeGlyph(s.recipe)}
+    <div class="sfx-board" role="group" aria-label="Soundboard" bind:this={boardEl}>
+      <div class="sfx-cap">
+        Concord
+        <span class="sfx-hint">press 1–{SOUNDBOARD.length}</span>
+      </div>
+      <div class="sfx-grid">
+        {#each SOUNDBOARD as s, i (s.id)}
+          <button
+            class="sfx"
+            class:cool={sfxCooling === `b:${s.id}`}
+            disabled={cooling}
+            aria-label={s.name}
+            aria-keyshortcuts={String(i + 1)}
+            onclick={() => pressSfx(s.id)}
+          >
+            <span class="sfx-glyph">{s.emoji}</span>
+            <span class="sfx-name">{s.name}</span>
+            <span class="sfx-key" aria-hidden="true">{i + 1}</span>
+          </button>
+        {/each}
+      </div>
+      <div class="sfx-cap">Yours</div>
+      <div class="sfx-grid">
+        {#each mySounds as s (s.payload)}
+          <button
+            class="sfx mine"
+            class:cool={sfxCooling === `m:${s.payload}`}
+            disabled={cooling}
+            aria-label={s.recipe.name}
+            onclick={() => pressMine(s)}
+          >
+            <span class="sfx-glyph">{recipeGlyph(s.recipe)}</span>
+            <span class="sfx-name">{s.recipe.name}</span>
+          </button>
+        {/each}
+        <button
+          class="sfx add"
+          aria-label="Sounds you made"
+          onclick={() => (S.modal = { kind: "soundboard", onPick: (payload, recipe) => pressMine({ payload, recipe }) })}
+        >
+          <span class="sfx-glyph"><Icon name="plus" size={16} /></span>
+          <span class="sfx-name">Make one</span>
         </button>
-      {/each}
-      <button
-        class="sfx add"
-        use:tooltip
-        aria-label="Sounds you made"
-        onclick={() => (S.modal = { kind: "soundboard", onPick: (payload, recipe) => pressMine({ payload, recipe }) })}
-      >
-        <Icon name="plus" size={16} />
-      </button>
+      </div>
     </div>
   {/if}
   <!-- No controls until there is a call to control. The panel is up from the
@@ -883,7 +1109,7 @@
        reach through S.voice, which does not exist yet — eight live-looking
        buttons that all quietly do nothing is worse than eight that aren't there
        for the moment it takes. -->
-  <div class="controls" class:hidden={joining} inert={joining}>
+  <div class="controls" class:hidden={joining} class:phone={S.isMobile} inert={joining}>
     <button
       class="ctl"
       class:danger={S.muted}
@@ -910,74 +1136,89 @@
     </button>
     <button
       class="ctl"
-      class:active={sfxOpen}
-      use:tooltip
-      aria-label="Soundboard"
-      aria-expanded={sfxOpen}
-      onclick={() => (sfxOpen = !sfxOpen)}
-    >
-      <Icon name="megaphone" size={18} />
-    </button>
-    {#if canRoute}
-      <button
-        class="ctl"
-        class:active={route !== "earpiece"}
-        use:tooltip={{ text: `Audio out: ${routeInfo.label} — tap to change` }}
-        aria-label="Audio output: {routeInfo.label}"
-        onclick={cycleRoute}
-      >
-        <Icon name={routeInfo.icon} size={18} />
-      </button>
-    {/if}
-    <button
-      class="ctl"
       class:active={S.cameraOn}
       use:tooltip
       aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+      aria-pressed={S.cameraOn}
       onclick={withHaptic(onToggleCamera)}
     >
       <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={18} />
     </button>
-    {#if S.cameraOn && cameras > 1}
-      <button
-        class="ctl"
-        use:tooltip={"Switch camera"}
-        aria-label="Switch to the {facing === 'environment' ? 'front' : 'back'} camera"
-        onclick={flipCamera}
-      >
-        <Icon name="forward" size={18} />
+    {#if S.isMobile}
+      <!-- Eight 48px controls do not fit a 390px phone, and wrapping them left
+           the red hang-up button orphaned in the middle of a second, centred
+           row — the one control that must never move, moving. So the phone gets
+           the four you reach for mid-call, hang-up pinned to its own end of the
+           bar, and everything else in the action sheet this app already uses
+           for every other set of secondary actions. -->
+      <button class="ctl" use:tooltip aria-label="More call controls" onclick={moreControls}>
+        <Icon name="dots" size={18} />
       </button>
-    {/if}
-    {#if shareable}
+    {:else}
       <button
         class="ctl"
-        class:active={S.sharing}
+        class:active={sfxOpen}
         use:tooltip
-        aria-label={S.sharing ? "Stop sharing" : "Share screen"}
-        onclick={withHaptic(onToggleShare)}
+        aria-label="Soundboard"
+        aria-expanded={sfxOpen}
+        onclick={() => (sfxOpen = !sfxOpen)}
       >
-        <Icon name={S.sharing ? "screenOff" : "screen"} size={18} />
+        <Icon name="megaphone" size={18} />
       </button>
-    {/if}
-    {#if canLock}
+      {#if canRoute}
+        <button
+          class="ctl"
+          class:active={route !== "earpiece"}
+          use:tooltip={{ text: `Audio out: ${routeInfo.label} — tap to change` }}
+          aria-label="Audio output: {routeInfo.label}"
+          onclick={cycleRoute}
+        >
+          <Icon name={routeInfo.icon} size={18} />
+        </button>
+      {/if}
+      {#if S.cameraOn && cameras > 1}
+        <button
+          class="ctl"
+          use:tooltip={"Switch camera"}
+          aria-label="Switch to the {facing === 'environment' ? 'front' : 'back'} camera"
+          onclick={flipCamera}
+        >
+          <Icon name="forward" size={18} />
+        </button>
+      {/if}
+      {#if shareable}
+        <button
+          class="ctl"
+          class:active={S.sharing}
+          use:tooltip
+          aria-label={S.sharing ? "Stop sharing" : "Share screen"}
+          aria-pressed={S.sharing}
+          onclick={withHaptic(onToggleShare)}
+        >
+          <Icon name={S.sharing ? "screenOff" : "screen"} size={18} />
+        </button>
+      {/if}
+      {#if canLock}
+        <button
+          class="ctl"
+          class:active={locked}
+          use:tooltip={{ text: locked ? "Unlock call (anyone can join)" : "Lock call (people must knock)" }}
+          aria-label={locked ? "Unlock call" : "Lock call"}
+          aria-pressed={locked}
+          onclick={withHaptic(toggleCallLock)}
+        >
+          <Icon name="lock" size={18} />
+        </button>
+      {/if}
       <button
         class="ctl"
-        class:active={locked}
-        use:tooltip={{ text: locked ? "Unlock call (anyone can join)" : "Lock call (people must knock)" }}
-        aria-label={locked ? "Unlock call" : "Lock call"}
-        onclick={withHaptic(toggleCallLock)}
+        use:tooltip={"Audio & video settings"}
+        aria-label="Audio and video settings"
+        onclick={() => (S.modal = { kind: "devices" })}
       >
-        <Icon name="lock" size={18} />
+        <Icon name="gear" size={18} />
       </button>
     {/if}
-    <button
-      class="ctl"
-      use:tooltip={"Audio & video settings"}
-      aria-label="Audio and video settings"
-      onclick={() => (S.modal = { kind: "devices" })}
-    >
-      <Icon name="gear" size={18} />
-    </button>
     <button
       class="ctl hangup"
       use:tooltip
@@ -1059,6 +1300,106 @@
        for a participant. */
     overscroll-behavior: contain;
   }
+  /* ---- the call takes the stage ----
+     `.on-stage` grows the panel into the column and the sibling chat pane
+     shrinks to a strip. Reaching sideways out of a scoped stylesheet is worth
+     one comment: `.pane-body` is this panel's next sibling in both shells, and
+     the alternative — a class on the parent, set from two different call
+     sites — would put half of one layout decision in a file that knows nothing
+     about calls. */
+  .voice-panel.on-stage {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+  }
+  .voice-panel.on-stage + :global(.pane-body) {
+    flex: 0 0 var(--chat-strip, 168px);
+    min-height: 0;
+  }
+  .voice-panel.on-stage .stage {
+    flex: 1;
+    min-height: 0;
+    align-content: center;
+  }
+  /* Header of the stage. */
+  .stage-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    /* Above the door cards: the header names the room those knocks are at. */
+    order: -2;
+  }
+  .sh-live {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--ok);
+    animation: blink 1.4s ease-in-out infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0.3;
+    }
+  }
+  .sh-room {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 650;
+    color: var(--text);
+  }
+  .sh-count {
+    flex: none;
+  }
+  /* A persistent pill, not a toast that expires: locking is a STATE, and while
+     it holds everyone outside has to knock. Said in words on the stage, where
+     the person who locked it is looking. */
+  .sh-lock {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex: none;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    color: var(--warn-text);
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent);
+  }
+  .sh-spacer {
+    flex: 1;
+  }
+  .sh-clock {
+    flex: none;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .sh-swap {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
+    background: transparent;
+  }
+  .sh-swap:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sh-live {
+      animation: none;
+    }
+  }
   .stage {
     display: grid;
     /* Reflowing tiles, but CAPPED so a wide window doesn't blow them up into a
@@ -1066,6 +1407,56 @@
     grid-template-columns: repeat(auto-fit, minmax(130px, 200px));
     justify-content: center;
     gap: var(--sp-3);
+  }
+  /* On the stage the grid is a meeting grid: `--cols` columns of equal width,
+     rows that fill, and tiles shaped by the space rather than by a 4:3 rule
+     written for a 230px band. Capped at 1400px so a 2560px monitor doesn't
+     draw two enormous rectangles. */
+  .voice-panel.on-stage .stage,
+  .voice-panel.on-stage .stage.solo {
+    grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr));
+    grid-auto-rows: minmax(120px, 1fr);
+    width: 100%;
+    /* Grows with the room, not with the monitor: one person gets a tile, not a
+       wall. 1400px is where a 16:9 tile stops gaining anything from more pixels
+       and starts just being far away. */
+    max-width: min(1400px, calc(var(--cols, 2) * 620px));
+    margin-inline: auto;
+  }
+  .voice-panel.on-stage .tile {
+    aspect-ratio: auto;
+  }
+  /* On a phone the app is one pane at a time, so "the call takes the stage"
+     means it takes the pane: the chat goes away entirely and comes back with
+     the header's toggle. A strip cannot be the answer here — the composer's
+     send button would sit a finger-width under a red hang-up button, which is
+     precisely the adjacency the phone control bar exists to prevent. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .voice-panel.on-stage + :global(.pane-body) {
+      display: none;
+    }
+  }
+  /* Theater sets its own (taller) cap; on the stage there is no cap at all, and
+     the two rules have equal specificity, so say which wins rather than relying
+     on where they sit in the file. */
+  .voice-panel.on-stage.theater {
+    max-height: none;
+  }
+  .voice-panel.on-stage .focus-main {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    aspect-ratio: auto;
+  }
+  /* A share on the stage is the thing you are looking at; give it the height
+     the tiles would have had. */
+  .voice-panel.on-stage .screens {
+    flex: 1;
+    min-height: 0;
+    grid-auto-rows: minmax(0, 1fr);
+  }
+  .voice-panel.on-stage .screen-tile {
+    aspect-ratio: auto;
   }
   .stage.solo {
     grid-template-columns: minmax(180px, 260px);
@@ -1095,9 +1486,6 @@
   }
   .tile.speaking {
     border-color: color-mix(in srgb, var(--ok) 55%, transparent);
-  }
-  .strip .bubble {
-    background: transparent;
   }
   .tile video {
     position: absolute;
@@ -1505,12 +1893,35 @@
     place-items: center;
   }
   .bubble {
-    border-radius: 50%;
-    padding: 2px;
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 10px 2px 2px;
+    border-radius: 999px;
     border: 2px solid transparent;
+    background: color-mix(in srgb, var(--bg-1) 82%, transparent);
     transition:
       transform var(--dur-quick) ease,
       border-color var(--dur-quick) ease;
+  }
+  .bub-name {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-compact);
+    font-weight: 600;
+  }
+  .bub-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    color: #fff;
+    background: color-mix(in srgb, var(--danger) 82%, #000);
   }
   .bubble:hover {
     transform: translateY(-1px);
@@ -1602,43 +2013,128 @@
   /* Call controls, on the call box itself. Sticky to the bottom
      of the (scrollable) panel so mute/leave are always reachable, never scrolled
      off when there are many tiles or a big screen share. */
-  .sfx-row {
+  .sfx-board {
     display: flex;
-    justify-content: center;
+    flex-direction: column;
+    gap: var(--sp-1);
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto var(--sp-2);
+  }
+  /* "Concord" and "Yours" as real headings rather than a hairline on one
+     button: a strip of fourteen anonymous faces reads as one undifferentiated
+     pile, and which six everybody in the room also has is worth knowing. */
+  .sfx-cap {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    padding: 0 2px;
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .sfx-hint {
+    margin-left: auto;
+    letter-spacing: 0;
+    text-transform: none;
+    font-weight: 500;
+  }
+  .sfx-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
     gap: 6px;
-    margin-bottom: var(--sp-2);
   }
   .sfx {
-    width: 36px;
-    height: 36px;
-    display: grid;
-    place-items: center;
-    font-size: var(--fs-title);
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 36px;
+    padding: 5px 8px;
+    overflow: hidden;
+    text-align: left;
     border-radius: var(--radius-md);
     background: var(--bg-2);
     border: 1px solid var(--border);
-    transition: transform 0.1s ease;
+    transition: transform 0.1s ease, opacity var(--dur-quick) ease;
+  }
+  .sfx-glyph {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 22px;
+    font-size: var(--fs-title);
+    line-height: 1;
+  }
+  .sfx-name {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-compact);
+  }
+  .sfx-key {
+    flex: none;
+    padding: 0 4px;
+    font-size: var(--fs-micro);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+    border: 1px solid var(--border);
+    border-radius: 4px;
   }
   @media (pointer: fine) {
-    .sfx:hover {
+    .sfx:not(:disabled):hover {
       background: color-mix(in srgb, var(--accent) 14%, transparent);
       border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
     }
   }
   .sfx:active {
-    transform: scale(0.9);
+    transform: scale(0.97);
   }
-  /* Your own sounds sit after the six built-ins with an accent hairline, so a
-     row of nine buttons still reads as "theirs, then mine". */
+  /* Your own sounds carry an accent hairline as well as their own heading. */
   .sfx.mine {
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   }
   .sfx.add {
     color: var(--text-muted);
   }
+  /* The rate limit, drawn. A press inside the window is refused, and it used to
+     be refused in complete silence — indistinguishable from a button that does
+     not work. Now the one you pressed sweeps its own second back. */
+  .sfx:disabled {
+    opacity: 0.45;
+  }
+  .sfx.cool {
+    opacity: 1;
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  }
+  .sfx.cool::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    transform-origin: left;
+    animation: sfx-cool 1s linear forwards;
+    pointer-events: none;
+  }
+  @keyframes sfx-cool {
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .sfx {
       transition: none;
+    }
+    /* Still says "wait" — it just holds the wash instead of sweeping it. */
+    .sfx.cool::after {
+      animation: none;
     }
   }
   .controls {
@@ -1963,13 +2459,11 @@
     }
     .controls {
       gap: var(--sp-2);
-      /* 7 controls never fit one phone row at finger size (44px each + gaps
-         needs 362px against 358px of content box at 390). Wrapping is the only
-         thing that holds at 320 — without it flex shrinks the WIDTH only and
-         border-radius:50% on a 38x52 box draws an ellipse. At 48px the toggles
-         keep one row and Leave drops to its own, which is the arrangement we
-         actually want. */
-      flex-wrap: wrap;
+      /* Five 48px targets is 240px of button in 358px of content box at 390 —
+         one row, with room, and no wrap for the hang-up button to be orphaned
+         onto. (The overflow is in the ⋯ sheet; see moreControls.) */
+      flex-wrap: nowrap;
+      justify-content: space-between;
       /* Full-bleed and opaque. The gradient was transparent for its top 45%, so
          tiles and name badges rendered between the buttons, and the band
          stopped 16px short of the panel edges. */
@@ -1983,12 +2477,11 @@
       height: 48px;
       flex-shrink: 0;
     }
-    /* Leave usually lands on a wrapped row of its own, where the separating
-       margin costs 6px of centring — worth paying: on the rows where it DOESN'T
-       land alone (a flip-camera or route button wraps down with it) it is the
-       only thing between a thumb and hanging up on everyone. */
+    /* Hang-up is pinned to the end of the bar and separated from the toggles by
+       whatever width is going spare, because it is the one control here that
+       cannot be undone and it must be in the same place every single time. */
     .ctl.hangup {
-      margin-left: var(--sp-3);
+      margin-left: auto;
     }
     /* A 16:9 share on a phone is height-limited by its width, and the only
        width left to give it is our own 16px gutters. */

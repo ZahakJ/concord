@@ -67,6 +67,7 @@
   import ProfilePopover from "./ProfilePopover.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import FloatingCall from "./FloatingCall.svelte";
+  import SelfView from "./SelfView.svelte";
   import Toasts from "./Toasts.svelte";
   import FxOverlay from "./FxOverlay.svelte";
   import { validFx } from "./lib/themefx.js";
@@ -1384,6 +1385,11 @@
   <!-- Knocking on a locked call: waiting to be admitted. The door icon ripples
        on the same knock-knock rhythm the host sees on our avatar — both ends of
        the door share one heartbeat. -->
+  <!-- Your own camera, wherever the stage can't already show it to you. -->
+  {#if S.voice}
+    <SelfView onToggleCamera={toggleCamera} />
+  {/if}
+
   {#if S.knocking}
     <div class="knock-wait" role="status">
       <span class="kw-door" aria-hidden="true">
@@ -1392,7 +1398,10 @@
       </span>
       <span class="kw-copy">
         <span class="kw-line">Knocking…</span>
-        <span class="kw-sub">waiting for someone inside to let you in</span>
+        <!-- Says WHY there is a door at all. The host's stage carries the same
+             sentence in its locked pill, so both ends of a locked call are
+             told the same thing in the same words. -->
+        <span class="kw-sub">this call is locked — waiting for someone inside to let you in</span>
       </span>
       <button class="kw-cancel" onclick={() => (S.knocking = "")}>Cancel</button>
     </div>

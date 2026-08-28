@@ -24,6 +24,7 @@ import {
   FLAG_EXP,
   FLAG_SWELL,
 } from "./sfxrecipe.js";
+import { SOUNDBOARD } from "./sounds.js";
 
 let failures = 0;
 // Key order is not part of the format — a decoded recipe is built field by
@@ -111,6 +112,21 @@ check("a non-ASCII name survives", decodeRecipe(encodeRecipe(with_({ name: "طَ
   );
   check("a sound is tens of bytes, not thousands", Math.max(...bytes) < 64, true);
   check("names are distinct", new Set(STARTER_SHELF.map((p) => p.name)).size, STARTER_SHELF.length);
+  // The voice room draws the six built-ins and the shelf on ONE board, so a
+  // starter sound that borrows a built-in's name or its face is two chips that
+  // cannot be told apart — which is exactly what shipped: a second "Drumroll"
+  // wearing the same drum, and a "Womp" wearing the trombone that already
+  // belonged to "Sad trombone".
+  const builtinNames = new Set(SOUNDBOARD.map((s) => s.name));
+  const builtinGlyphs = new Set(SOUNDBOARD.map((s) => s.emoji));
+  for (const p of STARTER_SHELF) {
+    check(`starter "${p.name}" does not reuse a built-in's name`, builtinNames.has(p.name), false);
+    check(
+      `starter "${p.name}" does not reuse a built-in's face`,
+      builtinGlyphs.has(recipeGlyph(p)),
+      false,
+    );
+  }
 }
 
 // ---- the token wrapper ------------------------------------------------------

@@ -6,6 +6,13 @@
   // notification level, a channel's type) says what it's choosing, given this
   // menu deliberately has no submenus. `active` ticks the one in force.
   //
+  // A `range:true` item is a slider — {label, value, onInput, fmt?}. It exists
+  // for per-participant call volume, which is a setting with a POSITION rather
+  // than a choice from a list: "quieter" is not a menu entry, and the mesh has
+  // applied a real per-peer gain since it was written with nothing but a
+  // mute/unmute pair able to reach it. The row is not a menuitem — it doesn't
+  // close the menu, and the arrow keys belong to the slider while it has focus.
+  //
   // Two presentations, one call-site contract: desktop gets the classic
   // anchored popover at the cursor; mobile gets a bottom action sheet (there
   // is no meaningful cursor position under a finger, and touch targets need
@@ -84,7 +91,40 @@
     if (!item.keepOpen) closeContextMenu();
     item.onClick?.();
   }
+
+  // The live read-out for the one slider a menu may carry. Seeded from the item
+  // when the menu opens so the number under the thumb is right before the first
+  // drag, and reset on close so the next menu doesn't inherit it.
+  let rangeVal = $state(0);
+  $effect(() => {
+    const it = S.contextMenu?.items?.find((i) => i && i.range);
+    rangeVal = it ? it.value : 0;
+  });
+  function slide(item, v) {
+    rangeVal = v;
+    item.onInput?.(v);
+  }
+  const pct = (v) => `${Math.round(v * 100)}%`;
 </script>
+
+{#snippet volumeRow(item)}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div class="cm-range" onkeydown={(e) => e.stopPropagation()}>
+    <span class="cm-range-lbl">
+      {item.label}
+      <span class="cm-range-val">{pct(rangeVal)}</span>
+    </span>
+    <input
+      type="range"
+      min="0"
+      max="1"
+      step="0.05"
+      value={rangeVal}
+      aria-label={item.label}
+      oninput={(e) => slide(item, +e.target.value)}
+    />
+  </div>
+{/snippet}
 
 <svelte:window
   onkeydown={(e) => e.key === "Escape" && closeContextMenu()}
@@ -128,6 +168,8 @@
             <div class="as-sep"></div>
           {:else if item.header}
             <div class="cm-header">{item.label}</div>
+          {:else if item.range}
+            {@render volumeRow(item)}
           {:else}
             <button
               class="as-item"
@@ -154,6 +196,8 @@
           <div class="cm-sep"></div>
         {:else if item.header}
           <div class="cm-header">{item.label}</div>
+        {:else if item.range}
+          {@render volumeRow(item)}
         {:else}
           <!-- Hover pulls focus so the pointer and the arrow keys move one
                highlight instead of fighting over two. -->
@@ -330,6 +374,36 @@
     padding: var(--sp-2) var(--sp-3) var(--sp-1);
     font-size: var(--fs-compact);
     letter-spacing: 0.02em;
+  }
+  /* The slider row. Two lines — a label with its read-out, then the track —
+     because a slider squeezed in beside its own name has nowhere to travel. */
+  .cm-range {
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-1);
+    padding: var(--sp-2) 8px 6px;
+  }
+  .cm-range-lbl {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-2);
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+  }
+  .cm-range-val {
+    margin-left: auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+  }
+  .cm-range input[type="range"] {
+    width: 100%;
+    margin: 0;
+  }
+  .as-list .cm-range {
+    padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  }
+  .as-list .cm-range-lbl {
+    font-size: var(--fs-compact);
   }
   /* Colour swatch dot, sized to sit where an icon would. */
   .cm-swatch {

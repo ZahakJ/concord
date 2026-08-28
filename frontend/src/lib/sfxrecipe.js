@@ -265,8 +265,12 @@ function sfx(name, glyph, over) {
 export const STARTER_SHELF = [
   sfx("Boop", 0, { f0: 660, f1: 660, dur: 130, gain: 130, room: 12 }),
   sfx("Tada", 9, { wave: 1, f0: 523, f1: 523, dur: 300, reps: 2, gap: 150, step: 5, gain: 125, room: 38 }),
-  sfx("Womp", 3, { wave: 3, f0: 233, f1: 196, dur: 320, reps: 4, gap: 380, step: -1, gain: 110, room: 30, flags: FLAG_EXP }),
-  sfx("Drumroll", 2, { noise: 100, noiseHz: 200, noiseQ: 6, dur: 60, reps: 24, gap: 55, gain: 95, room: 22, flags: FLAG_SWELL }),
+  // Not 🎺 and not "Drumroll": the room's six built-ins already own a trombone
+  // and a drum, and a starter shelf that hands you a second one under the same
+  // face is two anonymous twins on a board identified by pictures. (Seed data
+  // only — a shelf that already exists lives in localStorage and is left alone.)
+  sfx("Womp", 16, { wave: 3, f0: 233, f1: 196, dur: 320, reps: 4, gap: 380, step: -1, gain: 110, room: 30, flags: FLAG_EXP }),
+  sfx("Rumble", 18, { noise: 100, noiseHz: 200, noiseQ: 6, dur: 60, reps: 24, gap: 55, gain: 95, room: 22, flags: FLAG_SWELL }),
   sfx("Chime", 10, { f0: 880, f1: 880, attack: 12, dur: 620, reps: 3, gap: 160, step: 4, gain: 105, room: 62 }),
   sfx("Pop", 8, { f0: 420, f1: 180, attack: 2, dur: 95, gain: 165, room: 8, flags: FLAG_EXP }),
   sfx("Zap", 11, { wave: 3, f0: 1800, f1: 200, dur: 260, noise: 25, noiseHz: 3000, noiseQ: 12, gain: 120, room: 18, flags: FLAG_EXP }),
