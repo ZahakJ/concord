@@ -37,6 +37,8 @@
     forgetLock,
     clearCallState,
     publishVoiceState,
+    toggleMicMute,
+    toggleDeafen,
     setPref,
     dismissNotifyAsk,
   } from "./lib/state.svelte.js";
@@ -272,7 +274,13 @@
         ? "Linux"
         : "your OS";
 
-  const callHere = $derived(S.voice && S.voice.channelId === S.activeChannelId);
+  // The call view is up from the CLICK, not from the connection. Joining opens
+  // the microphone and then waits on the node, and until the panel appeared
+  // early that whole stretch — 130ms on a good day, 31 seconds in the worst
+  // soak measured — changed nothing on screen while the mic was already hot.
+  const callHere = $derived(
+    (S.voice && S.voice.channelId === S.activeChannelId) || S.joiningVoice === S.activeChannelId,
+  );
   const callElsewhere = $derived(S.voice && S.voice.channelId !== S.activeChannelId);
   const call = $derived(incomingCall());
   const ringingChannel = $derived(call?.channelId || "");
@@ -937,6 +945,9 @@
         if (ids.length > 0) voiceHadPeer = true;
       },
       onSpeaking: (keys) => (S.voiceSpeaking = keys),
+      // How each connection is really doing, per peer. The stage renders it;
+      // without it a deadlocked call and a working one look identical.
+      onPeerStatus: (peerId, st) => (S.voicePeerStatus = { ...S.voicePeerStatus, [peerId]: st }),
       onVideo: (key, stream, meta) => setVideoStream(key, stream, meta),
       onWatcher: (peerId) => {
         const fpr = S.voicePeerFpr[peerId];
@@ -1028,6 +1039,7 @@
     S.voiceStates = {};
     S.voiceSpeaking = [];
     S.voicePeerFpr = {};
+    S.voicePeerStatus = {};
     S.muted = false;
     S.deafened = false;
     S.talking = false;
@@ -1044,35 +1056,6 @@
     if (!voiceHadPeer && !voiceWasAccept && isDMChannel(ch)) {
       api.sendCallNotice(ch, "call-missed", "Missed call").catch(() => {});
     }
-  }
-
-  function toggleMicMute() {
-    // Talking again means you can hear again: unmuting lifts deafen too.
-    S.muted = !S.muted;
-    if (!S.muted && S.deafened) {
-      S.deafened = false;
-      S.voice?.mesh.setDeafened(false);
-    }
-    S.voice?.mesh.setMuted(S.muted);
-    publishVoiceState();
-  }
-
-  // Deafening also mutes you — you can't sensibly talk to a room you can't
-  // hear, which is what every other client does too. Undeafening then puts your
-  // mic back the way it was: if you were talking before you stepped away, you
-  // are talking again, rather than silently wondering why nobody replies.
-  let mutedBeforeDeafen = false;
-  function toggleDeafen() {
-    if (!S.deafened) mutedBeforeDeafen = S.muted;
-    S.deafened = !S.deafened;
-    S.voice?.mesh.setDeafened(S.deafened);
-    if (S.deafened) {
-      S.muted = true; // the mesh already muted; mirror it for the UI
-    } else {
-      S.muted = mutedBeforeDeafen;
-      S.voice?.mesh.setMuted(S.muted);
-    }
-    publishVoiceState();
   }
 
   async function toggleScreenShare() {
@@ -1203,10 +1186,17 @@
      thing that knows, so it is not dismissible and it outranks the other two —
      an update offer from a process that is no longer there is noise. -->
 {#if S.offline && S.ready}
-  <div class="update-banner offline-banner" role="status" aria-live="polite">
+  <!-- A full-width bar ABOVE the app, not a pill floating over it. As a
+       centered pill it landed squarely on the channel header and took search,
+       pinned, events and the call controls with it — so the one moment you most
+       want to reach the call you are sitting in was the moment its buttons were
+       covered. The bar reserves its own height instead (see .app below).
+       The wording is for the person reading it: nobody has a "core". -->
+  <div class="offline-bar" role="status" aria-live="polite">
     <span class="ob-spin" aria-hidden="true"></span>
-    <span class="ub-text">
-      <strong>Reconnecting…</strong> Concord's core stopped responding. Messages you send now won't go out.
+    <span class="ob-text">
+      <strong>Reconnecting…</strong> You're offline. Messages will send when you're back.
+      {#if S.voice}<span class="ob-call">The call is trying to reconnect too.</span>{/if}
     </span>
   </div>
 {/if}
@@ -1297,7 +1287,12 @@
     onToggleCamera={toggleCamera}
   />
 {:else}
-  <div class="app" class:no-panel={isDM || !hasChannel} style={gridStyle}>
+  <div
+    class="app"
+    class:no-panel={isDM || !hasChannel}
+    class:offline-shift={S.offline}
+    style={gridStyle}
+  >
     <GuildRail />
     <ChannelList
       onJoinVoice={joinVoice}
@@ -2094,6 +2089,13 @@
   .app.no-panel {
     grid-template-columns: 64px var(--cw) 1fr;
   }
+  /* Room for the offline bar. Shifting the whole shell rather than overlaying
+     it is the entire point: the header underneath stays usable. */
+  .app.offline-shift {
+    --ob-total: calc(var(--offline-bar-h) + max(var(--safe-top), var(--sa-top, 0px)));
+    margin-top: var(--ob-total);
+    height: calc(100% - var(--ob-total));
+  }
   /* Column resize handles: thin strips overlapping each side column's inner
      edge. Absolutely positioned OUT of the grid flow on purpose — as grid
      children they perturbed auto-placement and rehomed every later sibling
@@ -2186,11 +2188,35 @@
     white-space: nowrap;
   }
   /* Trouble, not news: the warning colour, and no dismiss button, because the
-     condition doesn't end when you stop looking at it. */
-  .offline-banner {
-    border-color: var(--warn);
+     condition doesn't end when you stop looking at it. A BAR rather than one of
+     the floating pills above, because it can be up for minutes and nothing
+     underneath it should be unreachable for that whole time. */
+  .offline-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 205;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-3);
+    height: var(--offline-bar-h);
+    padding: 0 var(--sp-4);
+    padding-top: max(var(--safe-top), var(--sa-top, 0px));
+    box-sizing: content-box;
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--warn);
     color: var(--warn-text);
-    padding-right: var(--sp-4);
+    font-size: var(--fs-ui);
+  }
+  .ob-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .ob-call {
+    opacity: 0.85;
   }
   .ob-spin {
     flex-shrink: 0;

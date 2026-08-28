@@ -90,7 +90,10 @@
     const fpr = S.voicePeerFpr[pid];
     const m = fpr ? memberByFpr(fpr) : null;
     return {
-      name: m?.name || (fpr ? fpr.slice(0, 9) : pid.slice(0, 6)),
+      // Never the raw peer id: until the fingerprint lands there is no name to
+      // show, and a hex string in a name's place reads as a crash rather than
+      // as somebody arriving. Same rule as VoicePanel's participant().
+      name: m?.name || (fpr ? fpr.slice(0, 9) : "Joining…"),
       emoji: m?.emoji || "",
       color: m?.color || "",
       image: m?.avatar || "",

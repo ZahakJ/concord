@@ -90,7 +90,11 @@
   // to its two members). That includes an instant MEETING: its guest link is
   // public by design, and the lock is exactly what turns "anyone with the link
   // walks in" into office hours where you let people in one at a time.
-  const chId = $derived(S.voice?.channelId || "");
+  // The panel is on screen from the moment the channel is CLICKED, before the
+  // mesh exists, so that a join has something to show for itself — see
+  // `joining` below and App.svelte's callHere.
+  const chId = $derived(S.voice?.channelId || S.joiningVoice || "");
+  const joining = $derived(!S.voice && !!S.joiningVoice);
   const canLock = $derived(activeGuild()?.kind !== "dm");
   const locked = $derived(isCallLocked(chId));
   const knockers = $derived(S.callKnocks[chId] || []);
@@ -140,8 +144,11 @@
     const id = setTimeout(() => (ringTimedOut = true), 30000);
     return () => clearTimeout(id);
   });
-  const ringing = $derived(solo && isDM && !ringTimedOut);
-  const waiting = $derived(solo && !isDM); // empty guild voice channel
+  // Neither applies until we are actually in the room: "Waiting for others to
+  // join" while our own connection is still being made says the wrong thing
+  // about the wrong party.
+  const ringing = $derived(solo && isDM && !ringTimedOut && !joining);
+  const waiting = $derived(solo && !isDM && !joining); // empty guild voice channel
 
   function participant(peerId) {
     const fpr = S.voicePeerFpr[peerId];
@@ -149,12 +156,60 @@
     return {
       // nameFor is the one place names resolve — it knows about browser guests
       // ("Zaza (guest)"), who have no member record to look up.
-      name: fpr ? nameFor(fpr) : peerId.slice(0, 8),
+      //
+      // Until the fingerprint lands this used to fall back to the first eight
+      // characters of the libp2p peer id, so for a second or so after somebody
+      // joined their tile was labelled "12D3KooW" with an avatar reading "12" —
+      // while the sidebar two inches below already said their name. A nameless
+      // tile reads as "someone is arriving"; a hex string reads as a crash.
+      name: fpr ? nameFor(fpr) : "Joining…",
+      pending: !fpr,
       emoji: mem?.emoji || "",
       color: mem?.color || "",
       image: mem?.avatar || "",
     };
   }
+
+  // ---- how each connection is actually doing ----
+  //
+  // The stage used to render exactly one thing in every state there is:
+  // negotiating, connected, half-connected, deadlocked, peer's network gone,
+  // peer's process gone — an avatar and a name, identically. So the two ways a
+  // call can silently carry no audio at all (see lib/voice.js) looked like a
+  // perfect call, and there was nothing on screen to disagree with.
+  //
+  // VoiceMesh's watchdog supplies the state; this turns it into a word.
+  const STATUS_LABEL = {
+    connecting: "Connecting…",
+    reconnecting: "Reconnecting…",
+    failed: "Couldn't connect",
+  };
+  function connStatus(pid) {
+    if (pid === "self") return null;
+    const st = S.voicePeerStatus[pid];
+    if (!st) return { state: "connecting", label: STATUS_LABEL.connecting };
+    if (st.state === "connected") {
+      // Connected and silent. The connection has a path; nothing is coming
+      // down it. Opus DTX is off, so this really is silence on the wire and
+      // not a person who has stopped talking.
+      return st.media ? null : { state: "quiet", label: "Can't hear them" };
+    }
+    return { state: st.state, label: STATUS_LABEL[st.state] || "" };
+  }
+  // Nobody is through. Said once for the room rather than four times over four
+  // tiles, and only when there is somebody to be through TO. It follows the
+  // worst tile: while there is still hope it says so, and when there isn't it
+  // stops promising.
+  const roomLine = $derived.by(() => {
+    if (S.offline && S.voice) return "Reconnecting to the call…";
+    const others = S.voiceParticipants;
+    if (!others.length) return "";
+    if (others.some((p) => S.voicePeerStatus[p]?.state === "connected")) return "";
+    if (others.every((p) => S.voicePeerStatus[p]?.state === "failed")) {
+      return "Nobody can hear each other — these connections couldn't be made.";
+    }
+    return "Nobody can hear each other yet — still connecting.";
+  });
 
   // The camera tile for a roster entry ("self" or a peerId), if they have one
   // live. Remote keys embed a random stream id, so match on peerId/kind, not the
@@ -386,6 +441,11 @@
         muted: S.muted,
         deafened: S.deafened,
         self: true,
+        // Your own tile exists the instant you click, and says so until the
+        // mesh is up. Before this, a slow join (the worst one measured took
+        // 31 seconds) changed nothing on screen at all while the microphone
+        // was already open and live.
+        status: joining ? { state: "connecting", label: "Connecting…" } : null,
       };
     }
     const p = participant(pid);
@@ -408,6 +468,7 @@
       // needs it: a member is handled with roles and bans, while a guest holds
       // nothing but an open socket and a link.
       guest: isGuestFpr(pid),
+      status: connStatus(pid),
     };
   }
 
@@ -457,6 +518,14 @@
 
   function screenLabel(tile) {
     return tile.self ? "You" : participant(tile.peerId).name;
+  }
+
+  // Give up on the connection we have and build a new one. Offered only after
+  // the watchdog has spent its own retries, so by here another offer down the
+  // same pipe is not the answer — a fresh RTCPeerConnection is.
+  function retryPeer(pid) {
+    haptic("light");
+    S.voice?.mesh.reconnectPeer(pid);
   }
 
   // ---- phone-only call controls ----
@@ -662,6 +731,12 @@
         <div
           class="tile"
           class:speaking={t.speaking}
+          class:pending={t.pending}
+          class:unsettled={!!t.status}
+          class:st-connecting={t.status?.state === "connecting"}
+          class:st-reconnecting={t.status?.state === "reconnecting"}
+          class:st-failed={t.status?.state === "failed"}
+          class:st-quiet={t.status?.state === "quiet"}
           transition:scale={pop}
           onclick={() => toggleFocus(pid)}
           oncontextmenu={(e) => tileMenu(e, pid, t)}
@@ -732,10 +807,34 @@
               <Icon name={t.localMuted ? "deafened" : "speaker"} size={12} />
             </button>
           {/if}
+          {#if t.status}
+            <!-- What this connection is doing. A tile that says nothing is a
+                 tile that is working; anything else says so in words. -->
+            <span class="conn" class:bad={t.status.state === "failed" || t.status.state === "quiet"}>
+              {t.status.label}
+              {#if t.status.state === "failed"}
+                <button
+                  class="conn-retry"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    retryPeer(pid);
+                  }}
+                >
+                  Retry
+                </button>
+              {/if}
+            </span>
+          {/if}
           <span class="name">{t.self ? `${t.name} (you)` : t.name}</span>
         </div>
       {/each}
     </div>
+    {#if roomLine}
+      <!-- Everybody is on the stage and nobody is through. Said once, for the
+           room: four tiles each saying "Connecting…" is four copies of one
+           fact, and the fact is about the call. -->
+      <p class="room-stuck" role="status">{roomLine}</p>
+    {/if}
 
     {#if screens.length}
       <div class="screens">
@@ -779,7 +878,12 @@
       </button>
     </div>
   {/if}
-  <div class="controls">
+  <!-- No controls until there is a call to control. The panel is up from the
+       click so the join has something to show for itself, but mute and hang-up
+       reach through S.voice, which does not exist yet — eight live-looking
+       buttons that all quietly do nothing is worse than eight that aren't there
+       for the moment it takes. -->
+  <div class="controls" class:hidden={joining} inert={joining}>
     <button
       class="ctl"
       class:danger={S.muted}
@@ -1196,6 +1300,85 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* ---- connection state ----
+     A tile that is fine says nothing. Everything below is a tile that isn't. */
+
+  /* Not through yet: the face recedes so the words on top of it are what you
+     read, and a slow pulse says the app is still trying. */
+  .tile.unsettled .face,
+  .tile.unsettled video {
+    opacity: 0.45;
+  }
+  .tile.st-connecting,
+  .tile.st-reconnecting {
+    animation: tile-pulse 1.6s ease-in-out infinite;
+  }
+  .tile.st-reconnecting {
+    border-color: var(--warn);
+  }
+  .tile.st-failed,
+  .tile.st-quiet {
+    border-color: var(--danger);
+    animation: none;
+  }
+  @keyframes tile-pulse {
+    50% {
+      border-color: var(--accent);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tile.st-connecting,
+    .tile.st-reconnecting {
+      animation: none;
+      border-color: var(--accent);
+    }
+  }
+  /* The word itself, centered over the tile — where the eye already is. */
+  .conn {
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    text-align: center;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: var(--radius-sm);
+  }
+  .conn.bad {
+    color: color-mix(in srgb, var(--warn) 60%, #fff);
+  }
+  .conn-retry {
+    padding: 2px 8px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+  }
+  .conn-retry:hover {
+    background: var(--accent-hover);
+  }
+  /* An identity that hasn't resolved: no name to show, so show none — and let
+     the tile shimmer rather than sit there looking broken. */
+  .tile.pending .name {
+    color: var(--text-muted);
+    background: rgba(0, 0, 0, 0.35);
+  }
+  .room-stuck {
+    margin: 0;
+    text-align: center;
+    font-size: var(--fs-compact);
+    color: var(--warn-text);
+  }
   .screens {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 320px));
@@ -1467,6 +1650,12 @@
     padding: 8px 0 2px;
     background: linear-gradient(to top, var(--bg-0) 55%, transparent);
     z-index: 1;
+  }
+  /* Held open rather than removed, so the panel doesn't jump when the call
+     lands a moment later. */
+  .controls.hidden {
+    visibility: hidden;
+    pointer-events: none;
   }
   .knocks {
     display: flex;

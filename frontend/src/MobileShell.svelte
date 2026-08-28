@@ -61,7 +61,12 @@
   const activeChannelObj = $derived(
     activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null,
   );
-  const callHere = $derived(S.voice && S.voice.channelId === S.activeChannelId);
+  // Up from the click, not from the connection — same as the desktop shell, and
+  // for the same reason: opening the microphone takes long enough that a silent
+  // screen reads as a dead button. See App.svelte.
+  const callHere = $derived(
+    (S.voice && S.voice.channelId === S.activeChannelId) || S.joiningVoice === S.activeChannelId,
+  );
   const canRight = $derived(hasChannel && !isDM);
   // A forum POST is a channel nested under its board. ChatHeader's breadcrumb
   // says so on desktop, but ChatHeader never renders here — and ChannelList
@@ -447,6 +452,7 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="mshell"
+  class:offline-shift={S.offline}
   style={guildAccentVars}
   ontouchstart={onTouchStart}
   ontouchmove={onTouchMove}
@@ -660,6 +666,16 @@
 </div>
 
 <style>
+  /* Room for App.svelte's offline bar, which is fixed to the top of the
+     viewport. Without this it would sit straight on top of the phone's own top
+     bar — the channel name and the back arrow — for as long as the connection
+     is down, which is exactly the mistake it was moved out of the way to fix on
+     the desktop. */
+  .mshell.offline-shift {
+    --ob-total: calc(var(--offline-bar-h) + max(var(--safe-top), var(--sa-top, 0px)));
+    margin-top: var(--ob-total);
+    height: calc(100% - var(--ob-total));
+  }
   .mshell {
     display: flex;
     flex-direction: column;

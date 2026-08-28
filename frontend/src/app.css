@@ -248,6 +248,13 @@
      top bar. Zero-cost on desktop, where nothing consumes it. */
   --mchrome: calc(52px + var(--safe-top));
 
+  /* Height of the "you're offline" bar, read by both the bar itself and the
+     app shell that shifts down to make room for it (App.svelte). One number in
+     one place, because the two must agree or the bar covers the thing it is
+     meant to sit above — which is exactly how it started, as a floating pill
+     over the channel header. */
+  --offline-bar-h: 34px;
+
   /* Legacy aliases (pre-token components reference these). */
   --bg: var(--bg-2);
   --bg-elevated: var(--bg-3);

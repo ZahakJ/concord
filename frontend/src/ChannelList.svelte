@@ -744,6 +744,7 @@
           {@const u = channelUnread(c)}
           {@const active = c.id === S.activeChannelId}
           {@const inVoice = S.voice && S.voice.channelId === c.id}
+          {@const joiningHere = S.joiningVoice === c.id}
           {@const occupied = c.type === "voice" && voiceMembersFor(c.id).length > 0}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
@@ -753,6 +754,7 @@
             class:unread={!!u && !active && !isMuted(c.id, g?.id)}
             class:mentioned={!!u?.mentions && !active && !isMuted(c.id, g?.id)}
             class:voice-active={inVoice}
+            class:voice-joining={joiningHere}
             class:vdrop={vDropId === c.id}
             ondragleave={() => (vDropId === c.id ? (vDropId = "") : null)}
             class:dragging={drag?.channel.id === c.id}
@@ -794,7 +796,13 @@
                   {u.mentions > 0 ? (u.mentions > 99 ? "99+" : u.mentions) : u.count > 99 ? "99+" : u.count}
                 </span>
               {/if}
-              {#if occupied}
+              {#if joiningHere}
+                <!-- Pressed, and saying why. A click on a voice row opens your
+                     microphone and then waits on the node; without this the row
+                     looked untouched for the whole wait, which is what made
+                     people click it again. -->
+                <span class="ch-joining">Connecting…</span>
+              {:else if occupied}
                 <!-- Live equalizer: someone is in this voice channel right now. -->
                 <span class="eq" class:you={inVoice} aria-label="Voice active"><i></i><i></i><i></i></span>
               {/if}
@@ -1181,6 +1189,29 @@
   }
   .voice-active {
     background: var(--accent-soft) !important;
+  }
+  /* Pressed while the join is in flight: the same lit background as being IN
+     the call, pulsing, so the row is obviously doing something. */
+  .voice-joining {
+    background: var(--accent-soft) !important;
+    animation: ch-joining 1.4s ease-in-out infinite;
+  }
+  @keyframes ch-joining {
+    50% {
+      opacity: 0.6;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .voice-joining {
+      animation: none;
+    }
+  }
+  .ch-joining {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: var(--fs-tiny);
+    color: var(--text-muted);
+    white-space: nowrap;
   }
   /* A voice row lit up as a landing spot while someone is being carried. */
   .channel-row.vdrop {
