@@ -58,7 +58,7 @@
 <Modal title="Forward message" {onClose}>
   <div class="snippet">{previewText(message.content).slice(0, 140) || "(message)"}</div>
   <input class="search" bind:value={query} placeholder="Search channels and DMs…" />
-  <div class="list">
+  <div class="list scroll-fade">
     {#each destinations as d (d.id)}
       <button class="dest" disabled={busy} onclick={() => send(d)}>
         {#if d.dm}

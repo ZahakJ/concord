@@ -131,7 +131,7 @@
      than "switched off". Overlays that sit on ARTWORK (a lightbox, a banner
      gradient, chrome over a photograph) keep their own black — those are not
      dimming the theme, they are darkening an image. */
-  --scrim: rgba(0, 0, 0, 0.55);
+  --scrim: rgba(0, 0, 0, 0.7);
   /* Hairline: the events surface separates with ink, not grey boxes. Derived
      from --border so every theme pack keeps its own temperature. */
   --hairline: color-mix(in srgb, var(--border) 55%, transparent);
@@ -315,7 +315,7 @@
     0 4px 14px color-mix(in srgb, var(--accent) 28%, transparent),
     0 2px 5px rgba(20, 24, 32, 0.14);
   --bg-elevated: #fdfdfe;
-  --scrim: rgba(20, 24, 32, 0.38);
+  --scrim: rgba(20, 24, 32, 0.55);
 
   color-scheme: light;
 }
@@ -983,6 +983,11 @@
   --fx-ember-mid: #8f4a09;
   --fx-ember-low: #7a2c05;
   --fx-dim: brightness(0.5);
+  /* Six of the fifty packs are LIGHT grounds worn in nominally-dark mode, and
+     the scrim is the one token where that matters most: 0.7 of black over a
+     near-white app does not read as "behind glass", it reads as switched off.
+     Same value the light theme uses, for the same reason. */
+  --scrim: rgba(20, 24, 32, 0.55);
 }
 
 .fx-overlay {
@@ -1674,6 +1679,18 @@ textarea:focus {
     min-height: 48px;
   }
 }
+/* One rule for every list that scrolls INSIDE a panel. A container that ends on
+   a half-drawn row reads as broken rather than as scrollable: the command
+   palette sliced "Saved messages" through the middle, the forward dialog cut
+   #ci-and-builds in half, and Chromium's overlay scrollbar is invisible until
+   something moves, so there was nothing else on screen to say the list
+   continued. The mask is on the SCROLLER, so the fade stays at its bottom edge
+   as the content passes under it. */
+.scroll-fade {
+  -webkit-mask-image: linear-gradient(to top, transparent 0, black 24px);
+  mask-image: linear-gradient(to top, transparent 0, black 24px);
+}
+
 /* Slim, quiet scrollbars: a rounded thumb floating on a transparent track
    (the 2px transparent border + padding-box clip gives it breathing room).
    Mouse-only on purpose. In Chromium — which IS Android's WebView — the moment
@@ -2482,6 +2499,39 @@ textarea:focus {
   .fxo {
     animation: none !important;
     opacity: 0;
+  }
+}
+
+/* ── the app, behind a dialog ─────────────────────────────────────────────
+   Modal.svelte stamps [data-modal] on the document while any dialog is on
+   screen. The comment in that file used to promise a "frosted scrim: the app
+   dims AND recedes" and the app did neither — there was no backdrop-filter
+   anywhere in the codebase, so every message, avatar, poll bar and link behind
+   the Settings dialog stayed razor-sharp and fully legible, and the dialog
+   competed with the page instead of replacing it.
+
+   A real blur is not available: the shipping desktop renders in software
+   (WEBKIT_DISABLE_DMABUF_RENDERER), where a full-viewport backdrop-filter is
+   the most expensive thing on the screen. This is the compositor-only version
+   of the same idea — one transform and one opacity, both of which the
+   compositor can do without ever touching a pixel of the app's own paint. The
+   scrim carries the rest of the work, raised from 0.55 to 0.70.
+
+   Only the desktop shell recedes. The phone shell owns its own transform for
+   the drawer gesture and a second one here would fight it, and a bottom sheet
+   is not pretending to be a floating card anyway. */
+:root[data-modal] .app {
+  transform: scale(0.985);
+  transition: transform var(--dur-standard) var(--ease-out);
+}
+.app {
+  transition: transform var(--dur-standard) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root[data-modal] .app,
+  .app {
+    transform: none;
+    transition: none;
   }
 }
 

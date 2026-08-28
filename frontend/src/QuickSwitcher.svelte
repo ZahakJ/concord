@@ -232,7 +232,7 @@
       aria-label="Jump to a conversation, or run a command"
       onkeydown={onKeydown}
     />
-    <div class="results" bind:this={listEl}>
+    <div class="results scroll-fade" bind:this={listEl}>
       {#if grouped.jump.length}
         <div class="sec muted">Jump to</div>
         {#each grouped.jump as item, i (item.key)}

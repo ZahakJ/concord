@@ -289,7 +289,18 @@
    the "living" packs measured as a flat dark panel; at 0.58–0.66 over a
    backdrop lifted out of near-black, the motion is actually visible. Every one
    of these was then measured for text contrast at the BRIGHTEST moment of its
-   own animation, not at rest — see the report. */
+   own animation, not at rest — see the report.
+
+   --bg-elevated IS THE EXCEPTION AND IS OPAQUE IN EVERY PACK. It names the
+   surface that is lifted OFF the backdrop — a dialog, a popover, a sticky
+   header — and those thirty-one packs used to give it 0.95, which is not glass:
+   it is a four percent hole with a sharp page behind it. Measured on Porcelain,
+   the code block under the Settings panel — the fence, the highlighted body,
+   the sentence after it — was plainly readable through the dialog, across the
+   ACCOUNT header and the first three rows. A dialog is opaque, full stop; if a
+   pack wants glass it needs a real backdrop blur, which this codebase cannot
+   spend (the shipping desktop renders in software). The pack's tint survives
+   because the colour is unchanged — only the alpha is gone. */
 
 :root[data-theme-pack="aurora"] {
   --bg-0: rgba(3, 18, 24, 0.36);
@@ -302,7 +313,7 @@
   --text-faint: #9cbcb5;
   --accent: #39d9b0;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
-  --bg-elevated: rgba(8, 26, 32, 0.95);
+  --bg-elevated: rgb(8, 26, 32);
   color-scheme: dark;
 }
 :root[data-theme-pack="synthwave"] {
@@ -316,7 +327,7 @@
   --text-faint: #a583c4;
   --accent: #ff4fd8;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
-  --bg-elevated: rgba(26, 10, 44, 0.95);
+  --bg-elevated: rgb(26, 10, 44);
   color-scheme: dark;
 }
 :root[data-theme-pack="cosmos"] {
@@ -330,7 +341,7 @@
   --text-faint: #8c93bb;
   --accent: #7c8bff;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
-  --bg-elevated: rgba(14, 16, 34, 0.95);
+  --bg-elevated: rgb(14, 16, 34);
   color-scheme: dark;
 }
 :root[data-theme-pack="molten"] {
@@ -344,7 +355,7 @@
   --text-faint: #c39d84;
   --accent: #ff7a2f;
   --accent-hover: color-mix(in srgb, var(--accent) 76%, white);
-  --bg-elevated: rgba(30, 16, 10, 0.95);
+  --bg-elevated: rgb(30, 16, 10);
   color-scheme: dark;
 }
 /* Prism: graphite, with a wide iridescent bar of light sweeping the window.
@@ -361,7 +372,7 @@
   --text-faint: #949cad;
   --accent: #8de0ff;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(18, 20, 26, 0.95);
+  --bg-elevated: rgb(18, 20, 26);
   color-scheme: dark;
 }
 /* Monsoon: a different KIND of motion — two sheets of diagonal rain falling at
@@ -378,7 +389,7 @@
   --text-faint: #99aec0;
   --accent: #56b7e8;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
-  --bg-elevated: rgba(12, 24, 36, 0.95);
+  --bg-elevated: rgb(12, 24, 36);
   color-scheme: dark;
 }
 
@@ -396,7 +407,7 @@
   --text-faint: #93b6c2;
   --accent: #35d0e8;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
-  --bg-elevated: rgba(5, 26, 35, 0.95);
+  --bg-elevated: rgb(5, 26, 35);
   color-scheme: dark;
 }
 /* Skyline: a city at night, seen from a rooftop. Two rows of silhouettes
@@ -413,7 +424,7 @@
   --text-faint: #9c96be;
   --accent: #35e0ff;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(16, 11, 32, 0.95);
+  --bg-elevated: rgb(16, 11, 32);
   color-scheme: dark;
 }
 /* Eclipse: totality. A black disc with a bright rim, and a corona of rays
@@ -430,7 +441,7 @@
   --text-faint: #9d95b7;
   --accent: #f0d68a;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(20, 12, 34, 0.95);
+  --bg-elevated: rgb(20, 12, 34);
   color-scheme: dark;
 }
 
@@ -455,7 +466,7 @@
   --text-muted: #4b596b;
   --text-faint: #64717f;
   --accent: #1d6fbf;
-  --bg-elevated: rgba(255, 255, 255, 0.96);
+  --bg-elevated: rgb(255, 255, 255);
   /* The mobile scrim below is a black sheet tuned for dark glass; on a bright
      backdrop it would bury the whole pack. */
   --tb-scrim: rgba(255, 255, 255, 0.66);
@@ -471,7 +482,7 @@
   --text-faint: #b59c7b;
   --accent: #e8a33f;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(40, 24, 12, 0.95);
+  --bg-elevated: rgb(40, 24, 12);
   color-scheme: dark;
 }
 :root[data-theme-pack="canopy"] {
@@ -485,7 +496,7 @@
   --text-faint: #91b094;
   --accent: #62c46a;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
-  --bg-elevated: rgba(12, 30, 18, 0.95);
+  --bg-elevated: rgb(12, 30, 18);
   color-scheme: dark;
 }
 :root[data-theme-pack="datastream"] {
@@ -499,7 +510,7 @@
   --text-faint: #74b48a;
   --accent: #35f08a;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
-  --bg-elevated: rgba(3, 16, 8, 0.95);
+  --bg-elevated: rgb(3, 16, 8);
   color-scheme: dark;
 }
 :root[data-theme-pack="sonar"] {
@@ -513,7 +524,7 @@
   --text-faint: #8caba7;
   --accent: #ffb347;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
-  --bg-elevated: rgba(5, 24, 24, 0.95);
+  --bg-elevated: rgb(5, 24, 24);
   color-scheme: dark;
 }
 :root[data-theme-pack="lantern"] {
@@ -527,7 +538,7 @@
   --text-faint: #ad9f90;
   --accent: #ff9d4d;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(10, 24, 40, 0.95);
+  --bg-elevated: rgb(10, 24, 40);
   color-scheme: dark;
 }
 :root[data-theme-pack="glacier"] {
@@ -541,7 +552,7 @@
   --text-faint: #9cb8ca;
   --accent: #9fe0ff;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
-  --bg-elevated: rgba(18, 38, 54, 0.95);
+  --bg-elevated: rgb(18, 38, 54);
   color-scheme: dark;
 }
 :root[data-theme-pack="vinyl"] {
@@ -555,7 +566,7 @@
   --text-faint: #a6927d;
   --accent: #d9a05b;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
-  --bg-elevated: rgba(36, 25, 16, 0.95);
+  --bg-elevated: rgb(36, 25, 16);
   color-scheme: dark;
 }
 :root[data-theme-pack="storm"] {
@@ -569,7 +580,7 @@
   --text-faint: #959da9;
   --accent: #9fb4c9;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
-  --bg-elevated: rgba(24, 27, 32, 0.95);
+  --bg-elevated: rgb(24, 27, 32);
   color-scheme: dark;
 }
 :root[data-theme-pack="blossom"] {
@@ -583,7 +594,7 @@
   --text-faint: #b795a2;
   --accent: #ff7aa2;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(38, 18, 25, 0.95);
+  --bg-elevated: rgb(38, 18, 25);
   color-scheme: dark;
 }
 :root[data-theme-pack="meridian"] {
@@ -597,7 +608,7 @@
   --text-faint: #99aead;
   --accent: #ff9a63;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(10, 30, 36, 0.95);
+  --bg-elevated: rgb(10, 30, 36);
   color-scheme: dark;
 }
 :root[data-theme-pack="bloom"] {
@@ -611,7 +622,7 @@
   --text-faint: #a4b47e;
   --accent: #b6e830;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(20, 25, 10, 0.95);
+  --bg-elevated: rgb(20, 25, 10);
   color-scheme: dark;
 }
 
@@ -643,7 +654,7 @@
      and it is the reason this pack cannot be mistaken for cosmos. */
   --accent: #e2ecff;
   --accent-hover: #ffffff;
-  --bg-elevated: rgba(10, 17, 34, 0.95);
+  --bg-elevated: rgb(10, 17, 34);
   color-scheme: dark;
 }
 :root[data-theme-pack="radiant"] {
@@ -659,7 +670,7 @@
      (cosmos) and cyan (skyline, glacier) but nothing actually blue. */
   --accent: #5b9dff;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
-  --bg-elevated: rgba(8, 14, 30, 0.95);
+  --bg-elevated: rgb(8, 14, 30);
   color-scheme: dark;
 }
 :root[data-theme-pack="silicon"] {
@@ -673,7 +684,7 @@
   --text-faint: #8fb0b3;
   --accent: #7cf3e0;
   --accent-hover: color-mix(in srgb, var(--accent) 82%, white);
-  --bg-elevated: rgba(12, 22, 38, 0.95);
+  --bg-elevated: rgb(12, 22, 38);
   color-scheme: dark;
 }
 :root[data-theme-pack="uptime"] {
@@ -687,7 +698,7 @@
   --text-faint: #8ba0ab;
   --accent: #2fd18b;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(14, 21, 28, 0.95);
+  --bg-elevated: rgb(14, 21, 28);
   color-scheme: dark;
 }
 :root[data-theme-pack="zellige"] {
@@ -703,7 +714,7 @@
      nine packs are already some shade of amber. */
   --accent: #2ec4b6;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
-  --bg-elevated: rgba(8, 30, 32, 0.95);
+  --bg-elevated: rgb(8, 30, 32);
   color-scheme: dark;
 }
 /* Atrium: white stone, cool sky, warm floor. Same inverted depth scale the
@@ -719,7 +730,7 @@
   --text-muted: #55503f;
   --text-faint: #6b6553; /* 4.75:1 on bg-3 composited over the stone */
   --accent: #0f8a86;
-  --bg-elevated: rgba(255, 255, 255, 0.96);
+  --bg-elevated: rgb(255, 255, 255);
   /* Same reason daybreak overrides it: the shared mobile scrim is a black
      sheet tuned for dark glass and would put this courtyard in shadow. */
   --tb-scrim: rgba(255, 255, 255, 0.66);
@@ -2027,7 +2038,7 @@
   --text-faint: #8ba0b1;
   --accent: #7dd3fc;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(18, 30, 42, 0.95);
+  --bg-elevated: rgb(18, 30, 42);
   color-scheme: dark;
 }
 :root[data-theme-pack="frost"] .theme-bg {
@@ -2048,7 +2059,7 @@
   --text-faint: #a67f80;
   --accent: #fb7185;
   --accent-hover: color-mix(in srgb, var(--accent) 80%, white);
-  --bg-elevated: rgba(40, 26, 30, 0.95);
+  --bg-elevated: rgb(40, 26, 30);
   color-scheme: dark;
 }
 :root[data-theme-pack="dusk"] .theme-bg {
@@ -2069,7 +2080,7 @@
   --text-faint: #9482a8;
   --accent: #c084fc;
   --accent-hover: color-mix(in srgb, var(--accent) 78%, white);
-  --bg-elevated: rgba(32, 23, 44, 0.95);
+  --bg-elevated: rgb(32, 23, 44);
   color-scheme: dark;
 }
 :root[data-theme-pack="grape"] .theme-bg {
@@ -2184,7 +2195,7 @@
   --text-muted: #59616f;
   --text-faint: #6f7787; /* 3.37:1 on bg-3 composited over the mesh highlight */
   --accent: #5661d8;
-  --bg-elevated: rgba(253, 253, 255, 0.96);
+  --bg-elevated: rgb(253, 253, 255);
   background:
     radial-gradient(58% 48% at 12% 8%, rgba(255, 184, 210, 0.5), transparent 62%),
     radial-gradient(54% 44% at 88% 14%, rgba(164, 198, 255, 0.52), transparent 62%),

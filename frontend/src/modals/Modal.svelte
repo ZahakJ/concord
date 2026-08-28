@@ -8,6 +8,21 @@
     '[tabindex]:not([tabindex="-1"])';
 
   const visible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+
+  // How many dialogs are on screen. A stamp on the document is what lets the
+  // app behind them recede (app.css, [data-modal]) without every dialog having
+  // to reach for the shell element itself — and it is a COUNT because panels
+  // stack: the second one mounting must not clear the flag when the first
+  // unmounts underneath it.
+  let openCount = 0;
+  export function markOpen() {
+    openCount++;
+    document.documentElement.dataset.modal = "";
+  }
+  export function markClosed() {
+    openCount = Math.max(0, openCount - 1);
+    if (!openCount) delete document.documentElement.dataset.modal;
+  }
 </script>
 
 <script>
@@ -110,6 +125,13 @@
   // corner one-handed. The grab area is the pinned top strip (grip + title);
   // the physics is shared with every other sheet in the app (lib/sheet.js).
   let overlay = $state(null);
+
+  // The push-back. Announced here rather than in each dialog because "a dialog
+  // is open" is a fact about the app, not about this component.
+  onMount(() => {
+    markOpen();
+    return markClosed;
+  });
 
   // Every consumer's onClose sets S.modal = null, which unmounts this component
   // in one frame — so the sheet that slid up over 0.28s used to vanish
@@ -273,6 +295,46 @@
   }
   .grip {
     display: none; /* desktop: no drag handle */
+  }
+  /* A commit button must never be stranded below a screen of content, and that
+     is as true on a laptop as on a phone. The sheet presentation below has
+     pinned this row since it was written; the desktop card did not, and
+     `.dialog` is max-height: 90dvh with overflow-y: auto — so at 1440x900 the
+     poll composer's Cancel/Create pair was sliced by the viewport edge and Your
+     profile kept Save 650px down, with nothing on screen saying either existed.
+     Same selector as the sheet's, and for the same stated reason: every use of
+     this class in the app IS a modal's own footer. The negative margins bleed
+     it to the card's edges; the hairline reads as a footer rule on the short
+     dialogs where nothing scrolls at all, and the soft lift above it is what
+     says there is more on the ones that do. */
+  .dialog :global(.actions) {
+    position: sticky;
+    bottom: -20px;
+    z-index: 2;
+    margin: var(--sp-2) -20px -20px;
+    padding: var(--sp-3) 20px 20px;
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--hairline);
+    box-shadow: 0 -10px 16px -14px var(--scrim);
+  }
+  /* The scroll fade, on the desktop card too. A container that ends on a
+     half-drawn row reads as broken rather than as scrollable — the command
+     palette sliced "Saved messages" through the middle, the forward dialog cut
+     #ci-and-builds in half — and Chromium's overlay scrollbar is invisible
+     until something moves, so there is nothing else to say it. It is a sticky
+     pseudo-element rather than markup, it sits UNDER the footer's z-index 2 so
+     a commit button is never washed out, and on a dialog with nothing to scroll
+     the gradient lands on matching background and cannot be seen at all. */
+  .dialog::after {
+    content: "";
+    flex: none;
+    position: sticky;
+    z-index: 1;
+    bottom: -20px;
+    height: 24px;
+    margin: 0 -20px -20px;
+    pointer-events: none;
+    background: linear-gradient(transparent, var(--bg-elevated));
   }
   /* Mobile: dialogs present as full-width bottom sheets instead of floating
      cards — thumb-reachable, roomy, and keyboard-friendly. Desktop (fine

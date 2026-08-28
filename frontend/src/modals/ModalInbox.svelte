@@ -118,7 +118,7 @@
   {:else if !entries.length}
     <p class="note">Nothing of that kind. Try another filter.</p>
   {:else}
-    <div class="groups">
+    <div class="groups scroll-fade">
       {#each groups as g (g.key)}
         <section>
           <h3 class="place">{g.title}</h3>
