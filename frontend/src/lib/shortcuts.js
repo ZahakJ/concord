@@ -7,7 +7,7 @@
 // below is what the sheet renders, it lives against the handler it describes,
 // and shortcutlist.test.mjs fails the build when the handler grows a key the
 // list has not heard of.
-import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash } from "./state.svelte.js";
+import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash, toggleMicMute, toggleDeafen } from "./state.svelte.js";
 import { popLayer } from "./navstack.svelte.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
 
@@ -223,22 +223,22 @@ export function installShortcuts() {
       S.modal = S.modal?.kind === "stats" ? null : { kind: "stats" };
       return;
     }
-    // Ctrl+Shift+M — toggle mic mute (only meaningful in a call).
+    // Ctrl+Shift+M / Ctrl+Shift+D — mute and deafen (only meaningful in a
+    // call). These call the SAME functions the buttons call. They used to carry
+    // their own copy, which had quietly lost publishVoiceState (so the room
+    // never learned you had gone deaf) and the mute-restore (so two presses of
+    // a toggle left you muted). See lib/state.svelte.js.
     if (mod && e.shiftKey && e.key.toLowerCase() === "m") {
       if (S.voice) {
         e.preventDefault();
-        S.muted = !S.muted;
-        S.voice.mesh?.setMuted(S.muted);
+        toggleMicMute();
       }
       return;
     }
-    // Ctrl+Shift+D — toggle deafen (only meaningful in a call).
     if (mod && e.shiftKey && e.key.toLowerCase() === "d") {
       if (S.voice) {
         e.preventDefault();
-        S.deafened = !S.deafened;
-        S.voice.mesh?.setDeafened(S.deafened);
-        if (S.deafened) S.muted = true;
+        toggleDeafen();
       }
       return;
     }

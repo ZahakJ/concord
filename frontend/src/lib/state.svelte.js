@@ -3199,6 +3199,50 @@ export function publishVoiceState() {
   api.signalCall(ch, "state", `${S.muted ? 1 : 0}${S.deafened ? 1 : 0}`).catch(() => {});
 }
 
+// ---- mute and deafen ----
+//
+// These live here, not in App.svelte, because the keyboard has to reach them.
+// The shortcut handlers used to carry their own copy of this logic and it had
+// drifted in the two ways a copy always drifts: they never called
+// publishVoiceState, so Ctrl+Shift+D deafened you without the room seeing a
+// thing — the one state everybody else most needs to know — and they had no
+// mutedBeforeDeafen, so undeafening left you muted. Two identical presses of a
+// toggle handed you back a dead microphone, which is the "you're on mute"
+// disaster, caused by the app. One code path, one behaviour.
+
+// What our mic was doing before deafen muted it, so undeafening can put it
+// back. Module-level rather than per-call: it is only ever read between a
+// deafen and the undeafen that follows it.
+let mutedBeforeDeafen = false;
+
+export function toggleMicMute() {
+  // Talking again means you can hear again: unmuting lifts deafen too.
+  S.muted = !S.muted;
+  if (!S.muted && S.deafened) {
+    S.deafened = false;
+    S.voice?.mesh.setDeafened(false);
+  }
+  S.voice?.mesh.setMuted(S.muted);
+  publishVoiceState();
+}
+
+// Deafening also mutes you — you can't sensibly talk to a room you can't hear,
+// which is what every other client does too. Undeafening then puts your mic
+// back the way it was: if you were talking before you stepped away, you are
+// talking again, rather than silently wondering why nobody replies.
+export function toggleDeafen() {
+  if (!S.deafened) mutedBeforeDeafen = S.muted;
+  S.deafened = !S.deafened;
+  S.voice?.mesh.setDeafened(S.deafened);
+  if (S.deafened) {
+    S.muted = true; // the mesh already muted; mirror it for the UI
+  } else {
+    S.muted = mutedBeforeDeafen;
+    S.voice?.mesh.setMuted(S.muted);
+  }
+  publishVoiceState();
+}
+
 // ---- soft call lock (see voice.go PublishCallControl) ----
 export function isCallLocked(channelId) {
   return !!S.callLocks[channelId];
