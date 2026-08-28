@@ -673,7 +673,17 @@ export class VoiceMesh {
     for (const [peerId, peer] of this.peers) {
       const { pc } = peer;
       const cs = pc.connectionState;
-      if (cs === "connected") {
+      // An offer still on the table. A connection can be `connected` and owed
+      // an answer at the same time: adding a camera or a screen share puts a
+      // new m-line on an existing call, and the offer that carries it travels
+      // the same fire-and-forget path as the first one. When that blob went
+      // missing the watchdog looked at `connected`, called it a working
+      // connection, and wiped the timestamp on the very next tick — so a share
+      // that never appeared on the far side stayed invisible for the rest of
+      // the call, with nothing anywhere retrying. The signalling state is what
+      // knows the difference, not the connection state.
+      const pending = pc.signalingState === "have-local-offer";
+      if (cs === "connected" && !pending) {
         // Whatever it took to get here, it worked: forget the debt.
         peer.attempts = 0;
         peer.offerSentAt = 0;
@@ -682,17 +692,22 @@ export class VoiceMesh {
       // so a genuinely slow network gets more rope rather than a storm of
       // offers that each invalidate the one before it.
       const patience = OFFER_TIMEOUT_MS * (1 + Math.min(peer.attempts, 2));
-      const unanswered = cs !== "connected" && peer.offerSentAt && now - peer.offerSentAt > patience;
+      const unanswered =
+        (cs !== "connected" || pending) && peer.offerSentAt && now - peer.offerSentAt > patience;
       // A connection that HAD worked and stopped. "disconnected" is often a
       // blip that heals itself, so give it a few seconds before spending an
       // attempt; "failed" never heals without an ICE restart.
       const broken =
         cs === "failed" || (cs === "disconnected" && now - (peer.stateSince || now) > 4000);
       if ((unanswered || broken) && !peer.makingOffer) {
-        if (peer.attempts >= MAX_NEGOTIATION_ATTEMPTS) {
+        // Giving up is only ever said about a connection that has never come
+        // up. A live call whose renegotiation keeps going astray still carries
+        // the voices, so it keeps trying quietly rather than telling the room
+        // that the person it can hear couldn't be reached.
+        if (peer.attempts >= MAX_NEGOTIATION_ATTEMPTS && cs !== "connected") {
           peer.status = "failed";
           if (now - peer.lastTry > RETRY_FLOOR_MS) this._renegotiate(peerId, peer, true);
-        } else {
+        } else if (peer.attempts < MAX_NEGOTIATION_ATTEMPTS || now - peer.lastTry > RETRY_FLOOR_MS) {
           this._renegotiate(peerId, peer, broken);
         }
       }
