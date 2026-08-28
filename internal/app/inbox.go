@@ -410,18 +410,3 @@ func (s *Service) fillInboxPlace(e *InboxEntry) {
 		}
 	}
 }
-
-// snippet is the bit of the message the inbox shows. One line, bounded, and cut
-// on a rune boundary so a truncated emoji does not become a replacement glyph.
-func snippet(body string) string {
-	const max = 160
-	s := strings.Join(strings.Fields(strings.ReplaceAll(body, "\n", " ")), " ")
-	if len(s) <= max {
-		return s
-	}
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return strings.TrimSpace(string(r[:max])) + "…"
-}

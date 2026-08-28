@@ -15,8 +15,7 @@
     clockOpts,
   } from "./lib/state.svelte.js";
   import { removeChip, closeSearch, insertFilter, FILTERS } from "./lib/search.js";
-  import { previewText } from "./lib/attachments.js";
-  import { stripMarkdown } from "./lib/forum.js";
+  import { plainSnippet } from "./lib/snippet.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
 
   const open = $derived(S.searchResults !== null || S.searchLoading);
@@ -57,10 +56,13 @@
   // snippet: readable preview windowed around the first matched term, so the
   // hit is visible even in a long message.
   function snippet(content) {
-    // Through the markdown stripper first: a result read "> **the** plan" where
+    // Through the shared flattener first: a result read "> **the** plan" where
     // the message says "the plan", so the one line whose whole job is to show
     // you the words you searched for was showing you the syntax around them.
-    const text = stripMarkdown(previewText(content));
+    // lib/snippet.js also names a card and tokenises a fenced block, which the
+    // markdown stripper alone flattens into someone's code with the newlines
+    // taken out.
+    const text = plainSnippet(content);
     const lower = text.toLowerCase();
     let idx = -1;
     for (const t of S.searchTerms) {

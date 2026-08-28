@@ -93,30 +93,17 @@
 </script>
 
 <Modal title="Inbox" {onClose} wide>
-  <div class="head">
-    <div class="filters" role="group" aria-label="Filter the inbox">
-      {#each FILTERS as f (f.id)}
-        <button
-          class="quiet chip"
-          class:on={filter === f.id}
-          aria-pressed={filter === f.id}
-          onclick={() => (filter = f.id)}
-        >
-          {f.label}
-        </button>
-      {/each}
-    </div>
-    <!-- Present whether or not there is anything to clear, and disabled when
-         there is not: an action that appears and disappears as the count
-         crosses zero moves the chips under the cursor. -->
-    <button
-      class="quiet act"
-      disabled={!S.inbox.unread}
-      onclick={markInboxRead}
-    >
-      <Icon name="check" size={13} />
-      Mark all read
-    </button>
+  <div class="head" role="group" aria-label="Filter the inbox">
+    {#each FILTERS as f (f.id)}
+      <button
+        class="quiet chip"
+        class:on={filter === f.id}
+        aria-pressed={filter === f.id}
+        onclick={() => (filter = f.id)}
+      >
+        {f.label}
+      </button>
+    {/each}
   </div>
 
   {#if S.inbox.loading && !S.inbox.entries.length}
@@ -148,6 +135,7 @@
               />
               <span class="col">
                 <span class="top">
+                  {#if e.unread}<span class="dot" aria-hidden="true"></span>{/if}
                   <strong>{e.senderName || e.sender.slice(0, 12)}</strong>
                   <span class="why {e.reason}" use:tooltip={r.label}>
                     <Icon name={r.icon} size={10} />
@@ -164,12 +152,25 @@
     </div>
     <div class="foot">
       <span>{plural(entries.length, "item")}{S.inbox.unread ? ` · ${S.inbox.unread} unread` : ""}</span>
+      <!-- Both actions live down here. They used to share the top row with the
+           four filter chips, in a dialog narrow enough that the chips wrapped
+           to a second line and "Alert words" was orphaned on it. Present
+           whether or not there is anything to clear, and disabled when there is
+           not: an action that appears and disappears as the count crosses zero
+           moves the control beside it under the cursor. -->
+      <button class="quiet act" disabled={!S.inbox.unread} onclick={markInboxRead}>
+        <Icon name="check" size={13} />
+        Mark all read
+      </button>
+      <!-- "Check again" reads like polling a server, in an app whose whole
+           pitch is that there is not one. This list is a query over messages
+           already on this device. -->
       <button
         class="quiet act"
         disabled={S.inbox.loading}
         onclick={() => refreshInbox({ soon: true })}
       >
-        {S.inbox.loading ? "Checking…" : "Check again"}
+        {S.inbox.loading ? "Refreshing…" : "Refresh"}
       </button>
     </div>
   {/if}
@@ -180,23 +181,16 @@
 {/snippet}
 
 <style>
-  /* The head is ONE row: the chips wrap inside their own group when they run
-     out of width, and the action stays beside them. It used to wrap the action
-     down to a line of its own, which at the dialog's real width was every time
-     — so the app's most-used control here lived on an otherwise empty row,
-     right-aligned against nothing. */
+  /* The head is the four filters and nothing else, so they fit on one line at
+     the dialog's real width. Anything that ACTS rather than filters lives in
+     the footer with the count — that is where a reader looks when they have
+     finished reading the list, which is when both of those buttons are for. */
   .head {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--sp-2);
-    margin-bottom: var(--sp-3);
-  }
-  .filters {
     display: flex;
     flex-wrap: wrap;
     gap: var(--sp-1);
-    flex: 1;
     min-width: 0;
+    margin-bottom: var(--sp-3);
   }
   /* `quiet` (app.css) carries the fill AND the ink. The ink is the point: the
      global button rule paints --accent-fg, which is chosen to survive on the
@@ -282,10 +276,27 @@
     background: var(--bg-3);
   }
   /* An unread item wears the same gutter rule the channel list uses for an
-     unread channel, so the vocabulary is one thing app-wide. */
+     unread channel, so the vocabulary is one thing app-wide — plus a ground
+     it can be picked out by at a glance and a dot beside the name, because the
+     rail promises a number ("Inbox — 4 unread items") and a list where every
+     row is drawn identically cannot say which four. */
   .entry.unread {
     border-left: 2px solid var(--accent);
     padding-left: calc(var(--sp-1) - 2px);
+    background: var(--accent-soft);
+  }
+  .entry.unread:hover {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .entry.unread strong {
+    font-weight: 700;
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    flex: none;
   }
   .col {
     min-width: 0;
@@ -335,10 +346,16 @@
     color: var(--text-faint);
     white-space: nowrap;
   }
+  /* The preview is one message's worth of somebody else's text, so it is
+     clamped from three directions: two lines, hidden overflow, and a break
+     rule that applies to an unbroken run with no spaces in it. A raw
+     attachment token used to run straight past the card's right border. */
   .text {
     font-size: var(--fs-compact);
     color: var(--text-muted);
     line-height: 1.45;
+    min-width: 0;
+    overflow-wrap: anywhere;
     overflow: hidden;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -349,10 +366,14 @@
   .foot {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: var(--sp-2);
     margin-top: var(--sp-3);
     font-size: var(--fs-tiny);
     color: var(--text-faint);
+  }
+  /* The count claims the slack so both buttons sit together at the right. */
+  .foot > span {
+    flex: 1;
+    min-width: 0;
   }
 </style>

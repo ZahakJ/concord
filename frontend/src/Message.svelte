@@ -26,6 +26,7 @@
   import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
   import { fxEffect, stripFx, playFxOnce } from "./lib/fxtoken.js";
+  import { plainSnippet } from "./lib/snippet.js";
   import { radialBurst } from "./lib/burst.js";
   import { saved, isSaved, toggleSaved, refreshSaved } from "./lib/saved.svelte.js";
   import { sealedAt, stripTimestamp, sealShort, sealFull, sealAgo } from "./lib/timestamp.js";
@@ -695,12 +696,13 @@
     if (m.replyTo && !scrollToMessage(m.replyTo)) flash("Original message not loaded");
   }
 
-  // Reply preview: the original message with attachment tokens turned into a
-  // readable placeholder, whitespace collapsed, and capped for one line.
+  // Reply preview: the original message reduced to one line of prose. It used
+  // to be previewText alone, which knows about attachments and nothing else, so
+  // a reply to a code message quoted the fence and the first two tokens of the
+  // code — "here it is in eleven lines: ```js export function". The shared rule
+  // lives in lib/snippet.js and the search panel uses the same one.
   const replySnippet = $derived(
-    replyRef && !replyRef.deleted
-      ? previewText(replyRef.content).replace(/\s+/g, " ").trim().slice(0, 80) || "(empty message)"
-      : "",
+    replyRef && !replyRef.deleted ? plainSnippet(replyRef.content, 80) || "(empty message)" : "",
   );
 
   function copy(text, ok) {
