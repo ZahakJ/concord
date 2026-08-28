@@ -48,6 +48,10 @@ type Bridge struct {
 	// spend its first minutes walking the DHT on a data plan.
 	wantMetered bool
 
+	// Which attached UI asked for each voice call, so a call can end when the
+	// UI holding it goes away. See voicelife.go.
+	voiceOwn *voiceOwners
+
 	// Event sinks, set by whichever transport owns the bridge.
 	OnMessage       func(MessageView)
 	OnPresence      func()
@@ -1209,15 +1213,28 @@ func (b *Bridge) SendTyping(channelID string) error {
 
 // JoinVoice enters a channel's voice room.
 func (b *Bridge) JoinVoice(channelID string) error {
+	return b.JoinVoiceFor(channelID, "")
+}
+
+// JoinVoiceFor is JoinVoice, told which attached UI is asking. That client's
+// /events stream then bounds the call: when it ends for good the node stops
+// announcing a participant who is no longer there. An empty clientID keeps the
+// old behaviour exactly — the call is nobody's to end. See voicelife.go.
+func (b *Bridge) JoinVoiceFor(channelID, clientID string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.JoinVoice(channelID)
+	if err := svc.JoinVoice(channelID); err != nil {
+		return err
+	}
+	b.noteVoiceOwner(channelID, clientID)
+	return nil
 }
 
 // LeaveVoice leaves a channel's voice room.
 func (b *Bridge) LeaveVoice(channelID string) error {
+	b.forgetVoiceOwner(channelID)
 	svc, err := b.service()
 	if err != nil {
 		return err
@@ -3317,7 +3334,9 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "Contacts":
 		return b.Contacts()
 	case "JoinVoice":
-		return nil, b.JoinVoice(argStr(args, 0))
+		// The client id rides at the end. A caller built before it existed
+		// passes one argument and owns nothing, which is the old behaviour.
+		return nil, b.JoinVoiceFor(argStr(args, 0), argStr(args, 1))
 	case "LeaveVoice":
 		return nil, b.LeaveVoice(argStr(args, 0))
 	case "SignalCall":

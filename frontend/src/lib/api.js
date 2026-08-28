@@ -43,6 +43,13 @@ function wailsBindings() {
 
 const isWails = () => wailsBindings() !== null;
 
+// isNativeShell: running inside the Capacitor app, where the Go core lives in
+// the same process and outlives the webview. It matters for anything hung on
+// page teardown: a phone fires pagehide when the screen turns off, which is
+// emphatically not "this session is over".
+const isNativeShell = () =>
+  typeof window !== "undefined" && !!window.Capacitor;
+
 // ---- transport health ------------------------------------------------------
 //
 // A dead core is otherwise completely invisible. Every green dot, every peer
@@ -107,19 +114,45 @@ async function call(name, ...args) {
 }
 
 // leaveVoiceOnUnload tells the backend we're gone while the page is being torn
-// down. An ordinary fetch is cancelled mid-flight at that point; sendBeacon is
-// the one request the browser promises to finish. Without it the Go node keeps
-// announcing our presence every few seconds after the tab has closed, so
-// everyone else holds a connection to a client that isn't there.
+// down. An ordinary fetch is cancelled mid-flight at that point; a keepalive
+// fetch is the one request the browser promises to finish. Without it the Go
+// node keeps announcing our presence every few seconds after the tab has
+// closed, so everyone else holds a connection to a client that isn't there.
 //
-// Beacons can't carry headers, so this is skipped when a bearer token is in
-// play (the mobile shell) — that shell doesn't reload pages anyway.
+// This used to bail out whenever a bearer token was set, on the reasoning that
+// sendBeacon cannot carry headers and only the mobile shell sets a token. Both
+// halves were wrong. The shipped browser build sets one too — main.js hands
+// browserToken() to configureTransport, so every desktop-browser session has
+// one — which meant the guard skipped the beacon on exactly the platform whose
+// tabs get closed, and the bug this function exists to prevent was the normal
+// case. And headers are not the constraint any more: fetch's keepalive does
+// what sendBeacon does and carries an Authorization header while doing it.
+//
+// Belt and braces on the far side of this: internal/bridge/voice.go stops the
+// heartbeat when the client that started the call stops streaming, and
+// lib/state.svelte.js expires a roster entry whose heartbeat went quiet. This
+// is the fastest of the three and the least trustworthy — it never runs when a
+// process is killed — so all three exist.
 export function leaveVoiceOnUnload(channelID) {
-  if (!channelID || apiToken || isWails() || typeof navigator === "undefined") return false;
-  const body = new Blob([JSON.stringify({ method: "LeaveVoice", args: [channelID] })], {
-    type: "application/json",
-  });
-  return navigator.sendBeacon?.(`${apiBase}/rpc`, body) ?? false;
+  // The native shells are excluded for a reason that has nothing to do with
+  // tokens: on a phone, pagehide fires when the screen turns off, and the call
+  // is meant to survive that (there is a whole microphone foreground service
+  // keeping it alive). Leaving there would hang up every time a pocket
+  // darkened. Wails has no page teardown to speak of.
+  if (!channelID || isWails() || isNativeShell() || typeof fetch !== "function") return false;
+  const headers = { "Content-Type": "application/json" };
+  if (apiToken) headers["Authorization"] = `Bearer ${apiToken}`;
+  try {
+    fetch(`${apiBase}/rpc`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ method: "LeaveVoice", args: [channelID] }),
+      keepalive: true,
+    }).catch(() => {});
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export const api = {
@@ -443,7 +476,15 @@ export const api = {
     call("Inbox", words, beforeNano, limit, unreadOnly),
   markInboxRead: (atMs) => call("MarkInboxRead", atMs),
   contacts: () => call("Contacts"),
-  joinVoice: (channelID) => call("JoinVoice", channelID),
+  // clientID rides along so the node can bound the call by this page's own
+  // /events stream: when the tab is gone the heartbeat stops, whether or not
+  // the goodbye in leaveVoiceOnUnload ever got out. See voicelife.go.
+  //
+  // Withheld on the native shell, for the same reason the goodbye is: there the
+  // core outlives the webview on purpose. Android destroys the Activity while
+  // the microphone foreground service keeps the call running, so that stream
+  // ending means the screen went off, not that anybody hung up.
+  joinVoice: (channelID) => call("JoinVoice", channelID, isNativeShell() ? "" : clientID),
   leaveVoice: (channelID) => call("LeaveVoice", channelID),
   relaySignal: (toPeerID, data) => call("RelaySignal", toPeerID, data),
   callIceServers: () => call("CallIceServers"),

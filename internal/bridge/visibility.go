@@ -125,6 +125,10 @@ func (b *Bridge) AttachClient(clientID string) {
 	}
 	b.heardClient = true
 	b.mu.Unlock()
+	// The same stream that decides the vote decides how long a call this client
+	// started lives (voicelife.go). A redialing EventSource lands here, so this
+	// is where the hang-up grace gets called off.
+	b.voiceClientBack(clientID)
 	b.applyVisibility()
 }
 
@@ -140,6 +144,10 @@ func (b *Bridge) DropClient(clientID string) {
 	_, known := b.clientVisible[clientID]
 	delete(b.clientVisible, clientID)
 	b.mu.Unlock()
+	// A stream that ends is also the deadline on any call this client started —
+	// after a grace, in case the EventSource is merely redialing. See
+	// voicelife.go.
+	b.voiceClientGone(clientID)
 	if known {
 		b.applyVisibility()
 	}

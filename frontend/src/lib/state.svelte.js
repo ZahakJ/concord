@@ -283,6 +283,11 @@ export const S = $state({
   voiceSpeaking: [],
   talking: false, // push-to-talk key is down right now (drives the mic button)
   voicePeerFpr: {},
+  // How each connection in the call we're in is actually doing, keyed by peer
+  // id: { state: "connecting"|"connected"|"reconnecting"|"failed", media }.
+  // Fed by VoiceMesh's watchdog (lib/voice.js). Before this existed the stage
+  // rendered a deadlocked call and a healthy one identically.
+  voicePeerStatus: {},
   // voiceRosters: guild-wide "who is in each voice channel", built from gossip
   // presence heartbeats so the sidebar shows call participants without joining.
   // Shape: { channelId: { peerId: { fingerprint, ts } } }.
@@ -2952,13 +2957,10 @@ function initEvents() {
       if (v.action === "join") {
         if (!S.voicePeerFpr[v.from]) playVoiceJoin();
         S.voicePeerFpr = { ...S.voicePeerFpr, [v.from]: v.fingerprint };
+        S.voice.mesh.handlePresence(v.from, v.action);
       } else {
-        const c = { ...S.voicePeerFpr };
-        delete c[v.from];
-        S.voicePeerFpr = c;
-        playVoiceLeave();
+        dropVoicePeer(v.from);
       }
-      S.voice.mesh.handlePresence(v.from, v.action);
     }
   });
   // A verified contact is offering to add us to their guild. We show it; we
@@ -2981,16 +2983,28 @@ function initEvents() {
     const now = Date.now();
     let changed = false;
     const next = {};
+    const gone = [];
     for (const [ch, peers] of Object.entries(S.voiceRosters)) {
       const kept = {};
       for (const [pid, info] of Object.entries(peers)) {
         if (now - info.ts < 9000) kept[pid] = info;
-        else changed = true;
+        else {
+          changed = true;
+          if (S.voice?.channelId === ch) gone.push(pid);
+        }
       }
       if (Object.keys(kept).length) next[ch] = kept;
       else if (Object.keys(peers).length) changed = true;
     }
     if (changed) S.voiceRosters = next;
+    // A peer whose heartbeat stopped has left the call, whatever their
+    // RTCPeerConnection still believes. This is the third of three layers that
+    // clear a departed participant — the beacon on their side, the node
+    // dropping their heartbeat, and this — and it is the only one that works
+    // when the other two can't, because it trusts nothing but silence. Without
+    // it a crashed tab stayed on the stage as a healthy tile until WebRTC
+    // finally gave up on the connection, which took eighteen seconds.
+    for (const pid of gone) dropVoicePeer(pid);
   }, 3000);
 }
 
@@ -3013,6 +3027,30 @@ const announcedGuests = new Set();
 // Knocking guests we have already nudged about, so a knock re-announced every
 // few seconds rings once rather than every tick.
 const announcedKnocks = new Set();
+
+// dropVoicePeer takes one participant off the call we are in: closes their
+// media connection, forgets their name and their connection state, and says so
+// out loud. The single exit for a departing peer, whether they said goodbye or
+// simply stopped answering.
+function dropVoicePeer(peerId) {
+  if (!S.voice) return;
+  // "Did we know them" decides whether anything audible happens: the roster
+  // expiry and a stray goodbye can both name someone we never had, and a chime
+  // for a person who was never on the stage is a noise with no referent.
+  const knew = !!S.voicePeerFpr[peerId] || S.voice.mesh.peers.has(peerId);
+  if (S.voicePeerFpr[peerId]) {
+    const c = { ...S.voicePeerFpr };
+    delete c[peerId];
+    S.voicePeerFpr = c;
+  }
+  if (S.voicePeerStatus[peerId]) {
+    const st = { ...S.voicePeerStatus };
+    delete st[peerId];
+    S.voicePeerStatus = st;
+  }
+  S.voice.mesh.handlePresence(peerId, "leave");
+  if (knew) playVoiceLeave();
+}
 
 // updateVoiceRoster folds one presence heartbeat into the guild-wide roster.
 function updateVoiceRoster(channelId, peerId, fingerprint, action) {
