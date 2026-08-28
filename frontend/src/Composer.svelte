@@ -137,12 +137,6 @@
   // Enter behavior keys off actual pointer coarseness so a physical keyboard
   // in a narrow window keeps Enter-to-send.
   const mobile = $derived(S.isMobile);
-  // Between the mobile breakpoint and ~1150px the desktop layout survives but
-  // the chat column does not: nine 34px buttons plus their gaps claim ~300px of
-  // a 314px well, and the textarea is left with the twelve pixels nobody
-  // measured. The five occasional controls fold into an overflow menu there,
-  // which is the same trade the phone row already makes — just later.
-  const tight = $derived(!mobile && S.narrow);
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
   const canSend = $derived((!!draft.trim() || pending.length > 0) && !!ch && slowLeft <= 0);
 
@@ -1911,13 +1905,31 @@
             <Icon name="mic" size={20} />
           </button>
         {/if}
-        {#if tight}
-          <!-- Squeezed column: one door for the five occasional controls. Words
-               rather than glyphs, since a menu has the room for them. -->
-          <Menu label="More" icon="dots" up>
-            <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "gifs" })}>
-              <Icon name="play" size={14} /> GIF
-            </button>
+          <!-- The guild's own GIF pack. A word, not a glyph: there is no icon
+               for "GIF" that anyone reads correctly, and this is the label
+               every other client uses.
+
+               No vendor named in the tooltip: which GIF service the Search tab
+               reaches is the rendezvous operator's choice, and the picker
+               itself reports it. A hardcoded "Tenor" here went stale the day
+               Google shut that API down (30 June 2026). -->
+          <button
+            type="button"
+            class="iconbtn gifbtn"
+            use:tooltip={"GIFs — this guild's pack, or a web search via your rendezvous"}
+            aria-label="Open the GIF picker"
+            disabled={!ch}
+            onclick={() => (S.modal = { kind: "gifs" })}
+          >GIF</button>
+          <!-- One door for the occasional controls, at every width. The wide
+               desktop strip used to lay nine glyphs flat with no grouping and
+               no overflow, so finding the emoji button meant reading nine
+               shapes; the squeezed column already folded them away and the only
+               reason the wide one did not was that it had the room. Room is not
+               a reason. Attach, GIF and emoji stay out — they are the three
+               people reach for constantly — and the rest are words in a menu,
+               which is what they wanted to be all along. -->
+          <Menu label="Add to your message" icon="plus" up>
             <button class="menu-item" disabled={!ch} onclick={() => (S.modal = { kind: "poll" })}>
               <Icon name="poll" size={14} /> Poll
             </button>
@@ -1936,14 +1948,14 @@
               </button>
             {/if}
             <button class="menu-item" disabled={!ch} onclick={openAdvanced}>
-              <Icon name="heading" size={14} /> Advanced composer
+              <Icon name="docpen" size={14} /> Advanced composer
             </button>
             <button
               class="menu-item"
               disabled={!ch}
               onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
             >
-              <Icon name="diamond" size={14} />
+              <Icon name="stamp" size={14} />
               {sealNext ? "Don't seal the send time" : "Seal the send time"}
             </button>
             <button class="menu-item" disabled={!ch} onclick={scheduleSend}>
@@ -1951,93 +1963,22 @@
               {draft.trim() ? "Schedule this message" : "Scheduled messages"}
             </button>
           </Menu>
-        {:else}
-          <!-- The guild's own GIF pack. A word, not a glyph: there is no icon for
-               "GIF" that anyone reads correctly, and this is the label every
-               other client uses.
-
-               No vendor named in the tooltip: which GIF service the Search tab
-               reaches is the rendezvous operator's choice, and the picker itself
-               reports it. A hardcoded "Tenor" here went stale the day Google shut
-               that API down (30 June 2026). -->
-          <button
-            type="button"
-            class="iconbtn gifbtn"
-            use:tooltip={"GIFs — this guild's pack, or a web search via your rendezvous"}
-            aria-label="Open the GIF picker"
-            disabled={!ch}
-            onclick={() => (S.modal = { kind: "gifs" })}
-          >GIF</button>
-          <button
-            type="button"
-            class="iconbtn"
-            use:tooltip
-            aria-label="Create a poll"
-            disabled={!ch}
-            onclick={() => (S.modal = { kind: "poll" })}
-          >
-            <Icon name="poll" size={20} />
-          </button>
-          <button
-            type="button"
-            class="iconbtn"
-            use:tooltip={"Start a game in this channel"}
-            aria-label="Start a game"
-            disabled={!ch}
-            onclick={() => (S.modal = { kind: "game" })}
-          >
-            <Icon name="die" size={19} />
-          </button>
-          <button
-            type="button"
-            class="iconbtn"
-            use:tooltip={"Draw a doodle — strokes, not a picture"}
-            aria-label="Draw a doodle"
-            disabled={!ch}
-            onclick={() => (S.modal = { kind: "doodle" })}
-          >
-            <Icon name="edit" size={19} />
-          </button>
-          <button
-            type="button"
-            class="iconbtn"
-            use:tooltip={"Advanced composer (colours, rich embeds, preview)"}
-            aria-label="Advanced composer"
-            disabled={!ch}
-            onclick={openAdvanced}
-          >
-            <Icon name="heading" size={19} />
-          </button>
-          <!-- Seal: arms a permanent timestamp on the next message. Distinct from
-               the clock beside it, which schedules a message for LATER — this one
-               records exactly when it went out. -->
-          <button
-            type="button"
-            class="iconbtn sealbtn"
-            class:armed={sealNext}
-            use:tooltip={{
-              text: sealNext
-                ? "Sealing the send time onto this message — click to cancel"
-                : "Seal the exact send time onto this message",
-            }}
-            aria-label="Seal timestamp"
-            aria-pressed={sealNext}
-            disabled={!ch}
-            onclick={() => { sealNext = !sealNext; if (sealNext) haptic("light"); composerEl?.focus(); }}
-          >
-            <Icon name="diamond" size={18} />
-          </button>
-          <button
-            type="button"
-            class="iconbtn"
-            use:tooltip={{ text: draft.trim() ? "Schedule this message" : "Scheduled messages & reminders" }}
-            aria-label="Schedule message"
-            disabled={!ch}
-            onclick={scheduleSend}
-          >
-            <Icon name="clock" size={20} />
-          </button>
-        {/if}
+          <!-- Armed seal stays VISIBLE. Folding it into the menu is right while
+               it is off — it is a rare control — but once it is armed it is a
+               claim being made about the next message you send, and a claim you
+               cannot see is a claim you will forget you made. -->
+          {#if sealNext}
+            <button
+              type="button"
+              class="iconbtn sealbtn armed"
+              use:tooltip={{ text: "Sealing the send time onto this message — click to cancel" }}
+              aria-label="Seal timestamp"
+              aria-pressed="true"
+              onclick={() => { sealNext = false; composerEl?.focus(); }}
+            >
+              <Icon name="stamp" size={18} />
+            </button>
+          {/if}
         <button
           type="button"
           class="iconbtn"
@@ -2144,7 +2085,7 @@
         <span class="sr-state">{showFmt ? "On" : "Off"}</span>
       </button>
       <button type="button" class="sheet-row" onclick={() => fromSheet(openAdvanced)}>
-        <span class="sr-icon"><Icon name="heading" size={20} /></span>
+        <span class="sr-icon"><Icon name="docpen" size={20} /></span>
         <span class="sr-text">
           <span class="sr-label">Advanced composer</span>
           <span class="sr-sub">Colours, rich embeds, preview</span>

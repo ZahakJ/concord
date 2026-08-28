@@ -51,6 +51,14 @@
     // was a forward arrow — a direction typed from memory. A name cannot be
     // typed the wrong way round.
     back: "M10.5 3 5.5 8l5 5",
+    // The advanced composer. It borrowed `heading` — an H — inside a composer
+    // that already has a formatting bar, where an H means "heading". A page
+    // with a pen over it says "write this one properly".
+    docpen: "M9 2H4.2A1.2 1.2 0 0 0 3 3.2v9.6A1.2 1.2 0 0 0 4.2 14h5.3M5.5 5h3M5.5 7.5h2M14 5.6 9.6 10l-2 .6.6-2L12.6 4.2a1 1 0 0 1 1.4 1.4Z",
+    // Seal a send time. It borrowed `diamond`, which is this file's fallback
+    // for an unknown name and means nothing in any icon vocabulary. A stamp
+    // with a pressed impression under it does.
+    stamp: "M6 2.2h4a1.4 1.4 0 0 1 1.4 1.5l-.4 3.1h1.6a1.4 1.4 0 0 1 1.4 1.4v1.3H2v-1.3a1.4 1.4 0 0 1 1.4-1.4H5l-.4-3.1A1.4 1.4 0 0 1 6 2.2ZM3.4 12.4h9.2v1.4H3.4z",
     copy: "M5.5 5.5h8v8h-8z M10.5 5.5v-3h-8v8h3",
     info: "M8 14A6 6 0 1 0 8 2a6 6 0 0 0 0 12z M8 7.2v3.6 M8 5h.01",
     alert: "M8 2.2 14.3 13H1.7z M8 6.4v3 M8 11.3h.01",

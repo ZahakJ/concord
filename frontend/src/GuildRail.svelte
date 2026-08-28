@@ -676,34 +676,17 @@
       {/if}
     </button>
     <div class="divider"></div>
-    {#if S.isMobile}
-      <button class="pill add" use:tooltip={railTip} aria-label="Add a guild" onclick={addMenu}>
-        <Icon name="plus" />
-      </button>
-      <button
-        class="pill add meet"
-        use:tooltip={{ ...railTip, text: "Instant meeting — a disposable room + invite to send anyone" }}
-        aria-label="Start an instant meeting"
-        onclick={startMeeting}
-      >
-        <Icon name="bolt" />
-      </button>
-    {:else}
-      <button class="pill add" use:tooltip={railTip} aria-label="Create a guild" onclick={() => (S.modal = { kind: "create" })}>
-        <Icon name="plus" />
-      </button>
-      <button
-        class="pill add meet"
-        use:tooltip={{ ...railTip, text: "Instant meeting — a disposable room + invite to send anyone" }}
-        aria-label="Start an instant meeting"
-        onclick={startMeeting}
-      >
-        <Icon name="bolt" />
-      </button>
-      <button class="pill add" use:tooltip={railTip} aria-label="Join with an invite code" onclick={() => (S.modal = { kind: "join", code: "" })}>
-        <Icon name="download" />
-      </button>
-    {/if}
+    <!-- One plate, three verbs. Desktop used to stack three dashed-outline
+         circles here — create, meeting, join — and a dashed circle is the
+         universal idiom for an empty slot or a drop target, so three real
+         actions wore the costume of placeholders. They were also identical to
+         each other, in a 64px column whose other buttons are solid rounded
+         plates: three treatments in one strip. The + is the one people need,
+         so it gets the plate and the other two move into the menu it was
+         already opening on a phone. -->
+    <button class="pill new" use:tooltip={railTip} aria-label="Add a guild" aria-haspopup="menu" onclick={addMenu}>
+      <Icon name="plus" />
+    </button>
   </div>
 </nav>
 
@@ -893,15 +876,6 @@
     background: var(--bg-2);
     overflow: hidden;
   }
-  .pill.meet {
-    color: var(--warn);
-  }
-  @media (pointer: fine) {
-    .pill.meet:hover {
-      background: color-mix(in srgb, var(--warn) 24%, var(--bg-3));
-      color: var(--text);
-    }
-  }
   .divider {
     width: 28px;
     height: 2px;
@@ -928,21 +902,24 @@
   .pill.cal.active {
     border-radius: var(--radius-lg);
   }
-  .pill.add {
-    background: transparent;
-    border: 1px dashed var(--border);
-    color: var(--text-muted);
+  /* Same plate as the bell and the calendar above it, differentiated by its
+     glyph rather than by a different species of button. */
+  .pill.new {
+    border-radius: var(--radius-lg);
+    background: var(--bg-3);
+    color: var(--accent-hover);
   }
-  .pill.add :global(svg) {
+  .pill.new :global(svg) {
     transition: transform 0.22s var(--ease-spring);
   }
   @media (pointer: fine) {
-    .pill.add:hover {
-      color: var(--accent-hover);
-      border-color: var(--accent-hover);
-      background: var(--bg-2);
+    .pill.new:hover {
+      border-radius: var(--radius-lg);
+      background: var(--accent);
+      color: var(--accent-fg);
     }
-    .pill.add:hover :global(svg) {
+    /* The + spins toward the menu it opens. */
+    .pill.new:hover :global(svg) {
       transform: rotate(90deg);
     }
   }
@@ -954,11 +931,11 @@
     animation-delay: calc(40ms + var(--i, 0) * 25ms);
   }
   .pill.home,
-  .pill.add,
+  .pill.new,
   .pill.cal {
     animation: rail-in 0.3s var(--ease-out) both;
   }
-  .pill.add {
+  .pill.new {
     animation-delay: 0.18s;
   }
   @keyframes rail-in {
@@ -1108,7 +1085,7 @@
     }
     .bubble-wrap,
     .pill.home,
-    .pill.add,
+    .pill.new,
     .pill.cal,
     .jet.roll {
       animation: none;
@@ -1117,7 +1094,7 @@
     .pill:active {
       transform: none;
     }
-    .pill.add:hover :global(svg),
+    .pill.new:hover :global(svg),
     .pill.home:hover :global(svg) {
       transform: none;
     }
