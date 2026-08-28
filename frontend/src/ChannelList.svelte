@@ -54,6 +54,9 @@
   import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { longpress, haptic } from "./lib/touch.js";
   import { draftIn } from "./lib/drafts.svelte.js";
+  import { callClock } from "./lib/calltimer.svelte.js";
+
+  const clock = $derived(callClock());
 
   // getDisplayMedia is absent in Android/iOS WebViews, so the share button is a
   // control that can only ever fail. It goes away entirely rather than sitting
@@ -1013,12 +1016,24 @@
       >
         <span class="vb-live"></span>
         <span class="vb-text">
-          <strong>Voice connected</strong>
+          <strong>
+            Voice connected
+            <!-- The elapsed time doubles as proof the call is alive: a clock
+                 that has stopped is a call that has died. -->
+            {#if clock}<span class="vb-clock">{clock}</span>{/if}
+          </strong>
           <span class="muted vb-ch">{channelShort(S.voice.channelId)}</span>
         </span>
       </button>
       <span class="vb-actions">
-        <button class="vb-btn" use:tooltip aria-label={S.muted ? "Unmute" : "Mute"} onclick={onToggleMute}>
+        <button
+          class="vb-btn"
+          class:on={S.muted}
+          use:tooltip
+          aria-label={S.muted ? "Unmute" : "Mute"}
+          aria-pressed={S.muted}
+          onclick={onToggleMute}
+        >
           <Icon name={S.muted ? "micOff" : "mic"} size={14} />
         </button>
         <button
@@ -1026,6 +1041,7 @@
           class:on={S.cameraOn}
           use:tooltip
           aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+          aria-pressed={S.cameraOn}
           onclick={onToggleCamera}
         >
           <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={14} />
@@ -1036,6 +1052,7 @@
             class:on={S.sharing}
             use:tooltip
             aria-label={S.sharing ? "Stop sharing" : "Share screen"}
+            aria-pressed={S.sharing}
             onclick={onToggleShare}
           >
             <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
@@ -1941,10 +1958,19 @@
     background: var(--bg-3);
     color: var(--text-muted);
   }
+  /* This bar's entire job is to say "you are in a call, and it's here", and it
+     was losing that sentence to its own buttons: "Voice connected" needs 104px
+     and had 49, at 1280, 1440 and 1920 alike, because four icons and a label
+     were sharing one line of a fixed 210px rail. Any layout where the status
+     text loses to its own controls is the wrong layout — so the text takes the
+     row and the controls take the next one, which is what the phone tier had
+     already worked out for itself. */
   .voice-bar {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
+    row-gap: 6px;
     gap: 6px;
     padding: 8px 10px;
     margin: 0 8px;
@@ -1959,7 +1985,7 @@
     align-items: center;
     gap: var(--sp-2);
     min-width: 0;
-    flex: 1;
+    flex: 1 0 100%;
     background: transparent;
     color: var(--ok-text);
     text-align: left;
@@ -1993,12 +2019,24 @@
     min-width: 0;
   }
   .vb-text strong {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
     font-size: var(--fs-compact);
     /* "Voice connected" is two words, and a rail dragged narrow will break it
        across two lines and push the mic button off its own row. */
     overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* Tabular figures so the seconds don't shuffle the label sideways every
+     tick, and a hair dimmer than the words it follows: the clock is evidence,
+     not a heading. */
+  .vb-clock {
+    margin-left: auto;
+    padding-left: 6px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    opacity: 0.8;
   }
   .vb-ch {
     font-size: var(--fs-small);
@@ -2008,8 +2046,9 @@
   }
   .vb-actions {
     display: flex;
+    flex: 1 0 100%;
+    justify-content: space-between;
     gap: 2px;
-    flex-shrink: 0;
   }
   .vb-btn {
     background: transparent;
@@ -2222,16 +2261,9 @@
     .channel-row + .vc-member {
       margin-top: var(--sp-1);
     }
-    /* Four 44px targets plus the label never fit the drawer's ~252px on one
-       line — the label was squeezed to 123px and "Voice connected" wrapped.
-       Give the controls their own row. */
-    .voice-bar {
-      flex-wrap: wrap;
-      row-gap: var(--sp-1);
-    }
+    /* The two-row arrangement is the base layout now (see .voice-bar); the
+       phone only widens the gutter between finger-sized targets. */
     .vb-actions {
-      flex: 1 0 100%;
-      justify-content: space-between;
       gap: var(--sp-1);
     }
     .vb-btn {

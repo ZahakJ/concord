@@ -14,7 +14,10 @@
     toggleMemberPanel,
     openProfilePopover,
     confirmLeaveGuild,
+    jumpToChannel,
+    channelShort,
   } from "./lib/state.svelte.js";
+  import { callClock } from "./lib/calltimer.svelte.js";
   import { api } from "./lib/api.js";
   import { saveText } from "./lib/savefile.js";
   // Operator parsing (from:/in:/has:/before:/after:) + the backend call live
@@ -52,6 +55,8 @@
   // actions — disappearing messages, events — move into the menu that is
   // already here, and the button labels shrink to their glyphs.
   const tight = $derived(!S.isMobile && S.narrow);
+  const clock = $derived(callClock());
+  const callLabel = $derived(S.voice ? channelShort(S.voice.channelId) : "");
 
   async function showInvite() {
     S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) };
@@ -189,14 +194,28 @@
            phone shell already withheld it (`!g.dmNotes`) and the desktop header
            did not, which left a Call button whose only possible outcome was
            ringing an empty room. -->
+    {:else if S.voice}
+      <!-- You are already in a call, somewhere else. This button used to read
+           "Voice" here — the same word as the button that STARTS one, two
+           channels away — and clicking it took you back to the call you were
+           in with no explanation. Same label, two meanings. The clock says
+           which of the two this is without needing the sentence. -->
+      <button
+        class="ghost iconbtn return-call"
+        use:tooltip={{ text: `Back to ${callLabel || "your call"}` }}
+        onclick={() => jumpToChannel(S.voice.channelId)}
+      >
+        <span class="live-dot"></span>
+        <span class="n">Return to call{clock ? ` · ${clock}` : ""}</span>
+      </button>
     {:else if ch && !g?.dmNotes}
       <button
         class="ghost iconbtn"
         class:call={g?.kind === "dm" || g?.kind === "meeting"}
-        use:tooltip={{ text: g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Join voice" }}
+        use:tooltip={{ text: g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Start a call in this channel" }}
         onclick={() => onJoinVoice()}
       >
-        <Icon name="speaker" /> <span class="n">{g?.kind === "dm" || g?.kind === "meeting" ? "Call" : "Voice"}</span>
+        <Icon name="speaker" /> <span class="n">Start a call</span>
       </button>
     {/if}
 
@@ -562,6 +581,10 @@
   }
   .n {
     font-size: var(--fs-compact);
+    /* These labels are two and three words now ("Start a call", "Return to
+       call · 12:34"), and a header button that wraps its own label is a header
+       button that grows a second line and shoves the row taller. */
+    white-space: nowrap;
   }
   /* Squeezed column: the words come off the call buttons and the glyph plus its
      tooltip carries them instead. The pin COUNT stays — that is data, not a
@@ -662,6 +685,22 @@
   }
   .iconbtn.live-join:hover {
     background: color-mix(in srgb, var(--danger) 20%, transparent);
+  }
+  /* Your OWN call, running elsewhere. Green rather than the red of "somebody
+     else is live in here": one is a room you could join, the other is the room
+     you are already in. */
+  .iconbtn.return-call {
+    color: var(--ok-text);
+    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+    background: var(--ok-soft);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .iconbtn.return-call:hover {
+    background: color-mix(in srgb, var(--ok) 22%, transparent);
+  }
+  .iconbtn.return-call .live-dot {
+    background: var(--ok);
   }
   .live-dot {
     width: 7px;

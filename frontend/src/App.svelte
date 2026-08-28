@@ -10,6 +10,7 @@
   import { requestPermission, asksLazily } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
   import { playVoiceJoin, playVoiceLeave, playRing } from "./lib/sounds.js";
+  import { startCallClock, stopCallClock } from "./lib/calltimer.svelte.js";
   import {
     S,
     activeGuild,
@@ -999,6 +1000,7 @@
     }
     S.voice = { mesh, channelId };
     S.joiningVoice = "";
+    startCallClock();
     // Android: a microphone-type foreground service for the call's duration —
     // without it, Android 14+ cuts the mic the moment the app leaves the
     // screen, and the room hears you silently drop.
@@ -1031,6 +1033,7 @@
     clearCallState(ch);
     S.voice.mesh.stop();
     S.voice = null;
+    stopCallClock();
     // Suppress the incoming-call ring for this channel: the others may still be
     // in the room, and without this you'd immediately re-ring yourself for the
     // call you just left. (Auto-cleared when the room's roster empties.)
