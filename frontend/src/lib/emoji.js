@@ -157,7 +157,8 @@ const NAME_OF = new Map();
 for (const n of NAMES) if (!NAME_OF.has(EMOJI[n])) NAME_OF.set(EMOJI[n], n);
 export function emojiName(char) {
   const base = char.replace(/[\u{1F3FB}-\u{1F3FF}]/gu, "");
-  return NAME_OF.get(char) || NAME_OF.get(base) || NAME_OF.get(base + "\uFE0F") || "";
+  const look = (c) => NAME_OF.get(c) || FULL?.nameOf.get(c);
+  return look(char) || look(base) || look(base + "\uFE0F") || "";
 }
 
 // Category tabs for the picker, derived from EMOJI's section order (no
@@ -191,25 +192,126 @@ export function pushRecentEmoji(e) {
   }
 }
 
-// searchEmoji returns up to `limit` [name, emoji] pairs matching a prefix or
-// substring of the shortcode name (prefix matches ranked first).
+// ── The full Unicode set ─────────────────────────────────────────────────────
+// Everything above is the 379 hand-curated shortcodes, and it stays: they are
+// written into messages people have already sent, into their recents, and into
+// the quick-reaction bars, so their meaning may never move. The generated table
+// (lib/emojitable.js, ~1700 emoji in Unicode's own nine groups) is layered
+// UNDER it — a generated name is only taken if the curated set has not claimed
+// it, and a generated char only names itself if no curated shortcode already
+// does. Adopting a name whose curated meaning differed would silently change
+// what an old `:tongue:` renders as.
+//
+// It is installed rather than imported because it arrives through a dynamic
+// import (lib/emojifull.svelte.js) and this module is on the send path, which
+// is synchronous. Everything below degrades to the curated table until then;
+// nothing waits on it.
+let FULL = null;
+
+// "flag: Saudi Arabia" -> "flag_saudi_arabia". Digits survive, which is what
+// keeps the ten keycaps apart; a name that slugs to nothing or to something
+// already taken gets a numeric suffix rather than being dropped, because the
+// grid still has to be able to name every cell it draws.
+function slug(name) {
+  return name
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+export function installFullEmoji(raw) {
+  if (FULL) return FULL;
+  const groups = [];
+  const items = [];
+  const byName = new Map(Object.entries(EMOJI));
+  const nameOf = new Map(NAME_OF);
+  const tonable = new Set();
+  let g = null;
+  for (const line of raw.split("\n")) {
+    if (line.charCodeAt(0) === 9) {
+      const [, key, label, icon] = line.split("\t");
+      g = { key, label, icon, names: [] };
+      groups.push(g);
+      continue;
+    }
+    const [char, label, tone] = line.split("\t");
+    if (!char || !g) continue;
+    let name = slug(label) || "emoji";
+    if (byName.has(name) && byName.get(name) !== char) {
+      let i = 2;
+      while (byName.has(`${name}_${i}`)) i++;
+      name = `${name}_${i}`;
+    }
+    byName.set(name, char);
+    if (!nameOf.has(char)) nameOf.set(char, name);
+    if (tone) tonable.add(name);
+    items.push({ n: name, c: char, l: label.toLowerCase() });
+    g.names.push(name);
+  }
+  FULL = { groups, items, byName, nameOf, tonable };
+  return FULL;
+}
+
+// Is the full table in yet? Callers that want to re-render when it lands read
+// this through lib/emojifull.svelte.js, which boxes it in $state.
+export const fullEmojiReady = () => !!FULL;
+
+// The picker's tabs: Unicode's nine groups once the table is in, the five
+// curated ones until then.
+export function emojiCategories() {
+  return FULL ? FULL.groups : CATEGORIES;
+}
+
+// The char for a shortcode, curated first.
+export function emojiChar(name) {
+  return EMOJI[name] || FULL?.byName.get(name) || "";
+}
+
+// Whether a skin tone applies. The curated list is a hand-picked set of hands
+// and people; the generated one is Unicode's own answer, which is strictly
+// better and covers 249 entries instead of 33.
+export function emojiTonable(name) {
+  return FULL ? FULL.tonable.has(name) || TONABLE.has(name) : TONABLE.has(name);
+}
+
+// searchEmoji returns up to `limit` [name, emoji] pairs. Shortcode prefix hits
+// rank first, then shortcode substrings, then the CLDR name — which is what
+// makes "saudi" find the flag and "birthday" find the cake without a separate
+// keyword list to keep in sync.
 export function searchEmoji(query, limit = 8) {
   const q = query.toLowerCase();
-  if (!q) return NAMES.slice(0, limit).map((n) => [n, EMOJI[n]]);
+  if (!FULL) {
+    if (!q) return NAMES.slice(0, limit).map((n) => [n, EMOJI[n]]);
+    const starts = [];
+    const contains = [];
+    for (const n of NAMES) {
+      if (n.startsWith(q)) starts.push(n);
+      else if (n.includes(q)) contains.push(n);
+      if (starts.length >= limit) break;
+    }
+    return [...starts, ...contains].slice(0, limit).map((n) => [n, EMOJI[n]]);
+  }
+  if (!q) return FULL.items.slice(0, limit).map((e) => [e.n, e.c]);
   const starts = [];
   const contains = [];
-  for (const n of NAMES) {
-    if (n.startsWith(q)) starts.push(n);
-    else if (n.includes(q)) contains.push(n);
+  const labelled = [];
+  for (const e of FULL.items) {
+    if (e.n.startsWith(q)) starts.push(e);
+    else if (e.n.includes(q)) contains.push(e);
+    else if (e.l.includes(q)) labelled.push(e);
     if (starts.length >= limit) break;
   }
-  return [...starts, ...contains].slice(0, limit).map((n) => [n, EMOJI[n]]);
+  return [...starts, ...contains, ...labelled].slice(0, limit).map((e) => [e.n, e.c]);
 }
 
 // replaceShortcodes converts every :name: in the text to its emoji (unknown
 // names are left untouched).
 export function replaceShortcodes(text) {
-  return text.replace(/:([a-z0-9_+-]+):/gi, (match, name) => EMOJI[name.toLowerCase()] || match);
+  return text.replace(
+    /:([a-z0-9_+-]+):/gi,
+    (match, name) => EMOJI[name.toLowerCase()] || FULL?.byName.get(name.toLowerCase()) || match,
+  );
 }
 
 // activeShortcode inspects a text + caret position and returns the partial

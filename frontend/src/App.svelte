@@ -4,6 +4,7 @@
   // backend event wiring live in lib/state.svelte.js.
   import { onMount } from "svelte";
   import { precacheCosmetics } from "./lib/cosmetics.svelte.js";
+  import { precacheEmoji } from "./lib/emojifull.svelte.js";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
   import { createVisibilityReporter } from "./lib/visibility.js";
   import { VoiceMesh } from "./lib/voice.js";
@@ -467,9 +468,16 @@
     // idle moment rather than on the first avatar that needs one. On a phone
     // that means requestIdleCallback; a desktop window has the headroom to just
     // do it after the frame.
+    // The full emoji table rides the same idle moment, for the same reason:
+    // typing a colon or opening the picker must not be the first time anyone
+    // asks for 35KB of Unicode.
+    const warm = () => {
+      precacheCosmetics();
+      precacheEmoji();
+    };
     if (window.Capacitor && "requestIdleCallback" in window)
-      requestIdleCallback(precacheCosmetics, { timeout: 4000 });
-    else requestAnimationFrame(() => setTimeout(precacheCosmetics, 0));
+      requestIdleCallback(warm, { timeout: 4000 });
+    else requestAnimationFrame(() => setTimeout(warm, 0));
     // Closing or reloading the tab while in a call: tell the node to leave, so
     // it stops announcing us to a room we're no longer in. "pagehide" is the
     // one that also fires when a mobile browser backgrounds the page.

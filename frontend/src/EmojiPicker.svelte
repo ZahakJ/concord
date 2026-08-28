@@ -1,8 +1,9 @@
 <script>
   import {
-    EMOJI, CATEGORIES, searchEmoji, recentEmoji, pushRecentEmoji,
-    SKIN_TONES, TONABLE, applyTone, emojiTone, setEmojiTone, emojiName,
+    emojiCategories, emojiChar, emojiTonable, searchEmoji, recentEmoji,
+    pushRecentEmoji, SKIN_TONES, applyTone, emojiTone, setEmojiTone, emojiName,
   } from "./lib/emoji.js";
+  import { emojiTable } from "./lib/emojifull.svelte.js";
   import { S, activeGuild } from "./lib/state.svelte.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
 
@@ -35,13 +36,24 @@
     toneOpen = false;
   }
   // display renders a shortcode's char with the active tone when supported.
-  const display = (name) => (TONABLE.has(name) ? applyTone(EMOJI[name], tone) : EMOJI[name]);
+  // The tone reaches the WHOLE grid now, not the 33 names the curated set
+  // hand-picked: Unicode says which sequences take a modifier and the generated
+  // table carries that answer for all 249 of them.
+  const display = (name) => (emojiTonable(name) ? applyTone(emojiChar(name), tone) : emojiChar(name));
 
+  // Reading emojiTable() is what asks for the generated chunk AND what makes
+  // this component re-render when it lands: until then the five curated
+  // categories are what the tabs show, which is the right thing to show while
+  // the real answer is a network hop away.
+  const categories = $derived.by(() => {
+    emojiTable(); // the read is the subscription, and the request
+    return emojiCategories();
+  });
   const customList = $derived(activeGuild()?.emoji || []);
   // Tabs: recent (if any) + the standard categories + guild (if any custom).
   const tabs = $derived([
     ...(recents.length ? [{ key: "recent", label: "Recently used", icon: "🕘" }] : []),
-    ...CATEGORIES,
+    ...categories,
     ...(customList.length ? [{ key: "guild", label: "Guild", icon: "🖼️" }] : []),
   ]);
   let activeCat = $state("");
@@ -53,7 +65,7 @@
   const q = $derived(query.trim().toLowerCase());
   const searchHits = $derived(q ? searchEmoji(q, 64) : []);
   const searchCustom = $derived(q ? customList.filter((e) => e.name.includes(q)) : []);
-  const catNames = $derived(CATEGORIES.find((c) => c.key === activeCat)?.names || []);
+  const catNames = $derived(categories.find((c) => c.key === activeCat)?.names || []);
 
   // Hovered-emoji preview: { char, name } or { img, name } for guild emoji.
   let preview = $state(null);
@@ -381,16 +393,22 @@
     background: var(--bg-input);
     box-shadow: inset 0 0 0 1.5px var(--accent);
   }
+  /* Five categories became nine, and with recents and a guild pack that is
+     eleven tabs in a 290px panel. They share the width evenly and clip nothing:
+     a strip that scrolls sideways inside a popover is a scrollbar nobody finds,
+     and a strip that overflows silently loses Flags off the right edge. */
   .tabs {
     display: flex;
-    gap: 2px;
+    gap: 1px;
     border-bottom: 1px solid var(--border);
   }
   .tab {
     position: relative;
+    flex: 1 1 0;
+    min-width: 0;
     background: transparent;
-    font-size: var(--fs-title);
-    padding: 4px 6px 7px;
+    font-size: var(--fs-body);
+    padding: 5px 2px 7px;
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
     line-height: 1;
     opacity: 0.55;

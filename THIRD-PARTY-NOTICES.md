@@ -54,6 +54,21 @@ jdecked's Twemoji accepts attribution in a project README, an About section, or
 a footer. This file, shipped at the root of the source distribution, is that
 attribution; the app has no About screen linking to it yet.
 
+## Unicode emoji names and grouping (`emoji-test.txt`)
+
+- **Upstream:** the Unicode Consortium's own emoji data file,
+  https://unicode.org/Public/emoji/12.0/emoji-test.txt.
+- **Copyright:** © 1991–present Unicode, Inc.
+- **Licence:** the Unicode License (permissive; attribution required) —
+  https://www.unicode.org/license.txt.
+- **Where:** `frontend/src/lib/emojitable.js`, which IS committed. It carries,
+  for ~1,700 emoji, the character itself, its CLDR short name, which of the
+  nine standard groups it belongs to, and whether a skin-tone modifier applies.
+- **Concord's changes:** `frontend/scripts/prep-emoji.mjs` reads the file and
+  re-emits that subset as one tab-delimited string. Skin-tone sequences and the
+  Component group are dropped; nothing is renamed. The generator is run by hand
+  and its input is not vendored — see its header.
+
 ## Noto Animated Emoji
 
 - **Upstream:** [Noto Animated
