@@ -23,6 +23,7 @@
     scrollToMessage,
     memberByFpr,
     nameFor,
+    voiceMembersFor,
     nameColorFor,
     flash,
     markRead,
@@ -41,7 +42,7 @@
   import { entriesFor } from "./lib/outbox.svelte.js";
   import { untrack, tick } from "svelte";
 
-  let { onDropFiles } = $props();
+  let { onDropFiles, onJoinVoice } = $props();
 
   let feedEl = $state(null);
   let atBottom = $state(true);
@@ -208,8 +209,15 @@
       body: voice
         ? `This is the chat alongside the ${name} voice channel. Drop a link or a note for whoever's on the call.`
         : `This is the start of #${name}. Say hi 👋`,
+      voice,
+      name,
     };
   });
+  // Who is in the call this page is the chat alongside — the second half of the
+  // answer, under the button.
+  const voiceHere = $derived(
+    emptyInfo.voice && S.activeChannelId ? voiceMembersFor(S.activeChannelId) : [],
+  );
 
   // The id of the first message newer than where we left off (and not our own),
   // marking where the "New messages" divider goes. "" when nothing is new.
@@ -1440,7 +1448,44 @@
            channels an import has just created that are most likely to have no
            live history at all. -->
       <div class="empty">
-        <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body} />
+        <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body}>
+          {#snippet actions()}
+            {#if emptyInfo.voice}
+              <!-- The landing page of a voice room used to end at a sentence:
+                   "this is the chat alongside the Study Hall voice channel",
+                   and then nothing. The only way in was a small button in the
+                   header, fifty pixels from the channel name that had just
+                   told you this was a voice room. -->
+              <button class="join-call" onclick={() => onJoinVoice?.(S.activeChannelId)}>
+                <Icon name="speaker" size={15} />
+                Join {emptyInfo.name}
+              </button>
+              <span class="who-in">
+                {#if voiceHere.length}
+                  <span class="who-faces">
+                    {#each voiceHere.slice(0, 4) as vm (vm.peerId)}
+                      {@const m = memberByFpr(vm.fingerprint)}
+                      <span class="who-face">
+                        <Avatar
+                          name={nameFor(vm.fingerprint)}
+                          image={m?.avatar || ""}
+                          emoji={m?.emoji || ""}
+                          color={m?.color || ""}
+                          size={22}
+                        />
+                      </span>
+                    {/each}
+                  </span>
+                  {voiceHere.length === 1
+                    ? `${nameFor(voiceHere[0].fingerprint)} is in there`
+                    : `${voiceHere.length} people are in there`}
+                {:else}
+                  Nobody's in there yet
+                {/if}
+              </span>
+            {/if}
+          {/snippet}
+        </EmptyState>
       </div>
     {/if}
   {/if}
@@ -1764,6 +1809,42 @@
      scale. Positioning is the parent's job and the only job left here. */
   .empty {
     margin: auto;
+  }
+  /* The way in, at the size of a decision. */
+  .join-call {
+    padding: 10px 18px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    border-radius: 999px;
+    font-size: var(--fs-ui);
+    font-weight: 650;
+    min-height: var(--tap-min);
+  }
+  .join-call:hover {
+    background: var(--accent-hover);
+    box-shadow: var(--accent-glow);
+  }
+  /* Who is already in there, under it. "Nobody's in there yet" is worth saying
+     out loud too: it is the difference between a room and a decision. */
+  .who-in {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    flex: 1 0 100%;
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
+  .who-faces {
+    display: flex;
+  }
+  /* Overlapped, the way a roster of faces reads as one group rather than a row
+     of separate people. */
+  .who-face + .who-face {
+    margin-left: -8px;
+  }
+  .who-face :global(.avatar) {
+    border: 2px solid var(--bg-2);
   }
   .day-divider {
     display: flex;

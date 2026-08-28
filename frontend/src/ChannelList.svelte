@@ -878,8 +878,14 @@
                      people click it again. -->
                 <span class="ch-joining">Connecting…</span>
               {:else if occupied}
-                <!-- Live equalizer: someone is in this voice channel right now. -->
-                <span class="eq" class:you={inVoice} aria-label="Voice active"><i></i><i></i><i></i></span>
+                <!-- How many, then the equalizer. The row said only "somebody is
+                     in here" — you had to read the participant list under it to
+                     find out whether that was one person or six, and in a
+                     collapsed category there is no list to read. -->
+                <span class="ch-heads" aria-label="{voiceMembersFor(c.id).length} in this call">
+                  {voiceMembersFor(c.id).length}
+                </span>
+                <span class="eq" class:you={inVoice} aria-hidden="true"><i></i><i></i><i></i></span>
               {/if}
             </button>
             {#if canManageChannels}
@@ -921,11 +927,27 @@
               >
                 <Icon name={isMuted(c.id, g?.id) ? "bellOff" : "bell"} size={13} />
               </button>
-            {:else}
-              <!-- Nothing to mute in a voice channel, but without the bell's
-                   footprint the row's chevron slides 33px right of every other
-                   row's — a ragged edge in an otherwise even column. -->
+            {:else if inVoice}
+              <!-- Nothing to mute in a voice channel; the bell's footprint is
+                   kept either way, or the row's chevron slides 33px right of
+                   every other row's — a ragged edge in an otherwise even
+                   column. In a voice room it holds the way in instead. -->
               <span class="mute-slot" aria-hidden="true"></span>
+            {:else}
+              <!-- The row has always joined on click, and still does. This says
+                   so before you commit a microphone to it, and is the only
+                   keyboard-reachable way in that isn't "press Enter and find
+                   out". -->
+              <button
+                class="join-btn"
+                aria-label="Join {c.name}"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  onJoinVoice?.(c.id);
+                }}
+              >
+                Join
+              </button>
             {/if}
           </div>
           {#if c.type === "voice"}
@@ -1802,6 +1824,50 @@
   .mute-btn:hover {
     background: transparent;
     color: var(--text);
+  }
+  /* Says what a click on the row will do, in the slot the bell would occupy —
+     so a voice row keeps the same right edge as every other row whether the
+     button is showing or not. */
+  .join-btn {
+    flex: none;
+    padding: 2px 8px;
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 999px;
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    opacity: 0;
+  }
+  .channel-row:hover .join-btn,
+  .join-btn:focus-visible {
+    opacity: 1;
+  }
+  .join-btn:hover {
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  /* Coarse pointers have no hover to reveal it with, and a permanently visible
+     pill on every voice row would shout over the channel names. The row itself
+     is the target there, at the 48px floor. */
+  @media (pointer: coarse) {
+    .join-btn {
+      display: none;
+    }
+  }
+  /* How many people are in the room, beside the equalizer that says somebody
+     is. */
+  .ch-heads {
+    flex: none;
+    min-width: 16px;
+    padding: 0 5px;
+    text-align: center;
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--ok-text);
+    background: var(--ok-soft);
+    border-radius: 999px;
   }
   /* Gentle empty states for "no DMs yet" / "no guilds yet": a soft icon chip,
      one line of copy, and the single action that fixes it. */

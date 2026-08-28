@@ -602,7 +602,7 @@
         {#if activeChannelObj?.type === "forum"}
           <ForumView forum={activeChannelObj} />
         {:else}
-          <MessageList onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
+          <MessageList {onJoinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
           <Composer bind:this={composer} />
         {/if}
         <SearchPanel />
