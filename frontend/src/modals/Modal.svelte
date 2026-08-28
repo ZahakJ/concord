@@ -100,10 +100,18 @@
       // there, and focusing the first field would raise the software keyboard
       // over the sheet that just slid up — which is precisely why every modal's
       // own autofocus is already written `autofocus={!S.isMobile}`.
+      //
+      // And never a help affordance. Four settings panels open with a group
+      // heading that carries an ⓘ, which is therefore the first focusable thing
+      // in the dialog — so "focus the first control" landed on the one button
+      // whose entire job is to explain something, and the panel appeared with a
+      // tooltip already up over its own first row. A dot is not a control; it
+      // is an aside about one, and it is never the right place to start.
       const body = S.isMobile
         ? []
         : [...dialog.querySelectorAll(FOCUSABLE)].filter(
-            (el) => !el.closest(".sheet-top") && visible(el),
+            (el) =>
+              !el.closest(".sheet-top") && !el.hasAttribute("data-help-affordance") && visible(el),
           );
       // A panel that names its own first field wins over DOM order. The create-
       // channel dialog leads with four channel-TYPE buttons and follows them

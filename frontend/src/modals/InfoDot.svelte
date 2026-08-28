@@ -72,6 +72,19 @@
     return { destroy: () => node.remove() };
   }
 
+  // Focus opens the bubble ONLY when the focus arrived by keyboard. Anything
+  // else that moves focus here — and the dialog's own "focus the first control"
+  // on open is the one that mattered — must not read as "explain yourself":
+  // several settings panels lead with a help dot, so the first thing the panel
+  // did was pop a tooltip nobody asked for, over the first row. :focus-visible
+  // is the browser's own answer to "was this deliberate?", and lib/tooltip.js
+  // has always asked it; this is the same question, asked in the same place.
+  function onFocus(e) {
+    if (coarse) return;
+    if (!e.currentTarget.matches?.(":focus-visible")) return;
+    show();
+  }
+
   function toggle(e) {
     // The dot lives inside setting rows that are themselves buttons; without
     // this, asking what a switch does would also flip it.
@@ -98,7 +111,8 @@
     aria-label={label}
     aria-expanded={open}
     onclick={toggle}
-    onfocus={coarse ? undefined : show}
+    data-help-affordance
+    onfocus={coarse ? undefined : onFocus}
     onblur={coarse ? undefined : hide}
   >
     i
