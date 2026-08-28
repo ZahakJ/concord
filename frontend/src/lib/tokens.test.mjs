@@ -16,6 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { contrast, colorsIn } from "./contrast.mjs";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -204,6 +205,69 @@ for (const [rel, raw] of FILES) {
   // and black is simply what it is, on every theme.
   for (const m of strip(raw).matchAll(/\.(?:[\w-]*scrim|overlay)\s*\{[^}]*?background:\s*(rgba?\(\s*0\s*,\s*0\s*,\s*0[^)]*\))/g)) {
     fail(`${rel}: a scrim painted ${m[1]} — use var(--scrim), which flips with the theme`);
+  }
+}
+
+// ---- 8. the quiet button's ink ---------------------------------------------
+//
+// `button { background: var(--accent); color: var(--accent-fg) }` is a trap, and
+// it sprung. --accent-fg is the ink chosen to survive ON the accent, and since
+// it stopped being white (white only made 3.14:1 on the brand teal) it has been
+// near-black — so every button that repainted its background to a SURFACE and
+// left `color` alone has been writing near-black on charcoal. In the dark theme
+// that is not poor contrast, it is 1.1:1, and the inbox shipped four filter
+// chips and two actions like it with the moderation log's chips copied from the
+// same block.
+//
+// `button.quiet` is the answer: one class that declares BOTH halves. This holds
+// it to that, and measures the pair it declares — plus the two surface inks a
+// quiet control is allowed to use — against the real backgrounds in both
+// themes. 4.5:1 because these are labels, not decoration.
+{
+  const quiet = /button\.quiet\s*\{([^}]*)\}/.exec(APP);
+  if (!quiet) fail("app.css: button.quiet is gone — it is the pattern that keeps a surface button legible");
+  else {
+    const bg = /background(?:-color)?:\s*var\((--[\w-]+)\)/.exec(quiet[1]);
+    const fg = /(?:^|[^-])color:\s*var\((--[\w-]+)\)/.exec(quiet[1]);
+    if (!bg || !fg) {
+      fail("app.css: button.quiet must declare BOTH a background and a color — half of it is the bug");
+    } else {
+      // Token values per theme, falling back to :root for anything a theme
+      // does not override. Read out of the stylesheet so retuning a token
+      // retunes the gate with it.
+      const block = (sel) => {
+        const at = APP.indexOf(sel + " {");
+        return at < 0 ? "" : APP.slice(at, APP.indexOf("\n}", at));
+      };
+      const ROOT = block(":root");
+      const LIGHT = block(':root[data-theme="light"]');
+      const value = (name, themeBlock) => {
+        const re = new RegExp(`^\\s*${name}:\\s*([^;]+);`, "m");
+        const m = re.exec(themeBlock) || re.exec(ROOT);
+        return m ? colorsIn(m[1])[0] : null;
+      };
+      // fg, bg, why. The quiet pair comes from the stylesheet; the other two
+      // are the inks a chip may use for its unselected and selected states.
+      const PAIRS = [
+        [fg[1], bg[1], "button.quiet"],
+        ["--text-muted", bg[1], "a quiet chip's unselected label"],
+        ["--accent-fg", "--accent", "an accent-filled chip's label"],
+      ];
+      for (const [theme, b] of [["dark", ROOT], ["light", LIGHT]]) {
+        for (const [fgTok, bgTok, why] of PAIRS) {
+          const f = value(fgTok, b);
+          const g = value(bgTok, b);
+          if (!f || !g) {
+            fail(`tokens gate: cannot read ${fgTok} / ${bgTok} in the ${theme} theme`);
+            continue;
+          }
+          const r = contrast(f.slice(0, 3), g.slice(0, 3));
+          if (r < 4.5) {
+            fail(`${why}: ${fgTok} on ${bgTok} is ${r.toFixed(2)}:1 in the ${theme} theme, below 4.5`);
+          }
+        }
+      }
+    }
   }
 }
 

@@ -1490,6 +1490,20 @@ button.ghost {
   color: var(--text-muted);
   border: 1px solid var(--border);
 }
+/* A button that keeps a SURFACE fill rather than the accent — a filter chip, a
+   "load more", a quiet action beside a heading.
+   It exists because the rule above is a trap. --accent-fg is the ink that
+   survives on the accent, and since it stopped being white (it is near-black by
+   default now, because white only made 3.14:1 on the brand teal) every button
+   that repainted its background and left `color` alone has been writing
+   near-black on a charcoal surface. It is not subtle when you look for it and
+   it is invisible when you don't: three shipped surfaces had it. Declare the
+   pair here once and wear it, instead of restating the ink at every call site
+   and hoping the next component remembers. */
+button.quiet {
+  background: var(--bg-3);
+  color: var(--text);
+}
 /* Hover is a MOUSE state. A touch tap synthesises :hover in Android WebView and
    leaves it stuck on the element until you tap elsewhere — so the send button
    stays lit after you send and every row you brushed past keeps a highlight
@@ -1501,6 +1515,14 @@ button.ghost {
   }
   button.ghost:hover {
     background: var(--bg-3);
+    color: var(--text);
+  }
+  /* Specific enough to outrank `button:hover` above, which would otherwise
+     wash a quiet button with the accent it deliberately isn't. --border is the
+     one lift that goes the right way in both themes: paler than --bg-3 in the
+     dark one, darker than it in the light one. */
+  button.quiet:hover:not(:disabled) {
+    background: var(--border);
     color: var(--text);
   }
   input:hover:not(:focus):not(:disabled),

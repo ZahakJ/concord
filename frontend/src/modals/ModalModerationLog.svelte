@@ -84,7 +84,7 @@
   <div class="filters" role="group" aria-label="Filter the log">
     {#each GOV_FILTERS as f (f.id)}
       <button
-        class="chip"
+        class="quiet chip"
         class:on={filter === f.id}
         aria-pressed={filter === f.id}
         onclick={() => (filter = f.id)}
@@ -148,7 +148,7 @@
     <div class="foot">
       <span class="count">{plural(shown.length, "entry", "entries")} of {total} shown</span>
       {#if more}
-        <button class="load" disabled={loadingMore} onclick={loadMore}>
+        <button class="quiet load" disabled={loadingMore} onclick={loadMore}>
           {loadingMore ? "Loading…" : "Load older"}
         </button>
       {/if}
@@ -175,16 +175,29 @@
     gap: var(--sp-1);
     margin-bottom: var(--sp-3);
   }
+  /* `quiet` (app.css) carries both the fill and the ink — see the note there:
+     the global button rule's --accent-fg is near-black, so a chip that repainted
+     only its background wrote black on charcoal. */
   .chip {
     padding: 5px 11px;
     min-width: 0;
     font-size: var(--fs-compact);
-    background: var(--bg-3);
+    color: var(--text-muted);
     border-radius: 999px;
   }
   .chip.on {
     background: var(--accent);
     color: var(--accent-fg);
+  }
+  @media (pointer: fine) {
+    .chip:not(.on):hover {
+      background: var(--border);
+      color: var(--text);
+    }
+    .chip.on:hover {
+      background: var(--accent-hover);
+      color: var(--accent-fg);
+    }
   }
   .log {
     list-style: none;
@@ -288,7 +301,6 @@
     padding: 5px 12px;
     min-width: 0;
     font-size: var(--fs-compact);
-    background: var(--bg-3);
     border-radius: var(--radius-sm);
   }
 </style>

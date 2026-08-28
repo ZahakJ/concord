@@ -83,7 +83,7 @@
     <div class="filters" role="group" aria-label="Filter the inbox">
       {#each FILTERS as f (f.id)}
         <button
-          class="chip"
+          class="quiet chip"
           class:on={filter === f.id}
           aria-pressed={filter === f.id}
           onclick={() => (filter = f.id)}
@@ -93,7 +93,7 @@
       {/each}
     </div>
     {#if S.inbox.unread > 0}
-      <button class="clear" onclick={markInboxRead}>
+      <button class="quiet clear" onclick={markInboxRead}>
         Mark all read <Icon name="check" size={12} />
       </button>
     {/if}
@@ -144,7 +144,7 @@
     </div>
     <div class="foot">
       <span>{plural(entries.length, "item")}{S.inbox.unread ? ` · ${S.inbox.unread} unread` : ""}</span>
-      <button class="refresh" disabled={S.inbox.loading} onclick={() => refreshInbox({ soon: true })}>
+      <button class="quiet refresh" disabled={S.inbox.loading} onclick={() => refreshInbox({ soon: true })}>
         {S.inbox.loading ? "Checking…" : "Check again"}
       </button>
     </div>
@@ -174,11 +174,15 @@
   .clear {
     margin-left: auto;
   }
+  /* `quiet` (app.css) carries the fill AND the ink. The ink is the point: the
+     global button rule paints --accent-fg, which is chosen to survive on the
+     accent and is near-black in the dark theme, so a chip that repainted only
+     its background wrote black on charcoal. */
   .chip {
     padding: 5px 11px;
     min-width: 0;
     font-size: var(--fs-compact);
-    background: var(--bg-3);
+    color: var(--text-muted);
     border-radius: 999px;
   }
   .chip.on {
@@ -191,11 +195,22 @@
     min-width: 0;
     flex: none;
     font-size: var(--fs-compact);
-    background: var(--bg-3);
     border-radius: var(--radius-sm);
     display: inline-flex;
     align-items: center;
     gap: 5px;
+  }
+  /* Both states restated, because app.css's `button.quiet:hover` is specific
+     enough to outrank a bare `.chip.on` and would grey out the selected one. */
+  @media (pointer: fine) {
+    .chip:not(.on):hover {
+      background: var(--border);
+      color: var(--text);
+    }
+    .chip.on:hover {
+      background: var(--accent-hover);
+      color: var(--accent-fg);
+    }
   }
   .note {
     margin: 0;
