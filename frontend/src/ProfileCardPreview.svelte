@@ -61,7 +61,14 @@
       {#if fxOf}
         <span class="pcp-fx"><FxLayer fx={fxOf.fx} seed={effect} /></span>
       {/if}
-      <Banner {banner} {color} color2={color2} {style} class="pcp-banner" />
+      <!-- `banner` in the class list is load-bearing, not decoration. The four
+           legacy card effects — aurora, sheen, sparkle, nebula — are pure CSS
+           written as `.card-effect-<id> .banner`, so a banner that is not
+           classed `banner` wears the overlay's ancestor and paints none of it.
+           That is exactly the bug 728c1df fixed on the settings hero, and it
+           came back the day this component was extracted: the overlay showed in
+           the Edit-profile preview and on nobody's actual card. -->
+      <Banner {banner} {color} color2={color2} {style} class="pcp-banner banner" />
       {#if sceneOf}
         <span class="pcp-fx"><CardScene id={effect} {color} color2={color2} /></span>
       {/if}

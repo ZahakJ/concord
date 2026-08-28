@@ -1646,6 +1646,45 @@ input[type="radio"] {
   accent-color: var(--accent);
   cursor: pointer;
 }
+/* A colour well is the same story as a checkbox, and it was the last type left
+   inside the filled-field rule. `width: 100%` plus 14px of side padding and
+   11px of vertical padding, inside the shrink-to-fit column the profile panel
+   puts it in, squeezes the swatch — the only part of the control that carries
+   any information — down to a sliver inside a near-black recessed well. That is
+   the "the colour boxes don't work" report: the picker was picking, the value
+   was saving, and the box was never showing the colour back.
+
+   Three panels had already worked around it locally (Roles, the compose
+   dialog's pen, the advanced editor), the last of which needed four classes of
+   specificity to beat Modal.svelte's 48px phone tap floor. That floor is the
+   reason `min-height` is stated here too: a colour dot stretched to 48px is a
+   lozenge, and the carve-out has to hold on a phone as well as a desktop. Sized
+   to the tap target sideways instead — 44px of width is a real hit area for a
+   thing that is all swatch. */
+input[type="color"] {
+  width: 44px;
+  min-width: 44px;
+  height: 34px;
+  min-height: 34px;
+  padding: 2px;
+  flex: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+/* The swatch fills the well: WebKit and Blink wrap it in a padded container of
+   their own, which reintroduces the same problem one level down. */
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: calc(var(--radius-md) - 3px);
+}
+input[type="color"]::-moz-color-swatch {
+  border: none;
+  border-radius: calc(var(--radius-md) - 3px);
+}
+
 /* One slider, drawn once, for the whole app. `input[type="range"]` appears in
    ten files; six of them had reached for `accent-color` locally and three —
    the decoration thickness dial and the banner studio's zoom and angle — were

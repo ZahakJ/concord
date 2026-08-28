@@ -112,13 +112,23 @@
   // What the two card studios need in order to preview YOUR card rather than a
   // wireframe. One object, so a new field reaches both without a third call
   // site learning about it.
+  //
+  // `style` is the WHOLE style object, not the two banner fields it used to
+  // carry. Avatar and AvatarRing read sat/pal/speed/dir/glow/width out of it, so
+  // a partial one previewed your card wearing a default ring at default speed
+  // with your colourway missing — the same "list every field or lose it" trap
+  // that ate `dec` once already, in a second place. The frame and the effect
+  // travel too, so the frame studio can draw your effect and the effect studio
+  // your frame.
   const cardProps = $derived({
     name: name || "You",
     emoji,
     avatar,
     banner,
-    style: { angle, fill },
+    style: styleObj,
     ring: frame,
+    frame: cf,
+    effect,
     dec,
     status,
   });
@@ -482,14 +492,20 @@
     ></div>
     <div class="theme-row">
       <label class="theme-color">
-        <input type="color" bind:value={color} />
+        <input type="color" bind:value={color} onchange={(e) => (color = e.target.value)} />
         <span class="muted tiny">Primary</span>
       </label>
       <label class="theme-color">
+        <!-- `change` as well as `input`: WebKitGTK hands the colour well to
+             GTK's own chooser, which commits on dismissal and does not stream
+             `input` events the way Chromium's inline picker does. Without it
+             the desktop build was the one place a picked secondary colour
+             never arrived. -->
         <input
           type="color"
           value={color2 || color}
           oninput={(e) => (color2 = e.target.value)}
+          onchange={(e) => (color2 = e.target.value)}
         />
         <span class="muted tiny">Secondary</span>
       </label>

@@ -456,15 +456,19 @@
     }
     /* ≥16px inputs stop iOS auto-zoom on focus; ≥44px buttons are the
        touch-target floor. Reaches into each modal's own markup. */
-    .dialog :global(input:not([type="checkbox"]):not([type="radio"])),
+    .dialog
+      :global(input:not([type="checkbox"]):not([type="radio"]):not([type="color"])),
     .dialog :global(textarea),
     .dialog :global(select) {
       font-size: 16px;
     }
     /* The floor applied to buttons only, so the pickers and text fields a
-       settings row hosts stayed 33-38px tall. */
+       settings row hosts stayed 33-38px tall. A colour well is excluded for the
+       same reason the checkbox is: it is a swatch, not a field, and 48px of it
+       is a lozenge. app.css sizes it wide enough to be a tap target instead. */
     .dialog :global(button),
-    .dialog :global(input:not([type="checkbox"]):not([type="radio"])),
+    .dialog
+      :global(input:not([type="checkbox"]):not([type="radio"]):not([type="color"])),
     .dialog :global(select) {
       min-height: var(--tap-min);
     }
