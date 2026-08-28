@@ -64,7 +64,7 @@ func TestKickSticksAgainstTheReAddHeal(t *testing.T) {
 	// this the assertions below would pass on a guild that never worked.
 	sendUntilReceived(t, member, channel, "hello before the kick", seen)
 
-	if err := owner.KickMember(g.ID, memberFpr); err != nil {
+	if err := owner.KickMember(g.ID, memberFpr, ""); err != nil {
 		t.Fatalf("KickMember: %v", err)
 	}
 	if !owner.isRemoved(g.ID, memberFpr) {
@@ -159,7 +159,7 @@ func TestBannedMemberIsToldAndStaysOut(t *testing.T) {
 	channel := g.Channels[0].ID
 	sendUntilReceived(t, member, channel, "hello before the ban", seen)
 
-	if err := owner.BanMember(g.ID, member.id.Fingerprint()); err != nil {
+	if err := owner.BanMember(g.ID, member.id.Fingerprint(), ""); err != nil {
 		t.Fatalf("BanMember: %v", err)
 	}
 	waitUntil(t, 20*time.Second, func() bool {

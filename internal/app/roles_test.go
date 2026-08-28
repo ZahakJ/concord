@@ -99,7 +99,7 @@ func TestBanSurvivesRejoin(t *testing.T) {
 	waitMembers(t, 20*time.Second, 2, owner, troublemaker)
 
 	// Owner bans the troublemaker — they're evicted from the group now...
-	if err := owner.BanMember(g.ID, troublemaker.Fingerprint()); err != nil {
+	if err := owner.BanMember(g.ID, troublemaker.Fingerprint(), ""); err != nil {
 		t.Fatalf("BanMember: %v", err)
 	}
 	waitUntil(t, 20*time.Second, func() bool {

@@ -197,6 +197,7 @@ export const api = {
   createChannel: (guildID, name, type = "", category = "") =>
     call("CreateChannel", guildID, name, type, category),
   createCategory: (guildID, name) => call("CreateCategory", guildID, name),
+  renameCategory: (guildID, categoryID, name) => call("RenameCategory", guildID, categoryID, name),
   setChannelLinks: (guildID, channelID, links) => call("SetChannelLinks", guildID, channelID, links),
   // Forum posts. tags are ids from the forum's own palette (max 5); an id the
   // forum does not define is an error, not a silent drop.
@@ -391,7 +392,7 @@ export const api = {
   checkPeerUpdate: () => call("CheckPeerUpdate"),
   applyPeerUpdate: () => call("ApplyPeerUpdate"),
   members: (guildID) => call("Members", guildID),
-  removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
+  removeMember: (guildID, fingerprint, reason = "") => call("RemoveMember", guildID, fingerprint, reason),
   readmitMember: (guildID, fingerprint) => call("ReadmitMember", guildID, fingerprint),
   removedMembers: (guildID) => call("RemovedMembers", guildID),
   resolveSync: (guildID) => call("ResolveSync", guildID),
@@ -409,9 +410,10 @@ export const api = {
   setHeir: (guildID, fingerprint) => call("SetHeir", guildID, fingerprint),
   clearHeir: (guildID) => call("ClearHeir", guildID),
   claimOwnership: (guildID) => call("ClaimOwnership", guildID),
-  banMember: (guildID, fingerprint) => call("BanMember", guildID, fingerprint),
+  banMember: (guildID, fingerprint, reason = "") => call("BanMember", guildID, fingerprint, reason),
   unbanMember: (guildID, fingerprint) => call("UnbanMember", guildID, fingerprint),
-  muteMember: (guildID, fingerprint, minutes) => call("MuteMember", guildID, fingerprint, minutes),
+  muteMember: (guildID, fingerprint, minutes, reason = "") =>
+    call("MuteMember", guildID, fingerprint, minutes, reason),
   setSlowMode: (guildID, channelID, seconds) => call("SetSlowMode", guildID, channelID, seconds),
   // Retention: "" as channelID sets the guild-wide policy; 0 seconds = keep
   // everything. Enforced locally by each client (see ModalRetention).

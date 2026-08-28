@@ -74,6 +74,15 @@ type GovLogEntry struct {
 	Name     string `json:"name,omitempty"`
 	PrevName string `json:"prevName,omitempty"`
 
+	// Reason is the optional note a moderator attached to a kick, ban or mute.
+	// It rides in the OP's Name field — a field that already existed, because
+	// govOpsFor re-marshals every op from the struct before relaying it and a
+	// field an older build did not know would be stripped on the way past,
+	// breaking the signature for everyone downstream. Name means something
+	// different for a channel op and a role op, so it is unpacked into its own
+	// name here rather than left for the renderer to guess at.
+	Reason string `json:"reason,omitempty"`
+
 	// At is the author's own wall clock, in unix milliseconds. It is the honest
 	// field for "when did this happen": the store's `created` column records
 	// when THIS device first saw the op, which for anything that arrived in a
@@ -137,6 +146,14 @@ func (s *Service) GovernanceLog(guildID string, offset, limit int) ([]GovLogEntr
 	for _, c := range s.channelsOf(guildID) {
 		channelNames[c.ID] = c.Name
 	}
+	// Categories resolve out of the same map: a category op names its category
+	// in ChannelID, and a reader does not care which kind of container the row
+	// is about — only what it was called.
+	if cats, err := s.store.Categories(guildID); err == nil {
+		for _, c := range cats {
+			channelNames[c.ID] = c.Name
+		}
+	}
 	// The same walk again, for names the folded state cannot supply. A DELETED
 	// channel is gone from channelsOf, and "deleted a channel" is the least
 	// useful half of the only question this screen exists to answer; a RENAMED
@@ -148,7 +165,8 @@ func (s *Service) GovernanceLog(guildID string, offset, limit int) ([]GovLogEntr
 	guildName := ""
 	for _, o := range ordered {
 		switch o.Type {
-		case "channel_create", "channel_rename", "channel_delete", "channel_move":
+		case "channel_create", "channel_rename", "channel_delete", "channel_move",
+			"category_create", "category_rename", "category_delete":
 			if o.ChannelID == "" {
 				continue
 			}
@@ -203,7 +221,8 @@ func (s *Service) GovernanceLog(guildID string, offset, limit int) ([]GovLogEntr
 			e.Created = firstUpsert[o.RoleID] == e.Hash
 		}
 		switch o.Type {
-		case "channel_create", "channel_rename", "channel_delete", "channel_move":
+		case "channel_create", "channel_rename", "channel_delete", "channel_move",
+			"category_create", "category_rename", "category_delete":
 			e.Name = o.Name
 			e.PrevName = prevNames[e.Hash]
 			if e.ChannelName == "" {
@@ -213,6 +232,11 @@ func (s *Service) GovernanceLog(guildID string, offset, limit int) ([]GovLogEntr
 		case "guild_rename", "emoji_add", "emoji_remove":
 			e.Name = o.Name
 			e.PrevName = prevNames[e.Hash]
+		case "ban", "mute", "remove_member":
+			// The three ops that carry a moderator's note. Nothing else does,
+			// and reading Name as a reason on a role op would print a role's
+			// name as an explanation for it.
+			e.Reason = o.Name
 		}
 		e.SignerName = s.govActorName(guildID, e.Signer)
 		if e.Target != "" {
@@ -263,5 +287,52 @@ func (s *Service) channelsOf(guildID string) []domain.Channel {
 	}
 	out := append([]domain.Channel(nil), g.Channels...)
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
+}
+
+// ModDetail is the paper trail behind one moderation state: when it was
+// decided, by whom, and why. Every field comes out of the guild's own signed
+// log, which is the only place any of it exists — the folded GuildState knows
+// that a fingerprint is banned and nothing else about it.
+type ModDetail struct {
+	At     int64  `json:"at,omitempty"` // unix millis, the author's own clock
+	By     string `json:"by,omitempty"` // moderator fingerprint
+	ByName string `json:"byName,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// ModerationDetails maps target fingerprint -> the NEWEST op of the given
+// types that names them. A ban list identifying people only by a display name
+// is the one screen that cannot afford ambiguity: names are self-asserted and
+// collide, and "who did this, when, and why" is the whole content of a
+// handover to the next shift.
+//
+// Newest wins because a member can be banned, unbanned and banned again, and
+// the row is about the ban in force now. Canonical order, not arrival order —
+// the same order every peer folds in, so every peer's ban list reads the same.
+func (s *Service) ModerationDetails(guildID string, types ...string) map[string]ModDetail {
+	want := make(map[string]bool, len(types))
+	for _, t := range types {
+		want[t] = true
+	}
+	s.mu.RLock()
+	ops := append([]govOp(nil), s.govOps[guildID]...)
+	s.mu.RUnlock()
+
+	out := map[string]ModDetail{}
+	for _, o := range canonicalOps(ops) {
+		if !want[o.Type] || o.Target == "" {
+			continue
+		}
+		out[o.Target] = ModDetail{
+			At:     time.Unix(0, o.Time).UnixMilli(),
+			By:     o.signerFpr(),
+			Reason: o.Name,
+		}
+	}
+	for fpr, d := range out {
+		d.ByName = s.govActorName(guildID, d.By)
+		out[fpr] = d
+	}
 	return out
 }

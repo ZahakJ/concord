@@ -191,7 +191,7 @@ func kickMember(svc *app.Service, guildID, idxStr string) {
 	}
 	// KickMember, not RemoveMember: the signed record is what makes a kick stick
 	// past the next heal, and the REPL must not be a way to do half of one.
-	if err := svc.KickMember(guildID, svc.AccountFingerprintOf(members[idx])); err != nil {
+	if err := svc.KickMember(guildID, svc.AccountFingerprintOf(members[idx]), ""); err != nil {
 		fmt.Println("error:", err)
 		return
 	}

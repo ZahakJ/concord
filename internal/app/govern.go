@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ZahakJ/concord/internal/identity"
 )
@@ -412,12 +414,50 @@ func (s *Service) AssignRole(guildID, targetFpr, roleID string, add bool) error 
 	return s.issueGovOp(guildID, govOp{Type: "role_assign", Target: targetFpr, RoleID: roleID, Add: add})
 }
 
+// maxReasonRunes caps the note a moderator attaches to a kick, ban or mute. The
+// reason is SIGNED and travels in every copy of the op, forever — it is a line
+// for the next shift, not a case file.
+const maxReasonRunes = 160
+
+// sanitizeReason bounds the optional note on a moderation op. Control and
+// invisible formatting codepoints are dropped rather than refused: a reason is
+// a courtesy field, and failing a ban because someone pasted a newline would
+// be the wrong trade. The guild's own copy of the op is what everyone reads,
+// so this runs on the ISSUE side and again on nothing — replay never inspects
+// it, which is why a hostile client can only ever hurt its own display.
+func sanitizeReason(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Cs, r) {
+			continue
+		}
+		if n == maxReasonRunes {
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return strings.TrimSpace(b.String())
+}
+
 // BanMember bars a fingerprint and, if present, evicts it. Requires manage-members.
-func (s *Service) BanMember(guildID, targetFpr string) error {
+//
+// The optional reason rides in the op's EXISTING Name field. That is not a
+// shortcut: govOpsFor re-marshals every op from the decoded struct before
+// relaying it, so a build that did not know a new field would strip it and
+// break the signature for everyone downstream (govstate.go:85). Name is already
+// on the struct and already unused by ban/mute/remove_member, so an older peer
+// relays the reason byte-for-byte and simply does not print it.
+func (s *Service) BanMember(guildID, targetFpr, reason string) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to ban members")
 	}
-	if err := s.issueGovOp(guildID, govOp{Type: "ban", Target: targetFpr}); err != nil {
+	if err := s.issueGovOp(guildID, govOp{Type: "ban", Target: targetFpr, Name: sanitizeReason(reason)}); err != nil {
 		return err
 	}
 	return s.removeMemberByFingerprint(guildID, targetFpr)
@@ -432,7 +472,7 @@ func (s *Service) BanMember(guildID, targetFpr string) error {
 // down the same door a new joiner uses. Writing the record first means that
 // request meets a guild which already knows the answer, on every member's
 // device, whether or not they were online for the commit.
-func (s *Service) KickMember(guildID, targetFpr string) error {
+func (s *Service) KickMember(guildID, targetFpr, reason string) error {
 	if !s.canManageMembers(guildID) {
 		return fmt.Errorf("app: you don't have permission to remove members")
 	}
@@ -445,7 +485,7 @@ func (s *Service) KickMember(guildID, targetFpr string) error {
 	if targetFpr == s.id.Fingerprint() {
 		return fmt.Errorf("app: use Leave to remove yourself")
 	}
-	if err := s.issueGovOp(guildID, govOp{Type: "remove_member", Target: targetFpr}); err != nil {
+	if err := s.issueGovOp(guildID, govOp{Type: "remove_member", Target: targetFpr, Name: sanitizeReason(reason)}); err != nil {
 		return err
 	}
 	return s.removeMemberByFingerprint(guildID, targetFpr)
@@ -560,16 +600,28 @@ func (s *Service) UnbanMember(guildID, targetFpr string) error {
 // MuteMember times a member out for the given number of minutes (advisory —
 // honest clients drop a muted member's messages until it lifts). Requires
 // mute-members.
-func (s *Service) MuteMember(guildID, targetFpr string, minutes int) error {
+func (s *Service) MuteMember(guildID, targetFpr string, minutes int, reason string) error {
 	if !s.hasPerm(guildID, PermMuteMembers) {
 		return fmt.Errorf("app: you don't have permission to mute members")
 	}
 	if minutes <= 0 {
 		minutes = 10
 	}
+	// A week is the ceiling the picker offers. Clamped HERE as well as in the
+	// UI so a hand-made call cannot write a mute that outlives the guild — the
+	// replay stores whatever deadline the op names, and unlike slow mode there
+	// is no natural bound on a timestamp.
+	if minutes > maxMuteMinutes {
+		minutes = maxMuteMinutes
+	}
 	until := time.Now().Add(time.Duration(minutes) * time.Minute).Unix()
-	return s.issueGovOp(guildID, govOp{Type: "mute", Target: targetFpr, Until: until})
+	return s.issueGovOp(guildID, govOp{Type: "mute", Target: targetFpr, Until: until, Name: sanitizeReason(reason)})
 }
+
+// maxMuteMinutes is one week — the longest the duration picker offers. Past
+// this a mute is really a kick, and saying so is better than a timeout nobody
+// remembers setting.
+const maxMuteMinutes = 7 * 24 * 60
 
 // RetentionSeconds is the policy that applies to one channel, in seconds
 // (0 = keep everything): the channel's override if it has one, else the

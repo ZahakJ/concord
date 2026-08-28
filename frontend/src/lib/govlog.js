@@ -36,6 +36,9 @@ export const GOV_FILTERS = [
       "channel_rename",
       "channel_delete",
       "channel_move",
+      "category_create",
+      "category_rename",
+      "category_delete",
     ],
   },
   { id: "guild", label: "Guild", types: ["guild_rename", "emoji_add", "emoji_remove"] },
@@ -99,6 +102,15 @@ const channel = (e) => ({ k: "channel", v: e.channelName ? `#${e.channelName}` :
 // govSentence returns the sentence as parts, so the panel can style a name, a
 // role and a channel differently without this file emitting markup.
 export function govSentence(e) {
+  const parts = baseSentence(e);
+  // The moderator's note, when there is one. Appended rather than woven in:
+  // it is the author's own words, it is optional, and a sentence that has to
+  // read correctly with and without it is a sentence with two shapes.
+  if (e?.reason) parts.push(text(` \u2014 \u201c${e.reason}\u201d`));
+  return parts;
+}
+
+function baseSentence(e) {
   if (!e) return [text("An unreadable entry")];
   const who = person(e, "signer");
   const whom = () => person(e, "target");
@@ -159,6 +171,17 @@ export function govSentence(e) {
         : [who, text(" renamed a channel to "), channel(e)];
     case "channel_move":
       return [who, text(" moved "), channel(e), text(" to another category")];
+    // A category names itself in the same field a channel does, but it is not
+    // a channel and must not wear the # sigil — that sigil is the thing you
+    // type to link a room.
+    case "category_create":
+      return [who, text(` created the category ${e.name || "a category"}`)];
+    case "category_delete":
+      return [who, text(` deleted the category ${e.name || "a category"}`)];
+    case "category_rename":
+      return e.prevName
+        ? [who, text(` renamed the category ${e.prevName} to ${e.name}`)]
+        : [who, text(` renamed a category to ${e.name}`)];
     case "guild_rename":
       return e.prevName
         ? [who, text(` renamed the guild from ${e.prevName} to ${e.name}`)]

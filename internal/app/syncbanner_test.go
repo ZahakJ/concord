@@ -36,7 +36,7 @@ func TestStrandingResolvesOnlyWhenNobodyIsLeft(t *testing.T) {
 		t.Fatal("a guild with two members reported itself empty — the banner would give up on a member who is merely away")
 	}
 
-	if err := owner.KickMember(g.ID, member.id.Fingerprint()); err != nil {
+	if err := owner.KickMember(g.ID, member.id.Fingerprint(), ""); err != nil {
 		t.Fatalf("KickMember: %v", err)
 	}
 	waitUntil(t, 20*time.Second, func() bool { return owner.aloneInGuild(g.ID) },

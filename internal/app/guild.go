@@ -2061,7 +2061,60 @@ func (s *Service) CreateCategory(guildID, name string) (domain.Category, error) 
 	_ = s.store.SaveCategory(cat)
 	s.emitGuildUpdate()
 	s.publishMeta(groupID, guildMeta{Type: "category_added", Category: cat})
+	// Same split the channel ops use: the meta frame carries the LAYOUT, the
+	// signed op records the DECISION. A category is where a community's rooms
+	// live, and "who folded half the sidebar into a category called Archive"
+	// is the same question as "who deleted #introductions".
+	s.logChannelOp(guildID, "category_create", cat.ID, cat.Name)
 	return cat, nil
+}
+
+// RenameCategory renames a sidebar category. Requires ManageChannels.
+//
+// Its absence was a real trap rather than a missing nicety: the only way to
+// fix a typo was to delete the category and make a new one, which mints a NEW
+// id and orphans every channel pointing at the old one on any peer that had
+// not yet applied the removal.
+func (s *Service) RenameCategory(guildID, categoryID, name string) error {
+	if !s.hasPerm(guildID, PermManageChannels) {
+		return fmt.Errorf("app: you don't have permission to manage channels")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("app: category name is empty")
+	}
+	if len(name) > maxNameBytes {
+		name = name[:maxNameBytes]
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("app: unknown guild %s", guildID)
+	}
+	cats, err := s.store.Categories(guildID)
+	if err != nil {
+		return err
+	}
+	var cat domain.Category
+	found := false
+	for _, c := range cats {
+		if c.ID == categoryID {
+			cat, found = c, true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("app: unknown category")
+	}
+	cat.Name = name
+	if err := s.store.SaveCategory(cat); err != nil {
+		return err
+	}
+	s.emitGuildUpdate()
+	s.publishMeta(g.GroupID, guildMeta{Type: "category_renamed", Category: cat})
+	s.logChannelOp(guildID, "category_rename", cat.ID, cat.Name)
+	return nil
 }
 
 // DeleteChannel removes a channel for everyone. Requires ManageChannels.
@@ -2172,8 +2225,20 @@ func (s *Service) DeleteCategory(guildID, categoryID string) error {
 	if !ok {
 		return fmt.Errorf("app: unknown guild %s", guildID)
 	}
+	// The name has to be read BEFORE the removal, or the audit row records a
+	// deletion with a blank where the only useful half of it goes.
+	name := ""
+	if cats, err := s.store.Categories(guildID); err == nil {
+		for _, c := range cats {
+			if c.ID == categoryID {
+				name = c.Name
+				break
+			}
+		}
+	}
 	s.applyCategoryRemoved(guildID, categoryID)
 	s.publishMeta(groupID, guildMeta{Type: "category_removed", Category: domain.Category{ID: categoryID}})
+	s.logChannelOp(guildID, "category_delete", categoryID, name)
 	return nil
 }
 
@@ -2665,6 +2730,29 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 				return
 			}
 			s.applyChannelRemoved(guildID, m.Channel.ID)
+		}
+	case "category_renamed":
+		// Same shape and same gate as category_added; the name is the only
+		// field that moves, and GuildID is re-stamped from the lane rather
+		// than adopted, so a frame naming another guild's category cannot
+		// reach into it.
+		if m.Category.ID == "" || strings.TrimSpace(m.Category.Name) == "" {
+			return
+		}
+		if !s.memberHasPerm(guildID, actor, PermManageChannels) {
+			return
+		}
+		cats, err := s.store.Categories(guildID)
+		if err != nil {
+			return
+		}
+		for _, c := range cats {
+			if c.ID == m.Category.ID {
+				c.Name = m.Category.Name
+				_ = s.store.SaveCategory(c)
+				s.emitGuildUpdate()
+				return
+			}
 		}
 	case "category_removed":
 		if m.Category.ID != "" {

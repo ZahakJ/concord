@@ -1156,14 +1156,29 @@ func (b *Bridge) CancelBooking(eventID string) error {
 	return svc.CancelBooking(eventID)
 }
 
-// CreateCategory adds a sidebar category to a guild.
-func (b *Bridge) CreateCategory(guildID, name string) error {
+// CreateCategory adds a sidebar category to a guild and hands the new record
+// back. The id is the point: a starter template has to put channels INSIDE the
+// category it just made, and the alternative — create, refresh, match by name —
+// picks the wrong one the first time two categories share a name.
+func (b *Bridge) CreateCategory(guildID, name string) (CategoryView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return CategoryView{}, err
+	}
+	c, err := svc.CreateCategory(guildID, name)
+	if err != nil {
+		return CategoryView{}, err
+	}
+	return CategoryView{ID: c.ID, Name: c.Name, Position: c.Position}, nil
+}
+
+// RenameCategory renames a sidebar category (ManageChannels).
+func (b *Bridge) RenameCategory(guildID, categoryID, name string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	_, err = svc.CreateCategory(guildID, name)
-	return err
+	return svc.RenameCategory(guildID, categoryID, name)
 }
 
 // DeleteChannel removes a channel (ManageChannels).
@@ -2039,12 +2054,14 @@ func (b *Bridge) ClaimOwnership(guildID string) error {
 }
 
 // BanMember bars a fingerprint and evicts them if present (manage-members).
-func (b *Bridge) BanMember(guildID, fingerprint string) error {
+// The reason is optional and lands in the signed op, so the moderation log can
+// answer "why" as well as "who".
+func (b *Bridge) BanMember(guildID, fingerprint, reason string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.BanMember(guildID, fingerprint)
+	return svc.BanMember(guildID, fingerprint, reason)
 }
 
 // UnbanMember lifts a ban (manage-members).
@@ -2057,12 +2074,12 @@ func (b *Bridge) UnbanMember(guildID, fingerprint string) error {
 }
 
 // MuteMember times a member out for `minutes` (mute-members).
-func (b *Bridge) MuteMember(guildID, fingerprint string, minutes int) error {
+func (b *Bridge) MuteMember(guildID, fingerprint string, minutes int, reason string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.MuteMember(guildID, fingerprint, minutes)
+	return svc.MuteMember(guildID, fingerprint, minutes, reason)
 }
 
 // ExportMarkdown renders a readable transcript of one channel, or of the whole
@@ -2285,22 +2302,41 @@ func (b *Bridge) UnmuteMember(guildID, fingerprint string) error {
 	return svc.UnmuteMember(guildID, fingerprint)
 }
 
-// BanView is a banned member surfaced for the moderation UI.
+// BanView is a banned (or kicked) member surfaced for the moderation UI. The
+// fingerprint is the durable identity — display names are self-asserted and
+// collide, and this is the one screen where mistaking one person for another
+// is unrecoverable — and the At/By/Reason trio is read out of the guild's own
+// signed log, which is where those facts already live.
 type BanView struct {
 	Fingerprint string `json:"fingerprint"`
 	Name        string `json:"name"`
+	At          int64  `json:"at,omitempty"` // unix millis
+	By          string `json:"by,omitempty"`
+	ByName      string `json:"byName,omitempty"`
+	Reason      string `json:"reason,omitempty"`
 }
 
-// Bans lists a guild's banned members (fingerprint + best-known name).
+// Bans lists a guild's banned members with the record behind each ban.
 func (b *Bridge) Bans(guildID string) ([]BanView, error) {
 	svc, err := b.service()
 	if err != nil {
 		return nil, err
 	}
+	det := svc.ModerationDetails(guildID, "ban")
 	out := []BanView{}
 	for _, fpr := range svc.BannedFingerprints(guildID) {
-		out = append(out, BanView{Fingerprint: fpr, Name: svc.ProfileName(fpr)})
+		d := det[fpr]
+		out = append(out, BanView{
+			Fingerprint: fpr, Name: svc.ProfileName(fpr),
+			At: d.At, By: d.By, ByName: d.ByName, Reason: d.Reason,
+		})
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].At != out[j].At {
+			return out[i].At > out[j].At // newest ban first
+		}
+		return out[i].Fingerprint < out[j].Fingerprint
+	})
 	return out, nil
 }
 
@@ -2312,9 +2348,14 @@ func (b *Bridge) RemovedMembers(guildID string) ([]BanView, error) {
 	if err != nil {
 		return nil, err
 	}
+	det := svc.ModerationDetails(guildID, "remove_member")
 	out := []BanView{}
 	for _, fpr := range svc.RemovedFingerprints(guildID) {
-		out = append(out, BanView{Fingerprint: fpr, Name: svc.ProfileName(fpr)})
+		d := det[fpr]
+		out = append(out, BanView{
+			Fingerprint: fpr, Name: svc.ProfileName(fpr),
+			At: d.At, By: d.By, ByName: d.ByName, Reason: d.Reason,
+		})
 	}
 	return out, nil
 }
@@ -2381,7 +2422,7 @@ func (b *Bridge) GovernanceLog(guildID string, offset, limit int) (GovLogView, e
 // RemoveMember is the kick. It goes through KickMember rather than looping the
 // MLS leaves itself, because the signed record has to be written BEFORE the
 // eviction commit — see app.KickMember for why that order is the whole fix.
-func (b *Bridge) RemoveMember(guildID, fingerprint string) error {
+func (b *Bridge) RemoveMember(guildID, fingerprint, reason string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
@@ -2389,7 +2430,7 @@ func (b *Bridge) RemoveMember(guildID, fingerprint string) error {
 	if !svc.GuildHasMember(guildID, fingerprint) {
 		return errors.New("member not found")
 	}
-	return svc.KickMember(guildID, fingerprint)
+	return svc.KickMember(guildID, fingerprint, reason)
 }
 
 // ReadmitMember lifts a kick so someone can come back through an invite. It is
@@ -3266,7 +3307,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "Members":
 		return b.Members(argStr(args, 0))
 	case "RemoveMember":
-		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1))
+		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "ReadmitMember":
 		return nil, b.ReadmitMember(argStr(args, 0), argStr(args, 1))
 	case "RemovedMembers":
@@ -3302,7 +3343,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "ClaimOwnership":
 		return nil, b.ClaimOwnership(argStr(args, 0))
 	case "BanMember":
-		return nil, b.BanMember(argStr(args, 0), argStr(args, 1))
+		return nil, b.BanMember(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "UnbanMember":
 		return nil, b.UnbanMember(argStr(args, 0), argStr(args, 1))
 	case "ExportMarkdown":
@@ -3338,7 +3379,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SetSlowMode":
 		return nil, b.SetSlowMode(argStr(args, 0), argStr(args, 1), argInt(args, 2))
 	case "MuteMember":
-		return nil, b.MuteMember(argStr(args, 0), argStr(args, 1), argInt(args, 2))
+		return nil, b.MuteMember(argStr(args, 0), argStr(args, 1), argInt(args, 2), argStr(args, 3))
 	case "UnmuteMember":
 		return nil, b.UnmuteMember(argStr(args, 0), argStr(args, 1))
 	case "Bans":
@@ -3446,7 +3487,9 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "CancelBooking":
 		return nil, b.CancelBooking(argStr(args, 0))
 	case "CreateCategory":
-		return nil, b.CreateCategory(argStr(args, 0), argStr(args, 1))
+		return b.CreateCategory(argStr(args, 0), argStr(args, 1))
+	case "RenameCategory":
+		return nil, b.RenameCategory(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "DeleteChannel":
 		return nil, b.DeleteChannel(argStr(args, 0), argStr(args, 1))
 	case "DeleteCategory":

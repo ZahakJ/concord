@@ -76,7 +76,8 @@ type govOp struct {
 	//     mute | unmute | remove_member | readmit | transfer_owner | set_heir |
 	//     claim_heir | slow_mode | retention
 	//   AUDIT-ONLY — channel_create | channel_rename | channel_delete |
-	//     channel_move | guild_rename | emoji_add | emoji_remove
+	//     channel_move | category_create | category_rename | category_delete |
+	//     guild_rename | emoji_add | emoji_remove
 	// An audit-only op records that an authorized member did something whose
 	// EFFECT travels on the guild-meta lane; replay checks the authority and
 	// changes no state. It exists so the moderation log can answer "who deleted
@@ -107,7 +108,9 @@ type govOp struct {
 
 	// slow_mode — per-channel posting interval. Seconds <= 0 turns it off.
 	// The channel_* audit ops name their channel here, and carry its name (the
-	// one AFTER the change, for a rename) in Name.
+	// one AFTER the change, for a rename) in Name; the category_* ops name
+	// their CATEGORY here for the same reason — reusing a field that already
+	// exists is the only wire-safe way to add a type.
 	ChannelID string `json:"channelId,omitempty"`
 	Seconds   int64  `json:"seconds,omitempty"`
 
@@ -547,6 +550,18 @@ func (st *GuildState) applyGovOp(curp *string, o govOp) bool {
 		}
 		*curp = signer
 		st.heir = ""
+	case "category_create", "category_rename", "category_delete":
+		// AUDIT ONLY, and the same shape as the channel ops below: the category
+		// travels on the guild-meta lane, this records who decided it. It names
+		// the category in ChannelID — an EXISTING field, deliberately, because a
+		// new one would be stripped by any older peer relaying the op and would
+		// break the signature for everyone downstream (see the note on Type).
+		if !isOwner && !st.Can(cur, signer, PermManageChannels) {
+			return false
+		}
+		if o.ChannelID == "" {
+			return false
+		}
 	case "channel_create", "channel_rename", "channel_delete", "channel_move":
 		// AUDIT ONLY. The channel itself is created, renamed, moved and deleted
 		// over the guild-meta lane, and that stays true — this op does not
