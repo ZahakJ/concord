@@ -15,15 +15,43 @@
   import Icon from "./Icon.svelte";
   import { S, memberByFpr } from "./lib/state.svelte.js";
   import { haptic } from "./lib/touch.js";
+  import { callClock } from "./lib/calltimer.svelte.js";
+  import { canShareScreen } from "./lib/devices.js";
 
-  let { label = "", onLeave, onToggleMute, onToggleDeafen, onReturn } = $props();
+  let {
+    label = "",
+    away = true,
+    onLeave,
+    onToggleMute,
+    onToggleDeafen,
+    onToggleShare,
+    onToggleCamera,
+    onReturn,
+  } = $props();
+
+  const clock = $derived(callClock());
 
   // Same test the CSS phone query makes, so the two never disagree about which
   // shape is on screen.
   const phone = $derived(S.isMobile);
 
-  // Desktop dock position, clamped to the viewport, draggable.
-  let pos = $state({ x: Math.max(12, window.innerWidth - 250), y: 70 });
+  // Desktop dock position, clamped to the viewport, draggable — and REMEMBERED.
+  // It used to be plain component state seeded at top-right, so every drag was
+  // undone by the next look at the voice channel (which unmounted the dock) and
+  // by every reload. Where you put a thing that floats over your work is a
+  // preference, and it is per-device, so it lives in localStorage rather than
+  // in the account.
+  const POS_KEY = "concord.dockPos";
+  function savedPos() {
+    try {
+      const p = JSON.parse(localStorage.getItem(POS_KEY) || "null");
+      if (p && Number.isFinite(p.x) && Number.isFinite(p.y)) return p;
+    } catch {
+      /* absent or corrupt — fall through to the default corner */
+    }
+    return null;
+  }
+  let pos = $state(savedPos() || { x: Math.max(12, window.innerWidth - 250), y: 70 });
   let dockEl = $state(null);
   let drag = null;
   let dragging = $state(false); // lifts the dock visually while it moves
@@ -60,21 +88,41 @@
     if (drag && e?.type === "pointerup" && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) {
       onReturn?.();
     }
+    if (drag) remember();
     drag = null;
     dragging = false;
     window.removeEventListener("pointermove", onMove);
     window.removeEventListener("pointerup", onUp);
     window.removeEventListener("pointercancel", onUp);
   }
+  function remember() {
+    try {
+      localStorage.setItem(POS_KEY, JSON.stringify(pos));
+    } catch {
+      /* private mode or a full quota — the dock still works, it just forgets */
+    }
+  }
   // Keep the dock on-screen when the window is resized smaller (or rotated).
   function onResize() {
     pos = clamp(pos.x, pos.y);
   }
+  // Clamp the REMEMBERED position against this window on the way in: a dock
+  // parked at the right edge of a 2560px monitor is off-screen on a laptop.
+  // Only written when it actually moves — `clamp` mints a fresh object every
+  // call, and assigning one unconditionally in an effect that reads `pos` is an
+  // effect that re-runs itself forever.
+  $effect(() => {
+    if (phone || !dockEl) return;
+    const c = clamp(pos.x, pos.y);
+    if (c.x !== pos.x || c.y !== pos.y) pos = c;
+  });
 
   // The mobile drawers carry their own call bar and this would float over the
   // channel rows they slide in, so it steps aside (hidden, not unmounted —
-  // remounting would throw away wherever the user parked it).
-  const shelved = $derived(S.isMobile && (S.drawerOpen || S.membersOpen));
+  // remounting would throw away wherever the user parked it). The same applies
+  // when the call's own channel is on screen: the panel there has every control
+  // this does, but unmounting is what lost the parked position.
+  const shelved = $derived(!away || (S.isMobile && (S.drawerOpen || S.membersOpen)));
 
   const roster = $derived(["self", ...S.voiceParticipants]);
   function part(pid) {
@@ -137,7 +185,7 @@
       <span class="live"></span>
       <span class="cb-text">
         <span class="cb-lbl">{label || "In call"}</span>
-        <span class="cb-hint">Tap to return</span>
+        <span class="cb-hint">{clock ? `${clock} · tap to return` : "Tap to return"}</span>
       </span>
     </button>
     <button
@@ -176,6 +224,7 @@
     <div class="head" onpointerdown={onDown} title="Drag to move · click to open">
       <span class="live"></span>
       <span class="lbl">{label || "In call"}</span>
+      {#if clock}<span class="clock">{clock}</span>{/if}
       <button
         class="ico expand"
         title="Return to call"
@@ -196,6 +245,10 @@
       {/each}
     </div>
 
+    <!-- The two you most often reach for mid-conversation live here too. Before
+         this the dock could only mute, deafen and hang up, so wandering into
+         another channel to paste a link and then wanting to put your screen up
+         meant navigating back to the call first. -->
     <div class="ctl">
       <button class="ico" class:on={S.muted} title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} aria-pressed={S.muted} onclick={onToggleMute}>
         <Icon name={S.muted ? "micOff" : "mic"} size={15} />
@@ -203,6 +256,28 @@
       <button class="ico" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
         <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
       </button>
+      <button
+        class="ico"
+        class:lit={S.cameraOn}
+        title={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+        aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
+        aria-pressed={S.cameraOn}
+        onclick={onToggleCamera}
+      >
+        <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={15} />
+      </button>
+      {#if canShareScreen}
+        <button
+          class="ico"
+          class:lit={S.sharing}
+          title={S.sharing ? "Stop sharing" : "Share screen"}
+          aria-label={S.sharing ? "Stop sharing" : "Share screen"}
+          aria-pressed={S.sharing}
+          onclick={onToggleShare}
+        >
+          <Icon name={S.sharing ? "screenOff" : "screen"} size={15} />
+        </button>
+      {/if}
       <button class="ico hang" title="Leave call" aria-label="Leave call" onclick={onLeave}>
         <Icon name="door" size={15} />
       </button>
@@ -332,6 +407,15 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* Elapsed time, between the room's name and the way back into it. Tabular so
+     it doesn't shuffle the header every second. */
+  .clock {
+    flex: none;
+    font-size: var(--fs-tiny);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--ok-text) 78%, transparent);
+  }
   .faces {
     display: flex;
     flex-wrap: wrap;
@@ -394,6 +478,22 @@
   }
   .ico.on:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
+  }
+  /* Camera and share are ON states, not alarm states: an engaged toggle here
+     means something is going out, which is worth seeing but is not the red
+     "nobody can hear me" that mute and deafen are. */
+  .ico.lit {
+    background: var(--ok);
+    color: var(--ok-fg);
+    border-color: transparent;
+  }
+  .ico.lit:hover {
+    background: color-mix(in srgb, var(--ok) 85%, #000);
+  }
+  /* Five 34px circles no longer fit the 214px dock at a 10px gap. */
+  .ctl {
+    flex-wrap: wrap;
+    gap: var(--sp-2);
   }
   .ico.expand {
     width: 24px;

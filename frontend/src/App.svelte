@@ -1398,13 +1398,20 @@
     </div>
   {/if}
 
-  <!-- Ongoing call you've navigated away from: a draggable pinned window. -->
-  {#if callElsewhere}
+  <!-- Ongoing call you've navigated away from: a draggable pinned window.
+       Mounted for the whole call and merely hidden while you're looking at the
+       call's own channel — remounting it threw away wherever it had been
+       parked, which is the same reason the component already hides rather than
+       unmounts behind the phone drawers. -->
+  {#if S.voice}
     <FloatingCall
       label={callLabel}
+      away={!!callElsewhere}
       onLeave={leaveVoice}
       onToggleMute={toggleMicMute}
       onToggleDeafen={toggleDeafen}
+      onToggleShare={toggleScreenShare}
+      onToggleCamera={toggleCamera}
       onReturn={() => jumpToChannel(S.voice.channelId)}
     />
   {/if}
