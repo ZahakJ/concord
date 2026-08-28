@@ -344,6 +344,17 @@
 </script>
 
 <aside class="panel">
+  {#if activeGuild()?.evicted}
+    <!-- The roster a removed device holds is the one it had at the moment it was
+         removed, frozen: it cannot apply the commit that took it out, so the list
+         still shows itself and everyone who was there. Printing that under a live
+         "MEMBERS — 3" heading is the same lie the composer was telling. We do not
+         know who is in this guild any more, and this says so. -->
+    <p class="gone-note">
+      You can't see who's in <strong>{activeGuild()?.name}</strong> any more. The
+      history below is your own copy and stays on this device.
+    </p>
+  {:else}
   <!-- Moments tray rides the top of the roster. It hides itself for DMs and
        owns all its data/refresh logic — this panel just gives it the slot. -->
   <StoryTray />
@@ -513,9 +524,18 @@
       <div class="muted small">No peers seen yet.</div>
     {/each}
   {/if}
+  {/if}
 </aside>
 
 <style>
+  .gone-note {
+    margin: 0;
+    padding: var(--sp-4) var(--sp-3);
+    font-size: var(--fs-compact);
+    line-height: 1.55;
+    color: var(--text-muted);
+  }
+
   .panel {
     background: var(--bg-1);
     border-left: 1px solid var(--border);

@@ -508,6 +508,7 @@
             class="pill"
             class:active={sv.id === S.activeGuildId}
             class:hasicon={sv.icon}
+            class:gone={!!sv.evicted}
             class:combine={dropHint?.k === "combine" && dropHint.id === sv.id}
             use:tooltip={railTip}
             aria-label={sv.name}
@@ -598,6 +599,7 @@
                     class="pill"
                     class:active={gg.id === S.activeGuildId}
                     class:hasicon={gg.icon}
+                    class:gone={!!gg.evicted}
                     use:tooltip={railTip}
                     aria-label={gg.name}
                     draggable="true"
@@ -763,6 +765,16 @@
     padding: 8px 0 calc(10px + var(--safe-bottom));
     border-top: 1px solid var(--border);
     background: var(--bg-0);
+  }
+  /* A guild you are no longer in keeps its place — the history is still yours to
+     read — but stops looking like somewhere you can go. It is the rail's version
+     of the banner, and it is what stops a removal reading as normal service. */
+  .pill.gone {
+    opacity: 0.45;
+    filter: grayscale(1);
+  }
+  .pill.gone.active {
+    opacity: 0.7;
   }
   .pill {
     position: relative;

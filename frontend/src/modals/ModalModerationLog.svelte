@@ -158,7 +158,9 @@
                    without this row the only way back in is for a moderator to
                    already hold them as a verified contact. -->
               <p class="act">
-                <button class="quiet chip" onclick={() => allowBack(e)}>Allow back</button>
+                <button class="allow" onclick={() => allowBack(e)}>
+                  <Icon name="door" size={12} /> Allow back
+                </button>
               </p>
             {/if}
             <p class="meta">
@@ -300,6 +302,27 @@
   }
   .act {
     margin: var(--sp-2) 0 0;
+  }
+  /* A real control, drawn as one. The filter chips above it get their pill from
+     a rule scoped to that row, and borrowing the class here produced a button
+     that rendered as body text — which is the exact failure this screen is
+     supposed to be better than. */
+  .allow {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+  }
+  @media (pointer: fine) {
+    .allow:hover {
+      background: var(--border);
+    }
   }
   .meta {
     display: flex;
