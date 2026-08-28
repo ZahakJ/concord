@@ -2695,8 +2695,8 @@ textarea:focus {
    Alignment is deliberately NOT set here. These are labels sitting in fixed
    left-to-right furniture — a sidebar row, a message header — and flipping
    their alignment would move the label away from the icon it belongs to.
-   Message BODIES are the opposite case and are handled in Message.svelte,
-   where each paragraph gets its own direction and its own alignment. */
+   Message bodies and drafts are pinned left below, for the same reason: the
+   furniture does not move, so neither should the text inside it. */
 .sender,
 .reply-author,
 .reply-snippet,
@@ -2723,9 +2723,31 @@ textarea:focus {
 
    Safe to apply to every textarea. On content that is entirely Latin — an
    invite blob, a multiaddr, a recovery phrase — every line resolves
-   left-to-right and `start` resolves to `left`, which is what they already do. */
+   left-to-right, which is what they already do.
+
+   ALIGNMENT IS PINNED LEFT, and that is a separate decision from ordering.
+   `text-align: start` under `plaintext` resolves PER PARAGRAPH, so a bilingual
+   writer's draft — and the message it becomes — jumps edge to edge line by
+   line: the Arabic sentence right-aligned, the English one after it left, both
+   inside one bubble. The characters were in the right order the whole time;
+   the block they sat in kept moving, which is what makes it hard to follow.
+   Left is the app's own edge, every row starts at it, and pinning there costs
+   an RTL reader nothing but the ragged edge falling on the other side.
+
+   An author who has DECLARED a direction still gets it: `dir` on the element
+   (the composer's ⇄ cycle, and the per-message `dir` it sends) restores
+   `start`, which is what makes "right to left" mean something visible. */
 textarea {
   unicode-bidi: plaintext;
+  text-align: left;
+}
+/* Matched on the VALUE, not on the presence of the attribute: Svelte assigns
+   `dir` through the DOM property, and a null there stringifies to "", so every
+   composer and every message body carries a `dir=""` whether or not anyone
+   chose a direction. An empty value is not a direction to the browser either —
+   it inherits — so it must not be one here. */
+textarea[dir="rtl"],
+textarea[dir="ltr"] {
   text-align: start;
 }
 
@@ -2737,6 +2759,12 @@ textarea {
 .body,
 .md {
   unicode-bidi: plaintext;
+  text-align: left;
+}
+.body[dir="rtl"],
+.body[dir="ltr"],
+.md[dir="rtl"],
+.md[dir="ltr"] {
   text-align: start;
 }
 
