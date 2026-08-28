@@ -16,6 +16,7 @@
   import { api } from "../lib/api.js";
   import { PERM, has } from "../lib/perms.js";
   import { GUILD_BANNERS, GUILD_BANNER_GROUPS, guildBannerArt } from "../lib/guildbanners.js";
+  import { guildInitials } from "../lib/rail.js";
 
   let { onClose } = $props();
 
@@ -40,7 +41,10 @@
   // .shelves below), so open-by-default put roughly eight rows of tiles —
   // ~600px — between the name field and the Save button, with nothing to
   // suggest a Save button existed. It's one tap to open.
-  let picking = $state(!S.isMobile && !(g?.banner && !guildBannerArt(g.banner)?.template));
+  // Closed by default now that identity is above it: the gallery is the
+  // optional half of this panel, and open-by-default was what pushed the guild's
+  // own name below the fold.
+  let picking = $state(false);
 
   // Read an image file to a data URI. Kept raw (no canvas re-encode) so animated
   // GIF banners keep animating; rejected if too big for a gossip frame.
@@ -93,6 +97,44 @@
 <svelte:window onpaste={onPaste} />
 
 <Modal title="Guild settings" {onClose} wide>
+  <!-- IDENTITY FIRST. The panel is called "Name, icon, banner & description"
+       and used to put them in the reverse of that order: a 24-tile animated
+       template gallery ate three hundred pixels and the guild's own NAME
+       started below the fold. -->
+  <div class="id-row">
+    <!-- The control had no label and no title, and revealed the word "CHANGE"
+         only on hover — so to a screen reader it was a button called nothing,
+         and to a finger it was a picture. The initials are the RAIL's rule now
+         (lib/rail.js), because the same guild reading "RM" in the rail and "R"
+         here, three inches apart, looked like two different places. -->
+    <button
+      class="icon-btn"
+      aria-label={icon ? "Change the guild icon" : "Choose a guild icon"}
+      onclick={() => canEdit && pickImage((v) => (icon = v))}
+      onmouseenter={() => (pasteTarget = "icon")}
+      disabled={!canEdit}
+    >
+      {#if icon}<img src={icon} alt="" />{:else}<span>{guildInitials(name) || "?"}</span>{/if}
+      {#if canEdit}<span class="cam-badge" aria-hidden="true"><Icon name="camera" size={13} /></span>{/if}
+    </button>
+    <label class="field grow">
+      <span class="muted">Guild name</span>
+      <input bind:value={name} maxlength="40" disabled={!canEdit} />
+    </label>
+  </div>
+
+  <label class="field">
+    <span class="muted">Description</span>
+    <textarea bind:value={description} rows="3" maxlength="1000" disabled={!canEdit}
+      placeholder="What's this guild about?"></textarea>
+  </label>
+
+  <details class="art-fold" bind:open={picking}>
+    <summary>
+      <span class="afchev"><Icon name="chevron" size={13} /></span>
+      Banner
+      <span class="muted tiny">{art ? "one is set" : "none yet"} · {GUILD_BANNERS.length} drawn scenes</span>
+    </summary>
   <!-- Banner preview: the art, the scrim, and the guild's own name and icon on
        top of it, laid out like the channel-list header — so "can you read the
        name over this?" is answered here rather than after saving. -->
@@ -117,17 +159,10 @@
   </div>
 
   {#if canEdit}
-    <div class="tpl-head">
-      <button class="tpl-toggle" onclick={() => (picking = !picking)} aria-expanded={picking}>
-        <Icon name="chevron" size={12} />
-        <span>Templates</span>
-        <span class="muted tiny">{GUILD_BANNERS.length} drawn scenes, animated</span>
-      </button>
-    </div>
-    {#if picking}
-      <!-- Every tile is the real thing at 0.45 scale, and only the hovered/chosen
-           one animates — two dozen live scenes at once is a laptop fan (the same
-           trade BannerStudio's shelves make). -->
+    <!-- Every tile is the real thing at 0.45 scale, and only the hovered/chosen
+         one animates — two dozen live scenes at once is a laptop fan (the same
+         trade BannerStudio's shelves make). -->
+    {#if true}
       <div class="shelves">
         <div class="grid">
           <button class="tile none" class:sel={!banner} onclick={() => (banner = "")}>
@@ -158,27 +193,7 @@
     {/if}
   {/if}
 
-  <div class="id-row">
-    <button
-      class="icon-btn"
-      onclick={() => canEdit && pickImage((v) => (icon = v))}
-      onmouseenter={() => (pasteTarget = "icon")}
-      disabled={!canEdit}
-    >
-      {#if icon}<img src={icon} alt="icon" />{:else}<span>{(name || "?").slice(0, 1)}</span>{/if}
-      {#if canEdit}<span class="cam-overlay">Change</span>{/if}
-    </button>
-    <label class="field grow">
-      <span class="muted">Guild name</span>
-      <input bind:value={name} maxlength="40" disabled={!canEdit} />
-    </label>
-  </div>
-
-  <label class="field">
-    <span class="muted">Description</span>
-    <textarea bind:value={description} rows="3" maxlength="1000" disabled={!canEdit}
-      placeholder="What's this guild about?"></textarea>
-  </label>
+  </details>
 
   {#if canEdit}
     <div class="actions">
@@ -189,20 +204,41 @@
     <p class="muted tiny">Only members with Manage Guild can edit this.</p>
   {/if}
 
-  <!-- Cut to the two facts, and still printed rather than moved behind an info
-       dot: that "deleted" means something different here than in a DM is
-       something you have to know BEFORE you delete, not after you go looking.
-       (A dot is also the wrong control this low in a short dialog — InfoDot
-       flips its popover against the VIEWPORT, so here it opens downward and the
-       dialog's own edge cuts it in half.) -->
-  <p class="muted tiny privacy-note">
-    <Icon name="info" size={12} /> Deleting a message here hides it from members, but
-    moderators can still read the original. In a DM, deleting erases it for both
-    people.
-  </p>
 </Modal>
 
 <style>
+  /* The disclosure that keeps the 24-tile gallery from pushing the guild's own
+     NAME below the fold, which is what the panel is for. */
+  .art-fold {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    padding: 0 var(--sp-3);
+  }
+  .art-fold > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 10px 0;
+    cursor: pointer;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    /* Both halves: Firefox honours list-style, WebKit wants the pseudo. Without
+       BOTH you get the browser's triangle beside the app's chevron. */
+    list-style: none;
+  }
+  .art-fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  .afchev {
+    display: inline-grid;
+    place-items: center;
+    color: var(--text-faint);
+    transition: transform var(--dur-quick) var(--ease-out);
+  }
+  .art-fold[open] .afchev {
+    transform: rotate(90deg);
+  }
   .privacy-note {
     display: flex;
     align-items: flex-start;
@@ -290,6 +326,10 @@
     }
   }
   .shelves {
+    /* The fade at the bottom says "keep scrolling". It used to land THROUGH a
+       row of tile labels, which reads as a rendering fault rather than as an
+       affordance — the padding gives it empty space to fade over. */
+    padding-bottom: 26px;
     max-height: 40vh;
     max-height: 40dvh; /* fallback line above; dvh shrinks with the keyboard */
     overflow-y: auto;
@@ -440,36 +480,27 @@
     object-fit: cover;
   }
   /* Same centered hover hint as the profile avatar — no clipped edge badge. */
-  .cam-overlay {
+  /* Permanent, at every pointer type: a control has to say it is a control
+     before the pointer is on it, and a finger never hovers. */
+  .cam-badge {
     position: absolute;
-    inset: 0;
+    /* INSIDE the box: .icon-btn clips (it has to, so an uploaded picture takes
+       the rounded corner), so a badge hung off the edge would be sliced. */
+    right: 2px;
+    bottom: 2px;
+    width: 22px;
+    height: 22px;
     display: grid;
     place-items: center;
-    font-size: var(--fs-tiny);
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.5);
-    opacity: 0;
-    transition: opacity var(--dur-quick) ease;
+    border-radius: 50%;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
   }
-  .icon-btn:hover .cam-overlay,
-  .icon-btn:focus-visible .cam-overlay {
-    opacity: 1;
-  }
-  /* Touch has no hover, so the hint has to be permanent — but covering the tile
-     printed "CHANGE" through the guild initial and neither could be read. A
-     bottom strip says the same thing and leaves the tile legible. */
-  @media (pointer: coarse), (max-width: 768px) {
-    .cam-overlay {
-      inset: auto 0 0 0;
-      align-content: center;
-      height: 18px;
-      font-size: var(--fs-micro);
-      opacity: 1;
-      background: rgba(0, 0, 0, 0.62);
-    }
+  .icon-btn:hover .cam-badge,
+  .icon-btn:focus-visible .cam-badge {
+    color: var(--text);
+    border-color: var(--accent);
   }
   .field {
     display: flex;

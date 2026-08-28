@@ -29,6 +29,7 @@
     setFolderColor,
     dissolveFolder,
     DEFAULT_FOLDER_COLOR,
+    guildInitials,
   } from "./lib/rail.js";
   import { playFlyby } from "./lib/sounds.js";
   import { longpress } from "./lib/touch.js";
@@ -238,12 +239,7 @@
       .filter(Boolean),
   );
 
-  const initials = (name) =>
-    name
-      .split(/\s+/)
-      .map((w) => w[0])
-      .join("")
-      .slice(0, 2);
+  const initials = guildInitials;
 
   function guildTint(id) {
     let h = 0;

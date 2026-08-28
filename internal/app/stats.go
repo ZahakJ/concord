@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -269,4 +271,147 @@ func directionOf(c network.Conn) string {
 		return "inbound"
 	}
 	return "outbound"
+}
+
+// ---- insights -------------------------------------------------------------
+
+// The Stats panel promised "activity & diagnostics" and delivered diagnostics:
+// MLS epoch, sync state, libp2p peer ids, transport names, a props tally. There
+// was no per-channel breakdown, no activity over time, no sense of which rooms
+// were alive and which had gone quiet — which is exactly what an organizer
+// decides from. Every number below is a query over rows already on this device.
+// Nothing is transmitted and no other member is asked, which is why a panel
+// like this is cheap here and expensive everywhere else.
+
+// InsightChannel is one room's share of the traffic.
+type InsightChannel struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Messages int64  `json:"messages"`
+	// LastUnix is when the room last had something said in it, 0 for never.
+	// "Quietest channels" is not a ranking by count — a room made yesterday
+	// with two messages is not quiet, it is new.
+	LastUnix int64 `json:"lastUnix"`
+}
+
+// InsightPerson is one member's share, resolved to a name where the roster
+// still knows them. Counting keys on the account key rather than the display
+// name: two members can pick the same name and one member can change theirs.
+type InsightPerson struct {
+	Fingerprint string `json:"fingerprint"`
+	Name        string `json:"name"`
+	Messages    int64  `json:"messages"`
+}
+
+// GuildInsightsView is the Insights half of the panel.
+type GuildInsightsView struct {
+	Channels []InsightChannel `json:"channels"` // busiest first
+	People   []InsightPerson  `json:"people"`   // busiest first, capped
+	// PerWeek is oldest-first, one bucket per week, ending with the week in
+	// progress. WeekStartUnix is the first bucket's start.
+	PerWeek       []int64 `json:"perWeek"`
+	WeekStartUnix int64   `json:"weekStartUnix"`
+	Weeks         int     `json:"weeks"`
+	// Total counts live messages; Archived counts what an imported chronicle
+	// carries. Reporting 67 messages with 120 imported was a number that
+	// contradicted the archive panel three rows away.
+	Total    int64 `json:"total"`
+	Archived int64 `json:"archived"`
+}
+
+// insightWeeks is the window the sparkline covers: a quarter, which is long
+// enough to show a community's shape and short enough that the buckets stay
+// legible in a panel.
+const insightWeeks = 13
+
+// GuildInsights derives a guild's activity from the local store.
+func (s *Service) GuildInsights(guildID string) (GuildInsightsView, error) {
+	var v GuildInsightsView
+	chans := s.channelsOf(guildID)
+	if len(chans) == 0 {
+		return v, nil
+	}
+	ids := make([]string, 0, len(chans))
+	for _, c := range chans {
+		ids = append(ids, c.ID)
+	}
+
+	// The window starts at the MONDAY of the week `insightWeeks-1` weeks back,
+	// in local time, so every bucket is a whole calendar week and the last one
+	// is the week in progress.
+	now := time.Now()
+	wd := (int(now.Weekday()) + 6) % 7 // Monday = 0
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).
+		AddDate(0, 0, -wd-7*(insightWeeks-1))
+	act, err := s.store.GuildActivitySince(ids, start.UnixNano(), insightWeeks)
+	if err != nil {
+		return v, err
+	}
+	v.PerWeek, v.WeekStartUnix, v.Weeks = act.PerWeek, start.Unix(), insightWeeks
+
+	for _, c := range chans {
+		// Forum posts and threads roll into their parent: a board with forty
+		// posts is one busy room, not forty rooms with one message each.
+		if c.Parent != "" {
+			continue
+		}
+		n := act.PerChannel[c.ID]
+		for _, k := range chans {
+			if k.Parent == c.ID {
+				n += act.PerChannel[k.ID]
+			}
+		}
+		v.Total += n
+		v.Channels = append(v.Channels, InsightChannel{
+			ID: c.ID, Name: c.Name, Type: c.ChannelType(),
+			Messages: n, LastUnix: s.ChannelLastActivity(c.ID) / 1e9,
+		})
+	}
+	sort.Slice(v.Channels, func(i, j int) bool {
+		if v.Channels[i].Messages != v.Channels[j].Messages {
+			return v.Channels[i].Messages > v.Channels[j].Messages
+		}
+		return v.Channels[i].Name < v.Channels[j].Name
+	})
+
+	for keyHex, n := range act.Senders {
+		raw, err := hex.DecodeString(keyHex)
+		if err != nil || len(raw) == 0 {
+			continue
+		}
+		fpr := accountFingerprintOf(raw)
+		v.People = append(v.People, InsightPerson{
+			Fingerprint: fpr, Name: s.govActorName(guildID, fpr), Messages: n,
+		})
+	}
+	// One person, one row: a member with linked devices signs from several
+	// keys and would otherwise appear once per device.
+	merged := map[string]InsightPerson{}
+	for _, p := range v.People {
+		e := merged[p.Fingerprint]
+		e.Fingerprint, e.Name = p.Fingerprint, p.Name
+		e.Messages += p.Messages
+		merged[p.Fingerprint] = e
+	}
+	v.People = v.People[:0]
+	for _, p := range merged {
+		v.People = append(v.People, p)
+	}
+	sort.Slice(v.People, func(i, j int) bool {
+		if v.People[i].Messages != v.People[j].Messages {
+			return v.People[i].Messages > v.People[j].Messages
+		}
+		return v.People[i].Fingerprint < v.People[j].Fingerprint
+	})
+	if len(v.People) > 12 {
+		v.People = v.People[:12]
+	}
+
+	// The archive, counted honestly beside the live history rather than left
+	// out of a total that then disagreed with the Archive panel.
+	if m, _, ok := s.guildChronicle(guildID); ok {
+		v.Archived = m.Messages
+	}
+	return v, nil
 }

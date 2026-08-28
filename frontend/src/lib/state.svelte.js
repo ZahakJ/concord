@@ -2713,22 +2713,38 @@ export async function forwardMessage(m, destChannelId) {
   await api.sendMessage(destChannelId, body, "");
 }
 
-export async function deleteMsg(m) {
-  try {
-    await api.deleteMessage(m.channelId, m.id);
-    // Honesty: in a guild, deleting hides a message from members but moderators
-    // can still reveal it. In a DM the delete is real (content erased on both
-    // sides). Tell the user which they got — once per session, not every time.
-    const g = activeGuild();
-    if (g && g.kind !== "dm" && m.sender === S.identity.fingerprint && !deleteHintShown) {
-      deleteHintShown = true;
-      flash("Deleted for members — moderators can still view it in this guild.", "info");
-    }
-  } catch (err) {
-    flash(err);
-  }
+// deleteMsg asks first, and the asking is where the privacy fact belongs.
+//
+// That "deleted" means something different in a guild than in a DM — hidden
+// from members but still readable by moderators, versus erased for both people
+// — is something you have to know BEFORE you delete, not after. It used to be
+// printed in the guild's NAME AND ARTWORK panel, of all places, because InfoDot
+// renders wrong at the bottom of a short dialog; and the honest sentence it was
+// standing in for arrived as a toast, once per session, after the fact.
+//
+// A confirmation is also what every other destructive action here already does
+// — channel, category, kick, ban — and the hover bar's Delete is one stray
+// click from a message that is gone for everyone.
+export function deleteMsg(m) {
+  const g = activeGuild();
+  const isDM = g?.kind === "dm";
+  S.modal = {
+    kind: "confirm",
+    title: "Delete this message?",
+    body: isDM
+      ? "It is erased for both of you — the content is gone, not hidden."
+      : "It is hidden from members here, but moderators can still read the original. In a DM, deleting erases it for both people.",
+    confirmLabel: "Delete",
+    onConfirm: async () => {
+      S.modal = null;
+      try {
+        await api.deleteMessage(m.channelId, m.id);
+      } catch (err) {
+        flash(err);
+      }
+    },
+  };
 }
-let deleteHintShown = false;
 
 export async function saveEdit(m, text) {
   S.editing = null;

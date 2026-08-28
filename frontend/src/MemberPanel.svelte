@@ -183,7 +183,27 @@
       if (ms?.length) out.push({ id: r.id, name: r.name, color: r.color, members: sortMembers(ms) });
     }
     if (noRole.length) out.push({ id: "", name: "Members", color: "", members: sortMembers(noRole) });
-    return out;
+    // The owner outranks every role, so they cannot be filed UNDER one. Role
+    // hoisting put the person who owns the guild in "Members", beneath their
+    // own moderator, whenever they had not given themselves a role — which is
+    // the normal state, since the owner needs none. They get their own group,
+    // with the heir, pinned above everything.
+    const top = [];
+    for (const grp of out) {
+      grp.members = grp.members.filter((m) => {
+        if (m.isOwner || m.isHeir) {
+          top.push(m);
+          return false;
+        }
+        return true;
+      });
+    }
+    if (top.length) {
+      // Owner first, then heir; both are one person's standing, not a role.
+      top.sort((a, b) => (b.isOwner ? 1 : 0) - (a.isOwner ? 1 : 0));
+      out.unshift({ id: "__top", name: top.length > 1 ? "Owner & heir" : "Owner", color: "", members: top });
+    }
+    return out.filter((grp) => grp.members.length);
   });
 
   // ---- member filter ----

@@ -195,3 +195,22 @@ export function dissolveFolder(items, folderId) {
   }
   return out;
 }
+
+// guildInitials is ONE rule for the two letters a guild wears when it has no
+// icon. The rail already had it; the settings panel had its own, which took
+// only the first character — so the same guild read "RM" in the rail and "R"
+// in settings, three inches apart, and looked like two different places.
+//
+// Uppercased, because a lowercase guild name ("dar al-hikma") should still
+// produce a plate that reads as a monogram, and trimmed of the whitespace that
+// makes `split` emit an empty first word.
+export function guildInitials(name) {
+  const letters = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .map((w) => [...w][0] || "");
+  // Sliced by CODEPOINT, not by UTF-16 unit: an emoji first letter is two
+  // units, so a plain slice(0, 2) returned the emoji alone and dropped the
+  // second word's initial entirely.
+  return [...letters.join("")].slice(0, 2).join("").toUpperCase();
+}

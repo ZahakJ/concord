@@ -17,18 +17,49 @@
   let gs = $state(null); // guild stats
   let ns = $state(null); // network stats
   let props = $state(null); // top members by received props
+  let activity = $state(null); // guild insights
+  // Diagnostics start folded. The panel promised "activity & diagnostics" and
+  // delivered only the second half, in a wall of MLS epochs and libp2p peer
+  // ids — true, useful once a year, and not what anyone opened it for.
+  let showDiag = $state(false);
 
   async function refresh() {
     try {
       if (guildId) {
         gs = await api.guildStats(guildId);
         props = await loadProps();
+        // Insights change on the scale of days, so they are fetched once
+        // rather than on the 2s diagnostics poll — three GROUP BYs over the
+        // guild's whole history is not a thing to run every two seconds.
+        if (activity === null) activity = (await api.guildInsights(guildId)) || {};
       }
       ns = await api.networkStats();
     } catch {
       /* transient — next tick retries */
     }
   }
+
+  // ---- insights shaping ---------------------------------------------------
+  const insChannels = $derived((activity?.channels || []).filter((c) => c.messages > 0));
+  const busiest = $derived(insChannels.slice(0, 8));
+  const chMax = $derived(Math.max(1, ...busiest.map((c) => c.messages)));
+  // "Quietest" is not the bottom of the count: a room made yesterday with two
+  // messages is new, not quiet. It is rooms nobody has spoken in for a month —
+  // and rooms nobody has EVER spoken in, which are the ones to archive.
+  const QUIET_MS = 30 * 86400000;
+  const quiet = $derived(
+    (activity?.channels || [])
+      .filter((c) => c.type !== "voice" && (!c.lastUnix || Date.now() - c.lastUnix * 1000 > QUIET_MS))
+      .sort((a, b) => (a.lastUnix || 0) - (b.lastUnix || 0))
+      .slice(0, 5),
+  );
+  const weekMax = $derived(Math.max(1, ...(activity?.perWeek || [0])));
+  const weekTotal = $derived((activity?.perWeek || []).reduce((n, x) => n + x, 0));
+  const weekLabel = (i) => {
+    const d = new Date((activity.weekStartUnix + i * 7 * 86400) * 1000);
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  };
+  const peopleMax = $derived(Math.max(1, ...((activity?.people || []).map((p) => p.messages))));
 
   // Props leaderboard: celebratory reactions (🏆 ⭐ 💯 ❤️ 👏) received on each
   // member's messages, tallied from THIS replica's reaction history. Every
@@ -212,30 +243,85 @@
   }
 </script>
 
-<Modal title="Stats & diagnostics" {onClose} wide>
+<Modal title="Insights & diagnostics" {onClose} wide>
   <!-- Reached from Settings there may be no guild open at all, and the panel is
        worth opening anyway — it is the only route to your linked devices. Drop
        the guild section entirely in that case rather than leaving a heading over
        a "Loading…" that never resolves, because nothing was ever requested. -->
   {#if guildId}
+  <!-- INSIGHTS. What an organizer decides from: which rooms are alive, who is
+       talking, and what the last quarter looked like. Every number is a query
+       over rows already on this device — nothing is transmitted and no other
+       member is asked, which is why a panel like this is free here. -->
   <section>
-    <strong class="label">{guild?.kind === "dm" ? "This conversation" : guild?.name || "This guild"}</strong>
-    {#if gs}
-      <div class="grid">
-        <div class="stat"><span class="k">Messages</span><span class="v">{gs.messages.toLocaleString()}</span></div>
-        <div class="stat"><span class="k">Message data</span><span class="v">{fmtBytes(gs.messageBytes)}</span></div>
-        <div class="stat"><span class="k">Members</span><span class="v">{gs.members}</span></div>
-        <div class="stat"><span class="k">Channels</span><span class="v">{gs.channels}</span></div>
-        <div class="stat"><span class="k">First message</span><span class="v">{fmtDate(gs.oldestUnix)}</span></div>
-        <div class="stat"><span class="k">Latest</span><span class="v">{fmtDate(gs.newestUnix)}</span></div>
-        <div class="stat"><span class="k">MLS epoch</span><span class="v">{gs.epoch}</span></div>
-        <div class="stat">
-          <span class="k">Sync</span>
-          <span class="v" class:warn={gs.outOfSync}>{gs.outOfSync ? "healing…" : "in sync"}</span>
-        </div>
-      </div>
-    {:else}
+    <strong class="label">Activity</strong>
+    {#if !activity}
       <p class="muted tiny">Loading…</p>
+    {:else if !weekTotal && !insChannels.length}
+      <p class="muted tiny">Nothing has been said here yet.</p>
+    {:else}
+      <div class="spark" role="img" aria-label={`${weekTotal} messages over the last ${activity.weeks} weeks`}>
+        {#each activity.perWeek as n, i (i)}
+          <span class="sbar" title={`Week of ${weekLabel(i)} — ${n} message${n === 1 ? "" : "s"}`}>
+            <span class="sfill" style="height:{Math.max(2, Math.round((n / weekMax) * 100))}%"></span>
+          </span>
+        {/each}
+      </div>
+      <div class="sparkline-foot muted tiny">
+        <span>{weekLabel(0)}</span>
+        <span>{weekTotal.toLocaleString()} messages in {activity.weeks} weeks</span>
+        <span>this week</span>
+      </div>
+
+      {#if busiest.length}
+        <div class="rows" aria-label="Messages per channel">
+          {#each busiest as c (c.id)}
+            <div class="row">
+              <span class="rname">{c.type === "voice" ? c.name : `#${c.name}`}</span>
+              <span class="rbar"><span class="rfill" style="width:{Math.round((c.messages / chMax) * 100)}%"></span></span>
+              <span class="rn">{c.messages.toLocaleString()}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if activity.people?.length}
+        <strong class="sub">Who is talking</strong>
+        <div class="rows" aria-label="Messages per member">
+          {#each activity.people.slice(0, 6) as p (p.fingerprint)}
+            <div class="row">
+              <span class="rname">{p.name || p.fingerprint.slice(0, 9)}</span>
+              <span class="rbar"><span class="rfill alt" style="width:{Math.round((p.messages / peopleMax) * 100)}%"></span></span>
+              <span class="rn">{p.messages.toLocaleString()}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if quiet.length}
+        <strong class="sub">Gone quiet</strong>
+        <div class="quiet">
+          {#each quiet as c (c.id)}
+            <span class="qchip">
+              {c.type === "voice" ? c.name : `#${c.name}`}
+              <em>{c.lastUnix ? fmtDate(c.lastUnix) : "never used"}</em>
+            </span>
+          {/each}
+        </div>
+        <p class="muted tiny note">
+          Nothing said in a month. These are the rooms to merge or archive.
+        </p>
+      {/if}
+
+      {#if activity.archived > 0}
+        <!-- Counted separately and out loud. The old panel reported the live
+             count alone, which contradicted the Archive panel three rows away
+             when a guild had imported history. -->
+        <p class="muted tiny note">
+          Plus {activity.archived.toLocaleString()} imported messages in this guild's archive, which the
+          numbers above do not count.
+        </p>
+      {/if}
     {/if}
   </section>
 
@@ -263,8 +349,43 @@
     {/if}
   </section>
 
-  <hr />
   {/if}
+
+  <!-- DIAGNOSTICS, folded. All of it is true and almost none of it is what
+       anyone opened this panel for: an MLS epoch, a libp2p peer id and a
+       transport name are the right answer to a question asked about once a
+       year, and they were the whole panel. -->
+  <details class="diag" bind:open={showDiag}>
+    <summary>
+      <span class="dchev"><Icon name="chevron" size={13} /></span>
+      Diagnostics
+      <span class="muted tiny">connection, storage, devices &amp; sync</span>
+    </summary>
+    {#if guildId}
+  <section>
+    <strong class="label">{guild?.kind === "dm" ? "This conversation" : guild?.name || "This guild"}</strong>
+    {#if gs}
+      <div class="grid">
+        <div class="stat"><span class="k">Messages</span><span class="v">{gs.messages.toLocaleString()}</span></div>
+        <div class="stat"><span class="k">Message data</span><span class="v">{fmtBytes(gs.messageBytes)}</span></div>
+        <div class="stat"><span class="k">Members</span><span class="v">{gs.members}</span></div>
+        <div class="stat"><span class="k">Channels</span><span class="v">{gs.channels}</span></div>
+        <div class="stat"><span class="k">First message</span><span class="v">{fmtDate(gs.oldestUnix)}</span></div>
+        <div class="stat"><span class="k">Latest</span><span class="v">{fmtDate(gs.newestUnix)}</span></div>
+        <div class="stat"><span class="k">MLS epoch</span><span class="v">{gs.epoch}</span></div>
+        <div class="stat">
+          <span class="k">Sync</span>
+          <span class="v" class:warn={gs.outOfSync}>{gs.outOfSync ? "healing…" : "in sync"}</span>
+        </div>
+      </div>
+    {:else}
+      <p class="muted tiny">Loading…</p>
+    {/if}
+  </section>
+
+  <hr />
+
+    {/if}
 
   <!-- YOUR DEVICES. Its own section, above the peer list, because a device of
        yours is not one of the peers your rendezvous introduced you to — it used
@@ -495,6 +616,7 @@
       {/if}
     </section>
   {/if}
+  </details>
 </Modal>
 
 {#if confirming}
@@ -535,6 +657,10 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+    /* Bandwidth is "↓ 12.5 KB/s ↑ 3.2 KB/s" — long enough to run past the
+       tile's right edge and be sliced by it. Wrapping is the honest answer:
+       the tile grows a line rather than losing half a number. */
+    flex-wrap: wrap;
     gap: 10px;
     padding: var(--sp-2) var(--sp-3);
     background: var(--bg-1);
@@ -549,9 +675,143 @@
     font-size: var(--fs-ui);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .v.warn {
     color: var(--warn-text);
+  }
+  /* ---- insights ---------------------------------------------------------
+     One accent, one weight, no chartjunk: the app already draws its data this
+     way (the import wizard's histogram), and a stats panel that invents a
+     second visual language is a stats panel nobody trusts. */
+  .spark {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 64px;
+    padding: var(--sp-2) 10px;
+    background: var(--bg-1);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+  .sbar {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    height: 100%;
+    min-width: 0;
+  }
+  .sfill {
+    width: 100%;
+    border-radius: 2px 2px 0 0;
+    background: var(--accent);
+  }
+  .sparkline-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--sp-2);
+  }
+  .sub {
+    display: block;
+    margin-top: var(--sp-2);
+    font-size: var(--fs-small);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .rows {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    font-size: var(--fs-compact);
+  }
+  .rname {
+    flex: 0 0 34%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+  }
+  .rbar {
+    flex: 1;
+    height: 8px;
+    min-width: 0;
+    border-radius: 999px;
+    background: var(--bg-3);
+    overflow: hidden;
+  }
+  .rfill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  /* People get the second hue, so "which channel" and "which person" are not
+     the same bar in two lists. */
+  .rfill.alt {
+    background: color-mix(in srgb, var(--accent) 55%, var(--ok, var(--accent-hover)));
+  }
+  .rn {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-faint);
+  }
+  .quiet {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .qchip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    font-size: var(--fs-small);
+  }
+  .qchip em {
+    font-style: normal;
+    color: var(--text-faint);
+  }
+  /* ---- the diagnostics fold ---- */
+  .diag {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    padding: 0 var(--sp-3);
+  }
+  .diag > summary {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 10px 0;
+    cursor: pointer;
+    font-size: var(--fs-ui);
+    font-weight: 600;
+    /* Both halves: Firefox honours list-style, WebKit wants the pseudo.
+       Without BOTH you get the browser's triangle beside the app's chevron. */
+    list-style: none;
+  }
+  .diag > summary::-webkit-details-marker {
+    display: none;
+  }
+  .dchev {
+    display: inline-grid;
+    place-items: center;
+    color: var(--text-faint);
+    transition: transform var(--dur-quick) var(--ease-out);
+  }
+  .diag[open] .dchev {
+    transform: rotate(90deg);
   }
   .peers {
     display: flex;

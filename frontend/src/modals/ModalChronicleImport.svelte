@@ -248,6 +248,17 @@
       big channels are usually split by year. An <code>assets</code> folder beside them,
       if the export made one, carries the pictures.
     </p>
+    {#if !canBrowse}
+      <!-- The browser cannot hand a PATH to anything: a folder picked through
+           the page yields file handles and a relative name, and the importer
+           reads the filesystem directly on the machine Concord is running on.
+           So say where the path has to point and where the picker lives,
+           rather than leaving a bare field and letting the reader guess. -->
+      <p class="hint">
+        This is a path on the machine running Concord — the browser has no way to hand a
+        folder to it. The desktop app has a folder picker here.
+      </p>
+    {/if}
     {#if scanError}
       <p class="err" role="alert"><Icon name="alert" size={13} /> {scanError}</p>
     {/if}
@@ -432,14 +443,23 @@
         </label>
       {/each}
       {#if ui.tier !== "none"}
-        <label class="capfld">
+        <!-- Four fixed values, so a segmented control rather than OS chrome:
+             a native <select> sitting among custom radio cards is the one
+             control on this screen that says a different app made it. -->
+        <div class="capfld">
           <span>Skip anything larger than</span>
-          <select bind:value={ui.cap}>
+          <div class="seg" role="radiogroup" aria-label="Attachment size cap">
             {#each CAPS as c (c.bytes)}
-              <option value={c.bytes}>{c.label}</option>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={ui.cap === c.bytes}
+                class:sel={ui.cap === c.bytes}
+                onclick={() => (ui.cap = c.bytes)}
+              >{c.label}</button>
             {/each}
-          </select>
-        </label>
+          </div>
+        </div>
       {/if}
 
       <div class="sec-head"><h4>Extras</h4></div>
@@ -868,9 +888,50 @@
     color: var(--text-faint);
     line-height: 1.45;
   }
+  /* The app's segmented control, same skin as the channel-settings slow-mode
+     row and the mute picker. */
+  .seg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--sp-1);
+  }
+  .seg button {
+    padding: 6px 11px;
+    font-size: var(--fs-small);
+    background: var(--bg-3);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    border-radius: var(--radius-sm);
+  }
+  .seg button:hover {
+    color: var(--text);
+    background: var(--bg-2);
+  }
+  .seg button.sel {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent-hover);
+    font-weight: 600;
+  }
+  /* The two date fields are the platform's — a full date picker is its own
+     component and the native one is correct in the reader's own locale — but
+     they wear the app's field, so they stop reading as borrowed chrome. */
+  .dates input[type="date"] {
+    padding: 7px 9px;
+    font-size: var(--fs-ui);
+    font-family: inherit;
+    background: var(--bg-3);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+  .dates input[type="date"]:focus-visible {
+    border-color: var(--accent);
+  }
   .capfld {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: var(--sp-2);
     font-size: var(--fs-ui);
     color: var(--text-muted);

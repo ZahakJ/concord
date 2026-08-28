@@ -9,6 +9,7 @@ import {
   renameFolder,
   setFolderColor,
   guildIdsInLayout,
+  guildInitials,
 } from "./rail.js";
 
 let failures = 0;
@@ -123,3 +124,28 @@ if (failures) {
   process.exit(1);
 }
 console.log("rail.test.mjs: all passed");
+
+// ---- one initials rule ----------------------------------------------------
+// The rail and the settings panel drew the same guild differently ("RM" vs
+// "R"), three inches apart, which read as two different places.
+{
+  const cases = [
+    ["Riverside Makers", "RM"],
+    ["  Dar al-Hikma  ", "DA"],
+    ["general", "G"],
+    ["", ""],
+    ["a b c d", "AB"],
+    // A codepoint, not a UTF-16 unit: an emoji or an astral letter is one
+    // character to a person.
+    ["🌙 Night", "🌙N"],
+    ["دار الحكمة", "دا"],
+  ];
+  for (const [input, want] of cases) {
+    const got = guildInitials(input);
+    if (got !== want) {
+      console.error(`  FAIL guildInitials(${JSON.stringify(input)}) = ${JSON.stringify(got)}, want ${JSON.stringify(want)}`);
+      process.exitCode = 1;
+    }
+  }
+  console.log("rail.test.mjs: guildInitials ok");
+}

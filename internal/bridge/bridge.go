@@ -789,6 +789,16 @@ func (b *Bridge) GuildStats(guildID string) (appsvc.GuildStatsView, error) {
 	return svc.GuildStats(guildID)
 }
 
+// GuildInsights is the ACTIVITY half of the stats panel: which rooms are alive,
+// who is talking, and what the last quarter looked like. Local queries only.
+func (b *Bridge) GuildInsights(guildID string) (appsvc.GuildInsightsView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.GuildInsightsView{}, err
+	}
+	return svc.GuildInsights(guildID)
+}
+
 // PropsTally returns a guild's received-props counts keyed by member
 // fingerprint — computed from the local reaction history, so it costs no
 // network and answers instantly.
@@ -3565,6 +3575,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.GifSearchEnabled()
 	case "SetGifSearchEnabled":
 		return nil, b.SetGifSearchEnabled(argBool(args, 0))
+	case "GuildInsights":
+		return b.GuildInsights(argStr(args, 0))
 	case "GuildStats":
 		return b.GuildStats(argStr(args, 0))
 	case "PropsTally":

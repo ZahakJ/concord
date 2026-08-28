@@ -15,6 +15,7 @@
   import { BANNER_BY_ID } from "../lib/banners.js";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { tooltip } from "../lib/tooltip.js";
   import { PERM, has } from "../lib/perms.js";
   import {
     LAYOUTS,
@@ -386,19 +387,29 @@
                 aria-label="Tag name"
                 oninput={(e) => patch(i, "name", e.currentTarget.value)}
               />
-              <span class="count" class:over={runeLen(t.name) > TAG_LIMITS.nameRunes}>
-                {runeLen(t.name)}/{TAG_LIMITS.nameRunes}
-              </span>
-              <span class="ord">
+              <!-- Only near the limit. "3/24" beside a name field, on every
+                   row, all the time, is noise you have to decode — and beside a
+                   pair of stepper arrows it read as an icon index rather than a
+                   character count. It appears when it starts to matter. -->
+              {#if runeLen(t.name) >= TAG_LIMITS.nameRunes * 0.8}
+                <span class="count" class:over={runeLen(t.name) > TAG_LIMITS.nameRunes}>
+                  {runeLen(t.name)}/{TAG_LIMITS.nameRunes}
+                </span>
+              {/if}
+              <!-- Labelled, because the two chevrons beside a counter read as
+                   one three-part control that does something to the number. -->
+              <span class="ord" role="group" aria-label="Reorder this tag">
                 <button
                   class="mini"
-                  aria-label="Move up"
+                  aria-label="Move {t.name || "tag"} earlier"
+                  use:tooltip={"Move earlier"}
                   disabled={i === 0}
                   onclick={() => move(i, -1)}><Icon name="chevron" size={12} /></button
                 >
                 <button
                   class="mini down"
-                  aria-label="Move down"
+                  aria-label="Move {t.name || "tag"} later"
+                  use:tooltip={"Move later"}
                   disabled={i === draft.length - 1}
                   onclick={() => move(i, 1)}><Icon name="chevron" size={12} /></button
                 >

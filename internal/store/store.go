@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -3608,3 +3609,104 @@ func IsQuiet(content string) bool {
 }
 
 var gameTokenRe = regexp.MustCompile(`^\[game\]\(concord://game/v1/[A-Za-z0-9_-]+\)$`)
+
+// ---- guild insights -------------------------------------------------------
+
+// GuildActivity is the shape of a guild's own traffic, counted from the rows
+// already on this device. Nothing here is transmitted, nothing is recorded,
+// and no other member is asked: a peer-to-peer app already holds the history
+// its owner is entitled to see, which is exactly why the panel that shows this
+// costs nothing to run and cannot be wrong about someone else's data.
+//
+// Sender counts key on the ACCOUNT key, not the display name: two members can
+// pick the same name, and one member can change theirs.
+type GuildActivity struct {
+	PerChannel map[string]int64 // channel id -> messages
+	PerWeek    []int64          // oldest-first, one entry per week in the window
+	WeekStart  int64            // unix seconds of the first bucket's Monday
+	Senders    map[string]int64 // account key (hex) -> messages
+	Quiet      int64            // messages counted as quiet (game moves and the like)
+}
+
+// GuildActivitySince counts a guild's messages by channel, by week and by
+// sender over the last `weeks` weeks. One pass per axis, all three served by
+// idx_messages_sent — the same index the inbox's keyset pager uses.
+//
+// System notices are excluded everywhere: "created this channel" is not
+// activity, and counting it makes a guild that was set up in one sitting look
+// like a busy one.
+func (s *Store) GuildActivitySince(channelIDs []string, sinceNano int64, weeks int) (GuildActivity, error) {
+	out := GuildActivity{PerChannel: map[string]int64{}, Senders: map[string]int64{}}
+	if len(channelIDs) == 0 || weeks <= 0 {
+		return out, nil
+	}
+	ph := make([]string, len(channelIDs))
+	base := make([]any, 0, len(channelIDs)+1)
+	for i, id := range channelIDs {
+		ph[i] = "?"
+		base = append(base, id)
+	}
+	in := "(" + strings.Join(ph, ",") + ")"
+	where := " FROM messages WHERE deleted = 0 AND kind = '' AND channel_id IN " + in
+
+	rows, err := s.db.Query("SELECT channel_id, COUNT(*)"+where+" GROUP BY channel_id", base...)
+	if err != nil {
+		return out, err
+	}
+	for rows.Next() {
+		var id string
+		var n int64
+		if err := rows.Scan(&id, &n); err != nil {
+			rows.Close()
+			return out, err
+		}
+		out.PerChannel[id] = n
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+
+	// The weekly histogram. Bucketed HERE rather than in SQL: the week a
+	// message belongs to is a local-calendar question (a Sunday-night message
+	// is in a different week in Auckland than in Los Angeles), and SQLite's
+	// date functions would answer it in UTC.
+	out.WeekStart = sinceNano / 1e9
+	out.PerWeek = make([]int64, weeks)
+	args := append(append([]any{}, base...), sinceNano)
+	rows2, err := s.db.Query("SELECT sent"+where+" AND sent >= ?", args...)
+	if err != nil {
+		return out, err
+	}
+	for rows2.Next() {
+		var sent int64
+		if err := rows2.Scan(&sent); err != nil {
+			rows2.Close()
+			return out, err
+		}
+		i := int((sent - sinceNano) / (7 * 24 * 3600 * 1e9))
+		if i >= 0 && i < weeks {
+			out.PerWeek[i]++
+		}
+	}
+	rows2.Close()
+	if err := rows2.Err(); err != nil {
+		return out, err
+	}
+
+	rows3, err := s.db.Query("SELECT sender, COUNT(*)"+where+" AND sent >= ? GROUP BY sender", args...)
+	if err != nil {
+		return out, err
+	}
+	for rows3.Next() {
+		var sender []byte
+		var n int64
+		if err := rows3.Scan(&sender, &n); err != nil {
+			rows3.Close()
+			return out, err
+		}
+		out.Senders[hex.EncodeToString(sender)] = n
+	}
+	rows3.Close()
+	return out, rows3.Err()
+}

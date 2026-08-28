@@ -319,6 +319,7 @@ export const api = {
   editMessage: (channelID, messageID, content) =>
     call("EditMessage", channelID, messageID, content),
   expireMessage: (channelID, messageID) => call("ExpireMessage", channelID, messageID),
+  guildInsights: (guildID) => call("GuildInsights", guildID),
   guildStats: (guildID) => call("GuildStats", guildID),
   propsTally: (guildID) => call("PropsTally", guildID),
   networkStats: () => call("NetworkStats"),
