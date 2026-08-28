@@ -188,7 +188,40 @@ func (s *Service) ImportArchive(sealed []byte, passphrase string) (ArchiveStats,
 	}
 	s.mu.RUnlock()
 
+	// Notes is the one conversation in the app that lives on no other device
+	// and has no owner to re-invite you: "rejoin first, then restore" has no
+	// meaning for it, and a backup is the ONLY copy that can exist. But its
+	// group is minted fresh per install, so a device restored from a recovery
+	// phrase makes a new Notes with new ids and the archive's notes rows match
+	// nothing — every one of them counted as skipped, on the single path where
+	// the archive was the whole point. Match it by what it is instead of by id.
+	// A dm-kind guild whose one channel is named "notes" is only ever produced
+	// by NotesDM; a person-to-person DM's channel is named "dm", and renaming a
+	// DM renames the guild, never the channel, so this cannot catch one.
+	remap := map[string]string{}
+	for _, ag := range af.Guilds {
+		if ag.Kind != "dm" || len(ag.Channels) != 1 || ag.Channels[0].Name != "notes" {
+			continue
+		}
+		notes, err := s.NotesDM() // creates it only because the archive proves there is something to put in it
+		if err != nil {
+			break
+		}
+		if len(notes.Channels) > 0 && notes.Channels[0].ID != ag.Channels[0].ID {
+			remap[ag.Channels[0].ID] = notes.Channels[0].ID
+			known[notes.Channels[0].ID] = true
+		}
+	}
+
 	for _, m := range af.Messages {
+		if to, ok := remap[m.ChannelID]; ok {
+			// The row keeps its id, so a second import is still a no-op. Its
+			// author signature covers the channel it was written in and will
+			// not verify against the new one — the check below drops the claim
+			// and keeps the message, which is the same thing it does for any
+			// other signature that no longer stands up.
+			m.ChannelID = to
+		}
 		if !known[m.ChannelID] {
 			st.Skipped++
 			continue

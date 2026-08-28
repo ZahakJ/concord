@@ -1556,7 +1556,7 @@ const toastTimers = new Map(); // id -> timeout handle
 // Only the leading package token: NOT everything up to the last colon, which
 // would throw away a helpful multi-clause message and leave just the innermost
 // transport error.
-const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|rpc\s+\w+):\s*)+/;
+const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|identity|rpc\s+\w+):\s*)+/;
 // The browser's own words for "nothing answered". They are true and useless.
 const RAW_NETWORK = /^(failed to fetch|networkerror when attempting to fetch resource\.?|load failed|the network connection was lost\.?)$/i;
 // The transport's words for the same thing, and there are a lot of them: a dial

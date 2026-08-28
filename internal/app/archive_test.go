@@ -252,3 +252,80 @@ func TestExportMarkdownCoversWholeHistoryNotAPage(t *testing.T) {
 		t.Error("guild-wide export lost the newest message")
 	}
 }
+
+// Notes is the one conversation an archive can be the only copy of: a
+// one-member group, no other device, nobody to re-invite you. It is also the
+// one the importer used to drop on the floor — the group is minted per install,
+// so a device rebuilt from a recovery phrase has a Notes with different ids and
+// every archived note matched nothing. This is the disaster the feature exists
+// for, so it is tested as the disaster: export, then import into a service that
+// has never seen those ids.
+func TestArchiveRestoresNotesOntoADeviceThatMintedItsOwn(t *testing.T) {
+	if testing.Short() {
+		t.Skip("network integration test")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	svc := startServiceInDir(t, ctx, t.TempDir())
+	notes, err := svc.NotesDM()
+	if err != nil {
+		t.Fatalf("notes: %v", err)
+	}
+	oldCh := notes.Channels[0].ID
+	for _, body := range []string{"buy milk", "the wifi password is not this", "call mum"} {
+		if _, err := svc.SendMessage(oldCh, body, "", ""); err != nil {
+			t.Fatalf("send %q: %v", body, err)
+		}
+	}
+	sealed, _, err := svc.ExportArchive("archive-pass", false)
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+
+	// A different install of the same person: its own Notes group, its own ids.
+	fresh := startServiceInDir(t, ctx, t.TempDir())
+	freshNotes, err := fresh.NotesDM()
+	if err != nil {
+		t.Fatalf("fresh notes: %v", err)
+	}
+	newCh := freshNotes.Channels[0].ID
+	if newCh == oldCh {
+		t.Fatal("precondition: the two installs minted the same notes channel")
+	}
+	if msgs, _ := fresh.store.Messages(newCh, 0); len(msgs) != 0 {
+		t.Fatalf("precondition: fresh notes already holds %d messages", len(msgs))
+	}
+
+	in, err := fresh.ImportArchive(sealed, "archive-pass")
+	if err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	if in.Messages < 3 {
+		t.Fatalf("import took in %d messages (%d skipped); the notes should have landed", in.Messages, in.Skipped)
+	}
+	got, err := fresh.store.Messages(newCh, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"buy milk": true, "the wifi password is not this": true, "call mum": true}
+	for _, m := range got {
+		delete(want, m.Content)
+	}
+	if len(want) != 0 {
+		t.Fatalf("notes missing after restore: %v", want)
+	}
+
+	// And it stays additive: a second import changes nothing.
+	again, err := fresh.ImportArchive(sealed, "archive-pass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Messages != 0 {
+		t.Fatalf("re-importing the same archive added %d messages", again.Messages)
+	}
+	after, _ := fresh.store.Messages(newCh, 0)
+	if len(after) != len(got) {
+		t.Fatalf("notes went from %d to %d rows on a second import", len(got), len(after))
+	}
+}

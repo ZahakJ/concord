@@ -78,7 +78,16 @@
       await refreshGuilds();
       flash(`Restored ${plural(stats.messages, "message")}`, "success");
     } catch (err) {
-      flash(err);
+      // The sealed envelope cannot tell a wrong key from damaged bytes, and
+      // says so in the vocabulary of the thing it normally protects: "wrong
+      // passphrase or corrupted keystore". The keystore is the account. The
+      // person standing here typed a passphrase for a FILE, and telling them
+      // their keystore is corrupted is both wrong and frightening.
+      const raw = String(err?.message ?? err ?? "");
+      if (/not a sealed envelope/i.test(raw)) flash("That doesn't look like a Concord backup file.");
+      else if (/wrong passphrase/i.test(raw))
+        flash("That passphrase didn't open this file — or the file is damaged. From here the two look the same.");
+      else flash(err);
     } finally {
       busy = "";
       e.target.value = "";
@@ -152,8 +161,9 @@
       {busy === "restore" ? "Restoring…" : "Choose a backup file…"}
     </button>
     <p class="muted small">
-      History is only restored into guilds this device is still a member of.
-      Rejoin first, then restore.
+      History is only restored into guilds this device is still a member of —
+      rejoin first, then restore. Your Notes are the exception: there is nobody
+      to rejoin, so they come back on their own.
     </p>
   </section>
 
