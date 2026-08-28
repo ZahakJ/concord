@@ -21,7 +21,7 @@ import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
 // press: markdown and slash commands, the only groups a phone can use, which
 // is why they are the only ones it shows.
 export const SHORTCUTS = [
-  { group: "Navigation", chords: [["Ctrl/⌘", "K"]], label: "Command palette (jump anywhere, run actions)" },
+  { group: "Navigation", chords: [["Ctrl/⌘", "K"]], label: "Command palette (jump anywhere, run actions) — works while you are typing" },
   { group: "Navigation", chords: [["Ctrl/⌘", "F"]], label: "Search messages" },
   { group: "Navigation", chords: [["Ctrl/⌘", ","]], label: "User settings" },
   { group: "Navigation", chords: [["Ctrl/⌘", "Shift", ","]], label: "Network stats" },
@@ -48,7 +48,7 @@ export const SHORTCUTS = [
   { group: "Composer", chords: [["Ctrl/⌘", "Shift", "K"]], label: "Link the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "Shift", "X"]], label: "Spoiler the selection" },
   { group: "Composer", chords: [["Ctrl/⌘", "Shift", "."]], label: "Quote the selection" },
-  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "L"]], label: "Cycle the draft's direction: per-line, right-to-left, left-to-right" },
+  { group: "Composer", chords: [["Ctrl/⌘", "Shift", "L"]], label: "Cycle the draft's direction: per-line, right-to-left, left-to-right (also a button in the formatting bar)" },
 
   { group: "Slash commands", typed: true, chords: [["/shrug"], ["/me"], ["/spoiler"], ["…"]], label: "Type one at the start of a message" },
 
@@ -162,18 +162,48 @@ function pttUp(e) {
 // The chords that keep working while a text field has focus: the ones a caret,
 // a selection or a character has no claim on. Everything else in the keymap
 // belongs to the field for as long as it holds focus.
+//
+// This list started as the two or three bindings that are obviously needed
+// mid-sentence, and that was too short by half. The composer takes focus on
+// load and on every channel switch, and `typeToFocus` pulls it back on any
+// printable key — so "a text field has focus" is the app's RESTING state, and
+// everything left off this list was documented in the cheat sheet and dead in
+// practice. Eight of the eleven rows under NAVIGATION were in that position:
+// search, the palette, the member panel and all six channel/guild steppers
+// needed a mouse click somewhere else first, which a keyboard-only user has
+// no way to perform at all.
+//
+// The test for being here is the same as it always was — does a caret, a
+// selection or a character have a claim on this chord? A modifier chord with
+// an arrow or a letter no editing engine binds does not.
 function globalWhileTyping(e, mod) {
   // Escape's own branch already decides what it means with focus in a field.
   if (e.key === "Escape") return true;
+  const k = e.key.toLowerCase();
   // Ctrl+Shift+M / D — mic and deafen, mid-call, mid-sentence: exactly when
   // you need them.
-  if (mod && e.shiftKey && (e.key === "m" || e.key === "M" || e.key === "d" || e.key === "D")) return true;
+  if (mod && e.shiftKey && (k === "m" || k === "d")) return true;
   // Ctrl+, and Ctrl+Shift+, — settings and stats.
   if (mod && (e.key === "," || e.key === "<")) return true;
   // Ctrl+= / - / 0 — UI zoom.
   if (mod && !e.altKey && (e.key === "=" || e.key === "+" || e.key === "-" || e.key === "0")) return true;
   // Ctrl+/ — the cheat sheet. (Bare "?" is a character and stays in the field.)
   if (mod && e.key === "/") return true;
+  // Ctrl+K — the quick switcher, from anywhere, the way every other piece of
+  // software a person also uses answers this key. The composer's own Ctrl+K
+  // (insert a markdown link) moved to Ctrl+Shift+K to make room, because
+  // between a link button that is already in the toolbar and the one chord the
+  // whole industry agrees about, the chord is worth more.
+  if (mod && !e.shiftKey && !e.altKey && k === "k") return true;
+  // Ctrl+F — message search. Ctrl+U — the member panel. Neither is a text
+  // editing key in a browser textarea (Ctrl+U is readline's "kill line", which
+  // no browser field implements).
+  if (mod && !e.shiftKey && !e.altKey && (k === "f" || k === "u")) return true;
+  // Alt+↑/↓ (channel), Alt+Shift+↑/↓ (unread channel), Ctrl+Alt+↑/↓ (guild).
+  // The bare-Alt arrows are a paragraph jump in some native text engines, but
+  // not in a browser textarea on any platform Concord ships on — the caret
+  // does not move — so the chord is free.
+  if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) return true;
   return false;
 }
 
@@ -194,7 +224,7 @@ export function installShortcuts() {
     // switcher and the modal overlay were peers in the stacking order, so it
     // opened UNDER the dialog — an invisible thing holding the keyboard, and an
     // Escape that closed whichever of the two the browser reached first.
-    if (mod && e.key.toLowerCase() === "k") {
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "k") {
       if (S.modal) return;
       e.preventDefault();
       S.quickSwitcher = !S.quickSwitcher;
@@ -297,6 +327,23 @@ export function installShortcuts() {
       // has focus). Only the fallbacks below defer to the field.
       if (popLayer()) {
         e.preventDefault();
+        return;
+      }
+      // The way OUT of the composer. It holds focus by default and reclaims it
+      // on any printable key, so with nothing open there was no keystroke that
+      // moved focus off it — three Escapes in a row left the caret exactly
+      // where it started, and the message feed's own roving tab stop was
+      // reachable only backwards.
+      //
+      // Only with an EMPTY draft. Escape has not thrown work away since it
+      // stopped clearing the box, and a key that blurs mid-sentence — taking
+      // the caret out of a half-written paragraph with no undo — would be
+      // throwing away something else instead. With a draft this still does
+      // nothing, exactly as before; Tab is the way out from there.
+      const el = document.activeElement;
+      if (el?.classList?.contains("draft") && !el.value) {
+        e.preventDefault();
+        el.blur();
         return;
       }
       if (inputFocused()) return;

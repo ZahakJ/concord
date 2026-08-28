@@ -8,6 +8,7 @@
   import FormatBar from "./FormatBar.svelte";
   import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
   import { uneditableReason } from "./lib/tokenbody.js";
+  import { roving } from "./lib/roving.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import EmojiPicker from "./EmojiPicker.svelte";
   import BottomSheet from "./BottomSheet.svelte";
@@ -15,7 +16,7 @@
   import { untrack } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { haptic } from "./lib/touch.js";
-  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor, mentionRefs } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, sendMessage, react, flash, nameColorFor, mentionRefs, focusFeed } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -1105,6 +1106,15 @@
     if (moreOpen) return pushLayer("sheet", () => (moreOpen = false));
   });
 
+  // Tab out of the composer's last toolbar goes to the message feed, not past
+  // it. See focusFeed(): the rows are earlier in the DOM than the composer, so
+  // forward Tab skipped them and landed in the Moments tray. Shift+Tab is left
+  // alone — backwards out of the cluster is the textarea, which is right.
+  function onClusterKeydown(e) {
+    if (e.key !== "Tab" || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (focusFeed()) e.preventDefault();
+  }
+
   function openAdvanced() {
     S.modal = {
       kind: "compose",
@@ -1517,6 +1527,18 @@
           <Icon name="attach" size={20} />
         </button>
         {@render draftBox()}
+        <!-- One tab stop, not nine. These are a toolbar and now say so with
+             their behaviour as well as their role: ←/→ walk the cluster, Tab
+             leaves it. Getting past the composer used to cost fifteen presses.
+             -->
+        <div
+          class="icon-cluster"
+          role="toolbar"
+          aria-label="Composer actions"
+          tabindex="-1"
+          use:roving
+          onkeydown={onClusterKeydown}
+        >
         {#if canRecord && !draft.trim() && pending.length === 0}
           <!-- Mic replaces nothing; it appears when there's no text/attachment to
                send, the way messengers surface record-vs-send. -->
@@ -1663,6 +1685,7 @@
         >
           <Icon name="smile" size={20} />
         </button>
+        </div>
       {/if}
     </div>
     </div>
@@ -2360,6 +2383,14 @@
     to {
       transform: rotate(360deg);
     }
+  }
+  /* The trailing controls, as one flex run so the cluster can be one tab
+     stop. Same gap and alignment the row had when they were loose children —
+     this is a wrapper, not a layout change. */
+  .icon-cluster {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
   }
   /* One unified rounded bar — the icons live inside it, not beside it. */
   .input-box {

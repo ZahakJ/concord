@@ -1563,6 +1563,21 @@ export function registerFeed(el) {
   feedEl = el;
 }
 
+// focusFeed: put focus on the message list's roving tab stop.
+//
+// The feed sits ABOVE the composer in the DOM, so tabbing forward out of the
+// composer skipped it entirely and landed in the Moments tray — the rows were
+// reachable only by tabbing backwards, which is not something anyone discovers.
+// The composer's last toolbar hands Tab here instead, which is also what Slack
+// does with the same problem and the same layout.
+export function focusFeed() {
+  const el =
+    feedEl?.querySelector('[data-msg-id][tabindex="0"]') || feedEl?.querySelector("[data-msg-id]");
+  if (!el) return false;
+  el.focus({ preventScroll: true });
+  return true;
+}
+
 // The feed renders a WINDOW of its rows, so "find the row and scroll to it" can
 // no longer be a querySelector: the row a search result or a reply-ref points at
 // is very often a thousand rows outside the window and has no element at all.
