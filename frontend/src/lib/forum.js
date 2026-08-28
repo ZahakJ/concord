@@ -315,15 +315,55 @@ export function hash32(s) {
   return h >>> 0;
 }
 
+// hueOfCss: the hue of a resolved CSS colour, or null.
+//
+// A computed style always hands back a concrete colour — var() and color-mix
+// are already resolved — but WHICH concrete form depends on the engine, so all
+// three that turn up in practice are handled: hex, rgb()/rgba(), and the
+// color(srgb …) Chromium returns for a color-mix result. Anything else answers
+// null and the caller keeps its old behaviour rather than guessing.
+export function hueOfCss(css) {
+  const s = String(css || "").trim();
+  let rgb = null;
+  let m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(s);
+  if (m) {
+    const hx = m[1].length === 3 ? [...m[1]].map((c) => c + c) : m[1].match(/../g);
+    rgb = hx.map((x) => parseInt(x, 16) / 255);
+  } else if ((m = /^rgba?\(([^)]+)\)$/i.exec(s))) {
+    rgb = m[1].split(/[\s,/]+/).filter(Boolean).slice(0, 3).map((n) => Number(n) / 255);
+  } else if ((m = /^color\(\s*srgb\s+([^)]+)\)$/i.exec(s))) {
+    rgb = m[1].split(/[\s/]+/).filter(Boolean).slice(0, 3).map(Number);
+  }
+  if (!rgb || rgb.length < 3 || rgb.some((n) => !Number.isFinite(n))) return null;
+  const [r, g, b] = rgb;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const d = max - min;
+  if (!d) return null; // grey has no hue to borrow
+  let hue;
+  if (max === r) hue = ((g - b) / d) % 6;
+  else if (max === g) hue = (b - r) / d + 2;
+  else hue = (r - g) / d + 4;
+  return ((hue * 60) % 360 + 360) % 360;
+}
+
 // washFor: a forum's own two-tone header wash, derived from its ID.
 //
 // Fixed saturation and lightness, only the hue varies. That is the restraint
 // that keeps this from turning into a clown parade: every forum is recognisably
 // a different place, every forum is the same weight of colour, and the white
 // ink over it has a known floor (see SCRIM_FLOOR).
-export function washFor(seed) {
+// `baseHue`, when given, is the hue of the accent this board is being drawn
+// under. A forum's colour used to be a raw hash — an arbitrary hue with no
+// relation to anything else on the screen, which is how a help desk ended up a
+// saturated block that matched neither the guild header above it nor the app's
+// own accent nor the five tag chips underneath it. Rotating a bounded amount
+// AROUND the accent keeps every forum recognisably its own place while putting
+// all of them in one family, which is the same trade the guild header makes
+// with its pack. Without a base hue it behaves exactly as it did.
+export function washFor(seed, baseHue = null) {
   const h = hash32(seed);
-  const hue = h % 360;
+  const hue = baseHue === null ? h % 360 : Math.round(baseHue + ((h % 5) - 2) * 18 + 360) % 360;
   // Bright enough to SURVIVE the scrim: the header's contrast guarantee costs
   // the art 62% of its luminance where the words sit, so a wash mixed at the
   // lightness you want to see ends up as mud. These two are chosen so the
@@ -344,9 +384,11 @@ export function washFor(seed) {
 // a grey box: a deterministic two-tone gradient plus the title's first letter,
 // which makes an image-less board look composed and — because the colour is
 // derived from the post ID — makes a post recognisable when you come back to it.
-export function tileFor(seed, title = "") {
+export function tileFor(seed, title = "", baseHue = null) {
   const h = hash32(seed);
-  const hue = h % 360;
+  // A wider swing than the hero's: these are 88px plates sitting side by side
+  // and have to be told apart at a glance, where the hero only has to belong.
+  const hue = baseHue === null ? h % 360 : Math.round(baseHue + ((h % 7) - 3) * 14 + 360) % 360;
   // The initial: first letter of the first word that has one, upper-cased. Falls
   // back to a glyph rather than printing "?" at people.
   const letter = [...String(title || "")].find((c) => /\p{L}|\p{N}/u.test(c)) || "";

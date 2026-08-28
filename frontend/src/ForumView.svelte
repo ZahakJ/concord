@@ -57,6 +57,7 @@
     isPending,
     washFor,
     tileFor,
+    hueOfCss,
     BOARD_PREFS_EVENT,
     readBoardPrefs,
     writeBoardPrefs,
@@ -499,7 +500,21 @@
   // prefs: the art moved onto the channel when it became shared (SetForumBanner),
   // and the settings dialog stopped writing prefs.banner, so a hero that kept
   // reading the prefs showed every pick as doing nothing.
-  const wash = $derived(washFor(forum.id));
+  // The accent this board is actually being drawn under — the guild's tint when
+  // "use guild colours" is on, the user's preset otherwise. Read off the live
+  // element rather than from a pref, because that is where the cascade has
+  // finished arguing; the reads above it are the dependencies that say when to
+  // look again.
+  const accentHue = $derived.by(() => {
+    void S.prefs.accent;
+    void S.prefs.themePack;
+    void S.prefs.theme;
+    void S.prefs.guildAccents;
+    void S.activeGuildId;
+    const el = root || document.querySelector(".app") || document.documentElement;
+    return hueOfCss(getComputedStyle(el).getPropertyValue("--accent"));
+  });
+  const wash = $derived(washFor(forum.id, accentHue));
   const art = $derived(forum.banner || "");
 
   // The FAB opens a modal ~200ms later; without the tap confirmation the press
@@ -748,7 +763,7 @@
       {#each visible as p, i (p.id)}
         {@const pv = postPreview(p.excerpt)}
         {@const tok = firstImage(p)}
-        {@const tile = tileFor(p.id, p.title)}
+        {@const tile = tileFor(p.id, p.title, accentHue)}
         {@const tags = resolveTags(p.tags, palette)}
         {@const unread = S.unread[p.id]}
         {@const pending = isPending(p)}
