@@ -26,6 +26,7 @@
   import { stampEphemeral, channelTTL, ttlLabel } from "./lib/ephemeral.svelte.js";
   import { stampTimestamp } from "./lib/timestamp.js";
   import { playSend } from "./lib/sounds.js";
+  import { resampleEnvelope, voiceFileName } from "./lib/voicemsg.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
   import { noteDraft } from "./lib/drafts.svelte.js";
   import Avatar from "./Avatar.svelte";
@@ -949,8 +950,113 @@
   let recTimer = null;
   let recStream = null;
 
+  // ---- what the microphone is actually picking up ----
+  //
+  // The recording row was a red dot and a clock, and neither of them moves when
+  // the mic is muted at the OS, plugged into the wrong socket, or pointed at a
+  // closed laptop lid. The first time you found out was after you had sent
+  // silence. The analyser is the same one the device dialog's meter uses.
+  //
+  // The samples are kept as well as displayed: folded into forty-two buckets at
+  // stop time they become the message's REAL waveform, which costs the reader
+  // nothing to draw and, unlike the barcode it replaces, means something.
+  let recLevel = $state(0);
+  let recCtx = null;
+  let recMeter = null;
+  let recSamples = [];
+
+  function startMeter(stream) {
+    try {
+      recCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = recCtx.createAnalyser();
+      analyser.fftSize = 512;
+      recCtx.createMediaStreamSource(stream).connect(analyser);
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      recSamples = [];
+      recMeter = setInterval(() => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const v = (data[i] - 128) / 128;
+          sum += v * v;
+        }
+        const rms = Math.sqrt(sum / data.length);
+        // Store the raw RMS (the envelope is normalised later); show it scaled
+        // and smoothed, fast attack and slow release, so the bar reads like a
+        // meter rather than strobing.
+        recSamples.push(rms);
+        const next = Math.min(1, rms * 4);
+        recLevel = next > recLevel ? next : recLevel * 0.75 + next * 0.25;
+      }, 50);
+    } catch {
+      /* metering is best-effort: the recording itself is unaffected */
+    }
+  }
+
+  function stopMeter() {
+    clearInterval(recMeter);
+    recMeter = null;
+    recLevel = 0;
+    recCtx?.close().catch(() => {});
+    recCtx = null;
+  }
+
+  // ---- the preview ----
+  //
+  // Stopping used to be the same button as sending, so a voice message went
+  // into the channel unheard, and you found out what you had said at the same
+  // moment everybody else did. Stop now lands here: play it, scrub it, record
+  // it again, or send it.
+  let preview = $state(null); // { url, blob, ext, secs, env }
+  let prevAudio = null;
+  let prevPlaying = $state(false);
+  let prevAt = $state(0);
+  let prevBar = $state(null);
+
+  function clearPreview() {
+    prevAudio?.pause();
+    prevAudio = null;
+    prevPlaying = false;
+    prevAt = 0;
+    if (preview?.url) URL.revokeObjectURL(preview.url);
+    preview = null;
+  }
+
+  function togglePreview() {
+    if (!preview) return;
+    if (!prevAudio) {
+      // The element is captured in a local: a `timeupdate` can still be in
+      // flight when Send or Discard has already dropped our reference, and
+      // reading `prevAudio.currentTime` from the handler then throws.
+      const a = new Audio(preview.url);
+      prevAudio = a;
+      a.addEventListener("timeupdate", () => (prevAt = a.currentTime));
+      a.addEventListener("play", () => (prevPlaying = true));
+      a.addEventListener("pause", () => (prevPlaying = false));
+      a.addEventListener("ended", () => {
+        prevPlaying = false;
+        prevAt = 0;
+      });
+    }
+    if (prevAudio.paused) prevAudio.play().catch(() => {});
+    else prevAudio.pause();
+  }
+
+  function seekPreview(e) {
+    if (!prevAudio || !prevBar) return;
+    const r = prevBar.getBoundingClientRect();
+    const f = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    // The recorded duration is the one we trust: a webm from MediaRecorder
+    // reports Infinity for `duration` until it has been seeked to the end,
+    // which is a browser quirk older than this app.
+    const d = prevAudio.duration && isFinite(prevAudio.duration) ? prevAudio.duration : preview.secs;
+    prevAudio.currentTime = f * d;
+    prevAt = prevAudio.currentTime;
+  }
+
   async function startRecording() {
     if (!ch || recording || !canRecord) return;
+    clearPreview();
     try {
       recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
@@ -965,6 +1071,7 @@
     mediaRec.ondataavailable = (e) => e.data.size && recChunks.push(e.data);
     mediaRec.start();
     recording = true;
+    startMeter(recStream);
     // You hold the phone to your face to record; the tap is the only signal that
     // the mic went live that you don't have to look at the screen for.
     haptic("medium");
@@ -982,17 +1089,21 @@
     recording = false;
   }
 
-  function stopRecording(send) {
+  // `keep` false discards; true stops and offers the preview.
+  function stopRecording(keep) {
     haptic("medium"); // …and the one that says it stopped
     const rec = mediaRec;
     mediaRec = null;
+    const secs = recSecs;
+    const env = resampleEnvelope(recSamples);
+    stopMeter();
     if (!rec) {
       teardownRec();
       return;
     }
-    rec.onstop = async () => {
+    rec.onstop = () => {
       teardownRec();
-      if (!send || !recChunks.length || !S.activeChannelId) return;
+      if (!keep || !recChunks.length) return;
       // Clean type (no ;codecs=…) so SendFile's data-URL regex matches.
       const ogg = (rec.mimeType || "").includes("ogg");
       const blob = new Blob(recChunks, { type: ogg ? "audio/ogg" : "audio/webm" });
@@ -1000,23 +1111,37 @@
         flash("Voice message too large", "error");
         return;
       }
-      const chId = S.activeChannelId;
-      uploading++;
-      try {
-        const dataUrl = await readAsDataURL(blob);
-        await api.sendFile(chId, dataUrl, `Voice message.${ogg ? "ogg" : "webm"}`);
-      } catch (err) {
-        flash(err);
-      } finally {
-        uploading--;
-      }
+      preview = { url: URL.createObjectURL(blob), blob, ext: ogg ? "ogg" : "webm", secs, env };
     };
     rec.stop();
+  }
+
+  async function sendPreview() {
+    if (!preview || !S.activeChannelId) return;
+    const { blob, ext, secs, env } = preview;
+    const chId = S.activeChannelId;
+    clearPreview();
+    uploading++;
+    try {
+      const dataUrl = await readAsDataURL(blob);
+      // The length and the shape ride in the filename, so the chip in the feed
+      // can say "0:12" and draw the real thing without fetching a byte.
+      await api.sendFile(chId, dataUrl, voiceFileName(ext, secs, env));
+    } catch (err) {
+      flash(err);
+    } finally {
+      uploading--;
+    }
   }
 
   const recClock = $derived(
     `${Math.floor(recSecs / 60)}:${(recSecs % 60).toString().padStart(2, "0")}`,
   );
+  const prevClock = $derived.by(() => {
+    const t = Math.floor(prevPlaying || prevAt ? prevAt : preview?.secs || 0);
+    return `${Math.floor(t / 60)}:${(t % 60).toString().padStart(2, "0")}`;
+  });
+  const prevFrac = $derived(preview?.secs ? Math.min(1, prevAt / preview.secs) : 0);
 
   // ---- scheduled send ----
   // With a draft: pick a time and queue it (see lib/scheduled). Empty: open the
@@ -1574,11 +1699,16 @@
     {#if showFmtBar}
       <FormatBar onFormat={applyFormat} disabled={!ch} {dirMode} onCycleDir={cycleDir} />
     {/if}
-    <div class="input-box" class:focused={ch} class:recording>
+    <div class="input-box" class:focused={ch} class:recording={recording || !!preview}>
       {#if recording}
-        <!-- Recording a voice message: the whole row becomes the transport. -->
+        <!-- Recording a voice message: the whole row becomes the transport.
+             The level bar is the point — a clock proves time is passing, and
+             nothing else in this row proved the microphone was picking you up. -->
         <span class="rec-dot" aria-hidden="true"></span>
         <span class="rec-label">Recording… <span class="rec-clock">{recClock}</span></span>
+        <span class="rec-meter" role="presentation">
+          <span class="rec-fill" style="width:{Math.round(recLevel * 100)}%"></span>
+        </span>
         <button
           type="button"
           class="iconbtn rec-cancel"
@@ -1591,9 +1721,62 @@
         <button
           type="button"
           class="sendbtn"
+          use:tooltip={"Stop — you can hear it back before sending"}
+          aria-label="Stop recording"
+          onclick={() => stopRecording(true)}
+        >
+          <Icon name="pause" size={17} />
+        </button>
+      {:else if preview}
+        <!-- Stopped, not sent. Hear it, scrub it, do it again, or send it. -->
+        <button
+          type="button"
+          class="iconbtn prev-play"
+          aria-label={prevPlaying ? "Pause" : "Play back your recording"}
+          onclick={togglePreview}
+        >
+          <Icon name={prevPlaying ? "pause" : "play"} size={18} />
+        </button>
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span
+          class="prev-wave"
+          bind:this={prevBar}
+          onpointerdown={seekPreview}
+          title="Drag to seek"
+        >
+          {#each preview.env || [] as h, i (i)}
+            <span
+              class="prev-bar"
+              class:on={i / (preview.env.length || 1) <= prevFrac}
+              style="height:{Math.round(h * 22)}px"
+            ></span>
+          {/each}
+        </span>
+        <span class="rec-clock">{prevClock}</span>
+        <button
+          type="button"
+          class="iconbtn rec-cancel"
+          use:tooltip={"Record again"}
+          aria-label="Record again"
+          onclick={startRecording}
+        >
+          <Icon name="undo" size={18} />
+        </button>
+        <button
+          type="button"
+          class="iconbtn rec-cancel"
+          use:tooltip={"Discard"}
+          aria-label="Discard recording"
+          onclick={clearPreview}
+        >
+          <Icon name="trash" size={18} />
+        </button>
+        <button
+          type="button"
+          class="sendbtn"
           use:tooltip
           aria-label="Send voice message"
-          onclick={() => stopRecording(true)}
+          onclick={sendPreview}
         >
           <Icon name="send" size={17} />
         </button>
@@ -2664,7 +2847,7 @@
     animation: rec-pulse 1.1s ease-in-out infinite;
   }
   .rec-label {
-    flex: 1;
+    flex: none;
     min-width: 0;
     font-size: var(--fs-ui);
     color: var(--text-muted);
@@ -2679,6 +2862,55 @@
   }
   .rec-cancel:hover :global(svg) {
     color: var(--danger-text);
+  }
+  /* Live level. The one thing in the recording row that proves the microphone
+     is hearing you — the clock keeps perfect time over silence. */
+  .rec-meter {
+    flex: 1;
+    min-width: 40px;
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    background: var(--bg-3);
+  }
+  .rec-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    /* Accent up to the point it would clip, then a warm tip — the same
+       vocabulary as the device dialog's meter, so one reads like the other. */
+    background: linear-gradient(90deg, var(--accent), var(--accent) 78%, var(--warn));
+    transition: width 60ms linear;
+  }
+  /* The preview: the recording, before it is anybody else's. */
+  .prev-play {
+    flex: none;
+  }
+  .prev-wave {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 1;
+    min-width: 40px;
+    height: 24px;
+    cursor: pointer;
+    /* The pointer handler owns this strip; without it the pane's pan-y
+       swallows a horizontal drag before the scrub starts. */
+    touch-action: none;
+  }
+  .prev-bar {
+    flex: 1;
+    min-width: 2px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--text-faint) 70%, transparent);
+  }
+  .prev-bar.on {
+    background: var(--accent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .rec-fill {
+      transition: none;
+    }
   }
   @keyframes rec-pulse {
     0%,
