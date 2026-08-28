@@ -361,6 +361,7 @@ export const api = {
   removeMember: (guildID, fingerprint) => call("RemoveMember", guildID, fingerprint),
   readmitMember: (guildID, fingerprint) => call("ReadmitMember", guildID, fingerprint),
   removedMembers: (guildID) => call("RemovedMembers", guildID),
+  resolveSync: (guildID) => call("ResolveSync", guildID),
   setNickname: (guildID, nick) => call("SetNickname", guildID, nick),
   setMemberNickname: (guildID, fpr, nick) => call("SetMemberNickname", guildID, fpr, nick),
   addMember: (guildID, fpr) => call("AddMember", guildID, fpr),

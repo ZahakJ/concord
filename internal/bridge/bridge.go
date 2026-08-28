@@ -245,6 +245,10 @@ type GuildView struct {
 	// state of the ratchet: OutOfSync is the recoverable case and must never be
 	// dressed up as this one.
 	Evicted string `json:"evicted,omitempty"`
+	// Alone: nobody else is left in this guild's group. It is what lets the
+	// sync banner stop claiming to be waiting for someone to come online when
+	// there is no longer anyone who could come.
+	Alone bool `json:"alone,omitempty"`
 	// LastActivity is the newest message time (UnixNano) across the guild's
 	// channels — the UI sorts DM conversations by it, most recent first.
 	LastActivity int64 `json:"lastActivity,omitempty"`
@@ -2372,6 +2376,17 @@ func (b *Bridge) ReadmitMember(guildID, fingerprint string) error {
 	return svc.ReadmitMember(guildID, fingerprint)
 }
 
+// ResolveSync ends a stranding nothing can repair — the exit from a "waiting for
+// the missing updates" bar with nobody left who could bring them.
+func (b *Bridge) ResolveSync(guildID string) error {
+	svc, err := b.service()
+	if err != nil {
+		return err
+	}
+	svc.ResolveStranding(guildID)
+	return nil
+}
+
 func (b *Bridge) Contacts() ([]ContactView, error) {
 	svc, err := b.service()
 	if err != nil {
@@ -2689,7 +2704,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		MyPerms:   uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:      g.Icon, Banner: g.Banner, Description: g.Description,
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
-		Evicted:      svc.EvictedFrom(g.ID),
+		Evicted: svc.EvictedFrom(g.ID), Alone: svc.AloneInGuild(g.ID),
 		LastActivity: lastActivity,
 	}
 }
@@ -3217,6 +3232,12 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.Members(argStr(args, 0))
 	case "RemoveMember":
 		return nil, b.RemoveMember(argStr(args, 0), argStr(args, 1))
+	case "ReadmitMember":
+		return nil, b.ReadmitMember(argStr(args, 0), argStr(args, 1))
+	case "RemovedMembers":
+		return b.RemovedMembers(argStr(args, 0))
+	case "ResolveSync":
+		return nil, b.ResolveSync(argStr(args, 0))
 	case "SetNickname":
 		return nil, b.SetNickname(argStr(args, 0), argStr(args, 1))
 	case "CallIceServers":

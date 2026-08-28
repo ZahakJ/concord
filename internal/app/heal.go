@@ -104,6 +104,16 @@ func (s *Service) recoverOutOfSync(guildID string) {
 	if s.EvictedFrom(guildID) != "" {
 		return
 	}
+	// Nobody left to wait for. A guild whose only other members have been
+	// removed has no holder for the updates we are missing and never will have
+	// one, so "waiting for someone with the missing updates to come online" is
+	// not a status, it is a promise the guild cannot keep — the owner of a guild
+	// they had just emptied watched that bar for forty-five minutes. Whatever is
+	// still in the stash was written on a branch this guild has left behind.
+	if s.aloneInGuild(guildID) {
+		s.ResolveStranding(guildID)
+		return
+	}
 	// Evidence first: a fork verdict against a peer that has since gone offline
 	// is not something this pass can act on, and left standing it would keep the
 	// guild flagged for as long as the peer stayed away.
@@ -144,6 +154,58 @@ func (s *Service) recoverOutOfSync(guildID string) {
 	if s.pendingCiphertexts(groupID) > 0 && synced == 0 {
 		s.setOutOfSync(guildID, true)
 	}
+}
+
+// aloneInGuild reports whether this account is the only one left in a guild's
+// MLS group. It reads the ROSTER, not who happens to be online: members who are
+// merely away can still turn up with what we are missing, and the banner is
+// right to wait for them.
+func (s *Service) aloneInGuild(guildID string) bool {
+	fprs := s.guildMemberFingerprints(guildID)
+	if len(fprs) == 0 {
+		return false // an unknown roster is not evidence of an empty one
+	}
+	mine := s.id.Fingerprint()
+	for _, f := range fprs {
+		if f != mine {
+			return false
+		}
+	}
+	return true
+}
+
+// AloneInGuild is the exported read, for the view layer.
+func (s *Service) AloneInGuild(guildID string) bool { return s.aloneInGuild(guildID) }
+
+// ResolveStranding ends a stranding that nothing can repair: it drops the
+// undecryptable stash, withdraws the fork evidence that routed us here, and
+// lowers the banner. The guild continues from the epoch this device is on.
+//
+// It is deliberately a decision and not a timeout. Everything else in this file
+// exists to get the missing updates, and it usually works; this is the one exit
+// for the case where they are provably unobtainable — the last other member left
+// or was removed — plus the button that says so to a person staring at a bar
+// that has been spinning since breakfast. What it does NOT do is weaken any of
+// the evidence rules above: the fork verdict is still latched only against a
+// peer strictly ahead of us, and is still the only thing that routes a re-add.
+func (s *Service) ResolveStranding(guildID string) {
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	var groupID []byte
+	if ok {
+		groupID = g.GroupID
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return
+	}
+	if len(groupID) > 0 {
+		s.pendingCTMu.Lock()
+		delete(s.pendingCT, string(groupID))
+		s.pendingCTMu.Unlock()
+	}
+	s.clearForkEvidence(guildID)
+	s.setOutOfSync(guildID, false)
 }
 
 // memberPeers lists connected peers that are members of the guild, SyncHost

@@ -28,6 +28,7 @@
     loadOlder,
     clockOpts,
     nudge,
+    refreshGuilds,
     selectChannel,
     archiveChannel,
     loadArchiveOlder,
@@ -140,6 +141,32 @@
   // How many peers could actually serve the catch-up. The banner said "as soon
   // as someone comes online" regardless, which is actively wrong when they are.
   const syncPeers = $derived(S.netStatus?.memberPeers ?? 0);
+
+  // Retry is only worth offering while it might work. After two goes that
+  // changed nothing, the honest second option appears next to it — the bar must
+  // have an exit that is not "wait forever", and this is the one case where the
+  // app cannot prove for you that nobody can help.
+  let retries = $state(0);
+  const retriedInVain = $derived(retries >= 2);
+  $effect(() => {
+    S.activeGuildId; // a different guild is a different question
+    retries = 0;
+  });
+  async function retrySync() {
+    retries += 1;
+    await nudge();
+  }
+  async function continueFromHere() {
+    const id = S.activeGuildId;
+    if (!id) return;
+    try {
+      await api.resolveSync(id);
+    } catch {
+      /* the banner is the only thing that changes; a failure just leaves it up */
+    }
+    retries = 0;
+    await refreshGuilds();
+  }
 
   const pinned = $derived(S.messages.filter((m) => m.pinned && !m.deleted));
   const byId = $derived(new Map(S.messages.map((m) => [m.id, m])));
@@ -1004,17 +1031,34 @@
        sentences at you whether it had been two seconds or two days, including
        "as soon as someone comes online" while the person you were talking to was
        demonstrably online. Say what is actually true right now.
- -->
-  <div class="oos-banner" class:waiting={!syncPeers}>
-    <span class="oos-dot" class:spin={syncPeers > 0}></span>
+
+       And "right now" includes the case where the answer is never. A guild whose
+       only other members have been removed has nobody who could ever bring the
+       missing updates, and a bar that promises to wait for them is a permanent
+       red flag on your own community — which is how people learn to ignore every
+       warning the app raises. When there is nothing to wait for, say that
+       instead, and offer the only honest action left. -->
+  {@const alone = activeGuild()?.alone}
+  <div class="oos-banner" class:waiting={!syncPeers && !alone} class:settled={alone}>
+    <span class="oos-dot" class:spin={syncPeers > 0 && !alone}></span>
     <span class="oos-text">
-      {#if syncPeers > 0}
+      {#if alone}
+        This device is missing an update nobody else has — you're the only member
+        left. The guild continues from here.
+      {:else if syncPeers > 0}
         Catching up with {syncPeers} {syncPeers === 1 ? "peer" : "peers"}…
       {:else}
         Waiting for someone with the missing updates to come online
       {/if}
     </span>
-    <button class="oos-act" onclick={nudge}>Retry now</button>
+    {#if alone}
+      <button class="oos-act" onclick={continueFromHere}>Continue from here</button>
+    {:else}
+      <button class="oos-act" onclick={retrySync}>Retry now</button>
+      {#if retriedInVain}
+        <button class="oos-act" onclick={continueFromHere}>Continue from here</button>
+      {/if}
+    {/if}
   </div>
 {/if}
 
@@ -1336,6 +1380,15 @@
   }
   .oos-banner.waiting {
     background: color-mix(in srgb, var(--warn) 16%, transparent);
+  }
+  /* Nothing is pending any more, so it stops wearing the colour of something
+     in flight: a settled fact, stated once, in the surface's own ink. */
+  .oos-banner.settled {
+    background: var(--bg-2);
+    color: var(--text-muted);
+  }
+  .oos-banner.settled .oos-dot {
+    background: var(--text-dim, var(--text-muted));
   }
   /* The terminal state gets its own band rather than a variant of the sync one,
      because it must never read as "still working on it". Warn, not danger: this
