@@ -20,6 +20,7 @@
     style = null, // { angle, fill } — for the gradient/solid fallbacks
     scale = 1, // <1 shrinks the effect for small tiles
     scrim = "", // "light"|"dark" — see below; only for banners that carry text
+    tint = false, // blend the art toward the theme pack's own ground — see below
     class: klass = "", // MERGED with .bnr — never let a caller replace it, or
     children, // the box loses its clipping and the weather escapes
     ...rest
@@ -52,6 +53,9 @@
   {#if preset?.fx}
     <FxLayer fx={{ ...preset.fx, tumble: preset.tumble }} seed={preset.id} {scale} />
   {/if}
+  {#if tint}
+    <span class="tint" aria-hidden="true"></span>
+  {/if}
   {#if scrim}
     <span class="scrim" class:ink-dark={scrim === "dark"} aria-hidden="true"></span>
   {/if}
@@ -77,6 +81,26 @@
     inset: 0;
     pointer-events: none;
     background: linear-gradient(rgba(0, 0, 0, 0.1), rgba(0, 0, 0, 0.5) 62%, rgba(0, 0, 0, 0.62));
+  }
+  /* The one place a banner is a whole PACK's problem: the guild header is the
+     largest saturated block on the screen and it was the one element that never
+     got the memo, staying a deep indigo in Gruvbox's warm terminal palette and
+     in Paper's cream. This blends it a third of the way toward the pack's own
+     --bg-1, which keeps the guild's identity while letting it sit in the room.
+
+     UNDER the scrim, deliberately. Over it, the tint would land on the finished
+     text floor and drag it toward the pack — a light pack would pull a dark
+     scrim up to ~3:1 under white text. Under it, the scrim still covers the
+     text band at 0.62, so the tint reaches that band at 0.38 of its strength:
+     the worst case either way (a dark template in a cream pack, a pale one in a
+     charcoal pack) stays above 4.5:1. SCRIM_ALPHA and guildbanners.test.mjs are
+     untouched, because the layer they reason about is unchanged. */
+  .tint {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: var(--bg-1);
+    opacity: 0.3;
   }
   /* Pale templates print DARK text, so their scrim is white. */
   .scrim.ink-dark {

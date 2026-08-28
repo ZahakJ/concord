@@ -136,14 +136,20 @@
      from --border so every theme pack keeps its own temperature. */
   --hairline: color-mix(in srgb, var(--border) 55%, transparent);
 
-  /* Message density (Appearance setting). Compact overrides these to tighten
-     the feed; components read the vars so the whole rhythm shifts together.
-     Theme packs retune them too — an airy pack breathes, a terminal pack
-     doesn't — and [data-density="compact"] still wins because it comes last. */
-  --msg-pad-y: 2px;
-  --msg-gap: 12px;
-  --msg-group-pull: -10px;
-  --feed-pad: 16px;
+  /* Message density (Appearance setting), the COSY rung. Compact and
+     Comfortable override these; components read the vars so the whole rhythm
+     shifts together. Theme packs retune them too — an airy pack breathes, a
+     terminal pack doesn't — and [data-density] still wins because it is
+     written :root:root.
+
+     These numbers moved: the feed used to sit at a 12px gap with 2px of row
+     padding, which is a density tuned for a dense client rather than for the
+     mainstream ones this is measured against. Cosy is the default and now
+     reads like a default. */
+  --msg-pad-y: 3px;
+  --msg-gap: 15px;
+  --msg-group-pull: -11px;
+  --feed-pad: 18px;
 
   /* Chrome silhouette and message frame. These are the tokens that let a pack
      restyle the app's SHAPE instead of its hue: the avatar mask, the fill and
@@ -179,7 +185,12 @@
   --fs-small: 11.5px; /* secondary labels */
   --fs-compact: 12.5px; /* dense UI text */
   --fs-ui: 13px; /* default UI text — the app's most common size */
-  --fs-body: 15px; /* message and post CONTENT */
+  /* Message and post CONTENT. Raised from 15px: this is the one size a chat
+     app is judged on, it is read for hours, and the density setting moves it
+     a step either way from here. --fs-ui deliberately did NOT move with it —
+     it is the size of every label in the chrome, and the 769–1150px band and
+     the channel header both have their fits measured against it. */
+  --fs-body: 15.5px;
   --fs-title: 17px;
   --fs-display: 22px;
 
@@ -898,6 +909,19 @@
   --msg-gap: 5px;
   --msg-group-pull: -4px;
   --feed-pad: 12px;
+  --fs-body: 14.5px;
+}
+
+/* Comfortable density: the other rung. Wider rows and a larger reading size,
+   for a big screen or eyes further from it. Nothing but the feed's own rhythm
+   and its content size moves — the chrome around it stays where every width
+   check put it, and UI scale is the control for taking the whole window. */
+:root:root[data-density="comfortable"] {
+  --msg-pad-y: 5px;
+  --msg-gap: 20px;
+  --msg-group-pull: -13px;
+  --feed-pad: 22px;
+  --fs-body: 16.5px;
 }
 
 /* ── Stackable effects (Appearance → Effects) ─────────────────────────────
@@ -1725,6 +1749,15 @@ input[type="range"]:disabled {
 input::placeholder,
 textarea::placeholder {
   color: var(--text-faint);
+}
+/* A placeholder must never be hard-cut mid-word. Theme packs swap the UI face
+   for a mono or a wide one and every fixed-width field in the app is then
+   measured against a face it was not laid out for — the header search read
+   "Search all conversatic" in Gruvbox, with no ellipsis, just the input's
+   edge. This is the general answer; the strings that were genuinely too long
+   were shortened as well. */
+input {
+  text-overflow: ellipsis;
 }
 input:focus,
 textarea:focus {

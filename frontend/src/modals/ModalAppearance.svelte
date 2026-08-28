@@ -13,10 +13,22 @@
 
   let { onClose } = $props();
 
-  // Theme and the pack gallery are the whole point of this dialog, so they're
-  // what it opens as. Accent, corners, typeface, density and clock are the
-  // adjustments you make once and forget — folded away until asked for.
-  let custom = $state(false);
+  // Nine sections, every one of them a collapsible with the same head. It used
+  // to be a flat list with a single "Customise" disclosure holding five
+  // unrelated settings, which made "is this behind a fold?" an arbitrary fact
+  // you had to remember per setting. Theme and the gallery open on arrival
+  // because they are what the dialog is for; the rest are adjustments you make
+  // once, and they say what they hold on their own head.
+  let open = $state({ theme: true, packs: true });
+  const isOpen = (id) => !!open[id];
+  const toggle = (id) => (open = { ...open, [id]: !open[id] });
+
+  // Gallery filter. Fifty-one packs in five galleries is more than a list you
+  // read; it is a list you look something up in.
+  let q = $state("");
+  const nq = $derived(q.trim().toLowerCase());
+  const sift = (list) =>
+    nq ? list.filter((p) => `${p.label} ${p.note}`.toLowerCase().includes(nq)) : list;
 
   const THEMES = [
     { id: "dark", label: "Dark" },
@@ -49,6 +61,17 @@
   const shine = $derived(S.prefs.themeShine !== false);
   const shape = $derived(S.prefs.shape || "");
   const font = $derived(S.prefs.font || "");
+
+  // Three densities, not two. [data-density] was already a real attribute, but
+  // only a pack could reach it and only "compact" did anything; "cosy" was the
+  // name of not-compact. It is now a first-class setting with a rung on either
+  // side of the default, and the default itself sits where a mainstream chat
+  // app sits rather than where a dense one does.
+  const DENSITIES = [
+    { id: "compact", label: "Compact", bars: 4, note: "Tight rows, smaller reading size — more of the conversation per screen." },
+    { id: "cozy", label: "Cosy", bars: 3, note: "The default: room between messages, comfortable reading size." },
+    { id: "comfortable", label: "Comfortable", bars: 2, note: "Wide rows and larger type — easiest to read across the room." },
+  ];
 
   // Shape + typeface are theme axes of their own; "" defers to the pack, which
   // now carries its own corner radius and UI face (see app.css).
@@ -176,34 +199,44 @@
     { id: "zellige", label: "Zellige", bg: "#082426", hi: "#103436", ac: "#2ec4b6", font: INTER, r: 18, av: "50%", card: true, motion: "swing", grad: "radial-gradient(48% 46% at 50% 4%,rgba(255,206,130,0.55),transparent 72%)", base: "repeating-linear-gradient(45deg,rgba(226,200,140,0.18) 0 1px,transparent 1px 22px),repeating-linear-gradient(-45deg,rgba(226,200,140,0.18) 0 1px,transparent 1px 22px),repeating-conic-gradient(rgba(30,140,132,0.22) 0 25%,transparent 0 50%) 0 0/44px 44px,linear-gradient(180deg,#0e403c,#030f11 88%)", note: "Tilework, a swinging lamp" },
     { id: "atrium", label: "Atrium", bg: "#f2efe6", hi: "#ded8c8", ac: "#0f8a86", font: SERIF, r: 24, av: "50%", card: true, day: true, motion: "bars", grad: "repeating-linear-gradient(76deg,rgba(64,84,116,0.16) 0 1.5px,transparent 1.5px 19.5px),repeating-linear-gradient(166deg,rgba(64,84,116,0.1) 0 1.5px,transparent 1.5px 33px)", base: "linear-gradient(180deg,#eef4f8,#f7f3ea 46%,#e6ddcc)", note: "Noon under glass" },
   ];
+
+  const ALL_PACKS = [...PACKS, ...DAY_PACKS, ...LIVE_PACKS, ...TEXTURE_PACKS, ...PAIR_PACKS];
+  // Which pack you are ON, said above the fold. The gallery used to answer that
+  // only by scrolling until you found the ring.
+  const currentPack = $derived(ALL_PACKS.find((p) => p.id === themePack) || ALL_PACKS[0]);
+  const packsF = $derived(sift(PACKS));
+  const dayF = $derived(sift(DAY_PACKS));
+  const liveF = $derived(sift(LIVE_PACKS));
+  const textureF = $derived(sift(TEXTURE_PACKS));
+  const pairF = $derived(sift(PAIR_PACKS));
+  const hits = $derived(packsF.length + dayF.length + liveF.length + textureF.length + pairF.length);
+
+  // "Jump" scrolls the selected card into the middle of the dialog. The ring is
+  // already drawn; this is only about finding it.
+  function jumpToCurrent() {
+    document
+      .querySelector(".dialog .pack-card.sel")
+      ?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
 </script>
 
-<Modal title="Appearance" {onClose} wide>
-  <section>
-    <strong class="label">Theme</strong>
-    <div class="theme-row" role="radiogroup" aria-label="Theme">
-      {#each THEMES as t (t.id)}
-        <button
-          class="theme-card"
-          class:sel={theme === t.id}
-          role="radio"
-          aria-checked={theme === t.id}
-          onclick={() => setAppearance("theme", t.id)}
-        >
-          <!-- Mini preview painted with fixed colors, so the Light card shows
-               light even while the app is dark (and vice versa). -->
-          <span class="pv {t.id}" aria-hidden="true">
-            <span class="pv-dot"></span>
-            <span class="pv-lines"><span class="l1"></span><span class="l2"></span></span>
-          </span>
-          {t.label}
-        </button>
-      {/each}
-    </div>
-    <p class="muted tiny">System follows your OS setting, live.</p>
-  </section>
+<Modal title="Appearance" {onClose} size="xl">
+  <!-- One head for every section, so "is this folded away?" is never a fact
+       you have to remember per setting. -->
+  {#snippet group(id, title, sub, body)}
+    <section class="grp" class:open={isOpen(id)}>
+      <button class="grp-head" aria-expanded={isOpen(id)} onclick={() => toggle(id)}>
+        <span class="grp-chev" class:open={isOpen(id)} aria-hidden="true">›</span>
+        <span class="grp-title">{title}</span>
+        <span class="grp-sub">{sub}</span>
+      </button>
+      {#if isOpen(id)}
+        <div class="grp-body" transition:slide={{ duration: 200 }}>{@render body()}</div>
+      {/if}
+    </section>
+  {/snippet}
 
-  <!-- One card shape for all three galleries. The mini window is drawn from the
+  <!-- One card shape for all five galleries. The mini window is drawn from the
        pack's OWN tokens — its face in the "Ag", its radius on the panel and its
        avatar shape on the chip — so what you see in the card is what the app
        turns into. `still` freezes the motion for the textured row. -->
@@ -238,67 +271,100 @@
     </button>
   {/snippet}
 
-  <hr />
-  <section>
-    <strong class="label">Theme pack</strong>
-    <div class="pack-row" role="radiogroup" aria-label="Theme pack">
-      {#each PACKS as p (p.id)}{@render packCard(p)}{/each}
+  {#snippet gallery(tag, tagClass, blurb, list, still = false)}
+    {#if list.length}
+      <div class="live-head">
+        <span class="live-tag {tagClass}">{tag}</span>
+        <span class="muted tiny">{blurb}</span>
+      </div>
+      <div class="pack-row" role="radiogroup" aria-label="{tag} theme pack">
+        {#each list as p (p.id)}{@render packCard(p, still || p.still)}{/each}
+      </div>
+    {/if}
+  {/snippet}
+
+  {@render group("theme", "Theme", theme === "system" ? "Follows your system" : theme === "light" ? "Light" : "Dark", themeBody)}
+  {@render group("packs", "Theme pack", currentPack.label, packsBody)}
+  {@render group("effects", "Effects", themeFx ? THEME_FX.find((f) => f.id === themeFx)?.label || "On" : "Off", effectsBody)}
+  {@render group("colour", "Colour", accent ? ACCENTS.find((a) => a.color === accent)?.name || "Custom" : "Your profile colour", colourBody)}
+  {@render group("shape", "Shape", SHAPES.find((x) => x.id === shape)?.label || "Theme", shapeBody)}
+  {@render group("type", "Type", FONTS.find((x) => x.id === font)?.label || "Theme", typeBody)}
+  {@render group("comfort", "Density & scale", `${DENSITIES.find((d) => d.id === density)?.label || "Cosy"} · ${Math.round(uiScale * 100)}%`, comfortBody)}
+  {@render group("flair", "Flair", "Guild colours, seasonal touches", flairBody)}
+  {@render group("clock", "Clock", clock === "12" ? "12-hour" : clock === "24" ? "24-hour" : "Automatic", clockBody)}
+
+  {#snippet themeBody()}
+    <div class="theme-row" role="radiogroup" aria-label="Theme">
+      {#each THEMES as t (t.id)}
+        <button
+          class="theme-card"
+          class:sel={theme === t.id}
+          role="radio"
+          aria-checked={theme === t.id}
+          onclick={() => setAppearance("theme", t.id)}
+        >
+          <!-- Mini preview painted with fixed colors, so the Light card shows
+               light even while the app is dark (and vice versa). -->
+          <span class="pv {t.id}" aria-hidden="true">
+            <span class="pv-dot"></span>
+            <span class="pv-lines"><span class="l1"></span><span class="l2"></span></span>
+          </span>
+          {t.label}
+        </button>
+      {/each}
     </div>
+    <p class="muted tiny">System follows your OS setting, live.</p>
+  {/snippet}
+
+  {#snippet packsBody()}
+    <div class="gal-bar">
+      <span class="gal-cur">
+        Current: <strong>{currentPack.label}</strong>
+        <span class="gal-tick" aria-hidden="true">✓</span>
+      </span>
+      <button class="gal-jump" onclick={jumpToCurrent}>Jump to it</button>
+      <input
+        class="gal-q"
+        bind:value={q}
+        placeholder="Filter {ALL_PACKS.length} packs"
+        aria-label="Filter theme packs"
+      />
+    </div>
+
+    {@render gallery("Flat", "", "Opaque palettes, no backdrop.", packsF)}
+    {@render gallery("☀ Daylight", "day-tag", "Bright grounds, dark ink — for light-mode eyes.", dayF)}
+    {@render gallery("✨ Animated", "", "A living backdrop moves behind the app.", liveF)}
+    {#if liveF.length}
+      <!-- Nested, because it changes the Animated packs and nothing else. It
+           used to sit between this grid and the Textured header with equal
+           space to both, so it read as belonging to a row it does not touch. -->
+      <div class="nest">
+        <SettingRow
+          icon="spark"
+          title="Sweeping highlights"
+          sub="The band of light that crosses the window on a live pack"
+          info="Most animated packs carry one bright layer that travels over the whole window — a curtain, an iridescent bar, a rolling scanline, a wave of heat, ice catching the light. Turning this off leaves every pack its colour, its scenery and the rest of its motion, and takes away only the highlight that passes over what you are reading. Packs without one are unaffected."
+          checked={shine}
+          onclick={() => setAppearance("themeShine", !shine)}
+        />
+      </div>
+    {/if}
+    {@render gallery("▦ Textured", "texture-tag", "A soft colour mesh, no animation.", textureF, true)}
+    {@render gallery("❄ Effect-paired", "", "Flat palettes drawn as the ground for one effect.", pairF)}
+
+    {#if !hits}
+      <p class="muted tiny">No pack matches “{q.trim()}”.</p>
+    {/if}
     <p class="muted tiny">
       A pack is a whole look, not a hue: its own typeface, corner radius, avatar
-      shape, shadow depth and feed rhythm come with it. (An accent preset or a
-      Corners/Typeface choice under Customise still overrides the pack.)
+      shape, shadow depth and feed rhythm come with it. An accent, Shape or Type
+      choice below still overrides the pack. The effect-paired palettes were each
+      drawn as the ground for one of the Effects — picking the pack does not turn
+      the effect on; the two are separate choices.
     </p>
+  {/snippet}
 
-    <div class="live-head">
-      <span class="live-tag day-tag">☀ Daylight</span>
-      <span class="muted tiny">Bright grounds, dark ink — for light-mode eyes.</span>
-    </div>
-    <div class="pack-row" role="radiogroup" aria-label="Daylight theme pack">
-      {#each DAY_PACKS as p (p.id)}{@render packCard(p, p.still)}{/each}
-    </div>
-
-    <div class="live-head">
-      <span class="live-tag">✨ Animated</span>
-      <span class="muted tiny">A living backdrop moves behind the app.</span>
-    </div>
-    <div class="pack-row" role="radiogroup" aria-label="Animated theme pack">
-      {#each LIVE_PACKS as p (p.id)}{@render packCard(p)}{/each}
-    </div>
-    <SettingRow
-      icon="spark"
-      title="Sweeping highlights"
-      sub="The band of light that crosses the window on a live pack"
-      info="Most animated packs carry one bright layer that travels over the whole window — a curtain, an iridescent bar, a rolling scanline, a wave of heat, ice catching the light. Turning this off leaves every pack its colour, its scenery and the rest of its motion, and takes away only the highlight that passes over what you are reading. Packs without one are unaffected."
-      checked={shine}
-      onclick={() => setAppearance("themeShine", !shine)}
-    />
-
-    <div class="live-head">
-      <span class="live-tag texture-tag">▦ Textured</span>
-      <span class="muted tiny">A soft colour mesh, no animation.</span>
-    </div>
-    <div class="pack-row" role="radiogroup" aria-label="Textured theme pack">
-      {#each TEXTURE_PACKS as p (p.id)}{@render packCard(p, true)}{/each}
-    </div>
-
-    <div class="live-head">
-      <span class="live-tag">❄ Effect-paired</span>
-      <span class="muted tiny">Flat palettes drawn as the ground for one effect.</span>
-    </div>
-    <div class="pack-row" role="radiogroup" aria-label="Effect-paired theme pack">
-      {#each PAIR_PACKS as p (p.id)}{@render packCard(p)}{/each}
-    </div>
-    <p class="muted tiny">
-      Each of these was designed around one of the effects below, and each also
-      stands on its own with effects off. Picking the pack does not switch the
-      effect on — the two are separate choices.
-    </p>
-  </section>
-
-  <hr />
-  <section>
-    <strong class="label">Effects</strong>
+  {#snippet effectsBody()}
     <div class="pack-row fx-row" role="radiogroup" aria-label="Visual effect">
       {#each THEME_FX as f (f.id)}
         <button
@@ -329,184 +395,154 @@
       turned off entirely if your system asks for reduced motion. Leaving one
       running costs battery, so it starts off on each device.
     </p>
-  </section>
+  {/snippet}
 
-  <hr />
-  <button class="disclose" onclick={() => (custom = !custom)} aria-expanded={custom}>
-    <span class="disclose-chev" class:open={custom}>›</span>
-    Customise
-    <span class="disclose-sub">Accent, corners, typeface, density &amp; clock</span>
-  </button>
-
-  {#if custom}
-    <div class="custom" transition:slide={{ duration: 240 }}>
-
-    <section>
-      <strong class="label">Accent</strong>
-      <div class="swatches" role="radiogroup" aria-label="Accent colour">
-        {#each ACCENTS as a (a.color)}
-          <button
-            class="swatch"
-            class:sel={accent === a.color}
-            role="radio"
-            aria-checked={accent === a.color}
-            title={a.name}
-            aria-label={a.name}
-            style="--sw:{a.color}"
-            onclick={() => setAppearance("accent", a.color)}
-          ></button>
-        {/each}
+  {#snippet colourBody()}
+    <div class="swatches" role="radiogroup" aria-label="Accent colour">
+      {#each ACCENTS as a (a.color)}
         <button
-          class="swatch profile"
-          class:sel={accent === ""}
+          class="swatch"
+          class:sel={accent === a.color}
           role="radio"
-          aria-checked={accent === ""}
-          title="Your profile colour"
-          aria-label="Your profile colour"
-          style="--sw:{profileColor}"
-          onclick={() => setAppearance("accent", "")}
+          aria-checked={accent === a.color}
+          title={a.name}
+          aria-label={a.name}
+          style="--sw:{a.color}"
+          onclick={() => setAppearance("accent", a.color)}
         ></button>
-      </div>
-      <p class="muted tiny">
-        The hollow swatch follows your profile's custom color (Edit profile) —
-        pick a preset to override it on this device only.
-      </p>
-    </section>
-
-    <hr />
-    <section>
-      <strong class="label">Corners</strong>
-      <div class="seg four" role="radiogroup" aria-label="Corner style">
-        {#each SHAPES as s (s.id)}
-          <button
-            class:sel={shape === s.id}
-            role="radio"
-            aria-checked={shape === s.id}
-            onclick={() => setAppearance("shape", s.id)}
-          >
-            <span class="shape-pv" style="--r:{s.r}" aria-hidden="true"></span>
-            {s.label}
-          </button>
-        {/each}
-      </div>
-      <p class="muted tiny">
-        How rounded every panel, button and field is. <em>Theme</em> follows the
-        pack you picked above — Gruvbox squares off, Sakura rounds over.
-      </p>
-    </section>
-
-    <section>
-      <strong class="label">Typeface</strong>
-      <div class="seg faces" role="radiogroup" aria-label="Typeface">
-        {#each FONTS as f (f.id)}
-          <button
-            class:sel={font === f.id}
-            role="radio"
-            aria-checked={font === f.id}
-            onclick={() => setAppearance("font", f.id)}
-          >
-            <span class="font-pv" style="font-family:{f.stack}" aria-hidden="true">Ag</span>
-            {f.label}
-          </button>
-        {/each}
-      </div>
-      <p class="muted tiny">
-        <em>Theme</em> follows the pack you picked above. The rest ship inside the
-        app — Concord never downloads a font at runtime, which would tell a font
-        host every time you open it.
-      </p>
-    </section>
-
-    <hr />
-    <section>
-      <strong class="label">Message density</strong>
-      <div class="seg" role="radiogroup" aria-label="Message density">
-        <button
-          class:sel={density === "cozy"}
-          role="radio"
-          aria-checked={density === "cozy"}
-          onclick={() => setAppearance("density", "cozy")}
-        >
-          <span class="rows cozy" aria-hidden="true"><span></span><span></span><span></span></span>
-          Cozy
-        </button>
-        <button
-          class:sel={density === "compact"}
-          role="radio"
-          aria-checked={density === "compact"}
-          onclick={() => setAppearance("density", "compact")}
-        >
-          <span class="rows compact" aria-hidden="true"
-            ><span></span><span></span><span></span><span></span></span
-          >
-          Compact
-        </button>
-      </div>
-      <p class="muted tiny">Compact tightens the space between messages in the feed.</p>
-    </section>
-
-    <section>
-      <strong class="label">UI scale</strong>
-      <div class="scale-row">
-        <input
-          type="range"
-          min="0.8"
-          max="1.5"
-          step="0.05"
-          value={uiScale}
-          aria-label="UI scale"
-          oninput={(e) => setAppearance("uiScale", Number(e.currentTarget.value))}
-          use:rangefill={uiScale}
-        />
-        <span class="scale-val">{Math.round(uiScale * 100)}%</span>
-        <button class="scale-reset" disabled={uiScale === 1} onclick={() => setAppearance("uiScale", 1)}>
-          Reset
-        </button>
-      </div>
-      <p class="muted tiny">
-        Makes everything bigger or smaller. Ctrl+= and Ctrl+− work anywhere; Ctrl+0 resets.
-      </p>
-    </section>
-
-    <section>
-      <strong class="label">Flair</strong>
-      <SettingRow
-        icon="diamond"
-        title="Use guild colours"
-        sub="Each guild tints the app with its banner's hue"
-        info="Derived from the banner a guild already chose, so every guild has a colour identity for free. Your own accent preset above always wins when set."
-        checked={S.prefs.guildAccents !== false}
-        onclick={() => setAppearance("guildAccents", S.prefs.guildAccents === false)}
-      />
-      <SettingRow
-        icon="spark"
-        title="Seasonal touches"
-        sub="Snow in December, petals in spring, leaves in autumn"
-        info="A sparse drift over the guild rail, driven by this device's clock only — nothing is fetched. Quiet months show nothing."
-        checked={S.prefs.seasonal !== false}
-        onclick={() => setAppearance("seasonal", S.prefs.seasonal === false)}
-      />
-    </section>
-
-    <section>
-      <strong class="label">Clock</strong>
-      <div class="seg three" role="radiogroup" aria-label="Timestamp format">
-        {#each [["system", "Automatic"], ["12", "12-hour"], ["24", "24-hour"]] as [id, label] (id)}
-          <button
-            class:sel={clock === id}
-            role="radio"
-            aria-checked={clock === id}
-            onclick={() => setAppearance("clock", id)}
-          >
-            {label}
-          </button>
-        {/each}
-      </div>
-      <p class="muted tiny">How message timestamps show the time of day.</p>
-    </section>
-
+      {/each}
+      <button
+        class="swatch profile"
+        class:sel={accent === ""}
+        role="radio"
+        aria-checked={accent === ""}
+        title="Your profile colour"
+        aria-label="Your profile colour"
+        style="--sw:{profileColor}"
+        onclick={() => setAppearance("accent", "")}
+      ></button>
     </div>
-  {/if}
+    <p class="muted tiny">
+      The hollow swatch follows your profile's custom color (Edit profile) —
+      pick a preset to override it on this device only.
+    </p>
+  {/snippet}
+
+  {#snippet shapeBody()}
+    <div class="seg four" role="radiogroup" aria-label="Corner style">
+      {#each SHAPES as sh (sh.id)}
+        <button
+          class:sel={shape === sh.id}
+          role="radio"
+          aria-checked={shape === sh.id}
+          onclick={() => setAppearance("shape", sh.id)}
+        >
+          <span class="shape-pv" style="--r:{sh.r}" aria-hidden="true"></span>
+          {sh.label}
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">
+      How rounded every panel, button and field is. <em>Theme</em> follows the
+      pack you picked above — Gruvbox squares off, Sakura rounds over.
+    </p>
+  {/snippet}
+
+  {#snippet typeBody()}
+    <div class="seg faces" role="radiogroup" aria-label="Typeface">
+      {#each FONTS as f (f.id)}
+        <button
+          class:sel={font === f.id}
+          role="radio"
+          aria-checked={font === f.id}
+          onclick={() => setAppearance("font", f.id)}
+        >
+          <span class="font-pv" style="font-family:{f.stack}" aria-hidden="true">Ag</span>
+          {f.label}
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">
+      <em>Theme</em> follows the pack you picked above. The rest ship inside the
+      app — Concord never downloads a font at runtime, which would tell a font
+      host every time you open it.
+    </p>
+  {/snippet}
+
+  {#snippet comfortBody()}
+    <div class="seg three" role="radiogroup" aria-label="Message density">
+      {#each DENSITIES as d (d.id)}
+        <button
+          class:sel={density === d.id}
+          role="radio"
+          aria-checked={density === d.id}
+          onclick={() => setAppearance("density", d.id)}
+        >
+          <span class="rows {d.id}" aria-hidden="true">
+            {#each { length: d.bars } as _, i (i)}<span></span>{/each}
+          </span>
+          {d.label}
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">{DENSITIES.find((d) => d.id === density)?.note}</p>
+
+    <div class="scale-row">
+      <input
+        type="range"
+        min="0.8"
+        max="1.5"
+        step="0.05"
+        value={uiScale}
+        aria-label="UI scale"
+        oninput={(e) => setAppearance("uiScale", Number(e.currentTarget.value))}
+        use:rangefill={uiScale}
+      />
+      <span class="scale-val">{Math.round(uiScale * 100)}%</span>
+      <button class="scale-reset" disabled={uiScale === 1} onclick={() => setAppearance("uiScale", 1)}>
+        Reset
+      </button>
+    </div>
+    <p class="muted tiny">
+      Density sets the feed's rhythm and reading size; UI scale takes the whole
+      window with it. Ctrl+= and Ctrl+− work anywhere; Ctrl+0 resets.
+    </p>
+  {/snippet}
+
+  {#snippet flairBody()}
+    <SettingRow
+      icon="diamond"
+      title="Use guild colours"
+      sub="Each guild tints the app with its banner's hue"
+      info="Derived from the banner a guild already chose, so every guild has a colour identity for free. Your own accent preset above always wins when set."
+      checked={S.prefs.guildAccents !== false}
+      onclick={() => setAppearance("guildAccents", S.prefs.guildAccents === false)}
+    />
+    <SettingRow
+      icon="spark"
+      title="Seasonal touches"
+      sub="Snow in December, petals in spring, leaves in autumn"
+      info="A sparse drift over the guild rail, driven by this device's clock only — nothing is fetched. Quiet months show nothing."
+      checked={S.prefs.seasonal !== false}
+      onclick={() => setAppearance("seasonal", S.prefs.seasonal === false)}
+    />
+  {/snippet}
+
+  {#snippet clockBody()}
+    <div class="seg three" role="radiogroup" aria-label="Timestamp format">
+      {#each [["system", "Automatic"], ["12", "12-hour"], ["24", "24-hour"]] as [id, label] (id)}
+        <button
+          class:sel={clock === id}
+          role="radio"
+          aria-checked={clock === id}
+          onclick={() => setAppearance("clock", id)}
+        >
+          {label}
+        </button>
+      {/each}
+    </div>
+    <p class="muted tiny">How message timestamps show the time of day.</p>
+  {/snippet}
 
   <div class="actions">
     <button onclick={onClose}>Done</button>
@@ -537,67 +573,93 @@
     opacity: 0.45;
   }
 
-  /* Disclosure: the second layer of this dialog. Quiet at rest so the theme
-     gallery above it stays the thing you look at. */
-  .disclose {
+  /* One collapsible, nine times. The head carries the section's own answer on
+     the right, so a folded section still says what it is set to — the reason
+     folding everything is an improvement rather than nine things to open. */
+  .grp {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--bg-1);
+    text-align: left;
+  }
+  .grp-head {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
     width: 100%;
-    padding: 10px 12px;
+    padding: 11px 12px;
     background: transparent;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border: none;
+    border-radius: 0;
     color: var(--text);
     font-size: var(--fs-ui);
     font-weight: 600;
     text-align: left;
-    transition:
-      border-color var(--dur-quick) ease,
-      background var(--dur-quick) ease;
+    /* The section can't clip its own corners with overflow:hidden — that would
+       make it a scroll container and strand the gallery bar's `sticky` inside
+       a box that never scrolls. The head rounds itself instead. */
+    border-radius: calc(var(--radius-md) - 1px) calc(var(--radius-md) - 1px) 0 0;
+    transition: background var(--dur-quick) ease;
   }
-  .disclose:hover {
-    background: var(--bg-1);
-    border-color: var(--accent);
+  .grp:not(.open) .grp-head {
+    border-radius: calc(var(--radius-md) - 1px);
   }
-  .disclose-chev {
+  @media (pointer: fine) {
+    .grp-head:hover {
+      background: var(--bg-3);
+    }
+  }
+  .grp.open .grp-head {
+    border-bottom: 1px solid var(--hairline);
+  }
+  .grp-chev {
     color: var(--text-faint);
     font-size: var(--fs-title);
     line-height: 1;
     transition: transform 0.22s var(--ease-spring);
   }
-  .disclose-chev.open {
+  .grp-chev.open {
     transform: rotate(90deg);
   }
-  .disclose-sub {
+  .grp-title {
+    flex: none;
+  }
+  .grp-sub {
     margin-left: auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--fs-compact);
     font-weight: 400;
     color: var(--text-muted);
   }
-  .custom {
+  .grp-body {
     display: flex;
     flex-direction: column;
     gap: var(--sp-3);
+    padding: var(--sp-3);
+  }
+  /* The gallery wants every pixel of the xl dialog; a four-button segmented
+     control does not — stretched to 1040px its labels drift a hand apart and
+     the row stops reading as one control. Only the pack and effect grids run
+     the full width. */
+  .grp-body > :not(.pack-row):not(.gal-bar):not(.live-head) {
+    max-width: 640px;
+  }
+  /* A setting that belongs to the gallery above it, said with an indent and a
+     rule rather than with luck about spacing. */
+  .nest {
+    margin-left: var(--sp-3);
+    padding-left: var(--sp-3);
+    border-left: 2px solid var(--hairline);
   }
   @media (prefers-reduced-motion: reduce) {
-    .disclose-chev {
+    .grp-chev {
       transition: none;
     }
-  }
-  section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--sp-2);
-    text-align: left;
-  }
-  /* Match the sectioned settings look: small uppercase group labels. */
-  .label {
-    font-size: var(--fs-small);
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--text-muted);
   }
   p {
     margin: 0;
@@ -607,10 +669,58 @@
   .tiny {
     font-size: var(--fs-small);
   }
-  hr {
-    border: none;
-    border-top: 1px solid var(--border);
-    margin: 4px 0;
+
+  /* The gallery's own bar: what you are wearing, a way back to it, and a
+     filter. Sticky under the dialog's header — the header is opaque and sits a
+     layer above, so this slides under it rather than colliding with it. */
+  .gal-bar {
+    position: sticky;
+    /* The dialog's own header sticks at -20px and stands 58px tall, so its
+       bottom edge rests 38px down the scrollport. Measured, not guessed. */
+    top: 38px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin: calc(-1 * var(--sp-3)) calc(-1 * var(--sp-3)) 0;
+    padding: var(--sp-2) var(--sp-3);
+    background: var(--bg-1);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .gal-cur {
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .gal-cur strong {
+    color: var(--text);
+  }
+  .gal-tick {
+    color: var(--accent-hover);
+    font-weight: 700;
+  }
+  .gal-jump {
+    flex: none;
+    padding: 4px 10px;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--fs-small);
+  }
+  @media (pointer: fine) {
+    .gal-jump:hover {
+      color: var(--text);
+      border-color: var(--accent);
+    }
+  }
+  .gal-q {
+    margin-left: auto;
+    width: clamp(120px, 30%, 220px);
+    padding: 6px 10px;
+    font-size: var(--fs-compact);
   }
 
   /* Theme cards: a mini window per mode, selected one ringed in accent. */
@@ -697,9 +807,12 @@
      could not tell a monospaced, square, packed-tight pack from a rounded,
      serif, airy one. Now the card shows the face, the radius, the avatar
      shape, the row treatment and the motion. */
+  /* Six across in the xl dialog instead of three in a 458px column. Fifty-one
+     packs at three per row is nineteen rows of scrolling through the best
+     thing in the app. */
   .pack-row {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fill, minmax(146px, 1fr));
     gap: var(--sp-2);
   }
   .pack-card {
@@ -739,8 +852,10 @@
     font-size: var(--fs-tiny);
     line-height: 1.25;
     color: var(--text-faint);
-    /* Two lines max; the note is a hint, not a paragraph. */
-    min-height: 12px;
+    /* Two lines' worth, always. A one-line note next to a two-line one made
+       its whole grid row taller than its neighbours and stair-stepped the
+       gallery; reserving the second line keeps every card the same height. */
+    min-height: 2.5em;
   }
   .pack-card.sel .pk-note {
     color: var(--text-muted);
@@ -1351,6 +1466,9 @@
     justify-content: center;
     width: 26px;
     height: 24px;
+  }
+  .rows.comfortable {
+    gap: var(--sp-2);
   }
   .rows.cozy {
     gap: 5px;

@@ -558,7 +558,7 @@
         autocapitalize="none"
         autocorrect="off"
         spellcheck="false"
-        placeholder="Search all conversations…"
+        placeholder="Search messages…"
         aria-label="Search messages"
         bind:this={searchEl}
         bind:value={S.searchQuery}

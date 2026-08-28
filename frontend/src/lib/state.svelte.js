@@ -190,7 +190,7 @@ export const S = $state({
   // for a link in a message reveals your IP + online time to that link's host,
   // so a message with a link to an attacker-controlled server is a zero-click
   // deanonymization. Opt in only if you trust who you talk to.
-  // theme: "dark" | "light" | "system"; density: "cozy" | "compact";
+  // theme: "dark" | "light" | "system"; density: "compact" | "cozy" | "comfortable";
   // accent: a preset hex, or "" to follow the profile color (the old behavior).
   // Spread over defaults so prefs saved before a key existed still get it.
   prefs: {
@@ -1902,6 +1902,8 @@ export function applyAccent(color) {
   document.documentElement.style.setProperty("--accent-fg", accentForeground(color));
 }
 
+const DENSITIES = new Set(["compact", "cozy", "comfortable"]);
+
 // ---- appearance (theme / accent preset / density) ----
 // Device-local prefs, stamped onto <html>: data-theme picks the palette in
 // app.css, data-density the message spacing, and a non-empty accent pref
@@ -1960,7 +1962,10 @@ export function applyAppearance() {
   const el = document.documentElement;
   const t = S.prefs.theme || "dark";
   el.dataset.theme = t === "system" ? (sysDark && !sysDark.matches ? "light" : "dark") : t;
-  el.dataset.density = S.prefs.density === "compact" ? "compact" : "cozy";
+  // Three rungs now, and an unknown value still lands on the default rather
+  // than on nothing — a pref written by a newer build must not leave the feed
+  // with no density at all.
+  el.dataset.density = DENSITIES.has(S.prefs.density) ? S.prefs.density : "cozy";
   const pack = S.prefs.themePack;
   if (pack && !packsLoaded) {
     // Not yet: keep the default palette on screen and come back when the pack

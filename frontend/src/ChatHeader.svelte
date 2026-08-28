@@ -152,7 +152,7 @@
       <input
         class="search-box"
         class:busy={S.searchLoading || S.searchQuery || S.searchResults !== null}
-        placeholder="Search all conversations…"
+        placeholder="Search messages…"
         aria-label="Search messages across all conversations"
         bind:this={searchEl}
         bind:value={S.searchQuery}

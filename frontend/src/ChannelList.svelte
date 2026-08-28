@@ -680,7 +680,7 @@
       oncontextmenu={(e) => openContextMenu(e, guildMenuItems(g), { title: g.name })}
     >
       {#if art}
-        <Banner banner={g.banner} scrim={art.ink} class="gh-art" />
+        <Banner banner={g.banner} scrim={art.ink} tint class="gh-art" />
       {/if}
       <!-- One wrapper so the row can sit ABOVE the art layer: the art is
            absolutely positioned, and positioned boxes paint over in-flow ones
@@ -819,9 +819,12 @@
           onclick={jumpToNextUnread}
         >
           <span class="uj-dot"></span>
+          <!-- Short on purpose. "3 channels unread · 2 @you" needs 196px in
+               Gruvbox's mono face and gets 168, so the pack that packs tightest
+               was the one that truncated. The tooltip and aria-label still
+               carry the whole sentence. -->
           <span class="uj-text">
-            {unreadChannels.length}
-            {unreadChannels.length === 1 ? "channel" : "channels"} unread
+            {unreadChannels.length} unread
             {#if unreadMentions > 0}· {unreadMentions} @you{/if}
           </span>
           <span class="uj-cta">Jump ↓</span>
