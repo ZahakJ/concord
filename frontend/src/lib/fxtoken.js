@@ -13,14 +13,19 @@ export const FX_RE = /\[fx\]\(concord:\/\/fx\/v1\/([a-z]+)\)/;
 // name -> { play(seed), body } — body is the default content when the command
 // is sent bare, so "/confetti" alone still renders a (jumbo) message row
 // rather than an empty bubble.
+// `host` is the message row the effect belongs to. It is not optional in
+// practice: a celebration that plays over the whole window paints specks on
+// the channel sidebar and the member panel, which have nothing to do with the
+// message that earned them.
 export const FX_EFFECTS = {
-  confetti: { body: "🎉", play: (seed) => confettiBurst({ seed }) },
-  fireworks: { body: "🎆", play: (seed) => fireworksBurst(seed) },
+  confetti: { body: "🎉", play: (seed, host) => confettiBurst({ seed, host }) },
+  fireworks: { body: "🎆", play: (seed, host) => fireworksBurst(seed, host) },
   hearts: {
     body: "❤️",
-    play: (seed) =>
+    play: (seed, host) =>
       confettiBurst({
         seed,
+        host,
         glyphs: ["❤", "♥"],
         colors: ["#f43f5e", "#fb7185", "#f0abfc"],
         n: 18,
@@ -74,7 +79,7 @@ function loadLedger() {
 let ledger = loadLedger();
 const played = new Set(ledger);
 
-export function playFxOnce(messageId, name, sentAt) {
+export function playFxOnce(messageId, name, sentAt, host = null) {
   if (!name || played.has(messageId)) return;
   // Unknown/unparseable timestamps are treated as old: silence is the safe
   // failure for something whose whole job is to be loud.
@@ -87,5 +92,5 @@ export function playFxOnce(messageId, name, sentAt) {
     /* private mode / quota: the in-memory set still holds for this session */
   }
   if (!(age >= 0 && age < FX_MAX_AGE_MS)) return;
-  FX_EFFECTS[name]?.play(messageId);
+  FX_EFFECTS[name]?.play(messageId, host);
 }

@@ -2380,8 +2380,12 @@ textarea:focus {
    nothing lingers to cost frames after the moment passes. Transform/opacity
    only, same as the looped kinds. JS already bails under reduced motion; the
    guard below is belt-and-braces for anything that slipped through. */
+/* A one-shot layer never contributes layout or paint to anything around it.
+   `paint` is the load-bearing half: without it the glyphs of a burst extend
+   the scroll box they sit in, and a page whose scroll box is growing every
+   frame is a page that never holds still. */
 .fx-once {
-  contain: layout style;
+  contain: layout style paint;
 }
 .fxo {
   position: absolute;
@@ -2467,7 +2471,10 @@ textarea:focus {
     opacity: 1;
   }
   to {
-    transform: translate3d(var(--dx), 108vh, 0) rotate(var(--rot));
+    /* --fall-h is handed over in PIXELS by a hosted layer: a translate
+       percentage resolves against the moving element, not its container, so
+       "fall the height of this message" cannot be written as a percentage. */
+    transform: translate3d(var(--dx), var(--fall-h, 108vh), 0) rotate(var(--rot));
     opacity: 0;
   }
 }

@@ -308,12 +308,12 @@
     };
     let onScroll = null;
     const raf = requestAnimationFrame(() => {
-      if (visible()) return playFxOnce(m.id, fxName, m.sent);
+      if (visible()) return playFxOnce(m.id, fxName, m.sent, node);
       onScroll = () => {
         if (!visible()) return;
         window.removeEventListener("scroll", onScroll, true);
         onScroll = null;
-        playFxOnce(m.id, fxName, m.sent);
+        playFxOnce(m.id, fxName, m.sent, node);
       };
       window.addEventListener("scroll", onScroll, true);
     });
