@@ -142,6 +142,70 @@ async function openStream(kind, deviceId, extra = {}) {
   }
 }
 
+// Is this the Linux desktop shell? WebKitGTK with no Chrome token in the UA —
+// the one build whose media problems are GStreamer's rather than a permission
+// dialog's, and therefore the one build whose advice has to be different.
+const LINUX_DESKTOP =
+  typeof navigator !== "undefined" &&
+  /Linux/.test(navigator.platform || navigator.userAgent || "") &&
+  /AppleWebKit/.test(navigator.userAgent || "") &&
+  !/Chrome|Chromium/.test(navigator.userAgent || "");
+
+// canCarryACall answers a question that used to have no answer at all: is
+// there a peer connection to be had on this machine?
+//
+// On the Linux desktop build the webview is WebKitGTK and its media stack is
+// GStreamer, so WebRTC is only exposed when the system has the elements to
+// build a pipeline out of. A box without gst-plugins-bad has no `webrtcbin`,
+// `dtls` or `srtp`, and WebKit answers by not defining RTCPeerConnection at
+// all — with `enable-webrtc` set and reading back true. Without this check the
+// join looked like it worked (presence goes out, the roster shows you) and
+// then nobody could hear anybody, forever, with nothing anywhere saying why.
+export const canCarryACall = () => typeof RTCPeerConnection !== "undefined";
+
+// Why not, in a sentence somebody can act on. Only ever shown when
+// canCarryACall() is false, which on every browser and on Android is never.
+export function noCallReason() {
+  return LINUX_DESKTOP
+    ? "This machine can't make calls: the desktop app carries audio through GStreamer, and the WebRTC plugins are missing. Installing gst-plugins-good and gst-plugins-bad fixes it — everything else in Concord works without them."
+    : "This build can't make calls: its web engine has no WebRTC support.";
+}
+
+// micReason turns a getUserMedia error NAME into the sentence a person can act
+// on. It exists because every failure used to arrive as "Microphone access
+// denied", which is true in one case out of four and actively misleading in the
+// other three — a Linux desktop with no capture pipeline, a headset another app
+// is holding, and a machine with no microphone at all each need a different
+// next move, and none of them is "check your permissions".
+//
+// The Linux desktop line is specific on purpose. WebKitGTK builds its capture
+// through GStreamer, so a box missing gst-plugins-good has the hardware, the
+// permission and no way to open it; that presents as NotFoundError or
+// NotReadableError and is otherwise unguessable.
+export function micReason(name) {
+  switch (name) {
+    case "NotAllowedError":
+    case "SecurityError":
+      return "Microphone blocked — you're in listen-only mode. Allow the microphone and try again.";
+    case "NotFoundError":
+    case "OverconstrainedError":
+      return LINUX_DESKTOP
+        ? "No microphone found — you're in listen-only mode. On Linux the desktop app captures through GStreamer: install gst-plugins-good if your mic works elsewhere."
+        : "No microphone found — you're in listen-only mode.";
+    case "NotReadableError":
+    case "AbortError":
+      return LINUX_DESKTOP
+        ? "Your microphone couldn't be opened — you're in listen-only mode. Another app may be holding it, or the desktop app's GStreamer plugins may be missing."
+        : "Your microphone couldn't be opened — you're in listen-only mode. Another app may be using it.";
+    case "TypeError":
+      return "This build can't reach a microphone — you're in listen-only mode.";
+    default:
+      return name
+        ? `Microphone unavailable (${name}) — you're in listen-only mode.`
+        : "Microphone unavailable — you're in listen-only mode.";
+  }
+}
+
 // applySink routes one media element to the chosen output. Best effort: an id
 // that's gone, or a webview without setSinkId, just keeps playing on the
 // default device rather than going silent.

@@ -94,6 +94,12 @@ export class VoiceMesh {
     this.onPeerStatus = onPeerStatus || (() => {});
     this.peers = new Map(); // peerId -> { pc, makingOffer, ignoreOffer, audioEl, videoKeys }
     this.localStream = null;
+    // Why there is no microphone, when there isn't one: a getUserMedia error
+    // NAME ("NotAllowedError", "NotFoundError", "NotReadableError") or "" when
+    // the mic is fine. The UI turns it into a sentence; the mesh only has to
+    // remember which failure it was.
+    this.micError = "";
+    this.onMicState = null;
     this.muted = false;
     // Deafen: silence ALL incoming audio (and imply self-mute). volumes holds a
     // per-peer 0..1 gain so you can turn any one participant down/off locally,
@@ -159,8 +165,42 @@ export class VoiceMesh {
     this._statTurn = 0; // getStats runs on every other tick
   }
 
+  // start() brings the call up. A microphone is WANTED, not required: people
+  // join calls to listen all the time, and a denied permission, a device in use
+  // by something else, or a Linux box with no capture pipeline are all reasons
+  // to be in the room without a voice — not reasons to be kept out of it.
+  // Everything downstream of here is already null-tolerant (_micTrack returns
+  // null, addTrack is skipped, _applyMicLive optional-chains), so the whole of
+  // "listen-only" is: don't throw, and remember why.
   async start() {
-    this.localStream = await micStream(this.devices.mic, this.audio);
+    await this.openMic();
+    this._startMonitor();
+    this._startWatchdog();
+    this._watchBackground();
+  }
+
+  // openMic captures, or records why it couldn't. Used by start() and by the
+  // "try again" the UI offers when the first attempt failed; calling it a
+  // second time while a call is up hands the new track to every peer, so the
+  // retry is a real recovery rather than a re-ask that needs a rejoin.
+  async openMic() {
+    let stream = null;
+    try {
+      stream = await micStream(this.devices.mic, this.audio);
+    } catch (err) {
+      // The NAME is the whole story and it was being thrown away: denied, no
+      // device and device-busy are three different problems with three
+      // different answers, and all three used to print "Microphone access
+      // denied". Keep it for the surface that has to explain itself.
+      this.micError = err?.name || "NotAllowedError";
+      this.onMicState?.(this.micError);
+      return false;
+    }
+    this.micError = "";
+    const had = !!this.localStream;
+    if (had) this._teardownChain();
+    const old = this.localStream;
+    this.localStream = stream;
     // Opening the mic for a call is the moment Android moves the system audio
     // route to the communication path. The chime context predates that flip —
     // tell sounds.js so the join chime (and anything after) plays on a context
@@ -175,10 +215,38 @@ export class VoiceMesh {
     // Metered on the RAW capture, not the processed send: the gate below reads
     // this level to decide when to open, and a meter behind a closed gate could
     // never reopen it.
+    this.analysers.delete("self");
     this._addAnalyser("self", this.localStream);
-    this._startMonitor();
-    this._startWatchdog();
-    this._watchBackground();
+    old?.getTracks().forEach((t) => t.stop());
+    // A retry arriving into a live call has peers to tell. replaceTrack only
+    // works where a sender already exists, which it does not when we joined
+    // with no track at all — so offer a renegotiation for those.
+    if (had) await this._sendMicTrack();
+    else await this._addMicToPeers();
+    this.onMicState?.("");
+    return true;
+  }
+
+  // _addMicToPeers gives a track to connections that were built without one.
+  // A listen-only join negotiates with no audio m-line of its own, so there is
+  // no sender to replace into; adding one changes the SDP, which is what the
+  // renegotiation is for.
+  async _addMicToPeers() {
+    const track = this._micTrack();
+    if (!track) return;
+    track.enabled = this._micLive();
+    for (const [, peer] of this.peers) {
+      try {
+        const sender = peer.pc.getSenders().find((s) => s.track?.kind === "audio");
+        // addTrack fires onnegotiationneeded, which is where every other offer
+        // in this file comes from — no second offer path to keep in step.
+        if (sender) await sender.replaceTrack(track);
+        else peer.pc.addTrack(track, this.sendStream || this.localStream);
+      } catch (err) {
+        console.warn("mic add", err);
+      }
+    }
+    this._hintTracks();
   }
 
   // _watchBackground keeps the mic alive across a trip to the home screen.

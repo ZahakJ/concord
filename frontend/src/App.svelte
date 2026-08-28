@@ -74,6 +74,7 @@
   import FloatingCall from "./FloatingCall.svelte";
   import SelfView from "./SelfView.svelte";
   import Toasts from "./Toasts.svelte";
+  import { micReason, canCarryACall, noCallReason } from "./lib/devices.js";
   import FxOverlay from "./FxOverlay.svelte";
   import { validFx } from "./lib/themefx.js";
   import JoinVeil from "./JoinVeil.svelte";
@@ -1024,15 +1025,32 @@
         }
       },
     });
-    try {
-      await mesh.start();
-    } catch {
-      // A phone is often already at the ear by now; the error toast is behind it.
+    // Before anything else: is there a peer connection to be had at all? On the
+    // Linux desktop build the answer can be no — WebKitGTK exposes no
+    // RTCPeerConnection when the system's GStreamer WebRTC elements are absent
+    // — and joining then produces a call in which nobody can hear anybody and
+    // nothing says why. This is the one failure that is NOT worth entering the
+    // room for: a mic-less join still lets you listen, and this one does not.
+    if (!canCarryACall()) {
       hapticNotify("ERROR");
-      flash("Microphone access denied", "error");
+      flash(noCallReason(), "error");
       joining = false;
       S.joiningVoice = "";
       return;
+    }
+    // A microphone is not a condition of entry. mesh.start() no longer throws
+    // for a mic it could not open — it records why and comes up listen-only —
+    // so the only thing left to do here is say so, once, and let the room have
+    // its guest. Refusing the join was the wrong shape of answer to "your mic
+    // is broken": people join calls to LISTEN constantly, and being locked out
+    // of a meeting because a headset is unplugged is a worse failure than being
+    // in it without a voice.
+    mesh.onMicState = (why) => (S.micError = why || "");
+    await mesh.start();
+    S.micError = mesh.micError || "";
+    if (S.micError) {
+      hapticNotify("ERROR");
+      flash(micReason(S.micError), "error");
     }
     try {
       await api.joinVoice(channelId);
@@ -1092,6 +1110,8 @@
     S.voicePeerFpr = {};
     S.voicePeerStatus = {};
     S.muted = false;
+    S.micError = "";
+    S.micRetrying = false;
     S.deafened = false;
     S.talking = false;
     S.peerVolumes = {};

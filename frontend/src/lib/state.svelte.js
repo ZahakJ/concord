@@ -27,6 +27,7 @@ import {
 // Per-sender soundboard rate limit (last accepted press, ms). Module-local:
 // nothing else needs to react to it.
 const sfxLast = {};
+import { micReason } from "./devices.js";
 import { PERM, has } from "./perms.js";
 import { plur } from "./plural.js";
 import { fmtCount } from "./chronicle.js";
@@ -329,6 +330,12 @@ export const S = $state({
   // until that call ends and the roster clears.
   dismissedCalls: [],
   muted: false,
+  // Why we have no microphone in THIS call, as a getUserMedia error name, or ""
+  // when we have one. A call you joined without a mic is a normal call with one
+  // thing missing, not a broken call: the roster has you, you hear everyone,
+  // and the mic control says what happened and offers to try again.
+  micError: "",
+  micRetrying: false,
   deafened: false, // we've silenced all incoming call audio (implies mic muted)
   peerVolumes: {}, // peerId -> 0..1 local playback gain (absent = full)
   sharing: false, // we are screen-sharing
@@ -3377,6 +3384,33 @@ export function publishVoiceState() {
 // back. Module-level rather than per-call: it is only ever read between a
 // deafen and the undeafen that follows it.
 let mutedBeforeDeafen = false;
+
+// retryMic re-asks for the microphone from inside a live call. It is the whole
+// answer to "I plugged the headset in / I allowed it, now what" — without it
+// the only recovery from a listen-only join was to leave and come back, which
+// on a meeting is a visible exit and re-entry for a hardware fumble.
+export async function retryMic() {
+  const mesh = S.voice?.mesh;
+  if (!mesh || S.micRetrying) return;
+  S.micRetrying = true;
+  try {
+    const ok = await mesh.openMic();
+    S.micError = mesh.micError || "";
+    if (ok) {
+      // Arriving with a live mic muted would be a second silent failure.
+      S.muted = false;
+      mesh.setMuted?.(false);
+      flash("Microphone connected", "success");
+    } else {
+      flash(micReason(S.micError), "error");
+    }
+  } catch (err) {
+    S.micError = err?.name || "NotAllowedError";
+    flash(micReason(S.micError), "error");
+  } finally {
+    S.micRetrying = false;
+  }
+}
 
 export function toggleMicMute() {
   // Talking again means you can hear again: unmuting lifts deafen too.

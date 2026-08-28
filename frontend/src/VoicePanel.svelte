@@ -23,6 +23,7 @@
     openContextMenu,
     channelShort,
     flash,
+    retryMic,
   } from "./lib/state.svelte.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { setSelfViewCovered } from "./lib/selfview.svelte.js";
@@ -1109,20 +1110,49 @@
        reach through S.voice, which does not exist yet — eight live-looking
        buttons that all quietly do nothing is worse than eight that aren't there
        for the moment it takes. -->
+  <!-- Quiet, not a toast. The toast said it once at join and scrolled away; a
+       call you are sitting in with no voice has to keep saying so, because
+       nothing else on this panel would tell you that the room cannot hear
+       you. -->
+  {#if S.micError && !joining}
+    <div class="nomic-note" role="status">
+      <Icon name="micOff" size={13} />
+      <span>Listening only — no microphone.</span>
+      <button class="nomic-retry" disabled={S.micRetrying} onclick={retryMic}>
+        {S.micRetrying ? "Trying…" : "Try again"}
+      </button>
+    </div>
+  {/if}
   <div class="controls" class:hidden={joining} class:phone={S.isMobile} inert={joining}>
+    <!-- Three states, not two. A mute you chose and a microphone that never
+         opened look identical on a two-state toggle, so the button that meant
+         "unmute" would have meant "nothing happens" for the whole of a
+         listen-only call. The unavailable state says so, and its click is the
+         retry rather than a toggle of something that isn't there. -->
     <button
       class="ctl"
-      class:danger={S.muted}
-      class:keyed={pttOn && !S.muted}
-      class:talking={S.talking && !S.muted}
+      class:danger={S.muted && !S.micError}
+      class:nomic={!!S.micError}
+      class:busy={S.micRetrying}
+      class:keyed={pttOn && !S.muted && !S.micError}
+      class:talking={S.talking && !S.muted && !S.micError}
       use:tooltip={{
-        text: S.muted ? "Unmute" : pttOn ? `Hold ${pttKey || "your push-to-talk key"} to talk` : "Mute",
+        text: S.micError
+          ? S.micRetrying
+            ? "Asking for the microphone…"
+            : "No microphone — click to try again"
+          : S.muted
+            ? "Unmute"
+            : pttOn
+              ? `Hold ${pttKey || "your push-to-talk key"} to talk`
+              : "Mute",
       }}
-      aria-label={S.muted ? "Unmute" : "Mute"}
-      aria-pressed={S.muted}
-      onclick={withHaptic(onToggleMute)}
+      aria-label={S.micError ? "Microphone unavailable — try again" : S.muted ? "Unmute" : "Mute"}
+      aria-pressed={S.micError ? undefined : S.muted}
+      disabled={S.micRetrying}
+      onclick={withHaptic(S.micError ? retryMic : onToggleMute)}
     >
-      <Icon name={S.muted ? "micOff" : "mic"} size={18} />
+      <Icon name={S.micError || S.muted ? "micOff" : "mic"} size={18} />
     </button>
     <button
       class="ctl"
@@ -2393,6 +2423,45 @@
   }
   .ctl.danger:hover {
     background: color-mix(in srgb, var(--danger) 85%, #000);
+  }
+  /* Not danger, and deliberately so: a missing microphone is a condition, not
+     an alarm you set off. It reads as "off" — outlined, muted ink — which is
+     also what tells it apart from the filled red of a mute you chose. */
+  .ctl.nomic {
+    background: transparent;
+    color: var(--text-faint);
+    border-style: dashed;
+  }
+  .ctl.nomic:hover {
+    color: var(--text);
+    border-style: solid;
+  }
+  .ctl.busy {
+    opacity: 0.6;
+  }
+  .nomic-note {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    margin: 0 auto 8px;
+    padding: 6px 10px;
+    max-width: max-content;
+    font-size: var(--fs-sm);
+    color: var(--text-muted);
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .nomic-retry {
+    padding: 2px 8px;
+    font-size: var(--fs-sm);
+    background: transparent;
+    color: var(--accent);
+    border: none;
+    border-radius: var(--radius-sm);
+  }
+  .nomic-retry:hover:not(:disabled) {
+    background: var(--bg-3);
   }
   /* Leave is a separate kind of action from the toggles — a little breathing
      room sets it apart so it's never fat-fingered mid-call. */

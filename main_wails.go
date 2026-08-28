@@ -83,6 +83,10 @@ func main() {
 		Linux:            &linux.Options{Icon: appIcon},
 		OnStartup: func(ctx context.Context) {
 			b.SetContext(ctx)
+			// Grant the webview a microphone. Linux only, and it has to happen
+			// here rather than at options time because Wails exposes no hook
+			// for it — see webkitmedia_linux.go.
+			armWebviewMedia()
 			// The one dialog the desktop shell owns that the web build cannot:
 			// choosing the folder an exported community was unpacked into. A
 			// path typed into a text field is the fallback everywhere else, and
