@@ -1257,6 +1257,15 @@
   <!-- Everything above this line is fixed chrome at the top of the thread.
        Everything between the two spacers is the window; the spacers hold the
        height of the rows on either side of it that are not rendered. -->
+  <!-- The bottom anchor. A conversation is read upward from the composer, so a
+       short one rests ON the composer rather than hanging from the ceiling with
+       half a screen of nothing under it. This spacer eats whatever room is left
+       over and collapses to nothing the moment the thread is taller than the
+       pane, which is why it is a flex spacer and not `justify-content: flex-end`
+       on the scroller — that idiom makes the top of an overflowing column
+       unreachable. It sits BELOW the "beginning of the channel" line so that
+       line stays at the top and reads as a header. -->
+  <div class="vs vs-push" aria-hidden="true"></div>
   <div class="vs vs-top" style:height="{topPad}px" aria-hidden="true"></div>
   {#each items.slice(lo, hi) as it (it.k)}
     {#if it.t === "arcday"}
@@ -1668,6 +1677,17 @@
     flex: none;
     margin-top: calc(-1 * var(--feed-gap));
     pointer-events: none;
+  }
+  /* Grows into the free space and into nothing else: with a flex-basis of 0 and
+     no content there is nothing for a negative free space to take away, so an
+     overflowing thread measures this at exactly 0px and every number the
+     virtualizer keeps stays what it was. It carries `.vs` for the gap
+     cancellation and because the ResizeObserver skips that class — its height
+     is an output of layout, and observing it would feed the pin back into
+     itself. */
+  .vs-push {
+    flex: 1 1 0;
+    min-height: 0;
   }
   /* Centering only. The illustration itself — badge, dashed orbit, drifting
      satellite, entrance — was extracted into EmptyState.svelte for the other
