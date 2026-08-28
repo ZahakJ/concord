@@ -15,7 +15,21 @@
   // `up` opens the dropdown ABOVE the trigger — for a trigger that lives at the
   // bottom of the window (the composer's overflow), where a menu hanging below
   // it would be off-screen.
-  let { label = "More", icon = "chevron", align = "right", compact = false, up = false, children } = $props();
+  // `trigger` replaces the icon button with a snippet of the caller's own — for
+  // a picker, where the control has to SAY what is currently chosen rather than
+  // being a chevron you have to open to find out. `wide` then lets the whole
+  // thing fill its row, which is what a device picker in a settings sheet is.
+  // Both are additive: every existing call site renders exactly as before.
+  let {
+    label = "More",
+    icon = "chevron",
+    align = "right",
+    compact = false,
+    up = false,
+    wide = false,
+    trigger,
+    children,
+  } = $props();
   let open = $state(false);
   // Both presentations are a layer: back closes the sheet on a phone, Escape
   // the dropdown on a desktop, and neither needs a listener of its own. Note
@@ -86,19 +100,25 @@
 
 <svelte:window onclick={onWindowClick} />
 
-<div class="menu-root" bind:this={root}>
-  <button
-    class="trigger"
-    class:ghost={!compact}
-    class:compact
-    title={label}
-    aria-label={label}
-    aria-haspopup="menu"
-    aria-expanded={open}
-    onclick={() => (open = !open)}
-  >
-    <Icon name={icon} size={compact ? 12 : 16} />
-  </button>
+<div class="menu-root" class:wide bind:this={root}>
+  {#if trigger}
+    <button class="trigger own" aria-label={label} aria-haspopup="menu" aria-expanded={open} onclick={() => (open = !open)}>
+      {@render trigger()}
+    </button>
+  {:else}
+    <button
+      class="trigger"
+      class:ghost={!compact}
+      class:compact
+      title={label}
+      aria-label={label}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      onclick={() => (open = !open)}
+    >
+      <Icon name={icon} size={compact ? 12 : 16} />
+    </button>
+  {/if}
   {#if open}
     {#if S.isMobile}
       <BottomSheet title={label} onClose={() => (open = false)}>
@@ -136,10 +156,30 @@
     position: relative;
     display: inline-flex;
   }
+  .menu-root.wide {
+    display: flex;
+    width: 100%;
+  }
+  .menu-root.wide .trigger.own {
+    width: 100%;
+  }
+  .menu-root.wide .menu {
+    left: 0;
+    right: 0;
+    min-width: 0;
+  }
   .trigger {
     display: grid;
     place-items: center;
     padding: 6px 9px;
+  }
+  /* A caller-supplied trigger brings its own everything. */
+  .trigger.own {
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    text-align: left;
   }
   .trigger.compact {
     padding: 2px 5px;

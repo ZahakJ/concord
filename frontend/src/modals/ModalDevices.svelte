@@ -19,6 +19,7 @@
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import InfoDot from "./InfoDot.svelte";
+  import Menu from "../Menu.svelte";
   import { onMount, onDestroy } from "svelte";
   import { S, setPref, setVideoStream, flash } from "../lib/state.svelte.js";
   import {
@@ -98,6 +99,12 @@
     refresh();
     // Plugging in a headset mid-dialog should show it without a reopen.
     stopWatching = onDeviceChange(refresh);
+    // "Is my microphone working" is the question that brings people to this
+    // dialog, and the meter that answers it used to be hidden behind a Test
+    // button you had to know to press — so the panel opened as a dropdown and
+    // two buttons, and said nothing at all until you guessed. The meter runs
+    // for as long as the dialog is open now, and the button is gone.
+    startMicTest();
   });
   onDestroy(() => {
     stopWatching();
@@ -360,6 +367,9 @@
     selfTest = "";
     selfCtl = null;
     level = 0;
+    // Hand the microphone back to the always-on meter. One mic at a time, so
+    // "Hear myself" borrowed it; without this the bar stayed dead afterwards.
+    startMicTest();
   }
 
   // ---- camera test: a small local preview ----
@@ -403,7 +413,71 @@
     }
     return opts;
   }
+
+  // What the trigger says. The bare OS `<select>` this replaces showed the
+  // device's name and nothing else — not whether it was the system default,
+  // not whether it was the one carrying the call you are in right now.
+  function currentLabel(which) {
+    const id = chosen(which);
+    if (!id) return "System default";
+    return options(which).find((o) => o.id === id)?.label || "Saved device (not connected)";
+  }
+  // "In use" is a claim about right now, so it is only made while there is a
+  // call to be carrying — and only about the row that is actually chosen, which
+  // is the only device this app can honestly say is carrying anything.
+  const inCall = $derived(!!S.voice);
 </script>
+
+<!-- One picker, three times. Native `<select>`s sat in the middle of a
+     carefully drawn sheet next to custom segmented controls and sliders,
+     dropping OS chrome into it and refusing every per-row extra a device list
+     wants: the current label, a "default" hint, a dot on the one in use. -->
+{#snippet choose(label, value, opts, onPick)}
+  <Menu {label} wide align="left">
+    {#snippet trigger()}
+      <span class="dev-pick" class:disabled={loading}>
+        <span class="dev-pick-txt">
+          <span class="dev-pick-name">{opts.find((o) => o.id === value)?.label || label}</span>
+        </span>
+        <span class="dev-pick-chev"><Icon name="chevron" size={13} /></span>
+      </span>
+    {/snippet}
+    {#each opts as o (o.id)}
+      <button class="menu-item" class:active={value === o.id} onclick={() => onPick(o.id)}>
+        {o.label}
+        {#if value === o.id}<span class="dev-tick" aria-hidden="true">✓</span>{/if}
+      </button>
+    {/each}
+  </Menu>
+{/snippet}
+
+{#snippet picker(which, label)}
+  <Menu {label} wide align="left">
+    {#snippet trigger()}
+      <span class="dev-pick" class:disabled={loading}>
+        <span class="dev-pick-txt">
+          <span class="dev-pick-name">{currentLabel(which)}</span>
+          {#if !chosen(which)}<span class="dev-pick-sub">whatever your system is set to</span>{/if}
+        </span>
+        <span class="dev-pick-chev"><Icon name="chevron" size={13} /></span>
+      </span>
+    {/snippet}
+    <button class="menu-item" class:active={!chosen(which)} onclick={() => pick(which, "")}>
+      {#if inCall && !chosen(which)}<span class="dev-live" title="Carrying the call you're in"></span>{/if}
+      System default
+      {#if !chosen(which)}<span class="dev-tick" aria-hidden="true">✓</span>{/if}
+    </button>
+    {#each options(which) as o (o.id)}
+      <button class="menu-item" class:active={chosen(which) === o.id} onclick={() => pick(which, o.id)}>
+        {#if inCall && chosen(which) === o.id}
+          <span class="dev-live" title="Carrying the call you're in"></span>
+        {/if}
+        {o.label}
+        {#if chosen(which) === o.id}<span class="dev-tick" aria-hidden="true">✓</span>{/if}
+      </button>
+    {/each}
+  </Menu>
+{/snippet}
 
 <Modal title="Voice &amp; Video" {onClose} wide>
   {#if !loading && !devices.labelled}
@@ -422,52 +496,33 @@
       <button
         class="test"
         class:on={!!selfTest}
-        disabled={micTesting}
         onclick={hearMyself}
         title="Record a few seconds and play it straight back"
       >
         {selfTest === "recording" ? "Recording…" : selfTest === "playing" ? "Playing…" : "Hear myself"}
       </button>
-      <button
-        class="test"
-        class:on={micTesting}
-        disabled={!!selfTest}
-        onclick={() => (micTesting ? stopMicTest() : startMicTest())}
-      >
-        {micTesting ? "Stop" : "Test"}
-      </button>
     </div>
-    <select
-      value={chosen("mic")}
-      disabled={loading}
-      onchange={(e) => pick("mic", e.target.value)}
-      aria-label="Microphone"
-    >
-      <option value="">System default</option>
-      {#each options("mic") as o (o.id)}
-        <option value={o.id}>{o.label}</option>
-      {/each}
-    </select>
-    {#if micTesting || selfTest}
-      <div transition:slide={{ duration: 180 }}>
-        <div class="meter" role="presentation">
-          <div class="fill" style="width:{Math.round(level * 100)}%"></div>
-          {#if gateOn && !ptt}
-            <div class="gate-mark" style="left:{Math.min(100, S.prefs.micGate * 400)}%"></div>
-          {/if}
-        </div>
-        <span class="hint">
-          {#if selfTest === "recording"}
-            Say something — you'll hear it back in a moment, exactly as the call
-            would send it. Click again to play it now.
-          {:else if selfTest === "playing"}
-            That's how you sound to everyone else.
-          {:else}
-            Say something — the bar should move.
-          {/if}
-        </span>
+    {@render picker("mic", "Microphone")}
+    <div>
+      <div class="meter" role="presentation">
+        <div class="fill" style="width:{Math.round(level * 100)}%"></div>
+        {#if gateOn && !ptt}
+          <div class="gate-mark" style="left:{Math.min(100, S.prefs.micGate * 400)}%"></div>
+        {/if}
       </div>
-    {/if}
+      <span class="hint">
+        {#if selfTest === "recording"}
+          Say something — you'll hear it back in a moment, exactly as the call
+          would send it. Click again to play it now.
+        {:else if selfTest === "playing"}
+          That's how you sound to everyone else.
+        {:else if micTesting}
+          Say something — the bar should move.
+        {:else}
+          Couldn't open that microphone to listen to it.
+        {/if}
+      </span>
+    </div>
 
     <!-- Touch only: the alternative is a keyboard chord, so offering the choice
          on a phone is offering a "Set a key" recorder that can never complete. -->
@@ -522,17 +577,7 @@
       {/if}
     </div>
     {#if canPickOutput}
-      <select
-        value={chosen("speaker")}
-        disabled={loading}
-        onchange={(e) => pick("speaker", e.target.value)}
-        aria-label="Speaker"
-      >
-        <option value="">System default</option>
-        {#each options("speaker") as o (o.id)}
-          <option value={o.id}>{o.label}</option>
-        {/each}
-      </select>
+      {@render picker("speaker", "Speaker")}
     {:else}
       <!-- Two different reasons the picker is absent, and only one of them is
            about a "window". On a phone setSinkId doesn't exist either, but
@@ -573,17 +618,7 @@
         {camTesting ? "Stop" : "Test"}
       </button>
     </div>
-    <select
-      value={chosen("camera")}
-      disabled={loading}
-      onchange={(e) => pick("camera", e.target.value)}
-      aria-label="Camera"
-    >
-      <option value="">System default</option>
-      {#each options("camera") as o (o.id)}
-        <option value={o.id}>{o.label}</option>
-      {/each}
-    </select>
+    {@render picker("camera", "Camera")}
     {#if camTesting && camStream}
       <!-- svelte-ignore a11y_media_has_caption -->
       <video class="preview" bind:this={camEl} autoplay playsinline muted transition:slide={{ duration: 180 }}
@@ -729,17 +764,12 @@
             />
           </span>
         </div>
-        <select
-          value={S.prefs.shareAudioId || ""}
-          disabled={loading}
-          onchange={(e) => knob("shareAudioId", e.target.value, (v) => S.voice?.mesh.setShareAudioDevice(v))}
-          aria-label="Screen-share sound source"
-        >
-          <option value="">Whatever the system shares (nothing extra)</option>
-          {#each options("mic") as o (o.id)}
-            <option value={o.id}>{o.label}</option>
-          {/each}
-        </select>
+        {@render choose(
+          "Screen-share sound source",
+          S.prefs.shareAudioId || "",
+          [{ id: "", label: "Whatever the system shares (nothing extra)" }, ...options("mic")],
+          (id) => knob("shareAudioId", id, (v) => S.voice?.mesh.setShareAudioDevice(v)),
+        )}
         <!-- Kept in print: someone who shares a screen and is told nothing will
              believe the sound is broken rather than not asked for. -->
         <span class="hint">Only used when the share itself arrives silent.</span>
@@ -756,15 +786,12 @@
             />
           </span>
         </div>
-        <select
-          value={S.prefs.voiceBitrate ?? 64000}
-          onchange={(e) => knob("voiceBitrate", +e.target.value, (v) => S.voice?.mesh.setBitrate(v))}
-          aria-label="Audio quality"
-        >
-          {#each BITRATES as b (b.bps)}
-            <option value={b.bps}>{b.label}</option>
-          {/each}
-        </select>
+        {@render choose(
+          "Audio quality",
+          S.prefs.voiceBitrate ?? 64000,
+          BITRATES.map((b) => ({ id: b.bps, label: b.label })),
+          (id) => knob("voiceBitrate", +id, (v) => S.voice?.mesh.setBitrate(v)),
+        )}
       </section>
     </div>
   {/if}
@@ -822,7 +849,13 @@
     color: var(--accent-hover);
     border-color: var(--accent);
   }
-  select {
+  /* The picker's face: what is chosen, why (when it's the system's choice), and
+     a chevron. Same well, border and radius as every other field in the sheet,
+     which is precisely what the OS widget it replaces would never be. */
+  .dev-pick {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
     width: 100%;
     background: var(--bg-input);
     border: 1px solid var(--border);
@@ -830,9 +863,51 @@
     color: var(--text);
     font-size: var(--fs-ui);
     padding: 8px 10px;
+    min-height: var(--tap-min);
+    box-sizing: border-box;
   }
-  select:disabled {
+  .dev-pick.disabled {
     opacity: 0.6;
+  }
+  .trigger:hover .dev-pick {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+  .dev-pick-txt {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+    flex: 1;
+    text-align: left;
+  }
+  .dev-pick-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dev-pick-sub {
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+  }
+  .dev-pick-chev {
+    flex: none;
+    display: grid;
+    place-items: center;
+    color: var(--text-muted);
+    transform: rotate(90deg); /* the shared chevron points right; a picker opens down */
+  }
+  .dev-tick {
+    margin-left: auto;
+    padding-left: var(--sp-2);
+    color: var(--accent-hover);
+  }
+  /* This device is carrying the call you are in right now. */
+  .dev-live {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ok);
   }
   .hint {
     display: block;
