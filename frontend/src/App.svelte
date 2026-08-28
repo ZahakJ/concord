@@ -23,6 +23,7 @@
     refreshRightPanel,
     applyAppearance,
     flash,
+    humanError,
     registerMeetingJoiner,
     setVideoStream,
     clearVideoStreams,
@@ -1288,7 +1289,11 @@
       flash(`You're in ${g?.name || "the guild"}`, "success");
     } catch (err) {
       S.joinVeil = null; // drop the veil before the dialog says why
-      S.modal = { ...S.modal, error: String(err?.message || err) };
+      // humanError, not the raw string: a refusal here is usually the transport
+      // failing to reach the owner, and that arrives as six hundred characters
+      // of multiaddrs under "That code didn't open the door" — on the screen a
+      // brand-new user meets first.
+      S.modal = { ...S.modal, error: humanError(err) };
     }
   }
 

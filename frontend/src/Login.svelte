@@ -486,9 +486,20 @@
         Back
       </button>
     {:else if restoring}
+      <!-- This screen is where somebody bets their history on what it says, so
+           it says what actually happens: the phrase rebuilds the account KEY and
+           nothing else. There is no data in those words. Every other surface in
+           the app already told this truth (the forgot menu above, the wipe
+           dialog, Privacy, Backup) — this one used to promise "nothing is lost",
+           and it is the only one anybody reads while deciding. -->
       <p class="muted">
         Enter your 24-word recovery phrase and a new passphrase for this device.
-        Your identity, guilds, and history come back as you sync — nothing is lost.
+        The phrase restores your account key — you come back as the same person,
+        to anyone who has verified you. It is <strong>not</strong> a backup of
+        your data: this device starts with no name, no guilds and no history. If
+        another of your devices is still linked, go back and link to that one
+        instead and everything comes with it; otherwise ask someone in each guild
+        for a fresh invite.
       </p>
       <!-- Same reason as the link code, and worse here: the IME will happily
            "correct" uncommon BIP-39 words (gauge, nuclear, kernel) to

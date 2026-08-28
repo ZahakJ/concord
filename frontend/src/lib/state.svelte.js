@@ -1559,11 +1559,22 @@ const toastTimers = new Map(); // id -> timeout handle
 const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|rpc\s+\w+):\s*)+/;
 // The browser's own words for "nothing answered". They are true and useless.
 const RAW_NETWORK = /^(failed to fetch|networkerror when attempting to fetch resource\.?|load failed|the network connection was lost\.?)$/i;
+// The transport's words for the same thing, and there are a lot of them: a dial
+// failure arrives as the peer id followed by one clause per address it tried,
+// with the OS reason for each — six hundred characters of multiaddrs and
+// "connection refused". It is the FIRST thing a brand-new user sees when a
+// friend's invite code points at a peer who has since closed the app, printed
+// in a red box under "That code didn't open the door". Every word of it is true
+// and none of it is for a person; the one fact it carries is that nobody
+// answered, which fits in a sentence.
+const RAW_DIAL = /failed to dial|all dials failed|no good addresses|dial backoff/i;
 
 export function humanError(msg) {
   const text = String(msg?.message ?? msg ?? "").replace(GO_PREFIX, "");
   if (msg?.offline || RAW_NETWORK.test(text.trim()))
     return "Concord isn't responding — trying to reconnect";
+  if (RAW_DIAL.test(text))
+    return "Couldn't reach them — they're probably offline, or on a network this device can't get to from here.";
   return text;
 }
 
