@@ -18,6 +18,16 @@ func TestSnippetFlattensTheSameWayTheClientDoes(t *testing.T) {
 		want string
 	}{
 		{
+			"an event announcement reads as its title, never its payload",
+			"[event](concord://event/v1/eyJpZCI6ImUxIiwidGl0bGUiOiJPcGVuIGJ1aWxkIG5pZ2h0In0)",
+			"📅 Open build night",
+		},
+		{
+			"a truncated event token still falls back to a label",
+			"[event](concord://event/v1/AAAA)",
+			"📅 Event",
+		},
+		{
 			"an image token never reaches the reader",
 			"![image](concord://attach/v2/20ed697d4012474c24a40a5de4f800133abc/" +
 				strings.Repeat("A", 75) + "/png/800/600/0//)",

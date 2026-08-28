@@ -16,12 +16,14 @@
   import AnnouncementView from "./AnnouncementView.svelte";
   import { parsePoll } from "./lib/polls.js";
   import { parseAnnounce } from "./lib/announce.js";
+  import { parseEventToken } from "./lib/eventtoken.js";
   import EmbedView from "./EmbedView.svelte";
   import DoodleView from "./DoodleView.svelte";
   import { parseDoodle, stripDoodle } from "./lib/doodle.js";
   import SoundChip from "./SoundChip.svelte";
   import { parseSound, soundPayload, stripSound } from "./lib/sfxrecipe.js";
   import GameCard from "./GameCard.svelte";
+  import EventPost from "./EventPost.svelte";
   import { gameAt, stripGame } from "./lib/games.js";
   import { parseEmbed, stripEmbedToken } from "./lib/richembed.js";
   import { ephemeralExpiry, stripEphemeral } from "./lib/ephemeral.svelte.js";
@@ -258,6 +260,7 @@
   }
   const poll = $derived(m.deleted ? null : parsePoll(m.content));
   const announce = $derived(m.deleted ? null : parseAnnounce(m.content));
+  const eventTok = $derived(m.deleted ? null : parseEventToken(m.content));
   // The announcement speaks for the guild it was published in, which is the one
   // this channel belongs to — not a remote guild, so the local guild is it.
   const announceGuild = $derived(announce ? activeGuild() : null);
@@ -1336,6 +1339,8 @@
         </button>
         <span class="edit-hint muted">escape to cancel · enter to save</span>
       </div>
+    {:else if eventTok}
+      <EventPost token={eventTok} />
     {:else if announce}
       <AnnouncementView {announce} />
     {:else if poll}

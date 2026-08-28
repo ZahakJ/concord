@@ -23,6 +23,8 @@
     downloadICS,
     icsName,
   } from "../lib/events.svelte.js";
+  import { REPEATS, expand, repeatSentence } from "../lib/recurrence.js";
+  import { encodeEventToken } from "../lib/eventtoken.js";
 
   let { onClose, onJoinVoice } = $props();
 
@@ -30,7 +32,18 @@
   // a background refresh changes the active guild id.
   const gid = S.modal?.guildId || S.activeGuildId;
   const g = $derived(S.guilds.find((x) => x.id === gid) || null);
-  const events = $derived(EV.byGuild[gid] || []);
+  const records = $derived(EV.byGuild[gid] || []);
+
+  // Every reading surface below works on OCCURRENCES, not records: a series is
+  // one record and many days, and the agenda, the grid and the day drill-down
+  // all want the days. The window is generous but finite — six months back for
+  // the "past events" drawer, eighteen forward — because an endless series has
+  // to be bounded by whoever expands it.
+  const WINDOW_BACK_MS = 183 * 86400000;
+  const WINDOW_FWD_MS = 550 * 86400000;
+  const events = $derived(
+    expand(records, Date.now() - WINDOW_BACK_MS, Date.now() + WINDOW_FWD_MS),
+  );
 
   // DMs get calendars too — same records, same sync lane, different manners.
   // A DM has exactly ONE channel and it doubles as the call (ChatHeader's
@@ -106,10 +119,15 @@
     start.setDate(1 - lead);
     const counts = {};
     const liveDays = {};
+    const titles = {};
     for (const ev of events) {
       const k = dayKey(ev.startUnix);
       counts[k] = (counts[k] || 0) + 1;
       if (happeningNow(ev)) liveDays[k] = true;
+      // The grid spent half the modal to mark a day with a three-pixel dot,
+      // and the event's name lived only in the list underneath. Two chips is
+      // what a 40px cell can hold honestly; past that the count says the rest.
+      (titles[k] ||= []).push(ev.title);
     }
     const today = new Date().toDateString();
     const out = [];
@@ -126,6 +144,7 @@
         today: key === today,
         live: !!liveDays[key],
         count: counts[key] || 0,
+        titles: titles[key] || [],
       });
     }
     return out;
@@ -187,6 +206,33 @@
   function toLocalInput(ms) {
     return new Date(ms - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   }
+  const toLocalDate = (ms) => toLocalInput(ms).slice(0, 10);
+
+  // The zone the times on this form are IN. The dialog showed local times with
+  // nothing naming them, which is why the seeded guild's messages resort to
+  // typing "19:00 UTC" into chat by hand. Every member reads the event in
+  // THEIR own zone — the record is UTC seconds — so the honest line names the
+  // zone the AUTHOR is entering it in.
+  const tzName = (() => {
+    try {
+      const z = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const abbr = new Intl.DateTimeFormat([], { timeZoneName: "short" })
+        .formatToParts(new Date())
+        .find((p) => p.type === "timeZoneName")?.value;
+      return abbr ? `${z} (${abbr})` : z;
+    } catch {
+      return "";
+    }
+  })();
+
+  // Channels a card can be posted INTO: text-shaped only, because a voice room
+  // has a chat but nobody reads it, and a forum board takes posts rather than
+  // messages.
+  const announceChannels = $derived(
+    (g?.channels || []).filter(
+      (c) => !c.parent && (c.type === "" || c.type === "text" || c.type === "announcement"),
+    ),
+  );
 
   // Channels this guild can host an event IN: the location picker's menu.
   // Voice rooms first (they're what a meeting usually means), then the text-
@@ -218,7 +264,21 @@
     }
     // mode's real default depends on locChannels — startCreate/startEdit set
     // it; "remote" here is the safe floor (no channels → no dead toggle).
-    return { id: "", title: "", details: "", location: "", locationChannelId: "", mode: "remote", start: toLocalInput(at), durMin: 60, guests: false, autoAdmit: false };
+    return {
+      id: "",
+      title: "",
+      details: "",
+      location: "",
+      locationChannelId: "",
+      mode: "remote",
+      start: toLocalInput(at),
+      durMin: 60,
+      guests: false,
+      autoAdmit: false,
+      repeat: "",
+      repeatUntil: "", // a date input string, "" = no end
+      announceIn: "",  // channel to post the card into, "" = don't announce
+    };
   }
   // The OS picker is the fallback, never the greeting: chips first, the
   // datetime-local appears once a time has been touched (or on request).
@@ -251,6 +311,15 @@
       // room, which already has its own guest link — the core refuses a second.
       editing.guests = editing.mode === "remote" && g?.kind !== "meeting";
     }
+    // Where to announce it, defaulted from where it IS. Scheduling an event
+    // used to notify nobody: the record replicated, so it appeared in every
+    // member's calendar — but only if they opened the calendar. The dialog
+    // already knows a channel, so it can post the card into one.
+    editing.announceIn =
+      announceChannels.find((c) => c.id === editing.locationChannelId)?.id ||
+      announceChannels.find((c) => c.id === S.activeChannelId)?.id ||
+      announceChannels[0]?.id ||
+      "";
     guestsTouched = false;
     showPicker = false;
     durMore = false;
@@ -274,6 +343,11 @@
       durMin: ev.endUnix ? Math.round((ev.endUnix - ev.startUnix) / 60) : 0,
       guests: false,
       autoAdmit: false,
+      repeat: ev.repeat || "",
+      repeatUntil: ev.repeatUntil ? toLocalDate(ev.repeatUntil * 1000) : "",
+      // Editing never re-announces: the card in the channel already points at
+      // this record and follows it.
+      announceIn: "",
     };
     // Mode falls out of the same deleted-channel guard above: a live channel
     // id → Local; anything else (free text, or a channel since deleted) →
@@ -416,6 +490,12 @@
     return out.slice(0, 4);
   });
   const pickedMs = $derived(isNaN(draftAt) ? 0 : draftAt);
+  // "Every week" is honest but vague; "Every Tuesday" is the thing an
+  // organizer is actually setting up, and the weekday falls straight out of
+  // the start time.
+  const draftWeekday = $derived(
+    isNaN(draftAt) ? "" : new Date(draftAt).toLocaleDateString([], { weekday: "long" }),
+  );
   function pickChip(ms) {
     editing.start = toLocalInput(ms);
     showPicker = true; // fine-tuning is one glance away once a time exists
@@ -438,15 +518,37 @@
     // the human-true location is the conversation itself.
     const locStr = locCh ? (isDM ? `📞 ${g?.name || "this chat"}` : locLabel(locCh)) : editing.location.trim();
     const locChId = locCh ? locCh.id : "";
+    // Recurrence: a rule and an optional end, both on the one record. The
+    // occurrences are expanded by whoever reads the calendar (lib/recurrence),
+    // never stored, so "edit the meeting" stays one edit.
+    const repeat = editing.repeat || "";
+    const repeatUntil =
+      repeat && editing.repeatUntil
+        ? Math.floor(new Date(`${editing.repeatUntil}T23:59:59`).getTime() / 1000)
+        : 0;
     let saved;
     try {
       if (isEdit)
-        saved = await api.updateEvent(gid, editing.id, editing.title.trim(), editing.details.trim(), startUnix, endUnix, locStr, locChId);
+        saved = await api.updateEvent(gid, editing.id, editing.title.trim(), editing.details.trim(), startUnix, endUnix, locStr, locChId, repeat, repeatUntil);
       else
-        saved = await api.createEvent(gid, editing.title.trim(), editing.details.trim(), startUnix, endUnix, locStr, locChId);
+        saved = await api.createEvent(gid, editing.title.trim(), editing.details.trim(), startUnix, endUnix, locStr, locChId, repeat, repeatUntil);
     } catch (err) {
       flash(err); // e.g. not allowed to edit someone else's — never fail silently
       return;
+    }
+    // The announcement. One ordinary message carrying one token, so it syncs,
+    // pins, searches and deletes like anything else, and the card it draws
+    // reads the LIVE record rather than a snapshot. Best effort: the event
+    // exists either way, and a failed post must not read as a failed save.
+    let announced = false;
+    const announceWhere = announceChannels.find((c) => c.id === editing.announceIn) || null;
+    if (!isEdit && editing.announceIn) {
+      try {
+        await api.sendMessage(editing.announceIn, encodeEventToken({ id: saved.id, title: saved.title }));
+        announced = true;
+      } catch (err) {
+        flash(err);
+      }
     }
     // Guest access rides the same form: mint the link right after the event
     // lands. A failure here must not un-save the event — report it apart.
@@ -466,7 +568,9 @@
         ? "Event updated"
         : isNotes
           ? "Saved — only you can see this"
-          : "Event created — everyone can RSVP now",
+          : announced && announceWhere
+            ? `Event created and posted in #${announceWhere.name}`
+            : "Event created — everyone can RSVP now",
       "success",
     );
     // Land the list where the new thing is.
@@ -537,6 +641,47 @@
           {/if}
         </div>
       </div>
+      {#if tzName}
+        <!-- The dialog showed local times with nothing naming them, which is
+             why people end up typing "19:00 UTC" into chat by hand. Every
+             member reads the event in their own zone; this names the one the
+             times on THIS form are being entered in. -->
+        <p class="tzline muted tiny">
+          Times are in {tzName}. Everyone else sees this in their own zone.
+        </p>
+      {/if}
+
+      <div class="fld">
+        <span class="muted tiny">Repeats</span>
+        <div class="chips" role="radiogroup" aria-label="Repeats">
+          {#each REPEATS as r (r.id)}
+            <button
+              class="slotchip"
+              class:on={editing.repeat === r.id}
+              role="radio"
+              aria-checked={editing.repeat === r.id}
+              onclick={() => {
+                editing.repeat = r.id;
+                if (!r.id) editing.repeatUntil = "";
+              }}
+            >
+              {r.id === "weekly" && draftWeekday ? `Every ${draftWeekday}` : r.label}
+            </button>
+          {/each}
+        </div>
+        {#if editing.repeat}
+          <label class="untilrow">
+            <span class="muted tiny">Ends</span>
+            <input type="date" bind:value={editing.repeatUntil} min={editing.start.slice(0, 10)} />
+            {#if editing.repeatUntil}
+              <button class="slotchip more" onclick={() => (editing.repeatUntil = "")}>No end</button>
+            {:else}
+              <span class="muted tiny">Never — it keeps going until you change it.</span>
+            {/if}
+          </label>
+        {/if}
+      </div>
+
       <!-- WHERE is a decision, not a dropdown: LOCAL (a channel of this
            guild — Join walks people there, the guild reminds the room) or
            REMOTE (words + the guests' door into a sealed disposable room).
@@ -707,6 +852,24 @@
         </div>
       </div>
       <textarea rows="3" placeholder="Details (optional)" maxlength="2000" bind:value={editing.details}></textarea>
+      {#if !editing.id && announceChannels.length}
+        <label class="fld">
+          <span class="muted tiny">Announce in</span>
+          <select bind:value={editing.announceIn}>
+            <option value="">Don't announce it</option>
+            {#each announceChannels as c (c.id)}
+              <option value={c.id}>#{c.name}</option>
+            {/each}
+          </select>
+          <span class="muted tiny">
+            {#if editing.announceIn}
+              A card lands in that channel now, and it follows the event if you edit it.
+            {:else}
+              It will only appear in the calendar.
+            {/if}
+          </span>
+        </label>
+      {/if}
       <div class="actions">
         <button class="ghost" onclick={() => (editing = null)}>Cancel</button>
         <button class="primary" disabled={!draftValid} onclick={save}>
@@ -776,9 +939,12 @@
                 onclick={() => pickDay(c.key)}
               >
                 <span class="dn">{c.n}</span>
-                <span class="dots" aria-hidden="true">
-                  {#if c.count}
-                    {#each Array(Math.min(c.count, 3)) as _, i (i)}<span class="dot" class:livedot={c.live && i === 0}></span>{/each}
+                <span class="chipstack" aria-hidden="true">
+                  {#each c.titles.slice(0, 2) as t, i (i)}
+                    <span class="evchip" class:live={c.live && i === 0}>{t}</span>
+                  {/each}
+                  {#if c.count > 2}
+                    <span class="evmore">+{c.count - 2}</span>
                   {/if}
                 </span>
               </button>
@@ -800,7 +966,7 @@
         {#if !selectedDay}
           <div class="dayhead kicker">{fmtDayHeading(grp.key)}</div>
         {/if}
-        {#each grp.events as ev, i (ev.id)}
+        {#each grp.events as ev, i (ev.key || ev.id)}
           <div class="riser" style="animation-delay:{Math.min(grp.offset + i, 8) * 24}ms">
             <EventCard {ev} {g} onEdit={startEdit} {onJoinVoice} bubble="time" />
           </div>
@@ -822,7 +988,7 @@
           {showPast ? "Hide" : "Show"} {pastEvents.length} past event{pastEvents.length === 1 ? "" : "s"}
         </button>
         {#if showPast}
-          {#each [...pastEvents].reverse() as ev (ev.id)}
+          {#each [...pastEvents].reverse() as ev (ev.key || ev.id)}
             <div class="riser">
               <EventCard {ev} {g} onEdit={startEdit} {onJoinVoice} />
             </div>
@@ -969,9 +1135,10 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 1px;
-    min-height: 46px;
+    min-height: 62px;
+    min-width: 0;
     padding: 3px 2px 2px;
     border-radius: 0;
     background: transparent;
@@ -1014,22 +1181,45 @@
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
     color: var(--accent-fg);
   }
-  .dots {
+  /* Titles, not dots. A three-pixel mark told you a day was busy and nothing
+     about what with; the name is the only reason to look at a month grid at
+     all. Two chips fit a cell honestly, and the count carries the rest. */
+  .chipstack {
     display: flex;
-    gap: 2px;
-    height: 4px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1px;
+    width: 100%;
+    min-width: 0;
   }
-  .dot {
-    width: 4px;
-    height: 4px;
-    border-radius: 50%;
-    background: var(--accent);
+  .evchip {
+    display: block;
+    max-width: 100%;
+    padding: 0 4px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    color: var(--accent-hover);
+    font-size: var(--fs-micro);
+    line-height: 1.5;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .dot.livedot {
-    background: var(--ok);
+  .evchip.live {
+    background: color-mix(in srgb, var(--ok) 26%, transparent);
+    color: var(--ok);
   }
-  .cell.outm .dot {
-    opacity: 0.5;
+  .evmore {
+    padding: 0 4px;
+    font-size: var(--fs-micro);
+    line-height: 1.4;
+    color: var(--text-faint);
+    text-align: left;
+  }
+  .cell.outm .evchip,
+  .cell.outm .evmore {
+    opacity: 0.55;
   }
   .dayline {
     display: flex;

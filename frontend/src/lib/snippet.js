@@ -24,6 +24,7 @@ import { previewText } from "./attachments.js";
 import { stripMarkdown } from "./forum.js";
 import { parsePoll, POLL_RE } from "./polls.js";
 import { parseAnnounce, ANNOUNCE_RE } from "./announce.js";
+import { parseEventToken, EVENT_RE } from "./eventtoken.js";
 import { GAME_RE } from "./games.js";
 import { DOODLE_RE } from "./doodle.js";
 import { SFX_RE } from "./sfxrecipe.js";
@@ -74,6 +75,9 @@ export function plainSnippet(content, max = 0) {
   const ann = parseAnnounce(c);
   if (ann) return cap(`📣 ${stripMarkdown(ann.body).replace(/\s+/g, " ").trim() || "Announcement"}`, max);
   if (ANNOUNCE_RE.test(c)) return "📣 Announcement";
+  const evt = parseEventToken(c);
+  if (evt) return cap(`📅 ${evt.title || "Event"}`, max);
+  if (EVENT_RE.test(c)) return "📅 Event";
   if (GAME_RE.test(c)) return cap(TOKEN_LABELS.game, max);
   if (DOODLE_RE.test(c)) return cap(TOKEN_LABELS.doodle, max);
   if (SFX_RE.test(c)) return cap(TOKEN_LABELS.sound, max);

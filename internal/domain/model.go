@@ -239,9 +239,9 @@ type Contact struct {
 // place. Shared state like a channel — created by a member, propagated
 // MLS-encrypted over the guild-meta lane, gated on receive exactly as
 // locally, and converged to fresh joiners through the history-sync snapshot.
-// Recurrence is deliberately absent in v1: one event is one record, and the
-// ICS export states that explicitly rather than leaving importers to guess
-// whether a missing RRULE was intent or a bug.
+// A recurring event is ONE record carrying a rule (Repeat/RepeatUntil), not a
+// row per occurrence; the ICS export writes it as an RRULE, which is what an
+// importer expects and what makes "edit the meeting" mean one edit.
 type Event struct {
 	ID      string `json:"id"`
 	GuildID string `json:"guildId"`
@@ -288,6 +288,27 @@ type Event struct {
 	// so nobody else can revoke a link there or point guests somewhere else.
 	GuestURL  string `json:"guestUrl,omitempty"`
 	GuestHost string `json:"guestHost,omitempty"`
+	// Repeat makes the record a SERIES rather than one occurrence: "", daily,
+	// weekly, biweekly or monthly. The repetitions are expanded by whoever is
+	// LOOKING at the calendar, from these two fields plus StartUnix — they are
+	// never materialised as extra records, because 52 rows for one weekly
+	// standup would blow through the per-guild event ceiling in a year and
+	// would make editing "the meeting" mean editing fifty-two things.
+	//
+	// COMPATIBILITY, stated because this is a struct that gets re-marshalled by
+	// every peer that relays it. There is no signature over an event, so a
+	// stripped field breaks nothing and loses nothing: a peer on an older build
+	// keeps the first occurrence, which is exactly what the record said before
+	// recurrence existed, and adoption is newest-wins on UpdatedAt so its
+	// stripped copy can never overwrite a newer one. Both fields are omitempty,
+	// so an event with no recurrence encodes byte-identically on both builds and
+	// a guild that has never made a recurring event pays nothing at all in the
+	// anti-entropy digest.
+	Repeat string `json:"repeat,omitempty"`
+	// RepeatUntil ends the series (unix seconds, 0 = no end). An unbounded
+	// series is still bounded at the point of USE — a reader expands a horizon,
+	// not an infinity.
+	RepeatUntil int64 `json:"repeatUntil,omitempty"`
 	// MemberCode is the members' door into the same room: a guild invite code
 	// for the meeting guild, minted by GuestHost's node alongside GuestURL.
 	// Redeeming it makes the member a REAL member of the room — own identity,

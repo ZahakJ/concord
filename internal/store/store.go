@@ -221,7 +221,9 @@ CREATE TABLE IF NOT EXISTS events (
   guest_url  TEXT NOT NULL DEFAULT '',
   guest_host TEXT NOT NULL DEFAULT '',
   member_code TEXT NOT NULL DEFAULT '',
-  location_channel TEXT NOT NULL DEFAULT ''
+  location_channel TEXT NOT NULL DEFAULT '',
+  repeat_rule TEXT NOT NULL DEFAULT '',
+  repeat_until INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_events_guild ON events(guild_id, start_unix);
 CREATE TABLE IF NOT EXISTS event_announced (
@@ -327,6 +329,11 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 		`ALTER TABLE custom_emoji ADD COLUMN sig BLOB`,
 		`ALTER TABLE guild_gifs ADD COLUMN author BLOB`,
 		`ALTER TABLE guild_gifs ADD COLUMN sig BLOB`,
+		// A recurring event is one record with a rule, not a row per occurrence.
+		// Existing rows default to "" and 0, which is exactly "happens once" —
+		// the only thing an event could be before these columns existed.
+		`ALTER TABLE events ADD COLUMN repeat_rule TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE events ADD COLUMN repeat_until INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE channels ADD COLUMN type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE channels ADD COLUMN position INTEGER NOT NULL DEFAULT 0`,
@@ -813,16 +820,18 @@ func (s *Store) SaveEvent(e domain.Event) error {
 		rsvps = string(b)
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO events (id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code, location_channel)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO events (id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code, location_channel, repeat_rule, repeat_until)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   title=excluded.title, details=excluded.details,
 		   start_unix=excluded.start_unix, end_unix=excluded.end_unix,
 		   location=excluded.location, updated_at=excluded.updated_at,
 		   rsvps=excluded.rsvps, guest_url=excluded.guest_url, guest_host=excluded.guest_host,
-		   member_code=excluded.member_code, location_channel=excluded.location_channel`,
+		   member_code=excluded.member_code, location_channel=excluded.location_channel,
+		   repeat_rule=excluded.repeat_rule, repeat_until=excluded.repeat_until`,
 		e.ID, e.GuildID, e.Title, e.Details, e.StartUnix, e.EndUnix,
-		e.Location, e.CreatedBy, e.CreatedAt, e.UpdatedAt, rsvps, e.GuestURL, e.GuestHost, e.MemberCode, e.LocationChannelID)
+		e.Location, e.CreatedBy, e.CreatedAt, e.UpdatedAt, rsvps, e.GuestURL, e.GuestHost, e.MemberCode, e.LocationChannelID,
+		e.Repeat, e.RepeatUntil)
 	if err != nil {
 		return fmt.Errorf("store: save event: %w", err)
 	}
@@ -863,7 +872,8 @@ func scanEvent(scan func(dest ...any) error) (domain.Event, error) {
 	var rsvps string
 	if err := scan(&e.ID, &e.GuildID, &e.Title, &e.Details, &e.StartUnix,
 		&e.EndUnix, &e.Location, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &rsvps,
-		&e.GuestURL, &e.GuestHost, &e.MemberCode, &e.LocationChannelID); err != nil {
+		&e.GuestURL, &e.GuestHost, &e.MemberCode, &e.LocationChannelID,
+		&e.Repeat, &e.RepeatUntil); err != nil {
 		return domain.Event{}, err
 	}
 	if rsvps != "" {
@@ -879,7 +889,7 @@ func scanEvent(scan func(dest ...any) error) (domain.Event, error) {
 // guild's row through the primary key.
 func (s *Store) EventByID(id string) (domain.Event, bool, error) {
 	row := s.db.QueryRow(
-		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code, location_channel
+		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code, location_channel, repeat_rule, repeat_until
 		 FROM events WHERE id=?`, id)
 	e, err := scanEvent(row.Scan)
 	if err == sql.ErrNoRows {
@@ -894,7 +904,7 @@ func (s *Store) EventByID(id string) (domain.Event, bool, error) {
 // Events returns a guild's calendar ordered by start time.
 func (s *Store) Events(guildID string) ([]domain.Event, error) {
 	rows, err := s.db.Query(
-		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code, location_channel
+		`SELECT id, guild_id, title, details, start_unix, end_unix, location, created_by, created_at, updated_at, rsvps, guest_url, guest_host, member_code, location_channel, repeat_rule, repeat_until
 		 FROM events WHERE guild_id=? ORDER BY start_unix ASC, created_at ASC, id ASC`, guildID)
 	if err != nil {
 		return nil, err

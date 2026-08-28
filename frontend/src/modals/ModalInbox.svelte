@@ -26,12 +26,14 @@
     { id: "mention", label: "Mentions" },
     { id: "reply", label: "Replies" },
     { id: "keyword", label: "Alert words" },
+    { id: "event", label: "Events" },
   ];
 
   const REASON = {
     mention: { icon: "megaphone", label: "Mentioned you" },
     reply: { icon: "reply", label: "Replied to you" },
     keyword: { icon: "bell", label: "Your alert word" },
+    event: { icon: "calendar", label: "New event" },
   };
 
   const entries = $derived(
@@ -331,6 +333,9 @@
   }
   /* Three reasons, three tints, matching the row highlights in the feed: amber
      for "someone meant you", accent for "you asked to be told". */
+  .why.event {
+    color: var(--accent-hover);
+  }
   .why.mention,
   .why.reply {
     background: var(--warn-soft);

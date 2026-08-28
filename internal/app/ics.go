@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -13,10 +14,44 @@ import (
 // FORMAT only — the string is handed to whatever calendar the user already
 // runs; no vendor, no network call, nothing leaves the machine.
 //
-// v1 events do not recur, and the export says so explicitly with
-// X-CONCORD-RECURRENCE:NONE instead of leaving importers to wonder whether a
-// missing RRULE was intent or a bug. When a weekly toggle lands (v2), that
-// line becomes an RRULE and old exports remain unambiguous.
+// A one-off says so explicitly with X-CONCORD-RECURRENCE:NONE rather than
+// leaving an importer to wonder whether a missing RRULE was intent or a bug;
+// a series writes a real RRULE, and the explicit line disappears because the
+// RRULE is now the unambiguous statement.
+
+// icsRRule renders a series as RFC 5545 §3.8.5.3. The four rules the app
+// offers map exactly onto FREQ/INTERVAL, which is the whole reason the record
+// carries a rule name rather than a general RRULE string: every calendar in
+// the world understands these four, and there is no grammar to get wrong.
+//
+// BYDAY is deliberately absent from the weekly forms. DTSTART already fixes
+// the weekday, and RFC 5545 says a weekly rule with no BYDAY recurs on the
+// day DTSTART falls on — so adding one would be restating the same fact in a
+// second place that could disagree with it after an edit.
+func icsRRule(ev domain.Event) string {
+	var freq string
+	interval := 1
+	switch ev.Repeat {
+	case "daily":
+		freq = "DAILY"
+	case "weekly":
+		freq = "WEEKLY"
+	case "biweekly":
+		freq, interval = "WEEKLY", 2
+	case "monthly":
+		freq = "MONTHLY"
+	default:
+		return ""
+	}
+	rule := "RRULE:FREQ=" + freq
+	if interval != 1 {
+		rule += ";INTERVAL=" + strconv.Itoa(interval)
+	}
+	if ev.RepeatUntil > 0 {
+		rule += ";UNTIL=" + icsTime(ev.RepeatUntil)
+	}
+	return rule
+}
 
 // icsTime renders a Unix timestamp as an RFC 5545 UTC DATE-TIME (§3.3.5
 // form #2, the trailing-Z form). Always UTC: a floating local time would
@@ -107,7 +142,11 @@ func icsVEvent(b *strings.Builder, ev domain.Event) {
 	if ev.Location != "" {
 		icsFold(b, "LOCATION:"+icsEscape(ev.Location))
 	}
-	icsFold(b, "X-CONCORD-RECURRENCE:NONE")
+	if rule := icsRRule(ev); rule != "" {
+		icsFold(b, rule)
+	} else {
+		icsFold(b, "X-CONCORD-RECURRENCE:NONE")
+	}
 	icsFold(b, "END:VEVENT")
 }
 

@@ -28,6 +28,7 @@
     eventReminderTimes,
     loadEvents,
   } from "./lib/events.svelte.js";
+  import { repeatSentence } from "./lib/recurrence.js";
 
   // bubble: "date" (default) or "time" — in agenda contexts a day heading
   // already owns the date, so the bubble shows the start time instead of
@@ -92,6 +93,7 @@
   });
   const mine = $derived(ev.rsvps?.[S.identity.fingerprint] || "");
   const buckets = $derived(rsvpBuckets(ev));
+  const repeats = $derived(repeatSentence(ev).replace(/^Repeats /, ""));
   // Mirrors the backend's mayCurateEvent gate (author or ManageMessages), so
   // the actions only appear where they would succeed.
   const canEdit = $derived(
@@ -481,6 +483,13 @@
     <div class="meta muted">
       <Icon name="clock" size={11} />
       <span>{fmtEventTime(ev)}</span>
+      {#if repeats}
+        <!-- One record, many days: the card is showing ONE occurrence, so it
+             has to say the thing is a series or "Tuesday" reads as the only
+             Tuesday. -->
+        <span class="dotsep">·</span>
+        <span class="repeat"><Icon name="undo" size={10} /> {repeats}</span>
+      {/if}
       {#if locCh}
         <span class="dotsep">·</span>
         <!-- The location IS a channel: a door, not a caption — tap to stand
@@ -511,6 +520,15 @@
           <Icon name="close" size={10} /> No{#if buckets.no.length}<span class="cnt">{buckets.no.length}</span>{/if}
         </button>
       </div>
+      {#if buckets.going.length || buckets.maybe.length || buckets.no.length}
+        <!-- "Going 1" is a number an organizer cannot act on. The roster was
+             already reachable from the facepile, but the facepile only exists
+             when somebody has answered AND the card is wide enough for it, so
+             the counts themselves open it too. -->
+        <button class="whobtn" onclick={showWho} aria-label="See who answered">
+          <Icon name="members" size={11} /> Who
+        </button>
+      {/if}
       <span class="spring"></span>
       {#if locCh && phase !== "ended"}
         <!-- Channel mode: Join IS the channel — no meeting guild is minted,
@@ -917,6 +935,27 @@
     gap: var(--sp-2);
     flex-wrap: wrap;
     margin-top: 2px;
+  }
+  .whobtn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: var(--fs-small);
+  }
+  .whobtn:hover {
+    color: var(--text);
+    border-color: var(--accent);
+  }
+  .repeat {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
   }
   .rsvps {
     display: inline-flex;

@@ -2381,6 +2381,14 @@ let meetingJoiner = null;
 export function registerMeetingJoiner(fn) {
   meetingJoiner = fn;
 }
+// joinVoiceChannel is the same door for anything OUTSIDE App's own tree that
+// needs to start a call — an event card drawn in the message feed, say. It is
+// the registrar above, exported: threading App's voice lifecycle down through
+// Message.svelte's props for one card would have meant a prop on every row.
+export async function joinVoiceChannel(channelId) {
+  await meetingJoiner?.(channelId);
+}
+
 async function joinMeetingCall(channelId) {
   try {
     await meetingJoiner?.(channelId);

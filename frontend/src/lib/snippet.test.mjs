@@ -15,6 +15,10 @@ const hex64 = "a".repeat(64);
 const key75 = "A".repeat(75);
 
 const cases = [
+  // The two halves of the snippet rule live in two languages and must agree;
+  // these are the same rows internal/app/snippet_test.go asserts.
+  ["an event announcement reads as its title, never its payload", "[event](concord://event/v1/eyJpZCI6ImUxIiwidGl0bGUiOiJPcGVuIGJ1aWxkIG5pZ2h0In0)", "\u{1F4C5} Open build night"],
+  ["a truncated event token still falls back to a label", "[event](concord://event/v1/AAAA)", "\u{1F4C5} Event"],
   ["an image token never reaches the reader", `![image](concord://attach/v1/${hex64}/${key75}/png/800x600)`, "🖼 image"],
   [
     "an image with a caption shows the caption",

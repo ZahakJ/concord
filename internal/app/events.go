@@ -97,6 +97,19 @@ func validEvent(ev domain.Event) error {
 	if len(ev.RSVPs) > maxEventRSVPs {
 		return fmt.Errorf("app: too many RSVPs")
 	}
+	if !validRepeat(ev.Repeat) {
+		return fmt.Errorf("app: unknown repeat rule %q", ev.Repeat)
+	}
+	// An end with no rule is meaningless, and an end before the first
+	// occurrence describes a series with nothing in it.
+	if ev.RepeatUntil != 0 {
+		if ev.Repeat == "" {
+			return fmt.Errorf("app: a repeat end needs a repeat rule")
+		}
+		if ev.RepeatUntil < ev.StartUnix {
+			return fmt.Errorf("app: a series cannot end before it starts")
+		}
+	}
 	// Guest fields come as a pair or not at all: a URL with no accountable
 	// host (or a host claim with no link) is a record nobody could revoke.
 	if (ev.GuestURL == "") != (ev.GuestHost == "") {
@@ -127,6 +140,18 @@ func validEvent(ev domain.Event) error {
 		}
 	}
 	return nil
+}
+
+// validRepeat bounds the recurrence rule. Four rules and "no repeat" — a
+// general RRULE grammar would be a parser with its own failure modes on the
+// render path of a record any peer can write, and none of the four things a
+// community calendar actually needs requires one.
+func validRepeat(rule string) bool {
+	switch rule {
+	case "", "daily", "weekly", "biweekly", "monthly":
+		return true
+	}
+	return false
 }
 
 func validRSVPState(state string) bool {
@@ -191,7 +216,7 @@ func (s *Service) locationChannelInGuild(guildID, channelID string) bool {
 // bar the receive gate holds (MLS decryption proves membership).
 // locationChannelID ties the event to one of THIS guild's channels ("" = the
 // free-text location stands alone).
-func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix int64, location, locationChannelID string) (domain.Event, error) {
+func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix int64, location, locationChannelID, repeat string, repeatUntil int64) (domain.Event, error) {
 	groupID, ok := s.eventGroup(guildID)
 	if !ok {
 		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
@@ -209,6 +234,8 @@ func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix
 		EndUnix:           endUnix,
 		Location:          strings.TrimSpace(location),
 		LocationChannelID: locationChannelID,
+		Repeat:            repeat,
+		RepeatUntil:       repeatUntil,
 		CreatedBy:         s.id.Fingerprint(),
 		CreatedAt:         now,
 		UpdatedAt:         now,
@@ -232,7 +259,7 @@ func (s *Service) CreateEvent(guildID, title, details string, startUnix, endUnix
 // gave them, and an edited time deliberately keeps them — flipping everyone
 // back to unanswered because the start moved an hour would throw away more
 // signal than it protects.
-func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix, endUnix int64, location, locationChannelID string) (domain.Event, error) {
+func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix, endUnix int64, location, locationChannelID, repeat string, repeatUntil int64) (domain.Event, error) {
 	groupID, ok := s.eventGroup(guildID)
 	if !ok {
 		return domain.Event{}, fmt.Errorf("app: unknown guild %s", guildID)
@@ -257,6 +284,8 @@ func (s *Service) UpdateEvent(guildID, eventID, title, details string, startUnix
 	ev.EndUnix = endUnix
 	ev.Location = strings.TrimSpace(location)
 	ev.LocationChannelID = locationChannelID
+	ev.Repeat = repeat
+	ev.RepeatUntil = repeatUntil
 	ev.UpdatedAt = time.Now().Unix()
 	if ev.UpdatedAt <= existing.UpdatedAt {
 		// Two edits inside one second must still order: sync convergence is

@@ -270,10 +270,10 @@ export const api = {
   // the display label). "" keeps the location free text / external.
   // The ICS calls return RFC 5545 text to hand to the user's own calendar app
   // as a downloaded file — the format, never a vendor.
-  createEvent: (guildID, title, details, startUnix, endUnix = 0, location = "", locationChannelId = "") =>
-    call("CreateEvent", guildID, title, details, startUnix, endUnix, location, locationChannelId),
-  updateEvent: (guildID, eventID, title, details, startUnix, endUnix = 0, location = "", locationChannelId = "") =>
-    call("UpdateEvent", guildID, eventID, title, details, startUnix, endUnix, location, locationChannelId),
+  createEvent: (guildID, title, details, startUnix, endUnix = 0, location = "", locationChannelId = "", repeat = "", repeatUntil = 0) =>
+    call("CreateEvent", guildID, title, details, startUnix, endUnix, location, locationChannelId, repeat, repeatUntil),
+  updateEvent: (guildID, eventID, title, details, startUnix, endUnix = 0, location = "", locationChannelId = "", repeat = "", repeatUntil = 0) =>
+    call("UpdateEvent", guildID, eventID, title, details, startUnix, endUnix, location, locationChannelId, repeat, repeatUntil),
   deleteEvent: (guildID, eventID) => call("DeleteEvent", guildID, eventID),
   events: (guildID) => call("Events", guildID),
   rsvpEvent: (guildID, eventID, state) => call("RSVPEvent", guildID, eventID, state),

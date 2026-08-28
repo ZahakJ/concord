@@ -56,7 +56,32 @@ const (
 	InboxMention = "mention"
 	InboxReply   = "reply"
 	InboxKeyword = "keyword"
+	// InboxEvent is a guild event's announcement card. It is not a claim about
+	// YOU at all, which is why it sits outside the ordering below and is
+	// matched first: an event announcement concerns the whole room, and
+	// scheduling one used to notify nobody — the record replicated, so it
+	// appeared in every member's calendar, but only if they opened the
+	// calendar.
+	InboxEvent = "event"
 )
+
+// eventTokenPrefix is the whole of the detection rule, and it is deliberately
+// a prefix test rather than a parse. The frontend's parseEventToken is the
+// authority on what a valid card is; this side only has to answer "is this
+// message an event announcement rather than something a person typed", and a
+// body that starts with the token and is nothing else answers it. A doctored
+// payload behind a well-formed prefix costs a row in one person's inbox that
+// renders as a card that says the event is unknown — the same thing an
+// unsynced event already does.
+const eventTokenPrefix = "[event](concord://event/v1/"
+
+func isEventAnnounce(body string) bool {
+	body = strings.TrimSpace(body)
+	if !strings.HasPrefix(body, eventTokenPrefix) || !strings.HasSuffix(body, ")") {
+		return false
+	}
+	return !strings.ContainsAny(body[len(eventTokenPrefix):len(body)-1], " \n\t")
+}
 
 // InboxEntry is one thing that concerns you, resolved for display.
 type InboxEntry struct {
@@ -135,6 +160,13 @@ func (s *Service) Inbox(words []string, beforeNano int64, limit int, unreadOnly 
 	}
 	clean := cleanAlertWords(words)
 	terms = append(terms, clean...)
+	// The scan's needles are what makes a message a CANDIDATE at all: the store
+	// decrypts every row it walks but only keeps the ones containing one of
+	// these. An event announcement contains no name and no alert word, so
+	// without its own needle it was never even considered — the reason arm
+	// below could not fire because nothing reached it. Lowercase already, which
+	// is what the store compares against.
+	terms = append(terms, eventTokenPrefix)
 
 	// unreadOnly bounds the scan at the INBOX mark only. Being newer than it is a
 	// necessary condition for unread but not a sufficient one — the channel mark
@@ -246,6 +278,12 @@ func (s *Service) inboxReadAt() int64 {
 // row has one line to say it in.
 func (s *Service) inboxReason(h store.InboxHit, selfName string, myRoles []string, words []string) (string, string) {
 	body := h.Content
+
+	// An event announcement is a card, not a sentence: nothing in it can match
+	// a name or an alert word, and reading it as one would be reading base64.
+	if isEventAnnounce(body) {
+		return InboxEvent, ""
+	}
 
 	// @everyone / @here address every member, so they count without a name to
 	// match. They only count from a real member: a guest's message is relayed

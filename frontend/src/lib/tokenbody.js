@@ -37,6 +37,9 @@ const BODY_TOKENS = [
   { scheme: "doodle", hint: "A doodle can't be edited — delete and draw another." },
   { scheme: "sfx", hint: "A sound can't be edited — delete and post another." },
   { scheme: "announce", hint: "An announcement can't be edited — delete and repost." },
+  // An event card reads the LIVE record, so editing the message would edit the
+  // pointer rather than the event. Change the event in the calendar instead.
+  { scheme: "event", hint: "Edit the event in the calendar — this card follows it." },
 ];
 
 // The tokens that only MODIFY a message: an expiry, a sealed send time, an

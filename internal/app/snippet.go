@@ -31,6 +31,7 @@ var (
 	snGameRe     = regexp.MustCompile(`\[game\]\(concord://game/v1/[A-Za-z0-9_-]+\)`)
 	snDoodleRe   = regexp.MustCompile(`\[doodle\]\(concord://doodle/v1/[A-Za-z0-9_-]+\)`)
 	snSfxRe      = regexp.MustCompile(`\[sound\]\(concord://sfx/v1/[A-Za-z0-9_-]+\)`)
+	snEventRe    = regexp.MustCompile(`\[event\]\(concord://event/v1/([A-Za-z0-9_-]+)\)`)
 	// Decorations that ride in FRONT of ordinary words: a send effect, a
 	// disappearing timer, a sealed timestamp. Never the message.
 	snRiderRe = regexp.MustCompile(`\[(?:fx|eph|ts)\]\(concord://(?:fx|eph|ts)/v1/[A-Za-z0-9_-]+\)`)
@@ -110,6 +111,15 @@ func flattenBody(body string) string {
 			return "📣 " + collapse(flattenMarkdown(a.Body))
 		}
 		return "📣 Announcement"
+	}
+	if m := snEventRe.FindStringSubmatch(s); m != nil {
+		var e struct {
+			Title string `json:"title"`
+		}
+		if err := json.Unmarshal(snB64(m[1]), &e); err == nil && e.Title != "" {
+			return "📅 " + collapse(e.Title)
+		}
+		return "📅 Event"
 	}
 	if snGameRe.MatchString(s) {
 		return labelGame

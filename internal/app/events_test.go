@@ -42,7 +42,7 @@ func TestEventPropagatesAndRSVP(t *testing.T) {
 	}, "the member never joined")
 
 	start := time.Now().Add(24 * time.Hour).Unix()
-	ev, err := owner.CreateEvent(g.ID, "Game night", "Bring snacks", start, start+7200, "the lounge", "")
+	ev, err := owner.CreateEvent(g.ID, "Game night", "Bring snacks", start, start+7200, "the lounge", "", "", 0)
 	if err != nil {
 		t.Fatalf("create event: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestEventPropagatesAndRSVP(t *testing.T) {
 
 	// The member is not the author and holds no ManageMessages: local calls
 	// must refuse…
-	if _, err := member.UpdateEvent(g.ID, ev.ID, "Hijacked", "", start, start+7200, "", ""); err == nil {
+	if _, err := member.UpdateEvent(g.ID, ev.ID, "Hijacked", "", start, start+7200, "", "", "", 0); err == nil {
 		t.Fatal("a non-author without ManageMessages edited an event locally")
 	}
 	if err := member.DeleteEvent(g.ID, ev.ID); err == nil {
@@ -85,7 +85,7 @@ func TestEventPropagatesAndRSVP(t *testing.T) {
 
 	// The author's real edit propagates — and must NOT wipe the RSVP, which
 	// travels its own lane.
-	if _, err := owner.UpdateEvent(g.ID, ev.ID, "Game night II", "Bring snacks", start, start+7200, "the lounge", ""); err != nil {
+	if _, err := owner.UpdateEvent(g.ID, ev.ID, "Game night II", "Bring snacks", start, start+7200, "the lounge", "", "", 0); err != nil {
 		t.Fatalf("author edit: %v", err)
 	}
 	waitUntil(t, 30*time.Second, func() bool {
@@ -123,7 +123,7 @@ func TestEventFreshJoinerConverges(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now().Add(48 * time.Hour).Unix()
-	ev, err := owner.CreateEvent(g.ID, "Launch party", "", start, 0, "", "")
+	ev, err := owner.CreateEvent(g.ID, "Launch party", "", start, 0, "", "", "", 0)
 	if err != nil {
 		t.Fatalf("create event: %v", err)
 	}
@@ -185,11 +185,11 @@ func TestEventChannelAnnouncement(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now().Add(2 * time.Minute).Unix() // inside the pre-roll window
-	if _, err := owner.CreateEvent(g.ID, "Standup", "", start, 0, "#general", other.Channels[0].ID); err == nil {
+	if _, err := owner.CreateEvent(g.ID, "Standup", "", start, 0, "#general", other.Channels[0].ID, "", 0); err == nil {
 		t.Fatal("creating an event located in another guild's channel should fail")
 	}
 
-	ev, err := owner.CreateEvent(g.ID, "Standup", "", start, 0, "#general", general.ID)
+	ev, err := owner.CreateEvent(g.ID, "Standup", "", start, 0, "#general", general.ID, "", 0)
 	if err != nil {
 		t.Fatalf("create event: %v", err)
 	}

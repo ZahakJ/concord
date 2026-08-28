@@ -618,7 +618,7 @@ func (s *Service) bookSlot(r bookingRequest) bookingResponse {
 		details += "\nNote from " + name + ":\n" + note
 	}
 	details += "\nMeeting link (they have it too):\n" + meetingURL
-	ev, err := s.CreateEvent(notes.ID, "📅 "+name+" — booked demo", details, start.Unix(), end.Unix(), "Concord meeting", "")
+	ev, err := s.CreateEvent(notes.ID, "📅 "+name+" — booked demo", details, start.Unix(), end.Unix(), "Concord meeting", "", "", 0)
 	if err != nil {
 		return fail()
 	}
