@@ -5,6 +5,7 @@
   import Icon from "./Icon.svelte";
   import FormatBar from "./FormatBar.svelte";
   import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
+  import { uneditableReason } from "./lib/tokenbody.js";
   import EmojiPicker from "./EmojiPicker.svelte";
   import Avatar from "./Avatar.svelte";
   import Attachment from "./Attachment.svelte";
@@ -566,6 +567,13 @@
     // the advanced composer, which decodes the embed back into its builder.
     if (richEmbed) {
       S.modal = { kind: "compose", initial: m.content, editId: m.id };
+      return;
+    }
+    // The other encoded bodies have no builder to reopen. Say so instead of
+    // showing their base64 in a box one keystroke away from corrupting them.
+    const why = uneditableReason(m.content);
+    if (why) {
+      flash(why, "info");
       return;
     }
     S.editing = m;

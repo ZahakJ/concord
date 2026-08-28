@@ -7,6 +7,7 @@
   import Icon from "./Icon.svelte";
   import FormatBar from "./FormatBar.svelte";
   import { applyFormat as formatField, chordFor } from "./lib/mdformat.js";
+  import { uneditableReason } from "./lib/tokenbody.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import EmojiPicker from "./EmojiPicker.svelte";
   import BottomSheet from "./BottomSheet.svelte";
@@ -590,11 +591,19 @@
     composerEl?.focus();
   }
 
+  // Some bodies ARE a content token — a poll, a game, a doodle, a sound recipe.
+  // There is no text in them to correct: the editor would show base64, and one
+  // stray keystroke would corrupt a poll three people have already voted in. So
+  // ArrowUp refuses those and says why, rather than opening an editor on a
+  // payload.
   function editLastOwnMessage() {
     const own = [...S.messages].reverse().find(
       (m) => m.sender === S.identity.fingerprint && !m.deleted && m.kind === "",
     );
-    if (own) S.editing = own;
+    if (!own) return;
+    const why = uneditableReason(own.content);
+    if (why) flash(why, "info");
+    else S.editing = own;
   }
 
   function onKeydown(e) {
