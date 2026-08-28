@@ -561,6 +561,11 @@ export function markRead(channelId, throughTime = "") {
     S.unread = u;
   }
   api.markRead(channelId, Date.parse(t)).catch(() => {});
+  // Reading a channel retires the inbox entries it contained — that is the read
+  // model, and the badge has to follow it or the bell keeps claiming a number
+  // you just cleared by reading the thing. Coalesced, so scrolling a busy
+  // channel asks for one rescan and not one per message.
+  refreshInbox();
 }
 
 // markAllRead clears unread across every channel (Shift+Esc).
@@ -574,6 +579,7 @@ export function markAllRead() {
     }
   saveJSON("concord.lastRead", lastRead);
   S.unread = {};
+  refreshInbox();
 }
 
 // ---- notification levels ----
@@ -2763,6 +2769,9 @@ function initEvents() {
     if (r.at <= local) return; // we already know a newer read
     lastRead[r.channelId] = new Date(r.at).toISOString();
     saveJSON("concord.lastRead", lastRead);
+    // A channel read on the phone retires its inbox entries here too — the mark
+    // the inbox consults is the account's, not this session's.
+    refreshInbox();
     if (r.channelId === S.activeChannelId) return; // on-screen: nothing to badge
     try {
       const u = await countChannelUnread(r.channelId);

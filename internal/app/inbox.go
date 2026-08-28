@@ -27,6 +27,26 @@ import (
 // machine, so the matching happens on your machine, and the words never reach a
 // disk this process wrote or a byte this process sent.
 
+// THE READ MODEL, which is the other thing worth writing down, because there
+// are two read systems in the app and an entry has to obey both.
+//
+// The channel read marks (read_state) are the ones that have always existed:
+// "I have read this channel through here". The inbox mark is newer and coarser:
+// "I have looked at the inbox as a whole, as of here". An entry is unread only
+// when the message is newer than BOTH — its channel's mark and the inbox's.
+//
+// Neither half is optional. Without the channel mark the entire backlog is born
+// unread the day the feature ships, because the inbox's own mark starts at zero
+// and every mention you read in the channel months ago is newer than that; the
+// badge then claims a number nobody can make go down except by pressing "mark
+// all read", which is the app asking you to lie to it. And without the inbox
+// mark there would be no way to dismiss an entry in a channel you have not
+// caught up on.
+//
+// It also makes the thing people expect happen for free: opening a DM and
+// reading it retires its inbox entry, because reading the DM moved that
+// channel's mark past the message. Nothing is written to the inbox to make that
+// true — Unread is derived on every query, so the two systems cannot drift.
 const inboxReadKey = "inbox_read_at"
 
 // Reasons a message is in your inbox, in the order they win when more than one
@@ -62,11 +82,12 @@ type InboxEntry struct {
 // InboxPage is a page of entries plus the two numbers the badge needs.
 type InboxPage struct {
 	Entries []InboxEntry `json:"entries"`
-	// ReadAt is the mark this device last set, in unix milliseconds.
+	// ReadAt is the inbox mark this device last set, in unix milliseconds. It is
+	// only half of what makes an entry unread — see the read model above.
 	ReadAt int64 `json:"readAt"`
-	// Unread counts entries in THIS page that are newer than the mark. It is a
-	// page count on purpose: a badge that says "50+" is as useful as one that
-	// says 4,193 and costs a bounded scan instead of the whole history.
+	// Unread counts the entries in THIS page that came back unread. It is a page
+	// count on purpose: a badge that says "50+" is as useful as one that says
+	// 4,193 and costs a bounded scan instead of the whole history.
 	Unread int `json:"unread"`
 }
 
@@ -77,13 +98,20 @@ type InboxPage struct {
 // and dropped when the call returns.
 //
 // beforeNano pages backwards (0 = start at the newest). unreadOnly bounds the
-// scan at the read mark, which is what makes the badge refresh cheap once you
-// are caught up — there is nothing after the mark to decrypt.
+// scan at the inbox mark and drops anything a channel mark has already retired,
+// which is what makes the badge refresh cheap once you are caught up — there is
+// nothing after the mark to decrypt.
 func (s *Service) Inbox(words []string, beforeNano int64, limit int, unreadOnly bool) (InboxPage, error) {
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
 	readAt := s.inboxReadAt()
+	// One row per channel you have ever opened, so this is small and it is
+	// fetched once for the whole page rather than per entry.
+	chanRead, err := s.store.ReadState()
+	if err != nil {
+		return InboxPage{}, err
+	}
 
 	self := s.id.PublicKey()
 	selfName := strings.TrimSpace(s.SelfProfile().Name)
@@ -108,6 +136,10 @@ func (s *Service) Inbox(words []string, beforeNano int64, limit int, unreadOnly 
 	clean := cleanAlertWords(words)
 	terms = append(terms, clean...)
 
+	// unreadOnly bounds the scan at the INBOX mark only. Being newer than it is a
+	// necessary condition for unread but not a sufficient one — the channel mark
+	// is per channel and there is no single floor that covers them all — so this
+	// is a valid SQL floor and the precise test still runs per entry below.
 	var afterNano int64
 	if unreadOnly && readAt > 0 {
 		afterNano = readAt * int64(time.Millisecond)
@@ -147,7 +179,14 @@ func (s *Service) Inbox(words []string, beforeNano int64, limit int, unreadOnly 
 			Snippet:   snippet(h.Content),
 			At:        h.Sent.UnixMilli(),
 		}
-		e.Unread = e.At > readAt
+		e.Unread = inboxUnread(e.At, readAt, chanRead[h.ChannelID])
+		// The SQL floor above could only bound the scan by the inbox mark, so a
+		// caller who asked for unread only can still be handed something the
+		// channel mark has since retired. Drop it here, or "unread only" would
+		// return read entries and the badge would count them.
+		if unreadOnly && !e.Unread {
+			continue
+		}
 		e.SenderName = s.govActorName(guildID, e.Sender)
 		if e.SenderName == "" {
 			e.SenderName = h.Name
@@ -163,6 +202,14 @@ func (s *Service) Inbox(words []string, beforeNano int64, limit int, unreadOnly 
 		}
 	}
 	return page, nil
+}
+
+// inboxUnread is the whole read model in one line: an entry is unread when it
+// is newer than the inbox's own mark AND newer than the mark on the channel it
+// arrived in. A channel you have never opened has no mark, so everything in it
+// is unread, which is the right answer.
+func inboxUnread(at, inboxReadAt, channelReadAt int64) bool {
+	return at > inboxReadAt && at > channelReadAt
 }
 
 // MarkInboxRead moves this device's read mark. atMs of 0 means "now".

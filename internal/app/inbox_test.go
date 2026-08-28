@@ -1,8 +1,14 @@
 package app
 
 import (
+	"bytes"
+	"fmt"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/identity"
 	"github.com/ZahakJ/concord/internal/store"
 )
 
@@ -189,6 +195,183 @@ func TestSnippetIsBoundedAndRuneSafe(t *testing.T) {
 	}
 	if len([]rune(got)) > 161 {
 		t.Fatalf("the snippet is not bounded: %d runes", len([]rune(got)))
+	}
+}
+
+// ---- the read model --------------------------------------------------------
+//
+// The bug this covers shipped: the inbox's own mark starts at zero, so on the
+// first open every mention anyone had ever sent was born unread and the bell
+// claimed a backlog the user had read months earlier, in the channels.
+
+// inboxService is a Service with a real store and a real identity behind it —
+// Inbox() reads the store and the (empty) guild/roster maps, and nothing else.
+func inboxService(t *testing.T) (*Service, *identity.Identity) {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "concord.db"), bytes.Repeat([]byte{3}, 32))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	me := mustID(t)
+	s := &Service{store: st, id: me}
+	if err := st.SetSetting("display_name", "ada"); err != nil {
+		t.Fatalf("SetSetting: %v", err)
+	}
+	return s, me
+}
+
+// saveMention writes a message from someone else that names "ada".
+func saveMention(t *testing.T, s *Service, channelID, id string, at time.Time) {
+	t.Helper()
+	other := mustID(t)
+	if _, err := s.store.SaveMessage(domain.Message{
+		ID: id, ChannelID: channelID, Sender: other.PublicKey(), Name: "rowan",
+		Content: fmt.Sprintf("@ada could you look at %s", id), Sent: at,
+	}); err != nil {
+		t.Fatalf("SaveMessage %s: %v", id, err)
+	}
+}
+
+func inboxOf(t *testing.T, s *Service) InboxPage {
+	t.Helper()
+	page, err := s.Inbox(nil, 0, 50, false)
+	if err != nil {
+		t.Fatalf("Inbox: %v", err)
+	}
+	return page
+}
+
+func TestInboxBacklogIsBornReadWhenTheChannelWasRead(t *testing.T) {
+	s, _ := inboxService(t)
+	now := time.Now()
+	old := now.Add(-30 * 24 * time.Hour)
+
+	// A month of mentions in one channel, all read in the channel a week ago.
+	for i := 0; i < 3; i++ {
+		saveMention(t, s, "ch-history", fmt.Sprintf("old-%d", i), old.Add(time.Duration(i)*time.Hour))
+	}
+	if _, err := s.store.AdvanceReadState("ch-history", now.Add(-7*24*time.Hour).UnixMilli()); err != nil {
+		t.Fatalf("AdvanceReadState: %v", err)
+	}
+
+	page := inboxOf(t, s)
+	if len(page.Entries) != 3 {
+		t.Fatalf("the entries must still be listed, got %d", len(page.Entries))
+	}
+	if page.Unread != 0 {
+		t.Fatalf("a backlog read in the channel is born READ, got %d unread", page.Unread)
+	}
+	for _, e := range page.Entries {
+		if e.Unread {
+			t.Fatalf("%s came back unread despite the channel read mark", e.MessageID)
+		}
+	}
+
+	// A channel nobody has opened has no mark, so its mentions ARE unread.
+	saveMention(t, s, "ch-never-opened", "fresh-1", old)
+	if page = inboxOf(t, s); page.Unread != 1 {
+		t.Fatalf("an unopened channel's mention is unread, got %d", page.Unread)
+	}
+}
+
+func TestInboxUnreadFollowsBothMarks(t *testing.T) {
+	s, _ := inboxService(t)
+	now := time.Now()
+
+	saveMention(t, s, "ch", "m-old", now.Add(-2*time.Hour))
+	if _, err := s.store.AdvanceReadState("ch", now.Add(-time.Hour).UnixMilli()); err != nil {
+		t.Fatalf("AdvanceReadState: %v", err)
+	}
+	if page := inboxOf(t, s); page.Unread != 0 {
+		t.Fatalf("the read backlog should be quiet, got %d", page.Unread)
+	}
+
+	// A mention arrives now, after the channel mark: unread.
+	saveMention(t, s, "ch", "m-new", now)
+	page := inboxOf(t, s)
+	if page.Unread != 1 {
+		t.Fatalf("a fresh mention is unread, got %d", page.Unread)
+	}
+	if !page.Entries[0].Unread || page.Entries[0].MessageID != "m-new" {
+		t.Fatalf("the newest entry should be the unread one, got %+v", page.Entries[0])
+	}
+
+	// Reading the channel past it retires the entry — nothing is written to the
+	// inbox to make that happen, it is derived.
+	if _, err := s.store.AdvanceReadState("ch", now.Add(time.Second).UnixMilli()); err != nil {
+		t.Fatalf("AdvanceReadState: %v", err)
+	}
+	if page := inboxOf(t, s); page.Unread != 0 {
+		t.Fatalf("reading the channel must clear the inbox entry, got %d unread", page.Unread)
+	}
+
+	// And the other half: an entry in a channel you have NOT caught up on is
+	// dismissible with the inbox's own mark.
+	saveMention(t, s, "ch2", "m-other", now)
+	if page := inboxOf(t, s); page.Unread != 1 {
+		t.Fatalf("a mention in an unread channel is unread, got %d", page.Unread)
+	}
+	if err := s.MarkInboxRead(now.Add(time.Second).UnixMilli()); err != nil {
+		t.Fatalf("MarkInboxRead: %v", err)
+	}
+	page = inboxOf(t, s)
+	if page.Unread != 0 {
+		t.Fatalf("mark-all-read must clear everything, got %d unread", page.Unread)
+	}
+	if page.ReadAt == 0 {
+		t.Fatal("the inbox mark should have been recorded")
+	}
+
+	// A mention arriving after mark-all-read is unread again, in a channel whose
+	// own mark is still behind.
+	saveMention(t, s, "ch2", "m-later", now.Add(time.Minute))
+	if page := inboxOf(t, s); page.Unread != 1 {
+		t.Fatalf("a mention after mark-all-read is unread, got %d", page.Unread)
+	}
+}
+
+// unreadOnly must not hand back entries a channel mark has already retired: the
+// SQL floor can only see the inbox mark, so the filter has to run in Go.
+func TestInboxUnreadOnlyRespectsTheChannelMark(t *testing.T) {
+	s, _ := inboxService(t)
+	now := time.Now()
+
+	saveMention(t, s, "ch-read", "seen", now.Add(-time.Hour))
+	saveMention(t, s, "ch-unread", "unseen", now.Add(-time.Hour))
+	if _, err := s.store.AdvanceReadState("ch-read", now.UnixMilli()); err != nil {
+		t.Fatalf("AdvanceReadState: %v", err)
+	}
+
+	page, err := s.Inbox(nil, 0, 50, true)
+	if err != nil {
+		t.Fatalf("Inbox: %v", err)
+	}
+	if len(page.Entries) != 1 || page.Entries[0].MessageID != "unseen" {
+		t.Fatalf("unread-only should return exactly the unread entry, got %+v", page.Entries)
+	}
+	if page.Unread != 1 {
+		t.Fatalf("unread count = %d, want 1", page.Unread)
+	}
+}
+
+// The decision itself, stated once so the two callers cannot disagree about it.
+func TestInboxUnreadRule(t *testing.T) {
+	cases := []struct {
+		at, inbox, channel int64
+		want               bool
+	}{
+		{at: 100, inbox: 0, channel: 0, want: true},      // nothing read: unread
+		{at: 100, inbox: 0, channel: 200, want: false},   // read in the channel
+		{at: 100, inbox: 200, channel: 0, want: false},   // dismissed in the inbox
+		{at: 100, inbox: 200, channel: 200, want: false}, // both
+		{at: 300, inbox: 200, channel: 200, want: true},  // newer than both
+		{at: 100, inbox: 100, channel: 0, want: false},   // the mark is inclusive
+	}
+	for _, c := range cases {
+		if got := inboxUnread(c.at, c.inbox, c.channel); got != c.want {
+			t.Errorf("inboxUnread(%d, %d, %d) = %v, want %v", c.at, c.inbox, c.channel, got, c.want)
+		}
 	}
 }
 
