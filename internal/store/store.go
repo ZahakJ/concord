@@ -315,6 +315,14 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 		// retroactively accused either — nobody relayed it to us, we were there.
 		`ALTER TABLE messages ADD COLUMN sig BLOB`,
 		`ALTER TABLE messages ADD COLUMN unverified INTEGER NOT NULL DEFAULT 0`,
+		// Bookkeeping a human never said: today, a bare game-move token. It is
+		// DERIVED from the plaintext at insert time and never travels — every
+		// peer computes the same answer from the same body — so it is not a
+		// field anyone can lie about, and an older build that does not know the
+		// column simply counts the row. Rows written before this column existed
+		// default to 0 and go on counting; the badge they inflate is one a
+		// living game already moved past.
+		`ALTER TABLE messages ADD COLUMN quiet INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE custom_emoji ADD COLUMN author BLOB`,
 		`ALTER TABLE custom_emoji ADD COLUMN sig BLOB`,
 		`ALTER TABLE guild_gifs ADD COLUMN author BLOB`,
@@ -1217,11 +1225,11 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 	sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 
 	res, err := s.db.Exec(
-		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, content_enc, nonce, sent, sig, unverified, quiet)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO NOTHING`,
 		m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir), sealed, nonce[:], m.Sent.UnixNano(),
-		nilIfEmpty(m.Sig), boolToInt(m.Unverified),
+		nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)),
 	)
 	if err != nil {
 		return false, fmt.Errorf("store: save message: %w", err)
@@ -1254,13 +1262,18 @@ func (s *Store) LatestTimestamp(channelID string) (int64, error) {
 // strictly newer than that channel's cursor in sinceNano — WITHOUT decrypting a
 // single body. The prior approach fetched and secretbox-opened up to 200 rows
 // per channel just to count them, on every login and read-state event.
+//
+// `quiet` is how a body-shaped exemption survives that: it is decided once,
+// from the plaintext, at the moment the row is written, so counting stays a
+// single COUNT(*) over an index. Today it means a bare game move — twenty
+// turns are twenty messages on the wire and one card to look at.
 func (s *Store) UnreadCounts(sinceNano map[string]int64) (map[string]int, error) {
 	out := make(map[string]int, len(sinceNano))
 	for channelID, since := range sinceNano {
 		var n int
 		if err := s.db.QueryRow(
 			`SELECT COUNT(*) FROM messages
-			 WHERE channel_id = ? AND sent > ? AND deleted = 0 AND kind IN ('', 'guest')`,
+			 WHERE channel_id = ? AND sent > ? AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest')`,
 			channelID, since).Scan(&n); err != nil {
 			return nil, err
 		}
@@ -2479,12 +2492,12 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 		}
 		sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
 		if _, err := s.db.Exec(
-			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified, quiet)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir),
 			boolToInt(m.Deleted), boolToInt(m.Edited), boolToInt(m.Pinned),
 			sealed, nonce[:], m.Sent.UnixNano(), remoteUpdated,
-			nilIfEmpty(m.Sig), boolToInt(m.Unverified),
+			nilIfEmpty(m.Sig), boolToInt(m.Unverified), boolToInt(IsQuiet(m.Content)),
 		); err != nil {
 			return false, fmt.Errorf("store: upsert synced message: %w", err)
 		}
@@ -3558,3 +3571,23 @@ func (s *Store) AttachmentTotals() (count int64, bytes int64, err error) {
 
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
+
+// IsQuiet: a message body that is bookkeeping rather than something a person
+// said. Today that is exactly one thing — a bare game-move token, and nothing
+// but the token: a body with words around it is somebody talking, whatever
+// else it also carries.
+//
+// It mirrors isGameToken in lib/games.js, and it has to: the same message
+// reaches every peer, and each one decides for itself whether it counts. The
+// grammar is deliberately narrow (the token, alone, trimmed) so the two can
+// only agree.
+func IsQuiet(content string) bool {
+	c := strings.TrimSpace(content)
+	if c == "" {
+		return false
+	}
+	m := gameTokenRe.FindString(c)
+	return m != "" && m == c
+}
+
+var gameTokenRe = regexp.MustCompile(`^\[game\]\(concord://game/v1/[A-Za-z0-9_-]+\)$`)

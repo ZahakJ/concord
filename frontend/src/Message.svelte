@@ -274,13 +274,14 @@
   // how a rejected proposal renders as "invalid move" without dragging the
   // board down the feed behind it.
   const gameRow = $derived(m.deleted ? null : gameAt(S.messages, m));
-  // A move whose board is drawn further down the feed. Fifteen turns is fifteen
-  // messages — that is what "the game IS the messages" costs — so these rows
-  // borrow the grouped-continuation presentation: no portrait, no header, a
-  // hover timestamp in the gutter and the player's name inside the line. A game
-  // then reads as a run of small asides under one board rather than as fifteen
-  // people talking.
-  const gameAside = $derived(!!gameRow && gameRow.kind !== "card" && !bodyText);
+  // A proposal the fold REFUSED, or a move whose opening message is not loaded.
+  // Everything the fold accepted is folded into the card and MessageList drops
+  // the row entirely — a game costs one card, not one row per turn. What is
+  // left here is the honest exception: a move that changed nothing still has to
+  // say so somewhere, so it borrows the grouped-continuation presentation — no
+  // portrait, no header, a hover timestamp in the gutter and the sender's name
+  // inside the line.
+  const gameAside = $derived(gameRow?.kind === "note" || gameRow?.kind === "orphan");
   const bodyText = $derived.by(() => {
     let c = atts.length || files.length ? stripAttachTokens(m.content) : m.content;
     if (richEmbed) c = stripEmbedToken(c);
@@ -1392,7 +1393,7 @@
       {/if}
       {#if gameRow?.kind === "card"}
         <GameCard game={gameRow.game} />
-      {:else if gameRow}
+      {:else if gameAside}
         <span class="gamenote" class:bad={gameRow.note?.kind === "bad" || gameRow.note?.kind === "dup"}>
           <Icon name="die" size={11} />
           <span class="gn-who">{nameFor(m.sender, m.senderName)}</span>

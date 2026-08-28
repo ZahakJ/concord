@@ -15,6 +15,7 @@ const sfxLast = {};
 import { PERM, has } from "./perms.js";
 import { plur } from "./plural.js";
 import { fmtCount } from "./chronicle.js";
+import { isGameToken } from "./games.js";
 import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
@@ -1133,8 +1134,11 @@ async function syncReadState() {
 
 // countsAsChat: a message a human said in the room — a normal message, or a
 // browser guest's relayed one. System notices, call notices, reactions etc. are
-// bookkeeping and never count.
-export const countsAsChat = (m) => m.kind === "" || m.kind === "guest";
+// bookkeeping and never count, and neither does a bare game move: the board is
+// one card that updates in place, so twenty turns are twenty messages on the
+// wire and one thing to look at. A badge of 20 for a game two other people are
+// playing is the badge lying about what is waiting for you.
+export const countsAsChat = (m) => (m.kind === "" || m.kind === "guest") && !isGameToken(m.content);
 
 // The oldest `sent` we have actually fetched for the active channel — the
 // scroll-up pagination cursor (kept separate from S.messages so live inserts

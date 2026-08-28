@@ -21,6 +21,7 @@ import {
   foldGames,
   channelGames,
   gameAt,
+  isGameToken,
   GAMES,
   GAME_LIST,
   MAX_GAMES_PER_CHANNEL,
@@ -453,16 +454,45 @@ check("the move cap is the board", GAMES.c4.maxMoves, COLS * ROWS);
   const id = "row001";
   const rows = [msg(ANA, gameNew("c4", id)), msg(BO, gameJoin(id)), msg(ANA, gameMove(id, 0, 3))];
   check("a plain message draws no game", gameAt(rows, msg(ANA, "hello")), null);
-  check("the newest move draws the board", gameAt(rows, rows[2]).kind, "card");
-  check("an earlier message draws an aside", gameAt(rows, rows[0]).kind, "note");
-  // A rejected proposal does NOT take the board with it: the card stays on the
-  // last move that actually happened.
+  // ONE CARD. The board is drawn on the message that opened the game and stays
+  // there for the whole game; every accepted event after it folds in and draws
+  // no row at all. An eight-move game used to be ten grey one-liners and a
+  // board; a real one runs twenty to forty turns.
+  check("the opening message draws the board", gameAt(rows, rows[0]).kind, "card");
+  check("an accepted join is not a row", gameAt(rows, rows[1]).kind, "folded");
+  check("an accepted move is not a row", gameAt(rows, rows[2]).kind, "folded");
+  check("and the card carries the history", play(rows).get(id).log.length, 2);
+  check("history says who and what", play(rows).get(id).log[1], {
+    id: rows[2].id,
+    by: ANA,
+    seat: 0,
+    text: "column 4",
+    at: rows[2].sent,
+  });
+  // A REFUSED proposal keeps its row: it is the only place the app can say why
+  // a move did nothing. It is also not history, so it never reaches the log.
   const withBad = [...rows, msg(CAL, gameMove(id, 1, 4))];
   check("a refused move is an aside", gameAt(withBad, withBad[3]).kind, "note");
-  check("…and the board stays on the last real move", gameAt(withBad, withBad[2]).kind, "card");
   check("…and says why", gameAt(withBad, withBad[3]).note.text, "not a player in this game");
+  check("…and is not in the history", play(withBad).get(id).log.length, 2);
+  check("…and the board is still on the opening message", gameAt(withBad, withBad[0]).kind, "card");
   // A move in a game whose opening message is not loaded.
   check("an orphaned move is an aside", gameAt([], msg(ANA, gameMove("zzz999", 0, 1))).kind, "orphan");
+}
+
+// isGameToken decides whether a message counts towards an unread badge, and it
+// deliberately does NOT consult the fold: whether a badge counts a message must
+// not depend on how much history happens to be loaded. It must also agree with
+// store.IsQuiet in Go, which asks the same question about the same body when
+// the row is written.
+{
+  const tok = gameMove("tok001", 0, 3);
+  check("a bare move token is bookkeeping", isGameToken(tok), true);
+  check("padded with whitespace, still bookkeeping", isGameToken(`  ${tok}\n`), true);
+  check("words around it and it is somebody talking", isGameToken(`nice one ${tok}`), false);
+  check("a plain message is not", isGameToken("hello"), false);
+  check("an empty body is not", isGameToken(""), false);
+  check("a poll is not", isGameToken("[poll](concord://poll/v1/abc)"), false);
 }
 
 // Every registered game answers the whole reducer contract, so a second game

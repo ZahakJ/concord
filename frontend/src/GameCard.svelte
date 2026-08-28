@@ -12,7 +12,7 @@
   import FourInARowBoard from "./FourInARowBoard.svelte";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
-  import { S, flash, memberByFpr, nameFor, sendMessage } from "./lib/state.svelte.js";
+  import { S, flash, memberByFpr, nameFor, sendMessage, clockOpts } from "./lib/state.svelte.js";
   import { haptic } from "./lib/touch.js";
   import { tooltip } from "./lib/tooltip.js";
   import { gameJoin, gameMove, gameResign } from "./lib/games.js";
@@ -22,6 +22,7 @@
   let { game } = $props();
 
   let busy = $state(false);
+  let showLog = $state(false);
   const me = $derived(S.identity.fingerprint);
   const Board = $derived(BOARDS[game.game] || null);
   const mySeat = $derived(game.seats[0] === me ? 0 : game.seats[1] === me ? 1 : -1);
@@ -78,6 +79,21 @@
     send(gameJoin(game.id));
   }
 
+  // The move log lives INSIDE the card, because the card is the whole record of
+  // the game now: an accepted move gets no row in the feed, so this disclosure
+  // is where "who played what, when" is kept. Closed by default — the board
+  // already says everything a spectator needs.
+  const moveLabel = $derived(
+    game.log.length === 1 ? "1 move" : `${game.log.length} moves`,
+  );
+  function fmtAt(at) {
+    try {
+      return new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clockOpts() });
+    } catch {
+      return "";
+    }
+  }
+
   function resign() {
     if (mySeat < 0 || game.over) return;
     send(gameResign(game.id));
@@ -124,8 +140,34 @@
     {#if mySeat < 0 && !canJoin}
       <span class="watching">Watching</span>
     {/if}
-    <span class="count">{game.n} played</span>
+    {#if game.log.length}
+      <button
+        type="button"
+        class="count"
+        aria-expanded={showLog}
+        onclick={() => (showLog = !showLog)}
+      >
+        {moveLabel}
+        <span class="chev" class:open={showLog} aria-hidden="true">›</span>
+      </button>
+    {:else}
+      <span class="count">{game.n} played</span>
+    {/if}
   </div>
+
+  {#if showLog}
+    <ol class="log">
+      {#each game.log as e, i (e.id)}
+        <li>
+          <span class="ln">{i + 1}</span>
+          <span class="pip s{e.seat}" aria-hidden="true"></span>
+          <span class="lw">{nameFor(e.by)}</span>
+          <span class="lt">{e.text}</span>
+          <span class="la">{fmtAt(e.at)}</span>
+        </li>
+      {/each}
+    </ol>
+  {/if}
 </div>
 
 <style>
@@ -220,6 +262,78 @@
   }
   .count {
     margin-left: auto;
+    font-variant-numeric: tabular-nums;
+  }
+  button.count {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-faint);
+    font-size: var(--fs-small);
+    cursor: pointer;
+  }
+  button.count:hover {
+    background: var(--bg-3);
+    color: var(--text);
+  }
+  .chev {
+    display: inline-block;
+    transition: transform var(--dur-quick) var(--ease-out);
+  }
+  .chev.open {
+    transform: rotate(90deg);
+  }
+  .log {
+    display: grid;
+    gap: 1px;
+    margin: 0;
+    padding: var(--sp-2) 0 0;
+    max-height: 168px;
+    overflow-y: auto;
+    list-style: none;
+    border-top: 1px solid var(--border);
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+  }
+  .log li {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: 2px 0;
+  }
+  .ln {
+    width: 2ch;
+    text-align: right;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .log .pip {
+    width: 8px;
+    height: 8px;
+  }
+  .log .pip.s0 {
+    background: var(--accent);
+  }
+  .log .pip.s1 {
+    background: var(--warn);
+  }
+  .lw {
+    color: var(--text);
+    unicode-bidi: plaintext;
+  }
+  .lt {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .la {
+    color: var(--text-faint);
     font-variant-numeric: tabular-nums;
   }
 </style>

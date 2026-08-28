@@ -36,6 +36,7 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { previewText } from "./lib/attachments.js";
+  import { gameAt, isGameToken } from "./lib/games.js";
   import { msOf, rangeLabel } from "./lib/chronicle.js";
   import { entriesFor } from "./lib/outbox.svelte.js";
   import { untrack, tick } from "svelte";
@@ -232,6 +233,11 @@
   // rows: messages annotated with divider/grouping info.
   const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
+  // Only a body that is the token and NOTHING else disappears. Somebody who
+  // typed words around a move token said something, and words are never folded.
+  const foldedGame = (m) =>
+    !m.deleted && isGameToken(m.content) && gameAt(S.messages, m)?.kind === "folded";
+
   const rows = $derived.by(() => {
     const out = [];
     let prev = null;
@@ -245,6 +251,16 @@
       // Report -> Hide. Same rule as a block: not drawn here, not removed from
       // the store, and back the moment it is unhidden.
       if (S.hiddenMessages.includes(m.id)) continue;
+      // A game move that the fold ACCEPTED is not a row. The board card is one
+      // message that updates in place for the whole game, so the eight moves
+      // that got it there have already been reported by the thing they changed;
+      // drawing them as well cost ten grey one-liners above the board for a
+      // short game, and a real one runs twenty to forty. The messages still
+      // travel — the game IS the messages — they are just not conversation.
+      // A REFUSED proposal keeps its row: it is the only place the app can say
+      // why a move did nothing. Filtered here rather than rendered empty, so
+      // the window arithmetic never allocates a row with no height.
+      if (foldedGame(m)) continue;
       const day = new Date(m.sent).toDateString();
       const newDay = !prev || new Date(prev.sent).toDateString() !== day;
       // Grouping follows the AUTHOR, not the signing key: a relayed guest is a

@@ -147,7 +147,14 @@ function fresh(tok, by, at) {
     line: null,
     last: -1,
     startedAt: at,
-    headId: "",
+    // The message the CARD is drawn on: the one that opened the game, and it
+    // never moves. The card is the game — every accepted event after this one
+    // folds INTO it and renders no row of its own.
+    cardId: "",
+    // The accepted history, in order, for the card's own disclosure. A move
+    // that changed nothing is not history and is not in here; it renders as a
+    // refusal beside the card instead.
+    log: [],
     // messageId -> what this row should say. A row that mutated nothing still
     // has to render as something, and "invalid move" is the honest something.
     notes: new Map(),
@@ -162,6 +169,12 @@ const REFUSED = new Set(["bad", "dup"]);
 function note(g, msgId, kind, text) {
   g.notes.set(msgId, { kind, text });
   return !REFUSED.has(kind);
+}
+
+// The card's own history. One entry per event that actually changed the game,
+// which is exactly the set of events that no longer get a row in the feed.
+function logged(g, ev, seat, text) {
+  g.log.push({ id: ev.id, by: ev.by, seat, text, at: ev.at });
 }
 
 const seatOf = (g, by) => (g.seats[0] === by ? 0 : g.seats[1] === by ? 1 : -1);
@@ -185,6 +198,7 @@ function applyEvent(g, ev) {
     if (g.invited) return note(g, id, "bad", "this game was for someone else");
     if (g.seats[1]) return note(g, id, "bad", "seat already taken");
     g.seats[1] = by;
+    logged(g, ev, 1, "took the seat");
     return note(g, id, "join", "joined");
   }
   if (tok.k === "rs") {
@@ -193,6 +207,7 @@ function applyEvent(g, ev) {
     if (g.over) return note(g, id, "bad", "the game was already over");
     g.over = "resign";
     g.winner = 1 - seat;
+    logged(g, ev, seat, "resigned");
     return note(g, id, "resign", "resigned");
   }
   // A move. Five gates, in the order that makes the cheapest refusal first.
@@ -223,7 +238,9 @@ function applyEvent(g, ev) {
   } else {
     g.turn = 1 - seat;
   }
-  return note(g, id, "move", g.rules.describe(tok.m));
+  const desc = g.rules.describe(tok.m);
+  logged(g, ev, seat, desc);
+  return note(g, id, "move", desc);
 }
 
 // foldGames(events) -> Map(instanceId -> state).
@@ -245,17 +262,14 @@ export function foldGames(events) {
       // move messages that follow find no instance and render as an aside.
       if (out.size >= MAX_GAMES_PER_CHANNEL) continue;
       const g = fresh(ev.tok, ev.by, ev.at);
-      g.headId = ev.id;
+      g.cardId = ev.id;
       out.set(g.id, g);
       note(g, ev.id, "new", "started");
       continue;
     }
     const g = out.get(ev.tok.i);
     if (!g) continue; // a move in a game we have not seen the start of
-    // The board is drawn on the latest message that actually MOVED the game, so
-    // the live position sits where the action is — and a rejected proposal
-    // cannot drag the card down the feed behind it.
-    if (applyEvent(g, ev)) g.headId = ev.id;
+    applyEvent(g, ev);
   }
   return out;
 }
@@ -281,14 +295,37 @@ export function channelGames(messages) {
   return cacheVal;
 }
 
-// gameAt(messages, message) -> what this ROW should draw: the live card when it
-// is the newest message of its game, a one-line aside otherwise, or null when
-// the message carries no game token at all.
+// gameAt(messages, message) -> what this ROW should draw:
+//
+//   card    the board, on the message that opened the game. It updates in
+//           place for the whole game and never moves down the feed.
+//   folded  nothing at all. The event happened and the card already says so;
+//           an eight-move game used to cost ten grey one-liners plus the board,
+//           and a real one runs twenty to forty. THE MESSAGES STILL TRAVEL —
+//           that is the architecture, the game IS the messages — they simply
+//           are not rows.
+//   note    a proposal the fold REFUSED. That one keeps its row, because it is
+//           the only place the app can say why a move did nothing.
+//   orphan  a move whose opening message is not loaded.
+//
+// or null when the message carries no game token at all.
 export function gameAt(messages, m) {
   const tok = parseGame(m?.content);
   if (!tok) return null;
   const g = channelGames(messages).get(tok.i);
   if (!g) return { kind: "orphan", note: { kind: "bad", text: "a game that started earlier" } };
-  if (g.headId === m.id) return { kind: "card", game: g, note: g.notes.get(m.id) || null };
-  return { kind: "note", game: g, note: g.notes.get(m.id) || null };
+  if (g.cardId === m.id) return { kind: "card", game: g, note: g.notes.get(m.id) || null };
+  const n = g.notes.get(m.id) || null;
+  if (n && (n.kind === "bad" || n.kind === "dup")) return { kind: "note", game: g, note: n };
+  return { kind: "folded", game: g, note: n };
+}
+
+// isGameToken: the body is a game move and nothing else. Used by the unread
+// arithmetic — a folded move is bookkeeping the card already reports, not a
+// thing somebody said in the room — and it deliberately does NOT consult the
+// fold: whether a badge counts a message must not depend on how much history
+// happens to be loaded.
+export function isGameToken(content) {
+  const c = String(content || "").trim();
+  return !!c && !!parseGame(c) && stripGame(c) === "";
 }
