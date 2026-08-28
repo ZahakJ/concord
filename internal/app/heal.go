@@ -99,6 +99,11 @@ func (s *Service) recoverOutOfSync(guildID string) {
 	if !ok {
 		return
 	}
+	// Nothing to heal in a guild that threw us out. The re-add IS the thing that
+	// used to undo a kick, so this is not merely a wasted round trip.
+	if s.EvictedFrom(guildID) != "" {
+		return
+	}
 	// Evidence first: a fork verdict against a peer that has since gone offline
 	// is not something this pass can act on, and left standing it would keep the
 	// guild flagged for as long as the peer stayed away.
@@ -264,7 +269,19 @@ func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 		return false
 	}
 	var resp inviteResponse
-	if json.Unmarshal(respBytes, &resp) != nil || resp.Error != "" || len(resp.Welcome) == 0 {
+	if json.Unmarshal(respBytes, &resp) != nil {
+		return false
+	}
+	if resp.Error != "" {
+		// Two of the refusals are answers, not failures. A committer telling us
+		// we were removed or banned is the guild's governance log speaking, and
+		// asking the next candidate would only collect the same sentence from
+		// somebody else. It is also, for a member kicked while offline, the
+		// first they hear of it.
+		s.noteEvictionRefusal(guildID, resp.Error)
+		return false
+	}
+	if len(resp.Welcome) == 0 {
 		return false
 	}
 	// JoinGroup overwrites our local group entry with the fresh membership at the
@@ -272,6 +289,9 @@ func (s *Service) healViaCommitter(guildID string, pid peer.ID) bool {
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
 		return false
 	}
+	// A welcome we could join disproves the terminal state: somebody with
+	// manage-members just seated us.
+	s.clearEvicted(guildID)
 	// The welcome replaced our whole group state, roster included.
 	s.forgetMemberSet(guildID)
 	// The Join replaced our group state outright, so nothing we had concluded
@@ -393,9 +413,13 @@ func (s *Service) runHealLoop() {
 // Note: the merge in applySyncPayload is additive (it adopts channels/ops a peer
 // has), so ADDITIONS converge; deletions still need their own propagation.
 func (s *Service) reconcileGuilds() {
+	evicted := s.evictedGuildIDs()
 	s.mu.RLock()
 	ids := make([]string, 0, len(s.guilds))
 	for id := range s.guilds {
+		if evicted[id] {
+			continue // no longer ours to keep in step with
+		}
 		ids = append(ids, id)
 	}
 	s.mu.RUnlock()

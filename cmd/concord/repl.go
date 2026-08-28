@@ -189,7 +189,9 @@ func kickMember(svc *app.Service, guildID, idxStr string) {
 		fmt.Printf("invalid member number %q (see 'members %s')\n", idxStr, guildID)
 		return
 	}
-	if err := svc.RemoveMember(guildID, members[idx]); err != nil {
+	// KickMember, not RemoveMember: the signed record is what makes a kick stick
+	// past the next heal, and the REPL must not be a way to do half of one.
+	if err := svc.KickMember(guildID, svc.AccountFingerprintOf(members[idx])); err != nil {
 		fmt.Println("error:", err)
 		return
 	}

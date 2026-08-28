@@ -17,7 +17,11 @@ import { PERM_LIST, has } from "./perms.js";
 // The filter groups. Order is the order the chips appear in.
 export const GOV_FILTERS = [
   { id: "all", label: "Everything", types: null },
-  { id: "members", label: "Members", types: ["ban", "unban", "mute", "unmute"] },
+  {
+    id: "members",
+    label: "Members",
+    types: ["ban", "unban", "mute", "unmute", "remove_member", "readmit"],
+  },
   { id: "roles", label: "Roles", types: ["role_upsert", "role_delete", "role_assign"] },
   { id: "channels", label: "Channels", types: ["slow_mode", "retention"] },
   { id: "ownership", label: "Ownership", types: ["transfer_owner", "set_heir", "claim_heir"] },
@@ -96,6 +100,10 @@ export function govSentence(e) {
       return [who, text(" banned "), whom()];
     case "unban":
       return [who, text(" lifted the ban on "), whom()];
+    case "remove_member":
+      return [who, text(" removed "), whom(), text(" from the guild")];
+    case "readmit":
+      return [who, text(" allowed "), whom(), text(" back in")];
     case "mute":
       return e.until > 0
         ? [who, text(" muted "), whom(), text(" until "), { k: "time", v: e.until * 1000 }]

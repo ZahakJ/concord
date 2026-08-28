@@ -59,6 +59,16 @@ type inviteResponse struct {
 	Error    string             `json:"error,omitempty"`
 }
 
+// The two refusals that mean "you are not a member and asking again will not
+// change that". They are compared as strings on the requester's side to decide
+// whether to stop healing a guild and tell the person what happened, so they are
+// constants rather than literals typed twice. Any other error is a transient the
+// heal loop should keep retrying past.
+const (
+	bannedRefusal  = "you are banned from this guild"
+	removedRefusal = "you were removed from this guild"
+)
+
 // CreateGuild creates a new guild (a fresh MLS group) owned by this peer,
 // persists it, and subscribes to its topics.
 func (s *Service) CreateGuild(name string) (domain.Guild, error) {
@@ -613,6 +623,18 @@ func (s *Service) AddMember(guildID, fingerprint string) error {
 	if s.guildHasMember(guildID, fingerprint) {
 		return fmt.Errorf("app: they're already in this guild")
 	}
+	if s.isBanned(guildID, fingerprint) {
+		return fmt.Errorf("app: they're banned from this guild — lift the ban first")
+	}
+	// Naming someone specifically IS the deliberate re-invite, so it lifts a
+	// standing kick on the way past. Without this the owner would add a contact,
+	// watch the invite go out, and then watch their own admission gate turn it
+	// away on a decision they had just overruled.
+	if s.isRemoved(guildID, fingerprint) {
+		if err := s.ReadmitMember(guildID, fingerprint); err != nil {
+			return err
+		}
+	}
 	// Record them as PENDING right away, so they show in the roster like a DM you
 	// opened — even if they're offline. The invite is pushed now if they're
 	// reachable, and retried each heal tick (reconcilePendingMembers) until they
@@ -782,12 +804,19 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 		return domain.Guild{}, fmt.Errorf("app: bad invite response: %w", err)
 	}
 	if resp.Error != "" {
+		// A refusal that names moderation is also the guild telling us where we
+		// stand, so record it: pasting the code again is exactly what someone
+		// does when the app has not said why nothing works.
+		s.noteEvictionRefusal(ic.GuildID, resp.Error)
 		return domain.Guild{}, fmt.Errorf("app: invite rejected: %s", resp.Error)
 	}
 
 	if _, err := s.mls.Join(s.ctx, resp.Welcome); err != nil {
 		return domain.Guild{}, fmt.Errorf("app: join group: %w", err)
 	}
+	// Seated again — by a committer that consulted the same governance log that
+	// put us out, so this is the one event that lifts the terminal state.
+	s.clearEvicted(ic.GuildID)
 	// A welcome installs a fresh roster (this may be a REJOIN, so a cached one
 	// from the previous membership could still be sitting there).
 	s.forgetMemberSet(ic.GuildID)
@@ -914,7 +943,19 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 	// Enforce the banlist at the gate: a banned fingerprint cannot rejoin, even
 	// with a fresh invite code. This is what makes a ban survive rejoin.
 	if len(req.Credential) > 0 && s.isBanned(req.GuildID, accountFingerprintOf(req.Credential)) {
-		return json.Marshal(inviteResponse{Error: "you are banned from this guild"})
+		return json.Marshal(inviteResponse{Error: bannedRefusal})
+	}
+	// And the kick tombstone, on the same footing and for the same reason.
+	//
+	// This is ONE door. A stranded member's re-add heal and a stranger's first
+	// join arrive here as the identical request — no field distinguishes them,
+	// and none could be trusted if it did, since the sender writes it. So the
+	// only thing that can hold a kick is a fact the GUILD holds about the
+	// caller, checked here on every member's device. Until this existed the
+	// heal walked a kicked member straight back in, one beat after the toast
+	// said "Member kicked".
+	if len(req.Credential) > 0 && s.isRemoved(req.GuildID, accountFingerprintOf(req.Credential)) {
+		return json.Marshal(inviteResponse{Error: removedRefusal})
 	}
 
 	// Queue behind whatever admission is in flight and ride its successor's
@@ -1494,6 +1535,17 @@ func (s *Service) trackGuild(g *domain.Guild) {
 		}
 		if !s.authorizedCommitter(guildID, sender) {
 			return // author resolved but not permitted: drop silently, no sync
+		}
+		// Before trying to apply it: is this the commit that removes US? We
+		// cannot apply that one — the key schedule needs the leaf it blanks — so
+		// without asking first, the only thing we would learn is that the guild
+		// stopped making sense, which is indistinguishable from missing an
+		// epoch. Asking is what turns "something is wrong" into "you were
+		// removed", and it is safe to ask because the commit is MLS-signed by a
+		// member we just confirmed holds manage-members.
+		if s.commitEvictsUs(groupID, data) {
+			s.noteEvicted(guildID, evictedKicked)
+			return
 		}
 		if err := s.mls.ApplyCommit(s.ctx, groupID, data); err == nil {
 			s.logCommit(groupID, data)
@@ -2924,11 +2976,29 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 		s.applyPin(m.ReplyTo)
 		return true
 	}
-	// Advisory mute: drop a normal message from a member who is currently muted.
 	s.mu.RLock()
 	guildID := s.channelToGuild[m.ChannelID]
 	s.mu.RUnlock()
-	if guildID != "" && s.isMuted(guildID, accountFingerprintOf(m.Sender)) {
+	senderFpr := accountFingerprintOf(m.Sender)
+	// MEMBERSHIP, and it is not advisory. MLS keeps secrets from up to five past
+	// epochs so an out-of-order message still opens, which means a message
+	// written before someone was thrown out still decrypts here afterwards — and
+	// rendering it is how a removal that took effect on the wire fails to take
+	// effect on the screen. The roster is governance and MLS state, never an
+	// observation of who is talking, so a frame whose author is not in the group
+	// NOW is dropped, exactly as a banned sender's would be.
+	//
+	// Only this LIVE lane. History that arrives over sync was legal when it was
+	// written and stays; erasing a former member's past is a different decision
+	// with a different name, and this is not it.
+	if guildID != "" {
+		if !s.guildHasMember(guildID, senderFpr) ||
+			s.isBanned(guildID, senderFpr) || s.isRemoved(guildID, senderFpr) {
+			return true
+		}
+	}
+	// Advisory mute: drop a normal message from a member who is currently muted.
+	if guildID != "" && s.isMuted(guildID, senderFpr) {
 		return true
 	}
 	// Slow mode, receive side (advisory, same footing as the mute drop):
@@ -2938,7 +3008,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	// store's dedup — only a genuinely newer, too-soon message is dropped.
 	if guildID != "" && m.Kind == "" {
 		if iv := s.SlowModeSeconds(guildID, m.ChannelID); iv > 0 {
-			fpr := accountFingerprintOf(m.Sender)
+			fpr := senderFpr
 			if !s.memberHasPerm(guildID, fpr, PermManageMessages) &&
 				!s.memberHasPerm(guildID, fpr, PermManageChannels) {
 				key := m.ChannelID + "|" + fpr
@@ -2965,7 +3035,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	}
 	// Backfill a display name from the message if we don't know this member's
 	// name yet, so the roster and chat stay consistent.
-	s.learnNameHint(accountFingerprintOf(m.Sender), m.Name)
+	s.learnNameHint(senderFpr, m.Name)
 	inserted, err := s.store.SaveMessage(m)
 	if err != nil || !inserted {
 		return true // duplicate (gossip re-delivery or already synced): stay silent

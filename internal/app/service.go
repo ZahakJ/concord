@@ -219,6 +219,15 @@ type Service struct {
 	// outOfSync marks guilds whose MLS epoch gap could not be bridged by any
 	// peer's commit log (see sync.go); the UI surfaces a re-invite hint.
 	outOfSync map[string]bool
+	// evicted names the guilds this device is no longer a member of, and why
+	// ("removed" or "banned"). It is a TERMINAL state and deliberately hard to
+	// enter: only a commit we could read that blanked our own leaf, or an
+	// authorized committer answering our admission request with one of the two
+	// refusals, puts a guild in here. Merely failing to decrypt never does —
+	// that is being stranded, which is recoverable and must stay recoverable, or
+	// the heal machinery would declare people evicted every time they missed an
+	// epoch. Guarded by mu; mirrored into settings so it survives a restart.
+	evicted map[string]string
 	// forkedPeers names, per guild, the members that stood strictly AHEAD of our
 	// epoch and served a payload our group state could not read — the signature
 	// of a fork (two divergent trees) rather than of us merely lagging. Guarded
@@ -1042,6 +1051,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		memberSets:       map[string]*memberSet{},
 		meetingLife:      map[string]time.Time{},
 		outOfSync:        map[string]bool{},
+		evicted:          map[string]string{},
 		forkedPeers:      map[string]map[peer.ID]bool{},
 		lastReciprocal:   map[string]time.Time{},
 		lastHealed:       map[string]time.Time{},
@@ -1258,6 +1268,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// invites) now that the guild set is known, pruning entries for guilds that
 	// no longer exist.
 	s.loadDMState()
+	// Restore the guilds this device was thrown out of. Without this a restart
+	// reads as a fresh stranding — the local group still lists us as a member at
+	// the epoch we were removed at — and the client goes back to asking to be
+	// re-added instead of saying what happened.
+	s.loadEvicted()
 	s.loadBlocked()
 	s.loadPendingMembers()
 	s.loadMessageRequests()
@@ -2080,6 +2095,13 @@ func (s *Service) OutOfSync(guildID string) bool {
 // setOutOfSync flips a guild's stranded flag, refreshing the UI on transitions.
 func (s *Service) setOutOfSync(guildID string, stranded bool) {
 	s.mu.Lock()
+	// A guild we were thrown out of is not stranded and never will be. Letting
+	// the two coexist would put "Catching up…" on top of "You're no longer a
+	// member", and would keep the heal loop hammering a door that has been shut.
+	if stranded && s.evicted[guildID] != "" {
+		s.mu.Unlock()
+		return
+	}
 	was := s.outOfSync[guildID]
 	if stranded {
 		s.outOfSync[guildID] = true

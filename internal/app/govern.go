@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/ZahakJ/concord/internal/identity"
@@ -66,6 +67,9 @@ func (st GuildState) copy() GuildState {
 	for k, v := range st.Banned {
 		out.Banned[k] = v
 	}
+	for k, v := range st.Removed {
+		out.Removed[k] = v
+	}
 	for k, v := range st.Muted {
 		out.Muted[k] = v
 	}
@@ -96,6 +100,38 @@ func (s *Service) isBanned(guildID, fingerprint string) bool {
 		return st.Banned[fingerprint]
 	}
 	return false
+}
+
+// isRemoved reports whether a fingerprint was kicked out of a guild and has not
+// been let back in. Consulted at the admission gate alongside the banlist: those
+// two are the only reasons an honest committer refuses to seat someone.
+func (s *Service) isRemoved(guildID, fingerprint string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if st, ok := s.govState[guildID]; ok {
+		return st.Removed[fingerprint]
+	}
+	return false
+}
+
+// RemovedFingerprints lists the members a moderator kicked out and has not let
+// back in. Bans are NOT included — those have their own screen — so the list is
+// exactly "people a Readmit would bring back".
+func (s *Service) RemovedFingerprints(guildID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	st, ok := s.govState[guildID]
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(st.Removed))
+	for fpr := range st.Removed {
+		if !st.Banned[fpr] {
+			out = append(out, fpr)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // ingestGovOp validates and records a governance op (from any source: local
@@ -385,6 +421,50 @@ func (s *Service) BanMember(guildID, targetFpr string) error {
 		return err
 	}
 	return s.removeMemberByFingerprint(guildID, targetFpr)
+}
+
+// KickMember throws a member out: the signed record first, then the MLS
+// eviction. Requires manage-members.
+//
+// The ORDER is the point. The commit alone is a fact about one epoch, and the
+// member it evicts is the one peer that cannot apply it — so their client
+// correctly concludes it can no longer read the guild and asks to be re-added,
+// down the same door a new joiner uses. Writing the record first means that
+// request meets a guild which already knows the answer, on every member's
+// device, whether or not they were online for the commit.
+func (s *Service) KickMember(guildID, targetFpr string) error {
+	if !s.canManageMembers(guildID) {
+		return fmt.Errorf("app: you don't have permission to remove members")
+	}
+	if targetFpr == "" {
+		return fmt.Errorf("app: no member given")
+	}
+	if targetFpr == s.effectiveOwner(guildID) {
+		return fmt.Errorf("app: the owner cannot be removed")
+	}
+	if targetFpr == s.id.Fingerprint() {
+		return fmt.Errorf("app: use Leave to remove yourself")
+	}
+	if err := s.issueGovOp(guildID, govOp{Type: "remove_member", Target: targetFpr}); err != nil {
+		return err
+	}
+	return s.removeMemberByFingerprint(guildID, targetFpr)
+}
+
+// ReadmitMember lifts a kick so the person can come back through the ordinary
+// invite. It does not invite them and it does not lift a ban — it reopens the
+// door, which is the whole difference between "kicked" and "banned".
+func (s *Service) ReadmitMember(guildID, targetFpr string) error {
+	if !s.canManageMembers(guildID) {
+		return fmt.Errorf("app: you don't have permission to manage members")
+	}
+	if targetFpr == "" {
+		return fmt.Errorf("app: no member given")
+	}
+	if s.isBanned(guildID, targetFpr) {
+		return fmt.Errorf("app: they're banned — lift the ban first")
+	}
+	return s.issueGovOp(guildID, govOp{Type: "readmit", Target: targetFpr})
 }
 
 // TransferOwnership hands the guild to another member.

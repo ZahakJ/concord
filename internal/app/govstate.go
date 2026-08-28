@@ -71,7 +71,17 @@ type Role struct {
 type govOp struct {
 	Seq    uint64 `json:"seq"`
 	Signer []byte `json:"signer"` // author's Ed25519 account public key
-	Type   string `json:"type"`   // role_upsert | role_delete | role_assign | ban | unban | mute | unmute | transfer_owner | set_heir | claim_heir | slow_mode | retention
+	// Type discriminates the op: role_upsert | role_delete | role_assign | ban |
+	// unban | mute | unmute | remove_member | readmit | transfer_owner |
+	// set_heir | claim_heir | slow_mode | retention
+	//
+	// Adding a new TYPE is safe on the wire: a build that does not know it folds
+	// it to nothing (see the default arm) and still relays it byte-for-byte.
+	// Adding a new FIELD is not — govOpsFor re-marshals from this struct, so an
+	// older peer relaying a newer op would strip the field and break its
+	// signature for everyone downstream. Every type below reuses fields that
+	// already exist.
+	Type string `json:"type"`
 
 	// role_upsert
 	RoleID   string `json:"roleId,omitempty"`
@@ -81,9 +91,9 @@ type govOp struct {
 	Position int    `json:"position,omitempty"`
 
 	// role_assign (Add=false removes) — Target is a member fingerprint;
-	// ban/unban/mute/unmute also use Target, transfer_owner names the
-	// NEW owner's account fingerprint in it, and set_heir names the
-	// designated heir (empty = revoke the designation).
+	// ban/unban/mute/unmute/remove_member/readmit also use Target,
+	// transfer_owner names the NEW owner's account fingerprint in it, and
+	// set_heir names the designated heir (empty = revoke the designation).
 	Target string `json:"target,omitempty"`
 	Add    bool   `json:"add,omitempty"`
 	Until  int64  `json:"until,omitempty"` // mute: muted-until (unix seconds)
@@ -121,8 +131,25 @@ type GuildState struct {
 	Roles       map[string]Role     // roleID -> role definition
 	MemberRoles map[string][]string // fingerprint -> assigned role IDs
 	Banned      map[string]bool     // barred fingerprints
-	Muted       map[string]int64    // fingerprint -> muted-until (unix seconds)
-	SlowMode    map[string]int64    // channelID -> seconds between posts (absent = off)
+	// Removed is the KICK TOMBSTONE: fingerprints a moderator threw out, who
+	// have not been let back in. It is what makes a kick a fact about the guild
+	// rather than a fact about one epoch.
+	//
+	// Without it a kick undid itself. The MLS Remove commit is real, but the
+	// member it evicts cannot APPLY that commit (the key schedule needs the leaf
+	// it just blanked), so their client sees a guild it can no longer read,
+	// concludes it is stranded, and asks an authorized committer to re-add it —
+	// the same request a first-time joiner makes, down the same door. The only
+	// thing that door consulted was the banlist, which a kick does not write. So
+	// the guild re-admitted them within one heal beat, their next message
+	// decrypted because they really were a member again, and the member list
+	// showed them back with their roles intact. It looked exactly like the
+	// roster being rebuilt from whoever was talking. It was not: the roster is
+	// the MLS tree and nothing reads a sender into it. The tree had genuinely
+	// taken them back.
+	Removed  map[string]bool
+	Muted    map[string]int64 // fingerprint -> muted-until (unix seconds)
+	SlowMode map[string]int64 // channelID -> seconds between posts (absent = off)
 	// Retention: how long messages are kept, in seconds. The "" key is the
 	// guild-wide policy; a channelID key overrides it for that channel.
 	// Absent = keep forever. Enforcement is local and advisory, like mutes and
@@ -155,6 +182,7 @@ func newGuildState() GuildState {
 		Roles:       map[string]Role{},
 		MemberRoles: map[string][]string{},
 		Banned:      map[string]bool{},
+		Removed:     map[string]bool{},
 		Muted:       map[string]int64{},
 		SlowMode:    map[string]int64{},
 		Retention:   map[string]int64{},
@@ -367,12 +395,41 @@ func (st *GuildState) applyGovOp(curp *string, o govOp) bool {
 			return false
 		}
 		st.Banned[o.Target] = true
+		st.Removed[o.Target] = true      // a ban is a removal that also bars return
 		delete(st.MemberRoles, o.Target) // a banned member forfeits its roles
 	case "unban":
 		if !isOwner && !st.Can(cur, signer, PermManageMembers) {
 			return false
 		}
+		// Lifting a ban lifts the removal with it. That is what the word means
+		// to the person clicking it, and the alternative — someone still locked
+		// out after being unbanned, by a tombstone with no visible lever — is a
+		// trap. A moderator who wants them out but not barred can kick again.
 		delete(st.Banned, o.Target)
+		delete(st.Removed, o.Target)
+	case "remove_member":
+		// The kick. It removes nothing by itself — the MLS Remove commit does
+		// that — but it is the record that the removal was DECIDED, and it is
+		// what every peer's admission gate consults so the decision outlives the
+		// epoch it was made in.
+		if !isOwner && !st.Can(cur, signer, PermManageMembers) {
+			return false
+		}
+		if o.Target == cur || o.Target == "" {
+			return false // the owner cannot be removed
+		}
+		st.Removed[o.Target] = true
+	case "readmit":
+		// Deliberately letting a kicked member back. Same authority as the kick,
+		// so whoever could throw them out can bring them back; it does not lift
+		// a BAN, which is a separate and louder decision.
+		if !isOwner && !st.Can(cur, signer, PermManageMembers) {
+			return false
+		}
+		if o.Target == "" || st.Banned[o.Target] {
+			return false
+		}
+		delete(st.Removed, o.Target)
 	case "mute":
 		if !isOwner && !st.Can(cur, signer, PermMuteMembers) {
 			return false
@@ -443,6 +500,7 @@ func (st *GuildState) applyGovOp(curp *string, o govOp) bool {
 			return false
 		}
 		delete(st.Banned, o.Target)
+		delete(st.Removed, o.Target)
 		*curp = o.Target
 		// A handover voids any standing heir designation: it was the OLD
 		// owner's trust decision, and the new owner names their own.

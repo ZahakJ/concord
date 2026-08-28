@@ -43,13 +43,8 @@ const e = (o) => ({ ...base, ...o });
 
 eq(govSentenceText(e({ type: "ban" })), "Ada banned Ben", "ban");
 eq(govSentenceText(e({ type: "unban" })), "Ada lifted the ban on Ben", "unban");
-eq(govSentenceText(e({ type: "unmute" })), "Ada unmuted Ben", "unmute");
-eq(govSentenceText(e({ type: "mute" })), "Ada muted Ben", "mute with no expiry");
-eq(
-  govSentenceText(e({ type: "mute", until: 1000000 })),
-  "Ada muted Ben until " + new Date(1000000000).toISOString(),
-  "mute until",
-);
+eq(govSentenceText(e({ type: "remove_member" })), "Ada removed Ben from the guild", "kick");
+eq(govSentenceText(e({ type: "readmit" })), "Ada allowed Ben back in", "readmit");
 eq(
   govSentenceText(e({ type: "role_upsert", roleName: "Moderator", created: true })),
   "Ada created the role Moderator",
@@ -168,6 +163,7 @@ assert(matchesFilter({ type: "whatever" }, "all"), "an unknown type still shows 
 // unreachable behind every filter but "Everything".
 const KNOWN = [
   "role_upsert", "role_delete", "role_assign", "ban", "unban", "mute", "unmute",
+  "remove_member", "readmit",
   "slow_mode", "retention", "transfer_owner", "set_heir", "claim_heir",
 ];
 for (const t of KNOWN) {

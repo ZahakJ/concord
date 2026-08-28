@@ -237,6 +237,14 @@ type GuildView struct {
 	// OutOfSync: this member is stranded at an old MLS epoch that no reachable
 	// peer could bridge; new messages can't be decrypted until re-invited.
 	OutOfSync bool `json:"outOfSync,omitempty"`
+	// Evicted is "removed" or "banned" when this device is no longer a member of
+	// the guild — a TERMINAL state, entered only on proof (a commit that blanked
+	// our leaf, or an authorized committer's refusal), never on a failure to
+	// decrypt. It is what the UI branches on to stop offering a composer that
+	// writes into nothing. Absent means we are still a member, whatever the
+	// state of the ratchet: OutOfSync is the recoverable case and must never be
+	// dressed up as this one.
+	Evicted string `json:"evicted,omitempty"`
 	// LastActivity is the newest message time (UnixNano) across the guild's
 	// channels — the UI sorts DM conversations by it, most recent first.
 	LastActivity int64 `json:"lastActivity,omitempty"`
@@ -2266,6 +2274,21 @@ func (b *Bridge) Bans(guildID string) ([]BanView, error) {
 	return out, nil
 }
 
+// RemovedMembers lists a guild's kicked members — the people a Readmit would
+// let back in. Bans are excluded; those have their own screen and their own
+// verb.
+func (b *Bridge) RemovedMembers(guildID string) ([]BanView, error) {
+	svc, err := b.service()
+	if err != nil {
+		return nil, err
+	}
+	out := []BanView{}
+	for _, fpr := range svc.RemovedFingerprints(guildID) {
+		out = append(out, BanView{Fingerprint: fpr, Name: svc.ProfileName(fpr)})
+	}
+	return out, nil
+}
+
 // Inbox lists what concerns you across every guild and DM: mentions, replies to
 // your messages, and hits on this device's alert words.
 //
@@ -2325,29 +2348,28 @@ func (b *Bridge) GovernanceLog(guildID string, offset, limit int) (GovLogView, e
 	return GovLogView{Entries: entries, Total: svc.GovernanceLogSize(guildID)}, nil
 }
 
+// RemoveMember is the kick. It goes through KickMember rather than looping the
+// MLS leaves itself, because the signed record has to be written BEFORE the
+// eviction commit — see app.KickMember for why that order is the whole fix.
 func (b *Bridge) RemoveMember(guildID, fingerprint string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	creds, err := svc.GuildMembers(guildID)
+	if !svc.GuildHasMember(guildID, fingerprint) {
+		return errors.New("member not found")
+	}
+	return svc.KickMember(guildID, fingerprint)
+}
+
+// ReadmitMember lifts a kick so someone can come back through an invite. It is
+// not an invite: it reopens a door the guild closed.
+func (b *Bridge) ReadmitMember(guildID, fingerprint string) error {
+	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	// Match by ACCOUNT fingerprint and remove every leaf that account has in the
-	// group — kicking a person removes all of their linked devices, not just one.
-	removed := false
-	for _, cred := range creds {
-		if svc.AccountFingerprintOf(cred) == fingerprint {
-			if err := svc.RemoveMember(guildID, cred); err == nil {
-				removed = true
-			}
-		}
-	}
-	if removed {
-		return nil
-	}
-	return errors.New("member not found")
+	return svc.ReadmitMember(guildID, fingerprint)
 }
 
 func (b *Bridge) Contacts() ([]ContactView, error) {
@@ -2667,6 +2689,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		MyPerms:   uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:      g.Icon, Banner: g.Banner, Description: g.Description,
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
+		Evicted:      svc.EvictedFrom(g.ID),
 		LastActivity: lastActivity,
 	}
 }

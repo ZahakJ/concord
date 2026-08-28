@@ -982,12 +982,29 @@
   }
 </script>
 
-{#if activeGuild()?.outOfSync}
+{#if activeGuild()?.evicted}
+  <!-- Terminal, and it says so. This is not the sync bar in another colour:
+       nothing here spins, nothing retries, and there is no affordance implying
+       the app is still working on it. The guild is not gone — the history is on
+       this device and the rail still holds it — but it has stopped being a place
+       you can speak in, and the composer below has been replaced to match. -->
+  <div class="gone-banner" role="status">
+    <span class="gone-text">
+      You're no longer a member of <strong>{activeGuild()?.name}</strong>.
+      {#if activeGuild()?.evicted === "banned"}
+        You were banned, so an invite won't let you back in.
+      {:else}
+        You can rejoin if someone gives you a new invite.
+      {/if}
+    </span>
+  </div>
+{:else if activeGuild()?.outOfSync}
   <!-- A slim strip, not a wall of red. This appears while the app is WORKING —
        it is a progress state, not an error — and it used to shout the same three
        sentences at you whether it had been two seconds or two days, including
        "as soon as someone comes online" while the person you were talking to was
-       demonstrably online. Say what is actually true right now. -->
+       demonstrably online. Say what is actually true right now.
+ -->
   <div class="oos-banner" class:waiting={!syncPeers}>
     <span class="oos-dot" class:spin={syncPeers > 0}></span>
     <span class="oos-text">
@@ -1319,6 +1336,23 @@
   }
   .oos-banner.waiting {
     background: color-mix(in srgb, var(--warn) 16%, transparent);
+  }
+  /* The terminal state gets its own band rather than a variant of the sync one,
+     because it must never read as "still working on it". Warn, not danger: this
+     is a boundary, not a fault. */
+  .gone-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--warn) 16%, transparent);
+    color: var(--text);
+    padding: 6px var(--sp-edge);
+    font-size: var(--fs-compact);
+  }
+  .gone-text {
+    flex: 1;
+    min-width: 0;
   }
   .oos-text {
     flex: 1;

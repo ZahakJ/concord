@@ -524,6 +524,11 @@ func (s *Service) guildHasMember(guildID, fingerprint string) bool {
 	return c != nil && c.fprs[fingerprint]
 }
 
+// GuildHasMember is the exported read of the same question, for the bridge.
+func (s *Service) GuildHasMember(guildID, fingerprint string) bool {
+	return s.guildHasMember(guildID, fingerprint)
+}
+
 // guildMemberFingerprints lists the account fingerprints in a guild's MLS group.
 // guildHasMember answers the same question for one person; this is for callers
 // that need the whole set and would otherwise walk the roster once per name.
@@ -624,6 +629,15 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 			// it must be checked before each ApplyCommit as the epoch advances.
 			if !s.commitAuthorized(guildID, guild.GroupID, c) {
 				break
+			}
+			// The removal we slept through. A member who was offline for the
+			// kick meets it here rather than on the control topic, and it has to
+			// be read for what it is before ApplyCommit fails on it — otherwise
+			// coming back from a weekend away is indistinguishable from a gap
+			// nobody can bridge.
+			if s.commitEvictsUs(guild.GroupID, c) {
+				s.noteEvicted(guildID, evictedKicked)
+				return nil
 			}
 			if err := s.mls.ApplyCommit(s.ctx, guild.GroupID, c); err != nil {
 				break

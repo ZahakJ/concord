@@ -15,7 +15,7 @@
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import EmptyState from "../EmptyState.svelte";
-  import { S, flash } from "../lib/state.svelte.js";
+  import { S, flash, activeGuild } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { tooltip } from "../lib/tooltip.js";
   import { plural } from "../lib/plural.js";
@@ -37,9 +37,34 @@
   let loading = $state(true);
   let loadingMore = $state(false);
   let filter = $state("all");
+  // Who is CURRENTLY kicked out. The log is a history — it shows the removal and
+  // any later readmission as two separate rows — so the "Allow back" button
+  // needs the folded answer, not the row it is sitting on.
+  let removed = $state([]);
+  const canManage = $derived(!!activeGuild()?.canManage);
 
   const shown = $derived(entries.filter((e) => matchesFilter(e, filter)));
   const more = $derived(entries.length < total);
+
+  async function loadRemoved() {
+    try {
+      removed = (await api.removedMembers(S.activeGuildId)) || [];
+    } catch {
+      removed = [];
+    }
+  }
+  const isOut = (fpr) => !!fpr && removed.some((r) => r.fingerprint === fpr);
+
+  async function allowBack(e) {
+    try {
+      await api.readmitMember(S.activeGuildId, e.target);
+      flash(`${e.targetName || shortFingerprint(e.target)} can rejoin with an invite`);
+    } catch (err) {
+      flash(err);
+      return;
+    }
+    await Promise.all([load(0), loadRemoved()]);
+  }
 
   async function load(offset = 0) {
     try {
@@ -71,6 +96,7 @@
       : "";
 
   load();
+  loadRemoved();
 </script>
 
 <Modal title="Moderation log" {onClose} wide>
@@ -100,7 +126,7 @@
     <EmptyState
       icon="list"
       headline="Nothing has been decided yet"
-      sub="No roles, bans, mutes or handovers have happened in this guild. When one does, it will be signed and it will show up here."
+      sub="No roles, removals, bans, mutes or channel changes have happened in this guild. When one does, it will be signed and it will show up here."
     />
   {:else if shown.length === 0}
     <p class="note">Nothing in this part of the log yet. Try another filter.</p>
@@ -124,6 +150,16 @@
             </p>
             {#if e.type === "role_upsert" && permNames(e.perms).length}
               <p class="perms">{permNames(e.perms).join(" · ")}</p>
+            {/if}
+            {#if e.type === "remove_member" && e.applied && canManage && isOut(e.target)}
+              <!-- A kick is the one entry in this log that is still in force and
+                   can be lifted from here. Nothing else in the app knows the
+                   name of somebody who is no longer in the member list, so
+                   without this row the only way back in is for a moderator to
+                   already hold them as a verified contact. -->
+              <p class="act">
+                <button class="quiet chip" onclick={() => allowBack(e)}>Allow back</button>
+              </p>
             {/if}
             <p class="meta">
               <span>{stamp(e.at)}</span>
@@ -261,6 +297,9 @@
     margin: 3px 0 0;
     font-size: var(--fs-tiny);
     color: var(--text-muted);
+  }
+  .act {
+    margin: var(--sp-2) 0 0;
   }
   .meta {
     display: flex;

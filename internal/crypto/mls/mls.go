@@ -26,6 +26,7 @@ import (
 	upstream "github.com/thomas-vilte/mls-go"
 	"github.com/thomas-vilte/mls-go/ciphersuite"
 	"github.com/thomas-vilte/mls-go/framing"
+	"github.com/thomas-vilte/mls-go/group"
 	"github.com/thomas-vilte/mls-go/keypackages"
 	filestore "github.com/thomas-vilte/mls-go/storage/file"
 )
@@ -100,6 +101,18 @@ type Engine interface {
 	// that every remaining member must apply. After it takes effect the removed
 	// member can no longer decrypt new messages (post-compromise security).
 	Remove(ctx context.Context, gid GroupID, memberCredential []byte) (commit []byte, err error)
+
+	// RemovedBy returns the credential identities a commit evicts, read from
+	// the commit's own inline Remove proposals resolved against the roster we
+	// hold NOW — without applying it, and without needing to be able to.
+	//
+	// It exists because a member cannot process the commit that removes it: the
+	// key schedule needs a leaf that the commit blanked, so ApplyCommit fails
+	// and the group state stays at the old epoch, still listing the member as
+	// present. Without this, "I was removed" and "I missed an epoch" are the
+	// same observation, and the client that was thrown out cannot tell which
+	// happened to it.
+	RemovedBy(ctx context.Context, gid GroupID, commit []byte) ([][]byte, error)
 
 	// Encrypt seals plaintext under the current group key.
 	Encrypt(ctx context.Context, gid GroupID, plaintext []byte) ([]byte, error)
@@ -335,6 +348,80 @@ func (e *mlsEngine) CommitSender(ctx context.Context, gid GroupID, commit []byte
 		}
 	}
 	return nil, fmt.Errorf("mls: commit sender leaf %d is not a current member", leaf)
+}
+
+// RemovedBy reads a commit's Remove proposals and names who they evict.
+//
+// Everything it needs is in the clear: Concord frames commits as PublicMessages
+// and the upstream Remove path carries its proposal INLINE (by value, not by
+// reference), so the leaf indexes are readable by anyone holding the commit.
+// Turning an index into an identity is the one part that needs local state, and
+// the state it needs is the roster BEFORE the commit — which is exactly the
+// roster a member who cannot apply the commit still has.
+//
+// A proposal carried by reference is skipped rather than guessed at: we would
+// have to already hold the proposal to resolve it, and a caller acting on
+// "removes nobody" is safe in a way that one acting on a guess is not.
+func (e *mlsEngine) RemovedBy(ctx context.Context, gid GroupID, commit []byte) ([][]byte, error) {
+	msg, err := framing.UnmarshalMLSMessage(commit)
+	if err != nil {
+		return nil, fmt.Errorf("mls: parse commit: %w", err)
+	}
+	pub, ok := msg.AsPublic()
+	if !ok {
+		return nil, fmt.Errorf("mls: commit is not a public message")
+	}
+	body, ok := pub.Content.Body.(framing.CommitBody)
+	if !ok {
+		return nil, fmt.Errorf("mls: message is not a commit")
+	}
+	// Only a commit framed at the epoch we are STANDING ON says anything about
+	// where we stand. A commit for an older epoch has already been superseded —
+	// we advanced past it, and the route we took may well have been a welcome
+	// that put us back in the group. That is not a corner case: the re-add path
+	// evicts a stale leaf and re-adds it in two commits, so the eviction half
+	// arrives after the welcome has already seated us, and reading it as a
+	// removal would throw us out of a group we are demonstrably in.
+	//
+	// Answering "nobody" here is also the honest reading for a commit from the
+	// FUTURE: the leaf indexes in it belong to a tree we have not built yet, and
+	// resolving them against the one we hold would name the wrong person.
+	epoch, err := e.c.Epoch(ctx, gid)
+	if err != nil {
+		return nil, fmt.Errorf("mls: epoch: %w", err)
+	}
+	if pub.Content.Epoch != epoch {
+		return nil, nil
+	}
+	c, err := group.UnmarshalCommit(body.Data)
+	if err != nil {
+		return nil, fmt.Errorf("mls: parse commit body: %w", err)
+	}
+	var leaves []uint32
+	for _, p := range c.Proposals {
+		if p.Proposal == nil || p.Proposal.Type != group.ProposalTypeRemove || p.Proposal.Remove == nil {
+			continue
+		}
+		leaves = append(leaves, uint32(p.Proposal.Remove.Removed))
+	}
+	if len(leaves) == 0 {
+		return nil, nil
+	}
+	members, err := e.c.ListMembers(ctx, gid)
+	if err != nil {
+		return nil, fmt.Errorf("mls: list members: %w", err)
+	}
+	byLeaf := make(map[uint32][]byte, len(members))
+	for _, m := range members {
+		byLeaf[m.LeafIndex] = m.Identity
+	}
+	out := make([][]byte, 0, len(leaves))
+	for _, leaf := range leaves {
+		if id, ok := byLeaf[leaf]; ok {
+			out = append(out, append([]byte(nil), id...))
+		}
+	}
+	return out, nil
 }
 
 func (e *mlsEngine) Remove(ctx context.Context, gid GroupID, memberCredential []byte) ([]byte, error) {

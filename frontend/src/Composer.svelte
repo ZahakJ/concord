@@ -67,6 +67,28 @@
   });
 
   const ch = $derived(activeChannel());
+
+  // The two states where there is no composer to draw, only a line explaining
+  // why. Both are enforced in Go — this is presentation, not the gate. Saying so
+  // matters: in a network with no server the sender's own client is the one
+  // place a restriction cannot be enforced, so what is here has to be the
+  // explanation of a rule kept elsewhere, never the rule.
+  const evicted = $derived(activeGuild()?.evicted || "");
+  const canPostHere = $derived.by(() => {
+    if (ch?.type !== "announcement") return true;
+    const g = activeGuild();
+    if (!g) return true;
+    return (
+      !!g.isOwner || has(g.myPerms || 0, PERM.MANAGE_MESSAGES) || has(g.myPerms || 0, PERM.MANAGE_CHANNELS)
+    );
+  });
+  const lockedNote = $derived.by(() => {
+    if (evicted === "banned") return "You were banned from this guild.";
+    if (evicted) return "You're no longer a member of this guild.";
+    if (!canPostHere) return "Only moderators can post here";
+    return "";
+  });
+
   // Touch layout: hide the desktop formatting toolbar (it can't hover-reveal on
   // touch and just eats a row), send with an explicit button instead of Enter
   // (Enter is a newline on a phone keyboard), and roomier tap targets.
@@ -1329,6 +1351,16 @@
     />
   {/if}
 
+  {#if lockedNote}
+    <!-- Not a disabled composer: a disabled control still reads as "this could
+         work", and in an announcement channel it never will for you. The row it
+         replaces is the same height, so the feed does not jump when you walk
+         into one. -->
+    <div class="locked-strip" role="status">
+      <Icon name={evicted ? "door" : "megaphone"} size={14} />
+      <span>{lockedNote}</span>
+    </div>
+  {:else}
   <form class="composer" class:mobile onsubmit={send}>
     <input
       type="file"
@@ -1734,6 +1766,7 @@
     </div>
     </div>
   </form>
+  {/if}
 </div>
 
 {#if moreOpen}
