@@ -18,6 +18,8 @@
   // identity; the date, the moderator and the reason all come out of the
   // guild's own signed log, where they already were.
   const shortFpr = (f) => (f || "").replace(/\s+/g, "").slice(0, 16).replace(/(.{4})/g, "$1 ").trim();
+  const banLine = (b) =>
+    ["Banned", b.at ? when(b.at) : "", b.byName ? `by ${b.byName}` : ""].filter(Boolean).join(" ");
   const when = (ms) =>
     ms ? new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "";
 
@@ -108,10 +110,10 @@
             >
               {shortFpr(b.fingerprint)}… <Icon name="copy" size={11} />
             </button>
-            <span class="meta">
-              {#if b.at}Banned {when(b.at)}{:else}Banned{/if}{#if b.byName}
-                by {b.byName}{/if}
-            </span>
+            <!-- Built in JS, not stitched from three template branches: the
+                 newline before an {#if} is swallowed and the line read
+                 "Banned Aug 28, 2026by Amina Sadiq". -->
+            <span class="meta">{banLine(b)}</span>
             {#if b.reason}
               <span class="reason">&ldquo;{b.reason}&rdquo;</span>
             {/if}
