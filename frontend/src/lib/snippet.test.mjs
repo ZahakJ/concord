@@ -8,6 +8,7 @@
 // they must agree, because an inbox row and a reply strip quoting the SAME
 // message are read one after the other.
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { plainSnippet, TOKEN_LABELS } from "./snippet.js";
 
 const b64u = (s) => Buffer.from(s, "utf8").toString("base64url");
@@ -81,4 +82,34 @@ assert.equal(plainSnippet("short", 60), "short");
 assert.equal(plainSnippet("", 60), "");
 assert.equal(plainSnippet(null, 60), "");
 
-console.log(`snippet.test.mjs: ${cases.length + 4} checks passed`);
+// The rule is only worth having if the surfaces that quote a message use it.
+//
+// They did not. previewText (attachments.js) knows about attachments and
+// nothing else, so eight places that print a message somewhere it will never
+// be rendered were printing the source of everything else: the OS notification
+// body, the screen-reader announcement of a new message, the pinned strip, the
+// forward and publish and saved-message previews. A disappearing message read
+// aloud as "concord://eph/v1/1787946333 this one is not" is how that was
+// found. This is the gate that keeps them on the rule.
+const QUOTES_A_MESSAGE = [
+  "src/lib/notify.js",
+  "src/MessageList.svelte",
+  "src/modals/ModalForward.svelte",
+  "src/modals/ModalSaved.svelte",
+  "src/modals/ModalPublish.svelte",
+];
+const root = new URL("../../", import.meta.url);
+let leaks = 0;
+for (const rel of QUOTES_A_MESSAGE) {
+  const src = readFileSync(new URL(rel, root), "utf8");
+  for (const line of src.split("\n")) {
+    // A comment naming it is fine; a call is not.
+    if (/(^|[^.\w])previewText\s*\(/.test(line) && !/^\s*(\/\/|\*)/.test(line)) {
+      leaks++;
+      console.error(`FAIL ${rel} quotes a message with previewText, not plainSnippet:\n  ${line.trim()}`);
+    }
+  }
+}
+assert.equal(leaks, 0, `${leaks} surface(s) quote a message without the snippet rule`);
+
+console.log(`snippet.test.mjs: ${cases.length + 4} checks passed, ${QUOTES_A_MESSAGE.length} quoting surfaces on the rule`);

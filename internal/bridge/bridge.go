@@ -269,6 +269,12 @@ type GuildView struct {
 	// LastActivity is the newest message time (UnixNano) across the guild's
 	// channels — the UI sorts DM conversations by it, most recent first.
 	LastActivity int64 `json:"lastActivity,omitempty"`
+	// MyMutedUntil is when THIS account's mute in this guild lapses (unix
+	// seconds; 0 = not muted). The member roster already carries everyone's,
+	// including yours — but the composer does not have the roster, and it is
+	// the one surface that has to know: a muted member could type a whole
+	// message with nothing on screen to say it would bounce.
+	MyMutedUntil int64 `json:"myMutedUntil,omitempty"`
 }
 
 // DMFace is one member's avatar data for a DM bubble (used to build the group
@@ -2799,6 +2805,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
 		Evicted: svc.EvictedFrom(g.ID), Alone: svc.AloneInGuild(g.ID),
 		LastActivity: lastActivity,
+		MyMutedUntil: svc.MutedUntil(g.ID, svc.Fingerprint()),
 	}
 }
 

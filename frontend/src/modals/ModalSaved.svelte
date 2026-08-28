@@ -8,7 +8,7 @@
   import { S, jumpToChannel, scrollToMessage, channelShort, isDMChannel, flash } from "../lib/state.svelte.js";
   import { saved, refreshSaved } from "../lib/saved.svelte.js";
   import { api } from "../lib/api.js";
-  import { previewText } from "../lib/attachments.js";
+  import { plainSnippet } from "../lib/snippet.js";
   import { tick } from "svelte";
 
   let { onClose } = $props();
@@ -70,7 +70,7 @@
               <strong>{m.senderName || m.sender.slice(0, 9)}</strong>
               <span class="tiny muted">{where(m)} · {when(m.sent)}</span>
             </span>
-            <span class="snippet">{previewText(m.content)}</span>
+            <span class="snippet">{plainSnippet(m.content)}</span>
           </button>
           <button class="x" title="Remove from saved" aria-label="Remove from saved" onclick={() => unsave(m)}>
             <Icon name="close" size={12} />

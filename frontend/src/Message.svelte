@@ -830,7 +830,7 @@
       // The opening message quotes the origin (capped — a wall of text makes a
       // bad excerpt) and carries a concord://msg link back to it, in exactly
       // the shape "Copy Message Link" produces.
-      let src = stripAttachTokens(m.content).trim() || previewText(m.content);
+      let src = bodyText.trim() || plainSnippet(m.content);
       if (src.length > 280) src = src.slice(0, 280) + "…";
       const quoted = src
         .split("\n")
@@ -957,7 +957,7 @@
       },
       { label: "Add reaction", icon: "smile", onClick: () => (S.pickerTarget = m) },
       { sep: true },
-      { label: "Copy text", icon: "copy", onClick: () => copy(stripAttachTokens(m.content).trim() || previewText(m.content), "Copied text") },
+      { label: "Copy text", icon: "copy", onClick: () => copy(bodyText.trim() || plainSnippet(m.content), "Copied text") },
       {
         label: "Copy message link",
         icon: "copy",
@@ -992,7 +992,7 @@
             title: "Remind me about this",
             cta: "Remind me",
             onPick: (at) => {
-              addReminder(m.channelId, m.id, stripAttachTokens(m.content).trim() || previewText(m.content), at);
+              addReminder(m.channelId, m.id, bodyText.trim() || plainSnippet(m.content), at);
               flash("Reminder set", "success");
             },
           }),

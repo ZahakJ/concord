@@ -38,7 +38,7 @@
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
-  import { previewText } from "./lib/attachments.js";
+  import { plainSnippet } from "./lib/snippet.js";
   import { gameAt, isGameToken } from "./lib/games.js";
   import { msOf, rangeLabel } from "./lib/chronicle.js";
   import { entriesFor } from "./lib/outbox.svelte.js";
@@ -953,7 +953,11 @@
         return;
       }
       const who = last.senderName || nameFor(last.sender);
-      liveAnnounce = `${who}: ${previewText(last.content)}`;
+      // plainSnippet: this is spoken aloud, and previewText leaves the rider
+      // tokens (a disappearing timer, a send effect, a sealed timestamp) and any
+      // card token in the string. A screen reader was reading out
+      // "concord://eph/v1/1787946333" as part of the message.
+      liveAnnounce = `${who}: ${plainSnippet(last.content)}`;
     });
   });
 
@@ -1207,7 +1211,7 @@
             >
             <span class="muted tiny">{fmtTime(m.sent)}</span>
           </span>
-          <span class="pin-text">{previewText(m.content).replace(/\s+/g, " ").trim().slice(0, 160) || "(empty message)"}</span>
+          <span class="pin-text">{plainSnippet(m.content, 160) || "(empty message)"}</span>
         </span>
       </button>
       <button class="mini unpin" title="Unpin" aria-label="Unpin message" onclick={() => unpin(m)}>

@@ -10,7 +10,7 @@
 // ConcordCorePlugin.postNotification instead. Either way, if nothing's available
 // we stay silent — the unread badges still light up.
 
-import { previewText } from "./attachments.js";
+import { plainSnippet } from "./snippet.js";
 
 // The native notification bridge (Android/iOS), or null on web/desktop.
 function nativeNotifier() {
@@ -126,7 +126,11 @@ export function notify(m, { selfFpr, mention, onClick }) {
   if (!(mention ? hidden || unfocused : hidden)) return;
 
   const title = (mention ? "@ " : "") + (m.senderName || m.sender.slice(0, 9));
-  const body = previewText(m.content).slice(0, 120);
+  // plainSnippet, not previewText: this string is read out by the OS and
+  // there is no second chance to render it. previewText only knows about
+  // attachments, so a disappearing timer, a send effect, a sealed timestamp, a
+  // game, a doodle or a fenced code block all arrived as their source.
+  const body = plainSnippet(m.content, 120);
 
   // Mobile: post to the OS tray through the native plugin. Tapping opens the
   // app (deep-link to the channel is a later refinement).

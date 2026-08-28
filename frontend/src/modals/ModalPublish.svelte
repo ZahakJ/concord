@@ -8,7 +8,7 @@
   import { api } from "../lib/api.js";
   import { plural } from "../lib/plural.js";
   import { encodeAnnounce } from "../lib/announce.js";
-  import { previewText } from "../lib/attachments.js";
+  import { plainSnippet } from "../lib/snippet.js";
 
   let { message, channel, onClose } = $props();
 
@@ -57,7 +57,7 @@
       <Icon name="megaphone" size={12} />
       {message.senderName || message.sender.slice(0, 9)} in #{channel.name}
     </span>
-    <div class="body">{previewText(message.content)}</div>
+    <div class="body">{plainSnippet(message.content)}</div>
   </div>
 
   <label class="field">

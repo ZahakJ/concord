@@ -122,11 +122,54 @@
   const canReopen = $derived(
     !!activeGuild() && (activeGuild().isOwner || has(activeGuild().myPerms || 0, PERM.MANAGE_MESSAGES)),
   );
+  // A mute you are under yourself.
+  //
+  // The rule is kept in Go on both legs — SendMessage refuses, and honest
+  // receivers drop a muted member's messages — but the composer said nothing,
+  // so being muted looked exactly like not being muted until you had typed a
+  // whole message and watched it bounce off a toast. Driven live: sixty seconds
+  // muted, composer enabled the entire time, placeholder unchanged.
+  //
+  // The clock is local and the deadline is absolute, so nothing has to arrive
+  // for this to lapse: mutedNow ticks itself at the exact instant, the same
+  // self-rescheduling shape a poll's close time uses, and stops costing
+  // anything the moment there is no mute to wait out.
+  const myMutedUntil = $derived(Number(activeGuild()?.myMutedUntil) || 0);
+  let mutedNow = $state(Math.floor(Date.now() / 1000));
+  let muteTimer = null;
+  $effect(() => {
+    clearTimeout(muteTimer);
+    const until = myMutedUntil;
+    if (!until) return;
+    const tick = () => {
+      mutedNow = Math.floor(Date.now() / 1000);
+      const left = until * 1000 - Date.now();
+      if (left <= 0) return;
+      // Once the strip is counting in seconds it has to count in seconds; a
+      // thirty-second beat leaves "59 seconds" on screen for half a minute.
+      // Above that the wording is minutes or hours and a slow beat is right.
+      muteTimer = setTimeout(tick, Math.min(Math.max(left, 250), left > 90_000 ? 30_000 : 1_000));
+    };
+    tick();
+    return () => clearTimeout(muteTimer);
+  });
+  const muted = $derived(myMutedUntil > mutedNow);
+  function muteLeft(secs) {
+    if (secs <= 90) return `${Math.max(1, secs)} seconds`;
+    const m = Math.round(secs / 60);
+    if (m < 60) return `${m} minute${m === 1 ? "" : "s"}`;
+    const h = Math.round(secs / 3600);
+    if (h < 48) return `${h} hour${h === 1 ? "" : "s"}`;
+    const d = Math.round(secs / 86400);
+    return `${d} day${d === 1 ? "" : "s"}`;
+  }
+
   const lockedNote = $derived.by(() => {
     if (evicted === "banned") return "You were banned from this guild.";
     if (evicted) return "You're no longer a member of this guild.";
     if (closedPost)
       return ch.lockedName ? `This post is closed — ${ch.lockedName} closed it.` : "This post is closed.";
+    if (muted) return `You're muted here — you can post again in ${muteLeft(myMutedUntil - mutedNow)}.`;
     if (!canPostHere) return "Only moderators can post here";
     return "";
   });
@@ -1554,7 +1597,7 @@
          replaces is the same height, so the feed does not jump when you walk
          into one. -->
     <div class="locked-strip" role="status">
-      <Icon name={evicted ? "door" : closedPost ? "lock" : "megaphone"} size={14} />
+      <Icon name={evicted ? "door" : closedPost ? "lock" : muted ? "micOff" : "megaphone"} size={14} />
       <span>{lockedNote}</span>
       {#if closedPost && canReopen}
         <button class="reopen" onclick={reopenPost}>Reopen</button>

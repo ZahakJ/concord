@@ -156,6 +156,21 @@ func (s *Service) ScheduledSends() ([]store.ScheduledSend, error) {
 
 // runScheduledSendLoop sweeps the send-later queue. Started once at service
 // start; lives until shutdown.
+//
+// It is the one loop that does not simply take the background beat. Everything
+// else these loops do is speculative — a DHT walk, a reconcile, a dial — work
+// worth deferring when nobody is looking. A queued send is the opposite: a
+// wall-clock promise the user made to somebody else, and the case the manager
+// brags about ("even if this window closes") is exactly the case where nobody
+// is looking, so the beat that fires it had stretched to three minutes. Timed:
+// a send queued for 70 seconds' time, with the browser then closed, landed 131
+// seconds late.
+//
+// So when something is genuinely due sooner than the paced beat, the loop waits
+// for THAT instead. Only for a deadline still in the future: a row that is
+// already overdue and failing to send keeps the paced retry cadence rather than
+// spinning on it, and an empty queue — the ordinary state — costs nothing at
+// all and sleeps the full beat.
 func (s *Service) runScheduledSendLoop() {
 	for {
 		select {
@@ -163,10 +178,33 @@ func (s *Service) runScheduledSendLoop() {
 			return
 		case <-s.bgWakeCh():
 			// Foregrounded: fire anything that came due during the slow beat.
-		case <-time.After(s.bgPace(scheduledSendTick)):
+		case <-time.After(s.nextScheduledWait(time.Now())):
 		}
 		s.fireDueScheduledSends(time.Now().Unix())
 	}
+}
+
+// nextScheduledWait is how long to sleep before the next sweep: the paced beat,
+// or the next queued send's own deadline when that comes first.
+func (s *Service) nextScheduledWait(now time.Time) time.Duration {
+	paced := s.bgPace(scheduledSendTick)
+	q, err := s.store.ScheduledSends()
+	if err != nil || len(q) == 0 {
+		return paced
+	}
+	return scheduledWait(now, paced, q[0].FireAt) // sorted soonest-first
+}
+
+// scheduledWait is the arithmetic on its own, so the boundary can be tested
+// without waiting out a beat.
+func scheduledWait(now time.Time, paced time.Duration, fireAt int64) time.Duration {
+	d := time.Unix(fireAt, 0).Sub(now)
+	if d <= 0 || d >= paced {
+		return paced
+	}
+	// A second past the deadline rather than exactly on it: firing at fireAt-ε
+	// finds nothing due and sleeps another whole beat.
+	return d + time.Second
 }
 
 // fireDueScheduledSends sends every queued message whose time has come through

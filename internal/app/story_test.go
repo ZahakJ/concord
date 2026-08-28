@@ -213,3 +213,40 @@ func TestStoryCustomSceneValidation(t *testing.T) {
 		t.Fatal("a CSS-escaping preset id must be rejected")
 	}
 }
+
+// A story stops being shown the moment its 24 hours are up, and the hourly
+// sweep is only housekeeping — never the thing that decides. Both halves are
+// checked here because only one of them is on the path a reader takes: the
+// store filters on the CALLER's clock, so a story cannot outlive its time just
+// because the GC has not run yet, and gcStories then reclaims the row.
+func TestAStoryStopsBeingServedAtItsTimeAndIsThenCollected(t *testing.T) {
+	author := mustID(t)
+	now := time.Now().Unix()
+	s := storyTestService(t)
+
+	rec := signedStory(t, author, "st-live", "g1", now)
+	if !s.ingestStory("g1", rec, author.PublicKey(), now) {
+		t.Fatal("a fresh, correctly signed story was refused")
+	}
+	if rows, _ := s.GuildStories("g1"); len(rows) != 1 {
+		t.Fatalf("a live story is not being served: %d rows", len(rows))
+	}
+
+	// One second past its time: gone from the read path, with no sweep at all.
+	life := int64(storyLifetime / time.Second)
+	if rows, err := s.store.GuildStories("g1", now+life+1); err != nil || len(rows) != 0 {
+		t.Fatalf("a story past its expiry was still served: %d rows, %v", len(rows), err)
+	}
+	// …and it is still on disk, because nothing has swept yet. That is the
+	// distinction: the reader's clock decides, the sweep only reclaims.
+	if rows, err := s.store.GuildStories("g1", now); err != nil || len(rows) != 1 {
+		t.Fatalf("the row vanished before any sweep ran: %d rows, %v", len(rows), err)
+	}
+
+	s.gcStories(now + life + 1)
+	if rows, err := s.store.GuildStories("g1", now); err != nil || len(rows) != 0 {
+		t.Fatalf("the sweep left %d expired rows on disk (%v)", len(rows), err)
+	}
+	// A second sweep is a no-op, not an error.
+	s.gcStories(now + life + 2)
+}

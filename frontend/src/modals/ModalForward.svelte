@@ -4,7 +4,7 @@
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import { S, forwardMessage, jumpToChannel, flash } from "../lib/state.svelte.js";
-  import { previewText } from "../lib/attachments.js";
+  import { plainSnippet } from "../lib/snippet.js";
 
   let { message, onClose } = $props();
 
@@ -56,7 +56,7 @@
 </script>
 
 <Modal title="Forward message" {onClose}>
-  <div class="snippet">{previewText(message.content).slice(0, 140) || "(message)"}</div>
+  <div class="snippet">{plainSnippet(message.content, 140) || "(message)"}</div>
   <input class="search" bind:value={query} placeholder="Search channels and DMs…" />
   <div class="list scroll-fade">
     {#each destinations as d (d.id)}
