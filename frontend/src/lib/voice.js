@@ -19,6 +19,39 @@ const DEFAULT_ICE = [{ urls: "stun:stun.l.google.com:19302" }];
 // How long the mic stays open after a push-to-talk key comes up.
 const TALK_TAIL_MS = 150;
 
+// ---- the negotiation watchdog -------------------------------------------
+//
+// Signaling is fire-and-forget: send() hands a blob to the Go node, which
+// gossips it at a peer, and nothing anywhere waits for it to arrive. A blob
+// that goes missing — a libp2p stream that wasn't up yet, a collision the
+// impolite side dropped by design — used to end the call before it started,
+// silently: both RTCPeerConnections sit at have-local-offer / "new" for as long
+// as the tab is open, while the roster, the tiles and the mute badges (which
+// ride the app's own presence, not WebRTC) render a perfect call nobody can
+// hear. The watchdog is the piece that was missing: an offer is a request with
+// a deadline, and a request with a deadline gets retried.
+
+// A local offer unanswered for this long is presumed lost. Long enough that a
+// slow-but-alive answer isn't stepped on; short enough that a person doesn't
+// finish saying hello into a dead call.
+const OFFER_TIMEOUT_MS = 3000;
+// Re-offers before the tile stops promising and admits it isn't working. Each
+// attempt waits longer than the last (see _tick), so this is ~30s of trying.
+const MAX_NEGOTIATION_ATTEMPTS = 4;
+// After that it keeps trying, but at a walking pace. Saying "couldn't connect"
+// is the honest label; giving up entirely is not the honest behaviour, because
+// the commonest cause is a network that comes back — and when it does, a call
+// that heals itself beats one waiting for a click from someone who has already
+// walked away.
+const RETRY_FLOOR_MS = 20000;
+// A connected peer whose inbound packet counter hasn't moved for this long is
+// not audible, whatever the connection says. Opus DTX is off (see sdp.js), so
+// packets keep arriving through silence — a flat counter really does mean
+// nothing is coming through.
+const MEDIA_SILENCE_MS = 5000;
+// How often the watchdog looks at every peer.
+const WATCHDOG_MS = 1000;
+
 export class VoiceMesh {
   // selfPeerId: our libp2p peer id; channelId: the voice room; relay(to, json)
   // sends a signaling blob; onRoster(peerIds[]) reports participant changes.
@@ -31,6 +64,7 @@ export class VoiceMesh {
     onVideo,
     onVideoState,
     onWatcher,
+    onPeerStatus,
     iceServers,
     forceRelay = false,
     devices = {},
@@ -53,6 +87,11 @@ export class VoiceMesh {
     this.onVideoState = onVideoState || (() => {});
     // onWatcher(peerId): someone began watching the screen we're sharing.
     this.onWatcher = onWatcher || (() => {});
+    // onPeerStatus(peerId, { state, media }): how this connection is actually
+    // doing — "connecting" | "connected" | "reconnecting" | "failed", and
+    // whether audio is arriving. Fires only when the answer changes. Nothing in
+    // the call UI knew any of this before; see the watchdog constants above.
+    this.onPeerStatus = onPeerStatus || (() => {});
     this.peers = new Map(); // peerId -> { pc, makingOffer, ignoreOffer, audioEl, videoKeys }
     this.localStream = null;
     this.muted = false;
@@ -116,6 +155,8 @@ export class VoiceMesh {
     this.talking = false;
     this._talkTail = null;
     this._onVisibility = null; // see _watchBackground
+    this._watchdog = null; // the negotiation watchdog's ticker
+    this._statTurn = 0; // getStats runs on every other tick
   }
 
   async start() {
@@ -136,6 +177,7 @@ export class VoiceMesh {
     // never reopen it.
     this._addAnalyser("self", this.localStream);
     this._startMonitor();
+    this._startWatchdog();
     this._watchBackground();
   }
 
@@ -550,6 +592,8 @@ export class VoiceMesh {
     for (const id of [...this.peers.keys()]) this.removePeer(id);
     if (this._monitor) clearInterval(this._monitor);
     this._monitor = null;
+    if (this._watchdog) clearInterval(this._watchdog);
+    this._watchdog = null;
     if (this._onVisibility) {
       document.removeEventListener("visibilitychange", this._onVisibility);
       this._onVisibility = null;
@@ -610,6 +654,130 @@ export class VoiceMesh {
         this.onSpeaking([...speaking]);
       }
     }, 150);
+  }
+
+  // ---- the negotiation watchdog ----
+  //
+  // One ticker for the whole mesh rather than a timer per peer: the work per
+  // peer is a handful of property reads, and a single interval is one thing to
+  // start, stop and reason about.
+
+  _startWatchdog() {
+    if (this._watchdog) return;
+    this._watchdog = setInterval(() => this._tick(), WATCHDOG_MS);
+  }
+
+  _tick() {
+    const now = Date.now();
+    this._statTurn++;
+    for (const [peerId, peer] of this.peers) {
+      const { pc } = peer;
+      const cs = pc.connectionState;
+      if (cs === "connected") {
+        // Whatever it took to get here, it worked: forget the debt.
+        peer.attempts = 0;
+        peer.offerSentAt = 0;
+      }
+      // An offer waiting for an answer. Each retry waits longer than the last,
+      // so a genuinely slow network gets more rope rather than a storm of
+      // offers that each invalidate the one before it.
+      const patience = OFFER_TIMEOUT_MS * (1 + Math.min(peer.attempts, 2));
+      const unanswered = cs !== "connected" && peer.offerSentAt && now - peer.offerSentAt > patience;
+      // A connection that HAD worked and stopped. "disconnected" is often a
+      // blip that heals itself, so give it a few seconds before spending an
+      // attempt; "failed" never heals without an ICE restart.
+      const broken =
+        cs === "failed" || (cs === "disconnected" && now - (peer.stateSince || now) > 4000);
+      if ((unanswered || broken) && !peer.makingOffer) {
+        if (peer.attempts >= MAX_NEGOTIATION_ATTEMPTS) {
+          peer.status = "failed";
+          if (now - peer.lastTry > RETRY_FLOOR_MS) this._renegotiate(peerId, peer, true);
+        } else {
+          this._renegotiate(peerId, peer, broken);
+        }
+      }
+      if (this._statTurn % 2 === 0) this._pollMedia(peerId, peer);
+      this._emitStatus(peerId, peer);
+    }
+  }
+
+  // _renegotiate makes a fresh offer for a connection that isn't working. On a
+  // broken connection it also asks for new ICE candidates — the old ones are
+  // pointing at a path that has stopped carrying anything.
+  async _renegotiate(peerId, peer, iceRestart) {
+    const { pc } = peer;
+    // A local offer can replace a pending one, but not a remote one: mid
+    // have-remote-offer the answer is already on its way and this would throw.
+    if (pc.signalingState !== "stable" && pc.signalingState !== "have-local-offer") return;
+    peer.attempts++;
+    peer.lastTry = Date.now();
+    try {
+      peer.makingOffer = true;
+      if (iceRestart) {
+        try {
+          pc.restartIce();
+        } catch {
+          /* older webviews: the iceRestart offer option below still applies */
+        }
+      }
+      const offer = await pc.createOffer(iceRestart ? { iceRestart: true } : undefined);
+      offer.sdp = this._tune(peer, offer.sdp);
+      await pc.setLocalDescription(offer);
+      this._applySenderParams(pc);
+      peer.offerSentAt = Date.now();
+      this.send(peerId, { description: pc.localDescription });
+    } catch (err) {
+      console.warn("voice renegotiation", err);
+    } finally {
+      peer.makingOffer = false;
+    }
+  }
+
+  // _pollMedia asks the connection whether audio is actually arriving. The
+  // connection state says a path exists; only the packet counter says anything
+  // is travelling down it.
+  async _pollMedia(peerId, peer) {
+    if (peer.pc.connectionState !== "connected") return;
+    let packets = 0;
+    try {
+      const stats = await peer.pc.getStats();
+      stats.forEach((r) => {
+        if (r.type === "inbound-rtp" && r.kind === "audio") packets += r.packetsReceived || 0;
+      });
+    } catch {
+      return; // a webview without getStats simply keeps the benefit of the doubt
+    }
+    const now = Date.now();
+    if (packets > peer.lastPackets) {
+      peer.lastPackets = packets;
+      peer.lastPacketAt = now;
+    }
+    if (!peer.lastPacketAt) peer.lastPacketAt = now;
+    peer.media = now - peer.lastPacketAt < MEDIA_SILENCE_MS;
+    this._emitStatus(peerId, peer);
+  }
+
+  // _emitStatus reports the peer's derived state, once per change.
+  _emitStatus(peerId, peer) {
+    const cs = peer.pc.connectionState;
+    let state = peer.status;
+    if (cs === "connected") state = "connected";
+    else if (peer.status !== "failed") state = cs === "new" || cs === "connecting" ? "connecting" : "reconnecting";
+    peer.status = state;
+    const sig = `${state}${peer.media ? 1 : 0}`;
+    if (sig === peer.lastStatusSig) return;
+    peer.lastStatusSig = sig;
+    this.onPeerStatus(peerId, { state, media: peer.media });
+  }
+
+  // reconnectPeer throws the connection away and builds a new one. This is what
+  // the tile's "Retry" does: after the watchdog has spent its attempts the
+  // problem is rarely one more offer on the same RTCPeerConnection, and a fresh
+  // one costs a second and starts from a known-good state.
+  reconnectPeer(peerId) {
+    if (!this.peers.has(peerId)) return;
+    this.removePeer(peerId);
+    this.addPeer(peerId);
   }
 
   setMuted(muted) {
@@ -809,7 +977,17 @@ export class VoiceMesh {
         const offerCollision =
           msg.description.type === "offer" &&
           (peer.makingOffer || pc.signalingState !== "stable");
-        peer.ignoreOffer = !peer.polite && offerCollision;
+        // Perfect negotiation says the impolite side drops a colliding offer,
+        // because its own is on its way and one of the two has to give. That is
+        // true only while its own offer is genuinely in flight. Once ours has
+        // sat unanswered past the deadline it is not a rival — it is a message
+        // that never landed, and dropping the far side's offer on top of it is
+        // how both ends came to be holding an offer nobody would ever answer.
+        // With nothing really in flight we take theirs instead: setRemoteDescription
+        // rolls our stale one back, and the call connects on their terms.
+        const inFlight =
+          peer.makingOffer || (peer.offerSentAt && Date.now() - peer.offerSentAt < OFFER_TIMEOUT_MS);
+        peer.ignoreOffer = !peer.polite && offerCollision && inFlight;
         if (peer.ignoreOffer) return;
 
         await pc.setRemoteDescription(msg.description);
@@ -819,6 +997,10 @@ export class VoiceMesh {
           await pc.setLocalDescription(answer);
           this.send(from, { description: pc.localDescription });
         }
+        // Back at "stable" means the exchange completed — whether we answered
+        // theirs or they answered ours. Nothing is owed, so the watchdog has
+        // nothing to chase.
+        if (pc.signalingState === "stable") peer.offerSentAt = 0;
         this._applySenderParams(pc);
       } else if (msg.candidate) {
         try {
@@ -850,6 +1032,16 @@ export class VoiceMesh {
       auxEls: new Map(), // streamId -> <audio> for sound riding a screen share
       hifiTracks: new Set(), // remote audio tracks that are shared media, not a voice
       videoKeys: new Set(), // remote video tile keys from this peer
+      // Watchdog bookkeeping (see the constants at the top of this file).
+      offerSentAt: 0, // when our current unanswered offer went out
+      attempts: 0, // re-offers spent on this connection since it last worked
+      lastTry: 0, // when the last re-offer went out, for the slow-lane floor
+      status: "connecting", // what the tile says about them
+      media: true, // audio is arriving (assumed until a poll says otherwise)
+      lastPackets: -1,
+      lastPacketAt: 0,
+      stateSince: Date.now(), // when connectionState last changed
+      lastStatusSig: "", // so onPeerStatus only fires on a real change
     };
     this.peers.set(peerId, peer);
 
@@ -882,6 +1074,9 @@ export class VoiceMesh {
         offer.sdp = this._tune(peer, offer.sdp);
         await pc.setLocalDescription(offer);
         this._applySenderParams(pc);
+        // Stamped for the watchdog: from here we are owed an answer, and if one
+        // doesn't come we ask again rather than waiting forever.
+        peer.offerSentAt = Date.now();
         this.send(peerId, { description: pc.localDescription });
       } catch (err) {
         console.warn("negotiation error", err);
@@ -970,7 +1165,24 @@ export class VoiceMesh {
       this._addAnalyser(peerId, stream);
     };
     pc.onconnectionstatechange = () => {
-      if (["failed", "closed"].includes(pc.connectionState)) this.removePeer(peerId);
+      peer.stateSince = Date.now();
+      if (pc.connectionState === "connected") {
+        peer.attempts = 0;
+        peer.offerSentAt = 0;
+        peer.lastPacketAt = Date.now();
+      }
+      // "failed" used to delete the peer here. It no longer does: a failed
+      // connection between two people who are both still in the room is a
+      // connection to restart, not a person to erase — and erasing them made
+      // the tile blink out and back in on the next presence heartbeat three
+      // seconds later. The watchdog restarts it; departure is presence's job
+      // (the roster expiry in lib/state.svelte.js), which is the one signal
+      // that actually knows whether they are still there.
+      if (pc.connectionState === "closed") {
+        this.removePeer(peerId);
+        return;
+      }
+      this._emitStatus(peerId, peer);
     };
 
     this.emitRoster();
@@ -996,7 +1208,19 @@ export class VoiceMesh {
   }
 
   send(toPeerId, payload) {
-    this.relay(toPeerId, JSON.stringify({ channelId: this.channelId, s: this.sessionId, ...payload }));
+    // Fire-and-forget by design — signaling has no acknowledgement and the
+    // watchdog above is what covers a blob that never lands. But a rejected
+    // relay used to be an unhandled promise rejection and nothing else, so the
+    // one case where we KNOW the message is gone left no trace at all.
+    try {
+      const sent = this.relay(
+        toPeerId,
+        JSON.stringify({ channelId: this.channelId, s: this.sessionId, ...payload }),
+      );
+      Promise.resolve(sent).catch((err) => console.warn("voice signal not sent", err));
+    } catch (err) {
+      console.warn("voice signal not sent", err);
+    }
   }
 
   emitRoster() {
