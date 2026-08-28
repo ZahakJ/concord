@@ -1430,6 +1430,7 @@
       onJoinVoice={joinVoice}
       onLeaveVoice={leaveVoice}
       onToggleMute={toggleMicMute}
+      onToggleDeafen={toggleDeafen}
       onToggleShare={toggleScreenShare}
       onToggleCamera={toggleCamera}
     />
@@ -1451,6 +1452,7 @@
           onJoinVoice={joinVoice}
           onLeaveVoice={leaveVoice}
           onToggleMute={toggleMicMute}
+          onToggleDeafen={toggleDeafen}
           onToggleShare={toggleScreenShare}
           onToggleCamera={toggleCamera}
         />

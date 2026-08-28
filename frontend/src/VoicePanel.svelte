@@ -2380,14 +2380,19 @@
     color: var(--text);
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
-  /* Muted mic reads as a clear "off/alert" state, in the danger colour. */
+  /* Muted or deafened is a FILLED danger state, the same one the dock, the
+     sidebar bar and the header pill use. It was a 20% wash here, which on a
+     44px circle beside four neutral ones is a tint you have to look for — and
+     which meant "I am muted" was drawn four different ways in four places you
+     can see at once. Camera and share stay accent-lit: they mean something is
+     going out, which is not the same alarm. */
   .ctl.danger {
-    background: color-mix(in srgb, var(--danger) 20%, transparent);
-    color: var(--danger-text);
-    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+    background: var(--danger);
+    color: var(--danger-fg);
+    border-color: transparent;
   }
   .ctl.danger:hover {
-    background: color-mix(in srgb, var(--danger) 30%, transparent);
+    background: color-mix(in srgb, var(--danger) 85%, #000);
   }
   /* Leave is a separate kind of action from the toggles — a little breathing
      room sets it apart so it's never fat-fingered mid-call. */

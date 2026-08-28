@@ -29,7 +29,8 @@
   // tip's text unless the tip needs richer wording than the label.
   import { tooltip } from "./lib/tooltip.js";
 
-  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
+  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
+    $props();
 
   // Handed to lib/search.js so a filter chip clicked in the results panel can
   // type its prefix here and put the caret back after it.
@@ -197,17 +198,26 @@
           {S.voiceParticipants.length + 1}
         </span>
         <span class="pill-sep"></span>
-        <button class="pill-btn" title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} onclick={onToggleMute}>
-          <Icon name={S.muted ? "micOff" : "mic"} size={13} />
+        <!-- The same controls, the same two colours, on every surface that
+             carries them: mic and deafen light DANGER when they are stopping
+             something, camera and screen light OK when they are sending
+             something. This pill used to have no lit state for the mic at all —
+             the glyph swapped and nothing else did — while the sidebar bar lit
+             the SAME state green, which is this row's colour for "on the air". -->
+        <button class="pill-btn cut" class:on={S.muted} title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} aria-pressed={S.muted} onclick={onToggleMute}>
+          <Icon name={S.muted ? "micOff" : "mic"} size={15} />
         </button>
-        <button class="pill-btn" class:on={S.cameraOn} title={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"} onclick={onToggleCamera}>
-          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={13} />
+        <button class="pill-btn cut" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
+          <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
         </button>
-        <button class="pill-btn" class:on={S.sharing} title={S.sharing ? "Stop sharing" : "Share screen"} aria-label={S.sharing ? "Stop sharing" : "Share screen"} onclick={onToggleShare}>
-          <Icon name={S.sharing ? "screenOff" : "screen"} size={13} />
+        <button class="pill-btn" class:on={S.cameraOn} title={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-pressed={S.cameraOn} onclick={onToggleCamera}>
+          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={15} />
+        </button>
+        <button class="pill-btn" class:on={S.sharing} title={S.sharing ? "Stop sharing" : "Share screen"} aria-label={S.sharing ? "Stop sharing" : "Share screen"} aria-pressed={S.sharing} onclick={onToggleShare}>
+          <Icon name={S.sharing ? "screenOff" : "screen"} size={15} />
         </button>
         <button class="pill-btn leave" title="Leave voice" aria-label="Leave voice" onclick={onLeaveVoice}>
-          <Icon name="door" size={13} />
+          <Icon name="door" size={15} />
         </button>
       </span>
     {:else if ch && peerInCall}
@@ -706,6 +716,17 @@
   .pill-btn.on {
     background: var(--ok);
     color: var(--ok-fg);
+  }
+  /* Mic and deafen are the two that STOP something, so their lit state is the
+     danger colour rather than the "on the air" green. */
+  .pill-btn.cut.on {
+    background: var(--danger);
+    color: var(--danger-fg);
+  }
+  @media (pointer: fine) {
+    .pill-btn.cut.on:hover {
+      background: color-mix(in srgb, var(--danger) 82%, white);
+    }
   }
   .pill-btn.leave {
     color: var(--danger-text);

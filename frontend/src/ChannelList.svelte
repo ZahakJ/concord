@@ -70,7 +70,8 @@
   // the longpress action — so on coarse pointers longpress is the only path).
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
 
-  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleShare, onToggleCamera } = $props();
+  let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
+    $props();
 
   const g = $derived(activeGuild());
   const canManageChannels = $derived(has(g?.myPerms || 0, PERM.MANAGE_CHANNELS));
@@ -1184,15 +1185,32 @@
         </span>
       </button>
       <span class="vb-actions">
+        <!-- Deafen was missing here and on the header pill, so two of the four
+             places you can mute offered a different SET of controls as well as a
+             different look. Same glyphs, same 15px, same round plate, and the
+             same rule about colour everywhere: mic and deafen light danger when
+             they are stopping something, camera and screen light green when
+             they are sending it. This bar had mic lighting green for muted,
+             which said the opposite of what it meant. -->
         <button
-          class="vb-btn"
+          class="vb-btn cut"
           class:on={S.muted}
           use:tooltip
           aria-label={S.muted ? "Unmute" : "Mute"}
           aria-pressed={S.muted}
           onclick={onToggleMute}
         >
-          <Icon name={S.muted ? "micOff" : "mic"} size={14} />
+          <Icon name={S.muted ? "micOff" : "mic"} size={15} />
+        </button>
+        <button
+          class="vb-btn cut"
+          class:on={S.deafened}
+          use:tooltip
+          aria-label={S.deafened ? "Undeafen" : "Deafen"}
+          aria-pressed={S.deafened}
+          onclick={onToggleDeafen}
+        >
+          <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
         </button>
         <button
           class="vb-btn"
@@ -1202,7 +1220,7 @@
           aria-pressed={S.cameraOn}
           onclick={onToggleCamera}
         >
-          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={14} />
+          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={15} />
         </button>
         {#if canShareScreen}
           <button
@@ -1213,11 +1231,11 @@
             aria-pressed={S.sharing}
             onclick={onToggleShare}
           >
-            <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
+            <Icon name={S.sharing ? "screenOff" : "screen"} size={15} />
           </button>
         {/if}
         <button class="vb-btn leave" use:tooltip aria-label="Disconnect" onclick={onLeaveVoice}>
-          <Icon name="door" size={14} />
+          <Icon name="door" size={15} />
         </button>
       </span>
     </div>
@@ -2312,13 +2330,15 @@
     justify-content: space-between;
     gap: 2px;
   }
+  /* Round, like the same control on the other three surfaces. This was the one
+     square-cornered call button in the app. */
   .vb-btn {
     background: transparent;
     color: var(--ok-text);
     padding: 5px;
     display: grid;
     place-items: center;
-    border-radius: var(--radius-sm);
+    border-radius: 50%;
   }
   @media (pointer: fine) {
     .vb-btn:hover {
@@ -2331,6 +2351,15 @@
   .vb-btn.on {
     background: var(--ok);
     color: var(--ok-fg);
+  }
+  .vb-btn.cut.on {
+    background: var(--danger);
+    color: var(--danger-fg);
+  }
+  @media (pointer: fine) {
+    .vb-btn.cut.on:hover {
+      background: color-mix(in srgb, var(--danger) 82%, white);
+    }
   }
   .vb-btn.leave {
     color: var(--danger-text);

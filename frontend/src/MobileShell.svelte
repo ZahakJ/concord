@@ -678,6 +678,7 @@
         {onJoinVoice}
         {onLeaveVoice}
         {onToggleMute}
+        {onToggleDeafen}
         {onToggleShare}
         {onToggleCamera}
       />
