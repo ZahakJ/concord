@@ -38,29 +38,43 @@
     filter === "all" ? S.inbox.entries : S.inbox.entries.filter((e) => e.reason === filter),
   );
 
-  // Grouped by conversation, in the order the conversations first appear — so
-  // the busiest recent place is at the top without a second sort deciding
-  // something the newest-first order already said.
+  // One header per RUN of the same conversation, not per conversation. The
+  // difference matters: collecting every entry of a channel into one group
+  // would lift a Tuesday message above a Wednesday one from somewhere else, and
+  // the whole list claims to be newest-first. A run breaks when the channel
+  // changes, so the order is untouched and the header only repeats when the
+  // conversation genuinely came back round.
   const groups = $derived.by(() => {
     const out = [];
-    const byKey = new Map();
     for (const e of entries) {
-      const key = e.channelId;
-      let g = byKey.get(key);
-      if (!g) {
-        g = { key, title: placeOf(e), entries: [] };
-        byKey.set(key, g);
-        out.push(g);
+      const last = out[out.length - 1];
+      if (last && last.channelId === e.channelId) {
+        last.entries.push(e);
+        continue;
       }
-      g.entries.push(e);
+      out.push({ key: e.messageId, channelId: e.channelId, title: placeOf(e), entries: [e] });
     }
     return out;
   });
 
+  // A DM's header has to name the person. The backend calls every DM guild
+  // "Direct message" — that is the stored name, and it is the same for all of
+  // them — so three different conversations printed three identical headers and
+  // the grouping looked broken when it was not. The resolved name is already in
+  // S.guilds (the sidebar shows it), so take it from there.
   function placeOf(e) {
-    if (e.isDm) return e.guildName || "Direct message";
+    if (e.isDm) {
+      const g = S.guilds.find((x) => x.id === e.guildId);
+      const who = dmName(g?.name) || dmName(e.guildName) || e.senderName || e.sender.slice(0, 12);
+      return who ? `Direct message · ${who}` : "Direct message";
+    }
     if (e.channelName && e.guildName) return `#${e.channelName} · ${e.guildName}`;
     return e.channelName ? `#${e.channelName}` : e.guildName || "A conversation";
+  }
+
+  // The stored defaults are not names of anybody.
+  function dmName(n) {
+    return n && n !== "Direct message" && n !== "Group message" && n !== "New conversation" ? n : "";
   }
 
   function fmtTime(ms) {
@@ -92,11 +106,17 @@
         </button>
       {/each}
     </div>
-    {#if S.inbox.unread > 0}
-      <button class="quiet clear" onclick={markInboxRead}>
-        Mark all read <Icon name="check" size={12} />
-      </button>
-    {/if}
+    <!-- Present whether or not there is anything to clear, and disabled when
+         there is not: an action that appears and disappears as the count
+         crosses zero moves the chips under the cursor. -->
+    <button
+      class="quiet act"
+      disabled={!S.inbox.unread}
+      onclick={markInboxRead}
+    >
+      <Icon name="check" size={13} />
+      Mark all read
+    </button>
   </div>
 
   {#if S.inbox.loading && !S.inbox.entries.length}
@@ -144,7 +164,11 @@
     </div>
     <div class="foot">
       <span>{plural(entries.length, "item")}{S.inbox.unread ? ` · ${S.inbox.unread} unread` : ""}</span>
-      <button class="quiet refresh" disabled={S.inbox.loading} onclick={() => refreshInbox({ soon: true })}>
+      <button
+        class="quiet act"
+        disabled={S.inbox.loading}
+        onclick={() => refreshInbox({ soon: true })}
+      >
         {S.inbox.loading ? "Checking…" : "Check again"}
       </button>
     </div>
@@ -156,13 +180,14 @@
 {/snippet}
 
 <style>
-  /* The head wraps as one row until it cannot, and then the action drops to a
-     line of its own rather than floating vertically centred against two rows of
-     chips — which is what it did at the dialog's real width. */
+  /* The head is ONE row: the chips wrap inside their own group when they run
+     out of width, and the action stays beside them. It used to wrap the action
+     down to a line of its own, which at the dialog's real width was every time
+     — so the app's most-used control here lived on an otherwise empty row,
+     right-aligned against nothing. */
   .head {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--sp-2);
     margin-bottom: var(--sp-3);
   }
@@ -170,9 +195,8 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--sp-1);
-  }
-  .clear {
-    margin-left: auto;
+    flex: 1;
+    min-width: 0;
   }
   /* `quiet` (app.css) carries the fill AND the ink. The ink is the point: the
      global button rule paints --accent-fg, which is chosen to survive on the
@@ -189,8 +213,7 @@
     background: var(--accent);
     color: var(--accent-fg);
   }
-  .clear,
-  .refresh {
+  .act {
     padding: 5px 11px;
     min-width: 0;
     flex: none;
@@ -291,6 +314,9 @@
     font-size: var(--fs-tiny);
     background: var(--bg-3);
     color: var(--text-muted);
+    /* The alert word a keyword entry names is the user's own text and can be
+       any script, so the pill isolates it like every other name in the app. */
+    unicode-bidi: plaintext;
   }
   /* Three reasons, three tints, matching the row highlights in the feed: amber
      for "someone meant you", accent for "you asked to be told". */
