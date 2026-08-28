@@ -95,7 +95,7 @@
         {activeGuild()?.channels.find((c) => c.id === ch.parent)?.name || "forum"}
         <span class="tb-sep">›</span>
       </button>
-      <strong>{ch.name}</strong>
+      <strong class="post-name" title={ch.name}>{ch.name}</strong>
     {:else if ch}
       <Icon name={channelTypeIcon(ch.type)} size={15} />
       <strong>{ch.name}</strong>
@@ -347,17 +347,30 @@
     background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
     pointer-events: none;
   }
-  /* Where you ARE outranks everything you can do here. The title used to be a
-     plain flex item next to an action row of nowrap buttons: flex handed the
-     whole width to the side that refused to shrink, so between 769 and 1200px
-     the channel name measured exactly 0px and only its `#` survived. It now
-     takes the slack and keeps a floor; the search box is the piece that gives.
-     8ch is a name you can still recognise, not a name you can read. */
+  /* Where you ARE outranks everything you can do here, and this is the third
+     time that has had to be said in CSS. First the title was a plain flex item
+     beside an action row of nowrap buttons, and flex handed the width to the
+     side that refused to shrink: the name measured 0px between 769 and 1200px.
+     Then it got `min-width: 8ch`, which stopped the name vanishing but left the
+     shrink to be SPLIT between the name and the topic inside it — so at 1440,
+     an entirely ordinary laptop, `#general` rendered as `# ge…` while its topic
+     kept thirty characters of a sentence nobody needs.
+     The rule now is an order, not a ratio, and it is enforced INSIDE the title
+     rather than by a floor on the title itself. The search box gives first (it
+     has `min-width: 0` and shrinks to a stub); then the topic, all of it, down
+     to nothing and then out of the layout entirely below the narrow contract;
+     the name is `flex: 0 0 auto` and simply never participates. A floor here
+     instead — `min-width: min-content` — looks like the same idea and is not:
+     Chromium counts the topic's full width in the title's min-content, so the
+     floor grew to include the sentence and pushed the action row 249px off the
+     end of the header at 1280. The clip is the backstop for a name longer than
+     the whole bar; it is not the mechanism. */
   .title {
     gap: 6px;
     color: var(--text-muted);
     flex: 1 1 auto;
-    min-width: 8ch;
+    min-width: 0;
+    overflow: hidden;
   }
   /* The action row gives up its own slack — the search box has min-width:0 and
      collapses first — but never goes below what its buttons actually measure.
@@ -377,11 +390,28 @@
     color: var(--accent-hover);
     flex-shrink: 0;
   }
+  /* The cap is the one concession: a channel someone named with a sentence
+     cannot be allowed to push the whole action row off the header. Everything
+     shorter than the cap is immune to the squeeze. */
   .title strong {
     color: var(--text);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 0 0 auto;
+    max-width: min(32ch, 38vw);
+  }
+  /* A forum post inverts the order, because a post TITLE is a sentence and the
+     board it belongs to is the one word that gets you back. The breadcrumb
+     keeps its width; the sentence ellipsises. */
+  .title strong.post-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: none;
+  }
+  .thread-back {
+    flex: 0 0 auto;
+    max-width: 20ch;
   }
   .topic-sep {
     width: 1px;
@@ -396,7 +426,18 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    flex: 0 1 auto;
     min-width: 0;
+  }
+  /* Below the narrow contract the topic stops being a fragment and starts being
+     a smear — two words and an ellipsis, in the space the name wants. It is the
+     one thing on this bar the reader can go and read somewhere else (the
+     channel's own menu), so it leaves rather than starving the name. */
+  @media (max-width: 1150px) {
+    .topic-sep,
+    .chan-topic {
+      display: none;
+    }
   }
   .search-wrap {
     position: relative;
@@ -648,10 +689,16 @@
   .iconbtn.endcall:hover {
     background: var(--danger-soft);
   }
+  /* The board's name is a breadcrumb, and a breadcrumb that line-breaks mid-word
+     ("help-" / "desk") reads as a rendering fault. It wraps as a unit or it
+     ellipsises; it never splits. */
   .thread-back {
     display: inline-flex;
     align-items: center;
     gap: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     padding: 3px 8px;
     background: transparent;
     border: none;
