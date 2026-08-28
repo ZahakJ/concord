@@ -92,6 +92,9 @@
     forward: () => import("./modals/ModalForward.svelte"),
     report: () => import("./modals/ModalReport.svelte"),
     bans: () => import("./modals/ModalBans.svelte"),
+    members: () => import("./modals/ModalMembers.svelte"),
+    mute: () => import("./modals/ModalMute.svelte"),
+    ownership: () => import("./modals/ModalOwnership.svelte"),
     roles: () => import("./modals/ModalRoles.svelte"),
     modLog: () => import("./modals/ModalModerationLog.svelte"),
     guildHub: () => import("./modals/ModalGuildHub.svelte"),
@@ -1585,6 +1588,12 @@
       <ModalView message={S.modal.message} onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "bans"}
       <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "members"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "mute"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "ownership"}
+      <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "roles"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "modLog"}
@@ -1734,6 +1743,8 @@
         title={S.modal.title}
         body={S.modal.body}
         confirmLabel={S.modal.confirmLabel}
+        reasonLabel={S.modal.reasonLabel || ""}
+        reasonPlaceholder={S.modal.reasonPlaceholder || ""}
         onConfirm={S.modal.onConfirm}
         onClose={() => (S.modal = null)}
       />

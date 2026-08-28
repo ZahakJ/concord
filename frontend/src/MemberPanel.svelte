@@ -20,6 +20,13 @@
   import { longpress } from "./lib/touch.js";
   import { splitStatus } from "./lib/presence.js";
   import { gameHue } from "./GameShelf.svelte";
+  import { moderationItems, confirmKick } from "./lib/moderation.svelte.js";
+  import {
+    confirmTransferOwnership,
+    confirmNameHeir,
+    revokeHeir,
+    confirmClaimOwnership,
+  } from "./lib/ownership.svelte.js";
 
   // Touch: long-press opens the member menu (iOS never synthesizes contextmenu
   // for plain elements, and Android's synthesized one would double-fire
@@ -34,6 +41,11 @@
   const inThisCall = (fpr) =>
     Object.values(S.voiceRosters[S.voice?.channelId] || {}).some((p) => p.fingerprint === fpr);
 
+  // ONE moderation menu. Right-clicking a member is the natural gesture and it
+  // used to be the INCOMPLETE surface: no ban, no mute, while the full set hid
+  // behind an unlabelled dots button painted over the profile card's art. The
+  // shared list from lib/moderation.svelte.js is now what both render, so the
+  // two cannot drift apart again.
   function memberMenu(e, mem) {
     openContextMenu(e, [
       { label: "View profile", icon: "spark", onClick: () => openProfilePopover(mem.fingerprint, e.target) },
@@ -54,7 +66,9 @@
           flash("Copied user ID", "success");
         },
       },
-      g?.canManage && !mem.isSelf && !mem.isOwner && { sep: true },
+      { sep: true },
+      ...moderationItems(mem),
+      { sep: true },
       // Only the sitting owner can hand the crown over, and only to a member
       // who's actually landed (a pending row isn't in the group yet).
       g?.isOwner &&
@@ -64,7 +78,7 @@
           label: "Transfer ownership…",
           icon: "crown",
           danger: true,
-          onClick: () => transferOwnership(mem),
+          onClick: () => confirmTransferOwnership(mem),
         },
       // Succession: name (or unname) an heir. Same eligibility as a transfer —
       // the crown can only ever land on a member who's actually here.
@@ -74,102 +88,8 @@
         !mem.pending &&
         (mem.isHeir
           ? { label: "Revoke heir", icon: "crown", onClick: () => revokeHeir(mem) }
-          : { label: "Name as heir…", icon: "crown", onClick: () => nameHeir(mem) }),
-      g?.canManage &&
-        !mem.isSelf &&
-        !mem.isOwner && {
-          label: "Remove from guild",
-          icon: "close",
-          danger: true,
-          onClick: () => kick(mem),
-        },
+          : { label: "Name as heir…", icon: "crown", onClick: () => confirmNameHeir(mem) }),
     ]);
-  }
-
-  // Handing the guild over is the most destructive thing an owner can do to
-  // themselves — menu action first, then a destructive-tier confirm spelling
-  // out exactly what changes hands (same two-step shape as kick/ban).
-  function transferOwnership(mem) {
-    const name = mem.name || mem.fingerprint.slice(0, 9);
-    S.modal = {
-      kind: "confirm",
-      title: `Transfer ownership to ${name}?`,
-      body: `This makes ${name} the owner of ${g?.name || "this guild"}. You'll become a regular member, and only ${name} can hand ownership back.`,
-      confirmLabel: "Transfer ownership",
-      onConfirm: async () => {
-        S.modal = null;
-        try {
-          await api.transferOwnership(S.activeGuildId, mem.fingerprint);
-          // Both sides of the handover show immediately: the crown badge moves
-          // (members) and our own owner-only affordances drop (guild flags).
-          await refreshGuilds();
-          await refreshRightPanel();
-          flash(`${name} now owns this guild`, "success");
-        } catch (err) {
-          flash(err);
-        }
-      },
-    };
-  }
-
-  // Naming an heir hands out a PERMANENT break-glass: the claim is valid
-  // whenever the heir uses it, not just "if the owner goes quiet" — a liveness
-  // gate can't exist in a partitioned P2P network without risking two crowned
-  // owners. The confirm copy must say that plainly, never soften it into a
-  // dead-man switch the system doesn't actually have.
-  function nameHeir(mem) {
-    const name = mem.name || mem.fingerprint.slice(0, 9);
-    S.modal = {
-      kind: "confirm",
-      title: `Name ${name} as heir?`,
-      body: `${name} will be able to take ownership of ${g?.name || "this guild"} at any time — including while you're still around. Only name someone you'd trust to run this place. You can revoke this whenever you like, until it's used.`,
-      confirmLabel: "Name as heir",
-      onConfirm: async () => {
-        S.modal = null;
-        try {
-          await api.setHeir(S.activeGuildId, mem.fingerprint);
-          await refreshGuilds();
-          await refreshRightPanel();
-          flash(`${name} is now this guild's heir`, "success");
-        } catch (err) {
-          flash(err);
-        }
-      },
-    };
-  }
-
-  // Revoking is the safe direction — no confirm needed, just do it.
-  async function revokeHeir(mem) {
-    try {
-      await api.clearHeir(S.activeGuildId);
-      await refreshGuilds();
-      await refreshRightPanel();
-      flash(`${mem.name || "Member"} is no longer the heir`);
-    } catch (err) {
-      flash(err);
-    }
-  }
-
-  // The heir cashing the designation — worded for the real situation (the
-  // owner is gone, or asked them to), two-step confirmed like a transfer.
-  function claimOwnership() {
-    S.modal = {
-      kind: "confirm",
-      title: "Take ownership of this guild?",
-      body: `The owner named you their heir, so you can take over at any time. You'll become the owner of ${g?.name || "this guild"} and the current owner becomes a regular member. Do this if the owner is gone — or asked you to.`,
-      confirmLabel: "Take ownership",
-      onConfirm: async () => {
-        S.modal = null;
-        try {
-          await api.claimOwnership(S.activeGuildId);
-          await refreshGuilds();
-          await refreshRightPanel();
-          flash("You now own this guild", "success");
-        } catch (err) {
-          flash(err);
-        }
-      },
-    };
   }
 
   // "Name an heir" from the nudge: reuse the context-menu idiom as a picker —
@@ -181,7 +101,7 @@
       eligible.map((m) => ({
         label: m.name || m.fingerprint.slice(0, 9),
         icon: "crown",
-        onClick: () => nameHeir(m),
+        onClick: () => confirmNameHeir(m),
       })),
     );
   }
@@ -311,11 +231,11 @@
   }
 
   // Kicking ejects a member — confirm first (a hover-revealed danger button is
-  // one stray click otherwise), matching the profile popover's flow.
+  // one stray click otherwise), through the one shared confirm every surface
+  // uses. The pending case is genuinely different and stays here: an invitee
+  // who has not joined is not in the group, so "removing" them cancels the
+  // invite rather than issuing a governance record about a member.
   function kick(mem) {
-    const name = mem.name || mem.fingerprint.slice(0, 9);
-    // A pending member isn't in the group yet — "removing" them just cancels the
-    // invite you sent, no confirm needed.
     if (mem.pending) {
       api
         .cancelPendingMember(S.activeGuildId, mem.fingerprint)
@@ -324,22 +244,7 @@
         .catch(flash);
       return;
     }
-    S.modal = {
-      kind: "confirm",
-      title: `Remove ${name}?`,
-      body: `${name} will be removed from this guild. They can rejoin with a new invite unless you ban them.`,
-      confirmLabel: "Remove",
-      onConfirm: async () => {
-        S.modal = null;
-        try {
-          await api.removeMember(S.activeGuildId, mem.fingerprint);
-          await refreshRightPanel();
-          flash("Member removed");
-        } catch (err) {
-          flash(err);
-        }
-      },
-    };
+    confirmKick(mem);
   }
 </script>
 
@@ -385,7 +290,7 @@
       </div>
       <p>The owner authorized you to take over this guild — for when they're gone, or ask you to.</p>
       <div class="notice-actions">
-        <button class="notice-btn" onclick={claimOwnership}>Take ownership…</button>
+        <button class="notice-btn" onclick={confirmClaimOwnership}>Take ownership…</button>
       </div>
     </div>
   {/if}
@@ -486,7 +391,7 @@
         </span>
       </button>
         {#if g?.canManage && !mem.isSelf && !mem.isOwner}
-          <button class="kick" title={mem.pending ? "Cancel invite" : "Remove from guild"} aria-label="{mem.pending ? 'Cancel invite for' : 'Remove'} {mem.name || 'member'}" onclick={() => kick(mem)}>
+          <button class="kick" title={mem.pending ? "Cancel invite" : "Kick from guild"} aria-label="{mem.pending ? 'Cancel invite for' : 'Kick'} {mem.name || 'member'}" onclick={() => kick(mem)}>
             <Icon name="close" size={12} />
           </button>
         {/if}

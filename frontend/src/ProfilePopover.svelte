@@ -36,6 +36,7 @@
   import { PERM, PERM_ALL, has } from "./lib/perms.js";
   import { splitStatus } from "./lib/presence.js";
   import Banner from "./Banner.svelte";
+  import { moderationItems, closeCard } from "./lib/moderation.svelte.js";
   import FxLayer from "./FxLayer.svelte";
   import { cardFxTable, cardFramesTable, cardScenesTable } from "./lib/cosmetics.svelte.js";
   import CardFrame from "./CardFrame.svelte";
@@ -454,25 +455,11 @@
           onClick: startEditNick,
         },
         { sep: true },
-        canMakeAdmin && {
-          label: isAdmin ? "Remove admin" : "Make admin",
-          icon: "spark",
-          onClick: toggleAdmin,
-        },
-        canMute && {
-          label: isMuted ? "Unmute" : "Mute 10m",
-          icon: isMuted ? "micOff" : "mic",
-          onClick: toggleMute,
-        },
-        { sep: true },
-        canModerate && { label: "Kick", icon: "door", onClick: kick },
-        canModerate && { label: "Ban", icon: "trash", danger: true, onClick: ban },
-        !mem.isSelf && {
-          label: blocked ? "Unblock" : "Block",
-          icon: "lock",
-          danger: !blocked,
-          onClick: toggleBlock,
-        },
+        // The card's ⋯ and the member list's right-click render the SAME list
+        // now. `closeCard` is the only thing that differs: a dialog opening
+        // behind a popover that is still up is how the mute picker ended up
+        // under the card it was launched from.
+        ...moderationItems(mem, { close: closeCard }),
       ],
       { title: mem.name || "Member" },
     );

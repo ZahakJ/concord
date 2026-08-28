@@ -106,6 +106,14 @@
     <section class="grp">
       <div class="sec-label">People</div>
       <div class="card">
+        <button class="row" onclick={() => openPanel("members")}>
+          <span class="chip"><Icon name="members" size={17} /></span>
+          <span class="row-text">
+            <span class="row-title">Members</span>
+            <span class="row-sub">Search, sort, hand out roles &amp; moderate</span>
+          </span>
+          <span class="chev">›</span>
+        </button>
         {#if canRoles}
           <button class="row" onclick={() => openPanel("roles")}>
             <span class="chip"><Icon name="spark" size={17} /></span>
@@ -249,16 +257,21 @@
     <section class="grp">
       <div class="sec-label">Danger zone</div>
       <div class="card danger-card">
-        {#if g.isOwner}
-          <!-- Not a dead-end button: transfer and heir live on the member row
-               (MemberPanel's right-click), so this just points there. -->
-          <div class="row note">
+        {#if g.isOwner || g.heir}
+          <!-- It used to be a paragraph of documentation sitting in a list of
+               actions: "right-click a member in the member list", not a link,
+               doing nothing. It opens the panel now. -->
+          <button class="row" onclick={() => openPanel("ownership")}>
             <span class="chip danger-chip"><Icon name="crown" size={16} /></span>
             <span class="row-text">
               <span class="row-title">Ownership &amp; heir</span>
-              <span class="row-sub">Right-click a member in the member list to transfer ownership or name an heir.</span>
+              <span class="row-sub">
+                {#if g.isOwner}Hand the guild over, or name who can take it if you vanish.{:else}
+                  You are this guild's heir.{/if}
+              </span>
             </span>
-          </div>
+            <span class="chev">›</span>
+          </button>
         {/if}
         <button class="row danger" onclick={() => confirmLeaveGuild(g)}>
           <span class="chip danger-chip"><Icon name={g.isOwner ? "trash" : "door"} size={16} /></span>
