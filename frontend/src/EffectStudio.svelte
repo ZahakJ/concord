@@ -23,8 +23,10 @@
   // gallery because they are the bigger thing to look at; the fields keep
   // their shelf under them.
   import { S } from "./lib/state.svelte.js";
+  import { motionInView } from "./lib/inview.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Icon from "./Icon.svelte";
+  import { portal } from "./lib/portal.js";
   import FxLayer from "./FxLayer.svelte";
   import CardScene from "./CardScene.svelte";
   import ProfileCardPreview from "./ProfileCardPreview.svelte";
@@ -86,7 +88,7 @@
       <div class="gtitle">{g.title}</div>
       <div class="grid">
         {#each g.ids as id (id)}
-          <button class="opt" class:sel={sel === id} onclick={() => (sel = id)}>
+          <button class="opt" class:sel={sel === id} onclick={() => (sel = id)} use:motionInView>
             <span class="tile scene">
               <CardScene {id} {color} {color2} scale={tileScale} />
             </span>
@@ -103,7 +105,7 @@
       <div class="gtitle">{g.title}</div>
       <div class="grid">
         {#each g.ids as id (id)}
-          <button class="opt" class:sel={sel === id} onclick={() => (sel = id)}>
+          <button class="opt" class:sel={sel === id} onclick={() => (sel = id)} use:motionInView>
             <span class="tile">
               <FxLayer fx={CARD_EFFECT_BY_ID[id].fx} seed={id} scale={tileScale} />
             </span>

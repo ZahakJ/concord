@@ -9,8 +9,10 @@
   // and freezing it in the one place it has to sell itself was a bug once
   // already.
   import { S } from "./lib/state.svelte.js";
+  import { motionInView } from "./lib/inview.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Icon from "./Icon.svelte";
+  import { portal } from "./lib/portal.js";
   import CardFrame from "./CardFrame.svelte";
   import ProfileCardPreview from "./ProfileCardPreview.svelte";
   import { CARD_FRAME_BY_ID, CARD_FRAME_GROUPS, CARD_FRAMES } from "./lib/cardframes.js";
@@ -52,7 +54,7 @@
       <div class="gtitle">{g.title}</div>
       <div class="grid">
         {#each g.ids as id (id)}
-          <button class="opt" class:sel={sel === id} onclick={() => (sel = id)}>
+          <button class="opt" class:sel={sel === id} onclick={() => (sel = id)} use:motionInView>
             <span class="tile">
               <span class="mini">
                 <CardFrame {id} {color} color2={color2 || color} />

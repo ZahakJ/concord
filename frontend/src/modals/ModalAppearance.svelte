@@ -4,6 +4,7 @@
   // step. setAppearance persists the pref and stamps <html> (data-theme /
   // data-density / --accent) with a short cross-fade; see state.svelte.js.
   import { slide } from "svelte/transition";
+  import { motionInView } from "../lib/inview.js";
   import Modal from "./Modal.svelte";
   import SettingRow from "./SettingRow.svelte";
   import FxOverlay from "../FxOverlay.svelte";
@@ -247,6 +248,7 @@
       role="radio"
       aria-checked={themePack === p.id}
       onclick={() => setAppearance("themePack", p.id)}
+      use:motionInView
     >
       <span
         class="pk"
@@ -373,6 +375,7 @@
           role="radio"
           aria-checked={themeFx === f.id}
           onclick={() => setAppearance("themeFx", f.id)}
+          use:motionInView
         >
           <!-- The card runs the real effect, scaled down — same component and
                same CSS the app mounts, so nothing here can drift out of sync

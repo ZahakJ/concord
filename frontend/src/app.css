@@ -2715,6 +2715,27 @@ textarea:focus {
   }
 }
 
+/* ── held-still motion ────────────────────────────────────────────────────
+   The class lib/inview.js puts on a tile that has scrolled out of view. It has
+   to reach the whole subtree — the art is nested spans and SVG parts, not the
+   tile itself — and the pseudo-elements too, because half the weather in the
+   banner presets is drawn in ::before/::after.
+
+   `!important` earns its place here, which is rare in this stylesheet. Two
+   rules in the app say `animation-play-state: running` out loud, both of them
+   the "wake on hover" behaviour for a still decoration, and both are three
+   classes deep. Off-screen beats hovered by definition: you cannot hover a
+   tile you cannot see, and a hover state left behind by the pointer as the
+   list scrolled away must not be what keeps forty animations alive. */
+.motion-idle,
+.motion-idle *,
+.motion-idle::before,
+.motion-idle::after,
+.motion-idle *::before,
+.motion-idle *::after {
+  animation-play-state: paused !important;
+}
+
 /* ── bidirectional text ───────────────────────────────────────────────────
    Concord's chrome is left-to-right, but the text people put INTO it is not
    always, and the two only conflict in one specific way: when a run of Arabic,

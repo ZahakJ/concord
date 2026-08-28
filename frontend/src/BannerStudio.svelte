@@ -7,6 +7,8 @@
   //     and only the part you choose is baked into the banner.
   //   • Colors — your two profile colors, angle included.
   import Icon from "./Icon.svelte";
+  import { motionInView } from "./lib/inview.js";
+  import { portal } from "./lib/portal.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Banner from "./Banner.svelte";
   import { rangefill } from "./lib/rangefill.js";
@@ -165,7 +167,13 @@
           <div class="gtitle">{g}</div>
           <div class="grid">
             {#each BANNERS.filter((b) => b.group === g) as p (p.id)}
-              <button class="tile" class:sel={sel === p.id} onclick={() => (sel = p.id)} title={p.name}>
+              <button
+                class="tile"
+                class:sel={sel === p.id}
+                onclick={() => (sel = p.id)}
+                title={p.name}
+                use:motionInView
+              >
                 <Banner banner={`preset:${p.id}`} scale={0.45} class="art" />
                 <span class="tname">{p.name}</span>
                 {#if p.fx}<span class="anim-badge" title="Animated">✨</span>{/if}

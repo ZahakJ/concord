@@ -28,6 +28,8 @@
   // shipping images is that they adopt the wearer. A generic swatch would sell
   // that short.
   import Icon from "./Icon.svelte";
+  import { motionInView } from "./lib/inview.js";
+  import { portal } from "./lib/portal.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
   import Avatar from "./Avatar.svelte";
   import RingDials from "./RingDials.svelte";
@@ -209,6 +211,7 @@
             class:sel={selDec === id}
             onclick={() => pickDec(id)}
             title={DECORATION_BY_ID[id]?.name}
+            use:motionInView
           >
             <Avatar
               {name}
@@ -237,6 +240,7 @@
             class:sel={selRing === id}
             onclick={() => pickRing(id)}
             title={RING_BY_ID[id]?.name}
+            use:motionInView
           >
             <Avatar {name} {emoji} {color} image={avatar} size={36} frame={id} style={dials} {color2} />
             <span class="oname">{RING_BY_ID[id]?.name}</span>
