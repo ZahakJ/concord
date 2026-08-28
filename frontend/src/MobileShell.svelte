@@ -10,6 +10,7 @@
   import {
     S,
     activeGuild,
+    channelTypeIcon,
     nudge,
     openContextMenu,
     selectChannel,
@@ -79,12 +80,22 @@
   );
 
   // Title bar: the open channel's name (or guild name on the welcome screen).
+  // The hash used to be unconditional, so a voice room, a forum board and an
+  // announcement channel all wore a text channel's mark on a phone — while the
+  // desktop header and the channel list, three inches away in the drawer, drew
+  // the right one. Same icon set, keyed off the same `ch.type`.
   const title = $derived.by(() => {
     const g = activeGuild();
     if (!g) return "Concord";
     if (g.kind === "dm") return g.name;
     const ch = g.channels?.find((c) => c.id === S.activeChannelId);
-    return ch ? `#${ch.name}` : g.name;
+    return ch ? ch.name : g.name;
+  });
+  const titleIcon = $derived.by(() => {
+    const g = activeGuild();
+    if (!g || g.kind === "dm") return "";
+    const ch = g.channels?.find((c) => c.id === S.activeChannelId);
+    return ch ? channelTypeIcon(ch.type) : "";
   });
 
   // ---- gesture-driven drawers ----
@@ -492,6 +503,7 @@
     <!-- The title is tappable, which is where a thumb goes first: same sheet as ⋯.
          The chevron is the only thing that says so before you tap it. -->
     <button class="mtitle" onclick={hasChannel ? moreMenu : undefined} disabled={!hasChannel}>
+      {#if titleIcon}<span class="mtitle-ic"><Icon name={titleIcon} size={13} /></span>{/if}
       <span class="mtitle-text">{title}</span>
       {#if hasChannel}<span class="chev-down"><Icon name="chevron" size={12} /></span>{/if}
     </button>
@@ -752,6 +764,11 @@
     padding: 10px 4px;
     min-height: var(--tap-min);
     border-radius: var(--radius-sm);
+  }
+  .mtitle-ic {
+    display: flex;
+    flex-shrink: 0;
+    color: var(--text-faint);
   }
   .mtitle-text {
     min-width: 0;
