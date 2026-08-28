@@ -41,10 +41,30 @@
   // aria-labelledby at, every sheet in the app opened as an unnamed group.
   const titleId = "modal-title-" + Math.random().toString(36).slice(2, 9);
 
+  // `me` is this dialog's place on the app-wide layer stack. Registering at
+  // component init rather than in an effect keeps creation order and stack
+  // order the same thing, which is what makes a confirm raised from inside a
+  // settings panel — six places do it — answer Escape on its own without also
+  // closing the panel that asked the question.
+  //
+  // What goes on the stack is `unwind`, not `onClose`: Escape and the phone's
+  // back button have to mean exactly what the header's own ‹ and ✕ mean, and on
+  // a settings sub-panel that is ‹, one rung at a time. Before this, Escape in
+  // Settings → Privacy → confirm answered the confirm correctly and then, on
+  // the next press, threw the whole dialog away and dropped you in the chat
+  // pane — because a panel that replaces another leaves the layer stack one
+  // deep no matter how far in you are, so the only thing left to pop was the
+  // dialog itself.
+  const me = layer("modal", () => unwind());
+
   // Back is offered whenever there's somewhere to go back TO — either a panel
   // on the stack we drilled through, or a plain `from` on a panel opened
-  // directly.
-  const canBack = $derived(S.modalStack.length > 0 || !!S.modal?.from);
+  // directly. Only the PANEL may offer it: `S.modalStack` is global, so a
+  // confirmation raised from inside Settings → Privacy used to draw a ‹ in its
+  // own header that unwound the panel underneath it and took the question with
+  // it. The panel is the outermost dialog; anything above it is its own.
+  const isPanel = $derived(!me.hasOtherOfKind);
+  const canBack = $derived(isPanel && (S.modalStack.length > 0 || !!S.modal?.from));
 
   // Settings and its sub-panels read as one stack you move through, not a pile
   // of unrelated dialogs: a panel opened from another slides in from the right,
@@ -63,13 +83,6 @@
   // except by tabbing all the way round. And none of the 49 gave focus BACK, so
   // closing one dropped the caret at the top of the document every time.
   //
-  // `me` is this dialog's place on the app-wide layer stack. Registering at component
-  // init rather than in an effect keeps creation order and stack order the same
-  // thing, which is what makes a confirm raised from inside a settings panel —
-  // six places do it — answer Escape on its own without also closing the panel
-  // that asked the question. `dismiss` is what goes on the stack, not
-  // `onClose`, so back and the ✕ play the same exit.
-  const me = layer("modal", () => dismiss());
   let opener = null;
 
   onMount(() => {
@@ -144,6 +157,14 @@
     closing = true;
     haptic("light");
     playExit(dialog, overlay, onClose);
+  }
+
+  // What Escape and the phone's back button do. One rung of the panel trail if
+  // there is one, otherwise close for real — the same two behaviours the header
+  // already offers as ‹ and ✕, so the keyboard cannot disagree with the buttons.
+  function unwind() {
+    if (canBack) backPanel();
+    else dismiss();
   }
 
   // Tab is trapped within the dialog so focus can't wander onto the page

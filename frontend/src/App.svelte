@@ -748,8 +748,15 @@
   // How many presses this app still has an answer for: one per open layer, one
   // per place left to walk out of, and one for the "press back again" ask. The
   // drawer standing open IS the outermost place, however it was opened.
+  //
+  // The panel trail counts too, and navDepth() cannot see it: a settings
+  // sub-panel REPLACES the dialog it came from rather than stacking on it, so
+  // three panels deep is still one layer. Each one on `S.modalStack` is a press
+  // the app answers by going back a rung, and Android has to be told so or it
+  // takes the gesture for itself and leaves the app from inside Settings.
   const backSteps = $derived(
     navDepth() +
+      S.modalStack.length +
       (activeChannelObj?.parent ? 1 : 0) +
       (S.isMobile && S.activeChannelId && !S.drawerOpen ? 1 : 0) +
       1,

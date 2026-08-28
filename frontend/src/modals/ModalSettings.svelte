@@ -186,7 +186,7 @@
   <section class="grp">
     <div class="sec-label">Account</div>
     <div class="card">
-      <button class="row" onclick={() => (S.modal = { kind: "profile", from: "settings" })}>
+      <button class="row" onclick={() => openPanel("profile", "settings")}>
         <Avatar
           name={S.displayName || S.identity.displayName || "You"}
           emoji={S.identity.emoji}
@@ -200,7 +200,7 @@
         </span>
         <span class="chev">›</span>
       </button>
-      <button class="row" onclick={() => (S.modal = { kind: "appearance", from: "settings" })}>
+      <button class="row" onclick={() => openPanel("appearance", "settings")}>
         <span class="appearance-chip" aria-hidden="true"></span>
         <span class="row-text">
           <span class="row-title">Appearance</span>

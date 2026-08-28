@@ -121,6 +121,19 @@ export function layer(kind, close) {
       }
       return false;
     },
+    // Is anything ELSE of this kind open? A settings panel and a confirmation
+    // it raised are both dialogs, and only the panel is a rung on the trail —
+    // the confirm is rendered locally precisely so that cancelling it does not
+    // throw the trail away.
+    //
+    // Asked as "is there another one", not "am I the outermost one", because it
+    // has to give the right answer from inside close(): popLayer takes the
+    // entry off the stack BEFORE calling it, so a getter that looks for its own
+    // id finds nothing and reports false for the very layer it is describing.
+    // Excluding my own id instead is true either way.
+    get hasOtherOfKind() {
+      return layers.some((l) => l && l.kind === kind && l.id !== entry.id);
+    },
   };
 }
 
