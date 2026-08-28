@@ -10,6 +10,7 @@
   import Icon from "./Icon.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import { syncLayer } from "./lib/navstack.svelte.js";
+  import { portal } from "./lib/portal.js";
   import { S } from "./lib/state.svelte.js";
 
   // `up` opens the dropdown ABOVE the trigger — for a trigger that lives at the
@@ -45,8 +46,72 @@
   function onWindowClick(e) {
     // The sheet portals outside .menu-root, so "outside the trigger" would
     // close it on its own first tap. It owns its dismissal (scrim/swipe).
-    if (open && !S.isMobile && root && !root.contains(e.target)) open = false;
+    // The desktop dropdown is portalled too now, so the panel has to be part of
+    // "inside" or the first click on a row would close the menu before the row
+    // could act on it.
+    if (!open || S.isMobile || !root) return;
+    if (root.contains(e.target) || panel?.contains(e.target)) return;
+    open = false;
   }
+
+  // ---- where the dropdown goes -------------------------------------------
+  //
+  // It used to go `position: absolute` inside the trigger's own wrapper, which
+  // made every scroll box in the app a guillotine: the channel list clips at
+  // `overflow`, so the options menu on the LAST channel of a full list rendered
+  // 2px tall and then nothing — 80 of its 82 pixels lived below the scroller's
+  // edge. `main.chat` and `.app` clip too, so the same thing waited for any
+  // trigger low in a pane. That is the "dropdown menu cut through the UI"
+  // report, and it is a containment bug, not a rendering one: it reproduces
+  // identically in Chromium and in the desktop build's WebKit.
+  //
+  // So the panel is portalled to <body> and placed against the trigger's
+  // measured rect. Flipping up is now a fallback rather than a call-site
+  // decision (the `up` prop is still honoured as the FIRST preference, because
+  // the composer's ⊕ knows perfectly well which way it wants to open), and the
+  // panel is given the height that is actually available so a long list scrolls
+  // inside itself instead of running off the screen.
+  const GAP = 6;
+  const EDGE = 8;
+  let pos = $state(null);
+
+  function place() {
+    if (!open || S.isMobile || !panel || !root) return;
+    const t = root.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const below = vh - t.bottom - GAP - EDGE;
+    const above = t.top - GAP - EDGE;
+    // Honour `up` while there is room for it; otherwise take whichever side has
+    // more, so a trigger with 40px under it does not open into 40px.
+    const wantUp = up ? above > 120 || above >= below : below < Math.min(panel.scrollHeight, 340) && above > below;
+    const room = Math.max(120, wantUp ? above : below);
+    // Measure at the height it will actually get, or a panel that is currently
+    // taller than the room reports a width shrunk by its own scrollbar.
+    panel.style.maxHeight = `${Math.min(340, room)}px`;
+    const w = panel.offsetWidth;
+    const h = panel.offsetHeight;
+    let left = align === "left" ? t.left : t.right - w;
+    left = Math.max(EDGE, Math.min(left, vw - w - EDGE));
+    const top = wantUp ? Math.max(EDGE, t.top - GAP - h) : Math.min(t.bottom + GAP, vh - h - EDGE);
+    pos = { left, top, up: wantUp, width: wide ? t.width : 0 };
+  }
+
+  // Re-place on anything that can move the trigger. `scroll` is captured
+  // because the movers are inner scrollers (the channel list, a settings
+  // dialog), which do not bubble a scroll event to the window.
+  $effect(() => {
+    if (!open || S.isMobile) return;
+    place();
+    const on = () => place();
+    window.addEventListener("resize", on);
+    window.addEventListener("scroll", on, true);
+    return () => {
+      window.removeEventListener("resize", on);
+      window.removeEventListener("scroll", on, true);
+      pos = null;
+    };
+  });
 
   // role="menu" is a promise about the keyboard, and this component made it
   // twice — on the dropdown and on the sheet — while honouring none of it. Tab
@@ -138,10 +203,15 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="menu {align}"
-        class:up
+        class:up={pos ? pos.up : up}
+        class:placed={!!pos}
         role="menu"
         tabindex="-1"
         bind:this={panel}
+        use:portal
+        style={pos
+          ? `left:${pos.left}px;top:${pos.top}px;${pos.width ? `width:${pos.width}px;min-width:0;` : ""}`
+          : ""}
         onclick={() => (open = false)}
         onkeydown={onMenuKey}
       >
@@ -163,11 +233,9 @@
   .menu-root.wide .trigger.own {
     width: 100%;
   }
-  .menu-root.wide .menu {
-    left: 0;
-    right: 0;
-    min-width: 0;
-  }
+  /* A wide picker's panel matches its trigger's width; place() measures it and
+     writes both width and min-width inline, because the panel is no longer a
+     descendant of .menu-root and no descendant selector can reach it. */
   .trigger {
     display: grid;
     place-items: center;
@@ -210,8 +278,13 @@
     }
   }
   .menu {
-    position: absolute;
-    top: calc(100% + 6px);
+    /* Fixed and portalled to <body>: see place() above. `visibility: hidden`
+       until the first measurement lands so the panel is never painted at 0,0
+       for a frame on its way to the trigger. */
+    position: fixed;
+    left: 0;
+    top: 0;
+    visibility: hidden;
     min-width: 180px;
     /* A menu used to hold a handful of verbs. Select.svelte hands it option
        lists — thirty-one days, twelve months — which without a ceiling grow a
@@ -230,6 +303,9 @@
     transform-origin: top;
     animation: menu-in var(--dur-quick) var(--ease-out);
   }
+  .menu.placed {
+    visibility: visible;
+  }
   @keyframes menu-in {
     from {
       opacity: 0;
@@ -242,18 +318,14 @@
     }
   }
   .menu.right {
-    right: 0;
     transform-origin: top right;
   }
   .menu.left {
-    left: 0;
     transform-origin: top left;
   }
   /* Upward: the trigger sits on the bottom edge of the window, so the panel
      grows toward the content instead of off the screen. */
   .menu.up {
-    top: auto;
-    bottom: calc(100% + 6px);
     transform-origin: bottom;
     animation: menu-in-up var(--dur-quick) var(--ease-out);
   }
@@ -280,6 +352,7 @@
      rows stay. Same markup, same consumer classes. */
   .menu.sheet {
     position: static;
+    visibility: visible;
     min-width: 0;
     background: transparent;
     border: none;
