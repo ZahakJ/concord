@@ -436,6 +436,30 @@
     return a;
   }
 
+  // Whether the newest row's box is actually on screen. The "Viewing older
+  // messages · Jump to latest" pill used to appear whenever `atBottom` was
+  // false, and `atBottom` is a STICKY reading state left only by scrolling up —
+  // which is right for following the conversation and wrong as a test for
+  // "would this button take you anywhere". Landing on the NEW divider with
+  // three unread messages fully visible and forty pixels of empty feed under
+  // them offered to jump you where you already were.
+  let lastRowSeen = $state(true);
+  function checkLastRow() {
+    lastRowSeen = lastRowOnScreen();
+  }
+  function lastRowOnScreen() {
+    if (!feedEl) return true;
+    // Rows below the window are not on screen, whatever the geometry of the
+    // ones that are rendered says.
+    if (hi < items.length) return false;
+    const rows = feedEl.querySelectorAll("[data-msg-id], .pmsg");
+    const last = rows[rows.length - 1];
+    if (!last) return true;
+    const fb = feedEl.getBoundingClientRect();
+    const r = last.getBoundingClientRect();
+    return r.bottom <= fb.bottom + 2 && r.top < fb.bottom;
+  }
+
   function spacers() {
     const top = feedEl?.querySelector(".vs-top");
     const bot = feedEl?.querySelector(".vs-bot");
@@ -636,6 +660,7 @@
     if (!feedEl) return;
     if (pin) feedEl.scrollTop = feedEl.scrollHeight;
     else restoreAnchor(anchor);
+    checkLastRow();
   }
 
   // Switching channel is the thing a person does a hundred times an hour, and
@@ -679,7 +704,10 @@
   $effect(() => {
     void items.length;
     void S.editing?.id;
-    untrack(scheduleWindow);
+    untrack(() => {
+      scheduleWindow();
+      checkLastRow();
+    });
   });
 
   // Bring a row that is loaded but outside the window back into it, so the
@@ -1228,6 +1256,7 @@
       lastScrollTop = st;
     }
     if (S.newBelow && atBottom) S.newBelow = false;
+    checkLastRow();
     scheduleWindow();
     // Back at the bottom with a long afternoon of paged-in history above us:
     // let it go. Everything dropped is far off the top of the screen and the
@@ -1424,7 +1453,7 @@
       New messages <span class="arrow">↓</span>
     </button>
     <span class="sr-only" role="status" aria-live="polite">New messages below</span>
-  {:else if !atBottom}
+  {:else if !atBottom && !lastRowSeen}
     <button class="older-bar" aria-label="Viewing older messages — jump to latest" onclick={scrollSoon}>
       <span class="ob-text">Viewing older messages</span>
       <span class="ob-cta">Jump to latest</span>

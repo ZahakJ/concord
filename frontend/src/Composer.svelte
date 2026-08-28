@@ -28,7 +28,9 @@
   import { playSend } from "./lib/sounds.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
   import { noteDraft } from "./lib/drafts.svelte.js";
-  import { stagedImage } from "./lib/attachopts.js";
+  import Avatar from "./Avatar.svelte";
+  import { stagedImage, dataUrlBytes } from "./lib/attachopts.js";
+  import { fmtBytes } from "./lib/chronicle.js";
 
   let draft = $state("");
   // The draft's BASE DIRECTION, when the writer has asked for one: "" (decide
@@ -508,7 +510,16 @@
       const items = [
         ...S.members
           .filter((m) => !m.isSelf && hit(m.name))
-          .map((m) => ({ key: `m:${m.fingerprint}`, name: m.name, kind: "member" })),
+          // The picker draws a face, so it carries what a face is made of.
+          // Same fields the member panel passes, so the two cannot drift.
+          .map((m) => ({
+            key: `m:${m.fingerprint}`,
+            name: m.name,
+            kind: "member",
+            emoji: m.emoji,
+            colour: m.color,
+            image: m.avatar,
+          })),
         ...refs.roles
           .filter((r) => hit(r.name))
           .map((r) => ({ key: `r:${r.name}`, name: r.name, kind: "role", color: r.color })),
@@ -913,7 +924,10 @@
     try {
       const dataUrl = await readAsDataURL(file);
       const isVideo = file.type.startsWith("video/");
-      pending = [...pending, { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo }];
+      pending = [
+        ...pending,
+        { id: uid(), dataUrl, name: file.name || "file", isImage: false, isVideo, bytes: file.size || dataUrlBytes(dataUrl) },
+      ];
     } catch (err) {
       flash(err);
     } finally {
@@ -1344,6 +1358,14 @@
             <span class="s-desc">{item.desc}</span>
           {:else if suggest.kind === "channel"}
             <span class="s-emoji">#</span>{item.name}
+          {:else if item.kind === "member"}
+            <!-- A face, because this is the most-used affordance in a chat
+                 composer and a name in monospace with a stray space after the
+                 @ is not how anybody recognises a person. -->
+            <span class="s-face"
+              ><Avatar name={item.name} emoji={item.emoji} color={item.colour} image={item.image} size={20} /></span
+            >
+            <span class="s-who">{item.name}</span>
           {:else}
             <span class="s-emoji">@</span><span style={roleTint(item)}>{item.name}</span>
             {#if item.kind === "role"}<span class="s-desc">role</span>{/if}
@@ -1430,6 +1452,7 @@
     {#if pending.length || uploading > 0}
       <div class="attach-tray">
         {#each pending as p (p.id)}
+          <div class="att-wrap">
           <div class="att-chip" class:file={!p.isImage} class:spoilered={p.spoiler}>
             {#if p.isImage}
               <img src={p.dataUrl} alt="" class:blur={p.spoiler} />
@@ -1485,6 +1508,22 @@
                 <Icon name="trash" size={13} />
               </button>
             </div>
+          </div>
+          <!-- What is about to be sent, before it is sent. The chip was a 100x70
+               thumbnail and a bin: no filename, no size, no dimensions, in a
+               client that refuses images over 5 MB and files over 25 MB. "How
+               big is this?" is a question to answer BEFORE Enter, not after the
+               send fails. -->
+          <span class="att-meta" title={p.name || p.origName || ""}>
+            {#if p.isImage}
+              <span class="am-name">{p.name || p.origName || "image"}</span>
+              <span class="am-num">{fmtBytes(p.bytes)}{p.w ? ` · ${p.w}×${p.h}` : ""}</span>
+            {:else}
+              <span class="am-name">{p.name}</span>
+              <span class="am-num">{fmtBytes(p.bytes)}</span>
+            {/if}
+            {#if p.spoiler}<span class="am-spoil">spoiler</span>{/if}
+          </span>
           </div>
         {/each}
         {#if uploading > 0}<div class="att-chip loading"><span class="att-spin"></span></div>{/if}
@@ -2134,8 +2173,14 @@
        taller than desktop's, and a hardcoded bottom overlapped it. */
     bottom: calc(100% + 6px);
     left: 60px;
-    /* Glassy floating panel over the feed, matching the command palette. */
-    background: color-mix(in srgb, var(--bg-1) 90%, transparent);
+    /* OPAQUE. It was a 90% fill leaning entirely on a 12px backdrop blur for
+       separation, and the blur is exactly the thing that cannot be relied on
+       here: the shipping desktop renders in software, where blur surfaces come
+       back corrupt, and in a headless capture the computed backdrop-filter read
+       `none` and a poll behind the panel printed "0%" straight through the
+       :smirk: row. The ground does the separation now; the blur is a bonus
+       where it lands. */
+    background: var(--bg-1);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);
@@ -2179,7 +2224,11 @@
     padding: 6px 10px;
     border-radius: var(--radius-sm);
     font-size: var(--fs-ui);
-    font-family: ui-monospace, monospace;
+    /* NOT monospace. A person's name set as a code identifier is the wrong
+       claim about what it is, and it was applied to the emoji, slash and
+       channel rows too — the only one of the four that is genuinely code is
+       the slash command's usage line, which keeps it below. */
+    gap: 6px;
     /* A long display name used to push the panel past the right edge — nothing
        here wrapped or truncated, and .suggest-pop has a min-width. */
     min-width: 0;
@@ -2213,7 +2262,16 @@
   }
   .s-emoji {
     font-size: 16px;
-    margin-right: 6px;
+  }
+  .s-face {
+    display: inline-flex;
+    flex: none;
+  }
+  .s-who {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    unicode-bidi: plaintext;
   }
   .s-slash {
     display: inline-flex;
@@ -2231,6 +2289,7 @@
   }
   .s-cmd {
     font-weight: 600;
+    font-family: ui-monospace, monospace;
   }
   /* Description trails the command in the UI font (the command stays mono). */
   .s-desc {
@@ -2295,6 +2354,33 @@
        that runs out of tray carries on into the conversation behind it. */
     overscroll-behavior: contain;
   }
+  .att-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 132px;
+  }
+  .att-meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    font-size: var(--fs-tiny);
+    color: var(--text-faint);
+    line-height: 1.35;
+  }
+  .am-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-muted);
+    unicode-bidi: plaintext;
+  }
+  .am-num {
+    font-variant-numeric: tabular-nums;
+  }
+  .am-spoil {
+    color: var(--warn-text);
+  }
   .att-chip {
     position: relative;
     border-radius: var(--radius-md);
@@ -2345,14 +2431,19 @@
     gap: 2px;
     transition: opacity var(--dur-quick) ease;
   }
-  /* Spoiler and Edit stay hover-only — they are refinements, and three 19px
-     buttons permanently over a 64px thumbnail is more chrome than picture.
-     Remove does not: "how do I take this one back off?" is the question a
+  /* Remove is fully drawn: "how do I take this one back off?" is the question a
      staged attachment actually raises, and answering it only on hover means a
-     keyboard user tabs through the tray looking for a control that is drawn at
-     zero opacity. */
+     keyboard user tabs through the tray looking for a control at zero opacity.
+     Spoiler is now drawn too, quietly — hiding a picture is a decision people
+     make BEFORE they send it, and a control nobody can see is a control nobody
+     uses. Edit stays hover-only: the caption under the chip already names the
+     file, which is most of what that panel was for. Two buttons over a 64px
+     thumbnail, not three. */
   .att-tool:not(.danger) {
     opacity: 0;
+  }
+  .att-tool[aria-pressed] {
+    opacity: 0.6;
   }
   .att-chip:hover .att-tool,
   .att-chip:focus-within .att-tool {

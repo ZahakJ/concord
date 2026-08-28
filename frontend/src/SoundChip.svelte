@@ -60,12 +60,19 @@
 </div>
 
 <style>
+  /* The chip sizes to its caption. A flat 320px cut "130 ms · synthesized here,
+     nothing download…" mid-word with 850px of empty message pane to its right —
+     a truncation that costs the reader the whole point of the sentence and buys
+     nothing, because the room was there. `fit-content` keeps it as small as its
+     contents allow and the cap only stops a long name running the width of the
+     feed. */
   .sound {
     display: inline-flex;
     align-items: stretch;
     gap: 1px;
     margin-top: var(--sp-1);
-    max-width: 320px;
+    width: fit-content;
+    max-width: min(520px, 100%);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     background: var(--bg-1);

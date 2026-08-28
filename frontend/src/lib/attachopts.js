@@ -30,12 +30,26 @@ export function stagedImage({ id, dataUrl, w, h, fileName = "" }) {
     dataUrl,
     w,
     h,
+    bytes: dataUrlBytes(dataUrl),
     isImage: true,
     spoiler: false,
     name: "",
     origName: fileName,
     desc: "",
   };
+}
+
+// How many bytes this attachment will actually cost, from the data URL that
+// will be sent — NOT the size of the file that was picked. An image is often
+// re-encoded on the way in, so the two are different numbers and only one of
+// them is the answer to "will this go through". A base64 payload is 4 bytes per
+// 3, minus whatever the padding claims.
+export function dataUrlBytes(dataUrl) {
+  const i = String(dataUrl || "").indexOf(",");
+  if (i < 0) return 0;
+  const b64 = dataUrl.slice(i + 1);
+  const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((b64.length * 3) / 4) - pad);
 }
 
 // emitsLegacyToken reports whether a staged attachment will go out as a v1
