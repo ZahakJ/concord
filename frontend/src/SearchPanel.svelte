@@ -45,7 +45,7 @@
     for (const g of S.guilds) {
       const c = g.channels.find((x) => x.id === chId);
       if (!c) continue;
-      if (g.kind === "dm") return { icon: "edit", label: g.name || "Direct message" };
+      if (g.kind === "dm") return { icon: "bubble", label: g.name || "Direct message" };
       return { icon: "hash", label: `${c.name} · ${g.name}` };
     }
     return { icon: "hash", label: "unknown channel" };

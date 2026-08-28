@@ -81,7 +81,9 @@
 <header class="chat-head">
   <div class="row title">
     {#if g?.kind === "dm"}
-      <Icon name="edit" size={15} />
+      <!-- A speech bubble, not a pencil. The pencil reads as "edit this", which
+           is what it means everywhere else in this app. -->
+      <Icon name="bubble" size={15} />
       <strong>{g.name}</strong>
     {:else if ch?.parent}
       <!-- A forum post: breadcrumb back to its board. -->

@@ -170,3 +170,23 @@ func flattenMarkdown(s string) string {
 func collapse(s string) string {
 	return strings.Join(strings.Fields(strings.ReplaceAll(s, "\n", " ")), " ")
 }
+
+// LastSaid describes the newest thing said in a channel: the line a DM list
+// shows under the name, whether it was us, and when. Flattened by the same rule
+// the inbox uses, so a poll reads as a poll and an image as an image rather
+// than as a token.
+//
+// One row read and one secretbox open per call. That is affordable for a
+// handful of DMs on a guild-list refresh and would not be for every channel of
+// every guild, which is why nothing else asks for it.
+func (s *Service) LastSaid(channelID string) (text string, mine bool, atMillis int64) {
+	msgs, err := s.store.Messages(channelID, 1)
+	if err != nil || len(msgs) == 0 {
+		return "", false, 0
+	}
+	m := msgs[len(msgs)-1]
+	if m.Deleted {
+		return "", false, m.Sent.UnixMilli()
+	}
+	return snippet(m.Content), accountFingerprintOf(m.Sender) == s.Fingerprint(), m.Sent.UnixMilli()
+}

@@ -45,6 +45,7 @@
     canModerateVoice,
     moveVoiceMember,
     disconnectVoiceMember,
+    clockOpts,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { tooltip } from "./lib/tooltip.js";
@@ -52,6 +53,7 @@
   import { PERM, has } from "./lib/perms.js";
   import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { longpress, haptic } from "./lib/touch.js";
+  import { draftIn } from "./lib/drafts.svelte.js";
 
   // getDisplayMedia is absent in Android/iOS WebViews, so the share button is a
   // control that can only ever fail. It goes away entirely rather than sitting
@@ -113,6 +115,37 @@
     }
     return list;
   });
+
+  // The second line of a DM row: who said the last thing. "You:" for our own,
+  // and the counterpart's FIRST NAME for theirs — a peer DM's title is already
+  // their full name, so repeating it reads as stutter and a bare "Them:" says
+  // less than the name it replaces. A group DM gets no prefix: the backend
+  // reports only whether the last line was ours, and guessing which of five
+  // people said it would be a guess.
+  function dmSaid(dm) {
+    if (dm.dmPreviewMine) return "You: ";
+    if (dm.dmNotes || (dm.dmMembers ?? 2) > 2) return "";
+    const first = (dm.name || "").trim().split(/\s+/)[0];
+    return first ? `${first}: ` : "";
+  }
+
+  // A conversation's clock: the time today, the weekday this week, a date
+  // beyond that. The same shape a messenger's list has always used, because it
+  // is the shortest string that is never ambiguous.
+  function dmWhen(ms) {
+    if (!ms) return "";
+    const d = new Date(ms);
+    const now = new Date();
+    const days = Math.floor((now.setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
+    try {
+      if (days <= 0) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clockOpts() });
+      if (days === 1) return "Yesterday";
+      if (days < 7) return d.toLocaleDateString([], { weekday: "short" });
+      return d.toLocaleDateString([], { month: "short", day: "numeric" });
+    } catch {
+      return "";
+    }
+  }
 
   // Group channels under their category (uncategorized first), each group
   // ordered by the channel's position.
@@ -578,11 +611,24 @@
     </button>
   {:else}
     <header class="guild-name" class:dm-head={g?.kind === "dm"}>
-      <strong>{g?.kind === "dm" ? "Direct messages" : "Concord"}</strong>
       {#if g?.kind === "dm"}
-        <button class="cat-add always" use:tooltip aria-label="New message" onclick={newMessage}>
-          <Icon name="plus" size={13} />
+        <!-- The bar. It was a label with a bare 13px "+" hanging off the end,
+             in the one column of the app that has no guild header to give it
+             weight. The action now says what it does instead of making you
+             hover a plus to find out, and it is a pill rather than a ghost
+             glyph, because starting a conversation is the only thing this
+             column offers and it should look like an offer.
+             No section glyph: the sidebar is 220px by default and a plate plus
+             its gap is a third of what the title needs, which cost the word
+             "messages". -->
+        <span class="dm-head-title">
+          <strong>Direct messages</strong>
+        </span>
+        <button class="dm-new" onclick={newMessage}>
+          <Icon name="plus" size={13} /> New
         </button>
+      {:else}
+        <strong>Concord</strong>
       {/if}
     </header>
   {/if}
@@ -605,6 +651,7 @@
       {#each dms as dm (dm.id)}
         {@const active = dm.id === S.activeGuildId}
         {@const unread = dm.dmNotes ? { count: 0 } : guildUnread(dm)}
+        {@const draft = draftIn(dm.channels?.[0]?.id)}
         <button
           class="dm-item"
           class:active
@@ -614,37 +661,49 @@
           use:longpress={{ handler: (e) => !dm.dmNotes && dmMenu(e, dm) }}
         >
           {#if dm.dmNotes}
-            <span class="dm-notes-icon"><Icon name="edit" size={15} /></span>
+            <span class="dm-notes-icon"><Icon name="bubble" size={17} /></span>
           {:else if (dm.dmMembers ?? 2) > 2}
-            <GroupAvatar faces={dm.dmFaces || []} size={26} />
+            <GroupAvatar faces={dm.dmFaces || []} size={36} />
           {:else}
             <Avatar
               name={dm.name}
               image={dm.dmPeerAvatar || dm.dmFaces?.[0]?.avatar || dm.icon}
-              size={26}
+              size={36}
               online={dm.dmPeer ? !!dm.dmPeerOnline : null}
               presence={dm.dmPeerPresence || ""}
             />
           {/if}
-          <span class="dm-name">{dm.dmNotes ? "Notes (you)" : dm.name}</span>
-          {#if !dm.dmNotes && liveChannels.has(dm.channels?.[0]?.id)}
-            <!-- A DM-located event is live: the conversation IS the meeting. -->
-            <span
-              class="ch-live"
-              use:tooltip={"A scheduled event is live in this conversation"}
-            >
-              <i class="ch-live-dot"></i>LIVE
+          <span class="dm-col">
+            <span class="dm-top">
+              <span class="dm-name">{dm.dmNotes ? "Notes (you)" : dm.name}</span>
+              {#if !dm.dmNotes && liveChannels.has(dm.channels?.[0]?.id)}
+                <!-- A DM-located event is live: the conversation IS the meeting. -->
+                <span class="ch-live" use:tooltip={"A scheduled event is live in this conversation"}>
+                  <i class="ch-live-dot"></i>LIVE
+                </span>
+              {:else if !dm.dmNotes && RADAR.unseen[dm.id]}
+                <!-- They put something on your shared calendar — same nudge the
+                     guild pill wears in the rail. Cleared by opening the calendar. -->
+                <span
+                  class="ev-dot"
+                  role="img"
+                  use:tooltip
+                  aria-label="New event on this conversation's calendar"
+                ></span>
+              {:else if dm.dmPreviewAt}
+                <span class="dm-when">{dmWhen(dm.dmPreviewAt)}</span>
+              {/if}
             </span>
-          {:else if !dm.dmNotes && RADAR.unseen[dm.id]}
-            <!-- They put something on your shared calendar — same nudge the
-                 guild pill wears in the rail. Cleared by opening the calendar. -->
-            <span
-              class="ev-dot"
-              role="img"
-              use:tooltip
-              aria-label="New event on this conversation's calendar"
-            ></span>
-          {/if}
+            <span class="dm-sub">
+              {#if draft}
+                <em class="dm-draft">Draft:</em> {draft}
+              {:else if dm.dmPreview}
+                {#if dmSaid(dm)}<span class="dm-said">{dmSaid(dm)}</span>{/if}{dm.dmPreview}
+              {:else}
+                <span class="dm-quiet">{dm.dmNotes ? "Anything you want to keep" : "No messages yet"}</span>
+              {/if}
+            </span>
+          </span>
           {#if unread.count > 0 && !active}
             <span class="count" class:mention={unread.mentions > 0}
               >{unread.count > 99 ? "99+" : unread.count}</span
@@ -789,6 +848,19 @@
                   use:tooltip={"A scheduled event is live in here — join in"}
                 >
                   <i class="ch-live-dot"></i>LIVE
+                </span>
+              {/if}
+              {#if !active && draftIn(c.id)}
+                <!-- Something unsent lives here. The draft already survived the
+                     switch and the reload; the row said nothing about it, which
+                     is how a half-written thought gets lost. -->
+                <span
+                  class="ch-draft"
+                  role="img"
+                  use:tooltip={"You have an unsent draft in here"}
+                  aria-label="Unsent draft"
+                >
+                  <Icon name="edit" size={11} />
                 </span>
               {/if}
               {#if c.type !== "voice" && !active && u && !isMuted(c.id, g?.id)}
@@ -1039,7 +1111,7 @@
     overflow-x: hidden; /* the column is a fixed width; never scroll sideways */
   }
   .guild-name {
-    padding: 14px;
+    padding: 12px 14px;
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
     overflow: hidden;
@@ -1054,6 +1126,40 @@
     justify-content: space-between;
     gap: var(--sp-2);
     overflow: visible;
+  }
+  .dm-head-title {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    min-width: 0;
+    overflow: hidden;
+  }
+  /* The title gives before the action does, and it ellipsises rather than being
+     cut mid-word by the header's own clip. */
+  .dm-head-title strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dm-new {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    flex: none;
+    padding: 4px 9px 4px 6px;
+    border-radius: 999px;
+    background: var(--bg-3);
+    color: var(--text-muted);
+    font-size: var(--fs-compact);
+    cursor: pointer;
+    transition:
+      background var(--dur-standard) ease,
+      color var(--dur-standard) ease;
+  }
+  .dm-new:hover {
+    background: var(--accent);
+    color: var(--accent-fg);
   }
   .guild-header {
     display: flex;
@@ -1524,6 +1630,18 @@
   .channel.muted-ch {
     color: var(--text-faint);
   }
+  /* Quiet: it is a reminder, not an alert. A draft is something YOU left, so
+     it never competes with the unread count beside it. */
+  .ch-draft {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    color: var(--text-faint);
+  }
+  .channel-row:hover .ch-draft,
+  .channel-row.active .ch-draft {
+    color: var(--accent-hover);
+  }
   .ch-name {
     flex: 1;
     overflow: hidden;
@@ -1706,19 +1824,71 @@
     font-weight: 600;
     border-radius: var(--radius-sm);
   }
+  /* A DM row is TWO lines, and the second one is the point. The list used to be
+     a bare column of names — no snippet, no time, no unread, no presence line —
+     so a conversation ending in "See you at 19:00." reached the list as the
+     word "Bilal Rahman", and sorting by recency (a settled decision) was
+     invisible because there was nothing on screen to sort BY. The height comes
+     with the content: a 36px face and two lines is the density every messenger
+     converged on because it is what one glance needs. */
   .dm-item {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: var(--sp-2);
     width: 100%;
-    padding: 7px 8px;
+    padding: var(--sp-2);
     background: transparent;
     color: var(--text-muted);
     text-align: left;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     transition:
       background var(--dur-standard) ease,
       color var(--dur-standard) ease;
+  }
+  .dm-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .dm-top {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  .dm-when {
+    margin-left: auto;
+    flex: none;
+    font-size: var(--fs-tiny);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .dm-sub {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-compact);
+    color: var(--text-faint);
+    /* Somebody else's words in the app's own furniture — resolve them on their
+       own, the way every other quoted name and body in the app is. */
+    unicode-bidi: plaintext;
+  }
+  .dm-said {
+    color: var(--text-muted);
+  }
+  /* An unsent message is the one thing in this row that is about YOU, so it is
+     the one thing that gets the accent. */
+  .dm-draft {
+    color: var(--accent-hover);
+    font-style: normal;
+    font-weight: 600;
+  }
+  .dm-quiet {
+    font-style: italic;
   }
   @media (pointer: fine) {
     .dm-item:hover {
@@ -1735,12 +1905,12 @@
     color: var(--text);
   }
   .dm-name {
-    flex: 1;
     min-width: 0; /* let it shrink so long group-DM names ellipsize, not overflow */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--fs-ui);
+    unicode-bidi: plaintext;
   }
   .dm-item.unread {
     color: var(--text);
@@ -1748,9 +1918,12 @@
   .dm-item.unread .dm-name {
     font-weight: 600;
   }
+  .dm-item.unread .dm-sub {
+    color: var(--text-muted);
+  }
   .dm-notes-icon {
-    width: 26px;
-    height: 26px;
+    width: 36px;
+    height: 36px;
     border-radius: 50%;
     display: grid;
     place-items: center;

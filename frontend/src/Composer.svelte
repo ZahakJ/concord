@@ -27,6 +27,7 @@
   import { stampTimestamp } from "./lib/timestamp.js";
   import { playSend } from "./lib/sounds.js";
   import { encodeFx, FX_EFFECTS } from "./lib/fxtoken.js";
+  import { noteDraft } from "./lib/drafts.svelte.js";
   import { stagedImage } from "./lib/attachopts.js";
 
   let draft = $state("");
@@ -179,6 +180,10 @@
   const draftKey = (id) => `concord.draft.${id}`;
   function saveDraft(id, text) {
     if (!id) return;
+    // The sidebar reads the index, not storage — but it must be told here, on
+    // the one path every save already goes through, or a mark and a draft can
+    // disagree about whether there is anything unsent.
+    noteDraft(id, text);
     try {
       if (text) localStorage.setItem(draftKey(id), text);
       else localStorage.removeItem(draftKey(id));

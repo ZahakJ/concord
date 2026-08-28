@@ -221,7 +221,16 @@ type GuildView struct {
 	DMFaces []DMFace `json:"dmFaces,omitempty"`
 	DMNamed bool     `json:"dmNamed,omitempty"` // group DM has a user-set custom name
 	DMNotes bool     `json:"dmNotes,omitempty"` // the self-notes DM (stored name, immune to a peer named "Notes")
-	IsOwner bool     `json:"isOwner"`
+	// The last thing said in this conversation, for the DM list's second line.
+	// DM guilds only: it costs one row read and one open per conversation, which
+	// is affordable for a handful of DMs and would not be for every channel of
+	// every guild. DMPreview is already flattened by the inbox's rule, so a
+	// poll or an attachment reads as a poll or an attachment rather than as a
+	// token, and DMPreviewMine says whether to prefix it with "You:".
+	DMPreview     string `json:"dmPreview,omitempty"`
+	DMPreviewMine bool   `json:"dmPreviewMine,omitempty"`
+	DMPreviewAt   int64  `json:"dmPreviewAt,omitempty"` // unix millis, 0 = nothing said yet
+	IsOwner       bool   `json:"isOwner"`
 	// OwnerFingerprint authenticates relayed guest messages: kind:"guest" is only
 	// honoured in a meeting when the owner (the host) signed it. Without it a
 	// member could forge an unaccountable "guest" author.
@@ -2709,17 +2718,26 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 			}
 		}
 	}
+	// The DM list's second line. Only for DMs, and only the newest row.
+	dmPreview, dmPreviewMine, dmPreviewAt := "", false, int64(0)
+	if g.Kind == "dm" && len(g.Channels) > 0 {
+		dmPreview, dmPreviewMine, dmPreviewAt = svc.LastSaid(g.Channels[0].ID)
+	}
+
 	return GuildView{
 		ID: g.ID, Name: name, Kind: g.Kind, DMPeer: dmPeer, IsOwner: svc.IsOwner(g.ID),
 		OwnerFingerprint: svc.GuildOwnerFingerprint(g.ID),
 		Heir:             svc.GuildHeir(g.ID),
 		DMPeerPresence:   dmPeerPresence, DMPeerOnline: dmPeerOnline,
 		DMPeerAvatar: dmPeerAvatar, DMMembers: dmMembers, DMFaces: dmFaces,
-		DMNamed:   g.Kind == "dm" && isCustomDMName(g.Name),
-		DMNotes:   g.Kind == "dm" && g.Name == "Notes",
-		CanManage: svc.CanManageMembers(g.ID),
-		MyPerms:   uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
-		Icon:      g.Icon, Banner: g.Banner, Description: g.Description,
+		DMNamed:       g.Kind == "dm" && isCustomDMName(g.Name),
+		DMNotes:       g.Kind == "dm" && g.Name == "Notes",
+		DMPreview:     dmPreview,
+		DMPreviewMine: dmPreviewMine,
+		DMPreviewAt:   dmPreviewAt,
+		CanManage:     svc.CanManageMembers(g.ID),
+		MyPerms:       uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
+		Icon:          g.Icon, Banner: g.Banner, Description: g.Description,
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
 		Evicted: svc.EvictedFrom(g.ID), Alone: svc.AloneInGuild(g.ID),
 		LastActivity: lastActivity,
