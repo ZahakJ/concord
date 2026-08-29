@@ -339,8 +339,29 @@
     display: block;
     min-width: 0;
   }
+  /* An office-hours row is a weekday, two clocks and a bin, and at the panel's
+     real width it does not fit on one line. Flex resolved that by crushing the
+     ONLY item that would shrink — the weekday select, whose 84px collapsed to
+     28 — while its "Mon ⌄" contents kept their size and painted straight over
+     the start time, which read as ")0 PM". So the row is allowed to wrap
+     instead: the weekday holds its width, the two clocks share what is left
+     down to a floor that still shows "03:00 PM", and the bin drops to a second
+     line rather than eating a control. */
   .day {
     width: 84px;
+    flex: none;
+  }
+  .winrow {
+    flex-wrap: wrap;
+  }
+  .time {
+    flex: 1 1 118px;
+    min-width: 118px;
+  }
+  /* When the bin is what wraps, it belongs at the end of the row it fell off,
+     not adrift at the left margin where it reads as a stray button. */
+  .winrow .addr-act {
+    margin-left: auto;
   }
   .ghostbtn {
     display: inline-flex;

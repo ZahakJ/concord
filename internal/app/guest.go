@@ -81,6 +81,15 @@ const (
 	// arrives must still learn about them; the same tick's write to the guest is
 	// how a guest who closed the tab while waiting gets noticed.
 	guestKnockRemind = 15 * time.Second
+	// How often a live guest session re-checks the meeting's expiry. The room
+	// and its link share one lifetime and the UI promises both stop on the same
+	// date, but that was only ever enforced at the DOOR: the sweep that deletes
+	// an expired meeting runs at startup, so a host who leaves Concord open for
+	// a week never reaches it, and a guest who arrived a minute before the
+	// deadline sat in an expired room for as long as they cared to. Sleeping to
+	// the expiry and no further would miss a lifetime the host SHORTENS while
+	// someone is inside, so the wait is capped and the expiry re-read.
+	guestExpiryPoll = 10 * time.Second
 	// How long one "lock" announcement keeps the guest door shut. The front end
 	// re-announces a lock every 3s while it is on, so this is a lease: a host who
 	// crashes, reloads, or quits stops renewing and the door opens again, instead
@@ -261,20 +270,16 @@ func (s *Service) initGuests() {
 		if m.Deleted || (m.Kind != "" && m.Kind != "system" && m.Kind != "guest") {
 			return
 		}
+		if isGuestPresenceNotice(m) {
+			return // never crosses the guest leg — see isGuestPresenceNotice
+		}
 		s.guestMu.Lock()
 		sessions := append([]*guestSession(nil), s.guestSessions[m.ChannelID]...)
 		s.guestMu.Unlock()
 		if len(sessions) == 0 {
 			return
 		}
-		typ := "msg"
-		if m.Kind == "system" {
-			typ = "sys" // a room notice, not something the host said
-		}
-		line, _ := json.Marshal(guestFrame{
-			Type: typ, From: s.senderLabel(m), Content: m.Content,
-			Sent: m.Sent.UTC().Format(time.RFC3339),
-		})
+		line, _ := json.Marshal(s.guestFrameFor(m))
 		for _, g := range sessions {
 			if !g.isAdmitted() {
 				continue // knocking at a locked door: they hear nothing said inside
@@ -285,6 +290,59 @@ func (s *Service) initGuests() {
 			}
 		}
 	})
+}
+
+// guestNoticeMark opens every room notice about a guest arriving or leaving.
+// One constant shared by the two writers below and by isGuestPresenceNotice,
+// because recognising these by their prose is how a later reword silently
+// reopens the leak the filter exists to close.
+const guestNoticeMark = "👤 "
+
+func guestJoinNotice(name string) string {
+	return guestNoticeMark + name + " joined as a guest (via your meeting link)"
+}
+func guestLeftNotice(name string) string { return guestNoticeMark + name + " (guest) left" }
+
+// isGuestPresenceNotice reports whether a message is one of those notices.
+// They are for the MEMBERS: the room tells the people who own it who has walked
+// in off a link. None of them crosses the guest leg — not replayed in the
+// history a guest is welcomed with, and not fanned out live either.
+//
+// Replaying them was the leak: whoever opened the link last was handed a
+// roll-call of every stranger who had been in the room that day. Filtering only
+// the replay left a race — one guest's departure notice lands live on the next
+// guest who is already connecting — and that guest never met them either, so
+// the line between "presence you are witnessing" and "presence you are being
+// told about" is not one the fan-out can draw. Guests still see each other
+// perfectly well through the things they choose to do: a message they send is
+// attributed to them, and joining the call puts them in the roster.
+//
+// The cost is that a guest no longer sees the notice of their OWN arrival. The
+// room header already says "you: <name>", so nothing is lost but a duplicate.
+func isGuestPresenceNotice(m domain.Message) bool {
+	return m.Kind == "system" && strings.HasPrefix(m.Content, guestNoticeMark)
+}
+
+// guestFrameFor renders one room message as the frame a guest receives. Used
+// for the live fan-out and for the history replay, so the two cannot drift.
+//
+// A system notice goes out with NO author. It carries one anyway before this:
+// the very first thing a guest saw was the notice of their OWN arrival, stamped
+// `"from":"<the host's display name>"` — so a stranger learned who they were
+// talking to before that person had said a word, from a frame the page renders
+// authorless regardless. The room notice is the room's, not anyone's.
+func (s *Service) guestFrameFor(m domain.Message) guestFrame {
+	f := guestFrame{
+		Type:    "msg",
+		From:    s.senderLabel(m),
+		Content: m.Content,
+		Sent:    m.Sent.UTC().Format(time.RFC3339),
+	}
+	if m.Kind == "system" {
+		f.Type = "sys"
+		f.From = ""
+	}
+	return f
 }
 
 // loadGuestTokens restores issued guest links, dropping any whose meeting is
@@ -649,7 +707,7 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 		// Someone who never got past the door was never in the room, so no
 		// arrival/departure notice belongs in the transcript.
 		if sess.isAdmitted() {
-			s.sendSystem(tok.ChannelID, fmt.Sprintf("👤 %s (guest) left", name))
+			s.sendSystem(tok.ChannelID, guestLeftNotice(name))
 		}
 	}()
 
@@ -712,17 +770,21 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 			if m.Deleted || (m.Kind != "" && m.Kind != "system" && m.Kind != "guest") {
 				continue
 			}
-			typ := "msg"
-			if m.Kind == "system" {
-				typ = "sys"
+			// Who else has been through this room is the members' business, not a
+			// visitor's. Dropped here rather than left to the page: a filter that
+			// still ships the name and asks the browser not to draw it has already
+			// leaked it. Members replaying the same history see every notice.
+			if isGuestPresenceNotice(m) {
+				continue
 			}
-			_ = sess.write(guestFrame{
-				Type: typ, From: s.senderLabel(m), Content: m.Content,
-				Sent: m.Sent.UTC().Format(time.RFC3339),
-			})
+			_ = sess.write(s.guestFrameFor(m))
 		}
 	}
-	s.sendSystem(tok.ChannelID, fmt.Sprintf("👤 %s joined as a guest (via your meeting link)", name))
+	s.sendSystem(tok.ChannelID, guestJoinNotice(name))
+
+	// The clock the host set on the link applies to the people already inside,
+	// not only to the next arrival — see guestExpiryPoll.
+	go s.endGuestAtExpiry(sess, tok.GuildID, done)
 
 	// Reader: guest messages, token-bucket rate limited. Signaling gets its own,
 	// looser bucket — it's machine traffic, not typing.
@@ -810,6 +872,39 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 	}
 }
 
+// endGuestAtExpiry closes a live guest session when the meeting's lifetime runs
+// out, so "this link works until Tuesday" is true of the room and not only of
+// the door. Returns when the visit ends (done), when the service stops, or once
+// it has said goodbye.
+func (s *Service) endGuestAtExpiry(sess *guestSession, guildID string, done <-chan struct{}) {
+	for {
+		at := s.meetingExpiry(guildID)
+		if at.IsZero() {
+			// Not a meeting any more — the guild was deleted. The read loop's own
+			// aliveness check owns that case; there is no deadline to watch here.
+			return
+		}
+		wait := time.Until(at)
+		if wait <= 0 {
+			sess.end("This meeting link has expired.")
+			return
+		}
+		if wait > guestExpiryPoll {
+			wait = guestExpiryPoll
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-t.C:
+		case <-done:
+			t.Stop()
+			return
+		case <-s.ctx.Done():
+			t.Stop()
+			return
+		}
+	}
+}
+
 // knockAtDoor holds a guest at a locked meeting's door until the host decides.
 // Returns (true, "") on admission, (false, reason) with something to show them
 // otherwise, and (false, "") when the guest gave up and there is nobody left to
@@ -864,10 +959,19 @@ func (s *Service) knockAtDoor(sess *guestSession, meetingName string) (bool, str
 	}
 }
 
-// decideGuest applies a host's call-control action to a browser guest. The
-// target is a guest FINGERPRINT ("guest:<name>#<session>"), which is how the
-// host's UI names them; it identifies one session, so admitting one "Alice" does
-// not admit a second stranger who typed the same name.
+// decideGuest applies a host's call-control action to a browser guest.
+//
+// The target names ONE session, and it arrives in either of the two shapes the
+// host's UI has for a guest: the FINGERPRINT ("guest:<name>#<session>"), which
+// is what the knock list keys by, or the voice PEER ID ("guest:<session>"),
+// which is what the call roster keys by — that is the id the mesh handed the
+// guest, so it is what a tile knows about the person sitting in it. Both carry
+// the session id, so either identifies one visitor and admitting one "Alice"
+// still does not admit a second stranger who typed the same name.
+//
+// Accepting only the fingerprint made the roster's Remove button a no-op: it
+// passes the peer id, matched nothing, and returned silently — the host saw a
+// "Removed X" toast while X stayed in the call.
 //
 // This never leaves the node. A guest exists only as a relayed socket held HERE,
 // so there is nothing to gossip and nobody else who could act on it.
@@ -875,7 +979,7 @@ func (s *Service) decideGuest(channelID, action, target string) {
 	s.guestMu.Lock()
 	var sess *guestSession
 	for _, gs := range s.guestSessions[channelID] {
-		if gs.fpr == target {
+		if gs.fpr == target || guestPeerID(gs.id) == target {
 			sess = gs
 			break
 		}

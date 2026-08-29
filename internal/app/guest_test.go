@@ -278,6 +278,331 @@ func TestGuestAdmittedWhenUnlocked(t *testing.T) {
 	}
 }
 
+// TestGuestBackfillHidesOtherGuests is the privacy rule on the one surface that
+// faces strangers: a guest may see the room from the moment they walk in, and
+// must not be handed a roll-call of everyone who was in it earlier. The 30
+// messages of history a guest is welcomed with used to include every
+// "👤 X joined as a guest" / "👤 X (guest) left" notice, so whoever opened the
+// link last read the names of everyone before them.
+//
+// It asserts on the FRAMES, not on anything rendered: a filter that still ships
+// the name and asks the page not to draw it has leaked it.
+func TestGuestBackfillHidesOtherGuests(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked service test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startService(t, ctx)
+
+	channelID, token := meetingWithGuestLink(t, s, 0)
+
+	// Guest one arrives, is seen, says something, and goes.
+	r1, c1 := guestPipe(t, s)
+	sendGuestFrame(t, c1, guestFrame{Type: "hello", Token: token, Name: "Wilhelmina"})
+	readGuestFrames(t, r1, c1, "welcome", "end")
+	sendGuestFrame(t, c1, guestFrame{Type: "msg", Content: "hello from the first visitor"})
+	// Wait for their arrival notice and their line to be in the room's history,
+	// so the backfill guest two gets really does contain both.
+	saw := func(want string) bool {
+		msgs, err := s.store.Messages(channelID, guestHistoryCount)
+		if err != nil {
+			return false
+		}
+		for _, m := range msgs {
+			if strings.Contains(m.Content, want) {
+				return true
+			}
+		}
+		return false
+	}
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+		if saw("Wilhelmina joined") && saw("hello from the first visitor") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !saw("Wilhelmina joined") {
+		t.Fatal("the first guest's arrival never reached the room — nothing to filter")
+	}
+	if !saw("hello from the first visitor") {
+		t.Fatal("the first guest's message never reached the room")
+	}
+	_ = c1.Close()
+
+	// Guest two arrives to the same room.
+	r2, c2 := guestPipe(t, s)
+	sendGuestFrame(t, c2, guestFrame{Type: "hello", Token: token, Name: "Second"})
+	got := readGuestFrames(t, r2, c2, "welcome", "end")
+	// The welcome is followed by the backfill; give it a moment to land, then
+	// read whatever else is queued rather than waiting on a sentinel.
+	_ = c2.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for {
+		line, err := r2.ReadString('\n')
+		if err != nil {
+			break
+		}
+		var f guestFrame
+		if json.Unmarshal([]byte(strings.TrimSuffix(line, "\n")), &f) == nil {
+			got = append(got, f)
+		}
+	}
+
+	backfilledLine := false
+	for _, f := range got {
+		blob, _ := json.Marshal(f)
+		if f.Type == "sys" {
+			// No presence notice about anyone — not the earlier guest's, and not
+			// this guest's own, which is the same frame shape and would otherwise
+			// leave the race open.
+			if strings.HasPrefix(f.Content, guestNoticeMark) {
+				t.Errorf("a guest-presence notice reached a guest: %q", f.Content)
+			}
+			if strings.Contains(string(blob), "Wilhelmina") {
+				t.Errorf("an earlier guest's NAME reached a guest in a room notice: %s", blob)
+			}
+		}
+	}
+	// The filter must be surgical. What the earlier guest SAID is the room's
+	// transcript — a guest is given history on purpose, and an unattributed
+	// backfill is worse than none — so their line, and their name on it, stay.
+	for _, f := range got {
+		if f.Type == "msg" && f.Content == "hello from the first visitor" {
+			backfilledLine = true
+			if !strings.Contains(f.From, "Wilhelmina") {
+				t.Errorf("the backfilled message lost its author: %+v", f)
+			}
+		}
+	}
+	if !backfilledLine {
+		t.Errorf("the filter took the room's conversation with it — frames: %v", typesOfFrames(got))
+	}
+
+	// The notices are still in the room for MEMBERS. Only the guest leg filters.
+	if !saw("Wilhelmina joined") {
+		t.Error("the arrival notice was removed from the room itself, not just from the guest leg")
+	}
+}
+
+// TestGuestSystemNoticesCarryNoAuthor pins the smaller half of the same leak:
+// the very first frame a guest received after `welcome` was the notice of their
+// OWN arrival, stamped with the host's display name in `from` — so a stranger
+// learned who they were talking to before that person had said a word. The page
+// renders room notices authorless either way, so the name was pure leakage.
+func TestGuestSystemNoticesCarryNoAuthor(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked service test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startService(t, ctx)
+
+	if err := s.SetProfile(Profile{Name: "Dr. Hana Ozturk"}); err != nil {
+		t.Fatalf("SetProfile: %v", err)
+	}
+	channelID, token := meetingWithGuestLink(t, s, 0)
+
+	r, c := guestPipe(t, s)
+	sendGuestFrame(t, c, guestFrame{Type: "hello", Token: token, Name: "Stranger"})
+	got := make(chan guestFrame, 32)
+	go func() {
+		defer close(got)
+		for {
+			_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			var f guestFrame
+			if json.Unmarshal([]byte(strings.TrimSuffix(line, "\n")), &f) == nil {
+				got <- f
+			}
+		}
+	}()
+	if f := <-got; f.Type != "welcome" {
+		t.Fatalf("guest never got in: %q", f.Type)
+	}
+	// A room notice that is NOT about a guest coming or going (those never reach
+	// a guest at all now), plus a real message, so both branches are checked.
+	s.sendSystem(channelID, "created this channel")
+	if _, err := s.SendMessage(channelID, "and this one is really from me", "", ""); err != nil {
+		t.Fatalf("SendMessage: %v", err)
+	}
+
+	sawSys, sawMsg := false, false
+	deadline := time.After(10 * time.Second)
+	for !sawSys || !sawMsg {
+		select {
+		case f, ok := <-got:
+			if !ok {
+				t.Fatal("the guest's socket closed early")
+			}
+			switch f.Type {
+			case "sys":
+				sawSys = true
+				if f.From != "" {
+					t.Errorf("a room notice named %q as its author — a guest learns who the host is from a frame the page draws authorless", f.From)
+				}
+				if f.Content == "" {
+					t.Error("the room notice lost its text along with its author")
+				}
+			case "msg":
+				sawMsg = true
+				// A real message still needs its author, or the guest cannot tell
+				// who is speaking.
+				if f.From == "" {
+					t.Errorf("a spoken message arrived with no author: %+v", f)
+				}
+			}
+		case <-deadline:
+			t.Fatalf("never saw both a sys and a msg frame (sys=%v msg=%v)", sawSys, sawMsg)
+		}
+	}
+}
+
+// TestGuestEvictedFromTheCallRoster drives the ONE control that removes a guest
+// who is already inside: the ✕ on their tile in the call roster. That button
+// passes the voice PEER ID ("guest:<session>") — the id the mesh gave them and
+// the only one a tile knows — while the knock list passes the FINGERPRINT. Only
+// the fingerprint was matched, so the host got a "Removed X" toast and X stayed
+// in the room, in the call, able to keep talking and reading.
+func TestGuestEvictedFromTheCallRoster(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked service test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startService(t, ctx)
+
+	channelID, token := meetingWithGuestLink(t, s, 0)
+	r, c := guestPipe(t, s)
+	sendGuestFrame(t, c, guestFrame{Type: "hello", Token: token, Name: "Dana"})
+
+	// Drain in the background: the room keeps talking (the arrival notice lands
+	// as a `sys` frame) and net.Pipe is unbuffered, so a test that stops reading
+	// wedges the very write it is waiting for.
+	got := make(chan guestFrame, 32)
+	go func() {
+		defer close(got)
+		for {
+			_ = c.SetReadDeadline(time.Now().Add(20 * time.Second))
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			var f guestFrame
+			if json.Unmarshal([]byte(strings.TrimSuffix(line, "\n")), &f) == nil {
+				got <- f
+			}
+		}
+	}()
+	if f := <-got; f.Type != "welcome" {
+		t.Fatalf("guest never got in: first frame was %q", f.Type)
+	}
+
+	// The identifier the roster's Remove button really sends.
+	s.guestMu.Lock()
+	peerID := ""
+	if list := s.guestSessions[channelID]; len(list) > 0 {
+		peerID = guestPeerID(list[0].id)
+	}
+	s.guestMu.Unlock()
+	if peerID == "" {
+		t.Fatal("no guest session registered")
+	}
+
+	if err := s.PublishCallControl(channelID, "disconnect", peerID, ""); err != nil {
+		t.Fatalf("disconnect: %v", err)
+	}
+	deadline := time.After(15 * time.Second)
+	for {
+		select {
+		case f, ok := <-got:
+			if !ok {
+				t.Fatal("the guest's socket closed without an end frame — a removed guest is left staring at a room that has silently stopped working")
+			}
+			if f.Type != "end" {
+				continue
+			}
+			if !strings.Contains(strings.ToLower(f.Reason), "removed") {
+				t.Errorf("removal reason %q does not say they were removed", f.Reason)
+			}
+			return
+		case <-deadline:
+			t.Fatal("removing a guest by their voice peer id did nothing: no end frame, the guest is still in the room")
+		}
+	}
+}
+
+// TestGuestLinkExpiryEndsALiveVisit pins the other half of a link's lifetime.
+// The expiry was enforced only at the door, and the sweep that deletes an
+// expired meeting runs at startup — so a guest who walked in a minute before
+// the deadline stayed in a room whose link the host had been told would stop
+// working, for as long as they cared to sit there.
+func TestGuestLinkExpiryEndsALiveVisit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping networked service test in -short mode")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startService(t, ctx)
+
+	t.Setenv("CONCORD_GUEST_BASE", "http://127.0.0.1:1/")
+	g, _, err := s.StartMeeting()
+	if err != nil {
+		t.Fatalf("StartMeeting: %v", err)
+	}
+	url, err := s.CreateGuestLink(g.ID, 24)
+	if err != nil {
+		t.Fatalf("CreateGuestLink: %v", err)
+	}
+	token := url[strings.Index(url, "&t=")+3:]
+
+	r, c := guestPipe(t, s)
+	sendGuestFrame(t, c, guestFrame{Type: "hello", Token: token, Name: "Lurker"})
+	got := make(chan guestFrame, 32)
+	go func() {
+		defer close(got)
+		for {
+			_ = c.SetReadDeadline(time.Now().Add(4 * guestExpiryPoll))
+			line, err := r.ReadString('\n')
+			if err != nil {
+				return
+			}
+			var f guestFrame
+			if json.Unmarshal([]byte(strings.TrimSuffix(line, "\n")), &f) == nil {
+				got <- f
+			}
+		}
+	}()
+	if f := <-got; f.Type != "welcome" {
+		t.Fatalf("guest never got in: first frame was %q", f.Type)
+	}
+
+	// The host cuts the lifetime short while the guest is sitting there — the
+	// same call CreateGuestLink makes when a shorter chip is picked.
+	s.setMeetingExpiry(g.ID, time.Now().Add(-time.Second))
+
+	deadline := time.After(3 * guestExpiryPoll)
+	for {
+		select {
+		case f, ok := <-got:
+			if !ok {
+				t.Fatal("the guest's socket closed with no explanation")
+			}
+			if f.Type != "end" {
+				continue
+			}
+			if !strings.Contains(strings.ToLower(f.Reason), "expired") {
+				t.Errorf("end reason %q does not mention the expiry", f.Reason)
+			}
+			return
+		case <-deadline:
+			t.Fatal("an expired meeting link left the guest already inside reading and posting to the room")
+		}
+	}
+}
+
 // TestGuestDoorLockIsALease pins why the lock is a lease and not a flag: the
 // front end re-announces it every few seconds, so a host that crashes or
 // reloads must stop holding the door shut rather than leaving one nobody alive

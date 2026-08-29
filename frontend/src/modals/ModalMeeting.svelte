@@ -6,6 +6,7 @@
   //     keeps them fully end-to-end encrypted.
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
+  import { onMount } from "svelte";
   import { api } from "../lib/api.js";
   import { S, flash } from "../lib/state.svelte.js";
   import { haptic } from "../lib/touch.js";
@@ -79,6 +80,24 @@
     `${code}\n` +
     `\n` +
     `See you there! (End-to-end encrypted — no server ever sees the call.)`;
+
+  // The guest page tells the person who clicks the link that a relay-less call
+  // shows their IP to everyone else in it. This is the other half of that
+  // sentence, and it was missing: the person HANDING the link to a stranger was
+  // told only that guests aren't end-to-end encrypted, and learned about their
+  // own address from a toast at the moment they joined the call — after the link
+  // had already gone out. Same condition the guest page uses (a meeting always
+  // asks for the relay, so the only question is whether one exists), so the
+  // warning appears exactly when there is something to warn about.
+  let noRelay = $state(false);
+  onMount(async () => {
+    try {
+      const cfg = await api.callIceServers();
+      noRelay = cfg?.relayAvailable !== true;
+    } catch {
+      /* can't tell: say nothing rather than guess in either direction */
+    }
+  });
 
   let copied = $state("");
   function copy(what, text) {
@@ -159,6 +178,12 @@
         Guests are chat-only and labelled in the room — their messages pass
         through you, so they aren't end-to-end encrypted like full members.
       </p>
+      {#if noRelay}
+        <p class="muted tiny">
+          ⚠️ This meeting has no private relay — whoever opens the link may see
+          your IP address once you're both on the call.
+        </p>
+      {/if}
     </section>
   {/if}
 
