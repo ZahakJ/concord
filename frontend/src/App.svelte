@@ -1606,6 +1606,7 @@
               class="feedwrap"
               class:aspanel={!!postObj}
               class:overboard={!!boardObj}
+              class:beside={!!boardObj && !S.narrow && !S.isMobile}
               class:folding={!!postObj && S.postFolding === postObj.id}
             >
               {#if postObj}
@@ -2512,12 +2513,16 @@
      is the list of posts, and losing it entirely to read one is the takeover
      this replaces. Below that width the panel covers — a 340px board strip
      beside a 340px post is two unusable columns. */
-  @media (min-width: 1150px) {
-    .feedwrap.aspanel.overboard {
-      left: min(46%, 520px);
-      border-left: 1px solid var(--border);
-      box-shadow: -18px 0 40px -24px rgba(0, 0, 0, 0.55);
-    }
+  /* Keyed off S.narrow rather than a media query, and for the reason recorded
+     in app.css: the app's own zoom shrinks the layout without touching the
+     viewport a media query reads. At 150% in a 1440px window `min-width: 1150px`
+     still matched, so the board and the post were told to share 960 effective
+     pixels — two unusable columns, which is the exact thing the rule above
+     exists to prevent. detectNarrow divides by the zoom; this follows it. */
+  .feedwrap.aspanel.overboard.beside {
+    left: min(46%, 520px);
+    border-left: 1px solid var(--border);
+    box-shadow: -18px 0 40px -24px rgba(0, 0, 0, 0.55);
   }
   /* The same journey, backwards. The panel is still showing its own post while
      this plays — closePost() waits for it to finish before changing channel —
