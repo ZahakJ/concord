@@ -9,8 +9,8 @@
   // fourth copy of a formatting toolbar.
   //
   // Three things are specific to a post and live here:
-  //   · the TITLE, which the backend caps at 64 BYTES (it is a channel name),
-  //     so the budget is measured in the unit that can actually truncate it
+  //   · the TITLE, which the backend caps in BYTES (app.maxTitleBytes), so the
+  //     budget is measured in the unit that can actually truncate it
   //   · TAGS from the forum's own palette, within the backend's limits
   //   · a draft per forum, so closing by accident doesn't cost a long post
   import Modal from "./Modal.svelte";
@@ -89,8 +89,10 @@
   }
 
   // clampToBytes rather than maxlength: the backend measures the title in UTF-8
-  // BYTES and truncates with a raw byte slice, which can cut a rune in half. A
-  // title of emoji runs out at 16 characters, and this is where that is honest.
+  // BYTES, so a title of emoji runs out at a quarter of the budget and this is
+  // where that is honest. (The backend clamps on a rune boundary now; this
+  // stops the field from silently eating keystrokes rather than from producing
+  // half a character.)
   function onTitle(e) {
     const v = clampToBytes(e.currentTarget.value, TITLE_MAX_BYTES);
     if (v !== e.currentTarget.value) e.currentTarget.value = v;

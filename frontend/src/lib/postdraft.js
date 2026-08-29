@@ -14,9 +14,9 @@
 //      user complains.
 //
 //   2. The budgets the WIRE enforces, in the units the wire uses. A post title
-//      is capped at 64 BYTES by internal/app/guild.go (maxNameBytes), which
-//      slices raw bytes — so a title of emoji hits the cap at 16 characters and
-//      a naive maxlength="64" hands the backend a cut that can land mid-rune.
+//      is capped in BYTES by internal/app/guild.go (maxTitleBytes), so a title
+//      of emoji hits the cap at a quarter of the character count and a naive
+//      maxlength hands the backend a string it will silently shorten.
 //
 // Deliberately DOM-free so node can test it.
 
@@ -65,8 +65,9 @@ export const NAME_MAX_BYTES = 64;
 export const BODY_SOFT_MAX = 4000;
 
 // clampToBytes trims to a byte budget on a CODE POINT boundary, never inside
-// one. This is the whole reason the title field doesn't just set maxlength: the
-// backend's `title[:64]` would happily leave half a rune behind.
+// one. This is the whole reason a title field doesn't just set maxlength:
+// maxlength counts characters and the cap is in bytes, so on any script but
+// Latin the two disagree by a factor of two or three.
 export function clampToBytes(s, max = TITLE_MAX_BYTES) {
   const str = String(s ?? "");
   if (utf8Bytes(str) <= max) return str;
