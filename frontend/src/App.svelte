@@ -78,6 +78,7 @@
   import ContextMenu from "./ContextMenu.svelte";
   import FloatingCall from "./FloatingCall.svelte";
   import SelfView from "./SelfView.svelte";
+  import CallMiniControls from "./CallMiniControls.svelte";
   import Toasts from "./Toasts.svelte";
   import { micReason, canCarryACall, noCallReason } from "./lib/devices.js";
   import FxOverlay from "./FxOverlay.svelte";
@@ -1667,6 +1668,10 @@
     <SelfView onToggleCamera={toggleCamera} />
   {/if}
 
+  <!-- …and mute, wherever a dialog has covered every other way to reach it. -->
+  {#if S.voice && S.modal}
+    <CallMiniControls onToggleMute={toggleMicMute} onLeave={leaveVoice} />
+  {/if}
 
   {#if S.knocking}
     <div class="knock-wait" role="status">
