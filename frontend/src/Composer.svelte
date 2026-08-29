@@ -1814,7 +1814,7 @@
           aria-label="Stop recording"
           onclick={() => stopRecording(true)}
         >
-          <Icon name="pause" size={17} />
+          <Icon name="stop" size={15} />
         </button>
       {:else if preview}
         <!-- Stopped, not sent. Hear it, scrub it, do it again, or send it. -->

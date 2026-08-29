@@ -56,34 +56,12 @@
     address to hand them, and this device hasn't got one.
   </p>
 
-  <section class="way">
-    <div class="way-head">
-      <span class="chip"><Icon name="link" size={15} /></span>
-      <div class="way-text">
-        <strong>Point it at a rendezvous</strong>
-        <span class="muted">
-          Yours, or one a friend runs. It's a tiny relay — see docs/RENDEZVOUS.md
-          for the twenty-minute version.
-        </span>
-      </div>
-    </div>
-    <textarea
-      class="code-box"
-      rows="2"
-      placeholder="/dns/your-app.fly.dev/tcp/4001/p2p/12D3Koo…"
-      bind:value={addr}
-    ></textarea>
-    {#if lines.length && !ok}
-      <span class="hint bad">should start with /dns or /ip4 and contain /p2p/…</span>
-    {/if}
-    <div class="btn-row">
-      <button class="primary" disabled={!ok || saving} onclick={saveAndGo}>
-        {saving ? "Saving…" : "Save and start the meeting"}
-      </button>
-    </div>
-  </section>
-
-  <section class="way">
+  <!-- The option that works right now comes first and carries the weight. It
+       was the quiet one at the bottom, under an accented "Save and start the
+       meeting" wired to an empty field asking for a libp2p multiaddr — so the
+       dialog put its emphasis on the answer almost nobody can give, and the
+       one 99% of people take read as the fallback. -->
+  <section class="way primary-way">
     <div class="way-head">
       <span class="chip"><Icon name="concorde" size={15} /></span>
       <div class="way-text">
@@ -95,7 +73,34 @@
       </div>
     </div>
     <div class="btn-row">
-      <button class="ghost" onclick={anyway}>Start the meeting anyway</button>
+      <button class="primary" onclick={anyway}>Start the meeting</button>
+    </div>
+  </section>
+
+  <section class="way">
+    <div class="way-head">
+      <span class="chip"><Icon name="link" size={15} /></span>
+      <div class="way-text">
+        <strong>Point it at a rendezvous first</strong>
+        <span class="muted">
+          Yours, or one a friend runs. It's a tiny relay — see docs/RENDEZVOUS.md
+          for the twenty-minute version.
+        </span>
+      </div>
+    </div>
+    <textarea
+      class="code-box"
+      rows="2"
+      placeholder="/dns4/relay.example.org/tcp/4001/p2p/12D3Koo…"
+      bind:value={addr}
+    ></textarea>
+    {#if lines.length && !ok}
+      <span class="hint bad">should start with /dns4 or /ip4 and contain /p2p/…</span>
+    {/if}
+    <div class="btn-row">
+      <button class="ghost" disabled={!ok || saving} onclick={saveAndGo}>
+        {saving ? "Saving…" : "Save and start the meeting"}
+      </button>
     </div>
   </section>
 </Modal>
@@ -165,6 +170,14 @@
     color: var(--accent-fg);
   }
   .primary:disabled {
+    opacity: 0.5;
+  }
+  /* The answer that needs no infrastructure is the one the eye lands on. */
+  .primary-way {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+  .ghost:disabled {
     opacity: 0.5;
   }
   @media (pointer: coarse), (max-width: 768px) {

@@ -96,7 +96,7 @@
           <textarea
             class="code-box"
             rows="3"
-            placeholder="/dns/your-app.fly.dev/tcp/4001/p2p/12D3Koo…"
+            placeholder="/dns4/relay.example.org/tcp/4001/p2p/12D3Koo…"
             bind:value={draft}
           ></textarea>
           {#if ok}

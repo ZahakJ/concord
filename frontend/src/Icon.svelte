@@ -30,6 +30,10 @@
     poll: "M3 13.2h10 M4.5 12.5V8 M8 12.5V4.5 M11.5 12.5V6.5",
     play: "M5.5 3.6v8.8l7-4.4z",
     pause: "M6 3.5v9 M10 3.5v9",
+    // A square, not two bars. Two bars are the universal promise that pressing
+    // it again resumes; "Stop recording" ends the take and moves you to a
+    // preview you cannot append to, which is the opposite promise.
+    stop: "M4.6 4.6h6.8v6.8h-6.8z",
     mic: "M8 2.5a2 2 0 0 1 2 2v3a2 2 0 1 1-4 0v-3a2 2 0 0 1 2-2z M3.8 7.5a4.2 4.2 0 0 0 8.4 0 M8 11.7v2",
     micOff: "M8 2.5a2 2 0 0 1 2 2v3 M6 5v2.5a2 2 0 0 0 3.4 1.4 M3.8 7.5a4.2 4.2 0 0 0 6.9 3.2 M12.2 7.5c0 .6-.13 1.2-.36 1.7 M8 11.7v2 M2.5 2.5l11 11",
     speaker: "M3 6v4h2.5L9 13V3L5.5 6z M11 5.5a3.5 3.5 0 0 1 0 5 M12.6 3.8a5.8 5.8 0 0 1 0 8.4",
