@@ -83,6 +83,19 @@
     const n = items.length;
     const i = items.indexOf(document.activeElement);
     let next = null;
+    // Escape belongs to the LAYER, and it has to be answered here rather than
+    // left to the window: the volume row stops propagation so the arrow keys
+    // move the slider instead of the highlight, and that also stopped the
+    // window's Escape handler from ever seeing the key. One touch of the
+    // slider and the menu could not be closed with the keyboard at all — two
+    // presses did nothing while the invisible full-screen backdrop held the
+    // whole stage behind glass, and the only way out was a click.
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      closeContextMenu();
+      return;
+    }
     if (e.key === "ArrowDown") next = items[i < 0 ? 0 : (i + 1) % n];
     else if (e.key === "ArrowUp") next = items[i < 0 ? n - 1 : (i - 1 + n) % n];
     else if (e.key === "Home") next = items[0];
@@ -123,12 +136,20 @@
     rangeVal = v;
     item.onInput?.(v);
   }
+  // The slider owns the keys that move a value — arrows, Home/End, the page
+  // keys — and the menu's roving focus must not answer them as well. It does
+  // NOT own Escape, which is the layer's, so that one is let through to
+  // onMenuKey on the way up.
+  function onRangeKey(e) {
+    if (e.key === "Escape" || e.key === "Tab") return;
+    e.stopPropagation();
+  }
   const pct = (v) => `${Math.round(v * 100)}%`;
 </script>
 
 {#snippet volumeRow(item)}
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <div class="cm-range" onkeydown={(e) => e.stopPropagation()}>
+  <div class="cm-range" onkeydown={onRangeKey}>
     <span class="cm-range-lbl">
       {item.label}
       <span class="cm-range-val">{pct(rangeVal)}</span>
