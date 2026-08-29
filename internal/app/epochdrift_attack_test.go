@@ -38,7 +38,7 @@ func natTrio(t *testing.T, ctx context.Context) (desk, phone, friend *Service, g
 	boot := productionRendezvous(t, ctx)
 	deskDir, phoneDir, friendDir := t.TempDir(), t.TempDir(), t.TempDir()
 	desk, phone, textCh, _ = linkedPair(t, ctx, deskDir, phoneDir, boot)
-	guildID = desk.Guilds()[0].ID
+	guildID = theGuild(t, desk).ID
 
 	friend = startServiceOn(t, ctx, friendDir, boot)
 	if err := friend.SetDisplayName("Friend"); err != nil {
@@ -147,8 +147,8 @@ func TestForkedGuildConverges(t *testing.T) {
 	defer cancel()
 	boot := testRendezvous(t, ctx)
 	desk, phone, textCh, _ := linkedPair(t, ctx, t.TempDir(), t.TempDir(), boot)
-	guildID := desk.Guilds()[0].ID
-	groupID := desk.Guilds()[0].GroupID
+	guildID := theGuild(t, desk).ID
+	groupID := theGuild(t, desk).GroupID
 
 	var friends []*Service
 	for i := 0; i < 2; i++ {
@@ -258,7 +258,7 @@ func TestConcurrentHealsOnTwoOwnerDevices(t *testing.T) {
 	defer cancel()
 	boot := testRendezvous(t, ctx)
 	desk, phone, textCh, _ := linkedPair(t, ctx, t.TempDir(), t.TempDir(), boot)
-	guildID := desk.Guilds()[0].ID
+	guildID := theGuild(t, desk).ID
 
 	// Two friends, so each owner device has a distinct heal to serve.
 	var friends []*Service
@@ -290,7 +290,7 @@ func TestConcurrentHealsOnTwoOwnerDevices(t *testing.T) {
 		t.Fatalf("friend2 connect to phone: %v", err)
 	}
 
-	groupID := desk.Guilds()[0].GroupID
+	groupID := theGuild(t, desk).GroupID
 	base, err := desk.mls.Epoch(ctx, groupID)
 	if err != nil {
 		t.Fatalf("epoch: %v", err)

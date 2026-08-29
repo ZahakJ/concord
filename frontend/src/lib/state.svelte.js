@@ -950,7 +950,13 @@ export function confirmLeaveGuild(g) {
       S.activeChannelId = "";
       clearFeed();
       await refreshGuilds();
-      if (S.guilds.length) selectGuild(S.guilds[0].id);
+      // A real guild first. Every account now has a Notes self-DM from the
+      // moment it exists, so "the first guild in the list" is Notes far more
+      // often than not — and landing in your own scratchpad after leaving a
+      // community is not where you were trying to go. Same rule the boot path
+      // uses when it picks somewhere to open.
+      const next = S.guilds.find((x) => x.kind !== "dm") || S.guilds[0];
+      if (next) selectGuild(next.id);
       flash(closeDM ? "Conversation closed" : g.isOwner ? "Guild deleted" : "Left guild");
     },
   };

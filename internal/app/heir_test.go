@@ -275,7 +275,7 @@ func TestHeirClaimLive(t *testing.T) {
 	}
 	waitMembers(t, 30*time.Second, 3, a, b, c)
 
-	groupID := a.Guilds()[0].GroupID
+	groupID := theGuild(t, a).GroupID
 	epochBefore, err := a.mls.Epoch(a.ctx, groupID)
 	if err != nil {
 		t.Fatalf("epoch before: %v", err)

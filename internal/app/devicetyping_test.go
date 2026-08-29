@@ -88,7 +88,7 @@ func TestTypingFromOwnPhoneNamesTheAccountEverywhere(t *testing.T) {
 
 	boot := testRendezvous(t, ctx)
 	desk, phone, textCh, _ := linkedPair(t, ctx, t.TempDir(), t.TempDir(), boot)
-	guildID := desk.Guilds()[0].ID
+	guildID := theGuild(t, desk).ID
 
 	// The friend joins the shared guild, so the same typing gossip reaches a
 	// second account and we can assert both audiences see the same attribution.

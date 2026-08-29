@@ -112,9 +112,30 @@ func (r *recorder) has(content string) bool {
 
 // waitMembers blocks until every service reports want members in guild g, or
 // fails after timeout.
+// theGuild is the guild a test made.
+//
+// It used to be spelled `s.Guilds()[0]`, which was true only while an account
+// held nothing it had not created. Every account now has a Notes self-DM from
+// the moment it exists, and Notes is created before anything a test does, so
+// index zero became "your scratchpad" and forty-seven tests spent twenty
+// seconds each waiting for a one-member self-group to grow a second member.
+//
+// A DM is never the guild under test — the ones that exercise DMs reach for
+// them by name — so the rule is simply "the first thing that is not one".
+func theGuild(t *testing.T, s *Service) domain.Guild {
+	t.Helper()
+	for _, g := range s.Guilds() {
+		if g.Kind == "" {
+			return g
+		}
+	}
+	t.Fatalf("this service holds no guild: %+v", s.Guilds())
+	return domain.Guild{}
+}
+
 func waitMembers(t *testing.T, timeout time.Duration, want int, svcs ...*Service) {
 	t.Helper()
-	guildID := svcs[0].Guilds()[0].ID
+	guildID := theGuild(t, svcs[0]).ID
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		ok := true

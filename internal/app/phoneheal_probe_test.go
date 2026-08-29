@@ -29,7 +29,7 @@ func TestDriftRecoveryWithDeskOffline(t *testing.T) {
 	defer cancel()
 	boot := testRendezvous(t, ctx)
 	desk, phone, textCh, _ := linkedPair(t, ctx, t.TempDir(), t.TempDir(), boot)
-	guildID := desk.Guilds()[0].ID
+	guildID := theGuild(t, desk).ID
 
 	friend := startServiceOn(t, ctx, t.TempDir(), boot)
 	if err := friend.SetDisplayName("Friend"); err != nil {

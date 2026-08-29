@@ -44,7 +44,7 @@ func TestUnauthorizedCommitRejected(t *testing.T) {
 	}
 	waitMembers(t, 30*time.Second, 3, owner, attacker, victim)
 
-	groupID := owner.Guilds()[0].GroupID
+	groupID := theGuild(t, owner).GroupID
 
 	// The attacker (a non-owner member) authors a valid MLS commit removing the
 	// victim, then publishes it on the control topic exactly as the owner would.

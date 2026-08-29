@@ -22,7 +22,7 @@ func driftTrio(t *testing.T, ctx context.Context) (desk, phone, friend *Service,
 	t.Helper()
 	boot := testRendezvous(t, ctx)
 	desk, phone, textCh, _ = linkedPair(t, ctx, t.TempDir(), t.TempDir(), boot)
-	guildID = desk.Guilds()[0].ID
+	guildID = theGuild(t, desk).ID
 
 	friend = startServiceOn(t, ctx, t.TempDir(), boot)
 	if err := friend.SetDisplayName("Friend"); err != nil {
@@ -149,7 +149,7 @@ func TestMessageRacingItsCommitNeedsNoReAdd(t *testing.T) {
 	desk, phone, friend, guildID, textCh := driftTrio(t, ctx)
 	deliverAll(t, desk, textCh, "warmup", 60*time.Second, phone, friend)
 
-	groupID := desk.Guilds()[0].GroupID
+	groupID := theGuild(t, desk).GroupID
 	base, err := desk.mls.Epoch(ctx, groupID)
 	if err != nil {
 		t.Fatalf("epoch: %v", err)
@@ -208,7 +208,7 @@ func TestHelloDoesNotRejoinHeldGuilds(t *testing.T) {
 	boot := testRendezvous(t, ctx)
 	desk, phone, _, _ := linkedPair(t, ctx, t.TempDir(), t.TempDir(), boot)
 
-	groupID := desk.Guilds()[0].GroupID
+	groupID := theGuild(t, desk).GroupID
 	base, err := desk.mls.Epoch(ctx, groupID)
 	if err != nil {
 		t.Fatalf("epoch: %v", err)
