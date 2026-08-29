@@ -739,6 +739,7 @@
         {@const draft = draftIn(dm.channels?.[0]?.id)}
         <button
           class="dm-item"
+          data-menu-row
           class:active
           class:unread={unread.count > 0 && !active}
           onclick={() => (dm.dmNotes ? selectNotes() : selectGuild(dm.id))}
@@ -937,6 +938,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="channel-row"
+            data-menu-row
             data-ch-id={c.id}
             class:active
             class:unread={!!u && !active && !isMuted(c.id, g?.id)}
@@ -2218,6 +2220,19 @@
   .dm-item.active {
     background: var(--accent-soft);
     color: var(--text);
+  }
+  /* ---- the row a menu is about ----
+     The menu opens at the cursor and says nothing about which row it belongs
+     to. `data-menu-target` is stamped by openContextMenu (lib/state.svelte.js)
+     on whatever `data-menu-row` the gesture came from, for exactly as long as
+     the menu is up. The ground is a step past hover and the hairline is
+     something hover never draws, so it reads as "this one, held" and not as a
+     stronger hover. :global keeps the compiler from pruning a selector that
+     never appears in this file's markup. */
+  .channel-row:global([data-menu-target]),
+  .dm-item:global([data-menu-target]) {
+    background: color-mix(in srgb, var(--bg-3) 82%, transparent);
+    box-shadow: inset 0 0 0 1px var(--border);
   }
   .dm-name {
     min-width: 0; /* let it shrink so long group-DM names ellipsize, not overflow */

@@ -338,7 +338,7 @@
         >{grp.name} — {filtering ? `${grp.members.length} of ${grp.total}` : grp.total}</span>
     </div>
     {#each grp.members as mem (mem.fingerprint)}
-      <div class="member-row">
+      <div class="member-row" data-menu-row>
       <button
         class="member"
         class:offline={!mem.online}
@@ -591,6 +591,19 @@
   .member:hover,
   .member:active {
     background: transparent;
+  }
+  /* ---- the row a menu is about ----
+     The menu opens at the cursor and says nothing about which row it belongs
+     to. `data-menu-target` is stamped by openContextMenu (lib/state.svelte.js)
+     on whatever `data-menu-row` the gesture came from, for exactly as long as
+     the menu is up. The ground is a step past hover and the hairline is
+     something hover never draws, so it reads as "this one, held" and not as a
+     stronger hover. :global keeps the compiler from pruning a selector that
+     never appears in this file's markup. */
+  .member-row:global([data-menu-target]) {
+    background: color-mix(in srgb, var(--bg-3) 82%, transparent);
+    box-shadow: inset 0 0 0 1px var(--border);
+    border-radius: var(--radius-sm);
   }
   /* Offline members recede so the online roster reads first;
      hovering or focusing a row brings the person fully back. */

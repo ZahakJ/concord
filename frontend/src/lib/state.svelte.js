@@ -757,7 +757,33 @@ export async function markUnread(channelId, msg) {
 export function openContextMenu(e, items, opts = {}) {
   e.preventDefault();
   e.stopPropagation();
+  markMenuRow(opts.rowEl || e.currentTarget || e.target);
   S.contextMenu = { x: e.clientX, y: e.clientY, items: tidySeps(items.filter(Boolean)), ...opts };
+}
+
+// ---- which row is this menu about? ----
+//
+// A right-click menu appears at the cursor and says nothing about what it
+// belongs to: with rows the height of one line of text, "Delete" over a feed of
+// near-identical messages is a genuine question of which one. So the row the
+// menu was opened from wears a mark for as long as the menu is up.
+//
+// It is a DOM stamp rather than a piece of reactive state because the menu has
+// thirty-one call sites and the mark is not any one surface's business — a row
+// opts in by carrying `data-menu-row`, styles itself off `[data-menu-target]`,
+// and needs no other change. Nothing else writes the attribute, so Svelte's
+// re-renders leave it alone.
+let markedRow = null;
+function markMenuRow(from) {
+  clearMenuRow();
+  const row = from?.closest?.("[data-menu-row]");
+  if (!row) return;
+  row.setAttribute("data-menu-target", "");
+  markedRow = row;
+}
+function clearMenuRow() {
+  markedRow?.removeAttribute("data-menu-target");
+  markedRow = null;
 }
 
 // Callers build menus as flat lists with permission-gated entries dropped by
@@ -778,6 +804,7 @@ function tidySeps(items) {
   return out;
 }
 export function closeContextMenu() {
+  clearMenuRow();
   S.contextMenu = null;
 }
 

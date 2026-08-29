@@ -1041,6 +1041,9 @@
     messageMenu({
       clientX: r.left,
       clientY: r.bottom + 4,
+      // The button itself, so the row's targeted mark lands on the row the ⋯
+      // belongs to — the menu is about that message either way it was opened.
+      currentTarget: e.currentTarget,
       preventDefault() {},
       stopPropagation() {},
     });
@@ -1066,6 +1069,7 @@
   class:mentions-me={mentionsMe}
   class:alerts-me={!mentionsMe && !!alertHit}
   data-msg-id={m.id}
+  data-menu-row
   tabindex={tabbable ? 0 : -1}
   oncontextmenu={coarse ? (e) => e.preventDefault() : messageMenu}
   use:longpress={{ handler: messageMenu }}
@@ -1681,6 +1685,22 @@
     width: 3px;
     border-radius: 0 3px 3px 0;
     background: var(--warn);
+  }
+  /* ---- the row a menu is about ----
+     A menu opens at the cursor and says nothing about what it belongs to, and
+     these rows are one line of text tall: "Delete" over a feed of near-
+     identical messages is a fair question of which one. The mark is the hover
+     ground raised a step plus a hairline the hover state never draws, so it
+     reads as "this one, and it is held" rather than as a stronger hover — and
+     it is drawn for the ⋯ menu too, which is the same menu about the same row.
+     `data-menu-target` is stamped by openContextMenu (lib/state.svelte.js) for
+     as long as the menu is up; :global keeps the compiler from pruning a
+     selector that never appears in this file's markup. Listed after the hover
+     rules, and again for @you, so it wins on both grounds. */
+  .msg:global([data-menu-target]),
+  .msg.mentions-me:global([data-menu-target]) {
+    background: color-mix(in srgb, var(--bg-3) 78%, transparent);
+    box-shadow: inset 0 0 0 1px var(--border);
   }
   /* ---- a word you asked about ----
      The same shape as @you, in the accent instead of the amber, because it is
