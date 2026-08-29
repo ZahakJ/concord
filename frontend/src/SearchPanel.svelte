@@ -214,7 +214,9 @@
     inset: 0;
     z-index: 4;
     border-bottom: 1px solid var(--border);
-    background: var(--bg-1);
+    /* Opaque, which is the whole point of the paragraph above — and --bg-1 is
+       not, on the packs that let a live backdrop through. */
+    background: var(--bg-elevated, var(--bg-1));
     display: flex;
     flex-direction: column;
     box-shadow: var(--shadow-pop);

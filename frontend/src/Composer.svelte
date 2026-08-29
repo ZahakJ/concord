@@ -2405,8 +2405,10 @@
        back corrupt, and in a headless capture the computed backdrop-filter read
        `none` and a poll behind the panel printed "0%" straight through the
        :smirk: row. The ground does the separation now; the blur is a bonus
-       where it lands. */
-    background: var(--bg-1);
+       where it lands. --bg-elevated rather than --bg-1 finishes that argument:
+       --bg-1 is itself translucent in thirty-one of the packs, so "opaque" was
+       only true on the default palette. */
+    background: var(--bg-elevated, var(--bg-1));
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--border);

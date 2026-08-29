@@ -180,9 +180,11 @@
     max-width: min(280px, 78 * var(--vw));
     padding: 8px 10px;
     border-radius: var(--radius-sm);
-    /* --bg-3 rather than --bg-1: the bubble floats over a card that is already
-       --bg-1, and matching it makes the popover read as part of the row. */
-    background: var(--bg-3);
+    /* Opaque: the bubble is portalled to <body> and floats over whatever the
+       dialog happens to be sitting on. --bg-3 read as "one step up from the
+       card" on the default palette and as a hole on the thirty-one packs that
+       give it an alpha. */
+    background: var(--bg-elevated, var(--bg-3));
     border: 1px solid var(--border);
     box-shadow: var(--shadow-pop);
     color: var(--text);

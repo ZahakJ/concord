@@ -84,24 +84,26 @@
     box-shadow: var(--shadow-pop);
   }
   /* Each variant gets a whisper of its color washed into the surface, plus
-     the colored edge — reads at a glance without shouting. */
+     the colored edge — reads at a glance without shouting. The ground is
+     --bg-elevated: a toast floats over the feed, and --bg-1 carries an alpha
+     in most packs, which put a message behind the word "Copied". */
   .toast.error {
     border-left-color: var(--danger);
-    background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 9%, var(--bg-1)), var(--bg-1) 55%);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 9%, var(--bg-elevated)), var(--bg-elevated) 55%);
   }
   .toast.error .t-icon {
     color: var(--danger-text);
   }
   .toast.success {
     border-left-color: var(--ok);
-    background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 9%, var(--bg-1)), var(--bg-1) 55%);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--ok) 9%, var(--bg-elevated)), var(--bg-elevated) 55%);
   }
   .toast.success .t-icon {
     color: var(--ok-text);
   }
   .toast.info {
     border-left-color: var(--accent);
-    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, var(--bg-1)), var(--bg-1) 55%);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, var(--bg-elevated)), var(--bg-elevated) 55%);
   }
   .toast.info .t-icon {
     color: var(--text-muted);

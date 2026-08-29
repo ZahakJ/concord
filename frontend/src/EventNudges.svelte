@@ -88,7 +88,8 @@
     gap: 10px;
     padding: 10px 12px;
     border-radius: var(--radius-lg);
-    background: var(--bg-2);
+    /* Floats over the feed, so it is opaque like every other lifted card. */
+    background: var(--bg-elevated, var(--bg-2));
     border: 1px solid var(--border);
     box-shadow: var(--shadow-pop);
   }

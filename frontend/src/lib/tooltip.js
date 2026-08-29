@@ -34,9 +34,11 @@ let showTimer = 0; // module-level: only one tip can ever be pending
 function ensureTip() {
   if (tip) return tip;
   const style = document.createElement("style");
-  // --bg-3 + --shadow-pop is the house voice for floating chrome (Menu,
-  // ContextMenu); the tokens re-resolve per theme, so the tip follows the
-  // active skin with no work here.
+  // --bg-elevated + --shadow-pop is the house voice for floating chrome (Menu,
+  // ContextMenu, the popovers); the tokens re-resolve per theme, so the tip
+  // follows the active skin with no work here. Elevated rather than --bg-3
+  // because a tip is over the app, not over a card: --bg-3 carries an alpha in
+  // thirty-one packs and the label would be read against whatever it landed on.
   style.textContent = `
     .app-tooltip {
       position: fixed;
@@ -44,7 +46,7 @@ function ensureTip() {
       display: none;
       max-width: 260px;
       padding: 5px 9px;
-      background: var(--bg-3, var(--bg-2));
+      background: var(--bg-elevated, var(--bg-3, var(--bg-2)));
       border: 1px solid var(--border);
       border-radius: var(--radius-md);
       color: var(--text);

@@ -62,7 +62,7 @@ const NEEDED = [
   "--fs-micro", "--fs-tiny", "--fs-small", "--fs-compact", "--fs-ui", "--fs-body", "--fs-title", "--fs-display",
   "--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5", "--sp-6",
   "--ease-spring", "--ease-out", "--dur-quick", "--dur-standard",
-  "--focus-ring", "--focus-ring-offset", "--scrim",
+  "--focus-ring", "--focus-ring-offset", "--scrim", "--bg-elevated",
 ];
 for (const t of NEEDED) if (!tokenValue(t)) fail(`app.css :root does not define ${t}`);
 
@@ -266,6 +266,41 @@ for (const [rel, raw] of FILES) {
             fail(`${why}: ${fgTok} on ${bgTok} is ${r.toFixed(2)}:1 in the ${theme} theme, below 4.5`);
           }
         }
+      }
+    }
+  }
+}
+
+// ---- 9. floating chrome is opaque -----------------------------------------
+//
+// Thirty-one of the theme packs give --bg-0/1/2/3 an alpha, because those are
+// the grounds an animated backdrop is meant to show through. --bg-elevated is
+// the deliberate exception: it names the surface that is LIFTED off the page —
+// a dialog, a menu, a popover, a toast — and it is opaque in all fifty packs
+// and both default themes. See the note above --bg-elevated in themepacks.css.
+//
+// The dialogs were moved onto it and the popovers were not, so the profile
+// card, the status sheet, every dropdown, the tooltip, the ⓘ bubble and the
+// toasts were printing over the message they were covering. This rule is what
+// stops that happening again.
+//
+// "Floats" is read as --shadow-pop (the app's only shadow token, and it exists
+// to say exactly that) AND taken out of the flow. Both halves are needed: a
+// preview tile with a drop shadow is laid out inside a parent whose ground it
+// already knows, and it is allowed to be a lighter or darker step of it. Only
+// a box that is positioned over something it did not lay out has to be opaque.
+{
+  // A rule that says "lifted" and also paints a ground must paint an opaque one.
+  const GROUND = /background(?:-color)?:\s*([^;]*var\(--bg-[0123]\)[^;]*);/;
+  for (const [rel, raw] of FILES) {
+    for (const m of strip(raw).matchAll(/\{([^{}]*box-shadow:\s*var\(--shadow-pop\)[^{}]*)\}/g)) {
+      if (!/position:\s*(?:fixed|absolute|sticky)\b/.test(m[1])) continue;
+      const g = GROUND.exec(m[1]);
+      if (g && !g[1].includes("--bg-elevated")) {
+        fail(
+          `${rel}: a --shadow-pop surface is grounded on \`${g[1].trim()}\` — ` +
+            "use var(--bg-elevated), which is opaque in every pack",
+        );
       }
     }
   }

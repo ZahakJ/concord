@@ -2713,36 +2713,16 @@ textarea:focus {
 
 /* ── the app, behind a dialog ─────────────────────────────────────────────
    Modal.svelte stamps [data-modal] on the document while any dialog is on
-   screen. The comment in that file used to promise a "frosted scrim: the app
-   dims AND recedes" and the app did neither — there was no backdrop-filter
-   anywhere in the codebase, so every message, avatar, poll bar and link behind
-   the Settings dialog stayed razor-sharp and fully legible, and the dialog
-   competed with the page instead of replacing it.
+   screen; the scrim it carries is raised (0.70, not 0.55) so a dialog replaces
+   the page instead of competing with it.
 
-   A real blur is not available: the shipping desktop renders in software
-   (WEBKIT_DISABLE_DMABUF_RENDERER), where a full-viewport backdrop-filter is
-   the most expensive thing on the screen. This is the compositor-only version
-   of the same idea — one transform and one opacity, both of which the
-   compositor can do without ever touching a pixel of the app's own paint. The
-   scrim carries the rest of the work, raised from 0.55 to 0.70.
-
-   Only the desktop shell recedes. The phone shell owns its own transform for
-   the drawer gesture and a second one here would fight it, and a bottom sheet
-   is not pretending to be a floating card anyway. */
-:root[data-modal] .app {
-  transform: scale(0.985);
-  transition: transform var(--dur-standard) var(--ease-out);
-}
-.app {
-  transition: transform var(--dur-standard) var(--ease-out);
-}
-@media (prefers-reduced-motion: reduce) {
-  :root[data-modal] .app,
-  .app {
-    transform: none;
-    transition: none;
-  }
-}
+   The app itself does NOT move. A previous version scaled `.app` to 0.985
+   behind every dialog — the compositor-cheap stand-in for a backdrop blur the
+   software renderer cannot afford. Opening a menu should never shove the thing
+   you were reading, and at 0.985 across a 1440px window the whole page slides
+   about ten pixels inward and back out again on every dismiss. Dimming is a
+   dialog's business; the page's geometry is not. Nothing that appears above
+   the app may animate the app. */
 
 /* ── held-still motion ────────────────────────────────────────────────────
    The class lib/inview.js puts on a tile that has scrolled out of view. It has

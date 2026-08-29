@@ -2469,7 +2469,7 @@
     gap: var(--sp-3);
     max-width: calc(100 * var(--vw) - 24px);
     padding: 8px 10px 8px 16px;
-    background: var(--bg-1);
+    background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--accent);
     border-radius: 22px;
     box-shadow: var(--shadow-pop);

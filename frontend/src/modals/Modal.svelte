@@ -10,10 +10,10 @@
   const visible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
 
   // How many dialogs are on screen. A stamp on the document is what lets the
-  // app behind them recede (app.css, [data-modal]) without every dialog having
-  // to reach for the shell element itself — and it is a COUNT because panels
-  // stack: the second one mounting must not clear the flag when the first
-  // unmounts underneath it.
+  // app behind them read as inert (app.css, [data-modal]) without every dialog
+  // having to reach for the shell element itself — and it is a COUNT because
+  // panels stack: the second one mounting must not clear the flag when the
+  // first unmounts underneath it. The stamp dims; it never MOVES the app.
   let openCount = 0;
   export function markOpen() {
     openCount++;

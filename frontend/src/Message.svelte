@@ -2545,7 +2545,8 @@
     gap: 3px;
     opacity: 0;
     transform: translateY(3px) scale(0.97);
-    background: var(--bg-1);
+    /* Sits ON the message it acts on, so it must not let it through. */
+    background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     padding: 3px;
@@ -2993,7 +2994,7 @@
     min-width: 168px;
     padding: 8px 10px;
     border-radius: var(--radius-md);
-    background: var(--bg-1);
+    background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     box-shadow: var(--shadow-pop);
     color: var(--text);

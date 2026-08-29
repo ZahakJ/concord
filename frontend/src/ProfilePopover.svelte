@@ -906,7 +906,11 @@
     position: relative;
     z-index: 1;
     width: 100%;
-    background: var(--bg-1);
+    /* --bg-elevated, not --bg-1: this card floats over the message list, and
+       thirty-one of the packs give --bg-1 an alpha so the backdrop shows
+       through. A card lifted off the page is opaque — see the note over
+       --bg-elevated in themepacks.css, which names popovers explicitly. */
+    background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
@@ -1135,7 +1139,9 @@
     width: fit-content;
     margin-top: -38px;
     padding: 3px;
-    background: var(--bg-1);
+    /* The punch-out ring the avatar sits in. It has to be the panel's own
+       ground or it haloes against it. */
+    background: var(--bg-elevated, var(--bg-1));
     border-radius: 50%;
     z-index: 1;
   }

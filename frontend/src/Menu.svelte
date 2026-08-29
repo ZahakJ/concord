@@ -294,7 +294,10 @@
        thousand-pixel panel that runs off both ends of the window. */
     max-height: min(340px, 62 * var(--vh));
     overflow-y: auto;
-    background: var(--bg-1);
+    /* Floating chrome is opaque — a menu of verbs over a wall of text is
+       unreadable at the 0.7 alpha most packs give --bg-1. ContextMenu and the
+       emoji picker already sat on --bg-elevated; this is the same surface. */
+    background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     padding: 5px;

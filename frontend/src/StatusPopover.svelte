@@ -219,7 +219,10 @@
     position: fixed;
     z-index: 250;
     width: 248px;
-    background: var(--bg-1);
+    /* Opaque, like every lifted surface. The sticky grab strip below already
+       used --bg-elevated, so on a glass pack the handle was solid and the
+       sheet under it was not. */
+    background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);

@@ -275,10 +275,12 @@
     width: 460px;
     max-width: calc(92 * var(--vw));
     height: fit-content;
-    /* Glassy command palette: translucent surface over the blurred app. */
-    background: color-mix(in srgb, var(--bg-1) 88%, transparent);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    /* Opaque, not glass. This used to be a 12% hole over a blur(14px), which
+       is the most expensive filter on the screen for the software renderer the
+       desktop ships with (WEBKIT_DISABLE_DMABUF_RENDERER) — and where the blur
+       does not land, the hole is just channel names printed over messages. The
+       scrim behind the palette is what separates it from the app. */
+    background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     padding: var(--sp-3);
