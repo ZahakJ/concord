@@ -1,7 +1,7 @@
 <script>
   // Everything that makes noise or lights up. Split out of Settings so the
   // top level can stay a short list of places to go.
-  import Modal from "./Modal.svelte";
+  import SettingsShell from "./SettingsShell.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
   import Icon from "../Icon.svelte";
@@ -24,14 +24,33 @@
     soundVolume,
     setSoundVolume,
     playDone,
+    probeAudioOutput,
+    audioTrouble,
   } from "../lib/sounds.js";
 
   let { onClose } = $props();
 
+  // ---- one control for "how loud", including off -----------------------------
+  //
+  // This used to be a switch called Sounds AND a slider called Volume, and
+  // nothing reconciled them: an install could sit with the switch ON and the
+  // slider at 0, which is silence with a control saying otherwise. That is
+  // exactly the state a person then reports as "no sound on joining a call",
+  // and no amount of looking at the switch explains it.
+  //
+  // So there is one control. Zero is off — the same stored on/off flag as
+  // before, written from the same gesture, so every reader of soundsEnabled()
+  // (nine synthesizers, the soundboard, the arrival blip) is untouched.
   let sounds = $state(soundsEnabled());
-  function toggleSounds() {
-    sounds = !sounds;
-    setSoundsEnabled(sounds);
+  let vol = $state(soundsEnabled() ? Math.round(soundVolume() * 100) : 0);
+  function setVol(e) {
+    vol = Number(e.target.value);
+    const on = vol > 0;
+    if (on !== sounds) {
+      sounds = on;
+      setSoundsEnabled(on);
+    }
+    if (on) setSoundVolume(vol / 100);
   }
 
   // The soundboard gets its own switch. Sound effects are the one noise a
@@ -56,15 +75,27 @@
     }
   }
 
-  // The section is headed HOW LOUD and contained nothing that answered it —
-  // two on/off switches and a ringtone picker. The slider auditions itself on
-  // release rather than on every input event: dragging through forty values
-  // must not fire forty chimes.
-  let vol = $state(Math.round(soundVolume() * 100));
-  function setVol(e) {
-    vol = Number(e.target.value);
-    setSoundVolume(vol / 100);
+  // ---- can this machine play a sound at all? ---------------------------------
+  //
+  // On the Linux desktop, sometimes not: WebKitGTK renders Web Audio through
+  // GStreamer, and a box without the audio plugins gets a context that reports
+  // itself healthy and never makes a sound. Every switch on this page then does
+  // nothing, silently, and the page says nothing about it — which is the whole
+  // reason "no chime when I join a call" was reported as a Concord bug.
+  //
+  // Probing on open is honest and costs a third of a second of a clock reading;
+  // it plays nothing. The Test button below is the same probe with a chime on
+  // the end, for the case where the machine is fine and the speakers are not.
+  let trouble = $state(null);
+  let testing = $state(false);
+  async function probe(withChime) {
+    testing = true;
+    await probeAudioOutput();
+    trouble = audioTrouble();
+    if (withChime && !trouble && sounds) playDone();
+    testing = false;
   }
+  probe(false);
 
   let ringtone = $state(getRingtone());
   function pickRingtone(id) {
@@ -156,46 +187,36 @@
   }
 </script>
 
-<Modal title="Notifications &amp; sounds" {onClose} wide>
+<SettingsShell title="Notifications &amp; sounds" here="notifications" {onClose}>
+  <!-- The panel is written so that NOTHING here changes its own height when you
+       change a setting. Every state-dependent line is one line in every state,
+       and the alert-word validation line is always in the layout. A panel that
+       grows a row under the control you just touched moves everything you were
+       about to touch next. -->
   <SettingGroup
-    label="How loud"
+    label="Pings"
     info="Every guild and channel has its own level — all messages, only @mentions, or nothing — on its {S.isMobile
       ? 'long-press'
-      : 'right-click'} menu."
+      : 'right-click'} menu. This page is about the whole app."
   >
     <SettingRow
       icon="bell"
       title="Do Not Disturb"
-      info="Silences every ping and chime, mentions included, without hiding your unread badges and without going offline."
-      sub={dnd ? "On — nothing will ping you" : "Silence every ping without going offline"}
+      sub="Nothing pings you, mentions included. Badges still count; you stay online."
       checked={dnd}
       onclick={toggleDnd}
     />
   </SettingGroup>
 
-  <SettingGroup>
-    <SettingRow
-      icon="speaker"
-      title="Sounds"
-      sub="Voice join/leave chimes and @mention pings"
-      checked={sounds}
-      onclick={toggleSounds}
-    />
-    <SettingRow
-      icon="megaphone"
-      title="Sound effects"
-      sub="The voice-room soundboard and sound chips other people send"
-      checked={board}
-      onclick={toggleBoard}
-    />
-    <SettingRow
-      icon="bubble"
-      title="Sound on every message"
-      sub="A soft blip when a message lands in the channel you're looking at"
-      checked={S.prefs.soundOnArrive}
-      onclick={() => setPref("soundOnArrive", !S.prefs.soundOnArrive)}
-    />
-    <SettingRow icon="speaker" title="Volume" sub="Everything this app plays, from the mention ping to the ringtone">
+  <SettingGroup label="Sound">
+    {#if trouble}
+      <!-- Named, not endured. This is the one place a person can act on it. -->
+      <div class="trouble" role="status">
+        <span class="t-ico"><Icon name="alert" size={15} /></span>
+        <p>{trouble}</p>
+      </div>
+    {/if}
+    <SettingRow icon="speaker" title="Volume" sub="Everything Concord plays, from a mention ping to the ringtone.">
       <span class="vol">
         <input
           type="range"
@@ -203,22 +224,40 @@
           max="100"
           step="5"
           value={vol}
-          disabled={!sounds}
-          aria-label="Sound volume"
+          aria-label="Sound volume, 0 for silent"
           oninput={setVol}
-          onchange={() => sounds && playDone()}
+          onchange={() => vol > 0 && playDone()}
           use:rangefill={vol}
         />
-        <span class="volnum">{vol}%</span>
+        <span class="volnum" class:off={vol === 0}>{vol === 0 ? "Off" : `${vol}%`}</span>
       </span>
     </SettingRow>
-    <SettingRow icon="phone" title="Call ringtone" sub="Plays when a friend calls you">
+    <SettingRow
+      icon="megaphone"
+      title="Sound effects"
+      sub="Soundboard presses in a voice room, and sound chips people send you."
+      checked={board}
+      onclick={toggleBoard}
+    />
+    <SettingRow
+      icon="bubble"
+      title="Blip on every message"
+      sub="A soft note when a message lands in the channel you are already reading."
+      checked={S.prefs.soundOnArrive}
+      onclick={() => setPref("soundOnArrive", !S.prefs.soundOnArrive)}
+    />
+    <SettingRow icon="phone" title="Call ringtone" sub="What plays on this device when somebody calls you.">
       <Select
         label="Call ringtone"
         value={ringtone}
         onPick={pickRingtone}
         options={RINGTONE_OPTIONS.map((o) => ({ value: o.id, label: o.label }))}
       />
+    </SettingRow>
+    <SettingRow icon="play" title="Test the speakers" sub="Plays one chime and checks that it actually reached them.">
+      <button class="ghost small-btn" onclick={() => probe(true)} disabled={testing}>
+        {testing ? "Listening…" : "Test"}
+      </button>
     </SettingRow>
   </SettingGroup>
 
@@ -241,7 +280,10 @@
         />
         <button type="submit" disabled={!draft.trim() || !!reason}>Add</button>
       </form>
-      {#if reason}<p class="why">{reason}</p>{/if}
+      <!-- Always here, empty until there is something to say: a validation line
+           that appears pushes the chip list and the counter down the page while
+           somebody is typing into the box above it. -->
+      <p class="why" aria-live="polite">{reason || ""}</p>
       {#if S.alertWords.length}
         <ul class="chips">
           {#each S.alertWords as w (w)}
@@ -269,14 +311,14 @@
       <SettingRow
         icon="bell"
         title="Show notifications"
-        sub={osNotif.enabled
-          ? "On — messages appear in your notification tray"
-          : osNotif.canRequest
-            ? "Off — tap to allow Concord to notify you"
-            : "Blocked — tap to change it in system settings"}
-        info="This is your device's own permission, not a Concord setting. Concord asks for it the first time you miss a message rather than at startup, because your phone only offers the choice twice before deciding for you."
+        sub="Your device's own permission to put Concord in the notification tray."
+        info="Concord asks for this the first time you miss a message rather than at startup, because your phone only offers the choice twice before deciding for you."
         onclick={fixOsNotif}
-      />
+      >
+        <span class="perm" class:on={osNotif.enabled}>
+          {osNotif.enabled ? "Allowed" : osNotif.canRequest ? "Allow…" : "Blocked"}
+        </span>
+      </SettingRow>
     </SettingGroup>
   {/if}
 
@@ -285,14 +327,14 @@
       <SettingRow
         icon="bell"
         title="Stay connected"
-        sub="Receive messages in the background"
+        sub="Keep receiving while Concord is closed."
         info="Without this, messages only arrive while Concord is open — there's no server holding them for you, so the app has to be running to receive."
         checked={stayConnected}
         onclick={toggleStayConnected}
       />
     </SettingGroup>
   {/if}
-</Modal>
+</SettingsShell>
 
 <style>
   .vol {
@@ -301,14 +343,62 @@
     gap: var(--sp-2);
   }
   .vol input {
-    width: 120px;
+    width: 130px;
   }
   .volnum {
-    min-width: 4ch;
+    /* Wide enough for "100%" AND for "Off", so the slider does not shift
+       sideways as the number crosses a digit or reaches zero. */
+    min-width: 4.5ch;
     text-align: right;
     font-size: var(--fs-compact);
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
+  }
+  .volnum.off {
+    color: var(--text-faint);
+    font-weight: 650;
+  }
+  .small-btn {
+    font-size: var(--fs-compact);
+    padding: 5px 14px;
+    white-space: nowrap;
+  }
+  /* The OS permission's state, as a word rather than as a sentence that changes
+     length. Three states, one line, one width class. */
+  .perm {
+    font-size: var(--fs-compact);
+    font-weight: 650;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .perm.on {
+    color: var(--ok-text);
+  }
+
+  /* Something is wrong with this machine's audio and no switch on this page can
+     fix it. Warn-tinted rather than danger: nothing is broken or lost, there is
+     just a package to install. */
+  .trouble {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    padding: 11px 13px;
+    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .t-ico {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    color: var(--warn-text);
+  }
+  .trouble p {
+    margin: 0;
+    font-size: var(--fs-compact);
+    line-height: 1.5;
+    color: var(--text);
   }
 
   .words {
@@ -338,7 +428,10 @@
   }
   .why {
     margin: 0;
+    /* Reserved, always. See the note at the markup. */
+    min-height: 1.4em;
     font-size: var(--fs-tiny);
+    line-height: 1.4;
     color: var(--warn-text);
   }
   .chips {
