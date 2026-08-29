@@ -77,6 +77,7 @@
   import { clampToBytes, TITLE_MAX_BYTES } from "./lib/postdraft.js";
   import { api } from "./lib/api.js";
   import { tooltip } from "./lib/tooltip.js";
+  import { rectOf, viewport } from "./lib/place.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
   import { longpress, haptic } from "./lib/touch.js";
   import { PERM, has } from "./lib/perms.js";
@@ -460,15 +461,18 @@
   // below the chip instead.
   function clampSealCard(node) {
     const pad = 8;
-    const r = node.getBoundingClientRect();
+    // Layout pixels: the rect is measured in visual pixels but the transform
+    // below is written in layout ones, and the UI-scale zoom separates them.
+    const r = rectOf(node);
+    const vp = viewport();
     let dx = 0;
-    if (r.left < pad) dx = pad - r.left;
-    else if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
+    if (r.x < pad) dx = pad - r.x;
+    else if (r.x + r.w > vp.w - pad) dx = vp.w - pad - (r.x + r.w);
     if (dx) node.style.transform = `translateX(${dx}px)`;
     // The top bar is ~52px plus the status bar; anything above ~90px is at risk
     // of sliding under chrome. Flip below the chip — there is always room there,
     // the feed scrolls.
-    if (r.top < 90) {
+    if (r.y < 90) {
       node.style.bottom = "auto";
       node.style.top = "calc(100% + 6px)";
     }

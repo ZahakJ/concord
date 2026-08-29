@@ -17,6 +17,7 @@
 // viewport. A message's celebration belongs to the message.
 
 import { rng } from "./fx.js";
+import { rectOf, uiZoom, viewport } from "./place.js";
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -69,10 +70,15 @@ function pauseOffscreen(host, el) {
 }
 
 // The box a hosted effect plays in, or the viewport when there is no host.
+// A layer is `position:fixed` (or `absolute`) and everything scattered across
+// it is written as a CSS length, so the stage has to be measured in LAYOUT
+// pixels — see lib/place.js. Taking it from innerWidth/innerHeight spread the
+// confetti over a box the zoom had already made bigger than the layer, and the
+// overflow clip ate the difference.
 function stage(host) {
-  if (!host) return { w: window.innerWidth, h: window.innerHeight };
-  const r = host.getBoundingClientRect();
-  return { w: Math.max(1, r.width), h: Math.max(1, r.height) };
+  if (!host) return viewport();
+  const r = rectOf(host);
+  return { w: Math.max(1, r.w), h: Math.max(1, r.h) };
 }
 
 const layerStyle = (host, z) =>
@@ -83,6 +89,12 @@ const layerStyle = (host, z) =>
 // A ring of glyphs bursting out of a viewport point — the reaction payoff.
 export function radialBurst(x, y, opts = {}) {
   if (reduced() || live >= MAX_LIVE) return;
+  // The caller measured the control the burst flies out of, so the point
+  // arrives in visual pixels; the layer below is placed with CSS lengths,
+  // which are layout pixels. Convert once, here.
+  const z = uiZoom();
+  x /= z;
+  y /= z;
   const {
     glyphs = ["✦"],
     colors = ["var(--accent)"],

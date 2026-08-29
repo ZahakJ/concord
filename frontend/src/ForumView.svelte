@@ -1922,8 +1922,8 @@
   }
   .pick {
     width: 320px;
-    max-width: 92vw;
-    max-height: 78vh;
+    max-width: calc(92 * var(--vw));
+    max-height: calc(78 * var(--vh));
     overflow-y: auto;
     display: flex;
     flex-direction: column;

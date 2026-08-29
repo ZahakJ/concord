@@ -6,6 +6,8 @@
   // link previews are off, why typing indicators are reciprocal — but printing
   // all of it at once turns a settings page into an essay you scroll past. This
   // keeps the explanation one gesture away from the row it explains.
+  import { place as placeBubble, rectOf, sizeOf } from "../lib/place.js";
+
   let { text, label = "Why?" } = $props();
 
   let open = $state(false);
@@ -29,19 +31,19 @@
   // portalled to <body> means the only edges that can clip it are the screen's,
   // which is what the clamping below actually measures.
   const M = 8; // margin from the screen edge
+  // Below by default; above when that would run off the bottom and there is
+  // genuinely room up there; centred on the dot and pulled back inside
+  // whichever edge it crosses. Layout pixels throughout — see lib/place.js.
   function place() {
     if (!bubble || !dot) return;
-    const d = dot.getBoundingClientRect();
-    const b = bubble.getBoundingClientRect();
-    // Below by default; above when that would run off the bottom and there is
-    // genuinely room up there.
-    const below = d.bottom + 7;
-    const above = d.top - b.height - 7;
-    const top = below + b.height > window.innerHeight - M && above >= M ? above : below;
-    // Centred on the dot, then pulled back inside whichever edge it crosses.
-    let left = d.left + d.width / 2 - b.width / 2;
-    left = Math.max(M, Math.min(left, window.innerWidth - b.width - M));
-    pos = { left, top: Math.max(M, top) };
+    pos = placeBubble({
+      anchor: rectOf(dot),
+      ...sizeOf(bubble),
+      side: "bottom",
+      align: "center",
+      gap: 7,
+      pad: M,
+    });
   }
 
   function show() {
@@ -175,7 +177,7 @@
     position: fixed;
     z-index: 200;
     width: max-content;
-    max-width: min(280px, 78vw);
+    max-width: min(280px, 78 * var(--vw));
     padding: 8px 10px;
     border-radius: var(--radius-sm);
     /* --bg-3 rather than --bg-1: the bubble floats over a card that is already

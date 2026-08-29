@@ -63,7 +63,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);
-    width: min(360px, calc(100vw - 32px));
+    width: min(360px, calc(100 * var(--vw) - 32px));
     /* The container spans the corner even when empty; only toasts take clicks. */
     pointer-events: none;
   }
@@ -183,7 +183,7 @@
       top: calc(var(--mchrome) + 10px);
       right: 50%;
       transform: translateX(50%);
-      width: min(420px, calc(100vw - 24px));
+      width: min(420px, calc(100 * var(--vw) - 24px));
     }
     .toast {
       font-size: var(--fs-ui);

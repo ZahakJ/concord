@@ -42,6 +42,7 @@
 // decided on contact: `none` at the top, where the strip owns the gesture, and
 // `pan-y` once there is something below to scroll back up to.
 import { haptic } from "./touch.js";
+import { pointOf } from "./place.js";
 
 const DISMISS_PX = 120; // absolute cap on the pull a dismissal needs
 const DISMISS_FRACTION = 0.33; // …or a third of the sheet, whichever is less
@@ -112,7 +113,7 @@ export function sheetdrag(node, params) {
     if (!s) return;
     dragging = true;
     height = s.offsetHeight || 1;
-    startY = e.clientY;
+    startY = pointOf(e).y;
     startT = performance.now();
     dy = 0;
     s.style.transition = "none";
@@ -123,7 +124,7 @@ export function sheetdrag(node, params) {
 
   function onMove(e) {
     if (!dragging) return;
-    dy = Math.max(0, e.clientY - startY); // down only
+    dy = Math.max(0, pointOf(e).y - startY); // down only, in layout px
     paint(dy);
   }
 

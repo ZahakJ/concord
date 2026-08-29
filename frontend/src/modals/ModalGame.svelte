@@ -153,7 +153,7 @@
   }
 
   .opps {
-    max-height: 40dvh;
+    max-height: calc(40 * var(--dvh));
     overflow-y: auto;
   }
   .opp {

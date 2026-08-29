@@ -23,6 +23,7 @@
   import Avatar from "./Avatar.svelte";
   import { S, closeContextMenu } from "./lib/state.svelte.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
+  import { place, pointOf, sizeOf } from "./lib/place.js";
   import { rangefill } from "./lib/rangefill.js";
 
   // A menu is the shallowest thing on screen and the first thing back should
@@ -76,14 +77,15 @@
     next.focus();
   }
 
-  // Place at the cursor, flipping so the menu stays on-screen.
+  // Place at the cursor: down-and-right by default, flipping up at the bottom
+  // edge and hanging leftward at the right edge, clamped either way. The math
+  // is lib/place.js's, so this menu is on-screen at every UI scale — see the
+  // coordinate-space note there for what used to happen and why.
   $effect(() => {
     const m = S.contextMenu;
     if (!m || !el) return;
-    const r = el.getBoundingClientRect();
-    const x = Math.min(m.x, window.innerWidth - r.width - 8);
-    const y = Math.min(m.y, window.innerHeight - r.height - 8);
-    pos = { x: Math.max(8, x), y: Math.max(8, y) };
+    const p = place({ anchor: pointOf(m), ...sizeOf(el), side: "bottom", align: "start", gap: 0 });
+    pos = { x: p.left, y: p.top };
   });
 
   // `keepOpen` items leave the menu up after the tap — the two-tap arming
@@ -315,7 +317,7 @@
     overscroll-behavior: contain;
     /* Never taller than the viewport — a long menu scrolls instead of pushing
        items off-screen where they can't be reached. */
-    max-height: calc(100vh - 16px);
+    max-height: calc(100 * var(--vh) - 16px);
     overflow-y: auto;
     /* Gentle rise-in so the menu arrives instead of blinking into place. Only
        opacity/translate animate — never scale — so the on-open flip measurement

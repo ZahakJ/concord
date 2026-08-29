@@ -15,6 +15,7 @@
   import Icon from "./Icon.svelte";
   import { S, memberByFpr } from "./lib/state.svelte.js";
   import { haptic } from "./lib/touch.js";
+  import { pointOf, viewport } from "./lib/place.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { canShareScreen } from "./lib/devices.js";
 
@@ -51,7 +52,10 @@
     }
     return null;
   }
-  let pos = $state(savedPos() || { x: Math.max(12, window.innerWidth - 250), y: 70 });
+  // Layout pixels, like every other length written into style.left/top —
+  // lib/place.js explains why the viewport has to be asked for rather than
+  // read off window.innerWidth once the UI scale leaves 100%.
+  let pos = $state(savedPos() || { x: Math.max(12, viewport().w - 250), y: 70 });
   let dockEl = $state(null);
   let drag = null;
   let dragging = $state(false); // lifts the dock visually while it moves
@@ -63,13 +67,19 @@
   function clamp(x, y) {
     const w = dockEl?.offsetWidth || 214;
     const h = dockEl?.offsetHeight || 160;
+    const vp = viewport();
     return {
-      x: Math.max(8, Math.min(window.innerWidth - w - 8, x)),
-      y: Math.max(8, Math.min(window.innerHeight - h - 12, y)),
+      x: Math.max(8, Math.min(vp.w - w - 8, x)),
+      y: Math.max(8, Math.min(vp.h - h - 12, y)),
     };
   }
+  // A pointer reports visual pixels; the dock lives in layout ones, so a drag
+  // taken raw moved the dock further than the hand and walked it past its own
+  // clamp. One conversion, at the door.
+  const at = (e) => pointOf(e);
   function onDown(e) {
-    drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, x: e.clientX, y: e.clientY };
+    const p = at(e);
+    drag = { dx: p.x - pos.x, dy: p.y - pos.y, x: p.x, y: p.y };
     dragging = true;
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -79,13 +89,16 @@
     window.addEventListener("pointercancel", onUp);
   }
   function onMove(e) {
-    if (drag) pos = clamp(e.clientX - drag.dx, e.clientY - drag.dy);
+    if (drag) {
+      const p = at(e);
+      pos = clamp(p.x - drag.dx, p.y - drag.dy);
+    }
   }
   function onUp(e) {
     // A press that didn't move is a click on the header, and a click on the
     // header means "take me back to the call" — the old double-click was both
     // undiscoverable and, on a trackpad, easy to miss.
-    if (drag && e?.type === "pointerup" && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 5) {
+    if (drag && e?.type === "pointerup" && Math.hypot(at(e).x - drag.x, at(e).y - drag.y) < 5) {
       onReturn?.();
     }
     if (drag) remember();

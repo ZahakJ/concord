@@ -10,6 +10,7 @@
   import { S, getVideoStream } from "./lib/state.svelte.js";
   import { selfViewCovered } from "./lib/selfview.svelte.js";
   import Icon from "./Icon.svelte";
+  import { pointOf, viewport } from "./lib/place.js";
 
   let { onToggleCamera } = $props();
 
@@ -30,26 +31,32 @@
     return null;
   }
   let el = $state(null);
-  let pos = $state(saved() || { x: 16, y: Math.max(80, window.innerHeight - 200) });
+  // Layout pixels — the unit style.left/top are written in. See lib/place.js.
+  let pos = $state(saved() || { x: 16, y: Math.max(80, viewport().h - 200) });
   let drag = null;
   let dragging = $state(false);
 
   function clamp(x, y) {
     const w = el?.offsetWidth || 160;
     const h = el?.offsetHeight || 120;
+    const vp = viewport();
     return {
-      x: Math.max(8, Math.min(window.innerWidth - w - 8, x)),
-      y: Math.max(8, Math.min(window.innerHeight - h - 8, y)),
+      x: Math.max(8, Math.min(vp.w - w - 8, x)),
+      y: Math.max(8, Math.min(vp.h - h - 8, y)),
     };
   }
   function onDown(e) {
     if (e.target.closest?.("button")) return;
     el?.setPointerCapture?.(e.pointerId);
-    drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y };
+    const p = pointOf(e);
+    drag = { dx: p.x - pos.x, dy: p.y - pos.y };
     dragging = true;
   }
   function onMove(e) {
-    if (drag) pos = clamp(e.clientX - drag.dx, e.clientY - drag.dy);
+    if (drag) {
+      const p = pointOf(e);
+      pos = clamp(p.x - drag.dx, p.y - drag.dy);
+    }
   }
   function onUp(e) {
     if (!drag) return;

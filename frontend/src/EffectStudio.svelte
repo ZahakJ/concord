@@ -136,8 +136,8 @@
     position: fixed;
     inset: 50% auto auto 50%;
     transform: translate(-50%, -50%);
-    width: min(600px, 94vw);
-    max-height: 88vh;
+    width: min(600px, 94 * var(--vw));
+    max-height: calc(88 * var(--vh));
     display: flex;
     flex-direction: column;
     /* Matches modals/Modal.svelte deliberately. These panels had drifted to

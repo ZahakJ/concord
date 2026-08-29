@@ -1323,7 +1323,7 @@
     padding: 14px 16px;
     background: radial-gradient(120% 140% at 50% 0%, var(--bg-2), var(--bg-0));
     border-bottom: 1px solid var(--border);
-    max-height: 46vh;
+    max-height: calc(46 * var(--vh));
     overflow-y: auto;
     /* Flicking past the end of the tile grid used to hand the leftover momentum
        to the message feed underneath — the chat jumped while you were reaching
@@ -1832,7 +1832,7 @@
   }
   /* Theater / focus mode: the panel gets a bit taller for a usable big view. */
   .voice-panel.theater {
-    max-height: 62vh;
+    max-height: calc(62 * var(--vh));
   }
   .focus-main {
     position: relative;
@@ -1840,7 +1840,7 @@
     border-radius: var(--radius-md);
     overflow: hidden;
     aspect-ratio: 16 / 9;
-    max-height: 46vh;
+    max-height: calc(46 * var(--vh));
     margin: 0 auto;
     width: 100%;
   }
@@ -2513,7 +2513,7 @@
     /* On a phone the call IS the screen — 46vh is a desktop-derived slice that
        left two rows of tiles scrolling under an empty chat placeholder. */
     .voice-panel {
-      max-height: 56vh;
+      max-height: calc(56 * var(--vh));
       /* The sticky control band supplies the bottom padding instead, so it can
          reach the panel's real bottom edge (sticky is caged by its containing
          block, which stops at the padding edge). */

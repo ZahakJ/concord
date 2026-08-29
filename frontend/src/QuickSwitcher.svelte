@@ -263,7 +263,7 @@
     background: var(--scrim);
     display: flex;
     justify-content: center;
-    padding-top: 12vh;
+    padding-top: calc(12 * var(--vh));
     /* Above a dialog's overlay, not level with it. Ctrl+K is refused while a
        modal is open (lib/shortcuts.js), but a tie here meant that whenever the
        two did coexist the switcher lost on DOM order and took the keyboard from
@@ -273,7 +273,7 @@
   }
   .switcher {
     width: 460px;
-    max-width: 92vw;
+    max-width: calc(92 * var(--vw));
     height: fit-content;
     /* Glassy command palette: translucent surface over the blurred app. */
     background: color-mix(in srgb, var(--bg-1) 88%, transparent);
@@ -310,7 +310,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-height: min(52vh, 430px);
+    max-height: min(52 * var(--vh), 430px);
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -466,7 +466,7 @@
     .results {
       /* dvh: the keyboard is up the whole time this palette is open, and vh
          does not shrink for it in an Android WebView. */
-      max-height: 60dvh;
+      max-height: calc(60 * var(--dvh));
     }
     .hint {
       display: none;

@@ -406,7 +406,7 @@
     background: var(--scrim);
     display: grid;
     place-items: center;
-    padding: 5vh 5vw;
+    padding: calc(5 * var(--vh)) calc(5 * var(--vw));
     animation: gs-fade var(--dur-quick) ease;
   }
   @keyframes gs-fade {
@@ -416,8 +416,8 @@
   }
   .gs-card {
     width: 496px;
-    max-width: 94vw;
-    max-height: 80vh;
+    max-width: calc(94 * var(--vw));
+    max-height: calc(80 * var(--vh));
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
@@ -802,7 +802,7 @@
     .gs-card {
       width: 100%;
       max-width: none;
-      max-height: 88dvh;
+      max-height: calc(88 * var(--dvh));
       border: none;
       border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
       padding: 16px 14px calc(16px + var(--safe-bottom));

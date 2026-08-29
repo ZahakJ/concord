@@ -897,7 +897,7 @@
   }
   .grid {
     margin-top: var(--sp-2);
-    max-height: 52vh;
+    max-height: calc(52 * var(--vh));
     overflow-y: auto;
     /* A flick that reaches the end of the results must stop there, not start
        dragging the sheet underneath — on a phone that gesture dismissed the

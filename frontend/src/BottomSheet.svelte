@@ -31,7 +31,7 @@
   // was measuring itself against a screen a third of which was covered. The
   // .bs-sheet rule carries a vh value as the fallback for engines that drop the
   // unit (where the viewport really does resize and --kb is 0).
-  let { title = "", onClose, maxHeight = "72dvh", children } = $props();
+  let { title = "", onClose, maxHeight = "calc(72 * var(--dvh))", children } = $props();
 
   let sheetEl = $state(null);
   let scrimEl = $state(null);
@@ -55,7 +55,7 @@
 <div
   bind:this={sheetEl}
   class="bs-sheet"
-  style="max-height:min({maxHeight}, calc(100dvh - var(--kb, 0px) - 8px))"
+  style="max-height:min({maxHeight}, calc(100 * var(--dvh) - var(--kb, 0px) - 8px))"
   style:z-index={401 + depth * 2}
   role="dialog"
   aria-label={title || "Sheet"}
@@ -103,7 +103,7 @@
     border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
     /* Fallback for engines without dvh: the inline max-height above carries the
        dvh value and is simply dropped there, leaving this one standing. */
-    max-height: 72vh;
+    max-height: calc(72 * var(--vh));
     box-shadow: var(--shadow-pop);
     animation: bs-up 0.22s var(--ease-out);
   }

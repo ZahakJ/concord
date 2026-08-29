@@ -17,6 +17,7 @@
   import { knownRecipe } from "./lib/memerecipe.js";
   import { openContextMenu, flash, S, memberByFpr, nameFor } from "./lib/state.svelte.js";
   import { longpress, haptic } from "./lib/touch.js";
+  import { pointOf, rectOf } from "./lib/place.js";
 
   // `messageId`/`own` exist only for "Edit meme": editing a picture in place
   // means editing the message that carries it, and only its author may.
@@ -231,9 +232,13 @@
     else if (e.key === "0") zoomAround(center(), 1);
   }
 
+  // Everything in here is LAYOUT pixels: tx/ty are written into a transform
+  // and the image is measured with offsetWidth, while a rect and a pointer are
+  // visual. Mixing them made the lightbox pan faster than the hand and clamp
+  // against the wrong edges at any UI scale but 100%. See lib/place.js.
   function center() {
-    const r = overlayEl.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    const r = rectOf(overlayEl);
+    return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
   }
 
   // zoomAround rescales while keeping the point under `p` (client coords)
@@ -257,9 +262,9 @@
   // center-ish, so a wild drag can't strand you on an all-black overlay.
   function clampPan() {
     if (!imgEl || !overlayEl) return;
-    const r = overlayEl.getBoundingClientRect();
-    const maxX = Math.max(0, (imgEl.offsetWidth * zoom - r.width) / 2) + r.width * 0.25;
-    const maxY = Math.max(0, (imgEl.offsetHeight * zoom - r.height) / 2) + r.height * 0.25;
+    const r = rectOf(overlayEl);
+    const maxX = Math.max(0, (imgEl.offsetWidth * zoom - r.w) / 2) + r.w * 0.25;
+    const maxY = Math.max(0, (imgEl.offsetHeight * zoom - r.h) / 2) + r.h * 0.25;
     tx = Math.max(-maxX, Math.min(maxX, tx));
     ty = Math.max(-maxY, Math.min(maxY, ty));
   }
@@ -267,7 +272,7 @@
   function onWheel(e) {
     e.preventDefault(); // never scroll the chat behind the overlay
     const factor = Math.exp(-e.deltaY * 0.0015);
-    zoomAround({ x: e.clientX, y: e.clientY }, zoom * factor);
+    zoomAround(pointOf(e), zoom * factor);
   }
 
   // Pointers: one finger/button drags (pan) — or clicks (zoom toggle) when it
@@ -301,7 +306,7 @@
     pressedMenu = false;
     downOnBackdrop = e.target === overlayEl;
     overlayEl.setPointerCapture?.(e.pointerId);
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pointers.set(e.pointerId, pointOf(e));
     if (pointers.size === 1) moved = 0;
     if (pointers.size === 2) pinchDist = pinchDistance();
   }
@@ -314,7 +319,7 @@
   function onPointerMove(e) {
     const prev = pointers.get(e.pointerId);
     if (!prev) return;
-    const cur = { x: e.clientX, y: e.clientY };
+    const cur = pointOf(e);
     pointers.set(e.pointerId, cur);
     if (pointers.size === 2) {
       // Pinch: zoom around the midpoint, pan with the midpoint drift.
@@ -371,7 +376,7 @@
     if (downOnBackdrop) {
       closeLightbox();
     } else if (zoom === 1) {
-      zoomAround({ x: e.clientX, y: e.clientY }, 2.5);
+      zoomAround(pointOf(e), 2.5);
     } else {
       zoomAround(center(), 1);
     }
@@ -605,7 +610,7 @@
     background: rgba(0, 0, 0, var(--lb-dim, 0.85));
     display: grid;
     place-items: center;
-    padding: 4vh 4vw;
+    padding: calc(4 * var(--vh)) calc(4 * var(--vw));
     overflow: hidden;
     touch-action: none; /* pointer events own pinch/drag */
     animation: lb-in var(--dur-standard) ease;

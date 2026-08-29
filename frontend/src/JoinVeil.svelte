@@ -95,7 +95,7 @@
     gap: var(--sp-3);
     text-align: center;
     padding: var(--sp-5);
-    max-width: min(420px, 90vw);
+    max-width: min(420px, 90 * var(--vw));
   }
   .evk {
     color: var(--text-faint);

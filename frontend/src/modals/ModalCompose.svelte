@@ -549,7 +549,7 @@
     /* Sized so the panel and the editor's 200px floor BOTH fit the xl dialog at
        a laptop height — otherwise opening the builder pushes the workspace past
        the dialog and the whole thing starts scrolling under you mid-sentence. */
-    max-height: clamp(150px, 24vh, 240px);
+    max-height: clamp(150px, 24 * var(--vh), 240px);
     /* min-height:0 with flex-shrink:0 is not a contradiction, it is the fix for
        a runaway: WITHOUT it this panel contributes its full unclamped content
        height to the column's min-content, which makes the column taller than the

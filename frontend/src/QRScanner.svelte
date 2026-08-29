@@ -196,7 +196,7 @@
      dimmed surround so the target area reads instantly. */
   .frame {
     position: relative;
-    width: min(68vw, 300px);
+    width: min(68 * var(--vw), 300px);
     aspect-ratio: 1;
     border-radius: 18px;
     box-shadow: 0 0 0 100vmax rgb(0 0 0 / 0.45);

@@ -13,6 +13,7 @@
   import Banner from "./Banner.svelte";
   import { rangefill } from "./lib/rangefill.js";
   import { BANNERS, BANNER_GROUPS, isPreset, presetId } from "./lib/banners.js";
+  import { pointOf } from "./lib/place.js";
 
   let {
     banner = "",
@@ -115,14 +116,16 @@
   function onDown(e) {
     if (!rawImg) return;
     dragging = true;
-    last = { x: e.clientX, y: e.clientY };
+    last = pointOf(e);
     e.currentTarget.setPointerCapture?.(e.pointerId);
   }
   function onMove(e) {
     if (!dragging) return;
-    dragX += e.clientX - last.x;
-    dragY += e.clientY - last.y;
-    last = { x: e.clientX, y: e.clientY };
+    // Layout pixels — the preview's own units. See lib/place.js.
+    const p = pointOf(e);
+    dragX += p.x - last.x;
+    dragY += p.y - last.y;
+    last = p;
   }
   const onUp = () => (dragging = false);
 
@@ -254,7 +257,7 @@
     background: var(--scrim);
     display: grid;
     place-items: center;
-    padding: 4vh 4vw;
+    padding: calc(4 * var(--vh)) calc(4 * var(--vw));
     animation: bsf var(--dur-standard) ease;
   }
   @keyframes bsf {
@@ -264,8 +267,8 @@
   }
   .bs {
     width: 560px;
-    max-width: 94vw;
-    max-height: 88vh;
+    max-width: calc(94 * var(--vw));
+    max-height: calc(88 * var(--vh));
     display: flex;
     flex-direction: column;
     gap: 10px;

@@ -9,6 +9,7 @@
   import { api } from "./lib/api.js";
   import { PRESENCE_OPTIONS, splitStatus, joinStatus } from "./lib/presence.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
+  import { place as placeCard, rectOf, sizeOf } from "./lib/place.js";
   import { sheetdrag } from "./lib/sheet.js";
   // Escape with the caret in "What\'s happening?" steps out of the field rather
   // than throwing the sentence away. See lib/fieldescape.js.
@@ -102,16 +103,20 @@
     // card then grows DOWNWARD from a stale top until its bottom leaves the
     // screen. Re-place on every size change instead, so growth pushes the top
     // up and the card stays pinned just above the trigger.
+    // Left-aligned on the trigger, above it when there is room. The whole sum
+    // is in layout pixels (lib/place.js) — the anchor arrives as client
+    // coordinates, which are a different unit once the UI scale is not 100%.
+    // Never let the clamp push the top off-screen: a card taller than the
+    // viewport sits at the margin and scrolls internally (see max-height).
     const place = () => {
-      const cw = card.offsetWidth;
-      const ch = card.offsetHeight;
-      const left = Math.max(8, Math.min(anchor.x, window.innerWidth - cw - 8));
-      let top = anchor.y - ch - 8;
-      if (top < 8) top = anchor.y + anchor.h + 8;
-      // Never let the clamp push the top off-screen: a card taller than the
-      // viewport sits at the margin and scrolls internally (see max-height).
-      top = Math.max(8, Math.min(top, window.innerHeight - ch - 8));
-      pos = { left, top };
+      const p = placeCard({
+        anchor: rectOf(anchor),
+        ...sizeOf(card),
+        side: "top",
+        align: "start",
+        gap: 8,
+      });
+      pos = { left: p.left, top: p.top };
     };
     place();
     const ro = new ResizeObserver(place);
@@ -224,7 +229,7 @@
     gap: 3px;
     /* An expanded game shelf can outgrow the viewport. Cap it and scroll
        inside rather than letting the card run off the bottom of the screen. */
-    max-height: calc(100dvh - 16px);
+    max-height: calc(100 * var(--dvh) - 16px);
     overflow-y: auto;
     overscroll-behavior: contain;
     animation: pop-in 0.18s var(--ease-spring);
@@ -462,7 +467,7 @@
        easily outgrow the screen, and an unbounded sheet grows UPWARD off the
        top edge, where the presence options it starts with become unreachable.
        dvh because the status input opens the keyboard. */
-    max-height: 88dvh;
+    max-height: calc(88 * var(--dvh));
     overflow-y: auto;
     overscroll-behavior: contain;
     border: none;

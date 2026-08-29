@@ -43,6 +43,7 @@
   import { msOf, rangeLabel } from "./lib/chronicle.js";
   import { entriesFor } from "./lib/outbox.svelte.js";
   import { untrack, tick } from "svelte";
+  import { pointOf } from "./lib/place.js";
 
   let { onDropFiles, onJoinVoice } = $props();
 
@@ -1101,7 +1102,7 @@
       !S.feedLoading &&
       !S.loadingOlder &&
       !pullRefreshing;
-    pullStartY = e.touches[0].clientY;
+    pullStartY = pointOf(e.touches[0]).y;
     pullBuzzed = false;
   }
   function onPullMove(e) {
@@ -1113,7 +1114,8 @@
       pullDist = 0;
       return;
     }
-    const dy = e.touches[0].clientY - pullStartY;
+    // Layout pixels: pullDist drives a CSS length. See lib/place.js.
+    const dy = pointOf(e.touches[0]).y - pullStartY;
     // Half-rate damping: crossing the 70px threshold takes ~140px of real
     // travel, so a stray flick at the top can't trigger a resync.
     pullDist = dy > 0 ? Math.min(dy / 2, 100) : 0;
@@ -1677,8 +1679,8 @@
     position: absolute;
     top: 8px;
     right: 14px;
-    width: min(380px, calc(100vw - 48px));
-    max-height: min(420px, 60vh);
+    width: min(380px, calc(100 * var(--vw) - 48px));
+    max-height: min(420px, 60 * var(--vh));
     display: flex;
     flex-direction: column;
     background: var(--bg-elevated, var(--bg-1));

@@ -330,8 +330,8 @@
        row of tile labels, which reads as a rendering fault rather than as an
        affordance — the padding gives it empty space to fade over. */
     padding-bottom: 26px;
-    max-height: 40vh;
-    max-height: 40dvh; /* fallback line above; dvh shrinks with the keyboard */
+    max-height: calc(40 * var(--vh));
+    max-height: calc(40 * var(--dvh)); /* fallback line above; dvh shrinks with the keyboard */
     overflow-y: auto;
     margin: -4px -2px 0;
     padding: 0 2px;

@@ -290,6 +290,23 @@
   --range-groove: color-mix(in srgb, var(--bg-0) 55%, var(--bg-3));
   --range-knob: #f4f6fa;
 
+  /* ---- viewport units that survive the UI scale ----
+     The UI-scale setting is CSS `zoom` on <html>, and vh/vw are NOT divided by
+     it: inside a zoomed root, `100vh` still measures the whole screen in
+     LAYOUT pixels, which the zoom then multiplies. Measured at 150% on a
+     1440x900 window, a `100vh` box paints 1350px tall — half of a `90vh`
+     dialog lives off the screen, its header and its Save button with it.
+     These three are one percent of the viewport with the zoom divided back
+     out, so `calc(90 * var(--vh))` means ninety percent of what the eye sees
+     at every scale. --ui-zoom is stamped by applyAppearance alongside the zoom
+     itself; the fallback keeps this file correct on its own.
+     Sizing that must respect the screen uses these. Decoration that merely
+     wants a large number (the theme backdrops, the confetti fall) does not. */
+  --ui-zoom: 1;
+  --vh: calc(1vh / var(--ui-zoom, 1));
+  --vw: calc(1vw / var(--ui-zoom, 1));
+  --dvh: calc(1dvh / var(--ui-zoom, 1));
+
   font-family: var(--ui-font);
   letter-spacing: var(--tracking);
   color-scheme: dark;

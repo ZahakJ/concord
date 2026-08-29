@@ -18,6 +18,8 @@
 // across the header doesn't strobe. Flips to the opposite side when the
 // preferred one would leave the viewport, and clamps to it either way.
 
+import { place, rectOf, sizeOf } from "./place.js";
+
 // Touch has no hover: a tap would both act AND flash a tooltip, so bail out
 // entirely on coarse pointers — same guard the rail uses for its menus.
 const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
@@ -82,21 +84,18 @@ function show(node, opts) {
   el.style.left = "-9999px";
   el.style.top = "0px";
   el.style.display = "block";
-  const w = el.offsetWidth;
-  const h = el.offsetHeight;
-  const r = node.getBoundingClientRect();
-  let x, y;
-  if (opts.side === "right") {
-    x = r.right + GAP;
-    if (x + w > window.innerWidth - PAD) x = r.left - GAP - w; // flip left
-    y = r.top + r.height / 2 - h / 2;
-  } else {
-    y = r.bottom + GAP;
-    if (y + h > window.innerHeight - PAD) y = r.top - GAP - h; // flip above
-    x = r.left + r.width / 2 - w / 2;
-  }
-  el.style.left = `${Math.max(PAD, Math.min(x, window.innerWidth - PAD - w))}px`;
-  el.style.top = `${Math.max(PAD, Math.min(y, window.innerHeight - PAD - h))}px`;
+  // Layout pixels throughout, via lib/place.js: the anchor's rect is in visual
+  // pixels and the two spaces diverge the moment the UI scale leaves 100%.
+  const p = place({
+    anchor: rectOf(node),
+    ...sizeOf(el),
+    side: opts.side === "right" ? "right" : "bottom",
+    align: "center",
+    gap: GAP,
+    pad: PAD,
+  });
+  el.style.left = `${p.left}px`;
+  el.style.top = `${p.top}px`;
   anchor = node;
   // Next frame so the display flip commits first and the opacity transition
   // actually runs (reduced-motion zeroes it via the media query above).

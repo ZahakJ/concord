@@ -238,7 +238,7 @@
     color: var(--text-muted);
   }
   .groups {
-    max-height: 58vh;
+    max-height: calc(58 * var(--vh));
     overflow-y: auto;
   }
   /* One scroller per sheet: a list that scrolls inside a sheet that scrolls

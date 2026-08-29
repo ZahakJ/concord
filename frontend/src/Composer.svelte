@@ -2066,7 +2066,7 @@
        it gets labels. Half these actions were unlabelled 44px glyphs before,
        and "which one was the heading icon" is not a question a composer should
        ask. -->
-  <BottomSheet title="Add to your message" onClose={() => (moreOpen = false)} maxHeight="76vh">
+  <BottomSheet title="Add to your message" onClose={() => (moreOpen = false)} maxHeight="calc(76 * var(--vh))">
     <div class="sheet-list">
       <button type="button" class="sheet-row" onclick={() => fromSheet(() => fileInput.click())}>
         <span class="sr-icon"><Icon name="attach" size={20} /></span>

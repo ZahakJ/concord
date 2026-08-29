@@ -623,7 +623,7 @@
          every neighbour is another live target and a mis-pick can go straight
          out as a reaction. Let the count follow the width instead. */
       grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
-      height: 46vh;
+      height: calc(46 * var(--vh));
       gap: var(--sp-1);
     }
     .cell {

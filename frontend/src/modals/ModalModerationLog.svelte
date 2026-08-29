@@ -244,7 +244,7 @@
     display: flex;
     flex-direction: column;
     gap: 1px;
-    max-height: 60vh;
+    max-height: calc(60 * var(--vh));
     overflow-y: auto;
   }
   /* One scroller per sheet: a list that scrolls inside a sheet that scrolls

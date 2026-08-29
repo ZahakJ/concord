@@ -22,6 +22,7 @@
   import { haptic } from "../lib/touch.js";
   import { S } from "../lib/state.svelte.js";
   import { rangefill } from "../lib/rangefill.js";
+  import { pointOf } from "../lib/place.js";
   let { identity, onSubmit, onClose } = $props();
   let name = $state(identity.displayName || "");
   let status = $state(identity.status || "");
@@ -204,16 +205,20 @@
   let lastY = 0;
   function onDown(e) {
     dragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
+    const p = pointOf(e);
+    lastX = p.x;
+    lastY = p.y;
     e.currentTarget.setPointerCapture?.(e.pointerId);
   }
   function onMove(e) {
     if (!dragging) return;
-    dragX += e.clientX - lastX;
-    dragY += e.clientY - lastY;
-    lastX = e.clientX;
-    lastY = e.clientY;
+    // The drag is measured in the preview's own units, which are layout
+    // pixels; a raw pointer delta is visual and pans faster than the hand.
+    const p = pointOf(e);
+    dragX += p.x - lastX;
+    dragY += p.y - lastY;
+    lastX = p.x;
+    lastY = p.y;
   }
   function onUp() {
     dragging = false;

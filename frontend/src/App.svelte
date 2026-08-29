@@ -82,6 +82,7 @@
   import SetupCard from "./SetupCard.svelte";
   import PostHeader from "./PostHeader.svelte";
   import EventNudges from "./EventNudges.svelte";
+  import { pointOf, rectOf } from "./lib/place.js";
 
   // ---- the dialogs ----
   //
@@ -275,12 +276,16 @@
     if (e.button !== 0) return;
     e.preventDefault(); // don't start a text selection under the drag
     const handle = e.currentTarget;
-    const startW =
-      handle.previousElementSibling?.getBoundingClientRect().width ?? COL_DEFAULTS[key];
-    const startX = e.clientX;
+    // Layout pixels: the width this writes is a CSS length, and a rect and a
+    // pointer are both visual — at 125% the column grew 1.25px per pixel of
+    // travel and started from a width a quarter too wide. See lib/place.js.
+    const startW = handle.previousElementSibling
+      ? rectOf(handle.previousElementSibling).w
+      : COL_DEFAULTS[key];
+    const startX = pointOf(e).x;
     handle.setPointerCapture(e.pointerId);
     const move = (ev) => {
-      liveCols[key] = clampCol(startW + dir * (ev.clientX - startX));
+      liveCols[key] = clampCol(startW + dir * (pointOf(ev).x - startX));
     };
     const up = () => {
       handle.removeEventListener("pointermove", move);
@@ -2446,7 +2451,7 @@
     display: flex;
     align-items: center;
     gap: var(--sp-3);
-    max-width: calc(100vw - 24px);
+    max-width: calc(100 * var(--vw) - 24px);
     padding: 8px 10px 8px 16px;
     background: var(--bg-1);
     border: 1px solid var(--accent);
@@ -2555,7 +2560,7 @@
   .knock-wait {
     position: fixed;
     top: calc(16px + max(var(--safe-top), var(--sa-top, 0px)));
-    max-width: calc(100vw - 24px);
+    max-width: calc(100 * var(--vw) - 24px);
     left: 50%;
     /* Centering lives on `translate`, not `transform`, so the entrance keyframe
        can animate transform without snapping the pill off-center. */

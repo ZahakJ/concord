@@ -463,7 +463,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     flex: 0 0 auto;
-    max-width: min(32ch, 38vw);
+    max-width: min(32ch, 38 * var(--vw));
   }
   /* A forum post inverts the order, because a post TITLE is a sentence and the
      board it belongs to is the one word that gets you back. The breadcrumb
@@ -527,14 +527,14 @@
     /* Fluid: shrinks with the window so it never overlaps the channel name,
        but stays usable (min 84px) and caps at its comfortable width. Focus
        stretches it — room appears exactly when you start typing. */
-    width: clamp(84px, 20vw, 190px);
+    width: clamp(84px, 20 * var(--vw), 190px);
     min-width: 0;
     padding: 5px 10px;
     font-size: var(--fs-ui);
     transition: width 0.25s var(--ease-out), border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease, background var(--dur-standard) ease;
   }
   .search-box:focus {
-    width: clamp(84px, 28vw, 260px);
+    width: clamp(84px, 28 * var(--vw), 260px);
   }
   @media (prefers-reduced-motion: reduce) {
     .search-box {

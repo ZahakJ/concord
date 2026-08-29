@@ -14,6 +14,7 @@
   import Avatar from "./Avatar.svelte";
   import GameShelf, { coverStyle, gameHue } from "./GameShelf.svelte";
   import { syncLayer } from "./lib/navstack.svelte.js";
+  import { place as placeCard, rectOf, sizeOf } from "./lib/place.js";
   import { sheetdrag } from "./lib/sheet.js";
   import {
     S,
@@ -159,17 +160,22 @@
     // section that grows) would otherwise leave `top` stale and the card would
     // extend downward off the screen. Re-place on every size change so growth
     // moves the top edge up and the card stays anchored.
+    // The anchor rect is client (visual) pixels and the card's size is layout
+    // pixels; under the UI-scale zoom those are different units, and the card
+    // used to open off-screen with its full-screen scrim still over the app —
+    // which is what made avatars stop answering clicks entirely. placeCard
+    // does the whole sum in layout pixels. Above the anchor if it fits, else
+    // below; clamped low AND high, so a card taller than the viewport sits at
+    // the margin and scrolls internally rather than losing its top edge.
     const place = () => {
-      const cw = card.offsetWidth;
-      const ch = card.offsetHeight;
-      let left = pop.rect.x + pop.rect.w / 2 - cw / 2;
-      left = Math.max(8, Math.min(left, window.innerWidth - cw - 8));
-      let top = pop.rect.y - ch - 8;
-      if (top < 8) top = pop.rect.y + pop.rect.h + 8;
-      // Clamp low AND high — a card taller than the viewport must not have its
-      // top pushed off-screen; it sits at the margin and scrolls internally.
-      top = Math.max(8, Math.min(top, window.innerHeight - ch - 8));
-      pos = { left, top };
+      const p = placeCard({
+        anchor: rectOf(pop.rect),
+        ...sizeOf(card),
+        side: "top",
+        align: "center",
+        gap: 8,
+      });
+      pos = { left: p.left, top: p.top };
     };
     place();
     const ro = new ResizeObserver(place);
@@ -907,7 +913,7 @@
     overflow: hidden;
     /* Revealing the safety number can outgrow the viewport — cap and scroll
        inside instead of running off the bottom of the screen. */
-    max-height: calc(100dvh - 16px);
+    max-height: calc(100 * var(--dvh) - 16px);
     overflow-y: auto;
     overscroll-behavior: contain;
   }
@@ -985,7 +991,7 @@
     /* dvh: the nickname and DM fields open the keyboard, and vh does not shrink
        for it in an Android WebView — the card kept sizing to the whole screen
        and put its own input underneath. */
-    max-height: 84dvh;
+    max-height: calc(84 * var(--dvh));
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;

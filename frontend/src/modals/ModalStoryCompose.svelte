@@ -277,8 +277,8 @@
        dialog takes the rest. */
     flex: 1 1 auto;
     min-height: 148px;
-    max-height: 40vh;
-    max-height: 40dvh; /* fallback line above; dvh shrinks with the keyboard */
+    max-height: calc(40 * var(--vh));
+    max-height: calc(40 * var(--dvh)); /* fallback line above; dvh shrinks with the keyboard */
     overflow-y: auto;
     margin: -4px -2px 0;
     padding: 0 2px;

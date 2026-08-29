@@ -37,6 +37,7 @@
   import VoicePanel from "./VoicePanel.svelte";
   import Welcome from "./Welcome.svelte";
   import Icon from "./Icon.svelte";
+  import { pointOf, viewport } from "./lib/place.js";
 
   let {
     composer = $bindable(null),
@@ -118,7 +119,10 @@
   let leftFrac = $state(S.drawerOpen ? 1 : 0);
   let rightFrac = $state(0);
   let dragging = $state(false); // a claimed horizontal drag is in progress
-  let vw = $state(window.innerWidth);
+  // Layout pixels: these become CSS widths and translate distances, and
+  // window.innerWidth is visual — at 125% the drawers were drawn a quarter
+  // wider than the screen. See lib/place.js.
+  let vw = $state(viewport().w);
 
   // moving stays true for the whole of a drawer's travel — the tracked drag AND
   // the 0.22s settle that follows it, AND a plain tap-to-open with no drag at
@@ -317,14 +321,14 @@
     // window sideways dragged the drawer in behind it.
     if (e.target.closest("textarea, input, .bs-sheet, .pop, .picker, .dock")) return;
     if (inHScroller(e.target)) return;
-    const t = e.touches[0];
+    const t = pointOf(e.touches[0]);
     drag = {
-      startX: t.clientX,
-      startY: t.clientY,
+      startX: t.x,
+      startY: t.y,
       claimed: false,
       target: null,
       startFrac: 0,
-      prevX: t.clientX,
+      prevX: t.x,
       prevT: performance.now(),
       vel: 0,
       // Message rows own leftward drags (swipe-to-reply); direction isn't
@@ -337,10 +341,10 @@
 
   function onTouchMove(e) {
     if (!drag) return;
-    const t = e.touches[0];
-    if (!t) return;
-    const dx = t.clientX - drag.startX;
-    const dy = t.clientY - drag.startY;
+    if (!e.touches[0]) return;
+    const t = pointOf(e.touches[0]);
+    const dx = t.x - drag.startX;
+    const dy = t.y - drag.startY;
     if (!drag.claimed) {
       // Mostly-vertical movement is a scroll — let it go and stand down.
       if (Math.abs(dy) > 14 && Math.abs(dy) > Math.abs(dx)) {
@@ -380,10 +384,10 @@
     if (now > drag.prevT) {
       // Exponentially-smoothed velocity so the release fling test isn't at the
       // mercy of one noisy final sample.
-      const inst = (t.clientX - drag.prevX) / (now - drag.prevT);
+      const inst = (t.x - drag.prevX) / (now - drag.prevT);
       drag.vel = drag.vel * 0.7 + inst * 0.3;
     }
-    drag.prevX = t.clientX;
+    drag.prevX = t.x;
     drag.prevT = now;
     const clamp = (v) => Math.max(0, Math.min(1, v));
     if (drag.target === "left") leftFrac = clamp(drag.startFrac + dx / leftW);
@@ -470,7 +474,7 @@
   });
 </script>
 
-<svelte:window onresize={() => (vw = window.innerWidth)} />
+<svelte:window onresize={() => (vw = viewport().w)} />
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div

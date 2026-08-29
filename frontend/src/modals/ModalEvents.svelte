@@ -1465,7 +1465,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     padding: var(--sp-1);
-    max-height: min(292px, 38dvh); /* Create stays reachable below */
+    max-height: min(292px, 38 * var(--dvh)); /* Create stays reachable below */
     overflow-y: auto;
     overscroll-behavior: contain; /* the dialog must not steal the thumb */
   }

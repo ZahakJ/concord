@@ -389,7 +389,7 @@
   .caption-wrap {
     position: relative;
     z-index: 1;
-    max-width: min(640px, 86vw);
+    max-width: min(640px, 86 * var(--vw));
     text-align: center;
     pointer-events: none;
     display: flex;
@@ -400,7 +400,7 @@
   .caption {
     margin: 0;
     color: #fff;
-    font-size: clamp(20px, 4.5vw, 34px);
+    font-size: clamp(20px, 4.5 * var(--vw), 34px);
     font-weight: 700;
     line-height: 1.3;
     text-shadow: 0 2px 12px rgba(0, 0, 0, 0.55);

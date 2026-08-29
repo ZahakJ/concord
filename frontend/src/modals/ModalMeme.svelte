@@ -1643,7 +1643,7 @@
     canvas {
       /* A viewport unit, not a percentage: the stage has no definite height in
          this layout, so a percentage max-height would resolve to none. */
-      max-height: 38vh;
+      max-height: calc(38 * var(--vh));
     }
     .side {
       overflow: visible;

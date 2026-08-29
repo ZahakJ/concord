@@ -274,13 +274,13 @@
   }
   .dialog {
     width: 380px;
-    max-width: 90vw;
+    max-width: calc(90 * var(--vw));
     /* Never taller than the viewport; scroll inside on short screens (laptops)
        so long content like the 24-word recovery phrase stays reachable. dvh
        tracks the viewport the soft keyboard actually leaves behind; the plain
        vh line before it is the fallback for WebViews that don't know dvh. */
-    max-height: 90vh;
-    max-height: 90dvh;
+    max-height: calc(90 * var(--vh));
+    max-height: calc(90 * var(--dvh));
     overflow-y: auto;
     /* No modal may pan the sheet sideways. A single wide child (ModalStats'
        peer rows) otherwise turns the whole surface, sticky header included,
@@ -307,9 +307,9 @@
      fixed tall height so its inner panes get real room instead of collapsing to
      content height. */
   .dialog.xl {
-    width: min(1080px, 94vw);
-    height: min(780px, 88vh);
-    height: min(780px, 88dvh);
+    width: min(1080px, 94 * var(--vw));
+    height: min(780px, 88 * var(--vh));
+    height: min(780px, 88 * var(--dvh));
   }
   @keyframes fade {
     from {
@@ -408,8 +408,8 @@
          keyboard — the sheet was still claiming 92% of the WHOLE screen and
          sitting on the bottom edge of it. The vh line stays as the fallback for
          engines without dvh, where the keyboard does resize the viewport. */
-      max-height: 92vh;
-      max-height: calc(92dvh - var(--kb, 0px));
+      max-height: calc(92 * var(--vh));
+      max-height: calc(92 * var(--dvh) - var(--kb, 0px));
       border: none;
       border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
       padding-bottom: calc(20px + var(--safe-bottom));

@@ -95,8 +95,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-1);
-    max-height: 56vh;
-    max-height: 56dvh;
+    max-height: calc(56 * var(--vh));
+    max-height: calc(56 * var(--dvh));
     overflow-y: auto;
   }
   /* One scroller per sheet — see Modal.svelte. */

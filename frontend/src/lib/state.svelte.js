@@ -2117,7 +2117,12 @@ export function applyAppearance() {
   // clear it when the pack should win.
   // UI scale rides CSS zoom: it scales the fixed-px type/spacing tokens in one
   // move and both engines this app ships on (Chromium, WebKitGTK) honor it.
+  // …and it is stamped as a number too, because vh/vw do NOT shrink under a
+  // zoomed root: app.css derives --vh/--vw/--dvh from it so that anything
+  // sized against the screen (dialogs, menus, pickers) keeps meaning what it
+  // says at 125% and 150%. See the block in app.css.
   const scale = Number(S.prefs.uiScale) || 1;
+  el.style.setProperty("--ui-zoom", String(scale));
   if (scale !== 1) el.style.zoom = scale;
   else el.style.removeProperty("zoom");
   // The ground the name colours are measured against has just changed.

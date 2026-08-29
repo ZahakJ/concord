@@ -78,7 +78,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--sp-2);
-    width: min(440px, calc(100vw - 20px));
+    width: min(440px, calc(100 * var(--vw) - 20px));
     pointer-events: none; /* the gaps must not eat clicks on the app below */
   }
   .nudge {

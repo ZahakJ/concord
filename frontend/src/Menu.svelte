@@ -11,6 +11,7 @@
   import BottomSheet from "./BottomSheet.svelte";
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { portal } from "./lib/portal.js";
+  import { rectOf, sizeOf, viewport } from "./lib/place.js";
   import { S } from "./lib/state.svelte.js";
 
   // `up` opens the dropdown ABOVE the trigger — for a trigger that lives at the
@@ -75,13 +76,16 @@
   const EDGE = 8;
   let pos = $state(null);
 
+  // All of this is in LAYOUT pixels — the trigger's rect and the viewport come
+  // through lib/place.js, which divides out the UI-scale zoom. Mixing the two
+  // spaces put every dropdown opened low in a zoomed window off the bottom of
+  // the screen; see the coordinate-space note in that file.
   function place() {
     if (!open || S.isMobile || !panel || !root) return;
-    const t = root.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const below = vh - t.bottom - GAP - EDGE;
-    const above = t.top - GAP - EDGE;
+    const t = rectOf(root);
+    const vp = viewport();
+    const below = vp.h - (t.y + t.h) - GAP - EDGE;
+    const above = t.y - GAP - EDGE;
     // Honour `up` while there is room for it; otherwise take whichever side has
     // more, so a trigger with 40px under it does not open into 40px.
     const wantUp = up ? above > 120 || above >= below : below < Math.min(panel.scrollHeight, 340) && above > below;
@@ -89,12 +93,11 @@
     // Measure at the height it will actually get, or a panel that is currently
     // taller than the room reports a width shrunk by its own scrollbar.
     panel.style.maxHeight = `${Math.min(340, room)}px`;
-    const w = panel.offsetWidth;
-    const h = panel.offsetHeight;
-    let left = align === "left" ? t.left : t.right - w;
-    left = Math.max(EDGE, Math.min(left, vw - w - EDGE));
-    const top = wantUp ? Math.max(EDGE, t.top - GAP - h) : Math.min(t.bottom + GAP, vh - h - EDGE);
-    pos = { left, top, up: wantUp, width: wide ? t.width : 0 };
+    const { w, h } = sizeOf(panel);
+    let left = align === "left" ? t.x : t.x + t.w - w;
+    left = Math.max(EDGE, Math.min(left, vp.w - w - EDGE));
+    const top = wantUp ? Math.max(EDGE, t.y - GAP - h) : Math.min(t.y + t.h + GAP, vp.h - h - EDGE);
+    pos = { left, top, up: wantUp, width: wide ? t.w : 0 };
   }
 
   // Re-place on anything that can move the trigger. `scroll` is captured
@@ -289,7 +292,7 @@
     /* A menu used to hold a handful of verbs. Select.svelte hands it option
        lists — thirty-one days, twelve months — which without a ceiling grow a
        thousand-pixel panel that runs off both ends of the window. */
-    max-height: min(340px, 62vh);
+    max-height: min(340px, 62 * var(--vh));
     overflow-y: auto;
     background: var(--bg-1);
     border: 1px solid var(--border);

@@ -796,7 +796,7 @@
   }
   .card.wide {
     width: 430px;
-    max-width: calc(100vw - 32px);
+    max-width: calc(100 * var(--vw) - 32px);
   }
   .phrase-in {
     font-family: ui-monospace, monospace;
@@ -985,7 +985,7 @@
        into the screen like every other native sheet, top-aligned with room to
        breathe, and still scrolls if the recovery-phrase step + keyboard need it. */
     .card {
-      margin: 6vh auto auto;
+      margin: calc(6 * var(--vh)) auto auto;
       width: 100%;
       max-width: 460px;
       padding: 8px 20px 20px;
