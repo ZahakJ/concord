@@ -7,7 +7,7 @@
 // below is what the sheet renders, it lives against the handler it describes,
 // and shortcutlist.test.mjs fails the build when the handler grows a key the
 // list has not heard of.
-import { S, activeGuild, selectChannel, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash, toggleMicMute, toggleDeafen } from "./state.svelte.js";
+import { S, activeGuild, selectChannel, closePost, postParentOf, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash, toggleMicMute, toggleDeafen } from "./state.svelte.js";
 import { popLayer } from "./navstack.svelte.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
 
@@ -349,6 +349,20 @@ export function installShortcuts() {
         return;
       }
       if (inputFocused()) return;
+      // A forum post is a PLACE, not a layer — navstack is explicit that a
+      // conversation or a board is somewhere you are rather than something
+      // covering what you were looking at, and registering one would also
+      // double-count it in the depth Android is told about. But an open post is
+      // drawn as a panel over its board, and a panel over something is exactly
+      // what Escape is for. So it gets its own rung here, below the layer
+      // stack, in the same order the phone's back button walks: layers first,
+      // then out of where you are. Same dismissal the card and the breadcrumb
+      // perform, so all three fold rather than jump.
+      if (postParentOf(S.activeChannelId)) {
+        e.preventDefault();
+        closePost();
+        return;
+      }
       if (e.shiftKey) markAllRead();
       // Nothing to dismiss → mark the current channel read.
       else if (S.activeChannelId) markRead(S.activeChannelId);

@@ -36,6 +36,7 @@
     S,
     activeGuild,
     selectChannel,
+    closePost,
     memberByFpr,
     nameFor,
     flash,
@@ -772,6 +773,7 @@
         {@const shot = tok && m?.state === "ok" ? m.src : ""}
         <li
           class="card"
+          class:open={S.activeChannelId === p.id}
           class:pinned={p.pinned}
           class:closed={p.locked}
           class:unread={!!unread?.count}
@@ -790,8 +792,9 @@
                held finger and Android fires it with no haptic. -->
           <button
             class="hit"
-            aria-label={`Open post: ${p.title}`}
-            onclick={() => selectChannel(p.id)}
+            aria-label={S.activeChannelId === p.id ? `Close post: ${p.title}` : `Open post: ${p.title}`}
+            aria-expanded={S.activeChannelId === p.id}
+            onclick={() => (S.activeChannelId === p.id ? closePost() : selectChannel(p.id))}
             oncontextmenu={coarse
               ? (e) => e.preventDefault()
               : (e) => {
@@ -1415,6 +1418,29 @@
       opacity: 0;
       transform: translateY(8px) scale(0.995);
     }
+  }
+  /* The card whose post is open. There was no such state at all: the board sat
+     behind the panel with nothing on it saying which of thirty cards the panel
+     had come out of, and clicking that card again did nothing because it was
+     already "open". It is now the toggle — click it to fold the post back — and
+     it has to look like the thing that is currently showing. */
+  .card.open {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent-soft);
+  }
+  /* Above 1150px the panel sits BESIDE the board and covers the right of every
+     card, so a border round the whole card is a mark you can only see a third
+     of. The bar is down the near edge, which is the part of a card that is
+     never covered. */
+  .card.open::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: var(--accent);
+    z-index: 3;
   }
   /* Hover only where a hover can end. Android's WebView applies :hover on tap
      and holds it until you tap somewhere else, so a bare rule left the post you

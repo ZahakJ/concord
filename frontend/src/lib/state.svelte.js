@@ -100,6 +100,9 @@ export const S = $state({
   isMobile: detectMobile(),
   drawerOpen: false,
   membersOpen: false,
+  // The id of a forum post whose panel is playing its exit. Set by closePost();
+  // the shells key the fold animation off it. "" the rest of the time.
+  postFolding: "",
   // narrow: still the desktop grid, but the chat column has been squeezed by
   // the two side panels until its own toolbars no longer fit. Between the
   // mobile breakpoint and this one the chat column is only ~350–550px wide,
@@ -2613,7 +2616,47 @@ export async function createGroupDM(fingerprints) {
   return dm;
 }
 
+// ---- folding a forum post back onto its board -------------------------------
+//
+// A post opens as a panel sliding in over the board it belongs to (App.svelte's
+// .feedwrap.aspanel). It had an entrance and no exit: {#if postObj} dropped the
+// panel out of the DOM the instant the channel changed, so something that
+// arrived over 340 milliseconds left in one frame, and there was no way to
+// close it by clicking the card that opened it — the only way out was a
+// breadcrumb, which reads as "go somewhere else" rather than "put this back".
+//
+// closePost() folds it. The shells stamp `.folding` and play the exit; the
+// channel only changes once the animation is over, so the panel is still
+// carrying the post it is taking away rather than flashing the board's own
+// feed on its way out. One function, so the card, the breadcrumbs, Escape and
+// the phone's back button are all literally the same dismissal — which is what
+// navstack asks of anything it can pop.
+export const POST_FOLD_MS = 220;
+let foldTimer;
+
+export function postParentOf(id) {
+  const ch = activeGuild()?.channels.find((c) => c.id === id);
+  return ch?.parent || "";
+}
+
+export function closePost() {
+  const id = S.activeChannelId;
+  const parent = postParentOf(id);
+  if (!parent || S.postFolding === id) return; // nothing open, or already folding
+  S.postFolding = id;
+  clearTimeout(foldTimer);
+  foldTimer = setTimeout(() => {
+    // Still the same post? A channel change mid-fold has already moved us.
+    if (S.postFolding === id && S.activeChannelId === id) selectChannel(parent);
+    if (S.postFolding === id) S.postFolding = "";
+  }, POST_FOLD_MS);
+}
+
 export async function selectChannel(id) {
+  // Any fold in flight is over: whatever it was going to do, going somewhere
+  // else outranks it, and a stale flag would leave the next panel mid-exit.
+  clearTimeout(foldTimer);
+  S.postFolding = "";
   const mru = [id, ...S.recentChannels.filter((c) => c !== id)].slice(0, 15);
   S.recentChannels = mru;
   saveJSON("concord.mru", mru);

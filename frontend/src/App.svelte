@@ -35,6 +35,7 @@
     setChannelTopic,
     nudge,
     selectChannel,
+    closePost,
     selectGuild,
     flashChannel,
     isCallLocked,
@@ -834,9 +835,10 @@
     if (popLayer()) return;
     // A forum post is a channel nested under its board; going "back" from one
     // means the board, exactly as ChatHeader's breadcrumb does on desktop.
-    const parent = activeChannelObj?.parent;
-    if (parent) {
-      selectChannel(parent);
+    // Same fold the card, the breadcrumb and Escape perform, so back out of a
+    // post plays the exit rather than snapping the panel away.
+    if (activeChannelObj?.parent) {
+      closePost();
       return;
     }
     // Out of a conversation and into the list it came from — the single most
@@ -1574,7 +1576,12 @@
                  its scroll position and its state because it is still mounted,
                  which is the whole reason the post is a layer over it rather
                  than a navigation away from it. -->
-            <div class="feedwrap" class:aspanel={!!postObj} class:overboard={!!boardObj}>
+            <div
+              class="feedwrap"
+              class:aspanel={!!postObj}
+              class:overboard={!!boardObj}
+              class:folding={!!postObj && S.postFolding === postObj.id}
+            >
               {#if postObj}
                 <PostHeader channel={postObj} />
               {:else}
@@ -2486,14 +2493,32 @@
       box-shadow: -18px 0 40px -24px rgba(0, 0, 0, 0.55);
     }
   }
+  /* The same journey, backwards. The panel is still showing its own post while
+     this plays — closePost() waits for it to finish before changing channel —
+     so what leaves is the thing you closed, not the board flashing through it.
+     Faster than the entrance, because a dismissal that takes as long as an
+     arrival feels like the app arguing. */
+  .feedwrap.aspanel.folding {
+    /* 220ms: the same number as POST_FOLD_MS in state.svelte.js, which is
+       what waits for it before changing channel. Change both or neither. */
+    animation: post-out 220ms var(--ease-out) both;
+    pointer-events: none;
+  }
   @keyframes post-in {
     from {
       opacity: 0;
       transform: translateX(26px);
     }
   }
+  @keyframes post-out {
+    to {
+      opacity: 0;
+      transform: translateX(26px);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .feedwrap.aspanel {
+    .feedwrap.aspanel,
+    .feedwrap.aspanel.folding {
       animation: none;
     }
   }

@@ -6,6 +6,7 @@
     S,
     activeGuild,
     selectChannel,
+    closePost,
     activeChannel,
     channelName,
     flash,
@@ -106,9 +107,9 @@
       <!-- A forum post: breadcrumb back to its board. -->
       <button
         class="thread-back"
-        title="Back to the forum"
-        aria-label="Back to the forum"
-        onclick={() => selectChannel(ch.parent)}
+        title="Close this post"
+        aria-label="Close this post"
+        onclick={closePost}
       >
         <Icon name="forum" size={14} />
         {activeGuild()?.channels.find((c) => c.id === ch.parent)?.name || "forum"}

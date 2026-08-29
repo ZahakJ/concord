@@ -14,6 +14,7 @@
     nudge,
     openContextMenu,
     selectChannel,
+    closePost,
     accentForeground,
     confirmLeaveGuild,
     openInbox,
@@ -495,7 +496,7 @@
       <button
         class="icon-btn"
         aria-label="Back to {parentChannel.name}"
-        onclick={() => selectChannel(parentChannel.id)}
+        onclick={closePost}
       >
         <span class="chev-back"><Icon name="chevron" size={18} /></span>
       </button>
@@ -621,7 +622,11 @@
         {#if !boardObj || postObj}
           <!-- Same panel presentation as the desktop shell, always covering
                here: a phone has no room to show a board beside a post. -->
-          <div class="feedwrap" class:aspanel={!!postObj}>
+          <div
+            class="feedwrap"
+            class:aspanel={!!postObj}
+            class:folding={!!postObj && S.postFolding === postObj.id}
+          >
             {#if postObj}
               <PostHeader channel={postObj} />
             {:else}
@@ -884,14 +889,27 @@
     background: var(--bg-1);
     animation: post-in 0.32s var(--ease-spring) both;
   }
+  /* The same journey, backwards. See the note on the desktop shell's copy. */
+  .feedwrap.aspanel.folding {
+    /* 220ms — POST_FOLD_MS in state.svelte.js. Change both or neither. */
+    animation: post-out 220ms var(--ease-out) both;
+    pointer-events: none;
+  }
   @keyframes post-in {
     from {
       opacity: 0;
       transform: translateX(22px);
     }
   }
+  @keyframes post-out {
+    to {
+      opacity: 0;
+      transform: translateX(22px);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .feedwrap.aspanel {
+    .feedwrap.aspanel,
+    .feedwrap.aspanel.folding {
       animation: none;
     }
   }

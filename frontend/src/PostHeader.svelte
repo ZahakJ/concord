@@ -13,6 +13,7 @@
     S,
     activeGuild,
     selectChannel,
+    closePost,
     memberByFpr,
     nameFor,
     openContextMenu,
@@ -129,7 +130,9 @@
 
 <header class="op">
   <div class="crumbs">
-    <button class="back" onclick={() => selectChannel(channel.parent)}>
+    <!-- Folds, rather than navigating: this is the same dismissal the board
+         card and Escape perform, so the panel leaves the way it arrived. -->
+    <button class="back" onclick={closePost} title="Close this post">
       <Icon name={isForumPost ? "forum" : "hash"} size={13} />
       {parent?.name || "back"}
     </button>
