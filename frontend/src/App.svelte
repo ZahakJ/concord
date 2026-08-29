@@ -2,7 +2,7 @@
   // App.svelte is the shell: login gate, the four-column layout, voice
   // lifecycle, global shortcuts, and modal routing. All shared state and the
   // backend event wiring live in lib/state.svelte.js.
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { precacheCosmetics } from "./lib/cosmetics.svelte.js";
   import { precacheEmoji } from "./lib/emojifull.svelte.js";
   import { api, leaveVoiceOnUnload } from "./lib/api.js";
@@ -161,10 +161,15 @@
   // The component for whatever S.modal names, or null while it is arriving.
   let ModalView = $state(null);
   let modalSlow = $state(false);
-  let modalLoadedKind = "";
+  // WHICH dialog ModalView currently is. Reactive, because the template must
+  // not render it until it is the one the branch it is standing in expects —
+  // see the note over the ladder below.
+  let modalLoadedKind = $state("");
   $effect(() => {
     const kind = S.modal?.kind || "";
-    if (kind === modalLoadedKind) return;
+    // untrack: this effect WRITES modalLoadedKind, so reading it tracked would
+    // make the effect its own trigger and reload the chunk on every settle.
+    if (kind === untrack(() => modalLoadedKind)) return;
     modalLoadedKind = "";
     ModalView = null;
     modalSlow = false;
@@ -1733,8 +1738,19 @@
   <!-- Modals. One component variable for all of them: ModalView is whichever
        dialog the current S.modal.kind has been loaded for (see MODAL_LOADERS),
        which is what lets fifty dialogs stay off the boot bundle without any of
-       them losing the props they are called with. -->
-  {#if ModalView}
+       them losing the props they are called with.
+
+       The `modalLoadedKind === S.modal.kind` guard is load-bearing. S.modal
+       changes synchronously and its chunk arrives a tick later, so for that one
+       tick the ladder had already moved to the new branch while ModalView was
+       still the OLD component — which then mounted with the NEW branch's props.
+       Mostly that is an invisible flash of the wrong panel. Going back from
+       Your profile to Settings it was a crash: ModalProfile got rendered by the
+       `settings` branch, with no `identity` prop, and `identity.displayName`
+       threw before Svelte could finish the update — so the dialog never
+       changed and back appeared to do nothing at all. That is the whole of
+       "back from the profile page doesn't return to Settings". -->
+  {#if ModalView && modalLoadedKind === S.modal?.kind}
     {#if S.modal?.kind === "create"}
       <ModalView onSubmit={createGuild} onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "channel"}
