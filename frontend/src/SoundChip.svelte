@@ -6,11 +6,12 @@
   // every client renders it from those numbers. That is also why keeping one
   // is free: the message already gave you the recipe.
   import Icon from "./Icon.svelte";
-  import { playRecipe, soundboardEnabled } from "./lib/sounds.js";
+  import { playRecipe, soundboardEnabled, soundsEnabled, audioTrouble } from "./lib/sounds.js";
   import { recipeGlyph, recipeTotalMs, soundLength } from "./lib/sfxrecipe.js";
   import { keepSound, dropSound, onShelf, shelfFull } from "./lib/soundshelf.svelte.js";
   import { flash } from "./lib/state.svelte.js";
   import { tooltip } from "./lib/tooltip.js";
+  import { onDestroy } from "svelte";
 
   let { recipe, payload } = $props();
 
@@ -18,18 +19,27 @@
   let timer = 0;
   const kept = $derived(onShelf(payload));
   const secs = $derived(soundLength(recipe));
+  const ms = $derived(recipeTotalMs(recipe));
 
   function press() {
-    // Playback can be refused — the soundboard is muted, or something else in
-    // the app is already making a noise. Say so rather than looking broken.
+    // Playback can be refused for three different reasons and only one of them
+    // used to be named, so two of the three read as a dead button. The
+    // rate-limit case says nothing on purpose: it means somebody else's sound
+    // is playing right now, which is a fifth of a second away from being fine
+    // and not worth a toast.
     if (!playRecipe(recipe)) {
-      if (!soundboardEnabled()) flash("Sound effects are switched off in Settings › Notifications");
+      if (!soundsEnabled()) flash("Sound is turned off — the volume is at zero in Settings › Notifications & sounds");
+      else if (!soundboardEnabled()) flash("Sound effects are switched off in Settings › Notifications & sounds");
       return;
     }
+    const why = audioTrouble();
+    if (why) flash(why, "error");
     ringing = true;
     clearTimeout(timer);
-    timer = setTimeout(() => (ringing = false), recipeTotalMs(recipe));
+    timer = setTimeout(() => (ringing = false), ms);
   }
+
+  onDestroy(() => clearTimeout(timer));
 
   function keep() {
     if (kept) return dropSound(payload);
@@ -38,12 +48,25 @@
   }
 </script>
 
-<div class="sound">
-  <button type="button" class="play" class:ringing onclick={press} aria-label={`Play the sound "${recipe.name || "untitled"}"`}>
+<div class="sound" class:ringing style="--sfx-ms:{ms}ms">
+  <button
+    type="button"
+    class="play"
+    class:ringing
+    onclick={press}
+    aria-label={`Play the sound "${recipe.name || "untitled"}"`}
+  >
     <span class="glyph" aria-hidden="true">{recipeGlyph(recipe)}</span>
     <span class="meta">
       <span class="name">{recipe.name || "Untitled sound"}</span>
       <span class="sub">{secs} · synthesized here, nothing downloaded</span>
+    </span>
+    <!-- Four bars that move while it plays. A synthesized sound has no waveform
+         to draw and no file to scrub, so this is not a rendering of the audio —
+         it is the only honest thing a chip can say, which is "this is happening
+         now". Transforms only, on four spans, for the length of the sound. -->
+    <span class="wave" aria-hidden="true">
+      <span></span><span></span><span></span><span></span>
     </span>
   </button>
   <button
@@ -67,6 +90,7 @@
      contents allow and the cap only stops a long name running the width of the
      feed. */
   .sound {
+    position: relative;
     display: inline-flex;
     align-items: stretch;
     gap: 1px;
@@ -99,15 +123,84 @@
     line-height: 1;
     flex: none;
   }
-  /* The glyph pulses for exactly as long as the sound lasts, which is the only
-     feedback there is: a synthesized sound has no waveform to scrub and no
-     file to show a spinner for. */
+  /* The glyph pulses for exactly as long as the sound lasts. */
   .play.ringing .glyph {
     animation: sound-ring var(--dur-calm) var(--ease-spring) 3;
   }
   @keyframes sound-ring {
     50% {
       transform: scale(1.22);
+    }
+  }
+  /* Pressed. A button that plays something has to acknowledge the press before
+     the sound arrives, or a slow first context reads as a click that missed. */
+  .play:active .glyph {
+    transform: scale(0.92);
+  }
+  .play:active {
+    background: var(--bg-2);
+  }
+  /* The bars: laid out but flat and invisible until it plays, so pressing does
+     not change the width of the chip under the pointer. */
+  .wave {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    flex: none;
+    height: 15px;
+    margin-left: var(--sp-1);
+    opacity: 0;
+    transition: opacity var(--dur-quick) ease;
+  }
+  .wave span {
+    display: block;
+    width: 2px;
+    height: 100%;
+    border-radius: 1px;
+    background: var(--accent);
+    transform: scaleY(0.22);
+    transform-origin: bottom;
+  }
+  .play.ringing .wave {
+    opacity: 1;
+  }
+  .play.ringing .wave span {
+    animation: sound-bar 0.42s ease-in-out infinite alternate;
+  }
+  .play.ringing .wave span:nth-child(2) {
+    animation-delay: 0.1s;
+    animation-duration: 0.3s;
+  }
+  .play.ringing .wave span:nth-child(3) {
+    animation-delay: 0.05s;
+    animation-duration: 0.5s;
+  }
+  .play.ringing .wave span:nth-child(4) {
+    animation-delay: 0.16s;
+    animation-duration: 0.36s;
+  }
+  @keyframes sound-bar {
+    to {
+      transform: scaleY(1);
+    }
+  }
+  /* How much of it is left, along the bottom edge. --sfx-ms is the recipe's own
+     total, so the line finishes exactly when the sound does. */
+  .sound.ringing::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 2px;
+    background: var(--accent);
+    animation: sound-run var(--sfx-ms, 600ms) linear both;
+  }
+  @keyframes sound-run {
+    from {
+      width: 0;
+    }
+    to {
+      width: 100%;
     }
   }
   .meta {
@@ -147,8 +240,14 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .play.ringing .glyph {
+    .play.ringing .glyph,
+    .play.ringing .wave span,
+    .sound.ringing::after {
       animation: none;
+    }
+    /* Still says "playing", without moving: the bars stand up and stay up. */
+    .play.ringing .wave span {
+      transform: scaleY(0.7);
     }
   }
 </style>

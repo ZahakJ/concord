@@ -5,6 +5,7 @@
   // Which is why the shelf can be shared by pressing a button: sending one to a
   // channel sends the sound itself, and keeping one costs nothing because the
   // message already carried it.
+  import { onDestroy } from "svelte";
   import Modal from "./Modal.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
@@ -59,6 +60,35 @@
     // is not swallowed by the mute or by the anti-overlap gate.
     playRecipe(recipe, { force: true });
   }
+
+  // ---- hearing the shelf ------------------------------------------------------
+  //
+  // Choosing between a dozen sounds meant clicking each one, and a click on a
+  // shelf card is also how you audition it — so browsing was a dozen deliberate
+  // presses. Hovering plays it instead, after a beat.
+  //
+  // The beat matters: the grid is four across, and a pointer crossing it on the
+  // way to the send button would otherwise fire four sounds. 320ms of dwell is
+  // "I stopped on this one" rather than "I passed over it". Fine pointers only —
+  // a finger cannot hover, and on a phone the tap is already the audition.
+  const HOVER_MS = 320;
+  const canHover =
+    typeof window !== "undefined" && !!window.matchMedia?.("(hover: hover) and (pointer: fine)")?.matches;
+  let hoverTimer;
+  let hovered = $state("");
+  function hearOnHover(s) {
+    if (!canHover) return;
+    hovered = s.payload;
+    clearTimeout(hoverTimer);
+    hoverTimer = setTimeout(() => {
+      if (hovered === s.payload) preview(s.recipe);
+    }, HOVER_MS);
+  }
+  function stopHover(s) {
+    if (hovered === s.payload) hovered = "";
+    clearTimeout(hoverTimer);
+  }
+  onDestroy(() => clearTimeout(hoverTimer));
 
   function loadOntoBench(recipe) {
     draft = { ...recipe };
@@ -132,7 +162,18 @@
       <div class="grid">
         {#each sounds as s (s.payload)}
           <div class="card">
-            <button type="button" class="face" onclick={() => preview(s.recipe)} aria-label={`Hear "${s.recipe.name}"`} use:tooltip>
+            <button
+              type="button"
+              class="face"
+              class:hearing={hovered === s.payload}
+              onclick={() => preview(s.recipe)}
+              onpointerenter={(e) => e.pointerType === "mouse" && hearOnHover(s)}
+              onpointerleave={() => stopHover(s)}
+              onfocus={() => hearOnHover(s)}
+              onblur={() => stopHover(s)}
+              aria-label={`Hear "${s.recipe.name}"`}
+              use:tooltip
+            >
               <span class="glyph" aria-hidden="true">{recipeGlyph(s.recipe)}</span>
               <span class="cname">{s.recipe.name}</span>
               <span class="clen">{soundLength(s.recipe)}</span>
@@ -324,6 +365,24 @@
   }
   .face:hover {
     background: var(--bg-3);
+  }
+  /* Dwelling on a card: the glyph swells over exactly the wait before it plays,
+     so the sound never arrives out of nowhere — the card says it is coming. */
+  .face.hearing .glyph {
+    animation: hear-swell 320ms var(--ease-out) both;
+  }
+  @keyframes hear-swell {
+    from {
+      transform: scale(1);
+    }
+    to {
+      transform: scale(1.16);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .face.hearing .glyph {
+      animation: none;
+    }
   }
   .glyph {
     font-size: var(--fs-display);
