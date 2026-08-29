@@ -1523,4 +1523,34 @@
       grid-column: 1 / -1;
     }
   }
+  /* A forced-colours mode (Windows high contrast, and the GTK/Chromium
+     equivalent) throws away every colour on the page and repaints it from the
+     OS palette. On every other screen in this app that is exactly right — it is
+     someone telling their machine they cannot read our greys. Here it deletes
+     the content, because on this screen the content IS colour: fifty-one
+     palette previews and three theme cards flatten into identical empty
+     rectangles, and the one thing that said which one you were on — a border
+     tinted with the accent — flattens with them, so the panel becomes a wall of
+     unlabelled boxes offering a choice it can no longer show you.
+
+     Swatches are the case `forced-color-adjust` exists for, and these qualify
+     twice over: they are aria-hidden decoration, so a screen reader loses
+     nothing, and their whole job is to be looked at. Only the previews opt out;
+     every word on the screen still takes the user's palette. The selection then
+     needs a marker the OS keeps, which is what the outline is. */
+  @media (forced-colors: active) {
+    .pk,
+    .pk *,
+    .pv,
+    .pv *,
+    .swatch {
+      forced-color-adjust: none;
+    }
+    .pack-card.sel,
+    .theme-card.sel,
+    .swatch.sel {
+      outline: 3px solid Highlight;
+      outline-offset: 2px;
+    }
+  }
 </style>
