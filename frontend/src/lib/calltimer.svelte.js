@@ -18,6 +18,8 @@
 let startedAt = $state(0);
 let now = $state(0);
 let timer = null;
+// When the call stopped carrying, if it has. See holdCallClock.
+let heldAt = $state(0);
 
 // startCallClock is called when the call is really up (S.voice is set), not
 // when the channel is clicked: the seconds should count the call, not the
@@ -34,12 +36,40 @@ export function startCallClock(at = Date.now()) {
 export function stopCallClock() {
   startedAt = 0;
   now = 0;
+  heldAt = 0;
   clearInterval(timer);
   timer = null;
 }
 
+// holdCallClock(true) freezes the display; holdCallClock(false) resumes it from
+// the number it froze at.
+//
+// The comment at the top of this file sells the clock as the cheapest liveness
+// signal there is — "a clock that has stopped is a call that has died" — and it
+// was a wall clock started at join and never consulted about the call again, so
+// it could not stop. Killing the node under a peer left it counting past two
+// minutes beside a banner saying that peer was offline.
+//
+// Resuming shifts the start rather than jumping forward, so the number counts
+// the time the call was actually carrying. Anything else would make the claim
+// false in the other direction: a call that spent a minute reconnecting has not
+// been running for that minute.
+export function holdCallClock(on) {
+  if (!startedAt) return;
+  if (on) {
+    if (!heldAt) heldAt = Date.now();
+  } else if (heldAt) {
+    startedAt += Date.now() - heldAt;
+    heldAt = 0;
+  }
+}
+export function callHeld() {
+  return !!heldAt;
+}
+
 export function callSeconds() {
-  return startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0;
+  if (!startedAt) return 0;
+  return Math.max(0, Math.floor(((heldAt || now) - startedAt) / 1000));
 }
 
 // mm:ss, and h:mm:ss once a call has run past the hour — a bare "78:04" reads

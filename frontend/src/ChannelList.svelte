@@ -22,6 +22,7 @@
     setGuildNotifs,
     guildNotifLevel,
     channelShort,
+    callHealth,
     voiceMembersFor,
     nameFor,
     memberByFpr,
@@ -61,6 +62,8 @@
   import { callClock } from "./lib/calltimer.svelte.js";
 
   const clock = $derived(callClock());
+  // One state machine for the call, shared with the stage — see callHealth.
+  const callState = $derived(callHealth());
 
   // getDisplayMedia is absent in Android/iOS WebViews, so the share button is a
   // control that can only ever fail. It goes away entirely rather than sitting
@@ -1228,76 +1231,83 @@
        always-there compact bar; when you navigate away the FloatingCall dock
        joins it too. -->
   {#if S.voice}
-    <div class="voice-bar">
+    <div class="voice-bar" class:trouble={!callState.live}>
       <button
         class="vb-info"
         use:tooltip
         aria-label="Return to call"
         onclick={() => jumpToChannel(S.voice.channelId)}
       >
-        <span class="vb-live"></span>
+        <span class="vb-live" class:held={!callState.live}></span>
         <span class="vb-text">
           <strong>
-            Voice connected
+            <!-- Not a literal. This bar printed "Voice connected" in green with
+                 a pulsing dot whatever the call was doing, so killing the node
+                 under a peer left it saying so, directly under a banner reading
+                 "You're offline. The call is trying to reconnect too." Same
+                 state machine as the stage now (callHealth). -->
+            {callState.label}
             <!-- The elapsed time doubles as proof the call is alive: a clock
-                 that has stopped is a call that has died. -->
-            {#if clock}<span class="vb-clock">{clock}</span>{/if}
+                 that has stopped is a call that has died. It could not stop —
+                 it was a wall clock started at join — so it now holds while
+                 nothing is carrying, and says so. -->
+            {#if clock}<span class="vb-clock" class:held={!callState.live}>{clock}</span>{/if}
           </strong>
-          <span class="muted vb-ch">{channelShort(S.voice.channelId)}</span>
+          <span class="muted vb-ch">{channelShort(S.voice.channelId) || "Call"}</span>
         </span>
       </button>
       <span class="vb-actions">
         <!-- Deafen was missing here and on the header pill, so two of the four
              places you can mute offered a different SET of controls as well as a
-             different look. Same glyphs, same 15px, same round plate, and the
-             same rule about colour everywhere: mic and deafen light danger when
-             they are stopping something, camera and screen light green when
-             they are sending it. This bar had mic lighting green for muted,
-             which said the opposite of what it meant. -->
+             different look. Same glyphs, same order and the same plate on all
+             four surfaces now (.callbtn, app.css): mic and deafen light danger
+             when they are stopping something, camera and screen light accent
+             when they are sending it, and green is left to mean one thing —
+             that there is a call. -->
         <button
-          class="vb-btn cut"
+          class="callbtn sm cut"
           class:on={S.muted}
           use:tooltip
           aria-label={S.muted ? "Unmute" : "Mute"}
           aria-pressed={S.muted}
           onclick={onToggleMute}
         >
-          <Icon name={S.muted ? "micOff" : "mic"} size={15} />
+          <Icon name={S.muted ? "micOff" : "mic"} size={14} />
         </button>
         <button
-          class="vb-btn cut"
+          class="callbtn sm cut"
           class:on={S.deafened}
           use:tooltip
           aria-label={S.deafened ? "Undeafen" : "Deafen"}
           aria-pressed={S.deafened}
           onclick={onToggleDeafen}
         >
-          <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
+          <Icon name={S.deafened ? "deafened" : "speaker"} size={14} />
         </button>
         <button
-          class="vb-btn"
+          class="callbtn sm"
           class:on={S.cameraOn}
           use:tooltip
           aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
           aria-pressed={S.cameraOn}
           onclick={onToggleCamera}
         >
-          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={15} />
+          <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={14} />
         </button>
         {#if canShareScreen}
           <button
-            class="vb-btn"
+            class="callbtn sm"
             class:on={S.sharing}
             use:tooltip
             aria-label={S.sharing ? "Stop sharing" : "Share screen"}
             aria-pressed={S.sharing}
             onclick={onToggleShare}
           >
-            <Icon name={S.sharing ? "screenOff" : "screen"} size={15} />
+            <Icon name={S.sharing ? "screenOff" : "screen"} size={14} />
           </button>
         {/if}
-        <button class="vb-btn leave" use:tooltip aria-label="Disconnect" onclick={onLeaveVoice}>
-          <Icon name="door" size={15} />
+        <button class="callbtn sm hang" use:tooltip aria-label="Disconnect" onclick={onLeaveVoice}>
+          <Icon name="door" size={14} />
         </button>
       </span>
     </div>
@@ -2349,6 +2359,21 @@
     border: 1px solid color-mix(in srgb, var(--ok) 28%, transparent);
     box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 10%, transparent);
   }
+  /* The green IS the claim. When the call is not carrying — this device
+     offline, every peer reconnecting or failed — the bar says so in the one
+     way that cannot be missed, and stops glowing. */
+  .voice-bar.trouble {
+    background: var(--warn-soft);
+    color: var(--warn-text);
+    border-color: color-mix(in srgb, var(--warn) 30%, transparent);
+    box-shadow: none;
+  }
+  .voice-bar.trouble .vb-info {
+    color: var(--warn-text);
+  }
+  .voice-bar.trouble .vb-info:hover {
+    background: color-mix(in srgb, var(--warn) 18%, transparent);
+  }
   .vb-info {
     display: flex;
     align-items: center;
@@ -2371,6 +2396,12 @@
     background: var(--ok);
     flex-shrink: 0;
     animation: vb-blink 1.4s ease-in-out infinite;
+  }
+  /* Not blinking, and not green. The dot is the ONE thing on this bar that
+     means "live"; while nothing is carrying it must not claim to. */
+  .vb-live.held {
+    background: var(--warn);
+    animation: none;
   }
   @keyframes vb-blink {
     50% {
@@ -2407,6 +2438,13 @@
     font-weight: 600;
     opacity: 0.8;
   }
+  /* A held clock is EVIDENCE, so it has to look held rather than merely be a
+     number that has stopped changing while you are not watching. */
+  .vb-clock.held {
+    opacity: 0.55;
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
+  }
   .vb-ch {
     font-size: var(--fs-small);
     overflow: hidden;
@@ -2419,43 +2457,9 @@
     justify-content: space-between;
     gap: 2px;
   }
-  /* Round, like the same control on the other three surfaces. This was the one
-     square-cornered call button in the app. */
-  .vb-btn {
-    background: transparent;
-    color: var(--ok-text);
-    padding: 5px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-  }
-  @media (pointer: fine) {
-    .vb-btn:hover {
-      background: color-mix(in srgb, var(--ok) 22%, transparent);
-    }
-  }
-  .vb-btn:active {
-    background: color-mix(in srgb, var(--ok) 22%, transparent);
-  }
-  .vb-btn.on {
-    background: var(--ok);
-    color: var(--ok-fg);
-  }
-  .vb-btn.cut.on {
-    background: var(--danger);
-    color: var(--danger-fg);
-  }
-  @media (pointer: fine) {
-    .vb-btn.cut.on:hover {
-      background: color-mix(in srgb, var(--danger) 82%, white);
-    }
-  }
-  .vb-btn.leave {
-    color: var(--danger-text);
-  }
-  .vb-btn.leave:hover {
-    background: var(--danger-soft);
-  }
+  /* The buttons are .callbtn (app.css) — the stage bar's own language at the
+     bar's size, which is what stops this being a third design of one control.
+     Nothing local left to say about them. */
   .me-row {
     display: flex;
     align-items: center;
@@ -2646,9 +2650,9 @@
     .vb-actions {
       gap: var(--sp-1);
     }
-    .vb-btn {
-      min-width: 44px;
-      min-height: 44px;
+    .voice-bar .callbtn.sm {
+      width: 44px;
+      height: 44px;
     }
     .me {
       min-height: 44px;

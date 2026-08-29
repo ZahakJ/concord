@@ -11,7 +11,7 @@
   import { requestPermission, asksLazily } from "./lib/notify.js";
   import { installShortcuts } from "./lib/shortcuts.js";
   import { playVoiceJoin, playVoiceLeave, playRing } from "./lib/sounds.js";
-  import { startCallClock, stopCallClock } from "./lib/calltimer.svelte.js";
+  import { startCallClock, stopCallClock, holdCallClock } from "./lib/calltimer.svelte.js";
   import {
     S,
     activeGuild,
@@ -41,6 +41,7 @@
     isCallLocked,
     isAdmitted,
     noteCallJoined,
+    callHealth,
     nameFor,
     forgetLock,
     clearCallState,
@@ -357,6 +358,14 @@
         if (seen && !S.modal) S.modal = { kind: "whatsNew", version: v };
       })
       .catch(() => {});
+  });
+
+  // The call clock IS the liveness claim, so it is wired to the thing it claims
+  // about. While the mesh is not carrying — this device offline, every peer
+  // reconnecting or failed — the number holds where it stopped, and it resumes
+  // from there rather than jumping over the gap. See lib/calltimer.svelte.js.
+  $effect(() => {
+    holdCallClock(!callHealth().live);
   });
 
   // One-time notice when this machine cannot play a sound at all.
@@ -1657,6 +1666,7 @@
   {#if S.voice}
     <SelfView onToggleCamera={toggleCamera} />
   {/if}
+
 
   {#if S.knocking}
     <div class="knock-wait" role="status">

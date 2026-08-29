@@ -17,6 +17,8 @@
     confirmLeaveGuild,
     jumpToChannel,
     channelShort,
+    callRoster,
+    callHealth,
   } from "./lib/state.svelte.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { api } from "./lib/api.js";
@@ -122,6 +124,8 @@
   const packed = $derived(headW <= 380);
   const clock = $derived(callClock());
   const callLabel = $derived(S.voice ? channelShort(S.voice.channelId) : "");
+  // One state machine for the call — see callHealth in state.svelte.js.
+  const callState = $derived(callHealth());
 
   async function showInvite() {
     S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) };
@@ -259,10 +263,13 @@
       </button>
     {:else if S.voice && S.voice.channelId === S.activeChannelId}
       <!-- Active voice collapses to one pill with mute + leave inside it. -->
-      <span class="voice-pill">
-        <span class="pill-label" title="{S.voiceParticipants.length + 1} in this call">
+      <span class="voice-pill" class:trouble={!callState.live}>
+        <!-- callRoster, not a second count: this is the same list the stage
+             draws its tiles from, so the number and the picture cannot drift
+             apart while somebody is arriving or leaving. -->
+        <span class="pill-label" title="{callRoster().length} in this call">
           <Icon name="speaker" size={12} />
-          {S.voiceParticipants.length + 1}
+          {callRoster().length}
         </span>
         <span class="pill-sep"></span>
         <!-- The same controls, the same two colours, on every surface that
@@ -271,19 +278,19 @@
              something. This pill used to have no lit state for the mic at all —
              the glyph swapped and nothing else did — while the sidebar bar lit
              the SAME state green, which is this row's colour for "on the air". -->
-        <button class="pill-btn cut" class:on={S.muted} title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} aria-pressed={S.muted} onclick={onToggleMute}>
+        <button class="callbtn xs cut" class:on={S.muted} title={S.muted ? "Unmute mic" : "Mute mic"} aria-label={S.muted ? "Unmute mic" : "Mute mic"} aria-pressed={S.muted} onclick={onToggleMute}>
           <Icon name={S.muted ? "micOff" : "mic"} size={15} />
         </button>
-        <button class="pill-btn cut" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
+        <button class="callbtn xs cut" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
           <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
         </button>
-        <button class="pill-btn" class:on={S.cameraOn} title={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-pressed={S.cameraOn} onclick={onToggleCamera}>
+        <button class="callbtn xs" class:on={S.cameraOn} title={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"} aria-pressed={S.cameraOn} onclick={onToggleCamera}>
           <Icon name={S.cameraOn ? "cameraOff" : "camera"} size={15} />
         </button>
-        <button class="pill-btn" class:on={S.sharing} title={S.sharing ? "Stop sharing" : "Share screen"} aria-label={S.sharing ? "Stop sharing" : "Share screen"} aria-pressed={S.sharing} onclick={onToggleShare}>
+        <button class="callbtn xs" class:on={S.sharing} title={S.sharing ? "Stop sharing" : "Share screen"} aria-label={S.sharing ? "Stop sharing" : "Share screen"} aria-pressed={S.sharing} onclick={onToggleShare}>
           <Icon name={S.sharing ? "screenOff" : "screen"} size={15} />
         </button>
-        <button class="pill-btn leave" title="Leave voice" aria-label="Leave voice" onclick={onLeaveVoice}>
+        <button class="callbtn xs hang" title="Leave voice" aria-label="Leave voice" onclick={onLeaveVoice}>
           <Icon name="door" size={15} />
         </button>
       </span>
@@ -305,11 +312,18 @@
            which of the two this is without needing the sentence. -->
       <button
         class="ghost iconbtn return-call"
+        class:trouble={!callState.live}
         use:tooltip={{ text: `Back to ${callLabel || "your call"}` }}
         onclick={() => jumpToChannel(S.voice.channelId)}
       >
         <span class="live-dot"></span>
-        <span class="n">Return to call{clock ? ` · ${clock}` : ""}</span>
+        <!-- The dot and the clock are the same claim the sidebar bar and the
+             dock make, so they answer to the same state — a green dot beside a
+             running number over a call that is not carrying is the whole of the
+             bug this button used to share with them. -->
+        <span class="n">
+          {callState.live ? `Return to call${clock ? ` · ${clock}` : ""}` : callState.label}
+        </span>
       </button>
     {:else if ch && !g?.dmNotes}
       <button
@@ -789,11 +803,11 @@
   .voice-pill {
     display: inline-flex;
     align-items: center;
-    gap: var(--sp-1);
+    gap: 5px;
     font-size: var(--fs-compact);
     font-weight: 600;
     color: var(--ok-text);
-    padding: 3px 5px 3px 9px;
+    padding: 3px 4px 3px 9px;
     background: var(--ok-soft);
     border-radius: var(--radius-lg);
     white-space: nowrap;
@@ -811,6 +825,16 @@
         inset 0 0 0 1px color-mix(in srgb, var(--ok) 35%, transparent),
         0 0 10px color-mix(in srgb, var(--ok) 30%, transparent);
     }
+  }
+  /* Green is the claim that the call is carrying. It stops making it. */
+  .voice-pill.trouble {
+    color: var(--warn-text);
+    background: var(--warn-soft);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 35%, transparent);
+    animation: none;
+  }
+  .voice-pill.trouble .pill-sep {
+    background: color-mix(in srgb, var(--warn) 35%, transparent);
   }
   @media (prefers-reduced-motion: reduce) {
     .voice-pill {
@@ -832,38 +856,9 @@
     margin: 2px 2px;
     background: color-mix(in srgb, var(--ok) 35%, transparent);
   }
-  .pill-btn {
-    background: transparent;
-    color: var(--ok-text);
-    padding: 3px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-  }
-  .pill-btn:hover {
-    background: color-mix(in srgb, var(--ok) 22%, transparent);
-  }
-  .pill-btn.on {
-    background: var(--ok);
-    color: var(--ok-fg);
-  }
-  /* Mic and deafen are the two that STOP something, so their lit state is the
-     danger colour rather than the "on the air" green. */
-  .pill-btn.cut.on {
-    background: var(--danger);
-    color: var(--danger-fg);
-  }
-  @media (pointer: fine) {
-    .pill-btn.cut.on:hover {
-      background: color-mix(in srgb, var(--danger) 82%, white);
-    }
-  }
-  .pill-btn.leave {
-    color: var(--danger-text);
-  }
-  .pill-btn.leave:hover {
-    background: var(--danger-soft);
-  }
+  /* The buttons are .callbtn (app.css) at their smallest size — the same
+     controls, in the same order, with the same on/cut/hang colours as the
+     stage bar, the sidebar bar and the dock. */
   .invite {
     padding: 6px 12px;
   }
@@ -899,6 +894,14 @@
   }
   .iconbtn.return-call .live-dot {
     background: var(--ok);
+  }
+  .iconbtn.return-call.trouble {
+    color: var(--warn-text);
+    border-color: color-mix(in srgb, var(--warn) 45%, transparent);
+  }
+  .iconbtn.return-call.trouble .live-dot {
+    background: var(--warn);
+    animation: none;
   }
   .live-dot {
     width: 7px;

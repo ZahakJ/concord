@@ -1608,6 +1608,98 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* ---- call chrome: one language, three sizes -------------------------------
+   A two-person call at 1440x900 puts four call bars on screen at once — the
+   header pill, the stage's control row, the sidebar bar and the floating dock —
+   with three self-mutes at 21, 25 and 44px and three Leave buttons at the same
+   three sizes. Redundancy was the deliberate product call and it is the right
+   one: mute has to be reachable from wherever you are. Three DESIGNS of one bar
+   is not redundancy, it is three answers to one question, and they shared no
+   shape, no ground and no colour — an outlined green pill, a filled green card,
+   and dark circles.
+
+   The stage bar's language wins because it is the one you use for an hour: a
+   dark circle on the surface, a hairline, the icon in the text colour. The
+   other three render the same buttons at 26 / 34 / 44px in the same order.
+
+   The colour rule that comes with it, and the reason there is one: green stops
+   meaning "a control" and means only "the call is live" — it is the dot and the
+   bar's own ground, nowhere else. A toggle that is SENDING something (camera,
+   screen) lights accent. A toggle that is STOPPING something (mic, deafen) and
+   the one that ends the call light danger. Two states, two colours, four
+   surfaces. */
+.callbtn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-3);
+  color: var(--text);
+  border: 1px solid var(--border);
+  transition:
+    background var(--dur-quick) ease,
+    color var(--dur-quick) ease,
+    transform var(--dur-quick) ease;
+}
+/* The three sizes: the header pill's row, the sidebar bar and the dock, and the
+   stage. Each surface says which it is; the phone tiers override from there. */
+.callbtn.xs {
+  width: 24px;
+  height: 24px;
+}
+.callbtn.sm {
+  width: 26px;
+  height: 26px;
+}
+.callbtn.lg {
+  width: 44px;
+  height: 44px;
+}
+@media (pointer: fine) {
+  .callbtn:hover {
+    background: var(--bg-1);
+    color: var(--text);
+  }
+}
+.callbtn:active {
+  transform: scale(0.92);
+}
+/* Sending. */
+.callbtn.on {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+@media (pointer: fine) {
+  .callbtn.on:hover {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+    color: var(--accent-hover);
+  }
+}
+/* Stopping, and leaving. */
+.callbtn.cut.on,
+.callbtn.hang {
+  background: var(--danger);
+  color: var(--danger-fg);
+  border-color: transparent;
+}
+@media (pointer: fine) {
+  .callbtn.cut.on:hover,
+  .callbtn.hang:hover {
+    background: color-mix(in srgb, var(--danger) 85%, #000);
+    color: var(--danger-fg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .callbtn:hover,
+  .callbtn:active {
+    transform: none;
+  }
+}
+
 /* Opt-in hit-box expander for controls that must stay visually small — a 22px
    glyph button, a close X, a colour swatch. Deliberately NOT a blanket
    min-height on `button`: the app is full of controls whose shape is the point,

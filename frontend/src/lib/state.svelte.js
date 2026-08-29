@@ -3799,6 +3799,52 @@ export function inviteToCall(fingerprint) {
   flash(`Asked ${nameFor(fingerprint)} to join`, "success");
 }
 
+// ---- how the call is actually doing, once, for everything that claims to know
+//
+// Four surfaces state the call at the same time — the stage, the header pill,
+// the sidebar bar and the dock — and only the stage had a state machine behind
+// it. `ChannelList` printed the literal string "Voice connected" in --ok green
+// with a pulsing dot, so killing the node under a peer left it saying "Voice
+// connected", with a clock still counting, directly under a banner reading
+// "You're offline. The call is trying to reconnect too." Two of the three
+// statements were true.
+//
+// So there is one answer now and every surface renders it at its own size.
+// `roomLine` on the stage keeps its own sentences, because it is speaking about
+// the ROOM rather than about this device, but it is a function of this state.
+export const CALL_STATE = {
+  connected: { label: "Voice connected", tone: "ok" },
+  connecting: { label: "Connecting…", tone: "warn" },
+  reconnecting: { label: "Reconnecting…", tone: "warn" },
+  failed: { label: "Call not connected", tone: "bad" },
+};
+export function callHealth() {
+  if (!S.voice) return { state: "idle", ...CALL_STATE.connected, live: false };
+  // Our own node is gone: nothing else we could say about the far side is
+  // worth more than that.
+  if (S.offline) return { state: "reconnecting", ...CALL_STATE.reconnecting, live: false };
+  const others = S.voiceParticipants;
+  // Alone in the room is not a fault. The mesh is up; there is nobody on it.
+  if (!others.length) return { state: "connected", ...CALL_STATE.connected, live: true };
+  const st = (p) => S.voicePeerStatus[p]?.state;
+  if (others.some((p) => st(p) === "connected")) {
+    return { state: "connected", ...CALL_STATE.connected, live: true };
+  }
+  if (others.every((p) => st(p) === "failed")) {
+    return { state: "failed", ...CALL_STATE.failed, live: false };
+  }
+  if (others.some((p) => st(p) === "reconnecting")) {
+    return { state: "reconnecting", ...CALL_STATE.reconnecting, live: false };
+  }
+  return { state: "connecting", ...CALL_STATE.connecting, live: false };
+}
+
+// Everyone on the stage, self first — the ONE list the tiles are drawn from and
+// the one "N in call" counts, so the number and the picture cannot disagree.
+export function callRoster() {
+  return ["self", ...S.voiceParticipants];
+}
+
 // publishVoiceState tells the room whether we're muted or deafened. Nobody can
 // observe it otherwise — muting disables a track locally, which looks exactly
 // like not speaking — so a badge on someone's tile only means anything if the

@@ -13,11 +13,16 @@
   // until its own Mute/Leave row was below the bottom of the screen.
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
-  import { S, memberByFpr } from "./lib/state.svelte.js";
+  import { S, memberByFpr, callHealth } from "./lib/state.svelte.js";
   import { haptic } from "./lib/touch.js";
   import { pointOf, viewport } from "./lib/place.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { canShareScreen } from "./lib/devices.js";
+
+  // The same state machine the stage and the sidebar bar read: a green dot and
+  // a running clock are a CLAIM about the call, and this widget made it in two
+  // places while saying nothing about whether it held.
+  const health = $derived(callHealth());
 
   let {
     label = "",
@@ -145,6 +150,9 @@
         emoji: S.identity.emoji,
         color: S.identity.color,
         image: S.identity.avatar,
+        frame: S.identity.frame || "",
+        decoration: S.identity.style?.dec || "",
+        dc: S.identity.style?.dc || "",
         speaking: S.voiceSpeaking.includes("self"),
       };
     }
@@ -158,6 +166,9 @@
       emoji: m?.emoji || "",
       color: m?.color || "",
       image: m?.avatar || "",
+      frame: m?.frame || "",
+      decoration: m?.style?.dec || "",
+      dc: m?.style?.dc || "",
       speaking: S.voiceSpeaking.includes(pid),
     };
   }
@@ -193,16 +204,18 @@
 <svelte:window onresize={phone ? measureTop : onResize} />
 
 {#if phone}
-  <div class="callbar" class:shelved style="top:{topOffset}px">
+  <div class="callbar" class:shelved class:trouble={!health.live} style="top:{topOffset}px">
     <button class="cb-open" onclick={onReturn} aria-label="Return to the call">
-      <span class="live"></span>
+      <span class="live" class:held={!health.live}></span>
       <span class="cb-text">
         <span class="cb-lbl">{label || "In call"}</span>
-        <span class="cb-hint">{clock ? `${clock} · tap to return` : "Tap to return"}</span>
+        <span class="cb-hint">
+          {health.live ? (clock ? `${clock} · tap to return` : "Tap to return") : health.label}
+        </span>
       </span>
     </button>
     <button
-      class="ico"
+      class="callbtn cut"
       class:on={S.muted}
       title={S.muted ? "Unmute" : "Mute"}
       aria-label={S.muted ? "Unmute" : "Mute"}
@@ -212,7 +225,7 @@
       <Icon name={S.muted ? "micOff" : "mic"} size={17} />
     </button>
     <button
-      class="ico"
+      class="callbtn cut"
       class:on={S.deafened}
       title={S.deafened ? "Undeafen" : "Deafen"}
       aria-label={S.deafened ? "Undeafen" : "Deafen"}
@@ -221,7 +234,7 @@
     >
       <Icon name={S.deafened ? "deafened" : "speaker"} size={17} />
     </button>
-    <button class="ico hang" title="Leave call" aria-label="Leave call" onclick={tap(onLeave, "heavy")}>
+    <button class="callbtn hang" title="Leave call" aria-label="Leave call" onclick={tap(onLeave, "heavy")}>
       <Icon name="door" size={17} />
     </button>
   </div>
@@ -230,14 +243,15 @@
     class="dock"
     class:dragging
     class:shelved
+    class:trouble={!health.live}
     bind:this={dockEl}
     style="left:{pos.x}px; top:{pos.y}px"
   >
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="head" onpointerdown={onDown} title="Drag to move · click to open">
-      <span class="live"></span>
-      <span class="lbl">{label || "In call"}</span>
-      {#if clock}<span class="clock">{clock}</span>{/if}
+      <span class="live" class:held={!health.live}></span>
+      <span class="lbl">{health.live ? label || "In call" : health.label}</span>
+      {#if clock}<span class="clock" class:held={!health.live}>{clock}</span>{/if}
       <button
         class="ico expand"
         title="Return to call"
@@ -253,7 +267,16 @@
       {#each roster as pid (pid)}
         {@const p = part(pid)}
         <div class="face" class:speaking={p.speaking} title={p.name}>
-          <Avatar name={p.name} emoji={p.emoji} color={p.color} image={p.image} size={30} />
+          <Avatar
+            name={p.name}
+            emoji={p.emoji}
+            color={p.color}
+            image={p.image}
+            frame={p.frame}
+            decoration={p.decoration}
+            dc={p.dc}
+            size={30}
+          />
         </div>
       {/each}
     </div>
@@ -263,15 +286,15 @@
          another channel to paste a link and then wanting to put your screen up
          meant navigating back to the call first. -->
     <div class="ctl">
-      <button class="ico" class:on={S.muted} title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} aria-pressed={S.muted} onclick={onToggleMute}>
+      <button class="callbtn cut" class:on={S.muted} title={S.muted ? "Unmute" : "Mute"} aria-label={S.muted ? "Unmute" : "Mute"} aria-pressed={S.muted} onclick={onToggleMute}>
         <Icon name={S.muted ? "micOff" : "mic"} size={15} />
       </button>
-      <button class="ico" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
+      <button class="callbtn cut" class:on={S.deafened} title={S.deafened ? "Undeafen" : "Deafen"} aria-label={S.deafened ? "Undeafen" : "Deafen"} aria-pressed={S.deafened} onclick={onToggleDeafen}>
         <Icon name={S.deafened ? "deafened" : "speaker"} size={15} />
       </button>
       <button
-        class="ico"
-        class:lit={S.cameraOn}
+        class="callbtn"
+        class:on={S.cameraOn}
         title={S.cameraOn ? "Turn off camera" : "Turn on camera"}
         aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
         aria-pressed={S.cameraOn}
@@ -281,8 +304,8 @@
       </button>
       {#if canShareScreen}
         <button
-          class="ico"
-          class:lit={S.sharing}
+          class="callbtn"
+          class:on={S.sharing}
           title={S.sharing ? "Stop sharing" : "Share screen"}
           aria-label={S.sharing ? "Stop sharing" : "Share screen"}
           aria-pressed={S.sharing}
@@ -291,7 +314,7 @@
           <Icon name={S.sharing ? "screenOff" : "screen"} size={15} />
         </button>
       {/if}
-      <button class="ico hang" title="Leave call" aria-label="Leave call" onclick={onLeave}>
+      <button class="callbtn hang" title="Leave call" aria-label="Leave call" onclick={onLeave}>
         <Icon name="door" size={15} />
       </button>
     </div>
@@ -367,6 +390,26 @@
   .callbar.shelved {
     display: none;
   }
+  /* The green ambience is the claim that this is running. It stops making it
+     while the call is not carrying, and the header turns the same amber the
+     sidebar bar does. */
+  .dock.trouble {
+    animation: none;
+  }
+  .dock.trouble .head,
+  .callbar.trouble {
+    background: var(--warn-soft);
+    color: var(--warn-text);
+  }
+  .dock.trouble .lbl,
+  .dock.trouble .clock,
+  .callbar.trouble .cb-lbl,
+  .callbar.trouble .cb-hint {
+    color: var(--warn-text);
+  }
+  .callbar.trouble {
+    border-bottom-color: color-mix(in srgb, var(--warn) 35%, transparent);
+  }
   /* Lifted while dragged: bigger shadow + a slight grow under the pointer. */
   .dock.dragging {
     transform: scale(1.03);
@@ -409,6 +452,16 @@
     50% {
       opacity: 0.3;
     }
+  }
+  /* Amber and still: the dot is the liveness claim, so it stops making it. */
+  .live.held {
+    background: var(--warn);
+    animation: none;
+  }
+  .clock.held {
+    opacity: 0.6;
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
   }
   .lbl {
     flex: 1;
@@ -463,51 +516,15 @@
   }
   .ctl {
     display: flex;
+    /* Five 34px circles do not fit the 214px dock on one line. */
+    flex-wrap: wrap;
     justify-content: center;
-    gap: 10px;
+    gap: var(--sp-2);
     padding: 0 10px 10px;
   }
-  .ico {
-    width: 34px;
-    height: 34px;
-    padding: 0;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    background: var(--bg-3);
-    color: var(--text);
-    border: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-  .ico:hover {
-    background: var(--bg-1);
-  }
-  /* Active mute/deafen: a filled danger state, so "I'm muted/deafened" reads at
-     a glance rather than needing to be looked for. */
-  .ico.on {
-    background: var(--danger);
-    color: var(--danger-fg);
-    border-color: transparent;
-  }
-  .ico.on:hover {
-    background: color-mix(in srgb, var(--danger) 85%, #000);
-  }
-  /* Camera and share are ON states, not alarm states: an engaged toggle here
-     means something is going out, which is worth seeing but is not the red
-     "nobody can hear me" that mute and deafen are. */
-  .ico.lit {
-    background: var(--ok);
-    color: var(--ok-fg);
-    border-color: transparent;
-  }
-  .ico.lit:hover {
-    background: color-mix(in srgb, var(--ok) 85%, #000);
-  }
-  /* Five 34px circles no longer fit the 214px dock at a 10px gap. */
-  .ctl {
-    flex-wrap: wrap;
-    gap: var(--sp-2);
-  }
+  /* The dock's controls are .callbtn (app.css) at its base size — the stage
+     bar's language, 34px instead of 44. What is left here is the one button
+     that is not a call control: the chevron back into the call. */
   .ico.expand {
     width: 24px;
     height: 24px;
@@ -516,15 +533,6 @@
     color: var(--ok-text);
     transform: rotate(180deg); /* chevron points back at the call, not away */
   }
-  .ico.hang {
-    background: var(--danger);
-    color: var(--danger-fg);
-    border-color: transparent;
-  }
-  .ico.hang:hover {
-    background: color-mix(in srgb, var(--danger) 85%, #000);
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .dock,
     .live,
@@ -534,7 +542,7 @@
   }
 
   @media (pointer: coarse), (max-width: 768px) {
-    .ico {
+    .callbtn {
       width: var(--tap-min);
       height: var(--tap-min);
     }
