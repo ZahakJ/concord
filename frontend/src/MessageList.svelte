@@ -1919,6 +1919,15 @@
   .feed.bar-narrow {
     --act-gutter: 40px;
   }
+  /* A touch device has no hover bar at all — Message.svelte does not render one
+     (long-press opens the action sheet instead), so there is nothing to reserve
+     room for and reserving it would cost a 390px screen 40px of every line. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .feed,
+    .feed.bar-narrow {
+      --act-gutter: 0px;
+    }
+  }
   /* The window spacers: the height of the rows above and below the rendered
      window. Every direct child of a flex column earns a gap on both sides, and
      these two are not rows — a zero-height spacer would still push the thread
