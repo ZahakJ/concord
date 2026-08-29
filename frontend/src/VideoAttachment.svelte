@@ -6,14 +6,18 @@
   // encrypted-file path as any attachment; nothing new server-side.
   import { onMount } from "svelte";
   import { api } from "./lib/api.js";
-  import { flash } from "./lib/state.svelte.js";
+  import { S, memberByFpr, nameFor } from "./lib/state.svelte.js";
+  import { fmtBytes, unavailableNote, worthRetrying } from "./lib/attachments.js";
 
-  let { channelId, tok } = $props();
+  // `sender` is the fingerprint of whoever posted the clip — see
+  // Attachment.svelte for why a failed fetch has to be able to name them.
+  let { channelId, tok, sender = "" } = $props();
 
   let wrap = $state(null);
   let src = $state(""); // decrypted data URL, once loaded
   let loading = $state(false);
   let failed = $state(false);
+  let errMsg = $state("");
 
   // Keep the frame from collapsing before the video loads (16:9 default), then
   // snap to the clip's real aspect once its metadata arrives so it isn't
@@ -26,17 +30,50 @@
   }
 
   async function load() {
-    if (loading || src || failed) return;
+    if (loading || src) return;
     loading = true;
+    failed = false;
     try {
       src = await api.fetchFile(channelId, tok.blobId, tok.keys, tok.mime);
     } catch (err) {
+      errMsg = String(err?.message || err);
       failed = true;
-      flash(err);
+      // Deliberately no toast: the frame itself now carries the reason, and a
+      // channel of clips whose only holder went offline would otherwise stack
+      // up one error toast per clip for something nobody asked to do.
     } finally {
       loading = false;
     }
   }
+
+  // Built here rather than in the markup: Svelte trims the whitespace around a
+  // block boundary, so an inline `{#if}` around the separator glued the size to
+  // the name ("clip.mp4· 11 KB").
+  const label = $derived(tok.size ? `${tok.name} · ${fmtBytes(tok.size)}` : tok.name);
+
+  const senderRow = $derived(sender ? memberByFpr(sender) : undefined);
+  const note = $derived(
+    unavailableNote(errMsg, {
+      name: senderRow ? nameFor(sender) : "",
+      self: !!sender && sender === S.identity?.fingerprint,
+    }),
+  );
+
+  // Same roster-driven retry as an image: the clip was never broken, only
+  // unreachable, so somebody becoming reachable is the event that fixes it.
+  let seenOnline = null;
+  let lastTry = 0;
+  $effect(() => {
+    const now = new Set(
+      (S.members || []).filter((m) => m.online).map((m) => m.fingerprint),
+    );
+    const prev = seenOnline;
+    seenOnline = now;
+    if (!failed || loading) return;
+    if (!worthRetrying(prev, now, Date.now() - lastTry)) return;
+    lastTry = Date.now();
+    load();
+  });
 
   onMount(() => {
     if (!("IntersectionObserver" in window)) {
@@ -78,7 +115,13 @@
       {#if loading}
         <span class="vid-spin"></span>
       {:else if failed}
-        <button class="vid-retry" onclick={() => ((failed = false), load())}>Couldn't load — retry</button>
+        <!-- Name the clip and its size: the token carries both, and a reader
+             staring at a black rectangle should at least know what it is. -->
+        <div class="vid-gone">
+          <span class="vid-name">{label}</span>
+          <span class="vid-note">{note}</span>
+          <button class="vid-retry" onclick={load}>Retry</button>
+        </div>
       {:else}
         <span class="vid-idle"></span>
       {/if}
@@ -119,6 +162,29 @@
     border-top-color: #fff;
     border-radius: 50%;
     animation: vid-rot 0.8s linear infinite;
+  }
+  .vid-gone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--sp-1);
+    padding: var(--sp-3);
+    text-align: center;
+  }
+  .vid-name {
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    max-width: 34ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .vid-note {
+    font-size: var(--fs-compact);
+    line-height: 1.4;
+    color: rgba(255, 255, 255, 0.6);
+    max-width: 34ch;
   }
   .vid-retry {
     min-height: var(--tap-min);

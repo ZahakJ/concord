@@ -1433,21 +1433,21 @@
       {#if atts.length > 1}
         <div class="att-grid">
           {#each atts as tok (tok.blobId)}
-            <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} tile />
+            <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} sender={m.sender} tile />
           {/each}
         </div>
       {:else}
         {#each atts as tok (tok.blobId)}
-          <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} />
+          <Attachment channelId={m.channelId} {tok} messageId={m.id} own={isOwn} sender={m.sender} />
         {/each}
       {/if}
       {#each files as tok (tok.blobId)}
         {#if tok.mime?.startsWith("audio/")}
           <VoiceMessage channelId={m.channelId} {tok} />
         {:else if tok.mime?.startsWith("video/")}
-          <VideoAttachment channelId={m.channelId} {tok} />
+          <VideoAttachment channelId={m.channelId} {tok} sender={m.sender} />
         {:else}
-          <FileAttachment channelId={m.channelId} {tok} />
+          <FileAttachment channelId={m.channelId} {tok} sender={m.sender} />
         {/if}
       {/each}
       {#if m.edited && !bodyText && (atts.length || files.length)}

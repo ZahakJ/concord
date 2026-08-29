@@ -6,9 +6,16 @@
   // Esc / backdrop / ✕ close.
   import Icon from "./Icon.svelte";
   import { pushLayer } from "./lib/navstack.svelte.js";
-  import { loadAttachment, copyImageToClipboard, saveImageSrc } from "./lib/attachments.js";
+  import {
+    loadAttachment,
+    copyImageToClipboard,
+    saveImageSrc,
+    unavailableNote,
+    worthRetrying,
+    placeholderName,
+  } from "./lib/attachments.js";
   import { knownRecipe } from "./lib/memerecipe.js";
-  import { openContextMenu, flash, S } from "./lib/state.svelte.js";
+  import { openContextMenu, flash, S, memberByFpr, nameFor } from "./lib/state.svelte.js";
   import { longpress, haptic } from "./lib/touch.js";
 
   // `messageId`/`own` exist only for "Edit meme": editing a picture in place
@@ -17,7 +24,12 @@
   // standalone attachment: it fills the cell its parent sized instead of
   // sizing itself, and the cell is what keeps four photos looking like four
   // photos rather than a ragged stack of four different shapes.
-  let { channelId, tok, messageId = "", own = false, tile = false } = $props();
+  // `sender` is the account fingerprint of whoever posted the picture. It is
+  // only ever used when the picture will NOT load: an attachment lives on the
+  // peers that hold its bytes, so "we can't get it" almost always means "the
+  // person who sent it is offline", and naming them is the difference between
+  // a broken frame and a wait with an end to it.
+  let { channelId, tok, messageId = "", own = false, tile = false, sender = "" } = $props();
 
   // Right-click on the image (thumbnail or lightbox): copy to the system
   // clipboard as a real image (paste it anywhere — in Concord or outside),
@@ -141,6 +153,38 @@
     const id = tok.blobId;
     if (id === loadedBlob) return;
     loadedBlob = id;
+    fetchNow();
+  });
+
+  // Who to blame, and whether waiting will fix it. The roster only covers the
+  // guild currently open, so `online` is deliberately null rather than false
+  // when there is no row — "I don't know where they are" and "they are away"
+  // are different sentences.
+  const senderRow = $derived(sender ? memberByFpr(sender) : undefined);
+  const who = $derived({
+    name: senderRow ? nameFor(sender) : "",
+    self: !!sender && sender === S.identity?.fingerprint,
+  });
+  const note = $derived(unavailableNote(errMsg, who));
+
+  // Auto-retry when the roster changes. Nothing about this message changes when
+  // the sender comes back — the token was always fine — so without this the
+  // frame stays dead until the reader thinks to reload the whole app, which is
+  // a strange thing to expect of someone who was only told "nobody has it".
+  // S.members is refreshed off presence events, so its reassignment is the
+  // in-app signal that the network moved; worthRetrying decides which of those
+  // are worth spending a fetch on.
+  let seenOnline = null;
+  let lastTry = 0;
+  $effect(() => {
+    const now = new Set(
+      (S.members || []).filter((m) => m.online).map((m) => m.fingerprint),
+    );
+    const prev = seenOnline;
+    seenOnline = now;
+    if (state !== "error") return;
+    if (!worthRetrying(prev, now, Date.now() - lastTry)) return;
+    lastTry = Date.now();
     fetchNow();
   });
 
@@ -404,14 +448,27 @@
   <div
     class="frame placeholder"
     class:tile
-    style={tile ? "" : `width:${dims.w}px;aspect-ratio:${dims.w} / ${dims.h}`}
+    class:gone={state === "error"}
+    style={tile
+      ? ""
+      : state === "error"
+        ? `width:${dims.w}px;min-height:${Math.max(dims.h, 150)}px`
+        : `width:${dims.w}px;aspect-ratio:${dims.w} / ${dims.h}`}
   >
     {#if state === "loading"}
       <span class="spin"></span>
       <span class="muted small">fetching image…</span>
     {:else}
       <Icon name="close" size={18} />
-      <span class="muted small">{errMsg.includes("not found") ? "no one online has this image yet" : "couldn't load image"}</span>
+      <!-- Name the picture the reader is missing. A v2 token carries the
+           sender's file name and every token carries the dimensions, so even
+           with none of the bytes in hand there is something concrete to say
+           about what is not showing.
+
+           A spoiler gets the anonymous label instead — see placeholderName. -->
+      {#if placeholderName(tok)}<span class="ph-name">{placeholderName(tok)}</span>{/if}
+      {#if tok.w && tok.h}<span class="muted small">{tok.w} × {tok.h}</span>{/if}
+      <span class="muted small note">{note}</span>
       <button class="ghost retry" onclick={fetchNow}>Retry</button>
     {/if}
   </div>
@@ -516,6 +573,26 @@
   }
   .small {
     font-size: var(--fs-compact);
+  }
+  /* The error box says four short things, so it needs room and its own gutter;
+     the loading box is one spinner and keeps the tight layout it had. */
+  .placeholder.gone {
+    gap: var(--sp-1);
+    padding: var(--sp-3) var(--sp-2);
+    text-align: center;
+  }
+  .ph-name {
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    color: var(--text-muted);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .note {
+    max-width: 30ch;
+    line-height: 1.4;
   }
   .retry {
     padding: 3px 12px;

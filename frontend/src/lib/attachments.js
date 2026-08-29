@@ -124,6 +124,77 @@ export function loadAttachment(channelId, tok) {
   return p;
 }
 
+// ---- "why isn't this here?" ------------------------------------------------
+
+// fmtBytes renders a byte count the way an attachment card labels one.
+export function fmtBytes(n) {
+  if (!(n > 0)) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// unavailableNote turns a failed blob fetch into the sentence a reader can act
+// on. A blob lives only on the peers that have held it, so "not found" is not
+// a broken link — it is "nobody holding these bytes can be reached right now",
+// which is a wait, not a loss. `who` is {name, self}: name the sender when we
+// know them, because "wait for Amina" is a far better instruction than "wait".
+//
+// It deliberately does NOT consult the member roster's online flag. A peer that
+// dies without closing its connections keeps its row marked online for the best
+// part of a minute, so "they're online, try again" was routinely printed about
+// somebody whose process had already exited. What we DO know for certain is the
+// thing the fetch just proved: everyone reachable was asked, and nobody had it.
+export function unavailableNote(err, who = {}) {
+  const msg = String(err?.message || err || "");
+  if (!/not found/.test(msg)) return "Couldn't load this one";
+  const { name = "", self = false } = who;
+  if (self) return "this device doesn't have the file any more, and nobody else reachable does";
+  if (name) return `${name} isn't reachable right now — it'll load when they're back`;
+  return "nobody who has it is reachable right now — it'll load when they're back";
+}
+
+// placeholderName: what to call an attachment that will not load.
+//
+// A spoiler is deliberately anonymous. Marking one is a promise that the
+// surprise survives until the reader asks for it, and a file called
+// THE-KILLER-IS-THE-BUTLER.png printed across a placeholder breaks that promise
+// more completely than showing the picture would have — the cover is exactly
+// the state in which the reader is still looking.
+export function placeholderName(tok) {
+  if (tok?.spoiler) return "Spoiler";
+  return tok?.name || "";
+}
+
+// arrived reports whether `now` contains a fingerprint `prev` did not — i.e.
+// whether somebody JOINED rather than left.
+export function arrived(prev, now) {
+  if (!prev) return false;
+  for (const fp of now) if (!prev.has(fp)) return true;
+  return false;
+}
+
+// How long a failed attachment waits before another roster refresh is allowed
+// to make it try again. One doomed fetch costs a round of peer requests, so a
+// channel full of broken pictures must not be able to turn a flapping guild
+// into a fetch storm.
+export const RETRY_COOLDOWN_MS = 20000;
+
+// worthRetrying: should this roster refresh make a failed attachment try again?
+//
+// Watching for an arrival alone is not enough, and the reason is worth writing
+// down: a peer that is killed rather than closed keeps its connections — and so
+// its "online" row — for up to a minute. A peer that dies and comes back inside
+// that window is therefore never observed to have left, its fingerprint never
+// leaves the set, and an arrival never happens. So an arrival retries at once,
+// and any other refresh retries once the cooldown has passed. `prev` is null on
+// the very first observation, when nothing has changed yet.
+export function worthRetrying(prev, now, sinceLastTry) {
+  if (prev === null || prev === undefined) return false;
+  if (arrived(prev, now)) return true;
+  return sinceLastTry >= RETRY_COOLDOWN_MS;
+}
+
 // ---- image clipboard/save helpers (right-click menu on images) ------------
 
 // copyImageToClipboard puts an image (any src the webview can draw) on the
