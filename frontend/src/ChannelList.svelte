@@ -55,6 +55,7 @@
   import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { longpress, haptic } from "./lib/touch.js";
   import { draftIn } from "./lib/drafts.svelte.js";
+  import { focusOnMount } from "./lib/focus.js";
   import { callClock } from "./lib/calltimer.svelte.js";
 
   const clock = $derived(callClock());
@@ -866,10 +867,9 @@
             ondrop={(e) => headDrop(e, grp)}
           >
             {#if renamingCat === grp.id}
-              <!-- svelte-ignore a11y_autofocus -->
               <input
                 class="cat-edit"
-                autofocus
+                use:focusOnMount
                 value={grp.name}
                 maxlength="40"
                 aria-label="Rename category {grp.name}"

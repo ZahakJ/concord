@@ -24,6 +24,7 @@
     channelShort,
     flash,
     retryMic,
+    keySurface,
   } from "./lib/state.svelte.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { setSelfViewCovered } from "./lib/selfview.svelte.js";
@@ -71,6 +72,12 @@
     clearTimeout(coolTimer);
     coolTimer = setTimeout(() => (sfxCooling = ""), SFX_COOLDOWN_MS);
   }
+  // aria-disabled, not `disabled`. Both refusals are real — pressSfx and
+  // pressMine already gate on the clock, so the attribute was never what
+  // enforced the cooldown — but `disabled` on the element that HAS focus makes
+  // the browser drop focus to <body>. Every press therefore threw the keyboard
+  // user out of the board they had just used, after one sound, silently. The
+  // dimming and the refusal stay; the focus does too.
   const cooling = $derived(!!sfxCooling);
   function pressSfx(id) {
     if (Date.now() - sfxLastPress < SFX_COOLDOWN_MS) return;
@@ -1124,7 +1131,14 @@
   {/if}
 
   {#if sfxOpen}
-    <div class="sfx-board" role="group" aria-label="Soundboard" bind:this={boardEl}>
+    <!-- keySurface: while the board is open it OWNS the digits. Without that
+         the composer's type-to-focus handler ran after this one — preventDefault
+         does not stop propagation — took the caret on the very first press, and
+         from the second digit on the board's own guard ("not while a text box
+         has focus") bailed correctly on a text box nobody had clicked into. One
+         airhorn, then "234" in your message, with the board still on screen
+         still saying "press 1–6". -->
+    <div class="sfx-board" role="group" aria-label="Soundboard" bind:this={boardEl} use:keySurface>
       <div class="sfx-cap">
         Concord
         <span class="sfx-hint">press 1–{SOUNDBOARD.length}</span>
@@ -1134,7 +1148,7 @@
           <button
             class="sfx"
             class:cool={sfxCooling === `b:${s.id}`}
-            disabled={cooling}
+            aria-disabled={cooling}
             aria-label={s.name}
             aria-keyshortcuts={String(i + 1)}
             onclick={() => pressSfx(s.id)}
@@ -1151,7 +1165,7 @@
           <button
             class="sfx mine"
             class:cool={sfxCooling === `m:${s.payload}`}
-            disabled={cooling}
+            aria-disabled={cooling}
             aria-label={s.recipe.name}
             onclick={() => pressMine(s)}
           >
@@ -2215,7 +2229,7 @@
     border-radius: 4px;
   }
   @media (pointer: fine) {
-    .sfx:not(:disabled):hover {
+    .sfx:not([aria-disabled="true"]):hover {
       background: color-mix(in srgb, var(--accent) 14%, transparent);
       border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
     }
@@ -2233,8 +2247,9 @@
   /* The rate limit, drawn. A press inside the window is refused, and it used to
      be refused in complete silence — indistinguishable from a button that does
      not work. Now the one you pressed sweeps its own second back. */
-  .sfx:disabled {
+  .sfx[aria-disabled="true"] {
     opacity: 0.45;
+    cursor: default;
   }
   .sfx.cool {
     opacity: 1;

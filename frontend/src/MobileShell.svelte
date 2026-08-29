@@ -24,6 +24,7 @@
   import { guildAccent } from "./lib/guildaccent.js";
   import { api } from "./lib/api.js";
   import { haptic } from "./lib/touch.js";
+  import { focusOnMount } from "./lib/focus.js";
   import { runSearch, closeSearch, queueSearch, registerSearchInput } from "./lib/search.js";
   import { PERM, has } from "./lib/perms.js";
   import GuildRail from "./GuildRail.svelte";
@@ -552,7 +553,6 @@
       onsubmit={(e) => runSearch(e)}
     >
       <Icon name="search" size={14} />
-      <!-- svelte-ignore a11y_autofocus -->
       <!-- type/enterkeyhint/autocapitalize: without them Android opens a
            capitalised keyboard with predictive text and an unlabelled return
            key, so searching for a handle or a code fragment autocorrects into
@@ -568,7 +568,7 @@
         bind:this={searchEl}
         bind:value={S.searchQuery}
         oninput={() => queueSearch()}
-        autofocus
+        use:focusOnMount
       />
       <button
         type="button"

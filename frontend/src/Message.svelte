@@ -73,8 +73,10 @@
     clockOpts,
     isMentionOfSelf,
     alertWordIn,
+    keySurface,
   } from "./lib/state.svelte.js";
   import { clampToBytes, TITLE_MAX_BYTES } from "./lib/postdraft.js";
+  import { focusOnMount } from "./lib/focus.js";
   import { api } from "./lib/api.js";
   import { tooltip } from "./lib/tooltip.js";
   import { rectOf, viewport } from "./lib/place.js";
@@ -1530,16 +1532,20 @@
       <!-- The whole ceremony a thread needs is one line: a title. A modal would
            also hide the message the thread is about — which is exactly what the
            title is written from. -->
-      <div class="thread-prompt">
+      <div class="thread-prompt" use:keySurface>
         <span class="tp-icon"><Icon name="forum" size={14} /></span>
-        <!-- svelte-ignore a11y_autofocus -->
+        <!-- The caret goes here, and it took a real focus action to make that
+             true. `autofocus` is dead on an element inserted after parse, and
+             the context menu's focus RESTORE lands on the message row a beat
+             after this prompt mounts — so the title you typed went into the
+             message draft and Enter posted it to the channel. Publicly. -->
         <input
           class="tp-input"
           placeholder="Thread title"
           aria-label="Thread title"
           value={threadTitle}
           oninput={onThreadTitle}
-          autofocus={!S.isMobile}
+          use:focusOnMount={{ skip: S.isMobile }}
           onkeydown={(e) => {
             if (e.key === "Enter") createThreadFromMessage();
             else if (e.key === "Escape") threadPrompt = false;

@@ -50,7 +50,22 @@
     prevFocus = document.activeElement;
     box.querySelector(".cm-item:not(:disabled), .as-item:not(:disabled)")?.focus();
     return () => {
-      if (prevFocus?.isConnected) prevFocus.focus();
+      // Restore — but only if nobody else has claimed the caret in the meantime.
+      //
+      // A menu item's action frequently OPENS something: run() closes the menu
+      // and then calls onClick, so a surface raised that way mounts inside the
+      // same flush as this teardown. Restoring unconditionally put focus back
+      // on the row the menu came from, on top of the thing the user had just
+      // asked for — which is how the thread-title prompt ended up with the
+      // caret in the message composer and the title posted to the channel.
+      //
+      // The test is "is focus still where we left it": nothing has moved on
+      // (the menu is gone, so activeElement falls back to <body>), or it is
+      // still inside the menu box we are tearing down. Anything else is a
+      // deliberate claim and outranks a restore.
+      const now = document.activeElement;
+      const stale = !now || now === document.body || box.contains(now);
+      if (stale && prevFocus?.isConnected) prevFocus.focus({ preventScroll: true });
       prevFocus = null;
     };
   });

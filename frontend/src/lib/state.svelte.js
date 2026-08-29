@@ -375,6 +375,10 @@ export const S = $state({
   // contextMenu: right-click menu {x, y, items} or null.
   contextMenu: null,
 
+  // keySurfaces: how many open surfaces have claimed the printable keys.
+  // See keySurface() below — this is the number typeToFocus consults.
+  keySurfaces: 0,
+
   // pendingLinkCode: a device-link code that arrived via a concord:// deep
   // link (OS camera scanned the QR). The Login screen consumes it.
   pendingLinkCode: "",
@@ -836,6 +840,42 @@ function tidySeps(items) {
 export function closeContextMenu() {
   clearMenuRow();
   S.contextMenu = null;
+}
+
+// ---- surfaces that have claimed the keyboard ----
+//
+// `typeToFocus` is the rule that typing anywhere puts the caret in the message
+// box. It is the right default and it has exactly one blind spot: a surface
+// that is open on screen, is telling you to press a key, and is not an input.
+//
+// The soundboard is the proof. Its caption reads "press 1–6"; its chips are
+// <button>s. Two window keydown handlers race — the board's plays the sound and
+// calls preventDefault(), which does not stop propagation, so typeToFocus runs
+// next, sees a <button> (not an INPUT/TEXTAREA), and focuses the composer. From
+// the second digit on the target IS the textarea, the board's own handler bails
+// by design, and you get one airhorn followed by "234" sitting in your message
+// while the board is still on screen still saying "press 1–6".
+//
+// The fix is not another `if` in typeToFocus for the soundboard. It is the same
+// shape as S.contextMenu: a surface declares that it owns the keys while it is
+// open, and typeToFocus asks. A counter rather than a flag because these nest —
+// a picker opened from inside a panel — and because a boolean would be turned
+// off by whichever one closed first.
+//
+// Used as a Svelte action, so the lifetime is the element's and there is no
+// balanced-call bookkeeping to get wrong:  <div use:keySurface> … </div>
+export function keySurface(node, active = true) {
+  let on = false;
+  const set = (want) => {
+    if (want === on) return;
+    on = want;
+    S.keySurfaces = Math.max(0, S.keySurfaces + (want ? 1 : -1));
+  };
+  set(!!active);
+  return {
+    update: (next) => set(!!next),
+    destroy: () => set(false),
+  };
 }
 
 // Dismissible layers — modals, sheets, popovers, menus, panels — all live on

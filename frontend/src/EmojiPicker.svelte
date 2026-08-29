@@ -4,7 +4,8 @@
     pushRecentEmoji, SKIN_TONES, applyTone, emojiTone, setEmojiTone, emojiName,
   } from "./lib/emoji.js";
   import { emojiTable } from "./lib/emojifull.svelte.js";
-  import { S, activeGuild } from "./lib/state.svelte.js";
+  import { S, activeGuild, keySurface } from "./lib/state.svelte.js";
+  import { focusOnMount } from "./lib/focus.js";
   import { pushLayer } from "./lib/navstack.svelte.js";
 
   // Searchable, tabbed emoji grid. onPick(emoji) fires on selection. Closes on
@@ -173,7 +174,10 @@
 
 <svelte:window onpointerdown={onOutside} />
 
-<div class="picker" role="dialog" bind:clientHeight={panelH}>
+<!-- keySurface: the picker owns the printable keys while it is open, so a
+     keystroke that lands before the field has focus (or after a click on the
+     grid moved it to a button) cannot be pulled into the message draft. -->
+<div class="picker" role="dialog" bind:clientHeight={panelH} use:keySurface>
   {#if S.isMobile}
     <!-- Scrim lives INSIDE .picker (z-index:-1 within its stacking context):
          taps on it close the picker without also landing on the chat below,
@@ -182,16 +186,21 @@
     <button class="ep-scrim" aria-label="Close emoji picker" onclick={onClose}></button>
   {/if}
   <div class="row">
-    <!-- svelte-ignore a11y_autofocus -->
-    <!-- No autofocus on touch: it would pop the keyboard over the grid the
-         moment the picker opens. -->
+    <!-- Not on touch: focusing would pop the keyboard over the grid the moment
+         the picker opens. Everywhere else the caret belongs here — the search
+         field is what the picker is FOR, and while `autofocus` sat here doing
+         nothing (it is a parse-time attribute on an element inserted long
+         after parse) typing "cat" to filter typed "cat" into the message
+         underneath, with the picker still open on top of it. The GIF picker
+         beside it has always focused its own field, so the two behaved
+         oppositely on the same gesture. -->
     <input
       placeholder="Search emoji…"
       aria-label="Search emoji"
       bind:this={inputEl}
       bind:value={query}
       onkeydown={onInputKey}
-      autofocus={!S.isMobile}
+      use:focusOnMount={{ skip: S.isMobile }}
     />
     <div class="tones">
       <button

@@ -10,6 +10,7 @@
   // between the field and the submit button.
   import Icon from "./Icon.svelte";
   import { strength } from "./lib/passphrase.js";
+  import { focusOnMount } from "./lib/focus.js";
 
   let {
     value = $bindable(""),
@@ -51,6 +52,10 @@
 </script>
 
 <div class="wrap">
+  <!-- The attribute AND the action. `autofocus` is dead as a browser feature
+       here (it is honoured at parse time only) but Modal.svelte reads it as the
+       marker for "this is the field the dialog opens on", so it stays; the
+       action is what actually moves the caret. -->
   <!-- svelte-ignore a11y_autofocus -->
   <input
     bind:this={input}
@@ -58,6 +63,7 @@
     {placeholder}
     aria-label={placeholder}
     {autofocus}
+    use:focusOnMount={{ skip: !autofocus }}
     {autocomplete}
     {onkeydown}
     aria-invalid={invalid ? "true" : undefined}

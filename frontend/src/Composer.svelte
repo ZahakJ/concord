@@ -1335,8 +1335,15 @@
   // box naturally (focus moves during keydown, before the char is inserted).
   // Skips modifier chords, modals/menus, and anything already editable, so
   // shortcuts and other inputs keep working untouched.
+  //
+  // S.keySurfaces is the guard that was missing. The target-tag test only ever
+  // caught surfaces built out of inputs; a soundboard whose caption says "press
+  // 1–6" is a grid of buttons, so typing at it stole the caret and the second
+  // digit onwards went into the message. Any surface that has claimed the
+  // printable keys says so (see keySurface in state.svelte.js) and this stands
+  // down for as long as it is open — one rule, not one exception per surface.
   function typeToFocus(e) {
-    if (!ch || S.modal || S.contextMenu || S.editing) return;
+    if (!ch || S.modal || S.contextMenu || S.editing || S.keySurfaces) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.key.length !== 1) return; // printable characters only
     const t = e.target;

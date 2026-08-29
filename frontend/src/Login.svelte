@@ -3,6 +3,7 @@
   import { api } from "./lib/api.js";
   import { S, flash, humanError, setPref } from "./lib/state.svelte.js";
   import { linkCodeFrom } from "./lib/deeplink.js";
+  import { focusOnMount } from "./lib/focus.js";
   import { confettiBurst } from "./lib/burst.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
   import Icon from "./Icon.svelte";
@@ -386,7 +387,6 @@
       <div class="verify">
         <label class="vfield">
           <span class="vnum">Word {asks[0] + 1}</span>
-          <!-- svelte-ignore a11y_autofocus -->
           <input
             bind:value={answerA}
             aria-label="Word {asks[0] + 1} of your recovery phrase"
@@ -394,7 +394,7 @@
             autocorrect="off"
             spellcheck="false"
             autocomplete="off"
-            autofocus={!S.isMobile}
+            use:focusOnMount={{ skip: S.isMobile }}
             onkeydown={(e) => e.key === "Enter" && submitVerify(e)}
           />
         </label>
@@ -609,7 +609,7 @@
         maxlength="32"
         autocomplete="off"
         bind:value={displayName}
-        autofocus={!S.isMobile}
+        use:focusOnMount={{ skip: S.isMobile }}
       />
       <PassphraseField placeholder="Choose a passphrase" autocomplete="new-password" meter bind:value={passphrase} invalid={!!error} />
       <PassphraseField placeholder="Confirm passphrase" autocomplete="new-password" bind:value={confirmPass} invalid={!!error} />
