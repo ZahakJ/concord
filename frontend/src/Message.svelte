@@ -99,6 +99,10 @@
 
   // Moderators (Manage Messages) can delete anyone's message.
   const canDeleteOthers = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
+  // ...and the same bit pins, because the pinned strip is one shared list every
+  // member of the guild reads. A DM or a meeting has no roles in it, so both
+  // sides of one may pin there; the backend draws the line the same way.
+  const canPin = $derived(!!activeGuild()?.kind || canDeleteOthers);
 
   // Touch device? Drives which gesture owns the context menu (see the .msg div).
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
@@ -963,7 +967,7 @@
         icon: "copy",
         onClick: () => copy(`concord://msg/${m.channelId}/${m.id}`, "Copied message link"),
       },
-      {
+      canPin && {
         label: m.pinned ? "Unpin" : "Pin",
         icon: "pin",
         onClick: () => {
@@ -1583,14 +1587,16 @@
         <button use:tooltip aria-label="Forward" onclick={() => (S.modal = { kind: "forward", message: m })}>
           <Icon name="forward" size={15} />
         </button>
-        <button
-          class:on={m.pinned}
-          use:tooltip
-          aria-label={m.pinned ? "Unpin" : "Pin"}
-          onclick={() => api.pinMessage(m.channelId, m.id)}
-        >
-          <Icon name="pin" size={15} />
-        </button>
+        {#if canPin}
+          <button
+            class:on={m.pinned}
+            use:tooltip
+            aria-label={m.pinned ? "Unpin" : "Pin"}
+            onclick={() => api.pinMessage(m.channelId, m.id)}
+          >
+            <Icon name="pin" size={15} />
+          </button>
+        {/if}
       </div>
       {#if m.sender === S.identity.fingerprint}
         <span class="sep"></span>

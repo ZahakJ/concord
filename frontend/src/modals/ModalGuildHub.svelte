@@ -240,16 +240,26 @@
               <span class="chev">›</span>
             </button>
           {/if}
-          {#if g.canManage}
+          <!-- NOT gated, on the same reasoning as the moderation log above it.
+               A retention policy deletes the reader's own copy of their own
+               conversation off their own device on a timer nobody watches, so
+               "what you can't do, you don't see" is the wrong rule here: the
+               people it acts on are exactly the people who need to be told it
+               exists. The panel already disables every option and says who may
+               change it, so a member opens a truthful read-only screen — that
+               branch was written and, until now, unreachable. -->
           <button class="row" onclick={() => openPanel("retention")}>
             <span class="chip"><Icon name="clock" size={17} /></span>
             <span class="row-text">
               <span class="row-title">Message history</span>
-              <span class="row-sub">How long members keep messages before their copy prunes itself</span>
+              <span class="row-sub">
+                {g.canManage
+                  ? "How long members keep messages before their copy prunes itself"
+                  : "How long this guild keeps messages before your copy prunes itself"}
+              </span>
             </span>
             <span class="chev">›</span>
           </button>
-          {/if}
         </div>
       </section>
 

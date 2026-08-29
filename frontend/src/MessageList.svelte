@@ -132,6 +132,11 @@
   // Unpinning is irreversible and changes the channel for everyone, and on a
   // phone it sits under the thumb that was aiming for "jump" — the vibration is
   // the only signal that the wrong one landed.
+  // The pinned strip is one list the whole guild reads, so unpinning is the
+  // moderator half of Manage messages — the same gate Message.svelte puts on
+  // the pin itself. A DM or meeting has no roles in it and stays open.
+  const canPin = $derived(!!activeGuild()?.kind || has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
+
   function unpin(m) {
     haptic("medium");
     api.pinMessage(m.channelId, m.id);
@@ -1214,15 +1219,26 @@
           <span class="pin-text">{plainSnippet(m.content, 160) || "(empty message)"}</span>
         </span>
       </button>
-      <button class="mini unpin" title="Unpin" aria-label="Unpin message" onclick={() => unpin(m)}>
-        <Icon name="close" size={11} />
-      </button>
+      {#if canPin}
+        <button class="mini unpin" title="Unpin" aria-label="Unpin message" onclick={() => unpin(m)}>
+          <Icon name="close" size={11} />
+        </button>
+      {/if}
     </div>
   {:else}
     <div class="pins-empty">
       <span class="pins-empty-badge"><Icon name="pin" size={18} /></span>
       <strong>No pinned messages yet</strong>
-      <span class="muted small">{S.isMobile ? "Long-press a message and hit Pin" : "Hover a message and hit the pin"} — it'll show up here for everyone.</span>
+      <!-- Telling a member to hover and hit a pin they are not offered is worse
+           than saying nothing: they hunt for a control that isn't there. -->
+      <span class="muted small">
+        {#if canPin}
+          {S.isMobile ? "Long-press a message and hit Pin" : "Hover a message and hit the pin"} — it'll
+          show up here for everyone.
+        {:else}
+          Anyone here who can manage messages can pin one, and it shows up here for everyone.
+        {/if}
+      </span>
     </div>
   {/each}
 {/snippet}

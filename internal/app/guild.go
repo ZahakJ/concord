@@ -1284,7 +1284,7 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 		s.applyEdit(msg.ReplyTo, msg.Content, msg.Sender, msg.RowSig)
 		return msg, nil
 	case "pin":
-		s.applyPin(msg.ReplyTo)
+		s.applyPin(msg.ReplyTo, msg.Sender, channelID)
 		return msg, nil
 	}
 	if _, err := s.store.SaveMessage(msg); err != nil {
@@ -1358,15 +1358,57 @@ func (s *Service) applyEdit(targetID, newContent string, bySender []byte, rowSig
 	}
 }
 
+// mayPin reports whether fpr may toggle a pin in the guild a channel belongs to.
+// A guild's pinned strip is shared state that every member sees, so pinning
+// rides ManageMessages exactly as deleting anyone else's message does — the bit
+// has always been documented as "delete anyone's messages and pin", and this is
+// what makes the second half of that sentence true.
+//
+// A DM, a group and a meeting have no roles for anyone to hold, so everyone in
+// one may pin there. An unresolvable channel also passes: a pin we cannot
+// attribute to a guild is not a pin we can judge, and silently dropping it
+// would lose a legitimate one rather than stop an illegitimate one.
+func (s *Service) mayPin(guildID, fpr string) bool {
+	if guildID == "" || fpr == "" {
+		return true
+	}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	s.mu.RUnlock()
+	if !ok {
+		return true
+	}
+	switch g.Kind {
+	case "dm", "group", "meeting":
+		return true
+	}
+	return s.memberHasPerm(guildID, fpr, PermManageMessages)
+}
+
 // PinMessage toggles a message's pinned state for everyone in the guild.
 func (s *Service) PinMessage(channelID, targetID string) error {
+	s.mu.RLock()
+	guildID := s.channelToGuild[channelID]
+	s.mu.RUnlock()
+	if !s.mayPin(guildID, s.id.Fingerprint()) {
+		return fmt.Errorf("app: you need the Manage messages permission to pin")
+	}
 	_, err := s.send(channelID, "pin", "pin", targetID)
 	return err
 }
 
 // applyPin toggles the pin locally and re-emits the message so UIs refresh.
-func (s *Service) applyPin(targetID string) {
+// The pin's author is the MLS-authenticated sender of the frame, so the
+// permission is re-checked HERE on every receiving device: a patched client
+// that skips its own check convinces nobody, the same way applyDelete works.
+func (s *Service) applyPin(targetID string, bySender []byte, channelID string) {
 	if targetID == "" {
+		return
+	}
+	s.mu.RLock()
+	guildID := s.channelToGuild[channelID]
+	s.mu.RUnlock()
+	if !s.mayPin(guildID, accountFingerprintOf(bySender)) {
 		return
 	}
 	if _, err := s.store.TogglePinned(targetID); err != nil {
@@ -3180,7 +3222,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 		s.applyEdit(m.ReplyTo, m.Content, m.Sender, m.RowSig)
 		return true
 	case "pin":
-		s.applyPin(m.ReplyTo)
+		s.applyPin(m.ReplyTo, m.Sender, m.ChannelID)
 		return true
 	}
 	s.mu.RLock()

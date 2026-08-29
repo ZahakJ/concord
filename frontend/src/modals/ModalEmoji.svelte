@@ -5,10 +5,18 @@
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { isAnimated } from "../lib/animated.js";
+  import { PERM, has } from "../lib/perms.js";
 
   let { onClose } = $props();
 
   const g = $derived(activeGuild());
+  // Adding and removing emoji is Manage guild, and the backend has always said
+  // so. The panel used to offer both to everyone: a plain member could pick an
+  // image, name it, press Add — or walk a confirm dialog warning that removal
+  // "breaks every :name: already typed" — and collect a raw permission error at
+  // the end. The list itself stays visible to everyone, because knowing which
+  // emoji this guild has is the point of typing :name:.
+  const canManage = $derived(!!g && (g.isOwner || has(g.myPerms || 0, PERM.MANAGE_GUILD)));
   let name = $state("");
   let pending = $state(null); // { dataURI } after picking an image
   let fileInput;
@@ -106,12 +114,19 @@
 </script>
 
 <Modal title="Guild emoji — {g?.name ?? ''}" {onClose}>
-  <p class="muted lead">
-    Upload emoji anyone in this guild can use by typing <code>:name:</code>. Keep them small and
-    square. Animated GIF and WebP keep moving — they're passed through as-is, so they have to
-    arrive under 256&nbsp;KB rather than being shrunk for you.
-  </p>
+  {#if canManage}
+    <p class="muted lead">
+      Upload emoji anyone in this guild can use by typing <code>:name:</code>. Keep them small and
+      square. Animated GIF and WebP keep moving — they're passed through as-is, so they have to
+      arrive under 256&nbsp;KB rather than being shrunk for you.
+    </p>
+  {:else}
+    <p class="muted lead">
+      Every emoji this guild has. Type <code>:name:</code> in any message to use one.
+    </p>
+  {/if}
 
+  {#if canManage}
   <div class="add-row">
     <input
       type="file"
@@ -138,20 +153,29 @@
     <span class="colon">:</span>
     <button onclick={add} disabled={busy || !pending || !name.trim()}>Add</button>
   </div>
+  {/if}
 
   <div class="list">
     {#each g?.emoji ?? [] as e (e.name)}
       <div class="item" title=":{e.name}:">
         <img src={e.image} alt=":{e.name}:" />
         <span class="ename">:{e.name}:</span>
-        <button class="rm" aria-label="Remove :{e.name}:" onclick={() => (confirmRm = e.name)}>
-          <Icon name="trash" size={13} />
-        </button>
+        {#if canManage}
+          <button class="rm" aria-label="Remove :{e.name}:" onclick={() => (confirmRm = e.name)}>
+            <Icon name="trash" size={13} />
+          </button>
+        {/if}
       </div>
     {:else}
-      <p class="muted empty">No custom emoji yet — add your first above.</p>
+      <p class="muted empty">
+        {canManage ? "No custom emoji yet — add your first above." : "This guild has no custom emoji yet."}
+      </p>
     {/each}
   </div>
+
+  {#if !canManage}
+    <p class="muted tiny">Only someone who can manage this guild may add or remove emoji.</p>
+  {/if}
 
   <div class="actions">
     <button class="ghost" onclick={onClose}>Done</button>
@@ -292,5 +316,9 @@
   .empty {
     font-size: var(--fs-ui);
     padding: var(--sp-2);
+  }
+  .tiny {
+    font-size: var(--fs-tiny);
+    margin: 12px 0 0;
   }
 </style>
