@@ -6,7 +6,7 @@
 // and 620x540 on a 1440x900 desktop, 358x608 and 358x653 on a 390x844 phone —
 // so these are the real cases, at the participant counts a two-laptop rig
 // cannot staff.
-import { bestFit, columnsFor, fitTiles, TILE_AR } from "./tilefit.js";
+import { bestFit, columnsFor, fitTiles, TILE_AR, TILE_AR_MIN } from "./tilefit.js";
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -117,6 +117,43 @@ for (const [where, w, h] of BOXES) {
       );
     }
   }
+}
+
+// ---- two people, and the half-black stage --------------------------------
+//
+// Locking the aspect is what made the pair of 16:10 tiles cover 49% of a 16:10
+// stage. For exactly two the shape is a range (TILE_AR down to TILE_AR_MIN),
+// and the numbers below are the measured stage.
+{
+  const stage = { w: 864, h: 540 };
+  const locked = fitTiles({ ...stage, n: 2, cols: 2, gap: GAP });
+  const relaxed = bestFit({ ...stage, n: 2, gap: GAP });
+  const fill = (f, n) => (n * f.tileW * f.tileH) / (stage.w * stage.h);
+  assert(fill(locked, 2) < 0.5, `the lock covers half the stage (${(fill(locked, 2) * 100).toFixed(0)}%)`);
+  assert(
+    fill(relaxed, 2) > 0.7,
+    `two people fill the stage (${(fill(relaxed, 2) * 100).toFixed(0)}% from ${relaxed.tileW}x${relaxed.tileH})`,
+  );
+  const ar = relaxed.tileW / relaxed.tileH;
+  assert(ar >= TILE_AR_MIN - 0.01 && ar <= TILE_AR + 0.01, `two people stay inside the range (${ar.toFixed(2)})`);
+  // The tiles still fit the box they were solved for.
+  assert(relaxed.rowW <= stage.w + 1, `a row of two fits (${relaxed.rowW} in ${stage.w})`);
+  assert(relaxed.tileH * relaxed.rows + GAP * (relaxed.rows - 1) <= stage.h + 1, "two rows fit");
+}
+{
+  // Everyone else keeps the lock, so a relaxed pair cannot leak into a grid.
+  for (const n of [1, 3, 4, 5, 9]) {
+    const f = bestFit({ w: 864, h: 540, n, gap: GAP });
+    const ar = f.tileW / f.tileH;
+    assert(Math.abs(ar - TILE_AR) < 0.02, `${n} people keep 16:10 (${ar.toFixed(2)})`);
+  }
+}
+{
+  // A box too short for a square pair still gives landscape tiles, not a
+  // silently-broken fit.
+  const f = bestFit({ w: 900, h: 220, n: 2, gap: GAP });
+  assert(f.tileW > f.tileH, `a short stage keeps two people landscape (${f.tileW}x${f.tileH})`);
+  assert(f.tileH * f.rows <= 220 + 1, "…and still fits");
 }
 
 // ---- degenerate boxes ---------------------------------------------------

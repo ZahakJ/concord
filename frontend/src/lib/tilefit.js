@@ -21,6 +21,24 @@ export const TILE_AR = 16 / 10;
 export const TILE_MAX_W = 620; // past this a tile gains distance, not detail
 export const TILE_MIN_W = 96;
 
+// The tallest a tile is allowed to become, and the one case it is allowed to.
+//
+// Locking the aspect fixed the elongated slab and sent the bill somewhere else:
+// two 16:10 tiles side by side in a 16:10 stage can never cover more than half
+// of it, and stacking them gives the same answer. Measured at 1440x900 — an
+// 864x540 stage, two 426x266 tiles, 49% used, ~180px of black above the pair
+// and ~180px below. A two-person call is the commonest call there is and it was
+// the emptiest screen in the app.
+//
+// So for exactly two people the shape is a RANGE rather than a lock: as wide as
+// 16:10, as tall as square, whichever fills the box. Three and up are unchanged
+// — with three or more the grid is what decides the shape and a square tile
+// starts cropping cameras for no gain. One is unchanged too: a lone tile is
+// held at TILE_MAX_W on purpose (a tile, not a wall), and its margin is that
+// cap rather than the aspect.
+export const TILE_AR_MIN = 1;
+export const relaxedAr = (n) => (n === 2 ? TILE_AR_MIN : null);
+
 // fitTiles: the stage's inner box and who is in it → the tile's size, and the
 // width one row of them needs.
 //
@@ -31,16 +49,30 @@ export const TILE_MIN_W = 96;
 // exactly the width `cols` tiles need; otherwise a tile shortened by the height
 // fit would let a fourth one onto a row sized for three and the height sum
 // this function just solved would be wrong.
-export function fitTiles({ w, h, n, cols, gap = 12, ar = TILE_AR, maxW = TILE_MAX_W, minW = TILE_MIN_W }) {
+export function fitTiles({ w, h, n, cols, gap = 12, ar = TILE_AR, arMin = null, maxW = TILE_MAX_W, minW = TILE_MIN_W }) {
   const count = Math.max(1, n | 0);
   const c = Math.max(1, Math.min(cols | 0 || 1, count));
   const rows = Math.ceil(count / c);
   const availW = w - gap * (c - 1);
   const availH = h - gap * (rows - 1);
   if (!(availW > 0) || !(availH > 0)) return null;
-  const tileW = Math.max(minW, Math.floor(Math.min(availW / c, (availH / rows) * ar, maxW)));
-  const tileH = Math.round(tileW / ar);
-  return { tileW, tileH, rowW: Math.round(tileW * c + gap * (c - 1)), cols: c, rows };
+  // `ar` is the widest shape allowed and `arMin` the tallest. With arMin unset
+  // they are the same number and this reduces exactly to the old lock: take the
+  // width you can have, take the height that shape wants, and if the box is too
+  // short to hold it, give the width back until it is.
+  const lo = arMin || ar;
+  let tileW = Math.min(availW / c, maxW);
+  let tileH = Math.min(availH / rows, tileW / lo);
+  if (tileH < tileW / ar) tileW = tileH * ar;
+  tileW = Math.max(minW, Math.floor(tileW));
+  tileH = Math.max(minW / ar, Math.min(tileH, tileW / lo));
+  return {
+    tileW,
+    tileH: Math.round(Math.max(tileH, tileW / ar)),
+    rowW: Math.round(tileW * c + gap * (c - 1)),
+    cols: c,
+    rows,
+  };
 }
 
 // columnsFor: the square-ish arrangement — the shape a meeting grid wants when
@@ -60,12 +92,13 @@ export const columnsFor = (n) => Math.min(4, Math.max(1, Math.ceil(Math.sqrt(Mat
 //
 // Ties go to the arrangement nearest the square one, so a box with room to
 // spare keeps the conventional look instead of stacking everybody in a column.
-export function bestFit({ w, h, n, gap = 12, maxCols = 4, ar = TILE_AR, maxW = TILE_MAX_W, minW = TILE_MIN_W }) {
+export function bestFit({ w, h, n, gap = 12, maxCols = 4, ar = TILE_AR, arMin, maxW = TILE_MAX_W, minW = TILE_MIN_W }) {
   const count = Math.max(1, n | 0);
   const want = columnsFor(count);
+  const lo = arMin === undefined ? relaxedAr(count) : arMin;
   let best = null;
   for (let c = 1; c <= Math.min(maxCols, count); c++) {
-    const f = fitTiles({ w, h, n: count, cols: c, gap, ar, maxW, minW });
+    const f = fitTiles({ w, h, n: count, cols: c, gap, ar, arMin: lo, maxW, minW });
     if (!f) continue;
     const better =
       !best ||

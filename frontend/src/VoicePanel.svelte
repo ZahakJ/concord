@@ -24,6 +24,8 @@
     setVideoStream,
     openContextMenu,
     channelShort,
+    callHealth,
+    callRoster,
     flash,
     retryMic,
     keySurface,
@@ -64,7 +66,14 @@
   let sfxLastPress = $state(0);
   let sfxCooling = $state("");
   let coolTimer = null;
-  const mySounds = $derived(shelfSounds().slice(0, 8));
+  // ALL of them. `.slice(0, 8)` rendered eight of a shelf that holds up to
+  // MAX_SHELF = 32, in a board that does not scroll, with no count and no
+  // "more" — and because the shelf reorders on keepSound, the eight you could
+  // reach were the eight you had kept most recently. The sound somebody just
+  // played at you was there and the running joke from last month was not, with
+  // nothing on screen to say so. The grid scrolls instead, and the heading
+  // carries the count.
+  const mySounds = $derived(shelfSounds());
 
   // True while the gate is shut. Read as $state so the buttons can go dim for
   // exactly as long as a press would be refused.
@@ -176,6 +185,7 @@
       emoji: mem?.emoji || "",
       color: mem?.color || "",
       image: mem?.avatar || "",
+      ...worn(mem),
     };
   }
 
@@ -213,13 +223,34 @@
   // Neither applies until we are actually in the room: "Waiting for others to
   // join" while our own connection is still being made says the wrong thing
   // about the wrong party.
-  const ringing = $derived(solo && isDM && !ringTimedOut && !joining);
-  const waiting = $derived(solo && !isDM && !joining); // empty guild voice channel
+  // …and neither applies while the call is in trouble. Killing the node under a
+  // peer emptied its roster, so an offline client announced "Waiting for others
+  // to join…" over the top of "Reconnecting to the call…" — a fourth framing of
+  // one event, and the only cheerful one. An empty room is a fact about the
+  // room; you cannot state it while you cannot reach the room.
+  const ringing = $derived(solo && isDM && !ringTimedOut && !joining && health.live);
+  const waiting = $derived(solo && !isDM && !joining && health.live);
+
+  // Everything Avatar can paint, from a member record. The call stage is a
+  // screen made of nothing but avatars, at 96px, that people look at for an
+  // hour — and it was the one surface in the app that dropped every ring,
+  // decoration and colourway, so a decorated avatar became a flat purple disc
+  // here while the member list 800px to the right showed the same person fully
+  // dressed. Thirty-six decorations and twenty-one frames, hidden from the one
+  // place they are actually large enough to see.
+  function worn(mem) {
+    return {
+      frame: mem?.frame || "",
+      decoration: mem?.style?.dec || "",
+      dc: mem?.style?.dc || "",
+    };
+  }
 
   function participant(peerId) {
     const fpr = S.voicePeerFpr[peerId];
     const mem = fpr ? memberByFpr(fpr) : null;
     return {
+      ...worn(mem),
       // nameFor is the one place names resolve — it knows about browser guests
       // ("Zaza (guest)"), who have no member record to look up.
       //
@@ -266,14 +297,22 @@
   // tiles, and only when there is somebody to be through TO. It follows the
   // worst tile: while there is still hope it says so, and when there isn't it
   // stops promising.
+  // callHealth (state.svelte.js) is the state machine; this is the stage's own
+  // wording for it, because the stage speaks about the ROOM and the sidebar bar
+  // speaks about this device. Sharing the machine is what stops the two
+  // disagreeing — which they did, loudly: the bar said "Voice connected" in
+  // green with a running clock while this line said "Reconnecting to the call…"
+  // eight inches above it.
+  const health = $derived(callHealth());
   const roomLine = $derived.by(() => {
-    if (S.offline && S.voice) return "Reconnecting to the call…";
-    const others = S.voiceParticipants;
-    if (!others.length) return "";
-    if (others.some((p) => S.voicePeerStatus[p]?.state === "connected")) return "";
-    if (others.every((p) => S.voicePeerStatus[p]?.state === "failed")) {
+    if (!S.voice) return "";
+    if (S.offline) return "Reconnecting to the call…";
+    if (!S.voiceParticipants.length) return "";
+    if (health.state === "connected") return "";
+    if (health.state === "failed") {
       return "Nobody can hear each other — these connections couldn't be made.";
     }
+    if (health.state === "reconnecting") return "Reconnecting to the call…";
     return "Nobody can hear each other yet — still connecting.";
   });
 
@@ -283,8 +322,10 @@
   const camTile = (pid) =>
     S.videoTiles.find((t) => t.kind === "camera" && (pid === "self" ? t.self : t.peerId === pid));
 
-  // Everyone in the room, self first.
-  const roster = $derived(["self", ...S.voiceParticipants]);
+  // Everyone in the room, self first — from callRoster, which is also what the
+  // header pill counts, so "N in call" and the number of tiles are the same
+  // number by construction rather than by two call sites agreeing.
+  const roster = $derived(callRoster());
   // Screen shares get their own wide tiles — a share isn't a person.
   const screens = $derived(S.videoTiles.filter((t) => t.kind === "screen"));
 
@@ -618,6 +659,9 @@
         emoji: S.identity.emoji,
         color: S.identity.color,
         image: S.identity.avatar,
+        frame: S.identity.frame || "",
+        decoration: S.identity.style?.dec || "",
+        dc: S.identity.style?.dc || "",
         speaking: S.voiceSpeaking.includes("self"),
         muted: S.muted,
         deafened: S.deafened,
@@ -705,6 +749,42 @@
         onClick: () => evictGuest(pid, t.name),
       },
     ]);
+  }
+
+  // ---- a tile is a control ----
+  //
+  // It was a <div> with onclick, oncontextmenu and a long-press, no tabindex,
+  // no role and no key handler, and its accessible name was an INSTRUCTION —
+  // "Click to focus Bilal Rahman" — addressed to a device the reader might not
+  // have. Twenty-six tabs walked the composer, the tray, the member list, the
+  // rail and the channel list without ever reaching the stage, so full view,
+  // mute-for-me, per-person volume and remove-a-guest were all unreachable from
+  // a keyboard: every one of them lives behind a right-click on this element.
+  //
+  // role="button" rather than a real <button>, because the tile CONTAINS
+  // buttons (evict, local mute) and a button inside a button is invalid.
+  //
+  // The menu key and Shift+F10 open the same sheet a right-click does, by
+  // dispatching the event the handler already reads — one definition of what
+  // that menu contains, the way the message rows do it.
+  function tileKey(e, pid) {
+    if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+      e.preventDefault();
+      toggleFocus(pid);
+      return;
+    }
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      e.preventDefault();
+      const r = e.currentTarget.getBoundingClientRect();
+      e.currentTarget.dispatchEvent(
+        new MouseEvent("contextmenu", {
+          bubbles: true,
+          cancelable: true,
+          clientX: Math.round(r.left + Math.min(r.width, 40)),
+          clientY: Math.round(r.top + Math.min(r.height, 40)),
+        }),
+      );
+    }
   }
 
   // The caption on a shared screen, whole. It used to be a name interpolated
@@ -884,7 +964,7 @@
        knock) announced itself only by one of eight identical circular buttons
        picking up a subtle `active` class. -->
   <div class="stage-head">
-    <span class="sh-live" aria-hidden="true"></span>
+    <span class="sh-live" class:held={!health.live} aria-hidden="true"></span>
     <span class="sh-room">{roomName || "Call"}</span>
     <span class="sh-count">{roster.length} in call</span>
     {#if locked}
@@ -894,7 +974,7 @@
       </span>
     {/if}
     <span class="sh-spacer"></span>
-    {#if clock}<span class="sh-clock" aria-label="Call duration">{clock}</span>{/if}
+    {#if clock}<span class="sh-clock" class:held={!health.live} aria-label="Call duration">{clock}</span>{/if}
     <button
       class="sh-swap"
       use:tooltip={{ text: onStage ? "Show the chat" : "Give the call the whole column" }}
@@ -935,7 +1015,16 @@
           <video use:srcObject={cam.key} autoplay playsinline muted class:mirror={t.self && facing !== "environment"}></video>
         {:else}
           <div class="focus-face" style={t.color ? `--tint:${t.color}` : ""}>
-            <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={96} />
+            <Avatar
+              name={t.name}
+              emoji={t.emoji}
+              color={t.color}
+              image={t.image}
+              frame={t.frame}
+              decoration={t.decoration}
+              dc={t.dc}
+              size={96}
+            />
           </div>
         {/if}
         <span class="screen-label">{t.self ? `${t.name} (you)` : t.name}</span>
@@ -988,7 +1077,16 @@
             aria-label={t.self ? `${t.name} (you)` : t.name}
             onclick={() => toggleFocus(pid)}
           >
-            <Avatar name={t.name} emoji={t.emoji} color={t.color} image={t.image} size={34} />
+            <Avatar
+              name={t.name}
+              emoji={t.emoji}
+              color={t.color}
+              image={t.image}
+              frame={t.frame}
+              decoration={t.decoration}
+              dc={t.dc}
+              size={34}
+            />
             <span class="bub-name">{t.self ? "You" : t.name}</span>
             {#if t.deafened}
               <span class="bub-mark" aria-hidden="true"><Icon name="deafened" size={9} /></span>
@@ -1010,7 +1108,6 @@
       {#each roster as pid (pid)}
         {@const t = tileInfo(pid)}
         {@const cam = camTile(pid)}
-        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
           class="tile"
           class:speaking={t.speaking}
@@ -1021,11 +1118,16 @@
           class:st-failed={t.status?.state === "failed"}
           class:st-quiet={t.status?.state === "quiet"}
           transition:scale={pop}
+          role="button"
+          tabindex="0"
           onclick={() => toggleFocus(pid)}
+          onkeydown={(e) => tileKey(e, pid)}
           oncontextmenu={(e) => tileMenu(e, pid, t)}
           use:longpress={{ handler: (e) => tileMenu(e, pid, t) }}
-          use:tooltip={{ text: `Click to focus ${t.self ? "yourself" : t.name}` }}
-          aria-label="Click to focus {t.self ? 'yourself' : t.name}"
+          use:tooltip={{ text: `${t.self ? "You" : t.name} — ${focusedKey === pid ? "exit full view" : "full view"}` }}
+          aria-label="{t.self ? t.name + ' (you)' : t.name} — {focusedKey === pid
+            ? 'exit full view'
+            : 'full view'}"
         >
           {#if cam}
             <!-- svelte-ignore a11y_media_has_caption -->
@@ -1043,6 +1145,9 @@
                 emoji={t.emoji}
                 color={t.color}
                 image={t.image}
+                frame={t.frame}
+                decoration={t.decoration}
+                dc={t.dc}
                 size={compactTiles ? 40 : 64}
               />
             </div>
@@ -1170,8 +1275,11 @@
           </button>
         {/each}
       </div>
-      <div class="sfx-cap">Yours</div>
-      <div class="sfx-grid">
+      <div class="sfx-cap">
+        Yours
+        {#if mySounds.length}<span class="sfx-hint">{mySounds.length}</span>{/if}
+      </div>
+      <div class="sfx-grid mine">
         {#each mySounds as s (s.payload)}
           <button
             class="sfx mine"
@@ -1220,8 +1328,8 @@
          listen-only call. The unavailable state says so, and its click is the
          retry rather than a toggle of something that isn't there. -->
     <button
-      class="ctl"
-      class:danger={S.muted && !S.micError}
+      class="ctl callbtn lg cut"
+      class:on={S.muted && !S.micError}
       class:nomic={!!S.micError}
       class:busy={S.micRetrying}
       class:keyed={pttOn && !S.muted && !S.micError}
@@ -1245,8 +1353,8 @@
       <Icon name={S.micError || S.muted ? "micOff" : "mic"} size={18} />
     </button>
     <button
-      class="ctl"
-      class:danger={S.deafened}
+      class="ctl callbtn lg cut"
+      class:on={S.deafened}
       use:tooltip
       aria-label={S.deafened ? "Undeafen" : "Deafen"}
       aria-pressed={S.deafened}
@@ -1255,8 +1363,8 @@
       <Icon name={S.deafened ? "deafened" : "speaker"} size={18} />
     </button>
     <button
-      class="ctl"
-      class:active={S.cameraOn}
+      class="ctl callbtn lg"
+      class:on={S.cameraOn}
       use:tooltip
       aria-label={S.cameraOn ? "Turn off camera" : "Turn on camera"}
       aria-pressed={S.cameraOn}
@@ -1271,13 +1379,13 @@
            the four you reach for mid-call, hang-up pinned to its own end of the
            bar, and everything else in the action sheet this app already uses
            for every other set of secondary actions. -->
-      <button class="ctl" use:tooltip aria-label="More call controls" onclick={moreControls}>
+      <button class="ctl callbtn lg" use:tooltip aria-label="More call controls" onclick={moreControls}>
         <Icon name="dots" size={18} />
       </button>
     {:else}
       <button
-        class="ctl"
-        class:active={sfxOpen}
+        class="ctl callbtn lg"
+        class:on={sfxOpen}
         use:tooltip
         aria-label="Soundboard"
         aria-expanded={sfxOpen}
@@ -1287,8 +1395,8 @@
       </button>
       {#if canRoute}
         <button
-          class="ctl"
-          class:active={route !== "earpiece"}
+          class="ctl callbtn lg"
+          class:on={route !== "earpiece"}
           use:tooltip={{ text: `Audio out: ${routeInfo.label} — tap to change` }}
           aria-label="Audio output: {routeInfo.label}"
           onclick={cycleRoute}
@@ -1298,7 +1406,7 @@
       {/if}
       {#if S.cameraOn && cameras > 1}
         <button
-          class="ctl"
+          class="ctl callbtn lg"
           use:tooltip={"Switch camera"}
           aria-label="Switch to the {facing === 'environment' ? 'front' : 'back'} camera"
           onclick={flipCamera}
@@ -1308,8 +1416,8 @@
       {/if}
       {#if shareable}
         <button
-          class="ctl"
-          class:active={S.sharing}
+          class="ctl callbtn lg"
+          class:on={S.sharing}
           use:tooltip
           aria-label={S.sharing ? "Stop sharing" : "Share screen"}
           aria-pressed={S.sharing}
@@ -1320,8 +1428,8 @@
       {/if}
       {#if canLock}
         <button
-          class="ctl"
-          class:active={locked}
+          class="ctl callbtn lg"
+          class:on={locked}
           use:tooltip={{ text: locked ? "Unlock call (anyone can join)" : "Lock call (people must knock)" }}
           aria-label={locked ? "Unlock call" : "Lock call"}
           aria-pressed={locked}
@@ -1331,7 +1439,7 @@
         </button>
       {/if}
       <button
-        class="ctl"
+        class="ctl callbtn lg"
         use:tooltip={"Audio & video settings"}
         aria-label="Audio and video settings"
         onclick={() => (S.modal = { kind: "devices" })}
@@ -1340,7 +1448,7 @@
       </button>
     {/if}
     <button
-      class="ctl hangup"
+      class="ctl callbtn lg hang"
       use:tooltip
       aria-label="Leave call"
       onclick={withHaptic(onLeaveVoice, "heavy")}
@@ -1371,7 +1479,16 @@
             <span class="knock-ring"></span>
             <span class="knock-ring r2"></span>
             <span class="knock-rap">
-              <Avatar name={who.name} emoji={who.emoji} color={who.color} image={who.image} size={36} />
+              <Avatar
+              name={who.name}
+              emoji={who.emoji}
+              color={who.color}
+              image={who.image}
+              frame={who.frame}
+              decoration={who.decoration}
+              dc={who.dc}
+              size={36}
+            />
             </span>
           </span>
           <span class="knock-id">
@@ -1436,6 +1553,15 @@
     flex: 0 0 var(--chat-strip, 168px);
     min-height: 0;
   }
+  /* The chat strip keeps its last message or two and its composer. It does NOT
+     keep the channel's hero empty state: that is a 278px centred composition
+     laid out inside a 168px strip, so it was drawn sliced horizontally through
+     the middle of its own text at the seam under the stage — "🟣🟢 2 people are
+     in there", half of it, under a stage showing exactly those two people.
+     Same sideways reach as the rule above, and for the same reason. */
+  .voice-panel.on-stage + :global(.pane-body) :global(.empty) {
+    display: none;
+  }
   .voice-panel.on-stage .stage {
     flex: 1;
     min-height: 0;
@@ -1459,6 +1585,11 @@
     border-radius: 50%;
     background: var(--ok);
     animation: blink 1.4s ease-in-out infinite;
+  }
+  /* The one green thing on the stage header, and it is the liveness claim. */
+  .sh-live.held {
+    background: var(--warn);
+    animation: none;
   }
   @keyframes blink {
     50% {
@@ -1513,6 +1644,11 @@
     font-variant-numeric: tabular-nums;
     font-weight: 600;
     color: var(--text);
+  }
+  .sh-clock.held {
+    color: var(--warn-text);
+    text-decoration: line-through;
+    text-decoration-thickness: 1px;
   }
   .sh-swap {
     display: grid;
@@ -1623,6 +1759,9 @@
     border-radius: var(--radius-lg);
     overflow: hidden;
     background: var(--bg-1);
+    /* It is a control now (role="button"), so it declares its own ink — see
+       tokens.test.mjs rule 10. */
+    color: var(--text);
     border: 1px solid var(--border);
     display: grid;
     place-items: center;
@@ -2197,10 +2336,23 @@
     text-transform: none;
     font-weight: 500;
   }
+  /* Four across, not five. At 104px minimum the 640px board resolved to five
+     123px chips, which left the label 56px after the emoji, the gaps and the
+     number badge — so "Ba dum tss" (65px) and "Sad trombone" (84px) were
+     truncated on a board with four chips per row and plenty of horizontal
+     space. This is a distribution problem inside the chip, and 140px is the
+     width at which the longest shipped name fits with the badge out of flow. */
   .sfx-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 6px;
+  }
+  /* Your own sounds scroll rather than being cut off at the eighth. Roughly
+     three rows, which is the height the board can spare above the controls. */
+  .sfx-grid.mine {
+    max-height: 138px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
   .sfx {
     position: relative;
@@ -2239,14 +2391,24 @@
     white-space: nowrap;
     font-size: var(--fs-compact);
   }
+  /* Over the corner rather than in the flow: the badge was taking 21px of a
+     56px label. It is a hint about a key, not a column. */
   .sfx-key {
-    flex: none;
-    padding: 0 4px;
+    position: absolute;
+    top: 3px;
+    right: 4px;
+    padding: 0 3px;
     font-size: var(--fs-micro);
+    line-height: 1.3;
     font-variant-numeric: tabular-nums;
     color: var(--text-faint);
     border: 1px solid var(--border);
     border-radius: 4px;
+    pointer-events: none;
+  }
+  /* …and the label keeps clear of it, on the chips that have one. */
+  .sfx:not(.mine):not(.add) .sfx-name {
+    padding-right: 14px;
   }
   @media (pointer: fine) {
     .sfx:not([aria-disabled="true"]):hover {
@@ -2497,41 +2659,24 @@
       animation: none;
     }
   }
-  .ctl {
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    background: var(--bg-3);
-    color: var(--text);
-    border: 1px solid var(--border);
+  /* Size and lift only: the ground, the ink and the on/cut/hang states are
+     .callbtn's, in app.css — this is the surface that language was taken from
+     and it now shares it with the header pill, the sidebar bar and the dock. */
+  .ctl.callbtn {
     transition:
       background var(--dur-quick) ease,
       color var(--dur-quick) ease,
       transform var(--dur-quick) ease,
       box-shadow var(--dur-standard) ease;
   }
-  .ctl:hover {
-    background: var(--bg-1);
+  .ctl.callbtn:hover {
     transform: translateY(-2px);
   }
-  .ctl:active {
+  .ctl.callbtn:active {
     transform: scale(0.9);
   }
-  .ctl.hangup:hover {
+  .ctl.hang:hover {
     box-shadow: 0 4px 14px color-mix(in srgb, var(--danger) 45%, transparent);
-  }
-  .ctl.active {
-    background: var(--accent-soft);
-    color: var(--accent-hover);
-    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-  }
-  /* Toggles keep their tinted state on hover (a deeper wash) instead of falling
-     back to the neutral hover grey — so an on/muted control still reads on/off. */
-  .ctl.active:hover {
-    background: color-mix(in srgb, var(--accent) 26%, transparent);
   }
   /* Push-to-talk: dimmed while the key is up (that IS the state — the mic is
      shut), accent-lit the moment it goes down. */
@@ -2544,29 +2689,16 @@
     color: var(--text);
     border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   }
-  /* Muted or deafened is a FILLED danger state, the same one the dock, the
-     sidebar bar and the header pill use. It was a 20% wash here, which on a
-     44px circle beside four neutral ones is a tint you have to look for — and
-     which meant "I am muted" was drawn four different ways in four places you
-     can see at once. Camera and share stay accent-lit: they mean something is
-     going out, which is not the same alarm. */
-  .ctl.danger {
-    background: var(--danger);
-    color: var(--danger-fg);
-    border-color: transparent;
-  }
-  .ctl.danger:hover {
-    background: color-mix(in srgb, var(--danger) 85%, #000);
-  }
   /* Not danger, and deliberately so: a missing microphone is a condition, not
      an alarm you set off. It reads as "off" — outlined, muted ink — which is
      also what tells it apart from the filled red of a mute you chose. */
-  .ctl.nomic {
+  .ctl.callbtn.nomic {
     background: transparent;
     color: var(--text-faint);
     border-style: dashed;
   }
-  .ctl.nomic:hover {
+  .ctl.callbtn.nomic:hover {
+    background: transparent;
     color: var(--text);
     border-style: solid;
   }
@@ -2599,14 +2731,8 @@
   }
   /* Leave is a separate kind of action from the toggles — a little breathing
      room sets it apart so it's never fat-fingered mid-call. */
-  .ctl.hangup {
-    background: var(--danger);
-    color: var(--danger-fg);
-    border-color: transparent;
+  .ctl.hang {
     margin-left: 6px;
-  }
-  .ctl.hangup:hover {
-    background: color-mix(in srgb, var(--danger) 85%, #000);
   }
   @media (prefers-reduced-motion: reduce) {
     .tile.speaking .ring,
@@ -2621,7 +2747,7 @@
     .tile.speaking .ring {
       box-shadow: inset 0 0 0 2px var(--ok);
     }
-    .ctl:hover,
+    .ctl.callbtn:hover,
     .tile:hover,
     .bubble:hover {
       transform: none;
@@ -2680,15 +2806,14 @@
       background: var(--bg-0);
       border-top: 1px solid var(--border);
     }
-    .ctl {
+    .ctl.callbtn.lg {
       width: 48px;
       height: 48px;
-      flex-shrink: 0;
     }
     /* Hang-up is pinned to the end of the bar and separated from the toggles by
        whatever width is going spare, because it is the one control here that
        cannot be undone and it must be in the same place every single time. */
-    .ctl.hangup {
+    .ctl.hang {
       margin-left: auto;
     }
     /* A 16:9 share on a phone is height-limited by its width, and the only
@@ -2798,7 +2923,7 @@
       left: 6px;
       bottom: 6px;
     }
-    .ctl {
+    .ctl.callbtn.lg {
       width: 44px;
       height: 44px;
     }
