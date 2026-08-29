@@ -249,7 +249,7 @@
              CONVERSATIONS — 1,981 messages scrolling on the screen behind it,
              answering "0 results" to phrases read straight off them. -->
         {#if arc && (arcHits.length || unsearched > 0)}
-          <div class="sp-arc-head">
+          <div class="sp-arc-head" role="heading" aria-level="3">
             <Icon name="clock" size={11} />
             <span class="sp-arc-title">
               Archived history

@@ -873,7 +873,10 @@
             ondrop={(e) => headDrop(e, grp)}
           >
             {#if renamingCat === grp.id}
-              <!-- The cap is the BACKEND's, in the backend's unit. `maxlength`
+              <!-- Selected on open, because a rename usually replaces rather
+                   than continues, and because until this box got a real focus
+                   action it was not focused at all.
+                   The cap is the BACKEND's, in the backend's unit. `maxlength`
                    counts characters and the cap is 64 bytes, so this box used to
                    accept 39 Arabic characters (71 bytes) and hand them to a
                    truncation that cut one in half. clampToBytes stops exactly
@@ -881,7 +884,7 @@
                    in the box is what gets stored. -->
               <input
                 class="cat-edit"
-                use:focusOnMount
+                use:focusOnMount={{ select: true }}
                 value={grp.name}
                 oninput={(e) => {
                   const v = clampToBytes(e.currentTarget.value, NAME_MAX_BYTES);
@@ -1025,7 +1028,9 @@
                   use:tooltip={failedIn(c.id) === 1
                     ? "A message here didn't send — open it to retry"
                     : `${failedIn(c.id)} messages here didn't send — open it to retry`}
-                  aria-label="{failedIn(c.id)} unsent messages, failed to send"
+                  aria-label={failedIn(c.id) === 1
+                    ? "One message here didn't send"
+                    : `${failedIn(c.id)} messages here didn't send`}
                 >
                   <Icon name="alert" size={11} />
                 </span>
