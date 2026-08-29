@@ -3519,7 +3519,14 @@ function initEvents() {
           }
           return;
         }
-        if (!S.voicePeerFpr[v.from]) playVoiceJoin();
+        // A chime per ARRIVAL, not per person present. Presence is a heartbeat:
+        // walking into a room of five means five "join" announcements land in
+        // the first second, and each one was a fresh fingerprint, so the fifth
+        // person in heard five chimes and the ruder the room the ruder the
+        // entrance. The first roster is a baseline. `callSettled()` is the same
+        // grace the door already stands down for — everyone visible in those
+        // four seconds was there before we were.
+        if (!S.voicePeerFpr[v.from] && callSettled()) playVoiceJoin();
         S.voicePeerFpr = { ...S.voicePeerFpr, [v.from]: v.fingerprint };
         S.voice.mesh.handlePresence(v.from, v.action);
       } else {
@@ -4106,6 +4113,13 @@ const DOOR_SETTLE = 4000;
 let doorFrom = 0;
 function isDoorkeeper() {
   return doorFrom > 0 && Date.now() >= doorFrom;
+}
+// The same grace, asked for a different reason: has our own join settled? The
+// door uses it to decide whether it may judge an arrival; the join chime uses
+// it to tell an arrival from somebody who was already in the room. Both
+// questions are "is the roster we are holding our own, or the room's".
+export function callSettled() {
+  return isDoorkeeper();
 }
 
 // noteCallJoined: we are in. Everyone already in the room is inside by
