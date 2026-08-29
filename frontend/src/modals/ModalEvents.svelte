@@ -59,7 +59,14 @@
   // "you both" for a 1:1, "everyone" once it's a group DM.
   const dmEveryone = $derived((g?.dmMembers ?? 2) > 2 ? "everyone" : "you both");
 
-  let view = $state(S.isMobile ? "agenda" : "grid");
+  // Agenda, on every screen. Opening Events landed on Month on the desktop, and
+  // a month with no events in it is a blank grid spending 55% of an 810px panel
+  // to say nothing while the eight real occurrences sit in the list below it.
+  // The agenda answers "what is coming up", which is the question that opened
+  // the panel; Month answers "what does the shape of this month look like",
+  // which is a second question and one click away. The phone already opened
+  // here, so this also stops the two shells disagreeing about what Events is.
+  let view = $state("agenda");
   let selectedDay = $state(""); // a dayKey, or "" = everything
 
   // The empty panel's copy, as data. It used to be four branches of markup

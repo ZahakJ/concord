@@ -1,6 +1,10 @@
 <script>
   // The shared context menu. Driven by S.contextMenu = {x,y,items}. Items are
-  // {label, icon?, danger?, active?, onClick} or null (skipped). A `sep:true`
+  // {label, sub?, icon?, danger?, active?, onClick} or null (skipped). `sub` is
+  // a second, quieter line — for a CONSTRAINT rather than a name. Without it a
+  // label had to carry both ("Instant meeting (1 hour – 30 days)") and wrapped
+  // to two lines in a 300px menu whose other rows were one each; the
+  // parenthetical is not part of what the row is called. A `sep:true`
   // item renders a divider, a `header:true` one an inert label over the group
   // below it — which is how a set of mutually exclusive choices (a channel's
   // notification level, a channel's type) says what it's choosing, given this
@@ -222,7 +226,9 @@
               {#if item.avatar}<Avatar {...item.avatar} size={22} />
               {:else if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
               {:else if item.icon}<span class="as-icon"><Icon name={item.icon} size={18} /></span>{/if}
-              <span>{item.label}</span>
+              <span class="cm-text"
+                >{item.label}{#if item.sub}<span class="cm-sub">{item.sub}</span>{/if}</span
+              >
               {#if item.active}<span class="cm-tick" aria-hidden="true">✓</span>{/if}
             </button>
           {/if}
@@ -257,7 +263,9 @@
             {#if item.avatar}<Avatar {...item.avatar} size={18} />
             {:else if item.swatch}<span class="cm-swatch" style="background:{item.swatch}"></span>
             {:else if item.icon}<Icon name={item.icon} size={14} />{/if}
-            <span>{item.label}</span>
+            <span class="cm-text"
+              >{item.label}{#if item.sub}<span class="cm-sub">{item.sub}</span>{/if}</span
+            >
             {#if item.active}<span class="cm-tick" aria-hidden="true">✓</span>{/if}
           </button>
         {/if}
@@ -267,6 +275,17 @@
 {/if}
 
 <style>
+  /* The row's own column, so a second line stacks under the label rather than
+     beside the icon. */
+  .cm-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .cm-sub {
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+  }
   /* ---- mobile action-sheet rows ---- */
   .as-quick {
     display: flex;

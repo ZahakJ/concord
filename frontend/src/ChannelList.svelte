@@ -715,8 +715,8 @@
         <span class="dm-head-title">
           <strong>Direct messages</strong>
         </span>
-        <button class="dm-new" onclick={newMessage}>
-          <Icon name="plus" size={13} /> New
+        <button class="dm-new" onclick={newMessage} aria-label="New message" use:tooltip={"New message"}>
+          <Icon name="plus" size={13} /> <span class="dn-lbl">New</span>
         </button>
       {:else}
         <strong>Concord</strong>
@@ -1376,6 +1376,10 @@
     overflow-x: hidden; /* the column is a fixed width; never scroll sideways */
   }
   .guild-name {
+    /* The column is a container so the header can fit itself to the width the
+       reader dragged it to, rather than to the window's. */
+    container-type: inline-size;
+    container-name: chancol;
     padding: 12px 14px;
     border-bottom: 1px solid var(--border);
     white-space: nowrap;
@@ -1400,12 +1404,31 @@
     overflow: hidden;
   }
   /* The title gives before the action does, and it ellipsises rather than being
-     cut mid-word by the header's own clip. */
+     cut mid-word by the header's own clip.
+     Except it should not have to give at all. "Direct messages" is the panel's
+     own name — not a user string that can grow — and it read "Direct messag…"
+     at a 1440px window with 300px of sidebar, which is the default. It is a
+     heading, so it goes on the heading size the rest of the app's section
+     titles use, and at that size it fits the column at its narrowest. */
   .dm-head-title strong {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: var(--fs-compact);
+  }
+  /* …and below the width where both still fit, the action drops its word for
+     the icon the rest of the rail uses. Same target, same tooltip, same
+     accessible name. 176px is measured: the title is 104px and the labelled
+     pill 52px, so both survive to there and the column can be dragged narrower
+     than that. */
+  @container chancol (max-width: 176px) {
+    .dn-lbl {
+      display: none;
+    }
+    .dm-new {
+      padding: 4px 6px;
+    }
   }
   .dm-new {
     display: inline-flex;

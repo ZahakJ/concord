@@ -160,7 +160,12 @@
       [
         { label: "Create a guild", icon: "spark", onClick: () => (S.modal = { kind: "create" }) },
         { label: "Join with an invite code", icon: "download", onClick: () => (S.modal = { kind: "join", code: "" }) },
-        { label: "Instant meeting (1 hour – 30 days)", icon: "bolt", onClick: startMeeting },
+        {
+          label: "Instant meeting",
+          sub: "Lasts 1 hour to 30 days",
+          icon: "bolt",
+          onClick: startMeeting,
+        },
       ],
       { title: "Add a guild" },
     );

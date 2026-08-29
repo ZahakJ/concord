@@ -225,8 +225,19 @@ export function stripSound(content) {
 // A sound is short enough that seconds to one decimal reads "0.0s" for half
 // the shelf. Below a second, say milliseconds.
 export function soundLength(r) {
-  const ms = recipeTotalMs(r);
-  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)}s`;
+  return fmtMs(recipeTotalMs(r));
+}
+
+// fmtMs: the one place a sound's length becomes words.
+//
+// It used to be two: this function wrote "130 ms" and "1.5s" — a space before
+// one unit and not the other — and the soundboard wrote `(totalMs/1000).toFixed(1)s`
+// inline, twice. Five chips in a column read "130 ms", "420 ms", "720 ms",
+// "700 ms", "1.5s", which is four of one convention and one of another in a
+// list you read top to bottom.
+export function fmtMs(ms) {
+  const n = Math.max(0, Math.round(Number(ms) || 0));
+  return n < 1000 ? `${n} ms` : `${(n / 1000).toFixed(1)} s`;
 }
 
 export function recipeGlyph(r) {

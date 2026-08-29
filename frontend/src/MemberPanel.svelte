@@ -155,6 +155,14 @@
   }
 
   // A member's highest-ranked role (roles are highest-first), for a badge.
+  // Does this badge only repeat the heading the row is already sitting under?
+  // "Owner & heir" is a group of two different things and keeps both badges;
+  // "Owner" on its own does not.
+  function restates(grp, label) {
+    const g = String(grp?.name || "").toLowerCase();
+    return g === String(label || "").toLowerCase();
+  }
+
   function topRole(mem) {
     if (!mem.roleIds?.length) return null;
     return S.roles.find((r) => mem.roleIds.includes(r.id)) || null;
@@ -368,11 +376,19 @@
             {#if birthdayToday(mem)}
               <span class="bday" title="Birthday today">🎂</span>
             {/if}
-            {#if mem.isOwner}
+            <!-- A badge that restates the header directly above it says
+                 nothing. The panel groups by role — "OWNER — 1", "PRODUCERS —
+                 1" — and then put OWNER and PRODUCERS on the rows inside those
+                 groups, so with a one-member role (the common case) the word
+                 appeared twice within 40px. It earns its place only when it
+                 says something the header did not: a member's role inside the
+                 owner/heir group, or an "Owner & heir" group where the two rows
+                 differ. -->
+            {#if mem.isOwner && !restates(grp, "owner")}
               <span class="role-badge owner" title="Guild owner">owner</span>
-            {:else if mem.isHeir}
+            {:else if mem.isHeir && !restates(grp, "heir")}
               <span class="role-badge heir" title="Named heir — can take ownership at any time">heir</span>
-            {:else if topRole(mem)}
+            {:else if topRole(mem) && !restates(grp, topRole(mem).name)}
               {@const r = topRole(mem)}
               <!-- A role colour is picked to be seen, not to be read: painting
                    it on a 22% tint of ITSELF leaves a pale role invisible. Same

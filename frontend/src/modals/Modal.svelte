@@ -289,8 +289,13 @@
     {#if railed}
       {@render rail()}
       <!-- The scroller is the pane, not the dialog: the rail must stay put
-           while a long page moves under it. -->
-      <div class="pane">{@render body()}</div>
+           while a long page moves under it. The house fade goes here for the
+           same reason: 3,015px of Appearance in a 658px pane ended in a razor
+           cut through the middle of a theme tile, with the Done footer's
+           hairline under it and nothing to say the page continued. Notifications
+           was cut through its alert-word chips. One class, both pages, and
+           every railed page after them. -->
+      <div class="pane scroll-fade">{@render body()}</div>
     {:else}
       {@render body()}
     {/if}

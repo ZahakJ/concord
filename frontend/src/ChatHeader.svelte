@@ -328,9 +328,17 @@
         </span>
       </button>
     {:else if ch && !g?.dmNotes}
+      <!-- No colour. Green means one thing in this app — the call is live — and
+           this is the button that has not started one yet, in either place. It
+           used to be success-green in a DM and neutral grey in a channel: the
+           same button, the same label, the same icon, the same action, painted
+           in the palette's "connected" colour purely because of what kind of
+           conversation it was in. Nothing else on a DM screen is green, so it
+           read as a status. The two branches above are where the colour lives:
+           somebody else is live in here (danger), or you are in a call
+           elsewhere (ok). -->
       <button
         class="ghost iconbtn"
-        class:call={g?.kind === "dm" || g?.kind === "meeting"}
         use:tooltip={{ text: g?.kind === "dm" || g?.kind === "meeting" ? "Start a call" : "Start a call in this channel" }}
         onclick={() => onJoinVoice()}
       >
@@ -863,13 +871,6 @@
      stage bar, the sidebar bar and the dock. */
   .invite {
     padding: 6px 12px;
-  }
-  .iconbtn.call {
-    color: var(--ok-text);
-    border-color: color-mix(in srgb, var(--ok) 45%, transparent);
-  }
-  .iconbtn.call:hover {
-    background: var(--ok-soft);
   }
   /* Peer is already on the call — a live, inviting affordance. */
   .iconbtn.live-join {

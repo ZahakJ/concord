@@ -29,6 +29,7 @@
     recipeTotalMs,
     recipeGlyph,
     soundLength,
+    fmtMs,
   } from "../lib/sfxrecipe.js";
   import { shelfSounds, keepSound, dropSound, shelfFull, MAX_SHELF } from "../lib/soundshelf.svelte.js";
   import { rangefill } from "../lib/rangefill.js";
@@ -289,11 +290,11 @@
 
       <p class="cap" class:bad={!ok} aria-live="polite">
         {#if totalMs > MAX_TOTAL_MS}
-          {(totalMs / 1000).toFixed(1)}s is too long — a sound has to fit in {MAX_TOTAL_MS / 1000}s including its repeats.
+          {fmtMs(totalMs)} is too long — a sound has to fit in {fmtMs(MAX_TOTAL_MS)} including its repeats.
         {:else if !ok}
           Not a sound this app will play. Adjust something.
         {:else}
-          {(totalMs / 1000).toFixed(1)}s, {new TextEncoder().encode(draftPayload).length} bytes on the wire.
+          {fmtMs(totalMs)}, {new TextEncoder().encode(draftPayload).length} bytes on the wire.
         {/if}
       </p>
     </div>

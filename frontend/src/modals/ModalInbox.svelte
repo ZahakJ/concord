@@ -342,11 +342,15 @@
     overflow-y: auto;
   }
   /* One scroller per sheet: a list that scrolls inside a sheet that scrolls
-     makes the sheet feel arbitrarily sticky under a thumb. */
+     makes the sheet feel arbitrarily sticky under a thumb. The fade goes with
+     the scroller — a mask on a list that no longer scrolls is a gradient fading
+     out the last row for no reason. */
   @media (pointer: coarse), (max-width: 768px) {
     .groups {
       max-height: none;
       overflow-y: visible;
+      -webkit-mask-image: none;
+      mask-image: none;
     }
   }
   .place {

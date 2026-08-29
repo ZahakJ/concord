@@ -964,14 +964,22 @@
     (crypto?.randomUUID?.() ?? String(Date.now()) + Math.random());
 
   // stageImage: read + normalize an image and hold it as a pending attachment.
+  // Answers false when the file calls itself an image and this renderer cannot
+  // decode one out of it — see attachFile, which then stages it as a plain file
+  // rather than dropping it.
   async function stageImage(file) {
-    if (!file || !S.activeChannelId) return;
+    if (!file || !S.activeChannelId) return true;
     uploading++;
     try {
       let dataUrl, w, h;
       if (NATIVE_TYPES.includes(file.type) && file.size <= MAX_IMAGE_BYTES) {
         dataUrl = await readAsDataURL(file);
         ({ w, h } = await imageDims(dataUrl));
+        // A truncated or corrupt PNG loads as 0x0 here and used to be staged
+        // anyway: no dimensions on the chip, and a broken picture on everyone
+        // else's screen after the send. The bytes are still worth delivering,
+        // so it goes down the file path instead of being thrown away.
+        if (!w || !h) return false;
       } else {
         ({ dataUrl, w, h } = await normalizeToJpeg(file));
       }
@@ -993,6 +1001,7 @@
     } finally {
       uploading--;
     }
+    return true;
   }
 
   // attachFile: the general entry point (paste / drop / file button). Images and
@@ -1000,8 +1009,9 @@
   export async function attachFile(file) {
     if (!file || !S.activeChannelId) return;
     if (file.type.startsWith("image/")) {
-      await stageImage(file);
-      return;
+      if (await stageImage(file)) return;
+      // Fell through: it is named as an image and is not one this renderer can
+      // read. Carry on into the file branch.
     }
     if (file.size > MAX_FILE_BYTES) {
       flash("File too large (max 25 MB)", "error");
@@ -1743,8 +1753,11 @@
                send fails. -->
           <span class="att-meta" title={p.name || p.origName || ""}>
             {#if p.isImage}
+              <!-- Shape before weight: the dimensions decide whether the
+                   picture lands as a postage stamp or eats the pane, and the
+                   size decides whether it goes through at all. -->
               <span class="am-name">{p.name || p.origName || "image"}</span>
-              <span class="am-num">{fmtBytes(p.bytes)}{p.w ? ` · ${p.w}×${p.h}` : ""}</span>
+              <span class="am-num">{p.w ? `${p.w}×${p.h} · ` : ""}{fmtBytes(p.bytes)}</span>
             {:else}
               <span class="am-name">{p.name}</span>
               <span class="am-num">{fmtBytes(p.bytes)}</span>

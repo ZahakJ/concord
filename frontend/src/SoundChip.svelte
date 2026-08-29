@@ -55,11 +55,17 @@
     class:ringing
     onclick={press}
     aria-label={`Play the sound "${recipe.name || "untitled"}"`}
+    title={`${secs} — synthesized here, nothing downloaded`}
   >
     <span class="glyph" aria-hidden="true">{recipeGlyph(recipe)}</span>
     <span class="meta">
       <span class="name">{recipe.name || "Untitled sound"}</span>
-      <span class="sub">{secs} · synthesized here, nothing downloaded</span>
+      <!-- The length, and nothing else. "synthesized here, nothing downloaded"
+           is a claim about the app, not about this sound, and it was the string
+           that SET the chip's width — five chips in one column each restating
+           it, crowding out the only part that differed. It moves to the chip's
+           own tooltip, where somebody who wonders can still find it. -->
+      <span class="sub">{secs}</span>
     </span>
     <!-- Four bars that move while it plays. A synthesized sound has no waveform
          to draw and no file to scrub, so this is not a rendering of the audio —
@@ -83,20 +89,19 @@
 </div>
 
 <style>
-  /* The chip sizes to its caption. A flat 320px cut "130 ms · synthesized here,
-     nothing download…" mid-word with 850px of empty message pane to its right —
-     a truncation that costs the reader the whole point of the sentence and buys
-     nothing, because the room was there. `fit-content` keeps it as small as its
-     contents allow and the cap only stops a long name running the width of the
-     feed. */
+  /* One width for sibling chips. `fit-content` sized each chip to its caption,
+     which was fine while every caption ended in the same boast — and measured
+     349, 349, 349, 349 and 333px in a column of five, a ragged edge caused by
+     one sound whose name happened to be shorter. With the boast gone the widths
+     would have varied by the length of a name, which is worse. A card in a
+     stack of cards is one shape; the name inside it ellipsises. */
   .sound {
     position: relative;
     display: inline-flex;
     align-items: stretch;
     gap: 1px;
     margin-top: var(--sp-1);
-    width: fit-content;
-    max-width: min(520px, 100%);
+    width: min(320px, 100%);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     background: var(--bg-1);
