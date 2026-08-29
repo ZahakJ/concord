@@ -1634,8 +1634,18 @@
         </div>
       {/if}
       <span class="sep"></span>
-      <div class="grp">
-        <button use:tooltip aria-label="More" onclick={moreMenu}>
+      <div class="grp grp-more">
+        <!-- The only survivor in a narrow feed, where it stands in for the whole
+             bar — so it opens the full message menu there rather than the ⋯
+             shortlist, which assumes the bar is beside it. -->
+        <button
+          use:tooltip
+          aria-label="More"
+          onclick={(ev) =>
+            ev.currentTarget.closest(".feed")?.classList.contains("bar-narrow")
+              ? messageMenu(ev)
+              : moreMenu(ev)}
+        >
           <Icon name="dots" size={15} />
         </button>
       </div>
@@ -1787,6 +1797,14 @@
     min-width: 0;
     flex: 1;
   }
+  /* The other two things the hover bar can land on: the quoted line above a
+     reply, and the author/time header. Both are short in practice and both are
+     at the row's top, which is exactly where the bar is, so both stop where the
+     action gutter starts. The measure does not apply to them — a name is not
+     prose. */
+  .msg-head {
+    max-width: calc(100% - var(--act-gutter, 0px));
+  }
   .reply-ref {
     display: flex;
     align-items: center;
@@ -1798,7 +1816,7 @@
     margin-bottom: 2px;
     background: transparent;
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-    max-width: 100%;
+    max-width: calc(100% - var(--act-gutter, 0px));
     min-width: 0;
     transition:
       background var(--dur-quick) ease,
@@ -2011,6 +2029,13 @@
        climb above the letterform and the descenders drop well below it, so 1.45
        clipped them against the row above. */
     line-height: 1.5;
+    /* The reading measure (app.css defines the token and the reasoning) and the
+       action gutter (see `.msg-actions`), whichever bites first. On the row's
+       TEXT, so attachments, cards and the reaction pills keep the width they
+       had; an RTL body still starts at the author's edge because the BOX is
+       capped, not the text inside it, and `text-align: start` aligns within a
+       box that begins where the avatar leaves off. */
+    max-width: min(var(--measure, 92ch), calc(100% - var(--act-gutter, 0px)));
     /* Direction is resolved per line — see the bidi section of app.css, which
        covers every rendered-prose container rather than just this one. */
   }
@@ -2531,21 +2556,38 @@
     color: var(--text-faint);
     font-size: var(--fs-small);
   }
-  /* The bar lives INSIDE the row it acts on. It used to hang 16px above,
-     which put an opaque plate on whatever was there: the last line of the
-     previous message (14px of it in #arabic-corner, where the text is
-     right-aligned and therefore always underneath), the "created this channel"
-     system row, and the unread divider's own MARK AS READ button.
-     A popper-style flip is the usual answer and is not one here: flipping down
-     covers the NEXT row instead, and there is no third direction. Nor is there
-     room to overlap into — a grouped row pulls itself up with -10px against a
-     12px gap, so the gap between two continuation rows is two pixels, and one
-     pixel in the Compact density. Inside the row is the only anchor that
-     cannot cover a neighbour, in either direction, at any density. */
+  /* The bar lives INSIDE the row it acts on. It used to hang 16px above, which
+     put an opaque plate on whatever was there: the last line of the previous
+     message (14px of it in #arabic-corner, where the text is right-aligned and
+     therefore always underneath), the "created this channel" system row, and
+     the unread divider's own MARK AS READ button. A popper-style flip is the
+     usual answer and is not one here: flipping down covers the NEXT row
+     instead, and there is no third direction. Nor is there room to overlap
+     into — a grouped row pulls itself up with -10px against a 12px gap, so the
+     gap between two continuation rows is two pixels, and one pixel in the
+     Compact density.
+     Inside the row it stopped covering neighbours and started covering its own.
+     Measured: a 317x35 plate against a 22px author line and a 23px first body
+     line means 13px of every hovered message's own text at 100%, the author's
+     name and the whole first line at 150%, and both in any pane narrow enough
+     that the text reaches the right edge — the forum post panel, a narrow DM.
+     There is no anchor that fixes this, because an opaque 35px plate does not
+     fit in a 15px gap or a 22px line. So the row stops putting text where the
+     bar goes: `--act-gutter` is reserved at the row's right edge and the text —
+     the quoted reply line, the header, the body — ends before it. The bar is
+     then over nothing, at every width, every density, every UI scale, and on a
+     grouped continuation row that has no header to hide behind.
+     A 340px reservation is affordable in a wide pane (the measure caps the text
+     first in a 1920 DM, and 1440 still reads at ~60 characters) and absurd in a
+     483px forum panel, so a narrow feed gets `.bar-narrow` instead: the bar
+     collapses to its ⋯, which opens the full message menu — the same menu the
+     right-click and the phone's long-press open, carrying reply, reactions,
+     edit and the rest. 34px of gutter buys that, and nothing is lost but the
+     one-click emoji. */
   .msg-actions {
     position: absolute;
     top: 2px;
-    right: 10px;
+    right: 4px;
     display: flex;
     align-items: center;
     gap: 3px;
@@ -2566,6 +2608,10 @@
   .msg:focus-within .msg-actions {
     opacity: 1;
     transform: none;
+  }
+  /* Narrow feed: one button, and it opens everything. */
+  :global(.feed.bar-narrow) .msg-actions > :not(.grp-more) {
+    display: none;
   }
   /* ---- phone ------------------------------------------------------------
      Touch devices have no hover — a tap would emulate it and pop the action bar

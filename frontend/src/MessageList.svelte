@@ -52,6 +52,12 @@
   let lastScrollTop = 0;
   $effect(() => registerFeed(feedEl));
 
+  // Below this the full hover bar cannot be reserved without leaving the text a
+  // ribbon: 340px of gutter out of an 880px feed still reads at ~60 characters,
+  // out of a 483px forum panel it leaves 143px.
+  const NARROW_BAR = 880;
+  let barNarrow = $state(false);
+
   // Keep the feed pinned to the newest message while the user is at the bottom,
   // even as late-loading content (images, embeds, avatars, custom fonts) grows
   // the thread AFTER the initial scroll. Without this, opening a channel scrolls
@@ -61,6 +67,13 @@
   $effect(() => {
     if (!feedEl) return;
     const repin = () => {
+      // The hover bar's gutter is reserved out of every row, so the pane has to
+      // say which of the two reservations it can afford. Its OWN width, not the
+      // window's: the same feed is 1290px wide in a maximised window and 483px
+      // inside a forum post panel, and clientWidth is in the zoom-local pixels
+      // the bar is laid out in, so the app's 125%/150% steps fall out of this
+      // for free rather than needing a second rule.
+      barNarrow = feedEl.clientWidth < NARROW_BAR;
       if (atBottom) feedEl.scrollTop = feedEl.scrollHeight;
       // A row that changed height is a row whose cached advance is now a lie,
       // and the window is sized from those numbers.
@@ -448,7 +461,7 @@
   // rows belongs to the row above as far as this arithmetic is concerned.
   const advance = new Map();
   const typeMean = new Map(); // item type -> mean measured advance
-  let headerH = 0; // the loading/seam markers that sit above the top spacer
+  let headerH = 0; // the push + the loading/seam markers that sit above the top spacer
   let cum = [0]; // cum[i] = summed advance of items 0..i-1
 
   const guessFor = (it) =>
@@ -1302,6 +1315,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="feed"
+  class:bar-narrow={barNarrow}
   style:opacity={feedOpacity}
   bind:this={feedEl}
   role="log"
@@ -1372,6 +1386,21 @@
       <span class="ol-spin"></span>
     </div>
   {/if}
+  <!-- The bottom anchor. A conversation is read upward from the composer, so a
+       short one rests ON the composer rather than hanging from the ceiling with
+       half a screen of nothing under it. This spacer eats whatever room is left
+       over and collapses to nothing the moment the thread is taller than the
+       pane, which is why it is a flex spacer and not `justify-content: flex-end`
+       on the scroller — that idiom makes the top of an overflowing column
+       unreachable.
+       It sits ABOVE the "beginning of the channel" line, not below it. Below it
+       the caption stayed pinned to the ceiling while the thing it announces sat
+       at the floor, and the reader got a line of italic text, a quarter-screen
+       of nothing, then the conversation — 678px of it in #announcements. The
+       caption is the first item OF the conversation, not a page header, so the
+       void belongs above everything: empty room, then "this is the beginning",
+       then the messages, which is the order the sentence assumes. -->
+  <div class="vs vs-push" aria-hidden="true"></div>
   {#if S.loadingOlder}
     <div class="older-loading"><span class="ol-spin"></span> Loading older messages…</div>
   {:else if showArchive}
@@ -1396,18 +1425,8 @@
   {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading}
     <div class="feed-start">This is the beginning of the channel.</div>
   {/if}
-  <!-- Everything above this line is fixed chrome at the top of the thread.
-       Everything between the two spacers is the window; the spacers hold the
+  <!-- Everything between the two spacers is the window; the spacers hold the
        height of the rows on either side of it that are not rendered. -->
-  <!-- The bottom anchor. A conversation is read upward from the composer, so a
-       short one rests ON the composer rather than hanging from the ceiling with
-       half a screen of nothing under it. This spacer eats whatever room is left
-       over and collapses to nothing the moment the thread is taller than the
-       pane, which is why it is a flex spacer and not `justify-content: flex-end`
-       on the scroller — that idiom makes the top of an overflowing column
-       unreachable. It sits BELOW the "beginning of the channel" line so that
-       line stays at the top and reads as a header. -->
-  <div class="vs vs-push" aria-hidden="true"></div>
   <div class="vs vs-top" style:height="{topPad}px" aria-hidden="true"></div>
   {#each items.slice(lo, hi) as it (it.k)}
     {#if it.t === "arcday"}
@@ -1568,6 +1587,29 @@
     {/if}
   {/if}
 
+  {#if dragOver}
+    <div class="drop-overlay">
+      <div class="drop-card">
+        <Icon name="attach" size={28} />
+        <strong>Drop to send</strong>
+        <span class="muted">Files up to 25 MB, end-to-end encrypted</span>
+      </div>
+    </div>
+  {/if}
+</div>
+
+<!-- The return-to-latest cluster, BELOW the scroller rather than floating over
+     it. Sticky at `bottom: 8px` inside the feed, the pill was a plate over
+     whatever line happened to be at the viewport's lower edge — measured at
+     276x14px straight through the middle of "the migration finished overnight,
+     six hours end to…", which is normally the line you scrolled up to read.
+     There is no anchor inside a scroller that avoids that: the reader chooses
+     what is under the pill by scrolling.
+     Out here it is a band in its own right. The feed is `flex: 1` in the pane's
+     column, so the band takes its height off the feed's BOTTOM edge — the top
+     edge does not move and neither does the content already on screen, which is
+     why this costs no jump when the pill appears. -->
+<div class="feed-dock">
   {#if S.newBelow}
     <!-- A plain button keeps its control semantics; the live announcement lives
          in a separate visually-hidden region (below) so AT hears "new messages"
@@ -1582,19 +1624,20 @@
       <span class="ob-cta">Jump to latest</span>
     </button>
   {/if}
-
-  {#if dragOver}
-    <div class="drop-overlay">
-      <div class="drop-card">
-        <Icon name="attach" size={28} />
-        <strong>Drop to send</strong>
-        <span class="muted">Files up to 25 MB, end-to-end encrypted</span>
-      </div>
-    </div>
-  {/if}
 </div>
 
 <style>
+  /* Empty, it is nothing: no height, no line box, nothing between the feed and
+     the composer. */
+  .feed-dock {
+    display: flex;
+    justify-content: center;
+    flex: none;
+    line-height: 0;
+  }
+  .feed-dock:has(button) {
+    padding: 6px 0 2px;
+  }
   .oos-banner {
     display: flex;
     align-items: center;
@@ -1858,6 +1901,16 @@
     --feed-gap: var(--msg-gap, 12px);
     gap: var(--feed-gap);
     position: relative;
+    /* Room at the right edge of every row for the hover action bar, so the bar
+       is never over text. Sized to the widest bar the row can build (three quick
+       emoji, add-reaction, reply, forward, pin, edit, delete, ⋯ — 317px
+       measured) plus its inset. Message.svelte carries the reasoning. */
+    --act-gutter: 340px;
+  }
+  /* One ⋯ button: 26px of glyph, 3px of padding either side, a hairline either
+     side, and the 4px the bar is inset from the row's edge. */
+  .feed.bar-narrow {
+    --act-gutter: 40px;
   }
   /* The window spacers: the height of the rows above and below the rendered
      window. Every direct child of a flex column earns a gap on both sides, and
@@ -2167,9 +2220,6 @@
   /* The return-to-latest cluster: both buttons share the accent-gradient
      "floating" look — a soft colored glow instead of the old flat chip. */
   .new-below {
-    position: sticky;
-    bottom: 10px;
-    align-self: center;
     display: inline-flex;
     align-items: center;
     gap: 7px;
@@ -2337,9 +2387,6 @@
   /* "You're scrolled up" indicator: a slim glassy bar above the composer —
      quiet context plus one accent action, not a floating blob. */
   .older-bar {
-    position: sticky;
-    bottom: 8px;
-    align-self: center;
     display: flex;
     align-items: center;
     gap: var(--sp-3);

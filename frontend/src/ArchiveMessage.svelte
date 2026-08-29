@@ -230,6 +230,7 @@
     line-height: 1.5;
     white-space: pre-wrap;
     word-break: break-word;
+    max-width: var(--measure, 92ch);
   }
   .body :global(a) {
     color: var(--accent-hover);

@@ -151,6 +151,18 @@
   --msg-group-pull: -11px;
   --feed-pad: 18px;
 
+  /* The reading measure. A message body had no cap at all, so it took whatever
+     the pane gave it: 131 characters per line in a 1920 channel and 200 in a
+     1920 DM, where nothing occupies the right column at all. Past roughly a
+     hundred characters the eye loses its place on the return sweep, and this is
+     the surface people read for hours.
+     It is deliberately generous — a chat line is short and a hard 76ch would
+     have wrapped ordinary sentences that fit today — and it is on the row's
+     text, not on the pane, so the avatar, the header, attachments, cards and
+     reactions keep the width they had. A fenced block inside a message shares
+     the cap and scrolls inside it, which it already did. */
+  --measure: 92ch;
+
   /* Chrome silhouette and message frame. These are the tokens that let a pack
      restyle the app's SHAPE instead of its hue: the avatar mask, the fill and
      side padding of a message row, and the hairline that separates author
