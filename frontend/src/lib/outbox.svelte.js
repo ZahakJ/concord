@@ -19,11 +19,113 @@
 // to be excluded from each of those by hand, one forgotten exclusion at a time.
 // The outbox is its own list and the feed merges it at the very end, where the
 // merge is one concat of rows that are always newest.
+//
+// SURVIVING A RELOAD. A failed row is the only copy of what you wrote — the
+// draft is deliberately cleared when the pending row is created, and Discard is
+// the only path that puts the text on the clipboard. It used to die on F5 in
+// silence, with no beforeunload prompt and nothing on disk. So failed rows are
+// written beside the drafts, in the same storage, keyed the same way, and read
+// back on load; and while anything is still unsettled the page asks before it
+// goes away.
+//
+// Text only, and the asymmetry is deliberate. An attachment's data URL is
+// megabytes and localStorage is a handful, so persisting one would break the
+// storage the drafts live in — and the picture still exists on the user's disk,
+// which is exactly what the typed words do not. The unload guard covers that
+// case; persistence covers the one where there is nothing to go back to.
+//
+// Only FAILED rows are persisted. A row still in flight at unload may well have
+// landed — the core stores before it answers — so writing it down as something
+// to retry is how you send the same message twice.
 import { S, flash, scrollSoon, humanError } from "./state.svelte.js";
 import { api } from "./api.js";
 import { unsettled, alreadySaid } from "./outbox.js";
 
 let seq = 0;
+
+const STORE_KEY = "concord.outbox";
+
+function persist() {
+  try {
+    const keep = S.outbox
+      .filter((e) => e.state === "failed" && e.kind === "text" && e.body)
+      .map((e) => ({
+        id: e.id,
+        kind: "text",
+        channelId: e.channelId,
+        body: e.body,
+        replyTo: e.replyTo || "",
+        dir: e.dir || "",
+        match: e.match,
+        seen: e.seen,
+        state: "failed",
+        error: e.error || "",
+        at: e.at,
+      }));
+    if (keep.length) localStorage.setItem(STORE_KEY, JSON.stringify(keep));
+    else localStorage.removeItem(STORE_KEY);
+  } catch {
+    /* private mode / quota: the row is still on screen, it just won't survive */
+  }
+}
+
+// rehydrate runs once, at import, before the first render — so a reload that
+// followed a failed send shows the row and its Retry rather than a feed with a
+// hole where the message was.
+function rehydrate() {
+  let rows = [];
+  try {
+    rows = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
+  } catch {
+    return;
+  }
+  if (!Array.isArray(rows) || !rows.length) return;
+  S.outbox = rows.filter((e) => e && e.kind === "text" && e.channelId && e.body);
+  // New ids must not collide with restored ones, or retry/discard would act on
+  // the wrong row.
+  for (const e of S.outbox) {
+    const n = Number(String(e.id).slice(1));
+    if (Number.isFinite(n) && n > seq) seq = n;
+  }
+}
+rehydrate();
+
+// The unload guard. Not "are there failed rows" but "is anything unsettled":
+// a send still in flight is also something a reload would throw away, and it is
+// the case where the user cannot even see that they are about to lose it.
+export function outboxUnsettled() {
+  return S.outbox.some((e) => e.state === "failed" || e.state === "sending");
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", (e) => {
+    if (!outboxUnsettled()) return;
+    e.preventDefault();
+    // Chrome ignores the string and shows its own wording; Firefox and WebKit
+    // want returnValue set at all. Both need the assignment to raise anything.
+    e.returnValue = "";
+  });
+}
+
+// failedIn / failedCount — what the sidebar and the rail read. A channel with an
+// unsent DRAFT was marked and a channel with a FAILED SEND was not, which is
+// exactly backwards: one is a thought you chose not to finish, the other is a
+// message you believe you sent.
+export function failedIn(channelId) {
+  if (!channelId || !S.outbox.length) return 0;
+  return S.outbox.filter((e) => e.channelId === channelId && e.state === "failed").length;
+}
+// The text of the oldest failed row in a conversation — what the DM list shows
+// in place of the last message, the way it already does for a draft.
+export function failedBodyIn(channelId) {
+  if (!channelId || !S.outbox.length) return "";
+  return S.outbox.find((e) => e.channelId === channelId && e.state === "failed")?.body || "";
+}
+export function failedInGuild(guild) {
+  if (!guild?.channels?.length || !S.outbox.length) return 0;
+  const ids = new Set(guild.channels.map((c) => c.id));
+  return S.outbox.filter((e) => e.state === "failed" && ids.has(e.channelId)).length;
+}
 
 // entriesFor: what the feed should draw under `channelId`, in send order. One
 // scan of an array that is empty every moment nobody is sending.
@@ -42,10 +144,12 @@ function add(entry) {
 
 function drop(id) {
   S.outbox = S.outbox.filter((e) => e.id !== id);
+  persist();
 }
 
 function patch(id, fields) {
   S.outbox = S.outbox.map((e) => (e.id === id ? { ...e, ...fields } : e));
+  persist();
 }
 
 // sendText: the ordinary case. `body` is the FINAL string — slash commands,

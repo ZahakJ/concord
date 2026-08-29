@@ -55,6 +55,7 @@
   import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { longpress, haptic } from "./lib/touch.js";
   import { draftIn } from "./lib/drafts.svelte.js";
+  import { failedIn, failedBodyIn } from "./lib/outbox.svelte.js";
   import { clampToBytes, NAME_MAX_BYTES } from "./lib/postdraft.js";
   import { focusOnMount } from "./lib/focus.js";
   import { callClock } from "./lib/calltimer.svelte.js";
@@ -783,7 +784,11 @@
               {/if}
             </span>
             <span class="dm-sub">
-              {#if draft}
+              {#if failedIn(dm.channels?.[0]?.id)}
+                <!-- Same precedence as a channel row: a message that did not
+                     send outranks the preview AND the draft, in both places. -->
+                <em class="dm-failed">Didn't send:</em> {failedBodyIn(dm.channels?.[0]?.id)}
+              {:else if draft}
                 <em class="dm-draft">Draft:</em> {draft}
               {:else if dm.dmPreview}
                 {#if dmSaid(dm)}<span class="dm-said">{dmSaid(dm)}</span>{/if}{dm.dmPreview}
@@ -1006,7 +1011,25 @@
                   <i class="ch-live-dot"></i>LIVE
                 </span>
               {/if}
-              {#if !active && draftIn(c.id)}
+              {#if !active && failedIn(c.id)}
+                <!-- A send FAILED in here. Louder than the draft mark and in the
+                     same slot, because the two are not the same news: a draft is
+                     a thought you chose not to finish, this is a message you
+                     believe you sent. It was the only thing in the app that knew
+                     — leave the channel and there was no mark of any kind, so a
+                     channel with unsent TEXT was marked and a channel with a
+                     failed MESSAGE was not. -->
+                <span
+                  class="ch-failed"
+                  role="img"
+                  use:tooltip={failedIn(c.id) === 1
+                    ? "A message here didn't send — open it to retry"
+                    : `${failedIn(c.id)} messages here didn't send — open it to retry`}
+                  aria-label="{failedIn(c.id)} unsent messages, failed to send"
+                >
+                  <Icon name="alert" size={11} />
+                </span>
+              {:else if !active && draftIn(c.id)}
                 <!-- Something unsent lives here. The draft already survived the
                      switch and the reload; the row said nothing about it, which
                      is how a half-written thought gets lost. -->
@@ -1929,6 +1952,14 @@
   .channel-row.active .ch-draft {
     color: var(--accent-hover);
   }
+  /* The failed mark is the one exception to "quiet": it is not a reminder, it
+     is a message that did not arrive, and it stays lit without a hover. */
+  .ch-failed {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    color: var(--danger-text);
+  }
   .ch-name {
     flex: 1;
     overflow: hidden;
@@ -2215,6 +2246,12 @@
      the one thing that gets the accent. */
   .dm-draft {
     color: var(--accent-hover);
+    font-style: normal;
+    font-weight: 600;
+  }
+  /* …and a message that did not send is about you AND went wrong. */
+  .dm-failed {
+    color: var(--danger-text);
     font-style: normal;
     font-weight: 600;
   }

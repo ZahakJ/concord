@@ -54,6 +54,7 @@
   const season = seasonFx(); // computed once — nobody keeps the app open across an equinox
   const seasonOn = $derived(!!season && S.prefs.seasonal !== false);
   import { RADAR, guildLiveSet } from "./lib/radar.svelte.js";
+  import { failedInGuild } from "./lib/outbox.svelte.js";
 
   // The rail is an icon-only column — identifying a bubble is the whole point
   // of hovering it, so the tip comes fast and sits to the right, off the strip.
@@ -526,7 +527,16 @@
           {#if sv.id !== S.activeGuildId && u.count > 0}
             <span class="badge" class:mention={u.mentions > 0}>{u.count > 99 ? "99+" : u.count}</span>
           {/if}
-          {#if liveGuilds.has(sv.id)}
+          {#if failedInGuild(sv)}
+            <!-- A send failed somewhere in here. It takes the corner from the
+                 event dots because a message that did not arrive outranks a
+                 calendar nudge, and because until now nothing outside the
+                 channel's own feed knew about it at all. -->
+            <span
+              class="fail-dot"
+              title="A message in {sv.name} didn't send — open it to retry"
+            ></span>
+          {:else if liveGuilds.has(sv.id)}
             <span class="live-dot" title="A scheduled event is live in {sv.name} — a channel inside wears LIVE"></span>
           {:else if RADAR.unseen[sv.id]}
             <span class="ev-dot" title="New event in {sv.name} — open its calendar"></span>
@@ -1006,7 +1016,8 @@
      quiet, cleared by opening that calendar. Both ride the bubble corner so
      they can coexist with the red unread count at the top. */
   .live-dot,
-  .ev-dot {
+  .ev-dot,
+  .fail-dot {
     position: absolute;
     bottom: -2px;
     right: -2px;
@@ -1031,6 +1042,10 @@
   .ev-dot {
     background: var(--accent);
     box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 55%, transparent);
+  }
+  .fail-dot {
+    background: var(--danger);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--danger) 55%, transparent);
   }
   /* The rail calendar's unseen-events count: same geometry as the unread
      badge, accent ink — a nudge toward plans, not an alarm. */
