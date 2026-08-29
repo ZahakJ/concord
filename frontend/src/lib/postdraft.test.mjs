@@ -78,11 +78,11 @@ t("runeLen counts code points, not UTF-16 units", () => {
 });
 
 t("clampToBytes never splits a rune — the whole reason maxlength isn't enough", () => {
-  // 16 party poppers is exactly 64 bytes; the 17th must not land as a half rune.
-  const seventeen = "🎉".repeat(17);
-  const cut = clampToBytes(seventeen, TITLE_MAX_BYTES);
-  assert.equal(runeLen(cut), 16);
-  assert.equal(utf8Bytes(cut), 64);
+  // 50 party poppers is exactly 200 bytes; the 51st must not land as a half rune.
+  const overOne = "🎉".repeat(TITLE_MAX_BYTES / 4 + 1);
+  const cut = clampToBytes(overOne, TITLE_MAX_BYTES);
+  assert.equal(runeLen(cut), TITLE_MAX_BYTES / 4);
+  assert.equal(utf8Bytes(cut), TITLE_MAX_BYTES);
   // The naive backend-style byte slice is what this avoids.
   assert.ok(!cut.includes("�"));
   // A budget that lands mid-rune drops the whole rune rather than half of it.
@@ -91,15 +91,24 @@ t("clampToBytes never splits a rune — the whole reason maxlength isn't enough"
   assert.equal(clampToBytes("short", 64), "short");
 });
 
-t("titleFit's tone crosses over in the last quarter and at zero", () => {
+t("titleFit's tone stays quiet until the last stretch, then warns, then stops", () => {
+  const M = TITLE_MAX_BYTES;
   assert.equal(titleFit("").tone, "ok");
-  assert.equal(titleFit("a".repeat(40)).tone, "ok");
-  assert.equal(titleFit("a".repeat(58)).tone, "warn");
-  assert.equal(titleFit("a".repeat(64)).tone, "full");
-  assert.equal(titleFit("a".repeat(64)).left, 0);
-  assert.ok(titleFit("a".repeat(64)).full);
-  // Counted in bytes, so an emoji title runs out at 16 characters.
-  assert.equal(titleFit("🎉".repeat(16)).left, 0);
+  assert.equal(titleFit("a".repeat(M - 40)).tone, "ok");
+  // The warn band is the last 24 bytes, not the last quarter: at a 200-byte cap
+  // a flat quarter would start warning with fifty bytes still to spend.
+  assert.equal(titleFit("a".repeat(M - 25)).tone, "ok");
+  assert.equal(titleFit("a".repeat(M - 20)).tone, "warn");
+  assert.equal(titleFit("a".repeat(M)).tone, "full");
+  assert.equal(titleFit("a".repeat(M)).left, 0);
+  assert.ok(titleFit("a".repeat(M)).full);
+  // Counted in bytes, so an emoji title runs out at a quarter of the budget.
+  assert.equal(titleFit("🎉".repeat(M / 4)).left, 0);
+  // …and the readout says which unit it is spending, because in Latin script
+  // the two agree and in Arabic they do not.
+  assert.equal(titleFit("a plain title").unit, "characters");
+  assert.equal(titleFit("ورشة الترجمة").unit, "bytes");
+  assert.equal(titleFit("").unit, "characters");
 });
 
 t("bodyStats never claims a 0-minute read and flags the soft cap", () => {

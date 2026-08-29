@@ -174,9 +174,7 @@ func (s *Service) updateActivity(a string, act *Activity) { s.updateActivityAt(a
 // updateActivityAt is updateActivity with the clock passed in, so the calm can
 // be driven directly by a test rather than waited out.
 func (s *Service) updateActivityAt(a string, act *Activity, now time.Time) {
-	if len(a) > maxActivityBytes {
-		a = a[:maxActivityBytes]
-	}
+	a = clampBytes(a, maxActivityBytes)
 	s.activityMu.Lock()
 	moved := s.activity != a || !activityEqual(s.activityInfo, act)
 	say := moved || (positionDrifted(s.activityInfo, act) && now.Sub(s.lastActivitySay) >= activitySeekCalm)

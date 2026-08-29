@@ -55,6 +55,7 @@
   import { LEVELS, levelLabel } from "./lib/notifs.js";
   import { longpress, haptic } from "./lib/touch.js";
   import { draftIn } from "./lib/drafts.svelte.js";
+  import { clampToBytes, NAME_MAX_BYTES } from "./lib/postdraft.js";
   import { focusOnMount } from "./lib/focus.js";
   import { callClock } from "./lib/calltimer.svelte.js";
 
@@ -867,11 +868,24 @@
             ondrop={(e) => headDrop(e, grp)}
           >
             {#if renamingCat === grp.id}
+              <!-- The cap is the BACKEND's, in the backend's unit. `maxlength`
+                   counts characters and the cap is 64 bytes, so this box used to
+                   accept 39 Arabic characters (71 bytes) and hand them to a
+                   truncation that cut one in half. clampToBytes stops exactly
+                   where the backend would, on a rune boundary, so what you see
+                   in the box is what gets stored. -->
               <input
                 class="cat-edit"
                 use:focusOnMount
                 value={grp.name}
-                maxlength="40"
+                oninput={(e) => {
+                  const v = clampToBytes(e.currentTarget.value, NAME_MAX_BYTES);
+                  if (v !== e.currentTarget.value) {
+                    const at = Math.min(e.currentTarget.selectionStart ?? v.length, v.length);
+                    e.currentTarget.value = v;
+                    e.currentTarget.setSelectionRange(at, at);
+                  }
+                }}
                 aria-label="Rename category {grp.name}"
                 onkeydown={(e) => {
                   if (e.key === "Enter") commitCatRename(grp, e.currentTarget.value);

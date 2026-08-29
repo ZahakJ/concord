@@ -419,13 +419,9 @@ func (s *Service) importChatExport(job *chatImportJob, policy chronimport.Policy
 		}
 		source = fmt.Sprintf("%s, imported %s", name, time.Now().UTC().Format("2 January 2006"))
 	}
-	if len(source) > maxChronicleSourceLen {
-		source = source[:maxChronicleSourceLen]
-	}
+	source = clampBytes(source, maxChronicleSourceLen)
 	desc := policy.Description
-	if len(desc) > maxChronicleDescLen {
-		desc = desc[:maxChronicleDescLen]
-	}
+	desc = clampBytes(desc, maxChronicleDescLen)
 
 	channels := acc.manifestChannels()
 	raw, chunks, err := s.buildChronicle(guildID, source, desc, channels,
@@ -971,9 +967,7 @@ func placeholderLine(at chronimport.Attachment, size int64) string {
 	if name == "" {
 		name = "a file"
 	}
-	if len(name) > maxFilenameLen {
-		name = name[:maxFilenameLen]
-	}
+	name = clampBytes(name, maxFilenameLen)
 	if size <= 0 {
 		return fmt.Sprintf("[attachment not exported: %s]", name)
 	}
@@ -1023,9 +1017,7 @@ func (s *Service) sealImportedFile(path string, at chronimport.Attachment, size 
 	if name == "" {
 		name = filepath.Base(path)
 	}
-	if len(name) > maxFilenameLen {
-		name = name[:maxFilenameLen]
-	}
+	name = clampBytes(name, maxFilenameLen)
 	mimeType := mime.TypeByExtension(filepath.Ext(path))
 	if i := strings.Index(mimeType, ";"); i >= 0 {
 		mimeType = mimeType[:i]

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	appsvc "github.com/ZahakJ/concord/internal/app"
 	"github.com/ZahakJ/concord/internal/chronimport"
@@ -1205,7 +1206,7 @@ func (b *Bridge) CreateCategory(guildID, name string) (CategoryView, error) {
 	if err != nil {
 		return CategoryView{}, err
 	}
-	return CategoryView{ID: c.ID, Name: c.Name, Position: c.Position}, nil
+	return CategoryView{ID: c.ID, Name: cleanName(c.Name), Position: c.Position}, nil
 }
 
 // RenameCategory renames a sidebar category (ManageChannels).
@@ -1867,7 +1868,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 		perms := uint32(svc.MemberPermission(guildID, fpr))
 		out = append(out, MemberView{
 			Fingerprint: fpr,
-			Name:        name,
+			Name:        cleanName(name),
 			Username:    username,
 			Status:      p.Status,
 			Emoji:       p.Emoji,
@@ -1926,7 +1927,7 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 		}
 		out = append(out, MemberView{
 			Fingerprint: fpr,
-			Name:        name,
+			Name:        cleanName(name),
 			Status:      p.Status,
 			Emoji:       p.Emoji,
 			Color:       p.Color,
@@ -2675,8 +2676,36 @@ func isCustomDMName(n string) bool {
 	return true
 }
 
+// cleanName repairs a name that an older build truncated with a raw byte slice.
+//
+// `name[:64]` through a two-byte rune left invalid UTF-8 in the store, and that
+// record is SIGNED and replicated — every member holds the same broken bytes, so
+// there is nothing to fix at the source without forging a new signature over
+// somebody else's words. What can be fixed is what we draw: the record keeps its
+// exact bytes, and the projection the UI reads drops the fragment, so the
+// sidebar stops painting a `�` under a name that is otherwise fine.
+//
+// Deliberately narrow. Only a replacement character produced by DECODING an
+// invalid byte is removed, and only where the string is genuinely malformed —
+// a literal U+FFFD that somebody typed on purpose is left where they put it.
+// Trailing whitespace goes with it, so "الع " does not gain a hanging space.
+func cleanName(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == utf8.RuneError {
+			continue // a byte that decodes to nothing: the tail of a split rune
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimRight(b.String(), " \t\n\r")
+}
+
 func channelView(c domain.Channel) ChannelView {
-	return ChannelView{ID: c.ID, Name: c.Name, Type: c.ChannelType(), Category: c.Category,
+	return ChannelView{ID: c.ID, Name: cleanName(c.Name), Type: c.ChannelType(), Category: c.Category,
 		Position: c.Position, Topic: c.Topic, Parent: c.Parent, Links: c.Links,
 		ForumTags: c.ForumTags, Tags: c.Tags, Pinned: c.Pinned, Solved: c.Solved,
 		Locked: c.Locked, LockedBy: c.LockedBy, Banner: c.Banner}
@@ -2700,7 +2729,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 	cats := []CategoryView{}
 	if cc, err := svc.Categories(g.ID); err == nil {
 		for _, c := range cc {
-			cats = append(cats, CategoryView{ID: c.ID, Name: c.Name, Position: c.Position})
+			cats = append(cats, CategoryView{ID: c.ID, Name: cleanName(c.Name), Position: c.Position})
 		}
 	}
 	emoji := []EmojiView{}
@@ -2709,7 +2738,7 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 			emoji = append(emoji, EmojiView{Name: e.Name, Image: e.Image})
 		}
 	}
-	name := g.Name
+	name := cleanName(g.Name)
 	// A peer DM shows the OTHER member (name + avatar handled UI-side via the
 	// fingerprint); a self-DM stays "Notes".
 	dmPeer, dmPeerPresence, dmPeerAvatar, dmPeerOnline, dmMembers := "", "", "", false, 0

@@ -828,9 +828,7 @@ func sanitizeGames(games []Game) []Game {
 		if g.Name == "" {
 			continue
 		}
-		if len(g.Name) > maxGameNameBytes {
-			g.Name = g.Name[:maxGameNameBytes]
-		}
+		g.Name = clampBytes(g.Name, maxGameNameBytes)
 		if !validGameCover(g.Cover) {
 			g.Cover = ""
 		}
@@ -904,8 +902,46 @@ const maxProfileBannerBytes = 256 * 1024
 // peer can't publish a pathologically long string over the meta topic.
 const maxNameBytes = 64
 
+// maxTitleBytes bounds a forum post's title. A post's title IS its channel
+// name, which is why it used to share maxNameBytes — but 64 bytes is a name,
+// not a question. It is 32 Arabic characters, 21 Devanagari, 16 emoji, and the
+// seeded board carries an ordinary support-desk headline ("Can we get a
+// dark-mode toggle that is not tied to the system theme?") that does not fit in
+// it. Most forums allow 100–200; this is the top of that range, still small
+// enough that a title stays a title on a 390px card.
+const maxTitleBytes = 200
+
 // maxBioBytes bounds the profile "about me" so profile broadcasts stay small.
 const maxBioBytes = 600
+
+// clampBytes trims s to at most max bytes WITHOUT splitting a rune.
+//
+// Every one of these caps used to be `s = s[:max]`, and a byte slice through a
+// multi-byte character produces invalid UTF-8 — which was then stored, signed
+// and replicated to every member, so one over-long Arabic category name painted
+// a literal `�` in every device's sidebar for good. `AB ورشة الترجمة والتدقيق
+// اللغوي العربية` is 39 characters and 71 bytes: two bytes over the 64-byte
+// name cap, and the cut landed inside the ع.
+//
+// A cap in bytes is the right unit here — these bound what goes on the wire,
+// and the wire counts bytes — so the fix is not to count characters, it is to
+// stop cutting between them. Nothing is appended: an ellipsis would push the
+// result back over the budget the caller just asked for.
+func clampBytes(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	if max <= 0 {
+		return ""
+	}
+	// Walk back to the start of the rune that straddles the boundary. A UTF-8
+	// continuation byte is 10xxxxxx; the lead byte is anything else.
+	end := max
+	for end > 0 && s[end]&0xC0 == 0x80 {
+		end--
+	}
+	return s[:end]
+}
 
 // birthdayRe admits a month-day pair only ("MM-DD", "01".."12" / "01".."31").
 // Deliberately no year group: even if a peer broadcasts one, it must never be
@@ -1867,9 +1903,7 @@ func (s *Service) AdoptLinkedProfile(p Profile) bool {
 	if len(p.Banner) > maxProfileBannerBytes || !validBanner(p.Banner) {
 		p.Banner = ""
 	}
-	if len(p.Bio) > maxBioBytes {
-		p.Bio = p.Bio[:maxBioBytes]
-	}
+	p.Bio = clampBytes(p.Bio, maxBioBytes)
 	sanitizeProfileExtras(&p)
 	fields := map[string]string{
 		"display_name": strings.TrimSpace(p.Name),
@@ -1946,9 +1980,7 @@ func (s *Service) SetProfile(p Profile) error {
 	if !validBanner(p.Banner) {
 		return fmt.Errorf("app: banner must be an image or a preset")
 	}
-	if len(p.Bio) > maxBioBytes {
-		p.Bio = p.Bio[:maxBioBytes]
-	}
+	p.Bio = clampBytes(p.Bio, maxBioBytes)
 	sanitizeProfileExtras(&p)
 	for k, v := range map[string]string{
 		"display_name": strings.TrimSpace(p.Name),

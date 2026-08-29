@@ -42,8 +42,21 @@ export function utf8Bytes(s) {
   return n;
 }
 
-// app.maxNameBytes. A post's title IS its channel name.
-export const TITLE_MAX_BYTES = 64;
+// app.maxTitleBytes. A post's title IS its channel name, which is why this used
+// to be the 64-byte name cap — but 64 bytes is a label, not a question. It is 32
+// Arabic characters, 21 Devanagari, 16 emoji, and an ordinary support-desk
+// headline ("Can we get a dark-mode toggle that is not tied to the system
+// theme?") does not fit in it: the seeded board carries that exact title, cut to
+// "…not tied to the system the" with no ellipsis and no question mark. Most
+// forums allow 100–200.
+export const TITLE_MAX_BYTES = 200;
+
+// app.maxNameBytes — the cap on a display name, a nickname, a category name and
+// a group-DM name. Every input that feeds one of those must agree with it, in
+// the unit the backend actually spends: the category-rename box used to carry
+// `maxlength="40"` — CHARACTERS — and 39 Arabic characters are 71 bytes, which
+// is how a rename came back with a `�` on the end.
+export const NAME_MAX_BYTES = 64;
 
 // Message bodies aren't byte-capped by the backend, but an unbounded one is a
 // UI problem long before it's a protocol problem: the excerpt on a forum card is
@@ -70,16 +83,30 @@ export function clampToBytes(s, max = TITLE_MAX_BYTES) {
 
 // titleFit is what the title field's budget readout prints. `tone` is the
 // design decision, made once here so both composers agree on when a counter
-// stops being neutral: quiet until the last quarter, warn in it, done at zero.
+// stops being neutral: quiet until the end, warn near it, done at zero.
+//
+// "Near it" is the last quarter OR the last 24, whichever is closer. A flat
+// quarter was fine at a 64-byte cap and is not at 200: it would start warning
+// with fifty bytes still to spend, which is most of a sentence.
+//
+// `unit` exists because the number means two different things depending on what
+// you are typing. In Latin script a byte is a character and "37 left" is a
+// promise the field keeps; in Arabic or Devanagari each character spends two or
+// three, and calling them characters would be a lie the very next keystroke
+// exposes. So the readout says which it is, decided from what has been typed so
+// far — an all-single-byte title counts in characters, anything else in bytes.
 export function titleFit(title, max = TITLE_MAX_BYTES) {
-  const bytes = utf8Bytes(title);
+  const str = String(title ?? "");
+  const bytes = utf8Bytes(str);
   const left = max - bytes;
+  const warnAt = Math.max(6, Math.min(24, Math.round(max / 4)));
   return {
     bytes,
     max,
     left,
+    unit: bytes === runeLen(str) ? "characters" : "bytes",
     full: left <= 0,
-    tone: left <= 0 ? "full" : left <= Math.max(6, Math.round(max / 4)) ? "warn" : "ok",
+    tone: left <= 0 ? "full" : left <= warnAt ? "warn" : "ok",
   };
 }
 

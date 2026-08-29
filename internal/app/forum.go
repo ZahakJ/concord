@@ -176,6 +176,12 @@ func sanitizePostTags(ids []string) []string {
 // It also clears fields that cannot mean anything for the channel's type, so a
 // text channel never carries a tag palette and a forum is never itself "solved".
 func sanitizeForumMeta(c *domain.Channel) {
+	// The name too, at the same funnel. Nothing on the receive path bounded it:
+	// a peer's channel_added carried whatever string it liked straight into the
+	// sidebar, and a post's title is the one channel name an ordinary member is
+	// allowed to choose. Clamped on a rune boundary, so a name that is merely
+	// long shortens rather than arriving corrupt.
+	c.Name = clampBytes(strings.TrimSpace(c.Name), channelNameLimit(*c))
 	switch c.ChannelType() {
 	case "forum":
 		c.ForumTags = sanitizeForumTags(c.ForumTags)

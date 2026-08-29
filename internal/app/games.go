@@ -62,9 +62,7 @@ func (s *Service) SearchGames(query string) []GameSearchResult {
 	if len(query) < 2 {
 		return nil
 	}
-	if len(query) > maxGameNameBytes {
-		query = query[:maxGameNameBytes]
-	}
+	query = clampBytes(query, maxGameNameBytes)
 	key := strings.ToLower(query)
 
 	gameSearchMu.Lock()
@@ -106,9 +104,7 @@ func (s *Service) SearchGames(query string) []GameSearchResult {
 		if name == "" || it.ID.String() == "" {
 			continue
 		}
-		if len(name) > maxGameNameBytes {
-			name = name[:maxGameNameBytes]
-		}
+		name = clampBytes(name, maxGameNameBytes)
 		r := GameSearchResult{
 			Name: name,
 			// Portrait "library" art — the tall, pretty tile. Some titles

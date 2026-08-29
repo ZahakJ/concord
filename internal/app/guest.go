@@ -841,9 +841,7 @@ func (s *Service) serveGuest(conn io.ReadWriteCloser) {
 		if content == "" {
 			continue
 		}
-		if len(content) > maxGuestMsgBytes {
-			content = content[:maxGuestMsgBytes]
-		}
+		content = clampBytes(content, maxGuestMsgBytes)
 		now := time.Now()
 		budget += now.Sub(last).Seconds() / guestRefillEach.Seconds()
 		if budget > guestBurst {
@@ -1023,8 +1021,6 @@ func sanitizeGuestName(n string) string {
 	if n == "" {
 		n = "Guest"
 	}
-	if len(n) > maxGuestNameBytes {
-		n = n[:maxGuestNameBytes]
-	}
+	n = clampBytes(n, maxGuestNameBytes)
 	return n
 }

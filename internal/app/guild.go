@@ -1993,9 +1993,7 @@ func (s *Service) nickAllowed(guildID, actor, target string) bool {
 // skips this check convinces nobody.
 func (s *Service) SetMemberNickname(guildID, fingerprint, nick string) error {
 	nick = strings.TrimSpace(nick)
-	if len(nick) > maxNameBytes {
-		nick = nick[:maxNameBytes]
-	}
+	nick = clampBytes(nick, maxNameBytes)
 	if !s.nickAllowed(guildID, s.id.Fingerprint(), fingerprint) {
 		return fmt.Errorf("app: you can't change that member's nickname")
 	}
@@ -2017,9 +2015,7 @@ func (s *Service) SetMemberNickname(guildID, fingerprint, nick string) error {
 
 func (s *Service) SetNickname(guildID, nick string) error {
 	nick = strings.TrimSpace(nick)
-	if len(nick) > maxNameBytes {
-		nick = nick[:maxNameBytes]
-	}
+	nick = clampBytes(nick, maxNameBytes)
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
@@ -2156,9 +2152,7 @@ func (s *Service) RenameCategory(guildID, categoryID, name string) error {
 	if name == "" {
 		return fmt.Errorf("app: category name is empty")
 	}
-	if len(name) > maxNameBytes {
-		name = name[:maxNameBytes]
-	}
+	name = clampBytes(name, maxNameBytes)
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	s.mu.RUnlock()
@@ -2262,6 +2256,36 @@ func (s *Service) channelGuild(channelID string) (string, bool) {
 func (s *Service) channelInGuild(channelID, guildID string) bool {
 	g, ok := s.channelGuild(channelID)
 	return ok && g == guildID
+}
+
+// channelByID returns a copy of one channel record, or the zero value.
+func (s *Service) channelByID(guildID, channelID string) domain.Channel {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	g, ok := s.guilds[guildID]
+	if !ok {
+		return domain.Channel{}
+	}
+	for _, c := range g.Channels {
+		if c.ID == channelID {
+			return c
+		}
+	}
+	return domain.Channel{}
+}
+
+// channelNameLimit is how many bytes a channel's name may be.
+//
+// A thread's name is a forum post's TITLE — the one channel name an ordinary
+// member writes, and a sentence rather than a label. It gets the title budget;
+// everything else keeps the sidebar-sized 80. Both are byte budgets because
+// that is what goes on the wire, and both are enforced with clampBytes or a
+// refusal, never a raw slice.
+func channelNameLimit(c domain.Channel) int {
+	if c.ChannelType() == "thread" {
+		return maxTitleBytes
+	}
+	return 80
 }
 
 func (s *Service) applyChannelRemoved(guildID, channelID string) {
@@ -2409,8 +2433,9 @@ func (s *Service) RenameChannel(guildID, channelID, name string) error {
 	if name == "" {
 		return fmt.Errorf("app: channel name is empty")
 	}
-	if len(name) > 80 {
-		return fmt.Errorf("app: channel name is too long (80 characters max)")
+	limit := channelNameLimit(s.channelByID(guildID, channelID))
+	if len(name) > limit {
+		return fmt.Errorf("app: name is too long (%d bytes max)", limit)
 	}
 	updated, groupID, ok := s.mutateChannel(guildID, channelID, func(c *domain.Channel) bool {
 		if c.Name == name {
@@ -2437,7 +2462,7 @@ func (s *Service) applyChannelRename(guildID, actor, channelID, name string) {
 		return
 	}
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 80 {
+	if name == "" || len(name) > channelNameLimit(s.channelByID(guildID, channelID)) {
 		return
 	}
 	if !s.channelInGuild(channelID, guildID) {
@@ -2514,9 +2539,7 @@ func (s *Service) CreateThread(guildID, forumID, title, firstMessage string, tag
 	if title == "" {
 		return domain.Channel{}, fmt.Errorf("app: a post needs a title")
 	}
-	if len(title) > maxNameBytes {
-		title = title[:maxNameBytes]
-	}
+	title = clampBytes(title, maxTitleBytes)
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
 	var groupID []byte
@@ -3000,17 +3023,13 @@ func (s *Service) receiveGuildMeta(guildID string, groupID, ct []byte) {
 		if m.Fingerprint == s.id.Fingerprint() {
 			// Someone renamed US. Keep it — but it must have passed the same gate.
 			nick := m.Name
-			if len(nick) > maxNameBytes {
-				nick = nick[:maxNameBytes]
-			}
+			nick = clampBytes(nick, maxNameBytes)
 			s.rememberNick(guildID, m.Fingerprint, nick)
 			s.emitGuildUpdate()
 			return
 		}
 		nick := m.Name
-		if len(nick) > maxNameBytes {
-			nick = nick[:maxNameBytes]
-		}
+		nick = clampBytes(nick, maxNameBytes)
 		s.rememberNick(guildID, m.Fingerprint, nick)
 		s.emitGuildUpdate()
 	case "gov_op":

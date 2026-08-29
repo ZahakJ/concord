@@ -144,12 +144,8 @@ func (s *Service) sealAttachment(dataURL string, w, h int, spoiler bool, name, d
 	if h < 0 || h > 99999 {
 		h = 0
 	}
-	if len(name) > maxFilenameLen {
-		name = name[:maxFilenameLen]
-	}
-	if len(desc) > maxAttachDescLen {
-		desc = desc[:maxAttachDescLen]
-	}
+	name = clampBytes(name, maxFilenameLen)
+	desc = clampBytes(desc, maxAttachDescLen)
 	if !spoiler && name == "" && desc == "" {
 		return blobID, fmt.Sprintf("![image](concord://attach/v1/%s/%s/%s/%dx%d)", blobID, keys, subtype, w, h), nil
 	}
@@ -226,9 +222,7 @@ func (s *Service) SendFile(channelID, dataURL, filename, replyTo string) (domain
 	if err != nil {
 		return domain.Message{}, err
 	}
-	if len(filename) > maxFilenameLen {
-		filename = filename[:maxFilenameLen]
-	}
+	filename = clampBytes(filename, maxFilenameLen)
 	token := fmt.Sprintf("[file](concord://file/v1/%s/%s/%d/%s/%s)",
 		blobID, keys, len(plain), b64url.EncodeToString([]byte(mime)), b64url.EncodeToString([]byte(filename)))
 	return s.send(channelID, token, "", replyTo)

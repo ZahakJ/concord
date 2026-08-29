@@ -212,7 +212,15 @@
         aria-describedby="titlebudget"
         autofocus={!S.isMobile} />
       <div class="budget" id="titlebudget">
-        <span class="bnum" class:warn={fit.tone === "warn"} class:over={fit.tone === "full"}>{fit.left}</span>
+        <!-- Silent until the last stretch. A counter that is always on turns a
+             title field into a form field, and there is nothing to say while
+             there are 170 bytes left. -->
+        <span
+          class="bnum"
+          class:warn={fit.tone === "warn"}
+          class:over={fit.tone === "full"}
+          class:quiet={fit.tone === "ok"}>{fit.left}</span>
+        <span class="bunit" class:quiet={fit.tone === "ok"}>{fit.unit} left</span>
         <span class="btrack" aria-hidden="true">
           <span class="bfill" class:warn={fit.tone === "warn"} class:over={fit.tone === "full"} style="transform:scaleX({Math.min(1, fit.bytes / fit.max)})"
           ></span>
@@ -444,6 +452,18 @@
   }
   .bnum.warn {
     color: var(--warn-text);
+  }
+  /* The unit, and the number itself, only speak up near the end. The bar is the
+     always-on readout; a running byte count beside a two-word title is noise. */
+  .bunit {
+    font-size: var(--fs-compact);
+    color: var(--text-faint);
+    white-space: nowrap;
+  }
+  .bnum.quiet,
+  .bunit.quiet {
+    opacity: 0;
+    pointer-events: none;
   }
   .bnum.over {
     color: var(--danger-text);

@@ -354,9 +354,7 @@ func (s *Service) retryPendingDMInvites() {
 // model as a channel rename).
 func (s *Service) RenameDM(guildID, name string) error {
 	name = strings.TrimSpace(name)
-	if len(name) > maxNameBytes {
-		name = name[:maxNameBytes]
-	}
+	name = clampBytes(name, maxNameBytes)
 	s.mu.Lock()
 	g, ok := s.guilds[guildID]
 	if !ok || g.Kind != "dm" {
