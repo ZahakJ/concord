@@ -942,7 +942,7 @@ type Config struct {
 // (with LAN discovery), gossipsub, and the MLS engine, and restores any
 // previously-joined guilds. The returned Service must be Closed by the caller.
 func Start(ctx context.Context, cfg Config) (*Service, error) {
-	id, _, err := identity.LoadOrCreate(keystorePathIn(cfg.DataDir), cfg.Passphrase)
+	id, freshIdentity, err := identity.LoadOrCreate(keystorePathIn(cfg.DataDir), cfg.Passphrase)
 	if err != nil {
 		return nil, fmt.Errorf("app: open identity: %w", err)
 	}
@@ -1278,7 +1278,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// no longer exist.
 	s.loadDMState()
 
-	// Everyone has a Notes.
+	// Everyone has a Notes, from the moment the account exists.
 	//
 	// It used to be minted on first use, and "first use" for most accounts came
 	// after a second device already existed. A device linked before its owner
@@ -1289,17 +1289,30 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// publishing read markers into groups the other could not decrypt and the
 	// unread badges stopped converging entirely.
 	//
-	// Creating it here makes it a property of having an account rather than of
-	// having used a feature: it exists before the first hello, so there is
-	// exactly one to hand over and a joiner adopts it instead of inventing a
-	// rival. Idempotent — an account that already has one gets nothing, and a
-	// hidden one is left hidden.
+	// Making it a property of having an ACCOUNT rather than of having used a
+	// feature means it exists before the first hello: there is exactly one to
+	// hand over, and a joiner adopts it instead of inventing a rival.
 	//
-	// A failure is not fatal. The group can be minted later by the first thing
-	// that asks for it, exactly as it always was, and refusing to open the app
-	// over a scratchpad would be the wrong trade.
-	if _, err := s.ensureNotesDM(); err != nil {
-		log.Printf("concord/app: could not create the Notes group: %v", err)
+	// WHICH IS WHY THIS IS NOT "on every start". A device that has just redeemed
+	// a link has an identity — RedeemLink wrote the keystore before this Service
+	// ever ran — and no guilds yet, because the handover's invites are joined
+	// after Start returns. Minting for it here would create the second Notes
+	// this exists to prevent, from the other end, and the regression test for
+	// the original bug catches exactly that. So: a brand-new account gets one
+	// now, an account that already holds guilds is backfilled, and a device
+	// standing at the door with an identity and nothing else waits for the
+	// handover to give it the account's.
+	//
+	// Idempotent, and a failure is not fatal: the group can still be minted by
+	// the first thing that asks for it, exactly as it always was, and refusing
+	// to open the app over a scratchpad would be the wrong trade.
+	s.mu.RLock()
+	settled := len(s.guilds) > 0
+	s.mu.RUnlock()
+	if freshIdentity || settled {
+		if _, err := s.ensureNotesDM(); err != nil {
+			log.Printf("concord/app: could not create the Notes group: %v", err)
+		}
 	}
 	// Restore the guilds this device was thrown out of. Without this a restart
 	// reads as a fresh stranding — the local group still lists us as a member at
