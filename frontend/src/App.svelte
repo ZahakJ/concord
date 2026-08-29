@@ -356,6 +356,45 @@
       .catch(() => {});
   });
 
+  // One-time notice when this machine cannot play a sound at all.
+  //
+  // Nothing here is broken: the app has an AudioContext, it reports itself
+  // running, and it renders nothing, because the desktop's Web Audio goes
+  // through GStreamer and the plugins are not installed. Every chime and ping
+  // is then silence with no explanation anywhere — which is how a missing
+  // package gets reported as "the join sound doesn't work".
+  //
+  // It waits for a real gesture (the probe needs a context the browser will
+  // start), says it once ever per install, and says it in the toast rather than
+  // in a dialog: the fix is a package to install later, not something to answer
+  // now. Settings › Notifications & sounds keeps the same sentence permanently.
+  $effect(() => {
+    if (!S.ready || S.prefs.audioDeadNoticed) return;
+    let done = false;
+    const check = () => {
+      if (done) return;
+      done = true;
+      window.removeEventListener("pointerdown", check, true);
+      window.removeEventListener("keydown", check, true);
+      import("./lib/sounds.js")
+        .then(async (m) => {
+          await m.probeAudioOutput();
+          const why = m.audioTrouble();
+          if (!why) return;
+          setPref("audioDeadNoticed", true);
+          flash(why, "error");
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("pointerdown", check, { capture: true, passive: true });
+    window.addEventListener("keydown", check, { capture: true, passive: true });
+    return () => {
+      done = true;
+      window.removeEventListener("pointerdown", check, true);
+      window.removeEventListener("keydown", check, true);
+    };
+  });
+
   // Window title carries the unread signal to the taskbar/dock: "(3) #general
   // — Concord" while minimized or behind another window. Mentions only — raw
   // unread counts would make the title flicker on every chatty channel.

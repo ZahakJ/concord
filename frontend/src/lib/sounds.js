@@ -1,6 +1,10 @@
 // sounds.js — tiny synthesized UI chimes (no audio files). One shared
-// AudioContext, created lazily on first use (a user gesture will have happened
-// by the time any of these fire). Muteable, persisted in localStorage.
+// AudioContext, created lazily on first use and primed by the session's first
+// gesture; withAudio() below waits for it to actually start rather than
+// scheduling into a stopped clock. Muteable, persisted in localStorage. The
+// module also reports whether this machine can play a sound at all — see
+// audioTrouble(), which exists because on the Linux desktop it sometimes
+// cannot, and says so nowhere.
 
 import { decodeRecipe, SFX_WAVES } from "./sfxrecipe.js";
 
@@ -100,7 +104,10 @@ export function noteAudioRouteChange() {
 
 function audio() {
   const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return null;
+  if (!AC) {
+    health = "unsupported";
+    return null;
+  }
   if (ctx && (routeDirty || ctx.state === "closed")) {
     try {
       ctx.close().catch(() => {});
@@ -116,15 +123,150 @@ function audio() {
   return ctx;
 }
 
-// watchdog flags a context that reports "running" while its clock is stuck —
-// the signature of a context orphaned by an audio-route change. The current
-// sound is already lost (there is no way to know before playing into it); the
-// point is that the next one isn't.
+// withAudio hands a running context to fn — now if there is one, and otherwise
+// as soon as the browser lets the context start.
+//
+// Every synthesizer in this file schedules against ac.currentTime, and on a
+// SUSPENDED context that clock is frozen at whatever it stopped at. The old
+// code fired resume() and then scheduled immediately anyway, so the first
+// sound of a session — the one played by the very click that unblocked audio —
+// was written into the past and came out as nothing. That is invisible on a
+// desktop browser that never suspends and reliable on one that does, which is
+// exactly the shape of "sometimes there is no sound and nobody can say why".
+//
+// Late is fine. These are all under a second long and none of them is timed
+// against anything; a chime that arrives 30ms after the resume promise settles
+// is a chime, and a chime scheduled into a stopped clock is silence.
+function withAudio(fn) {
+  const ac = audio();
+  if (!ac) return false;
+  if (ac.state === "running") {
+    fn(ac);
+    return true;
+  }
+  ac.resume().then(
+    () => {
+      // The context may have been replaced while the promise was in flight
+      // (a route change, a close); a node built on a dead context is not a node.
+      if (ctx === ac && ac.state === "running") fn(ac);
+    },
+    () => {},
+  );
+  return true;
+}
+
+// ---- can this machine actually make a sound? --------------------------------
+//
+// On the Linux desktop the answer is not always yes, and the failure is silent
+// in the worst way: WebKitGTK renders WebAudio through GStreamer, so a box
+// without the audio sink plugins hands back an AudioContext that constructs,
+// reports "running", accepts every node — and never produces a sample. Nothing
+// throws. Nothing is logged. The app looks like it has been muted by someone
+// else, which is precisely the report that arrived: no chime on joining a call,
+// no easter egg on the logo, no send tick, and a Sounds switch that was on.
+//
+// The one observable the platform cannot fake is the clock. A running context
+// advances currentTime in real time because it is being pulled by the audio
+// device; a context with no device behind it sits at the same number forever.
+// That is what watchdog() below has always measured — it was used only to
+// rebuild a context orphaned by an Android route change. Here the same reading
+// is promoted to a fact worth telling somebody, because after two rebuilds
+// there is nothing left to blame on a route change.
+//
+//   "unknown"     nothing has been played yet
+//   "ok"          a context ran and its clock moved
+//   "silent"      a context claimed to run and its clock never moved
+//   "unsupported" there is no AudioContext at all
+let health = "unknown";
+let stalls = 0;
+
+export function audioHealth() {
+  return health;
+}
+
+// A sentence somebody can act on, or null when there is nothing to say. Same
+// voice as devices.js's noCallReason(), and for the same reason: naming the two
+// packages is the entire difference between a bug report and a fix.
+export function audioTrouble() {
+  if (health === "unsupported") return "This build has no Web Audio support, so Concord can't make any sounds.";
+  if (health !== "silent") return null;
+  return LINUX_DESKTOP
+    ? "This machine can't play Concord's sounds: the desktop app renders them through GStreamer, and the audio plugins are missing. Installing gst-plugins-good and gst-plugins-bad fixes it — everything else in Concord works without them."
+    : "Concord's sounds aren't reaching your speakers: the audio device accepted them and never played them. Check that the app isn't muted in your system mixer.";
+}
+
+// The same UA test devices.js uses. Duplicated rather than imported because
+// this module is loaded by the login screen, and devices.js pulls in the whole
+// media-device stack behind it.
+const LINUX_DESKTOP =
+  typeof navigator !== "undefined" &&
+  /Linux/.test(navigator.userAgent || "") &&
+  /AppleWebKit/.test(navigator.userAgent || "") &&
+  !/Chrome|Chromium/.test(navigator.userAgent || "");
+
+// probeAudioOutput plays nothing and asks the only question that matters: does
+// this context's clock move? Resolves with the health string. Cheap enough to
+// run whenever the sound settings are opened, and it is the only way that panel
+// can tell the truth rather than showing a switch that does nothing.
+export function probeAudioOutput() {
+  const ac = audio();
+  if (!ac) return Promise.resolve(health);
+  const settle = () =>
+    new Promise((res) => {
+      const t0 = ac.currentTime;
+      setTimeout(() => {
+        if (ctx !== ac) return res(health); // replaced under us; no verdict
+        if (ac.state !== "running") return res(health); // still blocked, not broken
+        if (ac.currentTime > t0) {
+          health = "ok";
+          stalls = 0;
+        } else {
+          health = "silent";
+        }
+        res(health);
+      }, 320);
+    });
+  if (ac.state === "running") return settle();
+  return ac.resume().then(settle, () => health);
+}
+
+// watchdog flags a context that reports "running" while its clock is stuck.
+// One reading is an audio-route change (Android moves the route under us and
+// orphans the context): flag it, and the NEXT sound gets a fresh one. Two
+// readings in a row means rebuilding is not the answer — the device itself is
+// not there — so stop churning contexts and record the verdict instead.
 function watchdog(ac) {
   const t0 = ac.currentTime;
   setTimeout(() => {
-    if (ctx === ac && ac.state === "running" && ac.currentTime === t0) routeDirty = true;
+    if (ctx !== ac || ac.state !== "running") return;
+    if (ac.currentTime > t0) {
+      health = "ok";
+      stalls = 0;
+      return;
+    }
+    stalls++;
+    if (stalls >= 2) health = "silent";
+    else routeDirty = true;
   }, 250);
+}
+
+// Browsers will not start an audio context until the page has been interacted
+// with, and the FIRST sound is usually played by that very interaction — an
+// ordering the code above now survives, but the cheaper fix is to have the
+// context already running by then. One listener, on the first gesture of the
+// session, in the capture phase so a handler that stops propagation cannot
+// swallow it. Costs one suspended context on a page nobody clicks.
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  const EVENTS = ["pointerdown", "keydown", "touchstart"];
+  const prime = () => {
+    for (const e of EVENTS) window.removeEventListener(e, prime, true);
+    try {
+      audio();
+    } catch {
+      /* a context this early is a bonus, never a requirement */
+    }
+  };
+  for (const e of EVENTS) window.addEventListener(e, prime, { capture: true, passive: true });
 }
 
 // tone plays a short shaped oscillator at freq (Hz) starting at offset seconds.
@@ -145,9 +287,9 @@ function tone(ac, freq, start, dur, peak = 0.14, wave = "sine") {
 // `force` bypasses the mute check (for previewing a ringtone in settings).
 function play(notes, wave = "sine", force = false) {
   if (!enabled && !force) return;
-  const ac = audio();
-  if (!ac) return;
-  for (const [freq, start, dur, peak] of notes) tone(ac, freq, start, dur, peak, wave);
+  withAudio((ac) => {
+    for (const [freq, start, dur, peak] of notes) tone(ac, freq, start, dur, peak, wave);
+  });
 }
 
 // ---- the voice room's join/leave sounds ----
@@ -282,9 +424,7 @@ function buildJoin(ac) {
 export function playVoiceJoin() {
   if (!enabled) return;
   if (playChimeBlob("join")) return;
-  const ac = audio();
-  if (!ac) return;
-  buildJoin(ac);
+  withAudio(buildJoin);
 }
 
 // Someone left: the same interval falling, darker and with a longer, quieter
@@ -299,9 +439,7 @@ function buildLeave(ac) {
 export function playVoiceLeave() {
   if (!enabled) return;
   if (playChimeBlob("leave")) return;
-  const ac = audio();
-  if (!ac) return;
-  buildLeave(ac);
+  withAudio(buildLeave);
 }
 
 // ---- pre-rendered chimes for the phone --------------------------------------
@@ -607,13 +745,13 @@ export function playDeafenOff() {
 // than as a farewell.
 export function playCallDropped() {
   if (!enabled) return;
-  const ac = audio();
-  if (!ac) return;
-  const bus = roomBus(ac, { seconds: 2.2, decay: 3.1, wet: 0.36, damp: 1600, level: 0.6 });
-  thump(ac, bus, 0, 110, 40, 0.14);
-  note(ac, bus, 440.0, 0.0, 0.5, 0.14);
-  note(ac, bus, 349.23, 0.11, 0.55, 0.14);
-  note(ac, bus, 261.63, 0.22, 1.3, 0.15);
+  withAudio((ac) => {
+    const bus = roomBus(ac, { seconds: 2.2, decay: 3.1, wet: 0.36, damp: 1600, level: 0.6 });
+    thump(ac, bus, 0, 110, 40, 0.14);
+    note(ac, bus, 440.0, 0.0, 0.5, 0.14);
+    note(ac, bus, 349.23, 0.11, 0.55, 0.14);
+    note(ac, bus, 261.63, 0.22, 1.3, 0.15);
+  });
 }
 
 // Someone put their screen up. A soft two-note rise with a little room on it —
@@ -622,11 +760,11 @@ export function playCallDropped() {
 // call you are already in.
 export function playShareStart() {
   if (!enabled) return;
-  const ac = audio();
-  if (!ac) return;
-  const bus = roomBus(ac, { seconds: 1.1, decay: 2.6, wet: 0.24, damp: 3400, level: 0.42 });
-  note(ac, bus, 587.33, 0.0, 0.34, 0.1);
-  note(ac, bus, 880.0, 0.075, 0.52, 0.1);
+  withAudio((ac) => {
+    const bus = roomBus(ac, { seconds: 1.1, decay: 2.6, wet: 0.24, damp: 3400, level: 0.42 });
+    note(ac, bus, 587.33, 0.0, 0.34, 0.1);
+    note(ac, bus, 880.0, 0.075, 0.52, 0.1);
+  });
 }
 
 // A message arriving in the channel you are LOOKING at. Off by default and it
@@ -749,9 +887,7 @@ const SFX = {
 // (lib/state.svelte.js), which knows who pressed it.
 export function playSfx(id) {
   if (!enabled || !boardOn) return;
-  const ac = audio();
-  if (!ac) return;
-  SFX[id]?.(ac);
+  withAudio((ac) => SFX[id]?.(ac));
 }
 
 // ---- sounds people made up --------------------------------------------------
@@ -857,10 +993,7 @@ export function playRecipe(recipe, { force = false } = {}) {
   const now = Date.now();
   if (!force && now - lastPlay < MIN_GAP_MS) return false;
   lastPlay = now;
-  const ac = audio();
-  if (!ac) return false;
-  buildRecipe(ac, recipe);
-  return true;
+  return withAudio((ac) => buildRecipe(ac, recipe));
 }
 
 // playSfxTrigger resolves what arrived in a soundboard press: one of the six
@@ -878,13 +1011,19 @@ export function playSfxTrigger(target) {
 // past you. Synthesized like everything else here — there are no audio files in
 // this app and there must not be.
 //
-// This ignores the mute setting on purpose. Mute exists to stop the app making
-// noise AT you (mentions, DMs, an incoming call); this fires only after you've
-// deliberately hit the same button eight times in a row, which is a request for
-// sound, and staying silent there is indistinguishable from a broken egg.
+// It obeys the mute, and used to claim not to. The claim was that eight
+// deliberate clicks are a request for sound and staying silent there looks like
+// a broken egg — true as far as it goes, but the sound was routed through the
+// master gain anyway, so an install at zero volume got silence regardless and
+// the exemption bought nothing but a comment that disagreed with the code. Now
+// that "off" IS zero on one control in settings, the honest rule is the simple
+// one: sound off means no sound, including this one.
 export function playFlyby() {
-  const ac = audio();
-  if (!ac) return;
+  if (!enabled) return;
+  withAudio(buildFlyby);
+}
+
+function buildFlyby(ac) {
   const t0 = ac.currentTime;
   const dur = 2.4;
   const near = t0 + 1.0; // closest approach: loudest point, and where the boom lands

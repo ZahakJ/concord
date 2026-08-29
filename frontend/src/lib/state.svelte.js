@@ -221,6 +221,14 @@ export const S = $state({
     // LINKED rather than created never sets it, because the phrase for that
     // account is already written down somewhere else.
     backupPending: false,
+    // Set the one time this install is told that its Web Audio reaches nothing
+    // (WebKitGTK with no GStreamer audio plugins: a context that reports
+    // "running" and never renders a sample). One notice, ever — the fix is a
+    // package to install, and repeating it every launch would be nagging about
+    // something the person has already been told. The same sentence stays
+    // permanently on Settings › Notifications & sounds for whenever they get
+    // round to it.
+    audioDeadNoticed: false,
     hideCallIp: false, // on = always relay calls through the rendezvous (hide IP)
     theme: "dark",
     accent: "",

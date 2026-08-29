@@ -240,6 +240,83 @@ check("a press in the same instant is dropped", playRecipe(STARTER_SHELF[1]), fa
 await settle();
 check("…and plays again once the window has passed", playRecipe(STARTER_SHELF[1]), true);
 
+// ---- can this machine make a sound at all? ----------------------------------
+//
+// Two failures that used to be indistinguishable from "the app is muted".
+// A fresh module instance per scenario: the health verdict and the shared
+// context are module state, and ?q= is how ESM is asked for a second copy.
+
+// (1) A context that is SUSPENDED when the sound is played — the browser's
+// autoplay gate, and the reason the first chime of a session went missing.
+// Nothing may be scheduled until resume() settles, and then everything must be.
+{
+  let resumed;
+  class Suspended extends FakeContext {
+    constructor() {
+      super();
+      this.state = "suspended";
+    }
+    resume() {
+      return new Promise((res) => {
+        resumed = () => {
+          this.state = "running";
+          this.currentTime = 0.4;
+          res();
+        };
+      });
+    }
+  }
+  globalThis.window = { AudioContext: Suspended };
+  const m = await import("./sounds.js?suspended");
+  reset();
+  check("a suspended context accepts the sound", m.playRecipe(STARTER_SHELF[0], { force: true }), true);
+  check("…and schedules nothing into the stopped clock", log.osc.length + log.noise, 0);
+  resumed();
+  await new Promise((r) => setTimeout(r, 0));
+  check("…then builds the whole sound once it is running", log.osc.length + log.noise > 0, true);
+}
+
+// (2) A context that claims to be RUNNING and whose clock never moves: the
+// signature of WebKitGTK with no GStreamer audio sink. It must be named, not
+// silently endured.
+{
+  class Deaf extends FakeContext {
+    // currentTime stays 0 forever — inherited, and never advanced.
+  }
+  globalThis.window = { AudioContext: Deaf };
+  const m = await import("./sounds.js?deaf");
+  check("nothing is claimed before anything is played", m.audioHealth(), "unknown");
+  check("…and there is nothing to report", m.audioTrouble(), null);
+  const verdict = await m.probeAudioOutput();
+  check("a clock that never moves is reported silent", verdict, "silent");
+  check("…and audioHealth agrees", m.audioHealth(), "silent");
+  const why = m.audioTrouble();
+  check("…with a sentence to show somebody", typeof why === "string" && why.length > 20, true);
+}
+
+// (3) A context whose clock DOES move is healthy, and says nothing.
+{
+  class Live extends FakeContext {
+    constructor() {
+      super();
+      const t0 = Date.now();
+      Object.defineProperty(this, "currentTime", { get: () => (Date.now() - t0) / 1000 });
+    }
+  }
+  globalThis.window = { AudioContext: Live };
+  const m = await import("./sounds.js?live");
+  check("a clock that moves is healthy", await m.probeAudioOutput(), "ok");
+  check("…and a healthy machine is told nothing", m.audioTrouble(), null);
+}
+
+// (4) No Web Audio at all — an old webview, or one built without it.
+{
+  globalThis.window = {};
+  const m = await import("./sounds.js?none");
+  check("no AudioContext is not silence, it is unsupported", await m.probeAudioOutput(), "unsupported");
+  check("…and it says so", /Web Audio/.test(m.audioTrouble() || ""), true);
+}
+
 if (failures) {
   console.error(`\n${failures} sounds test(s) failed`);
   process.exit(1);
