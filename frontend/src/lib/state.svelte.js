@@ -375,6 +375,16 @@ export const S = $state({
   searchChips: [], // parsed operator chips [{key, raw, label}] shown above results
   searchTerms: [], // free-text terms, for match highlighting in results
   searchLoading: false, // a search round-trip is in flight
+  // The archive pass: { hits, searched, total, truncated } or null. Separate
+  // from searchResults because it comes from a different store with different
+  // coverage, and the panel has to be able to say so — see SearchChronicle.
+  searchArchive: null,
+  searchArchiveLoading: false,
+  // A channel whose ARCHIVE the reader has asked to be taken to (a hit in the
+  // search panel's archived section). MessageList consumes it by scrolling to
+  // the top, where the existing backwards paging takes over and walks into the
+  // imported history — the seam is the destination, not a particular line.
+  jumpToArchive: "",
   showPins: false,
 
 

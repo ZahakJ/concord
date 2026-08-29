@@ -1000,6 +1000,28 @@
     });
   });
 
+  // "Take me to the archive." A hit in the search panel's archived section
+  // lands here: the channel is already open, so all that is left is to get the
+  // reader to the seam, which is the top of the live history — from there the
+  // paging above walks backwards into the imported pages on its own. It waits
+  // for the initial load rather than firing into an empty feed, and gives up
+  // after a couple of seconds rather than sitting armed forever.
+  $effect(() => {
+    const want = S.jumpToArchive;
+    if (!want || want !== S.activeChannelId) return;
+    let tries = 0;
+    const go = () => {
+      if (S.jumpToArchive !== want || S.activeChannelId !== want) return;
+      if ((!feedEl || S.feedLoading) && tries++ < 20) {
+        setTimeout(go, 100);
+        return;
+      }
+      S.jumpToArchive = "";
+      if (feedEl) feedEl.scrollTop = 0;
+    };
+    tick().then(go);
+  });
+
   // pageBack runs a backwards fetch and holds the reader's position across the
   // insert: the prepended rows would otherwise shove the viewport down by
   // however tall they turned out to be. Shared by live history and the archive

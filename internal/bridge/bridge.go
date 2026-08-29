@@ -2222,6 +2222,16 @@ func (b *Bridge) ChronicleMessages(guildID, channelID string, beforeNano int64, 
 	return ChronicleMessagesView{Messages: msgs}, nil
 }
 
+// SearchChronicle scans the archive pages this device holds, and reports how
+// much of the archive that actually was — see appsvc.ChronicleSearchResult.
+func (b *Bridge) SearchChronicle(guildID, query string) (appsvc.ChronicleSearchResult, error) {
+	svc, err := b.service()
+	if err != nil {
+		return appsvc.ChronicleSearchResult{}, err
+	}
+	return svc.SearchChronicle(guildID, query, 50)
+}
+
 // SetChroniclePinned keeps a guild's archive on this device permanently, or
 // returns its pages to the evictable cache.
 func (b *Bridge) SetChroniclePinned(guildID string, pinned bool) error {
@@ -3477,6 +3487,8 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 		return b.ChronicleInfo(argStr(args, 0))
 	case "ChronicleMessages":
 		return b.ChronicleMessages(argStr(args, 0), argStr(args, 1), argInt64(args, 2), argInt(args, 3), argBool(args, 4))
+	case "SearchChronicle":
+		return b.SearchChronicle(argStr(args, 0), argStr(args, 1))
 	case "SetChroniclePinned":
 		return nil, b.SetChroniclePinned(argStr(args, 0), argBool(args, 1))
 	case "CanChooseFolder":

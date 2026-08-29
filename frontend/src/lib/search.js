@@ -152,6 +152,36 @@ export async function runSearch(e) {
   } finally {
     if (my === seq) S.searchLoading = false;
   }
+  // The archive is a second pass over a second store, so it is a second call —
+  // and it runs AFTER the live one rather than beside it, because the live
+  // results are what the reader is waiting for and the archive is the answer to
+  // "and what about the old stuff?".
+  //
+  // The panel used to claim ALL CONVERSATIONS and mean "the messages table":
+  // 1,981 imported messages, on the screen behind the panel, scrolling
+  // perfectly, answered 0 results to three phrases read straight off them.
+  searchArchive(text, my);
+}
+
+// searchArchive runs the archive pass for the guild on screen. Scoped to that
+// guild because an archive belongs to one — and because that is the guild whose
+// history the reader can see behind the panel and is asking about.
+async function searchArchive(text, my) {
+  const guildId = S.activeGuildId;
+  S.searchArchive = null;
+  if (!guildId || !S.chronicle?.messages) return;
+  S.searchArchiveLoading = true;
+  try {
+    const res = await api.searchChronicle(guildId, text);
+    if (my !== seq) return;
+    S.searchArchive = res || null;
+  } catch {
+    // A failed archive pass must not take the live results down with it. The
+    // panel simply says nothing about the archive, which is where it was.
+    if (my === seq) S.searchArchive = null;
+  } finally {
+    if (my === seq) S.searchArchiveLoading = false;
+  }
 }
 
 // removeChip drops one operator token from the query and re-runs the search;
@@ -166,6 +196,8 @@ export function removeChip(chip) {
 export function closeSearch() {
   seq++; // invalidate any in-flight response
   clearTimeout(typeTimer);
+  S.searchArchive = null;
+  S.searchArchiveLoading = false;
   S.searchResults = null;
   S.searchQuery = "";
   S.searchChips = [];

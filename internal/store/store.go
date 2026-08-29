@@ -2894,6 +2894,25 @@ func (s *Store) ChronicleChunk(chunkID string) ([]byte, bool, error) {
 	return ct, true, nil
 }
 
+// ChronicleChunkStale is ChronicleChunk without the LRU touch.
+//
+// Reading a chunk normally means somebody is looking at that stretch of
+// history, and last_used is what decides which pages survive the cache cap. A
+// SEARCH is not that: it sweeps everything this device happens to hold, so
+// touching each row would reshuffle the whole archive's eviction order behind
+// one keystroke and make the pages the reader actually visits look cold.
+func (s *Store) ChronicleChunkStale(chunkID string) ([]byte, bool, error) {
+	var ct []byte
+	err := s.db.QueryRow(`SELECT ct FROM chronicle_chunks WHERE chunk_id = ?`, chunkID).Scan(&ct)
+	if err == sql.ErrNoRows {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	return ct, true, nil
+}
+
 // PinChronicleChunks pins or unpins a set of chunks in one transaction.
 func (s *Store) PinChronicleChunks(chunkIDs []string, pinned bool) error {
 	if len(chunkIDs) == 0 {

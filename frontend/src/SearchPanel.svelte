@@ -22,6 +22,12 @@
   // Results cover the whole feed; back closes them rather than the app.
   syncLayer("panel", () => open, closeSearch);
   const results = $derived(S.searchResults ?? []);
+  // The archive pass. It is a separate store with separate coverage, so it gets
+  // its own section and its own sentence about what it actually looked at —
+  // see SearchChronicle. Absent when the guild has no archive at all.
+  const arc = $derived(S.searchArchive);
+  const arcHits = $derived(arc?.hits ?? []);
+  const unsearched = $derived(Math.max(0, (arc?.total ?? 0) - (arc?.searched ?? 0)));
 
   function fmtTime(iso) {
     try {
@@ -99,6 +105,39 @@
       }),
     );
   }
+
+  // An archived hit lands in the live channel the archive sits above, at the
+  // top of its scrollback, which is where the archive begins. It is a jump to
+  // the RIGHT PLACE rather than to the right line: seeding the archive pager at
+  // an arbitrary point in history is a bigger change than this panel, and
+  // landing a reader at the seam with the phrase in hand is the difference
+  // between "0 results" and "here, keep scrolling".
+  async function openArchiveHit(h) {
+    const target = h.mapped;
+    closeSearch();
+    if (!target) {
+      flash("That channel wasn't mapped into this guild — open the archive to read it", "info");
+      return;
+    }
+    await jumpToChannel(target);
+    await tick();
+    S.jumpToArchive = target;
+  }
+
+  function fmtNano(nano) {
+    try {
+      return new Date(Number(nano) / 1e6).toLocaleString([], {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        ...clockOpts(),
+      });
+    } catch {
+      return "";
+    }
+  }
 </script>
 
 {#if open}
@@ -110,10 +149,19 @@
           Searching…
         {:else}
           {results.length} result{results.length === 1 ? "" : "s"}
+          <!-- The archived count belongs in the headline, not only in the band
+               below it. A panel reading "0 results" above fifty archived
+               matches is the same lie it used to tell by leaving them out. -->
+          {#if arcHits.length}<span class="sp-plus">+ {arcHits.length} archived</span>{/if}
         {/if}
       </span>
-      <span class="sp-scope" title="Search covers every channel and DM, not just this one">
-        all conversations
+      <span
+        class="sp-scope"
+        title={arc
+          ? "Every channel and DM in this workspace, plus the archived pages this device holds"
+          : "Search covers every channel and DM, not just this one"}
+      >
+        {arc ? "conversations + archive" : "all conversations"}
       </span>
       <button class="sp-close" aria-label="Close search" title="Close search" onclick={closeSearch}>
         <Icon name="close" size={11} />
@@ -183,14 +231,61 @@
             </span>
           </button>
         {:else}
-          <div class="sp-empty">
-            <EmptyState
-              icon="search"
-              headline="No matches"
-              sub="Nothing in any conversation matches that — try fewer words or drop a filter."
-            />
-          </div>
+          {#if !arcHits.length}
+            <div class="sp-empty">
+              <EmptyState
+                icon="search"
+                headline="No matches"
+                sub={arc
+                  ? "Nothing in the live conversations, and nothing in the archived pages this device holds."
+                  : "Nothing in any conversation matches that — try fewer words or drop a filter."}
+              />
+            </div>
+          {/if}
         {/each}
+
+        <!-- THE ARCHIVE. Imported history lives in sealed chunks, not in the
+             messages table, so it was invisible to a panel that says ALL
+             CONVERSATIONS — 1,981 messages scrolling on the screen behind it,
+             answering "0 results" to phrases read straight off them. -->
+        {#if arc && (arcHits.length || unsearched > 0)}
+          <div class="sp-arc-head">
+            <Icon name="clock" size={11} />
+            <span class="sp-arc-title">
+              Archived history
+              {#if arcHits.length}· {arcHits.length} match{arcHits.length === 1 ? "" : "es"}{/if}
+            </span>
+          </div>
+          {#if unsearched > 0}
+            <!-- The coverage sentence. An archive arrives page by page as
+                 people scroll to it and is evicted under a cache cap, so on
+                 every device except the one that imported it this number is
+                 large — and saying nothing about it would be the old lie in a
+                 new place. -->
+            <p class="sp-arc-note">
+              {unsearched.toLocaleString()} of {(arc.total || 0).toLocaleString()} archived messages
+              aren't on this device, so they weren't searched.
+              {#if arc.truncated}The search stopped early on this one.{/if}
+            </p>
+          {/if}
+          {#each arcHits as h, i (h.channelId + ":" + h.nano + ":" + i)}
+            <button class="sp-hit sp-arc-hit" onclick={() => openArchiveHit(h)} title="Open the archive here">
+              <Avatar name={h.author || "?"} image={h.avatar} size={30} />
+              <span class="sp-body">
+                <span class="sp-meta">
+                  <strong>{h.author || "Unknown"}</strong>
+                  <span class="sp-where"><Icon name="clock" size={10} />{h.channelName || "archive"}</span>
+                  <span class="sp-time">{fmtNano(h.nano)}</span>
+                </span>
+                <span class="sp-text">
+                  {#each segs(snippet(h.content)) as p, j (j)}{#if p.hit}<mark>{p.t}</mark>{:else}{p.t}{/if}{/each}
+                </span>
+              </span>
+            </button>
+          {/each}
+        {:else if S.searchArchiveLoading}
+          <p class="sp-arc-note">Searching the archived pages on this device…</p>
+        {/if}
       {/if}
     </div>
   </div>
@@ -361,6 +456,47 @@
   .sp-list.dim {
     opacity: 0.55;
     pointer-events: none;
+  }
+  /* The archive's own band. Separated from the live results by a rule and a
+     heading rather than mixed in, because they answer different questions: the
+     live list is "what is in this workspace", the archive is "what was in the
+     history somebody imported into it", and a reader deciding whether to keep
+     scrolling needs to know which they are looking at. */
+  /* The archived tally, beside the live one and quieter than it: it is a second
+     answer to the same question, not a second question. */
+  .sp-plus {
+    margin-left: 5px;
+    color: var(--text-faint);
+    font-weight: 500;
+  }
+  .sp-arc-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 10px 0 2px;
+    padding-top: 9px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: var(--fs-compact);
+  }
+  .sp-arc-title {
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .sp-arc-note {
+    margin: 0 0 4px;
+    padding: 0 2px;
+    color: var(--text-faint);
+    font-size: var(--fs-compact);
+    line-height: 1.45;
+  }
+  /* A hairline down the left of an archived hit, the same signal the feed uses
+     for the stretch of history that came from outside this guild. */
+  .sp-arc-hit {
+    border-left: 2px solid var(--border);
+    padding-left: var(--sp-2);
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
   }
   .sp-hit {
     display: flex;

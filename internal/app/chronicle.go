@@ -1068,6 +1068,132 @@ func (s *Service) ChronicleMessages(guildID, channelID string, beforeNano int64,
 	return out, nil
 }
 
+// ---- searching the archive ------------------------------------------------
+
+// maxChronicleSearchMessages bounds one archive search.
+//
+// Live search has maxScan for exactly this reason and this is the same idea
+// with a heavier unit: every candidate here costs a secretbox open, a gunzip
+// and a JSON decode of up to a thousand messages, not a row read. 200k is a
+// large archive scanned in well under a second on the machine that imported it,
+// and the honesty line says so when it is not enough.
+const maxChronicleSearchMessages = 200000
+
+// ChronicleSearchHit is one archived message that matched, with the channel it
+// lived in — a result panel has to be able to say where a line came from, and
+// an archived channel may not map to a live one at all.
+type ChronicleSearchHit struct {
+	ChannelID   string `json:"channelId"`
+	ChannelName string `json:"channelName"`
+	// Mapped is the live channel this archived one sits above, if any — what a
+	// "jump to it" has to open.
+	Mapped  string `json:"mapped,omitempty"`
+	Author  string `json:"author"`
+	Avatar  string `json:"avatar,omitempty"`
+	Nano    int64  `json:"nano"`
+	Content string `json:"content"`
+}
+
+// ChronicleSearchResult is the hits AND what was actually looked at, because
+// the second half is the part that was missing.
+//
+// The search panel says "ALL CONVERSATIONS". It scanned the messages table and
+// nothing else, so 1,981 imported messages — visible on the screen behind it,
+// scrolling perfectly — answered "0 results" to three phrases read straight off
+// them. Silently answering "no" about text the reader is looking at is the
+// worst of the available answers.
+//
+// Searched/Total are message counts. They differ whenever this device does not
+// hold the whole archive, which is the normal case for everybody except the
+// person who imported it: chunks arrive as they are scrolled to and are evicted
+// under a cache cap, so a member's coverage is a thin and shifting slice. The
+// panel prints the difference rather than implying it searched everything.
+type ChronicleSearchResult struct {
+	Hits     []ChronicleSearchHit `json:"hits"`
+	Searched int64                `json:"searched"`
+	Total    int64                `json:"total"`
+	// Truncated: the budget ran out before the archive did.
+	Truncated bool `json:"truncated"`
+}
+
+// SearchChronicle scans the archive pages this device already holds.
+//
+// Deliberately LOCAL ONLY. It reads chunks out of the store and never fetches
+// one from a peer: a search runs on a debounce as the user types, and fetching
+// would turn every keystroke into a burst of requests to everyone in the guild
+// for pages nobody asked to read. What is here is searched; what is not is
+// counted and reported.
+func (s *Service) SearchChronicle(guildID, query string, limit int) (ChronicleSearchResult, error) {
+	out := ChronicleSearchResult{Hits: []ChronicleSearchHit{}}
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" || guildID == "" {
+		return out, nil
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	m, _, ok := s.guildChronicle(guildID)
+	if !ok {
+		return out, nil
+	}
+	out.Total = m.Messages
+
+	chans := map[string]chronicleChannel{}
+	for _, c := range m.Channels {
+		chans[c.ID] = c
+	}
+	// Newest chunk first: a search reads like a feed, and the answer somebody
+	// wants first is nearly always the most recent one.
+	refs := append([]chronicleChunkRef(nil), m.Chunks...)
+	sort.Slice(refs, func(i, j int) bool { return refs[i].LastNano > refs[j].LastNano })
+
+	for _, ref := range refs {
+		if out.Searched >= maxChronicleSearchMessages {
+			out.Truncated = true
+			break
+		}
+		ct, ok, err := s.store.ChronicleChunkStale(ref.ID)
+		if err != nil || !ok {
+			continue // not on this device: counted as unsearched by omission
+		}
+		msgs, err := openChronicleChunk(ct, ref.Keys)
+		if err != nil {
+			continue
+		}
+		out.Searched += int64(len(msgs))
+		if len(out.Hits) >= limit {
+			// Keep counting what we hold — the honesty line is about coverage,
+			// not about how many hits we chose to return — but stop decoding
+			// author tables for results nobody will see.
+			continue
+		}
+		ch := chans[ref.Channel]
+		for i := len(msgs) - 1; i >= 0; i-- {
+			msg := msgs[i]
+			if msg.Content == "" || !strings.Contains(strings.ToLower(msg.Content), q) {
+				continue
+			}
+			hit := ChronicleSearchHit{
+				ChannelID: ref.Channel, ChannelName: ch.Name, Mapped: ch.Mapped,
+				Nano: msg.Nano, Content: msg.Content,
+			}
+			if msg.Author >= 0 && msg.Author < len(m.Authors) {
+				hit.Author = m.Authors[msg.Author].Name
+				hit.Avatar = m.Authors[msg.Author].Avatar
+			}
+			out.Hits = append(out.Hits, hit)
+			if len(out.Hits) >= limit {
+				break
+			}
+		}
+	}
+	sort.Slice(out.Hits, func(i, j int) bool { return out.Hits[i].Nano > out.Hits[j].Nano })
+	if out.Searched > out.Total {
+		out.Searched = out.Total // a manifest that under-counts must not read as >100%
+	}
+	return out, nil
+}
+
 // SetChroniclePinned keeps a guild's archive on this device permanently, or
 // returns it to the cache. Pinning is what the importing machine does to its own
 // copy and what anyone else does when they want the history available offline;

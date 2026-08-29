@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"testing"
+	"time"
 )
 
 // TestChronicleCacheSparesPinned is the eviction contract in one test. Unpinned
@@ -134,5 +135,57 @@ func TestChronicleManifestIsStoredVerbatim(t *testing.T) {
 	}
 	if got, err := s.ChronicleManifests("g2"); err != nil || len(got) != 0 {
 		t.Fatalf("another guild sees %d manifests (err %v)", len(got), err)
+	}
+}
+
+// TestChronicleChunkStaleDoesNotWarmTheCache is the difference between reading
+// the archive and searching it.
+//
+// last_used is what decides which pages survive the cache ceiling, and a normal
+// read touches it because a read means somebody is looking at that stretch of
+// history. A search is not that: it sweeps every chunk this device happens to
+// hold, on a debounce, as the user types. Touching each one would reshuffle the
+// entire eviction order behind one keystroke and make the pages the reader
+// actually visits look like the coldest things on disk.
+func TestChronicleChunkStaleDoesNotWarmTheCache(t *testing.T) {
+	s, _ := openTestStore(t)
+	page := bytes.Repeat([]byte{7}, 2048)
+	if err := s.SaveChronicleChunk("c1", page, false); err != nil {
+		t.Fatalf("SaveChronicleChunk: %v", err)
+	}
+	lastUsed := func() int64 {
+		var n int64
+		if err := s.db.QueryRow(
+			`SELECT last_used FROM chronicle_chunks WHERE chunk_id = ?`, "c1").Scan(&n); err != nil {
+			t.Fatalf("last_used: %v", err)
+		}
+		return n
+	}
+	before := lastUsed()
+
+	got, ok, err := s.ChronicleChunkStale("c1")
+	if err != nil || !ok {
+		t.Fatalf("ChronicleChunkStale: ok=%v err=%v", ok, err)
+	}
+	if !bytes.Equal(got, page) {
+		t.Fatal("a stale read must return the same bytes as a normal one")
+	}
+	if after := lastUsed(); after != before {
+		t.Fatalf("a stale read bumped last_used from %d to %d", before, after)
+	}
+
+	// …and the ordinary read still does, or the cache has no idea what is warm.
+	time.Sleep(2 * time.Millisecond)
+	if _, ok, err := s.ChronicleChunk("c1"); err != nil || !ok {
+		t.Fatalf("ChronicleChunk: ok=%v err=%v", ok, err)
+	}
+	if after := lastUsed(); after <= before {
+		t.Fatalf("an ordinary read left last_used at %d", after)
+	}
+
+	// A chunk that is not here is "not here", not an error — a search sweeps
+	// straight past the pages this device does not hold.
+	if _, ok, err := s.ChronicleChunkStale("nope"); err != nil || ok {
+		t.Fatalf("a missing chunk returned ok=%v err=%v", ok, err)
 	}
 }
