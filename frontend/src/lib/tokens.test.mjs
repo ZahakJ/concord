@@ -99,8 +99,19 @@ for (const [rel, raw] of FILES) {
 // comment in app.css sets for itself ("the bottom of the range (8–10px) is
 // simply illegible"). Two exemptions, both text drawn inside a fixed box small
 // enough that the phone step would not fit: see the comments at each site.
+//
+// The create dialog's two are a DIAGRAM, not text: the starter-layout tiles
+// draw the sidebar each template would build, at about a sixth of size, and a
+// miniature that rescales with the phone type step is no longer a miniature.
+// Nothing in it has to be read to use the dialog — the channel count under each
+// tile says the same thing in real type.
 const FS_FLOOR = 11;
-const FS_EXEMPT = new Set(["PollView.svelte:8px", "modals/InfoDot.svelte:9.5px"]);
+const FS_EXEMPT = new Set([
+  "PollView.svelte:8px",
+  "modals/InfoDot.svelte:9.5px",
+  "modals/ModalCreate.svelte:8px",
+  "modals/ModalCreate.svelte:9.5px",
+]);
 for (const [rel, raw] of FILES) {
   if (isAppCss(rel)) continue;
   for (const m of strip(raw).matchAll(/font-size:\s*([0-9.]+)px\s*;/g)) {

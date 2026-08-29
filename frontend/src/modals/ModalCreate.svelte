@@ -3,7 +3,13 @@
   import Icon from "../Icon.svelte";
   import { S } from "../lib/state.svelte.js";
   import { pickImageFile } from "../lib/pickimage.js";
-  import { GUILD_TEMPLATES, EMPTY_TEMPLATE, templateChannelCount } from "../lib/guildtemplates.js";
+  import {
+    GUILD_TEMPLATES,
+    EMPTY_TEMPLATE,
+    templateChannelCount,
+    templatePreview,
+    channelGlyph,
+  } from "../lib/guildtemplates.js";
   let {
     onSubmit,
     onClose,
@@ -44,7 +50,7 @@
   }
 </script>
 
-<Modal {title} {onClose}>
+<Modal {title} {onClose} wide={isGuild}>
   {#if isGuild}
     <!-- Live preview: the guild's rail bubble takes shape as you type, and is
          the icon control. One target, not a bubble beside a button — the
@@ -67,13 +73,16 @@
         {/if}
         <span class="cam" aria-hidden="true"><Icon name="camera" size={13} /></span>
       </button>
-      <span class="bubble-name" class:ph={!name.trim()}>{name.trim() || "Your new space"}</span>
-      {#if icon}
-        <button type="button" class="linky" onclick={() => (icon = "")}>Remove icon</button>
-      {/if}
-      {#if iconError}
-        <span class="err" role="status">{iconError}</span>
-      {/if}
+      <span class="hero-text">
+        <span class="bubble-name" class:ph={!name.trim()}>{name.trim() || "Your new space"}</span>
+        <span class="hero-sub">{hint}</span>
+        {#if icon}
+          <button type="button" class="linky" onclick={() => (icon = "")}>Remove icon</button>
+        {/if}
+        {#if iconError}
+          <span class="err" role="status">{iconError}</span>
+        {/if}
+      </span>
     </div>
   {:else}
     <div class="hero">
@@ -81,7 +90,9 @@
     </div>
   {/if}
 
-  <p class="muted">{hint}</p>
+  {#if !isGuild}
+    <p class="muted">{hint}</p>
+  {/if}
   <!-- Not on a phone: the soft keyboard opens while the sheet is still running
        its 0.28s slide-up, so the sheet's max-height recomputes mid-animation
        and the panel visibly jumps. The field is one tap away. -->
@@ -107,6 +118,11 @@
 
     <div class="fld">
       <span class="lbl">Start with</span>
+      <!-- Each tile DRAWS the sidebar it would build, at a sixth the size. It
+           is the app's own furniture, so it needs no explaining, and it is the
+           one thing about a starter layout you can actually check. The tiles
+           are a fixed height for the same reason: four sentences of four
+           lengths used to make four tiles of four heights out of one grid. -->
       <div class="tpl-grid" role="radiogroup" aria-label="Starter layout">
         {#each GUILD_TEMPLATES as t (t.id)}
           <button
@@ -117,18 +133,42 @@
             aria-checked={template === t.id}
             onclick={() => (template = t.id)}
           >
-            <span class="tpl-top">
-              <Icon name={t.icon} size={15} />
-              <strong>{t.name}</strong>
+            <span class="mini" aria-hidden="true">
+              {#each templatePreview(t) as grp, gi (gi)}
+                {#if grp.category}
+                  <span class="mini-cat">{grp.category}</span>
+                {/if}
+                {#each grp.channels as ch (ch.name)}
+                  <span class="mini-row">
+                    <Icon name={channelGlyph(ch.type)} size={9} />
+                    <span class="mini-name">{ch.name}</span>
+                  </span>
+                {/each}
+              {/each}
+              {#if !t.plan.length}
+                <!-- Room, drawn as room. A tile whose whole point is that it
+                     builds nothing was otherwise a labelled empty box, which
+                     reads as a tile that failed to load rather than as a
+                     choice. -->
+                {#each [0, 1, 2] as i (i)}
+                  <span class="mini-row ghost"></span>
+                {/each}
+              {/if}
             </span>
-            <span class="tpl-blurb">{t.blurb}</span>
-            {#if t.plan.length}
-              <span class="tpl-count"
-                >{templateChannelCount(t)} channels · {t.plan.length} categor{t.plan.length === 1
-                  ? "y"
-                  : "ies"}</span
-              >
-            {/if}
+            <span class="tpl-foot">
+              <strong>{t.name}</strong>
+              <span class="tpl-count">
+                {#if t.plan.length}
+                  {templateChannelCount(t) + 1} channels · {t.plan.length} categor{t.plan.length ===
+                  1
+                    ? "y"
+                    : "ies"}
+                {:else}
+                  One channel, and a clean slate
+                {/if}
+              </span>
+            </span>
+            <span class="tpl-mark" aria-hidden="true"><Icon name="check" size={11} /></span>
           </button>
         {/each}
       </div>
@@ -152,17 +192,34 @@
   .tiny {
     font-size: var(--fs-small);
   }
+  /* A row, not a column. Centred it stacked bubble over name over sentence and
+     cost 175px of a dialog that already scrolls; beside each other they read as
+     one statement — this is the thing you are making, and here is what a guild
+     is — in about half the height. */
   .hero {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: var(--sp-2);
-    padding: 6px 0 2px;
+    gap: var(--sp-3);
+    padding: 2px 0 4px;
+  }
+  .hero-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    align-items: flex-start;
+  }
+  .hero-sub {
+    font-size: var(--fs-small);
+    line-height: 1.45;
+    color: var(--text-muted);
   }
   .bubble {
     position: relative;
-    width: 64px;
-    height: 64px;
+    flex: none;
+    width: 60px;
+    height: 60px;
     padding: 0;
     border-radius: 20px;
     display: grid;
@@ -221,9 +278,9 @@
     border-color: var(--accent);
   }
   .bubble-name {
-    font-size: var(--fs-ui);
-    font-weight: 600;
-    max-width: 240px;
+    font-size: var(--fs-title);
+    font-weight: 700;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -268,20 +325,26 @@
     gap: var(--sp-2);
   }
   .tpl {
+    position: relative;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    gap: var(--sp-1);
-    padding: 10px 12px;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+    overflow: hidden;
     text-align: left;
-    background: var(--bg-3);
+    background: var(--bg-2);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    color: var(--text-muted);
+    color: var(--text);
+    transition:
+      border-color var(--dur-quick) ease,
+      box-shadow var(--dur-quick) ease,
+      transform var(--dur-quick) var(--ease-out);
   }
   .tpl:hover {
-    background: var(--bg-2);
-    color: var(--text);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    transform: translateY(-1px);
   }
   /* Ring as a box-shadow, not a fatter border — a border that grows on
      selection re-lays the grid out and the tiles twitch. (Same reason
@@ -289,29 +352,107 @@
   .tpl.sel {
     border-color: var(--accent);
     box-shadow: 0 0 0 2px var(--accent-soft);
-    background: var(--accent-soft);
-    color: var(--accent-hover);
   }
-  .tpl-top {
+  /* ---- the miniature sidebar ---------------------------------------------
+     A fixed height, so the grid is a grid. Anything past it fades out rather
+     than being cut through a row, which is the same scroll-fade the app uses
+     everywhere else. */
+  .mini {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    height: 100px;
+    padding: 9px 10px 0;
+    overflow: hidden;
+    background: var(--bg-0);
+    border-bottom: 1px solid var(--border);
+    /* The layouts are longer than the tile on purpose — the count underneath
+       says how much longer. Fading from two-thirds reads as "there is more",
+       where a hard edge reads as a row sliced in half. */
+    -webkit-mask-image: linear-gradient(#000 62%, transparent);
+    mask-image: linear-gradient(#000 62%, transparent);
+  }
+  .mini-cat {
+    margin-top: 3px;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+  .mini-cat:first-child {
+    margin-top: 0;
+  }
+  .mini-row {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: var(--fs-ui);
-  }
-  .tpl-top strong {
-    font-weight: 600;
-  }
-  .tpl-blurb {
-    font-size: var(--fs-small);
-    line-height: 1.35;
+    gap: var(--sp-1);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 9.5px;
+    line-height: 1.2;
     color: var(--text-muted);
   }
-  .tpl.sel .tpl-blurb {
-    color: inherit;
+  /* The first row is #general, which every guild is born with — drawn as the
+     one that is open, because that is where a new owner lands. */
+  .mini-row:first-child {
+    background: var(--bg-3);
+    color: var(--text);
+    font-weight: 600;
+  }
+  .mini-row.ghost {
+    height: 14px;
+    margin: 1px 0;
+    border-radius: 3px;
+    border: 1px dashed color-mix(in srgb, var(--border) 90%, transparent);
+  }
+  .mini-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tpl.sel .mini {
+    background: color-mix(in srgb, var(--accent) 7%, var(--bg-0));
+  }
+  .tpl-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 8px 10px 9px;
+  }
+  .tpl-foot strong {
+    font-size: var(--fs-ui);
+    font-weight: 650;
+  }
+  .tpl.sel .tpl-foot strong {
+    color: var(--accent-hover);
   }
   .tpl-count {
     font-size: var(--fs-small);
     color: var(--text-faint);
+  }
+  /* The tick, which is the whole of the selected state's chrome. It grows in
+     rather than appearing, so choosing feels like something happened. */
+  .tpl-mark {
+    position: absolute;
+    top: 7px;
+    right: 7px;
+    width: 19px;
+    height: 19px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-fg);
+    /* A ring in the preview's own ground, so the tick reads as sitting ON the
+       miniature rather than as one more row in it. */
+    box-shadow: 0 0 0 2px var(--bg-0);
+    transform: scale(0);
+    transition: transform var(--dur-quick) var(--ease-spring);
+  }
+  .tpl.sel .tpl-mark {
+    transform: scale(1);
   }
   @keyframes bubble-in {
     from {
@@ -319,13 +460,10 @@
       transform: scale(0.6);
     }
   }
-  @media (max-width: 460px) {
-    .tpl-grid {
-      grid-template-columns: 1fr;
-    }
-  }
   @media (prefers-reduced-motion: reduce) {
-    .bubble {
+    .bubble,
+    .tpl,
+    .tpl-mark {
       animation: none;
       transition: none;
     }

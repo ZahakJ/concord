@@ -98,6 +98,41 @@ export function templateChannelCount(t) {
   return (t.plan || []).reduce((n, c) => n + c.channels.length, 0);
 }
 
+// templatePreview is the sidebar this template would actually produce, as the
+// chooser draws it.
+//
+// The tiles used to carry a sentence each — "A front door, a lounge, and a
+// place to talk" — which is a nice sentence and tells you nothing you can
+// check. Four of them, at four different lengths, also made four tiles of four
+// different heights out of one grid. Drawing the rooms instead is shorter,
+// honest, and already the app's own visual language: a new guild IS a channel
+// list, so the thing to show somebody choosing between layouts is the channel
+// list they are choosing between.
+//
+// CreateGuild seeds #general before the plan is played back, so every preview
+// starts with it, uncategorised, exactly where it will appear.
+export function templatePreview(t) {
+  return [
+    { category: "", channels: [{ name: "general", type: "text" }] },
+    ...(t?.plan || []),
+  ];
+}
+
+// The glyph a channel row wears, by type. One place, so the preview and the
+// real sidebar cannot disagree about what a forum looks like.
+export function channelGlyph(type) {
+  switch (type) {
+    case "voice":
+      return "speaker";
+    case "announcement":
+      return "megaphone";
+    case "forum":
+      return "forum";
+    default:
+      return "hash";
+  }
+}
+
 // slugChannelName is the naming rule a text channel's name is held to: a
 // guild whose sidebar mixes `#general` with `#Welcome & Rules` reads as one
 // nobody is in charge of. Lowercased, runs of anything that is not a letter,

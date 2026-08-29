@@ -12,6 +12,7 @@
   // checklist on a three-year-old community that never bothered with an icon,
   // and would put it there on every device its owner ever signs into. Per
   // guild, per device, exactly as the flag is stored.
+  import { onDestroy } from "svelte";
   import Icon from "./Icon.svelte";
   import { S, activeGuild, flash } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
@@ -92,6 +93,49 @@
   });
 
   const left = $derived(steps.filter((s) => !s.done).length);
+  const done = $derived(steps.length - left);
+
+  // Finishing should feel like finishing.
+  //
+  // The card used to vanish the instant the last row ticked — correct in that a
+  // checklist with nothing on it is clutter, and a small theft in that the one
+  // moment worth acknowledging was the one moment nothing was said. So it holds
+  // for four seconds on a filled bar and a sentence, then retires itself for
+  // good.
+  //
+  // Only on a transition WATCHED from incomplete to complete. Opening a guild
+  // whose steps were all done days ago must retire the card silently rather
+  // than congratulate somebody for something they do not remember doing.
+  // `sawIncomplete` and `winTimer` are deliberately NOT $state. An effect that
+  // reads the flag it also writes re-runs itself, and a cleanup that clears the
+  // retirement timer on that re-run means the timer never fires: the card
+  // congratulated correctly and then sat there for ever. Measured — five
+  // seconds after the last step, still on screen.
+  let sawIncomplete = false;
+  let winTimer;
+  let celebrating = $state(false);
+  $effect(() => {
+    if (!armed) return;
+    if (left > 0) {
+      sawIncomplete = true;
+      return;
+    }
+    if (!sawIncomplete) {
+      // Finished, but not in front of us — this guild was set up in an earlier
+      // session. Retire the record quietly rather than leaving an armed flag in
+      // storage for a card that can never draw again.
+      dismissGuildSetup(g.id);
+      dismissed++;
+      return;
+    }
+    if (winTimer) return;
+    celebrating = true;
+    winTimer = setTimeout(() => {
+      dismissGuildSetup(g.id);
+      dismissed++;
+    }, 4000);
+  });
+  onDestroy(() => clearTimeout(winTimer));
 
   async function invite() {
     try {
@@ -107,34 +151,45 @@
   }
 </script>
 
-<!-- The card retires itself when the last row ticks: a checklist with nothing
-     left on it is clutter, and a dismiss button is for people who want out
-     early, not the reward for finishing. -->
-{#if armed && left > 0}
-  <div class="setup" role="region" aria-label="Set up this guild">
+<!-- The card retires itself once the last row ticks — after four seconds of
+     saying so. A checklist with nothing left on it is clutter; a checklist that
+     disappears mid-click is a reward withheld. The ✕ is for people who want out
+     early, and it says "hide", because there is nothing here to fail at. -->
+{#if armed && (left > 0 || celebrating)}
+  <div class="setup" class:won={celebrating} role="region" aria-label="Set up this guild">
     <div class="head">
       <span class="hd-text">
-        <strong>Get {g.name} started</strong>
-        <span class="muted">{left} of {steps.length} left</span>
+        <strong>{celebrating ? "All set." : "Get started"}</strong>
+        <span class="muted">
+          {celebrating ? `${g.name} is ready for people.` : `${done} of ${steps.length} done`}
+        </span>
       </span>
-      <button class="x" onclick={dismiss} aria-label="Dismiss the setup checklist">
+      <button class="x" onclick={dismiss} aria-label="Hide the setup steps" title="Hide">
         <Icon name="close" size={14} />
       </button>
+    </div>
+    <!-- Progress, as a thing that moves. A count on its own ("3 of 4 left")
+         is arithmetic; a bar that grows under it is the errand shrinking. -->
+    <div class="bar" role="presentation">
+      <span style="width:{(done / steps.length) * 100}%"></span>
     </div>
     <ul>
       {#each steps as s (s.id)}
         <li class:done={s.done}>
-          <span class="tick" aria-hidden="true">
-            {#if s.done}<Icon name="check" size={12} />{:else}<Icon name={s.icon} size={13} />{/if}
-          </span>
-          <span class="txt">
-            <span class="lbl">{s.label}</span>
-            <span class="sub">{s.sub}</span>
-          </span>
-          {#if !s.done}
-            <button class="go" onclick={s.go}>Do it</button>
+          {#if s.done}
+            <span class="row static">
+              <span class="tick"><Icon name="check" size={12} /></span>
+              <span class="txt"><span class="lbl">{s.label}</span></span>
+            </span>
           {:else}
-            <span class="did">Done</span>
+            <button class="row" onclick={s.go}>
+              <span class="tick"><Icon name={s.icon} size={13} /></span>
+              <span class="txt">
+                <span class="lbl">{s.label}</span>
+                <span class="sub">{s.sub}</span>
+              </span>
+              <span class="chev" aria-hidden="true">›</span>
+            </button>
           {/if}
         </li>
       {/each}
@@ -144,33 +199,44 @@
 
 <style>
   .setup {
-    margin: var(--sp-3) var(--sp-4) 0;
-    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-    background: color-mix(in srgb, var(--accent) 6%, var(--bg-1));
+    /* Capped and centred. It used to run the full width of the pane — 1200px of
+       card holding four short rows and three identical buttons, sitting above an
+       empty-channel hero that was also asking for attention. A card that is the
+       width of a card competes with nothing. */
+    width: min(560px, 100%);
+    margin: var(--sp-4) auto 0;
+    border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+    background: linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--accent) 9%, var(--bg-1)),
+      var(--bg-1) 62%
+    );
     border-radius: var(--radius-lg);
     overflow: hidden;
-    animation: setup-in 0.32s var(--ease-out) both;
+    box-shadow: var(--shadow-pop);
+    animation: setup-in 0.34s var(--ease-spring) both;
   }
   .head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--sp-2);
-    padding: 10px var(--sp-3);
-    border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+    padding: 13px var(--sp-3) 10px;
   }
   .hd-text {
     flex: 1;
     min-width: 0;
     display: flex;
-    align-items: baseline;
-    gap: var(--sp-2);
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 2px;
   }
   .hd-text strong {
-    font-size: var(--fs-ui);
+    font-size: var(--fs-body);
+    font-weight: 700;
+    line-height: 1.2;
   }
   .hd-text .muted {
     font-size: var(--fs-small);
+    color: var(--text-muted);
   }
   .x {
     flex: none;
@@ -186,39 +252,105 @@
     background: var(--bg-3);
     color: var(--text);
   }
+  /* ---- progress ----------------------------------------------------------- */
+  .bar {
+    height: 4px;
+    margin: 0 var(--sp-3) 12px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--border) 70%, transparent);
+    overflow: hidden;
+  }
+  .bar span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    box-shadow: var(--accent-glow);
+    transition: width 0.45s var(--ease-spring);
+  }
+  /* Finished: the bar is full, the frame warms, and the whole card lifts once. */
+  .setup.won {
+    border-color: var(--accent);
+    animation: setup-won 0.5s var(--ease-spring) both;
+  }
+  @keyframes setup-won {
+    0% {
+      transform: scale(1);
+    }
+    45% {
+      transform: scale(1.012);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
   ul {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 0 var(--sp-2) var(--sp-2);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
-  li {
+  /* The whole row is the target. Three identically-labelled "Do it" buttons in
+     a column said the same thing three times and made the rows themselves inert
+     — you could not click the sentence describing what you wanted to do. */
+  .row {
     display: flex;
     align-items: center;
     gap: var(--sp-3);
-    padding: 9px var(--sp-3);
+    width: 100%;
+    padding: 9px 10px;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    transition:
+      background var(--dur-quick) ease,
+      transform var(--dur-quick) var(--ease-out);
   }
-  li + li {
-    border-top: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  .row.static {
+    cursor: default;
+  }
+  button.row:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    transform: translateX(2px);
   }
   .tick {
     flex: none;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     display: grid;
     place-items: center;
     border-radius: 50%;
     background: var(--bg-3);
     color: var(--text-muted);
+    transition:
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease;
   }
-  li.done .tick {
-    background: color-mix(in srgb, var(--ok, var(--accent)) 22%, transparent);
+  button.row:hover .tick {
+    background: var(--accent-soft);
     color: var(--accent-hover);
+  }
+  /* Done is a filled tick, not a line through the words. A checklist that
+     crosses out what you achieved reads as a list of chores. */
+  li.done .tick {
+    background: var(--accent);
+    color: var(--accent-fg);
+    animation: tick-in 0.3s var(--ease-spring) both;
+  }
+  @keyframes tick-in {
+    from {
+      transform: scale(0.4);
+    }
   }
   .txt {
     flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
+    gap: 1px;
   }
   .lbl {
     font-size: var(--fs-ui);
@@ -226,44 +358,50 @@
   }
   li.done .lbl {
     color: var(--text-muted);
-    text-decoration: line-through;
-    text-decoration-color: var(--text-faint);
+    font-weight: 500;
   }
   .sub {
     font-size: var(--fs-small);
+    line-height: 1.4;
     color: var(--text-muted);
   }
-  li.done .sub {
-    display: none;
-  }
-  .go {
+  .chev {
     flex: none;
-    padding: 5px 11px;
-    font-size: var(--fs-small);
-    font-weight: 600;
-  }
-  .did {
-    flex: none;
-    font-size: var(--fs-small);
+    font-size: 19px;
+    line-height: 1;
     color: var(--text-faint);
+    transition: transform var(--dur-quick) ease;
+  }
+  button.row:hover .chev {
+    color: var(--accent-hover);
+    transform: translateX(2px);
   }
   @keyframes setup-in {
     from {
       opacity: 0;
-      transform: translateY(-6px);
+      transform: translateY(-8px);
     }
   }
   @media (max-width: 768px) {
     .setup {
-      margin: var(--sp-2) var(--sp-3) 0;
+      margin: var(--sp-3) var(--sp-3) 0;
+      width: auto;
     }
-    .sub {
-      display: none;
+    .row {
+      min-height: 52px;
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .setup {
+    .setup,
+    .setup.won,
+    .row,
+    .chev,
+    li.done .tick {
       animation: none;
+      transition: none;
+    }
+    .bar span {
+      transition: none;
     }
   }
 </style>
