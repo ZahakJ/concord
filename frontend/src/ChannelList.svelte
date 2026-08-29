@@ -1004,8 +1004,26 @@
                 </span>
               {/if}
               {#if c.type !== "voice" && !active && u && !isMuted(c.id, g?.id)}
-                <span class="count" class:mention={u.mentions > 0}>
-                  {u.mentions > 0 ? (u.mentions > 99 ? "99+" : u.mentions) : u.count > 99 ? "99+" : u.count}
+                <!-- The number is how many messages are waiting — never the
+                     mention tally. Substituting the mentions when there were
+                     any made the badge SHRINK as a channel got busier: twenty
+                     unread with one @you rendered as "1", which reads as one
+                     message and disagrees with the nineteen notifications that
+                     had already fired, with the summary pill above ("3 unread ·
+                     1 @you"), and with the catch-up card, which lists the true
+                     count for the same channel two inches away. The mention is
+                     carried by the colour, exactly as it is on the DM rows and
+                     the guild-rail bubbles, and by the label — which is also
+                     the only place a screen reader could ever have learned
+                     either number. -->
+                <span
+                  class="count"
+                  class:mention={u.mentions > 0}
+                  aria-label={u.mentions > 0
+                    ? `${u.count} unread, ${u.mentions} mentioning you`
+                    : `${u.count} unread`}
+                >
+                  {u.count > 99 ? "99+" : u.count}
                 </span>
               {/if}
               {#if joiningHere}

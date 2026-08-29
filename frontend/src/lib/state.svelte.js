@@ -1447,7 +1447,14 @@ function armCatchUp(guildId) {
   const marks = {};
   for (const c of g.channels) marks[c.id] = lastRead[c.id] || "";
   pending = { guildId, sinceMs: since, atMs: Date.now(), marks };
-  settleCatchUp();
+  // Deferred by a microtask rather than called straight through. selectGuild
+  // sets S.activeGuildId immediately AFTER this returns, and settleCatchUp's
+  // first act is to check the armed guild against it — so called inline it
+  // always saw the guild being LEFT, returned at once, and left the card to
+  // whichever later caller happened to reach it. In practice that was the
+  // inbox refresh, which meant a single failed Inbox call lost the summary
+  // entirely and an arriving message could produce one minutes late.
+  queueMicrotask(settleCatchUp);
 }
 
 // settleCatchUp fills in (or refreshes) the armed card. Safe to call more than
