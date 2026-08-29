@@ -92,8 +92,14 @@
     flex: 1 1 60%;
     /* A datetime-local field renders its own segmented spinner and has a real
        intrinsic width; at min-width:0 it squeezed under it and clipped the
-       year. Wrapping the button below is the better failure. */
-    min-width: 170px;
+       year. Wrapping the button below is the better failure.
+
+       The floor is `fit-content`, not a number: 170px was enough for the year
+       but not for the AM/PM segment behind it, which the desktop build's
+       WebKitGTK draws wider than Blink and a wide theme-pack face wider again.
+       Ask the control how much room it needs instead of guessing on its
+       behalf. */
+    min-width: fit-content;
   }
   .go {
     flex-shrink: 0;

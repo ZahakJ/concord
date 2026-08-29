@@ -618,7 +618,7 @@
       {/if}
       <div class="row2">
         {#if showPicker || !whenChips.length}
-          <label class="fld">
+          <label class="fld startfld">
             <span class="muted tiny">Starts</span>
             <input type="datetime-local" bind:value={editing.start} />
           </label>
@@ -1361,9 +1361,28 @@
     min-width: 0;
   }
   /* A datetime-local field has a real intrinsic width (segments + spinner);
-     squeezing it clips the year — wrapping is the better failure. */
+     squeezing it clips the year — wrapping is the better failure, and .row2
+     already wraps.
+
+     `fit-content` rather than a number. 170px was measured against one engine,
+     one locale and one face, and it is short in all three directions: the
+     desktop build's WebKitGTK spaces the segments wider than Blink does, so at
+     170px the whole AM/PM segment fell outside the box — an event start that
+     read "08/28/2026, 03:35" with no way to see, or reach, whether it was
+     morning or afternoon. A 24-hour locale needs less than 170 and a theme pack
+     that swaps in a wide face needs more, so the only number that is right
+     everywhere is the one the control computes for itself. */
   .fld input[type="datetime-local"] {
-    min-width: 170px;
+    min-width: fit-content;
+  }
+  /* The floor has to sit on the FLEX ITEM as well as on the control. `.fld`
+     carries `min-width: 0` so that long labels can shrink, which also lets it
+     shrink under the input it wraps: with the floor only on the input, the
+     field grew to fit AM/PM and then hung 27px past its own label, straight
+     under the "Lasts" picker beside it. The two are separate decisions and
+     both have to be told. */
+  .startfld {
+    min-width: fit-content;
   }
   .tiny {
     font-size: var(--fs-small);
