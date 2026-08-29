@@ -16,7 +16,7 @@
   // A change applies to the call in progress (the mesh swaps tracks live), and
   // is remembered for the next one.
   import { slide } from "svelte/transition";
-  import Modal from "./Modal.svelte";
+  import SettingsShell from "./SettingsShell.svelte";
   import Icon from "../Icon.svelte";
   import InfoDot from "./InfoDot.svelte";
   import Menu from "../Menu.svelte";
@@ -481,7 +481,7 @@
   </Menu>
 {/snippet}
 
-<Modal title="Voice &amp; Video" {onClose} wide>
+<SettingsShell title="Voice &amp; video" here="devices" {onClose}>
   {#if !loading && !devices.labelled}
     <button class="reveal" onclick={reveal} disabled={asking}>
       <Icon name="lock" size={15} />
@@ -800,7 +800,7 @@
       </section>
     </div>
   {/if}
-</Modal>
+</SettingsShell>
 
 <style>
   .dev {

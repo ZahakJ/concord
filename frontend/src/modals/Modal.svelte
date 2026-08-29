@@ -35,7 +35,16 @@
   // `wide` widens the desktop dialog for content that benefits from the room
   // (sectioned settings); `size="xl"` makes it a large workspace (the advanced
   // composer). The mobile sheet presentation ignores both.
-  let { title, onClose, wide = false, size = "", children } = $props();
+  //
+  // `rail` is a snippet drawn down the left of the dialog, permanently, with
+  // the content beside it — what the settings surface uses so that going from
+  // Appearance to Connection changes the pane and nothing else. A dialog with
+  // a rail has ONE size for every page it can show; the whole point is that
+  // the box under the cursor stops resizing on every navigation. On a phone
+  // there is no room for it and the drill-down list is the right shape anyway,
+  // so the rail is dropped and this is the dialog it has always been.
+  let { title, onClose, wide = false, size = "", rail = null, children } = $props();
+  const railed = $derived(!!rail && !S.isMobile);
   let dialog = $state(null);
   // TalkBack/VoiceOver announce a dialog by its label; without an id to point
   // aria-labelledby at, every sheet in the app opened as an unnamed group.
@@ -72,6 +81,13 @@
   // only runs then) and consumed, so the next open starts from a clean slate.
   const enterDir = modalNav.dir || (S.modal?.from ? 1 : 0);
   modalNav.dir = 0;
+  // A step sideways along a rail. The dialog is torn down and rebuilt (each
+  // settings page is its own component), so without this the scrim re-fades and
+  // the card re-pops on every rail click — the box flashing and jumping under
+  // the cursor, which is the exact thing the rail exists to stop. Read once and
+  // consumed, like `dir`.
+  const lateral = modalNav.lateral;
+  modalNav.lateral = false;
 
   // Focus, on open and on close.
   //
@@ -107,11 +123,19 @@
       // whose entire job is to explain something, and the panel appeared with a
       // tooltip already up over its own first row. A dot is not a control; it
       // is an aside about one, and it is never the right place to start.
+      //
+      // And never the rail. It is the navigation AROUND the page, permanently
+      // on screen; opening Settings and finding the caret parked on "Account"
+      // with a focus ring round it reads as a selection somebody made, not as a
+      // place to start typing. Focus belongs in the page the rail points at.
       const body = S.isMobile
         ? []
         : [...dialog.querySelectorAll(FOCUSABLE)].filter(
             (el) =>
-              !el.closest(".sheet-top") && !el.hasAttribute("data-help-affordance") && visible(el),
+              !el.closest(".sheet-top") &&
+              !el.closest("[data-nav-rail]") &&
+              !el.hasAttribute("data-help-affordance") &&
+              visible(el),
           );
       // A panel that names its own first field wins over DOM order. The create-
       // channel dialog leads with four channel-TYPE buttons and follows them
@@ -215,6 +239,7 @@
 <div
   bind:this={overlay}
   class="overlay"
+  class:lateral
   style:z-index={100 + me.index * 2}
   onclick={dismiss}
   role="presentation"
@@ -224,6 +249,8 @@
     class="dialog"
     class:wide
     class:xl={size === "xl"}
+    class:railed
+    class:lateral
     class:deeper={enterDir === 1}
     class:shallower={enterDir === -1}
     onclick={(e) => e.stopPropagation()}
@@ -231,32 +258,42 @@
     aria-modal="true"
     aria-labelledby={titleId}
   >
-    <!-- Grip and title travel together as one pinned strip: the grip used to
-         scroll away with the content, leaving the sheet's own drag handle out
-         of reach on exactly the tall panels that need it most. -->
-    <div
-      class="sheet-top"
-      use:sheetdrag={{
-        enabled: S.isMobile && !closing,
-        sheet: () => dialog,
-        scrim: () => overlay,
-        scroller: () => dialog,
-        onDismiss: onClose,
-      }}
-      role="presentation"
-    >
-      <div class="grip"></div>
-      <div class="head">
-        {#if canBack}
-          <button class="back" onclick={backPanel} aria-label="Back" title="Back">
-            <Icon name="chevron" size={16} />
-          </button>
-        {/if}
-        <h3 id={titleId}>{title}</h3>
-        <button class="x" onclick={dismiss} aria-label="Close">✕</button>
+    {#snippet body()}
+      <!-- Grip and title travel together as one pinned strip: the grip used to
+           scroll away with the content, leaving the sheet's own drag handle out
+           of reach on exactly the tall panels that need it most. -->
+      <div
+        class="sheet-top"
+        use:sheetdrag={{
+          enabled: S.isMobile && !closing,
+          sheet: () => dialog,
+          scrim: () => overlay,
+          scroller: () => dialog,
+          onDismiss: onClose,
+        }}
+        role="presentation"
+      >
+        <div class="grip"></div>
+        <div class="head">
+          {#if canBack}
+            <button class="back" onclick={backPanel} aria-label="Back" title="Back">
+              <Icon name="chevron" size={16} />
+            </button>
+          {/if}
+          <h3 id={titleId}>{title}</h3>
+          <button class="x" onclick={dismiss} aria-label="Close">✕</button>
+        </div>
       </div>
-    </div>
-    {@render children()}
+      {@render children()}
+    {/snippet}
+    {#if railed}
+      {@render rail()}
+      <!-- The scroller is the pane, not the dialog: the rail must stay put
+           while a long page moves under it. -->
+      <div class="pane">{@render body()}</div>
+    {:else}
+      {@render body()}
+    {/if}
   </div>
 </div>
 
@@ -310,6 +347,58 @@
     width: min(1080px, 94 * var(--vw));
     height: min(780px, 88 * var(--vh));
     height: min(780px, 88 * var(--dvh));
+  }
+  /* ---- railed: one constant box, a rail down the left ----------------------
+     Every settings page is exactly this size. Nothing here is negotiable by
+     the content: a page that needs more room scrolls inside the pane, because
+     a dialog that resizes itself to fit each page is a dialog that jumps under
+     the pointer on every click, and that is the complaint this answers.
+     The dialog stops being the scroller — the pane is — so the rail holds
+     still while a long page moves beside it. */
+  .dialog.railed {
+    width: min(1000px, 94 * var(--vw));
+    height: min(660px, 86 * var(--vh));
+    height: min(660px, 86 * var(--dvh));
+    max-height: none;
+    padding: 0;
+    gap: 0;
+    display: grid;
+    grid-template-columns: 226px minmax(0, 1fr);
+    overflow: hidden;
+  }
+  /* Below this the rail keeps its icons and drops its words rather than eating
+     the page it is meant to be navigating. See SettingsRail's own query. */
+  @media (max-width: 920px) {
+    .dialog.railed {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+  }
+  .dialog.railed > .pane {
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: var(--sp-3);
+  }
+  /* The sticky footer and the scroll fade are written against the dialog's own
+     20px padding and its own scroll box. Railed, both of those belong to the
+     pane, and the dialog itself has neither. */
+  .dialog.railed::after {
+    display: none;
+  }
+  .dialog.railed > .pane::after {
+    content: "";
+    flex: none;
+    position: sticky;
+    z-index: 1;
+    bottom: -20px;
+    height: 24px;
+    margin: 0 -20px -20px;
+    pointer-events: none;
+    background: linear-gradient(transparent, var(--bg-elevated));
   }
   @keyframes fade {
     from {
@@ -392,10 +481,15 @@
        selectors (`wide`, `xl`) must be listed so they can't pin a desktop size. */
     .dialog,
     .dialog.wide,
-    .dialog.xl {
+    .dialog.xl,
+    .dialog.railed {
       width: auto;
       max-width: none;
       height: auto;
+      display: flex;
+      padding: 20px;
+      gap: var(--sp-3);
+      overflow-y: auto;
       /* dvh DOES NOT SHRINK FOR THE KEYBOARD on the phone this app ships to.
          Measured on the device with the IME up: 100vh, 100dvh, 100svh, 100lvh
          and visualViewport.height are all 915px, the full screen, while the
@@ -567,11 +661,31 @@
       transform: translateX(var(--panel-from)) scale(0.99);
     }
   }
+  /* A step sideways along the rail: nothing on the outside of the dialog moves.
+     Only the page changes, and it says so with a short lift — enough to read as
+     "this is a different page", nowhere near enough to be a transition you have
+     to wait out. Declared last so it beats every entrance above it. */
+  .overlay.lateral,
+  .dialog.lateral,
+  .dialog.lateral.deeper,
+  .dialog.lateral.shallower {
+    animation: none;
+  }
+  .dialog.lateral > .pane {
+    animation: pane-in 0.19s var(--ease-out) both;
+  }
+  @keyframes pane-in {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .overlay,
     .dialog,
     .dialog.deeper,
-    .dialog.shallower {
+    .dialog.shallower,
+    .dialog.lateral > .pane {
       animation: none;
     }
   }

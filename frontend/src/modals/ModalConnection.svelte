@@ -1,7 +1,7 @@
 <script>
   // How this node reaches the outside world: the rendezvous address, and the
   // local-only extras that depend on what's installed on this machine.
-  import Modal from "./Modal.svelte";
+  import SettingsShell from "./SettingsShell.svelte";
   import Icon from "../Icon.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
@@ -85,7 +85,7 @@
   const bad = $derived(lines.length > 0 && !ok);
 </script>
 
-<Modal title="Connection" {onClose} wide>
+<SettingsShell title="Connection" here="connection" {onClose}>
   <SettingGroup
     label="Rendezvous server"
     info="The tiny relay that lets friends on other networks find you. You only need to set this if you host it yourself — friends get it automatically from your invite code. Blank means same-Wi-Fi only."
@@ -200,7 +200,7 @@
     />
   </SettingGroup>
 
-</Modal>
+</SettingsShell>
 
 <style>
   .conn {

@@ -75,6 +75,18 @@
     lock: "M5 7V5.2a3 3 0 0 1 6 0V7 M3.5 7h9v6.5h-9z M8 9.5v1.7",
     members:
       "M6 7.5a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4z M1.8 13v-.8a3.7 3.7 0 0 1 7.4 0v.8 M10.6 3.4a2.2 2.2 0 0 1 0 4.2 M11.4 9.1a3.7 3.7 0 0 1 2.8 3.1V13",
+    // ONE person, for the settings entry that means you. `members` is a crowd
+    // and reads as "the member list"; the row it sits on is your own name.
+    user: "M8 8.2a2.7 2.7 0 1 0 0-5.4 2.7 2.7 0 0 0 0 5.4z M2.9 13.5v-.9a5.1 5.1 0 0 1 10.2 0v.9",
+    // A painter's palette, for Appearance. The row used to carry a two-tone
+    // diagonal block with nothing inside it — the only glyph in Settings that
+    // was not an icon, and the one the owner could not name.
+    palette:
+      "M8 2.2a5.8 5.8 0 0 0 0 11.6c.9 0 1.4-.6 1.4-1.3 0-.8-.6-1.1-.6-1.8 0-.6.5-1.1 1.2-1.1h1.2A3.4 3.4 0 0 0 14 6.2C13.7 3.9 11.1 2.2 8 2.2z M5.4 6.2h.01 M8 4.8h.01 M10.6 6h.01 M5.2 9.2h.01",
+    // A shield, for account & security. Distinct from `lock`, which Privacy
+    // already wears: a lock is about what is closed, a shield about what is
+    // protecting you.
+    shield: "M8 2.2 13 4v4.1c0 3-2.1 5-5 5.7-2.9-.7-5-2.7-5-5.7V4z",
     // Markdown formatting toolbar (composer)
     bold: "M5.5 2.5v11 M5.5 2.5H9a2.75 2.75 0 0 1 0 5.5H5.5 M5.5 8h3.9a2.75 2.75 0 0 1 0 5.5H5.5",
     italic: "M6.5 2.5h5 M4.5 13.5h5 M9.5 2.5l-3 11",

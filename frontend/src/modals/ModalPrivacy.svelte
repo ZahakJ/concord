@@ -2,7 +2,7 @@
   // Privacy & safety: the switches whose defaults are deliberate, each with the
   // reason it's set that way. These used to sit in the main Settings list with
   // their paragraphs attached, which is what made that list a wall.
-  import Modal from "./Modal.svelte";
+  import SettingsShell from "./SettingsShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import ModalWipeDevice from "./ModalWipeDevice.svelte";
   import SettingGroup from "./SettingGroup.svelte";
@@ -79,7 +79,7 @@
   })();
 </script>
 
-<Modal title="Privacy &amp; safety" {onClose} wide>
+<SettingsShell title="Privacy &amp; safety" here="privacy" {onClose}>
   <SettingGroup
     label="What leaves this device"
     info="Read receipts need no switch here: your read state only ever travels to your own devices, so nobody else was ever told."
@@ -211,7 +211,7 @@
       onclick={() => (confirmWipe = true)}
     />
   </SettingGroup>
-</Modal>
+</SettingsShell>
 
 {#if confirmWipe}
   <ModalWipeDevice onClose={() => (confirmWipe = false)} />

@@ -521,9 +521,11 @@ if (typeof window !== "undefined") {
 
 // modalNav carries the direction of the last modal navigation to the panel
 // that's about to mount: 1 = opened a sub-panel, -1 = went back to its parent,
-// 0 = a fresh dialog. A plain object rather than reactive state because
-// Modal.svelte reads it exactly once, at mount, to pick an entrance animation.
-export const modalNav = { dir: 0 };
+// 0 = a fresh dialog. `lateral` is the third case — a step SIDEWAYS between two
+// pages of one railed surface, where the dialog itself must not move at all.
+// A plain object rather than reactive state because Modal.svelte reads it
+// exactly once, at mount, to pick an entrance animation.
+export const modalNav = { dir: 0, lateral: false };
 
 // openPanel navigates INTO a sub-panel of the modal that's open now, so the
 // back arrow returns there and the entrance slides the right way. The panel we
@@ -534,6 +536,23 @@ export function openPanel(kind, from) {
   modalNav.dir = 1;
   if (S.modal) S.modalStack = [...S.modalStack, S.modal];
   S.modal = { kind, from };
+}
+
+// switchPanel moves BETWEEN the pages of a railed surface — the settings rail,
+// where every destination is a sibling rather than a rung.
+//
+// It replaces S.modal instead of pushing onto S.modalStack, and that is the
+// whole difference: clicking six rail entries in a row must not leave six
+// dialogs to walk back out of. `from` is carried across so a panel reached
+// from somewhere else ("Connection" opened out of the reachability card) keeps
+// offering the ‹ that returns there, no matter how far along the rail you have
+// since wandered.
+export function switchPanel(kind) {
+  if (S.modal?.kind === kind) return;
+  modalNav.dir = 0;
+  modalNav.lateral = true;
+  const from = S.modal?.from;
+  S.modal = from ? { kind, from } : { kind };
 }
 
 // backPanel walks one step out, the way you came in.

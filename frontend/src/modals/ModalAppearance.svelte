@@ -5,7 +5,7 @@
   // data-density / --accent) with a short cross-fade; see state.svelte.js.
   import { slide } from "svelte/transition";
   import { motionInView } from "../lib/inview.js";
-  import Modal from "./Modal.svelte";
+  import SettingsShell from "./SettingsShell.svelte";
   import SettingRow from "./SettingRow.svelte";
   import FxOverlay from "../FxOverlay.svelte";
   import { THEME_FX } from "../lib/themefx.js";
@@ -221,7 +221,7 @@
   }
 </script>
 
-<Modal title="Appearance" {onClose} size="xl">
+<SettingsShell title="Appearance" here="appearance" {onClose}>
   <!-- One head for every section, so "is this folded away?" is never a fact
        you have to remember per setting. -->
   {#snippet group(id, title, sub, body)}
@@ -550,7 +550,7 @@
   <div class="actions">
     <button onclick={onClose}>Done</button>
   </div>
-</Modal>
+</SettingsShell>
 
 <style>
   .scale-row {
