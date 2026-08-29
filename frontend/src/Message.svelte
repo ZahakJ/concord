@@ -1966,6 +1966,15 @@
     margin-top: 2px;
     white-space: pre-wrap;
     word-break: break-word;
+    /* The reading size, and the one thing the density setting is FOR. The
+       comfortable rung's own comment says "nothing but the feed's own rhythm
+       and its content size moves" — but the message body never named the token,
+       so it inherited a flat 16px on all three rungs and the only thing the
+       control resized was the chrome around the conversation (menus, sheet
+       titles, the channel list, all of which do name --fs-body). Measured on
+       the phone: 14.5 / 16 / 16.5 declared, 16px painted on every rung. Cozy is
+       16px, so the default is unchanged by naming it. */
+    font-size: var(--fs-body);
     /* Comfortable reading measure for multi-line messages — roomier than the
        default without stretching single-line rows noticeably.
        Arabic and Persian sit taller than Latin at the same size: the diacritics

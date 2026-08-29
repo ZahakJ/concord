@@ -1404,6 +1404,20 @@
   .sh-spacer {
     flex: 1;
   }
+  /* On a phone the lock sentence is 203px of a 380px row, so the head wrapped
+     and the call timer and the show-the-chat toggle dropped onto a second line
+     HARD LEFT, with the flex spacer stranded at the end of the first one — the
+     two controls that are always in the same corner moved the moment the door
+     was locked. Give the pill a line of its own, last, and the head keeps the
+     exact layout it has when the call is open; the sentence simply sits under
+     it. Measured at 412px on the device: three items, then the pill. */
+  @media (pointer: coarse), (max-width: 768px) {
+    .sh-lock {
+      order: 2;
+      flex-basis: 100%;
+      justify-content: center;
+    }
+  }
   .sh-clock {
     flex: none;
     font-variant-numeric: tabular-nums;

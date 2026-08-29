@@ -941,8 +941,19 @@ export async function setOffDeviceSearch(key, on) {
 // The icon for a channel kind. Shared, because the sidebar and the chat header
 // each used to carry their own copy of this and the header's had no case for
 // voice — so opening a voice channel's chat showed it as a # channel.
+// "thread" is a forum POST, which is a real channel with a parent — and it fell
+// through to `hash`, so a phone's top bar announced a bug report as
+// "# Voice drops after ~40 minutes on a flaky link". A post is not a text
+// channel and does not appear in the channel list; the honest thing to say is
+// that it lives in a forum, which is also what the back arrow beside it says.
 export const channelTypeIcon = (t) =>
-  t === "voice" ? "speaker" : t === "announcement" ? "megaphone" : t === "forum" ? "forum" : "hash";
+  t === "voice"
+    ? "speaker"
+    : t === "announcement"
+      ? "megaphone"
+      : t === "forum" || t === "thread"
+        ? "forum"
+        : "hash";
 
 // The channel kinds a channel can be turned into. Threads aren't here: a thread
 // belongs to its forum and only makes sense inside it.
@@ -1910,6 +1921,82 @@ export function accentForeground(color) {
   return onDark >= onLight ? FG_DARK : FG_LIGHT;
 }
 
+// ---- name ink --------------------------------------------------------------
+//
+// A member's colour is chosen once and worn everywhere, and it was chosen
+// against a dark app. On the light palette the same hex is a pastel on
+// near-white: measured on the phone with the light theme on, a mint-green name
+// scored 1.79:1 against the feed and a lilac one 2.47:1, where 4.5 is the floor
+// for body text at that size. The four Daylight packs have the same problem for
+// the same reason, and nobody had opened one on a phone.
+//
+// The colour is not replaced — it is walked toward the ground's opposite ink
+// until it clears the floor, so the hue that makes a name recognisable survives
+// and only its lightness moves. Anything that already reads comes back
+// untouched, which is every one of these colours on the dark palette; the same
+// arithmetic catches the mirror case (a near-black role colour on dark) that
+// nothing was watching for either.
+const NAME_MIN = 4.5;
+let inkGroundL = null; // relative luminance of --bg-2, per applied appearance
+let inkGroundDark = true;
+const inkCache = new Map();
+
+function rgbTriple(color) {
+  const hex = String(color).trim().replace(/^#/, "");
+  if (/^[0-9a-fA-F]{3}$/.test(hex))
+    return [...hex].map((c) => parseInt(c + c, 16));
+  if (/^[0-9a-fA-F]{6}$/.test(hex))
+    return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const m = String(color).match(/rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+  return m ? [+m[1], +m[2], +m[3]] : null;
+}
+
+// The ground is READ, never assumed: a theme pack repaints --bg-2 and half of
+// them do it with color-mix, which only resolves once something is painted with
+// it. A throwaway probe is the one way to get the number the eye will see.
+function readInkGround() {
+  inkCache.clear();
+  try {
+    const probe = document.createElement("div");
+    probe.style.cssText =
+      "position:absolute;left:-9999px;top:0;width:1px;height:1px;background:var(--bg-2)";
+    document.documentElement.appendChild(probe);
+    const l = relLuminance(getComputedStyle(probe).backgroundColor);
+    probe.remove();
+    inkGroundL = l == null ? 0.02 : l;
+  } catch {
+    inkGroundL = 0.02;
+  }
+  inkGroundDark = inkGroundL < 0.5;
+}
+
+export function nameInk(color) {
+  if (!color) return "";
+  if (inkGroundL == null) readInkGround();
+  const cached = inkCache.get(color);
+  if (cached !== undefined) return cached;
+  const rgb = rgbTriple(color);
+  const ratio = (l) =>
+    l == null ? NAME_MIN : (Math.max(l, inkGroundL) + 0.05) / (Math.min(l, inkGroundL) + 0.05);
+  let out = color;
+  if (rgb && ratio(relLuminance(color)) < NAME_MIN) {
+    // Mixing straight toward black or white moves luminance monotonically, so
+    // the smallest move that clears the floor is a plain bisection.
+    const target = inkGroundDark ? [255, 255, 255] : [20, 20, 25];
+    const at = (t) => rgb.map((v, k) => Math.round(v + (target[k] - v) * t));
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 10; i++) {
+      const mid = (lo + hi) / 2;
+      if (ratio(relLuminance(`rgb(${at(mid).join(",")})`)) >= NAME_MIN) hi = mid;
+      else lo = mid;
+    }
+    out = `rgb(${at(hi).join(", ")})`;
+  }
+  inkCache.set(color, out);
+  return out;
+}
+
 // syncAccentFg resolves whatever --accent currently is (an explicit color OR a
 // theme pack's CSS value) and stamps a contrast-safe --accent-fg to match.
 export function syncAccentFg() {
@@ -2033,6 +2120,8 @@ export function applyAppearance() {
   const scale = Number(S.prefs.uiScale) || 1;
   if (scale !== 1) el.style.zoom = scale;
   else el.style.removeProperty("zoom");
+  // The ground the name colours are measured against has just changed.
+  readInkGround();
   if (S.prefs.accent) applyAccent(S.prefs.accent);
   else if (S.prefs.themePack) {
     document.documentElement.style.removeProperty("--accent");
@@ -2656,7 +2745,9 @@ export function roleColorFor(fpr) {
 // typing line). A colored role wins; otherwise the member's own
 // chosen accent color. "" means fall back to the default name color.
 export function nameColorFor(fpr) {
-  return roleColorFor(fpr) || memberByFpr(fpr)?.color || "";
+  // nameInk is the last step, not the caller's job: six places paint a name and
+  // every one of them was handing the raw hex to an inline `color:`.
+  return nameInk(roleColorFor(fpr) || memberByFpr(fpr)?.color || "");
 }
 
 // Coalesce refreshes: a member join, history sync, or presence flap can emit a

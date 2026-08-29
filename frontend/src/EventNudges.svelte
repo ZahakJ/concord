@@ -193,6 +193,15 @@
   }
   /* One-handed at 393px: the actionable pills reach the 44px floor. */
   @media (pointer: coarse), (max-width: 768px) {
+    /* And below the phone's top bar, not across it: `10px + safe-top` clears
+       the status bar and lands squarely on the shell's own header, which is
+       52px tall after that inset. --mchrome is the number MobileShell keeps
+       for exactly this, and the toast stack and the banner pills read it too.
+       A nudge that hides the way out of the channel it is nudging about is
+       worse than no nudge. */
+    .nudges {
+      top: calc(var(--mchrome) + 10px);
+    }
     .act {
       min-height: var(--tap-min);
       padding-inline: var(--sp-4);

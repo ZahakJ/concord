@@ -716,6 +716,15 @@
     margin-top: var(--ob-total);
     height: calc(100% - var(--ob-total));
   }
+  /* The bar has ALREADY cleared the status bar — that inset is inside
+     --ob-total, which is why the shell is pushed down by it — so the header
+     must not clear it a second time. It did, and the phone showed a 52px band
+     of nothing between the reconnect bar and the hamburger: measured on the
+     device, the bar ended at y=87, the shell began at 86, and the header's own
+     content did not start until 138. */
+  .mshell.offline-shift .mtopbar {
+    padding-top: 0;
+  }
   .mshell {
     display: flex;
     flex-direction: column;

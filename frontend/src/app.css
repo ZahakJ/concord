@@ -882,7 +882,19 @@
   --ui-font: "Space Grotesk", "Noto Sans Arabic", system-ui, sans-serif;
 }
 :root:root[data-font="serif"] {
-  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, "Iowan Old Style", serif;
+  /* The tail generic is SANS, not serif, and deliberately. On Android a serif
+     generic breaks emoji: a keycap like "1️⃣" is U+0031 U+FE0F U+20E3, the
+     WebView resolves the digit in Noto Serif, finds no U+20E3 there and stops,
+     so the sequence arrives as a digit plus a tofu box — every poll option
+     under this face, and every keycap anyone types. Measured on the device:
+     bare `serif` and `Georgia, serif` both tofu; `sans-serif` does not, and no
+     amount of naming "Noto Color Emoji" in the list helps, because Android does
+     not expose the emoji font under a matchable family name at all. The named
+     serif faces above still set the tone for everything they cover (Latin, and
+     Arabic via Noto Naskh); this only changes where the leftovers land, and
+     leftovers are exactly the emoji. Desktop is unaffected — fontconfig
+     completes the sequence whatever generic was asked for. */
+  --ui-font: "Source Serif 4", "Noto Naskh Arabic", Georgia, "Iowan Old Style", sans-serif;
 }
 :root:root[data-font="mono"] {
   --ui-font: "JetBrains Mono", "Noto Sans Arabic", ui-monospace, Menlo, monospace;

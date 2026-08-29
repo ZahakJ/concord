@@ -384,6 +384,9 @@
   @media (pointer: coarse), (max-width: 768px) {
     .overlay {
       place-items: end stretch;
+      /* The bottom edge is the KEYBOARD's top edge, not the screen's. See the
+         max-height note below for why dvh cannot answer this. */
+      padding-bottom: var(--kb, 0px);
     }
     /* All variants collapse to the bottom-sheet presentation; higher-specificity
        selectors (`wide`, `xl`) must be listed so they can't pin a desktop size. */
@@ -393,12 +396,20 @@
       width: auto;
       max-width: none;
       height: auto;
-      /* vh resolves against the LARGE viewport in Android WebView and does not
-         shrink when the keyboard opens — a sheet with a text field would keep
-         claiming 92% of the full screen and push its own confirm button behind
-         the keyboard. dvh is the height actually available right now. */
+      /* dvh DOES NOT SHRINK FOR THE KEYBOARD on the phone this app ships to.
+         Measured on the device with the IME up: 100vh, 100dvh, 100svh, 100lvh
+         and visualViewport.height are all 915px, the full screen, while the
+         native bridge reports --kb: 336px. The activity draws edge-to-edge with
+         insetsHandling disabled, so the WebView is never resized and every
+         viewport unit keeps describing a screen a third of which the user
+         cannot see. That is the whole reason --kb exists.
+         So: subtract it. Before this, opening the import wizard and tapping its
+         one text field put that field 35 of its 48 pixels underneath the
+         keyboard — the sheet was still claiming 92% of the WHOLE screen and
+         sitting on the bottom edge of it. The vh line stays as the fallback for
+         engines without dvh, where the keyboard does resize the viewport. */
       max-height: 92vh;
-      max-height: 92dvh;
+      max-height: calc(92dvh - var(--kb, 0px));
       border: none;
       border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
       padding-bottom: calc(20px + var(--safe-bottom));

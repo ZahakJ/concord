@@ -1370,7 +1370,14 @@
      point at something that just happened rather than at a hypothetical. The
      Enable button is what opens the system dialog — on Android there are only
      ever two of those, and this is how one gets spent on somebody who wants it. -->
-{#if S.notifyAsk && !S.update && !ringingChannel && !S.offline}
+<!-- …and not while a dialog is open. These pills are fixed at z-index 205 and
+     the modal overlay is 100, so on a phone — where a dialog presents as a
+     bottom sheet that can reach the top of the screen — the pill landed on the
+     sheet's drag handle, its back arrow and its ✕, and its own Enable button
+     took the taps aimed at them. An offer that can wait is not worth a dialog
+     you cannot close. The condition is reactive: it comes back on its own the
+     moment the sheet does. -->
+{#if S.notifyAsk && !S.update && !ringingChannel && !S.offline && !S.modal}
   <div class="update-banner notif-ask">
     <span class="ub-text">
       <strong>You just missed a message.</strong> Turn on notifications and Concord can tell you next time.
@@ -1395,7 +1402,7 @@
      else can put this right later. It keeps coming back until the words have
      been verified, or simply looked at again in Settings; "Later" quiets it for
      this session only, which is the whole point of it. -->
-{#if S.ready && S.prefs.backupPending && !backupNudgeHidden && !S.update && !S.notifyAsk && !ringingChannel && !S.offline}
+{#if S.ready && S.prefs.backupPending && !backupNudgeHidden && !S.update && !S.notifyAsk && !ringingChannel && !S.offline && !S.modal}
   <div class="update-banner backup-nudge">
     <span class="ub-text">
       <strong>Write down your recovery phrase.</strong> It is the only way back into this account, and
@@ -1406,7 +1413,7 @@
   </div>
 {/if}
 
-{#if S.update && !ringingChannel && !S.offline}
+{#if S.update && !ringingChannel && !S.offline && !S.modal}
   <div class="update-banner">
     <span class="ub-text">
       <strong>Update available</strong> — Concord {S.update.latest} is out (you have {S.update.current}).
@@ -2743,6 +2750,16 @@
        real targets and put a gap between them, and let the sentence wrap rather
        than ellipsise to six words. */
     .update-banner {
+      /* BELOW the phone's top bar, not on it. The desktop rule pins these to
+         `12px + safe-top`, which on a phone is the middle of the shell's own
+         header — and the mobile layout below wraps the sentence onto its own
+         line, making the pill ~100px tall, so it swallowed the hamburger, the
+         channel name, Members and the overflow menu whole. --mchrome is the
+         variable that exists for this; MobileShell keeps it in step with the
+         connection bar and the search row, and the toast stack already reads
+         it. The .offline-bar above learned the same lesson years earlier and
+         its comment says so; these three pills were simply never told. */
+      top: calc(var(--mchrome) + var(--sp-2));
       left: var(--sp-3);
       right: var(--sp-3);
       transform: none;

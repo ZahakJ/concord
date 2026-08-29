@@ -22,10 +22,15 @@
   import { onDestroy } from "svelte";
   import { sheetdrag } from "./lib/sheet.js";
 
-  // dvh, not vh: Android's WebView does not shrink 100vh when the software
-  // keyboard opens, so a sheet holding an input measured itself against the
-  // whole screen and put its own field underneath the keyboard. The .bs-sheet
-  // rule carries a vh value as the fallback for engines that drop the unit.
+  // The keyboard is subtracted EXPLICITLY, because no viewport unit knows about
+  // it here. Measured on the device with the IME up: 100vh, 100dvh, 100svh,
+  // 100lvh and visualViewport.height all report the full 915px screen while the
+  // native bridge reports --kb: 336px — the activity is edge-to-edge with
+  // insetsHandling disabled, so the WebView is never resized. dvh was chosen for
+  // this on the belief that it shrank; it does not, and a sheet holding an input
+  // was measuring itself against a screen a third of which was covered. The
+  // .bs-sheet rule carries a vh value as the fallback for engines that drop the
+  // unit (where the viewport really does resize and --kb is 0).
   let { title = "", onClose, maxHeight = "72dvh", children } = $props();
 
   let sheetEl = $state(null);
@@ -50,7 +55,7 @@
 <div
   bind:this={sheetEl}
   class="bs-sheet"
-  style="max-height:{maxHeight}"
+  style="max-height:min({maxHeight}, calc(100dvh - var(--kb, 0px) - 8px))"
   style:z-index={401 + depth * 2}
   role="dialog"
   aria-label={title || "Sheet"}
@@ -89,7 +94,8 @@
     position: fixed;
     left: 0;
     right: 0;
-    bottom: 0;
+    /* Rest on the keyboard's top edge when there is one. */
+    bottom: var(--kb, 0px);
     z-index: 401;
     display: flex;
     flex-direction: column;
