@@ -323,7 +323,8 @@
       // exactly what tucking "*Amina Sadiq waves*" under the message above it
       // did. Neither does the row AFTER one, or a plain sentence would inherit
       // the emote's header.
-      const emote = isEmote(m.content, m.senderName) || isEmote(prev?.content, prev?.senderName);
+      const selfEmote = isEmote(m.content, m.senderName);
+      const emote = selfEmote || isEmote(prev?.content, prev?.senderName);
       const compact =
         !newDay &&
         sameAuthor &&
@@ -332,7 +333,12 @@
         !m.replyTo &&
         !prev.deleted &&
         new Date(m.sent) - new Date(prev.sent) < GROUP_WINDOW_MS;
-      out.push({ m, newDay, day, compact });
+      // …and an emote carries the actor in its own text, which is the right
+      // wire decision and left the name on screen twice, 40px apart, in two
+      // weights. The row draws no header: the italic line is the whole message.
+      // Not `compact`, which also means "tuck under the row above" — this row
+      // still breaks the group in both directions.
+      out.push({ m, newDay, day, compact, emote: selfEmote });
       prev = m;
     }
     return out;
@@ -1504,6 +1510,7 @@
       <Message
         m={it.row.m}
         compact={it.row.compact}
+        emote={it.row.emote}
         entering={it.row.m.id === animateId}
         tabbable={it.k === tabbableKey}
         replyRef={it.row.m.replyTo ? byId.get(it.row.m.replyTo) : null}

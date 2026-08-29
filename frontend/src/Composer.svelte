@@ -19,6 +19,7 @@
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { haptic } from "./lib/touch.js";
   import { emoteText } from "./lib/emote.js";
+  import { plainSnippet } from "./lib/snippet.js";
   import { S, activeChannel, activeGuild, react, flash, nameColorFor, mentionRefs, focusFeed } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
@@ -188,6 +189,12 @@
   // this keeps honest fingers off the wall and says how long. Managers are
   // exempt on both sides. Channel switches clear the count — each channel's
   // interval is its own.
+  // Same cap the sent reply strip uses: enough to tell two of somebody's
+  // messages apart, not enough to become a second draft box.
+  const replySnippet = $derived(
+    S.replyingTo && !S.replyingTo.deleted ? plainSnippet(S.replyingTo.content, 80) : "",
+  );
+
   const slowSecs = $derived(Number(ch?.slowMode) || 0);
   let slowLeft = $state(0);
   let slowTimer = null;
@@ -1446,9 +1453,15 @@
 
 {#if S.replyingTo}
   <div class="reply-banner">
+    <!-- The name alone cannot tell you WHICH message you picked, and in a
+         channel where somebody has just said three things in a row that is the
+         only question the banner is asked. The reply is committed before you
+         find out. Same snippet the sent quote strip prints, from the same
+         function, so the banner and the result cannot disagree. -->
     <span class="rb-label">
       <span class="rb-icon"><Icon name="reply" size={12} /></span>
       Replying to <strong>{S.replyingTo.senderName || S.replyingTo.sender.slice(0, 9)}</strong>
+      {#if replySnippet}<span class="rb-snip">{replySnippet}</span>{/if}
     </span>
     <button class="mini" aria-label="Cancel reply" onclick={() => (S.replyingTo = null)}>
       <Icon name="close" size={11} />
@@ -2272,6 +2285,15 @@
       opacity: 0;
       transform: translateY(4px);
     }
+  }
+  /* Quiet, one line, and the first thing to give up room — the name is what
+     has to survive a narrow composer. */
+  .rb-snip {
+    color: var(--text-muted);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .rb-label {
     display: inline-flex;

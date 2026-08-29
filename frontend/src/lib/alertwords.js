@@ -106,3 +106,63 @@ export function matchedWord(text, words) {
 }
 
 export const hasAlertWord = (text, words) => matchedWord(text, words) !== "";
+
+// markInHtml wraps every whole-word occurrence of `word` in <mark>, over the
+// HTML the markdown renderer has already produced.
+//
+// It has to run on the rendered form rather than on the source, because the
+// source is markdown: an alert word can be split across emphasis markers, and
+// re-rendering after an insertion would let the insertion itself be parsed.
+// So this walks the string and only ever touches the runs BETWEEN tags — never
+// inside `<a href=…>`, never inside an `&entity;`, and never inside the alt
+// text of a tag that has already been written. `<mark>` is the same element
+// search results use, so the two highlights read as one idea.
+export function markInHtml(html, word) {
+  if (!html || !word) return html;
+  const w = String(word).toLowerCase();
+  let out = "";
+  let i = 0;
+  while (i < html.length) {
+    if (html[i] === "<") {
+      const end = html.indexOf(">", i);
+      if (end < 0) {
+        out += html.slice(i);
+        break;
+      }
+      out += html.slice(i, end + 1);
+      i = end + 1;
+      continue;
+    }
+    const next = html.indexOf("<", i);
+    const seg = html.slice(i, next < 0 ? html.length : next);
+    out += markSegment(seg, w);
+    i = next < 0 ? html.length : next;
+  }
+  return out;
+}
+
+function markSegment(seg, w) {
+  const hay = seg.toLowerCase();
+  let out = "";
+  let cursor = 0; // everything before this has been emitted
+  let scan = 0; // where the next search starts
+  for (;;) {
+    const at = hay.indexOf(w, scan);
+    if (at < 0) break;
+    const before = at > 0 ? hay[at - 1] : "";
+    const after = at + w.length < hay.length ? hay[at + w.length] : "";
+    // Inside an HTML entity (`&amp;`, `&#1575;`) the letters spell a character,
+    // not a word — an alert on "amp" must not cut one in half.
+    const amp = hay.lastIndexOf("&", at);
+    const inEntity =
+      amp >= 0 && /^&#?[a-z0-9]*$/.test(hay.slice(amp, at)) && hay.indexOf(";", amp) >= at;
+    if (!isWordChar(before) && !isWordChar(after) && !inEntity) {
+      out += seg.slice(cursor, at) + "<mark>" + seg.slice(at, at + w.length) + "</mark>";
+      cursor = at + w.length;
+      scan = cursor;
+    } else {
+      scan = at + 1;
+    }
+  }
+  return out + seg.slice(cursor);
+}

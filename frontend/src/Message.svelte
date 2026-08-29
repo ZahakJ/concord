@@ -37,6 +37,7 @@
   import LinkPreview from "./LinkPreview.svelte";
   import { untrack, tick } from "svelte";
   import { renderMarkdown, emojiOnly, animatedEmojiSrc, twemojiCode } from "./lib/markdown.js";
+  import { markInHtml } from "./lib/alertwords.js";
   import { animateInView, animateOnHover } from "./lib/anemoji.js";
   import { highlightCode } from "./lib/highlight.js";
   import {
@@ -98,7 +99,14 @@
   // carries it, so Tab enters the thread once instead of walking through every
   // link, avatar and reaction pill of every row. ↑/↓ move it — the handler lives
   // in MessageList, which is the only thing that knows the row order.
-  let { m, compact = false, replyRef = null, entering = false, tabbable = false } = $props();
+  let {
+    m,
+    compact = false,
+    emote = false,
+    replyRef = null,
+    entering = false,
+    tabbable = false,
+  } = $props();
 
   // Moderators (Manage Messages) can delete anyone's message.
   const canDeleteOthers = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_MESSAGES));
@@ -217,6 +225,17 @@
   // they are not the same event, so the row must not claim they are.
   const alertHit = $derived(m.deleted ? "" : alertWordIn(m));
 
+  // The row is tinted for an alert word; the word itself was drawn like every
+  // other word on it, so the reason you are looking at the row was the one thing
+  // the row did not point at. Search already marks its terms, and this is the
+  // same <mark>, keyed on the hit the row has already computed. Applied to the
+  // RENDERED html rather than the source, because the source is markdown and an
+  // alert word can be split across emphasis markers.
+  const bodyHtml = $derived.by(() => {
+    const html = renderMarkdown(bodyText, mentionNames, cemoji, refs);
+    return alertHit ? markInHtml(html, alertHit) : html;
+  });
+
   // @mentions open a floating profile card — on hover (with intent delay) and
   // immediately on click.
   function mentionMember(target) {
@@ -311,6 +330,17 @@
   // when the row first scrolls into view, seeded by the message id so every
   // peer watches the identical field. Deleted rows keep their words private
   // AND their fireworks.
+  // What leaves the app when somebody copies this row, quotes it into a thread,
+  // or files it as a reminder. `bodyText` strips the tokens that draw their own
+  // card BELOW the text, but a poll, an announcement or an event IS the token —
+  // so for those `bodyText` is the wire form, and "Copy text" handed over four
+  // hundred characters of base64. The readable form is the one the inbox, the
+  // reply strip and search already print.
+  const copyText = $derived.by(() => {
+    const t = bodyText.trim();
+    return !t || t.includes("concord://") ? plainSnippet(m.content) : t;
+  });
+
   const fxName = $derived(m.deleted ? "" : fxEffect(m.content));
   function fxOnView(node) {
     if (!fxName) return;
@@ -840,7 +870,7 @@
       // The opening message quotes the origin (capped — a wall of text makes a
       // bad excerpt) and carries a concord://msg link back to it, in exactly
       // the shape "Copy Message Link" produces.
-      let src = bodyText.trim() || plainSnippet(m.content);
+      let src = copyText;
       if (src.length > 280) src = src.slice(0, 280) + "…";
       const quoted = src
         .split("\n")
@@ -955,7 +985,9 @@
           threadPrompt = true;
         },
       },
-      isOwn && { label: "Edit", icon: "edit", onClick: startEdit },
+      // The refusal already exists in startEdit; the menu had no idea, so the
+      // only possible outcome of this item was a toast saying no.
+      isOwn && !uneditableReason(m.content) && { label: "Edit", icon: "edit", onClick: startEdit },
       memeTok && {
         label: "Edit meme",
         icon: "spark",
@@ -967,7 +999,7 @@
       },
       { label: "Add reaction", icon: "smile", onClick: () => (S.pickerTarget = m) },
       { sep: true },
-      { label: "Copy text", icon: "copy", onClick: () => copy(bodyText.trim() || plainSnippet(m.content), "Copied text") },
+      { label: "Copy text", icon: "copy", onClick: () => copy(copyText, "Copied text") },
       {
         label: "Copy message link",
         icon: "copy",
@@ -1002,7 +1034,7 @@
             title: "Remind me about this",
             cta: "Remind me",
             onPick: (at) => {
-              addReminder(m.channelId, m.id, bodyText.trim() || plainSnippet(m.content), at);
+              addReminder(m.channelId, m.id, copyText, at);
               flash("Reminder set", "success");
             },
           }),
@@ -1067,6 +1099,7 @@
   class="msg"
   role="article"
   class:compact
+  class:emote-row={emote}
   class:enter={entering}
   class:mentions-me={mentionsMe}
   class:alerts-me={!mentionsMe && !!alertHit}
@@ -1078,7 +1111,7 @@
   use:fxOnView
   use:swipeReply
 >
-  {#if compact || gameAside}
+  {#if compact || gameAside || emote}
     <span
       class="gutter-time muted"
       use:tooltip={{ text: new Date(m.sent).toLocaleString() }}>{fmtTime(m.sent)}</span
@@ -1156,7 +1189,7 @@
         {/if}
       </button>
     {/if}
-    {#if !compact && !gameAside}
+    {#if !compact && !gameAside && !emote}
       <div class="msg-head">
         {#if guest}
           <span class="sender guest-name">{guestName}</span>
@@ -1399,7 +1432,7 @@
                 </span>
               {/if}
             </button>
-          {/if}{@html renderMarkdown(bodyText, mentionNames, cemoji, refs)}{#if m.edited}<span
+          {/if}{@html bodyHtml}{#if m.edited}<span
               class="edited-tag">(edited)</span
             >{/if}{#if m.unverified && (compact || gameAside)}<span
               class="unsigned-mark trailing"
@@ -1615,7 +1648,9 @@
       {#if m.sender === S.identity.fingerprint}
         <span class="sep"></span>
         <div class="grp">
-          <button use:tooltip aria-label="Edit" onclick={startEdit}><Icon name="edit" size={15} /></button>
+          {#if !uneditableReason(m.content)}
+            <button use:tooltip aria-label="Edit" onclick={startEdit}><Icon name="edit" size={15} /></button>
+          {/if}
           <button class="danger" use:tooltip aria-label="Delete" onclick={() => deleteMsg(m)}>
             <Icon name="trash" size={15} />
           </button>
@@ -1789,7 +1824,8 @@
     padding-top: var(--sp-1);
   }
   @media (pointer: fine) {
-    .msg.compact:hover .gutter-time {
+    .msg.compact:hover .gutter-time,
+    .msg.emote-row:hover .gutter-time {
       opacity: 1;
     }
   }
@@ -2038,6 +2074,17 @@
     max-width: min(var(--measure, 92ch), calc(100% - var(--act-gutter, 0px)));
     /* Direction is resolved per line — see the bidi section of app.css, which
        covers every rendered-prose container rather than just this one. */
+  }
+  /* The alert word inside the row the alert tinted. Same element and the same
+     idea as a search hit, in the alert's own colour rather than the accent —
+     the row's tint already said "you asked to be told", and this points at the
+     word that told it. :global because the mark is inserted into rendered html,
+     which Svelte's scoper never sees. */
+  .body :global(mark) {
+    background: color-mix(in srgb, var(--warn) 26%, transparent);
+    color: inherit;
+    border-radius: 3px;
+    padding: 0 1px;
   }
   .reveal-btn {
     margin-left: var(--sp-2);

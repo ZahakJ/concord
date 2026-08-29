@@ -7,6 +7,7 @@
 // message highlights in the feed with no inbox entry to go with it, or the other
 // way round, and the feature stops being trustworthy.
 import {
+  markInHtml,
   normalize,
   addWord,
   removeWord,
@@ -123,6 +124,40 @@ assert(
   rejectReason(new Array(MAX_WORDS).fill(0).map((_, i) => `w${i}`), "new").includes(String(MAX_WORDS)),
   "a full list says so",
 );
+
+// ---- markInHtml: the word the row was tinted for ------------------------
+// It runs on RENDERED html, so the one thing it must never do is put a <mark>
+// inside a tag or inside an entity.
+eq(markInHtml("a flake here", "flake"), "a <mark>flake</mark> here", "marks a whole word");
+eq(markInHtml("snowflakes", "flake"), "snowflakes", "does not mark inside a longer word");
+eq(
+  markInHtml('<a href="http://flake.example/">a flake</a>', "flake"),
+  '<a href="http://flake.example/">a <mark>flake</mark></a>',
+  "never touches an attribute",
+);
+eq(
+  markInHtml("<em>flake</em> and flake", "flake"),
+  "<em><mark>flake</mark></em> and <mark>flake</mark>",
+  "marks every occurrence, across tags",
+);
+eq(markInHtml("R&amp;D", "amp"), "R&amp;D", "does not cut an entity in half");
+eq(markInHtml("flake flake", "flake"), "<mark>flake</mark> <mark>flake</mark>", "no infinite loop");
+eq(markInHtml("FLAKE", "flake"), "<mark>FLAKE</mark>", "case-insensitive, original casing kept");
+eq(markInHtml("nothing", ""), "nothing", "no word is a no-op");
+eq(markInHtml("<b>x</b>", "x"), "<b><mark>x</mark></b>", "a one-character word still needs edges");
+// The matcher and the marker have to agree, or a row is tinted with nothing
+// marked on it (or the other way round).
+for (const [text, word] of [
+  ["ship the release today", "release"],
+  ["الإصدار جاهز", "الإصدار"],
+  ["no hit here", "release"],
+]) {
+  const marked = markInHtml(text, matchedWord(text, [word]));
+  assert(
+    marked.includes("<mark>") === (matchedWord(text, [word]) !== ""),
+    `marker agrees with matcher on "${text}"`,
+  );
+}
 
 if (failures) {
   console.error(`\n${failures} alertwords test(s) failed`);
