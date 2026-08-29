@@ -77,7 +77,8 @@
     if (S.activeChannelId) {
       const id = S.activeChannelId;
       const muted = !!isMuted(id);
-      const name = isDMChannel(id) ? channelShort(id) : `#${channelShort(id)}`;
+      const short = channelShort(id);
+      const name = !short ? "this channel" : isDMChannel(id) ? short : `#${short}`;
       list.push({
         id: "mute",
         label: `${muted ? "Unmute" : "Mute"} ${name}`,

@@ -3023,13 +3023,27 @@ export function channelName(chId) {
   return "unknown channel";
 }
 
-// channelShort: just the channel's own name (no guild prefix).
+// channelShort: what to CALL this room — the channel's own name, except where
+// the channel is an implementation detail.
+//
+// A direct message, a group and an instant meeting each hold exactly one
+// channel, and in a DM that channel is literally named `dm`. So the commonest
+// call anybody makes showed an internal identifier in both places that name the
+// room: the stage header read `dm  1 in call` and the sidebar bar read `Voice
+// connected 0:04 / dm`, while the chat header two centimetres above correctly
+// said "Amina Sadiq". The guild's display name IS the string the header
+// resolves, and every other surface that named the room — saved messages, the
+// quick switcher's "Mute dm" — had the same bug from the same line.
 export function channelShort(chId) {
   for (const g of S.guilds) {
     const c = g.channels.find((x) => x.id === chId);
-    if (c) return c.name;
+    if (!c) continue;
+    if ((g.kind === "dm" || g.kind === "meeting") && g.name) return g.name;
+    return c.name;
   }
-  return "voice";
+  // Not "voice": a fallback is read by people, and the caller knows better than
+  // this function what an unresolvable channel should be called.
+  return "";
 }
 
 // ---- messaging actions ----

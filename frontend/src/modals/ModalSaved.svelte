@@ -43,7 +43,11 @@
     }
   }
 
-  const where = (m) => (isDMChannel(m.channelId) ? channelShort(m.channelId) : `#${channelShort(m.channelId)}`);
+  const where = (m) => {
+    const short = channelShort(m.channelId);
+    if (!short) return "a channel that is gone";
+    return isDMChannel(m.channelId) ? short : `#${short}`;
+  };
   const when = (t) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   // Ensure the menu label set stays honest if this panel was the first load.
