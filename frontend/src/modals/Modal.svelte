@@ -301,8 +301,8 @@
   .overlay {
     position: fixed;
     inset: 0;
-    /* Frosted scrim: the app dims AND recedes, so the dialog reads as the
-       only in-focus surface. */
+    /* The dim that makes the dialog the only in-focus surface. It is the whole
+       of it: the app behind is not moved, scaled or blurred. */
     background: var(--scrim);
     display: grid;
     place-items: center;

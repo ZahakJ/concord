@@ -6,7 +6,7 @@
   // be restored from. This writes a sealed archive of everything and can put it
   // back. The copy keeps them apart because someone who confuses the two finds
   // out on the worst possible day.
-  import Modal from "./Modal.svelte";
+  import SettingsShell from "./SettingsShell.svelte";
   import { saveBlob } from "../lib/savefile.js";
   import Icon from "../Icon.svelte";
   import { S, flash, refreshGuilds } from "../lib/state.svelte.js";
@@ -95,7 +95,7 @@
   }
 </script>
 
-<Modal title="Backup &amp; restore" {onClose} wide>
+<SettingsShell title="Backup &amp; restore" {onClose} wide>
   <p class="intro muted">
     Your history lives only on the devices of the people in the conversation —
     there is no copy anywhere else. A backup is the copy you keep.
@@ -180,7 +180,7 @@
       {/if}
     </div>
   {/if}
-</Modal>
+</SettingsShell>
 
 <style>
   .intro {

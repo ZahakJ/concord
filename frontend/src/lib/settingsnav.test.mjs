@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { SETTINGS_GROUPS, SETTINGS_ITEMS, settingsItem, inSettings } from "./settingsnav.js";
+import { SETTINGS_GROUPS, SETTINGS_ITEMS, settingsItem, inSettings, railFor } from "./settingsnav.js";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 let failures = 0;
@@ -78,6 +78,32 @@ check("settingsItem finds a known kind", settingsItem("appearance")?.title === "
 check("settingsItem returns null for a stranger", settingsItem("emoji") === null);
 check("inSettings knows the account page is one of ours", inSettings("settings"));
 check("inSettings says no to a dialog that is not", !inSettings("poll"));
+
+// ---- the rail follows the trail, not the dialog ---------------------------
+//
+// Several dialogs that hang off a settings page are reachable from somewhere
+// else as well. Blocked users and Message requests hang off Privacy, and
+// requests is also a row in the DM list; Insights hangs off Connection and is
+// also a guild-menu item. Reached from Settings they keep the rail and the one
+// constant box; reached from anywhere else they are ordinary dialogs.
+check(
+  "a dialog drilled from Privacy lights Privacy",
+  railFor({ kind: "blocked" }, [{ kind: "privacy" }]) === "privacy",
+);
+check(
+  "…and the deepest settings rung wins, not the first",
+  railFor({ kind: "stats" }, [{ kind: "settings" }, { kind: "connection" }]) === "connection",
+);
+check(
+  "a panel opened with a plain `from` uses it",
+  railFor({ kind: "backup", from: "settings" }, []) === "settings",
+);
+check("the same dialog from a DM row gets no rail", railFor({ kind: "requests" }, []) === "");
+check(
+  "…and a trail that never passed through Settings gets none either",
+  railFor({ kind: "stats" }, [{ kind: "guildHub" }]) === "",
+);
+check("nothing open at all is not a rail", railFor(null, []) === "");
 
 console.log(
   failures === 0 ? "settingsnav.test.mjs: OK" : `settingsnav.test.mjs: ${failures} failure(s)`,

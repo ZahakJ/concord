@@ -109,3 +109,23 @@ export function settingsItem(kind) {
 export function inSettings(kind) {
   return !!settingsItem(kind);
 }
+
+// railFor answers "should this dialog wear the settings rail, and which entry
+// should be lit" for a dialog that is NOT itself a rail page.
+//
+// Several of them are reachable from two directions. Blocked users and Message
+// requests hang off Privacy, but requests is also a row in the DM list;
+// Insights hangs off Connection, and is also a guild menu item and a keyboard
+// shortcut. A dialog reached from inside Settings should keep the rail and the
+// one constant box — a backup sheet that snaps the surface from 1000x660 down
+// to 460 is the resize this whole surface was rebuilt to stop — and the same
+// dialog reached from a DM row is just a dialog.
+//
+// The trail says which it is: S.modalStack holds the panels drilled through,
+// and `from` holds the parent of a panel opened directly.
+export function railFor(modal, stack = []) {
+  for (let i = stack.length - 1; i >= 0; i--) {
+    if (inSettings(stack[i]?.kind)) return stack[i].kind;
+  }
+  return inSettings(modal?.from) ? modal.from : "";
+}

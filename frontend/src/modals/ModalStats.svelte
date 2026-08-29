@@ -1,7 +1,7 @@
 <script>
   // Read-only diagnostics: this conversation's local footprint + sync health,
   // and a whole-device network/storage view. Polls every 2s while open.
-  import Modal from "./Modal.svelte";
+  import SettingsShell from "./SettingsShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
   import InfoDot from "./InfoDot.svelte";
@@ -243,7 +243,7 @@
   }
 </script>
 
-<Modal title="Insights & diagnostics" {onClose} wide>
+<SettingsShell title="Insights & diagnostics" {onClose} wide>
   <!-- Reached from Settings there may be no guild open at all, and the panel is
        worth opening anyway — it is the only route to your linked devices. Drop
        the guild section entirely in that case rather than leaving a heading over
@@ -617,7 +617,7 @@
     </section>
   {/if}
   </details>
-</Modal>
+</SettingsShell>
 
 {#if confirming}
   <ConfirmDialog

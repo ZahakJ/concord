@@ -9,7 +9,7 @@
   //      digest entry, not in the passphrase backup. Your phone does not know
   //      about it, and neither does a restored account. A privacy setting that
   //      silently fails to travel is worse than one that says it doesn't.
-  import Modal from "./Modal.svelte";
+  import SettingsShell from "./SettingsShell.svelte";
   import Avatar from "../Avatar.svelte";
   import Icon from "../Icon.svelte";
   import { S, unblockUser, nameFor } from "../lib/state.svelte.js";
@@ -17,7 +17,7 @@
   let { onClose } = $props();
 </script>
 
-<Modal title="Blocked users" {onClose}>
+<SettingsShell title="Blocked users" {onClose}>
   {#if S.blocked.length === 0}
     <p class="muted empty">
       You haven't blocked anyone. Blocking hides everything the person posts —
@@ -57,7 +57,7 @@
       {/each}
     </div>
   {/if}
-</Modal>
+</SettingsShell>
 
 <style>
   .empty {
