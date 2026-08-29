@@ -12,6 +12,7 @@
 import { ATTACH_RE, FILE_RE, parseAttachTokens } from "./attachments.js";
 import { parsePoll } from "./polls.js";
 import { parseEmbed, EMBED_RE } from "./richembed.js";
+import { hash32 } from "./hash32.js";
 
 // ---- board options -------------------------------------------------------
 
@@ -302,18 +303,11 @@ export function absTime(ns) {
 
 // ---- generated art -------------------------------------------------------
 
-// FNV-1a over code units. Small, fast, and — the only property that matters
-// here — stable: the same forum or post gets the same colours on every device,
-// so a board looks like itself for everyone without storing or syncing a thing.
-export function hash32(s) {
-  let h = 0x811c9dc5;
-  const str = String(s || "");
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = (h * 0x01000193) >>> 0;
-  }
-  return h >>> 0;
-}
+// The hash the generated art is seeded from lives in its own module now, so the
+// avatar fallback can use the same one — a person's plate and a board's wash
+// have to be stable for exactly the same reason. Re-exported because callers
+// import it from here.
+export { hash32 };
 
 // hueOfCss: the hue of a resolved CSS colour, or null.
 //

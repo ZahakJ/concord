@@ -13,21 +13,88 @@
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import EmptyState from "../EmptyState.svelte";
-  import { S, refreshInbox, markInboxRead, jumpToInboxEntry, memberByFpr, clockOpts } from "../lib/state.svelte.js";
+  import {
+    S,
+    refreshInbox,
+    markInboxRead,
+    jumpToInboxEntry,
+    faceFor,
+    clockOpts,
+    selectGuild,
+  } from "../lib/state.svelte.js";
   import { plural } from "../lib/plural.js";
   import { tooltip } from "../lib/tooltip.js";
+  import { shortWhen } from "../lib/timestamp.js";
+  import { govSentenceText } from "../lib/govlog.js";
+  import { api } from "../lib/api.js";
+  import { PERM, has } from "../lib/perms.js";
 
   let { onClose } = $props();
 
   let filter = $state("all");
 
-  const FILTERS = [
+  // Everything an organizer can act on already exists as a signed op — the
+  // moderation log holds it. It was reachable only by remembering to open that
+  // log, so "somebody was kicked", "a role changed", "a channel was deleted"
+  // never reached the one place the app promises will tell you what concerns
+  // you. Events made the cut and governance did not.
+  //
+  // Offered only to somebody who could have done it themselves: to everybody
+  // else it is a list of decisions they cannot question and cannot undo, and
+  // the log is already gated the same way.
+  const canModerate = (g) =>
+    !!g &&
+    g.kind !== "dm" &&
+    (g.isOwner ||
+      has(g.myPerms || 0, PERM.MANAGE_MEMBERS) ||
+      has(g.myPerms || 0, PERM.MANAGE_ROLES) ||
+      has(g.myPerms || 0, PERM.MANAGE_CHANNELS) ||
+      has(g.myPerms || 0, PERM.MUTE_MEMBERS));
+  const modGuilds = $derived(S.guilds.filter(canModerate));
+
+  const FILTERS = $derived([
     { id: "all", label: "Everything" },
     { id: "mention", label: "Mentions" },
     { id: "reply", label: "Replies" },
     { id: "keyword", label: "Alert words" },
     { id: "event", label: "Events" },
-  ];
+    ...(modGuilds.length ? [{ id: "moderation", label: "Moderation" }] : []),
+  ]);
+
+  // The governance pass is its own query over its own store, so it runs only
+  // when the filter asks for it — and bounded on both axes, because it is one
+  // round trip per guild.
+  const MOD_GUILDS = 8;
+  const MOD_PER_GUILD = 25;
+  let modEntries = $state([]);
+  let modLoading = $state(false);
+  $effect(() => {
+    if (filter !== "moderation") return;
+    const guilds = modGuilds.slice(0, MOD_GUILDS);
+    let live = true;
+    modLoading = true;
+    Promise.all(
+      guilds.map(async (g) => {
+        try {
+          const page = await api.governanceLog(g.id, 0, MOD_PER_GUILD);
+          return (page?.entries || []).map((e) => ({ ...e, guildId: g.id, guildName: g.name }));
+        } catch {
+          // One guild that will not answer must not empty the whole filter.
+          return [];
+        }
+      }),
+    ).then((pages) => {
+      if (!live) return;
+      modEntries = pages
+        .flat()
+        .sort((a, b) => (b.at || 0) - (a.at || 0))
+        .slice(0, 50);
+      modLoading = false;
+    });
+    return () => {
+      live = false;
+    };
+  });
 
   const REASON = {
     mention: { icon: "megaphone", label: "Mentioned you" },
@@ -37,7 +104,11 @@
   };
 
   const entries = $derived(
-    filter === "all" ? S.inbox.entries : S.inbox.entries.filter((e) => e.reason === filter),
+    filter === "moderation"
+      ? []
+      : filter === "all"
+        ? S.inbox.entries
+        : S.inbox.entries.filter((e) => e.reason === filter),
   );
 
   // One header per RUN of the same conversation, not per conversation. The
@@ -79,18 +150,13 @@
     return n && n !== "Direct message" && n !== "Group message" && n !== "New conversation" ? n : "";
   }
 
-  function fmtTime(ms) {
-    try {
-      return new Date(ms).toLocaleString([], {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-        ...clockOpts(),
-      });
-    } catch {
-      return "";
-    }
+  const fmtTime = (ms) => shortWhen(ms, clockOpts());
+
+  // A governance row lands where it happened: the guild, and its own log, which
+  // is where the signature and the verdict are.
+  function openModEntry(e) {
+    if (e.guildId) selectGuild(e.guildId);
+    S.modal = { kind: "modLog" };
   }
 </script>
 
@@ -108,7 +174,36 @@
     {/each}
   </div>
 
-  {#if S.inbox.loading && !S.inbox.entries.length}
+  {#if filter === "moderation"}
+    {#if modLoading && !modEntries.length}
+      <p class="note">Reading the signed record…</p>
+    {:else if !modEntries.length}
+      <p class="note">Nothing has been moderated in the guilds you can act in.</p>
+    {:else}
+      <div class="groups scroll-fade">
+        <section>
+          <h3 class="place">Moderation</h3>
+          {#each modEntries as e, i (e.guildId + ":" + i)}
+            {@const face = faceFor(e.signer, e.signerName)}
+            <button class="entry" onclick={() => openModEntry(e)}>
+              <Avatar name={face.name} emoji={face.emoji} color={face.color} image={face.image} size={30} />
+              <span class="col">
+                <span class="top">
+                  <strong>{face.name}</strong>
+                  <span class="why moderation" use:tooltip={"From the guild's signed moderation log"}>
+                    <Icon name="lock" size={10} />
+                    {e.guildName || "Moderation"}
+                  </span>
+                  <span class="when">{fmtTime(e.at)}</span>
+                </span>
+                <span class="text">{govSentenceText(e)}</span>
+              </span>
+            </button>
+          {/each}
+        </section>
+      </div>
+    {/if}
+  {:else if S.inbox.loading && !S.inbox.entries.length}
     <p class="note">Looking through what you missed…</p>
   {:else if !S.inbox.entries.length}
     <EmptyState
@@ -125,20 +220,25 @@
         <section>
           <h3 class="place">{g.title}</h3>
           {#each g.entries as e (e.messageId)}
-            {@const mem = memberByFpr(e.sender)}
+            {@const face = faceFor(e.sender, e.senderName)}
             {@const r = REASON[e.reason] || REASON.mention}
             <button class="entry" class:unread={e.unread} onclick={() => jumpToInboxEntry(e)}>
+              <!-- faceFor, not memberByFpr: this dialog is cross-guild by
+                   definition and the roster it was reaching for is the one guild
+                   you happen to be standing in, so half the people in it drew as
+                   grey initials with their real avatar on screen behind the
+                   dialog. -->
               <Avatar
-                name={e.senderName || e.sender}
-                emoji={mem?.emoji}
-                color={mem?.color}
-                image={mem?.avatar}
+                name={face.name}
+                emoji={face.emoji}
+                color={face.color}
+                image={face.image}
                 size={30}
               />
               <span class="col">
                 <span class="top">
                   {#if e.unread}<span class="dot" aria-hidden="true"></span>{/if}
-                  <strong>{e.senderName || e.sender.slice(0, 12)}</strong>
+                  <strong>{face.name}</strong>
                   <span class="why {e.reason}" use:tooltip={r.label}>
                     <Icon name={r.icon} size={10} />
                     {e.reason === "keyword" && e.term ? e.term : r.label}
@@ -263,15 +363,22 @@
     color: var(--text-muted);
     unicode-bidi: plaintext;
   }
+  /* ONE row, whose emphasis changes — not two components. Read rows used to
+     lose the card entirely and sit naked on the dialog ground beside unread
+     rows drawn as tinted plates with a rule down the side, so a list of nine
+     things looked like two lists. The card, the rule and the padding are the
+     row; unread turns the rule on and warms the ground. */
   .entry {
     display: flex;
     width: 100%;
     align-items: flex-start;
     gap: var(--sp-2);
     padding: var(--sp-2) var(--sp-1);
+    padding-left: calc(var(--sp-1) - 2px);
+    border-left: 2px solid transparent;
     min-width: 0;
     text-align: left;
-    background: transparent;
+    background: color-mix(in srgb, var(--bg-3) 40%, transparent);
     color: var(--text);
     border-radius: var(--radius-sm);
   }
@@ -284,8 +391,7 @@
      rail promises a number ("Inbox — 4 unread items") and a list where every
      row is drawn identically cannot say which four. */
   .entry.unread {
-    border-left: 2px solid var(--accent);
-    padding-left: calc(var(--sp-1) - 2px);
+    border-left-color: var(--accent);
     background: var(--accent-soft);
   }
   .entry.unread:hover {
@@ -345,6 +451,12 @@
   .why.keyword {
     background: var(--accent-soft);
     color: var(--accent-hover);
+  }
+  /* Governance is neither: it is the record, not somebody addressing you. It
+     names the guild rather than a reason, in the panel's quietest ink. */
+  .why.moderation {
+    background: var(--bg-3);
+    color: var(--text-muted);
   }
   .when {
     margin-left: auto;

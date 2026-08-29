@@ -81,3 +81,30 @@ export function sealAgo(ms, nowMs = Date.now()) {
   const d = Math.round(h / 24);
   return d === 1 ? "yesterday" : `${d}d ago`;
 }
+
+// shortWhen: "when did this happen", at the shortest length that is not
+// ambiguous. Today is a time, yesterday says so and keeps the time, this week
+// is a weekday, and anything older is a date.
+//
+// The inbox stamped every row with a full date — nine rows reading
+// "Aug 29, 04:30 AM" for nine things that had all happened in the last half
+// hour, so the date half was pure noise and the eye had to parse it nine times
+// to reach the time. The channel list has always had this rule (dmWhen); this
+// is that rule, in one place, with the time kept where the day is today or
+// yesterday because an inbox row is about a moment rather than a day.
+export function shortWhen(ms, clock = {}, now = Date.now()) {
+  if (!ms) return "";
+  try {
+    const d = new Date(ms);
+    const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clock });
+    const days = Math.floor(
+      (new Date(now).setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000,
+    );
+    if (days <= 0) return t;
+    if (days === 1) return `Yesterday ${t}`;
+    if (days < 7) return `${d.toLocaleDateString([], { weekday: "short" })} ${t}`;
+    return d.toLocaleDateString([], { month: "short", day: "numeric" });
+  } catch {
+    return "";
+  }
+}

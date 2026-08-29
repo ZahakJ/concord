@@ -74,7 +74,8 @@
   class="avatar"
   class:ringed={ringed}
   class:pictured={!!image && !imageFailed}
-  style="width:{size}px;height:{size}px;font-size:{Math.max(10, Math.round(size * 0.38))}px;{color && !image
+  style="width:{size}px;height:{size}px;font-size:{Math.max(10, Math.round(size * 0.38))}px;{color &&
+  (!image || imageFailed)
     ? `background:${color};`
     : ''}"
 >
@@ -117,7 +118,10 @@
     isolation: isolate; /* the ring sits behind the avatar, not the page */
     border-radius: 50%;
     /* The tint is the backdrop for INITIALS and an emoji — see .pictured below,
-       which takes it away again once there is a picture to show. */
+       which takes it away again once there is a picture to show. A picture that
+       FAILED to load is not one: the initials come back, so the colour has to
+       come back with them (an archived author whose manifest avatar 404s was
+       drawn on the default accent while everyone beside them wore their own). */
     background: var(--accent);
     color: var(--accent-fg);
     display: grid;

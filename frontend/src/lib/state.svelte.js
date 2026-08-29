@@ -31,6 +31,7 @@ import { micReason } from "./devices.js";
 import { PERM, has } from "./perms.js";
 import { plur } from "./plural.js";
 import { fmtCount } from "./chronicle.js";
+import { hash32 } from "./hash32.js";
 import { isGameToken } from "./games.js";
 import {
   LEVELS as NOTIF_LEVELS,
@@ -487,6 +488,42 @@ export function clearVideoStreams() {
   videoStreams.clear();
   videoMetaMap.clear();
   S.videoTiles = [];
+}
+
+// faceFor: the same fallback chain nameFor walks, for the rest of the face.
+//
+// nameFor already knows that the active guild's roster is not the only place a
+// person can be known from — it falls through to the learned contact profile —
+// and every surface that draws an AVATAR was reaching for `memberByFpr` alone.
+// That is the roster of the guild you happen to be standing in, so a
+// cross-guild surface (the Inbox is cross-guild by definition) drew half its
+// people in their real colours and the other half as grey initials, with the
+// missing avatar visible on screen behind the dialog.
+//
+// The last rung is a colour derived from the NAME, so somebody this device has
+// never learned a profile for still gets their own plate rather than sharing
+// the default accent with everyone else in that position.
+export function faceFor(fpr, frozenName = "") {
+  const mem = memberByFpr(fpr);
+  const con = fpr ? S.contacts.find((c) => c.fingerprint === fpr) : null;
+  const name = nameFor(fpr, frozenName);
+  return {
+    name,
+    emoji: mem?.emoji || con?.emoji || "",
+    image: mem?.avatar || con?.avatar || "",
+    color: mem?.color || con?.color || tintFor(name),
+  };
+}
+
+// tintFor: a stable plate colour for a name nobody has a profile for.
+//
+// Deterministic (the same person is the same colour on every device and in
+// every session) and bounded to a lightness the initials stay readable on —
+// Avatar prints them in --accent-fg, so the plate has to stay dark enough for
+// that in both themes rather than wandering into pale yellow.
+export function tintFor(name) {
+  if (!name) return "";
+  return `hsl(${hash32(name) % 360} 42% 38%)`;
 }
 
 // nameFor: the single source of truth for a peer's display name — the current

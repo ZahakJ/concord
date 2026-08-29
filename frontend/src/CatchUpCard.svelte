@@ -9,7 +9,13 @@
   //
   // Everything on it was computed on this device from what it already had.
   import Icon from "./Icon.svelte";
-  import { S, dismissCatchUp, selectChannel, jumpToInboxEntry } from "./lib/state.svelte.js";
+  import {
+    S,
+    dismissCatchUp,
+    selectChannel,
+    jumpToInboxEntry,
+    channelTypeIcon,
+  } from "./lib/state.svelte.js";
   import { humanAway } from "./lib/digest.js";
   import { plural } from "./lib/plural.js";
   import { tooltip } from "./lib/tooltip.js";
@@ -77,8 +83,8 @@
       <ul class="chans">
         {#each digest.channels as c (c.id)}
           <li>
-            <button onclick={() => goto(c.id)}>
-              <Icon name="hash" size={11} />
+            <button onclick={() => goto(c.id)} title={c.name}>
+              <Icon name={channelTypeIcon(c.type)} size={11} />
               <span class="cname">{c.name}</span>
               <span class="cnum" class:mention={c.mentions > 0}>
                 {c.count > 99 ? "99+" : c.count}
@@ -235,8 +241,16 @@
   .chans button:hover {
     color: var(--text);
   }
+  /* A count chip does not need the whole title. Without a cap one post's chip
+     was eight times the width of "#general" next to it and the row wrapped to
+     three ragged lines, so the actual channels — the thing the row is for —
+     were the hardest part of it to pick out. */
   .cname {
     unicode-bidi: plaintext;
+    max-width: 22ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .cnum {
     font-weight: 700;

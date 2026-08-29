@@ -30,14 +30,14 @@
   import { highlightCode } from "./lib/highlight.js";
   import { parseAttachTokens, parseFileTokens, stripAttachTokens } from "./lib/attachments.js";
   import { splitPlaceholders } from "./lib/chronicle.js";
-  import { S, customEmojiMap, openContextMenu, flash, clockOpts } from "./lib/state.svelte.js";
+  import { S, customEmojiMap, openContextMenu, flash, clockOpts, tintFor } from "./lib/state.svelte.js";
   import { longpress } from "./lib/touch.js";
 
   // `m` is a ChronicleMessageView: author and avatar already resolved from the
   // manifest's table, so this component never sees an index — and never looks a
   // name up among the live members, which is the same rule as the mention one.
   // `first` marks the first row of an author's run, which is where the name,
-  // the face and the archive chip go.
+  // the face and the time go.
   let { m, first = true, channelId = "" } = $props();
 
   const cemoji = $derived(customEmojiMap());
@@ -57,10 +57,15 @@
   const bodyText = $derived(stripAttachTokens(split.text).trim());
   const missing = $derived(split.files);
 
-  // Absolute, always. A relative stamp ("3 years ago") on a row from 2019 is
-  // arithmetic the reader has to undo, and the whole point of scrolling this
-  // far is to find out WHEN something was said.
-  const stamp = $derived.by(() => {
+  // The time only. A day divider sits above every run of these rows and says
+  // "SATURDAY, DECEMBER 25" — the row 40px under it said "Dec 25, 2021,
+  // 03:35 PM", the same date twice, in two formats and two typefaces, on every
+  // one of two thousand rows. The divider carries the day; the row carries the
+  // moment, exactly as a live row does.
+  //
+  // The full reading stays on the hover title and in the context menu's header,
+  // because "when exactly" is the whole point of scrolling this far.
+  const stampFull = $derived.by(() => {
     const d = new Date((Number(m.nano) || 0) / 1e6);
     if (isNaN(d)) return "";
     return d.toLocaleString([], {
@@ -71,6 +76,11 @@
       minute: "2-digit",
       ...clockOpts(),
     });
+  });
+  const stamp = $derived.by(() => {
+    const d = new Date((Number(m.nano) || 0) / 1e6);
+    if (isNaN(d)) return "";
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clockOpts() });
   });
 
   const plain = $derived(bodyText || missing.map((f) => f.name).join(", "));
@@ -89,7 +99,7 @@
           },
         },
       ],
-      { title: `${m.author} · ${stamp}` },
+      { title: `${m.author} · ${stampFull}` },
     );
   }
 </script>
@@ -99,8 +109,17 @@
     <span class="av-slot">
       <!-- The face comes from the manifest, never from the member list: an
            archived author is a name out of another community's history and may
-           happen to collide with somebody here. -->
-      <Avatar name={m.author || "?"} image={m.avatar || ""} size={38} />
+           happen to collide with somebody here.
+           The colour comes from the NAME. Without one every author without a
+           picture drew on the same default plate, so BA, AD, GR and LI were
+           four different people in four identical discs and three years of
+           somebody's history read as one anonymous voice. -->
+      <Avatar
+        name={m.author || "?"}
+        image={m.avatar || ""}
+        color={tintFor(m.author || "?")}
+        size={38}
+      />
     </span>
   {:else}
     <span class="gutter"></span>
@@ -110,11 +129,13 @@
     {#if first}
       <div class="msg-head">
         <span class="sender">{m.author || "unknown"}</span>
-        <!-- The chip is the honest label for the whole run: these words were
-             written somewhere else and imported. It rides the first row only,
-             the way the name does. -->
-        <span class="arc-chip"><Icon name="clock" size={9} /> archive</span>
-        <span class="time">{stamp}</span>
+        <!-- No per-row ARCHIVE chip. The import produces one divider that says
+             the whole thing once — "imported archive · Jan 2019 – Dec 2021" —
+             and the day dividers under it carry pre-2022 dates, so repeating
+             the word on all 1,981 rows, between the name and the time where
+             the eye lands first, told the reader nothing they had not already
+             been told and pushed the time out of its column. -->
+        <span class="time" title={stampFull}>{stamp}</span>
       </div>
     {/if}
 
@@ -204,20 +225,6 @@
     font-weight: 600;
     color: var(--text-muted);
     font-size: var(--fs-ui);
-  }
-  .arc-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    padding: 1px 6px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--bg-2);
-    color: var(--text-faint);
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
   }
   .time {
     color: var(--text-faint);

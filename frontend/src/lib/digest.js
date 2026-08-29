@@ -78,7 +78,17 @@ export function buildDigest({ guild, unread, entries, sinceMs, nowMs, muted }) {
     if (isMuted(c.id)) continue;
     const u = unread?.[c.id];
     if (!u?.count) continue;
-    channels.push({ id: c.id, name: c.name, count: u.count, mentions: u.mentions || 0 });
+    // The kind travels with the row. A forum POST is a channel with a parent,
+    // so the chip row was printing "# Can we get a dark-mode toggle that is not
+    // tied to the system the" beside "# general" — the wrong glyph, saying
+    // "channel" about a thread, at eight times the width of its neighbours.
+    channels.push({
+      id: c.id,
+      name: c.name,
+      type: c.type || "text",
+      count: u.count,
+      mentions: u.mentions || 0,
+    });
     total += u.count;
     mentions += u.mentions || 0;
   }
