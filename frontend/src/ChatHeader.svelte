@@ -62,12 +62,64 @@
   );
   const peerSharing = $derived(peerInCall && (voiceMembersFor(ch.id) || []).some((m) => !m.self && m.sharing));
   const pinnedCount = $derived(S.messages.filter((m) => m.pinned && !m.deleted).length);
-  // Squeezed column (see S.narrow): the action row is 566px of nowrap buttons
-  // that never shrank, so below ~1150px it simply pushed the channel name to
-  // zero width and then overflowed the column anyway. The two occasional
-  // actions — disappearing messages, events — move into the menu that is
-  // already here, and the button labels shrink to their glyphs.
-  const tight = $derived(!S.isMobile && S.narrow);
+  // ---- how much room this header actually has -----------------------------
+  //
+  // Every tier here used to be a viewport media query, and a viewport is the
+  // wrong thing to measure twice over.
+  //
+  // The zoom. Ctrl+= is the app's own zoom, implemented as CSS `zoom` on <html>
+  // (applyAppearance). A media query and `window.innerWidth` both evaluate
+  // against the UNZOOMED initial containing block, so at 150% in a 1440px
+  // window they both still say 1440 while the header has 416 layout px to lay
+  // itself out in. Nothing fired. The topic stayed in the layout, the labels
+  // stayed on the buttons, the three occasional actions stayed out of the menu,
+  // and the title — which absorbs all the shrink by design — was crushed to
+  // literally 0px and clipped. At 150% the header read "Search · Start a call ·
+  // 📌 1 · [half a clock]" and nothing on it said which channel you were in.
+  //
+  // The panes. The channel list is draggable and the member panel toggles, so
+  // the header's width changes by hundreds of pixels with the viewport
+  // completely still. A viewport query cannot see either.
+  //
+  // So the header measures ITSELF. One ResizeObserver, the numbers below are
+  // the header's own content box, and every give-way rule keys off it — which
+  // is correct under zoom, under a dragged sidebar and under a toggled member
+  // panel, all three, without knowing about any of them.
+  let headEl = $state(null);
+  // Seeded wide: the first frame before the observer reports must not flash the
+  // squeezed layout on a full-width window.
+  let headW = $state(1000);
+  $effect(() => {
+    const el = headEl;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const e = entries[0];
+      const box = e.contentBoxSize?.[0];
+      headW = box ? box.inlineSize : e.contentRect.width;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
+  // The give-way ladder, in the header's own pixels. Each tier is the width at
+  // which the tier above it has run out of slack, measured on the real thing.
+  //
+  //   narrow  the topic leaves, and the buttons drop their word labels
+  //   tight   disappearing / events / invite fold into the ⋯ menu
+  //   stub    the search field becomes a 32px magnifier
+  //   packed  pins and the member-list toggle fold in too
+  //
+  // The channel NAME is not on this ladder. It is the last thing standing, at
+  // every tier, by construction — see .title strong.
+  // The numbers are the header's content box, measured on the real thing at
+  // 1440x900 across the app's whole zoom range (100/110/120/125/130/150%),
+  // which puts this header at 864, 733, 624, 576, 532 and 384px in turn. 700 is
+  // the last width at which the full row still fits — at 624 it overflowed by
+  // 86px and put Invite and the ⋯ menu itself off the right edge.
+  const narrow = $derived(headW <= 700);
+  const tight = $derived(!S.isMobile && narrow);
+  const stub = $derived(headW <= 460);
+  const packed = $derived(headW <= 380);
   const clock = $derived(callClock());
   const callLabel = $derived(S.voice ? channelShort(S.voice.channelId) : "");
 
@@ -96,7 +148,13 @@
 
 </script>
 
-<header class="chat-head">
+<header
+  class="chat-head"
+  class:narrow
+  class:stub
+  class:packed
+  bind:this={headEl}
+>
   <div class="row title">
     {#if g?.kind === "dm"}
       <!-- A speech bubble, not a pencil. The pencil reads as "edit this", which
@@ -185,7 +243,15 @@
       <span class="search-glyph" aria-hidden="true"><Icon name="search" size={14} /></span>
     </form>
 
-    {#if S.voice && S.voice.channelId === S.activeChannelId && (g?.kind === "dm" || g?.kind === "meeting")}
+    <!-- The call cluster leaves at the last tier. When you are IN this
+         channel's call the panel below carries every one of these controls
+         already, so the pill is a duplicate; when you are not, "Start a call"
+         moves into the ⋯ menu with everything else. Below ~380px of header
+         there is not room for a five-button pill AND a channel name, and the
+         name wins. -->
+    {#if packed}
+      <!-- nothing: see the ⋯ menu -->
+    {:else if S.voice && S.voice.channelId === S.activeChannelId && (g?.kind === "dm" || g?.kind === "meeting")}
       <!-- In a DM call, the call box carries the controls; the header is just a
            one-click hang-up so clicking "call" again intuitively leaves. -->
       <button class="ghost iconbtn endcall" use:tooltip aria-label="Leave call" onclick={onLeaveVoice}>
@@ -256,7 +322,7 @@
       </button>
     {/if}
 
-    {#if ch}
+    {#if ch && !packed}
       <button
         class="ghost iconbtn"
         class:pin-active={S.showPins}
@@ -297,7 +363,7 @@
       </button>
     {/if}
 
-    {#if ch && g?.kind !== "dm"}
+    {#if ch && g?.kind !== "dm" && !packed}
       <button
         class="ghost iconbtn"
         class:pin-active={S.prefs.memberPanel}
@@ -316,6 +382,41 @@
 
     {#if g}
       <Menu label="More" icon="chevron">
+        <!-- The overflow well. Everything that leaves the bar arrives here, in
+             the order it left, so a squeezed header hides nothing — it moves
+             things. Before this the last tier simply clipped: at 150% zoom
+             Invite, the member toggle and the events button were off the right
+             edge with no menu entry, no horizontal scroll and no sign they
+             existed. -->
+        {#if packed && S.voice && S.voice.channelId === S.activeChannelId}
+          <button class="menu-item" onclick={onLeaveVoice}>
+            <Icon name="door" size={14} /> Leave the call
+          </button>
+        {:else if packed && ch && peerInCall}
+          <button class="menu-item" onclick={() => onJoinVoice()}>
+            <Icon name="speaker" size={14} /> Join the call — it's live
+          </button>
+        {:else if packed && S.voice}
+          <button class="menu-item" onclick={() => jumpToChannel(S.voice.channelId)}>
+            <Icon name="speaker" size={14} /> Back to {callLabel || "your call"}
+          </button>
+        {:else if packed && ch && !g?.dmNotes}
+          <button class="menu-item" onclick={() => onJoinVoice()}>
+            <Icon name="speaker" size={14} /> Start a call
+          </button>
+        {/if}
+        {#if packed && ch}
+          <button class="menu-item" onclick={() => (S.showPins = !S.showPins)}>
+            <Icon name="pin" size={14} />
+            {pinnedCount ? `Pinned messages (${pinnedCount})` : "Pinned messages"}
+          </button>
+        {/if}
+        {#if packed && ch && g.kind !== "dm"}
+          <button class="menu-item" onclick={toggleMemberPanel}>
+            <Icon name="members" size={14} />
+            {S.prefs.memberPanel ? "Hide the member list" : "Show the member list"}
+          </button>
+        {/if}
         {#if tight && ch}
           <button
             class="menu-item"
@@ -335,7 +436,7 @@
             <Icon name="plus" size={14} /> Invite people
           </button>
         {/if}
-        {#if tight}
+        {#if tight || packed}
           <div class="menu-sep"></div>
         {/if}
         {#if ch}
@@ -407,7 +508,11 @@
     position: absolute;
     left: 16px;
     bottom: -1px;
-    width: 180px;
+    /* Clamped to the bar. A flat 180px starting 16px in is 196px of box, which
+       on a 189px header is 7px of horizontal overflow — invisible, because it
+       is a one-pixel hairline, and enough to make the header report itself as
+       scrollable at the tightest zoom. */
+    width: min(180px, calc(100% - 32px));
     height: 1px;
     background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), transparent);
     pointer-events: none;
@@ -434,7 +539,16 @@
     gap: 6px;
     color: var(--text-muted);
     flex: 1 1 auto;
-    min-width: 0;
+    /* The floor. `min-width: 0` alone is what let the action row take the whole
+       bar and clip the name to nothing — the fourth and, with the give-way
+       ladder above it, final act of this argument. It is safe to state as a
+       floor now in a way it was not before: the name no longer participates in
+       the shrink (flex: 0 0 auto), so this cannot be split with the topic the
+       way `min-width: 8ch` was, and it is a fixed character count rather than
+       min-content, so Chromium cannot fold the topic's whole sentence into it.
+       Twelve characters is "# announcem…" — enough to know where you are, and
+       six at the last tier, where six is all there is. */
+    min-width: 12ch;
     overflow: hidden;
   }
   /* The action row gives up its own slack — the search box has min-width:0 and
@@ -465,6 +579,27 @@
     text-overflow: ellipsis;
     flex: 0 0 auto;
     max-width: min(32ch, 38 * var(--vw));
+  }
+  /* At the last tier the name finally does shrink — but it ellipsises inside
+     its own box rather than being clipped by the container, so what is left of
+     it is a readable prefix with a "…" saying there is more, instead of a bare
+     hash glyph and nothing. */
+  /* At the last tier the header's own frame gives way too: 16px of padding on
+     each side and a 10px gutter is a sixth of the bar when the bar is 190px. */
+  .chat-head.packed {
+    padding-left: 10px;
+    padding-right: 10px;
+    gap: 6px;
+  }
+  .chat-head.packed .row {
+    gap: var(--sp-1);
+  }
+  .chat-head.packed .title {
+    min-width: 6ch;
+  }
+  .chat-head.packed .title strong {
+    flex: 0 1 auto;
+    min-width: 0;
   }
   /* A forum post inverts the order, because a post TITLE is a sentence and the
      board it belongs to is the one word that gets you back. The breadcrumb
@@ -512,11 +647,9 @@
      a smear — two words and an ellipsis, in the space the name wants. It is the
      one thing on this bar the reader can go and read somewhere else (the
      channel's own menu), so it leaves rather than starving the name. */
-  @media (max-width: 1150px) {
-    .topic-sep,
-    .chan-topic {
-      display: none;
-    }
+  .chat-head.narrow .topic-sep,
+  .chat-head.narrow .chan-topic {
+    display: none;
   }
   .search-wrap {
     position: relative;
@@ -549,46 +682,44 @@
   .search-glyph {
     display: none;
   }
-  /* Below 1000px there is no width left to share: giving the channel name its
-     8ch floor squeezed this field to literally zero, which is worse than not
+  /* At the `stub` tier there is no width left to share: giving the channel name
+     its floor squeezed this field to literally zero, which is worse than not
      drawing it. So it becomes a 32px stub with a magnifier in it and floats
      back out over the button row the moment it has focus or a query — the
      buttons it covers are all still one Escape away. */
-  @media (max-width: 1000px) {
-    .search-wrap {
-      flex: 0 0 auto;
-      width: 32px;
-    }
-    .search-box,
-    .search-box:focus {
-      width: 100%;
-      min-width: 0;
-      padding: 5px 6px;
-    }
-    .search-box.busy {
-      padding-right: 26px;
-    }
-    .search-wrap:focus-within,
-    .search-wrap.open {
-      position: absolute;
-      right: 16px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: min(320px, calc(100% - 48px));
-      z-index: 3;
-    }
-    .search-glyph {
-      display: grid;
-      place-items: center;
-      position: absolute;
-      inset: 0;
-      color: var(--text-muted);
-      pointer-events: none;
-    }
-    .search-wrap:focus-within .search-glyph,
-    .search-wrap.open .search-glyph {
-      display: none;
-    }
+  .chat-head.stub .search-wrap {
+    flex: 0 0 auto;
+    width: 32px;
+  }
+  .chat-head.stub .search-box,
+  .chat-head.stub .search-box:focus {
+    width: 100%;
+    min-width: 0;
+    padding: 5px 6px;
+  }
+  .chat-head.stub .search-box.busy {
+    padding-right: 26px;
+  }
+  .chat-head.stub .search-wrap:focus-within,
+  .chat-head.stub .search-wrap.open {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: min(320px, calc(100% - 48px));
+    z-index: 3;
+  }
+  .chat-head.stub .search-glyph {
+    display: grid;
+    place-items: center;
+    position: absolute;
+    inset: 0;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  .chat-head.stub .search-wrap:focus-within .search-glyph,
+  .chat-head.stub .search-wrap.open .search-glyph {
+    display: none;
   }
   .search-clear {
     position: absolute;
@@ -647,10 +778,8 @@
   /* Squeezed column: the words come off the call buttons and the glyph plus its
      tooltip carries them instead. The pin COUNT stays — that is data, not a
      label, and there is no other place it appears. */
-  @media (max-width: 1150px) {
-    .n:not(.count) {
-      display: none;
-    }
+  .chat-head.narrow .n:not(.count) {
+    display: none;
   }
   .pin-active {
     color: var(--accent-hover);

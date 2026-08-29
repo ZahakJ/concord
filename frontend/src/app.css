@@ -2017,10 +2017,30 @@ textarea:focus {
 
    Only three other tiers are legitimate:
      @media (max-width: 1150px)  — S.narrow: the squeezed desktop column, where
-                                   the chat header and composer fold their
-                                   controls into menus. Mirrors detectNarrow().
+                                   the composer folds its controls into menus.
+                                   Mirrors detectNarrow(), which now divides by
+                                   the app's own zoom (see below).
      @media (max-width: 400px)   — the narrow floor, for genuine 360px squeeze
-     @media (pointer: fine)      — mouse-only affordances (hover reveals) */
+     @media (pointer: fine)      — mouse-only affordances (hover reveals)
+
+   AND A WARNING ABOUT ALL OF THEM. Ctrl+= is the app's own zoom and it is CSS
+   `zoom` on <html>. A media query — and window.innerWidth, and matchMedia —
+   evaluates against the UNZOOMED initial containing block, in both shipped
+   renderers (measured: Chromium 141 and WebKitGTK 2.52.5 agree exactly). So at
+   150% in a 1440px window every query here still reads 1440 while the layout
+   has 960 pixels to work in, and NONE of these tiers fire when they are most
+   needed. That is not a curiosity: it is how the chat header came to crush its
+   channel name to 0px and clip three controls off the right edge with no
+   overflow menu, in both engines, at the app's own second zoom step.
+
+   The reliable measure of "how much room is there" is the BOX, not the window:
+   ResizeObserver's contentBoxSize.inlineSize (and clientWidth) are reported in
+   the element's own zoomed layout pixels — again, identically in both engines —
+   so they shrink when the room shrinks. ChatHeader.svelte measures itself that
+   way and keys its give-way ladder off classes rather than queries; it also
+   picks up a dragged channel list and a toggled member panel, neither of which
+   changes the viewport at all. Prefer that for anything whose fitting depends
+   on a pane rather than on the screen. */
 @media (pointer: coarse), (max-width: 768px) {
   :root {
     /* Grow the small end of the type scale; leave the top alone. */

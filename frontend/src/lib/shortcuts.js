@@ -7,7 +7,7 @@
 // below is what the sheet renders, it lives against the handler it describes,
 // and shortcutlist.test.mjs fails the build when the handler grows a key the
 // list has not heard of.
-import { S, activeGuild, selectChannel, closePost, postParentOf, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash, toggleMicMute, toggleDeafen } from "./state.svelte.js";
+import { S, activeGuild, selectChannel, closePost, postParentOf, selectGuild, jumpToChannel, markRead, markAllRead, toggleMemberPanel, isMuted, setAppearance, flash, flashSlot, toggleMicMute, toggleDeafen } from "./state.svelte.js";
 import { popLayer } from "./navstack.svelte.js";
 import { pressesBind, releasesBind, typesCharacter } from "./keybind.js";
 
@@ -304,7 +304,10 @@ export function installShortcuts() {
           : Math.min(1.5, Math.max(0.8, Math.round((cur + (e.key === "-" ? -0.1 : 0.1)) * 10) / 10));
       if (next !== cur) {
         setAppearance("uiScale", next);
-        flash(`Zoom ${Math.round(next * 100)}%`, "info");
+        // One slot, not one toast per press. Zoom is a control you hold down;
+        // three presses used to leave three stacked toasts reading 110%, 120%,
+        // 130%, of which only the last was still true.
+        flashSlot("zoom", `Zoom ${Math.round(next * 100)}%`, "info");
       }
       return;
     }

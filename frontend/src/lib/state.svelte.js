@@ -510,9 +510,19 @@ function detectMobile() {
 // picked: with both side columns at their defaults the chat column only clears
 // ~600px — enough for the composer's nine icons and the header's seven controls
 // — once the window passes 1150px.
+//
+// Divided by the app's own zoom, and NOT a media query, because a media query
+// cannot see that zoom. `zoom` on <html> shrinks the layout space without
+// touching the initial containing block, so at 150% in a 1440px window there
+// are 960 layout pixels to work in and `matchMedia("(max-width: 1150px)")`
+// still answers false. The window is not what got smaller; the room did.
 function detectNarrow() {
   if (typeof window === "undefined") return false;
-  return !!window.matchMedia?.("(max-width: 1150px)")?.matches;
+  // Read off the root's own stamp rather than S.prefs: this runs once during
+  // module init, before S exists, to seed S.narrow itself. applyAppearance
+  // writes --ui-zoom and then re-syncs, so the 1 on that first call is right.
+  const zoom = Number(document.documentElement.style.getPropertyValue("--ui-zoom")) || 1;
+  return window.innerWidth / zoom <= 1150;
 }
 
 if (typeof window !== "undefined") {
@@ -1699,6 +1709,20 @@ export function humanError(msg) {
   return text;
 }
 
+// A toast that REPLACES its predecessor instead of stacking on it. `slot` is a
+// stable name for a repeatable readout — zoom is the motivating one: it is a
+// control you press repeatedly by nature, and three presses of Ctrl+= left
+// three toasts on screen reading 110%, 120%, 130%, of which only the last was
+// still true. A slot re-raises rather than piles up.
+const toastSlots = new Map(); // slot -> id
+export function flashSlot(slot, msg, kind = "info") {
+  const prev = toastSlots.get(slot);
+  if (prev !== undefined) dismissToast(prev);
+  const id = flash(msg, kind);
+  toastSlots.set(slot, id);
+  return id;
+}
+
 export function flash(msg, kind = "info") {
   // Back-compat: flash(err) with an Error (or anything error-shaped) reads as
   // a failure without every existing call site having to opt in.
@@ -1725,6 +1749,7 @@ export function flash(msg, kind = "info") {
 export function dismissToast(id) {
   clearTimeout(toastTimers.get(id));
   toastTimers.delete(id);
+  for (const [slot, sid] of toastSlots) if (sid === id) toastSlots.delete(slot);
   const i = S.toasts.findIndex((t) => t.id === id);
   if (i !== -1) S.toasts.splice(i, 1);
 }
@@ -2228,6 +2253,11 @@ export function applyAppearance() {
   el.style.setProperty("--ui-zoom", String(scale));
   if (scale !== 1) el.style.zoom = scale;
   else el.style.removeProperty("zoom");
+  // Changing the zoom changes how much room there is without firing a resize,
+  // so the squeezed-column flag has to be recomputed here or it stays stuck at
+  // whatever the last window resize decided.
+  const tight = detectNarrow();
+  if (tight !== S.narrow) S.narrow = tight;
   // The ground the name colours are measured against has just changed.
   readInkGround();
   if (S.prefs.accent) applyAccent(S.prefs.accent);
