@@ -95,16 +95,11 @@ func (s *Service) flushReadMarkers() {
 		return
 	}
 
-	s.mu.RLock()
-	var notes *domain.Guild
-	for _, g := range s.guilds {
-		if g.Kind == "dm" && len(g.OwnerID) > 0 && string(g.OwnerID) == string(s.PublicKey()) && g.Name == notesGuildName {
-			notes = g
-			break
-		}
-	}
-	s.mu.RUnlock()
-	if notes == nil {
+	// Same predicate as everywhere else, from the one place that defines it.
+	// This used to be a second hand-written copy, which meant two loops over an
+	// unordered map could disagree about which of two Notes groups was THE one.
+	notes, ok := s.findNotesDM()
+	if !ok {
 		return
 	}
 	payload, _ := json.Marshal(guildMeta{Type: "read_marker", Markers: markers})

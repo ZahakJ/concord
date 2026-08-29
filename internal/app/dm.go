@@ -155,21 +155,36 @@ func (s *Service) dmOtherAccounts(groupID []byte) (others []string, ok bool) {
 	return others, true
 }
 
-// NotesDM returns your personal self-DM, creating it on first use. It is a
-// one-member MLS group, so nothing leaves your device until you have linked a
-// second one.
-func (s *Service) NotesDM() (domain.Guild, error) {
+// findNotesDM returns this account's Notes group if it already has one.
+//
+// The predicate is the definition of "the Notes group" and it lives here alone
+// so the two other places that need to recognise one (read-state flushing, and
+// the startup mint) cannot drift from it.
+func (s *Service) findNotesDM() (domain.Guild, bool) {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for _, g := range s.guilds {
-		if g.Kind == "dm" && len(g.OwnerID) > 0 && string(g.OwnerID) == string(s.PublicKey()) && g.Name == notesGuildName {
-			gc := g.Clone()
-			s.mu.RUnlock()
-			s.unhideDM(gc.ID) // opening Notes always surfaces it
-			return gc, nil
+		if isNotesGuild(*g, s.PublicKey()) {
+			return g.Clone(), true
 		}
 	}
-	s.mu.RUnlock()
+	return domain.Guild{}, false
+}
 
+// isNotesGuild: a one-member DM you own, called Notes.
+func isNotesGuild(g domain.Guild, self []byte) bool {
+	return g.Kind == "dm" && len(g.OwnerID) > 0 && string(g.OwnerID) == string(self) && g.Name == notesGuildName
+}
+
+// ensureNotesDM returns this account's Notes group, minting it if there is not
+// one yet. It does NOT surface a hidden Notes: this is the path startup takes,
+// and a scratchpad somebody deliberately closed must stay closed.
+//
+// Idempotent, and the single place a Notes group is ever created.
+func (s *Service) ensureNotesDM() (domain.Guild, error) {
+	if g, ok := s.findNotesDM(); ok {
+		return g, nil
+	}
 	gid, err := s.mls.CreateGroup(s.ctx)
 	if err != nil {
 		return domain.Guild{}, fmt.Errorf("app: create notes group: %w", err)
@@ -181,6 +196,29 @@ func (s *Service) NotesDM() (domain.Guild, error) {
 		return domain.Guild{}, err
 	}
 	s.trackGuild(&g)
+	return g, nil
+}
+
+// NotesDM returns your personal self-DM, and is what OPENING Notes calls: it
+// surfaces the conversation if it had been closed, which is what asking for it
+// means.
+//
+// It no longer creates one in the ordinary case, because by the time anything
+// can call this the group already exists — Start mints it. Creating on first
+// use is what put two Notes groups on one account: a device linked before its
+// owner had ever opened the scratchpad inherited no Notes, minted its own the
+// first time it was asked, and left the account holding two groups of the same
+// name with nothing to merge them. Read state travels on the Notes meta topic
+// and nowhere else, so the two devices then published markers into groups
+// neither could decrypt and stopped converging at all. The mint stays here as
+// the fallback for a service whose startup mint failed (a locked MLS store,
+// a full disk) rather than as the normal path.
+func (s *Service) NotesDM() (domain.Guild, error) {
+	g, err := s.ensureNotesDM()
+	if err != nil {
+		return domain.Guild{}, err
+	}
+	s.unhideDM(g.ID) // opening Notes always surfaces it
 	return g, nil
 }
 

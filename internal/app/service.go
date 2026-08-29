@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"regexp"
 	"strconv"
 	"strings"
@@ -1276,6 +1277,30 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 	// invites) now that the guild set is known, pruning entries for guilds that
 	// no longer exist.
 	s.loadDMState()
+
+	// Everyone has a Notes.
+	//
+	// It used to be minted on first use, and "first use" for most accounts came
+	// after a second device already existed. A device linked before its owner
+	// had ever opened the scratchpad inherited no Notes group, minted its own
+	// the first time it was asked for one, and left the account holding two
+	// groups both called Notes with nothing to merge them. Notes is also the
+	// only wire read state travels on, so from that moment the two devices were
+	// publishing read markers into groups the other could not decrypt and the
+	// unread badges stopped converging entirely.
+	//
+	// Creating it here makes it a property of having an account rather than of
+	// having used a feature: it exists before the first hello, so there is
+	// exactly one to hand over and a joiner adopts it instead of inventing a
+	// rival. Idempotent — an account that already has one gets nothing, and a
+	// hidden one is left hidden.
+	//
+	// A failure is not fatal. The group can be minted later by the first thing
+	// that asks for it, exactly as it always was, and refusing to open the app
+	// over a scratchpad would be the wrong trade.
+	if _, err := s.ensureNotesDM(); err != nil {
+		log.Printf("concord/app: could not create the Notes group: %v", err)
+	}
 	// Restore the guilds this device was thrown out of. Without this a restart
 	// reads as a fresh stranding — the local group still lists us as a member at
 	// the epoch we were removed at — and the client goes back to asking to be
