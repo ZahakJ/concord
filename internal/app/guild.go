@@ -15,6 +15,7 @@ import (
 
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // This file implements the guild lifecycle: creating a guild, generating and
@@ -1420,8 +1421,11 @@ func (s *Service) applyPin(targetID string, bySender []byte, channelID string) {
 }
 
 // SearchMessages searches this peer's full local history (all guilds/channels).
-func (s *Service) SearchMessages(query string, limit int) ([]domain.Message, error) {
-	return s.store.SearchMessages(query, limit)
+// The filter is what makes a bare operator — "from:bilal" with no words after
+// it — a query the store can answer: it narrows in SQL, before anything is
+// decrypted, over the whole history rather than over a page of it.
+func (s *Service) SearchMessages(query string, limit int, filter ...store.SearchFilter) ([]domain.Message, error) {
+	return s.store.SearchMessages(query, limit, filter...)
 }
 
 // Saved messages (bookmarks): device-local, never on any wire.

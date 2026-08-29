@@ -375,6 +375,9 @@ export const S = $state({
   searchChips: [], // parsed operator chips [{key, raw, label}] shown above results
   searchTerms: [], // free-text terms, for match highlighting in results
   searchLoading: false, // a search round-trip is in flight
+  // What the panel says instead of pretending to work: a query too short to run
+  // and with no operator in it is not a search, and a spinner is a lie about it.
+  searchHint: "",
   // The archive pass: { hits, searched, total, truncated } or null. Separate
   // from searchResults because it comes from a different store with different
   // coverage, and the panel has to be able to say so — see SearchChronicle.
@@ -1822,6 +1825,30 @@ export function focusFeed() {
     feedEl?.querySelector('[data-msg-id][tabindex="0"]') || feedEl?.querySelector("[data-msg-id]");
   if (!el) return false;
   el.focus({ preventScroll: true });
+  return true;
+}
+
+// focusComposer: where focus goes home to.
+//
+// Every Escape rung in the app is careful about where focus lands and two were
+// not: closing search left it on whatever header button the tab walk had
+// reached (or on <body> if you never tabbed), and cancelling an edit left it on
+// <body>. typeToFocus rescues both on the next printable key, but Tab, ↑ and
+// Enter in between all went somewhere unexpected. The composer is the answer in
+// both cases — it is where you were going anyway.
+//
+// Returns whether it found one: a forum board has no composer, and a caller
+// that needs a fallback can ask.
+export function focusComposer() {
+  const el = document.querySelector("textarea.draft");
+  if (!el) return false;
+  // On the NEXT frame, not inside this event. Both callers run from an Escape
+  // handler, and lib/shortcuts has its own Escape rung that blurs an empty
+  // composer — focusing synchronously handed focus over and had it taken
+  // straight back, which is how the first build of this still landed on <body>.
+  requestAnimationFrame(() =>
+    document.querySelector("textarea.draft")?.focus({ preventScroll: true }),
+  );
   return true;
 }
 

@@ -18,6 +18,7 @@ import (
 	"github.com/ZahakJ/concord/internal/chronimport"
 	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
+	"github.com/ZahakJ/concord/internal/store"
 	"github.com/ZahakJ/concord/internal/version"
 )
 
@@ -1415,13 +1416,24 @@ func (b *Bridge) PinMessage(channelID, messageID string) error {
 	return svc.PinMessage(channelID, messageID)
 }
 
-// SearchMessages searches this peer's full local history.
-func (b *Bridge) SearchMessages(query string) ([]MessageView, error) {
+// SearchMessages searches this peer's full local history. `from` and `in` are
+// the parsed operators, passed down so a query that is ONLY operators still has
+// something to run: they narrow the scan in SQL rather than filtering a page of
+// results that the needle already chose.
+func (b *Bridge) SearchMessages(query, from, in string) ([]MessageView, error) {
 	svc, err := b.service()
 	if err != nil {
 		return nil, err
 	}
-	msgs, err := svc.SearchMessages(query, 50)
+	// A query with no words in it is a filter query: `from:` and `in:` are in
+	// the WHERE clause above, but `has:link|image|file` is a shape test on
+	// decrypted content that only the caller applies, so it needs a deeper page
+	// to apply it to. Still one bounded scan either way.
+	limit := 50
+	if strings.TrimSpace(query) == "" {
+		limit = 300
+	}
+	msgs, err := svc.SearchMessages(query, limit, store.SearchFilter{FromSender: from, InChannel: in})
 	if err != nil {
 		return nil, err
 	}
@@ -3562,7 +3574,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "SavedMessageIDs":
 		return b.SavedMessageIDs()
 	case "SearchMessages":
-		return b.SearchMessages(argStr(args, 0))
+		return b.SearchMessages(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	case "CreateChannel":
 		return b.CreateChannel(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "SetChannelLinks":

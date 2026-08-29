@@ -18,7 +18,7 @@
   import { plainSnippet } from "./lib/snippet.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
 
-  const open = $derived(S.searchResults !== null || S.searchLoading);
+  const open = $derived(S.searchResults !== null || S.searchLoading || !!S.searchHint);
   // Results cover the whole feed; back closes them rather than the app.
   syncLayer("panel", () => open, closeSearch);
   const results = $derived(S.searchResults ?? []);
@@ -96,7 +96,8 @@
   // jump wins the race.
   async function openResult(m) {
     const { id, channelId } = m;
-    closeSearch();
+    // No focus homing: the jump lands on the row and owns focus from there.
+    closeSearch({ home: false });
     await jumpToChannel(channelId);
     await tick();
     requestAnimationFrame(() =>
@@ -114,7 +115,7 @@
   // between "0 results" and "here, keep scrolling".
   async function openArchiveHit(h) {
     const target = h.mapped;
-    closeSearch();
+    closeSearch({ home: false });
     if (!target) {
       flash("That channel wasn't mapped into this guild — open the archive to read it", "info");
       return;
@@ -147,6 +148,8 @@
         <Icon name="search" size={13} />
         {#if S.searchLoading}
           Searching…
+        {:else if S.searchHint}
+          {S.searchHint}
         {:else}
           {results.length} result{results.length === 1 ? "" : "s"}
           <!-- The archived count belongs in the headline, not only in the band
@@ -163,7 +166,7 @@
       >
         {arc ? "conversations + archive" : "all conversations"}
       </span>
-      <button class="sp-close" aria-label="Close search" title="Close search" onclick={closeSearch}>
+      <button class="sp-close" aria-label="Close search" title="Close search" onclick={() => closeSearch()}>
         <Icon name="close" size={11} />
       </button>
     </div>

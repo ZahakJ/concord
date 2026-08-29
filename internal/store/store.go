@@ -1852,9 +1852,6 @@ type SearchFilter struct {
 // are pushed into WHERE, and decryption proceeds in keyset-paged batches
 // under a hard per-call budget.
 func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) ([]domain.Message, error) {
-	if strings.TrimSpace(query) == "" {
-		return nil, nil
-	}
 	if limit <= 0 {
 		limit = 50
 	}
@@ -1862,6 +1859,14 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 	if len(filter) > 0 {
 		f = filter[0]
 	}
+	// An empty needle is a legitimate query: "everything from Bilal" is a whole
+	// thought, and the WHERE clause below is what answers it. It used to return
+	// nil here, which is why a bare operator answered "0 results" — the panel
+	// offers `from:` and `has:` as chips and types the prefix for you, so
+	// following that affordance had to lead somewhere. With no filter either it
+	// means "the newest page of history", bounded by the same scan budget as
+	// any other query; the caller decides whether that is a question worth
+	// asking (the search box refuses to ask it).
 
 	where := `deleted = 0 AND kind = ''`
 	var args []any

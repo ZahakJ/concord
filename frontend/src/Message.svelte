@@ -75,6 +75,7 @@
     isMentionOfSelf,
     alertWordIn,
     keySurface,
+    focusComposer,
   } from "./lib/state.svelte.js";
   import { clampToBytes, TITLE_MAX_BYTES } from "./lib/postdraft.js";
   import { focusOnMount } from "./lib/focus.js";
@@ -645,6 +646,10 @@
   function cancelEdit() {
     editCancelled = true; // so the textarea's blur handler doesn't save it
     S.editing = null;
+    // The edit box is about to be unmounted from under the caret, and every
+    // other Escape rung in the app says where focus goes next. <body> is not an
+    // answer; the composer is where you were heading.
+    focusComposer();
   }
   function commitEdit() {
     // Same shortcode treatment as the composer: :fire: saves as 🔥.
@@ -1380,6 +1385,7 @@
             editCancelled = false;
             commitEdit();
             S.editing = null;
+            focusComposer();
           }}
         >
           Save

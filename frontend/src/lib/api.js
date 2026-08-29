@@ -546,7 +546,8 @@ export const api = {
   deleteStory: (storyID) => call("DeleteStory", storyID),
   verifyFingerprint: (fingerprint) => call("VerifyFingerprint", fingerprint),
   pinMessage: (channelID, messageID) => call("PinMessage", channelID, messageID),
-  searchMessages: (query) => call("SearchMessages", query),
+  searchMessages: (query, from = "", inChannel = "") =>
+    call("SearchMessages", query, from, inChannel),
   // The archive is a separate store and a separate pass — see SearchChronicle.
   searchChronicle: (guildID, query) => call("SearchChronicle", guildID, query),
 };

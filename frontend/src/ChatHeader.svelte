@@ -223,8 +223,10 @@
         oninput={() => queueSearch()}
         onkeydown={(e) => {
           if (e.key === "Escape") {
-            closeSearch();
+            // blur FIRST: closeSearch homes focus to the composer, and a blur
+            // after it would take that away again and land on <body>.
             e.currentTarget.blur();
+            closeSearch();
           }
         }}
       />

@@ -6,7 +6,7 @@
 // conversations; the search operators are parsed out here and applied
 // on-device:
 //   from:name  in:#channel  has:link|image|file  before:YYYY-MM-DD  after:…
-import { S, flash } from "./state.svelte.js";
+import { S, flash, focusComposer } from "./state.svelte.js";
 import { api } from "./api.js";
 
 // parseQuery splits a raw query into free text, structured filters, and the
@@ -119,12 +119,23 @@ export function queueSearch(delay = 200) {
   clearTimeout(typeTimer);
   const raw = S.searchQuery.trim();
   if (!raw) {
-    closeSearch();
+    closeSearch({ home: false });
     return;
   }
-  // A bare operator ("from:") is half a thought, not a query.
-  const { text } = parseQuery(raw);
-  if (text.trim().length < 2) return;
+  const { text, chips } = parseQuery(raw);
+  // A bare operator IS a query: the panel offers `from: a person` and
+  // `has: link, image, file` as chips and types the prefix for you, so
+  // following that affordance to "show me everything from Bilal" has to work.
+  // It used to bail here — leaving S.searchLoading true from the keystroke
+  // before, which is the "Searching" that never stopped — and then answer
+  // 0 results on Enter, because an empty needle made the store return nil.
+  if (text.trim().length < 2 && !chips.length) {
+    // Half a word is not a query either, but saying so beats a spinner.
+    S.searchLoading = false;
+    S.searchHint = text.trim() ? "Keep typing — two characters at least." : "";
+    return;
+  }
+  S.searchHint = "";
   S.searchLoading = true;
   typeTimer = setTimeout(runSearch, delay);
 }
@@ -134,17 +145,27 @@ export async function runSearch(e) {
   clearTimeout(typeTimer); // Enter overtakes whatever the debounce was about to send
   const raw = S.searchQuery.trim();
   if (!raw) {
-    closeSearch();
+    closeSearch({ home: false });
     return;
   }
   const { text, filters, chips } = parseQuery(raw);
   S.searchChips = chips;
+  if (text.trim().length < 2 && !chips.length) {
+    S.searchLoading = false;
+    S.searchResults = [];
+    S.searchHint = "Add a word to search for.";
+    return;
+  }
+  S.searchHint = "";
   // Free-text terms drive <mark> highlighting in the results panel.
   S.searchTerms = text.split(/\s+/).filter(Boolean);
   S.searchLoading = true;
   const my = ++seq;
   try {
-    const res = (await api.searchMessages(text)) || [];
+    // `from:` and `in:` go DOWN, into the SQL the scan is bounded by, so a query
+    // that is only operators is answered from the whole history rather than
+    // from whatever page an empty needle would otherwise have returned.
+    const res = (await api.searchMessages(text, filters.from || "", filters.in || "")) || [];
     if (my !== seq) return;
     S.searchResults = res.filter((m) => matchFilters(m, filters));
   } catch (err) {
@@ -189,11 +210,11 @@ async function searchArchive(text, my) {
 export function removeChip(chip) {
   const q = S.searchQuery.replace(chip.raw, " ").replace(/\s+/g, " ").trim();
   S.searchQuery = q;
-  if (!q) closeSearch();
+  if (!q) closeSearch({ home: false });
   else runSearch();
 }
 
-export function closeSearch() {
+export function closeSearch({ home = true } = {}) {
   seq++; // invalidate any in-flight response
   clearTimeout(typeTimer);
   S.searchArchive = null;
@@ -203,4 +224,10 @@ export function closeSearch() {
   S.searchChips = [];
   S.searchTerms = [];
   S.searchLoading = false;
+  S.searchHint = "";
+  // Escape out of search used to abandon focus in the header. `home` is false
+  // only for the internal calls that close because the field went empty — the
+  // caret is already in the search box there, and stealing it mid-typing would
+  // be worse than the bug.
+  if (home) focusComposer();
 }
