@@ -673,6 +673,8 @@
     inset: 0;
     background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.2) 48%, transparent 62%);
     transform: translateX(-120%);
+    /* A shelf sliding across, not a control reacting: travel over a distance,
+       deliberately off the state-change scale. */
     transition: transform 0.5s ease;
     pointer-events: none;
   }

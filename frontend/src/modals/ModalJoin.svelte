@@ -177,9 +177,9 @@
     background: var(--accent-soft);
     border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
     transition:
-      color 0.25s ease,
-      border-color 0.25s ease,
-      box-shadow 0.25s ease;
+      color var(--dur-calm) ease,
+      border-color var(--dur-calm) ease,
+      box-shadow var(--dur-calm) ease;
   }
   /* The reveal: dashes solidify, the guild's own tint fills in (inline style),
      and it gets the same glow a named bubble earns in ModalCreate. */
@@ -245,7 +245,7 @@
     border-radius: var(--radius-md);
     background: var(--bg-0);
     overflow: hidden;
-    transition: border-color 0.2s ease;
+    transition: border-color var(--dur-calm) ease;
   }
   .input-well:focus-within {
     border-color: var(--accent);

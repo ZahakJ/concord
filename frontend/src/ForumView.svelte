@@ -1528,6 +1528,8 @@
     height: 100%;
     object-fit: cover;
     /* Compositor-only zoom on hover — see .card:hover .media img. */
+    /* A panel sliding over a board: travel across the pane, sized to the
+       distance rather than to the token scale. */
     transition: transform 0.35s var(--ease-out);
     animation: shot-in 0.24s ease both;
   }

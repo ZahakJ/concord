@@ -621,7 +621,7 @@
     color: var(--text-faint);
     font-size: var(--fs-title);
     line-height: 1;
-    transition: transform 0.22s var(--ease-spring);
+    transition: transform var(--dur-calm) var(--ease-spring);
   }
   .grp-chev.open {
     transform: rotate(90deg);

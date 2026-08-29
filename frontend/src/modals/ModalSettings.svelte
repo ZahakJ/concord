@@ -595,6 +595,7 @@
     height: 100%;
     border-radius: inherit;
     background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    /* Progress, not a state change — see ModalChronicle. */
     transition: width 0.3s ease;
   }
 

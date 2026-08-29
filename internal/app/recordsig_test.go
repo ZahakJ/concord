@@ -207,7 +207,7 @@ func TestApplyEditRefusesABogusReSignature(t *testing.T) {
 
 	// A re-signature by somebody else's key — what a tampering relay produces.
 	bogus := mustID(t).Sign(messageRowSigningBytes(row, "meet at midnight"))
-	svc.applyEdit(row.ID, "meet at midnight", author.PublicKey(), bogus)
+	svc.applyEdit(row.ID, "meet at midnight", author.PublicKey(), bogus, "")
 
 	got, ok, err := svc.store.MessageByID(row.ID)
 	if err != nil || !ok {
@@ -222,10 +222,74 @@ func TestApplyEditRefusesABogusReSignature(t *testing.T) {
 
 	// The author's own good re-signature is kept, and the row stays verifiable.
 	good := author.Sign(messageRowSigningBytes(row, "meet at nine"))
-	svc.applyEdit(row.ID, "meet at nine", author.PublicKey(), good)
+	svc.applyEdit(row.ID, "meet at nine", author.PublicKey(), good, "")
 	got, ok, err = svc.store.MessageByID(row.ID)
 	if err != nil || !ok || len(got.Sig) == 0 || !verifyMessageSig(got) {
 		t.Fatalf("the author's own re-signature must be kept and verify: %v %v %+v", err, ok, got)
+	}
+}
+
+// TestApplyEditCarriesTheDirection: an edit may also correct the base direction
+// the message was laid out in, which was previously unreachable — EditMessage
+// carried only content, so a direction set by a mis-click could be undone only
+// by deleting and reposting.
+//
+// The direction is INSIDE the signing bytes, so this is not a free-standing
+// field: an edit that changes it has to sign the row in the shape it ends up
+// in, and a row whose direction changed without a matching signature must not
+// keep one.
+func TestApplyEditCarriesTheDirection(t *testing.T) {
+	author := mustID(t)
+	svc := storyTestService(t)
+	row := signedMessage(author, "ch1", "مرحبا")
+	row.Dir = "rtl"
+	row.Sig = author.Sign(messageSigningBytes(row))
+	if _, err := svc.store.SaveMessage(row); err != nil {
+		t.Fatalf("SaveMessage: %v", err)
+	}
+
+	// No token: the direction is left alone. This is also every edit sent by a
+	// client built before this existed.
+	svc.applyEdit(row.ID, "مرحبا بك", author.PublicKey(), nil, "")
+	got, ok, err := svc.store.MessageByID(row.ID)
+	if err != nil || !ok {
+		t.Fatalf("MessageByID: %v %v", err, ok)
+	}
+	if got.Dir != "rtl" {
+		t.Fatalf("an edit that says nothing about direction must not change it, got %q", got.Dir)
+	}
+
+	// "auto" is how an author says "resolve it per line again" — distinct from
+	// saying nothing, and the only way back once a direction has been declared.
+	svc.applyEdit(row.ID, "مرحبا بك", author.PublicKey(), nil, "auto")
+	if got, _, _ = svc.store.MessageByID(row.ID); got.Dir != "" {
+		t.Fatalf("auto must clear the direction, got %q", got.Dir)
+	}
+
+	// …and back to ltr, with a re-signature that covers the NEW direction.
+	target, _, _ := svc.store.MessageByID(row.ID)
+	signed := target
+	signed.Dir = "ltr"
+	good := author.Sign(messageRowSigningBytes(signed, "hello there"))
+	svc.applyEdit(row.ID, "hello there", author.PublicKey(), good, "ltr")
+	got, _, _ = svc.store.MessageByID(row.ID)
+	if got.Dir != "ltr" {
+		t.Fatalf("ltr must be stored, got %q", got.Dir)
+	}
+	if len(got.Sig) == 0 || !verifyMessageSig(got) {
+		t.Fatal("a re-signature over the new direction must be kept and verify")
+	}
+
+	// A re-signature over the OLD direction is a signature over a row that no
+	// longer exists, and must not be stored.
+	stale := author.Sign(messageRowSigningBytes(got, "hello again"))
+	svc.applyEdit(row.ID, "hello again", author.PublicKey(), stale, "rtl")
+	got, _, _ = svc.store.MessageByID(row.ID)
+	if got.Dir != "rtl" || got.Content != "hello again" {
+		t.Fatalf("the edit itself must still apply: %q %q", got.Dir, got.Content)
+	}
+	if len(got.Sig) != 0 {
+		t.Fatal("a signature over the pre-edit direction must not be kept")
 	}
 }
 
@@ -456,7 +520,7 @@ func TestEditedMessageStaysVerifiableAtAPeer(t *testing.T) {
 		return err == nil && ok && row.Content == "meet at eight"
 	}, "B never received the original message")
 
-	if err := a.EditMessage(channel, sent.ID, "meet at nine"); err != nil {
+	if err := a.EditMessage(channel, sent.ID, "meet at nine", ""); err != nil {
 		t.Fatalf("A EditMessage: %v", err)
 	}
 	deadline := time.Now().Add(20 * time.Second)

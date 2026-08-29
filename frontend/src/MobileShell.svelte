@@ -1025,7 +1025,7 @@
     background: var(--scrim);
     z-index: 60;
     border: none;
-    transition: opacity 0.22s ease;
+    transition: opacity var(--dur-calm) ease;
     /* Fully transparent and out of the way unless a drawer is showing. This is
        a class rather than an inline pointer-events value because it changes
        exactly twice per gesture, while opacity changes every frame — keeping
@@ -1050,11 +1050,11 @@
     /* Slide via inline transform; hide fully-closed drawers only after the
        slide-out finishes (the delayed-visibility trick), never on the way in. */
     transition:
-      transform 0.22s var(--ease-out),
-      visibility 0s linear 0.25s;
+      transform var(--dur-calm) var(--ease-out),
+      visibility 0s linear var(--dur-calm);
   }
   .drawer:not(.hidden) {
-    transition: transform 0.22s var(--ease-out);
+    transition: transform var(--dur-calm) var(--ease-out);
     visibility: visible;
   }
   .drawer.hidden {

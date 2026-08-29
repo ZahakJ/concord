@@ -1522,7 +1522,7 @@
     width: 68px;
     height: 68px;
     object-fit: cover;
-    transition: filter 0.18s ease;
+    transition: filter var(--dur-standard) ease;
   }
   /* The staged preview blurs too, so "spoiler" is a state you can SEE before
      you send rather than a promise about what the other side gets. */
@@ -1797,7 +1797,7 @@
   .rx.zen .bar .grp:not(.right),
   .rx.zen .status .counts {
     opacity: 0.35;
-    transition: opacity 0.2s ease;
+    transition: opacity var(--dur-calm) ease;
   }
   .rx.zen .bar:hover .grp,
   .rx.zen .bar:focus-within .grp {

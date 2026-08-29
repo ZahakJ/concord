@@ -84,17 +84,20 @@
     background: var(--bg-3);
     transition: background var(--dur-quick) var(--ease-out);
   }
-  /* Two seats, two colours that survive both themes and are distinguishable
-     without relying on hue alone — the winning line also gets a ring, so a
+  /* Two seats, two colours. They come from the PLAYERS now — GameCard sets
+     --seat-1/--seat-2 from each player's own colour, so a face and its discs
+     agree and nobody changes colour between a game and its rematch — and fall
+     back to this fixed pair when a seat is empty or the two are too close to
+     tell apart on a grid. Either way the winning line also gets a ring, so a
      colour-blind reader still sees which four ended it. */
   .cell.p1 {
-    background: var(--accent);
+    background: var(--seat-1, var(--accent));
   }
   .cell.p2 {
-    background: var(--warn);
+    background: var(--seat-2, var(--warn));
   }
   .cell.ghost {
-    background: color-mix(in srgb, var(--accent) 30%, var(--bg-3));
+    background: color-mix(in srgb, var(--seat-1, var(--accent)) 30%, var(--bg-3));
   }
   .cell.win {
     box-shadow: 0 0 0 2px var(--text);

@@ -784,10 +784,10 @@
     place-items: center;
     padding: 0;
     transition:
-      border-radius 0.18s var(--ease-out),
-      background 0.18s ease,
+      border-radius var(--dur-standard) var(--ease-out),
+      background var(--dur-standard) ease,
       transform var(--dur-quick) ease,
-      box-shadow 0.18s ease;
+      box-shadow var(--dur-standard) ease;
     flex-shrink: 0;
   }
   /* Mouse only: a tap synthesises :hover and leaves the pill stuck in its
@@ -842,7 +842,7 @@
     }
   }
   .pill.home :global(svg) {
-    transition: transform 0.18s var(--ease-spring);
+    transition: transform var(--dur-standard) var(--ease-spring);
   }
   .pill.home:hover :global(svg) {
     transform: rotate(-10deg) translateY(-1px);
@@ -925,7 +925,7 @@
     color: var(--accent-hover);
   }
   .pill.new :global(svg) {
-    transition: transform 0.22s var(--ease-spring);
+    transition: transform var(--dur-calm) var(--ease-spring);
   }
   @media (pointer: fine) {
     .pill.new:hover {
@@ -972,8 +972,8 @@
     opacity: 0;
     pointer-events: none;
     transition:
-      height 0.22s var(--ease-spring),
-      opacity 0.18s ease;
+      height var(--dur-calm) var(--ease-spring),
+      opacity var(--dur-standard) ease;
   }
   @media (pointer: fine) {
     .bubble-wrap:hover::before {

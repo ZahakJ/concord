@@ -330,6 +330,8 @@
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    /* Progress, not a state change: the bar is reporting work and reads as
+       movement at this length. Deliberately off the token scale. */
     transition: width 0.3s ease;
   }
   .clabel {

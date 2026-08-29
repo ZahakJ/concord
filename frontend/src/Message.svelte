@@ -542,6 +542,21 @@
     return firstCard;
   });
   let editDraft = $state("");
+  // The direction this edit will store. Starts as the message's own, and the ⇄
+  // in the edit bar cycles it — which is what makes a direction set by a
+  // mis-click correctable at all: before this, EditMessage carried only content
+  // and the stored Dir could never be touched again.
+  let editDir = $state("");
+  function cycleEditDir() {
+    editDir = editDir === "" ? "rtl" : editDir === "rtl" ? "ltr" : "";
+    editEl?.focus();
+  }
+  // What the edit tells the core about direction: nothing when it did not
+  // change, the value when it was set, and "auto" — the one token the wire has
+  // for it — when it was taken back off.
+  const editDirToken = $derived(
+    editDir === (m.dir || "") ? "" : editDir === "" ? "auto" : editDir,
+  );
   let editCancelled = false;
   let wasEditing = false;
   let editEl = $state(null);
@@ -563,6 +578,11 @@
     const editing = S.editing?.id === m.id;
     if (editing && !wasEditing) {
       editDraft = untrack(() => m.content);
+      // The edit box inherits the direction the message was WRITTEN in. It used
+      // to inherit none: pressing ↑ on an Arabic message threw the text ~1,100px
+      // across the pane, into a box laid out left-to-right, and there was no
+      // control to say so.
+      editDir = untrack(() => m.dir || "");
       editCancelled = false;
     }
     wasEditing = editing;
@@ -653,7 +673,7 @@
   }
   function commitEdit() {
     // Same shortcode treatment as the composer: :fire: saves as 🔥.
-    if (!editCancelled) saveEdit(m, replaceShortcodes(editDraft));
+    if (!editCancelled) saveEdit(m, replaceShortcodes(editDraft), editDirToken);
   }
 
   // The ":colon command" while editing — same autocomplete as the composer:
@@ -1292,11 +1312,22 @@
              textarea. Its buttons swallow mousedown, so pressing one never
              takes focus out of the box and never trips the blur-commits rule
              below. -->
-        <FormatBar onFormat={applyEditFormat} label="Text formatting for this edit" compact />
+        <!-- The same bar, with the same ⇄ the composer has: the control that
+             sets a direction existed only where a message is written, so the
+             one place you might need to CORRECT one had no way to say it. -->
+        <FormatBar
+          onFormat={applyEditFormat}
+          label="Text formatting for this edit"
+          dirMode={editDir}
+          onCycleDir={cycleEditDir}
+          compact
+        />
         <div class="edit-field">
           <textarea
             class="edit-input"
             class:autofit={EDIT_AUTOFIT}
+            dir={editDir || null}
+            style={editDir ? "unicode-bidi:isolate" : null}
             rows="1"
             bind:value={editDraft}
             bind:this={editEl}
@@ -2473,7 +2504,7 @@
     /* springy pop when a new pill appears (overshoot bezier) */
     animation: pill-in 0.25s var(--ease-spring);
     transition:
-      transform 0.1s ease,
+      transform var(--dur-quick) ease,
       border-color var(--dur-quick) ease,
       background var(--dur-quick) ease,
       box-shadow var(--dur-quick) ease;
@@ -2595,8 +2626,8 @@
       visibility: visible;
       transform: translateY(0);
       transition:
-        opacity 0.18s ease 0.26s,
-        transform 0.18s ease 0.26s,
+        opacity var(--dur-standard) ease var(--dur-calm),
+        transform var(--dur-standard) ease var(--dur-calm),
         visibility 0s;
     }
   }
@@ -2741,7 +2772,7 @@
      ~200ms snap-back so tracking stays raw under the finger. Reduced motion
      never gets the transform in the first place (guarded in JS). */
   .msg.swipe-settle {
-    transition: transform 0.18s ease;
+    transition: transform var(--dur-standard) ease;
   }
   .swipe-hint {
     flex: 0 0 0;
@@ -2791,8 +2822,8 @@
     place-items: center;
     border-radius: var(--radius-sm);
     transition:
-      background 0.1s ease,
-      transform 0.08s ease;
+      background var(--dur-quick) ease,
+      transform var(--dur-quick) ease;
   }
   .msg-actions button:hover {
     background: var(--bg-3);
@@ -2946,8 +2977,8 @@
     cursor: pointer;
     user-select: none;
     transition:
-      filter 0.22s ease,
-      background 0.22s ease;
+      filter var(--dur-calm) ease,
+      background var(--dur-calm) ease;
   }
   .body :global(.spoiler:hover) {
     background: color-mix(in srgb, var(--text-muted) 26%, transparent);

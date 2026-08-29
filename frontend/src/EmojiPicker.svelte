@@ -481,7 +481,7 @@
     padding: var(--sp-1);
     border-radius: var(--radius-sm);
     line-height: 1;
-    transition: background 0.1s ease, transform 0.08s ease;
+    transition: background var(--dur-quick) ease, transform var(--dur-quick) ease;
   }
   .cell:hover {
     background: var(--bg-input);

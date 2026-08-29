@@ -400,6 +400,35 @@ func ValidDir(d string) string {
 	return ""
 }
 
+// EditDirToken bounds what an EDIT action may carry in its Dir field.
+//
+// A stored row's Dir is two values plus absence, and ValidDir fails closed to
+// absence — which is right for a row and wrong for an edit, because an edit has
+// to be able to say three different things: make it right-to-left, make it
+// left-to-right, and go back to resolving per line. Absence on an edit means
+// "leave the direction alone", which is also what every client built before
+// this sends, so an old peer's edit cannot silently strip a direction its
+// author chose.
+func EditDirToken(d string) string {
+	switch d {
+	case "rtl", "ltr", "auto":
+		return d
+	}
+	return ""
+}
+
+// EditDir reads that token back: the direction to store, and whether the edit
+// was asking to change it at all.
+func EditDir(d string) (string, bool) {
+	switch d {
+	case "rtl", "ltr":
+		return d, true
+	case "auto":
+		return "", true
+	}
+	return "", false
+}
+
 // topicPrefix namespaces all Concord gossipsub topics.
 const topicPrefix = "concord/c/"
 

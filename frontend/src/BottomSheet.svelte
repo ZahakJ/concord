@@ -88,7 +88,7 @@
     animation: bs-fade var(--dur-standard) ease;
     /* Springs the dim back in sync with the sheet on a released half-swipe;
        lib/sheet.js suppresses it for the duration of a tracked drag. */
-    transition: opacity 0.18s ease;
+    transition: opacity var(--dur-standard) ease;
   }
   .bs-sheet {
     position: fixed;

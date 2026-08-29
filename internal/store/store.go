@@ -1968,7 +1968,10 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 // disbelieve it. A row that ends up with no signature is not marked unverified —
 // the edit itself arrived authenticated, on the live lane or from a trusted sync
 // source, which is a different question from who wrote the words.
-func (s *Store) UpdateContent(id string, bySender []byte, newContent string, newSig []byte) (bool, error) {
+// setDir distinguishes "this edit did not mention the direction" from "this
+// edit set it back to per-line": both arrive as an empty newDir, and only one
+// of them should overwrite what is stored.
+func (s *Store) UpdateContent(id string, bySender []byte, newContent string, newSig []byte, newDir string, setDir bool) (bool, error) {
 	var sender []byte
 	err := s.db.QueryRow(`SELECT sender FROM messages WHERE id = ?`, id).Scan(&sender)
 	if err == sql.ErrNoRows {
@@ -1985,10 +1988,15 @@ func (s *Store) UpdateContent(id string, bySender []byte, newContent string, new
 		return false, err
 	}
 	sealed := secretbox.Seal(nil, []byte(newContent), &nonce, &s.key)
-	if _, err := s.db.Exec(
-		`UPDATE messages SET content_enc = ?, nonce = ?, edited = 1, updated = ?, sig = ?, unverified = 0 WHERE id = ?`,
-		sealed, nonce[:], time.Now().UnixNano(), nilIfEmpty(newSig), id,
-	); err != nil {
+	q := `UPDATE messages SET content_enc = ?, nonce = ?, edited = 1, updated = ?, sig = ?, unverified = 0`
+	args := []any{sealed, nonce[:], time.Now().UnixNano(), nilIfEmpty(newSig)}
+	if setDir {
+		q += `, dir = ?`
+		args = append(args, domain.ValidDir(newDir))
+	}
+	q += ` WHERE id = ?`
+	args = append(args, id)
+	if _, err := s.db.Exec(q, args...); err != nil {
 		return false, err
 	}
 	return true, nil

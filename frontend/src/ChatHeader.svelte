@@ -689,7 +689,7 @@
     min-width: 0;
     padding: 5px 10px;
     font-size: var(--fs-ui);
-    transition: width 0.25s var(--ease-out), border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease, background var(--dur-standard) ease;
+    transition: width var(--dur-calm) var(--ease-out), border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease, background var(--dur-standard) ease;
   }
   .search-box:focus {
     width: clamp(84px, 28 * var(--vw), 260px);

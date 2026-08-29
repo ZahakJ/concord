@@ -414,5 +414,36 @@ const value = (name, block) => {
   }
 }
 
+// ---- rule 11: a state change names a duration token -----------------------
+//
+// The motion tokens were adopted well — hundreds of uses — and thirty-six
+// literals survived, including exact duplicates of the tokens spelled by hand
+// and the same number spelled two ways in one codebase (60ms and 0.06s; 220ms
+// and 0.22s). The token block's own comment says why that matters: "the drift
+// is visible when two elements animate side by side", and 0.18s next to
+// var(--dur-standard) is 30ms of visible drift on nine surfaces.
+//
+// The rule is bounded to the band the tokens cover. A transition of a second is
+// a progress bar or a slide across a pane — travel, or data — and those are
+// deliberately off the scale; every one of them carries a comment saying so.
+// Anything from 100ms to 260ms is a state change, and a state change has a name.
+{
+  const DUR = /(\b\d*\.?\d+)(ms|s)\b/g;
+  const ms = (n, unit) => (unit === "s" ? Number(n) * 1000 : Number(n));
+  for (const [rel, src] of FILES) {
+    if (rel === "app.css") continue; // where the tokens are declared
+    for (const decl of src.match(/transition:[^;{}]*;/g) || []) {
+      for (const m of decl.matchAll(DUR)) {
+        const v = ms(m[1], m[2]);
+        if (v < 100 || v > 260) continue;
+        fail(
+          `${rel}: \`${decl.trim()}\` — ${m[0]} is a state change in the band the motion ` +
+            `tokens cover. Name one (--dur-quick 120ms, --dur-standard 150ms, --dur-calm 200ms).`,
+        );
+      }
+    }
+  }
+}
+
 console.log(failures === 0 ? "tokens.test.mjs: OK" : `tokens.test.mjs: ${failures} failure(s)`);
 process.exit(failures ? 1 : 0);

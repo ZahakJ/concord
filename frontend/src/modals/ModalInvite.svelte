@@ -328,8 +328,8 @@
     padding: 7px 16px;
     transition:
       transform var(--dur-quick) ease,
-      background 0.25s ease,
-      box-shadow 0.25s ease;
+      background var(--dur-calm) ease,
+      box-shadow var(--dur-calm) ease;
   }
   .copy:active {
     transform: scale(0.97);

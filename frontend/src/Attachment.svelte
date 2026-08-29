@@ -615,7 +615,7 @@
     overflow: hidden;
     touch-action: none; /* pointer events own pinch/drag */
     animation: lb-in var(--dur-standard) ease;
-    transition: background 0.18s ease;
+    transition: background var(--dur-standard) ease;
   }
   .lightbox.flinging {
     transition: none; /* the backdrop tracks the finger 1:1 during a throw */
@@ -633,7 +633,7 @@
     cursor: zoom-in;
     user-select: none;
     -webkit-user-drag: none;
-    transition: transform 0.18s ease;
+    transition: transform var(--dur-standard) ease;
     will-change: transform;
   }
   .lightbox img.zoomed {

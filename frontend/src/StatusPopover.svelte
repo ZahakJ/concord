@@ -373,7 +373,7 @@
     padding: 0 11px;
     display: grid;
     place-items: center;
-    transition: box-shadow 0.2s ease, opacity var(--dur-standard) ease;
+    transition: box-shadow var(--dur-calm) ease, opacity var(--dur-standard) ease;
   }
   /* A ready-to-save glow the moment the draft differs from the saved status. */
   .st-save:not(:disabled) {

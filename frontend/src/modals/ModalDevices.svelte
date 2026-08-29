@@ -937,6 +937,8 @@
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, var(--accent) 0%, var(--accent) 70%, var(--warn) 100%);
+    /* A meter that follows a live level, like the composer's: it has to keep
+       up with the input rather than ease into it. */
     transition: width 0.06s linear;
   }
   /* The gate threshold, drawn on the meter so it can be set by eye. */
@@ -1151,7 +1153,7 @@
     color: var(--text-faint);
     font-size: var(--fs-title);
     line-height: 1;
-    transition: transform 0.22s var(--ease-spring);
+    transition: transform var(--dur-calm) var(--ease-spring);
   }
   .disclose-chev.open {
     transform: rotate(90deg);

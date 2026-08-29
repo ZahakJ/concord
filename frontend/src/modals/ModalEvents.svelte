@@ -1430,7 +1430,7 @@
     transition:
       background var(--dur-quick) ease,
       color var(--dur-quick) ease,
-      box-shadow 0.18s var(--ease-calm);
+      box-shadow var(--dur-calm) var(--ease-calm);
   }
   .wseg-t {
     font-size: var(--fs-ui);

@@ -2927,21 +2927,22 @@ textarea:focus {
    Left is the app's own edge, every row starts at it, and pinning there costs
    an RTL reader nothing but the ragged edge falling on the other side.
 
-   An author who has DECLARED a direction still gets it: `dir` on the element
-   (the composer's ⇄ cycle, and the per-message `dir` it sends) restores
-   `start`, which is what makes "right to left" mean something visible. */
+   A DECLARED direction is not an exception to that. It used to be: `dir` on
+   the element restored `start`, so pressing ⇄ moved the paragraph to the far
+   right edge — 1,500px from the avatar and the name that own it on a 1920 DM,
+   where it reads as belonging to nothing, and 816px away once the reading
+   measure caps it. The app does not mirror (that was decided and declined), so
+   a right-aligned paragraph under a left-placed avatar, a left-placed name and
+   a left-placed reply rail is the one block on the screen facing the other
+   way.
+   What ⇄ is FOR is still there, and is the half that `plaintext` cannot do on
+   its own: the base direction decides the ORDER of a mixed line — where the
+   trailing English clause and the sentence-ending punctuation of
+   "مرحبا CI build رقم 42 failed" sit. That is what the control changes, and the
+   tooltip says so. Alignment is the app's, in every language. */
 textarea {
   unicode-bidi: plaintext;
   text-align: left;
-}
-/* Matched on the VALUE, not on the presence of the attribute: Svelte assigns
-   `dir` through the DOM property, and a null there stringifies to "", so every
-   composer and every message body carries a `dir=""` whether or not anyone
-   chose a direction. An empty value is not a direction to the browser either —
-   it inherits — so it must not be one here. */
-textarea[dir="rtl"],
-textarea[dir="ltr"] {
-  text-align: start;
 }
 
 /* …and the same for prose once it has been RENDERED, so what you read back
@@ -2953,12 +2954,6 @@ textarea[dir="ltr"] {
 .md {
   unicode-bidi: plaintext;
   text-align: left;
-}
-.body[dir="rtl"],
-.body[dir="ltr"],
-.md[dir="rtl"],
-.md[dir="ltr"] {
-  text-align: start;
 }
 
 /* Code is left-to-right in every language. Left to the paragraph heuristic an

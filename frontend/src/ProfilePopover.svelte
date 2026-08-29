@@ -1342,6 +1342,8 @@
     height: 100%;
     border-radius: 2px;
     background: var(--accent);
+    /* One second because it is measuring one second: this bar IS the clock,
+       so its duration is data, not styling. */
     transition: width 1s linear;
   }
   .act-times {

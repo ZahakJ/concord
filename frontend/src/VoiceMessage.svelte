@@ -245,7 +245,7 @@
     min-width: 2px;
     border-radius: 2px;
     background: color-mix(in srgb, var(--text-faint) 70%, transparent);
-    transition: background 0.1s linear;
+    transition: background var(--dur-quick) linear;
   }
   .vm-bar.on {
     background: var(--accent);

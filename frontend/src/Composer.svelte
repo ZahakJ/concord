@@ -2554,7 +2554,7 @@
     overflow: hidden;
     white-space: nowrap;
     transition:
-      background 0.1s ease,
+      background var(--dur-quick) ease,
       transform var(--dur-quick) ease;
   }
   .suggest-item.sel,
@@ -2724,7 +2724,7 @@
     max-width: 148px;
     min-width: 40px;
     object-fit: contain;
-    transition: filter 0.18s ease;
+    transition: filter var(--dur-standard) ease;
   }
   /* The staged preview blurs too, so "spoiler" is a state you can see before
      you send rather than a promise about what the other side will get. */
@@ -3022,6 +3022,9 @@
     /* Accent up to the point it would clip, then a warm tip — the same
        vocabulary as the device dialog's meter, so one reads like the other. */
     background: linear-gradient(90deg, var(--accent), var(--accent) 78%, var(--warn));
+    /* A meter that follows a live level. It has to keep up with the input
+       rather than ease into it, so it is deliberately faster than --dur-quick
+       and linear rather than eased. */
     transition: width 60ms linear;
   }
   /* The preview: the recording, before it is anybody else's. */

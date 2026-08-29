@@ -12,10 +12,19 @@
   import FourInARowBoard from "./FourInARowBoard.svelte";
   import Icon from "./Icon.svelte";
   import Avatar from "./Avatar.svelte";
-  import { S, flash, memberByFpr, nameFor, sendMessage, clockOpts } from "./lib/state.svelte.js";
+  import {
+    S,
+    flash,
+    memberByFpr,
+    nameFor,
+    nameColorFor,
+    sendMessage,
+    clockOpts,
+  } from "./lib/state.svelte.js";
   import { haptic } from "./lib/touch.js";
   import { tooltip } from "./lib/tooltip.js";
-  import { gameJoin, gameMove, gameResign } from "./lib/games.js";
+  import { gameJoin, gameMove, gameResign, discColors } from "./lib/games.js";
+  import { hueOfCss } from "./lib/forum.js";
 
   const BOARDS = { c4: FourInARowBoard };
 
@@ -44,6 +53,19 @@
     const mem = memberByFpr(fpr);
     return { name: nameFor(fpr), emoji: mem?.emoji || "", color: mem?.color || "", image: mem?.avatar || "" };
   };
+
+  // The discs take the players' own colours, so the legend's dot and the face
+  // 4px from it stop contradicting each other and a player stops changing
+  // colour between one game and its rematch. `nameColorFor` is what the member
+  // panel and the message header already use to ink a name, so a player's disc
+  // is the colour their name is. discColors makes the call about whether the
+  // two are far enough apart to be told apart on a grid.
+  const discs = $derived(
+    discColors(
+      [0, 1].map((i) => (game.seats[i] ? nameColorFor(game.seats[i]) || who(game.seats[i]).color : "")),
+      hueOfCss,
+    ),
+  );
 
   const status = $derived.by(() => {
     if (game.over === "resign") return `${seatLabel(game.winner)} wins — ${seatLabel(1 - game.winner)} resigned`;
@@ -100,7 +122,7 @@
   }
 </script>
 
-<div class="game" class:over={!!game.over}>
+<div class="game" class:over={!!game.over} style="--seat-1:{discs[0]};--seat-2:{discs[1]}">
   <div class="head">
     <Icon name="die" size={14} />
     <span class="title">{game.rules.name}</span>
@@ -227,10 +249,10 @@
     background: var(--bg-3);
   }
   .seat.s1 .pip {
-    background: var(--accent);
+    background: var(--seat-1, var(--accent));
   }
   .seat.s2 .pip {
-    background: var(--warn);
+    background: var(--seat-2, var(--warn));
   }
   .acts {
     display: flex;

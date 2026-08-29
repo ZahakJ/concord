@@ -2373,7 +2373,7 @@
        measures this pair on every button in the app. */
     color: var(--text);
     border: 1px solid var(--border);
-    transition: transform 0.1s ease, opacity var(--dur-quick) ease;
+    transition: transform var(--dur-quick) ease, opacity var(--dur-quick) ease;
   }
   .sfx-glyph {
     display: grid;

@@ -1243,7 +1243,13 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 	// Bounded on the way OUT as well as on the way in. The value reaches a dir
 	// attribute in every recipient's DOM, and this node is the last place able
 	// to guarantee it is one of the two things that means anything.
-	msg.Dir = domain.ValidDir(dir)
+	// An edit's Dir is an instruction, not a layout: it may also say "auto",
+	// which no stored row ever does. Everything else is a row.
+	if kind == "edit" {
+		msg.Dir = domain.EditDirToken(dir)
+	} else {
+		msg.Dir = domain.ValidDir(dir)
+	}
 	// Sign the message as its author, before anything encrypts or stores it.
 	// MLS already proves who sent this frame; the signature is what survives the
 	// frame — a member serving this message back to a peer years from now attests
@@ -1257,7 +1263,14 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 	// every receiver will check the second.
 	if kind == "edit" && replyTo != "" {
 		if target, ok, err := s.store.MessageByID(replyTo); err == nil && ok && bytes.Equal(target.Sender, msg.Sender) {
-			msg.RowSig = s.id.Sign(messageRowSigningBytes(target, content))
+			// Signed in the shape the row will END UP in, direction included:
+			// Dir is inside the signing bytes, so an edit that changes it and
+			// signs the old one produces a proof nobody can verify.
+			signed := target
+			if d, set := domain.EditDir(msg.Dir); set {
+				signed.Dir = d
+			}
+			msg.RowSig = s.id.Sign(messageRowSigningBytes(signed, content))
 		}
 	}
 	payload, _ := json.Marshal(msg)
@@ -1282,7 +1295,7 @@ func (s *Service) sendAs(channelID, content, kind, replyTo, guestName, dir strin
 		s.applyReaction(msg.ReplyTo, msg.Content, msg.Sender)
 		return msg, nil
 	case "edit":
-		s.applyEdit(msg.ReplyTo, msg.Content, msg.Sender, msg.RowSig)
+		s.applyEdit(msg.ReplyTo, msg.Content, msg.Sender, msg.RowSig, msg.Dir)
 		return msg, nil
 	case "pin":
 		s.applyPin(msg.ReplyTo, msg.Sender, channelID)
@@ -1325,8 +1338,11 @@ func (s *Service) PropsTally(guildID string) (map[string]int, error) {
 }
 
 // EditMessage edits one of this peer's own messages for everyone.
-func (s *Service) EditMessage(channelID, targetID, newContent string) error {
-	_, err := s.send(channelID, newContent, "edit", targetID)
+// dir is the direction the author is setting on the TARGET: "rtl", "ltr",
+// "auto" for back-to-per-line, or "" to leave it as it is. A direction set by a
+// mis-click used to be uncorrectable without deleting and reposting.
+func (s *Service) EditMessage(channelID, targetID, newContent, dir string) error {
+	_, err := s.sendAs(channelID, newContent, "edit", targetID, "", dir)
 	return err
 }
 
@@ -1339,18 +1355,23 @@ func (s *Service) EditMessage(channelID, targetID, newContent string) error {
 // author signed this exact body against this exact message, and one that does
 // not is simply not stored — the edit still applies (it arrived authenticated),
 // the row just stops claiming a proof it does not have.
-func (s *Service) applyEdit(targetID, newContent string, bySender []byte, rowSig []byte) {
+func (s *Service) applyEdit(targetID, newContent string, bySender []byte, rowSig []byte, dirTok string) {
 	if targetID == "" || newContent == "" {
 		return
 	}
+	newDir, setDir := domain.EditDir(dirTok)
 	var keep []byte
 	if len(rowSig) > 0 {
-		if target, found, err := s.store.MessageByID(targetID); err == nil && found &&
-			identity.Verify(bySender, messageRowSigningBytes(target, newContent), rowSig) {
-			keep = rowSig
+		if target, found, err := s.store.MessageByID(targetID); err == nil && found {
+			if setDir {
+				target.Dir = newDir
+			}
+			if identity.Verify(bySender, messageRowSigningBytes(target, newContent), rowSig) {
+				keep = rowSig
+			}
 		}
 	}
-	ok, err := s.store.UpdateContent(targetID, bySender, newContent, keep)
+	ok, err := s.store.UpdateContent(targetID, bySender, newContent, keep, newDir, setDir)
 	if err != nil || !ok {
 		return
 	}
@@ -3242,7 +3263,7 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 		s.applyReaction(m.ReplyTo, m.Content, m.Sender)
 		return true
 	case "edit":
-		s.applyEdit(m.ReplyTo, m.Content, m.Sender, m.RowSig)
+		s.applyEdit(m.ReplyTo, m.Content, m.Sender, m.RowSig, m.Dir)
 		return true
 	case "pin":
 		s.applyPin(m.ReplyTo, m.Sender, m.ChannelID)

@@ -494,7 +494,7 @@
   }
   .face :global(.avatar) {
     border: 2px solid transparent;
-    transition: border-color 0.1s ease;
+    transition: border-color var(--dur-quick) ease;
   }
   /* Speaking: same layered ring-and-glow as the big call tiles, mini-sized. */
   .face.speaking :global(.avatar) {

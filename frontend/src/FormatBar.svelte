@@ -36,8 +36,18 @@
   const dirLabel = $derived(
     dirMode === "rtl" ? "رل" : dirMode === "ltr" ? "LR" : "⇄",
   );
+  // What the control actually does. It sets the paragraph's BASE direction,
+  // which decides the order of a mixed line — where the trailing English clause
+  // and the sentence-ending punctuation of "مرحبا CI build رقم 42 failed" sit.
+  // It does not move the paragraph to the other edge of the pane: alignment is
+  // the app's, in every language (see the bidi block in app.css), and saying
+  // "right to left" while nothing visibly moves for ordinary Arabic prose was
+  // promising the wrong thing.
   const dirWord = $derived(
     dirMode === "rtl" ? "right to left" : dirMode === "ltr" ? "left to right" : "per line",
+  );
+  const dirHint = $derived(
+    dirMode ? `reads ${dirWord}` : "each line reads whichever way it is written",
   );
 </script>
 
@@ -70,8 +80,8 @@
       type="button"
       class="fmtbtn dirbtn"
       class:on={!!dirMode}
-      use:tooltip={{ text: `Text direction: ${dirWord} — Ctrl+Shift+L, or click` }}
-      aria-label="Text direction: {dirWord}. Activate to change."
+      use:tooltip={{ text: `Base direction: ${dirHint} — Ctrl+Shift+L, or click` }}
+      aria-label="Base direction: {dirWord}. Activate to change."
       {disabled}
       onmousedown={(e) => e.preventDefault()}
       onclick={onCycleDir}

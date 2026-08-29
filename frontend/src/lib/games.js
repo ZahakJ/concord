@@ -329,3 +329,38 @@ export function isGameToken(content) {
   const c = String(content || "").trim();
   return !!c && !!parseGame(c) && stripGame(c) === "";
 }
+
+// discColors: the two disc colours for a two-seat board.
+//
+// They used to be `--accent` and `--warn` by SEAT, so the same person changed
+// colour between games: in one card Amina played purple, in the rematch two
+// messages below it she played gold and Cyra played purple — with a legend
+// putting the contradicting dot 4px from an avatar that said otherwise.
+// "Which one am I" should be answered once, forever, by the face you already
+// know.
+//
+// So: each seat takes its player's own colour. The two constraints are that an
+// empty seat has no colour to take, and that two players who happen to have
+// picked the same one would produce a board nobody can read — a game is the one
+// surface where telling two people apart IS the interface. Where they collide
+// (or where a player has no colour), the seat falls back to the fixed pair,
+// which is what the board has always looked like.
+//
+// `hue` is injected so this stays testable without a browser: pass a function
+// from a CSS colour to a hue in degrees, or null.
+const MIN_HUE_APART = 40;
+
+export function discColors(seatColors, hue, fallback = ["var(--accent)", "var(--warn)"]) {
+  const c0 = seatColors?.[0] || "";
+  const c1 = seatColors?.[1] || "";
+  const h0 = c0 ? hue(c0) : null;
+  const h1 = c1 ? hue(c1) : null;
+  // Neither seat can be trusted to its own colour unless BOTH are known and
+  // far enough apart: a board with one derived colour and one fixed one can
+  // still put two near-identical discs on the same grid.
+  if (h0 === null || h1 === null) return [...fallback];
+  const d = Math.abs(h0 - h1);
+  const apart = Math.min(d, 360 - d); // hue is a circle
+  if (apart < MIN_HUE_APART) return [...fallback];
+  return [c0, c1];
+}

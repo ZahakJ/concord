@@ -73,7 +73,7 @@
        compositor. 220ms, because EventCard tears the veil down at 260ms; a
        longer iris would get cut off mid-shrink. */
     clip-path: circle(0% at 50% 50%);
-    transition: clip-path 220ms var(--ease-calm);
+    transition: clip-path var(--dur-calm) var(--ease-calm);
   }
   .wash {
     position: absolute;

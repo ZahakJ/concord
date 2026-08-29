@@ -234,7 +234,7 @@ func TestOfflineCatchUp(t *testing.T) {
 	waitMembers(t, 30*time.Second, 4, a, b, d)
 	sendUntilReceived(t, a, channel, "after-epoch-bump", rb)
 
-	if err := b.EditMessage(channel, bMsg.ID, "b-edited"); err != nil {
+	if err := b.EditMessage(channel, bMsg.ID, "b-edited", ""); err != nil {
 		t.Fatalf("B EditMessage: %v", err)
 	}
 	if err := b.ToggleReaction(channel, bMsg.ID, "👍"); err != nil {

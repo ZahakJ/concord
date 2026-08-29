@@ -725,12 +725,12 @@ func (b *Bridge) ToggleReaction(channelID, messageID, emoji string) error {
 }
 
 // EditMessage edits one of this peer's own messages.
-func (b *Bridge) EditMessage(channelID, messageID, newContent string) error {
+func (b *Bridge) EditMessage(channelID, messageID, newContent, dir string) error {
 	svc, err := b.service()
 	if err != nil {
 		return err
 	}
-	return svc.EditMessage(channelID, messageID, newContent)
+	return svc.EditMessage(channelID, messageID, newContent, dir)
 }
 
 // DeleteMessage deletes one of this peer's own messages.
@@ -3714,7 +3714,7 @@ func (b *Bridge) Dispatch(method string, args []json.RawMessage) (any, error) {
 	case "UnlinkDevice":
 		return nil, b.UnlinkDevice(argStr(args, 0))
 	case "EditMessage":
-		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2))
+		return nil, b.EditMessage(argStr(args, 0), argStr(args, 1), argStr(args, 2), argStr(args, 3))
 	case "ToggleReaction":
 		return nil, b.ToggleReaction(argStr(args, 0), argStr(args, 1), argStr(args, 2))
 	default:

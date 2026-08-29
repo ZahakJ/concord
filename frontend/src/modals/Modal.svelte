@@ -749,7 +749,7 @@
     transition:
       color var(--dur-standard) ease,
       background var(--dur-standard) ease,
-      transform 0.2s var(--ease-spring);
+      transform var(--dur-calm) var(--ease-spring);
   }
   .x:hover {
     color: var(--text);

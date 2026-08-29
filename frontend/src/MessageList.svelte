@@ -1818,7 +1818,7 @@
   }
   .pin-item .unpin {
     margin-top: 6px;
-    transition: opacity 0.1s ease;
+    transition: opacity var(--dur-quick) ease;
   }
   /* Hidden until the row is pointed at — a reveal only a mouse can perform, so
      the phone block below keeps it visible instead. */

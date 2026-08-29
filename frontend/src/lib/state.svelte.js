@@ -3147,12 +3147,17 @@ export function deleteMsg(m) {
   };
 }
 
-export async function saveEdit(m, text) {
+// `dir` is the edit's instruction about the message's base direction: "rtl",
+// "ltr", "auto" for back-to-per-line, or "" for "unchanged". An edit that only
+// changes the direction is still an edit worth sending, so the no-op test asks
+// about both halves.
+export async function saveEdit(m, text, dir = "") {
   S.editing = null;
   text = text.trim();
-  if (!m || !text || text === m.content) return;
+  if (!m || !text) return;
+  if (text === m.content && !dir) return;
   try {
-    await api.editMessage(m.channelId, m.id, text);
+    await api.editMessage(m.channelId, m.id, text, dir);
   } catch (err) {
     flash(err);
   }

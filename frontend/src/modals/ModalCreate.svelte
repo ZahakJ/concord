@@ -231,10 +231,10 @@
     border: 1px dashed color-mix(in srgb, var(--accent) 45%, transparent);
     animation: bubble-in 0.35s var(--ease-spring);
     transition:
-      background 0.25s ease,
-      color 0.25s ease,
-      border-color 0.25s ease,
-      box-shadow 0.25s ease;
+      background var(--dur-calm) ease,
+      color var(--dur-calm) ease,
+      border-color var(--dur-calm) ease,
+      box-shadow var(--dur-calm) ease;
   }
   .bubble.static {
     cursor: default;

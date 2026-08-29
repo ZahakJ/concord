@@ -193,7 +193,7 @@ func (s *Service) EditAttachment(channelID, targetID, dataURL string, w, h int) 
 	if err != nil {
 		return "", err
 	}
-	if err := s.EditMessage(channelID, targetID, token); err != nil {
+	if err := s.EditMessage(channelID, targetID, token, ""); err != nil {
 		return "", err
 	}
 	return blobID, nil

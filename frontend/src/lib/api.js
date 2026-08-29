@@ -347,8 +347,10 @@ export const api = {
   setGames: (games) => call("SetGames", games),
   searchGames: (query) => call("SearchGames", query),
   deleteMessage: (channelID, messageID) => call("DeleteMessage", channelID, messageID),
-  editMessage: (channelID, messageID, content) =>
-    call("EditMessage", channelID, messageID, content),
+  // `dir` is what the edit says about the TARGET's base direction: "rtl",
+  // "ltr", "auto" to go back to per-line, or "" to leave it alone.
+  editMessage: (channelID, messageID, content, dir = "") =>
+    call("EditMessage", channelID, messageID, content, dir),
   expireMessage: (channelID, messageID) => call("ExpireMessage", channelID, messageID),
   guildInsights: (guildID) => call("GuildInsights", guildID),
   guildStats: (guildID) => call("GuildStats", guildID),

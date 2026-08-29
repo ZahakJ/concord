@@ -261,7 +261,7 @@
     );
     color: var(--accent-hover);
     margin-bottom: 6px;
-    transition: transform 0.18s var(--ease-spring);
+    transition: transform var(--dur-standard) var(--ease-spring);
   }
   .sub {
     font-size: var(--fs-compact);

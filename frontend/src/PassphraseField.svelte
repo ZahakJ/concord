@@ -182,8 +182,8 @@
     border-radius: 999px;
     background: var(--danger);
     transition:
-      width 0.18s ease,
-      background 0.18s ease;
+      width var(--dur-calm) ease,
+      background var(--dur-calm) ease;
   }
   .slabel {
     font-size: var(--fs-tiny);

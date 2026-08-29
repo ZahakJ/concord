@@ -266,6 +266,8 @@
     border-radius: inherit;
     background: linear-gradient(90deg, var(--accent), var(--accent-hover));
     box-shadow: var(--accent-glow);
+    /* A checklist filling up is a small reward, and it is watched. Travel,
+       not a state change — off the token scale on purpose. */
     transition: width 0.45s var(--ease-spring);
   }
   /* Finished: the bar is full, the frame warms, and the whole card lifts once. */

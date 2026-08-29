@@ -980,6 +980,7 @@
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, var(--accent), var(--accent-hover));
+    /* Progress, not a state change — see ModalChronicle. */
     transition: width 0.3s ease;
   }
   /* No total to divide by (signing, attaching): a sweep, rather than a

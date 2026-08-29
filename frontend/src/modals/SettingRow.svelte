@@ -141,7 +141,7 @@
     flex: none;
     color: var(--text-faint);
     font-size: var(--fs-title);
-    transition: transform 0.18s var(--ease-spring);
+    transition: transform var(--dur-standard) var(--ease-spring);
   }
   button.row:hover .chev {
     transform: translateX(3px);

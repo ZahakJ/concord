@@ -340,7 +340,7 @@
     border-radius: var(--radius-sm);
     font-size: var(--fs-ui);
     transition:
-      background 0.1s ease,
+      background var(--dur-quick) ease,
       transform var(--dur-quick) ease;
   }
   .hit.sel {
@@ -369,7 +369,7 @@
     color: var(--text-muted);
     display: grid;
     place-items: center;
-    transition: color 0.1s ease;
+    transition: color var(--dur-quick) ease;
   }
   /* ↵ affordance surfaces only on the selected row. */
   .hit-enter {

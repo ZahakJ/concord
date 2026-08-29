@@ -512,7 +512,7 @@
     border-radius: var(--radius-sm);
     font-size: var(--fs-ui);
     transition:
-      background 0.1s ease,
+      background var(--dur-quick) ease,
       transform var(--dur-quick) ease;
     animation: sp-in 0.2s ease backwards;
   }

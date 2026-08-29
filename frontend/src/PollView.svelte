@@ -352,6 +352,9 @@
     position: absolute;
     inset: 0 auto 0 0;
     background: color-mix(in srgb, var(--accent) 13%, transparent);
+    /* Not a state change: a poll bar GROWING is the result arriving, and a
+       half-second is how long that reads as motion rather than a jump. Off the
+       token scale on purpose. */
     transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   }
   .opt.mine .fill {

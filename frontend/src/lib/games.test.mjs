@@ -11,6 +11,7 @@
 // is wrong about a diagonal is wrong on every peer at once, identically, which
 // is the one kind of bug this architecture cannot detect for itself.
 import {
+  discColors,
   parseGame,
   stripGame,
   encodeGame,
@@ -505,6 +506,26 @@ for (const g of GAME_LIST) {
     }
   }
   check(`"${g.id}" registers under its own id`, GAMES[g.id], g);
+}
+
+
+// ---- discColors -----------------------------------------------------------
+// The board used to colour by SEAT, so the same person played purple in one
+// game and gold in the rematch two messages below it, with a legend putting a
+// contradicting dot 4px from their avatar.
+{
+  // A stand-in for hueOfCss: the tests care about the DECISION, not about
+  // parsing CSS (forum.test.mjs owns that).
+  const hue = (c) => (c === "" ? null : { red: 0, olive: 60, green: 120, teal: 180, blue: 240, violet: 270, plum: 285 }[c] ?? null);
+  const FB = ["var(--accent)", "var(--warn)"];
+  check("two distinct colours are kept", discColors(["red", "teal"], hue), ["red", "teal"]);
+  check("15 degrees apart is not distinct enough", discColors(["violet", "plum"], hue), FB);
+  check("an empty seat means the fixed pair", discColors(["red", ""], hue), FB);
+  check("no seats at all", discColors([], hue), FB);
+  check("a colour with no hue cannot be told apart", discColors(["red", "grey"], hue), FB);
+  // Hue is a circle: 350 and 10 are twenty degrees apart, not three hundred.
+  const circ = (c) => ({ a: 350, b: 10 })[c];
+  check("the wrap-around is a short distance", discColors(["a", "b"], circ), FB);
 }
 
 if (failures) {
