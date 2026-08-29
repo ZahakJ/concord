@@ -32,6 +32,8 @@ import { PERM, has } from "./perms.js";
 import { plur } from "./plural.js";
 import { fmtCount } from "./chronicle.js";
 import { hash32 } from "./hash32.js";
+export { humanError, slowModeWait, SLOW_MODE_ERR } from "./errors.js";
+import { humanError } from "./errors.js";
 import { isGameToken } from "./games.js";
 import {
   LEVELS as NOTIF_LEVELS,
@@ -1741,37 +1743,6 @@ export function guildUnread(g) {
 
 let toastSeq = 0;
 const toastTimers = new Map(); // id -> timeout handle
-
-// Errors arrive here still wearing the Go package that raised them — "app:",
-// "net:", "store:", or an "rpc Foo:" from the HTTP transport. That prefix is
-// for a log, not for a person, and it reached users on 119 call sites: three
-// screens stripped it inline and the fourth forgot, which is how you end up
-// with "app: they're already in this guild" in a toast. Strip it once, here.
-//
-// Only the leading package token: NOT everything up to the last colon, which
-// would throw away a helpful multi-clause message and leave just the innermost
-// transport error.
-const GO_PREFIX = /^(?:(?:app|net|store|mls|bridge|identity|rpc\s+\w+):\s*)+/;
-// The browser's own words for "nothing answered". They are true and useless.
-const RAW_NETWORK = /^(failed to fetch|networkerror when attempting to fetch resource\.?|load failed|the network connection was lost\.?)$/i;
-// The transport's words for the same thing, and there are a lot of them: a dial
-// failure arrives as the peer id followed by one clause per address it tried,
-// with the OS reason for each — six hundred characters of multiaddrs and
-// "connection refused". It is the FIRST thing a brand-new user sees when a
-// friend's invite code points at a peer who has since closed the app, printed
-// in a red box under "That code didn't open the door". Every word of it is true
-// and none of it is for a person; the one fact it carries is that nobody
-// answered, which fits in a sentence.
-const RAW_DIAL = /failed to dial|all dials failed|no good addresses|dial backoff/i;
-
-export function humanError(msg) {
-  const text = String(msg?.message ?? msg ?? "").replace(GO_PREFIX, "");
-  if (msg?.offline || RAW_NETWORK.test(text.trim()))
-    return "Concord isn't responding — trying to reconnect";
-  if (RAW_DIAL.test(text))
-    return "Couldn't reach them — they're probably offline, or on a network this device can't get to from here.";
-  return text;
-}
 
 // A toast that REPLACES its predecessor instead of stacking on it. `slot` is a
 // stable name for a repeatable readout — zoom is the motivating one: it is a

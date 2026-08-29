@@ -37,7 +37,7 @@
 // Only FAILED rows are persisted. A row still in flight at unload may well have
 // landed — the core stores before it answers — so writing it down as something
 // to retry is how you send the same message twice.
-import { S, flash, scrollSoon, humanError } from "./state.svelte.js";
+import { S, flash, scrollSoon, humanError, slowModeWait } from "./state.svelte.js";
 import { api } from "./api.js";
 import { unsettled, alreadySaid } from "./outbox.js";
 
@@ -60,6 +60,10 @@ function persist() {
         seen: e.seen,
         state: "failed",
         error: e.error || "",
+        // A wall-clock moment survives the reload the same way it survives the
+        // next second: a slow-mode wait that expired while the app was closed
+        // comes back already expired, which is the truth.
+        retryAt: e.retryAt || 0,
         at: e.at,
       }));
     if (keep.length) localStorage.setItem(STORE_KEY, JSON.stringify(keep));
@@ -219,7 +223,15 @@ async function run(entry) {
     // humanError, the same pass the toasts get: a row that says "rpc
     // SendMessage: HTTP 500" is telling the reader about our transport, not
     // about their message.
-    patch(entry.id, { state: "failed", error: humanError(err) || "Couldn't send" });
+    // A slow-mode refusal is a WAIT, not a failure, and the core told us how
+    // long. Keeping the moment rather than the number is what lets the row tick
+    // instead of freezing at "wait 28s" for the next half minute.
+    const wait = slowModeWait(err);
+    patch(entry.id, {
+      state: "failed",
+      error: humanError(err) || "Couldn't send",
+      retryAt: wait ? Date.now() + wait * 1000 : 0,
+    });
     return false;
   }
 }

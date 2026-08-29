@@ -20,7 +20,7 @@
   import { haptic } from "./lib/touch.js";
   import { emoteText } from "./lib/emote.js";
   import { plainSnippet } from "./lib/snippet.js";
-  import { S, activeChannel, activeGuild, react, flash, nameColorFor, mentionRefs, focusFeed } from "./lib/state.svelte.js";
+  import { S, activeChannel, activeGuild, react, flash, flashSlot, nameColorFor, mentionRefs, focusFeed } from "./lib/state.svelte.js";
 
   import { PERM, has } from "./lib/perms.js";
   import { api } from "./lib/api.js";
@@ -72,6 +72,10 @@
   // the internal "#dm" channel name.
   const composerPlaceholder = $derived.by(() => {
     if (!ch) return "Select a channel";
+    // While the wait is running, the box says so. Nothing warned before Enter:
+    // the placeholder stayed "Message #requests…", the Send button was the only
+    // thing that knew, and the refusal arrived afterwards from the core.
+    if (slowLeft > 0) return `Slow mode — you can send in ${slowLeft}s`;
     const g = activeGuild();
     if (g?.dmNotes) return "Write a note to yourself…";
     if (g?.kind === "dm") return `Message ${g.name || "your friend"}…`;
@@ -183,7 +187,14 @@
   // in a narrow window keeps Enter-to-send.
   const mobile = $derived(S.isMobile);
   const coarse = window.matchMedia?.("(pointer: coarse)")?.matches ?? false;
-  const canSend = $derived((!!draft.trim() || pending.length > 0) && !!ch && slowLeft <= 0);
+  // "There is something to send" and "it may be sent now" are two different
+  // states, and only the first used to exist: the desktop Send button appears
+  // with a draft and vanishes without one, which meant that during a slow-mode
+  // wait there was no button, no countdown and no explanation — only a
+  // placeholder that still said "Message #requests…" and an Enter that went
+  // straight into the core's refusal.
+  const hasDraft = $derived((!!draft.trim() || pending.length > 0) && !!ch);
+  const canSend = $derived(hasDraft && slowLeft <= 0);
 
   // Slow mode countdown. The backend is the contract (a too-soon send errors);
   // this keeps honest fingers off the wall and says how long. Managers are
@@ -203,15 +214,28 @@
     slowLeft = 0;
     clearInterval(slowTimer);
   });
-  function armSlowMode() {
-    if (!slowSecs || canModerate) return;
-    slowLeft = slowSecs;
+  function armSlowMode(secs = slowSecs) {
+    if (!secs || canModerate) return;
+    slowLeft = Math.max(slowLeft, Math.ceil(secs));
     clearInterval(slowTimer);
     slowTimer = setInterval(() => {
       slowLeft -= 1;
       if (slowLeft <= 0) clearInterval(slowTimer);
     }, 1000);
   }
+  // …and adopt the wait the CORE knows about. The composer's own count starts
+  // when this session sends something, so it knew nothing about a message sent
+  // a moment ago from a linked device, or before a reload, or about the
+  // interval already running when the channel was opened. The refused row
+  // carries the moment the wait lifts; this reads it back and takes ownership,
+  // so the Send button and the countdown chip tell the truth about a refusal
+  // this composer did not cause.
+  $effect(() => {
+    const soonest = S.outbox
+      .filter((e) => e.channelId === S.activeChannelId && e.retryAt > Date.now())
+      .reduce((a, e) => Math.max(a, e.retryAt), 0);
+    if (soonest) armSlowMode((soonest - Date.now()) / 1000);
+  });
   // Disappearing-messages timer for this channel (0 = off). channelTTL reads the
   // reactive per-channel store, so this updates the moment you change it.
   const ephTTL = $derived(ch ? channelTTL(S.activeChannelId) : 0);
@@ -833,6 +857,13 @@
     const text = replaceShortcodes(applySlash(raw).trim());
     const atts = pending;
     if ((!text && atts.length === 0) || !S.activeChannelId) return;
+    // The Send button has been disabled all along; Enter went straight past it
+    // into a refusal the core then had to explain. Nothing is thrown away —
+    // the draft is still in the box, because this returns before it is cleared.
+    if (slowLeft > 0) {
+      flashSlot("slowmode", `Slow mode — you can send in ${slowLeft}s`, "info");
+      return;
+    }
     // Plane animation + a two-note tick, every platform. Deliberately NO
     // vibration: sending is the single most frequent action in the app and it
     // is already confirmed twice over — a buzz on every send does not read as
@@ -1922,9 +1953,13 @@
         >
           <Icon name="smile" size={22} />
         </button>
-        {#if canRecord && !canSend}
+        {#if canRecord && !hasDraft}
           <!-- Mic and send share one slot, the way every phone messenger does
-               it: nothing to send means the thing you'd want is the mic. -->
+               it: nothing to send means the thing you'd want is the mic. A
+               slow-mode wait is not "nothing to send" — the draft is right
+               there — so it keeps the disabled Send and the countdown beside
+               it rather than swapping in a mic that would record into the same
+               wait. -->
           <button
             type="button"
             class="iconbtn"
@@ -1944,7 +1979,7 @@
               class="slow-chip"
               role="img"
               use:tooltip={{ text: `Slow mode — one message per ${slowSecs}s` }}
-              aria-label="Slow mode — one message per {slowSecs}s"
+              aria-label="Slow mode — you can send in {slowLeft} seconds"
             >
               <Icon name="clock" size={11} /> {slowLeft}s
             </span>
@@ -2075,13 +2110,27 @@
         >
           <Icon name="smile" size={20} />
         </button>
-        {#if canSend}
+        {#if slowLeft > 0}
+          <!-- role=img so the label is actually exposed: aria-label on a bare
+               span is prohibited and ignored, and the visible text is a bare
+               countdown that names nothing on its own. -->
+          <span
+            class="slow-chip"
+            role="img"
+            use:tooltip={{ text: `Slow mode — one message per ${slowSecs}s` }}
+            aria-label="Slow mode — you can send in {slowLeft} seconds"
+          >
+            <Icon name="clock" size={11} /> {slowLeft}s
+          </span>
+        {/if}
+        {#if hasDraft}
           <!-- A send button on the desktop too. Enter keeps working and remains
                the fast path, but "press Enter" was the ONLY path: there was no
                glyph at any draft length, on the one screen in the app whose job
                is to send things. It appears with something to send and goes
                again when there isn't, so the row does not carry a permanently
-               dead control. -->
+               dead control — and it STAYS, disabled, while slow mode is
+               counting, because "wait" is a state worth drawing. -->
           <button type="submit" class="sendbtn" class:launch={launching} aria-label="Send" disabled={!canSend}>
             <Icon name="send" size={17} />
           </button>

@@ -22,6 +22,22 @@
   const myName = $derived(S.displayName || me?.name || "You");
   const failed = $derived(entry.state === "failed");
 
+  // A slow-mode refusal carries the MOMENT it lifts, not the number the core
+  // happened to say. The number was captured once and never ticked: read at
+  // t+0, t+5s, t+10s and t+15s the row said "wait 14s" every time, so ten
+  // seconds later it was stating a falsehood and thirty seconds later it still
+  // said wait when Retry would have worked. One second-tick, shared by every
+  // row that has one, and only while one does.
+  let now = $state(Date.now());
+  $effect(() => {
+    if (!entry.retryAt) return;
+    const t = setInterval(() => (now = Date.now()), 500);
+    return () => clearInterval(t);
+  });
+  const waitLeft = $derived(
+    entry.retryAt ? Math.max(0, Math.ceil((entry.retryAt - now) / 1000)) : 0,
+  );
+
   // The same two strips the feed applies before rendering a body, so the
   // pending row shows the message and not the tokens that ride in front of it.
   const bodyText = $derived(
@@ -78,10 +94,20 @@
       <div class="pbody muted">{previewText(entry.body || "")}</div>
     {/if}
     {#if failed}
-      <div class="pfail" role="status">
-        <Icon name="alert" size={12} />
-        <span>{entry.error || "Couldn't send"}</span>
-        <button type="button" class="pbtn" onclick={() => retry(entry.id)}>Retry</button>
+      <div class="pfail" role="status" class:waiting={waitLeft > 0}>
+        <Icon name={entry.retryAt ? "clock" : "alert"} size={12} />
+        <span>
+          {#if waitLeft > 0}
+            Slow mode — you can send this in {waitLeft}s
+          {:else if entry.retryAt}
+            Slow mode has passed
+          {:else}
+            {entry.error || "Couldn't send"}
+          {/if}
+        </span>
+        <button type="button" class="pbtn" disabled={waitLeft > 0} onclick={() => retry(entry.id)}>
+          Retry
+        </button>
         <button type="button" class="pbtn quiet" onclick={() => discard(entry.id)}>Discard</button>
       </div>
     {:else if !first}
@@ -151,6 +177,15 @@
     gap: 6px;
     color: var(--text-muted);
     font-size: var(--fs-compact);
+  }
+  /* Waiting is not failing. The row keeps its place and its Retry, in the
+     app's "hold on" colour rather than its "something broke" one. */
+  .pfail.waiting {
+    color: var(--warn-text);
+  }
+  .pbtn:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
   .pfail {
     display: flex;
