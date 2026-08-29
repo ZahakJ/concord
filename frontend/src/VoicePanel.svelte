@@ -14,6 +14,8 @@
     activeGuild,
     isCallLocked,
     toggleCallLock,
+    canLockCall,
+    callLockedBy,
     admitKnocker,
     denyKnocker,
     isGuestFpr,
@@ -150,8 +152,17 @@
   // `joining` below and App.svelte's callHere.
   const chId = $derived(S.voice?.channelId || S.joiningVoice || "");
   const joining = $derived(!S.voice && !!S.joiningVoice);
-  const canLock = $derived(activeGuild()?.kind !== "dm");
+  // The padlock is HIDDEN, not disabled, for anyone who cannot use it. A
+  // disabled control still advertises a power you do not have and invites the
+  // question of why; and there was no check at all before this, so a member of
+  // Warshat al-Layl holding a role with permissions ZERO locked the guild
+  // owner's own room from the same eight-button bar he had.
+  const canLock = $derived(activeGuild()?.kind !== "dm" && canLockCall(chId));
   const locked = $derived(isCallLocked(chId));
+  // Who shut it. The fingerprint comes off the authenticated sender of the lock
+  // signal, so this is a claim the app can actually stand behind — the same way
+  // a forum post says who locked IT.
+  const lockedBy = $derived(callLockedBy(chId));
   const knockers = $derived(S.callKnocks[chId] || []);
   const isDM = $derived(activeGuild()?.kind === "dm");
 
@@ -879,7 +890,7 @@
     {#if locked}
       <span class="sh-lock">
         <Icon name="lock" size={11} />
-        Locked — people must knock
+        {lockedBy ? `Locked by ${lockedBy} — people must knock` : "Locked — people must knock"}
       </span>
     {/if}
     <span class="sh-spacer"></span>

@@ -307,10 +307,24 @@ export const S = $state({
 
   voice: null, // { mesh, channelId }
   joiningVoice: "", // channelId we're mid-join on (before S.voice is set)
-  // Soft call lock (see voice.go): channelId -> true when a call is locked;
-  // channelId -> [fingerprints] of people knocking to be let in.
+  // Call lock (see voice.go, and the block around toggleCallLock below):
+  //   callLocks    channelId -> true while the call is locked
+  //   callLockBy   channelId -> the fingerprint that locked it, so the pill can
+  //                say WHO. It comes off the MLS-authenticated sender of the
+  //                lock signal, never out of the message body.
+  //   callAdmitted channelId -> [fingerprints] allowed in without knocking:
+  //                whoever was inside when the lock went on, plus everyone
+  //                admitted since. This is what makes the lock a door rather
+  //                than a suggestion — see the join gate in the presence
+  //                handler.
+  //   callKnocks   channelId -> [fingerprints] of people waiting at it.
   callLocks: {},
+  callLockBy: {},
+  callAdmitted: {},
   callKnocks: {},
+  // A locked room turned us away and made us a knocker instead. Distinct from
+  // being kicked (moderatedVoice), which the copy must keep distinct too.
+  turnedAway: "",
   knocking: "", // a locked channelId we're waiting to be admitted to
   // A moderator moved or disconnected us; App.svelte acts on it and clears it.
   // { action: "move"|"disconnect", by, channelId?, name? }
@@ -3339,21 +3353,37 @@ function initEvents() {
       }
       return;
     }
-    // Soft-lock control actions ride the same presence topic (see voice.go).
+    // Lock control actions ride the same presence topic (see voice.go).
     if (v.action === "lock" || v.action === "unlock") {
+      // The actor is the AUTHENTICATED sender, stamped by voice.go — not
+      // anything the message body claims. It is checked against that guild's
+      // governance state the way a move or a disconnect is, so a client with
+      // the padlock hacked back on convinces nobody but itself.
+      applyLockSignal(v);
+      return;
+    }
+    if (v.action === "door") {
+      // A locked room turned us away. This is not a kick — nobody decided
+      // anything about US, the door was simply shut before we arrived — and the
+      // copy has to keep that distinct, so it raises a knock rather than the
+      // "you were removed" banner a disconnect raises.
+      if (v.target !== S.identity.fingerprint) return;
       const locks = { ...S.callLocks };
-      if (v.action === "lock") locks[v.channelId] = true;
-      else delete locks[v.channelId];
+      locks[v.channelId] = true;
       S.callLocks = locks;
+      if (v.fingerprint) S.callLockBy = { ...S.callLockBy, [v.channelId]: v.fingerprint };
+      persistLocks();
+      if (S.voice?.channelId === v.channelId) S.turnedAway = v.channelId;
+      else if (!S.knocking) {
+        S.knocking = v.channelId;
+        api.signalCall(v.channelId, "knock").catch(() => {});
+      }
       return;
     }
     if (v.action === "knock") {
       // Someone wants into a call — surface it to people IN that call.
       if (S.voice?.channelId === v.channelId && v.fingerprint !== S.identity.fingerprint) {
-        const list = S.callKnocks[v.channelId] || [];
-        if (!list.includes(v.fingerprint)) {
-          S.callKnocks = { ...S.callKnocks, [v.channelId]: [...list, v.fingerprint] };
-        }
+        noteKnock(v.channelId, v.fingerprint);
       } else if (isGuestFpr(v.fingerprint) && !announcedKnocks.has(v.fingerprint)) {
         // A guest is knocking at a room we're not sitting in. A member's knock
         // can wait (they have the app, they'll knock again); a guest is holding
@@ -3372,6 +3402,10 @@ function initEvents() {
       return;
     }
     if (v.action === "admit") {
+      // Everyone hears it, not just the person let in: the admitted set is what
+      // every insider's join gate consults, so it has to converge across the
+      // room rather than living only in the admitter's head.
+      if (v.target) applyAdmitSignal(v);
       // We were let in → join for real (App.svelte watches admittedJoin).
       if (v.target === S.identity.fingerprint && S.knocking === v.channelId) {
         S.knocking = "";
@@ -3441,6 +3475,40 @@ function initEvents() {
     // Additionally drive the WebRTC mesh + sounds for the room we're actually in.
     if (S.voice && v.channelId === S.voice.channelId) {
       if (v.action === "join") {
+        // THE DOOR. We are inside a locked room and somebody has announced
+        // themselves who is not on the admitted set — a walk-in. Their client
+        // may have skipped the knock for any reason, honest or not; it does not
+        // matter, because the thing they came for is on this side of the
+        // refusal. We do not create a peer connection for them, we put them on
+        // the door card so somebody can let them in, and we tell them once that
+        // that is what happened.
+        if (
+          isCallLocked(v.channelId) &&
+          v.fingerprint &&
+          v.fingerprint !== S.identity.fingerprint &&
+          !isAdmitted(v.channelId, v.fingerprint) &&
+          // Not somebody we are already connected to. Presence is a HEARTBEAT:
+          // everyone in the room re-announces "join" every few seconds, so
+          // without this the gate would turn on the people already inside and
+          // the room would throw itself out one beat at a time.
+          !S.voicePeerFpr[v.from] &&
+          // And not while we are the new arrival ourselves. A peer that has
+          // just walked into a room is in no position to police its door: its
+          // roster is seconds old, and every established peer's next heartbeat
+          // would look to it like a walk-in. See noteCallJoined.
+          isDoorkeeper()
+        ) {
+          noteKnock(v.channelId, v.fingerprint);
+          // Not for a browser guest: a guest's socket is held by ONE node and
+          // that node's own guest door (voice.go noteGuestDoor / decideGuest)
+          // is what admits or refuses them. Telling them twice, through two
+          // mechanisms, is how they end up refused by one and let in by the
+          // other. The mesh refusal above still applies to them.
+          if (!isGuestFpr(v.fingerprint) && !refusedRecently(v.channelId, v.fingerprint)) {
+            api.signalCall(v.channelId, "door", v.fingerprint).catch(() => {});
+          }
+          return;
+        }
         if (!S.voicePeerFpr[v.from]) playVoiceJoin();
         S.voicePeerFpr = { ...S.voicePeerFpr, [v.from]: v.fingerprint };
         S.voice.mesh.handlePresence(v.from, v.action);
@@ -3579,6 +3647,11 @@ export function forgetLock(channelId) {
     const locks = { ...S.callLocks };
     delete locks[channelId];
     S.callLocks = locks;
+    const a = { ...S.callAdmitted };
+    delete a[channelId];
+    S.callAdmitted = a;
+    S.callLockBy = { ...S.callLockBy, [channelId]: "" };
+    persistLocks();
   }
   if (S.callKnocks[channelId]) {
     const k = { ...S.callKnocks };
@@ -3615,6 +3688,40 @@ export function canModerateVoice(fingerprint, guild = activeGuild(), members = n
   const mem = list.find((m) => m.fingerprint === fingerprint);
   if (!mem) return false;
   return mem.isOwner || has(mem.perms || 0, PERM.MANAGE_MEMBERS) || has(mem.perms || 0, PERM.MUTE_MEMBERS);
+}
+
+// canLockVoice: does this fingerprint have the standing to lock this guild's
+// calls? Manage-channels, or the owner. Same shape and same reasoning as
+// canModerateVoice above, and a DIFFERENT permission on purpose: shutting a
+// door is a channel decision ("what happens in this room"), which is what
+// manage-channels already governs for slow mode and post locking, while moving
+// and disconnecting people are decisions about PEOPLE. A member of Warshat
+// al-Layl holding a role with permissions zero locked the guild owner's own
+// room, because nothing on either side asked this question.
+export function canLockVoice(fingerprint, guild = activeGuild(), members = null) {
+  if (!fingerprint || !guild) return false;
+  if (guild.kind === "dm" || guild.kind === "meeting") return true;
+  if (guild.ownerFingerprint === fingerprint) return true;
+  const list = members ?? (guild.id === S.activeGuildId ? S.members : null);
+  if (!list) return false; // unknown roster: refuse rather than guess
+  const mem = list.find((m) => m.fingerprint === fingerprint);
+  if (!mem) return false;
+  return mem.isOwner || has(mem.perms || 0, PERM.MANAGE_CHANNELS);
+}
+
+// lockAuthority is modAuthority for the door: the same receive-side re-check,
+// against the guild that owns the CALL rather than the one on screen.
+async function lockAuthority(channelId, fingerprint) {
+  const guild = S.guilds.find((g) => g.channels?.some((c) => c.id === channelId));
+  if (!guild) return false;
+  if (guild.kind === "dm" || guild.kind === "meeting") return true;
+  if (guild.ownerFingerprint === fingerprint) return true;
+  if (guild.id === S.activeGuildId) return canLockVoice(fingerprint, guild);
+  try {
+    return canLockVoice(fingerprint, guild, (await api.members(guild.id)) || []);
+  } catch {
+    return false; // can't verify → don't obey
+  }
 }
 
 // modAuthority resolves the sender's standing in the guild that owns the call,
@@ -3762,20 +3869,156 @@ export function toggleDeafen() {
   publishVoiceState();
 }
 
-// ---- soft call lock (see voice.go PublishCallControl) ----
+// ---- the call lock (see voice.go PublishCallControl) ----
+//
+// "Locked — people must knock" is a claim about a door, and for a while it was
+// advice the joiner's own client was free to skip. Two entirely ordinary
+// actions skipped it: leave and rejoin (clearCallState called forgetLock, so
+// the room stopped being locked as far as WE knew and Join went straight back
+// in), and a plain reload (a tab that has never heard the 3-second lock gossip
+// knows nothing to honour). No knock, no card at the door, three in the call.
+//
+// The lock is enforced where the roster is now. Everyone inside knows both that
+// the room is locked and who is admitted, so an insider REFUSES the mesh
+// connection of a fingerprint that is not on that set and tells them, once, on
+// the way past: a walk-in becomes a knock. That is a rule a patched client
+// cannot route around, because the thing it needs — five other people's
+// microphones — is on the other side of it. The local checks stay in front of
+// it as courtesy, not as the guarantee.
+//
+// Two supporting pieces:
+//   · The admitted set is seeded from the roster the moment the lock goes on,
+//     so nobody already in the room is thrown out by it, and grows by one on
+//     every admit — which every insider hears, so the set converges.
+//   · Lock, locker and admitted set are persisted per channel, so a reload does
+//     not forget. That is what closes the second walk-in path AND lets the
+//     person who set the lock reload without losing their own room.
+const LOCK_KEY = "concord.calllock";
+
+function persistLocks() {
+  try {
+    const out = {};
+    for (const ch of Object.keys(S.callLocks)) {
+      if (!S.callLocks[ch]) continue;
+      out[ch] = { by: S.callLockBy[ch] || "", admitted: S.callAdmitted[ch] || [] };
+    }
+    if (Object.keys(out).length) localStorage.setItem(LOCK_KEY, JSON.stringify(out));
+    else localStorage.removeItem(LOCK_KEY);
+  } catch {
+    /* storage blocked: the lock still holds for this session */
+  }
+}
+function restoreLocks() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LOCK_KEY) || "{}");
+    const locks = {}, by = {}, adm = {};
+    for (const [ch, v] of Object.entries(raw)) {
+      if (!ch || !v) continue;
+      locks[ch] = true;
+      by[ch] = String(v.by || "");
+      adm[ch] = Array.isArray(v.admitted) ? v.admitted.map(String) : [];
+    }
+    S.callLocks = locks;
+    S.callLockBy = by;
+    S.callAdmitted = adm;
+  } catch {
+    /* nothing stored, or unreadable */
+  }
+}
+restoreLocks();
+
+// A restored lock describes a call that may well be over. The invariant
+// forgetLock exists for — a lock with nobody inside is a door that can never
+// open, including for whoever set it — has to hold across a reload too, and on
+// a cold start there are no rosters yet to check it against. So: once the first
+// presence heartbeats have had time to land, drop any restored lock whose room
+// turns out to be empty.
+if (typeof window !== "undefined") {
+  setTimeout(() => {
+    for (const ch of Object.keys(S.callLocks)) {
+      if (S.voice?.channelId === ch) continue;
+      if (!Object.keys(S.voiceRosters[ch] || {}).length) forgetLock(ch);
+    }
+  }, 12000);
+}
+
 export function isCallLocked(channelId) {
   return !!S.callLocks[channelId];
 }
+
+// Who locked it, as a name. The fingerprint comes off the authenticated sender
+// of the lock signal (voice.go stamps it; the body never carries it), so this
+// is the same class of claim as a message's author.
+export function callLockedBy(channelId) {
+  const fpr = S.callLockBy[channelId];
+  if (!fpr) return "";
+  if (fpr === S.identity.fingerprint) return "you";
+  return nameFor(fpr);
+}
+
+// canLockCall — who may set the lock at all.
+//
+// There was no check whatsoever: a member of `Warshat al-Layl` holding a role
+// with permissions ZERO locked the guild owner's own voice room, and the pill
+// did not even say who had done it. The gate is manage-channels, which is the
+// existing permission for "decide what happens in this channel" and is already
+// what the backend requires for slow mode, post locking and channel settings —
+// a new permission bit would have to be granted by hand in every guild that
+// already exists, and would therefore start life switched off for everybody.
+// A DM has no roles and two people in it: both sides may lock.
+export function canLockCall(channelId) {
+  const ch = channelId || S.voice?.channelId;
+  if (!ch) return false;
+  const g = S.guilds.find((gg) => gg.channels?.some((c) => c.id === ch));
+  if (!g) return false;
+  if (g.kind === "dm" || g.kind === "meeting") return true;
+  return !!g.isOwner || has(g.myPerms || 0, PERM.MANAGE_CHANNELS);
+}
+
+// admittedIn / isAdmitted — the guest list, and the question the join gate asks.
+export function isAdmitted(channelId, fpr) {
+  if (!fpr) return false;
+  return (S.callAdmitted[channelId] || []).includes(fpr);
+}
+function admit(channelId, fpr) {
+  if (!channelId || !fpr) return;
+  const list = S.callAdmitted[channelId] || [];
+  if (list.includes(fpr)) return;
+  S.callAdmitted = { ...S.callAdmitted, [channelId]: [...list, fpr] };
+  persistLocks();
+}
+// Everyone in the room when the lock goes on is in it. A lock that threw out
+// the people already talking would be a kick with extra steps.
+function seedAdmitted(channelId) {
+  const room = S.voiceRosters[channelId] || {};
+  const fprs = new Set(S.callAdmitted[channelId] || []);
+  fprs.add(S.identity.fingerprint);
+  for (const p of Object.values(room)) if (p?.fingerprint) fprs.add(p.fingerprint);
+  S.callAdmitted = { ...S.callAdmitted, [channelId]: [...fprs] };
+}
+
 let lockRebroadcast = null;
 export function toggleCallLock() {
   const ch = S.voice?.channelId;
   if (!ch) return;
+  if (!canLockCall(ch)) {
+    flash("You don't have permission to lock this call", "error");
+    return;
+  }
   const locking = !S.callLocks[ch];
   api.signalCall(ch, locking ? "lock" : "unlock").catch(() => {});
   const locks = { ...S.callLocks };
   if (locking) locks[ch] = true;
   else delete locks[ch];
   S.callLocks = locks;
+  S.callLockBy = { ...S.callLockBy, [ch]: locking ? S.identity.fingerprint : "" };
+  if (locking) seedAdmitted(ch);
+  else {
+    const a = { ...S.callAdmitted };
+    delete a[ch];
+    S.callAdmitted = a;
+  }
+  persistLocks();
   // The transition, said out loud once. The stage carries the standing state
   // in a pill (VoicePanel's header); this is the moment it changed, which the
   // pill alone can't distinguish from "it was already like that".
@@ -3797,6 +4040,10 @@ export function toggleCallLock() {
 }
 export function admitKnocker(channelId, fpr) {
   api.signalCall(channelId, "admit", fpr).catch(() => {});
+  // Locally too, and immediately: the admit we just sent is the same gossip
+  // every other insider will act on, and our own copy must not wait for a
+  // round trip that never comes back to us.
+  admit(channelId, fpr);
   dropKnock(channelId, fpr);
 }
 export function denyKnocker(channelId, fpr) {
@@ -3806,6 +4053,90 @@ export function denyKnocker(channelId, fpr) {
   if (isGuestFpr(fpr)) api.signalCall(channelId, "refuse", fpr).catch(() => {});
   dropKnock(channelId, fpr); // silently ignore; their knock times out
 }
+// applyLockSignal / applyAdmitSignal — the receive halves of the door.
+//
+// Async because the authority check may have to fetch the roster of a guild
+// that is not the one on screen (permissions do not travel between guilds), and
+// synchronous-looking code that guessed instead would be a lock anybody could
+// set in any room they could reach.
+async function applyLockSignal(v) {
+  if (!(await lockAuthority(v.channelId, v.fingerprint))) return;
+  const locks = { ...S.callLocks };
+  if (v.action === "lock") {
+    locks[v.channelId] = true;
+    S.callLockBy = { ...S.callLockBy, [v.channelId]: v.fingerprint };
+  } else {
+    delete locks[v.channelId];
+    const a = { ...S.callAdmitted };
+    delete a[v.channelId];
+    S.callAdmitted = a;
+    S.callLockBy = { ...S.callLockBy, [v.channelId]: "" };
+  }
+  S.callLocks = locks;
+  // Everyone in the room at the moment it locks is admitted — including us, if
+  // we are in it. Seeded on every lock re-announcement rather than only the
+  // first, because the first is the one that can be missed, and because someone
+  // admitted since must not be dropped by the next beat.
+  if (v.action === "lock" && S.voice?.channelId === v.channelId) seedAdmitted(v.channelId);
+  persistLocks();
+}
+async function applyAdmitSignal(v) {
+  if (!(await lockAuthority(v.channelId, v.fingerprint))) return;
+  admit(v.channelId, v.target);
+}
+
+// ---- when are we entitled to hold the door? ----
+//
+// Only once we are properly inside. DOOR_SETTLE is the grace after our own
+// join: long enough for the roster to fill and for everyone present to be
+// seeded onto the admitted set, so that the first arrival we judge is a real
+// one. Enforcement is redundant across the room — every insider refuses
+// independently — so one peer standing down for four seconds costs nothing.
+const DOOR_SETTLE = 4000;
+let doorFrom = 0;
+function isDoorkeeper() {
+  return doorFrom > 0 && Date.now() >= doorFrom;
+}
+
+// noteCallJoined: we are in. Everyone already in the room is inside by
+// definition, so they go on the admitted set — this is what stops a peer that
+// joined a locked call from doing violence to the people who were there first.
+export function noteCallJoined(channelId) {
+  doorFrom = Date.now() + DOOR_SETTLE;
+  if (!channelId) return;
+  seedAdmitted(channelId);
+  // …and again once the roster has actually arrived. The first pass runs on
+  // whatever gossip had already reached us, which on a cold join is very little.
+  setTimeout(() => {
+    if (S.voice?.channelId === channelId) seedAdmitted(channelId);
+  }, DOOR_SETTLE - 500);
+}
+export function noteCallLeft() {
+  doorFrom = 0;
+}
+
+// noteKnock puts a fingerprint on the door card, once.
+function noteKnock(channelId, fpr) {
+  if (!fpr) return;
+  const list = S.callKnocks[channelId] || [];
+  if (list.includes(fpr)) return;
+  S.callKnocks = { ...S.callKnocks, [channelId]: [...list, fpr] };
+}
+
+// A walk-in's client re-announces itself on every presence heartbeat, and every
+// insider refuses independently — so without this one arrival would produce a
+// door notice per insider per beat. One per person per ten seconds is enough to
+// be sure it landed and quiet enough not to be a flood.
+const refusedAt = new Map();
+function refusedRecently(channelId, fpr) {
+  const key = `${channelId}:${fpr}`;
+  const now = Date.now();
+  const last = refusedAt.get(key) || 0;
+  if (now - last < 10000) return true;
+  refusedAt.set(key, now);
+  return false;
+}
+
 function dropKnock(channelId, fpr) {
   const list = (S.callKnocks[channelId] || []).filter((f) => f !== fpr);
   const k = { ...S.callKnocks };
@@ -3813,13 +4144,27 @@ function dropKnock(channelId, fpr) {
   else delete k[channelId];
   S.callKnocks = k;
 }
-// clearCallState wipes lock/knock bookkeeping for a channel we've left.
+// clearCallState wipes the knock bookkeeping for a channel we've left.
+//
+// It used to drop the LOCK too, and the comment beside it explained why:
+// keeping it would lock us out, because isCallLocked() would still be true next
+// time we clicked the channel and we would knock at a room we had just left
+// with nobody inside to answer. That reasoning was right about the risk and
+// wrong about the fix — and it is the whole of the leave-and-rejoin walk-in,
+// because forgetting the lock is exactly what let Join go straight back in.
+//
+// With an admitted set there is nothing to be locked out of: we are on it, so
+// our own rejoin is waved through by everyone inside. The stale-lock case the
+// old comment worried about is handled where it always was — forgetLock, when
+// the roster empties and there is genuinely nobody left to ask.
 export function clearCallState(channelId) {
   clearInterval(lockRebroadcast);
-  // Leaving ends our view of the call, lock included. Keeping it would lock US
-  // out: isCallLocked() would still be true next time we clicked the channel,
-  // so we'd knock at a room we just left — with nobody left inside to admit us.
-  forgetLock(channelId);
+  noteCallLeft();
+  const k = { ...S.callKnocks };
+  delete k[channelId];
+  S.callKnocks = k;
+  if (S.knocking === channelId) S.knocking = "";
+  if (S.turnedAway === channelId) S.turnedAway = "";
 }
 
 // incomingCall reports a DM whose other member is in the voice channel while we

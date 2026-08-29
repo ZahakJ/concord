@@ -39,6 +39,8 @@
     selectGuild,
     flashChannel,
     isCallLocked,
+    isAdmitted,
+    noteCallJoined,
     nameFor,
     forgetLock,
     clearCallState,
@@ -422,6 +424,20 @@
     S.admittedJoin = "";
     flash("You were let in", "success");
     joinVoice(ch, true);
+  });
+
+  // A locked room turned us away: an insider refused the connection because we
+  // are not on its admitted set, and told us so. This is deliberately NOT the
+  // "you were removed" path — nobody decided anything about us, the door was
+  // shut before we arrived — so it leaves the call quietly and knocks, which is
+  // what a locked door is for. Being kicked stays its own sentence below.
+  $effect(() => {
+    const ch = S.turnedAway;
+    if (!ch) return;
+    S.turnedAway = "";
+    if (S.voice?.channelId === ch) leaveVoice();
+    S.knocking = ch;
+    api.signalCall(ch, "knock").catch(() => {});
   });
 
   // A moderator moved or disconnected us. The authority check already happened
@@ -972,7 +988,14 @@
     // Locked call: don't barge in — knock and wait to be admitted (unless we're
     // arriving BECAUSE we were just admitted). Someone already in the call
     // approves, which flips admittedJoin and re-calls us with admitted=true.
-    if (!admitted && isCallLocked(channelId)) {
+    // …unless we are ALREADY on this room's admitted set, which is what leaving
+    // and coming back looks like. The lock now survives our own leave (it has
+    // to, or leave-and-rejoin is a walk-in), so without this the person who was
+    // let in five minutes ago would have to knock again every time they stepped
+    // out — and so would the person who set the lock. Everyone inside holds the
+    // same set, so they will wave us through; this only stops us knocking at a
+    // door that is open for us.
+    if (!admitted && isCallLocked(channelId) && !isAdmitted(channelId, S.identity.fingerprint)) {
       S.knocking = channelId;
       api.signalCall(channelId, "knock").catch(() => {});
       // No flash here: the knock-wait pill says the same thing persistently,
@@ -1118,6 +1141,9 @@
     }
     S.voice = { mesh, channelId };
     S.joiningVoice = "";
+    // We are inside. Everyone already in the room goes on the admitted set, and
+    // the door is not ours to hold for a few seconds yet — see noteCallJoined.
+    noteCallJoined(channelId);
     startCallClock();
     // Android: a microphone-type foreground service for the call's duration —
     // without it, Android 14+ cuts the mic the moment the app leaves the

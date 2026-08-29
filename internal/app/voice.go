@@ -31,7 +31,7 @@ const voiceHeartbeat = 3 * time.Second
 // and, crucially, no changes to the WebRTC media path.
 type voiceAnnounce struct {
 	ChannelID string `json:"channelId"`
-	// "join"|"leave"|"lock"|"unlock"|"knock"|"admit"|"move"|"disconnect"
+	// "join"|"leave"|"lock"|"unlock"|"knock"|"admit"|"door"|"move"|"disconnect"
 	//
 	// Two more actions exist but are deliberately NEVER published: "unknock"
 	// (a knock withdrawn) and "refuse" (a knock declined) are emitted locally
@@ -186,11 +186,20 @@ func (s *Service) announceVoice(topic, channelID, action string) {
 	_ = s.ps.Publish(s.ctx, topic, payload)
 }
 
-// PublishCallControl broadcasts a call control action (lock/unlock/knock/admit,
-// or a moderator's move/disconnect) on a channel's voice topic. It's advisory —
-// a well-behaved client honors a lock and knocks instead of barging in, and
-// obeys a move only from someone it can verify holds the authority. Media
-// negotiation is untouched.
+// PublishCallControl broadcasts a call control action (lock/unlock/knock/admit/
+// door, or a moderator's move/disconnect) on a channel's voice topic.
+//
+// Most of it is advisory: a move or a disconnect is a request each client obeys
+// only after checking the sender really holds the authority. The LOCK is not,
+// any more. "door" is what somebody already inside a locked call publishes when
+// a fingerprint that is not on the admitted set announces itself — the insider
+// refuses that peer's mesh connection and turns the walk-in into a knock, which
+// is enforcement rather than advice, because the thing the walk-in came for is
+// on the other side of the refusal. This verb only carries the news.
+//
+// A client that predates "door" falls through to its roster update, where the
+// sender is an insider already in the room: the entry is re-stamped and nothing
+// phantom appears. That is why it is safe to put a new verb on this topic.
 //
 // `target` is the fingerprint being acted on (admitted, moved, disconnected);
 // `dest` is the channel a "move" sends them to. Authority is deliberately NOT
