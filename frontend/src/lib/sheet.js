@@ -104,6 +104,20 @@ export function sheetdrag(node, params) {
 
   function onDown(e) {
     if (p.enabled === false || done || dragging) return;
+    // A gesture that starts on a CONTROL belongs to that control.
+    //
+    // This strip carries the sheet's own ‹ and ✕, and the drag below calls
+    // setPointerCapture on the strip. Capture retargets the rest of the pointer
+    // sequence — and the click derived from it — to the capturing element, so
+    // the pointerup and the click both landed on .sheet-top and the button
+    // underneath the finger never heard anything. Every bottom sheet in the app
+    // has had a back arrow and a close button that a touch could not press;
+    // they worked with a keyboard, and on the desktop, where the drag is
+    // switched off entirely, which is why it survived.
+    //
+    // Traced: pointerdown -> svg (inside the button), pointerup -> DIV.sheet-top,
+    // click -> DIV.sheet-top. Nothing reaches the button.
+    if (e.target?.closest?.("button, a, input, select, textarea, [role='button']")) return;
     // Primary pointer only: a second finger arriving mid-drag must not re-seed
     // the origin and teleport the sheet.
     if (e.isPrimary === false) return;
