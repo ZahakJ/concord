@@ -72,6 +72,7 @@
     gap: 6px;
     padding: var(--sp-3);
     background: var(--bg-1);
+    color: var(--text);
     text-align: center;
     transition: background var(--dur-quick) ease;
   }

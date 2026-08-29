@@ -394,6 +394,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--bg-2);
+    color: var(--text);
     cursor: pointer;
   }
   .nib.on {

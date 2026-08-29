@@ -929,6 +929,7 @@
        the ones actually rendered. */
     padding: 0;
     background: var(--bg-0);
+    color: var(--text);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     overflow: hidden;

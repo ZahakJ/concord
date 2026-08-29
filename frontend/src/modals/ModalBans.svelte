@@ -218,6 +218,7 @@
     padding: 5px 12px;
     font-size: var(--fs-compact);
     background: var(--bg-3);
+    color: var(--text);
     border-radius: var(--radius-sm);
     flex: none;
   }

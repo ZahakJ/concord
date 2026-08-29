@@ -1064,6 +1064,7 @@
   .rec-on {
     border-color: var(--accent);
     background: var(--accent-soft);
+    color: var(--text);
   }
   .hint.warn {
     color: var(--warn-text);

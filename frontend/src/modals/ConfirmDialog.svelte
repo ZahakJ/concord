@@ -76,6 +76,7 @@
   }
   button.danger {
     background: var(--danger);
+    color: var(--danger-fg);
     /* A soft halo keeps the destructive choice unmistakable. */
     box-shadow: 0 0 12px color-mix(in srgb, var(--danger) 35%, transparent);
     transition: background var(--dur-standard) ease;

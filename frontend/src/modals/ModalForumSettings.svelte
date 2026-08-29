@@ -727,6 +727,7 @@
     overflow: hidden;
     border: 2px solid transparent;
     background: var(--bg-3);
+    color: var(--text);
     transition: transform var(--dur-standard) var(--ease-spring);
   }
   @media (pointer: fine) {

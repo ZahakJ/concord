@@ -964,6 +964,7 @@
   }
   .danger-btn {
     background: var(--danger);
+    color: var(--danger-fg);
   }
   .tiny {
     font-size: var(--fs-small);

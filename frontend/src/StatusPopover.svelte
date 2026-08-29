@@ -346,6 +346,7 @@
   }
   .em.sel {
     background: var(--accent-soft);
+    color: var(--text);
   }
   /* After the hover rules, not before them: this block used to sit above the
      transforms it was meant to cancel, at the same specificity, so it lost. */

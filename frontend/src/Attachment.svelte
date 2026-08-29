@@ -539,6 +539,7 @@
     height: 100%;
     margin-top: 0;
     background: var(--bg-0);
+    color: var(--text);
     border: 1px solid var(--border);
   }
   .frame.done.tile img {

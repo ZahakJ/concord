@@ -336,6 +336,7 @@
   }
   .copy.copied {
     background: var(--ok);
+    color: var(--ok-fg);
     box-shadow: 0 0 14px color-mix(in srgb, var(--ok) 45%, transparent);
     animation: copied-pop 0.3s var(--ease-spring);
   }

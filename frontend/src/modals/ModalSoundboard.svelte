@@ -485,6 +485,7 @@
   .gpick.on {
     border-color: var(--accent);
     background: var(--accent-soft);
+    color: var(--text);
   }
 
   .seg {

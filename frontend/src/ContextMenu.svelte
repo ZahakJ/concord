@@ -265,6 +265,7 @@
     font-size: 24px;
     line-height: 1;
     background: var(--bg-2);
+    color: var(--text);
     border-radius: 50%;
   }
   .as-emoji:active {

@@ -939,6 +939,7 @@
     width: fit-content;
     padding: 3px;
     background: var(--bg-1);
+    color: var(--text);
     border-radius: 50%;
     position: relative;
     z-index: 1;

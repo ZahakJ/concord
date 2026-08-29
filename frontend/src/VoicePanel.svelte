@@ -2055,6 +2055,8 @@
     border-radius: 999px;
     border: 2px solid transparent;
     background: color-mix(in srgb, var(--bg-1) 82%, transparent);
+    /* Same trap, same fix — the strip's name chips were the fifth surface. */
+    color: var(--text);
     transition:
       transform var(--dur-quick) ease,
       border-color var(--dur-quick) ease;
@@ -2211,6 +2213,13 @@
     text-align: left;
     border-radius: var(--radius-md);
     background: var(--bg-2);
+    /* Both halves, always. A button that repaints its ground and says nothing
+       about its ink gets --accent-fg from app.css — near-black, which on this
+       charcoal chip is 1.12:1. Fourteen sound names were invisible in the dark
+       theme, and the only one that could be read ("Make one") was the one chip
+       that had happened to declare a colour. tokens.test.mjs rule 10 now
+       measures this pair on every button in the app. */
+    color: var(--text);
     border: 1px solid var(--border);
     transition: transform 0.1s ease, opacity var(--dur-quick) ease;
   }

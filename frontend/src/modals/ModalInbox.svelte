@@ -272,6 +272,7 @@
     min-width: 0;
     text-align: left;
     background: transparent;
+    color: var(--text);
     border-radius: var(--radius-sm);
   }
   .entry:hover {

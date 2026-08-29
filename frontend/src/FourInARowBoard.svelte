@@ -76,6 +76,7 @@
   }
   .col.hot {
     background: var(--accent-soft);
+    color: var(--text);
   }
   .cell {
     aspect-ratio: 1;

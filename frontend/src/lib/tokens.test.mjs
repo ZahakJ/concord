@@ -234,6 +234,23 @@ for (const [rel, raw] of FILES) {
 // it to that, and measures the pair it declares — plus the two surface inks a
 // quiet control is allowed to use — against the real backgrounds in both
 // themes. 4.5:1 because these are labels, not decoration.
+
+// Token values per theme, falling back to :root for anything a theme does not
+// override. Read out of the stylesheet so retuning a token retunes the rules
+// that police it. Shared by rules 8 and 10.
+const themeBlock = (sel) => {
+  const at = APP.indexOf(sel + " {");
+  return at < 0 ? "" : APP.slice(at, APP.indexOf("\n}", at));
+};
+const ROOT = themeBlock(":root");
+const LIGHT = themeBlock(':root[data-theme="light"]');
+const THEMES = [["dark", ROOT], ["light", LIGHT]];
+const value = (name, block) => {
+  const re = new RegExp(`^\\s*${name}:\\s*([^;]+);`, "m");
+  const m = re.exec(block) || re.exec(ROOT);
+  return m ? colorsIn(m[1])[0] : null;
+};
+
 {
   const quiet = /button\.quiet\s*\{([^}]*)\}/.exec(APP);
   if (!quiet) fail("app.css: button.quiet is gone — it is the pattern that keeps a surface button legible");
@@ -243,20 +260,6 @@ for (const [rel, raw] of FILES) {
     if (!bg || !fg) {
       fail("app.css: button.quiet must declare BOTH a background and a color — half of it is the bug");
     } else {
-      // Token values per theme, falling back to :root for anything a theme
-      // does not override. Read out of the stylesheet so retuning a token
-      // retunes the gate with it.
-      const block = (sel) => {
-        const at = APP.indexOf(sel + " {");
-        return at < 0 ? "" : APP.slice(at, APP.indexOf("\n}", at));
-      };
-      const ROOT = block(":root");
-      const LIGHT = block(':root[data-theme="light"]');
-      const value = (name, themeBlock) => {
-        const re = new RegExp(`^\\s*${name}:\\s*([^;]+);`, "m");
-        const m = re.exec(themeBlock) || re.exec(ROOT);
-        return m ? colorsIn(m[1])[0] : null;
-      };
       // fg, bg, why. The quiet pair comes from the stylesheet; the other two
       // are the inks a chip may use for its unselected and selected states.
       const PAIRS = [
@@ -264,7 +267,7 @@ for (const [rel, raw] of FILES) {
         ["--text-muted", bg[1], "a quiet chip's unselected label"],
         ["--accent-fg", "--accent", "an accent-filled chip's label"],
       ];
-      for (const [theme, b] of [["dark", ROOT], ["light", LIGHT]]) {
+      for (const [theme, b] of THEMES) {
         for (const [fgTok, bgTok, why] of PAIRS) {
           const f = value(fgTok, b);
           const g = value(bgTok, b);
@@ -312,6 +315,100 @@ for (const [rel, raw] of FILES) {
           `${rel}: a --shadow-pop surface is grounded on \`${g[1].trim()}\` — ` +
             "use var(--bg-elevated), which is opaque in every pack",
         );
+      }
+    }
+  }
+}
+
+// ---- 10. a button that repaints its ground declares its ink ----------------
+//
+// Rule 8 holds the ONE pattern (`button.quiet`) legible. This one stops the
+// trap being reachable at all, because the pattern only helps the people who
+// reach for it: `.sfx` and `.bubble` in VoicePanel were the fourth and fifth
+// surfaces to set `background` on a <button> and leave `color` to the global
+// `button { background: var(--accent); color: var(--accent-fg) }` — which is
+// near-black, so every sound's name on the in-call soundboard and every name
+// chip under a focused tile rendered at 1.12:1 in the dark theme.
+//
+// Neither of those classes is spelt "btn", so a rule that read selectors could
+// not have caught them. Button-ness is therefore read off the MARKUP: collect
+// every class this file puts on a <button> (or a role="button"), then hold the
+// rules that style one of them to declaring both halves.
+//
+// Only BASE rules are asked. A `:hover` that deepens a wash inherits the ink
+// its base rule set, and demanding `color` there would be noise. A background
+// of `transparent`/`none` is not a repaint, so it is not asked either.
+{
+  // The ink a silent button gets, from the global rule in app.css.
+  const INHERITED = /button\s*\{[^}]*?(?:^|[^-])color:\s*var\((--[\w-]+)\)/m.exec(APP)?.[1] || "--accent-fg";
+  // The last compound of a selector — the thing the rule is actually about.
+  const subject = (sel) => sel.trim().split(/\s*[>+~]\s*|\s+/).pop() || "";
+  for (const [rel, raw] of FILES) {
+    if (isAppCss(rel)) continue;
+    // Every class this file hands to a button, from `class="a b"` and `class:c`.
+    const btnClasses = new Set();
+    for (const tag of raw.matchAll(/<[A-Za-z][^>]*>/g)) {
+      const t = tag[0];
+      if (!/^<button\b/.test(t) && !/role=["']button["']/.test(t)) continue;
+      for (const m of t.matchAll(/\bclass=["']([^"']*)["']/g)) {
+        for (const c of m[1].split(/\s+/)) if (c && !c.includes("{")) btnClasses.add(c);
+      }
+      for (const m of t.matchAll(/\bclass:([\w-]+)/g)) btnClasses.add(m[1]);
+    }
+    const style = /<style[^>]*>([\s\S]*)<\/style>/.exec(raw);
+    if (!style) continue;
+    const css = strip(style[1]);
+    // Two passes: what declares ink, then what repaints without it.
+    //
+    // Which rules cover which is a SUBSET question, and it has to be, in both
+    // directions. `.row { color }` covers `.row.sel { background }`, because
+    // every element the variant paints is also a `.row`. `.sfx.add { color }`
+    // does NOT cover `.sfx { background }` — that was the first version of this
+    // rule, and it declared the soundboard fine because one chip out of
+    // fourteen ("Make one") happened to name its own colour.
+    const inked = [];
+    const painted = [];
+    for (const m of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const body = m[2];
+      const hasInk = /(?:^|[^-\w])color:\s*[^;]+/.test(body);
+      // The FIRST token in the value is the ground: `color-mix(in srgb,
+      // var(--bg-1) 82%, transparent)` is a wash of --bg-1 over whatever is
+      // behind it, and a literal (#000, a swatch variable) is a picture rather
+      // than a surface — those carry their own ink or no text at all.
+      const bg = /background(?:-color)?:\s*[^;]*?var\((--[\w-]+)\)/.exec(body);
+      for (const sel of m[1].split(",")) {
+        const sub = subject(sel);
+        if (/[:[]/.test(sub)) continue; // a state or an attribute variant, not the base
+        // A scrim is a full-screen button with nothing inside it; rule 7 is
+        // what governs the one colour it paints.
+        if (/scrim/.test(sub)) continue;
+        const classes = [...sub.matchAll(/\.([\w-]+)/g)].map((x) => x[1]);
+        // EVERY class, not any: `active`, `on` and `sel` are worn by buttons
+        // all over a file, and `.channel-row.active` is a row, not a button.
+        const isButton = classes.length
+          ? classes.every((c) => btnClasses.has(c))
+          : /(^|\.)button$/.test(sub);
+        if (!isButton) continue;
+        if (hasInk) inked.push(classes);
+        if (bg) painted.push([classes, bg[1], sel.trim()]);
+      }
+    }
+    for (const [classes, ground, sel] of painted) {
+      if (inked.some((ink) => ink.every((c) => classes.includes(c)))) continue;
+      // Measured, not assumed: only a ground the inherited ink cannot survive
+      // is a bug. A button filled with --danger or --accent is already the
+      // pair those tokens were chosen as.
+      for (const [theme, block] of THEMES) {
+        const f = value(INHERITED, block);
+        const g = value(ground, block);
+        if (!f || !g) continue;
+        const r = contrast(f.slice(0, 3), g.slice(0, 3));
+        if (r >= 4.5) continue;
+        fail(
+          `${rel}: \`${sel}\` is a button, repaints its ground to var(${ground}) and never says ` +
+            `\`color\` — it inherits var(${INHERITED}), which is ${r.toFixed(2)}:1 there in the ${theme} theme`,
+        );
+        break;
       }
     }
   }

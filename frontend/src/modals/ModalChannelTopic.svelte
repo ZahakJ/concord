@@ -168,6 +168,7 @@
     font-size: var(--fs-ui);
     border-radius: var(--radius-md);
     background: var(--bg-2);
+    color: var(--text);
     border: 1px solid var(--border);
   }
   .seg button.sel {

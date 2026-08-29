@@ -76,5 +76,6 @@
     padding: 5px 11px;
     font-size: var(--fs-small);
     background: var(--bg-3);
+    color: var(--text);
   }
 </style>

@@ -146,6 +146,7 @@
     padding: var(--sp-3);
     min-height: var(--tap-min);
     background: var(--bg-2);
+    color: var(--text);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
   }
