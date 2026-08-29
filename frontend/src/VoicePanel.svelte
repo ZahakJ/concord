@@ -31,6 +31,7 @@
   import { tooltip } from "./lib/tooltip.js";
   import { bindLabel } from "./lib/keybind.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
+  import { bestFit, columnsFor } from "./lib/tilefit.js";
   import { haptic, longpress } from "./lib/touch.js";
   import { SOUNDBOARD, playSfx, playRecipe } from "./lib/sounds.js";
   import { recipeGlyph } from "./lib/sfxrecipe.js";
@@ -308,10 +309,68 @@
   // Tiles grow with the space instead of capping at 200px. The column count is
   // the meeting-grid rule (ceil(sqrt(n)), capped at four), which is what gives
   // two people two big tiles side by side and nine people a 3x3.
-  const cols = $derived(Math.min(4, Math.max(1, Math.ceil(Math.sqrt(roster.length)))));
+  // The arrangement the box can actually afford (lib/tilefit.js) once the stage
+  // has been measured; the square rule until then, and for the band that is not
+  // the stage at all.
+  let fitCols = $state(0);
+  const cols = $derived(fitCols || columnsFor(roster.length));
   // While joining there is nothing on the stage yet, and a full-column empty
   // panel above a squashed chat is a worse first second than the old band.
   const onStage = $derived(stageFirst && !joining);
+
+  // ---- the shape of a tile ----
+  //
+  // The arithmetic — and the reason it is arithmetic — lives in lib/tilefit.js.
+  // Here it is only wired up: measure the stage, hand the two lengths back as
+  // custom properties, and re-measure on anything that changes the sum.
+  let gridEl = $state(null);
+  let tileW = $state(0); // 0 = unmeasured; the grid rules stay in charge
+  let tileH = $state(0);
+  let rowW = $state(0);
+  function refit() {
+    if (!gridEl || !onStage) {
+      tileW = 0;
+      fitCols = 0;
+      return;
+    }
+    const gap = parseFloat(getComputedStyle(gridEl).rowGap) || 12;
+    // The WIDTH has to come from the stage's container, not the stage: the fit
+    // pins the stage to one row's width, so measuring the stage would feed its
+    // own last answer back in and the tiles would ratchet smaller every time
+    // somebody joined. Its height is set by the flex column and is safe to read
+    // off the stage itself.
+    const host = gridEl.parentElement;
+    const hcs = host && getComputedStyle(host);
+    const availW = host
+      ? host.clientWidth - parseFloat(hcs.paddingLeft || 0) - parseFloat(hcs.paddingRight || 0)
+      : gridEl.clientWidth;
+    const fit = bestFit({
+      w: availW,
+      h: gridEl.clientHeight,
+      n: roster.length,
+      gap,
+    });
+    if (!fit) {
+      tileW = 0;
+      return;
+    }
+    fitCols = fit.cols;
+    tileW = fit.tileW;
+    tileH = fit.tileH;
+    rowW = fit.rowW;
+  }
+  $effect(() => {
+    // Who is here, how many columns that implies, and the size of the box they
+    // are in — the three inputs, and the observer for the third.
+    void roster.length;
+    void onStage;
+    if (!gridEl) return;
+    refit();
+    const ro = new ResizeObserver(refit);
+    ro.observe(gridEl);
+    if (gridEl.parentElement) ro.observe(gridEl.parentElement);
+    return () => ro.disconnect();
+  });
 
   const clock = $derived(callClock());
   const roomName = $derived(chId ? channelShort(chId) : "");
@@ -923,7 +982,13 @@
       {/each}
     </div>
   {:else}
-    <div class="stage" class:solo={roster.length === 1}>
+    <div
+      class="stage"
+      class:solo={roster.length === 1}
+      class:fitted={onStage && tileW > 0}
+      bind:this={gridEl}
+      style={tileW ? `--tile-w:${tileW}px;--tile-h:${tileH}px;--row-w:${rowW}px` : ""}
+    >
       {#each roster as pid (pid)}
         {@const t = tileInfo(pid)}
         {@const cam = camTile(pid)}
@@ -1469,6 +1534,26 @@
   }
   .voice-panel.on-stage .tile {
     aspect-ratio: auto;
+  }
+  /* The measured fit (lib/tilefit.js). Wrapping flex rather than grid tracks, so
+     a last row with fewer tiles than the others is centred under them instead
+     of hanging off the left edge. The row is pinned to the width `c` tiles
+     actually need, which is what makes the wrap land where the fit assumed. */
+  .voice-panel.on-stage .stage.fitted,
+  .voice-panel.on-stage .stage.fitted.solo {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+    gap: var(--sp-3);
+    width: var(--row-w);
+    max-width: 100%;
+    margin-inline: auto;
+  }
+  .voice-panel.on-stage .stage.fitted .tile {
+    flex: 0 0 var(--tile-w);
+    width: var(--tile-w);
+    height: var(--tile-h);
   }
   /* On a phone the app is one pane at a time, so "the call takes the stage"
      means it takes the pane: the chat goes away entirely and comes back with
