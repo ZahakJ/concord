@@ -573,7 +573,20 @@
     };
     const deadline = setTimeout(settle, 8000);
     try {
-      if (await api.session()) await start();
+      // Two failures used to arrive here wearing the same clothes and get the
+      // same answer. "Nothing is unlocked" is the ordinary one and the login
+      // screen is the right response to it. "The session IS open and start()
+      // threw halfway through" is not — the account is unlocked, the passphrase
+      // is not the problem, and dropping the user at a passphrase box is a
+      // straight lie about what went wrong. Say it instead, in the one place a
+      // failure this early can be said.
+      if (await api.session()) {
+        try {
+          await start();
+        } catch (err) {
+          flash(err);
+        }
+      }
     } catch {
       /* not unlocked yet — show the login screen */
     } finally {

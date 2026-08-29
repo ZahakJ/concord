@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -588,7 +589,23 @@ func (s *Service) untrackGuildTopics(groupID []byte, chIDs []string) {
 	}
 }
 
+// ErrRosterUnavailable means a guild is on disk but its MLS group state is not:
+// the row, its channels and every message in it are readable from SQL, and the
+// one thing that cannot be answered is who is in it.
+//
+// It is a SEPARATE error from "unknown guild" because the two want opposite
+// treatment. An unknown guild is a bug in the caller. This is a repairable
+// local gap — the group state comes back the moment a member syncs to us — and
+// the guild stays perfectly usable in the meantime. Every caller that treats
+// the two alike turns a missing member panel into a dead account.
+var ErrRosterUnavailable = errors.New("app: this guild's membership is not readable on this device yet")
+
 // GuildMembers returns the account public keys of a guild's current members.
+//
+// A guild whose group state is missing reports ErrRosterUnavailable rather than
+// the MLS layer's own words. Callers must not take it as fatal: see
+// rosterUnavailable in service.go for how the pairing comes apart in the first
+// place, and why an unlock has to survive it.
 func (s *Service) GuildMembers(guildID string) ([][]byte, error) {
 	s.mu.RLock()
 	g, ok := s.guilds[guildID]
@@ -596,7 +613,11 @@ func (s *Service) GuildMembers(guildID string) ([][]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("app: unknown guild %s", guildID)
 	}
-	return s.mls.Members(s.ctx, g.GroupID)
+	members, err := s.mls.Members(s.ctx, g.GroupID)
+	if err != nil && rosterUnavailable(err) {
+		return nil, fmt.Errorf("%w (%s)", ErrRosterUnavailable, g.Name)
+	}
+	return members, err
 }
 
 // IsOwner reports whether this peer is the guild's CURRENT owner — the

@@ -39,6 +39,16 @@ const cipherSuite = ciphersuite.MLS128DHKEMX25519
 // stdout.
 var quietLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
+// ErrGroupNotFound means this engine's storage holds no state for that group
+// id. Re-exported so callers can classify the condition with errors.Is instead
+// of matching on the message text, and so nothing above this package has to
+// import the upstream library to ask a question about its own guilds.
+//
+// It is an ordinary condition, not a corruption: a group whose state has not
+// arrived yet, or has been lost while its database rows survived, reads exactly
+// like this — see rosterUnavailable in internal/app.
+var ErrGroupNotFound = upstream.ErrGroupNotFound
+
 // GroupID identifies an MLS group (a Concord guild).
 type GroupID []byte
 

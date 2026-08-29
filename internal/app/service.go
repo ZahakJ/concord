@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -1309,6 +1310,11 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		s.trackGuild(&guilds[i])
 	}
 
+	// Say, by name, which restored guilds have no group state on disk. Before
+	// this the condition was invisible until the member panel asked for a
+	// roster, and the answer went nowhere anyone would look.
+	s.noteStrandedGuilds()
+
 	// Restore DM lifecycle state (closed conversations, intended peers, pending
 	// invites) now that the guild set is known, pruning entries for guilds that
 	// no longer exist.
@@ -2346,6 +2352,53 @@ func deriveMLSSigningKey(id *identity.Identity) ed25519.PrivateKey {
 	seed := make([]byte, ed25519.SeedSize)
 	_, _ = io.ReadFull(r, seed)
 	return ed25519.NewKeyFromSeed(seed)
+}
+
+// rosterUnavailable reports whether an error from the MLS layer means "there is
+// no group state here for that id" rather than something worse.
+//
+// Two halves of a guild live in two places — the row, channels and messages in
+// SQL, the group state in a file under mls/ — and nothing has ever guaranteed
+// they arrive or survive together. A crash between SaveGuild and the first
+// persisted epoch, a half-finished leave on a build that predates the
+// tombstone, a restore that copied the database and not the directory beside
+// it: each leaves a guild that reads perfectly and cannot say who is in it.
+//
+// The check is on the sentinel, not on the message text: the string is
+// upstream's and would break silently if it ever changed wording.
+func rosterUnavailable(err error) bool {
+	return errors.Is(err, mls.ErrGroupNotFound)
+}
+
+// noteStrandedGuilds says so, once per launch and by name, when a restored
+// guild has no group state on disk.
+//
+// It exists because the alternative is silence until something asks for the
+// member panel — which is how this cost a real user their whole account: the
+// panel fetch failed thirty seconds into an unlock, the login screen swallowed
+// it, and the only evidence anywhere was an RPC nobody was watching. A guild
+// that cannot name its members is a fact about the install, and the log is
+// where facts about the install belong.
+//
+// Not fatal, and deliberately not a repair: the group state legitimately comes
+// back from any member the next time we sync, and deleting a guild's history
+// because a file next to it is missing would be the worse trade by far.
+func (s *Service) noteStrandedGuilds() {
+	s.mu.RLock()
+	type pair struct{ id, name string }
+	guilds := make([]pair, 0, len(s.guilds))
+	groups := make(map[string]mls.GroupID, len(s.guilds))
+	for id, g := range s.guilds {
+		guilds = append(guilds, pair{id, g.Name})
+		groups[id] = g.GroupID
+	}
+	s.mu.RUnlock()
+
+	for _, g := range guilds {
+		if _, err := s.mls.Members(s.ctx, groups[g.id]); err != nil && rosterUnavailable(err) {
+			log.Printf("concord/app: guild %s (%q) has no group state on this device: its channels and history are intact, but its member list stays empty until a member syncs to you", g.id, g.name)
+		}
+	}
 }
 
 // accountKeyOf returns the account public key that a member credential

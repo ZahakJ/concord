@@ -2955,16 +2955,47 @@ export async function refreshRightPanel() {
   // the one you just opened. It corrects itself on the next refresh, which is
   // exactly what makes it read as the panel repainting on its own.
   const forGuild = S.activeGuildId;
+  // The right panel is CHROME. Every fetch below is optional to the app being
+  // usable — you can read a channel, send a message and switch guilds with the
+  // member list empty — and yet this function is awaited from selectGuild,
+  // which is awaited from refreshGuilds, which is awaited from onLogin BEFORE
+  // S.ready. So one failing member fetch used to mean the app never opened at
+  // all. A real install with a guild whose MLS group state had gone missing hit
+  // exactly that: "mls: group not found" from a side panel, and the whole
+  // account was unreachable behind a login screen that said nothing.
+  //
+  // Each fetch therefore keeps its own failure. The panel shows what it could
+  // get, the rest of the app opens, and the missing part fills in on the next
+  // refresh — which is what a panel is for.
   if (forGuild) {
-    const members = (await api.members(forGuild)) || [];
-    if (S.activeGuildId !== forGuild) return; // moved on: this answer is stale
-    S.members = members;
+    try {
+      const members = (await api.members(forGuild)) || [];
+      if (S.activeGuildId !== forGuild) return; // moved on: this answer is stale
+      S.members = members;
+    } catch {
+      if (S.activeGuildId !== forGuild) return;
+      S.members = [];
+    }
     const g = activeGuild();
-    const roles = g && g.kind !== "dm" ? (await api.roles(forGuild)) || [] : [];
-    if (S.activeGuildId !== forGuild) return;
-    S.roles = roles;
+    if (g && g.kind !== "dm") {
+      try {
+        const roles = (await api.roles(forGuild)) || [];
+        if (S.activeGuildId !== forGuild) return;
+        S.roles = roles;
+      } catch {
+        if (S.activeGuildId !== forGuild) return;
+        S.roles = [];
+      }
+    } else {
+      S.roles = [];
+    }
   }
-  S.contacts = (await api.contacts()) || [];
+  try {
+    S.contacts = (await api.contacts()) || [];
+  } catch {
+    /* the contact list is a convenience; an empty one is not a reason to
+       refuse to open the app */
+  }
 }
 
 // roleColorFor: the color of a member's highest-ranked colored role (roles come

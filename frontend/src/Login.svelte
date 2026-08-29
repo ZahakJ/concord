@@ -6,11 +6,13 @@
   import { focusOnMount } from "./lib/focus.js";
   import { confettiBurst } from "./lib/burst.js";
   import { bioAvailable, bioEnrolled, enableBiometric, unlockWithBiometric } from "./lib/biometric.js";
+  import { finishUnlock } from "./lib/unlock.js";
   import Icon from "./Icon.svelte";
   import PassphraseField from "./PassphraseField.svelte";
   import QRScanner from "./QRScanner.svelte";
 
   let { onLogin } = $props();
+
   let passphrase = $state("");
   let confirmPass = $state("");
   let displayName = $state(""); // asked once, when CREATING a fresh account
@@ -19,6 +21,31 @@
   let busy = $state(false);
   let hasIdentity = $state(true); // assume until checked, then correct
   let checked = $state(false);
+
+  // enter() is the ONLY way this screen leaves, and all seven paths out of it
+  // go through here.
+  //
+  // onLogin is the whole post-passphrase init — identity, guilds, the first
+  // channel's history, the member panel — and it is asynchronous. Called bare,
+  // the way all seven call sites used to call it, its failures landed outside
+  // the catch sitting three lines below them: an unhandled rejection, an empty
+  // error slot, and a login screen that re-enabled its form as though nothing
+  // had been typed. That is the whole of what a real user saw after upgrading
+  // — a correct passphrase doing nothing, forever. Awaiting it is the fix;
+  // reporting it is what makes the fix visible.
+  //
+  // It swallows deliberately, because the callers differ: four sit inside a
+  // try/finally that owns `busy`, three do not, and a helper that rethrew would
+  // have to be handled correctly in seven places to be right in one.
+  async function enter() {
+    try {
+      await finishUnlock(onLogin, humanError);
+      return true;
+    } catch (err) {
+      error = err.message;
+      return false;
+    }
+  }
 
   // Biometric unlock (mobile). bioCanEnroll: hardware present; bioOn: the user
   // has already stored their passphrase behind the biometric on this device.
@@ -47,7 +74,7 @@
       const pass = await unlockWithBiometric();
       if (!pass) return; // cancelled or failed — fall back to the passphrase field
       await api.login(pass);
-      onLogin();
+      await enter();
     } catch (err) {
       error = humanError(err);
     } finally {
@@ -56,15 +83,23 @@
   }
 
   async function confirmEnableBio() {
-    await enableBiometric(pendingPass);
+    // Enrolment is an offer, not a gate. It used to be neither guarded nor
+    // awaited safely: a rejected biometric prompt threw here and killed the
+    // handler before the door was ever opened, so declining the fingerprint
+    // reader left the user on the login screen with no way forward.
+    try {
+      await enableBiometric(pendingPass);
+    } catch (err) {
+      flash(err);
+    }
     pendingPass = "";
     offerBio = false;
-    onLogin();
+    await enter();
   }
-  function skipEnableBio() {
+  async function skipEnableBio() {
     pendingPass = "";
     offerBio = false;
-    onLogin();
+    await enter();
   }
   let confirmingReset = $state(false);
   let forgot = $state(false); // forgot-passphrase menu (recover vs start over)
@@ -142,7 +177,7 @@
       // scanned-ok tick above isn't this moment: a scan only captures the
       // code, redeeming it is what links the device.
       confettiBurst({ seed: "device-link" });
-      onLogin();
+      await enter();
     } catch (err) {
       error = humanError(err);
     } finally {
@@ -211,10 +246,10 @@
     copiedPhrase = true;
     setTimeout(() => (copiedPhrase = false), 1600);
   }
-  function startVerify() {
+  async function startVerify() {
     if (!asks.length) {
       // Nothing to ask about (a phrase we could not split): don't invent a quiz.
-      finishBackup();
+      await finishBackup();
       return;
     }
     verifying = true;
@@ -229,21 +264,21 @@
     verifyErr = "";
   }
   const norm = (s) => s.trim().toLowerCase();
-  function submitVerify(e) {
+  async function submitVerify(e) {
     e?.preventDefault();
     if (norm(answerA) === backupWords[asks[0]] && norm(answerB) === backupWords[asks[1]]) {
-      finishBackup();
+      await finishBackup();
       return;
     }
     verifyErr = "That doesn't match. Check the numbers against what you wrote down.";
   }
-  function finishBackup(verified = true) {
+  async function finishBackup(verified = true) {
     // Cleared only on a real answer. Skipping leaves it set, which is what
     // keeps the banner coming back until the words exist somewhere.
     setPref("backupPending", !verified);
     backupPhrase = "";
     verifying = false;
-    onLogin();
+    await enter();
   }
 
   async function doRestore(e) {
@@ -266,7 +301,7 @@
       if (hasIdentity) await api.restoreOverExisting(restorePhrase.trim(), passphrase);
       else await api.restoreFromMnemonic(restorePhrase.trim(), passphrase);
       await api.login(passphrase);
-      onLogin();
+      await enter();
     } catch (err) {
       error = humanError(err);
     } finally {
@@ -327,7 +362,7 @@
         offerBio = true;
         return;
       }
-      onLogin();
+      await enter();
     } catch (err) {
       error = humanError(err);
     } finally {
