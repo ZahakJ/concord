@@ -942,8 +942,9 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 	}
 	refusedMessages.note(refused, "backfilled messages", srcFpr)
 	// Activity that arrived while we were offline must reopen a closed DM, same
-	// as a live message would.
-	if anyNew {
+	// as a live message would — and is refused for a blocked account for the
+	// same reason the live path refuses it.
+	if anyNew && !s.dmReopenBlocked(guildID) {
 		s.unhideDM(guildID)
 	}
 	return true

@@ -595,7 +595,10 @@ func (b *Bridge) Login(passphrase string) error {
 			return
 		}
 		if b.OnMessage != nil {
-			b.OnMessage(messageView(m))
+			// A re-emit carries the message's reactions, so this is also how a
+			// blocked account's reaction on somebody else's message would
+			// arrive live.
+			b.OnMessage(withoutBlockedReactions(svc, messageView(m)))
 		}
 	})
 	presence := func(appsvc.PeerPresence) {
@@ -630,6 +633,12 @@ func (b *Bridge) Login(passphrase string) error {
 		}
 	})
 	svc.OnTyping(func(from, channelID string) {
+		// "Badr is typing…" for someone whose messages you will never see is
+		// the loudest thing a blocked account can still do to you: it names
+		// them, it moves, and it promises a message that never arrives.
+		if svc.IsBlocked(from) {
+			return
+		}
 		if b.OnTyping != nil {
 			name := svc.ProfileName(from)
 			// Your own account: typing relayed from your other device. The
@@ -1050,6 +1059,13 @@ func (b *Bridge) GuildStories(guildID string) ([]StoryView, error) {
 	self := svc.Fingerprint()
 	out := make([]StoryView, 0, len(recs))
 	for _, r := range recs {
+		// A story is a full-screen thing with the author's name on it, offered
+		// from a ring that sits above the member list. Hiding a blocked
+		// account's messages and then putting their face in that ring is the
+		// same hole the reaction filter closes, only larger.
+		if svc.IsBlocked(r.Author) {
+			continue
+		}
 		// Resolve the author's display name the way the member list does: own
 		// profile for ourselves (the cache holds no self row), a per-guild
 		// nickname shadowing the profile name for everyone.
@@ -3117,10 +3133,60 @@ func (b *Bridge) NewDMInvite() (string, error) {
 	return svc.NewDMInvite()
 }
 
-// senderBlocker is the one thing visibleViews needs from the service, named as
-// an interface so the filter can be tested without booting a node.
+// senderBlocker is what the view filters need from the service, named as an
+// interface so they can be tested without booting a node. Two questions, not
+// one: a MESSAGE carries a raw sender credential (which may be a linked
+// device's certificate), while a REACTION is recorded against the account
+// fingerprint that left it, and neither key can answer the other's question.
 type senderBlocker interface {
 	SenderBlocked(sender []byte) bool
+	IsBlocked(fingerprint string) bool
+}
+
+// withoutBlockedReactions strips a blocked account's reactions off a message
+// somebody else wrote.
+//
+// Hiding their messages and leaving their reactions is not a smaller version of
+// blocking, it is a hole in it: the emoji is theirs, the tally counts them, and
+// the hover card names them — so the one row a blocked person is guaranteed to
+// reach is the one you wrote yourself. An emoji whose only reactor was blocked
+// disappears entirely rather than sitting there at zero.
+//
+// The map is rebuilt rather than edited because it comes straight off the
+// stored message: mutating it would write the local block list into the shared
+// record, which is precisely what blocking must never do.
+func withoutBlockedReactions(svc senderBlocker, v MessageView) MessageView {
+	if len(v.Reactions) == 0 {
+		return v
+	}
+	var out map[string][]string
+	for emoji, fprs := range v.Reactions {
+		kept := fprs
+		for i, f := range fprs {
+			if !svc.IsBlocked(f) {
+				continue
+			}
+			// First blocked reactor on this emoji: copy what we have kept so
+			// far and finish the walk by hand. Nothing is allocated for the
+			// overwhelmingly common case of no blocked reactor at all.
+			kept = append([]string{}, fprs[:i]...)
+			for _, g := range fprs[i+1:] {
+				if !svc.IsBlocked(g) {
+					kept = append(kept, g)
+				}
+			}
+			break
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		if out == nil {
+			out = make(map[string][]string, len(v.Reactions))
+		}
+		out[emoji] = kept
+	}
+	v.Reactions = out
+	return v
 }
 
 // visibleViews converts a run of stored messages into views, dropping the ones
@@ -3139,7 +3205,7 @@ func visibleViews(svc senderBlocker, msgs []domain.Message) []MessageView {
 		if svc.SenderBlocked(m.Sender) {
 			continue
 		}
-		out = append(out, messageView(m))
+		out = append(out, withoutBlockedReactions(svc, messageView(m)))
 	}
 	return out
 }

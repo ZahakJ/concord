@@ -1300,6 +1300,42 @@ func (s *Store) UnreadCounts(sinceNano map[string]int64) (map[string]int, error)
 	return out, nil
 }
 
+// SenderCount is one distinct sender credential and how many rows it accounts
+// for in an UnreadBySender answer.
+type SenderCount struct {
+	Sender []byte
+	N      int
+}
+
+// UnreadBySender breaks one channel's unread count down by sender, using
+// exactly the predicate UnreadCounts uses so the parts sum to the whole.
+//
+// It exists so a caller holding a block list can subtract the senders it hides
+// without decrypting anything: `sender` is a plaintext column, and grouping on
+// it costs one row per participant rather than one per message. Callers with an
+// empty block list should not call this at all — UnreadCounts is already the
+// answer, and it is the path every login takes.
+func (s *Store) UnreadBySender(channelID string, since int64) ([]SenderCount, error) {
+	rows, err := s.db.Query(
+		`SELECT sender, COUNT(*) FROM messages
+		 WHERE channel_id = ? AND sent > ? AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest')
+		 GROUP BY sender`,
+		channelID, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []SenderCount
+	for rows.Next() {
+		var sc SenderCount
+		if err := rows.Scan(&sc.Sender, &sc.N); err != nil {
+			return nil, err
+		}
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
 // Messages returns up to limit most-recent messages for a channel, oldest
 // first, decrypting bodies. A limit <= 0 returns all messages.
 func (s *Store) Messages(channelID string, limit int) ([]domain.Message, error) {

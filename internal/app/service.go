@@ -1150,6 +1150,14 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 	// Inbound WebRTC signaling for voice/video.
 	host.HandleSignals(func(from peer.ID, data []byte) {
+		// Dropping their presence announcement is not enough on its own: the
+		// mesh opens a peer connection for any signalling blob from a peer it
+		// does not already hold, so a blocked account could still offer its
+		// way into a call and put audio in your ears without ever appearing in
+		// the roster.
+		if s.IsBlocked(s.presence(from).Fingerprint) {
+			return
+		}
 		s.emitVoiceSignal(from.String(), data)
 	})
 

@@ -2177,23 +2177,51 @@ export async function refreshBlocked() {
 export function isBlocked(fingerprint) {
   return !!fingerprint && S.blocked.includes(fingerprint);
 }
+
+// Everything the block list filters is filtered on the way OUT of the core, so
+// every one of those surfaces is holding an answer computed under the old list
+// the moment it changes. Without this, blocking someone left their messages,
+// their reactions, their moments and their mentions sitting on screen until the
+// next guild switch — and unblocking looked like it had done nothing at all,
+// which is the worse half: an unblock you cannot see is an unblock people press
+// twice.
+//
+// The feed is re-fetched rather than filtered in place: the client does not
+// know which sender each row belongs to once it is a view, and re-asking is one
+// call against local SQLite.
+async function repaintAfterBlockChange() {
+  const ch = S.activeChannelId;
+  if (ch) {
+    try {
+      const msgs = (await api.messages(ch)) || [];
+      if (S.activeChannelId === ch) S.messages = msgs;
+    } catch {
+      /* channel unreadable right now — the next open will be correct */
+    }
+  }
+  refreshInbox({ soon: true });
+  refreshRightPanel();
+  // The moments tray owns its own fetch and only reloads on a backend story
+  // event; a local block change never produces one.
+  window.dispatchEvent(new CustomEvent("concord:stories-changed"));
+}
 export async function blockUser(fingerprint, name = "") {
   try {
     await api.blockUser(fingerprint);
     await refreshBlocked();
-    // Drop any 1:1 DM with them from view — they can't reopen it while blocked.
-    const dm = S.guilds.find(
-      (g) => g.kind === "dm" && g.dmPeer === fingerprint,
-    );
-    if (dm) {
-      try {
-        await api.leaveGuild(dm.id);
-      } catch {
-        /* best effort */
-      }
-      await refreshGuilds();
-    }
-    flash(`Blocked ${name || "user"} — they can't add you to DMs or guilds`, "success");
+    // Closing the 1:1 DM used to be a leaveGuild call from here. It is the
+    // core's job — a phone blocking someone has to close it too, and a DM that
+    // arrives just after the block landed has to be closed by whatever notices
+    // it, not by a client that has already moved on. All that is left is
+    // repainting the list the core just changed.
+    await refreshGuilds();
+    // The toast is the only place most people ever read what block does, and
+    // "they can't add you to DMs or guilds" was the half nobody pressed the
+    // button for. Say the visible half, and say it is this device — the list
+    // does not travel to a linked phone, and finding that out by being
+    // harassed on the phone is the wrong way to learn it.
+    await repaintAfterBlockChange();
+    flash(`Blocked ${name || "user"} on this device — you won't see anything they post`, "success");
   } catch (err) {
     flash(err);
   }
@@ -2202,7 +2230,8 @@ export async function unblockUser(fingerprint, name = "") {
   try {
     await api.unblockUser(fingerprint);
     await refreshBlocked();
-    flash(`Unblocked ${name || "user"}`, "success");
+    await repaintAfterBlockChange();
+    flash(`Unblocked ${name || "user"} — their messages are back`, "success");
   } catch (err) {
     flash(err);
   }

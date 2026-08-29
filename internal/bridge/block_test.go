@@ -11,7 +11,8 @@ import (
 // behaviour that matters.
 type blockList map[string]bool
 
-func (b blockList) SenderBlocked(sender []byte) bool { return b[string(sender)] }
+func (b blockList) SenderBlocked(sender []byte) bool  { return b[string(sender)] }
+func (b blockList) IsBlocked(fingerprint string) bool { return b[fingerprint] }
 
 // The point of the filter: a blocked member's messages leave the store
 // untouched and simply stop being converted into something the UI can draw.
@@ -54,6 +55,52 @@ func TestBlockedSenderIsHiddenNotDropped(t *testing.T) {
 	}
 	if restored[1].Content != "abuse" || restored[3].Content != "more abuse" {
 		t.Fatal("unblocking restored the rows but not their content")
+	}
+}
+
+// Hiding a blocked account's messages while still drawing their reactions left
+// them a guaranteed way to reach the one row you are certain to read: your own.
+// The tally counts them and the hover card names them, so the emoji has to go
+// with the messages.
+func TestBlockedReactionsAreStrippedFromEveryoneElsesMessages(t *testing.T) {
+	stored := []domain.Message{{
+		ID: "1", Sender: []byte("alice"), Content: "my message",
+		Reactions: map[string][]string{
+			"👀": {"mallory"},                    // only reactor is blocked → emoji goes
+			"🔥": {"bob", "mallory"},             // tally must drop to one
+			"✅": {"bob"},                        // untouched
+			"💀": {"mallory", "bob", "mallory2"}, // two blocked, one kept
+		},
+	}}
+	blocked := blockList{"mallory": true, "mallory2": true}
+
+	got := visibleViews(blocked, stored)
+	if len(got) != 1 {
+		t.Fatalf("view has %d messages, want 1", len(got))
+	}
+	rx := got[0].Reactions
+	if _, still := rx["👀"]; still {
+		t.Fatal("REGRESSION: an emoji whose only reactor is blocked is still on the message")
+	}
+	if len(rx["🔥"]) != 1 || rx["🔥"][0] != "bob" {
+		t.Fatalf("REGRESSION: blocked reactor still counted: 🔥 = %v, want [bob]", rx["🔥"])
+	}
+	if len(rx["✅"]) != 1 || rx["✅"][0] != "bob" {
+		t.Fatalf("an unblocked reaction was disturbed: ✅ = %v", rx["✅"])
+	}
+	if len(rx["💀"]) != 1 || rx["💀"][0] != "bob" {
+		t.Fatalf("REGRESSION: 💀 = %v, want just [bob]", rx["💀"])
+	}
+
+	// Same rule as the message filter: nothing is edited, so unblocking has the
+	// whole tally back with no round trip.
+	src := stored[0].Reactions
+	if len(src["🔥"]) != 2 || len(src["💀"]) != 3 || len(src) != 4 {
+		t.Fatal("filtering edited the stored reactions — the local block list must never reach the shared record")
+	}
+	back := visibleViews(blockList{}, stored)[0].Reactions
+	if len(back) != 4 || len(back["💀"]) != 3 {
+		t.Fatalf("unblocking did not restore the tally: %v", back)
 	}
 }
 

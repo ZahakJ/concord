@@ -841,6 +841,15 @@ func (s *Service) ForumBoard(guildID, forumID string) (ForumBoard, error) {
 		}
 		if len(st.AuthorKey) > 0 {
 			fp.AuthorFingerprint = accountFingerprintOf(st.AuthorKey)
+			// A blocked author's thread leaves the board. The card is their
+			// name, their title and an excerpt of the opening message — every
+			// part of what blocking hides in the feed, drawn larger — and the
+			// thread behind it renders empty anyway, since its messages are
+			// filtered out one layer down. Nothing is deleted: the thread
+			// channel stays, and unblocking brings the card back.
+			if s.IsBlocked(fp.AuthorFingerprint) {
+				continue
+			}
 			// A name we know from the roster beats the one captured at post time.
 			if hinted := s.ProfileName(fp.AuthorFingerprint); hinted != "" {
 				fp.AuthorName = hinted

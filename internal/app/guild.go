@@ -296,7 +296,38 @@ func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error
 // UnreadCounts returns the per-channel count of normal messages newer than each
 // channel's cursor, without decrypting any bodies.
 func (s *Service) UnreadCounts(sinceNano map[string]int64) (map[string]int, error) {
-	return s.store.UnreadCounts(sinceNano)
+	counts, err := s.store.UnreadCounts(sinceNano)
+	if err != nil || !s.hasBlocks() {
+		return counts, err
+	}
+	// Someone is blocked, so the cheap count is now a claim the feed will not
+	// back up: it counts rows the reader can never be shown, and it cannot be
+	// cleared by reading, because there is nothing there to read. Left alone it
+	// is a badge that ticks up forever on an empty channel — and the catch-up
+	// card reads these numbers directly, with no decrypt pass behind it to
+	// correct them, so it would announce new messages that do not exist.
+	//
+	// Only channels with something to subtract pay for the breakdown, and only
+	// while a block list exists at all.
+	for ch, n := range counts {
+		if n == 0 {
+			continue
+		}
+		rows, err := s.store.UnreadBySender(ch, sinceNano[ch])
+		if err != nil {
+			continue
+		}
+		for _, r := range rows {
+			if s.SenderBlocked(r.Sender) {
+				n -= r.N
+			}
+		}
+		if n < 0 {
+			n = 0
+		}
+		counts[ch] = n
+	}
+	return counts, nil
 }
 
 // MessagesBefore returns up to limit messages older than beforeNano (oldest
@@ -3227,8 +3258,10 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 	}
 	s.emitMessage(m)
 	// A message landing in a closed DM reopens the conversation (closing
-	// behavior: closing hides it, new activity surfaces it again).
-	if guildID != "" {
+	// behavior: closing hides it, new activity surfaces it again) — unless the
+	// person on the other end is blocked, in which case reopening would hand
+	// them the one control blocking took away.
+	if guildID != "" && !s.dmReopenBlocked(guildID) {
 		s.unhideDM(guildID)
 	}
 	return true

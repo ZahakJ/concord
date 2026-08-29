@@ -70,7 +70,17 @@ func (s *Service) watchVoice(groupID []byte, channelID string) {
 			// phone joined the call as a nameless stranger, on a client that had a
 			// perfectly good "(other device)" label ready for it, and a moderator's
 			// permissions were checked against an identity with no roles.
-			s.emitVoicePresence(from.String(), s.presence(from).Fingerprint, channelID, a.Action, a.Target, a.Dest)
+			fpr := s.presence(from).Fingerprint
+			// Everything a voice room can do to you rides this one topic:
+			// appearing in the sidebar roster, playing a soundboard clip in
+			// your ears, knocking at a call you are in, and ringing you with
+			// an "invite" that opens a dialog. A blocked account gets none of
+			// it — dropped here rather than in each client, because there are
+			// three clients and one topic.
+			if s.IsBlocked(fpr) {
+				return
+			}
+			s.emitVoicePresence(from.String(), fpr, channelID, a.Action, a.Target, a.Dest)
 		}
 	})
 }

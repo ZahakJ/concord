@@ -6,6 +6,24 @@ package app
 // already sent into a guild you share is hidden from every view (see
 // SenderBlocked, applied at the bridge). The list is local to this device and
 // mirrored in memory for a cheap IsBlocked check on the hot path.
+//
+// Blocking is not only about messages, because a message is not the only thing
+// somebody can put in front of you. The same list is asked at every other point
+// where their presence reaches a screen: their reactions on other people's
+// messages and their forum threads (stripped where those views are built),
+// their typing line and their moments (dropped at the bridge), their arrival in
+// a voice room and the WebRTC offer that would follow it (dropped at the
+// subscription, in voice.go and service.go), and the unread count, which is
+// done in SQL and so has to subtract them by hand rather than by decrypting
+// (see UnreadCounts). Each of those was a way to be heard by somebody who had
+// asked not to hear you.
+//
+// The list itself does not travel. There is no sync record for it, no digest
+// entry and nothing in the passphrase archive: a linked phone has its own list,
+// and the settings copy says so rather than letting people find out the hard
+// way. That is a deliberate consequence of blocking being a viewing preference
+// — the alternative is publishing "I have blocked this person" onto a wire the
+// blocked person can also read.
 
 // loadBlocked mirrors the persisted block list into memory. Called at startup.
 func (s *Service) loadBlocked() {
@@ -28,6 +46,16 @@ func (s *Service) IsBlocked(fingerprint string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.blocked[fingerprint]
+}
+
+// hasBlocks reports whether anything is on the block list at all. It exists so
+// the paths that would otherwise do extra work per channel — the unread
+// breakdown — can stay exactly as cheap as they were on the overwhelmingly
+// common device where nobody has ever been blocked.
+func (s *Service) hasBlocks() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.blocked) > 0
 }
 
 // SenderBlocked reports whether a message carrying this sender credential
@@ -54,7 +82,17 @@ func (s *Service) SenderBlocked(sender []byte) bool {
 	return s.IsBlocked(accountFingerprintOf(sender))
 }
 
-// BlockUser adds an account to the block list.
+// BlockUser adds an account to the block list and closes any 1:1 conversation
+// with them.
+//
+// Closing the DM belongs here rather than in a client. Hiding the messages is
+// not enough on its own: the conversation keeps its row in the DM list, sorted
+// by activity, so a blocked person who can no longer say a word to you can
+// still push their name back to the top of it whenever they like — an empty
+// conversation you cannot make go away. It is a hide, not a delete (LeaveGuild's
+// 1:1 path), so unblocking and one message from them brings it back with its
+// history intact; and it must happen on every shell, not just the one whose
+// front end remembered to ask.
 func (s *Service) BlockUser(fingerprint string) error {
 	if fingerprint == "" {
 		return nil
@@ -64,8 +102,37 @@ func (s *Service) BlockUser(fingerprint string) error {
 	}
 	s.mu.Lock()
 	s.blocked[fingerprint] = true
+	var dms []string
+	for guildID, peer := range s.dmPeers {
+		if peer == fingerprint && !s.hiddenDMs[guildID] {
+			dms = append(dms, guildID)
+		}
+	}
 	s.mu.Unlock()
+	for _, id := range dms {
+		s.hideDM(id)
+	}
 	return nil
+}
+
+// dmReopenBlocked reports whether a guild is a 1:1 conversation with someone on
+// the block list.
+//
+// A closed DM normally reopens the moment anything new lands in it, which is
+// right — closing a conversation is not the same as refusing one. But that rule
+// handed the blocked account the close button: block them, and their next
+// message put the conversation straight back in the list, empty, ready to be
+// closed again and reopened again. So arrival paths ask this first, while the
+// paths the USER drives (accepting a request, opening Notes, starting a DM
+// yourself) go on reopening unconditionally — those are decisions you made.
+func (s *Service) dmReopenBlocked(guildID string) bool {
+	if guildID == "" {
+		return false
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	peer := s.dmPeers[guildID]
+	return peer != "" && s.blocked[peer]
 }
 
 // UnblockUser removes an account from the block list.

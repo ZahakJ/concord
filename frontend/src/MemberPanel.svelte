@@ -15,6 +15,7 @@
     openContextMenu,
     roleColorFor,
     inviteToCall,
+    isBlocked,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { longpress } from "./lib/touch.js";
@@ -392,10 +393,22 @@
             {#if mem.mutedUntil > Date.now() / 1000}
               <span class="muted-badge" title="Muted"><Icon name="micOff" size={11} /></span>
             {/if}
+            {#if isBlocked(mem.fingerprint)}
+              <span class="blocked-badge" title="Blocked on this device — you don't see what they post">
+                <Icon name="eyeOff" size={11} />
+              </span>
+            {/if}
           </span>
           <!-- Sidebar one-liner: live activity wins; the custom
-               status still lives on the expanded profile card. -->
-          {#if mem.activity}
+               status still lives on the expanded profile card.
+               A blocked member gets none of it. The status line is a string
+               THEY wrote, refreshed whenever they like, and leaving it here
+               after hiding everything else they say would make it the one
+               sentence a blocked person is guaranteed to get in front of you.
+               Saying why the row is quiet is more use than their status. -->
+          {#if isBlocked(mem.fingerprint)}
+            <span class="muted member-status">Blocked</span>
+          {:else if mem.activity}
             <span class="muted member-status listening">
               <span class="eq" aria-label="Listening"><i></i><i></i><i></i></span>
               {mem.activity.artist ? `${mem.activity.artist} — ${mem.activity.title}` : mem.activity.title}
@@ -710,7 +723,8 @@
       animation: none;
     }
   }
-  .muted-badge {
+  .muted-badge,
+  .blocked-badge {
     color: var(--danger-text);
     display: inline-grid;
     place-items: center;

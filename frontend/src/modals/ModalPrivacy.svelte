@@ -179,7 +179,8 @@
     <SettingRow
       icon="lock"
       title="Blocked users"
-      sub="People who can't add you to DMs or guilds"
+      info="Blocking hides everything the person puts in front of you — their messages and forum posts, their reactions on yours, their typing line, their moments, their name in a call — and stops them adding you to a DM or a guild. Nothing is deleted and nobody is removed from anything: they stay in the guilds you share, other people still see them, and unblocking brings all of it straight back. The list lives on THIS device only. It is not synced to your other devices and it is not in your backup, so a phone you have linked has its own list to fill in."
+      sub="Hidden on this device — not synced to your others"
       to="blocked"
       from="privacy"
     />

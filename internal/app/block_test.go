@@ -5,8 +5,149 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ZahakJ/concord/internal/domain"
 	"github.com/ZahakJ/concord/internal/identity"
 )
+
+// The unread badge is a promise that there is something in the channel to read.
+// The count is done in SQL for speed, which means it never sees the block list
+// — so a blocked account's messages went on inflating it, and the reader could
+// not clear the badge by reading, because the rows behind it are ones the feed
+// will never draw. The catch-up card reads these numbers with no decrypt pass
+// behind it, so it announced messages that did not exist.
+func TestUnreadCountIgnoresBlockedSenders(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startServiceInDir(t, ctx, t.TempDir())
+
+	them, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("generate their identity: %v", err)
+	}
+	friend, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("generate a friend: %v", err)
+	}
+
+	const ch = "channel-under-test"
+	at := time.Now().Add(-time.Hour)
+	write := func(id string, who *identity.Identity) {
+		t.Helper()
+		at = at.Add(time.Minute)
+		if _, err := s.store.SaveMessage(domain.Message{
+			ID: id, ChannelID: ch, Sender: who.PublicKey(), Content: "hello", Sent: at,
+		}); err != nil {
+			t.Fatalf("save %s: %v", id, err)
+		}
+	}
+	write("m1", friend)
+	write("m2", them)
+	write("m3", them)
+	write("m4", friend)
+
+	since := map[string]int64{ch: 0}
+	if got, err := s.UnreadCounts(since); err != nil || got[ch] != 4 {
+		t.Fatalf("before blocking: count = %d (err %v), want 4", got[ch], err)
+	}
+
+	if err := s.BlockUser(them.Fingerprint()); err != nil {
+		t.Fatalf("BlockUser: %v", err)
+	}
+	got, err := s.UnreadCounts(since)
+	if err != nil {
+		t.Fatalf("UnreadCounts: %v", err)
+	}
+	if got[ch] != 2 {
+		t.Fatalf("REGRESSION: badge says %d unread, but only 2 of the 4 rows can be rendered", got[ch])
+	}
+
+	// Blocking everyone who spoke must leave no badge at all, rather than a
+	// count that can never be cleared by reading.
+	if err := s.BlockUser(friend.Fingerprint()); err != nil {
+		t.Fatalf("BlockUser friend: %v", err)
+	}
+	if got, _ := s.UnreadCounts(since); got[ch] != 0 {
+		t.Fatalf("every sender blocked, yet the badge still claims %d unread", got[ch])
+	}
+
+	// And unblocking restores the count — nothing was deleted, so nothing has
+	// to come back over the wire.
+	if err := s.UnblockUser(them.Fingerprint()); err != nil {
+		t.Fatalf("UnblockUser: %v", err)
+	}
+	if err := s.UnblockUser(friend.Fingerprint()); err != nil {
+		t.Fatalf("UnblockUser friend: %v", err)
+	}
+	if got, _ := s.UnreadCounts(since); got[ch] != 4 {
+		t.Fatalf("after unblocking the count is %d, want all 4 back", got[ch])
+	}
+}
+
+// Hiding a blocked person's messages leaves their DM row sitting in the list,
+// sorted by activity — so the one thing they can still do to you is bump an
+// empty conversation to the top of it whenever they feel like it. Blocking has
+// to close the conversation, in the core, where every shell goes through it.
+func TestBlockingClosesTheOneToOneDM(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := startServiceInDir(t, ctx, t.TempDir())
+
+	them, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("generate their identity: %v", err)
+	}
+	other, err := identity.Generate()
+	if err != nil {
+		t.Fatalf("generate someone else: %v", err)
+	}
+	s.recordDMPeer("dm-with-them", them.Fingerprint())
+	s.recordDMPeer("dm-with-other", other.Fingerprint())
+
+	s.mu.RLock()
+	openAlready := s.hiddenDMs["dm-with-them"] || s.hiddenDMs["dm-with-other"]
+	s.mu.RUnlock()
+	if openAlready {
+		t.Fatal("a fresh DM started out closed")
+	}
+
+	if err := s.BlockUser(them.Fingerprint()); err != nil {
+		t.Fatalf("BlockUser: %v", err)
+	}
+	s.mu.RLock()
+	hidTheirs, hidOthers := s.hiddenDMs["dm-with-them"], s.hiddenDMs["dm-with-other"]
+	s.mu.RUnlock()
+	if !hidTheirs {
+		t.Fatal("REGRESSION: blocking left their DM open — they can still bump it to the top of the list")
+	}
+	if hidOthers {
+		t.Fatal("blocking one person closed a conversation with someone else")
+	}
+
+	// A hide, not a delete: the conversation is still there to be reopened, so
+	// unblocking and one message from them brings its history straight back.
+	if !s.unhideDM("dm-with-them") {
+		t.Fatal("the closed DM could not be reopened — blocking deleted it instead of hiding it")
+	}
+
+	// …but a message ARRIVING from them must not do the reopening. A closed DM
+	// normally surfaces on new activity, which would have handed the blocked
+	// account a switch to flip whenever it liked.
+	if err := s.BlockUser(them.Fingerprint()); err != nil {
+		t.Fatalf("re-block: %v", err)
+	}
+	if !s.dmReopenBlocked("dm-with-them") {
+		t.Fatal("REGRESSION: an arriving message would reopen a blocked person's DM")
+	}
+	if s.dmReopenBlocked("dm-with-other") || s.dmReopenBlocked("") {
+		t.Fatal("the reopen guard fired on a conversation with nobody blocked in it")
+	}
+	if err := s.UnblockUser(them.Fingerprint()); err != nil {
+		t.Fatalf("UnblockUser: %v", err)
+	}
+	if s.dmReopenBlocked("dm-with-them") {
+		t.Fatal("unblocking left the DM permanently unable to reopen")
+	}
+}
 
 // SenderBlocked is what every view asks before drawing a message, so it has to
 // answer for the credential shapes that actually turn up in the store: a bare
