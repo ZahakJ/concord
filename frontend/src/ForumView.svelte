@@ -1424,23 +1424,15 @@
      had come out of, and clicking that card again did nothing because it was
      already "open". It is now the toggle — click it to fold the post back — and
      it has to look like the thing that is currently showing. */
+  /* The card whose post is open, drawn as a lit GROUND rather than as an edge
+     bar. The bar is spoken for — it is what unread means on this board, and the
+     rule below says so out loud — and above 1150px the panel sits beside the
+     board and covers the right of every card, so a mark on the near edge is
+     the only kind that can be seen at all. A tinted card is visible in the
+     strip, cannot be confused with unread, and survives both. */
   .card.open {
     border-color: var(--accent);
-    box-shadow: 0 0 0 1px var(--accent-soft);
-  }
-  /* Above 1150px the panel sits BESIDE the board and covers the right of every
-     card, so a border round the whole card is a mark you can only see a third
-     of. The bar is down the near edge, which is the part of a card that is
-     never covered. */
-  .card.open::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: var(--accent);
-    z-index: 3;
+    background: color-mix(in srgb, var(--accent) 13%, var(--bg-elevated));
   }
   /* Hover only where a hover can end. Android's WebView applies :hover on tap
      and holds it until you tap somewhere else, so a bare rule left the post you
