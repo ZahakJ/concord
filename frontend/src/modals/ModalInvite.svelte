@@ -105,15 +105,12 @@
   </p>
 
   <div class="code-well">
-    <div class="code-row">
-      <code>{shown || "Fetching this guild's code…"}</code>
-      {#if qr}
-        <figure class="qr">
-          <img src={qr} alt="This invite code, as a QR code" />
-          <figcaption>Point a camera at it</figcaption>
-        </figure>
-      {/if}
-    </div>
+    {#if qr}
+      <figure class="qr">
+        <img src={qr} alt="This invite code, as a QR code" />
+        <figcaption>Point a camera at it</figcaption>
+      </figure>
+    {/if}
     <div class="give">
       {#if canShare}
         <button class="share" onclick={share}>
@@ -125,6 +122,7 @@
         {copied ? "Copied" : "Copy code"}
       </button>
     </div>
+    <code class="code-line" title="Copy takes the whole code">{shown || "Fetching this guild's code…"}</code>
   </div>
 
   <p class="hint muted">
@@ -278,29 +276,22 @@
       opacity: 0;
     }
   }
-  .code-row {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--sp-3);
-  }
-  code {
-    flex: 1;
+  /* The picture is the share surface — a few hundred characters of reach-me
+     addresses is not a thing anyone reads, and wrapping it into a wall next to
+     the QR made the dialog look like a dump. Copy still takes every byte. */
+  .code-line {
     min-width: 0;
     font-family: ui-monospace, monospace;
-    font-size: var(--fs-compact);
-    line-height: 1.5;
-    word-break: break-all;
-    color: var(--text);
-    /* No max-height. A 120px window over a three-hundred-character code cut a
-       glyph in half at the bottom edge, which reads as a code that has been
-       truncated rather than one that has been scrolled — and the whole anxiety
-       of this dialog is whether you have got all of it. The phone build removed
-       the cap for exactly that reason and the desktop one never followed. The
-       dialog scrolls; let it. */
+    font-size: var(--fs-tiny);
+    line-height: 1.4;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
   }
   .qr {
     margin: 0;
-    flex: none;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -309,8 +300,8 @@
   .qr img {
     /* White quiet zone regardless of theme — a dark-mode QR with a dark margin
        is one a camera will not lock onto. */
-    width: 132px;
-    height: 132px;
+    width: 168px;
+    height: 168px;
     display: block;
     border-radius: var(--radius-sm);
     background: #fff;
@@ -320,11 +311,12 @@
     font-size: var(--fs-tiny);
     color: var(--text-faint);
     text-align: center;
-    max-width: 132px;
+    max-width: 168px;
   }
   .give {
     display: flex;
     gap: var(--sp-2);
+    justify-content: stretch;
   }
   .share {
     flex: 1;
@@ -337,7 +329,7 @@
     padding: 7px 16px;
   }
   .copy {
-    align-self: flex-start;
+    flex: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -413,14 +405,12 @@
       background: var(--bg-3);
       color: var(--text);
     }
-    /* A sheet is narrow enough that the code and the picture want to be
-       stacked, not side by side. */
-    .code-row {
-      flex-direction: column;
-      align-items: stretch;
+    .qr img {
+      width: 148px;
+      height: 148px;
     }
-    .qr {
-      align-self: center;
+    .qr figcaption {
+      max-width: 148px;
     }
     /* The footer stacks into full-width buttons here; a bare link in that stack
        would look like a third button that forgot its chrome. */
