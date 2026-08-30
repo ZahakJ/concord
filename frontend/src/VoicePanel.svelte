@@ -416,30 +416,31 @@
     return () => setSelfViewCovered(false);
   });
 
-  // Focus/theater mode: one thing fills the stage (a screen share OR a
-  // participant), everyone else drops to a small strip. A shared screen
-  // auto-focuses so it isn't a same-size tile you have to scroll to. Click a
-  // strip item to switch focus; click the big view (or shrink) to exit.
+  // Focus: a shared screen is the room, not a tile you have to pick. People
+  // sit in a filmstrip in the leftover letterbox. A person can take the
+  // picture (click them); a live share never falls back to a grid of boxes.
   let focusedKey = $state(null);
   const focusedScreen = $derived(screens.find((t) => t.key === focusedKey) || null);
   const focusedPid = $derived(roster.includes(focusedKey) ? focusedKey : null);
   const inTheater = $derived(!!focusedScreen || !!focusedPid);
 
-  // Auto-focus the first screen share when it appears (once), and clear focus if
-  // the focused thing goes away.
-  let autoFocused = $state(false);
   $effect(() => {
-    if (screens.length && !focusedKey && !autoFocused) {
-      focusedKey = screens[0].key;
-      autoFocused = true;
-    }
-    if (!screens.length) autoFocused = false;
-    if (focusedKey && !screens.some((t) => t.key === focusedKey) && !roster.includes(focusedKey)) {
-      focusedKey = null;
-    }
+    if (focusedKey && (screens.some((t) => t.key === focusedKey) || roster.includes(focusedKey))) return;
+    focusedKey = screens[0]?.key || null;
   });
   function toggleFocus(key) {
-    focusedKey = focusedKey === key ? null : key;
+    if (focusedKey === key) {
+      if (roster.includes(key) && screens.length) {
+        focusedKey = screens[0].key;
+        return;
+      }
+      if (roster.includes(key)) {
+        focusedKey = null;
+        return;
+      }
+      return;
+    }
+    focusedKey = key;
   }
   $effect(() => {
     setWatchedShare(focusedScreen?.key || "");
@@ -619,12 +620,12 @@
     };
   }
 
-  // Tapping the big view exits it — which the comment above has claimed since
-  // this was written, while no handler existed anywhere. The zoom action eats
-  // this click when it was a gesture or while zoomed in.
+  // A tap on a focused PERSON returns to the share (or the grid). A tap on
+  // the share itself is not an exit — the zoom action already eats gestures.
   function leaveFocus(e) {
     if (e.target.closest(".focus-actions")) return;
-    focusedKey = null;
+    if (!focusedPid) return;
+    focusedKey = screens[0]?.key || null;
   }
 
   function tileInfo(pid) {
@@ -933,7 +934,7 @@
 
 <svelte:window onkeydown={sfxKey} />
 
-<div class="voice-panel" class:theater={inTheater} class:on-stage={onStage} style="--cols:{cols}">
+<div class="voice-panel" class:theater={inTheater} class:watching={!!focusedScreen} class:on-stage={onStage} style="--cols:{cols}">
   <!-- The stage's own header: which room, how many people, how long, and
        whether the door is locked. None of it existed — a call had no elapsed
        time anywhere in the app, and a locked call (which makes everyone else
@@ -971,7 +972,7 @@
     </button>
   </div>
 
-  {#if ringing || waiting}
+  {#if (ringing || waiting) && !focusedScreen}
     <div class="ringing">
       <span class="dots"><span></span><span></span><span></span></span>
       {ringing ? "Ringing…" : "Waiting for others to join…"}
@@ -979,8 +980,9 @@
   {/if}
 
   {#if inTheater}
-    <!-- Theater mode: one big view (a share or a participant), everyone else in
-         a clickable strip. -->
+    <!-- The picture is the room. People live in the leftover letterbox as a
+         filmstrip, not a second row of boxes competing for the same height. -->
+    <div class="cinema">
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div
       class="focus-main"
@@ -1028,41 +1030,47 @@
         <button class="fbtn" use:tooltip aria-label="Fullscreen" onclick={toggleFullscreen}>
           <Icon name="screen" size={14} />
         </button>
-        <button class="fbtn" use:tooltip aria-label="Exit full view" onclick={() => (focusedKey = null)}>
-          <Icon name="close" size={14} />
-        </button>
+        {#if focusedPid}
+          <button
+            class="fbtn"
+            use:tooltip
+            aria-label={screens.length ? "Back to the screen" : "Exit full view"}
+            onclick={() => (focusedKey = screens[0]?.key || null)}
+          >
+            <Icon name="close" size={14} />
+          </button>
+        {/if}
       </div>
       </div>
     </div>
-    <div class="strip">
+    <div class="cinema-rail" aria-label="People in the call">
       {#each screens as tile (tile.key)}
         {#if tile.key !== focusedKey}
           <button
-            class="thumb"
+            class="rail-item share"
             use:tooltip={{ text: screenTitle(tile) }}
             aria-label={screenTitle(tile)}
             onclick={() => toggleFocus(tile.key)}
           >
             <!-- svelte-ignore a11y_media_has_caption -->
             <video use:bindStream={tile.key} autoplay playsinline muted></video>
-            <span class="thumb-badge"><Icon name="screen" size={10} /></span>
+            <span class="rail-name"><Icon name="screen" size={10} /> {screenTitle(tile)}</span>
           </button>
         {/if}
       {/each}
       {#each roster as pid (pid)}
-        {#if pid !== focusedKey}
-          {@const t = tileInfo(pid)}
-          <!-- Name chips, not bare circles. The strip carried its names in a
-               tooltip, which does not exist on a touch screen and is a hover
-               away on a desktop — so in a six-person call the row under the
-               share was six unreadable faces. -->
-          <button
-            class="bubble"
-            class:speaking={t.speaking}
-            transition:scale={pop}
-            aria-label={t.self ? `${t.name} (you)` : t.name}
-            onclick={() => toggleFocus(pid)}
-          >
+        {@const t = tileInfo(pid)}
+        {@const cam = camTile(pid)}
+        <button
+          class="rail-item"
+          class:on={pid === focusedKey}
+          class:speaking={t.speaking}
+          transition:scale={pop}
+          aria-label={t.self ? `${t.name} (you)` : t.name}
+          aria-pressed={pid === focusedKey}
+          onclick={() => toggleFocus(pid)}
+        >
+          <span class="rail-face" style={t.color ? `--tint:${t.color}` : ""}>
             <Avatar
               name={t.name}
               emoji={t.emoji}
@@ -1071,17 +1079,22 @@
               frame={t.frame}
               decoration={t.decoration}
               dc={t.dc}
-              size={34}
+              size={28}
             />
-            <span class="bub-name">{t.self ? "You" : t.name}</span>
-            {#if t.deafened}
-              <span class="bub-mark" aria-hidden="true"><Icon name="deafened" size={9} /></span>
-            {:else if t.muted}
-              <span class="bub-mark" aria-hidden="true"><Icon name="micOff" size={9} /></span>
-            {/if}
-          </button>
-        {/if}
+          </span>
+          {#if cam}
+            <!-- svelte-ignore a11y_media_has_caption -->
+            <video use:bindStream={cam.key} autoplay playsinline muted class:mirror={t.self && facing !== "environment"}></video>
+          {/if}
+          <span class="rail-name">{t.self ? "You" : t.name}</span>
+          {#if t.deafened}
+            <span class="rail-mark" aria-hidden="true"><Icon name="deafened" size={9} /></span>
+          {:else if t.muted}
+            <span class="rail-mark" aria-hidden="true"><Icon name="micOff" size={9} /></span>
+          {/if}
+        </button>
       {/each}
+    </div>
     </div>
   {:else}
     <div
@@ -1714,16 +1727,22 @@
      on where they sit in the file. */
   .voice-panel.on-stage.theater {
     max-height: none;
+    overflow: hidden;
+    padding: var(--sp-2) var(--sp-3);
+    gap: var(--sp-2);
   }
-  .voice-panel.on-stage .focus-main {
+  .voice-panel.on-stage .cinema {
     flex: 1 1 0;
     min-height: 0;
+  }
+  .voice-panel.on-stage .focus-main {
     max-height: none;
     aspect-ratio: auto;
     display: grid;
     place-items: center;
     background: transparent;
     width: 100%;
+    height: 100%;
     container-type: size;
   }
   /* A share is a picture of a screen, not leftover column. Filling 1fr made a
@@ -2077,15 +2096,32 @@
   .voice-panel.theater {
     max-height: calc(62 * var(--vh));
   }
-  .focus-main {
+  /* The picture is the room: a black frame the share is contained in, people
+     floating in the leftover letterbox rather than taking a second flex track
+     that shrinks the picture. */
+  .cinema {
     position: relative;
-    background: transparent;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    background: #000;
     border-radius: var(--radius-md);
     overflow: hidden;
-    aspect-ratio: 16 / 9;
-    max-height: calc(46 * var(--vh));
-    margin: 0 auto;
+    container-type: size;
+  }
+  .focus-main {
+    position: absolute;
+    inset: 0;
+    background: transparent;
+    overflow: hidden;
+    aspect-ratio: auto;
+    max-height: none;
+    margin: 0;
     width: 100%;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    container-type: size;
   }
   .focus-frame {
     position: relative;
@@ -2100,7 +2136,6 @@
     max-height: 100%;
     overflow: hidden;
     background: #000;
-    border-radius: inherit;
   }
   /* Speaking glow on the big focused view (participant focus only). */
   .focus-main.speaking {
@@ -2166,92 +2201,117 @@
   .fbtn:hover {
     background: rgba(0, 0, 0, 0.8);
   }
-  .strip {
+  .cinema-rail {
+    position: absolute;
+    z-index: 3;
     display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    align-items: center;
     gap: var(--sp-2);
+    padding: var(--sp-2);
+    pointer-events: none;
+    /* Default: the common leftover is above/below a 16:9 picture, so the
+       people sit along the bottom of the black rather than taking a row that
+       shrinks the picture. */
+    left: 50%;
+    bottom: 10px;
+    transform: translateX(-50%);
+    flex-direction: row;
+    max-width: calc(100% - 20px);
+    overflow: auto;
+    overscroll-behavior: contain;
   }
-  .strip .thumb {
+  /* Slot wider than 16:9: leftover is left/right, so the filmstrip stands up. */
+  @container (min-aspect-ratio: 16/9) {
+    .cinema-rail {
+      left: auto;
+      bottom: auto;
+      right: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      flex-direction: column;
+      max-width: none;
+      max-height: calc(100% - 20px);
+    }
+  }
+  .rail-item {
     position: relative;
-    width: 84px;
-    height: 48px;
+    flex: none;
+    width: 72px;
+    height: 72px;
     padding: 0;
-    border-radius: var(--radius-sm);
+    border: 2px solid transparent;
+    border-radius: var(--radius-md);
     overflow: hidden;
-    background: #000;
-    border: 1px solid var(--border);
+    background: var(--bg-1);
+    color: #fff;
     cursor: pointer;
-    flex-shrink: 0;
+    pointer-events: auto;
   }
-  .strip .thumb:hover {
+  .rail-item.share {
+    width: 112px;
+    height: 64px;
+    background: #000;
+  }
+  .rail-item:hover,
+  .rail-item.on {
     border-color: var(--accent);
   }
-  .strip .thumb video {
+  .rail-item.speaking {
+    border-color: var(--ok);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok) 40%, transparent);
+  }
+  .rail-face {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background:
+      radial-gradient(
+        80% 70% at 50% 20%,
+        color-mix(in srgb, var(--tint, var(--accent)) 28%, transparent),
+        transparent 65%
+      ),
+      var(--bg-1);
+  }
+  .rail-item video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
+    display: block;
   }
-  .thumb-badge {
+  .rail-item.share video {
+    object-fit: contain;
+  }
+  .rail-name {
     position: absolute;
-    left: 3px;
-    bottom: 3px;
-    color: #fff;
-    background: rgba(0, 0, 0, 0.55);
-    border-radius: 3px;
-    padding: 1px 3px;
-    display: grid;
-    place-items: center;
-  }
-  .bubble {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 10px 2px 2px;
-    border-radius: 999px;
-    border: 2px solid transparent;
-    background: color-mix(in srgb, var(--bg-1) 82%, transparent);
-    /* Same trap, same fix — the strip's name chips were the fifth surface. */
-    color: var(--text);
-    transition:
-      transform var(--dur-quick) ease,
-      border-color var(--dur-quick) ease;
-  }
-  .bub-name {
-    max-width: 110px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    padding: 10px 5px 4px;
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--fs-compact);
-    font-weight: 600;
+    background: linear-gradient(transparent, rgb(0 0 0 / 0.72));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
   }
-  .bub-mark {
+  .rail-mark {
+    position: absolute;
+    top: 4px;
+    right: 4px;
     display: grid;
     place-items: center;
-    flex: none;
     width: 16px;
     height: 16px;
     border-radius: 50%;
     color: #fff;
     background: color-mix(in srgb, var(--danger) 82%, #000);
-  }
-  .bubble:hover {
-    transform: translateY(-1px);
-  }
-  .bubble.speaking {
-    border-color: var(--ok);
-    animation: bubble-glow 1.6s ease-in-out infinite;
-  }
-  @keyframes bubble-glow {
-    0%,
-    100% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 40%, transparent);
-    }
-    50% {
-      box-shadow: 0 0 10px 3px color-mix(in srgb, var(--ok) 45%, transparent);
-    }
   }
   .screen-tile video {
     width: 100%;
@@ -2761,7 +2821,7 @@
   @media (prefers-reduced-motion: reduce) {
     .tile.speaking .ring,
     .focus-main.speaking,
-    .bubble.speaking,
+    .rail-item.speaking,
     .eq span,
     .dots span,
     .ringing {
@@ -2772,8 +2832,7 @@
       box-shadow: inset 0 0 0 2px var(--ok);
     }
     .ctl.callbtn:hover,
-    .tile:hover,
-    .bubble:hover {
+    .tile:hover {
       transform: none;
     }
   }
@@ -2793,7 +2852,7 @@
        panel (landscape, where the composer leaves it ~180px) they'd otherwise
        be flex-shrunk to a sliver rather than letting the panel scroll. */
     .stage,
-    .focus-main {
+    .cinema {
       flex-shrink: 0;
     }
     /* The local-mute badge owns this corner whenever it's engaged, so the
@@ -2842,8 +2901,7 @@
     }
     /* A 16:9 share on a phone is height-limited by its width, and the only
        width left to give it is our own 16px gutters. */
-    .focus-main {
-      width: auto;
+    .cinema {
       margin-inline: -16px;
       border-radius: 0;
     }
@@ -2868,12 +2926,13 @@
     .screen-tile {
       border-radius: 0;
     }
-    .strip .thumb {
-      width: 96px;
-      height: 56px;
+    .rail-item {
+      width: 64px;
+      height: 64px;
     }
-    .strip {
-      gap: 10px;
+    .rail-item.share {
+      width: 104px;
+      height: 60px;
     }
     /* Admit/Deny get their own full-width row at finger size. This is the
        moment that decides whether a stranger holding a public meeting link is
