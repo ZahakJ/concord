@@ -88,6 +88,8 @@
   import PostHeader from "./PostHeader.svelte";
   import EventNudges from "./EventNudges.svelte";
   import { pointOf, rectOf } from "./lib/place.js";
+  import { SETTINGS_ITEMS, inSettings } from "./lib/settingsnav.js";
+  import { GUILD_ITEMS, inGuildHub } from "./lib/guildnav.js";
 
   // ---- the dialogs ----
   //
@@ -168,20 +170,46 @@
   // The component for whatever S.modal names, or null while it is arriving.
   let ModalView = $state(null);
   let modalSlow = $state(false);
-  // WHICH dialog ModalView currently is. Reactive, because the template must
-  // not render it until it is the one the branch it is standing in expects —
-  // see the note over the ladder below.
+  // WHICH dialog ModalView currently is. The ladder below branches on THIS,
+  // not on S.modal.kind: the chunk arrives a tick after the kind changes, and
+  // rendering the old component on the new branch is how "Back from Your
+  // profile" used to crash (ModalProfile mounted as Settings, no identity).
+  //
+  // We do NOT blank ModalView while the next chunk is in flight. Blanking it
+  // was the whole-screen flash on every settings-rail click: the dialog
+  // unmounted, the scrim went with it, the app shone through, then the next
+  // page popped in. Keep showing the page you are on until the next one is
+  // actually in hand, then swap both together. Closing (kind === "") still
+  // tears it down immediately.
   let modalLoadedKind = $state("");
+  const railFamilyPreloaded = new Set();
+  function preloadRailFamily(kind) {
+    const key = inSettings(kind) ? "settings" : inGuildHub(kind) ? "guild" : "";
+    if (!key || railFamilyPreloaded.has(key)) return;
+    railFamilyPreloaded.add(key);
+    const items = key === "settings" ? SETTINGS_ITEMS : GUILD_ITEMS;
+    for (const it of items) {
+      if (it.kind !== kind) MODAL_LOADERS[it.kind]?.();
+    }
+  }
   $effect(() => {
     const kind = S.modal?.kind || "";
     // untrack: this effect WRITES modalLoadedKind, so reading it tracked would
     // make the effect its own trigger and reload the chunk on every settle.
     if (kind === untrack(() => modalLoadedKind)) return;
-    modalLoadedKind = "";
-    ModalView = null;
-    modalSlow = false;
+    if (!kind) {
+      modalLoadedKind = "";
+      ModalView = null;
+      modalSlow = false;
+      return;
+    }
     const load = MODAL_LOADERS[kind];
-    if (!load) return;
+    if (!load) {
+      modalLoadedKind = "";
+      ModalView = null;
+      return;
+    }
+    preloadRailFamily(kind);
     const slow = setTimeout(() => (modalSlow = true), 150);
     load().then(
       (m) => {
@@ -1843,22 +1871,19 @@
        which is what lets fifty dialogs stay off the boot bundle without any of
        them losing the props they are called with.
 
-       The `modalLoadedKind === S.modal.kind` guard is load-bearing. S.modal
-       changes synchronously and its chunk arrives a tick later, so for that one
-       tick the ladder had already moved to the new branch while ModalView was
-       still the OLD component — which then mounted with the NEW branch's props.
-       Mostly that is an invisible flash of the wrong panel. Going back from
-       Your profile to Settings it was a crash: ModalProfile got rendered by the
-       `settings` branch, with no `identity` prop, and `identity.displayName`
-       threw before Svelte could finish the update — so the dialog never
-       changed and back appeared to do nothing at all. That is the whole of
-       "back from the profile page doesn't return to Settings". -->
-  {#if ModalView && modalLoadedKind === S.modal?.kind}
-    {#if S.modal?.kind === "create"}
+       The ladder branches on `modalLoadedKind`, not `S.modal.kind`. S.modal
+       changes synchronously and its chunk arrives a tick later; putting the
+       OLD component on the NEW branch is how "Back from Your profile" crashed
+       (ModalProfile mounted as Settings, no identity). Branching on the kind
+       we have actually loaded keeps the props and the component in lockstep.
+       And we hold the current page on screen until the next chunk is in hand
+       (see the loader above), so a rail click cannot blank the dialog. -->
+  {#if S.modal && ModalView && modalLoadedKind}
+    {#if modalLoadedKind === "create"}
       <ModalView onSubmit={createGuild} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "channel"}
+    {:else if modalLoadedKind === "channel"}
       <ModalView onSubmit={createChannel} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "category"}
+    {:else if modalLoadedKind === "category"}
       <ModalView
         onSubmit={createCategory}
         onClose={() => (S.modal = null)}
@@ -1866,92 +1891,92 @@
         hint="Groups channels in the sidebar."
         placeholder="Category name"
       />
-    {:else if S.modal?.kind === "emoji"}
+    {:else if modalLoadedKind === "emoji"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "gifs"}
+    {:else if modalLoadedKind === "gifs"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "doodle"}
+    {:else if modalLoadedKind === "doodle"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "game"}
+    {:else if modalLoadedKind === "game"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "soundboard"}
+    {:else if modalLoadedKind === "soundboard"}
       <!-- onPick is set when the studio is opened from a voice room, where the
            outcome is a sound played for everyone rather than a message sent. -->
       <ModalView onPick={S.modal.onPick || null} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "meme"}
+    {:else if modalLoadedKind === "meme"}
       <!-- `edit` reopens a meme already in the channel; `src` starts a new one
            from a picture. They are mutually exclusive — see ModalMeme. -->
       <ModalView src={S.modal.src || ""} edit={S.modal.edit || null} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "forward"}
+    {:else if modalLoadedKind === "forward"}
       <ModalView message={S.modal.message} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "report"}
+    {:else if modalLoadedKind === "report"}
       <ModalView message={S.modal.message} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "bans"}
+    {:else if modalLoadedKind === "bans"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "members"}
+    {:else if modalLoadedKind === "members"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "mute"}
+    {:else if modalLoadedKind === "mute"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "ownership"}
+    {:else if modalLoadedKind === "ownership"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "roles"}
+    {:else if modalLoadedKind === "roles"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "modLog"}
+    {:else if modalLoadedKind === "modLog"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "guildHub"}
+    {:else if modalLoadedKind === "guildHub"}
       <!-- The phone's drill-down list. On a desktop openGuildHub goes straight
            to guildSettings with the rail (lib/guildnav.js). -->
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "guildSettings"}
+    {:else if modalLoadedKind === "guildSettings"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "exportGuild"}
+    {:else if modalLoadedKind === "exportGuild"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "leaveGuild"}
+    {:else if modalLoadedKind === "leaveGuild"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "shortcuts"}
+    {:else if modalLoadedKind === "shortcuts"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "whatsNew"}
+    {:else if modalLoadedKind === "whatsNew"}
       <ModalView version={S.modal.version} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "saved"}
+    {:else if modalLoadedKind === "saved"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "when"}
+    {:else if modalLoadedKind === "when"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "scheduled"}
+    {:else if modalLoadedKind === "scheduled"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "poll"}
+    {:else if modalLoadedKind === "poll"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "compose"}
+    {:else if modalLoadedKind === "compose"}
       <ModalView
         initial={S.modal.initial || ""}
         editId={S.modal.editId || ""}
         onSent={S.modal.onSent}
         onClose={() => (S.modal = null)}
       />
-    {:else if S.modal?.kind === "disappear"}
+    {:else if modalLoadedKind === "disappear"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "backup"}
+    {:else if modalLoadedKind === "backup"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "retention"}
+    {:else if modalLoadedKind === "retention"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "stats"}
+    {:else if modalLoadedKind === "stats"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "chronicle"}
+    {:else if modalLoadedKind === "chronicle"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "chronicleImport"}
+    {:else if modalLoadedKind === "chronicleImport"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "blocked"}
+    {:else if modalLoadedKind === "blocked"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "requests"}
+    {:else if modalLoadedKind === "requests"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "events"}
+    {:else if modalLoadedKind === "events"}
       <!-- onJoinVoice: a voice-channel-located event's Join enters the call
            through the same lifecycle a sidebar click uses (knock included). -->
       <ModalView onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
-    {:else if S.modal?.kind === "myCalendar"}
+    {:else if modalLoadedKind === "myCalendar"}
       <ModalView onClose={() => (S.modal = null)} onJoinVoice={joinVoice} />
-    {:else if S.modal?.kind === "storyCompose"}
+    {:else if modalLoadedKind === "storyCompose"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "storyViewer"}
+    {:else if modalLoadedKind === "storyViewer"}
       <!-- Not a Modal: a fullscreen overlay (the studios' tier). It still
            routes through S.modal so the tray can open it from anywhere, and it
            registers its own overlay closer for Esc / the hardware back button. -->
@@ -1960,22 +1985,22 @@
         start={S.modal.start || 0}
         onClose={() => (S.modal = null)}
       />
-    {:else if S.modal?.kind === "newDM"}
+    {:else if modalLoadedKind === "newDM"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "renameGroup"}
+    {:else if modalLoadedKind === "renameGroup"}
       <ModalView
         guildId={S.modal.guildId}
         current={S.modal.current}
         onClose={() => (S.modal = null)}
       />
-    {:else if S.modal?.kind === "renameChannel"}
+    {:else if modalLoadedKind === "renameChannel"}
       <ModalView
         guildId={S.modal.guildId}
         channelId={S.modal.channelId}
         current={S.modal.current}
         onClose={() => (S.modal = null)}
       />
-    {:else if S.modal?.kind === "channelTopic"}
+    {:else if modalLoadedKind === "channelTopic"}
       <ModalView
         channel={S.modal.channel}
         onSubmit={(t) => {
@@ -1984,11 +2009,11 @@
         }}
         onClose={() => (S.modal = null)}
       />
-    {:else if S.modal?.kind === "channelLinks"}
+    {:else if modalLoadedKind === "channelLinks"}
       <ModalView channel={S.modal.channel} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "publish"}
+    {:else if modalLoadedKind === "publish"}
       <ModalView message={S.modal.message} channel={S.modal.channel} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "meeting"}
+    {:else if modalLoadedKind === "meeting"}
       <ModalView
         code={S.modal.code}
         guestLink={S.modal.guestLink || ""}
@@ -1996,14 +2021,14 @@
         expires={S.modal.expires || 0}
         onClose={() => (S.modal = null)}
       />
-    {:else if S.modal?.kind === "meetingReady"}
+    {:else if modalLoadedKind === "meetingReady"}
       <!-- Asked before the meeting is created; onReady carries on with it. -->
       <ModalView onReady={S.modal?.onReady} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "newPost"}
+    {:else if modalLoadedKind === "newPost"}
       <ModalView forum={S.modal.forum} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "forumSettings"}
+    {:else if modalLoadedKind === "forumSettings"}
       <ModalView forum={S.modal.forum} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "rename"}
+    {:else if modalLoadedKind === "rename"}
       <ModalView
         onSubmit={renameGuild}
         onClose={() => (S.modal = null)}
@@ -2011,38 +2036,38 @@
         hint="Renames the guild for everyone."
         placeholder={activeGuild()?.name || "New name"}
       />
-    {:else if S.modal?.kind === "profile"}
+    {:else if modalLoadedKind === "profile"}
       <ModalView identity={S.identity} onSubmit={saveProfile} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "settings"}
+    {:else if modalLoadedKind === "settings"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "notifications"}
+    {:else if modalLoadedKind === "notifications"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "inbox"}
+    {:else if modalLoadedKind === "inbox"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "privacy"}
+    {:else if modalLoadedKind === "privacy"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "bookings"}
+    {:else if modalLoadedKind === "bookings"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "connection"}
+    {:else if modalLoadedKind === "connection"}
       <ModalView
         onClose={() => (S.modal = null)}
         onSaved={() => flash("Rendezvous saved", "success")}
       />
-    {:else if S.modal?.kind === "reach"}
+    {:else if modalLoadedKind === "reach"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "linkDevice"}
+    {:else if modalLoadedKind === "linkDevice"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "appearance"}
+    {:else if modalLoadedKind === "appearance"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "devices"}
+    {:else if modalLoadedKind === "devices"}
       <ModalView onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "join"}
+    {:else if modalLoadedKind === "join"}
       <ModalView error={S.modal.error} onSubmit={joinGuild} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "guildInvite"}
+    {:else if modalLoadedKind === "guildInvite"}
       <ModalView invite={S.modal.invite} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "invite"}
+    {:else if modalLoadedKind === "invite"}
       <ModalView code={S.modal.code} onCopy={copy} onClose={() => (S.modal = null)} />
-    {:else if S.modal?.kind === "confirm"}
+    {:else if modalLoadedKind === "confirm"}
       <ModalView
         title={S.modal.title}
         body={S.modal.body}

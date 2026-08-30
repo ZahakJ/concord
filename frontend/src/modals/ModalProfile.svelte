@@ -7,15 +7,7 @@
   import Banner from "../Banner.svelte";
   import BannerStudio from "../BannerStudio.svelte";
   import DecorStudio from "../DecorStudio.svelte";
-  import EffectStudio from "../EffectStudio.svelte";
-  import CardFrameStudio from "../CardFrameStudio.svelte";
-  import CardScene from "../CardScene.svelte";
-  import CardFrame from "../CardFrame.svelte";
-  import FxLayer from "../FxLayer.svelte";
   import { DECORATION_BY_ID, DECORATIONS, COLORWAYS } from "../lib/decorations.js";
-  import { CARD_EFFECT_BY_ID, CARD_EFFECTS, cardEffect } from "../lib/cardfx.js";
-  import { CARD_FRAME_BY_ID, CARD_FRAMES } from "../lib/cardframes.js";
-  import { CARD_SCENE_BY_ID, CARD_SCENES, cardScene } from "../lib/cardscenes.js";
   import GameShelf from "../GameShelf.svelte";
   import { RING_BY_ID, RINGS } from "../lib/rings.js";
   import { api } from "../lib/api.js";
@@ -55,8 +47,6 @@
   let dc = $state(identity.style?.dc || ""); // the decoration's colourway
   let cf = $state(identity.style?.cf || "");
   let decorStudio = $state(false);
-  let cfStudio = $state(false);
-  let effectStudio = $state(false);
   let effect = $state(identity.effect || "");
   let games = $state(identity.games || []);
 
@@ -110,31 +100,6 @@
   // Every style field has to be listed here or its value is silently dropped
   // on save — `dec` went missing that way once.
   const styleObj = $derived({ speed, dir, glow, width: ringW, angle, fill, sat, pal, dec, dc, cf });
-  // What the two card studios need in order to preview YOUR card rather than a
-  // wireframe. One object, so a new field reaches both without a third call
-  // site learning about it.
-  //
-  // `style` is the WHOLE style object, not the two banner fields it used to
-  // carry. Avatar and AvatarRing read sat/pal/speed/dir/glow/width out of it, so
-  // a partial one previewed your card wearing a default ring at default speed
-  // with your colourway missing — the same "list every field or lose it" trap
-  // that ate `dec` once already, in a second place. The frame and the effect
-  // travel too, so the frame studio can draw your effect and the effect studio
-  // your frame.
-  const cardProps = $derived({
-    name: name || "You",
-    emoji,
-    avatar,
-    banner,
-    style: styleObj,
-    ring: frame,
-    frame: cf,
-    effect,
-    dec,
-    status,
-  });
-  const fxOf = $derived(effect ? cardEffect(effect) : null);
-  const sceneOf = $derived(effect ? cardScene(effect) : null);
   let fileInput;
 
   const EMOJIS = ["😀", "😎", "🦊", "🐸", "👾", "🧙", "🚀", "🌸", "⚡", "🔥", "🌙", "🎮"];
@@ -307,19 +272,8 @@
          mostly art instead of mostly empty background. Hover the banner and it
          blurs behind an "Edit banner" call to action — the banner IS the
          button. -->
-    <!-- The hero has to be wearing everything the live card wears. It knew
-         about the banner, the avatar and the decoration, and not about the card
-         frame or the card effect — so the two cosmetics defined by what they do
-         to a card were the two this card would not show you. The frame is a
-         SIBLING, as it is on the real popover, because its art overhangs. -->
-    <div class="pv-stage" class:framed={!!cf}>
-      {#if cf}
-        <CardFrame id={cf} {color} color2={color2 || color} />
-      {/if}
-      <div class="pv-card card-effect-{effect || 'none'}" class:framed={!!cf}>
-      {#if fxOf}
-        <span class="pv-fx"><FxLayer fx={fxOf.fx} seed={effect} /></span>
-      {/if}
+    <div class="pv-stage">
+      <div class="pv-card">
       <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
       <Banner
         {banner}
@@ -332,12 +286,6 @@
       >
         <span class="banner-edit"><Icon name="edit" size={14} /> Edit banner</span>
       </Banner>
-      <!-- After the banner, before the avatar: a drawn scene IS the art and
-           its subject lives in the top third, which a 120px banner would bury.
-           Same ordering as the popover, for the same reason. -->
-      {#if sceneOf}
-        <span class="pv-fx"><CardScene id={effect} {color} {color2} /></span>
-      {/if}
       <div class="pv-head">
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
         <div
@@ -522,12 +470,10 @@
     </div>
   </div>
 
-  <!-- Three named things: what you wear on your avatar, the art drawn around
-       your card, and what plays across it. Those are three different objects
-       on three different surfaces, so they are three rows. What you WEAR is
-       one row and not two — a gradient ring and a drawn crown are the same
-       choice, and offering them separately only ever produced people wearing
-       both. -->
+  <!-- What you wear on the avatar. A gradient ring and a drawn crown are the
+       same slot — offering them separately only ever produced people wearing
+       both. Card frames and card-scene overlays used to live here too; they
+       fought the banner and the face instead of framing them. -->
   <div class="field">
     <span class="muted">Avatar decoration</span>
     <button type="button" class="ring-entry" onclick={() => (decorStudio = true)}>
@@ -552,48 +498,6 @@
         <span class="tiny muted"
           >{DECORATIONS.length} drawn · {RINGS.length - 1} gradient · {COLORWAYS.length} colours</span
         >
-      </span>
-      <span class="chev">›</span>
-    </button>
-  </div>
-
-  <div class="field">
-    <span class="muted">Card frame</span>
-    <button type="button" class="ring-entry" onclick={() => (cfStudio = true)}>
-      <span class="cf-chip" class:on={!!cf}>
-        <span class="cf-mini">
-          {#if cf}
-            <CardFrame id={cf} {color} color2={color2 || color} />
-          {/if}
-        </span>
-      </span>
-      <span class="re-text">
-        <strong>{CARD_FRAME_BY_ID[cf]?.name || "None"}</strong>
-        <span class="tiny muted">{CARD_FRAMES.length} frames</span>
-      </span>
-      <span class="chev">›</span>
-    </button>
-  </div>
-
-  <div class="field">
-    <span class="muted">Profile effect</span>
-    <button type="button" class="ring-entry" onclick={() => (effectStudio = true)}>
-      <!-- A chip in the shape of a preview slot has to BE one. This was a
-           gradient of the wearer's two colours, which changed when they picked
-           a colour and never when they picked an effect — so the one row whose
-           whole job is to say what is on said nothing about it. It runs the
-           real components now, the same ones the picker and the card use, so
-           it cannot drift from what it claims. -->
-      <span class="fx-chip" style="--c1:{color};--c2:{color2 || color}">
-        {#if CARD_SCENE_BY_ID[effect]}
-          <CardScene id={effect} {color} color2={color2 || color} scale={0.28} />
-        {:else if CARD_EFFECT_BY_ID[effect]}
-          <FxLayer fx={CARD_EFFECT_BY_ID[effect].fx} seed={effect} scale={0.28} />
-        {/if}
-      </span>
-      <span class="re-text">
-        <strong>{CARD_SCENE_BY_ID[effect]?.name || CARD_EFFECT_BY_ID[effect]?.name || (effect ? effect : "None")}</strong>
-        <span class="tiny muted">{CARD_SCENES.length} scenes · {CARD_EFFECTS.length} fields</span>
       </span>
       <span class="chev">›</span>
     </button>
@@ -655,45 +559,15 @@
     />
   {/if}
 
-  {#if effectStudio}
-    <EffectStudio
-      current={effect}
-      card={cardProps}
-      {color}
-      {color2}
-      onApply={(r) => {
-        effect = r.effect;
-        effectStudio = false;
-      }}
-      onClose={() => (effectStudio = false)}
-    />
-  {/if}
-
-  {#if cfStudio}
-    <CardFrameStudio
-      current={cf}
-      card={cardProps}
-      {color}
-      {color2}
-      onApply={(r) => {
-        cf = r.cf;
-        cfStudio = false;
-      }}
-      onClose={() => (cfStudio = false)}
-    />
-  {/if}
-
   {#if bannerStudio}
     <BannerStudio
       {banner}
       {color}
       {color2}
       {angle}
-      overlay={effect}
       onApply={(r) => {
         banner = r.banner;
         angle = r.angle;
-        effect = r.effect;
         bannerStudio = false;
       }}
       onClose={() => (bannerStudio = false)}
@@ -702,57 +576,6 @@
 </RailShell>
 
 <style>
-  /* The profile-effect row has no avatar to preview against, so it shows the
-     card's own colours instead — enough to say "this is about the card". */
-  .fx-chip {
-    position: relative;
-    width: 30px;
-    height: 30px;
-    flex: none;
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-    background: linear-gradient(140deg, var(--c1), var(--c2));
-  }
-
-  /* The card-frame row previews a frame, not a colour: a little card with a
-     border drawn around it, filled in when one is chosen. */
-  /* A frame's identity is its OVERHANG — the battlements above the card, the
-     arch over it, the curtain either side. The first version of this chip was
-     24×32 with the art squashed into it and clipped to the box, which threw
-     away the only part that identifies anything: twelve frames rendered as
-     twelve thin coloured outlines, and castle keep was indistinguishable from
-     cathedral.
-     So the chip is a BOX around a miniature card rather than a card itself.
-     The mini keeps the 272×400 proportion the art is authored in, so nothing
-     is squashed, and the box around it is the room the overhang needs. */
-  /* 30px, the same slot the avatar and the effect chip occupy: three rows one
-     under another with a 40px preview in the middle put the middle row's name
-     ten pixels right of its neighbours'. The mini card inside is what shrank;
-     the chip does not clip, so a frame's overhang still hangs over. */
-  .cf-chip {
-    position: relative;
-    width: 30px;
-    height: 30px;
-    flex: none;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .cf-mini {
-    position: relative;
-    width: 17px;
-    height: 25px;
-    border-radius: 2px;
-    background: var(--bg-1);
-    box-shadow: 0 0 0 1.5px var(--bg-3);
-  }
-  .cf-chip.on .cf-mini {
-    box-shadow: 0 0 0 1.5px var(--accent);
-  }
-  .cf-chip.on {
-    box-shadow: 0 0 0 3px var(--accent);
-  }
-
   .small-btn {
     font-size: 12px;
     padding: 4px 10px;
@@ -800,17 +623,8 @@
     flex-direction: column;
     gap: var(--sp-1);
   }
-  /* A card frame's art overhangs its card on purpose, and on the real popover
-     it overhangs into the app. Inside a settings sheet it has to stop at the
-     sheet: this is the positioned, clipping box that gives it somewhere to be
-     — without it the frame anchors to the nearest positioned ancestor, which
-     turned out to be the viewport, and painted a cathedral across the app. */
   .pv-stage {
     position: relative;
-  }
-  .pv-stage.framed {
-    overflow: hidden;
-    padding: 24px 22px;
   }
   .pv-card {
     position: relative;
@@ -819,17 +633,6 @@
     overflow: hidden;
     background: var(--bg-1);
     padding-bottom: var(--sp-3);
-  }
-  /* A frame draws the card's edge; the card's own border under it reads as a
-     seam. */
-  .pv-card.framed {
-    border-color: transparent;
-  }
-  .pv-fx {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
   }
   .pv-head,
   .pv-id {

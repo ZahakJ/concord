@@ -25,29 +25,6 @@
     flex-direction: column;
     gap: 7px;
     text-align: left;
-    /* Groups arrive a beat apart so a panel resolves top-down instead of
-       landing as one slab. */
-    animation: grp-in 0.28s ease both;
-  }
-  .grp:nth-child(2) {
-    animation-delay: 0.04s;
-  }
-  .grp:nth-child(3) {
-    animation-delay: 0.08s;
-  }
-  .grp:nth-child(4) {
-    animation-delay: var(--dur-quick);
-  }
-  @keyframes grp-in {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .grp {
-      animation: none;
-    }
   }
   .sec-label {
     font-size: var(--fs-small);
@@ -58,7 +35,7 @@
     padding-left: 2px;
   }
   .card {
-    background: var(--bg-1);
+    background: color-mix(in srgb, var(--bg-0) 55%, var(--bg-elevated));
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     overflow: hidden;

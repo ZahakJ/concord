@@ -232,7 +232,7 @@
         <span class="grp-sub">{sub}</span>
       </button>
       {#if isOpen(id)}
-        <div class="grp-body" transition:slide={{ duration: 200 }}>{@render body()}</div>
+        <div class="grp-body" out:slide={{ duration: 200 }}>{@render body()}</div>
       {/if}
     </section>
   {/snippet}
@@ -584,7 +584,7 @@
     flex-direction: column;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    background: var(--bg-1);
+    background: color-mix(in srgb, var(--bg-0) 55%, var(--bg-elevated));
     text-align: left;
   }
   .grp-head {

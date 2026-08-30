@@ -20,19 +20,10 @@
     color = "#14a394",
     color2 = "",
     angle = 120,
-    overlay = "", // NOT `effect`: that name shadows the $effect rune
     onApply,
     onClose,
   } = $props();
   $effect(() => pushLayer("studio", () => onClose?.()));
-
-  // The card effect is chosen in its own picker now (EffectStudio), not here.
-  // It lived here on the reasoning that an overlay only affected the banner;
-  // that stopped being true once it played across the whole card, and keeping
-  // it here is why the choice stayed at five while the engine underneath had
-  // seventeen kinds. The value is still carried through untouched so applying
-  // a banner never clears it.
-  let fx = $state(overlay);
 
   // The banner box the card actually shows: 3:1-ish.
   const OUT_W = 900;
@@ -130,17 +121,17 @@
   const onUp = () => (dragging = false);
 
   function apply() {
-    if (tab === "presets" && sel) return onApply({ banner: `preset:${sel}`, angle: ang, effect: fx });
+    if (tab === "presets" && sel) return onApply({ banner: `preset:${sel}`, angle: ang });
     if (tab === "image" && rawImg) {
       const cv = document.createElement("canvas");
       cv.width = OUT_W;
       cv.height = OUT_H;
       draw(cv, OUT_W, OUT_H);
-      return onApply({ banner: cv.toDataURL("image/jpeg", 0.85), angle: ang, effect: fx });
+      return onApply({ banner: cv.toDataURL("image/jpeg", 0.85), angle: ang });
     }
     // "Your colors" (and a cleared banner) both mean: no banner asset — the
     // card falls back to the member's own gradient, at the angle they chose.
-    onApply({ banner: "", angle: ang, effect: fx });
+    onApply({ banner: "", angle: ang });
   }
 </script>
 
@@ -162,7 +153,7 @@
 
     {#if tab === "presets"}
       <!-- The selection, shown at real size and really moving. -->
-      <div class="hero-wrap card-effect-{fx || 'none'}">
+      <div class="hero-wrap">
         <Banner banner={sel ? `preset:${sel}` : ""} {color} {color2} style={{ angle: ang }} class="hero banner" />
       </div>
       <div class="shelves">
@@ -225,7 +216,7 @@
       </div>
     {:else}
       <div class="colors-pane">
-        <div class="hero-wrap card-effect-{fx || 'none'}">
+        <div class="hero-wrap">
           <Banner banner="" {color} {color2} style={{ angle: ang }} class="hero banner" />
         </div>
         <label class="zoom">
@@ -237,7 +228,7 @@
     {/if}
 
     <div class="bs-foot">
-      <button class="ghost" onclick={() => onApply({ banner: "", angle: ang, effect: fx })}>
+      <button class="ghost" onclick={() => onApply({ banner: "", angle: ang })}>
         Remove banner
       </button>
       <span class="spacer"></span>
@@ -328,8 +319,7 @@
     background: var(--accent-soft);
     color: var(--text);
   }
-  /* The hero: the chosen scene at card size, animating for real — with the
-     overlay playing over it, exactly as the profile card will show it. */
+  /* The hero: the chosen scene at card size, animating for real. */
   .hero-wrap {
     position: relative;
     flex: none;
@@ -339,33 +329,6 @@
   }
   .bs :global(.hero) {
     height: 118px;
-  }
-  .overlays {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-  }
-  .ovs {
-    display: flex;
-    gap: 5px;
-    flex-wrap: wrap;
-  }
-  .ov {
-    padding: 4px 11px;
-    font-size: 12px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: transparent;
-    color: var(--text-muted);
-  }
-  .ov:hover {
-    background: var(--bg-3);
-    color: var(--text);
-  }
-  .ov.on {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-    color: var(--text);
   }
   .shelves {
     overflow-y: auto;

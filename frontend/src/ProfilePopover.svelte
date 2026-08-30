@@ -38,10 +38,6 @@
   import { splitStatus } from "./lib/presence.js";
   import Banner from "./Banner.svelte";
   import { moderationItems, closeCard } from "./lib/moderation.svelte.js";
-  import FxLayer from "./FxLayer.svelte";
-  import { cardFxTable, cardFramesTable, cardScenesTable } from "./lib/cosmetics.svelte.js";
-  import CardFrame from "./CardFrame.svelte";
-  import CardScene from "./CardScene.svelte";
   // Escape with the caret in the nickname or the quick-DM box steps out of the
   // field; only the press after that closes the card. See lib/fieldescape.js.
   import { fieldEscape } from "./lib/fieldescape.js";
@@ -108,22 +104,6 @@
   }
 
   const mem = $derived(S.profilePopover ? memberByFpr(S.profilePopover.fingerprint) : null);
-  // The scenic frame around the card. Resolved here, failing CLOSED: the id
-  // arrives on a peer's broadcast profile, so one this build has never heard of
-  // must draw nothing rather than anything at all.
-  // The three cosmetic libraries arrive on their own chunks; until they do the
-  // lookups answer "no", which is the same answer they give for an id this
-  // build has never heard of, and every use of them is behind an {#if}. The
-  // card is laid out by its own content, so a scene or a frame appearing a
-  // frame later moves nothing.
-  const fxTbl = $derived(cardFxTable());
-  const frameTbl = $derived(cardFramesTable());
-  const sceneTbl = $derived(cardScenesTable());
-  const cardEffect = (id) => (fxTbl && id ? fxTbl.cardEffect(id) : null);
-  const cardScene = (id) => (sceneTbl && id ? sceneTbl.cardScene(id) : null);
-  const cf = $derived(
-    mem?.style?.cf && frameTbl?.cardFrame(mem.style.cf) ? mem.style.cf : "",
-  );
   // Clear per-person editor state when the card switches to a different person.
   $effect(() => {
     S.profilePopover?.fingerprint;
@@ -540,12 +520,6 @@
     <!-- Sheet presentation gets a dimming scrim; tap it to dismiss. -->
     <button bind:this={scrimEl} class="pp-scrim" onclick={closeProfilePopover} aria-label="Close profile"></button>
   {/if}
-  <!-- The card and its frame share one positioned wrapper. The card itself has
-       to keep `overflow: hidden` (rounded corners, an internal scroll when the
-       safety number is revealed), and a scenic frame is mostly the art that
-       leaves the card — towers above the top edge, branches past the corners.
-       So the frame is a sibling of .pop, not a child of it, and the wrapper is
-       what gets measured and placed. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     class="pop-wrap"
@@ -558,26 +532,11 @@
     onmouseenter={holdProfilePopover}
     onmouseleave={() => !S.contextMenu && scheduleCloseProfilePopover()}
   >
-    {#if cf}
-      <CardFrame id={cf} color={mem.color} color2={mem.color2} />
-    {/if}
   <div
-    class="pop {fxTbl && sceneTbl && mem.effect && !cardEffect(mem.effect) && !cardScene(mem.effect)
-      ? `card-effect-${mem.effect}`
-      : ''}"
+    class="pop"
     class:sheet={S.isMobile}
-    class:framed={!!cf}
-    class:haseffect={!!mem.effect}
     bind:this={popEl}
   >
-    <!-- The card effect. One `effect` id, two libraries: a drawn scene
-         (lib/cardscenes.js) is painted as SVG, anything the particle engine
-         knows (lib/cardfx.js) is a field from lib/fx.js, and the four original
-         ids still fall through to the CSS class above so a profile saved
-         before any of this still renders. Both lookups fail closed. -->
-    {#if cardEffect(mem.effect)}
-      <span class="pop-fx"><FxLayer fx={cardEffect(mem.effect).fx} seed={mem.effect} /></span>
-    {/if}
     <!-- Banner: a live preset scene wins, then an uploaded image, then the
          member's two theme colors as a gradient. It's tall, and the avatar
          straddles its bottom edge — the card is art, not empty background. -->
@@ -588,18 +547,6 @@
       style={mem.style}
       class="banner"
     />
-    <!-- A drawn scene renders AFTER the banner and a particle field before it,
-         and that ordering is the whole design. Both layers sit at z-index 0,
-         so DOM order alone decides which side of the banner they land on: a
-         field of specks wants to fall past the banner art, but a scene IS the
-         art — its subject lives in the top third, and behind a 112px banner
-         that subject is simply invisible. Painted here it covers the banner
-         and stops short of the avatar, which is z-index 1. -->
-    {#if cardScene(mem.effect)}
-      <span class="pop-fx">
-        <CardScene id={mem.effect} color={mem.color} color2={mem.color2} />
-      </span>
-    {/if}
     <div class="head">
       <div class="av-wrap">
         {#if mem.color}
@@ -843,10 +790,9 @@
     </div>
   </div>
     <!-- The two over-image controls are siblings of .pop, not children of it.
-         A card frame's front layer draws over the card, and .pop is its own
-         stacking context — leaving these inside it put a proscenium's valance
-         on top of the sheet's grip, which is the only visible way off the
-         card on a phone. Out here they can sit above the art. -->
+         .pop is its own stacking context, and leaving these inside it put
+         banner art on top of the sheet's grip — the only visible way off the
+         card on a phone. Out here they sit above the art. -->
     {#if S.isMobile}
       <!-- The grip DRAGS. It used to be a button that closed on click and did
            nothing at all under a pull, which is worse than having no handle:
@@ -879,23 +825,9 @@
 {/if}
 
 <style>
-  /* The card effect sits behind everything and is inert: it decorates a card
-     people click through, so it must not eat a single pointer event. Clipped
-     to the card's radius or particles would spill past the rounded corner. */
-  .pop-fx {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    overflow: hidden;
-    border-radius: inherit;
-    pointer-events: none;
-  }
-
-  /* The wrapper carries the placement; the card carries the surface. Splitting
-     them is what lets a card frame overhang: .pop still clips its own content
-     to its rounded corners, while the frame's SVGs are siblings that nothing
-     clips. The wrapper shrink-wraps the card, so the measurement the placement
-     effect does is unchanged. */
+  /* The wrapper carries the placement; the card carries the surface. The
+     wrapper shrink-wraps the card, so the measurement the placement effect
+     does is the card's own box. */
   .pop-wrap {
     position: fixed;
     z-index: 250;
@@ -920,42 +852,6 @@
     max-height: calc(100 * var(--dvh) - 16px);
     overflow-y: auto;
     overscroll-behavior: contain;
-  }
-  /* Legibility is the TEXT's problem to solve, not the art's.
-     The first attempt laid the card's background back over the lower two
-     thirds at nearly full strength. It worked, and it turned a whole-card
-     effect into a banner with a lid on it — which is not what an effect is
-     for. Dimming the picture to protect the words gives up the thing being
-     paid for.
-     So the words carry their own contrast instead. A soft dark halo, drawn
-     around every glyph, separates any text colour from any backdrop without
-     touching a pixel of what is behind it: it is the reason white subtitles
-     are readable over a bright sky. Two shadows rather than one — a tight
-     dark one for the edge and a wider soft one for the halo — because a
-     single tight shadow is invisible against a busy background and a single
-     wide one just makes the text look smudged.
-     The `--fx-lift` custom property carries it so every text surface on the
-     card opts in by name and none of them can drift apart.
-
-     Two conditions on it, both learned the hard way. It applies only when
-     there IS an effect: on the great majority of cards, which have none, a
-     triple shadow was being drawn around every glyph to protect them from a
-     flat surface, and the name simply looked slightly dirty. And the halo is
-     the PAGE's colour, not black: the point is to be the opposite of the ink,
-     so on the daylight packs — where the ink is near-black — a near-black halo
-     was not separating the name from anything, it was smudging it. */
-  .pop.haseffect {
-    --fx-lift:
-      0 1px 1px color-mix(in srgb, var(--fx-halo) 92%, transparent),
-      0 0 3px color-mix(in srgb, var(--fx-halo) 85%, transparent),
-      0 0 9px color-mix(in srgb, var(--fx-halo) 60%, transparent);
-  }
-  .pop.haseffect .name-row,
-  .pop.haseffect .status-text,
-  .pop.haseffect .bio,
-  .pop.haseffect .sec-label,
-  .pop.haseffect .role-pills {
-    text-shadow: var(--fx-lift);
   }
   @keyframes pop-in {
     from {
@@ -1039,16 +935,6 @@
     padding: 8px 18px 18px;
     gap: 6px;
   }
-  /* A frame's side rails are ~16 of its 272 authoring units. On a phone the
-     sheet is the full screen width, so those rails scale up with it and start
-     eating the first letter of every line. Give the body the difference back. */
-  .pop.sheet.framed .body {
-    padding-left: 28px;
-    padding-right: 28px;
-  }
-  .pop.sheet.framed .head {
-    padding: 0 24px;
-  }
   .pop.sheet .name-row strong {
     font-size: var(--fs-title);
   }
@@ -1111,18 +997,7 @@
   .more-btn:hover {
     background: rgba(0, 0, 0, 0.6);
   }
-  /* ── the text sits ABOVE the art ──────────────────────────────────────────
-     A card effect is a positioned layer and the name, status and bio were
-     not, which in CSS means the art paints over the words — not beside them,
-     over them. The scene library compensates by holding everything below
-     y=150 to a whisper, and that is a rule art has to remember rather than a
-     guarantee the card makes. It was not enough: a warm scene washed the name
-     out completely and a grid drew straight through it.
-
-     Positioning these is the guarantee. The art keeps the whole banner, where
-     its subject lives and where there is nothing to read; the words keep
-     themselves. Nothing is lost, because a scene reaching into the text band
-     was only ever atmosphere down there. */
+  /* Avatar and name sit above the banner they straddle. */
   .head,
   .body {
     position: relative;
@@ -1184,16 +1059,6 @@
     color: var(--ok-text);
     background: color-mix(in srgb, var(--ok) 14%, transparent);
     border: 1px solid color-mix(in srgb, var(--ok) 35%, transparent);
-  }
-  /* Side rails are up to 16 of the frame's 272 authoring units, which is wider
-     than the card's own 14px gutter — enough to nibble the first letter of
-     every line. Framed cards get their gutter back. */
-  .pop.framed .head {
-    padding: 0 19px;
-  }
-  .pop.framed .body {
-    padding-left: 19px;
-    padding-right: 19px;
   }
   .body {
     padding: 6px 14px 14px;

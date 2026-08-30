@@ -49,6 +49,7 @@
   this={interactive ? "button" : "div"}
   class="row"
   class:danger
+  class:on={isSwitch && checked}
   class:inert={!interactive}
   role={isSwitch ? "switch" : undefined}
   aria-checked={isSwitch ? checked : undefined}
@@ -77,7 +78,7 @@
     align-items: center;
     gap: var(--sp-3);
     width: 100%;
-    padding: 11px 14px;
+    padding: 12px 14px;
     background: transparent;
     border: none;
     color: var(--text);
@@ -85,10 +86,16 @@
     transition: background var(--dur-quick) ease;
   }
   .row + :global(.row) {
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--hairline);
+  }
+  .row.on {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
   }
   button.row:hover:not(:disabled) {
     background: var(--bg-3);
+  }
+  button.row.on:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 11%, var(--bg-3));
   }
   /* app.css kills the WebView's grey tap flash on coarse pointers on the
      understanding that components draw their own pressed state. This one never
@@ -96,6 +103,9 @@
      touch until the panel it opens actually appeared. */
   button.row:active:not(:disabled) {
     background: var(--bg-3);
+  }
+  button.row.on:active:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 11%, var(--bg-3));
   }
   button.row:disabled {
     opacity: 0.5;
@@ -106,12 +116,19 @@
   .chip {
     display: grid;
     place-items: center;
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     flex: none;
     border-radius: var(--radius-md);
     background: var(--bg-3);
     color: var(--text-muted);
+    transition:
+      background var(--dur-quick) ease,
+      color var(--dur-quick) ease;
+  }
+  .row.on .chip {
+    background: var(--accent-soft);
+    color: var(--accent-hover);
   }
   .row.danger .chip {
     background: color-mix(in srgb, var(--danger) 15%, transparent);
@@ -127,10 +144,12 @@
   .title {
     font-size: var(--fs-ui);
     font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
   }
   .sub {
     font-size: var(--fs-compact);
-    line-height: 1.45;
+    line-height: 1.4;
     color: var(--text-muted);
   }
   .slot {
@@ -167,7 +186,7 @@
        rendered as "Sav". Padding is inside the box under the global
        border-box, so the same visual indent costs no width. */
     .chip ~ .slot {
-      padding-left: 42px; /* 30px chip + the row's 12px gap */
+      padding-left: 44px; /* 32px chip + the row's 12px gap */
     }
   }
   @media (prefers-reduced-motion: reduce) {

@@ -1,13 +1,11 @@
 // Can you SEE the cosmetics? (`npm test` runs this.)
 //
-// The card-effect and ring libraries were both written against #16181c, and it
+// The ring and window-effect libraries were written against #16181c, and it
 // shows: they are palettes of white snow, neon cyan and pastel confetti. Nobody
 // ever measured them against a bright ground, and on the seven daylight
 // surfaces the app ships — the plain light theme plus the six bright packs —
-// 26 of the 29 card effects and 19 of the 47 rings had NOT ONE colour above
-// 2.2:1 against the page. Not "hard to see". Not there. The picker showed two
-// dozen empty tiles and a light-theme user picking from them was choosing
-// between different kinds of nothing.
+// 19 of the 47 rings had NOT ONE colour above 2.2:1 against the page. Not
+// "hard to see". Not there.
 //
 // The fix is a single darkening applied to the effect layer on daylight
 // grounds (app.css, --fx-dim). This file is the other half of it: the factor
@@ -20,7 +18,7 @@
 //      clear 3:1 against every bright ground? This is what makes the fix a
 //      fix rather than a hope, and it is what fails if the factor is ever
 //      relaxed for looks.
-//   2. NIGHT. Untouched by the dim, does every effect and every ring still
+//   2. NIGHT. Untouched by the dim, does every ring and window effect still
 //      have SOMETHING in it you can see against every dark ground? Per-entry
 //      rather than per-colour, because a deliberate near-black stop in a conic
 //      gradient is the night in a night scene, not a bug — but an entry with
@@ -29,7 +27,6 @@
 // 3:1 is the WCAG floor for non-text, which is what a drifting speck is.
 import { readFileSync } from "node:fs";
 import { contrast, colorsIn, daylightGrounds } from "./contrast.mjs";
-import { CARD_EFFECTS } from "./cardfx.js";
 import { RINGS, PALETTES } from "./rings.js";
 import { THEME_FX } from "./themefx.js";
 
@@ -62,7 +59,6 @@ const deferred = (c) => String(c).includes("var(");
 // Every entry in both libraries, flattened to { lib, id, colors }.
 function entries() {
   const out = [];
-  for (const e of CARD_EFFECTS) out.push({ lib: "cardfx", id: e.id, colors: e.fx.colors || [] });
   for (const p of PALETTES) {
     // A palette stop is "<color> <position>" — the position is not a colour.
     out.push({ lib: "rings/palette", id: p.id, colors: p.stops.map((s) => s.trim().split(/\s+/)[0]) });
@@ -95,7 +91,7 @@ function triples(src) {
 }
 
 const ALL = entries();
-assert(ALL.length > 90, `only ${ALL.length} cosmetic entries found — the scrape is broken`);
+assert(ALL.length > 40, `only ${ALL.length} cosmetic entries found — the scrape is broken`);
 
 // --- 1. the daylight dim -----------------------------------------------------
 
@@ -141,7 +137,7 @@ for (const e of ALL) {
     }
   }
 }
-assert(measured > 250, `only ${measured} colours measured — the parse is dropping entries`);
+assert(measured > 80, `only ${measured} colours measured — the parse is dropping entries`);
 assert(
   deferredCount < measured,
   `${deferredCount} colours defer to a token and only ${measured} were measured — ` +

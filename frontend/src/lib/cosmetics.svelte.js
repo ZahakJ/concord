@@ -1,11 +1,10 @@
 // Lazy access to the cosmetic tables.
 //
-// The four libraries behind decorations, rings, card frames and card scenes are
-// the largest thing this app ships: a quarter of the boot bundle, and pure data
-// — thousands of path strings that exist so that the studios have something to
-// offer and a wearer has something to wear. Almost every session renders none
-// of them, and the ones that do render one or two, so paying for all four
-// before the first message appears is the wrong trade in every case.
+// The two libraries behind decorations and rings are the largest thing this
+// app still ships as pure data — thousands of path strings that exist so the
+// studios have something to offer and a wearer has something to wear. Almost
+// every session renders none of them, and the ones that do render one or two,
+// so paying for both before the first message appears is the wrong trade.
 //
 // Each getter returns the module namespace, or null until it has arrived. The
 // callers are all painters guarded by `{#if art}`, and every one of them draws
@@ -36,18 +35,12 @@ function lazy(load) {
 
 export const decorationsTable = lazy(() => import("./decorations.js"));
 export const ringsTable = lazy(() => import("./rings.js"));
-export const cardFramesTable = lazy(() => import("./cardframes.js"));
-export const cardScenesTable = lazy(() => import("./cardscenes.js"));
-export const cardFxTable = lazy(() => import("./cardfx.js"));
 
-// Fetch all four without waiting to be asked. Called once the app has painted:
-// a member list full of decorations is the common case on a guild that uses
+// Fetch both without waiting to be asked. Called once the app has painted: a
+// member list full of decorations is the common case on a guild that uses
 // them, and one round trip during the idle moment after boot is better than
-// four separate ones the first time somebody scrolls a roster.
+// two separate ones the first time somebody scrolls a roster.
 export function precacheCosmetics() {
   decorationsTable();
   ringsTable();
-  cardFramesTable();
-  cardScenesTable();
-  cardFxTable();
 }

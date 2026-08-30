@@ -173,10 +173,15 @@
 
   // The push-back. Announced here rather than in each dialog because "a dialog
   // is open" is a fact about the app, not about this component.
-  onMount(() => {
-    markOpen();
-    return markClosed;
-  });
+  //
+  // Opened at init, closed on a microtask: a rail click destroys this dialog
+  // and constructs its sibling in the same flush. Closing the stamp
+  // synchronously would drop [data-modal] (and the document-level dim it
+  // carries) for a frame, which is the whole-screen flash a settings click
+  // used to be. The sibling increments first; the microtask then decrements,
+  // and the count never hits zero.
+  markOpen();
+  onDestroy(() => queueMicrotask(markClosed));
 
   // Every consumer's onClose sets S.modal = null, which unmounts this component
   // in one frame — so the sheet that slid up over 0.28s used to vanish
@@ -240,6 +245,7 @@
   bind:this={overlay}
   class="overlay"
   class:lateral
+  class:stacked={me.isInnermostOfKind && me.hasOtherOfKind}
   style:z-index={100 + me.index * 2}
   onclick={dismiss}
   role="presentation"
@@ -307,13 +313,19 @@
   .overlay {
     position: fixed;
     inset: 0;
-    /* The dim that makes the dialog the only in-focus surface. It is the whole
-       of it: the app behind is not moved, scaled or blurred. */
-    background: var(--scrim);
+    /* The dim lives on html[data-modal]::before (app.css), not here. Every
+       settings page is its own dialog, so a rail click tears this overlay down
+       and builds another; if the dim rode on it, the app shone through for a
+       frame. A stacked dialog (a confirm over Settings) still carries its own
+       scrim, so the layer underneath actually recedes. */
+    background: transparent;
     display: grid;
     place-items: center;
     z-index: 100;
     animation: fade var(--dur-standard) ease;
+  }
+  .overlay.stacked {
+    background: var(--scrim);
   }
   .dialog {
     width: 380px;
@@ -684,13 +696,13 @@
     animation: none;
   }
   .dialog.lateral > .pane {
-    animation: pane-in 0.19s var(--ease-out) both;
+    animation: none;
   }
-  @keyframes pane-in {
-    from {
-      opacity: 0;
-      transform: translateY(5px);
-    }
+  /* Groups on a railed page used to stagger in on every rail click — opacity 0
+     plus a 6px lift, which read as the whole pane flashing. First open still
+     has the dialog's own pop; after that the page is just there. */
+  .dialog.railed :global(.grp) {
+    animation: none;
   }
   @media (prefers-reduced-motion: reduce) {
     .overlay,

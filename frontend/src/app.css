@@ -1016,12 +1016,11 @@
   --fx-ember-mid: #ffb35a;
   --fx-ember-low: #ff7a2f;
   /* What a decorative effect drawn for a dark ground has to do on a bright
-     one. Both cosmetic libraries (lib/cardfx.js, lib/rings.js) are palettes of
-     near-white snow, neon and pastel — colours chosen against #16181c, where
-     they are exactly right and where 26 of the 29 card effects and 19 of the
-     47 rings have every colour they own. On a daylight pack those same
-     palettes have NOTHING above 2.2:1 against the page: the picker showed 24
-     blank tiles and the profile card showed nothing at all.
+     one. The ring and window-effect libraries are palettes of near-white snow,
+     neon and pastel — colours chosen against #16181c, where they are exactly
+     right and where 19 of the 47 rings have every colour they own. On a
+     daylight pack those same palettes have NOTHING above 2.2:1 against the
+     page: the picker showed blank tiles and a worn ring showed nothing at all.
 
      A uniform darkening is the whole fix, and it is a better one than
      hand-writing a second palette for eighty entries: multiplying the sRGB
@@ -2196,97 +2195,6 @@ textarea:focus {
   }
 }
 
-/* ---- Profile-card EFFECTS ---------------------------------------------- */
-/* Applied to the popover card; each is CSS-only, driven by the member's two
-   theme colors, and respects reduced motion. */
-.card-effect-aurora .banner {
-  background-size: 220% 220% !important;
-  animation: fx-aurora 9s ease infinite;
-}
-@keyframes fx-aurora {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-.card-effect-sheen .banner {
-  position: relative;
-  overflow: hidden;
-}
-.card-effect-sheen .banner::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.35) 50%, transparent 65%);
-  transform: translateX(-120%);
-  animation: fx-sheen 4.5s ease-in-out infinite;
-}
-@keyframes fx-sheen {
-  0% {
-    transform: translateX(-120%);
-  }
-  45%,
-  100% {
-    transform: translateX(120%);
-  }
-}
-.card-effect-sparkle .banner {
-  position: relative;
-  overflow: hidden;
-}
-.card-effect-sparkle .banner::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    radial-gradient(circle 1.5px at 20% 30%, #fff 96%, transparent),
-    radial-gradient(circle 1.2px at 70% 20%, #fff 96%, transparent),
-    radial-gradient(circle 1.6px at 45% 70%, #fff 96%, transparent),
-    radial-gradient(circle 1.1px at 85% 60%, #fff 96%, transparent),
-    radial-gradient(circle 1.4px at 12% 75%, #fff 96%, transparent);
-  animation: fx-sparkle 3.2s ease-in-out infinite;
-}
-@keyframes fx-sparkle {
-  0%,
-  100% {
-    opacity: 0.25;
-    transform: translateY(0);
-  }
-  50% {
-    opacity: 0.9;
-    transform: translateY(-3px);
-  }
-}
-.card-effect-nebula .banner {
-  position: relative;
-  overflow: hidden;
-}
-.card-effect-nebula .banner::after {
-  content: "";
-  position: absolute;
-  inset: -30%;
-  background:
-    radial-gradient(circle at 30% 40%, rgba(255, 255, 255, 0.22), transparent 45%),
-    radial-gradient(circle at 70% 60%, rgba(0, 0, 0, 0.25), transparent 50%);
-  animation: fx-nebula 12s ease-in-out infinite alternate;
-}
-@keyframes fx-nebula {
-  to {
-    transform: rotate(25deg) scale(1.15);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .card-effect-aurora .banner,
-  .card-effect-sheen .banner::after,
-  .card-effect-sparkle .banner::after,
-  .card-effect-nebula .banner::after {
-    animation: none;
-  }
-}
-
 /* Animated banner presets drift slowly (galaxies, auroras, prisms…). The
    preset art itself is CSS; this just moves it. */
 .banner-drift {
@@ -2837,8 +2745,11 @@ textarea:focus {
 
 /* ── the app, behind a dialog ─────────────────────────────────────────────
    Modal.svelte stamps [data-modal] on the document while any dialog is on
-   screen; the scrim it carries is raised (0.70, not 0.55) so a dialog replaces
-   the page instead of competing with it.
+   screen. The dim lives on this pseudo, not on the overlay element: every
+   settings page is its own dialog, so a rail click tears the overlay down and
+   builds another, and a dim that rode on the overlay took the app with it for
+   a frame. The stamp stays up across that swap (the open-count never hits
+   zero), so this layer never blinks. The overlay is the click catcher.
 
    The app itself does NOT move. A previous version scaled `.app` to 0.985
    behind every dialog — the compositor-cheap stand-in for a backdrop blur the
@@ -2847,6 +2758,26 @@ textarea:focus {
    about ten pixels inward and back out again on every dismiss. Dimming is a
    dialog's business; the page's geometry is not. Nothing that appears above
    the app may animate the app. */
+
+html[data-modal]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  z-index: 99;
+  pointer-events: none;
+  animation: modal-scrim-in var(--dur-standard) ease;
+}
+@keyframes modal-scrim-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html[data-modal]::before {
+    animation: none;
+  }
+}
 
 /* ── held-still motion ────────────────────────────────────────────────────
    The class lib/inview.js puts on a tile that has scrolled out of view. It has

@@ -504,13 +504,10 @@ type Style struct {
 	// thirteen, and it is bounded and resolved against a table that fails
 	// closed exactly like Pal.
 	Dec string `json:"dec,omitempty"`
-	// Cf is the profile-card frame's id (see frontend lib/cardframes.js): the
-	// scenic art drawn AROUND someone's profile card — battlements over the top
-	// edge, branches reaching in over the corners. A peer of Dec, not a dial on
-	// it: a card frame and a worn decoration are different objects on different
-	// things, and they compose. It rides here for the same reason Dec does —
-	// SetProfile already carries thirteen positional arguments — and it is
-	// bounded by validID and resolved against a table that fails closed.
+	// Cf is a leftover profile-card frame id. The UI no longer draws or offers
+	// frames, but older profiles still carry the field and SetProfile still
+	// accepts it so a round-trip cannot wipe a value a later build might read.
+	// Bounded by validID like the other style ids.
 	Cf string `json:"cf,omitempty"`
 	// Dc is the colourway the worn decoration is painted in (see frontend
 	// lib/decorations.js COLORWAYS): gold, obsidian, azure… A preset id and
@@ -629,15 +626,11 @@ func validFrame(f string) bool {
 	return true
 }
 
-// validEffect admits the known profile-card effects.
+// validEffect admits a bounded profile-card effect id. The UI no longer draws
+// effects, but older profiles still carry the field and SetProfile still
+// accepts it so a round-trip cannot wipe a value a later build might read.
+// Same charset as validFrame: keep the value out of CSS.
 func validEffect(e string) bool {
-	// Was a closed list of four, which meant adding a card effect required a
-	// release on both sides — and a peer running a newer build could not show
-	// you an effect your build had never heard of without its whole profile
-	// being refused. The shape is now the same as validFrame: a bounded id,
-	// resolved against a table on the client, where an unknown one renders
-	// nothing. Safety comes from the lookup failing closed, not from this list
-	// being exhaustive, and the charset is what keeps the value out of CSS.
 	return validFrame(e)
 }
 
