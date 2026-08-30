@@ -62,7 +62,7 @@
   // Layout pixels, like every other length written into style.left/top —
   // lib/place.js explains why the viewport has to be asked for rather than
   // read off window.innerWidth once the UI scale leaves 100%.
-  let pos = $state(savedPos() || { x: Math.max(12, viewport().w - 250), y: 70 });
+  let pos = $state(savedPos() || { x: Math.max(12, viewport().w - 300), y: 70 });
   let dockEl = $state(null);
   let drag = null;
   let dragging = $state(false); // lifts the dock visually while it moves
@@ -72,8 +72,8 @@
   // hang below the viewport, and the only recovery was dragging it back by a
   // header you could no longer see the point of.
   function clamp(x, y) {
-    const w = dockEl?.offsetWidth || 214;
-    const h = dockEl?.offsetHeight || 160;
+    const w = dockEl?.offsetWidth || 280;
+    const h = dockEl?.offsetHeight || 180;
     const vp = viewport();
     return {
       x: Math.max(8, Math.min(vp.w - w - 8, x)),
@@ -304,7 +304,7 @@
             frame={p.frame}
             decoration={p.decoration}
             dc={p.dc}
-            size={30}
+            size={36}
           />
         </div>
       {/each}
@@ -406,7 +406,7 @@
   /* ---- desktop: the draggable dock ---- */
   .dock {
     position: fixed;
-    width: 214px;
+    width: 280px;
     z-index: 90;
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
@@ -420,7 +420,7 @@
     transition: transform var(--dur-standard) ease, box-shadow var(--dur-standard) ease, width var(--dur-standard) ease;
   }
   .dock.watching {
-    width: 300px;
+    width: 360px;
   }
   .share-view {
     position: relative;
@@ -438,7 +438,7 @@
     position: relative;
     display: block;
     width: 100%;
-    height: min(140px, 26 * var(--vh));
+    height: min(168px, 30 * var(--vh));
     padding: 0;
     border: none;
     background: #000;
@@ -459,12 +459,12 @@
   }
   .share-tag {
     position: absolute;
-    left: 6px;
-    bottom: 6px;
+    left: var(--sp-2);
+    bottom: var(--sp-2);
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    padding: 2px 7px;
+    padding: 3px 8px;
     font-size: var(--fs-tiny);
     font-weight: 600;
     color: #fff;
@@ -518,8 +518,8 @@
   .head {
     display: flex;
     align-items: center;
-    gap: 7px;
-    padding: 7px 8px 7px 10px;
+    gap: var(--sp-2);
+    padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
     background: var(--ok-soft);
     cursor: move;
     /* Ours, not the scroller's: with the default the browser claimed any
@@ -572,9 +572,9 @@
     display: flex;
     flex-wrap: wrap;
     justify-content: center; /* same axis as the control row below it */
-    gap: 6px;
-    padding: 10px;
-    max-height: 120px; /* ~3 rows; a big call scrolls instead of growing off-screen */
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+    max-height: 148px; /* ~3 rows of the 36px faces; a big call scrolls instead of growing off-screen */
     overflow-y: auto;
     overscroll-behavior: contain; /* don't hand the leftover flick to the feed */
   }
@@ -602,18 +602,18 @@
   }
   .ctl {
     display: flex;
-    /* Five 34px circles do not fit the 214px dock on one line. */
+    /* Six 34px circles fit the 280px dock on one line (264px of button+gap). */
     flex-wrap: wrap;
     justify-content: center;
     gap: var(--sp-2);
-    padding: 0 10px 10px;
+    padding: 0 var(--sp-3) var(--sp-3);
   }
   /* The dock's controls are .callbtn (app.css) at its base size — the stage
      bar's language, 34px instead of 44. What is left here is the one button
      that is not a call control: the chevron back into the call. */
   .ico.expand {
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     background: transparent;
     border: none;
     color: var(--ok-text);
