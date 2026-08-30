@@ -103,8 +103,8 @@ for (const [file, keys] of scope) {
 
 // Sanity: the entries the sheet lost once, by name.
 for (const label of [
-  "Show or hide the member panel",
-  "Toggle deafen (while in a call)",
+  "Member panel",
+  "Deafen",
   "This list",
 ]) {
   if (!SHORTCUTS.some((s) => s.label === label)) fail(`SHORTCUTS is missing "${label}"`);
