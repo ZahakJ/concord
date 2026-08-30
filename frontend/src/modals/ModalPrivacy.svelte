@@ -15,9 +15,9 @@
   let { onClose } = $props();
 
   // TURN is an optional extra on the rendezvous, not the rendezvous itself.
-  // Until we hear from /turn, leave the switch enabled so a slow fetch does
-  // not flash it grey. Once we know there is no media relay, grey it out —
-  // hiding an IP is not a promise we can keep.
+  // The switch stays a preference either way: greying it out locked people
+  // out of a privacy control (and left it stuck on if they had already
+  // flipped it) without saying why. The note under the row is the honest bit.
   let mediaRelay = $state(null);
   onMount(async () => {
     try {
@@ -135,13 +135,24 @@
       icon="lock"
       title="Hide my IP on calls"
       sub={mediaRelay === false
-        ? "Needs a media relay on the rendezvous — connecting directly"
+        ? S.prefs.hideCallIp
+          ? "On, but this rendezvous has no media relay — calls still show your IP"
+          : "Would relay call media — this rendezvous has no media relay"
         : "Relay call media instead of connecting directly"}
       info="A connected rendezvous is how peers find each other. Hiding your IP from the people on a call needs a TURN media relay running on that same host, which the operator has to turn on. Without one, calls still connect, peer-to-peer. Meetings with browser guests always try to relay when one exists."
       checked={S.prefs.hideCallIp}
-      disabled={mediaRelay === false}
       onclick={() => setPref("hideCallIp", !S.prefs.hideCallIp)}
     />
+    {#if mediaRelay === false}
+      <p class="ip-note">
+        Can't hide your IP on this rendezvous. Being connected to it is how
+        peers find each other — it is not a media relay. Hiding an address
+        needs TURN running on that same host, which whoever operates it has
+        to turn on. Calls still connect directly, and people on them can see
+        your IP. You can leave the switch on; it starts working if a relay
+        appears.
+      </p>
+    {/if}
     <SettingRow
       icon="edit"
       title="Typing indicators"
@@ -244,3 +255,18 @@
     onClose={() => (confirmPurge = false)}
   />
 {/if}
+
+<style>
+  /* Full-strength, not a faded disabled row: locking a privacy switch without
+     saying why is how this read as broken. Sits in the group's card under
+     Hide my IP so the reason is on the setting, not in an ⓘ. */
+  .ip-note {
+    margin: 0;
+    padding: 10px 14px 12px;
+    font-size: var(--fs-compact);
+    line-height: 1.45;
+    color: var(--text);
+    background: color-mix(in srgb, var(--warn-text, var(--accent)) 10%, transparent);
+    border-top: 1px solid var(--hairline);
+  }
+</style>

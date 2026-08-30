@@ -30,7 +30,7 @@ type IceServer struct {
 type IceConfig struct {
 	IceServers []IceServer `json:"iceServers"`
 	// RelayAvailable is true when a TURN relay is configured, i.e. when hiding
-	// your IP is actually possible. The UI greys out "hide my IP" without it.
+	// your IP is actually possible. The privacy page says so without it.
 	RelayAvailable bool `json:"relayAvailable"`
 }
 
