@@ -696,22 +696,24 @@ func (s *Service) AddMember(guildID, fingerprint string) error {
 			return err
 		}
 	}
-	// Record them as PENDING right away, so they show in the roster like a DM you
-	// opened — even if they're offline. The invite is pushed now if they're
-	// reachable, and retried each heal tick (reconcilePendingMembers) until they
-	// join; they drop out of pending the moment they actually appear as a member.
+	// Remember the invite so we can re-push it when they come online. They do
+	// not show in the roster until they accept — membership is the join, not
+	// the offer. The 1:1 with them records the offer as bookkeeping.
 	s.addPending(guildID, fingerprint)
-	if pid, ok := s.peerForFingerprint(fingerprint); ok {
-		s.mu.RLock()
-		name := ""
-		if g, ok := s.guilds[guildID]; ok {
-			name = g.Name
-		}
-		s.mu.RUnlock()
-		if code, err := s.InviteCode(guildID); err == nil {
+	code := ""
+	name := ""
+	s.mu.RLock()
+	if g, ok := s.guilds[guildID]; ok {
+		name = g.Name
+	}
+	s.mu.RUnlock()
+	if c, err := s.InviteCode(guildID); err == nil {
+		code = c
+		if pid, ok := s.peerForFingerprint(fingerprint); ok {
 			s.pushGuildInvite(pid, code, name)
 		}
 	}
+	s.noteInviteOffered(guildID, fingerprint, code)
 	s.emitGuildUpdate()
 	return nil
 }
@@ -913,7 +915,9 @@ func (s *Service) joinViaInviteLocked(ic inviteCode) (domain.Guild, error) {
 	// linking), the account has another leaf here already, so stay quiet rather
 	// than posting a bogus "joined the guild" for a member who never left.
 	if len(g.Channels) > 0 && s.accountLeafCount(g.GroupID) <= 1 {
-		s.sendSystem(g.Channels[0].ID, "joined the guild")
+		if line := joinSystemLine(g); line != "" {
+			s.sendSystem(g.Channels[0].ID, line)
+		}
 	}
 	return s.offerAfter(g, nil)
 }

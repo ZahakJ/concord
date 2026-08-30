@@ -291,15 +291,19 @@ type Service struct {
 	// linked into their account since we last looked.
 	devices map[string]map[string]bool
 
-	// pendingMembers[guildID][fingerprint] = people you've added to a guild who
-	// haven't joined yet — shown as "pending" in the roster (like a DM you've
-	// opened). Guarded by mu; persisted; cleared once they actually join.
+	// pendingMembers[guildID][fingerprint] = people you've invited who have
+	// not accepted yet. Bookkeeping for re-pushing the invite, not a roster
+	// row — they do not show in the member list until they actually join.
+	// Guarded by mu; persisted; cleared once they appear as a member.
 	pendingMembers map[string]map[string]bool
 	// pendingPushed is the last time we re-pushed an invite to each pending
 	// member ("guildID|fingerprint"), so a peer who flaps in and out of reach
 	// is not handed the same code on every heal tick. Guarded by mu; in-memory
 	// on purpose — forgetting it across a restart costs one extra push.
 	pendingPushed map[string]time.Time
+	// inviteJoinNoted is "guildID|fingerprint" we already wrote a "they
+	// joined" line for in the 1:1, so two roster refreshes cannot double it.
+	inviteJoinNoted map[string]bool
 
 	// announcedProfile records what we last published to each guild's meta
 	// topic and which of that guild's connected members were there to hear it.
@@ -1096,6 +1100,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		pendingMembers:   map[string]map[string]bool{},
 		announcedProfile: map[string]profileAnnounce{},
 		pendingPushed:    map[string]time.Time{},
+		inviteJoinNoted:  map[string]bool{},
 		previews:         newPreviewCache(),
 		bootstrap:        bootstrap,
 	}

@@ -66,6 +66,24 @@ const (
 	labelCode   = "📄 code block"
 )
 
+func parseInviteSnippet(body string) (string, bool) {
+	var n inviteNote
+	if json.Unmarshal([]byte(strings.TrimSpace(body)), &n) != nil || n.Op == "" {
+		return "", false
+	}
+	name := strings.TrimSpace(n.Guild)
+	if name == "" {
+		name = n.What
+	}
+	if name == "" {
+		name = "invite"
+	}
+	if n.Op == "joined" {
+		return "joined " + name, true
+	}
+	return "invite to " + name, true
+}
+
 func snB64(s string) []byte {
 	b, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(s, "="))
 	if err != nil {
@@ -129,6 +147,9 @@ func flattenBody(body string) string {
 	}
 	if snSfxRe.MatchString(s) {
 		return labelSound
+	}
+	if note, ok := parseInviteSnippet(s); ok {
+		return note
 	}
 
 	// Block content inside prose becomes a token too. A fenced block flattened

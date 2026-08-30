@@ -33,6 +33,8 @@ const cases = [
   ],
   ["a file token becomes a paperclip", `[file](concord://file/v1/${hex64}/${key75}/1234/dGV4dA/bmFtZQ)`, "📎 file"],
   ["inline code loses its backticks", "`rules.apply` returning null…", "rules.apply returning null…"],
+  ["a guild invite is named, never its JSON", '{"op":"offered","what":"guild","guild":"Dar al-Hikma"}', "invite to Dar al-Hikma"],
+  ["a join notice in the 1:1 is named too", '{"op":"joined","what":"meeting","guild":"Office hours"}', "joined Office hours"],
   ["bold and italics lose their markers", "the **whole** trick is *the fold*", "the whole trick is the fold"],
   ["a link keeps its label", "see [the spec](https://example.org/spec) first", "see the spec first"],
   ["a quote loses its angle", "> quoted line", "quoted line"],

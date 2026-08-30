@@ -1927,32 +1927,10 @@ func (b *Bridge) Members(guildID string) ([]MemberView, error) {
 		}
 		return a.Fingerprint < b.Fingerprint
 	})
-	// Append people you've added who haven't joined yet (see pending.go) AFTER the
-	// sort, so they sit at the bottom as greyed "pending" rows — the roster shows
-	// them immediately, like an opened DM, instead of nothing until they sync.
-	for _, fpr := range svc.PendingMembersFor(guildID) {
-		if seenAccount[fpr] {
-			continue
-		}
-		seenAccount[fpr] = true
-		p := svc.ProfileOf(fpr)
-		name := p.Name
-		if nick := svc.NickOf(guildID, fpr); nick != "" {
-			name = nick
-		}
-		out = append(out, MemberView{
-			Fingerprint: fpr,
-			Name:        cleanName(name),
-			Status:      p.Status,
-			Emoji:       p.Emoji,
-			Color:       p.Color,
-			Avatar:      p.Avatar,
-			Presence:    p.Presence,
-			Online:      online[fpr],
-			Verified:    true,
-			Pending:     true,
-		})
-	}
+	// Invited-but-not-joined fingerprints stay in pending.go for re-pushing
+	// the invite. They are not roster rows: showing them here made an offer
+	// look like they were already in the room.
+	_ = svc.PendingMembersFor(guildID) // still clears anyone who has since joined
 	return out, nil
 }
 

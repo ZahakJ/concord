@@ -5,11 +5,13 @@ import (
 	"time"
 )
 
-// pending.go — "pending" guild members: people you've added who haven't joined
-// yet. Like a DM you opened before the other side replied, they show in the
-// roster immediately (greyed, "pending") instead of vanishing until they sync.
-// We keep re-pushing the invite whenever they're reachable, and drop them from
-// pending the moment they actually join the group.
+// pending.go — people you've invited who have not accepted yet.
+//
+// They are NOT roster rows. Showing them in the member list before they
+// accepted made an invite look like membership, and the room filled with
+// people who were not there. The set exists so we keep re-pushing the invite
+// when they come online, and so we can write the "they joined" line in the
+// 1:1 when they finally do.
 
 func (s *Service) loadPendingMembers() {
 	m, err := s.store.PendingMembers()
@@ -68,6 +70,7 @@ func (s *Service) PendingMembersFor(guildID string) []string {
 	for _, f := range fprs {
 		if s.guildHasMember(guildID, f) {
 			s.clearPending(guildID, f) // they made it in — no longer pending
+			s.noteInviteAccepted(guildID, f)
 			continue
 		}
 		out = append(out, f)

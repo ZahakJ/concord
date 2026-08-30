@@ -81,6 +81,8 @@ export function plainSnippet(content, max = 0) {
   if (GAME_RE.test(c)) return cap(TOKEN_LABELS.game, max);
   if (DOODLE_RE.test(c)) return cap(TOKEN_LABELS.doodle, max);
   if (SFX_RE.test(c)) return cap(TOKEN_LABELS.sound, max);
+  const invite = inviteSnippet(c);
+  if (invite) return cap(invite, max);
 
   // Block content inside prose becomes a token too. A fenced block flattened
   // into one line is eleven lines of somebody's code with the newlines taken
@@ -94,6 +96,21 @@ export function plainSnippet(content, max = 0) {
     .replace(LOOSE_FILE_RE, " 📎 file ");
   const text = stripMarkdown(shown).replace(/\s+/g, " ").trim();
   return cap(text, max);
+}
+
+function inviteSnippet(content) {
+  const raw = String(content ?? "").trim();
+  if (!raw.startsWith("{") || !raw.includes('"op"')) return "";
+  try {
+    const n = JSON.parse(raw);
+    if (!n?.op) return "";
+    const name = String(n.guild || n.what || "invite").trim() || "invite";
+    if (n.op === "joined") return `joined ${name}`;
+    if (n.op === "offered") return `invite to ${name}`;
+  } catch {
+    /* not an invite card */
+  }
+  return "";
 }
 
 function cap(s, max) {

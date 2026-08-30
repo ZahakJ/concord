@@ -33,6 +33,7 @@
     nudge,
     refreshGuilds,
     selectChannel,
+    selectGuild,
     openCallStage,
     archiveChannel,
     loadArchiveOlder,
@@ -123,6 +124,31 @@
       prevLastId = last?.id || "";
     });
   });
+
+  function parseInvite(content) {
+    try {
+      const n = JSON.parse(content);
+      if (n && (n.op === "offered" || n.op === "joined") && n.guild) return n;
+    } catch {
+      /* not an invite card */
+    }
+    return null;
+  }
+  async function acceptInvite(note) {
+    if (!note?.code) return;
+    if (note.guildId && S.guilds.some((g) => g.id === note.guildId)) {
+      selectGuild(note.guildId);
+      return;
+    }
+    try {
+      const g = await api.joinViaInvite(note.code);
+      await refreshGuilds();
+      if (g?.id) selectGuild(g.id);
+      flash(`Joined ${g?.name || note.guild}`, "success");
+    } catch (err) {
+      flash(err);
+    }
+  }
 
   function fmtTime(iso) {
     try {
@@ -852,7 +878,7 @@
   // is navigating onto nothing — the focus call finds no element, and the tab
   // stop it was pointing at disappears with it. Home landing on a guild's
   // "created this channel" notice is exactly how that happens.
-  const NAV_SKIP = new Set(["system", "call-missed", "device"]);
+  const NAV_SKIP = new Set(["system", "call-missed", "device", "invite"]);
   const rowKeys = () =>
     items.filter((x) => x.t === "row" && !NAV_SKIP.has(x.row.m.kind)).map((x) => x.k);
 
@@ -1493,6 +1519,37 @@
           {/if}
         </span>
       </div>
+    {:else if it.row.m.kind === "invite"}
+      {@const note = parseInvite(it.row.m.content)}
+      {#if note}
+        {@const mine = it.row.m.sender === S.identity.fingerprint}
+        {@const what = note.what === "meeting" ? "meeting" : "guild"}
+        <div class="system-msg invite-note" class:enter={it.row.m.id === animateId}>
+          <span>
+            <span class="inv-ic"><Icon name={what === "meeting" ? "speaker" : "hash"} size={11} /></span>
+            {#if note.op === "joined"}
+              {#if mine}
+                <strong>{note.who || "They"}</strong> has joined the {what} <strong>{note.guild}</strong>
+              {:else}
+                You have joined the {what} <strong>{note.guild}</strong>
+              {/if}
+            {:else if mine}
+              You invited them to the {what} <strong>{note.guild}</strong>
+            {:else}
+              <strong>{it.row.m.senderName || it.row.m.sender.slice(0, 9)}</strong>
+              invited you to the {what} <strong>{note.guild}</strong>
+            {/if}
+          </span>
+          {#if note.op === "offered" && !mine && note.code}
+            <button
+              class="inv-join"
+              onclick={() => acceptInvite(note)}
+            >
+              Join
+            </button>
+          {/if}
+        </div>
+      {/if}
     {:else if it.row.m.kind === "call-missed"}
       <!-- A DM ring that went unanswered. The caller's client emits it, both
            sides render it; never pings (non-"" kinds are unread-exempt). -->
@@ -2239,6 +2296,34 @@
     color: var(--text-faint);
     font-size: var(--fs-tiny);
     margin-left: 2px;
+  }
+  .invite-note {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--sp-2);
+    flex-wrap: wrap;
+  }
+  .invite-note .inv-ic {
+    display: inline-grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .inv-join {
+    padding: 2px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+  }
+  .inv-join:hover {
+    filter: brightness(1.08);
   }
   /* A contact's new device: worth noticing, not worth alarming. The warn tint
      says "read this" without claiming their identity changed — it didn't. */

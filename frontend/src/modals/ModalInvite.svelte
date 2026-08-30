@@ -88,7 +88,7 @@
     try {
       await api.addMember(S.activeGuildId, c.fingerprint);
       added = new Set([...added, c.fingerprint]);
-      flash(`Added ${nameFor(c.fingerprint) || "them"} — they'll appear once they accept`, "success");
+      flash(`Invited ${nameFor(c.fingerprint) || "them"} — they'll show up when they accept`, "success");
       setTimeout(refreshGuilds, 2500);
     } catch (err) {
       flash(err);
@@ -135,7 +135,7 @@
   {#if candidates.length}
     <div class="divider"></div>
     <strong class="add-head">Or add a verified contact directly</strong>
-    <p class="hint muted">No code needed — they drop straight in.</p>
+    <p class="hint muted">No code needed. They get an invite; they won't appear in the room until they accept.</p>
     <div class="add-list">
       {#each candidates as c (c.fingerprint)}
         <div class="add-row">
@@ -151,7 +151,7 @@
             <span class="tiny muted mono">{c.fingerprint.slice(0, 9)}</span>
           </span>
           {#if added.has(c.fingerprint)}
-            <span class="done tiny"><Icon name="check" size={12} /> Added</span>
+            <span class="done tiny"><Icon name="check" size={12} /> Invited</span>
           {:else}
             <button class="add-btn" disabled={busy === c.fingerprint} onclick={() => add(c)}>
               {busy === c.fingerprint ? "Adding…" : "Add"}

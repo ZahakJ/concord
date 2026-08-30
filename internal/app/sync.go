@@ -917,7 +917,7 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 		for _, m := range msgs {
 			// Never accept action kinds through sync (state already snapshotted)
 			// or rows claiming a different channel than the one they came under.
-			if m.ChannelID != chID || (m.Kind != "" && m.Kind != "system") {
+			if m.ChannelID != chID || (m.Kind != "" && m.Kind != "system" && m.Kind != "invite") {
 				continue
 			}
 			// THIS is the row §13 named. The responder attests nothing about who
