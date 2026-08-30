@@ -6,7 +6,7 @@
   // and hairlines carry the hierarchy, color is reserved for state.
   // The same panel serves DMs (shared with the people in the chat) and the
   // Notes self-DM (private to you) — see the isDM/isNotes derivations below.
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
   import Select from "../Select.svelte";
@@ -597,7 +597,7 @@
   }
 </script>
 
-<Modal {title} {onClose} wide>
+<RailShell {title} {onClose} wide>
   {#if editing}
     <div class="form">
       <!-- Title first: the event is a sentence, not a database row. -->
@@ -1009,7 +1009,7 @@
       {/if}
     </div>
   {/if}
-</Modal>
+</RailShell>
 
 <style>
   .bar {

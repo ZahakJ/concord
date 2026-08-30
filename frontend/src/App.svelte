@@ -113,6 +113,8 @@
     modLog: () => import("./modals/ModalModerationLog.svelte"),
     guildHub: () => import("./modals/ModalGuildHub.svelte"),
     guildSettings: () => import("./modals/ModalGuildSettings.svelte"),
+    exportGuild: () => import("./modals/ModalExportGuild.svelte"),
+    leaveGuild: () => import("./modals/ModalLeaveGuild.svelte"),
     shortcuts: () => import("./modals/ModalShortcuts.svelte"),
     whatsNew: () => import("./modals/ModalWhatsNew.svelte"),
     saved: () => import("./modals/ModalSaved.svelte"),
@@ -1897,10 +1899,14 @@
     {:else if S.modal?.kind === "modLog"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "guildHub"}
-      <!-- The hub is the front door; guildSettings below is now its Overview
-           panel (opened via openPanel, so Back returns to the hub). -->
+      <!-- The phone's drill-down list. On a desktop openGuildHub goes straight
+           to guildSettings with the rail (lib/guildnav.js). -->
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "guildSettings"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "exportGuild"}
+      <ModalView onClose={() => (S.modal = null)} />
+    {:else if S.modal?.kind === "leaveGuild"}
       <ModalView onClose={() => (S.modal = null)} />
     {:else if S.modal?.kind === "shortcuts"}
       <ModalView onClose={() => (S.modal = null)} />
@@ -2516,6 +2522,16 @@
     flex-direction: column;
     flex: 1;
     min-height: 0;
+  }
+  /* Beside-mode: the board shrinks to the strip the panel does not cover, so
+     the cards reflow instead of being clipped under the post. A viewport
+     media query cannot see the member panel or the app zoom; :has the
+     beside class, which already keys off S.narrow. */
+  .pane-body:has(.feedwrap.aspanel.overboard.beside) :global(.board) {
+    width: min(46%, 520px);
+    flex: none;
+    min-width: 0;
+    overflow-y: auto;
   }
   /* The feed's own column. In the ordinary case it is simply the pane. */
   .feedwrap {

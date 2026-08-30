@@ -48,6 +48,7 @@
     disconnectVoiceMember,
     clockOpts,
     setPref,
+    openGuildHub,
   } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import { tooltip } from "./lib/tooltip.js";
@@ -683,7 +684,7 @@
       class:ink-dark={art?.ink === "dark"}
       use:tooltip={{ text: g.description || g.name }}
       aria-label={g.description || g.name}
-      onclick={() => (S.modal = { kind: "guildHub" })}
+      onclick={openGuildHub}
       oncontextmenu={(e) => openContextMenu(e, guildMenuItems(g), { title: g.name })}
     >
       {#if art}

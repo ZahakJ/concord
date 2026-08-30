@@ -206,9 +206,61 @@ export function histogramBars(stats) {
   }));
 }
 
+// foldName matches the importer's comparison: case-insensitive, whitespace
+// folded. "General" and "general" are the same room to everybody except a
+// string comparison, and that is how the backend decides reuse.
+export function foldName(s) {
+  return String(s || "")
+    .toLowerCase()
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .join(" ");
+}
+
+// channelTypeOf is the same mapping chronimport.ChannelTypeOf uses, so the
+// "Lands in" column cannot disagree with what the import will actually do.
+export function channelTypeOf(t) {
+  const l = String(t || "").toLowerCase();
+  if (l.includes("voice") || l.includes("stage")) return "voice";
+  if (l.includes("forum")) return "forum";
+  if (l.includes("news") || l.includes("announce")) return "announcement";
+  return "text";
+}
+
+const hashPrefix = (type) => (type === "voice" ? "" : "#");
+
+// landingFor answers "where will this row go in THIS guild": an existing
+// channel of the same folded name and type, or a new one. The wizard used to
+// say nothing until the completion screen mentioned "2 reused" — after 1,188
+// strangers' messages had already landed in #general.
+export function landingFor(scanCh, guildChannels = []) {
+  const raw = String(scanCh?.name || scanCh?.id || "").trim() || "imported";
+  const ctype = channelTypeOf(scanCh?.type);
+  const want = foldName(raw);
+  const match = (guildChannels || []).find(
+    (ch) => !ch.parent && foldName(ch.name) === want && (ch.type || "text") === ctype,
+  );
+  if (match) {
+    const type = match.type || ctype;
+    return {
+      existing: true,
+      name: match.name,
+      type,
+      label: `${hashPrefix(type)}${match.name} (existing)`,
+    };
+  }
+  return {
+    existing: false,
+    name: raw,
+    type: ctype,
+    label: `${hashPrefix(ctype)}${raw} (new)`,
+  };
+}
+
 // channelRows flattens the scan into the table the bill draws, with the
 // include-checkbox state folded in so the component renders one array.
-export function channelRows(stats, exclude = []) {
+export function channelRows(stats, exclude = [], guildChannels = []) {
   const out = [];
   for (const c of stats?.channels || []) {
     out.push({
@@ -222,6 +274,7 @@ export function channelRows(stats, exclude = []) {
       attachmentBytes: c.attachmentBytes || 0,
       localAttachmentBytes: c.localAttachmentBytes || 0,
       included: !exclude.includes(c.id),
+      landing: landingFor(c, guildChannels),
     });
   }
   return out;
@@ -302,11 +355,27 @@ export function progressPct(status) {
 // resultLines is the completion summary: the numbers worth reading, and only
 // the ones that are not zero. An import that skipped nothing should not print
 // three lines of zeroes to prove it.
+//
+// The channel line used to count two different things in one parenthetical —
+// channels that received messages vs structural matches — and print
+// "3 channels (2 created, 2 reused)", which does not add up. Count the
+// matches, then say how they split, then mention any that carried no history.
 export function resultLines(res) {
   if (!res) return [];
+  const created = res.channelsCreated || 0;
+  const reused = res.channelsReused || 0;
+  const matched = created + reused;
+  const withHistory = res.channels || 0;
+  const empty = Math.max(0, matched - withHistory);
+  const bits = [];
+  if (created) bits.push(`${created} created`);
+  if (reused) bits.push(`${reused} already existed`);
+  let struct = `${fmtCount(matched)} ${matched === 1 ? "channel" : "channels"} matched`;
+  if (bits.length) struct += ` — ${bits.join(", ")}`;
+  if (empty > 0) struct += `; ${empty} received no messages`;
   const out = [
     `${fmtCount(res.imported)} ${res.imported === 1 ? "message" : "messages"} imported`,
-    `${fmtCount(res.channels)} ${res.channels === 1 ? "channel" : "channels"} (${res.channelsCreated} created, ${res.channelsReused} reused)`,
+    struct,
   ];
   if (res.attachmentsSealed > 0)
     out.push(`${fmtCount(res.attachmentsSealed)} attachments · ${fmtBytes(res.attachmentBytesSealed)}`);

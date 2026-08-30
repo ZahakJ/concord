@@ -15,6 +15,8 @@
     toggleMemberPanel,
     openProfilePopover,
     confirmLeaveGuild,
+    leaveGuildLabel,
+    openGuildHub,
     jumpToChannel,
     channelShort,
     callRoster,
@@ -487,7 +489,7 @@
           <!-- One door instead of a pile: emoji, roles, bans and rename all
                live inside the guild hub now (renaming is the hub's Overview
                panel). The menu keeps only the exit — leaving isn't managing. -->
-          <button class="menu-item" onclick={() => (S.modal = { kind: "guildHub" })}>
+          <button class="menu-item" onclick={openGuildHub}>
             <Icon name="gear" size={14} /> Guild settings
           </button>
           <!-- NOT inside a post. The most destructive action in the product was
@@ -499,7 +501,7 @@
             <div class="menu-sep"></div>
             <button class="menu-item danger" onclick={() => confirmLeaveGuild(g)}>
               <Icon name={g.isOwner ? "trash" : "door"} size={14} />
-              {g.isOwner ? "Delete guild" : "Leave guild"}
+              {leaveGuildLabel(g)}
             </button>
           {/if}
         {/if}

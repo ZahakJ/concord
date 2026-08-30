@@ -249,6 +249,7 @@
     class="dialog"
     class:wide
     class:xl={size === "xl"}
+    class:lg={size === "lg"}
     class:railed
     class:lateral
     class:deeper={enterDir === 1}
@@ -344,6 +345,11 @@
   }
   .dialog.wide {
     width: 460px;
+  }
+  /* Create-a-guild: wide enough for the four template tiles in one row, short
+     enough that the dialog is not 86% of the window. */
+  .dialog.lg {
+    width: min(860px, 94 * var(--vw));
   }
   /* A large workspace (the advanced composer): most of the viewport, and a
      fixed tall height so its inner panes get real room instead of collapsing to
@@ -486,6 +492,7 @@
        selectors (`wide`, `xl`) must be listed so they can't pin a desktop size. */
     .dialog,
     .dialog.wide,
+    .dialog.lg,
     .dialog.xl,
     .dialog.railed {
       width: auto;

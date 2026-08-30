@@ -17,6 +17,8 @@
     closePost,
     accentForeground,
     confirmLeaveGuild,
+    leaveGuildLabel,
+    openGuildHub,
     openInbox,
   } from "./lib/state.svelte.js";
   import { untrack } from "svelte";
@@ -266,7 +268,7 @@
           onClick: async () => (S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) }),
         },
         !dm && { sep: true },
-        !dm && { label: "Guild settings", icon: "gear", onClick: () => (S.modal = { kind: "guildHub" }) },
+        !dm && { label: "Guild settings", icon: "gear", onClick: openGuildHub },
         !dm && { label: "Guild emoji", icon: "smile", onClick: () => (S.modal = { kind: "emoji" }) },
         !dm && (has(g.myPerms, PERM.MANAGE_ROLES) || g.isOwner) && {
           label: "Roles",
@@ -280,13 +282,7 @@
         },
         !g.dmNotes && { sep: true },
         !g.dmNotes && {
-          label: dm
-            ? (g.dmMembers ?? 2) > 2
-              ? "Leave group"
-              : "Close conversation"
-            : g.isOwner
-              ? "Delete guild"
-              : "Leave guild",
+          label: leaveGuildLabel(g),
           icon: g.isOwner ? "trash" : "door",
           danger: true,
           onClick: () => confirmLeaveGuild(activeGuild()),

@@ -4,7 +4,7 @@
   // un-redeemed (internal/app/request.go), which is why the row can show who
   // knocked but not what they said: reading it would mean joining their group,
   // and joining is what hands them your profile, presence and mailbox key.
-  import SettingsShell from "./SettingsShell.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import { S, flash, acceptRequest, declineRequest, nameFor } from "../lib/state.svelte.js";
@@ -46,7 +46,7 @@
   }
 </script>
 
-<SettingsShell title="Message requests" {onClose}>
+<RailShell title="Message requests" {onClose}>
   {#if S.requests.length === 0}
     <p class="muted empty">Nothing waiting. Requests from people you don't know show up here.</p>
   {:else}
@@ -90,7 +90,7 @@
       {/each}
     </div>
   {/if}
-</SettingsShell>
+</RailShell>
 
 <style>
   .empty {

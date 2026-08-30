@@ -264,6 +264,9 @@ type GuildView struct {
 	// state of the ratchet: OutOfSync is the recoverable case and must never be
 	// dressed up as this one.
 	Evicted string `json:"evicted,omitempty"`
+	// EvictedReason is the optional note from the signed kick or ban, shown
+	// on the terminal banner. Empty when the moderator wrote nothing.
+	EvictedReason string `json:"evictedReason,omitempty"`
 	// Alone: nobody else is left in this guild's group. It is what lets the
 	// sync banner stop claiming to be waiting for someone to come online when
 	// there is no longer anyone who could come.
@@ -2870,7 +2873,8 @@ func guildView(svc *appsvc.Service, g domain.Guild) GuildView {
 		MyPerms:       uint32(svc.MemberPermission(g.ID, svc.Fingerprint())),
 		Icon:          g.Icon, Banner: g.Banner, Description: g.Description,
 		Channels: channels, Categories: cats, Emoji: emoji, OutOfSync: svc.OutOfSync(g.ID),
-		Evicted: svc.EvictedFrom(g.ID), Alone: svc.AloneInGuild(g.ID),
+		Evicted: svc.EvictedFrom(g.ID), EvictedReason: svc.EvictedReason(g.ID),
+		Alone:        svc.AloneInGuild(g.ID),
 		LastActivity: lastActivity,
 		MyMutedUntil: svc.MutedUntil(g.ID, svc.Fingerprint()),
 	}

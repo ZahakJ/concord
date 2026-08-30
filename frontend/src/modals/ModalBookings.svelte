@@ -6,7 +6,7 @@
   // event in your Notes calendar. Nothing about your calendar is stored on the
   // server, which is also why the page honestly reads "unreachable" when this
   // app is closed.
-  import SettingsShell from "./SettingsShell.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Select from "../Select.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
@@ -132,7 +132,7 @@
   });
 </script>
 
-<SettingsShell title="Bookings" here="bookings" {onClose}>
+<RailShell title="Bookings" here="bookings" {onClose}>
   <SettingGroup
     label="Public booking page"
     info="The link points at your rendezvous server, but the server stores nothing: every visit asks your running Concord app for free slots, so the page only works while this app is open — and says so honestly when it isn't. Each booking creates a knock-to-enter meeting room and an event in your Notes calendar. The visitor keeps their meeting link and an .ics file; no email is involved, on purpose."
@@ -253,7 +253,7 @@
       {/each}
     {/if}
   </SettingGroup>
-</SettingsShell>
+</RailShell>
 
 {#if confirmCancel}
   <ConfirmDialog

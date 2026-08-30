@@ -8,7 +8,7 @@
   // IS HERE, and WHO CAN DO WHAT. Everything it does is a call the app already
   // made from somewhere else — the row overflow is the same shared moderation
   // menu the card's ⋯ and the member list's right-click render.
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import Select from "../Select.svelte";
@@ -135,7 +135,7 @@
   }
 </script>
 
-<Modal title="Members" wide {onClose}>
+<RailShell title="Members" wide {onClose}>
   <div class="bar">
     <label class="search">
       <Icon name="search" size={14} />
@@ -200,8 +200,8 @@
             <th><button class="sortbtn" onclick={() => sortBy("name")}>Name{sortKey === "name" ? (sortDir > 0 ? " ↑" : " ↓") : ""}</button></th>
             <th><button class="sortbtn" onclick={() => sortBy("roles")}>Roles{sortKey === "roles" ? (sortDir > 0 ? " ↑" : " ↓") : ""}</button></th>
             <th><button class="sortbtn" onclick={() => sortBy("rank")}>Standing{sortKey === "rank" ? (sortDir > 0 ? " ↑" : " ↓") : ""}</button></th>
-            <th><button class="sortbtn" onclick={() => sortBy("fpr")}>Fingerprint{sortKey === "fpr" ? (sortDir > 0 ? " ↑" : " ↓") : ""}</button></th>
-            <th class="act"><span class="sr-only">Actions</span></th>
+            <th class="fpr"><button class="sortbtn" onclick={() => sortBy("fpr")}>Fingerprint{sortKey === "fpr" ? (sortDir > 0 ? " ↑" : " ↓") : ""}</button></th>
+            <th class="act">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -277,7 +277,7 @@
       membership is a live fact, not a ledger of arrivals.
     </p>
   {/if}
-</Modal>
+</RailShell>
 
 <style>
   .bar {
@@ -333,12 +333,29 @@
   }
   /* The scroller is the WRAPPER, not the table: `overflow` on a flex child
      zeroes its automatic minimum size, which is how a table inside a sheet
-     collapsed to an 8px sliver once before. */
+     collapsed to an 8px sliver once before.
+     It is also the query CONTAINER. Six columns wanted 489px and the box gave
+     them 416, so 73px was off the right edge with no scrollbar drawn to say so
+     — and what was off the edge was the ⋯ carrying Make admin / Mute / Kick /
+     Ban, which is the entire reason a moderator opens this screen. A viewport
+     media query is the wrong instrument (it cannot see the rail beside it, or
+     the app's own zoom); the wrapper measures itself. */
   .tbl-wrap {
     flex: none;
     overflow-x: auto;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
+    container-type: inline-size;
+    container-name: memtbl;
+  }
+  /* Fingerprint gives way first, and it is the right one to lose: it is key
+     material a moderator READS, and this table exists to ACT. It is still one
+     click away on the row's own menu (Copy fingerprint) and on the profile
+     card. Actions never gives way — it pins to the right edge instead. */
+  @container memtbl (max-width: 560px) {
+    .fpr {
+      display: none;
+    }
   }
   table {
     width: 100%;
@@ -458,9 +475,33 @@
   .fprbtn:hover {
     color: var(--text);
   }
+  /* Pinned to the right edge so that whatever else scrolls, the thing you came
+     to press is on screen. The row's own tint is translucent (accent-soft is a
+     color-mix into transparent), so it is painted as a layer OVER the dialog's
+     opaque ground rather than as a background colour — otherwise a scrolled
+     name would read straight through the pinned cell. */
   .act {
-    width: 34px;
+    width: 52px;
     text-align: right;
+    position: sticky;
+    right: 0;
+    background-color: var(--bg-elevated);
+    background-image: linear-gradient(var(--rowbg, transparent), var(--rowbg, transparent));
+    border-left: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+  }
+  th.act {
+    background-color: var(--bg-2);
+    background-image: none;
+    text-align: right;
+  }
+  tbody tr {
+    --rowbg: transparent;
+  }
+  tbody tr:hover {
+    --rowbg: var(--bg-2);
+  }
+  tbody tr.sel {
+    --rowbg: var(--accent-soft);
   }
   /* A visible affordance, not a hover reveal: the row's only way to act on a
      person must not be invisible until a pointer finds it (and a finger never

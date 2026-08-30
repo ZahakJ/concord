@@ -3,6 +3,7 @@
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { PERM, has } from "../lib/perms.js";
+  import { RETAIN_OPTIONS, retainLabel as retainSecsLabel } from "../lib/retention.js";
   let { channel, onSubmit, onClose } = $props();
   let topic = $state(channel?.topic || "");
 
@@ -31,11 +32,7 @@
   // on their machines, and that is not a channel tweak.
   const RETAIN = [
     { secs: -1, label: "Guild default" },
-    { secs: 0, label: "Forever" },
-    { secs: 86400, label: "24h" },
-    { secs: 7 * 86400, label: "7d" },
-    { secs: 30 * 86400, label: "30d" },
-    { secs: 90 * 86400, label: "90d" },
+    ...RETAIN_OPTIONS,
   ];
   const canRetain = $derived(has(activeGuild()?.myPerms || 0, PERM.MANAGE_GUILD));
   // ChannelView.retention already resolves to the effective policy, so the
@@ -55,7 +52,8 @@
   const retainChanged = $derived(
     retain !== (Number(channel?.retention) === guildRetain ? -1 : Number(channel?.retention) || 0),
   );
-  const retainLabel = (secs) => RETAIN.find((r) => r.secs === secs)?.label || `${secs}s`;
+  const retainLabel = (secs) =>
+    secs < 0 ? "Guild default" : retainSecsLabel(secs);
 
   async function save() {
     const gid = activeGuild()?.id || S.activeGuildId;
@@ -85,18 +83,21 @@
   }
 </script>
 
-<Modal title="Channel settings" {onClose}>
-  <p class="muted">
-    Shown in the header of <strong>#{channel?.name}</strong>. Leave blank to clear it.
-  </p>
-  <!-- svelte-ignore a11y_autofocus -->
-  <textarea
-    bind:value={topic}
-    rows="3"
-    maxlength="300"
-    placeholder="What's this channel about?"
-    autofocus={!S.isMobile}
-  ></textarea>
+<Modal title={`#${channel?.name || "channel"} · Channel settings`} {onClose}>
+  <label class="fld">
+    <strong class="slow-label">Topic</strong>
+    <p class="muted">
+      Shown in the header of <strong>#{channel?.name}</strong>. Leave blank to clear it.
+    </p>
+    <!-- svelte-ignore a11y_autofocus -->
+    <textarea
+      bind:value={topic}
+      rows="3"
+      maxlength="300"
+      placeholder="What's this channel about?"
+      autofocus={!S.isMobile}
+    ></textarea>
+  </label>
   <div class="slow">
     <strong class="slow-label">Slow mode</strong>
     <div class="seg" role="radiogroup" aria-label="Slow mode interval">
@@ -128,7 +129,7 @@
       </div>
       <p class="muted tiny">
         {#if retain < 0}
-          Follows the guild ({guildRetain ? retainLabel(guildRetain) : "forever"}).
+          Follows the guild ({retainLabel(guildRetain)}).
         {:else if retain === 0}
           Nothing in this channel is removed by age, whatever the guild says.
         {:else}
@@ -148,6 +149,11 @@
   p {
     margin: 0;
     font-size: var(--fs-ui);
+  }
+  .fld {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
   }
   .slow {
     margin-top: 14px;

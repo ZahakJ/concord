@@ -17,8 +17,27 @@
   import Avatar from "../Avatar.svelte";
   import { SETTINGS_GROUPS } from "../lib/settingsnav.js";
   import { S, switchPanel } from "../lib/state.svelte.js";
+  import { tooltip } from "../lib/tooltip.js";
 
   let { here = "" } = $props();
+  // Below 920px the words go and nine 16px glyphs are all that is left, so how
+  // you learn what one means IS the tooltip. It was the NATIVE tooltip until
+  // now — the one lib/tooltip.js opens by explaining is the wrong tool for an
+  // icon-only column: the OS sits on it for about a second and paints it in the
+  // platform's theme rather than ours. delay 80, side right, the same numbers
+  // the guild rail passes, because identifying a glyph should feel instant.
+  // The aria-label goes on with it: the label IS the tip, so the two cannot
+  // drift, and a rail of nine unnamed buttons had nothing for a screen reader
+  // either.
+  const railTip = { side: "right", delay: 80 };
+  let collapsed = $state(false);
+  $effect(() => {
+    const mq = window.matchMedia("(max-width: 920px)");
+    const sync = () => (collapsed = mq.matches);
+    sync();
+    mq.addEventListener("change", sync);
+    return () => mq.removeEventListener("change", sync);
+  });
 </script>
 
 <!-- Plain buttons, one tab stop each: this is a list of links, not a toolbar,
@@ -46,7 +65,8 @@
           class="r-item"
           class:here={here === it.kind}
           aria-current={here === it.kind ? "page" : undefined}
-          title={it.title}
+          aria-label={collapsed ? it.title : undefined}
+          use:tooltip={collapsed ? railTip : undefined}
           onclick={() => switchPanel(it.kind)}
         >
           <span class="mark" aria-hidden="true"></span>

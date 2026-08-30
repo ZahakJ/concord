@@ -5,7 +5,7 @@
   // Every member sees this, not just the owner, because the questions it answers
   // are a member's questions: where did the history above my channels come from,
   // who vouched for it, how far back does it go, and is it costing me disk.
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
   import { S, activeGuild, flash, openPanel, refreshChronicle } from "../lib/state.svelte.js";
@@ -69,7 +69,7 @@
     /voice/i.test(type || "") ? "speaker" : /forum|thread/i.test(type || "") ? "forum" : "hash";
 </script>
 
-<Modal title="Archive" wide {onClose}>
+<RailShell title="Archive" wide {onClose}>
   {#if !c}
     <EmptyState
       icon="clock"
@@ -176,7 +176,7 @@
       <button class="ghost" onclick={onClose}>Close</button>
     </div>
   {/if}
-</Modal>
+</RailShell>
 
 <style>
   .src {

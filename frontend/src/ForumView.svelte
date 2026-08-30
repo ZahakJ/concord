@@ -810,7 +810,20 @@
               <!-- Designed first, because most posts land here: not a grey hole
                    but the post's own colour and initial, derived from its id so
                    it looks the same on every device. -->
-              <span class="tile">{tile.letter}</span>
+              {@const author = memberByFpr(p.authorFingerprint)}
+              {#if p.authorFingerprint}
+                <span class="tile-face">
+                  <Avatar
+                    name={author?.name || p.authorName || nameFor(p.authorFingerprint)}
+                    image={author?.avatar || ""}
+                    emoji={author?.emoji || ""}
+                    color={author?.color || ""}
+                    size={48}
+                  />
+                </span>
+              {:else}
+                <span class="tile">{tile.letter}</span>
+              {/if}
               {#if tok}
                 <span class="tile-load" class:err={m?.state === "err"} aria-hidden="true">
                   <Icon name={m?.state === "err" ? "alert" : "imagetext"} size={14} />
@@ -1544,6 +1557,11 @@
     color: rgba(255, 255, 255, 0.5);
     letter-spacing: -0.02em;
     user-select: none;
+  }
+  .tile-face {
+    display: grid;
+    place-items: center;
+    pointer-events: none;
   }
   .tile-load {
     position: absolute;

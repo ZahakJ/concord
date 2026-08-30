@@ -230,6 +230,11 @@ type Service struct {
 	// the heal machinery would declare people evicted every time they missed an
 	// epoch. Guarded by mu; mirrored into settings so it survives a restart.
 	evicted map[string]string
+	// evictedReason is the optional note from the remove_member or ban op
+	// that put us out — the sentence the moderator typed. Separate from
+	// evicted because the kind ("removed"/"banned") is the state machine
+	// and the note is copy. Absent means they wrote nothing.
+	evictedReason map[string]string
 	// forkedPeers names, per guild, the members that stood strictly AHEAD of our
 	// epoch and served a payload our group state could not read — the signature
 	// of a fork (two divergent trees) rather than of us merely lagging. Guarded
@@ -1090,6 +1095,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 		meetingLife:      map[string]time.Time{},
 		outOfSync:        map[string]bool{},
 		evicted:          map[string]string{},
+		evictedReason:    map[string]string{},
 		forkedPeers:      map[string]map[peer.ID]bool{},
 		lastReciprocal:   map[string]time.Time{},
 		lastHealed:       map[string]time.Time{},

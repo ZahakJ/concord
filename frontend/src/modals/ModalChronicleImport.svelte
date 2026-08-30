@@ -13,7 +13,7 @@
   // The wizard is closable while the import runs. It is a real job on the
   // backend with an id, and reopening this dialog picks the job back up rather
   // than offering to start a second one.
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import EmptyState from "../EmptyState.svelte";
   import InfoDot from "./InfoDot.svelte";
@@ -128,7 +128,8 @@
 
   // ---- the bill ----
 
-  const rows = $derived(sortRows(channelRows(stats, ui.exclude), sortKey, sortDir));
+  const rows = $derived(sortRows(channelRows(stats, ui.exclude, g?.channels), sortKey, sortDir));
+  const merging = $derived(rows.some((r) => r.included && r.landing?.existing));
   const bars = $derived(histogramBars(stats));
   const includedCount = $derived(rows.filter((r) => r.included).length);
   const notExported = $derived(stats ? stats.remoteAttachmentBytes || 0 : 0);
@@ -209,7 +210,7 @@
   }
 </script>
 
-<Modal title="Import a chat archive" wide {onClose}>
+<RailShell title="Import a chat archive" wide {onClose}>
   {#if !g?.isOwner}
     <!-- The backend refuses this for anyone but the owner, twice over. Saying so
          here is kinder than letting somebody fill in three screens first. -->
@@ -330,6 +331,12 @@
         <h4>Channels</h4>
         <span class="muted small">{includedCount} of {plural(rows.length, "channel")} selected</span>
       </div>
+      {#if merging}
+        <p class="note">
+          Matching is by name. A row that lands in an existing channel puts that archive's history
+          under this guild's room of the same name — there is no undo after Import.
+        </p>
+      {/if}
       <div class="tbl">
         <div class="thead">
           <span class="c-inc"><span class="sr-only">Include</span></span>
@@ -341,12 +348,12 @@
               >{/if}
           </button>
           <span class="c-range th">Span</span>
+          <span class="c-land th">Lands in</span>
           <button
             class="c-num th"
-           
             onclick={() => toggleSort("attachmentBytes")}
           >
-            Media {#if sortKey === "attachmentBytes"}<span class="caret"
+            Media named {#if sortKey === "attachmentBytes"}<span class="caret"
                 >{sortDir < 0 ? "▾" : "▴"}</span
               >{/if}
           </button>
@@ -367,7 +374,13 @@
             </span>
             <span class="c-num">{fmtCount(r.messages)}</span>
             <span class="c-range">{rangeLabel(r.firstNano, r.lastNano) || "—"}</span>
-            <span class="c-num">{r.attachmentBytes ? fmtBytes(r.attachmentBytes) : "—"}</span>
+            <span class="c-land" class:reuse={r.landing?.existing}>{r.landing?.label}</span>
+            <span class="c-num c-media">
+              {r.attachmentBytes ? fmtBytes(r.attachmentBytes) : "—"}
+              {#if r.attachmentBytes && r.localAttachmentBytes}
+                <em>{fmtBytes(r.localAttachmentBytes)} in the folder</em>
+              {/if}
+            </span>
           </label>
         {/each}
       </div>
@@ -568,7 +581,7 @@
       </div>
     {/if}
   {/if}
-</Modal>
+</RailShell>
 
 <style>
   .lead {
@@ -690,10 +703,11 @@
   .thead,
   .trow {
     display: grid;
-    /* Tight on purpose: the dialog is 460px and the channel NAME is the column
-       a reader scans, so every other column is cut to what its widest value
-       actually needs rather than to a round number. */
-    grid-template-columns: 22px minmax(0, 1fr) 68px 96px 58px;
+    /* The railed pane is ~770px. Name stays the scan column; Lands in is why
+       this table grew a sixth column — matching by name used to be silent
+       until after the import. Media named is the export's own figure, with
+       "in the folder" underneath for what is actually present. */
+    grid-template-columns: 22px minmax(0, 1fr) 84px 92px minmax(8rem, 1.1fr) 88px;
     align-items: center;
     gap: var(--sp-1);
     padding: 6px var(--sp-2);
@@ -757,20 +771,31 @@
   button.c-num {
     text-align: right;
   }
-  .c-range {
+  .c-range,
+  .c-land {
     color: var(--text-faint);
     font-size: var(--fs-tiny);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* Under a phone's width the span and the media size drop to their own line
-     rather than crushing the channel name to three letters. */
+  .c-land.reuse {
+    color: var(--warn-text);
+  }
+  .c-media em {
+    display: block;
+    font-style: normal;
+    font-size: var(--fs-micro);
+    color: var(--text-faint);
+  }
+  /* Under a phone's width the span, landing and media drop under the name
+     rather than crushing it to three letters. */
   @media (max-width: 620px) {
     .thead {
       grid-template-columns: 22px minmax(0, 1fr) 74px;
     }
     .thead .c-range,
+    .thead .c-land,
     .thead .c-num:last-child {
       display: none;
     }
@@ -778,6 +803,7 @@
       grid-template-columns: 22px minmax(0, 1fr) 74px;
     }
     .trow .c-range,
+    .trow .c-land,
     .trow .c-num:last-child {
       grid-column: 2 / -1;
       text-align: left;

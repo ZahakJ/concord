@@ -64,7 +64,7 @@ func TestKickSticksAgainstTheReAddHeal(t *testing.T) {
 	// this the assertions below would pass on a guild that never worked.
 	sendUntilReceived(t, member, channel, "hello before the kick", seen)
 
-	if err := owner.KickMember(g.ID, memberFpr, ""); err != nil {
+	if err := owner.KickMember(g.ID, memberFpr, "spam in #general"); err != nil {
 		t.Fatalf("KickMember: %v", err)
 	}
 	if !owner.isRemoved(g.ID, memberFpr) {
@@ -112,6 +112,9 @@ func TestKickSticksAgainstTheReAddHeal(t *testing.T) {
 	waitUntil(t, 20*time.Second, func() bool {
 		return member.EvictedFrom(g.ID) == evictedKicked
 	}, "the kicked member's own client never learned it had been removed")
+	waitUntil(t, 10*time.Second, func() bool {
+		return member.EvictedReason(g.ID) == "spam in #general"
+	}, "the kicked member never received the reason the owner wrote")
 	if member.OutOfSync(g.ID) {
 		t.Fatal("a removed guild is flying the catching-up banner as well as the terminal one")
 	}

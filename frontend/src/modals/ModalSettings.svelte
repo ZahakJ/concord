@@ -10,7 +10,7 @@
   // in front of a menu. What is left is the thing that has no other home — the
   // account itself: who you are on this machine, the words that ARE that
   // account, the copy you keep, the version you are running, and the way out.
-  import SettingsShell from "./SettingsShell.svelte";
+  import RailShell from "./RailShell.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
   import Icon from "../Icon.svelte";
@@ -195,7 +195,7 @@
 
 </script>
 
-<SettingsShell title={S.isMobile ? "Settings" : "Account"} here="settings" {onClose}>
+<RailShell title={S.isMobile ? "Settings" : "Account"} here="settings" {onClose}>
   <!-- WHO. It leads on both surfaces: on the desktop this page has no other way
        of saying which account it is about, and on a phone the list under it is
        all the ways of changing exactly this. On a phone the whole card is the
@@ -243,6 +243,7 @@
     {/each}
   {/if}
 
+  <div class="desk-cols">
   <!-- KEEPING IT. The two things that decide whether this account survives the
        machine it is on, said in that order and nowhere else in the app. -->
   <SettingGroup
@@ -351,6 +352,7 @@
       </div>
     </div>
   </SettingGroup>
+  </div>
 
   <button
     class="signout"
@@ -362,7 +364,7 @@
     <Icon name="door" size={15} />
     Sign out (lock this device)
   </button>
-</SettingsShell>
+</RailShell>
 
 <style>
   /* ---- who this account is ------------------------------------------------
@@ -599,23 +601,36 @@
     transition: width 0.3s ease;
   }
 
+  .desk-cols {
+    display: contents;
+  }
+  @media (min-width: 769px) {
+    .desk-cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--sp-3);
+      align-items: start;
+    }
+  }
   .signout {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 7px;
     margin-top: auto;
-    padding: 10px 14px;
-    font-size: var(--fs-ui);
-    font-weight: 600;
+    padding: 6px 10px;
+    font-size: var(--fs-small);
+    font-weight: 550;
     background: transparent;
-    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
-    border-radius: var(--radius-md);
-    color: var(--danger-text);
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--text-muted);
     flex: none;
+    align-self: flex-end;
   }
   .signout:hover {
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+    color: var(--danger-text);
   }
 
   /* Phone: the word grid drops to two columns so long mnemonic words never

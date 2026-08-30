@@ -18,6 +18,9 @@ import {
   progressPct,
   resultLines,
   splitPlaceholders,
+  foldName,
+  channelTypeOf,
+  landingFor,
 } from "./chronicle.js";
 
 let fails = 0;
@@ -127,6 +130,25 @@ ok(rows.find((r) => r.id === "c-voice").included === false, "an excluded channel
 ok(rows.find((r) => r.id === "c-general").included === true, "the rest are included by default");
 ok(channelRows(null).length === 0, "no scan, no rows");
 
+ok(foldName("  General  Chat ") === "general chat", "names fold the way the importer matches them");
+ok(channelTypeOf("GUILD_VOICE") === "voice", "an export voice room is a voice room");
+ok(channelTypeOf("news") === "announcement", "news maps to announcement");
+ok(channelTypeOf("text") === "text", "unknown types become text");
+{
+  const guild = [
+    { name: "general", type: "text", parent: "" },
+    { name: "Lounge", type: "voice", parent: "" },
+  ];
+  const intoGeneral = landingFor({ name: "General", type: "text" }, guild);
+  ok(intoGeneral.existing && intoGeneral.label === "#general (existing)", `general lands in existing: ${intoGeneral.label}`);
+  const intoNew = landingFor({ name: "plans", type: "text" }, guild);
+  ok(!intoNew.existing && intoNew.label === "#plans (new)", `plans is new: ${intoNew.label}`);
+  const lounge = landingFor({ name: "lounge", type: "voice" }, guild);
+  ok(lounge.existing && lounge.label === "Lounge (existing)", `voice lounge matches by name+type: ${lounge.label}`);
+  const notVoice = landingFor({ name: "lounge", type: "text" }, guild);
+  ok(!notVoice.existing, "a text lounge does not land in a voice Lounge");
+}
+
 const byCount = sortRows(rows, "messages", -1);
 ok(byCount[0].id === "c-general", "descending by count puts the biggest first");
 ok(sortRows(rows, "messages", 1)[0].id === "c-voice", "ascending flips it");
@@ -195,9 +217,28 @@ const lines = resultLines({
   manifestBytes: 12000,
 });
 ok(lines[0].startsWith("1,880 messages imported"), "the count leads");
+ok(lines.some((l) => l.includes("2 channels matched") && l.includes("2 created")), `structural matches add up: ${lines[1]}`);
 ok(!lines.some((l) => l.includes("custom emoji")), "a zero is not printed as a line");
 ok(lines.some((l) => l.includes("left out by the policy")), "what the policy dropped is reported");
 ok(resultLines(null).length === 0, "no result, no lines");
+{
+  const split = resultLines({
+    imported: 10,
+    channels: 3,
+    channelsCreated: 2,
+    channelsReused: 2,
+    chunks: 1,
+    chunkBytes: 0,
+    manifestBytes: 0,
+  });
+  ok(
+    split[1].includes("4 channels matched") &&
+      split[1].includes("2 created") &&
+      split[1].includes("2 already existed") &&
+      split[1].includes("1 received no messages"),
+    `created+reused is the match count, not a parenthetical that disagrees: ${split[1]}`,
+  );
+}
 
 console.log(fails ? `chronicle.js: ${fails} FAILED` : "chronicle.js: all tests passed");
 process.exit(fails ? 1 : 0);

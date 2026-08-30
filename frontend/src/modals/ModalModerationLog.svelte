@@ -11,7 +11,7 @@
   // can verify perfectly and the replay can still have refused the op (a
   // moderator who had lost the role by the time it folded). A log that showed
   // only the first would print bans that never happened.
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import EmptyState from "../EmptyState.svelte";
@@ -99,7 +99,7 @@
   loadRemoved();
 </script>
 
-<Modal title="Moderation log" {onClose} wide>
+<RailShell title="Moderation log" {onClose} wide>
   <p class="lede">
     Every role change, removal, ban, mute, channel change and handover in this
     guild, signed by whoever made it and checked here on your own machine.
@@ -192,7 +192,7 @@
       {/if}
     </div>
   {/if}
-</Modal>
+</RailShell>
 
 <style>
   .lede {

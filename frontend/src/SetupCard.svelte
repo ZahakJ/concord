@@ -14,13 +14,15 @@
   // guild, per device, exactly as the flag is stored.
   import { onDestroy } from "svelte";
   import Icon from "./Icon.svelte";
-  import { S, activeGuild, flash } from "./lib/state.svelte.js";
+  import { S, activeGuild, flash, openGuildHub } from "./lib/state.svelte.js";
   import { api } from "./lib/api.js";
   import {
     dismissGuildSetup,
     isGuildSetupArmed,
     setupWelcomeDone,
     markSetupWelcome,
+    setupInviteDone,
+    markSetupInvite,
   } from "./lib/setup.js";
 
   const g = $derived(activeGuild());
@@ -36,6 +38,10 @@
     latched; // the dependency that makes the latch below visible here
     return !!g && setupWelcomeDone(g.id);
   });
+  const inviteDone = $derived.by(() => {
+    latched;
+    return !!g && setupInviteDone(g.id);
+  });
 
   // The welcome step latches on a message THIS account wrote in the channel on
   // screen. Counting the guild's messages was the obvious version and it was
@@ -45,7 +51,35 @@
     const id = g?.id;
     if (!id || !armed || welcomeDone) return;
     const mine = S.messages.some((m) => m.kind === "" && m.sender === S.identity?.fingerprint);
-    if (mine && markSetupWelcome(id)) latched++;
+    if (mine && markSetupWelcome(id)) {
+      latched++;
+      S.setupRev++;
+    }
+  });
+
+  // The invite step latches the same way. Counting live members was honest in
+  // the moment and a bug over time: kick someone and the box unticks, let
+  // them back in and it ticks again. Once somebody else has been here, the
+  // errand is done.
+  $effect(() => {
+    const id = g?.id;
+    if (!id || !armed || inviteDone) return;
+    if (S.members.some((m) => !m.isSelf) && markSetupInvite(id)) {
+      latched++;
+      S.setupRev++;
+    }
+  });
+
+  // An import is real activity. The card sitting over 1,981 archived messages
+  // asking you to "get started" is the first screen of a community that
+  // already has a past.
+  $effect(() => {
+    if (!armed || !g) return;
+    if (S.chronicle?.id) {
+      dismissGuildSetup(g.id);
+      dismissed++;
+      S.setupRev++;
+    }
   });
 
   const steps = $derived.by(() => {
@@ -55,9 +89,9 @@
         id: "icon",
         label: "Give it an icon",
         sub: "Two letters in the rail is a placeholder, not a face.",
-        icon: "camera",
+        icon: "image",
         done: !!g.icon,
-        go: () => (S.modal = { kind: "guildSettings" }),
+        go: () => openGuildHub(),
       },
       {
         id: "channels",
@@ -82,11 +116,9 @@
         label: "Invite people",
         sub: "Share a code with the people you want in here.",
         icon: "members",
-        // Nothing local can prove an invite was ACCEPTED by the person you
-        // meant, so this ticks on the only honest signal: somebody else is in
-        // the guild now. Pending invitees count — the code has left the
-        // building, which is what the row asked for.
-        done: S.members.some((m) => !m.isSelf),
+        // Latched: see the effect above. Pending invitees still count as the
+        // first observation — the code has left the building.
+        done: inviteDone,
         go: invite,
       },
     ];
@@ -126,6 +158,7 @@
       // storage for a card that can never draw again.
       dismissGuildSetup(g.id);
       dismissed++;
+      S.setupRev++;
       return;
     }
     if (winTimer) return;
@@ -133,6 +166,7 @@
     winTimer = setTimeout(() => {
       dismissGuildSetup(g.id);
       dismissed++;
+      S.setupRev++;
     }, 4000);
   });
   onDestroy(() => clearTimeout(winTimer));
@@ -148,6 +182,7 @@
   function dismiss() {
     dismissGuildSetup(g.id);
     dismissed++;
+    S.setupRev++;
   }
 </script>
 
@@ -179,7 +214,10 @@
           {#if s.done}
             <span class="row static">
               <span class="tick"><Icon name="check" size={12} /></span>
-              <span class="txt"><span class="lbl">{s.label}</span></span>
+              <span class="txt">
+                <span class="lbl">{s.label}</span>
+                <span class="sub">{s.sub}</span>
+              </span>
             </span>
           {:else}
             <button class="row" onclick={s.go}>

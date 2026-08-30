@@ -44,6 +44,7 @@
   import { entriesFor } from "./lib/outbox.svelte.js";
   import { untrack, tick } from "svelte";
   import { pointOf } from "./lib/place.js";
+  import { isGuildSetupArmed } from "./lib/setup.js";
 
   let { onDropFiles, onJoinVoice } = $props();
 
@@ -240,6 +241,13 @@
   // whole content is the announcement that it exists is empty, so the hero
   // asks whether anyone has SAID anything, not whether the array is empty.
   const noConversation = $derived(rows.every((r) => r.m.kind === "system"));
+  // The setup card replaces this hero while it is alive: two welcome
+  // compositions with a hole between them was the first screen of a new guild.
+  const setupOwnsHero = $derived.by(() => {
+    void S.setupRev;
+    const g = activeGuild();
+    return !!g && g.isOwner && g.kind !== "dm" && isGuildSetupArmed(g.id);
+  });
 
   // …and the thing an owner should do next in a room they just made.
   const canSetTopic = $derived(
@@ -1196,10 +1204,13 @@
   <div class="gone-banner" role="status">
     <span class="gone-text">
       You're no longer a member of <strong>{activeGuild()?.name}</strong>.
+      {#if activeGuild()?.evictedReason}
+        <span class="gone-why">“{activeGuild().evictedReason}”</span>
+      {/if}
       {#if activeGuild()?.evicted === "banned"}
         You were banned, so an invite won't let you back in.
       {:else}
-        You can rejoin if someone gives you a new invite.
+        An admin can let you back in from this guild's moderation log.
       {/if}
     </span>
   </div>
@@ -1537,7 +1548,7 @@
           </div>
         {/each}
       </div>
-    {:else if !arcChan}
+    {:else if !arcChan && !setupOwnsHero}
       <!-- …but not when an archive sits above: "this is the start of #plans"
            under two thousand imported messages is simply false, and it is the
            channels an import has just created that are most likely to have no
@@ -1685,6 +1696,12 @@
   .gone-text {
     flex: 1;
     min-width: 0;
+  }
+  .gone-why {
+    display: block;
+    margin-top: var(--sp-1);
+    font-style: italic;
+    color: var(--text-muted);
   }
   .oos-text {
     flex: 1;

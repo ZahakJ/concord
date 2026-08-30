@@ -1,5 +1,5 @@
 <script>
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
@@ -113,7 +113,7 @@
   }
 </script>
 
-<Modal title="Guild emoji — {g?.name ?? ''}" {onClose}>
+<RailShell title="Guild emoji — {g?.name ?? ''}" {onClose}>
   {#if canManage}
     <p class="muted lead">
       Upload emoji anyone in this guild can use by typing <code>:name:</code>. Keep them small and
@@ -180,7 +180,7 @@
   <div class="actions">
     <button class="ghost" onclick={onClose}>Done</button>
   </div>
-</Modal>
+</RailShell>
 
 {#if confirmRm}
   <ConfirmDialog

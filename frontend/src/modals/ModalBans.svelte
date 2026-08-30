@@ -1,6 +1,6 @@
 <script>
   // Lists a guild's banned members and lets a moderator lift a ban.
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import { S, refreshRightPanel, flash } from "../lib/state.svelte.js";
@@ -79,7 +79,7 @@
   load();
 </script>
 
-<Modal title="Banned members" {onClose}>
+<RailShell title="Banned members" {onClose}>
   {#if loading}
     <p class="muted empty">Loading…</p>
   {:else if bans.length === 0}
@@ -125,7 +125,7 @@
       {/each}
     </div>
   {/if}
-</Modal>
+</RailShell>
 
 <style>
   .empty {

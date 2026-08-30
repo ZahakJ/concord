@@ -9,7 +9,7 @@
   // tile you click is exactly what every member's sidebar gets — including the
   // legibility scrim, which is why the preview below prints the real guild name
   // and icon over the art rather than showing it bare.
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Banner from "../Banner.svelte";
   import { S, activeGuild, refreshGuilds, flash } from "../lib/state.svelte.js";
@@ -96,7 +96,7 @@
 
 <svelte:window onpaste={onPaste} />
 
-<Modal title="Guild settings" {onClose} wide>
+<RailShell title="Guild settings" {onClose} wide>
   <!-- IDENTITY FIRST. The panel is called "Name, icon, banner & description"
        and used to put them in the reverse of that order: a 24-tile animated
        template gallery ate three hundred pixels and the guild's own NAME
@@ -204,7 +204,7 @@
     <p class="muted tiny">Only members with Manage Guild can edit this.</p>
   {/if}
 
-</Modal>
+</RailShell>
 
 <style>
   /* The disclosure that keeps the 24-tile gallery from pushing the guild's own

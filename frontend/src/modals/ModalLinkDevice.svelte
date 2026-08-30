@@ -6,7 +6,7 @@
   import { api } from "../lib/api.js";
   import { linkURLFor } from "../lib/deeplink.js";
   import { flash } from "../lib/state.svelte.js";
-  import SettingsShell from "./SettingsShell.svelte";
+  import RailShell from "./RailShell.svelte";
 
   let { onClose } = $props();
 
@@ -46,7 +46,7 @@
   }
 </script>
 
-<SettingsShell title="Link a device" here="linkDevice" {onClose}>
+<RailShell title="Link a device" here="linkDevice" {onClose}>
   <p class="muted">
     On your other device, choose <strong>“Link to an existing account”</strong> and
     scan this code (or paste it). It works for a few minutes, then expires.
@@ -69,7 +69,7 @@
     Anyone who scans this within the next couple of minutes can add a device to
     your account — only use it on a device you own.
   </p>
-</SettingsShell>
+</RailShell>
 
 <style>
   .qr-wrap {

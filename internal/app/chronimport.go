@@ -491,96 +491,130 @@ type structureResult struct{ created, reused, categories int }
 // importer that made a second one would be telling them their setup was wrong.
 // The comparison is case-insensitive and whitespace-folded because "General"
 // and "general" are the same room to everybody except a string comparison.
+//
+// Categories are created only if a NEW channel will live in them. Reusing
+// Lounge must not mint an empty Voice header around it; a new channel with
+// no export category lands under "Imported — {source}" rather than floating
+// uncategorised above the owner's own rooms.
 func (s *Service) buildImportStructure(guildID string, stats *chronimport.Stats,
 	policy chronimport.Policy, job *chatImportJob) (*importPlan, structureResult, error) {
 
 	var res structureResult
 	plan := &importPlan{bySource: map[string]*plannedChannel{}}
 
-	// The categories the included channels ask for, in first-seen order.
+	type nameKey struct{ fold, ctype string }
+	seen := map[nameKey]string{}
+	s.mu.RLock()
+	g, ok := s.guilds[guildID]
+	if ok {
+		for _, ch := range g.Channels {
+			if ch.Parent != "" {
+				continue
+			}
+			seen[nameKey{foldName(ch.Name), ch.ChannelType()}] = ch.ID
+		}
+	}
+	s.mu.RUnlock()
+	if !ok {
+		return nil, res, fmt.Errorf("app: unknown guild %s", guildID)
+	}
+
+	included := chronimport.IncludedChannels(stats, policy)
+	type decision struct {
+		src    chronimport.ChannelStats
+		ctype  string
+		name   string
+		match  string
+		catRaw string
+	}
+	decisions := make([]decision, 0, len(included))
+	newInCat := map[string]int{}
+	uncategorisedNew := 0
+	for _, c := range included {
+		name := chronimport.SanitizeName(c.Name)
+		if name == "" {
+			name = "imported"
+		}
+		ctype := chronimport.ChannelTypeOf(c.Type)
+		match := seen[nameKey{foldName(name), ctype}]
+		catRaw := chronimport.SanitizeName(c.Category)
+		decisions = append(decisions, decision{src: c, ctype: ctype, name: name, match: match, catRaw: catRaw})
+		if match != "" {
+			continue
+		}
+		if catRaw == "" {
+			uncategorisedNew++
+		} else {
+			newInCat[catRaw]++
+		}
+	}
+
 	existingCats, _ := s.Categories(guildID)
 	catByName := map[string]string{}
 	for _, c := range existingCats {
 		catByName[foldName(c.Name)] = c.ID
 	}
-
-	included := chronimport.IncludedChannels(stats, policy)
-	for i := range included {
-		c := included[i]
-		catID := ""
-		if name := chronimport.SanitizeName(c.Category); name != "" {
-			id, ok := catByName[foldName(name)]
-			if !ok {
-				cat, err := s.CreateCategory(guildID, name)
-				if err != nil {
-					return nil, res, fmt.Errorf("app: could not create the category %q: %w", name, err)
-				}
-				id = cat.ID
-				catByName[foldName(name)] = id
-				res.categories++
-			}
-			catID = id
-		}
-
-		ctype := chronimport.ChannelTypeOf(c.Type)
-		name := chronimport.SanitizeName(c.Name)
+	ensureCat := func(name string) (string, error) {
 		if name == "" {
-			name = "imported"
+			return "", nil
 		}
-		mapped, created, err := s.channelForImport(guildID, name, ctype, catID)
+		if id, ok := catByName[foldName(name)]; ok {
+			return id, nil
+		}
+		cat, err := s.CreateCategory(guildID, name)
 		if err != nil {
-			return nil, res, err
+			return "", fmt.Errorf("app: could not create the category %q: %w", name, err)
 		}
-		if created {
-			res.created++
-		} else {
+		catByName[foldName(name)] = cat.ID
+		res.categories++
+		return cat.ID, nil
+	}
+
+	// New channels with no export category used to float above the owner's
+	// own WELCOME. One clearly-named bucket is honest; inventing "Text
+	// Channels" / an empty "Voice" around a reused Lounge is not.
+	importedCat := ""
+	if uncategorisedNew > 0 {
+		src := chronimport.SanitizeName(policy.Source)
+		if src == "" {
+			src = chronimport.SanitizeName(stats.Guild)
+		}
+		if src == "" {
+			src = "imported history"
+		}
+		importedCat = "Imported — " + src
+	}
+
+	for i, d := range decisions {
+		var mapped string
+		if d.match != "" {
+			mapped = d.match
 			res.reused++
+		} else {
+			catName := d.catRaw
+			if catName == "" || newInCat[catName] == 0 {
+				catName = importedCat
+			}
+			catID, err := ensureCat(catName)
+			if err != nil {
+				return nil, res, err
+			}
+			ch, err := s.CreateChannel(guildID, d.name, d.ctype, catID)
+			if err != nil {
+				return nil, res, fmt.Errorf("app: could not create the channel %q: %w", d.name, err)
+			}
+			mapped = ch.ID
+			seen[nameKey{foldName(d.name), d.ctype}] = mapped
+			res.created++
 		}
-		pc := plannedChannel{source: c, ctype: ctype, mapped: mapped, history: ctype != "voice"}
+		pc := plannedChannel{source: d.src, ctype: d.ctype, mapped: mapped, history: d.ctype != "voice"}
 		plan.channels = append(plan.channels, pc)
-		s.setPhase(job, PhaseStructure, name, int64(i+1), int64(len(included)))
+		s.setPhase(job, PhaseStructure, d.name, int64(i+1), int64(len(included)))
 	}
 	for i := range plan.channels {
 		plan.bySource[plan.channels[i].source.ID] = &plan.channels[i]
 	}
 	return plan, res, nil
-}
-
-// channelForImport finds a channel of this name and type in the guild, or makes
-// one. Type is part of the match because a forum board and a voice room may
-// legitimately share a name — the live UI already allows that — and landing a
-// decade of text in a voice channel because the names agreed would be worse than
-// creating a second row.
-func (s *Service) channelForImport(guildID, name, ctype, categoryID string) (id string, created bool, err error) {
-	want := foldName(name)
-	s.mu.RLock()
-	g, ok := s.guilds[guildID]
-	var match string
-	if ok {
-		for _, ch := range g.Channels {
-			// A forum POST is a channel too, and it is never what somebody meant
-			// by "#general already exists".
-			if ch.Parent != "" {
-				continue
-			}
-			if foldName(ch.Name) == want && ch.ChannelType() == ctype {
-				match = ch.ID
-				break
-			}
-		}
-	}
-	s.mu.RUnlock()
-	if !ok {
-		return "", false, fmt.Errorf("app: unknown guild %s", guildID)
-	}
-	if match != "" {
-		return match, false, nil
-	}
-	ch, err := s.CreateChannel(guildID, name, ctype, categoryID)
-	if err != nil {
-		return "", false, fmt.Errorf("app: could not create the channel %q: %w", name, err)
-	}
-	return ch.ID, true, nil
 }
 
 func foldName(s string) string {

@@ -33,9 +33,9 @@ function read(guildID) {
     if (raw === null) return null;
     // "1" is the shape the first version wrote; treat it as an armed record
     // with nothing latched rather than as corruption.
-    if (raw === "1") return { welcome: false };
+    if (raw === "1") return { welcome: false, invite: false };
     const v = JSON.parse(raw);
-    return v && typeof v === "object" ? v : { welcome: false };
+    return v && typeof v === "object" ? v : { welcome: false, invite: false };
   }, null);
 }
 
@@ -45,7 +45,7 @@ function write(guildID, rec) {
 
 export function armGuildSetup(guildID) {
   if (!guildID) return;
-  write(guildID, { welcome: false });
+  write(guildID, { welcome: false, invite: false });
 }
 
 export function isGuildSetupArmed(guildID) {
@@ -61,6 +61,17 @@ export function markSetupWelcome(guildID) {
   const rec = read(guildID);
   if (!rec || rec.welcome) return false;
   write(guildID, { ...rec, welcome: true });
+  return true;
+}
+
+export function setupInviteDone(guildID) {
+  return !!read(guildID)?.invite;
+}
+
+export function markSetupInvite(guildID) {
+  const rec = read(guildID);
+  if (!rec || rec.invite) return false;
+  write(guildID, { ...rec, invite: true });
   return true;
 }
 

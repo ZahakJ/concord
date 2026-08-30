@@ -16,7 +16,7 @@
   // A change applies to the call in progress (the mesh swaps tracks live), and
   // is remembered for the next one.
   import { slide } from "svelte/transition";
-  import SettingsShell from "./SettingsShell.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import InfoDot from "./InfoDot.svelte";
   import Menu from "../Menu.svelte";
@@ -481,7 +481,7 @@
   </Menu>
 {/snippet}
 
-<SettingsShell title="Voice &amp; video" here="devices" {onClose}>
+<RailShell title="Voice &amp; video" here="devices" {onClose}>
   {#if !loading && !devices.labelled}
     <button class="reveal" onclick={reveal} disabled={asking}>
       <Icon name="lock" size={15} />
@@ -800,7 +800,7 @@
       </section>
     </div>
   {/if}
-</SettingsShell>
+</RailShell>
 
 <style>
   .dev {
@@ -815,21 +815,17 @@
   .dev-head {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: var(--sp-2);
   }
   .chip {
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    flex: none;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
-    color: var(--text-muted);
+    display: none;
   }
   .dev-title {
-    font-size: var(--fs-ui);
-    font-weight: 600;
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--text-faint);
     margin-right: auto;
   }
   .test {

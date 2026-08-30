@@ -30,6 +30,7 @@ import "strings"
 // up.
 
 const evictedSettingPrefix = "evicted:"
+const evictedReasonPrefix = "evicted-reason:"
 
 // Eviction reasons. They travel to the UI verbatim, so the copy branches on the
 // difference between "you can be let back in" and "you cannot".
@@ -46,6 +47,54 @@ func (s *Service) EvictedFrom(guildID string) string {
 	return s.evicted[guildID]
 }
 
+// EvictedReason is the optional note from the signed removal that put us
+// out. Empty when the moderator wrote nothing, or when we have the commit
+// but not yet the op.
+func (s *Service) EvictedReason(guildID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.evictedReason[guildID]
+}
+
+// reasonWeWereRemovedLocked walks the gov log for the latest remove_member
+// or ban targeting us and returns its note. Caller holds mu (read or write).
+func (s *Service) reasonWeWereRemovedLocked(guildID string) string {
+	if s.id == nil {
+		return ""
+	}
+	me := s.id.Fingerprint()
+	var note string
+	var seq uint64
+	for _, o := range s.govOps[guildID] {
+		if (o.Type != "remove_member" && o.Type != "ban") || o.Target != me || o.Name == "" {
+			continue
+		}
+		if o.Seq >= seq {
+			seq = o.Seq
+			note = o.Name
+		}
+	}
+	return note
+}
+
+func (s *Service) rememberEvictedReason(guildID, note string) {
+	if guildID == "" || note == "" {
+		return
+	}
+	s.mu.Lock()
+	if s.evictedReason == nil {
+		s.evictedReason = map[string]string{}
+	}
+	if s.evictedReason[guildID] == note {
+		s.mu.Unlock()
+		return
+	}
+	s.evictedReason[guildID] = note
+	s.mu.Unlock()
+	_ = s.store.SetSetting(evictedReasonPrefix+guildID, note)
+	s.emitGuildUpdate()
+}
+
 // noteEvicted records that we are out of a guild and why, and tears down the
 // state that only makes sense for a member: the stranded flag, the fork
 // evidence, and the stash of ciphertext we were hoping to grow into. A ban
@@ -54,6 +103,7 @@ func (s *Service) noteEvicted(guildID, reason string) {
 	if guildID == "" || reason == "" {
 		return
 	}
+	note := ""
 	s.mu.Lock()
 	prev := s.evicted[guildID]
 	if prev == reason || (prev == evictedBanned && reason == evictedKicked) {
@@ -61,6 +111,13 @@ func (s *Service) noteEvicted(guildID, reason string) {
 		return
 	}
 	s.evicted[guildID] = reason
+	note = s.reasonWeWereRemovedLocked(guildID)
+	if note != "" {
+		if s.evictedReason == nil {
+			s.evictedReason = map[string]string{}
+		}
+		s.evictedReason[guildID] = note
+	}
 	delete(s.outOfSync, guildID)
 	var groupID []byte
 	if g, ok := s.guilds[guildID]; ok {
@@ -77,6 +134,9 @@ func (s *Service) noteEvicted(guildID, reason string) {
 		s.pendingCTMu.Unlock()
 	}
 	_ = s.store.SetSetting(evictedSettingPrefix+guildID, reason)
+	if note != "" {
+		_ = s.store.SetSetting(evictedReasonPrefix+guildID, note)
+	}
 	s.emitGuildUpdate()
 }
 
@@ -89,8 +149,10 @@ func (s *Service) clearEvicted(guildID string) {
 		return
 	}
 	delete(s.evicted, guildID)
+	delete(s.evictedReason, guildID)
 	s.mu.Unlock()
 	_ = s.store.SetSetting(evictedSettingPrefix+guildID, "")
+	_ = s.store.SetSetting(evictedReasonPrefix+guildID, "")
 	s.emitGuildUpdate()
 }
 
@@ -111,8 +173,12 @@ func (s *Service) loadEvicted() {
 		if err != nil || (reason != evictedKicked && reason != evictedBanned) {
 			continue
 		}
+		note, _ := s.store.GetSetting(evictedReasonPrefix + id)
 		s.mu.Lock()
 		s.evicted[id] = reason
+		if note != "" {
+			s.evictedReason[id] = note
+		}
 		s.mu.Unlock()
 	}
 }

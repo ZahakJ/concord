@@ -50,7 +50,7 @@
   }
 </script>
 
-<Modal {title} {onClose} wide={isGuild}>
+<Modal {title} {onClose} size={isGuild ? "lg" : ""}>
   {#if isGuild}
     <!-- Live preview: the guild's rail bubble takes shape as you type, and is
          the icon control. One target, not a bubble beside a button — the
@@ -71,7 +71,7 @@
         {:else}
           <Icon name="spark" size={22} />
         {/if}
-        <span class="cam" aria-hidden="true"><Icon name="camera" size={13} /></span>
+        <span class="cam" aria-hidden="true"><Icon name="image" size={13} /></span>
       </button>
       <span class="hero-text">
         <span class="bubble-name" class:ph={!name.trim()}>{name.trim() || "Your new space"}</span>
@@ -145,15 +145,6 @@
                   </span>
                 {/each}
               {/each}
-              {#if !t.plan.length}
-                <!-- Room, drawn as room. A tile whose whole point is that it
-                     builds nothing was otherwise a labelled empty box, which
-                     reads as a tile that failed to load rather than as a
-                     choice. -->
-                {#each [0, 1, 2] as i (i)}
-                  <span class="mini-row ghost"></span>
-                {/each}
-              {/if}
             </span>
             <span class="tpl-foot">
               <strong>{t.name}</strong>
@@ -321,8 +312,13 @@
   }
   .tpl-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(4, 1fr);
     gap: var(--sp-2);
+  }
+  @media (max-width: 768px) {
+    .tpl-grid {
+      grid-template-columns: 1fr 1fr;
+    }
   }
   .tpl {
     position: relative;
@@ -399,12 +395,6 @@
     background: var(--bg-3);
     color: var(--text);
     font-weight: 600;
-  }
-  .mini-row.ghost {
-    height: 14px;
-    margin: 1px 0;
-    border-radius: 3px;
-    border: 1px dashed color-mix(in srgb, var(--border) 90%, transparent);
   }
   .mini-name {
     min-width: 0;

@@ -1,7 +1,7 @@
 <script>
   // Everything that makes noise or lights up. Split out of Settings so the
   // top level can stay a short list of places to go.
-  import SettingsShell from "./SettingsShell.svelte";
+  import RailShell from "./RailShell.svelte";
   import SettingGroup from "./SettingGroup.svelte";
   import SettingRow from "./SettingRow.svelte";
   import Icon from "../Icon.svelte";
@@ -187,7 +187,7 @@
   }
 </script>
 
-<SettingsShell title="Notifications &amp; sounds" here="notifications" {onClose}>
+<RailShell title="Notifications &amp; sounds" here="notifications" {onClose}>
   <!-- The panel is written so that NOTHING here changes its own height when you
        change a setting. Every state-dependent line is one line in every state,
        and the alert-word validation line is always in the layout. A panel that
@@ -334,7 +334,7 @@
       />
     </SettingGroup>
   {/if}
-</SettingsShell>
+</RailShell>
 
 <style>
   .vol {

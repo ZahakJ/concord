@@ -1,7 +1,7 @@
 <script>
   // Define guild roles: name, color, and a set of permissions. Requires the
   // "Manage roles" permission (the backend re-checks and enforces rank rules).
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import Icon from "../Icon.svelte";
   import { S, refreshRightPanel, flash } from "../lib/state.svelte.js";
@@ -84,16 +84,21 @@
   load();
 </script>
 
-<Modal title="Roles" {onClose}>
+<RailShell title="Roles" {onClose}>
   {#if editing}
     <div class="editor">
-      <label class="field">
-        <span class="muted">Role name</span>
+      <div class="field">
+        <span class="muted" id="role-name-lbl">Role name</span>
         <div class="name-row">
-          <input type="color" bind:value={editing.color} title="Role colour" />
-          <input bind:value={editing.name} maxlength="32" placeholder="e.g. Moderator" />
+          <input type="color" bind:value={editing.color} aria-label="Role colour" title="Role colour" />
+          <input
+            bind:value={editing.name}
+            maxlength="32"
+            placeholder="e.g. Moderator"
+            aria-labelledby="role-name-lbl"
+          />
         </div>
-      </label>
+      </div>
       <div class="field">
         <span class="muted">Permissions</span>
         <div class="perms">
@@ -143,7 +148,7 @@
       <button class="new" onclick={newRole}><Icon name="plus" size={13} /> New role</button>
     {/if}
   {/if}
-</Modal>
+</RailShell>
 
 {#if confirmDel}
   <ConfirmDialog

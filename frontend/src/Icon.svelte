@@ -75,6 +75,10 @@
     screenOff: "M2 3.5h12v8H2z M6 14h4 M8 11.5V14 M2 2.5l12 11",
     camera: "M2 4.5h8v7H2z M10 7l3.5-2v6L10 9",
     cameraOff: "M2 4.5h8v7H2z M10 7l3.5-2v6L10 9 M2 2.5l12 11",
+    // A still picture, not a camcorder. `camera` is the call's video toggle
+    // and the QR scanner; using it for "pick a guild icon" made a photograph
+    // wear the same glyph as "turn your video off".
+    image: "M2.5 3.5h11v9h-11z M4.4 10.2 6.6 7.4l1.9 2.2 2.3-3.1 2.3 3.7 M5.4 6.2a1 1 0 1 0 0-2 1 1 0 0 0 0 2z",
     diamond: "M8 1.5 14.5 8 8 14.5 1.5 8z",
     lock: "M5 7V5.2a3 3 0 0 1 6 0V7 M3.5 7h9v6.5h-9z M8 9.5v1.7",
     members:

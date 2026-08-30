@@ -1,5 +1,5 @@
 <script>
-  import SettingsShell from "./SettingsShell.svelte";
+  import RailShell from "./RailShell.svelte";
   import { emojiName } from "../lib/emoji.js";
   import Icon from "../Icon.svelte";
   import Select from "../Select.svelte";
@@ -300,7 +300,7 @@
 
 <svelte:window onpaste={onPaste} />
 
-<SettingsShell title="Your profile" here="profile" {onClose}>
+<RailShell title="Your profile" here="profile" {onClose}>
   <!-- ===== LIVE PREVIEW: exactly what other people see. ===== -->
   <div class="studio">
     <!-- A tall banner the avatar straddles, so the card is
@@ -699,7 +699,7 @@
       onClose={() => (bannerStudio = false)}
     />
   {/if}
-</SettingsShell>
+</RailShell>
 
 <style>
   /* The profile-effect row has no avatar to preview against, so it shows the

@@ -3,7 +3,7 @@
   // somewhere else: not a link, not a button, a paragraph of documentation
   // sitting in a list of actions. The flow it pointed at is genuinely good —
   // this is that flow, reachable from the place that advertises it.
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import { S, activeGuild, openContextMenu } from "../lib/state.svelte.js";
@@ -39,7 +39,7 @@
   }
 </script>
 
-<Modal title="Ownership &amp; heir" {onClose}>
+<RailShell title="Ownership &amp; heir" {onClose}>
   <section class="grp">
     <div class="sec-label">Owner</div>
     <div class="card">
@@ -147,7 +147,7 @@
     Both are signed governance records, not MLS changes: nobody joins, leaves or re-keys, so
     messages and calls carry straight through a handover.
   </p>
-</Modal>
+</RailShell>
 
 <style>
   .grp {

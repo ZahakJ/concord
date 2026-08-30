@@ -9,11 +9,12 @@
   // to messages already sent, it is set by an admin rather than an author, and
   // every client enforces it on its own copy because there is no server to make
   // anyone do anything.
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import { S, activeGuild, flash, refreshGuilds } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
+  import { RETAIN_OPTIONS } from "../lib/retention.js";
 
   let { onClose } = $props();
 
@@ -22,14 +23,7 @@
   // The floor matches the clamp in the governance replay (govstate.go): an
   // hour. A policy shorter than that is a foot-gun rather than a feature, and
   // per-message disappearing already covers wanting something gone quickly.
-  const OPTIONS = [
-    { secs: 0, label: "Keep everything", sub: "No messages are ever removed by age" },
-    { secs: 86400, label: "24 hours", sub: "" },
-    { secs: 7 * 86400, label: "7 days", sub: "" },
-    { secs: 30 * 86400, label: "30 days", sub: "" },
-    { secs: 90 * 86400, label: "90 days", sub: "" },
-    { secs: 365 * 86400, label: "1 year", sub: "" },
-  ];
+  const OPTIONS = RETAIN_OPTIONS;
 
   let current = $state(0);
   let busy = $state(false);
@@ -71,7 +65,7 @@
   }
 </script>
 
-<Modal title="Message history" {onClose}>
+<RailShell title="Message history" {onClose}>
   <p class="intro muted">
     How long this guild keeps messages. Older ones are removed from each
     member's device as it comes around to checking — including the bodies of
@@ -111,7 +105,7 @@
   {#if !g?.canManage}
     <p class="muted tiny">Only someone who can manage this guild may change it.</p>
   {/if}
-</Modal>
+</RailShell>
 
 {#if pending}
   <ConfirmDialog

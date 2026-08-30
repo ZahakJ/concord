@@ -205,6 +205,12 @@ func (s *Service) ingestGovOp(guildID string, o govOp, live bool) bool {
 	raw, _ := json.Marshal(o)
 	_ = s.store.SaveGuildOp(guildID, hash, raw)
 	s.emitGuildUpdate()
+	// A kick/ban targeting us carries the sentence the banner should show.
+	// The MLS commit that blanks our leaf often arrives first, so this
+	// fills the reason in if noteEvicted ran before the op was in the log.
+	if s.id != nil && (o.Type == "remove_member" || o.Type == "ban") && o.Target == s.id.Fingerprint() && o.Name != "" {
+		s.rememberEvictedReason(guildID, o.Name)
+	}
 	return true
 }
 

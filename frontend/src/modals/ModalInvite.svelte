@@ -1,11 +1,30 @@
 <script>
-  import Modal from "./Modal.svelte";
+  import RailShell from "./RailShell.svelte";
   import Icon from "../Icon.svelte";
   import Avatar from "../Avatar.svelte";
   import { S, flash, refreshGuilds, nameFor, openPanel } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
   import { haptic } from "../lib/touch.js";
-  let { code, onCopy, onClose } = $props();
+  let { code = "", onCopy, onClose } = $props();
+
+  // Reached from the guild rail there is no code in hand: a rail entry is a
+  // destination, not a call site that can go and fetch one first. So the panel
+  // fetches its own when it was handed none, which is also what makes "Invite
+  // people" a place you can walk back to rather than a button you have to find
+  // again. Every other caller still passes the code it already had.
+  let own = $state("");
+  const shown = $derived(code || own);
+  $effect(() => {
+    if (code || own || !S.activeGuildId) return;
+    let live = true;
+    api.inviteCode(S.activeGuildId).then(
+      (c) => {
+        if (live) own = c;
+      },
+      (err) => flash(err),
+    );
+    return () => (live = false);
+  });
 
   // The code as a picture. Three hundred characters is not a thing anyone reads
   // aloud or retypes, and until now the only way to move it between two people
@@ -18,7 +37,7 @@
   let qr = $state("");
   $effect(() => {
     let live = true;
-    const raw = code;
+    const raw = shown;
     if (!raw) return;
     import("qrcode")
       .then(({ default: QRCode }) =>
@@ -35,7 +54,7 @@
 
   let copied = $state(false);
   function copy() {
-    onCopy(code);
+    onCopy(shown);
     haptic("light");
     copied = true;
     setTimeout(() => (copied = false), 1600);
@@ -49,7 +68,7 @@
   const canShare = typeof navigator !== "undefined" && !!navigator.share && S.isMobile;
   async function share() {
     try {
-      await navigator.share({ text: code });
+      await navigator.share({ text: shown });
       haptic("light");
     } catch {
       /* dismissed, or the platform refused — the Copy button is still there */
@@ -79,7 +98,7 @@
   }
 </script>
 
-<Modal title="Invite a friend" {onClose}>
+<RailShell title="Invite a friend" {onClose}>
   <p class="muted lead">
     This code carries everything your friend needs — the guild, how to reach you, and your
     relay. They pick a passphrase, paste it into <strong>Join with invite</strong>, and they're in.
@@ -87,7 +106,7 @@
 
   <div class="code-well">
     <div class="code-row">
-      <code>{code}</code>
+      <code>{shown || "Fetching this guild's code…"}</code>
       {#if qr}
         <figure class="qr">
           <img src={qr} alt="This invite code, as a QR code" />
@@ -155,7 +174,7 @@
     </button>
     <button class="ghost" onclick={onClose}>Done</button>
   </div>
-</Modal>
+</RailShell>
 
 <style>
   .lead {

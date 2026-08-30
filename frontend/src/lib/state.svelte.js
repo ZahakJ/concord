@@ -72,6 +72,9 @@ export const S = $state({
   // Device-local and reversible: the rows stay in the store and in every other
   // copy of the guild, exactly as with a block. Loaded below from localStorage.
   hiddenMessages: [],
+  // Bumped when the new-guild setup card latches or retires, so MessageList
+  // can hide the empty-channel hero without polling localStorage.
+  setupRev: 0,
   // Message requests: DM invites from strangers the backend deliberately has
   // NOT redeemed ([{ from, fromName, code, at }]). Until one is accepted the
   // sender has learned nothing about us — see internal/app/request.go.
@@ -634,8 +637,30 @@ export function switchPanel(kind) {
   if (S.modal?.kind === kind) return;
   modalNav.dir = 0;
   modalNav.lateral = true;
-  const from = S.modal?.from;
-  S.modal = from ? { kind, from } : { kind };
+  // `hub` travels sideways with you for the same reason `from` does: it is what
+  // says this page is one of the guild hub's, and the guild panels are almost
+  // all reachable from somewhere that is not the hub. Drop it on the first
+  // lateral step and the second page loses its rail underneath the pointer.
+  const { from, hub } = S.modal || {};
+  S.modal = { kind, ...(from ? { from } : {}), ...(hub ? { hub } : {}) };
+}
+
+// openGuildHub is the front door to everything about one guild.
+//
+// On a desktop it opens the RAIL, landing on Overview: the rail is the hub, so
+// a list of sixteen doors in front of it would be a menu in front of a menu —
+// exactly what the settings redesign removed. On a phone there is no room for a
+// rail and a sheet you can flick through is already the overview, so the
+// drill-down list stays. `hub` is the stamp lib/guildnav.js reads to decide
+// whether a panel wears the rail; it carries the guild id so a page cannot
+// inherit the furniture of a guild you have since left.
+export function openGuildHub() {
+  const g = activeGuild();
+  if (!g) return;
+  modalNav.dir = 0;
+  modalNav.lateral = false;
+  S.modalStack = [];
+  S.modal = S.isMobile ? { kind: "guildHub" } : { kind: "guildSettings", hub: g.id };
 }
 
 // backPanel walks one step out, the way you came in.
@@ -1020,7 +1045,7 @@ export function guildMenuItems(g) {
     g.canManage && { label: "Banned members", icon: "door", onClick: () => (S.modal = { kind: "bans" }) },
     { sep: true },
     {
-      label: g.isOwner ? "Delete guild" : "Leave guild",
+      label: leaveGuildLabel(g),
       icon: g.isOwner ? "trash" : "door",
       danger: true,
       onClick: () => confirmLeaveGuild(g),
@@ -1040,42 +1065,76 @@ export function guildMenuItems(g) {
 // pagination cursor and any imported archive from the guild you just left
 // stayed live under the next guild you opened. A dialog that appears in four
 // places is one dialog; the copies were three chances to be wrong.
-export function confirmLeaveGuild(g) {
-  if (!g) return;
+// leaveGuildLabel / leaveGuildCopy: the words, in one place, so the menu row,
+// the phone sheet, the hub's danger page and the confirm cannot disagree.
+//
+// "Delete guild" was the owner's label, in a section headed DANGER ZONE, and to
+// anyone who has run a community that sentence means the guild is gone. It is
+// not: it is a local unsubscribe. Every other member keeps their copy and the
+// guild runs on — without an owner, which is the part that actually costs
+// something and which the label never mentioned. Concord has no way to close a
+// guild yet, so the label says what the button does instead of promising what
+// the product cannot deliver.
+export function leaveGuildLabel(g) {
+  if (!g) return "Leave";
+  if (g.kind === "dm" && (g.dmMembers ?? 2) <= 2) return "Close conversation";
+  if (g.kind === "dm") return "Leave group";
+  return g.isOwner ? "Leave and delete my copy" : "Leave guild";
+}
+
+export function leaveGuildCopy(g) {
   // A 1:1 conversation (Notes included) is only CLOSED, never destroyed: the
   // backend keeps membership, subscriptions and history, and messaging each
   // other brings it straight back. Saying "delete" there would be a lie.
-  const closeDM = g.kind === "dm" && (g.dmMembers ?? 2) <= 2;
-  const verb = closeDM ? "Close" : g.isOwner ? "Delete" : "Leave";
-  S.modal = {
-    kind: "confirm",
-    title: `${verb} "${g.name}"?`,
-    // Honest about what actually happens: removal is from THIS side and it
-    // sticks — linked devices and old invites won't quietly re-add it. For an
-    // owner, other members keep their copy (deleting is local, not a dissolve).
-    body: closeDM
-      ? "The conversation is hidden from your list — messaging each other brings it back."
-      : g.isOwner
-        ? "Its messages will be removed from this device, and it won't come back on its own. Other members keep their copy."
-        : "Its messages will be removed from this device, and you won't be re-added automatically. Rejoining takes a new invite.",
-    confirmLabel: verb,
-    onConfirm: async () => {
-      S.modal = null;
-      await api.leaveGuild(g.id);
-      S.activeGuildId = "";
-      S.activeChannelId = "";
-      clearFeed();
-      await refreshGuilds();
-      // A real guild first. Every account now has a Notes self-DM from the
-      // moment it exists, so "the first guild in the list" is Notes far more
-      // often than not — and landing in your own scratchpad after leaving a
-      // community is not where you were trying to go. Same rule the boot path
-      // uses when it picks somewhere to open.
-      const next = S.guilds.find((x) => x.kind !== "dm") || S.guilds[0];
-      if (next) selectGuild(next.id);
-      flash(closeDM ? "Conversation closed" : g.isOwner ? "Guild deleted" : "Left guild");
-    },
+  const closeDM = g?.kind === "dm" && (g.dmMembers ?? 2) <= 2;
+  if (closeDM) {
+    return {
+      title: `Close "${g.name}"?`,
+      body: "The conversation is hidden from your list — messaging each other brings it back.",
+      confirmLabel: "Close",
+    };
+  }
+  // Honest about what actually happens: removal is from THIS side and it
+  // sticks — linked devices and old invites won't quietly re-add it. For an
+  // owner, other members keep their copy, and nobody can admit or remove
+  // anybody afterwards unless an heir was named first.
+  return {
+    title: `Leave "${g?.name || "this guild"}" and delete your copy?`,
+    body: g?.isOwner
+      ? "Its messages are removed from this device and it won't come back on its own. Other members keep their copy — but nobody will be able to add or remove members after you go."
+      : "Its messages are removed from this device, and you won't be re-added automatically. Rejoining takes a new invite.",
+    confirmLabel: g?.isOwner ? "Leave & delete" : "Leave",
   };
+}
+
+// leaveGuildNow performs it. Split out from the confirm because the hub's
+// danger page raises its OWN ConfirmDialog inline — a page that swaps itself
+// for a question and then, on Cancel, leaves you standing in the chat pane is
+// not a page you can back out of.
+export async function leaveGuildNow(g) {
+  if (!g) return;
+  const closeDM = g.kind === "dm" && (g.dmMembers ?? 2) <= 2;
+  S.modal = null;
+  S.modalStack = [];
+  await api.leaveGuild(g.id);
+  S.activeGuildId = "";
+  S.activeChannelId = "";
+  clearFeed();
+  await refreshGuilds();
+  // A real guild first. Every account now has a Notes self-DM from the moment
+  // it exists, so "the first guild in the list" is Notes far more often than
+  // not — and landing in your own scratchpad after leaving a community is not
+  // where you were trying to go. Same rule the boot path uses when it picks
+  // somewhere to open.
+  const next = S.guilds.find((x) => x.kind !== "dm") || S.guilds[0];
+  if (next) selectGuild(next.id);
+  flash(closeDM ? "Conversation closed" : g.isOwner ? "Left and deleted your copy" : "Left guild");
+}
+
+export function confirmLeaveGuild(g) {
+  if (!g) return;
+  const copy = leaveGuildCopy(g);
+  S.modal = { kind: "confirm", ...copy, onConfirm: () => leaveGuildNow(g) };
 }
 
 // commitRail persists the guild-rail layout (ordering + folders). Device-local.
