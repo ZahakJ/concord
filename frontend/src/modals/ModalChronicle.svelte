@@ -71,11 +71,17 @@
 
 <RailShell title="Archive" wide {onClose}>
   {#if !c}
-    <EmptyState
-      icon="clock"
-      headline="No archive here"
-      sub="An archive is a community's older history, imported once and carried by every member as a small index. This guild has never had one attached."
-    />
+    <!-- EmptyState centres its own contents, not the block. In the hub's
+         1000×660 pane that left a 400px card stuck in the top-left of a
+         mostly-empty page — the archive "window" looking off-centre. Fill
+         the pane and centre the illustration in the leftover. -->
+    <div class="empty-wrap">
+      <EmptyState
+        icon="clock"
+        headline="No archive here"
+        sub="An archive is a community's older history, imported once and carried by every member as a small index. This guild has never had one attached."
+      />
+    </div>
     {#if g?.isOwner}
       <div class="actions">
         <button class="ghost" onclick={onClose}>Close</button>
@@ -179,6 +185,14 @@
 </RailShell>
 
 <style>
+  .empty-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 220px;
+  }
   .src {
     display: flex;
     align-items: center;
@@ -330,9 +344,21 @@
     height: 100%;
     border-radius: 999px;
     background: linear-gradient(90deg, var(--accent), var(--accent-hover));
-    /* Progress, not a state change: the bar is reporting work and reads as
-       movement at this length. Deliberately off the token scale. */
-    transition: width 0.3s ease;
+    transform-origin: left center;
+    animation: bar-across 0.55s var(--ease-spring) both;
+  }
+  @keyframes bar-across {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cfill {
+      animation: none;
+    }
   }
   .clabel {
     font-size: var(--fs-small);
