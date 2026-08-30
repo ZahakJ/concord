@@ -3,7 +3,6 @@
   // and a whole-device network/storage view. Polls every 2s while open.
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
-  import Icon from "../Icon.svelte";
   import InfoDot from "./InfoDot.svelte";
   import { S, activeGuild, flash } from "../lib/state.svelte.js";
   import { api } from "../lib/api.js";
@@ -18,10 +17,6 @@
   let ns = $state(null); // network stats
   let props = $state(null); // top members by received props
   let activity = $state(null); // guild insights
-  // Diagnostics start folded. The panel promised "activity & diagnostics" and
-  // delivered only the second half, in a wall of MLS epochs and libp2p peer
-  // ids — true, useful once a year, and not what anyone opened it for.
-  let showDiag = $state(false);
 
   async function refresh() {
     try {
@@ -414,17 +409,10 @@
 
   {/if}
 
-  <!-- DIAGNOSTICS, folded. All of it is true and almost none of it is what
-       anyone opened this panel for: an MLS epoch, a libp2p peer id and a
-       transport name are the right answer to a question asked about once a
-       year, and they were the whole panel. -->
-  <details class="diag" bind:open={showDiag}>
-    <summary>
-      <span class="dchev"><Icon name="chevron" size={13} /></span>
-      Diagnostics
-      <span class="muted tiny">connection, storage, devices &amp; sync</span>
-    </summary>
-    {#if guildId}
+  <!-- Guild footprint, devices, network. This is the rest of the page, not a
+       fold: the panel is named for it, and reaching it from Connection is
+       specifically to see these numbers. -->
+  {#if guildId}
   <section>
     <strong class="label">{guild?.kind === "dm" ? "This conversation" : guild?.name || "This guild"}</strong>
     {#if gs}
@@ -679,7 +667,6 @@
       {/if}
     </section>
   {/if}
-  </details>
 </RailShell>
 
 {#if confirming}
@@ -982,37 +969,6 @@
   .qchip em {
     font-style: normal;
     color: var(--text-faint);
-  }
-  /* ---- the diagnostics fold ---- */
-  .diag {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--bg-1);
-    padding: 0 var(--sp-3);
-  }
-  .diag > summary {
-    display: flex;
-    align-items: center;
-    gap: var(--sp-2);
-    padding: 10px 0;
-    cursor: pointer;
-    font-size: var(--fs-ui);
-    font-weight: 600;
-    /* Both halves: Firefox honours list-style, WebKit wants the pseudo.
-       Without BOTH you get the browser's triangle beside the app's chevron. */
-    list-style: none;
-  }
-  .diag > summary::-webkit-details-marker {
-    display: none;
-  }
-  .dchev {
-    display: inline-grid;
-    place-items: center;
-    color: var(--text-faint);
-    transition: transform var(--dur-quick) var(--ease-out);
-  }
-  .diag[open] .dchev {
-    transform: rotate(90deg);
   }
   .peers {
     display: flex;

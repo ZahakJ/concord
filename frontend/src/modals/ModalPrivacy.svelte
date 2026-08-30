@@ -2,6 +2,7 @@
   // Privacy & safety: the switches whose defaults are deliberate, each with the
   // reason it's set that way. These used to sit in the main Settings list with
   // their paragraphs attached, which is what made that list a wall.
+  import { onMount } from "svelte";
   import RailShell from "./RailShell.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
   import ModalWipeDevice from "./ModalWipeDevice.svelte";
@@ -12,6 +13,20 @@
   import { S, setPref, flash, setOffDeviceSearch } from "../lib/state.svelte.js";
 
   let { onClose } = $props();
+
+  // TURN is an optional extra on the rendezvous, not the rendezvous itself.
+  // Until we hear from /turn, leave the switch enabled so a slow fetch does
+  // not flash it grey. Once we know there is no media relay, grey it out —
+  // hiding an IP is not a promise we can keep.
+  let mediaRelay = $state(null);
+  onMount(async () => {
+    try {
+      const cfg = await api.callIceServers();
+      mediaRelay = cfg?.relayAvailable === true;
+    } catch {
+      mediaRelay = false;
+    }
+  });
 
   // Empty trash: irreversibly scrub retained bodies of deleted messages so a
   // moderator can no longer reveal any of them on this device.
@@ -119,9 +134,12 @@
     <SettingRow
       icon="lock"
       title="Hide my IP on calls"
-      sub="Relay call media instead of connecting directly"
-      info="Costs a little latency and hides your IP from the people you're talking to. Meetings with browser guests always relay, whatever this says."
+      sub={mediaRelay === false
+        ? "Needs a media relay on the rendezvous — connecting directly"
+        : "Relay call media instead of connecting directly"}
+      info="A connected rendezvous is how peers find each other. Hiding your IP from the people on a call needs a TURN media relay running on that same host, which the operator has to turn on. Without one, calls still connect, peer-to-peer. Meetings with browser guests always try to relay when one exists."
       checked={S.prefs.hideCallIp}
+      disabled={mediaRelay === false}
       onclick={() => setPref("hideCallIp", !S.prefs.hideCallIp)}
     />
     <SettingRow

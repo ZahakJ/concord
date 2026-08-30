@@ -1409,9 +1409,12 @@ its IP explicitly. The trade is stated in the code, and here:
 > you lose IP privacy, which is a real loss, but a working call beats a private
 > one that cannot carry sound.
 
-When no relay is available, the app says so ("No relay available, this call won't
-hide your IP"), greys out the "hide my IP" switch, and connects directly. A guest
-page with no relay prints the same warning in plain words. Nothing silently
+When no media relay is available, the app greys out the "hide my IP" switch and
+connects directly. Creating a meeting, and the guest page, warn in plain words
+that peers may see your IP. Joining a call does not toast "no relay" — that
+phrase was read as the rendezvous being down, which is a different thing. A
+connected rendezvous finds peers; only TURN hides a call IP. If they asked to
+hide their IP and TURN is missing, the app says so once. Nothing silently
 pretends.
 
 **If IP-private calls matter to you**, host the relay on a machine that owns its

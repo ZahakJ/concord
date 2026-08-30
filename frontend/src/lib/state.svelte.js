@@ -238,7 +238,7 @@ export const S = $state({
     // permanently on Settings › Notifications & sounds for whenever they get
     // round to it.
     audioDeadNoticed: false,
-    hideCallIp: false, // on = always relay calls through the rendezvous (hide IP)
+    hideCallIp: false, // on = force call media through TURN (hide IP from peers)
     theme: "dark",
     accent: "",
     // A soft blip when a message lands in the channel already on screen. OFF:

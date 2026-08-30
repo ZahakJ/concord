@@ -180,8 +180,9 @@
       </p>
       {#if noRelay}
         <p class="muted tiny">
-          ⚠️ This meeting has no private relay — whoever opens the link may see
-          your IP address once you're both on the call.
+          ⚠️ This meeting has no media relay — whoever opens the link may see
+          your IP address once you're both on the call. A connected rendezvous
+          does not hide that.
         </p>
       {/if}
     </section>

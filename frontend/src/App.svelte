@@ -1027,6 +1027,10 @@
   // client is the source of truth for the "Missed call" line.
   let voiceHadPeer = false;
   let voiceWasAccept = false;
+  // "Hide my IP" is a promise we can only keep when the rendezvous is running
+  // TURN. Say so once per session if they asked for it and we cannot — not on
+  // every join, and never as if the mesh itself were down.
+  let hidIpNotice = false;
   async function joinVoice(channelId = S.activeChannelId, admitted = false) {
     if (!channelId || joining) return; // re-entrancy guard: no orphan meshes
     if (S.voice) {
@@ -1068,14 +1072,21 @@
     // voiceWasAccept, which itself calls incomingCall.)
     S.joiningVoice = channelId;
 
-    // IP privacy. Fetch ICE config (STUN + optional TURN relay) up front. We
+    // IP privacy. Fetch ICE config (STUN + optional TURN) up front. We
     // force-relay — hiding our IP from the call's peers — when either:
     //   • this is a MEETING (guests join meetings from public links; a stranger
     //     must never learn the host's IP, and forcing relay on both ends is what
     //     makes that mutual — the guest page already relays), or
     //   • the user turned on "Hide my IP on calls" globally.
-    // If no relay is available we fall back to a normal call (can't hide, but
+    // If no TURN is available we fall back to a normal call (can't hide, but
     // still connects) rather than failing.
+    //
+    // A connected rendezvous is not a media relay. The rendezvous is how
+    // peers find each other (libp2p); hiding a call IP needs TURN on that
+    // same host, which is optional and off unless the operator set it up.
+    // Meetings already warn at share time, and the guest page does too, so a
+    // join does not toast "no relay" — that phrase was read as the mesh
+    // being down. The only remaining promise we might break is "Hide my IP".
     // Resolve the guild that OWNS this channel, not the one that happens to be
     // active — admitting to a locked meeting (the knock→admit path) joins without
     // navigating, so keying off S.activeGuildId could miss the "meeting" kind and
@@ -1090,8 +1101,12 @@
       iceServers = cfg?.iceServers;
       const wantRelay = kind === "meeting" || S.prefs.hideCallIp === true;
       forceRelay = wantRelay && cfg?.relayAvailable === true;
-      if (wantRelay && !cfg?.relayAvailable) {
-        flash("No relay available — this call won't hide your IP.", "info");
+      if (S.prefs.hideCallIp === true && !cfg?.relayAvailable && !hidIpNotice) {
+        hidIpNotice = true;
+        flash(
+          "Can't hide your IP — this rendezvous isn't running a media relay. The call still connects.",
+          "info",
+        );
       }
     } catch {
       // stay on defaults (plain STUN, no relay)
