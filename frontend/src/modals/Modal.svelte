@@ -132,6 +132,10 @@
       // tooltip already up over its own first row. A dot is not a control; it
       // is an aside about one, and it is never the right place to start.
       //
+      // `data-no-initial-focus` is the same idea for a field that would look
+      // selected if the caret landed there on open (Members' search). It stays
+      // in the Tab order; it is just not the place the panel starts.
+      //
       // And never the rail. It is the navigation AROUND the page, permanently
       // on screen; opening Settings and finding the caret parked on "Account"
       // with a focus ring round it reads as a selection somebody made, not as a
@@ -149,7 +153,11 @@
       // channel dialog leads with four channel-TYPE buttons and follows them
       // with the name box; first-in-the-tree would put the caret on "Text" and
       // leave the one thing you came here to type unfocused.
-      const target = body.find((el) => el.hasAttribute("autofocus")) || body[0] || dialog;
+      const target =
+        body.find((el) => el.hasAttribute("autofocus")) ||
+        body.find((el) => !el.hasAttribute("data-no-initial-focus")) ||
+        body[0] ||
+        dialog;
       if (target === dialog) dialog.tabIndex = -1;
       target.focus?.({ preventScroll: true });
     });

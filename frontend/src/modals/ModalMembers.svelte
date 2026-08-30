@@ -142,7 +142,12 @@
   <div class="bar">
     <label class="search">
       <Icon name="search" size={14} />
-      <input bind:value={q} placeholder="Search name or fingerprint" aria-label="Search members" />
+      <input
+        bind:value={q}
+        placeholder="Search name or fingerprint"
+        aria-label="Search members"
+        data-no-initial-focus
+      />
     </label>
     <div class="filt">
       <Select
@@ -294,25 +299,46 @@
     flex: none;
     width: 172px;
   }
+  /* Same species as the filter beside it (Select's .pick) and as every other
+     field: a recessed well, quiet hairline. The inner <input> must not wear
+     the global 3px accent halo — that halo plus this label's own border was
+     a selected-looking ring around the search the moment the dialog opened
+     (Modal focuses the first field). */
   .search {
     flex: 1;
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 0 10px;
-    background: var(--bg-3);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
+    gap: var(--sp-2);
+    min-height: 38px;
+    padding: 0 12px;
+    background: color-mix(in srgb, var(--bg-0) 42%, var(--bg-3));
+    border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
+    border-radius: var(--radius-md);
     color: var(--text-faint);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.14);
+    transition:
+      border-color var(--dur-standard) ease,
+      background var(--dur-standard) ease;
+  }
+  .search:focus-within {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+    background: var(--bg-3);
   }
   .search input {
     flex: 1;
+    width: auto;
+    min-width: 0;
     border: 0;
     background: transparent;
+    box-shadow: none;
     padding: 7px 0;
   }
-  .search input:focus {
+  .search input:focus,
+  .search input:focus-visible {
     outline: none;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
   }
   .bulk {
     display: flex;

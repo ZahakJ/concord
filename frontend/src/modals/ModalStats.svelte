@@ -17,6 +17,9 @@
   let ns = $state(null); // network stats
   let props = $state(null); // top members by received props
   let activity = $state(null); // guild insights
+  // Which week the pointer is on. Native `title` + cursor:help was a question
+  // mark and a system tooltip; this is a chip on the chart instead.
+  let hoverWeek = $state(-1);
 
   async function refresh() {
     try {
@@ -303,13 +306,29 @@
         <strong class="hero-n" use:countUp={weekTotal}></strong>
         <span class="hero-l">messages in {activity.weeks} weeks</span>
       </div>
-      <div class="spark" role="img" aria-label={`${weekTotal} messages over the last ${activity.weeks} weeks`}>
+      <div
+        class="spark"
+        class:peek={hoverWeek >= 0}
+        role="img"
+        aria-label={`${weekTotal} messages over the last ${activity.weeks} weeks`}
+        onpointerleave={() => (hoverWeek = -1)}
+      >
+        {#if hoverWeek >= 0 && activity.perWeek[hoverWeek] != null}
+          <div
+            class="stip"
+            style="--x: {((hoverWeek + 0.5) / activity.perWeek.length) * 100}%"
+          >
+            <b>{activity.perWeek[hoverWeek].toLocaleString()}</b>
+            <span>{weekLabel(hoverWeek)}</span>
+          </div>
+        {/if}
         {#each activity.perWeek as n, i (i)}
           <span
             class="sbar"
             class:now={i === activity.perWeek.length - 1}
+            class:hot={hoverWeek === i}
             style="--i:{i}"
-            title={`Week of ${weekLabel(i)} — ${n} message${n === 1 ? "" : "s"}`}
+            onpointerenter={() => (hoverWeek = i)}
           >
             <span class="sfill" style="--h:{Math.max(2, Math.round((n / weekMax) * 100))}%"></span>
           </span>
@@ -758,14 +777,46 @@
     position: relative;
     display: flex;
     align-items: flex-end;
-    gap: 3px;
-    height: 88px;
-    padding: var(--sp-2) 10px;
-    background: var(--bg-1);
-    border: 1px solid var(--border);
+    gap: 5px;
+    height: 124px;
+    padding: 32px 14px 10px;
+    /* Grid lives in the plot, not the chip gutter. */
+    background-color: var(--bg-1);
+    background-image: repeating-linear-gradient(
+      to top,
+      color-mix(in srgb, var(--border) 55%, transparent) 0 1px,
+      transparent 1px 25%
+    );
+    background-origin: content-box;
+    background-clip: content-box;
+    border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
     border-radius: var(--radius-md);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--accent) 18%, transparent);
     animation: rise 0.45s var(--ease-spring) both;
     animation-delay: 40ms;
+  }
+  .stip {
+    position: absolute;
+    top: 7px;
+    left: clamp(4.5rem, var(--x), calc(100% - 4.5rem));
+    transform: translateX(-50%);
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 3px 9px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: var(--fs-small);
+    color: var(--text-muted);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 2;
+    box-shadow: 0 8px 18px rgb(0 0 0 / 0.22);
+  }
+  .stip b {
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
   }
   .sbar {
     flex: 1;
@@ -778,37 +829,37 @@
   .sfill {
     width: 100%;
     height: var(--h, 2%);
-    border-radius: 3px 3px 0 0;
+    border-radius: 5px 5px 2px 2px;
     background: linear-gradient(180deg, var(--accent-hover), var(--accent));
     transform-origin: center bottom;
     animation: bar-up 0.55s var(--ease-spring) both;
     animation-delay: calc(60ms + var(--i, 0) * 28ms);
   }
   .sbar.now .sfill {
-    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 50%, transparent);
+    box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 42%, transparent);
   }
   .sline {
     position: absolute;
-    left: 10px;
-    right: 10px;
-    top: var(--sp-2);
-    bottom: var(--sp-2);
-    width: calc(100% - 20px);
-    height: calc(100% - 2 * var(--sp-2));
+    left: 14px;
+    right: 14px;
+    top: 32px;
+    bottom: 10px;
+    width: calc(100% - 28px);
+    height: calc(100% - 42px);
     pointer-events: none;
     overflow: visible;
     z-index: 1;
   }
   .sline .sarea {
-    fill: color-mix(in srgb, var(--accent) 16%, transparent);
+    fill: color-mix(in srgb, var(--accent) 22%, transparent);
     opacity: 0;
     animation: fade-area 0.4s ease both;
     animation-delay: 0.42s;
   }
   .sline polyline {
     fill: none;
-    stroke: color-mix(in srgb, var(--accent-hover) 70%, white);
-    stroke-width: 2px;
+    stroke: color-mix(in srgb, var(--accent-hover) 78%, white);
+    stroke-width: 2.25px;
     stroke-linejoin: round;
     stroke-linecap: round;
     vector-effect: non-scaling-stroke;
@@ -878,12 +929,18 @@
     background: color-mix(in srgb, var(--accent) 55%, var(--ok, var(--accent-hover)));
   }
   @media (pointer: fine) {
-    .sbar:hover .sfill,
     .row:hover .rfill {
       filter: brightness(1.18);
     }
-    .sbar {
-      cursor: help;
+    .spark.peek .sfill {
+      opacity: 0.38;
+    }
+    .spark.peek .sbar.hot .sfill {
+      opacity: 1;
+      filter: brightness(1.12);
+    }
+    .spark.peek .sline {
+      opacity: 0.55;
     }
   }
   @keyframes bar-up {
