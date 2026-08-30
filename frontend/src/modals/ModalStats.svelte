@@ -60,6 +60,50 @@
     return d.toLocaleDateString([], { month: "short", day: "numeric" });
   };
   const peopleMax = $derived(Math.max(1, ...((activity?.people || []).map((p) => p.messages))));
+  // Polyline over the weekly bars. x sits on each bar's centre so the line
+  // tracks the columns rather than their left edges.
+  const weekLine = $derived.by(() => {
+    const w = activity?.perWeek || [];
+    if (w.length < 2) return "";
+    const max = weekMax;
+    return w
+      .map((n, i) => `${i + 0.5},${(100 - Math.max(1.5, (n / max) * 100)).toFixed(2)}`)
+      .join(" ");
+  });
+  const weekArea = $derived.by(() => {
+    const w = activity?.perWeek || [];
+    if (w.length < 2 || !weekLine) return "";
+    return `0.5,100 ${weekLine} ${w.length - 0.5},100`;
+  });
+
+  const noMotion =
+    typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // Count from zero when the panel opens. The bars grow in CSS; the headline
+  // would look frozen next to them if it printed the final number immediately.
+  function countUp(node, n) {
+    const fmt = (x) => Math.round(x).toLocaleString();
+    const target = Number(n) || 0;
+    if (noMotion || target === 0) {
+      node.textContent = fmt(target);
+      return;
+    }
+    let raf = 0;
+    const t0 = performance.now();
+    const dur = 620;
+    const tick = (now) => {
+      const p = Math.min(1, (now - t0) / dur);
+      const e = 1 - (1 - p) ** 3;
+      node.textContent = fmt(target * e);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return {
+      destroy() {
+        cancelAnimationFrame(raf);
+      },
+    };
+  }
 
   // Props leaderboard: celebratory reactions (🏆 ⭐ 💯 ❤️ 👏) received on each
   // member's messages, tallied from THIS replica's reaction history. Every
@@ -260,26 +304,45 @@
     {:else if !weekTotal && !insChannels.length}
       <p class="muted tiny">Nothing has been said here yet.</p>
     {:else}
+      <div class="hero">
+        <strong class="hero-n" use:countUp={weekTotal}></strong>
+        <span class="hero-l">messages in {activity.weeks} weeks</span>
+      </div>
       <div class="spark" role="img" aria-label={`${weekTotal} messages over the last ${activity.weeks} weeks`}>
         {#each activity.perWeek as n, i (i)}
-          <span class="sbar" title={`Week of ${weekLabel(i)} — ${n} message${n === 1 ? "" : "s"}`}>
-            <span class="sfill" style="height:{Math.max(2, Math.round((n / weekMax) * 100))}%"></span>
+          <span
+            class="sbar"
+            class:now={i === activity.perWeek.length - 1}
+            style="--i:{i}"
+            title={`Week of ${weekLabel(i)} — ${n} message${n === 1 ? "" : "s"}`}
+          >
+            <span class="sfill" style="--h:{Math.max(2, Math.round((n / weekMax) * 100))}%"></span>
           </span>
         {/each}
+        {#if weekLine}
+          <svg
+            class="sline"
+            viewBox="0 0 {activity.perWeek.length} 100"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <polygon class="sarea" points={weekArea}></polygon>
+            <polyline pathLength="1" points={weekLine}></polyline>
+          </svg>
+        {/if}
       </div>
       <div class="sparkline-foot muted tiny">
         <span>{weekLabel(0)}</span>
-        <span>{weekTotal.toLocaleString()} messages in {activity.weeks} weeks</span>
         <span>this week</span>
       </div>
 
       {#if busiest.length}
         <div class="rows" aria-label="Messages per channel">
-          {#each busiest as c (c.id)}
-            <div class="row">
+          {#each busiest as c, i (c.id)}
+            <div class="row" style="--i:{i}">
               <span class="rname">{c.type === "voice" ? c.name : `#${c.name}`}</span>
-              <span class="rbar"><span class="rfill" style="width:{Math.round((c.messages / chMax) * 100)}%"></span></span>
-              <span class="rn">{c.messages.toLocaleString()}</span>
+              <span class="rbar"><span class="rfill" style="--w:{Math.round((c.messages / chMax) * 100)}%"></span></span>
+              <span class="rn" use:countUp={c.messages}></span>
             </div>
           {/each}
         </div>
@@ -288,11 +351,11 @@
       {#if activity.people?.length}
         <strong class="sub">Who is talking</strong>
         <div class="rows" aria-label="Messages per member">
-          {#each activity.people.slice(0, 6) as p (p.fingerprint)}
-            <div class="row">
+          {#each activity.people.slice(0, 6) as p, i (p.fingerprint)}
+            <div class="row" style="--i:{i}">
               <span class="rname">{p.name || p.fingerprint.slice(0, 9)}</span>
-              <span class="rbar"><span class="rfill alt" style="width:{Math.round((p.messages / peopleMax) * 100)}%"></span></span>
-              <span class="rn">{p.messages.toLocaleString()}</span>
+              <span class="rbar"><span class="rfill alt" style="--w:{Math.round((p.messages / peopleMax) * 100)}%"></span></span>
+              <span class="rn" use:countUp={p.messages}></span>
             </div>
           {/each}
         </div>
@@ -301,8 +364,8 @@
       {#if quiet.length}
         <strong class="sub">Gone quiet</strong>
         <div class="quiet">
-          {#each quiet as c (c.id)}
-            <span class="qchip">
+          {#each quiet as c, i (c.id)}
+            <span class="qchip" style="--i:{i}">
               {c.type === "voice" ? c.name : `#${c.name}`}
               <em>{c.lastUnix ? fmtDate(c.lastUnix) : "never used"}</em>
             </span>
@@ -684,16 +747,38 @@
   /* ---- insights ---------------------------------------------------------
      One accent, one weight, no chartjunk: the app already draws its data this
      way (the import wizard's histogram), and a stats panel that invents a
-     second visual language is a stats panel nobody trusts. */
+     second visual language is a stats panel nobody trusts. The motion is the
+     same language arriving: bars grow from the axis, the line draws after. */
+  .hero {
+    display: flex;
+    align-items: baseline;
+    gap: var(--sp-3);
+    animation: rise 0.45s var(--ease-spring) both;
+  }
+  .hero-n {
+    font-size: var(--fs-display);
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    color: var(--accent-hover);
+  }
+  .hero-l {
+    font-size: var(--fs-compact);
+    color: var(--text-muted);
+  }
   .spark {
+    position: relative;
     display: flex;
     align-items: flex-end;
     gap: 3px;
-    height: 64px;
+    height: 88px;
     padding: var(--sp-2) 10px;
     background: var(--bg-1);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
+    animation: rise 0.45s var(--ease-spring) both;
+    animation-delay: 40ms;
   }
   .sbar {
     flex: 1;
@@ -701,16 +786,56 @@
     align-items: flex-end;
     height: 100%;
     min-width: 0;
+    z-index: 0;
   }
   .sfill {
     width: 100%;
-    border-radius: 2px 2px 0 0;
-    background: var(--accent);
+    height: var(--h, 2%);
+    border-radius: 3px 3px 0 0;
+    background: linear-gradient(180deg, var(--accent-hover), var(--accent));
+    transform-origin: center bottom;
+    animation: bar-up 0.55s var(--ease-spring) both;
+    animation-delay: calc(60ms + var(--i, 0) * 28ms);
+  }
+  .sbar.now .sfill {
+    box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 50%, transparent);
+  }
+  .sline {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: var(--sp-2);
+    bottom: var(--sp-2);
+    width: calc(100% - 20px);
+    height: calc(100% - 2 * var(--sp-2));
+    pointer-events: none;
+    overflow: visible;
+    z-index: 1;
+  }
+  .sline .sarea {
+    fill: color-mix(in srgb, var(--accent) 16%, transparent);
+    opacity: 0;
+    animation: fade-area 0.4s ease both;
+    animation-delay: 0.42s;
+  }
+  .sline polyline {
+    fill: none;
+    stroke: color-mix(in srgb, var(--accent-hover) 70%, white);
+    stroke-width: 2px;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: draw-line 0.7s var(--ease-out) both;
+    animation-delay: 0.22s;
   }
   .sparkline-foot {
     display: flex;
     justify-content: space-between;
     gap: var(--sp-2);
+    animation: rise 0.4s var(--ease-spring) both;
+    animation-delay: 80ms;
   }
   .sub {
     display: block;
@@ -725,6 +850,8 @@
     display: flex;
     flex-direction: column;
     gap: 5px;
+    animation: rise 0.4s var(--ease-spring) both;
+    animation-delay: 130ms;
   }
   .row {
     display: flex;
@@ -751,13 +878,85 @@
   .rfill {
     display: block;
     height: 100%;
+    width: var(--w, 0%);
     border-radius: 999px;
     background: var(--accent);
+    transform-origin: left center;
+    animation: bar-across 0.5s var(--ease-spring) both;
+    animation-delay: calc(160ms + var(--i, 0) * 36ms);
   }
   /* People get the second hue, so "which channel" and "which person" are not
      the same bar in two lists. */
   .rfill.alt {
     background: color-mix(in srgb, var(--accent) 55%, var(--ok, var(--accent-hover)));
+  }
+  @media (pointer: fine) {
+    .sbar:hover .sfill,
+    .row:hover .rfill {
+      filter: brightness(1.18);
+    }
+    .sbar {
+      cursor: help;
+    }
+  }
+  @keyframes bar-up {
+    from {
+      transform: scaleY(0);
+    }
+    to {
+      transform: scaleY(1);
+    }
+  }
+  @keyframes bar-across {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  @keyframes draw-line {
+    to {
+      stroke-dashoffset: 0;
+    }
+  }
+  @keyframes fade-area {
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hero,
+    .spark,
+    .sparkline-foot,
+    .rows,
+    .qchip,
+    .sfill,
+    .rfill,
+    .sline polyline,
+    .sline .sarea {
+      animation: none;
+    }
+    .sfill,
+    .rfill {
+      transform: none;
+    }
+    .sline polyline {
+      stroke-dashoffset: 0;
+    }
+    .sline .sarea {
+      opacity: 1;
+    }
   }
   .rn {
     flex: 0 0 auto;
@@ -777,6 +976,8 @@
     border-radius: 999px;
     background: var(--bg-3);
     font-size: var(--fs-small);
+    animation: rise 0.35s var(--ease-spring) both;
+    animation-delay: calc(200ms + var(--i, 0) * 40ms);
   }
   .qchip em {
     font-style: normal;
