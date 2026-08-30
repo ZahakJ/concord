@@ -290,7 +290,7 @@
   {@render group("effects", "Effects", themeFx ? THEME_FX.find((f) => f.id === themeFx)?.label || "On" : "Off", effectsBody)}
   {@render group("colour", "Colour", accent ? ACCENTS.find((a) => a.color === accent)?.name || "Custom" : "Your profile colour", colourBody)}
   {@render group("shape", "Shape", SHAPES.find((x) => x.id === shape)?.label || "Theme", shapeBody)}
-  {@render group("type", "Type", FONTS.find((x) => x.id === font)?.label || "Theme", typeBody)}
+  {@render group("type", "Font", FONTS.find((x) => x.id === font)?.label || "Theme", typeBody)}
   {@render group("comfort", "Density & scale", `${DENSITIES.find((d) => d.id === density)?.label || "Cosy"} · ${Math.round(uiScale * 100)}%`, comfortBody)}
   {@render group("flair", "Flair", "Guild colours, seasonal touches", flairBody)}
   {@render group("clock", "Clock", clock === "12" ? "12-hour" : clock === "24" ? "24-hour" : "Automatic", clockBody)}
@@ -359,7 +359,7 @@
     {/if}
     <p class="muted tiny">
       A pack is a whole look, not a hue: its own typeface, corner radius, avatar
-      shape, shadow depth and feed rhythm come with it. An accent, Shape or Type
+      shape, shadow depth and feed rhythm come with it. An accent, Shape or Font
       choice below still overrides the pack. The effect-paired palettes were each
       drawn as the ground for one of the Effects — picking the pack does not turn
       the effect on; the two are separate choices.
@@ -452,7 +452,7 @@
   {/snippet}
 
   {#snippet typeBody()}
-    <div class="seg faces" role="radiogroup" aria-label="Typeface">
+    <div class="seg faces" role="radiogroup" aria-label="Font">
       {#each FONTS as f (f.id)}
         <button
           class:sel={font === f.id}
@@ -1454,7 +1454,7 @@
     border-radius: var(--r);
     opacity: 0.7;
   }
-  /* Type preview, set in the face itself — the only honest sample. */
+  /* Font preview, set in the face itself — the only honest sample. */
   .font-pv {
     width: 22px;
     flex: none;

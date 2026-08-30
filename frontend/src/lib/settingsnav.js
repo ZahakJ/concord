@@ -39,7 +39,7 @@ export const SETTINGS_GROUPS = [
         kind: "appearance",
         title: "Appearance",
         icon: "palette",
-        sub: "Theme, colour, shape & type",
+        sub: "Theme, colour, shape & font",
       },
     ],
   },
