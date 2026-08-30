@@ -17,7 +17,10 @@
   let openCount = 0;
   export function markOpen() {
     openCount++;
-    document.documentElement.dataset.modal = "";
+    // Only stamp on the first dialog. Re-setting data-modal while it is
+    // already there restarts html[data-modal]::before's box in some engines,
+    // which is a whole-screen dim pulse on every settings-rail click.
+    if (openCount === 1) document.documentElement.dataset.modal = "";
   }
   export function markClosed() {
     openCount = Math.max(0, openCount - 1);
@@ -88,6 +91,11 @@
   // consumed, like `dir`.
   const lateral = modalNav.lateral;
   modalNav.lateral = false;
+  // A rail click holds the previous dialog until this one is constructed, so
+  // openCount is already > 0. Treat that the same as `lateral`: the overlay
+  // must not fade and the card must not pop, or the persistent dim is the
+  // only thing on screen for a beat and the click reads as "the page darkened".
+  const continuing = lateral || openCount > 0;
 
   // Focus, on open and on close.
   //
@@ -245,7 +253,9 @@
   bind:this={overlay}
   class="overlay"
   class:lateral
-  class:stacked={me.isInnermostOfKind && me.hasOtherOfKind}
+  class:continuing
+  class:stacked={!continuing && me.isInnermostOfKind && me.hasOtherOfKind}
+  data-modal-overlay
   style:z-index={100 + me.index * 2}
   onclick={dismiss}
   role="presentation"
@@ -258,6 +268,7 @@
     class:lg={size === "lg"}
     class:railed
     class:lateral
+    class:continuing
     class:deeper={enterDir === 1}
     class:shallower={enterDir === -1}
     onclick={(e) => e.stopPropagation()}
@@ -313,19 +324,15 @@
   .overlay {
     position: fixed;
     inset: 0;
-    /* The dim lives on html[data-modal]::before (app.css), not here. Every
-       settings page is its own dialog, so a rail click tears this overlay down
-       and builds another; if the dim rode on it, the app shone through for a
-       frame. A stacked dialog (a confirm over Settings) still carries its own
-       scrim, so the layer underneath actually recedes. */
-    background: transparent;
+    /* The dim is on this overlay again. html[data-modal]::before is only a
+       gap-filler for the frame between tearing one dialog down and building
+       the next — it hides the moment an overlay is in the tree, so the two
+       never stack into a darker pulse. */
+    background: var(--scrim);
     display: grid;
     place-items: center;
     z-index: 100;
     animation: fade var(--dur-standard) ease;
-  }
-  .overlay.stacked {
-    background: var(--scrim);
   }
   .dialog {
     width: 380px;
@@ -690,12 +697,17 @@
      "this is a different page", nowhere near enough to be a transition you have
      to wait out. Declared last so it beats every entrance above it. */
   .overlay.lateral,
+  .overlay.continuing,
   .dialog.lateral,
+  .dialog.continuing,
   .dialog.lateral.deeper,
-  .dialog.lateral.shallower {
+  .dialog.lateral.shallower,
+  .dialog.continuing.deeper,
+  .dialog.continuing.shallower {
     animation: none;
   }
-  .dialog.lateral > .pane {
+  .dialog.lateral > .pane,
+  .dialog.continuing > .pane {
     animation: none;
   }
   /* Groups on a railed page used to stagger in on every rail click — opacity 0

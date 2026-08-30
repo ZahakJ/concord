@@ -2745,11 +2745,12 @@ textarea:focus {
 
 /* ── the app, behind a dialog ─────────────────────────────────────────────
    Modal.svelte stamps [data-modal] on the document while any dialog is on
-   screen. The dim lives on this pseudo, not on the overlay element: every
-   settings page is its own dialog, so a rail click tears the overlay down and
-   builds another, and a dim that rode on the overlay took the app with it for
-   a frame. The stamp stays up across that swap (the open-count never hits
-   zero), so this layer never blinks. The overlay is the click catcher.
+   screen. The overlay carries the dim. This pseudo is only the one-frame
+   gap-filler for a rail click: every settings page is its own dialog, so the
+   overlay is torn down and rebuilt, and without this the app would shine
+   through. The moment an overlay is in the tree the pseudo is switched off,
+   so the two never sit on top of each other — that stack is what made every
+   rail click look like the whole window darkened.
 
    The app itself does NOT move. A previous version scaled `.app` to 0.985
    behind every dialog — the compositor-cheap stand-in for a backdrop blur the
@@ -2766,17 +2767,9 @@ html[data-modal]::before {
   background: var(--scrim);
   z-index: 99;
   pointer-events: none;
-  animation: modal-scrim-in var(--dur-standard) ease;
 }
-@keyframes modal-scrim-in {
-  from {
-    opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  html[data-modal]::before {
-    animation: none;
-  }
+html[data-modal]:has([data-modal-overlay])::before {
+  content: none;
 }
 
 /* ── held-still motion ────────────────────────────────────────────────────
