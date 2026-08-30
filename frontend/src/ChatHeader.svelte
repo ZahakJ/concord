@@ -17,7 +17,7 @@
     confirmLeaveGuild,
     leaveGuildLabel,
     openGuildHub,
-    jumpToChannel,
+    openCallStage,
     channelShort,
     callRoster,
     callHealth,
@@ -260,8 +260,10 @@
     {#if packed}
       <!-- nothing: see the ⋯ menu -->
     {:else if S.voice && S.voice.channelId === S.activeChannelId && (g?.kind === "dm" || g?.kind === "meeting")}
-      <!-- In a DM call, the call box carries the controls; the header is just a
-           one-click hang-up so clicking "call" again intuitively leaves. -->
+      <!-- In a DM the conversation stays; the tiles are a layer you open. -->
+      <button class="ghost iconbtn" use:tooltip aria-label="Open the call" onclick={() => openCallStage()}>
+        <Icon name="screen" /> <span class="n">Open the call</span>
+      </button>
       <button class="ghost iconbtn endcall" use:tooltip aria-label="Leave call" onclick={onLeaveVoice}>
         <Icon name="door" /> <span class="n">End call</span>
       </button>
@@ -271,10 +273,16 @@
         <!-- callRoster, not a second count: this is the same list the stage
              draws its tiles from, so the number and the picture cannot drift
              apart while somebody is arriving or leaving. -->
-        <span class="pill-label" title="{callRoster().length} in this call">
+        <button
+          type="button"
+          class="pill-label"
+          title="Open the call"
+          aria-label="Open the call"
+          onclick={() => openCallStage()}
+        >
           <Icon name="speaker" size={12} />
           {callRoster().length}
-        </span>
+        </button>
         <span class="pill-sep"></span>
         <!-- The same controls, the same two colours, on every surface that
              carries them: mic and deafen light DANGER when they are stopping
@@ -318,7 +326,7 @@
         class="ghost iconbtn return-call"
         class:trouble={!callState.live}
         use:tooltip={{ text: `Back to ${callLabel || "your call"}` }}
-        onclick={() => jumpToChannel(S.voice.channelId)}
+        onclick={() => openCallStage()}
       >
         <span class="live-dot"></span>
         <!-- The dot and the clock are the same claim the sidebar bar and the
@@ -415,6 +423,9 @@
              edge with no menu entry, no horizontal scroll and no sign they
              existed. -->
         {#if packed && S.voice && S.voice.channelId === S.activeChannelId}
+          <button class="menu-item" onclick={() => openCallStage()}>
+            <Icon name="screen" size={14} /> Open the call
+          </button>
           <button class="menu-item" onclick={onLeaveVoice}>
             <Icon name="door" size={14} /> Leave the call
           </button>
@@ -423,8 +434,8 @@
             <Icon name="speaker" size={14} /> Join the call — it's live
           </button>
         {:else if packed && S.voice}
-          <button class="menu-item" onclick={() => jumpToChannel(S.voice.channelId)}>
-            <Icon name="speaker" size={14} /> Back to {callLabel || "your call"}
+          <button class="menu-item" onclick={() => openCallStage()}>
+            <Icon name="speaker" size={14} /> Open {callLabel || "the call"}
           </button>
         {:else if packed && ch && !g?.dmNotes}
           <button class="menu-item" onclick={() => onJoinVoice()}>
@@ -861,6 +872,12 @@
     align-items: center;
     gap: var(--sp-1);
     line-height: 1;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
   }
   .pill-sep {
     width: 1px;

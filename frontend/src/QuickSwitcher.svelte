@@ -7,6 +7,8 @@
     S,
     jumpToChannel,
     selectGuild,
+    openCallStage,
+    joinVoiceChannel,
     markAllRead,
     toggleMute,
     isMuted,
@@ -173,8 +175,14 @@
     if (item.kind === "action") {
       item.run();
     } else if (item.kind === "channel") {
-      if (item.c.type === "voice") await selectGuild(item.g.id);
-      else await jumpToChannel(item.c.id);
+      if (item.c.type === "voice") {
+        if (S.activeGuildId !== item.g.id) await selectGuild(item.g.id);
+        if ((S.voice && S.voice.channelId === item.c.id) || S.joiningVoice === item.c.id) {
+          openCallStage();
+        } else {
+          await joinVoiceChannel(item.c.id);
+        }
+      } else await jumpToChannel(item.c.id);
     } else {
       await selectGuild(item.g.id);
     }

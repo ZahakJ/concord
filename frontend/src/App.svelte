@@ -30,6 +30,10 @@
     incomingCall,
     isDMChannel,
     jumpToChannel,
+    openCallStage,
+    closeCallStage,
+    toggleCallStageChat,
+    channelShort,
     checkForUpdate,
     dismissUpdate,
     setChannelTopic,
@@ -339,8 +343,8 @@
     handle.addEventListener("pointercancel", up);
   }
 
-  // Voice: the call box shows inline on its own channel; navigate away and it
-  // pins to a small draggable floating window instead.
+  // Voice: joining does not open the tiles. The full call is a layer you open
+  // on a second click; walk to another channel and it pins to the dock.
   // Friendly OS name for the update banner's download button (cosmetic — the
   // actual asset is chosen server-side from runtime.GOOS).
   const ua = navigator.userAgent;
@@ -352,14 +356,9 @@
         ? "Linux"
         : "your OS";
 
-  // The call view is up from the CLICK, not from the connection. Joining opens
-  // the microphone and then waits on the node, and until the panel appeared
-  // early that whole stretch — 130ms on a good day, 31 seconds in the worst
-  // soak measured — changed nothing on screen while the mic was already hot.
-  const callHere = $derived(
-    (S.voice && S.voice.channelId === S.activeChannelId) || S.joiningVoice === S.activeChannelId,
-  );
-  const callElsewhere = $derived(S.voice && S.voice.channelId !== S.activeChannelId);
+  // The dock is the call when the stage is not: you joined, you are still
+  // reading #general, and the picture lives in a window you can put back.
+  const callElsewhere = $derived(!!S.voice && !S.callStage && S.voice.channelId !== S.activeChannelId);
   const call = $derived(incomingCall());
   const ringingChannel = $derived(call?.channelId || "");
   // Friendly label for the floating call window: DM name, or "Guild · #ch".
@@ -863,6 +862,10 @@
   syncLayer("reply", () => !!S.replyingTo, () => (S.replyingTo = null));
   syncLayer("call-invite", () => !!S.callInvite, () => (S.callInvite = null));
   syncLayer("knock", () => !!S.knocking, () => (S.knocking = ""));
+  syncLayer("call-stage", () => S.callStage, () => closeCallStage());
+  $effect(() => {
+    if (!S.voice && !S.joiningVoice && S.callStage) closeCallStage();
+  });
 
   let exitArmed = $state(0);
   let exitTimer;
@@ -1214,6 +1217,7 @@
 
   async function leaveVoice() {
     if (!S.voice) return;
+    closeCallStage();
     const ch = S.voice.channelId;
     // The call is over — release the microphone foreground service first so
     // the ongoing-call notification never outlives the call it announces.
@@ -1590,7 +1594,7 @@
 {:else}
   <div
     class="app"
-    class:no-panel={isDM || !hasChannel}
+    class:no-panel={isDM || !hasChannel || S.callStage}
     class:offline-shift={S.offline}
     style={gridStyle}
   >
@@ -1615,18 +1619,33 @@
       ondblclick={() => setPref("colChannels", COL_DEFAULTS.colChannels)}
     ></div>
 
-    <main class="chat">
-      {#if hasChannel}
-        <ChatHeader
-          onJoinVoice={joinVoice}
+    <main class="chat" class:staging={S.callStage} class:with-chat={S.callStage && S.callStageChat}>
+      {#if S.callStage}
+        <VoicePanel
           onLeaveVoice={leaveVoice}
           onToggleMute={toggleMicMute}
           onToggleDeafen={toggleDeafen}
           onToggleShare={toggleScreenShare}
           onToggleCamera={toggleCamera}
         />
-        {#if callHere}
-          <VoicePanel
+      {/if}
+      {#if hasChannel}
+        <div
+          class="chat-col"
+          class:aside={S.callStage && S.callStageChat}
+          class:behind={S.callStage && !S.callStageChat}
+        >
+        {#if S.callStage && S.callStageChat}
+          <div class="stage-chat-head">
+            <Icon name="hash" size={14} />
+            <span class="stage-chat-name">{channelShort(S.voice?.channelId || S.joiningVoice) || "Chat"}</span>
+            <button type="button" class="stage-chat-hide" aria-label="Hide chat" onclick={() => toggleCallStageChat()}>
+              <Icon name="close" size={14} />
+            </button>
+          </div>
+        {:else if !S.callStage}
+          <ChatHeader
+            onJoinVoice={joinVoice}
             onLeaveVoice={leaveVoice}
             onToggleMute={toggleMicMute}
             onToggleDeafen={toggleDeafen}
@@ -1676,12 +1695,13 @@
           {/if}
           <SearchPanel />
         </div>
-      {:else}
+        </div>
+      {:else if !S.callStage}
         <Welcome />
       {/if}
     </main>
 
-    {#if !isDM && hasChannel && S.prefs.memberPanel}
+    {#if !isDM && hasChannel && S.prefs.memberPanel && !S.callStage}
       <MemberPanel />
       <!-- Inner (left) edge of the member panel; dragging left widens it. -->
       <div
@@ -1733,11 +1753,11 @@
     </div>
   {/if}
 
-  <!-- Ongoing call you've navigated away from: a draggable pinned window.
-       Mounted for the whole call and merely hidden while you're looking at the
-       call's own channel — remounting it threw away wherever it had been
-       parked, which is the same reason the component already hides rather than
-       unmounts behind the phone drawers. -->
+  <!-- Ongoing call while the stage is put away: a draggable pinned window.
+       Mounted for the whole call and merely hidden while the tiles are up —
+       remounting it threw away wherever it had been parked, which is the same
+       reason the component already hides rather than unmounts behind the phone
+       drawers. -->
   {#if S.voice}
     <FloatingCall
       label={callLabel}
@@ -1747,7 +1767,7 @@
       onToggleDeafen={toggleDeafen}
       onToggleShare={toggleScreenShare}
       onToggleCamera={toggleCamera}
-      onReturn={() => jumpToChannel(S.voice.channelId)}
+      onReturn={() => openCallStage()}
     />
   {/if}
 
@@ -2535,6 +2555,70 @@
     min-height: 0;
     overflow: hidden;
     background: var(--bg-2);
+  }
+  /* The full call is the column. Chat, when asked for, sits beside it — not
+     a strip under the tiles, which is what made a 16:9 share look like a
+     leftover band. */
+  .chat.staging {
+    flex-direction: row;
+  }
+  .chat.staging :global(.voice-panel) {
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    max-height: none;
+    border-bottom: none;
+  }
+  .chat.staging.with-chat :global(.voice-panel) {
+    border-right: 1px solid var(--border);
+  }
+  .chat-col {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .chat-col.behind {
+    display: none;
+  }
+  .chat-col.aside {
+    flex: 0 0 min(380px, 38%);
+    width: min(380px, 38%);
+    max-width: 420px;
+  }
+  .stage-chat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex: none;
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--border);
+    font-size: var(--fs-compact);
+    font-weight: 600;
+    color: var(--text);
+  }
+  .stage-chat-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stage-chat-hide {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
+  }
+  .stage-chat-hide:hover {
+    background: var(--bg-3);
+    color: var(--text);
   }
   /* Everything below the header and the call panel: the feed and the composer,
      with the search results able to cover exactly that and no more. The header

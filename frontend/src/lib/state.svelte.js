@@ -313,6 +313,13 @@ export const S = $state({
 
   voice: null, // { mesh, channelId }
   joiningVoice: "", // channelId we're mid-join on (before S.voice is set)
+  // The full call view is a layer, not a place. Joining a voice channel puts
+  // you in the room; it does not steal the channel you were reading. Opening
+  // the stage is a second click (the channel again, or yourself under it).
+  // callStageChat is the side pane of that layer, not a stacked strip.
+  callStage: false,
+  callStageChat: false,
+  callStageFrom: "", // channel to restore when the stage is put away
   // Call lock (see voice.go, and the block around toggleCallLock below):
   //   callLocks    channelId -> true while the call is locked
   //   callLockBy   channelId -> the fingerprint that locked it, so the pill can
@@ -2793,6 +2800,46 @@ export async function joinVoiceChannel(channelId) {
   await meetingJoiner?.(channelId);
 }
 
+// The tiles and the share, not the join. The stage sits over wherever you
+// already were, so walking into a voice channel does not yank the feed.
+export function openCallStage() {
+  if (!S.voice && !S.joiningVoice) return;
+  if (!S.callStage) S.callStageFrom = S.activeChannelId;
+  S.callStage = true;
+  if (S.isMobile) S.drawerOpen = false;
+  // The feed under the stage stays mounted (display:none). If the composer
+  // kept focus, typing would land in a box you cannot see.
+  if (typeof document !== "undefined") document.activeElement?.blur?.();
+}
+
+export function closeCallStage() {
+  const from = S.callStageFrom;
+  const voiceId = S.voice?.channelId || S.joiningVoice;
+  const restore = from && S.activeChannelId === voiceId && from !== voiceId;
+  S.callStage = false;
+  S.callStageChat = false;
+  S.callStageFrom = "";
+  if (restore) selectChannel(from);
+}
+
+// Desktop: the voice room's chat as a column beside the tiles. Phone: there
+// is no beside, so the same button puts the stage away and opens that chat.
+export async function toggleCallStageChat() {
+  if (!S.callStage) return;
+  const voiceId = S.voice?.channelId || S.joiningVoice;
+  if (S.isMobile) {
+    closeCallStage();
+    if (voiceId) await selectChannel(voiceId);
+    return;
+  }
+  if (S.callStageChat) {
+    S.callStageChat = false;
+    return;
+  }
+  S.callStageChat = true;
+  if (voiceId && S.activeChannelId !== voiceId) await selectChannel(voiceId);
+}
+
 async function joinMeetingCall(channelId) {
   try {
     await meetingJoiner?.(channelId);
@@ -2847,6 +2894,16 @@ export function closePost() {
 }
 
 export async function selectChannel(id) {
+  // Walking to another channel puts the stage away. Opening the voice room's
+  // own chat while the stage is up (the side pane) is not walking away.
+  if (S.callStage) {
+    const voiceId = S.voice?.channelId || S.joiningVoice;
+    if (id !== voiceId) {
+      S.callStage = false;
+      S.callStageChat = false;
+      S.callStageFrom = "";
+    }
+  }
   // Any fold in flight is over: whatever it was going to do, going somewhere
   // else outranks it, and a stale flag would leave the next panel mid-exit.
   clearTimeout(foldTimer);

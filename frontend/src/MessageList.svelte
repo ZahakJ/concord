@@ -33,6 +33,7 @@
     nudge,
     refreshGuilds,
     selectChannel,
+    openCallStage,
     archiveChannel,
     loadArchiveOlder,
   } from "./lib/state.svelte.js";
@@ -1571,10 +1572,17 @@
                    and then nothing. The only way in was a small button in the
                    header, fifty pixels from the channel name that had just
                    told you this was a voice room. -->
-              <button class="join-call" onclick={() => onJoinVoice?.(S.activeChannelId)}>
-                <Icon name="speaker" size={15} />
-                Join {emptyInfo.name}
-              </button>
+              {#if !S.callStage && ((S.voice && S.voice.channelId === S.activeChannelId) || S.joiningVoice === S.activeChannelId)}
+                <button class="join-call" onclick={() => openCallStage()}>
+                  <Icon name="screen" size={15} />
+                  Open the call
+                </button>
+              {:else if !S.callStage}
+                <button class="join-call" onclick={() => onJoinVoice?.(S.activeChannelId)}>
+                  <Icon name="speaker" size={15} />
+                  Join {emptyInfo.name}
+                </button>
+              {/if}
               <span class="who-in">
                 {#if voiceHere.length}
                   <span class="who-faces">

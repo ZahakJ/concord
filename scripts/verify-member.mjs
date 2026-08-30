@@ -138,8 +138,11 @@ try {
     const row = await p.waitForSelector('text="talk"', { timeout: 15000 }).catch(() => null);
     if (!row) { bad(`${who}: could not find the voice channel row in the UI`); return false; }
     await row.click();
-    // Clicking a voice channel selects it; joining is the "Voice" action in the
-    // header when the app doesn't auto-connect.
+    // First click joins. Share screen lives on the compact bar immediately;
+    // a second click opens the full stage, which has it too.
+    if (!(await p.$('[aria-label="Share screen"]'))) {
+      await row.click();
+    }
     if (!(await p.$('[aria-label="Share screen"]'))) {
       await p.click('text="Voice"').catch(() => {});
     }

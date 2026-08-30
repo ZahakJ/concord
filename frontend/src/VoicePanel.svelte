@@ -28,6 +28,8 @@
     flash,
     retryMic,
     keySurface,
+    closeCallStage,
+    toggleCallStageChat,
   } from "./lib/state.svelte.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { setSelfViewCovered } from "./lib/selfview.svelte.js";
@@ -157,9 +159,9 @@
   // to its two members). That includes an instant MEETING: its guest link is
   // public by design, and the lock is exactly what turns "anyone with the link
   // walks in" into office hours where you let people in one at a time.
-  // The panel is on screen from the moment the channel is CLICKED, before the
-  // mesh exists, so that a join has something to show for itself — see
-  // `joining` below and App.svelte's callHere.
+  // The panel is on screen from the moment the STAGE is opened, which can be
+  // before the mesh exists if you click the channel a second time while the
+  // join is still in flight.
   const chId = $derived(S.voice?.channelId || S.joiningVoice || "");
   const joining = $derived(!S.voice && !!S.joiningVoice);
   // The padlock is HIDDEN, not disabled, for anyone who cannot use it. A
@@ -332,55 +334,20 @@
 
   // ---- the call takes the stage ----
   //
-  // `max-height: 46vh` made a live call a band above an empty chat: on a 900px
-  // window two participants got a 230px strip with two 200px tiles floating in
-  // it, and the remaining 60% of the column was the "Welcome to Study Hall"
-  // empty state of a conversation nobody was having, because everybody was
-  // talking. The call was never the main event in its own channel.
+  // This panel is the full call, not a band above leftover chat. Joining does
+  // not mount it; a second click does, and then the tiles have the column.
+  // Chat, when asked for, sits beside rather than underneath.
   //
-  // So when a call is live in the channel you are looking at, the call is the
-  // column and the chat collapses to a strip at the bottom — the reverse of
-  // what it was. The strip is a real strip, not a hidden pane: the composer and
-  // the last message or two stay on screen and stay MOUNTED, which matters
-  // because the message list is virtualized and unmounting it would throw away
-  // both its window and the reader's place in it.
-  //
-  // The toggle in the header puts the chat back, because there is a real second
-  // mode here — a call you are listening to while reading — and which one you
-  // want is a preference, not a guess. Per device, like the dock's position.
-  const STAGE_KEY = "concord.callTakesStage";
-  function loadStagePref() {
-    try {
-      return localStorage.getItem(STAGE_KEY) !== "off";
-    } catch {
-      return true;
-    }
-  }
-  let stageFirst = $state(loadStagePref());
-  function toggleStageFirst() {
-    stageFirst = !stageFirst;
-    haptic("light");
-    try {
-      localStorage.setItem(STAGE_KEY, stageFirst ? "on" : "off");
-    } catch {
-      /* private mode — the choice still holds for this session */
-    }
-  }
   // Tiles grow with the space instead of capping at 200px. The column count is
   // the meeting-grid rule (ceil(sqrt(n)), capped at four), which is what gives
   // two people two big tiles side by side and nine people a 3x3.
   // The arrangement the box can actually afford (lib/tilefit.js) once the stage
-  // has been measured; the square rule until then, and for the band that is not
-  // the stage at all.
+  // has been measured; the square rule until then.
   let fitCols = $state(0);
   const cols = $derived(fitCols || columnsFor(roster.length));
-  // The stage is up from the click, not from the mesh. Hiding it until
-  // S.voice existed meant the self tile was born in the compact 4:3 band
-  // (a ~200px square with the name chip sitting across its middle as a black
-  // bar) and then jumped to the measured 16:10 tile a moment later — the
-  // join glitch. Connecting is a status on a tile that is already the right
-  // size, not a reason to withhold the stage.
-  const onStage = $derived(stageFirst);
+  // This panel only mounts for the full call, so the tiles always have the
+  // column. Connecting is a status on a tile that is already the right size.
+  const onStage = true;
 
   // ---- the shape of a tile ----
   //
@@ -914,6 +881,18 @@
       },
       { sep: true },
       {
+        label: S.callStageChat ? "Hide the chat" : "Chat",
+        icon: "hash",
+        active: S.callStageChat,
+        onClick: () => toggleCallStageChat(),
+      },
+      {
+        label: "Minimize the call",
+        icon: "chevron",
+        onClick: () => closeCallStage(),
+      },
+      { sep: true },
+      {
         label: "Audio & video settings",
         icon: "gear",
         onClick: () => (S.modal = { kind: "devices" }),
@@ -974,12 +953,21 @@
     {#if clock}<span class="sh-clock" class:held={!health.live} aria-label="Call duration">{clock}</span>{/if}
     <button
       class="sh-swap"
-      use:tooltip={{ text: onStage ? "Show the chat" : "Give the call the whole column" }}
-      aria-label={onStage ? "Show the chat" : "Give the call the whole column"}
-      aria-pressed={onStage}
-      onclick={toggleStageFirst}
+      class:on={S.callStageChat}
+      use:tooltip={{ text: S.callStageChat ? "Hide the chat" : "Show the chat beside the call" }}
+      aria-label={S.callStageChat ? "Hide the chat" : "Show the chat beside the call"}
+      aria-pressed={S.callStageChat}
+      onclick={() => toggleCallStageChat()}
     >
-      <Icon name={onStage ? "hash" : "screen"} size={14} />
+      <Icon name="hash" size={14} />
+    </button>
+    <button
+      class="sh-swap sh-min"
+      use:tooltip={{ text: "Minimize the call" }}
+      aria-label="Minimize the call"
+      onclick={() => closeCallStage()}
+    >
+      <Icon name="chevron" size={14} />
     </button>
   </div>
 
@@ -1526,38 +1514,18 @@
     gap: var(--sp-3);
     padding: 14px 16px;
     background: radial-gradient(120% 140% at 50% 0%, var(--bg-2), var(--bg-0));
-    border-bottom: 1px solid var(--border);
-    max-height: calc(46 * var(--vh));
     overflow-y: auto;
     /* Flicking past the end of the tile grid used to hand the leftover momentum
        to the message feed underneath — the chat jumped while you were reaching
        for a participant. */
     overscroll-behavior: contain;
   }
-  /* ---- the call takes the stage ----
-     `.on-stage` grows the panel into the column and the sibling chat pane
-     shrinks to a strip. Reaching sideways out of a scoped stylesheet is worth
-     one comment: `.pane-body` is this panel's next sibling in both shells, and
-     the alternative — a class on the parent, set from two different call
-     sites — would put half of one layout decision in a file that knows nothing
-     about calls. */
+  /* The panel only mounts for the full call, so the tiles always have the
+     column rather than a 46vh band above a leftover chat strip. */
   .voice-panel.on-stage {
     flex: 1 1 auto;
     min-height: 0;
     max-height: none;
-  }
-  .voice-panel.on-stage + :global(.pane-body) {
-    flex: 0 0 var(--chat-strip, 168px);
-    min-height: 0;
-  }
-  /* The chat strip keeps its last message or two and its composer. It does NOT
-     keep the channel's hero empty state: that is a 278px centred composition
-     laid out inside a 168px strip, so it was drawn sliced horizontally through
-     the middle of its own text at the seam under the stage — "🟣🟢 2 people are
-     in there", half of it, under a stage showing exactly those two people.
-     Same sideways reach as the rule above, and for the same reason. */
-  .voice-panel.on-stage + :global(.pane-body) :global(.empty) {
-    display: none;
   }
   .voice-panel.on-stage .stage {
     flex: 1;
@@ -1662,6 +1630,13 @@
     background: var(--bg-3);
     color: var(--text);
   }
+  .sh-swap.on {
+    color: var(--text);
+    background: var(--bg-3);
+  }
+  .sh-min :global(svg) {
+    transform: rotate(90deg); /* chevron points down: put the call away */
+  }
   @media (prefers-reduced-motion: reduce) {
     .sh-live {
       animation: none;
@@ -1732,16 +1707,6 @@
   @media (prefers-reduced-motion: reduce) {
     .voice-panel.on-stage .stage.fitted .tile {
       animation: none;
-    }
-  }
-  /* On a phone the app is one pane at a time, so "the call takes the stage"
-     means it takes the pane: the chat goes away entirely and comes back with
-     the header's toggle. A strip cannot be the answer here — the composer's
-     send button would sit a finger-width under a red hang-up button, which is
-     precisely the adjacency the phone control bar exists to prevent. */
-  @media (pointer: coarse), (max-width: 768px) {
-    .voice-panel.on-stage + :global(.pane-body) {
-      display: none;
     }
   }
   /* Theater sets its own (taller) cap; on the stage there is no cap at all, and

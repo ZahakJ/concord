@@ -15,6 +15,9 @@
     openContextMenu,
     selectChannel,
     closePost,
+    openCallStage,
+    toggleCallStageChat,
+    channelShort,
     accentForeground,
     confirmLeaveGuild,
     leaveGuildLabel,
@@ -69,12 +72,7 @@
   const activeChannelObj = $derived(
     activeGuild()?.channels.find((c) => c.id === S.activeChannelId) || null,
   );
-  // Up from the click, not from the connection — same as the desktop shell, and
-  // for the same reason: opening the microphone takes long enough that a silent
-  // screen reads as a dead button. See App.svelte.
-  const callHere = $derived(
-    (S.voice && S.voice.channelId === S.activeChannelId) || S.joiningVoice === S.activeChannelId,
-  );
+  // The tiles are a layer, same as the desktop shell. Joining does not open them.
   const canRight = $derived(hasChannel && !isDM);
   // A forum POST is a channel nested under its board. ChatHeader's breadcrumb
   // says so on desktop, but ChatHeader never renders here — and ChannelList
@@ -106,11 +104,13 @@
     if (!g) return "Concord";
     if (g.kind === "dm") return g.name;
     const ch = g.channels?.find((c) => c.id === S.activeChannelId);
+    if (S.callStage) return channelShort(S.voice?.channelId || S.joiningVoice) || ch?.name || "Call";
     return ch ? ch.name : g.name;
   });
   const titleIcon = $derived.by(() => {
     const g = activeGuild();
     if (!g || g.kind === "dm") return "";
+    if (S.callStage) return "speaker";
     const ch = g.channels?.find((c) => c.id === S.activeChannelId);
     return ch ? channelTypeIcon(ch.type) : "";
   });
@@ -258,6 +258,12 @@
         // a drawer-swipe away — this sheet is already under the thumb.
         { label: "Your calendar", icon: "calendar", onClick: () => (S.modal = { kind: "myCalendar" }) },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
+        S.voice &&
+          !S.callStage && {
+            label: "Open the call",
+            icon: "screen",
+            onClick: () => openCallStage(),
+          },
         !g.dmNotes &&
           (inCall
             ? { label: dm ? "End call" : "Leave voice", icon: "door", onClick: () => onLeaveVoice() }
@@ -595,22 +601,32 @@
     </button>
   {/if}
 
-  <main class="mchat">
+  <main class="mchat" class:staging={S.callStage} class:with-chat={S.callStage && S.callStageChat}>
+    {#if S.callStage}
+      <VoicePanel
+        {onLeaveVoice}
+        {onToggleMute}
+        {onToggleDeafen}
+        {onToggleShare}
+        {onToggleCamera}
+      />
+    {/if}
     {#if hasChannel}
-      {#if callHere}
-        <VoicePanel
-          {onLeaveVoice}
-          {onToggleMute}
-          {onToggleDeafen}
-          {onToggleShare}
-          {onToggleCamera}
-        />
-      {/if}
       <!-- Mounted per-pane, not inside MessageList: a forum channel renders
            ForumView instead, and search results had nowhere to land there. And
            over the pane rather than above it, for the reason spelled out in
            App.svelte — a band in the flow slices the row underneath its bottom
            edge in half. -->
+      <div class="chat-col" class:aside={S.callStage && S.callStageChat} class:behind={S.callStage && !S.callStageChat}>
+      {#if S.callStage && S.callStageChat}
+        <div class="stage-chat-head">
+          <Icon name="hash" size={14} />
+          <span class="stage-chat-name">{channelShort(S.voice?.channelId || S.joiningVoice) || "Chat"}</span>
+          <button type="button" class="stage-chat-hide" aria-label="Hide chat" onclick={() => toggleCallStageChat()}>
+            <Icon name="close" size={14} />
+          </button>
+        </div>
+      {/if}
       <div class="pane-body">
         {#if boardObj}
           <ForumView forum={boardObj} />
@@ -634,7 +650,8 @@
         {/if}
         <SearchPanel />
       </div>
-    {:else}
+      </div>
+    {:else if !S.callStage}
       <Welcome />
     {/if}
   </main>
@@ -957,6 +974,65 @@
        still no pinch-zoom; the drawer gesture does its own axis discrimination
        in JS (onTouchMove) and now stands down inside a horizontal scroller. */
     touch-action: pan-x pan-y;
+  }
+  .mchat.staging {
+    flex-direction: row;
+  }
+  /* On a phone the tiles take the glass. Minimize is the way back; the
+     drawers still sit above this so a swipe can walk out. */
+  .mchat.staging :global(.voice-panel) {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    max-height: none;
+    border-bottom: none;
+    padding-top: max(14px, var(--safe-top), var(--sa-top, 0px));
+    padding-bottom: max(14px, var(--safe-bottom), var(--sa-bottom, 0px));
+  }
+  .chat-col {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .chat-col.behind {
+    display: none;
+  }
+  .chat-col.aside {
+    flex: 0 0 min(380px, 38%);
+    width: min(380px, 38%);
+  }
+  .stage-chat-head {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    flex: none;
+    padding: var(--sp-2) var(--sp-3);
+    border-bottom: 1px solid var(--border);
+    font-size: var(--fs-compact);
+    font-weight: 600;
+  }
+  .stage-chat-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stage-chat-hide {
+    margin-left: auto;
+    display: grid;
+    place-items: center;
+    width: var(--tap-min);
+    height: var(--tap-min);
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-muted);
   }
   /* Connection bar: a slim strip under the header, tappable to force a
      reconnect. Full width and in flow, so it can never sit on a message. */

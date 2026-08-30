@@ -29,7 +29,9 @@
     guildUnread,
     moveChannelToCategory,
     reorderChannel,
-    jumpToChannel,
+    openCallStage,
+    closeCallStage,
+    toggleCallStageChat,
     markRead,
     openContextMenu,
     guildMenuItems,
@@ -311,14 +313,18 @@
 
   function clickChannel(c) {
     if (c.type === "voice") {
-      // Clicking a voice channel joins it and shows the call view. Clicking it
-      // again while already in does nothing extra (no rejoin). To read its chat
-      // WITHOUT joining, right-click → Open Chat.
-      selectChannel(c.id);
-      if (!S.voice || S.voice.channelId !== c.id) onJoinVoice?.(c.id);
-    } else {
-      selectChannel(c.id);
+      // First click joins and leaves you where you were. A second click — the
+      // channel, or your own row under it — opens the full call. Right-click
+      // Open chat still reads the room without joining, and without the tiles.
+      const here = (S.voice && S.voice.channelId === c.id) || S.joiningVoice === c.id;
+      if (!here) {
+        onJoinVoice?.(c.id);
+        return;
+      }
+      if (!S.callStage) openCallStage();
+      return;
     }
+    selectChannel(c.id);
   }
 
   function channelMenu(e, c) {
@@ -326,7 +332,16 @@
       c.type === "voice" && {
         label: "Open chat",
         icon: "hash",
-        onClick: () => selectChannel(c.id), // view messages without joining the call
+        onClick: () => {
+          // Already looking at the tiles: the chat is a column beside them.
+          // Otherwise it is just the room's messages, no join, no stage.
+          if (S.callStage && ((S.voice && S.voice.channelId === c.id) || S.joiningVoice === c.id)) {
+            if (!S.callStageChat) toggleCallStageChat();
+          } else {
+            closeCallStage();
+            selectChannel(c.id);
+          }
+        },
       },
       c.type === "voice" && { sep: true },
       { label: "Mark as read", icon: "check", onClick: () => markRead(c.id) },
@@ -1226,18 +1241,16 @@
     {/if}
   </div>
 
-  <!-- Persistent bottom-left call controller: shows whenever
-       you're in a call, whatever you're viewing. When you're on the call's own
-       channel the VoicePanel also shows full controls — that's fine, this is the
-       always-there compact bar; when you navigate away the FloatingCall dock
-       joins it too. -->
+  <!-- Persistent bottom-left call controller: shows whenever you're in a
+       call, whatever you're viewing. The full tiles are a layer; this bar is
+       how you open them from anywhere in the list. -->
   {#if S.voice}
     <div class="voice-bar" class:trouble={!callState.live}>
       <button
         class="vb-info"
         use:tooltip
-        aria-label="Return to call"
-        onclick={() => jumpToChannel(S.voice.channelId)}
+        aria-label="Open the call"
+        onclick={() => openCallStage()}
       >
         <span class="vb-live" class:held={!callState.live}></span>
         <span class="vb-text">
