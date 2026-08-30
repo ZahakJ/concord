@@ -10,7 +10,6 @@
     S,
     memberByFpr,
     nameFor,
-    getVideoStream,
     activeGuild,
     isCallLocked,
     toggleCallLock,
@@ -37,6 +36,8 @@
   import { bindLabel } from "./lib/keybind.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
   import { bestFit, columnsFor } from "./lib/tilefit.js";
+  import { bindStream } from "./lib/bindstream.js";
+  import { setWatchedShare } from "./lib/callwatch.svelte.js";
   import { haptic, longpress } from "./lib/touch.js";
   import { SOUNDBOARD, playSfx, playRecipe } from "./lib/sounds.js";
   import { recipeGlyph } from "./lib/sfxrecipe.js";
@@ -473,6 +474,9 @@
   function toggleFocus(key) {
     focusedKey = focusedKey === key ? null : key;
   }
+  $effect(() => {
+    setWatchedShare(focusedScreen?.key || "");
+  });
 
   // Fullscreen the focused view. On a phone that alone is worth little: a 16:9
   // share letterboxed into a portrait screen still only fills a third of the
@@ -946,39 +950,6 @@
   // speaker. Unmuted tiles would double it up (a stream can be on screen twice)
   // and slip past all four.
   //
-  // Svelte action: bind a MediaStream to a <video>'s srcObject (not a plain attr).
-  // The element stays invisible until it has a real frame — a camera that has
-  // opened but not produced a picture is a black rectangle, and at the moment
-  // of joining that rectangle is what "your tile" is.
-  function srcObject(node, key) {
-    const go = () => {
-      if (node.videoWidth > 0) node.classList.add("ready");
-    };
-    const attach = (k) => {
-      node.classList.remove("ready");
-      node.srcObject = getVideoStream(k);
-      if (!node.srcObject) return;
-      node.addEventListener("loadeddata", go);
-      node.addEventListener("playing", go);
-      node.addEventListener("resize", go);
-      go();
-    };
-    const detach = () => {
-      node.removeEventListener("loadeddata", go);
-      node.removeEventListener("playing", go);
-      node.removeEventListener("resize", go);
-      node.srcObject = null;
-      node.classList.remove("ready");
-    };
-    attach(key);
-    return {
-      update: (k) => {
-        detach();
-        attach(k);
-      },
-      destroy: detach,
-    };
-  }
 </script>
 
 <svelte:window onkeydown={sfxKey} />
@@ -1029,9 +1000,10 @@
       bind:this={stageEl}
       onclick={leaveFocus}
     >
+      <div class="focus-frame" data-share-box>
       {#if focusedScreen}
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video use:srcObject={focusedScreen.key} use:zoomable={focusedScreen.key} autoplay playsinline muted></video>
+        <video use:bindStream={focusedScreen.key} use:zoomable={focusedScreen.key} autoplay playsinline muted></video>
         <span class="screen-label"><Icon name="screen" size={12} /> {screenTitle(focusedScreen)}</span>
       {:else}
         {@const t = tileInfo(focusedPid)}
@@ -1050,7 +1022,7 @@
         </div>
         {#if cam}
           <!-- svelte-ignore a11y_media_has_caption -->
-          <video use:srcObject={cam.key} autoplay playsinline muted class:mirror={t.self && facing !== "environment"}></video>
+          <video use:bindStream={cam.key} autoplay playsinline muted class:mirror={t.self && facing !== "environment"}></video>
         {/if}
         <span class="screen-label">{t.self ? `${t.name} (you)` : t.name}</span>
         {#if t.speaking}
@@ -1072,6 +1044,7 @@
           <Icon name="close" size={14} />
         </button>
       </div>
+      </div>
     </div>
     <div class="strip">
       {#each screens as tile (tile.key)}
@@ -1083,7 +1056,7 @@
             onclick={() => toggleFocus(tile.key)}
           >
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video use:srcObject={tile.key} autoplay playsinline muted></video>
+            <video use:bindStream={tile.key} autoplay playsinline muted></video>
             <span class="thumb-badge"><Icon name="screen" size={10} /></span>
           </button>
         {/if}
@@ -1168,7 +1141,7 @@
           {#if cam}
             <!-- svelte-ignore a11y_media_has_caption -->
             <video
-              use:srcObject={cam.key}
+              use:bindStream={cam.key}
               autoplay
               playsinline
               muted
@@ -1254,11 +1227,12 @@
                coarse pointers, so a "Tap to zoom" branch could never render. -->
           <button
             class="screen-tile"
+            data-share-box
             use:tooltip={"Click to zoom"}
             onclick={() => toggleFocus(tile.key)}
           >
             <!-- svelte-ignore a11y_media_has_caption -->
-            <video use:srcObject={tile.key} autoplay playsinline muted></video>
+            <video use:bindStream={tile.key} autoplay playsinline muted></video>
             <span class="screen-label">
               <Icon name="screen" size={12} />
               {screenTitle(tile)} · {S.isMobile ? "tap" : "click"} to zoom
@@ -1777,20 +1751,26 @@
     max-height: none;
   }
   .voice-panel.on-stage .focus-main {
-    flex: 1;
+    flex: 1 1 0;
     min-height: 0;
     max-height: none;
     aspect-ratio: auto;
+    display: grid;
+    place-items: center;
+    background: transparent;
+    width: 100%;
+    container-type: size;
   }
-  /* A share on the stage is the thing you are looking at; give it the height
-     the tiles would have had. */
+  /* A share is a picture of a screen, not leftover column. Filling 1fr made a
+     16:9 desktop into a tall black slab with the picture letterboxed inside.
+     The box stays the picture's shape (16:9 until the stream says otherwise);
+     leftover height is margin, the same deal as a people-tile. */
   .voice-panel.on-stage .screens {
-    flex: 1;
+    flex: none;
     min-height: 0;
-    grid-auto-rows: minmax(0, 1fr);
   }
   .voice-panel.on-stage .screen-tile {
-    aspect-ratio: auto;
+    aspect-ratio: var(--share-ar, 16 / 9);
   }
   .stage.solo {
     grid-template-columns: minmax(180px, 260px);
@@ -2120,7 +2100,7 @@
     border-radius: var(--radius-md);
     overflow: hidden;
     background: #000;
-    aspect-ratio: 16 / 9;
+    aspect-ratio: var(--share-ar, 16 / 9);
     padding: 0;
     border: 1px solid var(--border);
     cursor: pointer;
@@ -2134,13 +2114,28 @@
   }
   .focus-main {
     position: relative;
-    background: #000;
+    background: transparent;
     border-radius: var(--radius-md);
     overflow: hidden;
     aspect-ratio: 16 / 9;
     max-height: calc(46 * var(--vh));
     margin: 0 auto;
     width: 100%;
+  }
+  .focus-frame {
+    position: relative;
+    /* Contain a 16:9 (or the stream's own) box in the leftover column, instead
+       of stretching the box to fill it. 100cqi = slot width, 100cqb = slot
+       height; the min is "as wide as the slot, or as wide as the slot's height
+       allows at this aspect". */
+    aspect-ratio: var(--share-ar, 16 / 9);
+    width: min(100cqi, calc(100cqb * var(--share-ar-n, 1.7778)));
+    height: auto;
+    max-width: 100%;
+    max-height: 100%;
+    overflow: hidden;
+    background: #000;
+    border-radius: inherit;
   }
   /* Speaking glow on the big focused view (participant focus only). */
   .focus-main.speaking {

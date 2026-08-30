@@ -13,11 +13,13 @@
   // until its own Mute/Leave row was below the bottom of the screen.
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
-  import { S, memberByFpr, callHealth } from "./lib/state.svelte.js";
+  import { S, memberByFpr, nameFor, callHealth } from "./lib/state.svelte.js";
   import { haptic } from "./lib/touch.js";
   import { pointOf, viewport } from "./lib/place.js";
   import { callClock } from "./lib/calltimer.svelte.js";
   import { canShareScreen } from "./lib/devices.js";
+  import { bindStream } from "./lib/bindstream.js";
+  import { watchedShare } from "./lib/callwatch.svelte.js";
 
   // The same state machine the stage and the sidebar bar read: a green dot and
   // a running clock are a CLAIM about the call, and this widget made it in two
@@ -131,6 +133,7 @@
   // effect that re-runs itself forever.
   $effect(() => {
     if (phone || !dockEl) return;
+    void share; // the preview widens the dock; re-clamp so it stays on screen
     const c = clamp(pos.x, pos.y);
     if (c.x !== pos.x || c.y !== pos.y) pos = c;
   });
@@ -143,6 +146,13 @@
   const shelved = $derived(!away || (S.isMobile && (S.drawerOpen || S.membersOpen)));
 
   const roster = $derived(["self", ...S.voiceParticipants]);
+  const share = $derived(watchedShare());
+  const shareTitle = $derived.by(() => {
+    if (!share) return "";
+    if (share.self) return "Your screen";
+    const fpr = S.voicePeerFpr[share.peerId];
+    return `${fpr ? nameFor(fpr) : "Someone"}'s screen`;
+  });
   function part(pid) {
     if (pid === "self") {
       return {
@@ -199,12 +209,14 @@
       haptic(style);
       fn?.();
     };
+
 </script>
 
 <svelte:window onresize={phone ? measureTop : onResize} />
 
 {#if phone}
-  <div class="callbar" class:shelved class:trouble={!health.live} style="top:{topOffset}px">
+  <div class="phone-call" class:shelved class:trouble={!health.live} style="top:{topOffset}px">
+    <div class="callbar">
     <button class="cb-open" onclick={onReturn} aria-label="Return to the call">
       <span class="live" class:held={!health.live}></span>
       <span class="cb-text">
@@ -237,6 +249,14 @@
     <button class="callbtn hang" title="Leave call" aria-label="Leave call" onclick={tap(onLeave, "heavy")}>
       <Icon name="door" size={17} />
     </button>
+    </div>
+    {#if share}
+      <button class="share-bar" data-share-box onclick={onReturn} aria-label="Return to {shareTitle}">
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video use:bindStream={share.key} autoplay playsinline muted></video>
+        <span class="share-tag"><Icon name="screen" size={11} /> {shareTitle}</span>
+      </button>
+    {/if}
   </div>
 {:else}
   <div
@@ -244,6 +264,7 @@
     class:dragging
     class:shelved
     class:trouble={!health.live}
+    class:watching={!!share}
     bind:this={dockEl}
     style="left:{pos.x}px; top:{pos.y}px"
   >
@@ -262,6 +283,14 @@
         <Icon name="chevron" size={14} />
       </button>
     </div>
+
+    {#if share}
+      <button class="share-view" data-share-box onclick={onReturn} aria-label="Return to {shareTitle}">
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video use:bindStream={share.key} autoplay playsinline muted></video>
+        <span class="share-tag"><Icon name="screen" size={11} /> {shareTitle}</span>
+      </button>
+    {/if}
 
     <div class="faces">
       {#each roster as pid (pid)}
@@ -323,11 +352,15 @@
 
 <style>
   /* ---- phone: a docked call strip ---- */
-  .callbar {
+  .phone-call {
     position: fixed;
     left: 0;
     right: 0;
     z-index: 90; /* above chat, but BELOW modals (100) so dialogs aren't covered */
+    display: flex;
+    flex-direction: column;
+  }
+  .callbar {
     display: flex;
     align-items: center;
     gap: var(--sp-2);
@@ -384,10 +417,63 @@
     /* The dock breathes softly while the call is live — a low green ambience
        that says "this is running" without demanding attention. */
     animation: dock-breathe 4s ease-in-out infinite;
-    transition: transform var(--dur-standard) ease, box-shadow var(--dur-standard) ease;
+    transition: transform var(--dur-standard) ease, box-shadow var(--dur-standard) ease, width var(--dur-standard) ease;
+  }
+  .dock.watching {
+    width: 300px;
+  }
+  .share-view {
+    position: relative;
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: #000;
+    aspect-ratio: var(--share-ar, 16 / 9);
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .share-bar {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: min(140px, 26 * var(--vh));
+    padding: 0;
+    border: none;
+    background: #000;
+    overflow: hidden;
+  }
+  .share-view video,
+  .share-bar video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    opacity: 0;
+    transition: opacity var(--dur-standard) ease;
+  }
+  .share-view video:global(.ready),
+  .share-bar video:global(.ready) {
+    opacity: 1;
+  }
+  .share-tag {
+    position: absolute;
+    left: 6px;
+    bottom: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 7px;
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.55);
+    border-radius: var(--radius-sm);
+    pointer-events: none;
   }
   .dock.shelved,
-  .callbar.shelved {
+  .phone-call.shelved {
     display: none;
   }
   /* The green ambience is the claim that this is running. It stops making it
@@ -397,17 +483,17 @@
     animation: none;
   }
   .dock.trouble .head,
-  .callbar.trouble {
+  .phone-call.trouble .callbar {
     background: var(--warn-soft);
     color: var(--warn-text);
   }
   .dock.trouble .lbl,
   .dock.trouble .clock,
-  .callbar.trouble .cb-lbl,
-  .callbar.trouble .cb-hint {
+  .phone-call.trouble .cb-lbl,
+  .phone-call.trouble .cb-hint {
     color: var(--warn-text);
   }
-  .callbar.trouble {
+  .phone-call.trouble .callbar {
     border-bottom-color: color-mix(in srgb, var(--warn) 35%, transparent);
   }
   /* Lifted while dragged: bigger shadow + a slight grow under the pointer. */
