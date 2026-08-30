@@ -123,15 +123,18 @@
         },
       },
     ];
-    const all = items.length ? [...extra, { sep: true }, ...items] : extra;
-    // openContextMenu wants an event; a row's overflow is anchored to the
-    // BUTTON, so synthesise the two fields it reads off one.
-    const r = el.getBoundingClientRect();
-    openContextMenu(
-      { clientX: r.right - 4, clientY: r.bottom, preventDefault() {}, stopPropagation() {} },
-      all,
-      { title: m.name },
-    );
+    const all = items.length
+      ? [{ header: true, label: m.name || "Member" }, ...extra, { sep: true }, ...items]
+      : [{ header: true, label: m.name || "Member" }, ...extra];
+    // Anchor to the button's box, not a point on its corner: a zero-size
+    // point at the right edge hung the menu into the dim and made the ⋯
+    // look like it had opened the wrong thing.
+    openContextMenu({ preventDefault() {}, stopPropagation() {} }, all, {
+      title: m.name,
+      anchorEl: el,
+      align: "end",
+      rowEl: el,
+    });
   }
 </script>
 
@@ -206,7 +209,7 @@
         </thead>
         <tbody>
           {#each rows as m (m.fingerprint)}
-            <tr class:sel={picked.has(m.fingerprint)}>
+            <tr class:sel={picked.has(m.fingerprint)} data-menu-row>
               {#if canAssign}
                 <td class="pick">
                   <input
@@ -507,16 +510,17 @@
      person must not be invisible until a pointer finds it (and a finger never
      hovers). */
   .dots {
-    width: 26px;
-    height: 26px;
+    width: 32px;
+    height: 32px;
     display: inline-grid;
     place-items: center;
-    background: var(--bg-3);
-    border: 1px solid var(--border);
+    background: transparent;
+    border: none;
     color: var(--text-muted);
-    border-radius: var(--radius-sm);
+    border-radius: 50%;
   }
-  .dots:hover {
+  .dots:hover,
+  :global(tr[data-menu-target]) .dots {
     background: var(--bg-3);
     color: var(--text);
   }

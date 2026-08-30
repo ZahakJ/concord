@@ -27,7 +27,7 @@
   import Avatar from "./Avatar.svelte";
   import { S, closeContextMenu } from "./lib/state.svelte.js";
   import { syncLayer } from "./lib/navstack.svelte.js";
-  import { place, pointOf, sizeOf } from "./lib/place.js";
+  import { place, pointOf, rectOf, sizeOf } from "./lib/place.js";
   import { rangefill } from "./lib/rangefill.js";
 
   // A menu is the shallowest thing on screen and the first thing back should
@@ -116,7 +116,18 @@
   $effect(() => {
     const m = S.contextMenu;
     if (!m || !el) return;
-    const p = place({ anchor: pointOf(m), ...sizeOf(el), side: "bottom", align: "start", gap: 0 });
+    // A ⋯ button passes its element; a right-click passes a point. Hanging a
+    // menu off a zero-size point at the button's right edge put it in the
+    // dim beside the dialog, which is how the Members overflow looked
+    // unattached.
+    const anchor = m.anchorEl ? rectOf(m.anchorEl) : pointOf(m);
+    const p = place({
+      anchor,
+      ...sizeOf(el),
+      side: m.side || "bottom",
+      align: m.align || (m.anchorEl ? "end" : "start"),
+      gap: m.anchorEl ? 6 : 0,
+    });
     pos = { x: p.left, y: p.top };
   });
 
@@ -360,12 +371,12 @@
   .cm {
     position: fixed;
     z-index: 401;
-    min-width: 180px;
-    max-width: 260px;
-    padding: 5px;
+    min-width: 200px;
+    max-width: 280px;
+    padding: var(--sp-1);
     background: var(--bg-elevated, var(--bg-1));
     border: 1px solid var(--border);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     box-shadow: var(--shadow-pop);
     display: flex;
     flex-direction: column;
@@ -378,12 +389,12 @@
     /* Gentle rise-in so the menu arrives instead of blinking into place. Only
        opacity/translate animate — never scale — so the on-open flip measurement
        (which reads width/height) stays exact. */
-    animation: cm-in var(--dur-quick) var(--ease-out);
+    animation: cm-in 0.18s var(--ease-out);
   }
   @keyframes cm-in {
     from {
       opacity: 0;
-      transform: translateY(-5px);
+      transform: translateY(-6px);
     }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -394,21 +405,22 @@
   .cm-item {
     display: flex;
     align-items: center;
-    gap: 9px;
+    gap: var(--sp-2);
     width: 100%;
-    padding: 7px 10px;
+    padding: var(--sp-2) var(--sp-3);
     background: transparent;
     color: var(--text);
     text-align: left;
     font-size: var(--fs-ui);
     border-radius: var(--radius-sm);
   }
-  /* Keyboard focus wears the hover highlight — one indicator, however you
-     arrived. The background carries it, so no ring on top. */
+  /* A quiet plate, not a filled accent brick — a menu that paints every
+     hovered row in the brand colour reads as a selected command, not as
+     "this is the one under the pointer". */
   .cm-item:hover,
   .cm-item:focus-visible {
-    background: var(--accent);
-    color: var(--accent-fg);
+    background: var(--bg-3);
+    color: var(--text);
     outline: none;
   }
   .cm-item.danger {
@@ -416,8 +428,8 @@
   }
   .cm-item.danger:hover,
   .cm-item.danger:focus-visible {
-    background: var(--danger);
-    color: var(--danger-fg);
+    background: var(--danger-soft);
+    color: var(--danger-text);
   }
   .cm-sep {
     height: 1px;
@@ -427,10 +439,10 @@
   /* Group label. Shared by both presentations — the sheet's rows are bigger,
      but a heading that reads as a heading is the same job either way. */
   .cm-header {
-    padding: 4px 8px 2px;
-    font-size: var(--fs-small);
+    padding: var(--sp-2) var(--sp-3) var(--sp-1);
+    font-size: var(--fs-tiny);
     font-weight: 700;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     color: var(--text-muted);
   }

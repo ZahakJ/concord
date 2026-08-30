@@ -897,10 +897,10 @@ export async function markUnread(channelId, msg) {
 // opts (used by the mobile action-sheet presentation): `title` labels the
 // sheet; `quick` = {emojis:[…], onPick(emoji)} renders a quick-reaction row.
 export function openContextMenu(e, items, opts = {}) {
-  e.preventDefault();
-  e.stopPropagation();
-  markMenuRow(opts.rowEl || e.currentTarget || e.target);
-  S.contextMenu = { x: e.clientX, y: e.clientY, items: tidySeps(items.filter(Boolean)), ...opts };
+  e?.preventDefault?.();
+  e?.stopPropagation?.();
+  markMenuRow(opts.rowEl || e?.currentTarget || e?.target);
+  S.contextMenu = { x: e?.clientX, y: e?.clientY, items: tidySeps(items.filter(Boolean)), ...opts };
 }
 
 // ---- which row is this menu about? ----
