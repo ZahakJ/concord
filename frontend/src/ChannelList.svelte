@@ -1171,6 +1171,7 @@
           {#if c.type === "voice"}
             {#each voiceMembersFor(c.id) as vm (vm.peerId)}
               {@const vmem = memberByFpr(vm.fingerprint)}
+              {@const vst = splitStatus(vm.self ? S.identity.status : vmem?.status)}
               {@const vcTip = canDragPerson(vm)
                 ? `${nameFor(vm.fingerprint)} — drag to another voice channel`
                 : nameFor(vm.fingerprint)}
@@ -1193,6 +1194,8 @@
                     image={vmem?.avatar || ""}
                     emoji={vmem?.emoji || ""}
                     color={vmem?.color || ""}
+                    mood={vst.emoji}
+                    moodTitle={vst.text}
                     size={20}
                   />
                 </span>
@@ -1348,6 +1351,8 @@
         frame={S.identity.frame || ""}
         decoration={S.identity.style?.dec || ""}
         dc={S.identity.style?.dc || ""}
+        mood={myStatus.emoji}
+        moodTitle={myStatus.text}
       />
     </button>
     <button
@@ -1738,6 +1743,7 @@
     border-radius: 50%;
     border: 2px solid transparent;
     line-height: 0;
+    overflow: visible;
   }
   .vc-av.speaking {
     border-color: var(--ok);
@@ -2543,6 +2549,10 @@
   /* The dot's cutout ring should match this row's background, not the column's. */
   .me-status-trigger :global(.dot) {
     border-color: var(--bg-0);
+  }
+  .me-status-trigger :global(.mood) {
+    background: var(--bg-0);
+    box-shadow: 0 0 0 2px var(--bg-0);
   }
   .st-emoji {
     margin-right: 3px;

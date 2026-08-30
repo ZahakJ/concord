@@ -44,6 +44,7 @@
   import { SOUNDBOARD, playSfx, playRecipe } from "./lib/sounds.js";
   import { recipeGlyph } from "./lib/sfxrecipe.js";
   import { shelfSounds } from "./lib/soundshelf.svelte.js";
+  import { splitStatus } from "./lib/presence.js";
 
   // Soundboard: play locally on press (instant feedback), gossip a ~30-byte
   // "sfx" trigger on the room's voice topic — every peer synthesizes the same
@@ -249,11 +250,17 @@
     };
   }
 
+  function moodOf(status) {
+    const { emoji, text } = splitStatus(status);
+    return { mood: emoji, moodText: text };
+  }
+
   function participant(peerId) {
     const fpr = S.voicePeerFpr[peerId];
     const mem = fpr ? memberByFpr(fpr) : null;
     return {
       ...worn(mem),
+      ...moodOf(mem?.status),
       // nameFor is the one place names resolve — it knows about browser guests
       // ("Zaza (guest)"), who have no member record to look up.
       //
@@ -638,6 +645,7 @@
         frame: S.identity.frame || "",
         decoration: S.identity.style?.dec || "",
         dc: S.identity.style?.dc || "",
+        ...moodOf(S.identity.status),
         speaking: S.voiceSpeaking.includes("self"),
         muted: S.muted,
         deafened: S.deafened,
@@ -1007,6 +1015,8 @@
             frame={t.frame}
             decoration={t.decoration}
             dc={t.dc}
+            mood={cam ? "" : t.mood}
+            moodTitle={t.moodText}
             size={96}
           />
         </div>
@@ -1014,7 +1024,11 @@
           <!-- svelte-ignore a11y_media_has_caption -->
           <video use:bindStream={cam.key} autoplay playsinline muted class:mirror={t.self && facing !== "environment"}></video>
         {/if}
-        <span class="screen-label">{t.self ? `${t.name} (you)` : t.name}</span>
+        <span class="screen-label"
+          >{#if t.mood && cam}<span class="name-mood">{t.mood}</span>{/if}{t.self
+            ? `${t.name} (you)`
+            : t.name}</span
+        >
         {#if t.speaking}
           <span class="eq" aria-hidden="true"><span></span><span></span><span></span></span>
         {/if}
@@ -1079,6 +1093,8 @@
               frame={t.frame}
               decoration={t.decoration}
               dc={t.dc}
+              mood={cam ? "" : t.mood}
+              moodTitle={t.moodText}
               size={28}
             />
           </span>
@@ -1086,7 +1102,9 @@
             <!-- svelte-ignore a11y_media_has_caption -->
             <video use:bindStream={cam.key} autoplay playsinline muted class:mirror={t.self && facing !== "environment"}></video>
           {/if}
-          <span class="rail-name">{t.self ? "You" : t.name}</span>
+          <span class="rail-name"
+            >{#if t.mood && cam}{t.mood} {/if}{t.self ? "You" : t.name}</span
+          >
           {#if t.deafened}
             <span class="rail-mark" aria-hidden="true"><Icon name="deafened" size={9} /></span>
           {:else if t.muted}
@@ -1136,6 +1154,8 @@
               frame={t.frame}
               decoration={t.decoration}
               dc={t.dc}
+              mood={cam ? "" : t.mood}
+              moodTitle={t.moodText}
               size={compactTiles ? 40 : 64}
             />
           </div>
@@ -1210,7 +1230,11 @@
               {/if}
             </span>
           {/if}
-          <span class="name">{t.self ? `${t.name} (you)` : t.name}</span>
+          <span class="name"
+            >{#if t.mood && cam}<span class="name-mood">{t.mood}</span>{/if}{t.self
+              ? `${t.name} (you)`
+              : t.name}</span
+          >
         </div>
       {/each}
     </div>
@@ -1993,6 +2017,10 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  /* Camera covers the face, so the status emoji moves onto the nameplate. */
+  .name-mood {
+    margin-right: 0.35em;
   }
   /* ---- connection state ----
      A tile that is fine says nothing. Everything below is a tile that isn't. */

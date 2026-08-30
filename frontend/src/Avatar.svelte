@@ -4,7 +4,8 @@
   import { wornRing } from "./lib/wornrings.js";
   // The one avatar. Renders, in priority order: uploaded image, profile emoji,
   // name/fingerprint initials — tinted by the member's accent color, with an
-  // optional presence dot. Replaces five copy-pasted implementations.
+  // optional presence dot or custom-status emoji. Replaces five copy-pasted
+  // implementations.
   let {
     name = "",
     emoji = "",
@@ -28,9 +29,16 @@
     // Passed straight through to the decoration painter: let a picker tile
     // animate even at thumbnail size.
     preview = false,
+    // Custom-status emoji, as a badge on the corner. A voice tile is where this
+    // earns its keep: "I'm gaming" has to read at a glance, and the presence
+    // dot yields to it because they share the same corner and the emoji is the
+    // more specific thing.
+    mood = "",
+    moodTitle = "",
   } = $props();
 
   const glyph = $derived(emoji || (name || "?").slice(0, 2));
+  const moodSize = $derived(mood ? Math.max(12, Math.min(28, Math.round(size * 0.4))) : 0);
   // Reset per image, so a component reused for a different person (the feed
   // recycles these) does not inherit the last one's failure.
   let failedSrc = $state("");
@@ -103,7 +111,11 @@
   {:else}
     {glyph}
   {/if}
-  {#if dotColor}
+  {#if mood}
+    <span class="mood" style="--mood:{moodSize}px" title={moodTitle || undefined} aria-hidden="true"
+      >{mood}</span
+    >
+  {:else if dotColor}
     <span
       class="dot"
       class:live={online && (!presence || presence === "online")}
@@ -116,6 +128,7 @@
   .avatar {
     position: relative;
     isolation: isolate; /* the ring sits behind the avatar, not the page */
+    overflow: visible;
     border-radius: 50%;
     /* The tint is the backdrop for INITIALS and an emoji — see .pictured below,
        which takes it away again once there is a picture to show. A picture that
@@ -165,6 +178,23 @@
     height: 9px;
     border-radius: 50%;
     border: 2px solid var(--bg-1);
+  }
+  .mood {
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: var(--mood);
+    height: var(--mood);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: calc(var(--mood) * 0.72);
+    font-weight: 400;
+    line-height: 1;
+    text-transform: none;
+    background: var(--bg-1);
+    box-shadow: 0 0 0 2px var(--bg-1);
+    z-index: 2;
   }
   /* Online friends breathe: a slow soft glow on the green dot. The glow lives
      on a pseudo-element whose OPACITY animates — animating box-shadow itself

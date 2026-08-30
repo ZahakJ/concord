@@ -14,6 +14,7 @@
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
   import { S, memberByFpr, nameFor, callHealth } from "./lib/state.svelte.js";
+  import { splitStatus } from "./lib/presence.js";
   import { haptic } from "./lib/touch.js";
   import { pointOf, viewport } from "./lib/place.js";
   import { callClock } from "./lib/calltimer.svelte.js";
@@ -155,6 +156,7 @@
   });
   function part(pid) {
     if (pid === "self") {
+      const st = splitStatus(S.identity.status);
       return {
         name: S.displayName || "You",
         emoji: S.identity.emoji,
@@ -163,11 +165,14 @@
         frame: S.identity.frame || "",
         decoration: S.identity.style?.dec || "",
         dc: S.identity.style?.dc || "",
+        mood: st.emoji,
+        moodTitle: st.text,
         speaking: S.voiceSpeaking.includes("self"),
       };
     }
     const fpr = S.voicePeerFpr[pid];
     const m = fpr ? memberByFpr(fpr) : null;
+    const st = splitStatus(m?.status);
     return {
       // Never the raw peer id: until the fingerprint lands there is no name to
       // show, and a hex string in a name's place reads as a crash rather than
@@ -179,6 +184,8 @@
       frame: m?.frame || "",
       decoration: m?.style?.dec || "",
       dc: m?.style?.dc || "",
+      mood: st.emoji,
+      moodTitle: st.text,
       speaking: S.voiceSpeaking.includes(pid),
     };
   }
@@ -304,6 +311,8 @@
             frame={p.frame}
             decoration={p.decoration}
             dc={p.dc}
+            mood={p.mood}
+            moodTitle={p.moodTitle}
             size={36}
           />
         </div>
