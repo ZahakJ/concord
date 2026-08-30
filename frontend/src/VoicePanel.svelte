@@ -373,9 +373,13 @@
   // the stage at all.
   let fitCols = $state(0);
   const cols = $derived(fitCols || columnsFor(roster.length));
-  // While joining there is nothing on the stage yet, and a full-column empty
-  // panel above a squashed chat is a worse first second than the old band.
-  const onStage = $derived(stageFirst && !joining);
+  // The stage is up from the click, not from the mesh. Hiding it until
+  // S.voice existed meant the self tile was born in the compact 4:3 band
+  // (a ~200px square with the name chip sitting across its middle as a black
+  // bar) and then jumped to the measured 16:10 tile a moment later — the
+  // join glitch. Connecting is a status on a tile that is already the right
+  // size, not a reason to withhold the stage.
+  const onStage = $derived(stageFirst);
 
   // ---- the shape of a tile ----
   //
@@ -943,14 +947,36 @@
   // and slip past all four.
   //
   // Svelte action: bind a MediaStream to a <video>'s srcObject (not a plain attr).
+  // The element stays invisible until it has a real frame — a camera that has
+  // opened but not produced a picture is a black rectangle, and at the moment
+  // of joining that rectangle is what "your tile" is.
   function srcObject(node, key) {
+    const go = () => {
+      if (node.videoWidth > 0) node.classList.add("ready");
+    };
     const attach = (k) => {
+      node.classList.remove("ready");
       node.srcObject = getVideoStream(k);
+      if (!node.srcObject) return;
+      node.addEventListener("loadeddata", go);
+      node.addEventListener("playing", go);
+      node.addEventListener("resize", go);
+      go();
+    };
+    const detach = () => {
+      node.removeEventListener("loadeddata", go);
+      node.removeEventListener("playing", go);
+      node.removeEventListener("resize", go);
+      node.srcObject = null;
+      node.classList.remove("ready");
     };
     attach(key);
     return {
-      update: attach,
-      destroy: () => (node.srcObject = null),
+      update: (k) => {
+        detach();
+        attach(k);
+      },
+      destroy: detach,
     };
   }
 </script>
@@ -1010,22 +1036,21 @@
       {:else}
         {@const t = tileInfo(focusedPid)}
         {@const cam = camTile(focusedPid)}
+        <div class="focus-face" style={t.color ? `--tint:${t.color}` : ""}>
+          <Avatar
+            name={t.name}
+            emoji={t.emoji}
+            color={t.color}
+            image={t.image}
+            frame={t.frame}
+            decoration={t.decoration}
+            dc={t.dc}
+            size={96}
+          />
+        </div>
         {#if cam}
           <!-- svelte-ignore a11y_media_has_caption -->
           <video use:srcObject={cam.key} autoplay playsinline muted class:mirror={t.self && facing !== "environment"}></video>
-        {:else}
-          <div class="focus-face" style={t.color ? `--tint:${t.color}` : ""}>
-            <Avatar
-              name={t.name}
-              emoji={t.emoji}
-              color={t.color}
-              image={t.image}
-              frame={t.frame}
-              decoration={t.decoration}
-              dc={t.dc}
-              size={96}
-            />
-          </div>
         {/if}
         <span class="screen-label">{t.self ? `${t.name} (you)` : t.name}</span>
         {#if t.speaking}
@@ -1117,7 +1142,6 @@
           class:st-reconnecting={t.status?.state === "reconnecting"}
           class:st-failed={t.status?.state === "failed"}
           class:st-quiet={t.status?.state === "quiet"}
-          transition:scale={pop}
           role="button"
           tabindex="0"
           onclick={() => toggleFocus(pid)}
@@ -1129,6 +1153,18 @@
             ? 'exit full view'
             : 'full view'}"
         >
+          <div class="face" style={t.color ? `--tint:${t.color}` : ""}>
+            <Avatar
+              name={t.name}
+              emoji={t.emoji}
+              color={t.color}
+              image={t.image}
+              frame={t.frame}
+              decoration={t.decoration}
+              dc={t.dc}
+              size={compactTiles ? 40 : 64}
+            />
+          </div>
           {#if cam}
             <!-- svelte-ignore a11y_media_has_caption -->
             <video
@@ -1138,19 +1174,6 @@
               muted
               class:mirror={t.self && facing !== "environment"}
             ></video>
-          {:else}
-            <div class="face" style={t.color ? `--tint:${t.color}` : ""}>
-              <Avatar
-                name={t.name}
-                emoji={t.emoji}
-                color={t.color}
-                image={t.image}
-                frame={t.frame}
-                decoration={t.decoration}
-                dc={t.dc}
-                size={compactTiles ? 40 : 64}
-              />
-            </div>
           {/if}
           <span class="ring" aria-hidden="true"></span>
           {#if t.speaking}
@@ -1716,6 +1739,27 @@
     width: var(--tile-w);
     height: var(--tile-h);
   }
+  /* Until the fit has numbers, the tile is a CSS-grid guess that is the wrong
+     shape and often the wrong size — a small square with the name chip reading
+     as a black bar through its middle. Don't paint that; fade the measured
+     tile in instead of scaling a wrong one up. */
+  .voice-panel.on-stage .stage:not(.fitted) .tile {
+    opacity: 0;
+  }
+  .voice-panel.on-stage .stage.fitted .tile {
+    animation: tile-arrive var(--dur-standard) var(--ease-out) both;
+  }
+  @keyframes tile-arrive {
+    from {
+      opacity: 0;
+      transform: translateY(var(--sp-2));
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .voice-panel.on-stage .stage.fitted .tile {
+      animation: none;
+    }
+  }
   /* On a phone the app is one pane at a time, so "the call takes the stage"
      means it takes the pane: the chat goes away entirely and comes back with
      the header's toggle. A strip cannot be the answer here — the composer's
@@ -1786,6 +1830,11 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+    opacity: 0;
+    transition: opacity var(--dur-standard) ease;
+  }
+  .tile video:global(.ready) {
+    opacity: 1;
   }
   .tile video.mirror {
     transform: scaleX(-1);
@@ -2108,10 +2157,20 @@
     bottom: 8px;
   }
   .focus-main video {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
     object-fit: contain;
     display: block;
+    opacity: 0;
+    transition: opacity var(--dur-standard) ease;
+  }
+  .focus-main video:global(.ready) {
+    opacity: 1;
+  }
+  .focus-main video.mirror {
+    transform: scaleX(-1);
   }
   .focus-face {
     width: 100%;
@@ -2239,6 +2298,11 @@
     height: 100%;
     object-fit: contain;
     display: block;
+    opacity: 0;
+    transition: opacity var(--dur-standard) ease;
+  }
+  .screen-tile video:global(.ready) {
+    opacity: 1;
   }
   .screen-label {
     position: absolute;
