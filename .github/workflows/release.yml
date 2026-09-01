@@ -160,7 +160,7 @@ jobs:
         with: { go-version-file: go.mod }
       - uses: actions/setup-node@v7
         with: { node-version: "22" }
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v6
         with: { distribution: temurin, java-version: "21" }
       # Third-party actions are pinned by commit, not by tag: a tag is mutable,
       # and this job holds the signing keystore. (v3)
@@ -330,7 +330,7 @@ jobs:
       # is involved, so a fork's release works with no secrets configured.
       - name: Publish GitHub Release
         # Pinned by commit (v2): this step runs with contents: write.
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
         with:
           files: release-assets/*
           fail_on_unmatched_files: false
