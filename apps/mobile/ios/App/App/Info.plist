@@ -1,98 +1,100 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
+  <dict>
     <key>CAPACITOR_DEBUG</key>
-	<string>$(CAPACITOR_DEBUG)</string>
-	<key>CFBundleDevelopmentRegion</key>
-	<string>en</string>
-	<key>CFBundleDisplayName</key>
-        <string>Concord</string>
-	<key>CFBundleExecutable</key>
-	<string>$(EXECUTABLE_NAME)</string>
-	<key>CFBundleIdentifier</key>
-	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-	<key>CFBundleInfoDictionaryVersion</key>
-	<string>6.0</string>
-	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
-	<key>CFBundlePackageType</key>
-	<string>APPL</string>
-	<key>CFBundleShortVersionString</key>
-	<string>$(MARKETING_VERSION)</string>
-	<key>CFBundleVersion</key>
-	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>LSRequiresIPhoneOS</key>
-	<true/>
-	<key>UILaunchStoryboardName</key>
-	<string>LaunchScreen</string>
-	<key>UIMainStoryboardFile</key>
-	<string>Main</string>
-	<key>UIRequiredDeviceCapabilities</key>
-	<array>
-		<string>arm64</string>
-	</array>
-	<key>UISupportedInterfaceOrientations</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UISupportedInterfaceOrientations~ipad</key>
-	<array>
-		<string>UIInterfaceOrientationPortrait</string>
-		<string>UIInterfaceOrientationPortraitUpsideDown</string>
-		<string>UIInterfaceOrientationLandscapeLeft</string>
-		<string>UIInterfaceOrientationLandscapeRight</string>
-	</array>
-	<key>UIViewControllerBasedStatusBarAppearance</key>
-	<true/>
-	<!-- Voice/video: WKWebView getUserMedia needs these usage strings (iOS
-	     prompts on first use); UIBackgroundModes audio keeps a call alive when
-	     the screen locks. -->
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Concord uses your microphone for encrypted voice channels.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Concord uses your camera for video in voice channels and to set your avatar.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Concord attaches photos you choose to your messages.</string>
-	<key>NSFaceIDUsageDescription</key>
-	<string>Concord uses Face ID to unlock your account without re-typing your passphrase.</string>
-	<key>NSLocalNetworkUsageDescription</key>
-	<string>Concord connects directly to people on the same Wi-Fi network, so your messages and calls skip the internet when they can.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Concord saves images you choose to your photo library.</string>
-	<!-- The web UI reaches the Go core over http://127.0.0.1:<port>. ATS
-	     already exempts loopback, but say so explicitly; nothing else may
-	     use cleartext. -->
-	<key>NSAppTransportSecurity</key>
-	<dict>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
-	</dict>
-	<!-- Export compliance: Concord uses standard, published cryptography
-	     (MLS RFC 9420, Noise, DTLS-SRTP, NaCl, Argon2id) for message
-	     confidentiality, so it is not exempt. Declaring it here stops App
-	     Store Connect asking on every upload; the classification itself is
-	     answered once in App Store Connect (see docs/APP-STORE.md). -->
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<true/>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>audio</string>
-	</array>
-	<!-- concord:// deep links: the device-linking QR encodes
-	     concord://link?c=<code> so the iOS camera opens the app with the code. -->
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>app.concord.mobile</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>concord</string>
-			</array>
-		</dict>
-	</array>
-</dict>
+    <string>$(CAPACITOR_DEBUG)</string>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>Concord</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>$(PRODUCT_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+      <string>arm64</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+      <string>UIInterfaceOrientationPortrait</string>
+      <string>UIInterfaceOrientationLandscapeLeft</string>
+      <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+      <string>UIInterfaceOrientationPortrait</string>
+      <string>UIInterfaceOrientationPortraitUpsideDown</string>
+      <string>UIInterfaceOrientationLandscapeLeft</string>
+      <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <true/>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Concord uses your microphone for encrypted voice channels.</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Concord uses your camera for video in voice channels and to set your avatar.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Concord attaches photos you choose to your messages.</string>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Concord uses Face ID to unlock your account without re-typing your passphrase.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Concord connects directly to people on the same Wi-Fi network, so your messages and calls skip the internet when they can.</string>
+    <key>NSPhotoLibraryAddUsageDescription</key>
+    <string>Concord saves images you choose to your photo library.</string>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+      <key>NSAllowsLocalNetworking</key>
+      <true/>
+    </dict>
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <true/>
+    <key>UIBackgroundModes</key>
+    <array>
+      <string>audio</string>
+    </array>
+    <key>CFBundleURLTypes</key>
+    <array>
+      <dict>
+        <key>CFBundleURLName</key>
+        <string>app.concord.mobile</string>
+        <key>CFBundleURLSchemes</key>
+        <array>
+          <string>concord</string>
+        </array>
+      </dict>
+    </array>
+    <key>UIApplicationSceneManifest</key>
+    <dict>
+      <key>UIApplicationSupportsMultipleScenes</key>
+      <false/>
+      <key>UISceneConfigurations</key>
+      <dict>
+        <key>UIWindowSceneSessionRoleApplication</key>
+        <array>
+          <dict>
+            <key>UISceneConfigurationName</key>
+            <string>Default Configuration</string>
+            <key>UISceneDelegateClassName</key>
+            <string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+          </dict>
+        </array>
+      </dict>
+    </dict>
+  </dict>
 </plist>
