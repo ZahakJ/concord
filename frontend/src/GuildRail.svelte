@@ -187,7 +187,9 @@
     // a no-op re-fetches the right panel and can bump you into another
     // conversation. The barrel roll still plays; it's local feedback, not
     // navigation, and the egg below needs the button to feel alive.
-    if (!inDMs) openDMs();
+    // On a phone the rail lives on the Home page, and a tap there browses: the
+    // DM list comes up, not the last conversation in it.
+    if (!inDMs) openDMs({ browse: S.isMobile });
 
     const now = performance.now();
     clicks = now - lastClick < FLYBY_GAP ? clicks + 1 : 1;
@@ -478,7 +480,7 @@
           class:active={dm.id === S.activeGuildId}
           use:tooltip={railTip}
           aria-label={dm.name}
-          onclick={() => selectGuild(dm.id)}
+          onclick={() => selectGuild(dm.id, { browse: S.isMobile })}
         >
           {#if (dm.dmMembers ?? 2) > 2}
             <GroupAvatar faces={dm.dmFaces || []} size={42} />
@@ -519,7 +521,7 @@
             ondragend={endDrag}
             ondragover={(e) => overGuild(e, sv, idx)}
             ondrop={(e) => dropOnGuild(e, sv, idx)}
-            onclick={() => selectGuild(sv.id)}
+            onclick={() => selectGuild(sv.id, { browse: S.isMobile })}
             oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => guildMenu(e, sv)}
             use:longpress={{ handler: (e) => guildMenu(e, sv) }}
           >
@@ -618,7 +620,7 @@
                     ondragend={endDrag}
                     ondragover={(e) => overInFolder(e, folder, mi)}
                     ondrop={(e) => dropInFolder(e, folder)}
-                    onclick={() => selectGuild(gg.id)}
+                    onclick={() => selectGuild(gg.id, { browse: S.isMobile })}
                     oncontextmenu={coarse ? (e) => e.preventDefault() : (e) => guildMenu(e, gg, folder)}
                     use:longpress={{ handler: (e) => guildMenu(e, gg, folder) }}
                   >

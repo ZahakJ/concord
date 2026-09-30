@@ -325,6 +325,11 @@
       return;
     }
     selectChannel(c.id);
+    // Picking a row means "take me there", even when it is the row you are
+    // already in: the phone shell pushes the conversation on a channel CHANGE,
+    // and a tap on the active channel changed nothing, so the list stayed up
+    // and the tap read as dead.
+    if (S.isMobile) S.drawerOpen = false;
   }
 
   function channelMenu(e, c) {
@@ -764,7 +769,11 @@
           data-menu-row
           class:active
           class:unread={unread.count > 0 && !active}
-          onclick={() => (dm.dmNotes ? selectNotes() : selectGuild(dm.id))}
+          onclick={() => {
+            if (dm.dmNotes) selectNotes();
+            else selectGuild(dm.id);
+            if (S.isMobile) S.drawerOpen = false; // same rule as clickChannel
+          }}
           oncontextmenu={dm.dmNotes ? undefined : coarse ? (e) => e.preventDefault() : (e) => dmMenu(e, dm)}
           use:longpress={{ handler: (e) => !dm.dmNotes && dmMenu(e, dm) }}
         >

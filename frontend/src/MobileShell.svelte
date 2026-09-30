@@ -1,19 +1,40 @@
 <script>
-  // MobileShell is the phone/touch layout: one pane at a time instead of the
-  // desktop 4-column grid. Gesture navigation — swipe right
-  // anywhere in the chat to pull in the left drawer (guild rail + channel
-  // list), swipe left for the member drawer; both track the finger and snap
-  // open/closed on release by position + fling velocity. The top-bar buttons
-  // and the scrim drive the same state. Every child component (GuildRail,
-  // ChannelList, MessageList, Composer, MemberPanel, VoicePanel) is the same
-  // one the desktop shell uses; only arrangement and navigation differ.
+  // MobileShell is the phone layout: a navigation STACK instead of the desktop
+  // 4-column grid. Two places, one on top of the other:
+  //
+  //   HOME  — the guild rail beside the active guild's channel list (or the DM
+  //           list), full width, with a tab bar along the bottom edge under the
+  //           thumb: Home / Messages / Inbox / You.
+  //   PAGE  — the conversation, pushed in over Home from the right edge.
+  //
+  // Back (the chevron, the hardware gesture, or a rightward swipe that drags
+  // the page itself out of the way) reveals Home; picking a row pushes the
+  // page back in. Home moves a little in the opposite direction and dims
+  // while it is covered, so the two read as one surface sliding over another
+  // rather than a panel appearing.
+  //
+  // It used to be a drawer: 86% of the width, over a dim scrim, sliding OVER a
+  // static chat. That is a desktop sidebar wearing a phone costume, and two
+  // real bugs fell out of it — a guild tap dropped you into a channel instead
+  // of showing you the guild (the drawer closed on any channel change), and a
+  // tap on the channel you were already in did nothing at all (no change, no
+  // close). Both are impossible here by construction: a guild tap BROWSES (see
+  // browsingGuild in state.svelte.js) and a row tap always pushes.
+  //
+  // `S.drawerOpen` keeps its name and its meaning — "Home is showing" — because
+  // App.svelte's back handling and the floating call are written against it.
+  //
+  // Every child component (GuildRail, ChannelList, MessageList, Composer,
+  // MemberPanel, VoicePanel) is the same one the desktop shell uses; only
+  // arrangement and navigation differ.
   import {
     S,
     activeGuild,
     channelTypeIcon,
     nudge,
     openContextMenu,
-    selectChannel,
+    selectGuild,
+    openDMs,
     closePost,
     openCallStage,
     toggleCallStageChat,
@@ -23,6 +44,9 @@
     leaveGuildLabel,
     openGuildHub,
     openInbox,
+    browsingGuild,
+    guildUnread,
+    dmList,
   } from "./lib/state.svelte.js";
   import { untrack } from "svelte";
   import { pushLayer, syncLayer } from "./lib/navstack.svelte.js";
@@ -43,6 +67,7 @@
   import MemberPanel from "./MemberPanel.svelte";
   import VoicePanel from "./VoicePanel.svelte";
   import Welcome from "./Welcome.svelte";
+  import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
   import { pointOf, viewport } from "./lib/place.js";
 
@@ -76,8 +101,8 @@
   const canRight = $derived(hasChannel && !isDM);
   // A forum POST is a channel nested under its board. ChatHeader's breadcrumb
   // says so on desktop, but ChatHeader never renders here — and ChannelList
-  // filters posts out of the drawer — so without this the top-left button is
-  // the only exit and it opens a list the post isn't in.
+  // filters posts out of the list — so without this the top-left button is the
+  // only exit and it opens a list the post isn't in.
   const parentChannel = $derived(
     activeChannelObj?.parent
       ? activeGuild()?.channels.find((c) => c.id === activeChannelObj.parent) || null
@@ -97,8 +122,8 @@
   // Title bar: the open channel's name (or guild name on the welcome screen).
   // The hash used to be unconditional, so a voice room, a forum board and an
   // announcement channel all wore a text channel's mark on a phone — while the
-  // desktop header and the channel list, three inches away in the drawer, drew
-  // the right one. Same icon set, keyed off the same `ch.type`.
+  // desktop header and the channel list, three inches away, drew the right
+  // one. Same icon set, keyed off the same `ch.type`.
   const title = $derived.by(() => {
     const g = activeGuild();
     if (!g) return "Concord";
@@ -115,42 +140,41 @@
     return ch ? channelTypeIcon(ch.type) : "";
   });
 
-  // ---- gesture-driven drawers ----
-  // Each drawer's position is a fraction: 0 = offscreen, 1 = fully open. The
-  // fractions are the single source of truth for rendering; S.drawerOpen /
+  // ---- the stack ----
+  // `home` is how far Home is showing: 0 = the page covers it, 1 = the page is
+  // parked off the right edge. The member panel keeps a fraction of its own.
+  // The fractions are the single source of truth for rendering; S.drawerOpen /
   // S.membersOpen mirror the settled state so the rest of the app (Android
-  // back handling, channel-switch auto-close) keeps working unchanged.
-  let leftFrac = $state(S.drawerOpen ? 1 : 0);
+  // back handling, the floating call) keeps working unchanged.
+  let home = $state(S.drawerOpen ? 1 : 0);
   let rightFrac = $state(0);
   let dragging = $state(false); // a claimed horizontal drag is in progress
   // Layout pixels: these become CSS widths and translate distances, and
-  // window.innerWidth is visual — at 125% the drawers were drawn a quarter
+  // window.innerWidth is visual — at 125% the panels were drawn a quarter
   // wider than the screen. See lib/place.js.
   let vw = $state(viewport().w);
 
-  // moving stays true for the whole of a drawer's travel — the tracked drag AND
-  // the 0.22s settle that follows it, AND a plain tap-to-open with no drag at
-  // all. It is what puts `will-change` on the two panels: the layer has to exist
-  // before the movement starts and has to survive the release, or the settle
-  // repaints every frame with nothing left to say so.
+  // moving stays true for the whole of a travel — the tracked drag AND the
+  // settle that follows it, AND a plain tap with no drag at all. It is what
+  // puts `will-change` on the two pages: the layer has to exist before the
+  // movement starts and has to survive the release, or the settle repaints
+  // every frame with nothing left to say so.
   let moving = $state(false);
   let moveTimer;
-  function holdLayer(ms = 320) {
+  function holdLayer(ms = 420) {
     moving = true;
     clearTimeout(moveTimer);
     moveTimer = setTimeout(() => (moving = false), ms);
   }
 
-  const leftW = $derived(Math.min(vw * 0.86, 340));
   const rightW = $derived(Math.min(vw * 0.82, 300));
-  const scrimO = $derived(Math.max(leftFrac, rightFrac));
 
-  // External opens/closes (hamburger, back button, channel selected) sync the
-  // fractions — but never mid-drag, where the finger owns them.
+  // External opens/closes (the chevron, the back gesture, a row picked) sync
+  // the fractions — but never mid-drag, where the finger owns them.
   $effect(() => {
     const open = S.drawerOpen;
-    if (!dragging && leftFrac !== (open ? 1 : 0)) {
-      leftFrac = open ? 1 : 0;
+    if (!dragging && home !== (open ? 1 : 0)) {
+      home = open ? 1 : 0;
       untrack(holdLayer);
     }
   });
@@ -162,14 +186,22 @@
     }
   });
 
-  // Selecting a channel from the drawer should reveal the chat — close the
-  // drawer whenever the active channel changes.
+  // A channel CHANGE pushes the page: that is what picking a row, an inbox
+  // entry, a search hit or a notification means. A guild tap in the rail also
+  // changes the channel (the guild resumes to one) but means "show me the
+  // guild", and state.svelte.js says so through browsingGuild() for exactly
+  // the length of that switch. ChannelList closes on a same-row tap itself.
   let lastChannel = S.activeChannelId;
   $effect(() => {
     if (S.activeChannelId !== lastChannel) {
       lastChannel = S.activeChannelId;
-      S.drawerOpen = false;
+      if (!browsingGuild()) S.drawerOpen = false;
     }
+  });
+
+  // No conversation to show: Home is the only place there is.
+  $effect(() => {
+    if (!hasChannel && !S.drawerOpen) S.drawerOpen = true;
   });
 
   // The members drawer unmounts in DMs — also clear its state, or a stale
@@ -196,16 +228,57 @@
     return () => document.documentElement.style.removeProperty("--mchrome");
   });
 
-  function closeDrawers() {
-    S.drawerOpen = false;
-    S.membersOpen = false;
-  }
-
-  // The member drawer covers the conversation you are reading, so back takes it
-  // away. The LEFT drawer deliberately does not register: it is the channel
-  // list, the place a conversation sits inside, and popping it is exactly the
-  // move that made back oscillate. See handleBack in App.svelte.
+  // The member drawer covers the conversation you are reading, so back takes
+  // it away. Home deliberately does not register: it is a PLACE the
+  // conversation sits inside, and popping it is exactly the move that made
+  // back oscillate. See handleBack in App.svelte.
   syncLayer("drawer", () => S.membersOpen, () => (S.membersOpen = false));
+
+  // ---- the tab bar ----
+  // Which tab is lit is a fact about where you are, not a second piece of
+  // state to keep in step: the DM area is the Messages tab, anything else is
+  // Home. Inbox and You open sheets and light nothing.
+  const tab = $derived(isDM ? "messages" : "home");
+  // The guild to go back to from Messages: the last non-DM one you stood in,
+  // else the first in the rail. Remembered here, not persisted — the app's
+  // own last-place memory already decides where a launch lands.
+  let lastGuildId = "";
+  $effect(() => {
+    const g = activeGuild();
+    if (g && g.kind !== "dm") lastGuildId = g.id;
+  });
+  function goHome() {
+    if (tab === "home") return;
+    const g = S.guilds.find((x) => x.id === lastGuildId) || S.guilds.find((x) => x.kind !== "dm");
+    if (g) selectGuild(g.id, { browse: true });
+  }
+  function goMessages() {
+    if (tab === "messages") return;
+    openDMs({ browse: true });
+  }
+  // Badges: mentions are a number, anything else unread is a dot. The rail's
+  // bubbles already carry per-guild counts; the tab says only whether there is
+  // anything to go and look at.
+  const homeUnread = $derived.by(() => {
+    let count = 0;
+    let mentions = 0;
+    for (const g of S.guilds) {
+      if (g.kind === "dm" || g.evicted) continue;
+      const u = guildUnread(g);
+      count += u.count;
+      mentions += u.mentions;
+    }
+    return { count, mentions };
+  });
+  const dmUnread = $derived.by(() => {
+    let count = 0;
+    for (const d of dmList()) {
+      if (d.dmNotes) continue;
+      count += guildUnread(d).count;
+    }
+    return count;
+  });
+  const badgeText = (n) => (n > 99 ? "99+" : String(n));
 
   // ---- "⋯" top-bar menu ----
   // Everything ChatHeader offers on desktop (search, pins, call, invite, guild
@@ -227,7 +300,6 @@
     });
   });
 
-
   function moreMenu(e) {
     const g = activeGuild();
     if (!g) return;
@@ -242,20 +314,11 @@
         // around once there are more than a handful of conversations, so it goes
         // first — and this sheet opens at the bottom, under the thumb.
         { label: "Jump to…", icon: "search", onClick: () => (S.quickSwitcher = true) },
-        // The inbox lives on the rail, which mid-chat is a drawer-swipe away —
-        // and it is the one thing you reach for BECAUSE you are somewhere else.
-        {
-          label: S.inbox.unread > 0 ? `Inbox (${S.inbox.unread})` : "Inbox",
-          icon: "bell",
-          onClick: () => openInbox(),
-        },
         { label: "Search messages", icon: "search", onClick: () => (searchOpen = true) },
         { label: "Pinned messages", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
         // Every room has a calendar now: guilds share theirs, a DM's belongs
         // to its people, Notes' is private (a group of one).
         { label: g.dmNotes ? "Private events" : "Events", icon: "calendar", onClick: () => (S.modal = { kind: "events" }) },
-        // The blended calendar lives on the rail too, but mid-chat the rail is
-        // a drawer-swipe away — this sheet is already under the thumb.
         { label: "Your calendar", icon: "calendar", onClick: () => (S.modal = { kind: "myCalendar" }) },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
         S.voice &&
@@ -299,13 +362,13 @@
   }
 
   // One drag at a time: claimed once the movement is clearly horizontal, then
-  // the touched drawer (or the one a fresh swipe implies) follows the finger.
+  // the page (or the member panel) follows the finger.
   let drag = null; // {startX, startY, claimed, target, startFrac, prevX, prevT, vel}
 
   // Walk up from the touch target looking for something that scrolls sideways
   // under its own steam — a wide code block, a table. touch-action can't express
   // this (an ancestor's pan-y is intersected with every descendant), and the
-  // drawer gesture would otherwise eat the only way to read the rest of the line.
+  // page gesture would otherwise eat the only way to read the rest of the line.
   function inHScroller(el) {
     for (let n = el; n && n !== document.body; n = n.parentElement) {
       if (n.scrollWidth > n.clientWidth + 1) {
@@ -322,8 +385,9 @@
     // profile card, emoji picker) or on the floating call window, which runs its
     // own pointer drag — touch-action:none stops the BROWSER panning, not an
     // ancestor's touchmove listener, so without .dock here moving the call
-    // window sideways dragged the drawer in behind it.
-    if (e.target.closest("textarea, input, .bs-sheet, .pop, .picker, .dock")) return;
+    // window sideways dragged the page in behind it. The tab bar is a row of
+    // buttons; a sideways slip across it is not a navigation.
+    if (e.target.closest("textarea, input, .bs-sheet, .pop, .picker, .dock, .tabbar")) return;
     if (inHScroller(e.target)) return;
     const t = pointOf(e.touches[0]);
     drag = {
@@ -358,20 +422,22 @@
       if (Math.abs(dx) < 12 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
       // Swipe-to-reply (Message.svelte) owns leftward drags that start on a
       // message row — same shape as the .dock / inHScroller stand-downs, just
-      // decided here because it needs the direction. Only while both drawers
-      // are shut: a leftward drag with a drawer open is how it closes, from
-      // anywhere. If the row's own threshold never fires it just snaps back;
-      // the drag is not handed back to us and that's fine.
-      if (drag.fromMsg && dx < 0 && leftFrac === 0 && rightFrac === 0) {
+      // decided here because it needs the direction. Only while the page is
+      // fully in and the member panel shut: a leftward drag with either
+      // partly out is how it comes back, from anywhere. If the row's own
+      // threshold never fires it just snaps back; the drag is not handed back
+      // to us and that's fine.
+      if (drag.fromMsg && dx < 0 && home === 0 && rightFrac === 0) {
         drag = null;
         return;
       }
-      // Claim: an open drawer always owns the gesture; otherwise the swipe
-      // direction picks which drawer is being pulled in.
+      // Claim. Something already part-way owns the gesture; otherwise, from
+      // the page a rightward swipe drags it out (back), a leftward one pulls
+      // the member panel in; from Home a leftward swipe pulls the page back.
       drag.target =
-        leftFrac > 0 ? "left"
+        home > 0 ? (hasChannel ? "page" : null)
         : rightFrac > 0 ? "right"
-        : dx > 0 ? "left"
+        : dx > 0 ? "page"
         : canRight ? "right"
         : null;
       if (!drag.target) {
@@ -379,7 +445,7 @@
         return;
       }
       drag.claimed = true;
-      drag.startFrac = drag.target === "left" ? leftFrac : rightFrac;
+      drag.startFrac = drag.target === "page" ? home : rightFrac;
       dragging = true;
       moving = true;
       clearTimeout(moveTimer);
@@ -394,14 +460,16 @@
     drag.prevX = t.x;
     drag.prevT = now;
     const clamp = (v) => Math.max(0, Math.min(1, v));
-    if (drag.target === "left") leftFrac = clamp(drag.startFrac + dx / leftW);
+    // The page travels the whole width; Home is revealed by exactly as much of
+    // the page as has left.
+    if (drag.target === "page") home = clamp(drag.startFrac + dx / vw);
     else rightFrac = clamp(drag.startFrac - dx / rightW);
   }
 
   // After a claimed drag, browsers can still synthesize a click at the touch
-  // point — which would "tap" whatever drawer row ended up under the finger.
-  // Belt (preventDefault on touchend) and suspenders (a brief capture-phase
-  // click eater) kill it.
+  // point — which would "tap" whatever row ended up under the finger. Belt
+  // (preventDefault on touchend) and suspenders (a brief capture-phase click
+  // eater) kill it.
   let ghostGuardUntil = 0;
   function onClickCapture(e) {
     if (performance.now() < ghostGuardUntil) {
@@ -416,23 +484,25 @@
       if (e.cancelable) e.preventDefault();
       ghostGuardUntil = performance.now() + 400;
       const target = drag.target;
-      const frac = target === "left" ? leftFrac : rightFrac;
-      // Opening-direction velocity for this drawer (left opens rightward,
-      // right opens leftward).
-      const vel = target === "left" ? drag.vel : -drag.vel;
-      const open = Math.abs(vel) > 0.35 ? vel > 0 : frac > 0.5;
       dragging = false;
       holdLayer();
-      // Deliberately NO haptic on the drawer snap. Opening and closing the
-      // drawer is the single most frequent gesture in the app and it is already
-      // fully visible — the drawer is tracking your finger. A buzz on something
-      // you do dozens of times an hour reads as a twitchy phone, not as
-      // feedback. Haptics are kept for things you cannot see happen or cannot
-      // undo: a long-press registering, a destructive confirm, a call ending.
-      if (target === "left") {
-        leftFrac = open ? 1 : 0;
-        S.drawerOpen = open;
+      // Deliberately NO haptic on the settle. Going back and forth is the
+      // single most frequent gesture in the app and it is already fully
+      // visible — the page is tracking your finger. A buzz on something you
+      // do dozens of times an hour reads as a twitchy phone, not as feedback.
+      // Haptics are kept for things you cannot see happen or cannot undo: a
+      // long-press registering, a destructive confirm, a call ending.
+      if (target === "page") {
+        // Rightward velocity reveals Home. A page is a whole screen of travel,
+        // so a third of the way is already a decision; asking for half made
+        // every back-swipe a workout.
+        const reveal = Math.abs(drag.vel) > 0.35 ? drag.vel > 0 : home > 0.34;
+        home = reveal ? 1 : 0;
+        S.drawerOpen = reveal;
       } else {
+        // Opening-direction velocity for the member panel (leftward opens).
+        const vel = -drag.vel;
+        const open = Math.abs(vel) > 0.35 ? vel > 0 : rightFrac > 0.5;
         rightFrac = open ? 1 : 0;
         S.membersOpen = open;
       }
@@ -476,6 +546,14 @@
       text: n.hasBootstrap ? "Offline — reconnecting…" : "No peers yet",
     };
   });
+
+  // Settled states, for the two things a transform cannot say: an element
+  // that is entirely off screen or entirely covered should be invisible to
+  // assistive tech and to focus, and — the containing-block trap — an element
+  // at rest must carry NO transform, or every position:fixed sheet raised from
+  // inside it is caged to its box instead of the viewport.
+  const pageParked = $derived(home === 1 && !dragging);
+  const homeCovered = $derived(home === 0 && !dragging);
 </script>
 
 <svelte:window onresize={() => (vw = viewport().w)} />
@@ -491,223 +569,256 @@
   ontouchcancel={onTouchEnd}
   onclickcapture={onClickCapture}
 >
-  <header class="mtopbar">
-    {#if parentChannel}
-      <!-- Inside a forum post the left slot is a way OUT of it, not into the
-           drawer: the post isn't in the channel list, so the hamburger was a
-           dead end. The drawer is still one edge-swipe away. -->
-      <button
-        class="icon-btn"
-        aria-label="Back to {parentChannel.name}"
-        onclick={closePost}
-      >
-        <span class="chev-back"><Icon name="chevron" size={18} /></span>
-      </button>
-    {:else}
-      <button
-        class="icon-btn"
-        aria-label={S.inbox.unread > 0
-          ? `Menu — ${S.inbox.unread} unread in your inbox`
-          : "Menu"}
-        onclick={() => (S.drawerOpen = true)}
-      >
-        <Icon name="menu" />
-        <!-- A dot, not a count. The inbox button itself is one swipe away in the
-             drawer's rail and carries the number; what the closed hamburger has
-             to say is only "there is something in there", and a number on a
-             control that does not open the inbox would be a promise it cannot
-             keep. -->
-        {#if S.inbox.unread > 0}<span class="inbox-dot"></span>{/if}
-      </button>
-    {/if}
-    <!-- The title is tappable, which is where a thumb goes first: same sheet as ⋯.
-         The chevron is the only thing that says so before you tap it. -->
-    <button class="mtitle" onclick={hasChannel ? moreMenu : undefined} disabled={!hasChannel}>
-      {#if titleIcon}<span class="mtitle-ic"><Icon name={titleIcon} size={13} /></span>{/if}
-      <span class="mtitle-text">{title}</span>
-      {#if hasChannel}<span class="chev-down"><Icon name="chevron" size={12} /></span>{/if}
-    </button>
-    {#if canRight}
-      <button class="icon-btn" aria-label="Members" onclick={() => (S.membersOpen = true)}>
-        <Icon name="members" />
-      </button>
-    {/if}
-    {#if hasChannel}
-      <button class="icon-btn" aria-label="More options" onclick={moreMenu}>
-        <Icon name="dots" size={18} />
-      </button>
-    {:else}
-      <!-- Welcome screen: this corner used to be an empty 44px spacer. Nothing
-           is open, so navigating is the only thing the user can want. -->
-      <button
-        class="icon-btn"
-        aria-label="Jump to a conversation"
-        onclick={() => (S.quickSwitcher = true)}
-      >
-        <Icon name="search" />
-      </button>
-    {/if}
-  </header>
-
-  {#if searchOpen}
-    <form
-      class="msearch"
-      onsubmit={(e) => runSearch(e)}
+  <div class="stack">
+    <!-- HOME: the rail and the list, under the page. It slides a little the
+         other way and dims as the page covers it — the parallax every native
+         stack draws, and what makes the page read as ON TOP rather than
+         beside. `style:` directives, not a style="" template: a template
+         attribute is written back WHOLE on every change and invalidates the
+         subtree under it sixty times a second. -->
+    <section
+      class="home"
+      class:moving
+      class:drag={dragging}
+      class:covered={homeCovered}
+      style:transform={home === 1 && !dragging ? "none" : `translateX(${-(1 - home) * 22}%)`}
+      inert={homeCovered}
+      aria-label="Home"
     >
-      <Icon name="search" size={14} />
-      <!-- type/enterkeyhint/autocapitalize: without them Android opens a
-           capitalised keyboard with predictive text and an unlabelled return
-           key, so searching for a handle or a code fragment autocorrects into
-           something else and there is no visible way to run it. -->
-      <input
-        type="search"
-        enterkeyhint="search"
-        autocapitalize="none"
-        autocorrect="off"
-        spellcheck="false"
-        placeholder="Search messages…"
-        aria-label="Search messages"
-        bind:this={searchEl}
-        bind:value={S.searchQuery}
-        oninput={() => queueSearch()}
-        use:focusOnMount
-      />
-      <button
-        type="button"
-        class="icon-btn"
-        aria-label="Close search"
-        onclick={() => {
-          closeSearch();
-          searchOpen = false;
-        }}
-      >
-        <Icon name="close" size={15} />
-      </button>
-    </form>
-  {/if}
-
-  <!-- A slim bar in the chrome, not a pill floating over the conversation.
-       It used to sit at about a seventh of the way down the screen, centred,
-       permanently, on top of whatever message was underneath it — a full line
-       of text you could not read and could not dismiss. The reason it floated
-       was that appearing and disappearing in normal flow shifted the feed; up
-       here it shrinks the pane instead, and the feed is pinned to its newest
-       message, so what moves is the history above rather than the line being
-       read. -->
-  {#if conn.show}
-    <button class="conn {conn.cls}" onclick={nudge} aria-label="Reconnect">
-      <span class="conn-dot"></span>
-      <span class="conn-text">{conn.text}</span>
-    </button>
-  {/if}
-
-  <main class="mchat" class:staging={S.callStage} class:with-chat={S.callStage && S.callStageChat}>
-    {#if S.callStage}
-      <VoicePanel
-        {onLeaveVoice}
-        {onToggleMute}
-        {onToggleDeafen}
-        {onToggleShare}
-        {onToggleCamera}
-      />
-    {/if}
-    {#if hasChannel}
-      <!-- Mounted per-pane, not inside MessageList: a forum channel renders
-           ForumView instead, and search results had nowhere to land there. And
-           over the pane rather than above it, for the reason spelled out in
-           App.svelte — a band in the flow slices the row underneath its bottom
-           edge in half. -->
-      <div class="chat-col" class:aside={S.callStage && S.callStageChat} class:behind={S.callStage && !S.callStageChat}>
-      {#if S.callStage && S.callStageChat}
-        <div class="stage-chat-head">
-          <Icon name="hash" size={14} />
-          <span class="stage-chat-name">{channelShort(S.voice?.channelId || S.joiningVoice) || "Chat"}</span>
-          <button type="button" class="stage-chat-hide" aria-label="Hide chat" onclick={() => toggleCallStageChat()}>
-            <Icon name="close" size={14} />
-          </button>
-        </div>
-      {/if}
-      <div class="pane-body">
-        {#if boardObj}
-          <ForumView forum={boardObj} />
+      <div class="home-body">
+        <div class="home-rail"><GuildRail /></div>
+        {#if activeGuild()}
+          <div class="home-list">
+            <ChannelList
+              {onJoinVoice}
+              {onLeaveVoice}
+              {onToggleMute}
+              {onToggleDeafen}
+              {onToggleShare}
+              {onToggleCamera}
+            />
+          </div>
+        {:else}
+          <!-- Nothing to list yet: the welcome cards live where the list will. -->
+          <div class="home-list"><Welcome /></div>
         {/if}
-        {#if !boardObj || postObj}
-          <!-- Same panel presentation as the desktop shell, always covering
-               here: a phone has no room to show a board beside a post. -->
-          <div
-            class="feedwrap"
-            class:aspanel={!!postObj}
-            class:folding={!!postObj && S.postFolding === postObj.id}
+      </div>
+      <nav class="tabbar" aria-label="Sections">
+        <button class="tab" class:on={tab === "home"} aria-current={tab === "home" ? "page" : undefined} onclick={goHome}>
+          <span class="tab-ic">
+            <Icon name="hash" size={22} />
+            {#if homeUnread.mentions > 0}<span class="tab-badge">{badgeText(homeUnread.mentions)}</span>
+            {:else if homeUnread.count > 0}<span class="tab-dot"></span>{/if}
+          </span>
+          <span class="tab-lbl">Home</span>
+        </button>
+        <button class="tab" class:on={tab === "messages"} aria-current={tab === "messages" ? "page" : undefined} onclick={goMessages}>
+          <span class="tab-ic">
+            <Icon name="bubble" size={22} />
+            {#if dmUnread > 0}<span class="tab-badge">{badgeText(dmUnread)}</span>{/if}
+          </span>
+          <span class="tab-lbl">Messages</span>
+        </button>
+        <button
+          class="tab"
+          aria-label={S.inbox.unread > 0 ? `Inbox — ${S.inbox.unread} unread` : "Inbox"}
+          onclick={() => openInbox()}
+        >
+          <span class="tab-ic">
+            <Icon name="bell" size={22} />
+            {#if S.inbox.unread > 0}<span class="tab-badge">{badgeText(S.inbox.unread)}</span>{/if}
+          </span>
+          <span class="tab-lbl" aria-hidden="true">Inbox</span>
+        </button>
+        <button class="tab" aria-label="You — profile and settings" onclick={() => (S.modal = { kind: "settings" })}>
+          <span class="tab-ic tab-me">
+            <Avatar
+              name={S.displayName}
+              emoji={S.identity.emoji}
+              color={S.identity.color}
+              image={S.identity.avatar}
+              size={24}
+            />
+          </span>
+          <span class="tab-lbl" aria-hidden="true">You</span>
+        </button>
+      </nav>
+      <div class="home-dim" style:opacity={(1 - home) * 0.45}></div>
+    </section>
+
+    <!-- PAGE: the conversation. Pushed in from the right; at rest it carries
+         no transform (see pageParked). -->
+    <div
+      class="page"
+      class:moving
+      class:drag={dragging}
+      class:parked={pageParked}
+      style:transform={home === 0 && !dragging ? "none" : `translateX(${home * 100}%)`}
+      inert={pageParked}
+    >
+      <header class="mtopbar">
+        {#if parentChannel}
+          <!-- Inside a forum post the left slot is a way OUT of it, not back to
+               Home: the post isn't in the channel list. Home is still one
+               swipe, or one more back, away. -->
+          <button class="icon-btn" aria-label="Back to {parentChannel.name}" onclick={closePost}>
+            <Icon name="back" size={20} />
+          </button>
+        {:else}
+          <button
+            class="icon-btn"
+            aria-label={isDM ? "Back to messages" : "Back to channels"}
+            onclick={() => (S.drawerOpen = true)}
           >
-            {#if postObj}
-              <PostHeader channel={postObj} />
-            {:else}
-              <SetupCard />
+            <Icon name="back" size={20} />
+          </button>
+        {/if}
+        <!-- The title is tappable, which is where a thumb goes first: same sheet as ⋯.
+             The chevron is the only thing that says so before you tap it. -->
+        <button class="mtitle" onclick={hasChannel ? moreMenu : undefined} disabled={!hasChannel}>
+          {#if titleIcon}<span class="mtitle-ic"><Icon name={titleIcon} size={13} /></span>{/if}
+          <span class="mtitle-text">{title}</span>
+          {#if hasChannel}<span class="chev-down"><Icon name="chevron" size={12} /></span>{/if}
+        </button>
+        {#if canRight}
+          <button class="icon-btn" aria-label="Members" onclick={() => (S.membersOpen = true)}>
+            <Icon name="members" />
+          </button>
+        {/if}
+        {#if hasChannel}
+          <button class="icon-btn" aria-label="More options" onclick={moreMenu}>
+            <Icon name="dots" size={18} />
+          </button>
+        {/if}
+      </header>
+
+      {#if searchOpen}
+        <form class="msearch" onsubmit={(e) => runSearch(e)}>
+          <Icon name="search" size={14} />
+          <!-- type/enterkeyhint/autocapitalize: without them Android opens a
+               capitalised keyboard with predictive text and an unlabelled return
+               key, so searching for a handle or a code fragment autocorrects into
+               something else and there is no visible way to run it. -->
+          <input
+            type="search"
+            enterkeyhint="search"
+            autocapitalize="none"
+            autocorrect="off"
+            spellcheck="false"
+            placeholder="Search messages…"
+            aria-label="Search messages"
+            bind:this={searchEl}
+            bind:value={S.searchQuery}
+            oninput={() => queueSearch()}
+            use:focusOnMount
+          />
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="Close search"
+            onclick={() => {
+              closeSearch();
+              searchOpen = false;
+            }}
+          >
+            <Icon name="close" size={15} />
+          </button>
+        </form>
+      {/if}
+
+      <!-- A slim bar in the chrome, not a pill floating over the conversation.
+           It used to sit at about a seventh of the way down the screen, centred,
+           permanently, on top of whatever message was underneath it — a full line
+           of text you could not read and could not dismiss. The reason it floated
+           was that appearing and disappearing in normal flow shifted the feed; up
+           here it shrinks the pane instead, and the feed is pinned to its newest
+           message, so what moves is the history above rather than the line being
+           read. -->
+      {#if conn.show}
+        <button class="conn {conn.cls}" onclick={nudge} aria-label="Reconnect">
+          <span class="conn-dot"></span>
+          <span class="conn-text">{conn.text}</span>
+        </button>
+      {/if}
+
+      <main class="mchat" class:staging={S.callStage} class:with-chat={S.callStage && S.callStageChat}>
+        {#if S.callStage}
+          <VoicePanel
+            {onLeaveVoice}
+            {onToggleMute}
+            {onToggleDeafen}
+            {onToggleShare}
+            {onToggleCamera}
+          />
+        {/if}
+        {#if hasChannel}
+          <!-- Mounted per-pane, not inside MessageList: a forum channel renders
+               ForumView instead, and search results had nowhere to land there. And
+               over the pane rather than above it, for the reason spelled out in
+               App.svelte — a band in the flow slices the row underneath its bottom
+               edge in half. -->
+          <div class="chat-col" class:aside={S.callStage && S.callStageChat} class:behind={S.callStage && !S.callStageChat}>
+          {#if S.callStage && S.callStageChat}
+            <div class="stage-chat-head">
+              <Icon name="hash" size={14} />
+              <span class="stage-chat-name">{channelShort(S.voice?.channelId || S.joiningVoice) || "Chat"}</span>
+              <button type="button" class="stage-chat-hide" aria-label="Hide chat" onclick={() => toggleCallStageChat()}>
+                <Icon name="close" size={14} />
+              </button>
+            </div>
+          {/if}
+          <div class="pane-body">
+            {#if boardObj}
+              <ForumView forum={boardObj} />
             {/if}
-            <MessageList {onJoinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
-            <Composer bind:this={composer} />
+            {#if !boardObj || postObj}
+              <!-- Same panel presentation as the desktop shell, always covering
+                   here: a phone has no room to show a board beside a post. -->
+              <div
+                class="feedwrap"
+                class:aspanel={!!postObj}
+                class:folding={!!postObj && S.postFolding === postObj.id}
+              >
+                {#if postObj}
+                  <PostHeader channel={postObj} />
+                {:else}
+                  <SetupCard />
+                {/if}
+                <MessageList {onJoinVoice} onDropFiles={(files) => files.forEach((f) => composer?.attachFile(f))} />
+                <Composer bind:this={composer} />
+              </div>
+            {/if}
+            <SearchPanel />
+          </div>
           </div>
         {/if}
-        <SearchPanel />
-      </div>
-      </div>
-    {:else if !S.callStage}
-      <Welcome />
-    {/if}
-  </main>
+      </main>
+    </div>
+  </div>
 
-  <!-- Scrim: opacity tracks how far a drawer is pulled in.
+  <!-- Scrim for the member panel: opacity tracks how far it is pulled in.
        `style:` rather than a style="" template, and pointer-events moved to a
        class: a template style attribute is written back WHOLE on every change,
        and replacing an element's entire inline declaration invalidates it and
-       everything under it — sixty times a second, for the two biggest subtrees
-       on the screen. A style: directive writes the one property through the
-       CSSOM instead, and opacity is not inherited, so nothing below it is
-       touched. -->
+       everything under it — sixty times a second. A style: directive writes the
+       one property through the CSSOM instead, and opacity is not inherited, so
+       nothing below it is touched. -->
   <button
     class="scrim"
     class:drag={dragging}
     class:moving
-    class:lit={scrimO > 0}
-    style:opacity={scrimO}
-    aria-label="Close menu"
-    tabindex={scrimO > 0 ? 0 : -1}
-    onclick={closeDrawers}
+    class:lit={rightFrac > 0}
+    style:opacity={rightFrac}
+    aria-label="Close members"
+    tabindex={rightFrac > 0 ? 0 : -1}
+    onclick={() => (S.membersOpen = false)}
   ></button>
 
-  <!-- Left drawer: guild rail + channel list. Always mounted; position is
-       transform-driven so it can track the finger. -->
+  <!-- Member panel: a drawer from the right edge, over the page. -->
   <!-- At rest fully open the transform is dropped entirely: a transformed
        ancestor becomes the containing block for position:fixed descendants,
-       which would cage any bottom sheet opened from inside the drawer (e.g.
-       the status picker) into the drawer's box instead of the viewport. -->
-  <aside
-    class="drawer left"
-    class:drag={dragging}
-    class:moving
-    class:hidden={leftFrac === 0 && !dragging}
-    style:width="{leftW}px"
-    style:transform={leftFrac === 1 && !dragging
-      ? "none"
-      : `translateX(${(leftFrac - 1) * leftW}px)`}
-    role="dialog"
-    aria-label="Navigation"
-    aria-hidden={leftFrac === 0}
-  >
-    <div class="drawer-rail"><GuildRail /></div>
-    <div class="drawer-channels">
-      <ChannelList
-        {onJoinVoice}
-        {onLeaveVoice}
-        {onToggleMute}
-        {onToggleDeafen}
-        {onToggleShare}
-        {onToggleCamera}
-      />
-    </div>
-  </aside>
-
-  <!-- Right drawer: member list. -->
+       which would cage any bottom sheet opened from inside it (the profile
+       card) into the drawer's box instead of the viewport. -->
   {#if canRight}
     <aside
       class="drawer right"
@@ -739,12 +850,13 @@
     height: calc(100% - var(--ob-total));
   }
   /* The bar has ALREADY cleared the status bar — that inset is inside
-     --ob-total, which is why the shell is pushed down by it — so the header
-     must not clear it a second time. It did, and the phone showed a 52px band
-     of nothing between the reconnect bar and the hamburger: measured on the
-     device, the bar ended at y=87, the shell began at 86, and the header's own
-     content did not start until 138. */
-  .mshell.offline-shift .mtopbar {
+     --ob-total, which is why the shell is pushed down by it — so neither page
+     may clear it a second time. It did, and the phone showed a 52px band of
+     nothing between the reconnect bar and the header: measured on the device,
+     the bar ended at y=87, the shell began at 86, and the header's own content
+     did not start until 138. */
+  .mshell.offline-shift .mtopbar,
+  .mshell.offline-shift .home {
     padding-top: 0;
   }
   .mshell {
@@ -764,6 +876,15 @@
     padding-bottom: calc(max(var(--safe-bottom), var(--sa-bottom, 0px)) + var(--kb, 0px));
     padding-left: max(var(--safe-left), var(--sa-left, 0px));
     padding-right: max(var(--safe-right), var(--sa-right, 0px));
+  }
+  /* The two pages fill THIS, not the shell: an absolutely positioned child
+     of the shell would stretch over the shell's own padding — the keyboard
+     and the gesture bar — and the composer would be back under the IME. */
+  .stack {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
   }
   /* Press feedback for lib/touch.js's longpress action: until the sheet opens
      ~400ms later there is otherwise no sign the press registered, and on
@@ -787,6 +908,206 @@
   :global(:root[data-textured]) .mshell {
     background: transparent;
   }
+
+  /* ---- the two pages -------------------------------------------------- */
+  .home,
+  .page {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    /* A slide across the whole pane is travel, not a state change, and sits
+       above the motion tokens' band on purpose: at 150ms a full-width page
+       teleports, at 320ms it arrives. Same figure the forum post panel uses. */
+    transition: transform 320ms var(--ease-out);
+  }
+  .home {
+    z-index: 1;
+    background: var(--bg-1);
+    padding-top: max(var(--safe-top), var(--sa-top, 0px));
+  }
+  .page {
+    z-index: 2;
+    background: var(--bg-2);
+    /* The page's left edge is where the depth is read: a contact shadow plus a
+       wide falloff onto the dimmed Home behind it. */
+    box-shadow:
+      -1px 0 4px rgba(0, 0, 0, 0.28),
+      -12px 0 40px rgba(0, 0, 0, 0.45);
+  }
+  :global(:root[data-anim-bg]) .page,
+  :global(:root[data-textured]) .page {
+    background: transparent;
+  }
+  /* A page at rest off screen and a Home at rest covered are gone, not
+     merely elsewhere: invisible to focus and to screen readers (inert above)
+     and skipped by the compositor. The delayed-visibility trick hides them
+     only once the slide has landed, never on the way in. */
+  .page.parked,
+  .home.covered {
+    visibility: hidden;
+    transition:
+      transform 320ms var(--ease-out),
+      visibility 0s linear 320ms;
+  }
+  .home.drag,
+  .page.drag {
+    transition: none;
+  }
+  /* Promote both to their own compositor layer for the duration of a travel —
+     and only for that duration. An untransformed page moving under a finger
+     is repainted at its new position on every frame; on its own layer the
+     same movement is the compositor re-placing a texture. will-change is left
+     OFF at rest deliberately: a permanent layer costs its texture in video
+     memory on every phone, awake or not, and there are two of these. */
+  .home.moving,
+  .page.moving {
+    will-change: transform;
+  }
+  .home-dim {
+    position: absolute;
+    inset: 0;
+    background: var(--scrim);
+    pointer-events: none;
+    z-index: 3;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .home,
+    .page,
+    .page.parked,
+    .home.covered {
+      transition: none;
+    }
+  }
+
+  /* ---- Home ------------------------------------------------------------ */
+  .home-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+  }
+  .home-rail {
+    flex-shrink: 0;
+    width: 64px;
+    border-right: 1px solid var(--border);
+    /* GuildRail is only as tall as its guild buttons, so below them Home's
+       --bg-1 showed through where --bg-0 should be — a seam down the strip at
+       any height. Make the rail fill its column. */
+    display: flex;
+  }
+  .home-rail > :global(.rail) {
+    flex: 1;
+  }
+  .home-list {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  /* The desktop grid gives these panels their size; inside Home they must be
+     told to fill, or the channel column collapses to its content height and
+     the member panel shrinks to content width (leaving a dead, unclickable
+     strip). */
+  .home-list > :global(.cols) {
+    flex: 1;
+    min-height: 0;
+    border-right: none;
+  }
+  /* The row at the foot of the channel list — your face, your name, the gear
+     — is what the You tab is. Two bottom bars saying the same thing is one
+     too many, and the tab is the one under the thumb. */
+  .home-list :global(.me-row) {
+    display: none;
+  }
+  .home-list > :global(.welcome) {
+    overflow-y: auto;
+  }
+
+  /* The tab bar. Four destinations along the bottom edge, where a thumb rests,
+     instead of a hamburger at the far top-left where it does not. The bar's
+     own ground is opaque so the list scrolls under it cleanly; the shell has
+     already paid the gesture-bar inset below it. */
+  .tabbar {
+    flex: none;
+    display: flex;
+    align-items: stretch;
+    height: 58px;
+    background: var(--bg-1);
+    border-top: 1px solid var(--border);
+    padding: 0 var(--sp-1);
+  }
+  .tab {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: var(--fs-tiny);
+    font-weight: 600;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: color var(--dur-quick) ease;
+  }
+  .tab:active {
+    color: var(--text);
+  }
+  .tab.on {
+    color: var(--accent-hover);
+  }
+  .tab-ic {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 26px;
+  }
+  .tab-lbl {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1;
+  }
+  /* Same red, same shape as the rail's mention badge, ringed with the bar's
+     own ground so it reads as a sticker on the icon rather than a shape in
+     the layout. */
+  .tab-badge {
+    position: absolute;
+    top: -4px;
+    left: 16px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--danger);
+    color: #fff;
+    font-size: var(--fs-micro);
+    font-weight: 700;
+    line-height: 18px;
+    text-align: center;
+    border: 2px solid var(--bg-1);
+    box-sizing: content-box;
+  }
+  .tab-dot {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text);
+    border: 2px solid var(--bg-1);
+  }
+
+  /* ---- the page's chrome ---------------------------------------------- */
   .mtopbar {
     display: flex;
     align-items: center;
@@ -836,10 +1157,6 @@
     color: var(--text-faint);
     transform: rotate(90deg);
   }
-  .chev-back {
-    display: flex;
-    transform: rotate(180deg);
-  }
   .mtitle:active:not(:disabled) {
     background: var(--bg-3);
   }
@@ -858,20 +1175,6 @@
     color: var(--text-muted);
     flex-shrink: 0;
     position: relative;
-  }
-  /* A dot on the closed hamburger, in the same red the mention badges use. Its
-     ring is the bar's own background so it reads as a sticker on the icon
-     rather than a shape in the layout. */
-  .inbox-dot {
-    position: absolute;
-    top: 9px;
-    right: 9px;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--danger);
-    border: 2px solid var(--bg-1);
-    pointer-events: none;
   }
   .icon-btn:active {
     background: var(--bg-3);
@@ -971,15 +1274,15 @@
        made every descendant unpannable sideways — including Message's
        `pre { overflow-x: auto }`, whose scrollbar was physically impossible to
        move, leaving the rest of every long code line unreadable. Both axes,
-       still no pinch-zoom; the drawer gesture does its own axis discrimination
-       in JS (onTouchMove) and now stands down inside a horizontal scroller. */
+       still no pinch-zoom; the page gesture does its own axis discrimination
+       in JS (onTouchMove) and stands down inside a horizontal scroller. */
     touch-action: pan-x pan-y;
   }
   .mchat.staging {
     flex-direction: row;
   }
-  /* On a phone the tiles take the glass. Minimize is the way back; the
-     drawers still sit above this so a swipe can walk out. */
+  /* On a phone the tiles take the glass. Minimize is the way back; a swipe
+     can still walk out to Home from here. */
   .mchat.staging :global(.voice-panel) {
     position: fixed;
     inset: 0;
@@ -1087,10 +1390,12 @@
       opacity: 0.35;
     }
   }
-  /* Drawers over a scrim whose opacity tracks the drag. Deliberately a plain
-     dim, NOT a full-screen backdrop-filter blur: this element is live while a
-     finger drags at 60fps, and blurring the whole viewport every frame is what
-     melted the GPU last time. A solid scrim composites for free. */
+
+  /* ---- the member panel ---------------------------------------------- */
+  /* A scrim whose opacity tracks the drag. Deliberately a plain dim, NOT a
+     full-screen backdrop-filter blur: this element is live while a finger
+     drags at 60fps, and blurring the whole viewport every frame is what melted
+     the GPU last time. A solid scrim composites for free. */
   .scrim {
     position: fixed;
     inset: 0;
@@ -1098,8 +1403,8 @@
     z-index: 60;
     border: none;
     transition: opacity var(--dur-calm) ease;
-    /* Fully transparent and out of the way unless a drawer is showing. This is
-       a class rather than an inline pointer-events value because it changes
+    /* Fully transparent and out of the way unless the panel is showing. This
+       is a class rather than an inline pointer-events value because it changes
        exactly twice per gesture, while opacity changes every frame — keeping
        them apart is what lets the per-frame write be opacity alone. */
     pointer-events: none;
@@ -1114,12 +1419,12 @@
     z-index: 61;
     display: flex;
     background: var(--bg-1);
-    /* Contact shadow + wide ambient falloff: the drawer floats OVER the chat
+    /* Contact shadow + wide ambient falloff: the panel floats OVER the page
        rather than abutting it. */
     box-shadow:
       0 0 4px rgba(0, 0, 0, 0.3),
       0 0 40px rgba(0, 0, 0, 0.55);
-    /* Slide via inline transform; hide fully-closed drawers only after the
+    /* Slide via inline transform; hide the fully-closed panel only after the
        slide-out finishes (the delayed-visibility trick), never on the way in. */
     transition:
       transform var(--dur-calm) var(--ease-out),
@@ -1136,62 +1441,24 @@
   .scrim.drag {
     transition: none;
   }
-  /* Promote both to their own compositor layer for the duration of the drag —
-     and only for that duration. An untransformed drawer moving under a finger
-     is repainted at its new position on every frame (a hundred-odd paints per
-     traversal, all of them of a full-height panel); on its own layer the same
-     movement is the compositor re-placing a texture. will-change is left OFF at
-     rest deliberately: a permanent layer costs its texture in video memory on
-     every phone, awake or not, and there are two of these. */
   .drawer.moving {
     will-change: transform;
   }
   .scrim.moving {
     will-change: opacity;
   }
-  /* The drawers are position:fixed, so the shell's own insets don't reach them:
-     they pad themselves. Without the bottom one the settings gear and profile
-     row at the foot of the channel list sit under the gesture nav bar. */
+  /* The panel is position:fixed, so the shell's own insets don't reach it:
+     it pads itself. Without the bottom one the last member rows sit under the
+     gesture nav bar. */
   .drawer {
     padding-top: max(var(--safe-top), var(--sa-top, 0px));
     padding-bottom: calc(max(var(--safe-bottom), var(--sa-bottom, 0px)) + var(--kb, 0px));
   }
-  /* A hairline edge highlight so the drawer's rim catches the light. */
-  .drawer.left {
-    left: 0;
-    padding-left: max(var(--safe-left), var(--sa-left, 0px));
-    border-right: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
-  }
+  /* A hairline edge highlight so the panel's rim catches the light. */
   .drawer.right {
     right: 0;
     padding-right: max(var(--safe-right), var(--sa-right, 0px));
     border-left: 1px solid color-mix(in srgb, var(--text) 8%, transparent);
-  }
-  .drawer-rail {
-    flex-shrink: 0;
-    width: 64px;
-    border-right: 1px solid var(--border);
-    /* GuildRail is only as tall as its guild buttons, so below them the
-       drawer's --bg-1 showed through where --bg-0 should be — a 582px seam
-       down the strip at 844px tall. Make the rail fill its column. */
-    display: flex;
-  }
-  .drawer-rail > :global(.rail) {
-    flex: 1;
-  }
-  .drawer-channels {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  /* The desktop grid gives these panels their size; inside the drawers they
-     must be told to fill, or the channel column collapses to its content
-     height and the member panel shrinks to content width (leaving a dead,
-     unclickable strip). */
-  .drawer-channels > :global(.cols) {
-    flex: 1;
-    min-height: 0;
   }
   .drawer.right > :global(.panel) {
     flex: 1;
@@ -1211,8 +1478,15 @@
       min-height: 32px; /* still a real target; the pill is not a primary action */
       font-size: var(--fs-compact);
     }
-    .drawer-rail {
+    .home-rail {
       width: 56px;
+    }
+    .tabbar {
+      height: 48px;
+    }
+    .tab {
+      flex-direction: row;
+      gap: 6px;
     }
   }
   /* The narrow floor: at 360px a guild channel shows back/title/members/⋯, and

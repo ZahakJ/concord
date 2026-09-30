@@ -2641,7 +2641,15 @@ export async function refreshGuilds() {
     // No memory yet: land on the top GUILD in the rail rather than Notes/DMs,
     // which sort first in the raw list because they're usually the oldest.
     const first = resume || S.guilds.find((g) => g.kind !== "dm") || S.guilds[0];
-    await selectGuild(first.id);
+    // With nothing remembered, a phone lands on its Home page (the guild's
+    // channel list) rather than inside whichever channel the guild resumes to:
+    // a first launch that opens straight into a conversation nobody chose is
+    // the most disorienting screen the app can show. With a memory it lands
+    // where it was, like any messenger. drawerOpen is "Home is showing" —
+    // set here because the shell may not be mounted yet to read the browse.
+    const browse = S.isMobile && !resume;
+    if (browse) S.drawerOpen = true;
+    await selectGuild(first.id, { browse });
     return;
   }
   // If the active channel was deleted remotely (guild-updated -> refresh), don't
@@ -2656,7 +2664,20 @@ export async function refreshGuilds() {
   }
 }
 
-export async function selectGuild(id) {
+// browsing is true while a guild switch is choosing its resume channel on
+// behalf of somebody who only asked to LOOK at the guild. The phone shell
+// pushes the conversation page whenever the active channel changes — that is
+// what a tap on a channel row, an inbox entry or a notification means — but a
+// tap on a guild in the rail means "show me its channels", and the shell reads
+// this to tell the two apart. Not reactive on purpose: the shell's effect
+// consults it inside the same flush that carries the channel change, and a
+// reactive flag would make that effect re-run when the flag is cleared.
+let browsing = false;
+export function browsingGuild() {
+  return browsing;
+}
+
+export async function selectGuild(id, { browse = false } = {}) {
   // Before anything opens a channel and starts marking things read: the card is
   // about the moment you arrived, and selectChannel below moves the read marks
   // it is computed from.
@@ -2667,8 +2688,14 @@ export async function selectGuild(id) {
   // but "no archive yet" briefly reading as "the last guild's archive" would.
   S.chronicle = null;
   const g = S.guilds.find((x) => x.id === id);
-  if (g && g.channels.length) await selectChannel(channelToResume(g));
-  else {
+  if (g && g.channels.length) {
+    browsing = browse;
+    try {
+      await selectChannel(channelToResume(g));
+    } finally {
+      browsing = false;
+    }
+  } else {
     // A guild with no channels (or an unknown id) must not keep the previous
     // guild's channel active — otherwise the old feed renders and, worse,
     // messages get sent to the previous guild's channel.
@@ -2682,11 +2709,11 @@ export async function selectGuild(id) {
 }
 
 // selectNotes ensures the personal self-DM exists, then opens it.
-export async function selectNotes() {
+export async function selectNotes({ browse = false } = {}) {
   try {
     const notes = await api.notesDM();
     if (!S.guilds.some((g) => g.id === notes.id)) await refreshGuilds();
-    await selectGuild(notes.id);
+    await selectGuild(notes.id, { browse });
   } catch (err) {
     flash(err);
   }
@@ -2713,15 +2740,15 @@ export function dmList() {
 // openDMs lands where you actually were: the DM you last had open, else the one
 // with the newest message, else Notes. Anything else means the button takes you
 // to a conversation you did not ask for and were not looking at.
-export async function openDMs() {
+export async function openDMs({ browse = false } = {}) {
   const list = dmList();
   const resume = list.find((d) => d.id === lastPlace.guildId);
   const target = resume || list.find((d) => !d.dmNotes) || list[0];
   if (!target || target.id === "__notes__") {
-    await selectNotes();
+    await selectNotes({ browse });
     return;
   }
-  await selectGuild(target.id);
+  await selectGuild(target.id, { browse });
 }
 
 // startDM opens (creating if needed) a DM with a member, optionally sending a
