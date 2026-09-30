@@ -218,6 +218,19 @@
           {/if}
         </div>
       {/if}
+      {#if S.contextMenu.actions?.length}
+        <!-- The primary actions as a row of tiles: what a thumb reaches for
+             first, at the top of the sheet where the sheet is nearest, instead
+             of somewhere in a list of fourteen rows that scrolls. -->
+        <div class="as-actions">
+          {#each S.contextMenu.actions as a (a.label)}
+            <button class="as-tile" class:danger={a.danger} onclick={() => run(a)}>
+              <span class="as-tile-ic"><Icon name={a.icon} size={22} /></span>
+              <span class="as-tile-lbl">{a.label}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
       <div class="as-list" role="menu" tabindex="-1" bind:this={sheetEl} onkeydown={onMenuKey}>
         {#each S.contextMenu.items as item (item)}
           {#if item.sep}
@@ -322,6 +335,55 @@
   .as-emoji:active {
     background: var(--bg-3);
     transform: scale(1.15);
+  }
+  /* The action tiles: one equal column per action, however many there are. */
+  .as-actions {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: var(--sp-1);
+    padding: var(--sp-1) var(--sp-1) var(--sp-3);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 6px;
+  }
+  .as-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    padding: 6px 2px;
+    background: transparent;
+    color: var(--text);
+    border: none;
+    border-radius: var(--radius-md);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .as-tile:active .as-tile-ic {
+    transform: scale(0.94);
+  }
+  .as-tile-ic {
+    display: grid;
+    place-items: center;
+    width: 54px;
+    height: 54px;
+    border-radius: var(--radius-lg);
+    background: var(--bg-2);
+    color: var(--accent-hover);
+    transition: transform var(--dur-quick) ease;
+  }
+  .as-tile.danger .as-tile-ic {
+    color: var(--danger-text);
+  }
+  .as-tile-lbl {
+    max-width: 100%;
+    font-size: var(--fs-small);
+    font-weight: 600;
+    line-height: 1.15;
+    text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .as-list {
     display: flex;

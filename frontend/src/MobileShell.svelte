@@ -55,7 +55,6 @@
   import { haptic } from "./lib/touch.js";
   import { focusOnMount } from "./lib/focus.js";
   import { runSearch, closeSearch, queueSearch, registerSearchInput } from "./lib/search.js";
-  import { PERM, has } from "./lib/perms.js";
   import GuildRail from "./GuildRail.svelte";
   import ChannelList from "./ChannelList.svelte";
   import MessageList from "./MessageList.svelte";
@@ -311,14 +310,8 @@
       [
         // The fuzzy palette (every channel, DM and global action) was reachable
         // only by Ctrl+K, i.e. never on a phone. It is the fastest way to move
-        // around once there are more than a handful of conversations, so it goes
-        // first — and this sheet opens at the bottom, under the thumb.
+        // around once there are more than a handful of conversations.
         { label: "Jump to…", icon: "search", onClick: () => (S.quickSwitcher = true) },
-        { label: "Search messages", icon: "search", onClick: () => (searchOpen = true) },
-        { label: "Pinned messages", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
-        // Every room has a calendar now: guilds share theirs, a DM's belongs
-        // to its people, Notes' is private (a group of one).
-        { label: g.dmNotes ? "Private events" : "Events", icon: "calendar", onClick: () => (S.modal = { kind: "events" }) },
         { label: "Your calendar", icon: "calendar", onClick: () => (S.modal = { kind: "myCalendar" }) },
         { label: "Disappearing messages", icon: "clock", onClick: () => (S.modal = { kind: "disappear", channelId: S.activeChannelId }) },
         S.voice &&
@@ -327,28 +320,12 @@
             icon: "screen",
             onClick: () => openCallStage(),
           },
-        !g.dmNotes &&
-          (inCall
-            ? { label: dm ? "End call" : "Leave voice", icon: "door", onClick: () => onLeaveVoice() }
-            : { label: dm ? "Start call" : "Join voice", icon: "speaker", onClick: () => onJoinVoice() }),
-        !dm && g.canManage && {
-          label: "Invite people",
-          icon: "members",
-          onClick: async () => (S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) }),
-        },
         !dm && { sep: true },
+        // One door to the guild. Emoji, roles and bans used to be three more
+        // rows here, and every one of them is a page inside the hub this row
+        // opens (lib/guildnav.js) — the sheet was listing a menu's contents
+        // beside the menu, and scrolling for it.
         !dm && { label: "Guild settings", icon: "gear", onClick: openGuildHub },
-        !dm && { label: "Guild emoji", icon: "smile", onClick: () => (S.modal = { kind: "emoji" }) },
-        !dm && (has(g.myPerms, PERM.MANAGE_ROLES) || g.isOwner) && {
-          label: "Roles",
-          icon: "spark",
-          onClick: () => (S.modal = { kind: "roles" }),
-        },
-        !dm && g.canManage && {
-          label: "Banned members",
-          icon: "door",
-          onClick: () => (S.modal = { kind: "bans" }),
-        },
         !g.dmNotes && { sep: true },
         !g.dmNotes && {
           label: leaveGuildLabel(g),
@@ -357,7 +334,27 @@
           onClick: () => confirmLeaveGuild(activeGuild()),
         },
       ],
-      { title },
+      {
+        title,
+        // The tile row: the four or five things this sheet is opened FOR. The
+        // list underneath is the long tail.
+        actions: [
+          { label: "Search", icon: "search", onClick: () => (searchOpen = true) },
+          { label: "Pins", icon: "pin", onClick: () => (S.showPins = !S.showPins) },
+          // Every room has a calendar now: guilds share theirs, a DM's belongs
+          // to its people, Notes' is private (a group of one).
+          { label: "Events", icon: "calendar", onClick: () => (S.modal = { kind: "events" }) },
+          !g.dmNotes &&
+            (inCall
+              ? { label: dm ? "End call" : "Leave", icon: "door", danger: true, onClick: () => onLeaveVoice() }
+              : { label: dm ? "Call" : "Voice", icon: "speaker", onClick: () => onJoinVoice() }),
+          !dm && g.canManage && {
+            label: "Invite",
+            icon: "members",
+            onClick: async () => (S.modal = { kind: "invite", code: await api.inviteCode(S.activeGuildId) }),
+          },
+        ],
+      },
     );
   }
 

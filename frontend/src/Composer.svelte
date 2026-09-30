@@ -2144,96 +2144,67 @@
 </div>
 
 {#if moreOpen}
-  <!-- A sheet, not a popover: this is the phone's "everything else" drawer, so
-       it gets labels. Half these actions were unlabelled 44px glyphs before,
-       and "which one was the heading icon" is not a question a composer should
-       ask. -->
+  <!-- A sheet, not a popover: this is the phone's "everything else" tray. A
+       GRID of labelled tiles, not a list of rows with subtitles: the list was
+       ten rows of 56px plus explanatory lines, which on an 844px phone ran
+       past the bottom of the sheet and had to be scrolled to reach Send later
+       — a tray you scroll is a settings page. Twelve tiles fit in three rows
+       with the label under each, which is what a thumb expects an attach tray
+       to be. The sentence each row used to carry is the tile's tooltip/title,
+       for anybody who long-presses to ask. -->
   <BottomSheet title="Add to your message" onClose={() => (moreOpen = false)} maxHeight="calc(76 * var(--vh))">
-    <div class="sheet-list">
-      <button type="button" class="sheet-row" onclick={() => fromSheet(() => fileInput.click())}>
-        <span class="sr-icon"><Icon name="attach" size={20} /></span>
-        <span class="sr-text">
-          <span class="sr-label">Photo or file</span>
-          <span class="sr-sub">Up to 5 MB images, 25 MB files</span>
-        </span>
+    <div class="sheet-grid">
+      <button type="button" class="tile" title="Up to 5 MB images, 25 MB files" onclick={() => fromSheet(() => fileInput.click())}>
+        <span class="tile-ic"><Icon name="attach" size={22} /></span>
+        <span class="tile-lbl">Photo or file</span>
       </button>
       {#if coarse}
         <!-- coarse, not mobile: the sheet also shows in a narrowed desktop
              window, where "take a photo" would open a file picker and shrug. -->
-        <button type="button" class="sheet-row" onclick={() => fromSheet(() => cameraInput.click())}>
-          <span class="sr-icon"><Icon name="camera" size={20} /></span>
-          <span class="sr-text">
-            <span class="sr-label">Take a photo</span>
-            <span class="sr-sub">Straight from the camera</span>
-          </span>
+        <button type="button" class="tile" title="Straight from the camera" onclick={() => fromSheet(() => cameraInput.click())}>
+          <span class="tile-ic"><Icon name="camera" size={22} /></span>
+          <span class="tile-lbl">Camera</span>
         </button>
       {/if}
-      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "gifs" }))}>
-        <span class="sr-icon sr-gif">GIF</span>
-        <span class="sr-text">
-          <span class="sr-label">GIF</span>
-          <!-- No vendor named: which service the Search tab reaches is the
-               rendezvous operator's choice, and the picker reports it. -->
-          <span class="sr-sub">This guild's pack, or a search via your rendezvous</span>
-        </span>
+      <!-- No vendor named: which service the Search tab reaches is the
+           rendezvous operator's choice, and the picker reports it. -->
+      <button type="button" class="tile" title="This guild's pack, or a search via your rendezvous" onclick={() => fromSheet(() => (S.modal = { kind: "gifs" }))}>
+        <span class="tile-ic tile-gif">GIF</span>
+        <span class="tile-lbl">GIF</span>
       </button>
-      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "poll" }))}>
-        <span class="sr-icon"><Icon name="poll" size={20} /></span>
-        <span class="sr-text"><span class="sr-label">Poll</span></span>
+      <button type="button" class="tile" onclick={() => fromSheet(() => (S.modal = { kind: "poll" }))}>
+        <span class="tile-ic"><Icon name="poll" size={22} /></span>
+        <span class="tile-lbl">Poll</span>
       </button>
       {#if canStartThread}
-        <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "newPost", forum: ch }))}>
-          <span class="sr-icon"><Icon name="forum" size={20} /></span>
-          <span class="sr-text">
-            <span class="sr-label">Start a thread</span>
-            <span class="sr-sub">A side conversation with its own unread count</span>
-          </span>
+        <button type="button" class="tile" title="A side conversation with its own unread count" onclick={() => fromSheet(() => (S.modal = { kind: "newPost", forum: ch }))}>
+          <span class="tile-ic"><Icon name="forum" size={22} /></span>
+          <span class="tile-lbl">Thread</span>
         </button>
       {/if}
-      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "doodle" }))}>
-        <span class="sr-icon"><Icon name="edit" size={20} /></span>
-        <span class="sr-text">
-          <span class="sr-label">Doodle</span>
-          <span class="sr-sub">Draw with a finger — sent as strokes, not a picture</span>
-        </span>
+      <button type="button" class="tile" title="Draw with a finger — sent as strokes, not a picture" onclick={() => fromSheet(() => (S.modal = { kind: "doodle" }))}>
+        <span class="tile-ic"><Icon name="edit" size={22} /></span>
+        <span class="tile-lbl">Doodle</span>
       </button>
-      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "soundboard" }))}>
-        <span class="sr-icon"><Icon name="speaker" size={20} /></span>
-        <span class="sr-text">
-          <span class="sr-label">Sound</span>
-          <span class="sr-sub">A recipe, not a file — a few dozen bytes each</span>
-        </span>
+      <button type="button" class="tile" title="A recipe, not a file — a few dozen bytes each" onclick={() => fromSheet(() => (S.modal = { kind: "soundboard" }))}>
+        <span class="tile-ic"><Icon name="speaker" size={22} /></span>
+        <span class="tile-lbl">Sound</span>
       </button>
-      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (S.modal = { kind: "game" }))}>
-        <span class="sr-icon"><Icon name="die" size={20} /></span>
-        <span class="sr-text">
-          <span class="sr-label">Game</span>
-          <span class="sr-sub">Play in the channel — the board is folded from the messages</span>
-        </span>
+      <button type="button" class="tile" title="Play in the channel — the board is folded from the messages" onclick={() => fromSheet(() => (S.modal = { kind: "game" }))}>
+        <span class="tile-ic"><Icon name="die" size={22} /></span>
+        <span class="tile-lbl">Game</span>
       </button>
-      <button type="button" class="sheet-row" onclick={() => fromSheet(() => (showFmt = !showFmt))}>
-        <span class="sr-icon sr-aa">Aa</span>
-        <span class="sr-text">
-          <span class="sr-label">Formatting</span>
-          <span class="sr-sub">Bold, italics, code, quotes, links</span>
-        </span>
-        <span class="sr-state">{showFmt ? "On" : "Off"}</span>
+      <button type="button" class="tile" class:on={showFmt} aria-pressed={showFmt} title="Bold, italics, code, quotes, links" onclick={() => fromSheet(() => (showFmt = !showFmt))}>
+        <span class="tile-ic tile-aa">Aa</span>
+        <span class="tile-lbl">Formatting</span>
       </button>
-      <button type="button" class="sheet-row" onclick={() => fromSheet(openAdvanced)}>
-        <span class="sr-icon"><Icon name="docpen" size={20} /></span>
-        <span class="sr-text">
-          <span class="sr-label">Advanced composer</span>
-          <span class="sr-sub">Colours, rich embeds, preview</span>
-        </span>
+      <button type="button" class="tile" title="Colours, rich embeds, preview" onclick={() => fromSheet(openAdvanced)}>
+        <span class="tile-ic"><Icon name="docpen" size={22} /></span>
+        <span class="tile-lbl">Advanced</span>
       </button>
-      <button type="button" class="sheet-row" onclick={() => fromSheet(scheduleSend)}>
-        <span class="sr-icon"><Icon name="clock" size={20} /></span>
-        <span class="sr-text">
-          <span class="sr-label">{draft.trim() ? "Send later" : "Scheduled & reminders"}</span>
-          <span class="sr-sub">
-            {draft.trim() ? "Pick a time for this message" : "See what's queued"}
-          </span>
-        </span>
+      <button type="button" class="tile" title={draft.trim() ? "Pick a time for this message" : "See what's queued"} onclick={() => fromSheet(scheduleSend)}>
+        <span class="tile-ic"><Icon name="clock" size={22} /></span>
+        <span class="tile-lbl">{draft.trim() ? "Send later" : "Scheduled"}</span>
       </button>
     </div>
   </BottomSheet>
@@ -3342,8 +3313,8 @@
      select: a long press (or a tap misread as one) raises the blue handles and
      the Copy/Share bar over the composer. */
   .gifbtn,
-  .sr-gif,
-  .sr-aa,
+  .tile-gif,
+  .tile-aa,
   .s-enter {
     -webkit-user-select: none;
     user-select: none;
@@ -3405,73 +3376,69 @@
     }
   }
 
-  /* ---- the "+" sheet ---- */
-  .sheet-list {
+  /* ---- the "+" sheet: a tray of tiles ---- */
+  .sheet-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--sp-2) var(--sp-1);
+    padding: var(--sp-2) var(--sp-2) var(--sp-3);
+  }
+  .tile {
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 4px 0 2px;
-  }
-  .sheet-row {
-    display: flex;
     align-items: center;
-    gap: 14px;
-    width: 100%;
-    min-height: 56px; /* comfortably past the floor: these are the primary rows */
-    padding: 8px 10px;
-    text-align: left;
+    gap: 7px;
+    min-width: 0;
+    padding: 10px var(--sp-1) var(--sp-2);
     background: transparent;
     color: var(--text);
     border: none;
     border-radius: var(--radius-md);
+    -webkit-tap-highlight-color: transparent;
   }
-  .sheet-row:active {
-    background: var(--bg-3);
+  .tile:active {
+    background: var(--bg-2);
   }
-  .sr-icon {
+  .tile:active .tile-ic {
+    transform: scale(0.94);
+  }
+  .tile-ic {
     display: grid;
     place-items: center;
-    flex: none;
-    width: 40px;
-    height: 40px;
-    border-radius: var(--radius-md);
-    background: var(--bg-3);
+    width: 54px;
+    height: 54px;
+    border-radius: var(--radius-lg);
+    /* --bg-2, not --bg-3: the sheet itself is grounded on --bg-elevated, which
+       aliases --bg-3, so a plate in the same colour vanished into it. */
+    background: var(--bg-2);
     color: var(--accent-hover);
+    transition: transform var(--dur-quick) ease, background var(--dur-quick) ease;
+  }
+  /* A lit tile is a switch that is ON — Formatting is the one tile that stays
+     rather than opens. */
+  .tile.on .tile-ic {
+    background: var(--accent);
+    color: var(--accent-fg);
   }
   /* Word, not glyph: no icon for "GIF" reads correctly, and every other client
-     spells it out. Sized to sit as one optical weight with the 20px glyphs. */
-  .sr-gif {
-    font-size: var(--fs-small);
+     spells it out. Sized to sit as one optical weight with the 22px glyphs. */
+  .tile-gif {
+    font-size: var(--fs-compact);
     font-weight: 800;
     letter-spacing: 0.02em;
   }
-  .sr-aa {
+  .tile-aa {
     font-size: var(--fs-title);
     font-weight: 700;
   }
-  .sr-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-  }
-  .sr-label {
-    font-size: var(--fs-body);
+  .tile-lbl {
+    max-width: 100%;
+    font-size: var(--fs-small);
     font-weight: 600;
-  }
-  .sr-sub {
-    font-size: var(--fs-compact);
-    color: var(--text-muted);
+    line-height: 1.15;
+    text-align: center;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-  .sr-state {
-    flex: none;
-    font-size: var(--fs-compact);
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--accent-hover);
+    white-space: nowrap;
   }
 </style>

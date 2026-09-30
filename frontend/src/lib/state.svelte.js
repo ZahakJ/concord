@@ -900,7 +900,15 @@ export function openContextMenu(e, items, opts = {}) {
   e?.preventDefault?.();
   e?.stopPropagation?.();
   markMenuRow(opts.rowEl || e?.currentTarget || e?.target);
-  S.contextMenu = { x: e?.clientX, y: e?.clientY, items: tidySeps(items.filter(Boolean)), ...opts };
+  // `actions` are the sheet's tile row — the handful of things a thumb reaches
+  // for first. A pointer menu has no tile row, so there they are simply the
+  // first items, and the caller never has to know which presentation it got.
+  let actions = (opts.actions || []).filter(Boolean);
+  if (actions.length && !S.isMobile) {
+    items = [...actions, { sep: true }, ...items];
+    actions = [];
+  }
+  S.contextMenu = { x: e?.clientX, y: e?.clientY, items: tidySeps(items.filter(Boolean)), ...opts, actions };
 }
 
 // ---- which row is this menu about? ----
