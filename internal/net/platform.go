@@ -56,3 +56,14 @@ var onMobile = mobilePlatform(runtime.GOOS)
 func relayServiceWanted(proven, mobile bool) bool {
 	return proven && !mobile
 }
+
+// mdnsWanted reports whether LAN discovery should run on goos.
+//
+// iOS only lets an app send multicast with the
+// com.apple.developer.networking.multicast entitlement, which Apple grants by
+// request; without it zeroconf's sockets fail and the attempt still raises the
+// Local Network prompt for nothing. Peers on the same network still connect
+// directly once the rendezvous or DHT has told each side the other's address.
+func mdnsWanted(goos string) bool {
+	return goos != "ios"
+}

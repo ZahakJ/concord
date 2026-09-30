@@ -30,7 +30,7 @@
 	<string>Main</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>armv7</string>
+		<string>arm64</string>
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
@@ -58,6 +58,25 @@
 	<string>Concord attaches photos you choose to your messages.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Concord uses Face ID to unlock your account without re-typing your passphrase.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Concord connects directly to people on the same Wi-Fi network, so your messages and calls skip the internet when they can.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Concord saves images you choose to your photo library.</string>
+	<!-- The web UI reaches the Go core over http://127.0.0.1:<port>. ATS
+	     already exempts loopback, but say so explicitly; nothing else may
+	     use cleartext. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!-- Export compliance: Concord uses standard, published cryptography
+	     (MLS RFC 9420, Noise, DTLS-SRTP, NaCl, Argon2id) for message
+	     confidentiality, so it is not exempt. Declaring it here stops App
+	     Store Connect asking on every upload; the classification itself is
+	     answered once in App Store Connect (see docs/APP-STORE.md). -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
