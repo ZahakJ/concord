@@ -18,8 +18,9 @@
   // real bugs fell out of it — a guild tap dropped you into a channel instead
   // of showing you the guild (the drawer closed on any channel change), and a
   // tap on the channel you were already in did nothing at all (no change, no
-  // close). Both are impossible here by construction: a guild tap BROWSES (see
-  // browsingGuild in state.svelte.js) and a row tap always pushes.
+  // close). Both are impossible here by construction: selectChannel pushes on
+  // every selection, and a guild tap BROWSES (see browsingGuild in
+  // state.svelte.js), which is the one selection that does not.
   //
   // `S.drawerOpen` keeps its name and its meaning — "Home is showing" — because
   // App.svelte's back handling and the floating call are written against it.
@@ -44,7 +45,6 @@
     leaveGuildLabel,
     openGuildHub,
     openInbox,
-    browsingGuild,
     guildUnread,
     dmList,
   } from "./lib/state.svelte.js";
@@ -60,15 +60,13 @@
   import MessageList from "./MessageList.svelte";
   import SetupCard from "./SetupCard.svelte";
   import PostHeader from "./PostHeader.svelte";
-  import ForumView from "./ForumView.svelte";
-  import SearchPanel from "./SearchPanel.svelte";
   import Composer from "./Composer.svelte";
   import MemberPanel from "./MemberPanel.svelte";
-  import VoicePanel from "./VoicePanel.svelte";
   import Welcome from "./Welcome.svelte";
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
   import { pointOf, viewport } from "./lib/place.js";
+  import { voiceStage, forumBoard, searchTakeover } from "./lib/islands.svelte.js";
 
   let {
     composer = $bindable(null),
@@ -185,17 +183,20 @@
     }
   });
 
-  // A channel CHANGE pushes the page: that is what picking a row, an inbox
-  // entry, a search hit or a notification means. A guild tap in the rail also
-  // changes the channel (the guild resumes to one) but means "show me the
-  // guild", and state.svelte.js says so through browsingGuild() for exactly
-  // the length of that switch. ChannelList closes on a same-row tap itself.
-  let lastChannel = S.activeChannelId;
+  // Pushing the page is selectChannel's job (state.svelte.js): every
+  // selection pushes, a browsed guild switch does not. Nothing here watches
+  // the channel id — a shell that pushed on CHANGE missed every re-selection
+  // of the channel you were already in.
+
+  // The islands (lib/islands.svelte.js): fetched the moment they are wanted.
   $effect(() => {
-    if (S.activeChannelId !== lastChannel) {
-      lastChannel = S.activeChannelId;
-      if (!browsingGuild()) S.drawerOpen = false;
-    }
+    if (S.callStage) voiceStage.load();
+  });
+  $effect(() => {
+    if (boardObj) forumBoard.load();
+  });
+  $effect(() => {
+    if (S.searchResults !== null) searchTakeover.load();
   });
 
   // No conversation to show: Home is the only place there is.
@@ -739,7 +740,8 @@
       {/if}
 
       <main class="mchat" class:staging={S.callStage} class:with-chat={S.callStage && S.callStageChat}>
-        {#if S.callStage}
+        {#if S.callStage && voiceStage.C}
+          {@const VoicePanel = voiceStage.C}
           <VoicePanel
             {onLeaveVoice}
             {onToggleMute}
@@ -765,7 +767,8 @@
             </div>
           {/if}
           <div class="pane-body">
-            {#if boardObj}
+            {#if boardObj && forumBoard.C}
+              {@const ForumView = forumBoard.C}
               <ForumView forum={boardObj} />
             {/if}
             {#if !boardObj || postObj}
@@ -785,7 +788,10 @@
                 <Composer bind:this={composer} />
               </div>
             {/if}
-            <SearchPanel />
+            {#if searchTakeover.C}
+              {@const SearchPanel = searchTakeover.C}
+              <SearchPanel />
+            {/if}
           </div>
           </div>
         {/if}

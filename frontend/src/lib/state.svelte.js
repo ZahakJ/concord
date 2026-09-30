@@ -2639,6 +2639,18 @@ export async function nudge() {
   refreshNetStatus();
 }
 
+// browsing is true while a guild switch is choosing its resume channel on
+// behalf of somebody who only asked to LOOK at the guild. selectChannel
+// pushes the phone's conversation page over Home on every selection — that is
+// what a row tap, an inbox entry, a palette pick or a notification means —
+// but a tap on a guild in the rail means "show me its channels", and this is
+// how selectChannel tells the two apart. Not reactive on purpose: it is read
+// synchronously inside the selection and cleared when the switch resolves.
+let browsing = false;
+export function browsingGuild() {
+  return browsing;
+}
+
 export async function refreshGuilds() {
   S.guilds = (await api.guilds()) || [];
   if (!S.activeGuildId && S.guilds.length) {
@@ -2664,25 +2676,20 @@ export async function refreshGuilds() {
   // strand the user in a phantom channel that still renders + sends messages.
   const g = S.guilds.find((x) => x.id === S.activeGuildId);
   if (S.activeChannelId && !g?.channels?.some((c) => c.id === S.activeChannelId)) {
-    if (g?.channels?.length) await selectChannel(g.channels[0].id);
-    else {
+    // A replacement nobody chose: browse to it, so a phone sitting on Home
+    // when a channel is deleted remotely is not pushed into another one.
+    if (g?.channels?.length) {
+      browsing = true;
+      try {
+        await selectChannel(g.channels[0].id);
+      } finally {
+        browsing = false;
+      }
+    } else {
       S.activeChannelId = "";
       clearFeed();
     }
   }
-}
-
-// browsing is true while a guild switch is choosing its resume channel on
-// behalf of somebody who only asked to LOOK at the guild. The phone shell
-// pushes the conversation page whenever the active channel changes — that is
-// what a tap on a channel row, an inbox entry or a notification means — but a
-// tap on a guild in the rail means "show me its channels", and the shell reads
-// this to tell the two apart. Not reactive on purpose: the shell's effect
-// consults it inside the same flush that carries the channel change, and a
-// reactive flag would make that effect re-run when the flag is cleared.
-let browsing = false;
-export function browsingGuild() {
-  return browsing;
 }
 
 export async function selectGuild(id, { browse = false } = {}) {
@@ -2955,6 +2962,15 @@ export async function selectChannel(id) {
     else delete scrollStash[prev];
   }
   S.activeChannelId = id;
+  // Selecting a channel means "take me there". On a phone that is the page
+  // being pushed over Home — and it has to happen HERE, on the selection, not
+  // on a change of id: a tap on the row you are already in, "Open your Notes"
+  // on a device whose Notes was just picked as the landing guild, a palette
+  // pick of the current channel — none of those change the id, and every one
+  // of them was leaving Home standing with the conversation parked behind it
+  // (found on the APK: Open your Notes did nothing). The one exception is a
+  // guild being browsed, which resumes to a channel nobody asked for.
+  if (S.isMobile && !browsing) S.drawerOpen = false;
   rememberPlace(S.activeGuildId, id);
   // Snapshot where we left off BEFORE marking read, to place the "new messages"
   // divider for this viewing session.

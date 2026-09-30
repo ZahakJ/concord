@@ -70,19 +70,12 @@
   import GuildRail from "./GuildRail.svelte";
   import ChannelList from "./ChannelList.svelte";
   import ChatHeader from "./ChatHeader.svelte";
-  import VoicePanel from "./VoicePanel.svelte";
   import MessageList from "./MessageList.svelte";
   import Composer from "./Composer.svelte";
   import MemberPanel from "./MemberPanel.svelte";
   import Welcome from "./Welcome.svelte";
-  import ForumView from "./ForumView.svelte";
-  import SearchPanel from "./SearchPanel.svelte";
-  import QuickSwitcher from "./QuickSwitcher.svelte";
   import ProfilePopover from "./ProfilePopover.svelte";
   import ContextMenu from "./ContextMenu.svelte";
-  import FloatingCall from "./FloatingCall.svelte";
-  import SelfView from "./SelfView.svelte";
-  import CallMiniControls from "./CallMiniControls.svelte";
   import Toasts from "./Toasts.svelte";
   import { micReason, canCarryACall, noCallReason } from "./lib/devices.js";
   import FxOverlay from "./FxOverlay.svelte";
@@ -93,6 +86,16 @@
   import EventNudges from "./EventNudges.svelte";
   import { pointOf, rectOf } from "./lib/place.js";
   import { SETTINGS_ITEMS, inSettings } from "./lib/settingsnav.js";
+  import {
+    voiceStage,
+    forumBoard,
+    searchTakeover,
+    commandPalette,
+    parkedCall,
+    selfView,
+    callMiniControls,
+    warmIslands,
+  } from "./lib/islands.svelte.js";
   import { GUILD_ITEMS, inGuildHub } from "./lib/guildnav.js";
 
   // ---- the dialogs ----
@@ -196,6 +199,30 @@
       if (it.kind !== kind) MODAL_LOADERS[it.kind]?.();
     }
   }
+  // The non-dialog islands (lib/islands.svelte.js): ask for the chunk the
+  // moment the surface is wanted, so the {#if}s below can render it the tick
+  // it lands. warmIslands() in onMount fetches them all after boot anyway;
+  // these cover a surface opened in the first seconds.
+  $effect(() => {
+    if (S.callStage) voiceStage.load();
+  });
+  $effect(() => {
+    if (boardObj) forumBoard.load();
+  });
+  $effect(() => {
+    if (S.searchResults !== null) searchTakeover.load();
+  });
+  $effect(() => {
+    if (S.quickSwitcher) commandPalette.load();
+  });
+  $effect(() => {
+    if (S.voice) {
+      parkedCall.load();
+      selfView.load();
+      callMiniControls.load();
+    }
+  });
+
   $effect(() => {
     const kind = S.modal?.kind || "";
     // untrack: this effect WRITES modalLoadedKind, so reading it tracked would
@@ -581,6 +608,7 @@
     const warm = () => {
       precacheCosmetics();
       precacheEmoji();
+      warmIslands();
     };
     if (window.Capacitor && "requestIdleCallback" in window)
       requestIdleCallback(warm, { timeout: 4000 });
@@ -1635,7 +1663,8 @@
     ></div>
 
     <main class="chat" class:staging={S.callStage} class:with-chat={S.callStage && S.callStageChat}>
-      {#if S.callStage}
+      {#if S.callStage && voiceStage.C}
+        {@const VoicePanel = voiceStage.C}
         <VoicePanel
           onLeaveVoice={leaveVoice}
           onToggleMute={toggleMicMute}
@@ -1680,7 +1709,8 @@
              the feed keeps its scroll position because it is still mounted and
              still laid out — merely behind. -->
         <div class="pane-body">
-          {#if boardObj}
+          {#if boardObj && forumBoard.C}
+            {@const ForumView = forumBoard.C}
             <ForumView forum={boardObj} />
           {/if}
           {#if !boardObj || postObj}
@@ -1708,7 +1738,10 @@
               <Composer bind:this={composer} />
             </div>
           {/if}
-          <SearchPanel />
+          {#if searchTakeover.C}
+            {@const SearchPanel = searchTakeover.C}
+            <SearchPanel />
+          {/if}
         </div>
         </div>
       {:else if !S.callStage}
@@ -1731,7 +1764,8 @@
   </div>{/if}
 {#if S.ready}
 
-  {#if S.quickSwitcher}
+  {#if S.quickSwitcher && commandPalette.C}
+    {@const QuickSwitcher = commandPalette.C}
     <QuickSwitcher />
   {/if}
 
@@ -1742,12 +1776,14 @@
        on the same knock-knock rhythm the host sees on our avatar — both ends of
        the door share one heartbeat. -->
   <!-- Your own camera, wherever the stage can't already show it to you. -->
-  {#if S.voice}
+  {#if S.voice && selfView.C}
+    {@const SelfView = selfView.C}
     <SelfView onToggleCamera={toggleCamera} />
   {/if}
 
   <!-- …and mute, wherever a dialog has covered every other way to reach it. -->
-  {#if S.voice && S.modal}
+  {#if S.voice && S.modal && callMiniControls.C}
+    {@const CallMiniControls = callMiniControls.C}
     <CallMiniControls onToggleMute={toggleMicMute} onLeave={leaveVoice} />
   {/if}
 
@@ -1773,7 +1809,8 @@
        remounting it threw away wherever it had been parked, which is the same
        reason the component already hides rather than unmounts behind the phone
        drawers. -->
-  {#if S.voice}
+  {#if S.voice && parkedCall.C}
+    {@const FloatingCall = parkedCall.C}
     <FloatingCall
       label={callLabel}
       away={!!callElsewhere}
