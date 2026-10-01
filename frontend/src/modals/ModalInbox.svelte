@@ -377,11 +377,17 @@
     width: 100%;
     align-items: flex-start;
     gap: var(--sp-2);
-    padding: var(--sp-2) var(--sp-1);
-    padding-left: calc(var(--sp-1) - 2px);
-    border-left: 2px solid transparent;
+    /* A real inset on both ends. The row used to pad 4px and then give 2 of
+       them to the rule, so the face (and the unread dot after it) sat against
+       the card's edge — on a phone, where the card is the whole width, that
+       read as a list drawn without margins. Logical properties, so the rule
+       and the inset swap sides under dir=rtl instead of staying on the left
+       of a right-to-left row. */
+    padding: var(--sp-2) var(--sp-3);
+    padding-inline-start: calc(var(--sp-3) - 2px);
+    border-inline-start: 2px solid transparent;
     min-width: 0;
-    text-align: left;
+    text-align: start;
     background: color-mix(in srgb, var(--bg-3) 40%, transparent);
     color: var(--text);
     border-radius: var(--radius-sm);
@@ -395,7 +401,7 @@
      rail promises a number ("Inbox — 4 unread items") and a list where every
      row is drawn identically cannot say which four. */
   .entry.unread {
-    border-left-color: var(--accent);
+    border-inline-start-color: var(--accent);
     background: var(--accent-soft);
   }
   .entry.unread:hover {
