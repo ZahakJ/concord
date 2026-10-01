@@ -16,7 +16,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { contrast, colorsIn } from "./contrast.mjs";
+import { contrast, colorsIn, over } from "./contrast.mjs";
 
 const SRC = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -283,6 +283,70 @@ const value = (name, block) => {
       }
     }
   }
+}
+
+// ---- 8b. the same inks, in every theme pack --------------------------------
+//
+// Rule 8 measured the two default themes, and the inbox's chips went out to
+// the phone reading dark-on-grey in a pack it never measured. A pack retints
+// --bg-3 and --text-muted together, and thirty-one of them give --bg-3 an
+// alpha so the backdrop shows through — so the chip's real ground is --bg-3
+// composited over the surface the dialog sits on (--bg-elevated, opaque in
+// every pack by rule 9). The selected chip's ink is not in any stylesheet:
+// applyAppearance picks accentForeground(--accent) at runtime, the better of
+// near-black and white, so the gate asks the same question of the pack's
+// accent. 4.5:1, labels again.
+{
+  const PACKS = fs.readFileSync(path.join(SRC, "themepacks.css"), "utf8");
+  const FG = [
+    [0x14, 0x14, 0x19, 1],
+    [255, 255, 255, 1],
+  ]; // FG_DARK / FG_LIGHT in lib/state.svelte.js
+  // The LAST declaration wins, as it does in the cascade: a pack may have a
+  // second block further down that re-tints its grounds and says nothing
+  // about its inks, and the two are one rule to the browser.
+  const rawTok = (name, block) => {
+    const re = new RegExp(`^\\s*${name}:\\s*([^;]+);`, "gm");
+    const all = [...block.matchAll(re)];
+    const m = all.length ? all[all.length - 1] : re.exec(ROOT);
+    return m ? m[1].trim() : null;
+  };
+  // A token's colour, following `var(--other)` through the pack and then :root.
+  const resolve = (name, block, depth = 0) => {
+    const raw = rawTok(name, block);
+    if (!raw || depth > 6) return null;
+    const ref = /^var\((--[\w-]+)\)$/.exec(raw);
+    if (ref) return resolve(ref[1], block, depth + 1);
+    return colorsIn(raw)[0] || null;
+  };
+  const merged = new Map();
+  for (const m of strip(PACKS).matchAll(/:root\[data-theme-pack="([^"]+)"\]\s*\{([^}]*)\}/g)) {
+    merged.set(m[1], (merged.get(m[1]) || "") + "\n" + m[2]);
+  }
+  let packs = 0;
+  for (const [pack, block] of merged) {
+    packs++;
+    const elevated = resolve("--bg-elevated", block);
+    const bg3 = resolve("--bg-3", block);
+    const muted = resolve("--text-muted", block);
+    const accent = resolve("--accent", block);
+    if (!elevated || !bg3 || !muted || !accent) {
+      fail(`tokens gate: cannot read the chip tokens of the "${pack}" pack`);
+      continue;
+    }
+    const ground = over(bg3, over(elevated, [0, 0, 0]));
+    const ink = over(muted, ground);
+    const r = contrast(ink, ground);
+    if (r < 4.5) {
+      fail(`a quiet chip's unselected label: --text-muted on --bg-3 is ${r.toFixed(2)}:1 in the "${pack}" pack, below 4.5`);
+    }
+    const acc = over(accent, ground);
+    const best = Math.max(...FG.map((f) => contrast(f.slice(0, 3), acc)));
+    if (best < 4.5) {
+      fail(`an accent-filled chip's label: neither ink reaches 4.5 on --accent in the "${pack}" pack (${best.toFixed(2)}:1)`);
+    }
+  }
+  if (packs < 40) fail(`tokens gate: only ${packs} theme packs were measured — the pack selector has changed`);
 }
 
 // ---- 9. floating chrome is opaque -----------------------------------------

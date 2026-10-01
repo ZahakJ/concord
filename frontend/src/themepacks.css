@@ -729,7 +729,10 @@
   --text: #262219;
   --text-muted: #55503f;
   --text-faint: #6b6553; /* 4.75:1 on bg-3 composited over the stone */
-  --accent: #0f8a86;
+  /* Lifted a step from #0f8a86: on that teal neither ink reached 4.5:1
+     (4.42 near-black, 4.2 white), so a selected chip's label was the one
+     thing in this pack below the label floor. Near-black makes 4.77 here. */
+  --accent: #10908c;
   --bg-elevated: rgb(255, 255, 255);
   /* Same reason daybreak overrides it: the shared mobile scrim is a black
      sheet tuned for dark glass and would put this courtyard in shadow. */
