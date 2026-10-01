@@ -12,12 +12,12 @@
   "license": "AGPL-3.0-or-later",
   "type": "commonjs",
   "dependencies": {
-    "@capacitor/android": "^8.5.0",
+    "@capacitor/android": "^8.5.2",
     "@capacitor/app": "^8.1.1",
-    "@capacitor/cli": "^8.5.0",
-    "@capacitor/core": "^8.4.1",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
     "@capacitor/haptics": "^8.0.2",
-    "@capacitor/ios": "^8.5.0",
+    "@capacitor/ios": "^8.5.2",
     "@capacitor/keyboard": "^8.0.5",
     "@capacitor/push-notifications": "^8.1.2",
     "capacitor-native-biometric": "^4.2.2"
