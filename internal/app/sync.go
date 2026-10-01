@@ -936,6 +936,10 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 			}
 			anyNew = true
 			if full, ok, err := s.store.MessageByID(m.ID); err == nil && ok {
+				// History, not news: a listener that notifies must not treat a
+				// week-old row that arrived on the catch-up like a message
+				// somebody just wrote (domain.Message.Backfill).
+				full.Backfill = true
 				s.emitMessage(full)
 			}
 		}

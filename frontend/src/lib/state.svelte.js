@@ -3392,8 +3392,12 @@ function initEvents() {
       countedMsgIds.add(m.id);
       if (countedMsgIds.size > 12000) countedMsgIds.clear(); // bound memory (rare)
     }
-    // Live (not a sync backfill of old history): within the last minute.
-    const isLive = Date.now() - new Date(m.sent).getTime() < 60000;
+    // Live (not a sync backfill of old history): within the last minute, AND
+    // not flagged as backfill by the core. The age test alone was the whole
+    // gate for years and is still right for the common case; the flag is the
+    // core saying so outright (MessageView.backfill), which is the only way
+    // to be sure about a row whose author's clock is wrong.
+    const isLive = !m.backfill && Date.now() - new Date(m.sent).getTime() < 60000;
 
     if (m.channelId === S.activeChannelId) {
       const i = S.messages.findIndex((x) => x.id === m.id);
@@ -3442,7 +3446,13 @@ function initEvents() {
       // count: the point of the setting is that those messages reach you the way
       // your own name does, and a badge that stayed grey would be the first
       // thing to make a liar of it.
-      if (!since || new Date(m.sent) > new Date(since))
+      // A channel with no mark counts everything — right for a live message
+      // in a room you have never opened, wrong for the backlog that follows a
+      // join, where it made every channel's badge the size of its history.
+      // The core floors that count at the moment the guild arrived here
+      // (arrival.go) on the next refresh; this keeps the live tally from
+      // outrunning it.
+      if (!since ? !m.backfill : new Date(m.sent) > new Date(since))
         bumpUnread(m.channelId, isMentionOfSelf(m) || !!alertWordIn(m));
     }
 

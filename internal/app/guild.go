@@ -298,6 +298,17 @@ func (s *Service) Messages(channelID string, limit int) ([]domain.Message, error
 // UnreadCounts returns the per-channel count of normal messages newer than each
 // channel's cursor, without decrypting any bodies.
 func (s *Service) UnreadCounts(sinceNano map[string]int64) (map[string]int, error) {
+	// Nothing said before the guild arrived on this device is unread here
+	// (arrival.go). The caller's map is its own; floor a copy.
+	floored := make(map[string]int64, len(sinceNano))
+	memo := arrivalMemo{}
+	for ch, since := range sinceNano {
+		if arrived := s.channelArrivedNano(memo, ch); arrived > since {
+			since = arrived
+		}
+		floored[ch] = since
+	}
+	sinceNano = floored
 	counts, err := s.store.UnreadCounts(sinceNano)
 	if err != nil || !s.hasBlocks() {
 		return counts, err
@@ -1635,8 +1646,18 @@ func (s *Service) RevealDeleted(channelID, messageID string) (string, error) {
 }
 
 // trackGuild records a guild in memory and subscribes to its control and
-// channel topics so inbound commits and messages are processed.
+// channel topics so inbound commits and messages are processed. Every caller
+// but the startup load is the guild ARRIVING on this device — a join, a
+// create, a DM opened, a linked device adopting the account's guilds — and
+// the moment is stamped (arrival.go) before any of its history can follow.
 func (s *Service) trackGuild(g *domain.Guild) {
+	s.noteGuildArrival(g)
+	s.trackGuildFromDisk(g)
+}
+
+// trackGuildFromDisk is trackGuild without the arrival stamp: the guild was
+// already here when the process started.
+func (s *Service) trackGuildFromDisk(g *domain.Guild) {
 	s.mu.Lock()
 	s.guilds[g.ID] = g
 	for _, c := range g.Channels {

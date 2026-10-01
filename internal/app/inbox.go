@@ -140,6 +140,7 @@ func (s *Service) Inbox(words []string, beforeNano int64, limit int, unreadOnly 
 
 	self := s.id.PublicKey()
 	selfName := strings.TrimSpace(s.SelfProfile().Name)
+	arrived := arrivalMemo{}
 
 	// The scan's needles: everything that could possibly make a message ours.
 	// Over-matching here is harmless — every candidate is re-tested precisely
@@ -211,7 +212,7 @@ func (s *Service) Inbox(words []string, beforeNano int64, limit int, unreadOnly 
 			Snippet:   snippet(h.Content),
 			At:        h.Sent.UnixMilli(),
 		}
-		e.Unread = inboxUnread(e.At, readAt, chanRead[h.ChannelID])
+		e.Unread = inboxUnread(e.At, readAt, chanRead[h.ChannelID], s.arrivedNanoMemo(arrived, guildID)/int64(time.Millisecond))
 		// The SQL floor above could only bound the scan by the inbox mark, so a
 		// caller who asked for unread only can still be handed something the
 		// channel mark has since retired. Drop it here, or "unread only" would
@@ -240,8 +241,11 @@ func (s *Service) Inbox(words []string, beforeNano int64, limit int, unreadOnly 
 // is newer than the inbox's own mark AND newer than the mark on the channel it
 // arrived in. A channel you have never opened has no mark, so everything in it
 // is unread, which is the right answer.
-func inboxUnread(at, inboxReadAt, channelReadAt int64) bool {
-	return at > inboxReadAt && at > channelReadAt
+// arrivedAt is the third mark, and the one neither read system has: when the
+// guild arrived on THIS device (arrival.go). An entry older than that was
+// never news here, whatever the other two say. All three in unix milliseconds.
+func inboxUnread(at, inboxReadAt, channelReadAt, arrivedAt int64) bool {
+	return at > inboxReadAt && at > channelReadAt && at > arrivedAt
 }
 
 // MarkInboxRead moves this device's read mark. atMs of 0 means "now".

@@ -1311,7 +1311,8 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 			_ = st.DeleteGuild(guilds[i].ID)
 			continue
 		}
-		s.trackGuild(&guilds[i])
+		// A guild that was already here is not arriving (arrival.go).
+		s.trackGuildFromDisk(&guilds[i])
 	}
 
 	// Say, by name, which restored guilds have no group state on disk. Before

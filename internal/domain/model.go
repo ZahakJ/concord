@@ -185,12 +185,20 @@ type Message struct {
 	// a broken one. Bounded to two values on receive (ValidDir): it reaches a
 	// dir attribute in every client's DOM, and an unknown value there is a
 	// string a stranger chose appearing in markup.
-	Dir     string    `json:"dir,omitempty"`
-	Deleted bool      `json:"deleted"`
-	Expired bool      `json:"expired"` // erased by a disappearing-message timer (not a normal delete)
-	Edited  bool      `json:"edited"`
-	Pinned  bool      `json:"pinned"`
-	Sent    time.Time `json:"sent"`
+	Dir string `json:"dir,omitempty"`
+	// Backfill is set on a message that reached this device through history
+	// sync rather than live delivery, for the one moment it is emitted to the
+	// UI. It is not stored and it never travels (json:"-"): it is the answer
+	// to "is this news?", and only the receiving device can give it — the
+	// bytes of a message synced a week after it was written are the same bytes
+	// a live delivery would carry. Every listener that pings, chimes or counts
+	// consults it; nothing else may.
+	Backfill bool      `json:"-"`
+	Deleted  bool      `json:"deleted"`
+	Expired  bool      `json:"expired"` // erased by a disappearing-message timer (not a normal delete)
+	Edited   bool      `json:"edited"`
+	Pinned   bool      `json:"pinned"`
+	Sent     time.Time `json:"sent"`
 
 	// Updated is when the message's state (edit/delete/pin/reactions) last
 	// changed, zero if never. Carried by history sync so receivers can prefer

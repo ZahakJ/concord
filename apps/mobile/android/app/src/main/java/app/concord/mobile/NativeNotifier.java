@@ -66,6 +66,13 @@ final class NativeNotifier implements concord.EventSink {
             // for deletions, never for your own words echoing back.
             if (!m.optString("kind", "").isEmpty()) return;
             if (m.optBoolean("deleted", false)) return;
+            // History is not news. A catch-up after a week away, or the backlog
+            // that follows a join, arrives through sync as ordinary message
+            // events — and this sink runs precisely when the app is in the
+            // background syncing, so every historical DM became a tray line
+            // "as if just posted". The core marks those (MessageView.backfill);
+            // the JS gate has always required a live row, and now so does this.
+            if (m.optBoolean("backfill", false)) return;
             String sender = m.optString("sender", "");
             if (sender.isEmpty() || sender.equals(self())) return;
 

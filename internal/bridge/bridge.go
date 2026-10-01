@@ -299,7 +299,12 @@ type MessageView struct {
 	SenderName string `json:"senderName"` // self-asserted display name
 	Kind       string `json:"kind"`       // "" normal chat, "system" join/create notice, "app" machine payload (never rendered as chat)
 	ReplyTo    string `json:"replyTo"`    // ID of the replied-to message, or ""
-	Content    string `json:"content"`
+	// Backfill: this event carries history that arrived by sync, not a message
+	// somebody just wrote. Chimes, OS notifications and the inbox refresh stay
+	// silent for it; the row still renders and still counts if it is newer
+	// than the channel's read mark. Only ever true on the event stream.
+	Backfill bool   `json:"backfill,omitempty"`
+	Content  string `json:"content"`
 	// Dir is the base direction the AUTHOR laid the message out in: "rtl",
 	// "ltr", or "" for the per-line heuristic. It has to reach the view layer
 	// because the reader cannot derive it — the heuristic is precisely what
@@ -3259,6 +3264,7 @@ func messageView(m domain.Message) MessageView {
 		Pinned:     m.Pinned,
 		Reactions:  m.Reactions,
 		Unverified: m.Unverified,
+		Backfill:   m.Backfill,
 		// Full nanosecond precision, fixed width. This string is ALSO the
 		// scroll-up pagination cursor (MessagesBefore parses it back to
 		// UnixNano and the store compares `sent < cursor` exactly): truncating

@@ -358,8 +358,8 @@ func TestInboxUnreadOnlyRespectsTheChannelMark(t *testing.T) {
 // The decision itself, stated once so the two callers cannot disagree about it.
 func TestInboxUnreadRule(t *testing.T) {
 	cases := []struct {
-		at, inbox, channel int64
-		want               bool
+		at, inbox, channel, arrived int64
+		want                        bool
 	}{
 		{at: 100, inbox: 0, channel: 0, want: true},      // nothing read: unread
 		{at: 100, inbox: 0, channel: 200, want: false},   // read in the channel
@@ -367,10 +367,15 @@ func TestInboxUnreadRule(t *testing.T) {
 		{at: 100, inbox: 200, channel: 200, want: false}, // both
 		{at: 300, inbox: 200, channel: 200, want: true},  // newer than both
 		{at: 100, inbox: 100, channel: 0, want: false},   // the mark is inclusive
+		// The third mark: said before the guild arrived on this device is
+		// never news here, however unread the other two call it.
+		{at: 100, inbox: 0, channel: 0, arrived: 200, want: false},
+		{at: 300, inbox: 0, channel: 0, arrived: 200, want: true},  // said after
+		{at: 200, inbox: 0, channel: 0, arrived: 200, want: false}, // inclusive too
 	}
 	for _, c := range cases {
-		if got := inboxUnread(c.at, c.inbox, c.channel); got != c.want {
-			t.Errorf("inboxUnread(%d, %d, %d) = %v, want %v", c.at, c.inbox, c.channel, got, c.want)
+		if got := inboxUnread(c.at, c.inbox, c.channel, c.arrived); got != c.want {
+			t.Errorf("inboxUnread(%d, %d, %d, %d) = %v, want %v", c.at, c.inbox, c.channel, c.arrived, got, c.want)
 		}
 	}
 }
