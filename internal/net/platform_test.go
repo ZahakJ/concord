@@ -39,3 +39,11 @@ func TestPhonesDoNotRelayForOtherPeers(t *testing.T) {
 		t.Error("a node nothing has ever reached advertised itself as a relay")
 	}
 }
+
+func TestMDNSWanted(t *testing.T) {
+	for goos, want := range map[string]bool{"ios": false, "android": true, "darwin": true, "linux": true, "windows": true} {
+		if got := mdnsWanted(goos); got != want {
+			t.Errorf("mdnsWanted(%q) = %v, want %v", goos, got, want)
+		}
+	}
+}
