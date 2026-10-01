@@ -1493,11 +1493,16 @@
     }
   }
   /* The narrow floor: at 360px a guild channel shows back/title/members/⋯, and
-     at an 8px gap the title ellipsises to about two words. */
+     at an 8px gap the title ellipsises to about two words.
+     LONGHAND, deliberately. This used to be `padding: 0 2px`, and the shorthand
+     reset the bar's padding-top — the status-bar inset set above — to 0 on
+     every phone 400px wide or narrower. A Galaxy S24+ is 384; the emulator
+     the fix was measured on is 412. That is the whole story of "the header
+     touches the status bar", and tokens.test.mjs now refuses the shorthand. */
   @media (max-width: 400px) {
     .mtopbar {
       gap: var(--sp-1);
-      padding: 0 2px;
+      padding-inline: 2px;
     }
   }
 </style>

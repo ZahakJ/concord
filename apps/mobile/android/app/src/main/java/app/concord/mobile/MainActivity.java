@@ -107,6 +107,18 @@ public class MainActivity extends BridgeActivity {
         super.onDestroy();
     }
 
+    // Rotation is a configChange this activity handles itself (no recreate),
+    // so nothing above re-runs for it. The insets listener does fire — but
+    // the dedup compares the whole script, and a landscape whose bar heights
+    // happen to match the last push would be swallowed. Say it again.
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        forcePushInsets();
+        WebView wv = getBridge() != null ? getBridge().getWebView() : null;
+        if (wv != null) wv.post(this::forcePushInsets);
+    }
+
     // ---- share-sheet target ----
     // ACTION_SEND text/* (the manifest filter) lands here — warm via
     // onNewIntent (launchMode singleTask), cold via onCreate above. v1 is
@@ -246,11 +258,62 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    // The status bar's height from every source this process can ask without
+    // the WebView's help: the window's own insets (the decor view has them
+    // before any child does), the platform's status_bar_height resource, and
+    // 24dp, the smallest bar Android has ever shipped. This is what a device
+    // the inset bridge has somehow not reached still gets, and it is pushed
+    // BEFORE the WebView has root insets of its own (see pushInsets), so the
+    // very first paint is already under the bar rather than behind it.
+    private int statusBarFloorDp() {
+        float d = getResources().getDisplayMetrics().density;
+        if (d <= 0) d = 1f;
+        int floor = 24;
+        int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
+        if (resId > 0) floor = Math.max(floor, Math.round(getResources().getDimensionPixelSize(resId) / d));
+        View decor = getWindow() != null ? getWindow().getDecorView() : null;
+        WindowInsetsCompat wi = decor != null ? ViewCompat.getRootWindowInsets(decor) : null;
+        if (wi != null) {
+            Insets bars = wi.getInsets(
+                WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            floor = Math.max(floor, Math.round(bars.top / d));
+        }
+        return floor;
+    }
+
+    /** The current insets as the page sees them, for the plugin's pull path. */
+    String insetsJSON() {
+        return lastValues;
+    }
+
+    /** Forget what was sent and say it again — the plugin's pull path and rotation both call this. */
+    void forcePushInsets() {
+        runOnUiThread(() -> {
+            lastPushed = "";
+            pushInsets();
+        });
+    }
+
+    private volatile String lastValues = "{}";
+
     private void pushInsets() {
         WebView wv = getBridge() != null ? getBridge().getWebView() : null;
         if (wv == null) return;
         WindowInsetsCompat wi = ViewCompat.getRootWindowInsets(wv);
-        if (wi == null) return;
+        if (wi == null) {
+            // Not attached yet: no measurement, but the floor is already
+            // known, and a document that paints now paints under the bar.
+            int floorDp = statusBarFloorDp();
+            String js =
+                "(function(s){s.setProperty('--sa-bars-top','" + floorDp + "px');" +
+                "s.setProperty('--sa-floor-top','" + floorDp + "px');})(document.documentElement.style)";
+            if (!js.equals(lastPushed)) {
+                lastPushed = js;
+                lastValues = "{\"top\":0,\"floor\":" + floorDp + ",\"attached\":false}";
+                wv.evaluateJavascript(js, null);
+            }
+            return;
+        }
         Insets bars = wi.getInsets(
             WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
         Insets ime = wi.getInsets(WindowInsetsCompat.Type.ime());
@@ -289,9 +352,10 @@ public class MainActivity extends BridgeActivity {
         // at this value unconditionally; a hidden-status-bar mode would over-pad
         // by one bar height, which Concord never enters and which is in any case
         // the survivable direction.
-        int resId = getResources().getIdentifier("status_bar_height", "dimen", "android");
-        int resBarDp = resId > 0 ? Math.round(getResources().getDimensionPixelSize(resId) / d) : 0;
-        int barsTopDp = Math.max(Math.max(Math.round(bars.top / d), resBarDp), 24);
+        // max() of every source, including the decor view's own reading
+        // (statusBarFloorDp): a WebView whose root insets came back 0 — the
+        // failure that keeps this bar under the clock — still gets the window's.
+        int barsTopDp = Math.max(Math.round(bars.top / d), statusBarFloorDp());
         if (top <= 0 && wvTop <= 0 && bars.top <= 0) {
             top = barsTopDp;
         }
@@ -343,6 +407,8 @@ public class MainActivity extends BridgeActivity {
         // when something actually moved.
         if (js.equals(lastPushed)) return;
         lastPushed = js;
+        lastValues = "{\"top\":" + top + ",\"bottom\":" + bottom + ",\"left\":" + left + ",\"right\":" + right +
+            ",\"kb\":" + kb + ",\"floor\":" + barsTopDp + ",\"attached\":true}";
         // One line per actual change; readable on a real phone via
         //   adb logcat -s ConcordInsets
         // — the missing eyes every previous round of this bug was fixed without.

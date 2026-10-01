@@ -584,6 +584,7 @@
     // the login and device-linking screens are where a stray back press used to
     // drop a half-set-up user on the launcher.
     wireMobileLifecycle();
+    pullInsets();
     // Escape is the desktop half of the same navigation stack, so it has to be
     // live from the first frame for the same reason: the login screen raises
     // dialogs and a full-screen QR scanner, and until Escape moved into the
@@ -987,6 +988,58 @@
     // retains the event across a cold start, so this listener catches both
     // warm and cold shares once it's attached in onMount.
     cap?.Plugins?.ConcordCore?.addListener?.("shareIn", (ev) => handleShareIn(ev?.text));
+  }
+
+  // ---- the insets, asked for rather than waited on ----
+  //
+  // The native side PUSHES --sa-top/--sa-bottom/--kb onto the document whenever
+  // the window's insets change (MainActivity.pushInsets). On the owner's phone
+  // the header still sat against the status bar, which means that on some
+  // devices the push does not land, or does not land in time, or lands on a
+  // document that was then replaced. This is the other direction: the page
+  // asks (ConcordCore.insets), on mount, once more a moment later in case the
+  // first answer came before the WebView was attached, on every orientation
+  // change, and on resume — and applies the answer itself through the same
+  // properties the push writes. A value of 0 is never applied over a real one:
+  // the CSS floor (app.css, --sa-floor-top) stays under both paths.
+  function applyNativeInsets(r) {
+    if (!r || typeof r.top !== "number") return;
+    const st = document.documentElement.style;
+    const px = (n) => `${Math.max(0, Math.round(n))}px`;
+    // The same per-document log the push writes (Settings → Connection →
+    // Stats reads it), tagged, so a phone we cannot hold can still say which
+    // of the two paths answered and what it said.
+    try {
+      const L = (window.__saLog = window.__saLog || []);
+      L.push({ t: Date.now(), src: "pull", top: r.top, floor: r.floor, attached: r.attached !== false });
+      if (L.length > 40) L.shift();
+    } catch {
+      /* diagnostics only */
+    }
+    if (r.attached !== false) {
+      st.setProperty("--sa-top", px(r.top));
+      st.setProperty("--sa-bottom", px(r.bottom || 0));
+      st.setProperty("--sa-left", px(r.left || 0));
+      st.setProperty("--sa-right", px(r.right || 0));
+      st.setProperty("--kb", px(r.kb || 0));
+    }
+    if (r.floor > 0) {
+      st.setProperty("--sa-bars-top", px(r.floor));
+      st.setProperty("--sa-floor-top", px(r.floor));
+    }
+  }
+  function pullInsets() {
+    const core = window.Capacitor?.Plugins?.ConcordCore;
+    if (!core?.insets) return;
+    const ask = () => core.insets().then(applyNativeInsets).catch(() => {});
+    ask();
+    setTimeout(ask, 400);
+    setTimeout(ask, 1500);
+    window.addEventListener("orientationchange", () => {
+      ask();
+      setTimeout(ask, 300);
+    });
+    window.Capacitor?.Plugins?.App?.addListener?.("resume", ask);
   }
 
   // ---- how much back the web side wants ----

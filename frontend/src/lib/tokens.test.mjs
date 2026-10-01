@@ -349,6 +349,76 @@ const value = (name, block) => {
   if (packs < 40) fail(`tokens gate: only ${packs} theme packs were measured — the pack selector has changed`);
 }
 
+// ---- 8c. a surface that clears the status bar keeps clearing it ------------
+//
+// The phone's top bar sat under the clock on a Galaxy S24+ (384 CSS px wide)
+// and nowhere else, through three rounds of native-inset work that each
+// measured a correct 52px on a 412px emulator. The bar's rule said
+// `padding-top: max(var(--safe-top), …)`; a narrow-viewport rule forty lines
+// later said `padding: 0 2px` — and the shorthand resets padding-top to 0 on
+// every phone 400px wide or narrower. Nothing native could have fixed it.
+//
+// So: a selector that pads itself by --safe-top in one rule may not be given
+// a `padding:` shorthand in another. Longhands (padding-inline, padding-left)
+// say what they mean and leave the inset alone.
+{
+  // Every (selector, body) pair in a stylesheet, including rules nested in
+  // @media blocks; the selector list is kept verbatim.
+  const allRules = (css) => {
+    const out = [];
+    const walk = (text) => {
+      let i = 0;
+      while (i < text.length) {
+        const open = text.indexOf("{", i);
+        if (open < 0) break;
+        let depth = 1;
+        let j = open + 1;
+        for (; j < text.length && depth; j++) {
+          if (text[j] === "{") depth++;
+          else if (text[j] === "}") depth--;
+        }
+        const sel = text.slice(i, open).trim().split(/[;}]/).pop().trim();
+        const body = text.slice(open + 1, j - 1);
+        if (sel.startsWith("@")) walk(body);
+        else out.push([sel, body]);
+        i = j;
+      }
+    };
+    walk(text(css));
+    return out;
+  };
+  const text = (css) => strip(css);
+  for (const [rel, raw] of FILES) {
+    const rules = allRules(raw);
+    const inset = new Set();
+    const INSET = /padding-top:\s*max\([^;]*--safe-top/;
+    for (const [sel, body] of rules) {
+      if (INSET.test(body)) {
+        for (const one of sel.split(",")) inset.add(one.trim());
+      }
+    }
+    if (!inset.size) continue;
+    for (const [sel, body] of rules) {
+      // A shorthand that the SAME block then follows with the inset longhand
+      // is the common "padding: 0 6px; padding-top: max(...)" idiom and is
+      // fine: later wins within one block too. Only a shorthand that comes
+      // after the longhand, or in another block, zeroes it.
+      const at = body.search(/(^|[\s;])padding:\s/);
+      if (at < 0) continue;
+      const insetAt = body.search(INSET);
+      if (insetAt >= 0 && insetAt > at) continue;
+      for (const one of sel.split(",")) {
+        if (inset.has(one.trim())) {
+          fail(
+            `${rel}: \`${one.trim()}\` pads itself by --safe-top and is later given a \`padding:\` shorthand, ` +
+              "which zeroes that top inset — use padding-inline / padding-left / padding-right",
+          );
+        }
+      }
+    }
+  }
+}
+
 // ---- 9. floating chrome is opaque -----------------------------------------
 //
 // Thirty-one of the theme packs give --bg-0/1/2/3 an alpha, because those are

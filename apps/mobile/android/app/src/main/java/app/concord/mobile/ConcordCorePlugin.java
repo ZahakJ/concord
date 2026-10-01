@@ -530,6 +530,30 @@ public class ConcordCorePlugin extends Plugin {
     }
 
     /** First paint: lets the launch splash hand over instead of flashing blank. */
+    // The PULL half of the inset bridge. The push half writes --sa-* onto the
+    // document from the native side when the window's insets change; this is
+    // the page asking for them, which needs no listener to have fired and no
+    // earlier push to have survived a document swap. App.svelte asks on mount,
+    // again shortly after, and on every orientation change, then applies the
+    // same properties itself — so a device on which the push path is silent
+    // still ends up with the real bar height under its header.
+    @PluginMethod
+    public void insets(PluginCall call) {
+        if (!(getActivity() instanceof MainActivity)) {
+            call.resolve(new JSObject());
+            return;
+        }
+        MainActivity act = (MainActivity) getActivity();
+        act.forcePushInsets();
+        act.runOnUiThread(() -> {
+            try {
+                call.resolve(new JSObject(act.insetsJSON()));
+            } catch (Exception e) {
+                call.resolve(new JSObject());
+            }
+        });
+    }
+
     @PluginMethod
     public void appReady(PluginCall call) {
         MainActivity.markWebReady();
