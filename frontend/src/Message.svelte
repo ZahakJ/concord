@@ -2542,6 +2542,8 @@
     display: inline-flex;
     line-height: 1;
     font-size: 18px;
+    /* On a daylight ground a pale glyph gets an edge (app.css). */
+    filter: var(--emoji-edge, none);
   }
   /* Sized to match the character it replaces, so a pill doesn't change shape
      depending on whether that emoji happens to have an animation. */

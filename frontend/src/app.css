@@ -1032,6 +1032,9 @@
      leaves the worst case (pure white on `paper`) at 3.32:1; anything above
      about 0.53 stops clearing the bar. */
   --fx-dim: none;
+  /* An edge for an emoji drawn on a pill. Nothing on a dark ground, where
+     the palest glyphs are the ones that read best; see the daylight block. */
+  --emoji-edge: none;
   /* CRT grille strength. Touching one pixel in three, it is the one effect
      here that veils the whole window — everything else is sparse specks. So
      it is set by measurement, at the two thinnest ink/ground pairs in the
@@ -1055,6 +1058,14 @@
   --fx-ember-mid: #8f4a09;
   --fx-ember-low: #7a2c05;
   --fx-dim: brightness(0.5);
+  /* The emoji set is drawn for a dark ground, and several of its glyphs are
+     mostly white or pale grey — the skull, the ghost, the cloud. On a light
+     pill, and worst on the accent-tinted pill of a reaction you made, they
+     were a faint grey shape on lavender. A hairline of the theme's own ink
+     around the glyph gives it an edge without recolouring it.
+     cosmeticcontrast.test.mjs reads this colour and holds it at 3:1 against
+     a white glyph. */
+  --emoji-edge: drop-shadow(0 0 0.5px rgba(26, 32, 44, 0.85)) drop-shadow(0 0 0.5px rgba(26, 32, 44, 0.85));
   /* Six of the fifty packs are LIGHT grounds worn in nominally-dark mode, and
      the scrim is the one token where that matters most: 0.7 of black over a
      near-white app does not read as "behind glass", it reads as switched off.

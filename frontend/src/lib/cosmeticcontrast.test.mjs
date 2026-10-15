@@ -26,7 +26,7 @@
 //
 // 3:1 is the WCAG floor for non-text, which is what a drifting speck is.
 import { readFileSync } from "node:fs";
-import { contrast, colorsIn, daylightGrounds } from "./contrast.mjs";
+import { contrast, colorsIn, daylightGrounds, over, DAYLIGHT } from "./contrast.mjs";
 import { RINGS, PALETTES } from "./rings.js";
 import { THEME_FX } from "./themefx.js";
 
@@ -173,7 +173,41 @@ for (const e of ALL) {
   }
 }
 
-// --- 3. the maths itself -----------------------------------------------------
+// --- 3. an emoji on a daylight pill ------------------------------------------
+//
+// Reactions draw the emoji set's own colours on a pill of --bg-3 or, for one
+// you made, the accent tint — both pale on a daylight ground, and several
+// glyphs (the skull, the ghost) are near-white. Their visibility there rests
+// on the --emoji-edge outline, so the gate measures it: the edge, laid over
+// the palest thing it can sit on (white), must clear the non-text floor.
+// And it must be read: a token nothing applies is not a fix.
+{
+  const block = css.match(/:root\[data-theme="light"\]:not\(\[data-theme-pack\]\),[\s\S]*?\n\}/);
+  assert(!!block, "app.css: the grouped daylight block is gone — --emoji-edge has nowhere to live");
+  const decl = block && block[0].match(/--emoji-edge:\s*([^;]+);/);
+  assert(!!decl, "the daylight block declares no --emoji-edge — pale emoji on light pills lose their edge");
+  if (decl) {
+    const shadows = colorsIn(decl[1]);
+    assert(shadows.length > 0, `--emoji-edge (${decl[1].trim()}) has no colour to measure`);
+    for (const c of shadows) {
+      const ratio = contrast(over(c, [255, 255, 255]), [255, 255, 255]);
+      assert(
+        ratio >= FLOOR,
+        `--emoji-edge ${JSON.stringify(c)} is ${ratio.toFixed(2)}:1 against a white glyph (need ${FLOOR})`,
+      );
+    }
+    for (const g of DAYLIGHT) {
+      assert(block[0].includes(g.sel), `the daylight block no longer covers ${g.name}`);
+    }
+  }
+  const msg = readFileSync(new URL("../Message.svelte", import.meta.url), "utf8");
+  assert(
+    /\.remoji\s*\{[^}]*filter:\s*var\(--emoji-edge/.test(msg),
+    "Message.svelte .remoji no longer applies var(--emoji-edge)",
+  );
+}
+
+// --- 4. the maths itself -----------------------------------------------------
 
 assert(Math.abs(contrast([255, 255, 255], [0, 0, 0]) - 21) < 0.01, "white on black must be 21:1");
 assert(Math.abs(contrast([255, 255, 255], [255, 255, 255]) - 1) < 0.01, "white on white must be 1:1");
