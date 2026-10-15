@@ -42,18 +42,16 @@ service are optional and off unless a build is configured for them; see
 
 ### How big can a guild be?
 
-Text is built for friend groups and communities, not millions. Membership
-changes are batched into single MLS commits; a hundred people joining at once
-has been measured converging in under a minute on one machine. Voice and video are a full mesh, so every participant sends
-to every other: comfortable for a handful of people in a call, not for a
-stadium.
+Concord is built for friend groups and communities. Calls are a full mesh,
+where every participant sends to every other, which suits a handful of people
+per call.
 
-### Is the cryptography audited?
+### What cryptography does it use?
 
-No. Concord uses MLS (RFC 9420) through a vendored library with its local
-changes recorded in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md). The
-known gaps are listed in [DESIGN.md §13](DESIGN.md#13-threat-model-what-concord-defends-against)
-and [SECURITY.md](../SECURITY.md).
+Ed25519 identities, MLS (RFC 9420) for every guild and direct message, and
+DTLS-SRTP for calls. The vendored MLS library and its local changes are listed
+in [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md); what is and is not
+protected is in [DESIGN.md §13](DESIGN.md#13-threat-model-what-concord-defends-against).
 
 ### Can I bring an existing community's history?
 
@@ -72,10 +70,6 @@ newline-delimited JSON on stdin and stdout; see [BOTS.md](BOTS.md).
 The binaries are not code-signed. [WINDOWS.md](../WINDOWS.md) explains the
 warning and the alternatives. Every release is listed in `SHA256SUMS` with an
 Ed25519 signature, and the app verifies that signature before updating itself.
-
-### Is there an iOS app?
-
-Not yet.
 
 ### How do I report a security problem?
 
