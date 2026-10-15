@@ -329,14 +329,18 @@ func TestScaleRosterDiet(t *testing.T) {
 	for len(avatar) < 12*1024 {
 		avatar += "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg"
 	}
+	members := []string{owner.Fingerprint()}
 	for i := 0; i < roster; i++ {
 		fpr := fmt.Sprintf("%064x", i+1)
 		owner.mu.Lock()
 		owner.profiles[fpr] = Profile{Name: fmt.Sprintf("member-%d", i), Avatar: avatar, Color: "#8844ff"}
 		owner.mu.Unlock()
+		members = append(members, fpr)
 	}
+	// The roster is the guild's members; these are members in name only.
+	pretendMembers(owner, g.ID, members)
 
-	full, err := json.Marshal(owner.profileRoster())
+	full, err := json.Marshal(owner.guildProfileRoster(g.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,8 +355,8 @@ func TestScaleRosterDiet(t *testing.T) {
 	if err := json.Unmarshal(lean, &names); err != nil {
 		t.Fatal(err)
 	}
-	if len(names) != len(owner.profileRoster()) {
-		t.Fatalf("the diet dropped %d people from the roster", len(owner.profileRoster())-len(names))
+	if len(names) != len(owner.guildProfileRoster(g.ID)) {
+		t.Fatalf("the diet dropped %d people from the roster", len(owner.guildProfileRoster(g.ID))-len(names))
 	}
 	for fpr, p := range names {
 		if p.Name == "" {

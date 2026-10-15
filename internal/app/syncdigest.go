@@ -252,7 +252,7 @@ func sourceDigest(src syncSource) *syncDigest {
 func (s *Service) syncSourceFor(guildID string, guild domain.Guild, nowUnix int64) syncSource {
 	src := syncSource{
 		guild:      guild,
-		profiles:   s.profileRoster(),
+		profiles:   s.guildProfileRoster(guildID),
 		govOps:     s.govOpsFor(guildID),
 		stories:    s.storiesForSync(guildID, nowUnix),
 		storyDels:  s.storyDelsForSync(guildID, nowUnix),
@@ -277,24 +277,32 @@ func (s *Service) syncSourceFor(guildID string, guild domain.Guild, nowUnix int6
 // syncDigestFor assembles the inventory the requester sends.
 func (s *Service) syncDigestFor(guildID string, guild domain.Guild, nowUnix int64) *syncDigest {
 	src := s.syncSourceFor(guildID, guild, nowUnix)
-	// profileRoster drops members we only know as a blank name; the inventory
-	// must not, because an entry here also says "a row exists for this person,
-	// and an untrusted overwrite of it would be refused".
+	// guildProfileRoster drops members we only know as a blank name; the
+	// inventory must not, because an entry here also says "a row exists for
+	// this person, and an untrusted overwrite of it would be refused".
 	src.profiles = nil
 	d := sourceDigest(src)
-	d.Profiles = s.profileDigests()
+	d.Profiles = s.profileDigests(guildID)
 	return d
 }
 
-// profileDigests hashes every profile we hold, our own included. Unlike
-// profileRoster it does NOT drop members we only know as a blank name: the
-// point of an entry here is partly "I already have a row for this person", and
-// an untrusted responder may not overwrite such a row whatever is in it.
-func (s *Service) profileDigests() map[string]string {
+// profileDigests hashes the profile we hold for each member of the guild, our
+// own included. Unlike guildProfileRoster it does NOT drop members we only
+// know as a blank name: the point of an entry here is partly "I already have a
+// row for this person", and an untrusted responder may not overwrite such a
+// row whatever is in it.
+//
+// The guild's members only, for the same reason the roster is: the keys of
+// this map are fingerprints, and an inventory of every profile we hold, sent
+// to whichever member answers a sync, is a list of everyone we know.
+func (s *Service) profileDigests(guildID string) map[string]string {
+	members := s.guildMemberFingerprints(guildID)
 	s.mu.RLock()
-	out := make(map[string]string, len(s.profiles)+1)
-	for fpr, p := range s.profiles {
-		out[fpr] = digestProfile(p)
+	out := make(map[string]string, len(members)+1)
+	for _, fpr := range members {
+		if p, ok := s.profiles[fpr]; ok {
+			out[fpr] = digestProfile(p)
+		}
 	}
 	s.mu.RUnlock()
 	out[s.id.Fingerprint()] = digestProfile(s.selfStoredProfile())

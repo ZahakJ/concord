@@ -1098,7 +1098,7 @@ func (s *Service) handleInviteRequest(ctx context.Context, from peer.ID, request
 // new member sees without going looking: the guild's owner, and whoever just
 // admitted them.
 func (s *Service) joinRoster(guildID string) map[string]Profile {
-	roster := s.profileRoster()
+	roster := s.guildProfileRoster(guildID)
 	keepWhole := map[string]bool{
 		s.id.Fingerprint():        true,
 		s.effectiveOwner(guildID): true,
@@ -1126,14 +1126,24 @@ func (p Profile) withoutPictures() Profile {
 	return p
 }
 
-// profileRoster snapshots every profile this peer knows, plus its own, keyed by
-// fingerprint. Shared over invite and sync streams so names converge without
-// depending on gossip timing.
-func (s *Service) profileRoster() map[string]Profile {
+// guildProfileRoster snapshots the profiles of one guild's members, plus our
+// own, keyed by fingerprint. Shared over the invite and sync streams of THAT
+// guild so names converge without depending on gossip timing.
+//
+// Members of that guild only. The roster used to be every profile this peer
+// had ever learned, from any guild or DM, and it went to every member of every
+// guild on each sync and to every joiner on each invite — so anyone in any one
+// guild with you could read off the names, faces and mailbox keys of everyone
+// you talk to anywhere else, including the person in a DM nobody else knows
+// exists. Who you know is not the guild's business; who is in the guild is
+// already known to everyone in it.
+func (s *Service) guildProfileRoster(guildID string) map[string]Profile {
+	members := s.guildMemberFingerprints(guildID)
 	s.mu.RLock()
-	out := make(map[string]Profile, len(s.profiles)+1)
-	for fpr, p := range s.profiles {
-		if p.Name == "" {
+	out := make(map[string]Profile, len(members)+1)
+	for _, fpr := range members {
+		p, ok := s.profiles[fpr]
+		if !ok || p.Name == "" {
 			continue // don't relay someone we only know as "unknown" — it would
 			// blank the name for a peer who already learned it
 		}
