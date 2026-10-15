@@ -66,7 +66,7 @@
   import Avatar from "./Avatar.svelte";
   import Icon from "./Icon.svelte";
   import { pointOf, viewport } from "./lib/place.js";
-  import { voiceStage, forumBoard, searchTakeover } from "./lib/islands.svelte.js";
+  import { voiceStage, forumBoard, searchTakeover, islandFailed } from "./lib/islands.svelte.js";
 
   let {
     composer = $bindable(null),
@@ -190,13 +190,14 @@
 
   // The islands (lib/islands.svelte.js): fetched the moment they are wanted.
   $effect(() => {
-    if (S.callStage) voiceStage.load();
+    if (S.callStage) voiceStage.want((err) => islandFailed(err, () => (S.callStage = false)));
   });
   $effect(() => {
-    if (boardObj) forumBoard.load();
+    // No state to put back: leaving the channel and returning is the retry.
+    if (boardObj) forumBoard.want((err) => islandFailed(err));
   });
   $effect(() => {
-    if (S.searchResults !== null) searchTakeover.load();
+    if (S.searchResults !== null) searchTakeover.want((err) => islandFailed(err, () => (S.searchResults = null)));
   });
 
   // No conversation to show: Home is the only place there is.

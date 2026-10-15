@@ -13,31 +13,35 @@
 // warmIslands() fetches all of them in the first idle moment after boot, so
 // the first tap on Study Hall or a forum still finds the code on the machine
 // — the split moves the bytes off the boot path, not out of the session.
-import { untrack } from "svelte";
+import { loadOnce, want } from "./loadonce.js";
+import { flashSlot } from "./state.svelte.js";
+
+// islandFailed is the onFail the shells hand to want(): put back the state
+// that asked (so asking again is a real retry), and say so once. A slot, not a
+// stack — App and MobileShell both ask for the shared surfaces, and one failed
+// fetch is one message.
+export function islandFailed(err, putBack) {
+  console.warn("island chunk failed to load", err);
+  putBack?.();
+  flashSlot("island", "Couldn't load that view. Try again.", "error");
+}
 
 function island(load) {
   let C = $state(null);
-  let pending = null;
+  const loader = loadOnce(load, (m) => (C = m.default));
   return {
     get C() {
       return C;
     },
-    load() {
-      if (untrack(() => C)) return Promise.resolve();
-      if (!pending) {
-        pending = load().then(
-          (m) => {
-            C = m.default;
-          },
-          (err) => {
-            // A failed fetch must not poison the slot: the next ask retries.
-            pending = null;
-            throw err;
-          },
-        );
-      }
-      return pending;
-    },
+    // Rejects on failure; for callers that await (warmIslands catches).
+    load: loader,
+    // For the $effects that open a surface: never rejects. A chunk that fails
+    // to load (an interrupted update, a flaky WebView) used to be an unhandled
+    // rejection and a surface that silently never appeared, with the state
+    // that asked for it still set — so the effect never ran again and the
+    // retry loadOnce allows could not happen. onFail puts that state back and
+    // says so; the next ask is the retry.
+    want: (onFail) => want(loader, onFail),
   };
 }
 

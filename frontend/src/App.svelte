@@ -95,6 +95,7 @@
     selfView,
     callMiniControls,
     warmIslands,
+    islandFailed,
   } from "./lib/islands.svelte.js";
   import { GUILD_ITEMS, inGuildHub } from "./lib/guildnav.js";
 
@@ -204,22 +205,24 @@
   // it lands. warmIslands() in onMount fetches them all after boot anyway;
   // these cover a surface opened in the first seconds.
   $effect(() => {
-    if (S.callStage) voiceStage.load();
+    if (S.callStage) voiceStage.want((err) => islandFailed(err, () => (S.callStage = false)));
   });
   $effect(() => {
-    if (boardObj) forumBoard.load();
+    // No state to put back: leaving the channel and returning is the retry.
+    if (boardObj) forumBoard.want((err) => islandFailed(err));
   });
   $effect(() => {
-    if (S.searchResults !== null) searchTakeover.load();
+    if (S.searchResults !== null) searchTakeover.want((err) => islandFailed(err, () => (S.searchResults = null)));
   });
   $effect(() => {
-    if (S.quickSwitcher) commandPalette.load();
+    if (S.quickSwitcher) commandPalette.want((err) => islandFailed(err, () => (S.quickSwitcher = false)));
   });
   $effect(() => {
     if (S.voice) {
-      parkedCall.load();
-      selfView.load();
-      callMiniControls.load();
+      // Call chrome, not the call: a miss here is retried on the next join.
+      parkedCall.want(() => {});
+      selfView.want(() => {});
+      callMiniControls.want(() => {});
     }
   });
 
