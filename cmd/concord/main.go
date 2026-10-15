@@ -8,6 +8,8 @@
 //
 //	concord --status   boot identity, print fingerprint/PeerID, exit
 //	concord --serve    boot identity + networking, discover LAN peers, run
+//	concord --bot      boot identity + networking, speak JSON lines on
+//	                   stdin/stdout for a script (docs/BOTS.md)
 //
 // Passphrase handling: the passphrase is read from a hidden terminal prompt, or
 // from CONCORD_PASSPHRASE when there is no TTY (CI / local multi-peer scripts).
@@ -30,13 +32,17 @@ import (
 
 func main() {
 	serve := flag.Bool("serve", false, "boot identity + networking and run until interrupted (headless)")
+	botMode := flag.Bool("bot", false, "boot identity + networking and speak newline-delimited JSON on stdin/stdout (see docs/BOTS.md)")
 	flag.Bool("status", false, "boot identity and print status, then exit (default mode)")
 	flag.Parse()
 
 	var err error
-	if *serve {
+	switch {
+	case *botMode:
+		err = runBot()
+	case *serve:
 		err = runServe()
-	} else {
+	default:
 		err = runStatus()
 	}
 	if err != nil {
@@ -83,14 +89,7 @@ func runServe() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfg := app.Config{DataDir: dataDir, Passphrase: pass}
-	if bs := os.Getenv("CONCORD_BOOTSTRAP"); bs != "" {
-		cfg.BootstrapPeers = strings.Split(bs, ",")
-	}
-	if os.Getenv("CONCORD_DISABLE_MDNS") == "1" {
-		cfg.DisableMDNS = true
-	}
-	svc, err := app.Start(ctx, cfg)
+	svc, err := app.Start(ctx, serviceConfig(dataDir, pass))
 	if err != nil {
 		return err
 	}
@@ -98,6 +97,19 @@ func runServe() error {
 
 	fmt.Println("Concord node running (mDNS LAN discovery on).")
 	return runREPL(ctx, svc)
+}
+
+// serviceConfig is the Service configuration every headless mode shares,
+// including the environment overrides local multi-peer scripts rely on.
+func serviceConfig(dataDir, pass string) app.Config {
+	cfg := app.Config{DataDir: dataDir, Passphrase: pass}
+	if bs := os.Getenv("CONCORD_BOOTSTRAP"); bs != "" {
+		cfg.BootstrapPeers = strings.Split(bs, ",")
+	}
+	if os.Getenv("CONCORD_DISABLE_MDNS") == "1" {
+		cfg.DisableMDNS = true
+	}
+	return cfg
 }
 
 // readPassphrase reads the keystore passphrase without echoing it, falling back
