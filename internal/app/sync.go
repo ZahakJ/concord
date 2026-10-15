@@ -1088,6 +1088,7 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 	anyNew := false
 	refused := 0
 	failed := map[string]bool{}
+	arrived := s.guildArrivedNano(guildID)
 	for chID, msgs := range payload.Messages {
 		s.mu.RLock()
 		_, tracked := s.channelToGuild[chID]
@@ -1115,6 +1116,19 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 			}
 			accepted = append(accepted, m)
 		}
+		// Which rows could be news (syncedIsNews), and are new HERE: a row we
+		// already hold that sync merely updated (a reaction, an edit) was
+		// announced when it arrived, and announcing it again would ping for it
+		// twice. Only the handful inside the live window are looked up.
+		news := map[string]bool{}
+		now := time.Now()
+		for _, m := range accepted {
+			if syncedIsNews(m, arrived, now) {
+				if _, held, err := s.store.MessageByID(m.ID); err == nil && !held {
+					news[m.ID] = true
+				}
+			}
+		}
 		// One transaction per batch of rows rather than a commit per statement
 		// (store.UpsertSyncedMessages), with the same rules row for row.
 		changed, err := s.store.UpsertSyncedMessages(accepted, self, trusted)
@@ -1131,8 +1145,9 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 			anyNew = true
 			// History, not news: a listener that notifies must not treat a
 			// week-old row that arrived on the catch-up like a message somebody
-			// just wrote (domain.Message.Backfill).
-			full.Backfill = true
+			// just wrote (domain.Message.Backfill). But see syncedIsNews: the
+			// lane a row arrived by is not the answer.
+			full.Backfill = !news[full.ID]
 			s.emitMessage(full)
 		}
 	}
@@ -1144,6 +1159,36 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 		s.unhideDM(guildID)
 	}
 	return true, &payload, failed
+}
+
+// syncLiveWindow is how recent a row that arrived by sync may be and still be
+// news. It is the window the UI already applies to every message before it
+// will chime or notify, so a row inside it is one the UI would have treated as
+// live had gossip delivered it.
+const syncLiveWindow = time.Minute
+
+// syncedIsNews decides whether a row that history sync stored is news to this
+// device, from the row itself rather than from the lane it came by.
+//
+// Labelling every synced row as history made the answer depend on a race. A
+// catch-up runs continuously (the beat, the connect tail, reciprocal pulls),
+// and when one already in flight stored a message written a second ago, its
+// live delivery arrived second, found a duplicate, and was dropped without an
+// emit — so the only event the UI ever saw for it said "history", and nothing
+// chimed or notified for a message somebody had just written.
+//
+// A row is news when it was written inside the live window and after the guild
+// arrived on this device (arrival.go's floor) — and, decided by the caller, it
+// is new to this device rather than an update to a row already announced.
+// These are facts about the row and the device, the same whichever lane wins.
+// A week of catch-up stays history; so does anything written before a join,
+// however recent.
+func syncedIsNews(m domain.Message, arrivedNano int64, now time.Time) bool {
+	if m.Sent.UnixNano() <= arrivedNano {
+		return false
+	}
+	age := now.Sub(m.Sent)
+	return age < syncLiveWindow && age > -syncLiveWindow
 }
 
 // syncCursor is where a request to one peer starts from.
