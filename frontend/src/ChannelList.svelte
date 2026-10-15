@@ -383,6 +383,21 @@
             })),
           ]
         : []),
+      // Move to…: on desktop this also lives in the row's chevron menu and in
+      // drag-and-drop, but a phone has neither, so this list is its only way.
+      ...(canManageChannels && !c.parent && (g?.categories || []).length
+        ? [
+            { sep: true },
+            { label: "Move to…", header: true },
+            ...[{ id: "", name: "No category" }, ...g.categories]
+              .filter((cat) => cat.id !== (c.category || ""))
+              .map((cat) => ({
+                label: cat.name,
+                icon: cat.id ? "chevron" : "hash",
+                onClick: () => moveChannelToCategory(c, cat.id),
+              })),
+          ]
+        : []),
       canManageChannels && {
         label: "Rename channel",
         icon: "edit",
@@ -743,7 +758,7 @@
   <!-- Drag-to-reorder is a pointer-only enhancement; keyboard users reorder via
        the row menu's "Move to…", so the drag handlers stay off the a11y tree. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="scroll" ondragleave={listDragLeave}>
+  <div class="scroll" class:channels-touch={coarse} ondragleave={listDragLeave}>
     {#if g?.kind === "dm"}
       {#if S.requests.length}
         <!-- Strangers wait here. Deliberately a quiet row, not a badge on the
@@ -939,7 +954,22 @@
                   <span class="cat-count">{grp.channels.length}</span>
                 {/if}
               </button>
-              {#if canManageChannels}
+              {#if canManageChannels && coarse}
+                <!-- A phone gets one control here, not three: the +, pencil and
+                     trash sat on every category heading permanently, because
+                     there is no hover to hide them behind, and a trash can
+                     beside every heading is a lot of ink for something done once
+                     in a guild's life. This opens the same menu a long-press on
+                     the heading does. -->
+                <button
+                  class="cat-add cat-more"
+                  aria-label="Options for {grp.name}"
+                  aria-haspopup="menu"
+                  onclick={(e) => categoryMenu(e, grp)}
+                >
+                  <Icon name="dots" size={14} />
+                </button>
+              {:else if canManageChannels}
                 <span class="cat-actions">
                   <button
                     class="cat-add"
@@ -1106,7 +1136,7 @@
                 <span class="eq" class:you={inVoice} aria-hidden="true"><i></i><i></i><i></i></span>
               {/if}
             </button>
-            {#if canManageChannels}
+            {#if canManageChannels && !coarse}
               <span class="ch-menu">
                 <Menu label="Channel options" icon="chevron" align="right" compact>
                   {#if (g?.categories || []).length}
@@ -1133,7 +1163,24 @@
                 </Menu>
               </span>
             {/if}
-            {#if c.type !== "voice"}
+            {#if c.type !== "voice" && coarse}
+              <!-- On touch the bell is not a per-row control: a long-press on
+                   the row holds the channel's whole notification menu. It shows
+                   only as the news that this channel IS muted, and a tap on it
+                   is the quickest way back. -->
+              {#if isMuted(c.id, g?.id)}
+                <button
+                  class="mute-btn"
+                  aria-label="Unmute channel"
+                  onclick={() => {
+                    toggleMute(c.id);
+                    haptic("light");
+                  }}
+                >
+                  <Icon name="bellOff" size={13} />
+                </button>
+              {/if}
+            {:else if c.type !== "voice"}
               <button
                 class="mute-btn"
                 use:tooltip
@@ -2670,6 +2717,9 @@
       padding: var(--sp-2);
       position: relative;
     }
+    .cat-more {
+      padding: var(--sp-1) var(--sp-2);
+    }
     .cat-add::after {
       content: "";
       position: absolute;
@@ -2680,6 +2730,21 @@
        "add channel" is a hair from "delete category". */
     .cat-head {
       min-height: 44px;
+    }
+    /* Only one control is left in a touch heading (the ⋯, see the markup), so
+       there is no neighbouring target for its overlay to land on and the
+       heading can be its text's height again. With three buttons and a 44px
+       floor, plus the section head's own 48px menu target above it, "CHANNELS"
+       and the first category were 55px apart with nothing between them. */
+    .channels-touch .cat-head {
+      min-height: 32px;
+      margin-top: var(--sp-1);
+    }
+    .channels-touch .section-head {
+      margin-bottom: calc(-1 * var(--sp-2));
+    }
+    .channels-touch .mute-slot {
+      display: none;
     }
     /* Participant rows abut the channel row above them with no gap, and each
        one is BOTH a tap target (joins the call) and a long-press target
