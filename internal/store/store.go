@@ -18,6 +18,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"sync"
@@ -1699,6 +1700,33 @@ type InboxHit struct {
 	RepliesToYou bool
 }
 
+// newestFirstPage is the keyset condition for one page of a newest-first walk
+// ordered by (sent DESC, id ASC), for a table alias prefix such as "m.".
+//
+// Its shape is chosen for the query planner, not for brevity. The obvious
+// spelling, `sent < ? OR (sent = ? AND id > ?)`, and no condition at all on
+// the first page, both leave SQLite without a range it can walk
+// idx_messages_sent backwards over: it sorted every row older than the cursor
+// into a temporary b-tree to hand back 256 of them, once per page, so a scan
+// of N pages cost N full sorts. `sent <= ?` always gives it that range — the
+// first page bounds at the largest int64 — and the remaining test only
+// excludes the rows at the cursor's own instant that were already returned,
+// which sorts nothing but a run of equal timestamps.
+func newestFirstPage(alias string, curSent int64, curID string) (string, []any) {
+	switch {
+	case curSent <= 0:
+		return ` AND ` + alias + `sent <= ?`, []any{int64(math.MaxInt64)}
+	case curID == "":
+		// First page under a caller-supplied bound: strictly older.
+		return ` AND ` + alias + `sent < ?`, []any{curSent}
+	default:
+		// Later pages tiebreak on id so same-nanosecond rows can't slip
+		// between two pages.
+		return ` AND ` + alias + `sent <= ? AND (` + alias + `sent < ? OR ` + alias + `id > ?)`,
+			[]any{curSent, curSent, curID}
+	}
+}
+
 // InboxCandidates walks history newest-first and returns the messages that
 // either reply to something you sent or contain one of `terms` in the body.
 //
@@ -1749,15 +1777,9 @@ func (s *Store) InboxCandidates(self []byte, terms []string, beforeNano, afterNa
 		                 SELECT 1 FROM messages p WHERE p.id = m.reply_to AND p.sender = ?))
 		 FROM messages m WHERE ` + where
 		pageArgs := append([]any{self}, args...)
-		if curSent > 0 {
-			if curID == "" {
-				q += ` AND m.sent < ?`
-				pageArgs = append(pageArgs, curSent)
-			} else {
-				q += ` AND (m.sent < ? OR (m.sent = ? AND m.id > ?))`
-				pageArgs = append(pageArgs, curSent, curSent, curID)
-			}
-		}
+		clause, cargs := newestFirstPage("m.", curSent, curID)
+		q += clause
+		pageArgs = append(pageArgs, cargs...)
 		q += ` ORDER BY m.sent DESC, m.id ASC LIMIT ?`
 		pageArgs = append(pageArgs, batch)
 
@@ -1899,18 +1921,9 @@ func (s *Store) SearchMessages(query string, limit int, filter ...SearchFilter) 
 		q := `SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent
 		 FROM messages WHERE ` + where
 		pageArgs := append([]any{}, args...)
-		if curSent > 0 {
-			if curID == "" {
-				// First page under a caller-supplied bound: strictly older.
-				q += ` AND sent < ?`
-				pageArgs = append(pageArgs, curSent)
-			} else {
-				// Later pages tiebreak on id so same-nanosecond rows can't
-				// slip between two pages.
-				q += ` AND (sent < ? OR (sent = ? AND id > ?))`
-				pageArgs = append(pageArgs, curSent, curSent, curID)
-			}
-		}
+		clause, cargs := newestFirstPage("", curSent, curID)
+		q += clause
+		pageArgs = append(pageArgs, cargs...)
 		q += ` ORDER BY sent DESC, id ASC LIMIT ?`
 		pageArgs = append(pageArgs, batch)
 

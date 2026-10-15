@@ -35,7 +35,7 @@ func banOp(id *identity.Identity, seq uint64, typ, target string) govOp {
 	return o
 }
 
-func mustID(t *testing.T) *identity.Identity {
+func mustID(t testing.TB) *identity.Identity {
 	t.Helper()
 	id, err := identity.Generate()
 	if err != nil {

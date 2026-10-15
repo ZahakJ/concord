@@ -206,7 +206,7 @@ func TestSnippetIsBoundedAndRuneSafe(t *testing.T) {
 
 // inboxService is a Service with a real store and a real identity behind it —
 // Inbox() reads the store and the (empty) guild/roster maps, and nothing else.
-func inboxService(t *testing.T) (*Service, *identity.Identity) {
+func inboxService(t testing.TB) (*Service, *identity.Identity) {
 	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "concord.db"), bytes.Repeat([]byte{3}, 32))
 	if err != nil {
