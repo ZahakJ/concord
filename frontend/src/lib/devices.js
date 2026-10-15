@@ -351,12 +351,28 @@ export function recordSelfTest({
   let onLevel = () => {};
   let cancelled = false;
   let stopRec = () => {};
+  // The element playing the clip back, once there is one — cancel() has to be
+  // able to silence it, not just flag that it should no longer be wanted.
+  let player = null;
+  let endPlayback = () => {};
 
   const done = (async () => {
     const raw = await micStream(deviceId, processing);
+    // Cancelled while the permission prompt or the device open was pending:
+    // nobody is waiting for this microphone any more, so let go of it now
+    // rather than record five seconds into a dialog that has closed.
+    if (cancelled) {
+      raw.getTracks().forEach((t) => t.stop());
+      return false;
+    }
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     if (ctx.state === "suspended") await ctx.resume().catch(() => {});
     if (nr) await loadDenoiser(ctx);
+    if (cancelled) {
+      raw.getTracks().forEach((t) => t.stop());
+      ctx.close().catch(() => {});
+      return false;
+    }
     const src = ctx.createMediaStreamSource(raw);
     // The same chain a call would use, in the same order — the playback is only
     // worth anything if it's processed exactly like the real thing.
@@ -414,18 +430,26 @@ export function recordSelfTest({
     if (cancelled || !chunks.length) return false;
 
     const el = new Audio(URL.createObjectURL(new Blob(chunks, { type: chunks[0].type || "audio/webm" })));
+    player = el;
     await applySink(el, sinkId);
     const played = new Promise((r) => {
+      endPlayback = r;
       el.onended = r;
       el.onerror = r;
     });
     try {
+      if (cancelled) return false;
       await el.play();
+      // cancel() may have landed while play() was resolving; it paused an
+      // element that had not started yet, so pause again now that it has.
+      if (cancelled) el.pause();
+      else await played;
     } catch {
       return false;
+    } finally {
+      player = null;
+      URL.revokeObjectURL(el.src);
     }
-    await played;
-    URL.revokeObjectURL(el.src);
     return !cancelled;
   })();
 
@@ -435,6 +459,9 @@ export function recordSelfTest({
     cancel: () => {
       cancelled = true;
       stopRec();
+      // Pausing fires neither "ended" nor "error", so settle the wait by hand.
+      player?.pause();
+      endPlayback();
     },
     onLevel: (fn) => (onLevel = fn || (() => {})),
   };

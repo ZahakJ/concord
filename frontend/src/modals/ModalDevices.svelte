@@ -97,6 +97,12 @@
   }
 
   let stopWatching = () => {};
+  // Every opener of a microphone or camera below awaits a permission prompt or
+  // a device open, and the dialog can close during that wait. Each await is
+  // followed by a look at this flag (and a generation number, for a newer
+  // open that superseded it) so a stream that arrives late is stopped instead
+  // of left running behind a dialog nobody can see.
+  let destroyed = false;
   onMount(() => {
     refresh();
     // Plugging in a headset mid-dialog should show it without a reopen.
@@ -109,6 +115,7 @@
     startMicTest();
   });
   onDestroy(() => {
+    destroyed = true;
     stopWatching();
     stopMicTest();
     stopCamTest();
@@ -284,15 +291,23 @@
   let testStream = null;
   let testCtx = null;
   let testTimer = null;
+  let micGen = 0; // bumped by every stop, so an open still in flight knows it lost
 
   async function startMicTest(auto = false) {
     stopMicTest();
+    const gen = micGen;
+    let stream;
     try {
-      testStream = await micStream(chosen("mic"), processing());
+      stream = await micStream(chosen("mic"), processing());
     } catch {
-      flash("Couldn't open that microphone", "error");
+      if (gen === micGen && !destroyed) flash("Couldn't open that microphone", "error");
       return;
     }
+    if (gen !== micGen || destroyed) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    testStream = stream;
     micTesting = true;
     autoTest = auto;
     try {
@@ -321,6 +336,7 @@
   }
 
   function stopMicTest() {
+    micGen++;
     micTesting = false;
     autoTest = false;
     level = 0;
@@ -369,6 +385,10 @@
     selfTest = "";
     selfCtl = null;
     level = 0;
+    // The dialog closed during the recording or the playback: there is no
+    // meter left to hand the microphone back to, and reopening it here would
+    // leave the mic live (and the browser's recording dot lit) with no UI.
+    if (destroyed) return;
     // Hand the microphone back to the always-on meter. One mic at a time, so
     // "Hear myself" borrowed it; without this the bar stayed dead afterwards.
     startMicTest();
@@ -380,18 +400,28 @@
   let camStream = $state(null);
   let camEl = $state(null);
 
+  let camGen = 0;
+
   async function startCamTest() {
     stopCamTest();
+    const gen = camGen;
+    let stream;
     try {
-      camStream = await cameraStream(chosen("camera"));
+      stream = await cameraStream(chosen("camera"));
     } catch {
-      flash("Couldn't open that camera", "error");
+      if (gen === camGen && !destroyed) flash("Couldn't open that camera", "error");
       return;
     }
+    if (gen !== camGen || destroyed) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    camStream = stream;
     camTesting = true;
   }
 
   function stopCamTest() {
+    camGen++;
     camTesting = false;
     camStream?.getTracks().forEach((t) => t.stop());
     camStream = null;
