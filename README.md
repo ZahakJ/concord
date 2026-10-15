@@ -205,6 +205,7 @@ tracked even though the images it describes are not.
 | [docs/DESIGN.md](docs/DESIGN.md) | How Concord works, end to end, and what it costs |
 | [docs/RENDEZVOUS.md](docs/RENDEZVOUS.md) | Running the one optional node, and how to avoid needing it |
 | [docs/PUSH.md](docs/PUSH.md) | Optional push wakes: what they cost in privacy, and how to switch them on |
+| [docs/BOTS.md](docs/BOTS.md) | Bots: a peer with its own identity, driven by a script over JSON lines |
 | [PRIVACY.md](PRIVACY.md) | The privacy policy: what data exists, who can read it, and every outbound call ([published copy](https://zahakj.github.io/concord/privacy.html)) |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Build, test, the multi-peer dev loop, code style |
 | [MAINTAINERS.md](MAINTAINERS.md) | Who decides what, and how a change gets merged |
