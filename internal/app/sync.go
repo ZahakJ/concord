@@ -1080,6 +1080,7 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 			failed[chID] = true
 			continue
 		}
+		accepted := make([]domain.Message, 0, len(msgs))
 		for _, m := range msgs {
 			// Never accept action kinds through sync (state already snapshotted)
 			// or rows claiming a different channel than the one they came under.
@@ -1096,24 +1097,27 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 				refused++
 				continue
 			}
-			changed, err := s.store.UpsertSyncedMessage(m, self, trusted)
-			if err != nil {
-				// Not stored, so not ours to count as reached: the cursor for
-				// this channel stays put and the row is asked for again.
-				failed[chID] = true
-				continue
-			}
-			if !changed {
-				continue
-			}
+			accepted = append(accepted, m)
+		}
+		// One transaction per batch of rows rather than a commit per statement
+		// (store.UpsertSyncedMessages), with the same rules row for row.
+		changed, err := s.store.UpsertSyncedMessages(accepted, self, trusted)
+		if err != nil {
+			// A batch was lost to its commit: not stored, so not ours to count
+			// as reached. The cursor for this channel stays put and the rows
+			// are asked for again. What the cursor advances over is what was
+			// served and stored, never what was emitted — a row already held is
+			// served, stored by nobody and emitted to nobody, and is still
+			// reached.
+			failed[chID] = true
+		}
+		for _, full := range changed {
 			anyNew = true
-			if full, ok, err := s.store.MessageByID(m.ID); err == nil && ok {
-				// History, not news: a listener that notifies must not treat a
-				// week-old row that arrived on the catch-up like a message
-				// somebody just wrote (domain.Message.Backfill).
-				full.Backfill = true
-				s.emitMessage(full)
-			}
+			// History, not news: a listener that notifies must not treat a
+			// week-old row that arrived on the catch-up like a message somebody
+			// just wrote (domain.Message.Backfill).
+			full.Backfill = true
+			s.emitMessage(full)
 		}
 	}
 	refusedMessages.note(refused, "backfilled messages", srcFpr)
