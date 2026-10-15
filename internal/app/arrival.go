@@ -60,6 +60,15 @@ func (s *Service) noteGuildArrival(g *domain.Guild) {
 	_ = s.store.SetSetting(key, strconv.FormatInt(at.UnixNano(), 10))
 }
 
+// forgetGuildArrival drops a guild's stamp, for a guild leaving this device:
+// whenever it arrives again, that is a new arrival.
+func (s *Service) forgetGuildArrival(guildID string) {
+	if guildID == "" {
+		return
+	}
+	_ = s.store.DeleteSetting(guildArrivedPrefix + guildID)
+}
+
 // arrivalMemo answers guildArrivedNano once per guild for the span of one
 // call — the inbox and the badge count both ask per row, and a page of fifty
 // rows from three guilds is three reads, not fifty.

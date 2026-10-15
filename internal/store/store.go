@@ -2459,6 +2459,14 @@ func (s *Store) SetSetting(key, value string) error {
 	return nil
 }
 
+// DeleteSetting removes a stored setting. Absent is not an error.
+func (s *Store) DeleteSetting(key string) error {
+	if _, err := s.db.Exec(`DELETE FROM settings WHERE key = ?`, key); err != nil {
+		return fmt.Errorf("store: delete setting: %w", err)
+	}
+	return nil
+}
+
 // GetSetting returns a stored setting, or "" if unset.
 func (s *Store) GetSetting(key string) (string, error) {
 	var v string

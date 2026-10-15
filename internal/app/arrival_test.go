@@ -228,3 +228,38 @@ func TestArrivalOfADMIsItsCreation(t *testing.T) {
 		t.Fatalf("a joined guild's floor = %d, want the join (>= %d)", got, before)
 	}
 }
+
+// TestArrivalIsForgottenWithTheGuild: leaving deletes a guild's history, and
+// the floor that history was measured against has to go with it. The stamp is
+// write-once, so one that survived the leave floored a later rejoin at the
+// FIRST arrival — and everything said in between came back on the rejoin's
+// catch-up counted as unread news.
+func TestArrivalIsForgottenWithTheGuild(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a, err := Start(ctx, Config{DataDir: t.TempDir(), Passphrase: "test-pass", DisableMDNS: true})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer a.Close()
+	g, err := a.CreateGuild("left and back")
+	if err != nil {
+		t.Fatalf("CreateGuild: %v", err)
+	}
+	first := a.guildArrivedNano(g.ID)
+	if first == 0 {
+		t.Fatal("a created guild was not stamped on arrival")
+	}
+	if err := a.deleteGuildLocal(g.ID); err != nil {
+		t.Fatalf("deleteGuildLocal: %v", err)
+	}
+	if got := a.guildArrivedNano(g.ID); got != 0 {
+		t.Fatalf("the arrival stamp outlived the guild: %d", got)
+	}
+	time.Sleep(2 * time.Millisecond)
+	again := domain.Guild{ID: g.ID}
+	a.noteGuildArrival(&again)
+	if got := a.guildArrivedNano(g.ID); got <= first {
+		t.Fatalf("a rejoin is floored at %d, not after the first arrival %d", got, first)
+	}
+}

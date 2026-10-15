@@ -599,6 +599,11 @@ func (s *Service) deleteGuildLocal(guildID string) error {
 	s.dmInviteMu.Unlock()
 	s.persistDMState()
 	_ = s.store.DeleteGuild(guildID)
+	// The arrival floor goes with the history it was floored under. It is
+	// written once per guild, so a stamp that outlived the leave would floor a
+	// later rejoin at the FIRST arrival, and everything said between the two
+	// would come back on the rejoin's catch-up as unread news.
+	s.forgetGuildArrival(guildID)
 	s.emitGuildUpdate()
 	return nil
 }
