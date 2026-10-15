@@ -12,6 +12,21 @@ commit at once?") are answered there rather than in the code.
 Security issues do not belong in an issue or a pull request. See
 [SECURITY.md](SECURITY.md).
 
+## Where to start
+
+- Issues labelled
+  [`good first issue`](https://github.com/ZahakJ/concord/labels/good%20first%20issue)
+  are small, self-contained, and say where the code is.
+  [`help wanted`](https://github.com/ZahakJ/concord/labels/help%20wanted) are
+  larger but scoped.
+- [§14 of DESIGN.md](docs/DESIGN.md#14-map-of-the-code) maps the tree:
+  `internal/` is the Go core (identity, MLS, networking, storage, sync),
+  `internal/bridge` is the RPC surface the UI calls, `frontend/src` is the
+  Svelte UI, `apps/mobile` wraps it for Android and iOS, `cmd/rendezvous` is
+  the optional node.
+- `make peers` gives you two local peers to break things between, which is
+  where most bugs live (see [the multi-peer dev loop](#the-multi-peer-dev-loop)).
+
 ## Prerequisites
 
 - Go: the version in [`go.mod`](go.mod) (currently 1.26.3) or newer.

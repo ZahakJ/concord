@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ZahakJ/concord/security/advisories/new
+    about: Report privately. Do not open a public issue for a security problem.
+  - name: Cannot reach a friend
+    url: https://github.com/ZahakJ/concord/blob/main/docs/FAQ.md#is-there-a-server
+    about: Most connection problems are NAT, answered in the FAQ and in docs/RENDEZVOUS.md. Open a bug if those do not explain it.
