@@ -1927,8 +1927,8 @@ export function registerFeed(el) {
 // The feed sits ABOVE the composer in the DOM, so tabbing forward out of the
 // composer skipped it entirely and landed in the Moments tray — the rows were
 // reachable only by tabbing backwards, which is not something anyone discovers.
-// The composer's last toolbar hands Tab here instead, which is also what Slack
-// does with the same problem and the same layout.
+// The composer's last toolbar hands Tab here instead, so the feed comes next
+// in the order a reader expects.
 export function focusFeed() {
   const el =
     feedEl?.querySelector('[data-msg-id][tabindex="0"]') || feedEl?.querySelector("[data-msg-id]");
