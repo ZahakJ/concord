@@ -32,7 +32,7 @@
 {#if ev}
   <div class="ep">
     <span class="ep-head"><Icon name="calendar" size={12} /> New event</span>
-    <EventCard {ev} {g} onJoinVoice={joinVoiceChannel} bubble="time" />
+    <EventCard {ev} {g} onJoinVoice={joinVoiceChannel} bubble="time" inFeed />
   </div>
 {:else}
   <!-- The record has not arrived (or was deleted). Say which of the two, and

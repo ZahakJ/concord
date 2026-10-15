@@ -12,7 +12,7 @@
   import { api } from "./lib/api.js";
   import { PERM, has } from "./lib/perms.js";
   import { addReminder } from "./lib/scheduled.svelte.js";
-  import { haptic } from "./lib/touch.js";
+  import { haptic, longpress } from "./lib/touch.js";
   import { clockOpts } from "./lib/state.svelte.js";
   import { radialBurst } from "./lib/burst.js";
   import {
@@ -35,7 +35,7 @@
   // printing the same fact twice. onJoinVoice is App's real voice lifecycle
   // (mesh, knock, call view), threaded down so a voice-channel-located event's
   // Join can enter the call exactly like clicking the channel would.
-  let { ev, g, showGuild = false, onEdit, onJoinVoice, bubble = "date" } = $props();
+  let { ev, g, showGuild = false, onEdit, onJoinVoice, bubble = "date", inFeed = false } = $props();
 
   // Soon-aware tick: 30s normally, 10s inside the T-60m window so the
   // countdown never visibly stalls. Minute-grained copy needs no 1s tick.
@@ -370,6 +370,33 @@
     menuAnchor = e.currentTarget;
     openContextMenu(e, buildMenu(), { title: ev.title });
   }
+
+  // In the feed the card is a guest in a message row, so it follows the row's
+  // rules: its delete and ⋯ show on hover or focus with a mouse, and on touch
+  // they are not drawn at all — a long-press on the card opens the same menu,
+  // the way a long-press on a message does. They used to sit on every event
+  // card permanently, the only controls in the feed that never went away.
+  const coarse = typeof window !== "undefined" && (window.matchMedia?.("(pointer: coarse)")?.matches ?? false);
+  function feedTouchMenu(node, on) {
+    if (!on) return;
+    // The row's own long-press would open the message menu too. A native
+    // listener here stops the touch before the row's listener arms, the same
+    // way a reaction pill does (see Message.svelte's stopTouch).
+    const stop = (e) => e.stopPropagation();
+    node.addEventListener("touchstart", stop, { passive: true });
+    const lp = longpress(node, {
+      handler: (e) => {
+        menuAnchor = node;
+        openContextMenu(e, buildMenu(), { title: ev.title });
+      },
+    });
+    return {
+      destroy() {
+        node.removeEventListener("touchstart", stop);
+        lp?.destroy?.();
+      },
+    };
+  }
   // Re-render the OPEN menu after an arming state flips, so the label is the
   // confirmation ("Tap again — …") instead of a second identical line.
   function refreshMenu() {
@@ -428,7 +455,7 @@
   }
 </script>
 
-<article class="evcard" class:soon={phase === "soon"} class:live={phase === "live"} class:ended={phase === "ended"}>
+<article class="evcard" class:in-feed={inFeed} use:feedTouchMenu={inFeed && coarse} class:soon={phase === "soon"} class:live={phase === "live"} class:ended={phase === "ended"}>
   <div class="date" aria-hidden="true">
     {#if bubble === "time"}
       <span class="bt">{bubbleTime.t}</span>
@@ -840,6 +867,25 @@
   .dots:hover {
     background: var(--bg-3);
     color: var(--text);
+  }
+  /* In the feed: revealed by hover or focus, like a message's own actions (see
+     feedTouchMenu). An armed delete stays put — it is mid-confirmation. */
+  .in-feed .dots,
+  .in-feed .del:not(.armed) {
+    opacity: 0;
+    transition: opacity var(--dur-quick) ease;
+  }
+  .in-feed:hover .dots,
+  .in-feed:hover .del,
+  .in-feed:focus-within .dots,
+  .in-feed:focus-within .del {
+    opacity: 1;
+  }
+  @media (pointer: coarse) {
+    .in-feed .dots,
+    .in-feed .del:not(.armed) {
+      display: none;
+    }
   }
   /* The surfaced delete: a ghost until touched, then an armed danger pill
      whose label IS the confirmation — the two-tap safety stays intact. */
