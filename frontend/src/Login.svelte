@@ -385,9 +385,21 @@
       busy = false;
     }
   }
+
+  // The keyboard arrives after focus, and an edge-to-edge WebView never
+  // shrinks for it, so the browser's own "scroll the field into view" runs
+  // against a screen that has not lost anything yet. Once the IME has risen
+  // (and .login has grown its --kb padding), bring the field up above it.
+  function keepFieldInView(e) {
+    const el = e.target;
+    if (!S.isMobile || !(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return;
+    setTimeout(() => {
+      if (document.activeElement === el) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }, 350);
+  }
 </script>
 
-<div class="login">
+<div class="login" onfocusin={keepFieldInView}>
   <form class="card" class:wide={!!backupPhrase} onsubmit={submit}>
     <div class="logo"><Icon name="concorde" size={44} /></div>
     <h1>{backupPhrase ? "Save your recovery phrase" : "Concord"}</h1>
@@ -1014,8 +1026,11 @@
       display: flex;
       overflow-y: auto;
       overscroll-behavior: contain;
+      /* --kb: an edge-to-edge WebView does not shrink for the keyboard, so
+         without it the confirm field and the verify words sit under the IME
+         with nowhere to scroll them to. */
       padding: calc(12px + var(--safe-top)) var(--sp-edge)
-        calc(12px + var(--safe-bottom));
+        calc(12px + var(--safe-bottom) + var(--kb, 0px));
     }
     /* Full-bleed onboarding on a phone — no floating "card in a box". It blends
        into the screen like every other native sheet, top-aligned with room to

@@ -2100,6 +2100,24 @@ textarea:focus {
   --safe-top: max(env(safe-area-inset-top), var(--sa-top, 0px), var(--sa-floor-top, 0px), 28px);
 }
 
+/* The status bar's own ground. Edge-to-edge Android draws the clock and the
+   camera hole over the WebView, and padding a surface by --safe-top only keeps
+   it clear AT REST: anything that scrolls (onboarding, the recovery phrase,
+   settings pages, a long sheet) carries its content up through that padding
+   and under the clock. One opaque strip above everything ends that for every
+   surface at once, present and future, instead of one scroller at a time. It
+   takes no input, so nothing under it can become untappable that was not
+   already behind the status bar. */
+:root[data-platform="android"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: var(--safe-top);
+  background: var(--bg-2);
+  z-index: 2147483000;
+  pointer-events: none;
+}
+
 /* ---- THE PHONE BREAKPOINT ----------------------------------------------
    ONE query, used everywhere. It is deliberately identical to detectMobile()
    in lib/state.svelte.js — `(pointer: coarse) || (max-width: 768px)` — so CSS

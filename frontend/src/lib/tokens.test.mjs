@@ -579,5 +579,31 @@ const value = (name, block) => {
   }
 }
 
+// ---- 8d. the status bar has a ground of its own on Android ---------------
+//
+// Padding a surface by --safe-top keeps it clear only while it is still. The
+// onboarding scroller on an S24-shaped emulator (45dp status bar, punch hole)
+// carried the logo and the recovery phrase up under the clock, and every
+// scrolling page could do the same. The fix is one opaque strip, app-wide; this
+// keeps it from being deleted, shrunk to a guess, or sunk under a z-index.
+{
+  const m = APP.match(/:root\[data-platform="android"\]\s+body::before\s*\{([^}]*)\}/);
+  if (!m) fail("app.css: the Android status-bar strip (:root[data-platform=\"android\"] body::before) is gone");
+  else {
+    const b = m[1];
+    if (!/position:\s*fixed/.test(b)) fail("app.css: the status-bar strip must be position: fixed");
+    if (!/height:\s*var\(--safe-top\)/.test(b)) fail("app.css: the status-bar strip must be exactly var(--safe-top) tall");
+    if (!/pointer-events:\s*none/.test(b)) fail("app.css: the status-bar strip must not take input");
+    if (!/background:\s*var\(--bg/.test(b)) fail("app.css: the status-bar strip must be painted with a ground token");
+    const z = Number((b.match(/z-index:\s*(\d+)/) || [])[1] || 0);
+    for (const [rel, src] of FILES) {
+      for (const zm of strip(src).matchAll(/z-index:\s*(\d+)/g)) {
+        if (Number(zm[1]) >= z && !(rel === "app.css" && Number(zm[1]) === z))
+          fail(`${rel}: z-index ${zm[1]} would paint over the Android status-bar strip (z ${z})`);
+      }
+    }
+  }
+}
+
 console.log(failures === 0 ? "tokens.test.mjs: OK" : `tokens.test.mjs: ${failures} failure(s)`);
 process.exit(failures ? 1 : 0);
