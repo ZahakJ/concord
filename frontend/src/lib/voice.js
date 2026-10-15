@@ -107,7 +107,7 @@ export class VoiceMesh {
     this.deafened = false;
     this.volumes = new Map(); // peerId -> 0..1 (absent = 1)
     this.audioCtx = null;
-    this.analysers = new Map(); // key ("self"|peerId) -> { analyser, data }
+    this.analysers = new Map(); // key ("self"|peerId) -> { src, analyser, data }
     this._monitor = null;
     this._lastSpeaking = "";
     // Local video sources: independent "screen" and "camera", each a stream +
@@ -215,7 +215,6 @@ export class VoiceMesh {
     // Metered on the RAW capture, not the processed send: the gate below reads
     // this level to decide when to open, and a meter behind a closed gate could
     // never reopen it.
-    this.analysers.delete("self");
     this._addAnalyser("self", this.localStream);
     old?.getTracks().forEach((t) => t.stop());
     // A retry arriving into a live call has peers to tell. replaceTrack only
@@ -401,8 +400,7 @@ export class VoiceMesh {
     this._buildChain();
     await this._sendMicTrack();
     old.getTracks().forEach((t) => t.stop());
-    this.analysers.delete("self"); // re-meter from the new source
-    this._addAnalyser("self", next);
+    this._addAnalyser("self", next); // re-meter from the new source
   }
 
   // setMicGain boosts (or trims) the mic before it's sent: 1 = untouched. When
@@ -667,7 +665,7 @@ export class VoiceMesh {
       this._onVisibility = null;
     }
     clearTimeout(this._talkTail);
-    this.analysers.clear();
+    for (const key of [...this.analysers.keys()]) this._dropAnalyser(key);
     if (this.audioCtx) {
       this.audioCtx.close().catch(() => {});
       this.audioCtx = null;
@@ -684,15 +682,34 @@ export class VoiceMesh {
 
   // _addAnalyser wires an audio-level meter for a stream, keyed by "self" or a
   // peer ID, so we can detect who is currently speaking.
+  //
+  // A key that already has a meter (the mic swapped, a peer's track arriving
+  // again on renegotiation) has the old one disconnected first. Dropping only
+  // the map entry left the MediaStreamSource wired into the call's context, so
+  // the context kept pulling every replaced stream it had ever metered, and a
+  // long call with a flaky peer accumulated one live source per reconnect.
   _addAnalyser(key, stream) {
+    this._dropAnalyser(key);
     try {
       const src = this._ac().createMediaStreamSource(stream);
       const analyser = this.audioCtx.createAnalyser();
       analyser.fftSize = 512;
       src.connect(analyser);
-      this.analysers.set(key, { analyser, data: new Uint8Array(analyser.frequencyBinCount) });
+      this.analysers.set(key, { src, analyser, data: new Uint8Array(analyser.frequencyBinCount) });
     } catch {
       /* audio metering is best-effort */
+    }
+  }
+
+  _dropAnalyser(key) {
+    const a = this.analysers.get(key);
+    if (!a) return;
+    this.analysers.delete(key);
+    try {
+      a.src.disconnect();
+      a.analyser.disconnect();
+    } catch {
+      /* already disconnected, or the context is closed */
     }
   }
 
@@ -1281,7 +1298,7 @@ export class VoiceMesh {
     if (peer.audioEl) peer.audioEl.srcObject = null;
     for (const el of peer.auxEls.values()) el.srcObject = null;
     peer.auxEls.clear();
-    this.analysers.delete(peerId);
+    this._dropAnalyser(peerId);
     // Drop any video tiles this peer was showing.
     for (const key of peer.videoKeys) this.onVideo(key, null);
     // Forget our senders to this peer across all local video sources.
