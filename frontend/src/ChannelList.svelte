@@ -82,6 +82,43 @@
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
     $props();
 
+  // Joining a call mounts the call bar under the list, and the list gives up
+  // the bar's height to it. On a phone that is a sixth of the screen, and the
+  // voice channels are the last rows of the list, so the row you just joined —
+  // highlighted, the one thing the bar is about — went below the fold, its
+  // top edge peeking out above the bar as if the bar had been laid over it.
+  // So the joined room and its roster are brought into view, once, as they
+  // arrive: the roster fills in over the first moments of a call, and after
+  // that a scroll is the reader's own, not ours to undo when someone joins.
+  let scrollEl = $state();
+  let shownCall = "";
+  let joinedAt = 0;
+  $effect(() => {
+    const id = S.voice?.channelId || "";
+    const heads = id ? voiceMembersFor(id).length : 0;
+    if (id !== shownCall) {
+      shownCall = id;
+      joinedAt = Date.now();
+    }
+    if (!id || !scrollEl || Date.now() - joinedAt > 4000) return;
+    void heads;
+    requestAnimationFrame(() => revealCall(id));
+  });
+  function revealCall(id) {
+    const sc = scrollEl;
+    const row = sc?.querySelector(`.channel-row[data-ch-id="${CSS.escape(id)}"]`);
+    if (!row) return;
+    let end = row;
+    for (let n = row.nextElementSibling; n?.classList.contains("vc-member"); n = n.nextElementSibling) end = n;
+    const box = sc.getBoundingClientRect();
+    const top = row.getBoundingClientRect().top - box.top;
+    const bottom = end.getBoundingClientRect().bottom - box.top;
+    const room = sc.clientHeight;
+    // The room's own row wins over its roster when both cannot fit.
+    if (top < 0 || bottom - top > room) sc.scrollTop += top - 8;
+    else if (bottom > room) sc.scrollTop += bottom - room + 8;
+  }
+
   const g = $derived(activeGuild());
   const canManageChannels = $derived(has(g?.myPerms || 0, PERM.MANAGE_CHANNELS));
 
@@ -754,7 +791,7 @@
   <!-- Drag-to-reorder is a pointer-only enhancement; keyboard users reorder via
        the row menu's "Move to…", so the drag handlers stay off the a11y tree. -->
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="scroll" class:channels-touch={coarse} ondragleave={listDragLeave}>
+  <div class="scroll" class:channels-touch={coarse} ondragleave={listDragLeave} bind:this={scrollEl}>
     {#if g?.kind === "dm"}
       {#if S.requests.length}
         <!-- Strangers wait here. Deliberately a quiet row, not a badge on the
