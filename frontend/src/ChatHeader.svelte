@@ -218,7 +218,7 @@
       <input
         class="search-box"
         class:busy={S.searchLoading || S.searchQuery || S.searchResults !== null}
-        placeholder="Search messages…"
+        placeholder="Search…"
         aria-label="Search messages across all conversations"
         bind:this={searchEl}
         bind:value={S.searchQuery}
@@ -411,7 +411,7 @@
     {/if}
 
     {#if g?.canManage && g?.kind !== "dm" && !tight}
-      <button class="ghost invite" onclick={showInvite}>Invite</button>
+      <button class="ghost iconbtn invite" onclick={showInvite}><span class="invite-label">Invite</span></button>
     {/if}
 
     {#if g}
@@ -598,8 +598,32 @@
     flex: 0 1 auto;
     min-width: min-content;
   }
+  /* The search field is the row's slack, and it is spent before the topic is.
+     It used to be a fixed 190px input, which made 190px part of the action
+     row's min-content: the row could not shrink at all, so every pixel the bar
+     lacked came out of the topic — at 1280 a thirty-character topic showed as
+     "t…" beside a search field with nothing typed in it. Now the field's width
+     is a flex basis with a floor, and the row shrinks forty times faster than
+     the title, so the field narrows to its floor first and only then does the
+     topic start to give. Focus still widens it: you get the room when you are
+     actually typing. */
   .search-wrap {
-    flex: 0 1 auto;
+    flex: 0 1 clamp(84px, 20 * var(--vw), 190px);
+    min-width: 96px;
+    transition: flex-basis var(--dur-calm) var(--ease-out);
+  }
+  .search-wrap:focus-within,
+  .search-wrap.open {
+    flex-basis: clamp(84px, 28 * var(--vw), 260px);
+    flex-shrink: 0;
+  }
+  .chat-head:not(.stub) > .row:last-child {
+    flex-shrink: 40;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .search-wrap {
+      transition: none;
+    }
   }
   /* The channel-type glyph carries the accent — a small "you are here" tint. */
   .title :global(svg) {
@@ -692,20 +716,14 @@
     position: relative;
     display: inline-flex;
     align-items: center;
-    min-width: 0;
   }
   .search-box {
-    /* Fluid: shrinks with the window so it never overlaps the channel name,
-       but stays usable (min 84px) and caps at its comfortable width. Focus
-       stretches it — room appears exactly when you start typing. */
-    width: clamp(84px, 20 * var(--vw), 190px);
+    /* Fills .search-wrap, which owns the width (see above). */
+    width: 100%;
     min-width: 0;
     padding: 5px 10px;
     font-size: var(--fs-ui);
     transition: width var(--dur-calm) var(--ease-out), border-color var(--dur-standard) ease, box-shadow var(--dur-standard) ease, background var(--dur-standard) ease;
-  }
-  .search-box:focus {
-    width: clamp(84px, 28 * var(--vw), 260px);
   }
   @media (prefers-reduced-motion: reduce) {
     .search-box {
@@ -725,8 +743,9 @@
      back out over the button row the moment it has focus or a query — the
      buttons it covers are all still one Escape away. */
   .chat-head.stub .search-wrap {
-    flex: 0 0 auto;
+    flex: 0 0 32px;
     width: 32px;
+    min-width: 0;
   }
   .chat-head.stub .search-box,
   .chat-head.stub .search-box:focus {
@@ -888,8 +907,15 @@
   /* The buttons are .callbtn (app.css) at their smallest size — the same
      controls, in the same order, with the same on/cut/hang colours as the
      stage bar, the sidebar bar and the dock. */
+  /* Same type and box as "Start a call" beside it: it used to inherit the
+     body's 16px and stand a size larger and a few pixels taller than every
+     other button on the bar. */
   .invite {
     padding: 6px 12px;
+  }
+  .invite-label {
+    font-size: var(--fs-compact);
+    white-space: nowrap;
   }
   /* Peer is already on the call — a live, inviting affordance. */
   .iconbtn.live-join {
