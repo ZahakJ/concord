@@ -518,6 +518,18 @@ func New(ctx context.Context, cfg Config) (*Host, error) {
 			node.serveRelay()
 			node.syncRelayService()
 		}
+	} else if len(cfg.RememberedPeers) > 0 {
+		// No DHT — a LAN-only install, whose remembered peers all sit at
+		// private addresses — still has to dial the peers it remembers. That
+		// dial lives in the DHT's bootstrap loop, and the loop only ran with a
+		// DHT, on the theory that mDNS would find everyone on a LAN anyway. It
+		// does not when mDNS is off, or blocked, or the "LAN" is two subnets
+		// with a route between them: a member that restarted came back
+		// connected to nobody, and every guild it was in went silent while
+		// looking perfectly healthy. The joiner of a guild could not even be
+		// found from the other side, because its listen port is new on every
+		// launch. The same loop runs without a DHT to refresh.
+		go node.keepBootstrapped(nil, nil, cfg.RememberedPeers)
 	}
 	return node, nil
 }
