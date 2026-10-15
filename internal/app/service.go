@@ -37,7 +37,14 @@ import (
 // presents one UI-agnostic API. Both the headless CLI and the Wails GUI drive
 // Concord exclusively through a Service.
 type Service struct {
+	// ctx is the Service's own lifetime, derived from the caller's in Start and
+	// cancelled first thing in Close. Every background loop, the gossipsub
+	// router and each topic reader hang off it. The caller's context is NOT
+	// enough: the bridge passes the application's, which outlives a logout,
+	// a wipe and an unlink, so loops bound to it kept running against a
+	// closed store and held the old Service alive for the rest of the process.
 	ctx     context.Context
+	cancel  context.CancelFunc
 	dataDir string
 
 	id    *identity.Identity
@@ -980,7 +987,13 @@ type Config struct {
 // Start loads (or creates) the identity, then brings up storage, networking
 // (with LAN discovery), gossipsub, and the MLS engine, and restores any
 // previously-joined guilds. The returned Service must be Closed by the caller.
-func Start(ctx context.Context, cfg Config) (*Service, error) {
+func Start(parent context.Context, cfg Config) (svc *Service, err error) {
+	ctx, cancel := context.WithCancel(parent)
+	defer func() {
+		if svc == nil {
+			cancel()
+		}
+	}()
 	id, freshIdentity, err := identity.LoadOrCreate(keystorePathIn(cfg.DataDir), cfg.Passphrase)
 	if err != nil {
 		return nil, fmt.Errorf("app: open identity: %w", err)
@@ -1061,6 +1074,7 @@ func Start(ctx context.Context, cfg Config) (*Service, error) {
 
 	s := &Service{
 		ctx:              ctx,
+		cancel:           cancel,
 		dataDir:          cfg.DataDir,
 		id:               id,
 		host:             host,
@@ -2291,6 +2305,11 @@ func (s *Service) VerifiedFingerprints() map[string]bool {
 
 // Close shuts everything down.
 func (s *Service) Close() error {
+	// Stop the loops and topic readers before pulling the store and host out
+	// from under them.
+	if s.cancel != nil {
+		s.cancel()
+	}
 	if s.peers != nil {
 		// Flush past the write throttle: everything learned in the last few
 		// seconds of a session is exactly what the next launch wants.
