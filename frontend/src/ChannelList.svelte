@@ -1291,31 +1291,46 @@
        call, whatever you're viewing. The full tiles are a layer; this bar is
        how you open them from anywhere in the list. -->
   {#if S.voice}
-    <div class="voice-bar" class:trouble={!callState.live}>
+    <!-- While the stage is on screen its own control row is right there, so
+         this bar shrinks to the one line that is still news — which call,
+         how long, and the way out — instead of a second set of the same five
+         buttons a few hundred pixels to the left of the first. With the Leave
+         button beside it there is no room for "Voice connected" AND the clock,
+         so the room's name leads and the call's state is the small line. -->
+    {@const compact = !!S.callStage && !S.isMobile}
+    <div class="voice-bar" class:trouble={!callState.live} class:compact>
       <button
         class="vb-info"
         use:tooltip
         aria-label="Open the call"
         onclick={() => openCallStage()}
       >
-        <span class="vb-live" class:held={!callState.live}></span>
         <span class="vb-text">
           <strong>
+            <!-- On the title line, not centred on the two-line block: the dot
+                 belongs to "Voice connected", and centred it floated between
+                 that and the channel name under it. -->
+            <span class="vb-live" class:held={!callState.live}></span>
             <!-- Not a literal. This bar printed "Voice connected" in green with
                  a pulsing dot whatever the call was doing, so killing the node
                  under a peer left it saying so, directly under a banner reading
                  "You're offline. The call is trying to reconnect too." Same
                  state machine as the stage now (callHealth). -->
-            {callState.label}
+            <span class="vb-label">{compact ? channelShort(S.voice.channelId) || "Call" : callState.label}</span>
             <!-- The elapsed time doubles as proof the call is alive: a clock
                  that has stopped is a call that has died. It could not stop —
                  it was a wall clock started at join — so it now holds while
                  nothing is carrying, and says so. -->
             {#if clock}<span class="vb-clock" class:held={!callState.live}>{clock}</span>{/if}
           </strong>
-          <span class="muted vb-ch">{channelShort(S.voice.channelId) || "Call"}</span>
+          <span class="muted vb-ch">{compact ? callState.label : channelShort(S.voice.channelId) || "Call"}</span>
         </span>
       </button>
+      {#if compact}
+        <button class="callbtn sm hang" use:tooltip aria-label="Disconnect" onclick={onLeaveVoice}>
+          <Icon name="door" size={14} />
+        </button>
+      {:else}
       <span class="vb-actions">
         <!-- Deafen was missing here and on the header pill, so two of the four
              places you can mute offered a different SET of controls as well as a
@@ -1370,6 +1385,7 @@
           <Icon name="door" size={14} />
         </button>
       </span>
+      {/if}
     </div>
   {/if}
 
@@ -2511,6 +2527,9 @@
     flex-direction: column;
     min-width: 0;
   }
+  .vb-text {
+    flex: 1;
+  }
   .vb-text strong {
     display: flex;
     align-items: baseline;
@@ -2518,13 +2537,35 @@
     font-size: var(--fs-compact);
     /* "Voice connected" is two words, and a rail dragged narrow will break it
        across two lines and push the mic button off its own row. */
-    overflow: hidden;
     white-space: nowrap;
+    min-width: 0;
+  }
+  .vb-text strong .vb-live {
+    align-self: center;
+  }
+  /* The label gives way, never the clock. The whole line used to clip as one,
+     so at a 900px window "Voice connected" kept every letter and the timer
+     beside it was cut to "0:". The clock is the evidence the call is alive;
+     the words are something you already know. */
+  .vb-label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .vb-ch {
+    padding-left: 14px; /* under the label, past the 8px dot and its 6px gap */
+  }
+  .voice-bar.compact {
+    flex-wrap: nowrap;
+  }
+  .voice-bar.compact .vb-info {
+    flex: 1 1 auto;
   }
   /* Tabular figures so the seconds don't shuffle the label sideways every
      tick, and a hair dimmer than the words it follows: the clock is evidence,
      not a heading. */
   .vb-clock {
+    flex: none;
     margin-left: auto;
     padding-left: 6px;
     font-variant-numeric: tabular-nums;
