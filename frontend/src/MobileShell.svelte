@@ -876,8 +876,13 @@
        side of the same values. The Android WebView resolves env() to 0 for
        system bars, so on the phone this app actually ships to, env() alone
        meant the composer sat under the gesture pill and the whole feed sat
-       under the keyboard. max() takes whichever platform answered. */
-    padding-bottom: calc(max(var(--safe-bottom), var(--sa-bottom, 0px)) + var(--kb, 0px));
+       under the keyboard. max() takes whichever platform answered.
+       The shell pays only the keyboard. The gesture-bar inset is paid by the
+       page that reaches the bottom edge, inside its own ground: paid here, it
+       was a 24px strip of the shell's --bg-2 under Home's --bg-1 tab bar, a
+       seam where the bar visibly stopped short of the screen's edge. */
+    --inset-b: max(var(--safe-bottom), var(--sa-bottom, 0px));
+    padding-bottom: var(--kb, 0px);
     padding-left: max(var(--safe-left), var(--sa-left, 0px));
     padding-right: max(var(--safe-right), var(--sa-right, 0px));
   }
@@ -933,6 +938,8 @@
   .page {
     z-index: 2;
     background: var(--bg-2);
+    /* Under the composer: the page's own ground runs to the screen's edge. */
+    padding-bottom: var(--inset-b);
     /* The page's left edge is where the depth is read: a contact shadow plus a
        wide falloff onto the dimmed Home behind it. */
     box-shadow:
@@ -1029,16 +1036,19 @@
 
   /* The tab bar. Four destinations along the bottom edge, where a thumb rests,
      instead of a hamburger at the far top-left where it does not. The bar's
-     own ground is opaque so the list scrolls under it cleanly; the shell has
-     already paid the gesture-bar inset below it. */
+     own ground is opaque so the list scrolls under it cleanly, and it runs
+     on under the gesture-bar inset to the screen's edge: the bar owns the
+     strip beneath it rather than leaving it to whatever is behind. Content
+     box, so the inset adds to the 58px rather than coming out of the tabs. */
   .tabbar {
     flex: none;
     display: flex;
     align-items: stretch;
+    box-sizing: content-box;
     height: 58px;
     background: var(--bg-1);
     border-top: 1px solid var(--border);
-    padding: 0 var(--sp-1);
+    padding: 0 var(--sp-1) var(--inset-b);
   }
   .tab {
     flex: 1;
