@@ -1674,6 +1674,30 @@ func (s *Store) reactionsForChannel(channelID string) (map[string]map[string][]s
 	return out, rows.Err()
 }
 
+// reactionsForMessage is reactionsForChannel for one message: the same shape,
+// read off the reactions primary key instead of every reaction in the channel.
+// Nil when the message has none, as reactionsForChannel's map lookup gives.
+func (s *Store) reactionsForMessage(messageID string) (map[string][]string, error) {
+	rows, err := s.db.Query(
+		`SELECT emoji, fingerprint FROM reactions WHERE message_id = ?`, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out map[string][]string
+	for rows.Next() {
+		var emoji, fpr string
+		if err := rows.Scan(&emoji, &fpr); err != nil {
+			return nil, err
+		}
+		if out == nil {
+			out = map[string][]string{}
+		}
+		out[emoji] = append(out[emoji], fpr)
+	}
+	return out, rows.Err()
+}
+
 // propsEmoji is the fixed set of reactions that count as "props" — the
 // celebratory subset, not every emoji (a 😢 is sympathy, not applause). The
 // bare ❤ rides along with ❤️ because pickers disagree about the variation
@@ -1756,11 +1780,9 @@ func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
 		m.Content = content
 	}
 	m.Sent = time.Unix(0, sent).UTC()
-	reacts, err := s.reactionsForChannel(m.ChannelID)
-	if err != nil {
+	if m.Reactions, err = s.reactionsForMessage(m.ID); err != nil {
 		return domain.Message{}, false, err
 	}
-	m.Reactions = reacts[m.ID]
 	return m, true, nil
 }
 
