@@ -386,6 +386,10 @@
   // the same cursor-and-restore discipline as loadOlder, so scrolling through
   // the join is indistinguishable from scrolling anywhere else.
   const arcChan = $derived(archiveChannel());
+  // The welcome card is the room's introduction while nobody has said anything
+  // yet: not while it loads, not over an archive (where "the start of #plans"
+  // would be false), and not while the setup card has the spot.
+  const showHero = $derived(noConversation && !S.feedLoading && !arcChan && !setupOwnsHero);
   const arcRange = $derived(arcChan ? rangeLabel(arcChan.firstNano, arcChan.lastNano) : "");
   const showArchive = $derived(S.feedReachedStart && !!arcChan && !S.feedLoading);
 
@@ -1445,6 +1449,74 @@
        void belongs above everything: empty room, then "this is the beginning",
        then the messages, which is the order the sentence assumes. -->
   <div class="vs vs-push" aria-hidden="true"></div>
+  <!-- The room's one introduction, at the top of what it introduces. It used to
+       sit below the rows, so a new channel read "This is the beginning of the
+       channel", then TODAY and the join notice, and only then "Welcome to
+       #general" — two intros, the second one after the history it opens. When
+       the welcome shows, it is the beginning line, and the italic one is not
+       drawn. -->
+  {#if showHero}
+    <!-- …but not when an archive sits above: "this is the start of #plans"
+         under two thousand imported messages is simply false, and it is the
+         channels an import has just created that are most likely to have no
+         live history at all. -->
+    <div class="empty">
+      <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body}>
+        {#snippet actions()}
+          {#if canSetTopic}
+            <button
+              class="set-topic"
+              onclick={() => (S.modal = { kind: "channelTopic", channel: activeChannel() })}
+            >
+              <Icon name="edit" size={14} />
+              Set a topic
+            </button>
+          {/if}
+          {#if emptyInfo.voice}
+            <!-- The landing page of a voice room used to end at a sentence:
+                 "this is the chat alongside the Study Hall voice channel",
+                 and then nothing. The only way in was a small button in the
+                 header, fifty pixels from the channel name that had just
+                 told you this was a voice room. -->
+            {#if !S.callStage && ((S.voice && S.voice.channelId === S.activeChannelId) || S.joiningVoice === S.activeChannelId)}
+              <button class="join-call" onclick={() => openCallStage()}>
+                <Icon name="screen" size={15} />
+                Open the call
+              </button>
+            {:else if !S.callStage}
+              <button class="join-call" onclick={() => onJoinVoice?.(S.activeChannelId)}>
+                <Icon name="speaker" size={15} />
+                Join {emptyInfo.name}
+              </button>
+            {/if}
+            <span class="who-in">
+              {#if voiceHere.length}
+                <span class="who-faces">
+                  {#each voiceHere.slice(0, 4) as vm (vm.peerId)}
+                    {@const m = memberByFpr(vm.fingerprint)}
+                    <span class="who-face">
+                      <Avatar
+                        name={nameFor(vm.fingerprint)}
+                        image={m?.avatar || ""}
+                        emoji={m?.emoji || ""}
+                        color={m?.color || ""}
+                        size={22}
+                      />
+                    </span>
+                  {/each}
+                </span>
+                {voiceHere.length === 1
+                  ? `${nameFor(voiceHere[0].fingerprint)} is in there`
+                  : `${voiceHere.length} people are in there`}
+              {:else}
+                Nobody's in there yet
+              {/if}
+            </span>
+          {/if}
+        {/snippet}
+      </EmptyState>
+    </div>
+  {/if}
   {#if S.loadingOlder}
     <div class="older-loading"><span class="ol-spin"></span> Loading older messages…</div>
   {:else if showArchive}
@@ -1466,8 +1538,8 @@
     {:else if S.archiveReachedStart}
       <div class="feed-start">This is the beginning of the archive.</div>
     {/if}
-  {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading}
-    <div class="feed-start">This is the beginning of the channel.</div>
+  {:else if S.feedReachedStart && S.messages.length > 0 && !S.feedLoading && !showHero}
+    <div class="feed-start">This is the beginning of {isDMView ? "the conversation" : "the channel"}.</div>
   {/if}
   <!-- Everything between the two spacers is the window; the spacers hold the
        height of the rows on either side of it that are not rendered. -->
@@ -1605,67 +1677,6 @@
             </span>
           </div>
         {/each}
-      </div>
-    {:else if !arcChan && !setupOwnsHero}
-      <!-- …but not when an archive sits above: "this is the start of #plans"
-           under two thousand imported messages is simply false, and it is the
-           channels an import has just created that are most likely to have no
-           live history at all. -->
-      <div class="empty">
-        <EmptyState icon={emptyInfo.icon} headline={emptyInfo.title} sub={emptyInfo.body}>
-          {#snippet actions()}
-            {#if canSetTopic}
-              <button
-                class="set-topic"
-                onclick={() => (S.modal = { kind: "channelTopic", channel: activeChannel() })}
-              >
-                <Icon name="edit" size={14} />
-                Set a topic
-              </button>
-            {/if}
-            {#if emptyInfo.voice}
-              <!-- The landing page of a voice room used to end at a sentence:
-                   "this is the chat alongside the Study Hall voice channel",
-                   and then nothing. The only way in was a small button in the
-                   header, fifty pixels from the channel name that had just
-                   told you this was a voice room. -->
-              {#if !S.callStage && ((S.voice && S.voice.channelId === S.activeChannelId) || S.joiningVoice === S.activeChannelId)}
-                <button class="join-call" onclick={() => openCallStage()}>
-                  <Icon name="screen" size={15} />
-                  Open the call
-                </button>
-              {:else if !S.callStage}
-                <button class="join-call" onclick={() => onJoinVoice?.(S.activeChannelId)}>
-                  <Icon name="speaker" size={15} />
-                  Join {emptyInfo.name}
-                </button>
-              {/if}
-              <span class="who-in">
-                {#if voiceHere.length}
-                  <span class="who-faces">
-                    {#each voiceHere.slice(0, 4) as vm (vm.peerId)}
-                      {@const m = memberByFpr(vm.fingerprint)}
-                      <span class="who-face">
-                        <Avatar
-                          name={nameFor(vm.fingerprint)}
-                          image={m?.avatar || ""}
-                          emoji={m?.emoji || ""}
-                          color={m?.color || ""}
-                          size={22}
-                        />
-                      </span>
-                    {/each}
-                  </span>
-                  {voiceHere.length === 1
-                    ? `${nameFor(voiceHere[0].fingerprint)} is in there`
-                    : `${voiceHere.length} people are in there`}
-                {:else}
-                  Nobody's in there yet
-                {/if}
-              </span>
-            {/if}
-          {/snippet}
-        </EmptyState>
       </div>
     {/if}
   {/if}
@@ -2036,8 +2047,11 @@
      panels and then left duplicated here, which is how the two drifted: this
      copy's headline sat at a literal 18px while the shared one was on the type
      scale. Positioning is the parent's job and the only job left here. */
+  /* Rests on the rows below it (the push spacer above takes the slack), so
+     the welcome reads straight into the day divider and the join notice. */
   .empty {
-    margin: auto;
+    margin: 0 auto;
+    padding-bottom: var(--sp-4);
   }
   /* The way in, at the size of a decision. */
   /* The nudge, not a call to action: quieter than Join, because the room is
