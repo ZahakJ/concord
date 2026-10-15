@@ -10,7 +10,7 @@ import (
 	"github.com/ZahakJ/concord/internal/domain"
 )
 
-func sidebarStore(t *testing.T) *Store {
+func sidebarStore(t testing.TB) *Store {
 	t.Helper()
 	st, err := Open(filepath.Join(t.TempDir(), "c.db"), bytes.Repeat([]byte{0x42}, 32))
 	if err != nil {

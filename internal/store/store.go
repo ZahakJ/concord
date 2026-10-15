@@ -1353,19 +1353,40 @@ func (s *Store) LatestTimestamps(channelIDs []string) (map[string]int64, error) 
 // from the plaintext, at the moment the row is written, so counting stays a
 // single COUNT(*) over an index. Today it means a bare game move — twenty
 // turns are twenty messages on the wire and one card to look at.
+//
+// All channels go in one statement: the cursors travel as a JSON object and
+// each channel's count is a correlated COUNT over its own idx_messages_channel
+// range, exactly the per-channel query this used to issue once per channel.
+// The rows examined are the same; what goes is a statement round trip per
+// channel, which on an account with a few hundred channels was most of the
+// cost of every login and every read-state event from another device.
 func (s *Store) UnreadCounts(sinceNano map[string]int64) (map[string]int, error) {
 	out := make(map[string]int, len(sinceNano))
-	for channelID, since := range sinceNano {
+	if len(sinceNano) == 0 {
+		return out, nil
+	}
+	cursors, err := json.Marshal(sinceNano)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(
+		`SELECT j.key, (SELECT COUNT(*) FROM messages
+		                WHERE channel_id = j.key AND sent > j.value
+		                  AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest'))
+		 FROM json_each(?) j`, string(cursors))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ch string
 		var n int
-		if err := s.db.QueryRow(
-			`SELECT COUNT(*) FROM messages
-			 WHERE channel_id = ? AND sent > ? AND deleted = 0 AND quiet = 0 AND kind IN ('', 'guest')`,
-			channelID, since).Scan(&n); err != nil {
+		if err := rows.Scan(&ch, &n); err != nil {
 			return nil, err
 		}
-		out[channelID] = n
+		out[ch] = n
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // SenderCount is one distinct sender credential and how many rows it accounts
@@ -1400,6 +1421,39 @@ func (s *Store) UnreadBySender(channelID string, since int64) ([]SenderCount, er
 			return nil, err
 		}
 		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
+// UnreadBySenderAll is UnreadBySender for every channel in sinceNano at once,
+// for the caller that has a block list to subtract and every channel of every
+// guild to subtract it from. Channels with nothing unread are absent.
+func (s *Store) UnreadBySenderAll(sinceNano map[string]int64) (map[string][]SenderCount, error) {
+	out := map[string][]SenderCount{}
+	if len(sinceNano) == 0 {
+		return out, nil
+	}
+	cursors, err := json.Marshal(sinceNano)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(
+		`SELECT m.channel_id, m.sender, COUNT(*)
+		 FROM json_each(?) j
+		 JOIN messages m ON m.channel_id = j.key AND m.sent > j.value
+		 WHERE m.deleted = 0 AND m.quiet = 0 AND m.kind IN ('', 'guest')
+		 GROUP BY m.channel_id, m.sender`, string(cursors))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ch string
+		var sc SenderCount
+		if err := rows.Scan(&ch, &sc.Sender, &sc.N); err != nil {
+			return nil, err
+		}
+		out[ch] = append(out[ch], sc)
 	}
 	return out, rows.Err()
 }

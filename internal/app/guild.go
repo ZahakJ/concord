@@ -348,24 +348,25 @@ func (s *Service) UnreadCounts(sinceNano map[string]int64) (map[string]int, erro
 	// correct them, so it would announce new messages that do not exist.
 	//
 	// Only channels with something to subtract pay for the breakdown, and only
-	// while a block list exists at all.
+	// while a block list exists at all. One grouped statement covers them all.
+	busy := make(map[string]int64, len(counts))
 	for ch, n := range counts {
-		if n == 0 {
-			continue
+		if n > 0 {
+			busy[ch] = sinceNano[ch]
 		}
-		rows, err := s.store.UnreadBySender(ch, sinceNano[ch])
-		if err != nil {
-			continue
-		}
+	}
+	bySender, err := s.store.UnreadBySenderAll(busy)
+	if err != nil {
+		return counts, nil
+	}
+	for ch, rows := range bySender {
+		n := counts[ch]
 		for _, r := range rows {
 			if s.SenderBlocked(r.Sender) {
 				n -= r.N
 			}
 		}
-		if n < 0 {
-			n = 0
-		}
-		counts[ch] = n
+		counts[ch] = max(n, 0)
 	}
 	return counts, nil
 }
