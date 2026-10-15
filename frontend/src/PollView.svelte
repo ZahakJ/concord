@@ -7,6 +7,7 @@
   // many — the fingerprints are already in m.reactions, so each row shows the
   // faces behind its number.
   import Avatar from "./Avatar.svelte";
+  import Icon from "./Icon.svelte";
   import { S, react, memberByFpr, nameFor, openContextMenu } from "./lib/state.svelte.js";
   import { haptic } from "./lib/touch.js";
   import { POLL_EMOJI } from "./lib/polls.js";
@@ -197,20 +198,28 @@
       >
         <span class="fill" style="width:{pct(r.count)}%"></span>
         <span class="opt-body">
-          <!-- The emoji is the option's identity everywhere else (it's the
-               underlying reaction), so it stays — as a marker that fills in
-               when it's yours, rather than a loose glyph. Once a quiz is
-               revealed the badge grades instead of confirms: the correct row
-               wears ✓ in --ok whether or not it's yours, and your miss wears
-               ✕ in danger ink. -->
-          <span class="mark" class:on={r.mine} class:ok-on={revealed && r.i === poll.answer}>
-            <span class="mark-emoji">{r.emoji}</span>
+          <!-- One badge, never two. The keycap (the option's reaction emoji)
+               used to sit inside a ringed disc with a 13px ✓ disc overlapping
+               its corner — a box in a circle under a circle, in 25px — and the
+               tick was the hardest part to read. Now the marker IS the state:
+               the bare keycap until it is yours, then a filled disc with a
+               full-size tick in its place. Once a quiz is revealed the disc
+               grades instead of confirms: the correct row gets ✓ in --ok
+               whether or not it's yours, and your miss gets ✕ in danger ink. -->
+          <span
+            class="mark"
+            class:on={r.mine && !revealed}
+            class:ok-on={revealed && r.i === poll.answer}
+            class:bad-on={revealed && r.mine && r.i !== poll.answer}
+          >
             {#if revealed && r.i === poll.answer}
-              <span class="mark-check ok" aria-hidden="true">✓</span>
+              <Icon name="check" size={14} />
             {:else if revealed && r.mine}
-              <span class="mark-check bad" aria-hidden="true">✕</span>
+              <Icon name="close" size={13} />
             {:else if r.mine}
-              <span class="mark-check" aria-hidden="true">✓</span>
+              <Icon name="check" size={14} />
+            {:else}
+              <span class="mark-emoji">{r.emoji}</span>
             {/if}
           </span>
           {#if r.i === winner}<span class="crown" bind:this={crownEl} title="Winner">🏆</span>{/if}
@@ -384,49 +393,23 @@
     width: 25px;
     height: 25px;
     border-radius: 50%;
-    background: var(--bg-3);
-    box-shadow: inset 0 0 0 1px var(--border);
-    transition:
-      background var(--dur-quick) ease,
-      box-shadow var(--dur-quick) ease;
+    transition: background var(--dur-quick) ease;
   }
   .mark.on {
-    background: var(--accent-soft);
-    box-shadow: inset 0 0 0 1.5px var(--accent);
-  }
-  .mark.ok-on {
-    background: var(--ok-soft);
-    box-shadow: inset 0 0 0 1.5px var(--ok);
-  }
-  .mark-emoji {
-    font-size: var(--fs-ui);
-    line-height: 1;
-  }
-  .mark-check {
-    position: absolute;
-    right: -3px;
-    bottom: -3px;
-    display: grid;
-    place-items: center;
-    width: 13px;
-    height: 13px;
-    border-radius: 50%;
     background: var(--accent);
     color: var(--accent-fg);
-    /* A literal, and one of only two left in the app: this is a tick inside a
-       13px disc, not prose, and --fs-micro grows to 11px on a phone — which
-       would push the glyph out of the circle it is drawn in. Sizing here is
-       geometry. */
-    font-size: 8px;
-    font-weight: 900;
   }
-  .mark-check.ok {
+  .mark.ok-on {
     background: var(--ok);
     color: var(--ok-fg);
   }
-  .mark-check.bad {
+  .mark.bad-on {
     background: var(--danger);
     color: var(--danger-fg);
+  }
+  .mark-emoji {
+    font-size: var(--fs-body);
+    line-height: 1;
   }
   /* The trophy sits in the row, not on it — a small fact, not a banner. */
   .crown {
