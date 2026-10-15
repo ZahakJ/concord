@@ -32,6 +32,7 @@ import { PERM, has } from "./perms.js";
 import { plur } from "./plural.js";
 import { fmtCount } from "./chronicle.js";
 import { hash32 } from "./hash32.js";
+import { raisedFor } from "./syncflag.js";
 export { humanError, slowModeWait, SLOW_MODE_ERR } from "./errors.js";
 import { humanError } from "./errors.js";
 import { isGameToken } from "./games.js";
@@ -2645,8 +2646,12 @@ export async function nudge() {
 // what a row tap, an inbox entry, a palette pick or a notification means —
 // but a tap on a guild in the rail means "show me its channels", and this is
 // how selectChannel tells the two apart. Not reactive on purpose: it is read
-// synchronously inside the selection and cleared when the switch resolves.
+// synchronously inside the selection, before its first await, and lowered the
+// moment the selection has STARTED (raisedFor). It used to stay up until the
+// switch resolved, so a channel tapped while a browsed guild's history was
+// still loading read the browse's flag as its own and left the phone on Home.
 let browsing = false;
+const setBrowsing = (v) => (browsing = v);
 export function browsingGuild() {
   return browsing;
 }
@@ -2679,12 +2684,7 @@ export async function refreshGuilds() {
     // A replacement nobody chose: browse to it, so a phone sitting on Home
     // when a channel is deleted remotely is not pushed into another one.
     if (g?.channels?.length) {
-      browsing = true;
-      try {
-        await selectChannel(g.channels[0].id);
-      } finally {
-        browsing = false;
-      }
+      await raisedFor(setBrowsing, true, () => selectChannel(g.channels[0].id));
     } else {
       S.activeChannelId = "";
       clearFeed();
@@ -2704,12 +2704,7 @@ export async function selectGuild(id, { browse = false } = {}) {
   S.chronicle = null;
   const g = S.guilds.find((x) => x.id === id);
   if (g && g.channels.length) {
-    browsing = browse;
-    try {
-      await selectChannel(channelToResume(g));
-    } finally {
-      browsing = false;
-    }
+    await raisedFor(setBrowsing, browse, () => selectChannel(channelToResume(g)));
   } else {
     // A guild with no channels (or an unknown id) must not keep the previous
     // guild's channel active — otherwise the old feed renders and, worse,
