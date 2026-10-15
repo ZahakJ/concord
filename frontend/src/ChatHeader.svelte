@@ -33,6 +33,7 @@
   // native title= — instant theme-matched labels; aria-label stays and is the
   // tip's text unless the tip needs richer wording than the label.
   import { tooltip } from "./lib/tooltip.js";
+  import { fitText } from "./lib/fittext.js";
 
   let { onJoinVoice, onLeaveVoice, onToggleMute, onToggleDeafen, onToggleShare, onToggleCamera } =
     $props();
@@ -200,7 +201,12 @@
       {/if}
       {#if ch.topic}
         <span class="topic-sep"></span>
-        <span class="chan-topic" title={ch.topic}>{ch.topic}</span>
+        <!-- Cut by fitText rather than by text-overflow alone, which keeps a
+             space in front of its "…" whenever the cut falls after a word.
+             The drawn text is shortened, so the whole topic stays in the tree
+             for a screen reader and in the title for the pointer. -->
+        <span class="chan-topic" title={ch.topic} aria-hidden="true" use:fitText={ch.topic}></span>
+        <span class="sr-only">{ch.topic}</span>
       {/if}
     {:else}
       <span class="muted">No channel</span>
