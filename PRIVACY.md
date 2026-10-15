@@ -5,10 +5,9 @@ every platform it ships for, including the Android app.*
 
 Concord is a peer-to-peer, end-to-end-encrypted messenger. This document states
 plainly what data exists, where it lives, who can read it, and — just as
-importantly — what Concord does *not* protect. The [README](README.md) covers
-the same ground in architectural depth (see especially
-[§13 Threat model](docs/DESIGN.md#13-threat-model-what-concord-defends-against));
-this page is the short, honest version.
+importantly — what Concord does *not* protect. [DESIGN.md](docs/DESIGN.md) covers the same
+ground in architectural depth, especially
+[§13 Threat model](docs/DESIGN.md#13-threat-model-what-concord-defends-against).
 
 ## What the developer collects: nothing
 
@@ -247,9 +246,7 @@ report flow, and message requests that hold a stranger's first DM unopened. If
 you are responsible for a young person's device, treat Concord as you would any
 other open communication tool.
 
-## Honest limitations
-
-Stating what is *not* protected is part of the privacy policy:
+## What is not protected
 
 - **Metadata is not hidden.** This is inherent to peer-to-peer: the DHT and
   relay can observe *that* your peer ID connects and roughly when (never
