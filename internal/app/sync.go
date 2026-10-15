@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -368,12 +369,15 @@ func (s *Service) syncGuildFromAnyPeer(guildID string) {
 }
 
 func (s *Service) syncGuildFromAnyPeerOnce(guildID string) {
-	peers := s.memberPeers(guildID)
-	declined := 0
+	peers := s.syncPeerOrder(guildID)
+	declined, reached := 0, 0
 	for _, p := range peers {
 		err := s.syncGuildFromPeer(guildID, p)
 		if err == nil {
-			return
+			if reached++; reached >= syncPeersPerPass {
+				return
+			}
+			continue
 		}
 		if errors.Is(err, errSyncDeclined) {
 			declined++
@@ -383,9 +387,60 @@ func (s *Service) syncGuildFromAnyPeerOnce(guildID string) {
 	// we were removed — or their rosters are stale in a way we cannot fix by
 	// asking again, and either way it is worth one line rather than a silent
 	// retry loop that outlives the problem.
-	if declined > 0 && declined == len(peers) {
+	if reached == 0 && declined > 0 && declined == len(peers) {
 		log.Printf("concord/app: guild %s: every peer declined to sync with us (%d asked)", guildID, declined)
 	}
+}
+
+// syncPeersPerPass is how many members one guild-wide catch-up completes with.
+//
+// It used to be one: the first member that answered, which on a steady
+// network is the same member beat after beat (the owner and sync hosts are
+// always tried first). A message that member never had — missed live by
+// everyone but its author — was asked about every minute and found never,
+// until a reconnect happened to run a catch-up against the author. A catch-up
+// against a member we are already level with is now a few hundred bytes
+// (the marks and digests in sync.go answer "nothing new"), so asking a few
+// members a beat costs little and puts a bound on how long anything held by
+// any of them stays missing.
+const syncPeersPerPass = 3
+
+// syncPeerOrder is the order a guild-wide catch-up asks members in: one sync
+// host first if there is one (it is the member most likely to hold whatever
+// we lack, including commits), then everyone else, the member we have gone
+// longest without completing a catch-up with first, so a pass that stops at
+// syncPeersPerPass still reaches every member in turn.
+func (s *Service) syncPeerOrder(guildID string) []peer.ID {
+	peers := s.memberPeers(guildID) // sync hosts first
+	s.syncFlightMu.Lock()
+	last := make(map[peer.ID]time.Time, len(peers))
+	for _, p := range peers {
+		last[p] = s.syncedAt[guildID+"|"+p.String()]
+	}
+	s.syncFlightMu.Unlock()
+	if len(peers) == 0 {
+		return nil
+	}
+	firstHost := -1
+	for i, p := range peers {
+		if !s.memberHasPerm(guildID, s.presence(p).Fingerprint, PermSyncHost) {
+			break
+		}
+		if firstHost < 0 || last[p].Before(last[peers[firstHost]]) {
+			firstHost = i
+		}
+	}
+	var out []peer.ID
+	rest := make([]peer.ID, 0, len(peers))
+	for i, p := range peers {
+		if i == firstHost {
+			out = append(out, p)
+			continue
+		}
+		rest = append(rest, p)
+	}
+	sort.SliceStable(rest, func(i, j int) bool { return last[rest[i]].Before(last[rest[j]]) })
+	return append(out, rest...)
 }
 
 // syncRun is one catch-up in flight, and who is waiting for the next.
@@ -712,8 +767,18 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 	// reciprocal pull and the beat can all ask for the same pair at once; a
 	// second copy beside the first could only repeat its request and race it
 	// over the same commits and rows.
-	return s.coalesceSync(guildID+"|"+p.String(), func() error {
-		return s.syncGuildFromPeerOnce(guildID, p)
+	key := guildID + "|" + p.String()
+	return s.coalesceSync(key, func() error {
+		err := s.syncGuildFromPeerOnce(guildID, p)
+		if err == nil {
+			s.syncFlightMu.Lock()
+			if s.syncedAt == nil {
+				s.syncedAt = map[string]time.Time{}
+			}
+			s.syncedAt[key] = time.Now()
+			s.syncFlightMu.Unlock()
+		}
+		return err
 	})
 }
 

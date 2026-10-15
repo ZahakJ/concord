@@ -89,9 +89,15 @@ type Service struct {
 	// under its own mutex for the same reason as memberSetMu.
 	syncFlightMu sync.Mutex
 	syncFlight   map[string]*syncRun
+	// syncedAt is when a catch-up last completed per guild|peer, under
+	// syncFlightMu: the order a guild-wide catch-up asks members in.
+	syncedAt map[string]time.Time
 	// requestSync is the transport a catch-up asks over; nil means the host's
 	// sync protocol. Tests put a hand on it to hold a request open.
 	requestSync func(ctx context.Context, to peer.ID, request []byte) ([]byte, error)
+	// dropLive, when set, discards a live message before it is stored: a test's
+	// stand-in for gossip losing one. Never set outside tests.
+	dropLive atomic.Pointer[func(domain.Message) bool]
 
 	// pendingDMInvites tracks DM invitees (1:1 and group) who haven't joined
 	// yet (guild ID -> set of fingerprints). When such a peer later connects we

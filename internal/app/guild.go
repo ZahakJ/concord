@@ -3363,6 +3363,9 @@ func (s *Service) deliverCiphertext(groupID, ct []byte) bool {
 // nothing in it depends on which frame carried the message, which is what lets
 // a post's opener ride its channel_added announcement (CreateThread).
 func (s *Service) deliverMessage(m domain.Message, senderID []byte) {
+	if drop := s.dropLive.Load(); drop != nil && (*drop)(m) {
+		return
+	}
 	// Ignore messages for channels we no longer track (e.g. a guild we left but
 	// whose gossipsub subscription is still live this session).
 	s.mu.RLock()
