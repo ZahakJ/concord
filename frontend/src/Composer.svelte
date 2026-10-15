@@ -15,7 +15,7 @@
   import EmojiPicker from "./EmojiPicker.svelte";
   import BottomSheet from "./BottomSheet.svelte";
   import Menu from "./Menu.svelte";
-  import { untrack } from "svelte";
+  import { untrack, onDestroy } from "svelte";
   import { replaceShortcodes, activeShortcode, searchEmoji } from "./lib/emoji.js";
   import { haptic } from "./lib/touch.js";
   import { emoteText } from "./lib/emote.js";
@@ -1076,6 +1076,18 @@
   let recChunks = [];
   let recTimer = null;
   let recStream = null;
+  // Which conversation the clip is FOR: fixed when recording starts and
+  // carried into the preview. Sending used to read the active channel at the
+  // moment Send was pressed, so a clip recorded in a DM, previewed, and then
+  // left behind while you glanced at a guild went to the guild.
+  let recChannel = null;
+  // A getUserMedia in flight. A double tap on the mic used to open two
+  // streams and orphan the first, still live, and a channel switch or an
+  // unmount during the permission prompt left the microphone open with no
+  // recording row to stop it.
+  let recStarting = false;
+  let recGen = 0;
+  let destroyed = false;
 
   // ---- what the microphone is actually picking up ----
   //
@@ -1182,14 +1194,28 @@
   }
 
   async function startRecording() {
-    if (!ch || recording || !canRecord) return;
+    if (!ch || recording || recStarting || !canRecord) return;
     clearPreview();
+    const gen = ++recGen;
+    const chId = S.activeChannelId;
+    recStarting = true;
+    let stream;
     try {
-      recStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {
-      flash("Microphone permission denied", "error");
+      if (gen === recGen && !destroyed) flash("Microphone permission denied", "error");
+      return;
+    } finally {
+      if (gen === recGen) recStarting = false;
+    }
+    // Superseded while the prompt was up: the composer unmounted, or the
+    // conversation it was opened for is no longer the one on screen.
+    if (gen !== recGen || destroyed || S.activeChannelId !== chId) {
+      stream.getTracks().forEach((t) => t.stop());
       return;
     }
+    recStream = stream;
+    recChannel = chId;
     recChunks = [];
     const pref = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find(
       (t) => MediaRecorder.isTypeSupported?.(t),
@@ -1238,15 +1264,17 @@
         flash("Voice message too large", "error");
         return;
       }
-      preview = { url: URL.createObjectURL(blob), blob, ext: ogg ? "ogg" : "webm", secs, env };
+      // The composer may have gone, or moved to another conversation, between
+      // stop() and this callback; a preview nobody can see is a leaked URL.
+      if (destroyed || recChannel !== S.activeChannelId) return;
+      preview = { url: URL.createObjectURL(blob), blob, ext: ogg ? "ogg" : "webm", secs, env, chId: recChannel };
     };
     rec.stop();
   }
 
   async function sendPreview() {
-    if (!preview || !S.activeChannelId) return;
-    const { blob, ext, secs, env } = preview;
-    const chId = S.activeChannelId;
+    if (!preview?.chId) return;
+    const { blob, ext, secs, env, chId } = preview;
     clearPreview();
     uploading++;
     try {
@@ -1260,6 +1288,26 @@
       uploading--;
     }
   }
+
+  // Leaving the conversation abandons what was being said in it. The row and
+  // the preview belong to the box they were recorded in; carrying them into
+  // the next channel is how a clip lands in the wrong place.
+  function abandonRecording() {
+    recGen++; // a getUserMedia still in flight stops its own stream on arrival
+    recStarting = false;
+    if (recording || mediaRec) stopRecording(false);
+    clearPreview();
+  }
+  $effect(() => {
+    const id = S.activeChannelId;
+    untrack(() => {
+      if ((recording || recStarting || preview) && recChannel !== id) abandonRecording();
+    });
+  });
+  onDestroy(() => {
+    destroyed = true;
+    abandonRecording();
+  });
 
   const recClock = $derived(
     `${Math.floor(recSecs / 60)}:${(recSecs % 60).toString().padStart(2, "0")}`,
