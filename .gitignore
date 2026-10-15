@@ -45,3 +45,7 @@ frontend/public/twemoji/
 # a negation would silently keep ignoring the README.
 frontend/public/memes/*
 !frontend/public/memes/README.md
+
+# Drafts of posts that are sent by hand to places outside this repository.
+/docs/launch/
+scratchpad/
