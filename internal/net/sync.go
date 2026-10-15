@@ -3,6 +3,7 @@ package net
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -20,6 +21,13 @@ import (
 // simply fails protocol negotiation and it falls back to live gossip only.
 const syncProtocol protocol.ID = "/concord/sync/2.0.0"
 
+// syncStreamTimeout bounds one sync exchange on either end when the caller
+// gives no deadline of its own. A stream is only as patient as its deadline:
+// a peer that accepts one and never answers — a stalled process, a
+// half-dead connection — otherwise holds it, and the request waiting on it,
+// forever.
+const syncStreamTimeout = time.Minute
+
 // SyncResponder answers an inbound history request with response bytes.
 type SyncResponder func(ctx context.Context, from peer.ID, request []byte) (response []byte, err error)
 
@@ -27,6 +35,7 @@ type SyncResponder func(ctx context.Context, from peer.ID, request []byte) (resp
 func (n *Host) HandleSync(responder SyncResponder) {
 	n.h.SetStreamHandler(syncProtocol, func(s network.Stream) {
 		defer s.Close()
+		_ = s.SetDeadline(time.Now().Add(syncStreamTimeout))
 		req, err := readFrame(s, maxInviteFrame)
 		if err != nil {
 			return
@@ -46,6 +55,10 @@ func (n *Host) RequestSync(ctx context.Context, to peer.ID, request []byte) ([]b
 		return nil, fmt.Errorf("net: open sync stream: %w", err)
 	}
 	defer s.Close()
+	// The context used to stop applying the moment the stream opened, so a
+	// peer that never answered held this request — and, since catch-ups run
+	// one per guild and peer, every later catch-up between the two — forever.
+	_ = s.SetDeadline(streamDeadline(ctx, syncStreamTimeout))
 	if err := writeFrame(s, request, maxInviteFrame); err != nil {
 		return nil, err
 	}
