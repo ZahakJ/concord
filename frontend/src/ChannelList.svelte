@@ -206,17 +206,13 @@
     return list;
   });
 
-  // The second line of a DM row: who said the last thing. "You:" for our own,
-  // and the counterpart's FIRST NAME for theirs — a peer DM's title is already
-  // their full name, so repeating it reads as stutter and a bare "Them:" says
-  // less than the name it replaces. A group DM gets no prefix: the backend
-  // reports only whether the last line was ours, and guessing which of five
-  // people said it would be a guess.
+  // The second line of a DM row: "You:" when the last thing said was yours, and
+  // nothing otherwise. In a 1:1 the only other speaker is the person whose name
+  // is the row's title, one line up, so "Lin: already on the list" under "Lin"
+  // said it twice. A group DM gets no prefix either: the backend reports only
+  // whether the last line was ours, and naming one of five would be a guess.
   function dmSaid(dm) {
-    if (dm.dmPreviewMine) return "You: ";
-    if (dm.dmNotes || (dm.dmMembers ?? 2) > 2) return "";
-    const first = (dm.name || "").trim().split(/\s+/)[0];
-    return first ? `${first}: ` : "";
+    return dm.dmPreviewMine && !dm.dmNotes ? "You: " : "";
   }
 
   // A conversation's clock: the time today, the weekday this week, a date
@@ -228,7 +224,7 @@
     const now = new Date();
     const days = Math.floor((now.setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
     try {
-      if (days <= 0) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", ...clockOpts() });
+      if (days <= 0) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", ...clockOpts() });
       if (days === 1) return "Yesterday";
       if (days < 7) return d.toLocaleDateString([], { weekday: "short" });
       return d.toLocaleDateString([], { month: "short", day: "numeric" });
@@ -2422,6 +2418,13 @@
   .dm-item.requests .dm-notes-icon {
     background: var(--bg-3);
     color: var(--text-muted);
+  }
+  /* A DM is somebody talking to you, so its count is red like a mention (the
+     rule is written out at GuildRail's .badge). It was the base grey, which
+     put a grey 2 here beside a red 2 for the same conversation in the rail. */
+  .dm-item .count {
+    background: var(--danger);
+    color: var(--danger-fg);
   }
   .dm-item.requests .count {
     background: var(--bg-3);

@@ -495,7 +495,7 @@
           {/if}
         </button>
         {#if dm.id !== S.activeGuildId && u.count > 0}
-          <span class="badge">{u.count > 99 ? "99+" : u.count}</span>
+          <span class="badge dm">{u.count > 99 ? "99+" : u.count}</span>
         {/if}
       </div>
     {/each}
@@ -1000,8 +1000,13 @@
     height: 18px;
     padding: 0 5px;
     border-radius: var(--radius-md);
-    background: var(--danger);
-    color: var(--danger-fg);
+    /* The badge rule, shared with ChannelList's .count: red (--danger) means
+       somebody is talking TO you — an @mention, or any message in a DM — and
+       accent means there is simply something new. The rail used to paint every
+       count red, so a guild with three idle messages shouted the same as a DM,
+       and the same number read red here and accent in the channel list. */
+    background: var(--accent);
+    color: var(--accent-fg);
     font-size: var(--fs-small);
     font-weight: 700;
     line-height: 1;
@@ -1010,6 +1015,11 @@
     border: 2px solid var(--bg-0);
     pointer-events: none;
     animation: badge-pop 0.25s var(--ease-spring) both;
+  }
+  .badge.mention,
+  .badge.dm {
+    background: var(--danger);
+    color: var(--danger-fg);
   }
   @keyframes badge-pop {
     from {

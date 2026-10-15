@@ -37,6 +37,7 @@ import { keepStable } from "./stable.js";
 export { humanError, slowModeWait, SLOW_MODE_ERR } from "./errors.js";
 import { humanError } from "./errors.js";
 import { isGameToken } from "./games.js";
+import { plainSnippet } from "./snippet.js";
 import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
@@ -3406,6 +3407,20 @@ function initEvents() {
     if (owner && arrivedAt > (owner.lastActivity || 0)) {
       owner.lastActivity = arrivedAt;
       S.guilds = [...S.guilds]; // reassign so dmList()'s sort re-runs
+    }
+    // The DM row's preview line has the same problem: it is the backend's
+    // answer as of the last guild fetch, and the unread badge beside it is
+    // live. A conversation whose first messages arrived after that fetch read
+    // "No messages yet" next to a badge of 2. The newest message wins, by its
+    // own timestamp, so a backfilled older one never overwrites a newer line.
+    if (owner?.kind === "dm" && countsAsChat(m)) {
+      const at = m.sent ? new Date(m.sent).getTime() : Date.now();
+      if (at >= (owner.dmPreviewAt || 0)) {
+        owner.dmPreview = m.deleted ? "" : plainSnippet(m.content || "", 160);
+        owner.dmPreviewMine = m.sender === S.identity.fingerprint;
+        owner.dmPreviewAt = at;
+        S.guilds = [...S.guilds];
+      }
     }
 
     const firstSeen = !!m.id && !countedMsgIds.has(m.id);
