@@ -21,6 +21,12 @@
   let stream = null;
   let raf = 0;
   let done = false;
+  // Bumped by every stop(). The camera open below awaits a permission prompt
+  // and a device open; if the scanner closed (or Try again restarted it) during
+  // that wait, the stream that finally arrives belongs to nobody and must be
+  // stopped, or the camera light stays on behind a dismissed overlay.
+  let gen = 0;
+  let destroyed = false;
 
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
@@ -64,6 +70,7 @@
   }
 
   function stop() {
+    gen++;
     cancelAnimationFrame(raf);
     stream?.getTracks().forEach((t) => t.stop());
     stream = null;
@@ -79,17 +86,26 @@
     denied = false;
     done = false;
     stop();
+    const mine = gen;
+    const stale = () => mine !== gen || destroyed;
     if (!(await loadDecoder())) {
-      error = "Couldn't load the QR decoder.";
+      if (!stale()) error = "Couldn't load the QR decoder.";
       return;
     }
+    if (stale()) return;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
+      const s = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
         audio: false,
       });
+      if (stale()) {
+        s.getTracks().forEach((t) => t.stop());
+        return;
+      }
+      stream = s;
       video.srcObject = stream;
       await video.play();
+      if (stale()) return; // stop() already released `stream`
       // Linking off a dim laptop screen in the evening is the common case, and
       // the rear camera needs the light. Torch is a non-standard constraint, so
       // only offer the button where the track admits to having one.
@@ -97,6 +113,7 @@
       hasTorch = !!track?.getCapabilities?.().torch;
       raf = requestAnimationFrame(tick);
     } catch (err) {
+      if (stale()) return;
       denied = err?.name === "NotAllowedError";
       error = denied
         ? "Camera access was denied."
@@ -129,6 +146,7 @@
     startCamera();
   });
   onDestroy(() => {
+    destroyed = true;
     keepAwake(false);
     stop();
   });
