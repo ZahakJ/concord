@@ -966,14 +966,30 @@ func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byt
 			}
 			continue
 		}
-		// An untrusted backfill may fill in profiles we don't know yet, but must not
-		// overwrite a member's cached identity — in particular their MailboxPub,
-		// which routes offline mail. Trusted sources (owner/SyncHost) may refresh —
-		// and so may the member itself for its OWN row (fpr == srcFpr): the same
-		// author-binding the gossip announce enforces, so a returning peer can
-		// hand us the fresh status it set while we were apart.
-		if !trusted && fpr != srcFpr && s.hasProfile(fpr) {
+		// A guild's roster speaks only for the guild's members. Anyone else's
+		// profile in it is a fingerprint the responder chose, and adopting it
+		// would let one member seed our cache for strangers.
+		if !s.guildHasMember(guildID, fpr) {
 			continue
+		}
+		// An untrusted backfill may fill in profiles we don't know yet, but must not
+		// overwrite a member's cached identity. Trusted sources (owner/SyncHost) may
+		// refresh — and so may the member itself for its OWN row (fpr == srcFpr):
+		// the same author-binding the gossip announce enforces, so a returning peer
+		// can hand us the fresh status it set while we were apart.
+		if !trusted && fpr != srcFpr {
+			if s.hasProfile(fpr) {
+				continue
+			}
+			// Even a first fill is taken for its looks only. MailboxPub routes
+			// this member's offline mail, and a key a third party supplied would
+			// send it to whoever holds the matching private half. The edit stamp
+			// goes too: a copy stamped far in the future would win every later
+			// comparison in learnProfile and lock the member's own announce —
+			// and with it their real key — out for good. Stampless, the real
+			// copy replaces it the moment it arrives.
+			p.MailboxPub = nil
+			p.UpdatedAt = 0
 		}
 		s.learnProfile(fpr, p)
 	}
