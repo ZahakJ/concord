@@ -1,5 +1,7 @@
 # Bots
 
+How to write a bot for Concord: run the headless `concord --bot` and drive it with newline-delimited JSON from any language.
+
 A bot in Concord is a peer. It has its own identity, it is invited into a guild
 the way a person is, and it reads what that membership lets it read: the
 guilds it was invited to, nothing more. Its messages are end-to-end encrypted
@@ -18,7 +20,7 @@ bot a data directory and passphrase of its own:
 
 ```sh
 export CONCORD_HOME=~/bots/dice        # the bot's identity and history live here
-export CONCORD_PASSPHRASE='…'          # unlocks it; set it the same way every run
+export CONCORD_PASSPHRASE='…'          # unlocks it; required, since a bot has no terminal to type it in
 concord --status                       # creates the identity, prints its fingerprint
 ```
 
@@ -66,7 +68,7 @@ Notes:
   than a few minutes before the bot started. A bot does not answer week-old
   commands on restart.
 - `sender` is the authenticated identity. `senderName` is self-chosen and
-  decorative; never authorise anything by it.
+  decorative; never authorize anything by it.
 
 ## Commands (stdin)
 

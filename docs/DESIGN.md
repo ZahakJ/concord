@@ -1182,8 +1182,10 @@ escalation-prevention invariants are enforced during replay on every peer:
 - a role you create or edit must rank strictly below your own highest rank;
 - only the current owner may grant a role to the current owner;
 - the current owner cannot be banned or muted;
-- only the current owner transfers ownership or names an heir, and a banned
-  fingerprint can neither inherit nor be transferred to;
+- only the current owner transfers ownership or names an heir; a banned heir
+  cannot claim, but a transfer to a banned fingerprint goes through and lifts
+  the ban, because the owner outranks every ban and a ban that could veto a
+  handover would let anyone who folds one in first keep the old owner in place;
 - `slow_mode` rides manage-channels, and its six-hour ceiling is clamped inside
   the replay rather than in the UI that issues it, so a hand-crafted op folds to
   the same state on every peer.
@@ -1424,7 +1426,9 @@ relay.
 
 One more note about outbound contact during a call. When no rendezvous supplies
 ICE configuration, the fallback is a public Google STUN server, contacted at call
-time to learn your own external address. It fetches no assets and reveals nothing
+time to learn your own external address; the configuration the shipped
+rendezvous does supply lists the same server beside its TURN relay, so a call
+reaches it either way. It fetches no assets and reveals nothing
 but your IP and the fact that you are starting a call, but it is a third party,
 it is hardcoded, and this document would be dishonest not to name it.
 
@@ -1558,8 +1562,12 @@ hand-waved:
   directory. So a stolen laptop without the passphrase yields the *shape* of your
   social life, who and where and when and in which rooms, while message content
   stays sealed. §13 states this as a gap rather than leaving you to infer it.
-- **Deletion overwrites.** A delete replaces the body with a sealed empty string
-  and leaves a tombstone row, so the content is gone rather than merely flagged.
+- **Deletion depends on where the message was.** A deleted direct message has
+  its body overwritten with a sealed empty string and leaves a tombstone row, so
+  the content is gone rather than merely flagged. A deleted guild message is
+  tombstoned but keeps its sealed body on every member's device, so a moderator
+  holding Manage Messages can reveal the original; **Empty trash** in Privacy &
+  safety overwrites those retained bodies on this device.
 
 **Search is local-only and has no index.** It walks your own messages newest
 first, decrypts each body, and matches in memory, stopping as soon as it has
@@ -1891,8 +1899,9 @@ makes "one file, download and run" possible on every platform.
   internal/crypto/mls/  MLS group-encryption engine (swappable Engine interface)
   internal/domain/      pure model: guilds, channels, messages, topic derivation
   internal/net/         libp2p host, discovery, relay, gossipsub, and the
-                        invite / sync / signal / link / attach / guest /
-                        gifsearch / release stream protocols
+                        invite / dm-invite / sync / hello / signal / link /
+                        attach / chronicle / release / guest / booking /
+                        gifsearch stream protocols
   internal/store/       encrypted SQLite: history, reactions, settings, search
   internal/mailbox/     the offline store-and-forward mailbox + push bridge
   internal/link/        device-linking offers and HMAC proofs

@@ -82,15 +82,19 @@ cd frontend && npm run build   # must succeed; a broken build is a broken releas
 ```
 
 On every pull request (and every push to `main`), CI runs `go build ./...`,
-`go vet ./...`, `go test -race -short ./...`, and the three frontend steps. See
+`go vet ./...`, `go test -race -short ./...`, the three frontend steps, and a
+check that the documentation site in `docs/manual/` was rebuilt (`make docs`). See
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml). It has to be green
 before anything merges. `gofmt` is part of that gate, so run `make fmt` before
-you push rather than discovering it in a red build.
+you push rather than discovering it in a red build. `make fmt` covers the root
+package, `internal/` and `cmd/`; CI also checks `mobile/` and `scripts/`, so
+gofmt those by hand if you touch them.
 
 `-short` is deliberate: it skips the tests that stand up real libp2p nodes and
 wait on message propagation, which are too timing-sensitive to gate a pull
 request on a shared runner. Those run nightly in the `integration` job, and
-`make test` runs them locally — so a change to the networking layer wants a
+`make test` runs the ones under `internal/` locally (`go test -race ./...` also
+covers `cmd/`) — so a change to the networking layer wants a
 local `make race` before you push, because the gate will not catch it.
 
 Run the rest locally first as well. The Go suite starts real libp2p hosts and is
@@ -163,8 +167,9 @@ press Escape to dismiss anything already open. Useful handles: member names are
 `.mname`, the profile popover is `[role="dialog"][aria-label*="profile"]`, and
 the composer's `input[type="file"]` takes `setInputFiles` to send an attachment.
 Clicking the guild-name header opens Guild settings, which is usually not what
-you wanted. `scripts/playwright.mjs` and the `smoke-*` scripts are worked
-examples.
+you wanted. The `smoke-*` scripts are worked examples, and
+`scripts/playwright.mjs` is the helper they use to find a `playwright-core`
+install.
 
 To exercise internet-style discovery without deploying anything, `make
 rendezvous-run` starts a local rendezvous node with a stable identity and prints

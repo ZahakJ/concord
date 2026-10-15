@@ -213,8 +213,10 @@ follow from that:
 - **Is user-generated content moderated?** Partly, and honestly: there is no
   central moderation, because there is no server. Each guild's own admins govern
   it through a signed governance log; every user has blocking, which is enforced
-  at the render path, and a report flow that routes to the guild's admins and
-  writes a local evidence file. Say this plainly rather than claiming a
+  at the render path, and a *Report message* dialog that sends nothing to anyone:
+  it hides the message, blocks the sender, or writes a local evidence file, and
+  points the user at the guild's admins, who can delete the message and remove
+  the member. Say this plainly rather than claiming a
   moderation team.
 - **Expected rating:** Teen / PEGI 12 or thereabouts, driven entirely by
   unmoderated user interaction rather than by any content the app ships.

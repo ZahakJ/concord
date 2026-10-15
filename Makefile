@@ -11,7 +11,7 @@ N ?= 2
 # CI passes the git tag (e.g. VERSION=v0.4.9); local builds stay "dev" (no nag).
 VERSION ?= dev
 
-.PHONY: gui gui-dev web cli rendezvous frontend test race fmt clean release-keygen \
+.PHONY: docs gui gui-dev web cli rendezvous frontend test race fmt clean release-keygen \
         peers rendezvous-run dev-clean help release icons banner native \
         android-core ios-core android-app ios-app
 
@@ -269,6 +269,12 @@ fmt:
 clean:
 	rm -rf bin frontend/dist
 
+# Rebuild the documentation site (docs/manual/) from the Markdown sources.
+# Pages publishes docs/ from main, so the output is committed with its sources;
+# CI fails when they disagree.
+docs:
+	node scripts/build-docs.mjs
+
 help:
 	@echo "Concord make targets:"
 	@echo "  make peers [N=3]   run N local browser peers (multi-peer testing)"
@@ -278,6 +284,7 @@ help:
 	@echo "  make rendezvous-run run a local rendezvous/relay node"
 	@echo "  make release       build web binaries locally (smoke test only)"
 	@echo "  make test | race   run tests (optionally with the race detector)"
+	@echo "  make docs          rebuild the documentation site (docs/manual/)"
 	@echo "  make dev-clean      delete local test data (.dev/)"
 	@echo "  make icons|banner  regenerate the app icons / README artwork"
 	@echo

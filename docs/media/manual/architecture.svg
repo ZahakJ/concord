@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 592" font-family="Inter,system-ui,sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">Concord architecture</title>
+  <desc id="d">Three shells host the Svelte UI, which talks HTTP and SSE to internal/httpapi; that calls internal/bridge, which wraps the internal/app Service; the Service sits on the domain, store, crypto and network layers, which reach the vendored MLS library, other peers and the rendezvous.</desc>
+
+  <!-- connectors (drawn first so boxes sit on top) -->
+  <line class="d-line" x1="134" y1="72" x2="134" y2="92" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="380" y1="72" x2="380" y2="92" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="626" y1="72" x2="626" y2="92" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="255" y1="148" x2="255" y2="176" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="490" y1="204" x2="512" y2="204" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="255" y1="232" x2="255" y2="260" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="626" y1="232" x2="626" y2="260" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="380" y1="316" x2="380" y2="344" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="102" y1="400" x2="102" y2="428" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="287" y1="400" x2="287" y2="428" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="472" y1="400" x2="472" y2="428" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="657" y1="400" x2="657" y2="428" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="472" y1="492" x2="472" y2="520" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="657" y1="492" x2="657" y2="520" stroke="#8a93a3" stroke-width="1.5"/>
+  <line class="d-line" x1="195" y1="520" x2="195" y2="400" stroke="#8a93a3" stroke-width="1.5"/>
+
+  <!-- row A: shells -->
+  <rect class="d-box" x="20" y="16" width="228" height="56" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="34" y="39" font-size="14" font-weight="600" fill="#1d2330">Desktop window</text>
+  <text class="d-muted" x="34" y="59" font-size="12" fill="#5b6475">Wails · main_wails.go</text>
+  <rect class="d-box" x="266" y="16" width="228" height="56" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="280" y="39" font-size="14" font-weight="600" fill="#1d2330">Browser tab</text>
+  <text class="d-muted" x="280" y="59" font-size="12" fill="#5b6475">main_web.go · 127.0.0.1:8787</text>
+  <rect class="d-box" x="512" y="16" width="228" height="56" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="526" y="39" font-size="14" font-weight="600" fill="#1d2330">Android / iOS</text>
+  <text class="d-muted" x="526" y="59" font-size="12" fill="#5b6475">Capacitor · apps/mobile</text>
+
+  <!-- row B: UI -->
+  <rect class="d-accent" x="20" y="92" width="720" height="56" rx="8" fill="#e8eefc" stroke="#5b7bd5"/>
+  <text class="d-text" x="34" y="115" font-size="14" font-weight="600" fill="#1d2330">Svelte UI · frontend/src</text>
+  <text class="d-muted" x="34" y="135" font-size="12" fill="#5b6475">built to frontend/dist and embedded in the binary (or copied into the mobile shell)</text>
+  <text class="d-muted" x="265" y="167" font-size="12" fill="#5b6475">POST /rpc · GET /events (SSE)</text>
+
+  <!-- row C: transport -->
+  <rect class="d-box" x="20" y="176" width="470" height="56" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="34" y="199" font-size="14" font-weight="600" fill="#1d2330">internal/httpapi</text>
+  <text class="d-muted" x="34" y="219" font-size="12" fill="#5b6475">loopback HTTP + SSE, API token, cross-origin guard</text>
+  <rect class="d-box" x="512" y="176" width="228" height="56" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="526" y="199" font-size="14" font-weight="600" fill="#1d2330">mobile/</text>
+  <text class="d-muted" x="526" y="219" font-size="12" fill="#5b6475">gomobile Start, DispatchJSON</text>
+
+  <!-- row D: bridge -->
+  <rect class="d-box" x="20" y="260" width="720" height="56" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="34" y="283" font-size="14" font-weight="600" fill="#1d2330">internal/bridge</text>
+  <text class="d-muted" x="34" y="303" font-size="12" fill="#5b6475">Dispatch(method, args) to JSON view structs; OnMessage, OnTyping and other event hooks</text>
+
+  <!-- row E: service -->
+  <rect class="d-accent" x="20" y="344" width="720" height="56" rx="8" fill="#e8eefc" stroke="#5b7bd5"/>
+  <text class="d-text" x="34" y="367" font-size="14" font-weight="600" fill="#1d2330">internal/app · Service</text>
+  <text class="d-muted" x="34" y="387" font-size="12" fill="#5b6475">guilds, DMs, invites, history sync, governance, voice signaling, mailbox, devices</text>
+
+  <!-- row F: layers -->
+  <rect class="d-box" x="20" y="428" width="165" height="64" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="34" y="454" font-size="14" font-weight="600" fill="#1d2330">Domain</text>
+  <text class="d-muted" x="34" y="474" font-size="12" fill="#5b6475">internal/domain</text>
+  <rect class="d-box" x="205" y="428" width="165" height="64" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="219" y="454" font-size="14" font-weight="600" fill="#1d2330">Store</text>
+  <text class="d-muted" x="219" y="474" font-size="12" fill="#5b6475">internal/store</text>
+  <rect class="d-box" x="390" y="428" width="165" height="64" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="404" y="454" font-size="14" font-weight="600" fill="#1d2330">Crypto</text>
+  <text class="d-muted" x="404" y="474" font-size="12" fill="#5b6475">identity, crypto/mls</text>
+  <rect class="d-box" x="575" y="428" width="165" height="64" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="589" y="454" font-size="14" font-weight="600" fill="#1d2330">Network</text>
+  <text class="d-muted" x="589" y="474" font-size="12" fill="#5b6475">internal/net, mailbox</text>
+
+  <!-- row G: below the core -->
+  <rect class="d-box" x="20" y="520" width="350" height="56" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="34" y="543" font-size="14" font-weight="600" fill="#1d2330">Headless CLI and bots</text>
+  <text class="d-muted" x="34" y="563" font-size="12" fill="#5b6475">cmd/concord drives the Service directly</text>
+  <rect class="d-box" x="390" y="520" width="165" height="56" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="404" y="543" font-size="14" font-weight="600" fill="#1d2330">Vendored MLS</text>
+  <text class="d-muted" x="404" y="563" font-size="12" fill="#5b6475">third_party/mls-go</text>
+  <rect class="d-box" x="575" y="520" width="165" height="56" rx="8" fill="#f6f7f9" stroke="#c9ced6"/>
+  <text class="d-text" x="589" y="543" font-size="14" font-weight="600" fill="#1d2330">Peers, rendezvous</text>
+  <text class="d-muted" x="589" y="563" font-size="12" fill="#5b6475">libp2p · cmd/rendezvous</text>
+</svg>

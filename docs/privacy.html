@@ -218,7 +218,9 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
   <p>On your own devices, and nowhere else. Locally it is an encrypted SQLite database:</p>
   <ul>
     <li>Message bodies are sealed with NaCl secretbox under a key derived from your identity seed; a
-      stolen database file yields no readable messages.</li>
+      stolen database file yields no readable messages. The structure around them is not sealed:
+      who sent what and when, reactions, profiles, and guild and channel names are stored in the
+      clear so the app can query and order them.</li>
     <li>Your identity seed is itself encrypted at rest with Argon2id + secretbox, unlocked by your
       passphrase.</li>
     <li>Full-text search runs entirely on your machine; queries never leave it.</li>
@@ -264,9 +266,10 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
       installed from Google Play does not offer it at all — the store owns updates there, and the app
       asks the running install where it came from to decide.</li>
     <li><b>stun.l.google.com, at call time only.</b> Starting a call needs to learn your own external
-      address. If the rendezvous you bootstrap through serves ICE configuration, that is used and
-      Google is never contacted; only when it does not is there a fallback to this hardcoded public
-      STUN server. It learns your IP and that you are starting a call — no media, no identity, no
+      address, and this public STUN server is how the app finds it. It is the fallback when your
+      rendezvous serves no ICE configuration, and the rendezvous this project ships lists it too,
+      beside its own TURN relay, in the configuration it does serve — so a call reaches it either
+      way. It learns your IP and that you are starting a call — no media, no identity, no
       group, and nothing at all if you never place a call.</li>
   </ul>
 
@@ -318,13 +321,18 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
   <h2 id="deletion">Deleting your data</h2>
   <p><b>In the app: Settings → Privacy &amp; safety → Delete everything on this device.</b> It asks
     you to type your profile name, and then erases your identity keystore, the encrypted database
-    holding every message stored here, the MLS group state and the plaintext peer cache. The app is
-    left exactly as it was before you first opened it. Nothing is retained, anywhere, for any
-    period, because there is nowhere for it to be retained.</p>
+    holding every message stored here, the MLS group state and the plaintext peer cache. Three
+    things outside those survive it: the rendezvous address you configured, the record of a verified
+    release download, and what the interface keeps in its own browser storage — display
+    preferences, plus the text of any unsent draft or failed send. Nothing about you is retained
+    anywhere else, because there is nowhere else for it to be retained.</p>
   <p>Smaller erasures, for when the whole device is not what you meant: delete one message and the
-    deletion travels to the group like any other message; <em>Privacy &amp; safety → Empty trash</em>
-    scrubs the retained text behind every deleted message on this device; <em>Settings → Devices →
-    Unlink</em> tells one linked device to erase itself.</p>
+    deletion travels to the group like any other message (in a direct message every honest client
+    then overwrites the text; in a guild each member's app keeps it, still sealed, so a moderator can
+    reveal it, until that device empties its trash); <em>Privacy &amp; safety → Empty trash</em>
+    scrubs the retained text behind every deleted message on this device; <em>Settings → Connection →
+    Stats &amp; diagnostics → Unlink</em> removes one linked device from your guilds at once, and it
+    erases its own copy when it next comes online.</p>
   <p>What deletion cannot do, and no feature of any peer-to-peer messenger can, is <b>reach the
     copies other people already have</b>. A message you sent is on the recipient's device, sealed to
     them. There is no server holding the authoritative copy that could be told to forget — which is
@@ -338,8 +346,11 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
     and collects no personal information from anyone, of any age, to gate. It is not directed to
     children, and it is not designed, marketed or featured for them.</p>
   <p>It does carry user-generated content — anything a member of a guild you join chooses to send —
-    so it is rated accordingly, and it provides blocking, a report flow, and message requests that
-    hold a stranger's first direct message unopened. If you are responsible for a young person's
+    so it is rated accordingly, and it provides blocking, message requests that hold a stranger's
+    first direct message unopened, and a <em>Report message</em> dialog. That dialog sends nothing to
+    anyone, because there is no moderation team to receive it: it hides the message, blocks its
+    sender, or saves an evidence file on your device for you to hand to someone who can act.
+    Removing a member or a message for everyone is up to that guild's own admins. If you are responsible for a young person's
     device, treat Concord as you would any other open communication tool.</p>
 
   <h2 id="limits">What is not protected</h2>
@@ -347,7 +358,8 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
   <ul class="limits">
     <li><b>Metadata is not hidden.</b> Inherent to peer-to-peer: the DHT and relay can observe that
       your peer ID connects and roughly when, never content, and peers you connect to directly learn
-      your IP address. Calls can opt into relay-only mode to hide IPs from other participants.</li>
+      your IP address. Calls can opt into relay-only mode to hide IPs from other participants, which works only when
+      your rendezvous runs a TURN relay.</li>
     <li><b>Concord is not an anonymity tool.</b> It authenticates identities; it does not hide them.
       If you need anonymity, use a network layer built for it.</li>
     <li><b>Group members are trusted.</b> Encryption protects the group from outsiders; it cannot
@@ -355,9 +367,12 @@ footer{border-top:1px solid var(--line);padding:40px 0 60px;color:var(--muted);f
     <li><b>Your passphrase is the at-rest anchor.</b> Configure convenience auto-unlock and at-rest
       encryption no longer protects your history from someone who compromises that machine. The
       default is to ask for the passphrase.</li>
-    <li><b>Not everything on your disk is encrypted.</b> The remembered-peer list and each group's
-      MLS state, including its leaf private keys, sit beside the database in the clear. Your message
-      bodies stay sealed; those do not.</li>
+    <li><b>Not everything on your disk is encrypted.</b> Inside the database only message bodies,
+      attachments and story captions are sealed; senders, timestamps, reactions, profiles, guild and
+      channel names, the governance log and settings are in the clear. Unsent drafts and failed sends
+      wait unencrypted in the interface's own browser storage. The remembered-peer list and each
+      group's MLS state, including its leaf private keys, sit beside the database in the clear. Your
+      message bodies stay sealed; those do not.</li>
     <li><b>Verification matters.</b> First-contact impersonation is defeated by comparing key
       fingerprints — "safety numbers" — out of band. Actually do it.</li>
   </ul>
