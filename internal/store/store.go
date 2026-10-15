@@ -1677,8 +1677,8 @@ func (s *Store) reactionsForChannel(channelID string) (map[string]map[string][]s
 // reactionsForMessage is reactionsForChannel for one message: the same shape,
 // read off the reactions primary key instead of every reaction in the channel.
 // Nil when the message has none, as reactionsForChannel's map lookup gives.
-func (s *Store) reactionsForMessage(messageID string) (map[string][]string, error) {
-	rows, err := s.db.Query(
+func reactionsForMessage(q querier, messageID string) (map[string][]string, error) {
+	rows, err := q.Query(
 		`SELECT emoji, fingerprint FROM reactions WHERE message_id = ?`, messageID)
 	if err != nil {
 		return nil, err
@@ -1755,12 +1755,16 @@ func (s *Store) PropsFor(guildID, fingerprint string, fprOf func(sender []byte) 
 
 // MessageByID loads a single message (with reactions) for post-reaction refresh.
 func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
+	return s.messageByID(s.db, id)
+}
+
+func (s *Store) messageByID(q querier, id string) (domain.Message, bool, error) {
 	var m domain.Message
 	var enc, nonceB []byte
 	var sent int64
 	var deleted int
 	var edited, pinned, expired, unverified int
-	err := s.db.QueryRow(
+	err := q.QueryRow(
 		`SELECT id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, expired, content_enc, nonce, sent, sig, unverified
 		 FROM messages WHERE id = ?`, id,
 	).Scan(&m.ID, &m.ChannelID, &m.Sender, &m.Name, &m.Kind, &m.ReplyTo, &m.Dir, &deleted, &edited, &pinned, &expired, &enc, &nonceB, &sent, &m.Sig, &unverified)
@@ -1780,7 +1784,7 @@ func (s *Store) MessageByID(id string) (domain.Message, bool, error) {
 		m.Content = content
 	}
 	m.Sent = time.Unix(0, sent).UTC()
-	if m.Reactions, err = s.reactionsForMessage(m.ID); err != nil {
+	if m.Reactions, err = reactionsForMessage(q, m.ID); err != nil {
 		return domain.Message{}, false, err
 	}
 	return m, true, nil
@@ -2723,9 +2727,13 @@ func (s *Store) MessagesChangedSince(channelID string, sinceNano int64, limit in
 // allowed so ordinary-member catch-up keeps working; only the caller-designated
 // trusted sources (guild owner / SyncHost) may mutate existing rows.
 func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, trusted bool) (bool, error) {
+	return s.upsertSyncedMessage(s.db, m, selfFingerprint, trusted)
+}
+
+func (s *Store) upsertSyncedMessage(q querier, m domain.Message, selfFingerprint string, trusted bool) (bool, error) {
 	var curDeleted, curEdited, curPinned int
 	var curUpdated int64
-	err := s.db.QueryRow(
+	err := q.QueryRow(
 		`SELECT deleted, edited, pinned, updated FROM messages WHERE id = ?`, m.ID,
 	).Scan(&curDeleted, &curEdited, &curPinned, &curUpdated)
 
@@ -2743,7 +2751,7 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 			return false, err
 		}
 		sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
-		if _, err := s.db.Exec(
+		if _, err := q.Exec(
 			`INSERT INTO messages (id, channel_id, sender, name, kind, reply_to, dir, deleted, edited, pinned, content_enc, nonce, sent, updated, sig, unverified, quiet)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			m.ID, m.ChannelID, m.Sender, m.Name, m.Kind, m.ReplyTo, domain.ValidDir(m.Dir),
@@ -2763,7 +2771,7 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 		// which never touches our own rows) is allowed from an untrusted backfill.
 	default:
 		if m.Deleted && curDeleted == 0 {
-			if _, err := s.db.Exec(
+			if _, err := q.Exec(
 				`UPDATE messages SET deleted = 1, updated = ?, sig = NULL, unverified = 0 WHERE id = ?`, maxInt64(remoteUpdated, curUpdated), m.ID,
 			); err != nil {
 				return false, err
@@ -2775,7 +2783,7 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 				return false, err
 			}
 			sealed := secretbox.Seal(nil, []byte(m.Content), &nonce, &s.key)
-			if _, err := s.db.Exec(
+			if _, err := q.Exec(
 				`UPDATE messages SET content_enc = ?, nonce = ?, edited = ?, pinned = ?, updated = ?, sig = ?, unverified = ? WHERE id = ?`,
 				sealed, nonce[:], boolToInt(m.Edited), boolToInt(m.Pinned), remoteUpdated,
 				nilIfEmpty(m.Sig), boolToInt(m.Unverified), m.ID,
@@ -2791,17 +2799,69 @@ func (s *Store) UpsertSyncedMessage(m domain.Message, selfFingerprint string, tr
 	// set arrives with it). An untrusted backfill peer must not rewrite the
 	// reaction rows of a message we already hold.
 	if remoteUpdated >= curUpdated && (trusted || inserted) {
-		if rc, err := s.replaceReactionsExceptSelf(m.ID, m.Reactions, selfFingerprint); err == nil && rc {
+		if rc, err := replaceReactionsExceptSelf(q, m.ID, m.Reactions, selfFingerprint); err == nil && rc {
 			changed = true
 		}
 	}
 	return changed, nil
 }
 
+// querier is what *sql.DB and *sql.Tx share, so a statement sequence can run
+// on either: on its own, or inside one transaction with others.
+type querier interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// syncBatchRows bounds how many rows one UpsertSyncedMessages transaction
+// applies. The store runs on a single connection, so an open transaction
+// holds every other reader and writer in the process until it commits; a
+// bounded batch keeps that wait to milliseconds while still paying one
+// commit for hundreds of rows instead of one per statement.
+const syncBatchRows = 256
+
+// UpsertSyncedMessages is UpsertSyncedMessage for a whole channel's catch-up,
+// with the same rules row for row, followed for each row that changed by the
+// MessageByID read the caller wants to emit — all inside one transaction per
+// syncBatchRows rows instead of an autocommit, and so an fsync, per
+// statement. It returns the changed rows as MessageByID would read them, in
+// input order.
+//
+// A row whose own statements fail is skipped and the rest applied, which is
+// what the per-row loop it replaces did. A batch whose commit fails is lost
+// whole and reported, with the rows already returned from earlier batches
+// still applied.
+func (s *Store) UpsertSyncedMessages(msgs []domain.Message, selfFingerprint string, trusted bool) ([]domain.Message, error) {
+	var out []domain.Message
+	for start := 0; start < len(msgs); start += syncBatchRows {
+		end := min(start+syncBatchRows, len(msgs))
+		tx, err := s.db.Begin()
+		if err != nil {
+			return out, err
+		}
+		var applied []domain.Message
+		for _, m := range msgs[start:end] {
+			changed, err := s.upsertSyncedMessage(tx, m, selfFingerprint, trusted)
+			if err != nil || !changed {
+				continue
+			}
+			if full, ok, err := s.messageByID(tx, m.ID); err == nil && ok {
+				applied = append(applied, full)
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return out, fmt.Errorf("store: commit synced messages: %w", err)
+		}
+		out = append(out, applied...)
+	}
+	return out, nil
+}
+
 // replaceReactionsExceptSelf makes a message's reaction rows for other peers
 // match the given snapshot, leaving selfFingerprint's rows untouched. Reports
 // whether the stored set actually changed.
-func (s *Store) replaceReactionsExceptSelf(messageID string, snapshot map[string][]string, selfFingerprint string) (bool, error) {
+func replaceReactionsExceptSelf(q querier, messageID string, snapshot map[string][]string, selfFingerprint string) (bool, error) {
 	want := map[string]bool{} // "fpr\x00emoji" for everyone but self
 	for emoji, fprs := range snapshot {
 		for _, fpr := range fprs {
@@ -2811,7 +2871,7 @@ func (s *Store) replaceReactionsExceptSelf(messageID string, snapshot map[string
 		}
 	}
 
-	rows, err := s.db.Query(
+	rows, err := q.Query(
 		`SELECT fingerprint, emoji FROM reactions WHERE message_id = ? AND fingerprint != ?`,
 		messageID, selfFingerprint)
 	if err != nil {
@@ -2835,7 +2895,7 @@ func (s *Store) replaceReactionsExceptSelf(messageID string, snapshot map[string
 	for k := range have {
 		if !want[k] {
 			fpr, emoji, _ := strings.Cut(k, "\x00")
-			if _, err := s.db.Exec(
+			if _, err := q.Exec(
 				`DELETE FROM reactions WHERE message_id = ? AND fingerprint = ? AND emoji = ?`,
 				messageID, fpr, emoji); err != nil {
 				return false, err
@@ -2846,7 +2906,7 @@ func (s *Store) replaceReactionsExceptSelf(messageID string, snapshot map[string
 	for k := range want {
 		if !have[k] {
 			fpr, emoji, _ := strings.Cut(k, "\x00")
-			if _, err := s.db.Exec(
+			if _, err := q.Exec(
 				`INSERT INTO reactions (message_id, fingerprint, emoji) VALUES (?, ?, ?)
 				 ON CONFLICT(message_id, fingerprint, emoji) DO NOTHING`,
 				messageID, fpr, emoji); err != nil {

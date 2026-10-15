@@ -63,6 +63,69 @@ func BenchmarkSyncApplyOneByOne(b *testing.B) {
 	}
 }
 
+func BenchmarkSyncApplyBatched(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		st := sidebarStore(b)
+		msgs := syncedHistory(b, st, 1000, 1000)
+		b.StartTimer()
+		got, err := st.UpsertSyncedMessages(msgs, "fp-self", false)
+		if err != nil || len(got) != len(msgs) {
+			b.Fatalf("applied %d of %d: %v", len(got), len(msgs), err)
+		}
+	}
+}
+
+// The batched applier must do exactly what the per-row one does: the same
+// rows reported changed, read back the same way, leaving the same history —
+// for new rows, for a trusted source's edits and tombstones of rows we hold,
+// for an untrusted source trying the same, and for a payload that repeats
+// itself, more than one transaction's worth of rows long.
+func TestUpsertSyncedMessagesMatchesOneByOne(t *testing.T) {
+	for _, trusted := range []bool{false, true} {
+		t.Run(fmt.Sprintf("trusted=%v", trusted), func(t *testing.T) {
+			one, batch := sidebarStore(t), sidebarStore(t)
+			payload := syncedHistory(t, one, 400, 300)
+			syncedHistory(t, batch, 400, 300)
+			later := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
+			for i := 0; i < 300; i += 4 {
+				m := domain.Message{ID: fmt.Sprintf("held-%05d", i), ChannelID: "ch", Sender: []byte("a"),
+					Content: fmt.Sprintf("rewritten %d", i), Edited: true, Updated: later,
+					Reactions: map[string][]string{"👀": {"fp-q"}}}
+				if i%8 == 0 {
+					m.Deleted = true
+				}
+				payload = append(payload, m)
+			}
+			payload = append(payload, payload[:50]...) // a responder that repeats rows
+
+			want := applyOneByOne(one, payload, "fp-self", trusted)
+			got, err := batch.UpsertSyncedMessages(payload, "fp-self", trusted)
+			if err != nil {
+				t.Fatal(err)
+			}
+			strip := func(ms []domain.Message) string {
+				var s string
+				for _, m := range ms {
+					s += fmt.Sprintf("%s|%s|%v|%v|%v;", m.ID, m.Content, m.Deleted, m.Edited, m.Reactions)
+				}
+				return s
+			}
+			if len(got) != len(want) || strip(got) != strip(want) {
+				t.Fatalf("batched reported %d changed rows, one-by-one %d", len(got), len(want))
+			}
+			a, _ := one.Messages("ch", 0)
+			b, _ := batch.Messages("ch", 0)
+			if strip(a) != strip(b) {
+				t.Fatal("the two appliers left different histories")
+			}
+			if len(want) < 400 {
+				t.Fatalf("only %d rows changed; the fixture is not exercising much", len(want))
+			}
+		})
+	}
+}
+
 // MessageByID reads one message's reactions rather than the channel's, and
 // must hand back exactly what the channel read gives for that message —
 // including none at all for a message nobody reacted to.
