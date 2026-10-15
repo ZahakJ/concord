@@ -416,6 +416,9 @@ CREATE TABLE IF NOT EXISTS chronicle_chunks (
 	if _, err := s.db.Exec(`DROP TABLE IF EXISTS attachment_ocr`); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
+	if err := s.migrateSyncMarks(); err != nil {
+		return err
+	}
 	// Index on (channel_id, updated) — added after the column exists. Without it,
 	// MAX(updated) per channel is a full-partition scan; LatestTimestamp runs per
 	// channel on every sync and presence refresh.
@@ -796,6 +799,9 @@ func (s *Store) DeleteChannel(channelID string) error {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id=?`, channelID); err != nil {
+		return err
+	}
+	if err := forgetSyncMarksTx(tx, channelID); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(`DELETE FROM channels WHERE id=?`, channelID); err != nil {
@@ -1199,6 +1205,9 @@ func (s *Store) DeleteGuild(guildID string) error {
 		if _, err := tx.Exec(`DELETE FROM messages WHERE channel_id = ?`, ch); err != nil {
 			return err
 		}
+		if err := forgetSyncMarksTx(tx, ch); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(`DELETE FROM channels WHERE guild_id = ?`, guildID); err != nil {
 		return err
@@ -1290,7 +1299,9 @@ func (s *Store) SaveMessage(m domain.Message) (bool, error) {
 
 // LatestTimestamp returns the newest change time (UnixNano) in a channel — the
 // max over message send times and later state updates (edit/delete/pin/react) —
-// or 0. It is the cursor for history sync.
+// or 0. It drives "last activity" ordering. It is NOT a sync cursor any more:
+// it moves on live delivery and on update stamps, and a cursor that does either
+// skips history (see syncmarks.go).
 func (s *Store) LatestTimestamp(channelID string) (int64, error) {
 	// Two single-column MAXes, each served by a covering index
 	// (idx_messages_channel on sent, idx_messages_channel_updated on updated),

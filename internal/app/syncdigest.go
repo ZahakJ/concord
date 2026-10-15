@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/ZahakJ/concord/internal/domain"
+	"github.com/ZahakJ/concord/internal/store"
 )
 
 // syncdigest.go makes anti-entropy conditional.
@@ -356,6 +357,18 @@ func jsonCost(v any) int {
 type syncChannelRows struct {
 	id   string
 	rows []domain.Message
+	// The rest is set only for a requester that keeps marks (syncMarks): the
+	// rows are then in change order, seqs[i] is rows[i]'s change number, and
+	// the payload reports how far through them the requester may now consider
+	// itself (syncPayload.Through). A requester from before marks gets the rows
+	// in send order and none of this.
+	marked   bool
+	seqs     []int64
+	after    int64           // the mark this page started after
+	head     int64           // the channel's newest change number, read before the page
+	lastRead int64           // the last change number the page read (store.SeqRows.LastRead)
+	full     bool            // the page hit its row limit
+	held     map[string]bool // row digests the requester says it already holds
 }
 
 // syncSource is everything the responder gathered locally for one guild, before
@@ -505,12 +518,53 @@ func buildSyncPayload(src syncSource, have *syncDigest) (syncPayload, bool) {
 	// 4. Messages, per channel in the guild's own order. A row that doesn't fit
 	//    stops THIS channel only — a smaller row in the next one may still fit,
 	//    and the cursor means neither is lost.
+	//
+	//    For a requester that keeps marks the rows are in change order, so what
+	//    is served is always a prefix of them, and the payload says how far the
+	//    prefix reached. A row the requester already holds in exactly this state
+	//    is not sent at all, but it still counts as reached. A channel served to
+	//    the end of a page that did not fill is done: everything up to the head
+	//    read before the page has been offered.
 	for _, ch := range src.channels {
-		for _, m := range ch.rows {
+		var through int64
+		cut := false
+		for i, m := range ch.rows {
+			if ch.marked && ch.held[store.RowDigest(m)] {
+				through = ch.seqs[i]
+				continue
+			}
 			if !b.take(len(m.Content) + 256) {
+				cut = true
 				break
 			}
 			out.Messages[ch.id] = append(out.Messages[ch.id], m)
+			if ch.marked {
+				through = ch.seqs[i]
+			}
+		}
+		if !ch.marked {
+			continue
+		}
+		if !cut && ch.lastRead > through {
+			through = ch.lastRead
+		}
+		done := !cut && !ch.full
+		if done && ch.head > through {
+			through = ch.head
+		}
+		if ch.full && !cut {
+			// The page, not the budget, stopped this channel: there is more,
+			// and the requester should ask for it now rather than next beat.
+			b.truncated = true
+		}
+		if through > ch.after || done {
+			if out.Through == nil {
+				out.Through = map[string]syncThrough{}
+			}
+			if through < ch.after {
+				through = ch.after
+			}
+			out.Through[ch.id] = syncThrough{Seq: through, Done: done}
 		}
 	}
 

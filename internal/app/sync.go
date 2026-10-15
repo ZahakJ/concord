@@ -47,12 +47,12 @@ var errSyncDeclined = errors.New("app: peer declined to sync")
 // Message saves are idempotent by ID and state adoption is newest-wins, so
 // overlapping syncs against several members are harmless.
 
-// syncOverlap is subtracted from the per-channel cursor. Its ONLY job is sender
-// clock skew: the cursor is our own newest stamp for the channel, so a message
-// we never received from a peer whose clock runs behind ours would otherwise
-// fall below it and stay invisible forever. Everything else is already covered —
-// a gap in one sender's own stream is above their previous stamp, and an edit
-// carries a fresh `updated` that MessagesChangedSince matches on.
+// syncOverlap is subtracted from the per-channel time cursor (the floor, see
+// store/syncmarks.go), which is only what a peer we hold no mark for is asked
+// from. Its ONLY job is sender clock skew: the floor is a send time, so a
+// message we never received from a peer whose clock runs behind ours would
+// otherwise fall below it and stay invisible forever. A peer we hold a mark for
+// is asked by its own change numbers, where clocks do not enter into it.
 //
 // It was five minutes, which meant every reconcile re-shipped the last five
 // minutes of every active channel — and a chat message can carry an inline
@@ -65,13 +65,24 @@ const syncOverlap = time.Minute
 
 // maxSyncPayload caps the marshalled payload well below the transport's 1 MiB
 // frame limit (inline base64 images make single messages large). Truncation is
-// safe: whatever was saved advances the cursor and the requester's digests, so
-// the next round continues where this one stopped — and syncResponse.More asks
-// for that round now rather than on the next beat.
+// safe: the rows served are a prefix of what was asked for, the requester's
+// mark (or, against an older peer, its floor) advances over exactly that
+// prefix, so the next round continues where this one stopped — and
+// syncResponse.More asks for that round now rather than on the next beat.
 const maxSyncPayload = 700 * 1024
 
 // syncMessagesPerChannel bounds one channel's contribution to a single response.
 const syncMessagesPerChannel = 200
+
+// heldPerChannel and heldPerRequest bound the digests a request carries to say
+// which rows the requester already holds (syncMarks.Held): sixteen hex
+// characters each, so the whole allowance is under 80 KiB, and only the first
+// sync with a peer comes anywhere near it. Leaving digests out is always safe —
+// the responder simply sends those rows.
+const (
+	heldPerChannel = 1000
+	heldPerRequest = 4000
+)
 
 // maxSyncRounds bounds one peer's catch-up. Two rounds were always needed when
 // applied commits moved our epoch (history encrypted beyond our old reach
@@ -86,6 +97,26 @@ type syncRequest struct {
 	// Absent from older peers, which reads as nil: serve the full snapshot, as
 	// this protocol always did.
 	Have *syncDigest `json:"have,omitempty"`
+	// Marks is where the requester stands in the responder's own change
+	// numbering (store/syncmarks.go). Its presence is what says the requester
+	// keeps marks at all; an older peer sends none and is answered by Since in
+	// send order, exactly as before. An older responder ignores it and answers
+	// Since, which is why Since is still always sent.
+	Marks *syncMarks `json:"marks,omitempty"`
+}
+
+// syncMarks is the marked half of a request.
+type syncMarks struct {
+	// Space is the responder numbering the marks below were issued in. A
+	// responder whose numbering is different answers as if there were none.
+	Space string `json:"space,omitempty"`
+	// After is the change number reached per channel; a channel with no entry
+	// is asked by its Since instead.
+	After map[string]int64 `json:"after,omitempty"`
+	// Held is, per channel, store.RowDigest of rows the requester already
+	// holds and changed since it last synced with this peer — what the
+	// responder would otherwise send straight back.
+	Held map[string][]string `json:"held,omitempty"`
 }
 
 type syncResponse struct {
@@ -136,6 +167,19 @@ type syncPayload struct {
 	// re-encoding on the way past would silently strip whatever a newer peer
 	// added and leave a manifest nobody could verify again.
 	Chronicles []json.RawMessage `json:"chronicles,omitempty"`
+	// Space names the responder's change numbering, and Through says, per
+	// channel, how far through it this payload reached (see syncMarks). Sent
+	// only to a requester that keeps marks; absent from older responders.
+	Space   string                 `json:"space,omitempty"`
+	Through map[string]syncThrough `json:"through,omitempty"`
+}
+
+// syncThrough is one channel's position after a payload: every change up to Seq
+// has been offered. Done says nothing after it existed when the answer was
+// built, which is what lets the requester also move its floor.
+type syncThrough struct {
+	Seq  int64 `json:"s"`
+	Done bool  `json:"d,omitempty"`
 }
 
 // handleSyncRequest serves a peer's catch-up request from local state.
@@ -209,14 +253,54 @@ func (s *Service) handleSyncRequest(ctx context.Context, from peer.ID, request [
 	// profile refresh withheld (it still reaches them from the owner, a
 	// SyncHost, or its author), never a wrong write.
 	src.selfTrusted = s.trustedSyncSource(guild.ID, src.selfFpr)
+	var space string
+	if req.Marks != nil {
+		space, _ = s.store.SyncSpace()
+	}
 	for _, ch := range guild.Channels {
-		msgs, err := s.store.MessagesChangedSince(ch.ID, req.Since[ch.ID], syncMessagesPerChannel)
-		if err != nil || len(msgs) == 0 {
+		if req.Marks == nil || space == "" {
+			// A requester from before marks: rows changed since its time cursor,
+			// in send order, as this protocol always served them.
+			msgs, err := s.store.MessagesChangedSince(ch.ID, req.Since[ch.ID], syncMessagesPerChannel)
+			if err != nil || len(msgs) == 0 {
+				continue
+			}
+			src.channels = append(src.channels, syncChannelRows{id: ch.ID, rows: msgs})
 			continue
 		}
-		src.channels = append(src.channels, syncChannelRows{id: ch.ID, rows: msgs})
+		// Marked: everything that changed here after the requester's mark, in
+		// change order, whatever its stamps say. With no mark for this channel
+		// (or one from a numbering this database no longer uses) the requester's
+		// time cursor filters instead, still in change order, so the answer
+		// still ends at a mark it can keep.
+		after, since := int64(0), req.Since[ch.ID]
+		if req.Marks.Space == space {
+			if a, ok := req.Marks.After[ch.ID]; ok {
+				after, since = a, 0
+			}
+		}
+		head, err := s.store.ChannelSeqHead(ch.ID)
+		if err != nil {
+			continue
+		}
+		page, err := s.store.MessagesAfterSeq(ch.ID, after, since, syncMessagesPerChannel)
+		if err != nil {
+			continue
+		}
+		var held map[string]bool
+		if hs := req.Marks.Held[ch.ID]; len(hs) > 0 {
+			held = make(map[string]bool, len(hs))
+			for _, h := range hs {
+				held[h] = true
+			}
+		}
+		src.channels = append(src.channels, syncChannelRows{
+			id: ch.ID, rows: page.Msgs, marked: true, seqs: page.Seqs,
+			after: after, head: head, lastRead: page.LastRead, full: page.Full, held: held,
+		})
 	}
 	payload, truncated := buildSyncPayload(src, req.Have)
+	payload.Space = space
 	resp.More = truncated
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -650,24 +734,18 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		if err != nil {
 			return nil
 		}
-		since := map[string]int64{}
-		for _, ch := range guild.Channels {
-			latest, err := s.store.LatestTimestamp(ch.ID)
-			if err != nil {
-				continue
-			}
-			if cursor := latest - syncOverlap.Nanoseconds(); cursor > 0 {
-				since[ch.ID] = cursor
-			}
-		}
+		// Where we stand with THIS peer (store/syncmarks.go). Recomputed each
+		// round: the last round's answer moved it.
+		cur := s.syncCursorFor(guild, p)
 
 		// Say what we already hold, so the responder can answer with the
 		// difference instead of rebuilding the whole guild (syncdigest.go).
 		// Recomputed each round: the last round's answer is exactly what must
 		// not come back again.
 		reqBytes, _ := json.Marshal(syncRequest{
-			GuildID: guildID, Epoch: epoch, Since: since,
-			Have: s.syncDigestFor(guildID, guild, time.Now().Unix()),
+			GuildID: guildID, Epoch: epoch, Since: cur.since,
+			Have:  s.syncDigestFor(guildID, guild, time.Now().Unix()),
+			Marks: cur.marks,
 		})
 		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
 		ask := s.host.RequestSync
@@ -738,7 +816,12 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 		}
 		payloadOK := true
 		if len(resp.Payload) > 0 {
-			payloadOK = s.applySyncPayload(guildID, guild.GroupID, resp.Payload, s.presence(p).Fingerprint)
+			var payload *syncPayload
+			var failed map[string]bool
+			payloadOK, payload, failed = s.applySyncPayloadFrom(guildID, guild.GroupID, resp.Payload, s.presence(p).Fingerprint)
+			if payload != nil {
+				s.advanceSyncCursor(p, cur, payload, failed)
+			}
 		}
 		// Only a payload we could actually READ proves the ratchet is whole
 		// again. Clearing the flag on the epoch numbers alone hid a forked
@@ -795,13 +878,21 @@ func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 // decrypt what a current member encrypted at their epoch, the signature of a
 // gap or fork that still needs repair.
 func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, srcFpr string) bool {
+	ok, _, _ := s.applySyncPayloadFrom(guildID, groupID, ciphertext, srcFpr)
+	return ok
+}
+
+// applySyncPayloadFrom is applySyncPayload that also hands back the decoded
+// payload (nil when there was none to read) and the channels whose rows could
+// not all be stored — the two things the sync cursor needs to advance.
+func (s *Service) applySyncPayloadFrom(guildID string, groupID, ciphertext []byte, srcFpr string) (bool, *syncPayload, map[string]bool) {
 	dec, err := s.mls.Decrypt(s.ctx, groupID, ciphertext)
 	if err != nil {
-		return false
+		return false, nil, nil
 	}
 	var payload syncPayload
 	if json.Unmarshal(dec.Plaintext, &payload) != nil {
-		return true // readable but malformed: the ratchet itself is fine
+		return true, nil, nil // readable but malformed: the ratchet itself is fine
 	}
 	// A backfill is only as trustworthy as its server for anything that MUTATES
 	// state we already hold (tombstoning/rewriting messages, overwriting cached
@@ -980,11 +1071,13 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 	self := s.id.Fingerprint()
 	anyNew := false
 	refused := 0
+	failed := map[string]bool{}
 	for chID, msgs := range payload.Messages {
 		s.mu.RLock()
 		_, tracked := s.channelToGuild[chID]
 		s.mu.RUnlock()
 		if !tracked {
+			failed[chID] = true
 			continue
 		}
 		for _, m := range msgs {
@@ -1004,7 +1097,13 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 				continue
 			}
 			changed, err := s.store.UpsertSyncedMessage(m, self, trusted)
-			if err != nil || !changed {
+			if err != nil {
+				// Not stored, so not ours to count as reached: the cursor for
+				// this channel stays put and the row is asked for again.
+				failed[chID] = true
+				continue
+			}
+			if !changed {
 				continue
 			}
 			anyNew = true
@@ -1024,5 +1123,101 @@ func (s *Service) applySyncPayload(guildID string, groupID, ciphertext []byte, s
 	if anyNew && !s.dmReopenBlocked(guildID) {
 		s.unhideDM(guildID)
 	}
-	return true
+	return true, &payload, failed
+}
+
+// syncCursor is where a request to one peer starts from.
+type syncCursor struct {
+	since map[string]int64 // per channel: floor less syncOverlap (store/syncmarks.go)
+	marks *syncMarks
+	local int64 // our own change counter when the request was built
+}
+
+// syncCursorFor builds the cursor for a request to p: our marks in p's
+// numbering, the time floor for anything without one, and the digests of rows
+// that reached us since p last answered.
+func (s *Service) syncCursorFor(guild domain.Guild, p peer.ID) syncCursor {
+	ids := make([]string, 0, len(guild.Channels))
+	for _, ch := range guild.Channels {
+		ids = append(ids, ch.ID)
+	}
+	cur := syncCursor{since: map[string]int64{}, marks: &syncMarks{}}
+	cur.local, _ = s.store.SyncCounter()
+	space, after, local, err := s.store.SyncMarks(p.String(), ids)
+	if err == nil && len(after) > 0 {
+		cur.marks.Space, cur.marks.After = space, after
+	}
+	budget := heldPerRequest
+	for _, id := range ids {
+		if floor, err := s.store.SyncFloor(id); err == nil {
+			if c := floor - syncOverlap.Nanoseconds(); c > 0 {
+				cur.since[id] = c
+			}
+		}
+		if budget <= 0 {
+			continue
+		}
+		n := heldPerChannel
+		if n > budget {
+			n = budget
+		}
+		held, err := s.store.HeldDigests(id, local[id], n)
+		if err != nil || len(held) == 0 {
+			continue
+		}
+		if cur.marks.Held == nil {
+			cur.marks.Held = map[string][]string{}
+		}
+		cur.marks.Held[id] = held
+		budget -= len(held)
+	}
+	return cur
+}
+
+// advanceSyncCursor moves our position with p over what its payload served.
+//
+// A responder that keeps marks says how far it got (Through), and that is
+// recorded against p as given: it is a prefix of p's own change order, so it
+// is safe however the answer was cut short. Only when p reports a channel done
+// does the floor move as well, to the newest send time p served — the floor is
+// what we ask peers we hold no mark for, and "p had nothing newer" is the most
+// it can honestly say.
+//
+// A responder from before marks serves rows in send order, cut short by a row
+// limit or a byte budget but always as a prefix, so the newest send time it
+// served above our cursor is a floor we can keep however the answer ended.
+// Update stamps never move either: an edit or a reaction on an old row says
+// nothing about which new rows we hold.
+func (s *Service) advanceSyncCursor(p peer.ID, cur syncCursor, payload *syncPayload, failed map[string]bool) {
+	newestSent := func(chID string, above int64) int64 {
+		var top int64
+		for _, m := range payload.Messages[chID] {
+			if t := m.Sent.UnixNano(); t > above && t > top {
+				top = t
+			}
+		}
+		return top
+	}
+	if payload.Space == "" {
+		for chID := range payload.Messages {
+			if failed[chID] {
+				continue
+			}
+			if top := newestSent(chID, cur.since[chID]); top > 0 {
+				_ = s.store.RaiseSyncFloor(chID, top)
+			}
+		}
+		return
+	}
+	for chID, th := range payload.Through {
+		if failed[chID] {
+			continue
+		}
+		_ = s.store.SetSyncMark(p.String(), chID, payload.Space, th.Seq, cur.local)
+		if th.Done {
+			if top := newestSent(chID, 0); top > 0 {
+				_ = s.store.RaiseSyncFloor(chID, top)
+			}
+		}
+	}
 }
