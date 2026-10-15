@@ -271,6 +271,19 @@ func (s *Service) syncFromPeer(p peer.ID) bool {
 // epoch gap and need backfill right now. Members holding the SyncHost permission
 // (designated always-on hosts) are tried first.
 func (s *Service) syncGuildFromAnyPeer(guildID string) {
+	// The beat starts one of these per guild every minute whether or not the
+	// last one finished, and so does every failed live commit. A peer that
+	// takes its full timeout to answer used to stack them: each held a request
+	// open against the same members, applied the same commits, and fought the
+	// others over the same rows. Now they queue behind the one running and are
+	// answered together by one more pass (coalesceSync).
+	_ = s.coalesceSync("any|"+guildID, func() error {
+		s.syncGuildFromAnyPeerOnce(guildID)
+		return nil
+	})
+}
+
+func (s *Service) syncGuildFromAnyPeerOnce(guildID string) {
 	peers := s.memberPeers(guildID)
 	declined := 0
 	for _, p := range peers {
@@ -288,6 +301,52 @@ func (s *Service) syncGuildFromAnyPeer(guildID string) {
 	// retry loop that outlives the problem.
 	if declined > 0 && declined == len(peers) {
 		log.Printf("concord/app: guild %s: every peer declined to sync with us (%d asked)", guildID, declined)
+	}
+}
+
+// syncRun is one catch-up in flight, and who is waiting for the next.
+type syncRun struct {
+	again   bool         // somebody asked while this pass was running
+	waiters []chan error // ...and wants the result of the pass after it
+}
+
+// coalesceSync runs fn as the only catch-up under key. A caller that finds one
+// running does not start a second beside it: it waits for one more pass that
+// starts AFTER its request — whatever it wanted to learn may have arrived after
+// the running pass sent its question — and every caller that queued during the
+// same pass shares that one. So at most one request per key is ever on the wire
+// and at most one more is owed, however many triggers fire, and a caller that
+// returns has always seen a pass that began after it asked.
+func (s *Service) coalesceSync(key string, fn func() error) error {
+	s.syncFlightMu.Lock()
+	if r, ok := s.syncFlight[key]; ok {
+		r.again = true
+		ch := make(chan error, 1)
+		r.waiters = append(r.waiters, ch)
+		s.syncFlightMu.Unlock()
+		return <-ch
+	}
+	if s.syncFlight == nil {
+		s.syncFlight = map[string]*syncRun{}
+	}
+	r := &syncRun{}
+	s.syncFlight[key] = r
+	s.syncFlightMu.Unlock()
+
+	var owed []chan error
+	for {
+		err := fn()
+		for _, ch := range owed {
+			ch <- err
+		}
+		s.syncFlightMu.Lock()
+		if !r.again {
+			delete(s.syncFlight, key)
+			s.syncFlightMu.Unlock()
+			return err
+		}
+		r.again, owed, r.waiters = false, r.waiters, nil
+		s.syncFlightMu.Unlock()
 	}
 }
 
@@ -565,6 +624,16 @@ func (s *Service) sharesGuild(fingerprint string) bool {
 // history that was encrypted beyond our old reach. The returned error reflects
 // transport failure only (no response) — content problems are best-effort.
 func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
+	// One catch-up per guild per peer at a time. The connect tail, a nudge, a
+	// reciprocal pull and the beat can all ask for the same pair at once; a
+	// second copy beside the first could only repeat its request and race it
+	// over the same commits and rows.
+	return s.coalesceSync(guildID+"|"+p.String(), func() error {
+		return s.syncGuildFromPeerOnce(guildID, p)
+	})
+}
+
+func (s *Service) syncGuildFromPeerOnce(guildID string, p peer.ID) error {
 	for round := 0; round < maxSyncRounds; round++ {
 		s.mu.RLock()
 		g, ok := s.guilds[guildID]
@@ -601,7 +670,11 @@ func (s *Service) syncGuildFromPeer(guildID string, p peer.ID) error {
 			Have: s.syncDigestFor(guildID, guild, time.Now().Unix()),
 		})
 		ctx, cancel := context.WithTimeout(s.ctx, 20*time.Second)
-		respBytes, err := s.host.RequestSync(ctx, p, reqBytes)
+		ask := s.host.RequestSync
+		if s.requestSync != nil {
+			ask = s.requestSync
+		}
+		respBytes, err := ask(ctx, p, reqBytes)
 		cancel()
 		if err != nil {
 			return err

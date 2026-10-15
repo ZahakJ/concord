@@ -85,6 +85,14 @@ type Service struct {
 	memberSetMu sync.Mutex
 	memberSets  map[string]*memberSet
 
+	// syncFlight holds the catch-ups running right now (see coalesceSync),
+	// under its own mutex for the same reason as memberSetMu.
+	syncFlightMu sync.Mutex
+	syncFlight   map[string]*syncRun
+	// requestSync is the transport a catch-up asks over; nil means the host's
+	// sync protocol. Tests put a hand on it to hold a request open.
+	requestSync func(ctx context.Context, to peer.ID, request []byte) ([]byte, error)
+
 	// pendingDMInvites tracks DM invitees (1:1 and group) who haven't joined
 	// yet (guild ID -> set of fingerprints). When such a peer later connects we
 	// push them the invite, and the heal loop re-pushes periodically, so a DM
