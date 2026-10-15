@@ -38,6 +38,7 @@ export { humanError, slowModeWait, SLOW_MODE_ERR } from "./errors.js";
 import { humanError } from "./errors.js";
 import { isGameToken } from "./games.js";
 import { plainSnippet } from "./snippet.js";
+import { typistsAfter } from "./typing.js";
 import {
   LEVELS as NOTIF_LEVELS,
   normalize as normalizeNotifs,
@@ -3427,6 +3428,11 @@ function initEvents() {
     if (m.id) {
       countedMsgIds.add(m.id);
       if (countedMsgIds.size > 12000) countedMsgIds.clear(); // bound memory (rare)
+    }
+    const typed = typistsAfter(S.typingList, m, S.activeChannelId, firstSeen);
+    if (typed.gone.length) {
+      typed.gone.forEach((t) => clearTimeout(t.timer));
+      S.typingList = typed.keep;
     }
     // Live (not a sync backfill of old history): within the last minute, AND
     // not flagged as backfill by the core. The age test alone was the whole
