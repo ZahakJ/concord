@@ -33,6 +33,7 @@ import { plur } from "./plural.js";
 import { fmtCount } from "./chronicle.js";
 import { hash32 } from "./hash32.js";
 import { raisedFor } from "./syncflag.js";
+import { keepStable } from "./stable.js";
 export { humanError, slowModeWait, SLOW_MODE_ERR } from "./errors.js";
 import { humanError } from "./errors.js";
 import { isGameToken } from "./games.js";
@@ -566,12 +567,34 @@ export function nameFor(fpr, frozenName = "") {
 }
 
 // customEmojiMap: {name -> imageDataURI} for the active guild's custom emoji.
-export function customEmojiMap() {
-  const list = activeGuild()?.emoji || [];
+//
+// One shared table, kept the same object while its content is (keepStable):
+// every guild-updated event replaces S.guilds, and a fresh-but-equal map per
+// call re-rendered the body of every message on screen each time.
+const stableEmoji = keepStable();
+const emojiTable = $derived.by(() => {
   const m = {};
-  for (const e of list) m[e.name] = e.image;
-  return m;
+  for (const e of activeGuild()?.emoji || []) m[e.name] = e.image;
+  return stableEmoji(m);
+});
+export function customEmojiMap() {
+  return emojiTable;
 }
+
+// mentionNames: every member's @name for the renderer, plus @everyone/@here,
+// with the viewer's own marked. Shared and identity-stable for the same reason
+// as the emoji table — S.members is replaced on every presence flap, and a
+// presence flap does not rename anybody.
+const stableNames = keepStable();
+const nameTable = $derived(
+  stableNames([
+    // @everyone / @here highlight for everyone (self:true so they stand out).
+    { name: "everyone", self: true },
+    { name: "here", self: true },
+    ...S.members.filter((mm) => mm.name).map((mm) => ({ name: mm.name, self: mm.isSelf })),
+  ]),
+);
+export const mentionNames = () => nameTable;
 
 // detectMobile reports whether to use the touch/drawer layout: a coarse pointer
 // (phone/tablet) or a narrow viewport. Re-evaluated on resize/orientation via
@@ -1782,10 +1805,13 @@ function myRoleNames() {
 // embeds and announcements all resolve the same names to the same things —
 // and derived ONCE for the whole app, because every message row asks for it and
 // rebuilding two arrays per row per keystroke adds up on a long feed.
+// Identity-stable too (keepStable): derived once is not enough when the
+// inputs are replaced with equal copies on every refresh.
+const stableRefs = keepStable();
 const refTables = $derived.by(() => {
   const g = activeGuild();
   const mine = S.members.find((mm) => mm.isSelf)?.roleIds || [];
-  return {
+  return stableRefs({
     roles: S.roles
       .filter((r) => r.name)
       .map((r) => ({ name: r.name, color: r.color, self: mine.includes(r.id) })),
@@ -1795,7 +1821,7 @@ const refTables = $derived.by(() => {
     channels: (g?.channels || [])
       .filter((c) => c.name && c.type !== "voice")
       .map((c) => ({ id: c.id, name: c.name })),
-  };
+  });
 });
 export const mentionRefs = () => refTables;
 

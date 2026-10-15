@@ -56,6 +56,7 @@
     nameColorFor,
     nameFor,
     customEmojiMap,
+    mentionNames as sharedMentionNames,
     react,
     deleteMsg,
     saveEdit,
@@ -206,12 +207,9 @@
   // every image in it.
   const animFor = (e) => animatedEmojiSrc(e);
   // Highlight every member's @name; the viewer's own name gets the self style.
-  const mentionNames = $derived([
-    // @everyone / @here highlight for everyone (self:true so they stand out).
-    { name: "everyone", self: true },
-    { name: "here", self: true },
-    ...S.members.filter((mm) => mm.name).map((mm) => ({ name: mm.name, self: mm.isSelf })),
-  ]);
+  // Shared and identity-stable (see mentionNames in state): built here per row,
+  // it was a new array on every presence flap and re-rendered every body.
+  const mentionNames = $derived(sharedMentionNames());
   // @role and #channel, resolved against the guild on screen.
   const refs = $derived(mentionRefs());
   // A message addressed to you gets the whole row, not just the pill inside it.
