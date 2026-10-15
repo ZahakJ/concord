@@ -1030,7 +1030,7 @@
             : t.name}</span
         >
         {#if t.speaking}
-          <span class="eq" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span class="eq" role="img" aria-label="Speaking" use:tooltip={"Speaking"}><span></span><span></span><span></span></span>
         {/if}
         {#if t.deafened}
           <span class="mute-badge" use:tooltip={"Deafened — can't hear the call"} aria-label="Deafened">
@@ -1171,7 +1171,7 @@
           {/if}
           <span class="ring" aria-hidden="true"></span>
           {#if t.speaking}
-            <span class="eq" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span class="eq" role="img" aria-label="Speaking" use:tooltip={"Speaking"}><span></span><span></span><span></span></span>
           {/if}
           {#if t.deafened}
             <span class="mute-badge" use:tooltip={"Deafened — can't hear the call"} aria-label="Deafened">
@@ -1872,7 +1872,14 @@
         0 0 18px 4px color-mix(in srgb, var(--ok) 40%, transparent);
     }
   }
-  /* Tiny equalizer badge — three bars bouncing while someone speaks. */
+  /* The speaking badge: three bars bouncing while someone talks, labelled
+     "Speaking" for the pointer and the screen reader. It was read as an
+     unlabelled "•••" pill — and in a tile's corner, where a ⋯ menu would sit.
+     The bars shared one 0.9s bounce from 35% of a 12px box, so most frames
+     (and every frame under reduced motion) drew three 3x4px rounded dots in a
+     row. Now each bar has its own floor and period, so they drift out of step
+     instead of moving as one, none is ever shorter than 5px, and at rest they hold a
+     staggered equalizer shape rather than a row of dots. */
   .eq {
     position: absolute;
     top: 8px;
@@ -1880,32 +1887,41 @@
     display: inline-flex;
     align-items: flex-end;
     gap: 2px;
-    height: 12px;
-    padding: 4px 5px;
+    height: 14px;
+    padding: 4px 6px;
     background: rgba(0, 0, 0, 0.55);
     border-radius: var(--radius-sm);
-    pointer-events: none;
   }
   .eq span {
     width: 3px;
-    height: 35%;
-    border-radius: 2px;
+    height: 100%;
+    border-radius: 1px;
     background: var(--ok);
-    animation: eq-bounce 0.9s ease-in-out infinite;
+    transform-origin: bottom;
+    transform: scaleY(var(--rest));
+    animation: eq-bounce var(--period) ease-in-out infinite alternate;
+  }
+  .eq span:nth-child(1) {
+    --lo: 0.45;
+    --rest: 0.6;
+    --period: 0.42s;
   }
   .eq span:nth-child(2) {
-    animation-delay: 0.18s;
+    --lo: 0.55;
+    --rest: 1;
+    --period: 0.55s;
   }
   .eq span:nth-child(3) {
-    animation-delay: 0.36s;
+    --lo: 0.4;
+    --rest: 0.75;
+    --period: 0.36s;
   }
   @keyframes eq-bounce {
-    0%,
-    100% {
-      height: 35%;
+    from {
+      transform: scaleY(var(--lo));
     }
-    50% {
-      height: 100%;
+    to {
+      transform: scaleY(1);
     }
   }
   /* Muted-mic badge (shown for yourself — the only mute state we truly know). */
