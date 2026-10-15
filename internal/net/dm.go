@@ -3,6 +3,7 @@ package net
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -23,6 +24,7 @@ type DMInviteResponder func(ctx context.Context, from peer.ID, request []byte) (
 func (n *Host) HandleDMInvites(responder DMInviteResponder) {
 	n.h.SetStreamHandler(dmInviteProtocol, func(s network.Stream) {
 		defer s.Close()
+		_ = s.SetDeadline(time.Now().Add(serveTimeout))
 		req, err := readFrame(s, maxInviteFrame)
 		if err != nil {
 			return
@@ -42,6 +44,7 @@ func (n *Host) RequestDMInvite(ctx context.Context, to peer.ID, request []byte) 
 		return nil, fmt.Errorf("net: open dm-invite stream: %w", err)
 	}
 	defer s.Close()
+	_ = s.SetDeadline(streamDeadline(ctx, serveTimeout))
 	if err := writeFrame(s, request, maxInviteFrame); err != nil {
 		return nil, err
 	}

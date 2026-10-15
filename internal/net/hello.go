@@ -46,6 +46,7 @@ type HelloResponder func(ctx context.Context, from peer.ID, request []byte) (res
 func (n *Host) HandleHello(responder HelloResponder) {
 	n.h.SetStreamHandler(helloProtocol, func(s network.Stream) {
 		defer s.Close()
+		_ = s.SetDeadline(time.Now().Add(serveTimeout))
 		req, err := readFrame(s, maxHelloFrame)
 		if err != nil {
 			return
@@ -78,6 +79,7 @@ func (n *Host) SayHello(ctx context.Context, p peer.ID, request []byte) ([]byte,
 		return nil, fmt.Errorf("net: open hello stream: %w", err)
 	}
 	defer s.Close()
+	_ = s.SetDeadline(streamDeadline(ctx, serveTimeout))
 	if err := writeFrame(s, request, maxHelloFrame); err != nil {
 		return nil, err
 	}

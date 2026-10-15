@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -31,6 +32,7 @@ type InviteResponder func(ctx context.Context, from peer.ID, request []byte) (re
 func (n *Host) HandleInvites(responder InviteResponder) {
 	n.h.SetStreamHandler(inviteProtocol, func(s network.Stream) {
 		defer s.Close()
+		_ = s.SetDeadline(time.Now().Add(serveTimeout))
 		req, err := readFrame(s, maxInviteFrame)
 		if err != nil {
 			return
@@ -54,6 +56,9 @@ func (n *Host) RequestInvite(ctx context.Context, owner peer.AddrInfo, request [
 		return nil, fmt.Errorf("net: open invite stream: %w", err)
 	}
 	defer s.Close()
+	// Never shorter than replyFloor: the owner commits us into the group on
+	// this request, and leaving before its Welcome arrives strands us there.
+	_ = s.SetDeadline(replyDeadline(ctx, serveTimeout, replyFloor))
 
 	if err := writeFrame(s, request, maxInviteFrame); err != nil {
 		return nil, err

@@ -33,6 +33,7 @@ type LinkResponder func(ctx context.Context, from peer.ID, request []byte) (resp
 func (n *Host) HandleLink(responder LinkResponder) {
 	n.h.SetStreamHandler(linkProtocol, func(s network.Stream) {
 		defer s.Close()
+		_ = s.SetDeadline(time.Now().Add(serveTimeout))
 		req, err := readFrame(s, maxLinkFrame)
 		if err != nil {
 			return
@@ -61,6 +62,9 @@ func (n *Host) RequestLink(ctx context.Context, issuer peer.AddrInfo, request []
 		return nil, err
 	}
 	defer s.Close()
+	// Never shorter than replyFloor: the request burns the issuer's single-use
+	// secret, and leaving before the answer wastes the code.
+	_ = s.SetDeadline(replyDeadline(ctx, serveTimeout, replyFloor))
 	if err := writeFrame(s, request, maxLinkFrame); err != nil {
 		return nil, fmt.Errorf("net: send link request: %w", err)
 	}

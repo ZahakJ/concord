@@ -3,6 +3,7 @@ package net
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -34,6 +35,10 @@ type AttachResponder func(ctx context.Context, from peer.ID, request []byte) (re
 func (n *Host) HandleAttachments(responder AttachResponder) {
 	n.h.SetStreamHandler(attachProtocol, func(s network.Stream) {
 		defer s.Close()
+		// The request is a few bytes and must arrive promptly; the reply can
+		// be 32 MiB over a slow relay, so it is bounded by progress, not by
+		// a clock (writeFrameProgress).
+		_ = s.SetReadDeadline(time.Now().Add(streamIdle))
 		req, err := readFrame(s, maxAttachRequest)
 		if err != nil {
 			return
@@ -42,7 +47,7 @@ func (n *Host) HandleAttachments(responder AttachResponder) {
 		if err != nil {
 			return
 		}
-		_ = writeFrame(s, resp, MaxAttachResponse)
+		_ = writeFrameProgress(s, resp, MaxAttachResponse)
 	})
 }
 
@@ -53,11 +58,15 @@ func (n *Host) RequestAttachment(ctx context.Context, to peer.ID, request []byte
 		return nil, fmt.Errorf("net: open attach stream: %w", err)
 	}
 	defer s.Close()
+	_ = s.SetWriteDeadline(streamDeadline(ctx, streamIdle))
 	if err := writeFrame(s, request, maxAttachRequest); err != nil {
 		return nil, err
 	}
 	if err := s.CloseWrite(); err != nil {
 		return nil, err
 	}
-	return readFrame(s, MaxAttachResponse)
+	// The peer must START answering within the caller's context; after that a
+	// large blob may take as long as it keeps moving. The context alone would
+	// cut a 25 MiB file off at fifteen seconds on a slow link.
+	return readFrameProgress(s, MaxAttachResponse, streamDeadline(ctx, streamIdle))
 }
