@@ -68,8 +68,11 @@
             </intent-filter>
         </activity>
 
-        <!-- Tray actions on message notifications: "Mark read" and the
-             swipe-away/tap cleanup of the stacked MessagingStyle history. -->
+        <!-- Tray actions on message notifications: "Reply" (inline, via
+             RemoteInput), "Mark read", and the swipe-away/tap cleanup of the
+             stacked MessagingStyle history. Unexported: the Reply intent is
+             the one mutable PendingIntent, and only an explicit intent to a
+             component nothing outside the app can reach makes that safe. -->
         <receiver android:name=".MarkReadReceiver" android:exported="false" />
 
         <!-- Keeps the P2P node alive in the background so messages arrive. -->

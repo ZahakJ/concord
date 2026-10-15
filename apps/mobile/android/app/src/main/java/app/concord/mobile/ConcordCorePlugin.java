@@ -333,10 +333,18 @@ public class ConcordCorePlugin extends Plugin {
         final String text;
         final long at;
 
-        MsgLine(String sender, String text, long at) {
+        final boolean failed;
+
+        // sender == null is the device owner's own line (an inline reply).
+        MsgLine(String sender, String text, long at, boolean failed) {
             this.sender = sender;
             this.text = text;
             this.at = at;
+            this.failed = failed;
+        }
+
+        String label() {
+            return failed ? "Not sent: " + text : text;
         }
     }
 
@@ -362,8 +370,56 @@ public class ConcordCorePlugin extends Plugin {
     // Static so NativeNotifier can post through the exact same channel, intent
     // and tag scheme while the WebView is torn down — one path, one look, and
     // a JS-side and native-side post for the same conversation replace each
-    // other instead of stacking.
+    // other instead of stacking. Both paths therefore carry the same actions,
+    // Reply included, without either knowing about them.
     static void postMessageNotification(Context ctx, String title, String body, String tag) {
+        render(ctx, tag, appendLine(tag, new MsgLine(title, body, System.currentTimeMillis(), false)), false);
+    }
+
+    /**
+     * An inline reply from the tray, after the core has answered for it. The
+     * line goes into the stack as the device owner's own ("You"), and the
+     * notification is re-posted in place — Android leaves the reply field
+     * spinning until the app updates the notification it came from, so this
+     * must run on success AND on failure. A failed reply stays in the stack,
+     * marked as not sent, with the Reply action still there to try again: the
+     * words the user typed are never dropped without telling them.
+     */
+    static void postReplyResult(Context ctx, String tag, String text, boolean sent) {
+        render(ctx, tag, appendLine(tag, new MsgLine(null, text, System.currentTimeMillis(), !sent)), true);
+    }
+
+    /** An empty reply: nothing to add, but the spinner still needs an update. */
+    static void repostQuietly(Context ctx, String tag) {
+        ArrayDeque<MsgLine> lines;
+        synchronized (HISTORY) {
+            ArrayDeque<MsgLine> q = HISTORY.get(tag);
+            lines = q == null ? new ArrayDeque<>() : new ArrayDeque<>(q);
+        }
+        render(ctx, tag, lines, true);
+    }
+
+    private static ArrayDeque<MsgLine> appendLine(String tag, MsgLine line) {
+        // Append to the tag's history and render the WHOLE stack, MessagingStyle:
+        // sender names against their lines, newest at the bottom, like every
+        // other messenger's tray entry. A copy is rendered outside the lock.
+        synchronized (HISTORY) {
+            ArrayDeque<MsgLine> q = HISTORY.get(tag);
+            if (q == null) HISTORY.put(tag, q = new ArrayDeque<>());
+            while (!q.isEmpty()
+                && (q.size() >= HISTORY_MAX || line.at - q.peekFirst().at > HISTORY_TTL_MS)) {
+                q.pollFirst();
+            }
+            q.addLast(line);
+            return new ArrayDeque<>(q);
+        }
+    }
+
+    // quiet: an update to a notification the user is already looking at (the
+    // result of their own reply) — re-render without sound, vibration or a
+    // second heads-up. Only that one post carries the flag, so the next real
+    // message in the conversation still alerts.
+    private static void render(Context ctx, String tag, ArrayDeque<MsgLine> lines, boolean quiet) {
         NotificationManager nm =
             (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
 
@@ -390,33 +446,32 @@ public class ConcordCorePlugin extends Plugin {
         }
         PendingIntent pi = PendingIntent.getActivity(ctx, tag.hashCode(), launch, piFlags);
 
-        // Append to the tag's history and render the WHOLE stack, MessagingStyle:
-        // sender names against their lines, newest at the bottom, like every
-        // other messenger's tray entry. A copy is rendered outside the lock.
-        long now = System.currentTimeMillis();
-        ArrayDeque<MsgLine> lines;
-        synchronized (HISTORY) {
-            ArrayDeque<MsgLine> q = HISTORY.get(tag);
-            if (q == null) HISTORY.put(tag, q = new ArrayDeque<>());
-            while (!q.isEmpty()
-                && (q.size() >= HISTORY_MAX || now - q.peekFirst().at > HISTORY_TTL_MS)) {
-                q.pollFirst();
-            }
-            q.addLast(new MsgLine(title, body, now));
-            lines = new ArrayDeque<>(q);
+        // The newest line someone ELSE wrote titles the notification; an own
+        // reply is never the headline. Absent one (the stack aged out, or the
+        // process restarted under a stale tray), the app's name.
+        String title = "Concord";
+        String text = "";
+        boolean lastFailed = false;
+        for (MsgLine l : lines) {
+            if (l.sender != null) title = l.sender;
+            text = l.label();
+            lastFailed = l.failed;
         }
+        if (lastFailed) text = "Reply not sent. Open Concord to send it.";
+
         Notification.MessagingStyle style;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            // "You" is the device owner slot; we never add own-messages, so the
-            // name is never rendered — the API just requires a user Person.
+            // "You" is the device owner slot: a line with no sender Person is
+            // the user's own, which is exactly what an inline reply appends.
             style = new Notification.MessagingStyle(new Person.Builder().setName("You").build());
             for (MsgLine l : lines) {
                 style.addMessage(new Notification.MessagingStyle.Message(
-                    l.text, l.at, new Person.Builder().setName(l.sender).build()));
+                    l.label(), l.at,
+                    l.sender == null ? null : new Person.Builder().setName(l.sender).build()));
             }
         } else {
             style = new Notification.MessagingStyle("You");
-            for (MsgLine l : lines) style.addMessage(l.text, l.at, l.sender);
+            for (MsgLine l : lines) style.addMessage(l.label(), l.at, l.sender);
         }
 
         // Swipe-away (and tap, via autoCancel) must clear the stacked history,
@@ -426,8 +481,7 @@ public class ConcordCorePlugin extends Plugin {
             .putExtra(MarkReadReceiver.EXTRA_TAG, tag);
         PendingIntent delPi = PendingIntent.getBroadcast(ctx, tag.hashCode(), dismissed, piFlags);
         // "Mark read" pushes the read cursor through the core (fans out to all
-        // devices) without opening the app. Reply-from-tray (RemoteInput) is a
-        // deliberate follow-up — the send path is the heavy half.
+        // devices) without opening the app.
         Intent markRead = new Intent(ctx, MarkReadReceiver.class)
             .setAction(MarkReadReceiver.ACTION_MARK_READ)
             .putExtra(MarkReadReceiver.EXTRA_TAG, tag);
@@ -436,26 +490,81 @@ public class ConcordCorePlugin extends Plugin {
         Notification.Builder b = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(ctx, MSG_CHANNEL_ID)
             : new Notification.Builder(ctx);
-        Notification n = b
-            .setContentTitle(title)
-            .setContentText(body)
+        b.setContentTitle(title)
+            .setContentText(text)
             .setStyle(style)
             .setSmallIcon(R.drawable.ic_stat_concord)
             .setColor(BRAND_TEAL)
             .setContentIntent(pi)
             .setDeleteIntent(delPi)
-            .addAction(new Notification.Action.Builder(
-                (android.graphics.drawable.Icon) null, "Mark read", mrPi).build())
+            .setOnlyAlertOnce(quiet)
             .setAutoCancel(true)
-            .setPriority(Notification.PRIORITY_HIGH)
-            .build();
+            .setPriority(Notification.PRIORITY_HIGH);
+        Notification.Action reply = replyAction(ctx, tag);
+        if (reply != null) b.addAction(reply);
+        b.addAction(new Notification.Action.Builder(
+            (android.graphics.drawable.Icon) null, "Mark read", mrPi).build());
 
         try {
-            nm.notify(tag, MSG_NOTIF_ID, n);
+            nm.notify(tag, MSG_NOTIF_ID, b.build());
         } catch (SecurityException e) {
             // POST_NOTIFICATIONS not granted (Android 13+): silently no-op — the
             // in-app badge/chime still fired.
         }
+    }
+
+    static final String REPLY_KEY = "concord_reply";
+
+    /**
+     * The tray's Reply action, or null when it must not be offered.
+     *
+     * Its PendingIntent is the one MUTABLE intent on the notification: the
+     * system writes the typed text into it as a RemoteInput result, which an
+     * immutable intent cannot receive. That is safe only because the target is
+     * an explicit, unexported component of this app — nothing else can be
+     * substituted for it — and every other intent here stays immutable.
+     *
+     * Two privacy rules shape it. A reply sends a message as the user, so on
+     * API 31+ it requires the device to be unlocked: an inline reply from the
+     * lock screen is exactly what a stranger holding the phone would use. And
+     * with App Lock on there is no Reply at all — App Lock means "nobody acts
+     * as me in Concord without the biometric", and a tray action that sends
+     * without ever showing the gate would be a way around it.
+     */
+    private static Notification.Action replyAction(Context ctx, String tag) {
+        if (appLockOn(ctx)) return null;
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags |= PendingIntent.FLAG_MUTABLE;
+        Intent replyIntent = new Intent(ctx, MarkReadReceiver.class)
+            .setAction(MarkReadReceiver.ACTION_REPLY)
+            .putExtra(MarkReadReceiver.EXTRA_TAG, tag);
+        PendingIntent replyPi = PendingIntent.getBroadcast(ctx, tag.hashCode(), replyIntent, flags);
+        android.app.RemoteInput input = new android.app.RemoteInput.Builder(REPLY_KEY)
+            .setLabel("Reply")
+            .build();
+        Notification.Action.Builder ab = new Notification.Action.Builder(
+            (android.graphics.drawable.Icon) null, "Reply", replyPi)
+            .addRemoteInput(input)
+            // No system-suggested replies: those are generated from the
+            // conversation's decrypted text, which stays inside this app.
+            .setAllowGeneratedReplies(false);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            ab.setSemanticAction(Notification.Action.SEMANTIC_ACTION_REPLY);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            ab.setAuthenticationRequired(true);
+        }
+        return ab.build();
+    }
+
+    // App Lock's state, mirrored natively by setSecure. Persisted because the
+    // native DM path posts while no JavaScript is running — after a process
+    // restart there is no page to ask.
+    private static final String PREFS = "concord_native";
+    private static final String PREF_APP_LOCK = "appLock";
+
+    private static boolean appLockOn(Context ctx) {
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(PREF_APP_LOCK, false);
     }
 
     /** Concord teal, for setColor on notifications. Mirrors --accent in app.css. */
@@ -517,6 +626,9 @@ public class ConcordCorePlugin extends Plugin {
     @PluginMethod
     public void setSecure(PluginCall call) {
         boolean on = Boolean.TRUE.equals(call.getBoolean("secure", false));
+        // The tray's Reply action follows App Lock too (see replyAction).
+        getContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(PREF_APP_LOCK, on).apply();
         if (getActivity() instanceof MainActivity) ((MainActivity) getActivity()).applySecureFlag(on);
         call.resolve();
     }
