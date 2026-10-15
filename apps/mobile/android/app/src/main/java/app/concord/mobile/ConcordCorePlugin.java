@@ -360,13 +360,23 @@ public class ConcordCorePlugin extends Plugin {
         final long at;
 
         final boolean failed;
+        // The message this line shows, when known. The page and NativeNotifier
+        // can both post the same message (the WebView keeps running for a while
+        // after the activity leaves the screen), and the second post must not
+        // stack the line a second time.
+        final String id;
 
         // sender == null is the device owner's own line (an inline reply).
         MsgLine(String sender, String text, long at, boolean failed) {
+            this(sender, text, at, failed, "");
+        }
+
+        MsgLine(String sender, String text, long at, boolean failed, String id) {
             this.sender = sender;
             this.text = text;
             this.at = at;
             this.failed = failed;
+            this.id = id == null ? "" : id;
         }
 
         String label() {
@@ -389,7 +399,8 @@ public class ConcordCorePlugin extends Plugin {
             call.getString("body", ""),
             // Per-conversation tag: a new message in a channel REPLACES the last
             // one for that channel instead of stacking a fresh alert each time.
-            call.getString("tag", "concord"));
+            call.getString("tag", "concord"),
+            call.getString("id", ""));
         call.resolve();
     }
 
@@ -398,8 +409,9 @@ public class ConcordCorePlugin extends Plugin {
     // a JS-side and native-side post for the same conversation replace each
     // other instead of stacking. Both paths therefore carry the same actions,
     // Reply included, without either knowing about them.
-    static void postMessageNotification(Context ctx, String title, String body, String tag) {
-        render(ctx, tag, appendLine(tag, new MsgLine(title, body, System.currentTimeMillis(), false)), false);
+    static void postMessageNotification(Context ctx, String title, String body, String tag, String id) {
+        ArrayDeque<MsgLine> lines = appendLine(tag, new MsgLine(title, body, System.currentTimeMillis(), false, id));
+        if (lines != null) render(ctx, tag, lines, false);
     }
 
     /**
@@ -435,6 +447,11 @@ public class ConcordCorePlugin extends Plugin {
             while (!q.isEmpty()
                 && (q.size() >= HISTORY_MAX || line.at - q.peekFirst().at > HISTORY_TTL_MS)) {
                 q.pollFirst();
+            }
+            if (!line.id.isEmpty()) {
+                for (MsgLine l : q) {
+                    if (line.id.equals(l.id)) return null; // already on screen
+                }
             }
             q.addLast(line);
             return new ArrayDeque<>(q);

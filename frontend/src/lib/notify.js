@@ -136,7 +136,7 @@ export function notify(m, { selfFpr, mention, onClick }) {
   // app (deep-link to the channel is a later refinement).
   const native = nativeNotifier();
   if (native?.postNotification) {
-    native.postNotification({ title, body, tag: m.channelId }).catch(() => {});
+    native.postNotification({ title, body, tag: m.channelId, id: m.id || "" }).catch(() => {});
     return;
   }
 

@@ -82,7 +82,7 @@ final class NativeNotifier implements concord.EventSink {
 
             String title = m.optString("senderName", "");
             if (title.isEmpty()) title = sender.length() > 9 ? sender.substring(0, 9) : sender;
-            ConcordCorePlugin.postMessageNotification(app, title, preview(m.optString("content", "")), chId);
+            ConcordCorePlugin.postMessageNotification(app, title, preview(m.optString("content", "")), chId, m.optString("id", ""));
         } catch (Exception ignored) {
             // A malformed event must never take the sink down with it.
         }
